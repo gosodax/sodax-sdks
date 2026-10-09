@@ -572,14 +572,20 @@ export class BridgeService {
     timeoutMs: number,
   ): Promise<Result<TxHashPair, BridgeOrchestrationError>> {
     const { params } = _params;
-    const baseCtx = { srcChainKey: params.srcChainKey, dstChainKey: params.dstChainKey };
+    // Every failure from here on is post-broadcast: carry the tx so the caller can keep reading its status.
+    const txCtx = {
+      srcChainKey: params.srcChainKey,
+      dstChainKey: params.dstChainKey,
+      action: 'bridge',
+      srcTxHash: created.tx,
+    };
 
     const verifyTxHashResult = await this.spoke.verifyTxHash({
       txHash: created.tx,
       chainKey: params.srcChainKey,
     });
     if (!verifyTxHashResult.ok) {
-      return { ok: false, error: verifyFailed('bridge', verifyTxHashResult.error, baseCtx) };
+      return { ok: false, error: verifyFailed('bridge', verifyTxHashResult.error, txCtx) };
     }
 
     const packetResult = await relayTxAndWaitPacket({
@@ -596,15 +602,7 @@ export class BridgeService {
       timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
     });
     if (!packetResult.ok) {
-      return {
-        ok: false,
-        error: mapRelayFailure(packetResult.error, {
-          feature: 'bridge',
-          action: 'bridge',
-          srcChainKey: baseCtx.srcChainKey,
-          dstChainKey: baseCtx.dstChainKey,
-        }),
-      };
+      return { ok: false, error: mapRelayFailure(packetResult.error, { feature: 'bridge', ...txCtx }) };
     }
 
     return {

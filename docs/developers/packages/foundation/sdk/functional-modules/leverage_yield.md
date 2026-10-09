@@ -366,6 +366,18 @@ type DetailedLeverageYieldStatus =
   | { source: 'solver'; dstTxHash: Hex; data: SolverIntentStatusResponse };
 ```
 
+It has the same shape as swap's `DetailedSwapStatus`, so swap's pure `summarizeSwapStatus` collapses it too when
+you want one vocabulary instead of switching on `source`:
+
+```typescript
+import { summarizeSwapStatus } from '@sodax/sdk';
+
+if (result.ok) {
+  const { state, hubTxHash, fillTxHash } = summarizeSwapStatus(result.value);
+  // state: 'pending' | 'solved' | 'failed'. fillTxHash may be absent even when solved.
+}
+```
+
 **Why it exists.** `sodax.api.leverageYield.getSubmitTxStatus` cannot answer for every vault swap.
 Sometimes there is no record — you opted out with `useBackendSubmitTx: false`, or the submit was rejected
 (which a keyless caller hits every time). More often the record exists but is **stale**: the backend path
@@ -496,7 +508,7 @@ type LeverageYieldPosition = {
 
 All async public methods return `Promise<Result<T, SodaxError<NarrowCode>>>`. Discriminate on `result.error.code` (a string literal) — never on `result.error.message`. Same canonical shape used by swap, bridge, and money market.
 
-The service owns the full vault-swap lifecycle: `deposit` / `withdraw` build swap payloads, `createVaultIntent` submits the intent on the source spoke chain, `vaultSwap` orchestrates create → verify → relay → notify-solver, `approve` / `isAllowanceValid` manage the Sonic allowance, and the read methods query on-chain state. Relay/tx-verification codes appear **only** on `vaultSwap`, and only on its client-side path (the default, or the backend path's fallback) — so `TX_VERIFICATION_FAILED`, `TX_SUBMIT_FAILED`, `RELAY_TIMEOUT` and `RELAY_FAILED` never surface on a vault swap the backend completes. `deposit` / `withdraw` can additionally emit `LOOKUP_FAILED` (`method: 'resolveDeadline'`) when the default-`deadline` hub-block read fails — an RPC outage, not an intent-build failure. Every other method stays within the create-intent, approve, allowance-check, and lookup subsets.
+The service owns the full vault-swap lifecycle: `deposit` / `withdraw` build swap payloads, `createVaultIntent` submits the intent on the source spoke chain, `vaultSwap` orchestrates create → verify → relay → notify-solver, `approve` / `isAllowanceValid` manage the Sonic allowance, and the read methods query on-chain state. Relay/tx-verification codes appear **only** on `vaultSwap`, and only on its client-side path (the backend path's fallback, or `useBackendSubmitTx: false`) — so `TX_VERIFICATION_FAILED`, `TX_SUBMIT_FAILED`, `RELAY_TIMEOUT` and `RELAY_FAILED` never surface on a vault swap the backend completes. `deposit` / `withdraw` can additionally emit `LOOKUP_FAILED` (`method: 'resolveDeadline'`) when the default-`deadline` hub-block read fails — an RPC outage, not an intent-build failure. Every other method stays within the create-intent, approve, allowance-check, and lookup subsets.
 
 ### Per-method error code unions
 
@@ -517,6 +529,7 @@ The broad union type is `LeverageYieldError` (`SodaxError<LeverageYieldErrorCode
 - **`context.method`** — partitions `LOOKUP_FAILED` across the read methods (`'getApr'`, `'getPosition'`, `'getMaxWithdrawForUser'`, `'getShareBalance'`, …) and `'resolveDeadline'` for the `deposit` / `withdraw` default-deadline read.
 - **`context.field`** — set on `VALIDATION_FAILED` (`'inputAmount'`, `'vault'`, `'inputToken'`, `'outputToken'`, `'amount'`, `'targetLtvBps'`).
 - **`context.phase`** — `'intentCreation' | 'approve' | 'allowanceCheck' | 'lookup' | 'validate' | 'verify' | 'relay' | 'postExecution'`.
+- **`context.srcTxHash`** — set, with `srcChainKey`, on `vaultSwap` failures after the intent tx was broadcast (`TX_VERIFICATION_FAILED`, the relay codes, and post-execution failures). Such a failure does not mean the vault swap failed: the tx is on-chain, and with backend submit-tx on the backend keeps working on it after `vaultSwap()` gives up. Keep polling [`getDetailedStatus`](#getdetailedstatus) with it rather than reporting the vault swap as lost. Failures before the broadcast carry none.
 
 ### Guards
 

@@ -32,6 +32,7 @@ Granular skill for `BridgeService` — `sodax.bridge`. Feature tag: `'bridge'`.
 
 - **Destructuring the return as an array or single hash.** v2 ALWAYS returns `{ srcChainTxHash, dstChainTxHash }` for cross-chain mutations — destructure by name.
 - **Skipping the bridgeable-amount check.** Submitting an amount over the vault cap returns `EXECUTION_FAILED`; cheaper to check first.
+- **Reporting a bridge as lost, or calling `bridge()` again, on a post-broadcast failure.** `TX_VERIFICATION_FAILED` and the relay codes carry `error.context.srcTxHash` — the deposit is on-chain and may still deliver, so keep polling `getDetailedStatus` with it. A second `bridge()` is a second deposit.
 
 ## Migration workflow (v1 → v2)
 

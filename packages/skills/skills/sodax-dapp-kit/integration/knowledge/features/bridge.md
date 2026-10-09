@@ -17,6 +17,8 @@ useBridgeApprove({ mutationOptions });
 useBridgeAllowance({ params: { payload: CreateBridgeIntentParams<K>, walletProvider }, queryOptions });
 // Polls 3s from the source tx; stops on a terminal source, a rejected API key, or 40 consecutive
 // ambiguous reads. Result-wrapped — narrow `data.value.source` ('backend' | 'relay').
+// Feed it `srcChainTxHash` on success, or `error.context.srcTxHash` / `srcChainKey` when the bridge
+// failed after broadcast (verify / relay codes) — the deposit may still deliver.
 useBridgeDetailedStatus({ params: { srcChainKey, srcTxHash, apiConfig? }, queryOptions });
 useGetBridgeableAmount({ params: { from: XToken, to: XToken }, queryOptions });
 useGetBridgeableTokens({ params: { from: SpokeChainKey, to: SpokeChainKey, token: string }, queryOptions });

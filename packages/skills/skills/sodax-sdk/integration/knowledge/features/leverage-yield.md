@@ -110,6 +110,8 @@ type DetailedLeverageYieldStatus =
 // On failure: LOOKUP_FAILED. A rejected key stops there with context.status set (isAuthFailure) —
 // never routed on. Otherwise branch on error.context.reason: DETAILED_STATUS_NOT_DELIVERED is the one
 // ambiguous miss a caller should bound with a retry budget; anything else is a live dependency failure.
+// Same shape as DetailedSwapStatus, so swap's pure summarizeSwapStatus(status) collapses it to
+// { state: 'pending' | 'solved' | 'failed', hubTxHash?, fillTxHash? }.
 ```
 
 ## Common call shapes
@@ -252,6 +254,8 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 | Position reads + `getEffectivePositionFee` | `VALIDATION_FAILED \| LOOKUP_FAILED \| UNKNOWN`. A blanked `positionFactory` fails closed here |
 
 Relay/tx-verification codes appear **only** on `vaultSwap` — `createVaultIntent` alone stays within the create-intent subset. `notifySolver` (public, for manual orchestration) emits the post-execution subset, which `vaultSwap` also surfaces.
+
+**A `vaultSwap()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED`, the relay codes and post-execution failures set `error.context.srcTxHash` (plus `srcChainKey`). The vault swap may still complete — on the default backend path the backend keeps working after `vaultSwap()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the vault swap as lost. Failures before the broadcast carry no `srcTxHash`.
 
 ## Leverage positions
 

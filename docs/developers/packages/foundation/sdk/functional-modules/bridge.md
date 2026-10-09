@@ -4,7 +4,7 @@ icon: bridge-suspension
 generatedFrom: packages/sdk/docs/BRIDGE.md
 ---
 
-> **Error handling conventions:** This module uses the canonical `SodaxError<BridgeErrorCode>` shape (same family as the swap and money market modules). Discriminate on `result.error.code` (e.g. `'RELAY_TIMEOUT'`, `'INTENT_CREATION_FAILED'`); structured details live on `result.error.context` (`srcChainKey`, `dstChainKey`, `phase`, `relayCode`, `field`). See the **Error Handling** section below for the full per-method code table and migration notes from the legacy `error.message`-based pattern.
+> **Error handling conventions:** This module uses the canonical `SodaxError<BridgeErrorCode>` shape (same family as the swap and money market modules). Discriminate on `result.error.code` (e.g. `'RELAY_TIMEOUT'`, `'INTENT_CREATION_FAILED'`); structured details live on `result.error.context` (`srcChainKey`, `dstChainKey`, `phase`, `relayCode`, `field`, and `srcTxHash` once the deposit is broadcast). See the **Error Handling** section below for the full per-method code table and migration notes from the legacy `error.message`-based pattern.
 
 The `BridgeService` class, reachable via `sodax.bridge`, orchestrates cross-chain token transfers within the SODAX hub-and-spoke architecture.
 
@@ -633,8 +633,17 @@ The exported narrow types are `BridgeOrchestrationError` (for `bridge`), `Bridge
   relayCode?: 'SUBMIT_TX_FAILED' | 'RELAY_TIMEOUT' | 'RELAY_POLLING_FAILED' | 'UNKNOWN';
   field?: string;     // on VALIDATION_FAILED
   reason?: string;
+  // On `bridge` failures after the deposit was broadcast (TX_VERIFICATION_FAILED and the relay codes) —
+  // the tx to keep reading status for with `getDetailedStatus`:
+  srcTxHash?: string;
 }
 ```
+
+A post-broadcast failure does not mean the bridge failed: the deposit is on-chain, a slow relay may still deliver,
+and with backend submit-tx on the backend keeps working on it after `bridge()` gives up. Read `error.context.srcTxHash` (with `srcChainKey`)
+and keep polling [`getDetailedStatus`](#get-detailed-status) rather than reporting the bridge as lost. Failures
+before the broadcast (`VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `USER_REJECTED`) carry no `srcTxHash` —
+nothing left the wallet.
 
 ### Discrimination example
 
@@ -670,7 +679,8 @@ if (!result.ok) {
       break;
 
     case 'RELAY_TIMEOUT':
-      // Relay packet didn't confirm in time. Check intent status and retry with longer timeout.
+      // Relay packet didn't confirm in time. Don't call bridge() again — that is a second deposit.
+      // Keep polling getDetailedStatus with error.context.srcTxHash.
       break;
 
     case 'RELAY_FAILED':
@@ -708,7 +718,7 @@ If you were on the previous CODE-on-`error.message` pattern (or the older `Bridg
 ### Best practices
 
 1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Funds may be in flight; persist the user's input and retry.
-2. **Handle `RELAY_TIMEOUT` gracefully**. The spoke tx succeeded; the relay just didn't deliver in time. Check on-chain status before retrying.
+2. **Handle `RELAY_TIMEOUT` gracefully**. The spoke tx succeeded; the relay just didn't deliver in time. Poll `getDetailedStatus` with `error.context.srcTxHash` instead of starting a new bridge.
 3. **Discriminate `RELAY_FAILED` via `context.relayCode`**. `'RELAY_POLLING_FAILED'` (polling outage — packet status unknown) needs different UX from generic `'UNKNOWN'`.
 4. **Use `error.cause` for forensics**. Every wrapped error preserves the original on `cause`. Loggers walk it automatically.
 5. **Use `JSON.stringify(error)` for logging**. The `toJSON()` method handles bigint coercion + cause-chain truncation safely.

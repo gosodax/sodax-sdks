@@ -48,6 +48,7 @@ Granular skill for `LeverageYieldService` — `sodax.leverageYield`. Feature tag
 - **Quoting a vault flow through `sodax.swaps.getQuote`.** It deducts the effective *swap* fee, while the vault intent charges the effective *leverage-yield* fee (`leverageYield.partnerFee ?? fee`) — the two disagree whenever the feature fees differ. It can be made to agree by passing the leverage-yield fee explicitly (with a zero fee — `{ address, percentage: 0 }` — where that fee is `undefined`, since an explicit `undefined` falls back to the swap fee), but prefer `sodax.leverageYield.getQuote` (`token_dst` = vault for a deposit, `token_src` = vault for a withdraw).
 - **Quoting with a different `partnerFee` than the intent charges.** The fee is deducted from the input before the swap, so the quote is sized on a different net input; when the intent's fee is the larger one, the `minOutputAmount` derived from that quote can't be met and the intent never fills. Pass the same `partnerFee` to `getQuote` and to `deposit()` / `vaultSwap()`, or omit it on both.
 - **Assuming `swaps.partnerFee` monetizes vault flows.** It does not — configure `leverageYield.partnerFee` (or the global `fee`).
+- **Reporting a vault swap as lost on a post-broadcast failure.** `TX_VERIFICATION_FAILED`, the relay codes and post-execution failures from `vaultSwap` carry `error.context.srcTxHash` — the vault swap may still complete, so keep polling `getDetailedStatus` with it.
 
 ### Leverage-position anti-patterns
 

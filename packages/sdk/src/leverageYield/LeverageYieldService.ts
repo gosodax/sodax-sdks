@@ -96,6 +96,7 @@ import {
   lookupFailed,
   unknownFailed,
   verifyFailed,
+  withErrorContext,
 } from '../errors/wrappers.js';
 import type { LeverageYieldDetailedStatusError } from './errors.js';
 import {
@@ -1317,15 +1318,21 @@ export class LeverageYieldService {
   ): Promise<Result<VaultSwapResponse, LeverageYieldSwapError>> {
     const { params } = _params;
     const srcChainKey = params.srcChainKey;
-    const baseCtx = { srcChainKey, dstChainKey: params.dstChainKey, action: 'vaultSwap' satisfies LeverageYieldAction };
     const { tx: spokeTxHash, intent, relayData } = created;
+    // Every failure from here on is post-broadcast: carry the tx so the caller can keep reading its status.
+    const txCtx = {
+      srcChainKey,
+      dstChainKey: params.dstChainKey,
+      action: 'vaultSwap' satisfies LeverageYieldAction,
+      srcTxHash: spokeTxHash,
+    };
 
     const verifyTxHashResult = await this.spoke.verifyTxHash({
       txHash: spokeTxHash,
       chainKey: srcChainKey,
     });
     if (!verifyTxHashResult.ok) {
-      return { ok: false, error: verifyFailed('leverageYield', verifyTxHashResult.error, baseCtx) };
+      return { ok: false, error: verifyFailed('leverageYield', verifyTxHashResult.error, txCtx) };
     }
 
     let dstIntentTxHash: string;
@@ -1344,7 +1351,7 @@ export class LeverageYieldService {
         timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
       });
       if (!packet.ok) {
-        return { ok: false, error: mapRelayFailure(packet.error, { feature: 'leverageYield', ...baseCtx }) };
+        return { ok: false, error: mapRelayFailure(packet.error, { feature: 'leverageYield', ...txCtx }) };
       }
       dstIntentTxHash = packet.value.dst_tx_hash;
     }
@@ -1354,7 +1361,7 @@ export class LeverageYieldService {
     });
     if (!postExecResult.ok) {
       // LeverageYieldPostExecutionErrorCode ⊂ LeverageYieldSwapErrorCode by definition.
-      return { ok: false, error: postExecResult.error };
+      return { ok: false, error: withErrorContext(postExecResult.error, { srcChainKey, srcTxHash: spokeTxHash }) };
     }
 
     return {

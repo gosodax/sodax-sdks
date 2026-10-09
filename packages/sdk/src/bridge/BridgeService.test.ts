@@ -713,6 +713,8 @@ describe('BridgeService.bridge — integration error-path coverage', () => {
     // Identity check — the SodaxError must be the *same* instance, not a re-wrapped clone.
     expect(result.error).toBe(intentError);
     expect(result.error.code).toBe('INTENT_CREATION_FAILED');
+    // Nothing was broadcast, so there is no source tx to keep reading.
+    expect(result.error.context?.srcTxHash).toBeUndefined();
     // verifyTxHash and relayTxAndWaitPacket must not have been called.
     expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
   });
@@ -741,6 +743,7 @@ describe('BridgeService.bridge — integration error-path coverage', () => {
     expect(result.error.context?.phase).toBe('verify');
     expect(result.error.context?.srcChainKey).toBe(BSC);
     expect(result.error.context?.dstChainKey).toBe(ARBITRUM);
+    expect(result.error.context?.srcTxHash).toBe('0xspokeTxHash');
     // Relay must not have been called.
     expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
   });
@@ -773,6 +776,7 @@ describe('BridgeService.bridge — integration error-path coverage', () => {
     expect(result.error.context?.phase).toBe('relay');
     expect(result.error.context?.srcChainKey).toBe(BSC);
     expect(result.error.context?.dstChainKey).toBe(ARBITRUM);
+    expect(result.error.context?.srcTxHash).toBe('0xspokeTxHash');
   });
 
   it('wraps an out-of-union SodaxError thrown from createBridgeIntent as BRIDGE_FAILED', async () => {
@@ -924,6 +928,23 @@ describe('BridgeService.bridge — backend submit-tx (useBackendSubmitTx)', () =
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.dstChainTxHash).toBe('0xFALLBACKDST');
     expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the source tx on the error when the fallback relay also fails', async () => {
+    // The backend may still finish this bridge, so the caller needs the tx to keep reading status.
+    stubCreatedAndVerified();
+    vi.spyOn(sodaxBE.api.bridge, 'submitTx').mockResolvedValueOnce({
+      ok: false,
+      error: new SodaxError('EXTERNAL_API_ERROR', 'backend down', { feature: 'backend' }),
+    });
+    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: new Error('RELAY_TIMEOUT') });
+
+    const result = await sodaxBE.bridge.bridge(bridgeInput(BSC, ARBITRUM));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('RELAY_TIMEOUT');
+    expect(result.error.context).toMatchObject({ srcChainKey: BSC, srcTxHash: '0xspokeTx' });
   });
 
   it('does not touch the backend submit API when the flag is off', async () => {

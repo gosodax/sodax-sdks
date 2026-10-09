@@ -233,6 +233,8 @@ different contract on the hub.
 | `isAllowanceValid` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` | n/a |
 | `getBridgeableAmount`, `getBridgeableTokens` | `VALIDATION_FAILED`, `LOOKUP_FAILED`, `UNKNOWN` | `method: 'getBridgeableAmount' \| 'getBridgeableTokens'` |
 
+**A `bridge()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED` and the relay codes set `error.context.srcTxHash` (plus `srcChainKey`). The deposit is on-chain and the bridge may still complete — a slow relay can deliver late, and on the default backend path the backend keeps working after `bridge()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the bridge as lost or retrying `bridge()`. Failures before the broadcast carry no `srcTxHash`.
+
 ## Cross-references
 
 - v1 → v2 bridge migration: [`features/bridge.md`](../../../migration-v1-to-v2/knowledge/features/bridge.md).
