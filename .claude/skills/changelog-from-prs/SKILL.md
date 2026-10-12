@@ -1,6 +1,6 @@
 ---
 name: changelog-from-prs
-description: 'Use when drafting curated release notes for a STABLE `@sdks@X.Y.Z` release of the @sodax/* packages (e.g. 2.1.0 → 2.2.0) from the pull requests merged since the previous stable tag. Returns copyable Markdown in chat for the GitHub Release body and the Discord announcement; never writes files, tags, or releases. Triggers on "release notes for 2.2.0", "changelog since the last release", "what shipped since 2.1.0", "summarize PRs for the release", "draft the GitHub release notes".'
+description: 'Use when drafting curated release notes for a STABLE `@sdks@X.Y.Z` release of the @sodax/* packages (e.g. 2.1.0 → 2.2.0) from the pull requests merged since the previous stable tag. Splits type-level breaking changes from runtime behavior changes. Returns copyable Markdown in chat for the GitHub Release body and the Discord announcement; never writes files, tags, or releases. Triggers on "release notes for 2.2.0", "changelog since the last release", "what shipped since 2.1.0", "summarize PRs for the release", "draft the GitHub release notes".'
 ---
 
 # Release Notes from Merged PRs
@@ -75,28 +75,41 @@ When a PR touches both a published package and an app, describe only the package
 
 Order of evidence: the `!` / `BREAKING CHANGE` marker → the conventional type → the PR body → the diff. Labels are rarely used here; honor `breaking` / `security` labels when present.
 
-| Section | Goes here |
+Each section heading carries a fixed icon. Use exactly these headings, in this order:
+
+| Heading | Goes here |
 | --- | --- |
-| **Breaking Changes** | `type!:`, `BREAKING CHANGE` in the body, or a diff that removes/renames a public export, changes a signature, changes a default, or raises a required peer dependency. Flag an unmarked break here *and* call it out in the commentary. |
-| **Features** | `feat` — new capability, new hook/service/method, new chain or tokens. |
-| **Improvements** | `perf`, `refactor`, or `chore` with a visible effect for consumers (faster, smaller bundle, better errors) that is not a new capability. |
-| **Fixes** | `fix` that changes published runtime behavior. |
-| **Security** | Vulnerability fixes and security-relevant dependency bumps. |
-| **Deprecations** | Newly `@deprecated` public API. |
-| **Removals** | Public API removed after deprecation (a removal is also breaking — list it under Breaking Changes, not twice). |
+| `### 🚨 Breaking Changes` | Unchanged consumer code **fails to typecheck, build, or import** against the new version: a removed or renamed export, subpath, or package; a changed function/hook signature; a new required parameter or field; a narrowed or changed parameter/return type; a changed enum or union member; a raised required peer dependency or Node engine. Removals of deprecated API go here too. |
+| `### ⚠️ Behavior Changes` | Unchanged consumer code **still compiles and builds, but behaves differently at runtime**: a changed default (e.g. a flag now on by default), different returned values or units, a different endpoint or network call, stricter validation that now rejects inputs it accepted, a different error thrown, a changed side effect or ordering. |
+| `### 🚀 Features` | `feat` — new capability, new hook/service/method, new chain or tokens. |
+| `### ⚡ Improvements` | `perf`, `refactor`, or `chore` with a visible effect for consumers (faster, smaller bundle, better errors) that is not a new capability. |
+| `### 🐞 Bug Fixes` | `fix` that changes published runtime behavior back to what was documented or intended. |
+| `### 🔒 Security` | Vulnerability fixes and security-relevant dependency bumps. |
+| `### 🗑️ Deprecations` | Newly `@deprecated` public API that still works. |
+| `### ❓ Uncertain — needs review` | See [Uncertain PRs](#uncertain-prs). |
+
+### Telling 🚨 from ⚠️
+
+A `!` or `BREAKING CHANGE` marker says *something* breaks, not which kind. Decide from the diff of the published package's public surface (its `src/index.ts` barrel and every exported type, signature, and default it reaches):
+
+```bash
+git diff "$FROM" "$TO" -- 'packages/<pkg>/src/**' ':!**/*.test.ts'
+```
+
+Ask one question: **would a consumer's unchanged code still pass `tsc` and their build?** No → 🚨. Yes, but the same call now does something different → ⚠️. A PR that does both is split: the type-level part under 🚨, the runtime part under ⚠️, each with its own migration line and the same PR link. An unmarked change that meets either definition still goes in its section — call it out in the commentary outside the block. A bug fix that *also* changes behavior people may rely on goes under ⚠️, not 🐞.
 
 ## 5. Write the entries
 
 - One bullet per change, past tense, starting with what the consumer gets: "Added…", "Fixed…", "`useX` now…".
 - Prefix with the package(s) in bold when it is not obvious: `**@sodax/dapp-kit** — …`. Derive the package from the scope or the changed files, not the title alone.
 - Name public symbols in backticks exactly as exported; verify against `src/` when you mention one.
-- Breaking entries state the **migration**: what to change, from → to, taken from the PR body or diff. If the PR does not support a concrete migration, say "see PR" rather than inventing one.
+- 🚨 entries state the **code migration**: the compile error a consumer will hit and what to change, from → to. ⚠️ entries state **what now happens differently** and how to keep the old behavior if an opt-out exists. Take both from the PR body or diff; if the PR does not support a concrete step, say "see PR" rather than inventing one.
 - End each bullet with the PR link: `([#<n>](https://github.com/icon-project/sodax-sdks/pull/<n>))`. Fold several PRs that ship one feature into a single bullet with all links.
 - Do not list exact chain or token counts unless you counted them from the diff.
 
 ## 6. Order and assemble
 
-Sections in this order: Breaking Changes, Features, Improvements, Fixes, Security, Deprecations, Removals, Uncertain. Within a section, most impactful first, not PR order. Close with the compare link and the bump check:
+Sections in the table order above: 🚨, ⚠️, 🚀, ⚡, 🐞, 🔒, 🗑️, ❓. Within a section, most impactful first, not PR order. Close with the compare link and the bump check:
 
 ```markdown
 **Full changelog:** https://github.com/icon-project/sodax-sdks/compare/@sdks@<from>...@sdks@<target>
@@ -104,11 +117,11 @@ Sections in this order: Breaking Changes, Features, Improvements, Fixes, Securit
 
 ## 7. Check the version bump
 
-All publishable packages share one version. Recommend: any breaking change → major; any feature → minor; otherwise → patch. Put the recommendation as a final blockquote inside the code block. If it disagrees with the requested target (e.g. a breaking change in a minor release), say so plainly **outside** the block as well — the human decides.
+All publishable packages share one version. Recommend: any 🚨 entry → major; any ⚠️ entry → major under strict semver, but say which entries drive it so the human can judge whether a minor is defensible (e.g. an opt-out exists or the old behavior was a bug); any 🚀 → minor; otherwise → patch. Put the recommendation as a final blockquote inside the code block. If it disagrees with the requested target, say so plainly **outside** the block as well — the human decides.
 
 ## Uncertain PRs
 
-If a PR's impact is ambiguous after reading its body and files, list it under `### Uncertain — needs review` with its original title and link, and one line on what is unclear. Never guess its impact.
+If a PR's impact is ambiguous after reading its body and files, list it under `### ❓ Uncertain — needs review` with its original title and link, and one line on what is unclear. Never guess its impact.
 
 ## Example
 
@@ -127,16 +140,19 @@ ci(docs): remove the marketing docs auto-merge lane (#<e>)   -> omitted (ci)
 ```markdown
 ## @sdks@2.2.0 — 2026-10-12
 
-### Breaking Changes
-- **@sodax/sdk** — Leverage-yield actions now submit through the backend by default and take a per-action API key. Pass the key on each call; opt out with the flag described in the PR. ([#<b>](https://github.com/icon-project/sodax-sdks/pull/<b>))
+### 🚨 Breaking Changes
+- **@sodax/sdk** — Leverage-yield actions now require a per-action API key; calls without it no longer typecheck. Pass the key on each action call. ([#<b>](https://github.com/icon-project/sodax-sdks/pull/<b>))
 
-### Features
+### ⚠️ Behavior Changes
+- **@sodax/sdk** — Leverage-yield actions now submit through the backend by default instead of broadcasting from the client. Opt out with the flag described in the PR. ([#<b>](https://github.com/icon-project/sodax-sdks/pull/<b>))
+
+### 🚀 Features
 - **@sodax/sdk, @sodax/dapp-kit** — Added the leverage-yield service and matching React hooks. ([#<a>](https://github.com/icon-project/sodax-sdks/pull/<a>))
 
-### Fixes
+### 🐞 Bug Fixes
 - **@sodax/sdk** — Relay status polling now retries when rate-limited instead of failing. ([#<c>](https://github.com/icon-project/sodax-sdks/pull/<c>))
 
 **Full changelog:** https://github.com/icon-project/sodax-sdks/compare/@sdks@2.1.0...@sdks@2.2.0
 
-> Recommended bump: major — contains a breaking change. Requested 2.2.0 is a minor; confirm before release.
+> Recommended bump: major — the per-action API key breaks existing calls at type level. Requested 2.2.0 is a minor; confirm before release.
 ```
