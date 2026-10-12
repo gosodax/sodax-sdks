@@ -88,10 +88,19 @@ out in the same EIP-5792 atomic batch as the intent tx — one wallet prompt ins
 `/swaps/intents` only simulates on the hub, so the intent tx can be built before the approval lands.
 
 ```ts
-import { ATOMIC_BATCH_REFUSED, resolveApprovalStrategy, sendApprovalBatch } from '@sodax/sdk';
+import {
+  isAtomicBatchRefusal,
+  isEvmSpokeOnlyChainKeyType,
+  isEvmWalletProviderType,
+  resolveApprovalStrategy,
+  sendApprovalBatch,
+} from '@sodax/sdk';
 
-const strategy = await resolveApprovalStrategy({ srcChainKey, walletProvider, allowAccountUpgrade });
-if (strategy === 'atomic-batch') {
+if (
+  isEvmSpokeOnlyChainKeyType(srcChainKey) &&
+  isEvmWalletProviderType(walletProvider) &&
+  (await resolveApprovalStrategy({ srcChainKey, walletProvider, allowAccountUpgrade })) === 'atomic-batch'
+) {
   // EVM source: approve.tx, approve.resetTx and createIntent's tx are all EvmRawTransaction.
   const sent = await sendApprovalBatch({
     walletProvider,
@@ -99,11 +108,15 @@ if (strategy === 'atomic-batch') {
     txs: [...(resetTx ? [resetTx] : []), tx, intentTx], // the intent tx last
     timeoutMs: 120_000,
     feature: 'swap',
+    onBatchSent: batchId => saveBatchId(batchId), // persist before the wait: the way back to an unconfirmed batch
   });
   if (sent.ok) {
     // sent.value.txHash is the source tx: persist it, then submitTx({ txHash: sent.value.txHash, ... })
-  } else if (sent.error.context?.reason === ATOMIC_BATCH_REFUSED) {
-    // Refused before signing: approve separately (reset first), then send the intent tx.
+  } else if (isAtomicBatchRefusal(sent.error)) {
+    // Refused before signing, nothing sent: approve separately (reset first), then send the intent tx.
+  } else {
+    // USER_REJECTED, 'atomic-batch-failed' (nothing landed) or ATOMIC_BATCH_UNCONFIRMED (may still land).
+    throw sent.error;
   }
 }
 ```
@@ -115,7 +128,9 @@ The rules match `sodax.swaps.swapWithApproval`:
 - `USER_REJECTED` — with `context.reason === ACCOUNT_UPGRADE_DECLINED` when the user declined the
   smart-account upgrade; offer the swap again with `allowAccountUpgrade: false`.
 - `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` — the batch may still
-  land. Do not resend it, as a batch or as separate transactions.
+  land. Do not resend it, as a batch or as separate transactions: resume it later with
+  `confirmApprovalBatch({ walletProvider, batchId, callCount, timeoutMs, feature })`, which reads the
+  deposit's `txHash` once the wallet confirms it.
 
 In React, the `sodax-dapp-kit` skill's `useSwapsApiBroadcastWithApproval` hook wraps this whole flow.
 

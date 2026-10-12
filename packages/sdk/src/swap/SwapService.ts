@@ -826,7 +826,7 @@ export class SwapService {
             strategy: strategy.value,
             notRequired: () => this.createIntent(_params),
             atomicBatch: () => this.createIntentInAtomicBatch(_params),
-            sequential: () => this.approveThenCreateIntent(_params),
+            sequential: afterRefusedBatch => this.approveThenCreateIntent(_params, afterRefusedBatch),
             onBatchRefused: error =>
               this.config.logger.warn('[swapWithApproval] wallet refused the atomic batch; approving separately', {
                 error,
@@ -922,6 +922,7 @@ export class SwapService {
   /** Approve, wait for the approval to confirm, then create the intent — two or more signatures. */
   private async approveThenCreateIntent<K extends SpokeChainKey>(
     _params: SwapActionParams<K, false>,
+    validated = false,
   ): Promise<Result<CreateIntentResult<K, false>, SwapWithApprovalError>> {
     const { params, extras, skipSimulation } = _params;
     const ctx = {
@@ -932,8 +933,10 @@ export class SwapService {
     };
 
     // Build the intent unsigned first, so params that can never become a swap fail before the user pays for an approval.
-    const preflight = await this.createIntent<K, true>({ params, extras, skipSimulation, raw: true });
-    if (!preflight.ok) return preflight;
+    if (!validated) {
+      const preflight = await this.createIntent<K, true>({ params, extras, skipSimulation, raw: true });
+      if (!preflight.ok) return preflight;
+    }
 
     const approved = await this.approve(_params);
     if (!approved.ok) {

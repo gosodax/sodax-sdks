@@ -4630,9 +4630,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         ok: true,
         value: { status: 'success', receipt: {} as never },
       });
-      vi.spyOn(sodax.swaps, 'createIntent')
-        .mockResolvedValueOnce(intentResult(RAW_DEPOSIT))
-        .mockResolvedValueOnce(intentResult('0xspokeTx'));
+      vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce(intentResult('0xspokeTx'));
       stubRelayAndSolver();
 
       const result = await swapWithBatch(wallet);
@@ -4652,7 +4650,6 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       const createSpy = vi
         .spyOn(sodax.swaps, 'createIntent')
         .mockResolvedValueOnce(intentResult(RAW_DEPOSIT))
-        .mockResolvedValueOnce(intentResult(RAW_DEPOSIT))
         .mockResolvedValueOnce(intentResult('0xspokeTx'));
       const approveSpy = vi.spyOn(sodax.swaps, 'approve').mockResolvedValueOnce({ ok: true, value: '0xapproveTx' });
       vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({
@@ -4666,6 +4663,8 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.value.approvalStrategy).toBe('sequential');
       expect(approveSpy).toHaveBeenCalledOnce();
+      // The batch path already built (and so validated) the intent: no second unsigned build.
+      expect(createSpy).toHaveBeenCalledTimes(2);
       expect(createSpy).toHaveBeenLastCalledWith(expect.objectContaining({ walletProvider: wallet }));
       expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0].srcTxHash).toBe('0xspokeTx');
     });

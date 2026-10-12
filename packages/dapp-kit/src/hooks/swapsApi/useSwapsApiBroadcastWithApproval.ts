@@ -1,11 +1,12 @@
 import {
-  ATOMIC_BATCH_REFUSED,
   DEFAULT_RELAY_TX_TIMEOUT,
   getEvmViemChain,
   isEvmChainKeyType,
+  isAtomicBatchRefusal,
   isEvmSpokeOnlyChainKeyType,
   resolveApprovalStrategy,
   sendApprovalBatch,
+  type ApprovalOptions,
   type ApprovalStrategy,
   type CreateIntentParamsV2,
   type EvmRawTransaction,
@@ -23,20 +24,26 @@ import { runApprovalPlan, type ApprovalHashes, type ApprovalProgressListener } f
 
 const HOOK_NAME = 'useSwapsApiBroadcastWithApproval';
 
-export type UseSwapsApiBroadcastWithApprovalVars = {
+export type UseSwapsApiBroadcastWithApprovalVars = ApprovalOptions & {
   /** The swap's create-intent params — the same body `/swaps/intents` built `intentTx` from. */
   body: CreateIntentParamsV2;
   /** The unsigned source transaction `/swaps/intents` returned for `body`. */
   intentTx: EvmRawTransaction;
   walletProvider: IEvmWalletProvider;
   apiConfig?: RequestOverrideConfig;
-  /**
-   * Whether a wallet that must first upgrade the account to batch (EIP-5792 `'ready'`, e.g. a MetaMask
-   * EOA becoming a smart account) may be asked to. `false` approves separately instead. Defaults to `true`.
-   */
-  allowAccountUpgrade?: boolean;
-  /** Progress of a separate approval. A batch is one prompt and reports nothing. */
+  /** Progress of a separate approval, hashes included. A batch is one prompt and reports nothing. */
   onProgress?: ApprovalProgressListener;
+  /**
+   * Called with the batch id and its call count once the wallet accepts the batch, before the wait.
+   * Persist both: if the batch comes back unconfirmed, `confirmApprovalBatch` with them is how to find
+   * the deposit again instead of sending a second one.
+   */
+  onBatchSent?: (batchId: string, callCount: number) => void;
+  /**
+   * `false`: a batch the wallet refuses before signing rejects with that refusal (`isAtomicBatchRefusal`)
+   * instead of approving separately — for callers that run their own two-step path. Defaults to `true`.
+   */
+  fallbackOnRefusal?: boolean;
 };
 
 export type SwapsApiBroadcastWithApprovalResult = {
@@ -56,17 +63,19 @@ const sameAddress = (a: string, b: string): boolean => a.toLowerCase() === b.toL
  * {@link runApprovalPlan}), then `intentTx`.
  *
  * Call it instead of `useSwapsApiApproveAndBroadcast` + signing `intentTx` yourself, when
- * `/swaps/allowance/check` says the allowance is short and the source is an EVM chain. It stops at
- * the broadcast: persist `txHash` and then call `/swaps/submit-tx` as before.
+ * `/swaps/allowance/check` says the allowance is short and the source is an EVM chain — it always
+ * approves, so with enough allowance sign `intentTx` directly instead. It stops at the broadcast:
+ * persist `txHash` and then call `/swaps/submit-tx` as before.
  *
  * The rules match the SDK's `swapWithApproval`. The Sonic hub always approves separately. A wallet
- * that refuses the batch before signing falls back to approving separately; a batch the user saw is
- * never resent:
+ * that refuses the batch before signing falls back to approving separately (or rejects, with
+ * `fallbackOnRefusal: false`); a batch the user saw is never resent:
  * - rejected → `SodaxError` `USER_REJECTED`, with `context.reason: ACCOUNT_UPGRADE_DECLINED` when the
  *   user declined the account upgrade — retry with `allowAccountUpgrade: false`;
  * - never included or fully reverted → `INTENT_CREATION_FAILED`, `context.reason: 'atomic-batch-failed'`;
  * - sent but not confirmed → `TX_VERIFICATION_FAILED`, `context.reason: ATOMIC_BATCH_UNCONFIRMED`. It
- *   may still land: do not let the user swap again blindly.
+ *   may still land: do not let the user swap again. Resume it with `confirmApprovalBatch` and the
+ *   batch id `onBatchSent` reported.
  *
  * Errors from a separate approval or intent send are the wallet's own, as with
  * `useSwapsApiApproveAndBroadcast`.
@@ -96,6 +105,8 @@ export const useSwapsApiBroadcastWithApproval = ({
       apiConfig,
       allowAccountUpgrade,
       onProgress,
+      onBatchSent,
+      fallbackOnRefusal = true,
     }): Promise<SwapsApiBroadcastWithApprovalResult> => {
       const srcChainKey = body.srcChainKey as SpokeChainKey;
       if (!isEvmChainKeyType(srcChainKey)) {
@@ -113,21 +124,25 @@ export const useSwapsApiBroadcastWithApproval = ({
       if (strategy === 'atomic-batch' && isEvmSpokeOnlyChainKeyType(srcChainKey)) {
         // The swaps-api client parses each tx with the source chain's schema: an EVM source yields EVM txs.
         const approvalTxs = (plan.resetTx ? [plan.resetTx, plan.tx] : [plan.tx]) as EvmRawTransaction[];
+        const txs = [...approvalTxs, intentTx];
         const sent = await sendApprovalBatch({
           walletProvider,
           srcChainKey,
-          txs: [...approvalTxs, intentTx],
+          txs,
           timeoutMs: DEFAULT_RELAY_TX_TIMEOUT,
           feature: 'swap',
           context: { srcChainKey, dstChainKey: body.dstChainKey, action: HOOK_NAME, approvalStrategy: strategy },
+          onBatchSent: onBatchSent && (batchId => onBatchSent(batchId, txs.length)),
         });
-        if (sent.ok || sent.error.context?.reason !== ATOMIC_BATCH_REFUSED) {
+        // Only a refusal before signing may approve separately: nothing was sent, so nothing can duplicate.
+        if (sent.ok || !isAtomicBatchRefusal(sent.error) || !fallbackOnRefusal) {
           return { txHash: unwrapResult(sent).txHash, approvalStrategy: 'atomic-batch' };
         }
-        // Refused before anything was signed, so approving separately cannot duplicate anything.
       }
 
       const approval = await runApprovalPlan({ plan, srcChainKey, walletProvider, hookName: HOOK_NAME, onProgress });
+      // The allowance is on-chain whatever happens to the intent next; a stale cached `valid: false` would re-offer it.
+      await queryClient.invalidateQueries({ queryKey: ['swapsApi', 'allowance'] });
       const txHash = await walletProvider.sendTransaction(intentTx, {
         expectedChainId: getEvmViemChain(srcChainKey).id,
       });

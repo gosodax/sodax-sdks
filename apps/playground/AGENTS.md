@@ -48,10 +48,14 @@ pnpm check:ai-dev-files
 - Use `useSwapsApiApproveAndBroadcast` for a separate approval: it confirms approval resets before
   subsequent approvals. When `resolveApprovalStrategy` says the wallet batches (`'atomic-batch'`),
   `useSwapsApiBroadcastWithApproval` sends the approval inside the deposit's own batch instead, so
-  the quote check before it is the last one — nothing lands between the two.
-- A batch the wallet took but never confirmed (`ATOMIC_BATCH_UNCONFIRMED`) has no hash to save or
-  resubmit and may still land. Its review stays held — reopening offers that same snapshot, unsigned —
-  until the visitor explicitly starts over; never re-arm it on close, a form change or a new quote.
+  the quote check before it is the last one — nothing lands between the two. It runs with
+  `fallbackOnRefusal: false`: a wallet that turns the batch down comes back to `executeSwap`, whose
+  two-step path approves, re-quotes and rebuilds the intent, never the hook's own fallback.
+- A batch is saved (`PENDING_BATCH_KEY`) the moment the wallet takes it, before its hash exists. One
+  the wallet never confirmed (`ATOMIC_BATCH_UNCONFIRMED`) may still land, so it holds the widget —
+  across reloads — until "Check my wallet again" (`confirmApprovalBatch`) finds the deposit, which then
+  becomes the activity and goes to `submitTx`, or the visitor explicitly starts over. Never re-arm it
+  on close, a form change or a new quote, and never report it as failed while it is held.
 - Save the broadcast transaction and relay payload before calling `submitTx`. Recovery resubmits
   that same transaction; it must never create or sign a second deposit. Failed/abandoned statuses
   need a recovery/support path, not a success label or silent retry of the trade.

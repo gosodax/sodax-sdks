@@ -3,6 +3,7 @@ import {
   ChainKeys,
   spokeChainConfig,
   isNativeToken,
+  confirmApprovalBatch,
   resolveApprovalStrategy,
   useBalances,
   useNearStorageGate,
@@ -13,6 +14,7 @@ import {
   useSwapsApiSubmitTxStatus,
   type ChainKey,
   type ChainType,
+  type IntentResponseV2,
   type SpokeChainKey,
   type XToken,
   type PartnerFeePercentage,
@@ -28,7 +30,16 @@ import {
 } from '@sodax/wallet-sdk-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatUnits } from 'viem';
-import { loadActivity, saveActivity, submissionFor, type Activity } from '../lib/activity';
+import {
+  activityFromBatch,
+  loadActivity,
+  loadPendingBatch,
+  saveActivity,
+  savePendingBatch,
+  submissionFor,
+  type Activity,
+  type PendingBatch,
+} from '../lib/activity';
 import {
   type PairDimensions,
   trackSwapCompleted,
@@ -40,6 +51,9 @@ import type { TokenChoice } from '../lib/chains';
 import { postEmbedEvent } from '../lib/embedMessages';
 import { resolveDestinationGate } from '../lib/destinationGate';
 import { type ReviewSnapshot, reviewFromActivity } from '../lib/review';
+
+/** How long one "check my wallet again" waits for a held batch before saying it is still pending. */
+const BATCH_RECHECK_TIMEOUT_MS = 15_000;
 import {
   broadcast,
   canExecute,
@@ -140,9 +154,15 @@ export function useExecution(input: ExecutionInput) {
   const { mutateAsync: broadcastWithApproval } = useSwapsApiBroadcastWithApproval();
   // Once declined, the smart-account upgrade is not asked for again this session.
   const upgradeDeclined = useRef(false);
-  // A snapshot whose batch the wallet took but never confirmed. It may still land, so the widget keeps
-  // offering that snapshot, unsigned, until the visitor explicitly starts over.
-  const [heldReview, setHeldReview] = useState<ReviewSnapshot>();
+  // A one-signature batch the wallet took but never confirmed. It may still land, so it is stored and
+  // holds the widget — across reloads — until it resolves or the visitor explicitly starts over.
+  const [pendingBatch, setPendingBatch] = useState<PendingBatch | undefined>(() =>
+    input.enabled ? loadPendingBatch() : undefined,
+  );
+  const storePendingBatch = (batch: PendingBatch | undefined) => {
+    setStorageAvailable(savePendingBatch(batch));
+    setPendingBatch(batch);
+  };
   const statusQuery = useSwapsApiSubmitTxStatus({
     params: { txHash: activity?.txHash, srcChainKey: activity?.srcChainKey },
   });
@@ -190,10 +210,12 @@ export function useExecution(input: ExecutionInput) {
 
   // The full snapshot needs the live list to resolve its tokens. Absent it the record's own summary
   // still states the swap, so the dialog degrades rather than disappearing — see `dismissed` below.
-  const restorable = useMemo(
-    () => (activity ? reviewFromActivity(activity, input.choices, speedTier) : undefined),
-    [activity, input.choices, speedTier],
-  );
+  const restorable = useMemo(() => {
+    if (activity) return reviewFromActivity(activity, input.choices, speedTier);
+    // The hash is the one field a review does not read, so a pending batch rebuilds the same dialog.
+    if (pendingBatch) return reviewFromActivity(activityFromBatch(pendingBatch, ''), input.choices, speedTier);
+    return undefined;
+  }, [activity, pendingBatch, input.choices, speedTier]);
 
   // A reload leaves the swap running with no dialog on it, because the record outlives the state
   // that opened one. Rebuild it, once, unless the visitor has already dismissed this swap's dialog.
@@ -215,8 +237,8 @@ export function useExecution(input: ExecutionInput) {
     setPreparation(await action.run());
   };
   const openReview = () => {
-    if (heldReview) {
-      setReview(heldReview);
+    if (pendingBatch) {
+      resumeReview();
       return;
     }
     setError(undefined);
@@ -264,12 +286,13 @@ export function useExecution(input: ExecutionInput) {
   };
 
   const confirm = async () => {
-    if (!input.enabled || !review || !wallet || busyRef.current || activity || review === heldReview) return;
+    if (!input.enabled || !review || !wallet || busyRef.current || activity || pendingBatch) return;
     busyRef.current = true;
     phaseRef.current = 'checking';
     setPhase('checking');
     setError(undefined);
     let broadcasted = false;
+    let batchSent = false;
     // The record as broadcast, so relay acceptance can be written onto it before state settles.
     let broadcastRecord: Activity | undefined;
     postEmbedEvent({ type: 'sodax:swap', status: 'started' });
@@ -284,6 +307,20 @@ export function useExecution(input: ExecutionInput) {
       }
       if (destinationGate.blocked) throw new Error('The receiving account is not ready. Review the swap again.');
       const { srcChain: srcChainKey, dstChain: dstChainKey } = review;
+      const recordFields = (walletAddress: string, relayData: string, intent: IntentResponseV2) => ({
+        srcChainKey,
+        dstChainKey,
+        srcTokenAddress: review.srcToken.address,
+        dstTokenAddress: review.dstToken.address,
+        inputAmount: review.intent.inputAmount,
+        walletAddress,
+        recipient: review.intent.dstAddress,
+        summary: `${input.amount} ${review.srcToken.symbol} → ${review.dstToken.symbol}`,
+        createdAt: Date.now(),
+        intent,
+        relayData,
+        pair: input.pair,
+      });
       await executeSwap(review.intent, {
         api: sodax.api.swaps,
         approve: async body => {
@@ -295,13 +332,16 @@ export function useExecution(input: ExecutionInput) {
             walletProvider: wallet,
             allowAccountUpgrade: !upgradeDeclined.current,
           }),
-        approveAndSign: async (body, tx) => {
+        approveAndSign: async (body, tx, onBatchSent) => {
           const deposit = await evmDeposit(srcChainKey, tx, wallet);
           const { txHash } = await broadcastWithApproval({
             body,
             intentTx: deposit.tx,
             walletProvider: deposit.wallet,
             allowAccountUpgrade: !upgradeDeclined.current,
+            onBatchSent,
+            // A refused batch comes back to `executeSwap`, whose two-step path re-quotes after the approval.
+            fallbackOnRefusal: false,
           });
           return txHash;
         },
@@ -310,25 +350,24 @@ export function useExecution(input: ExecutionInput) {
           phaseRef.current = next;
           setPhase(next);
         },
+        onBatchSent: ({ batchId, callCount }, submission, intent) => {
+          batchSent = true;
+          storePendingBatch({
+            ...recordFields(submission.walletAddress, submission.relayData, intent),
+            batchId,
+            callCount,
+          });
+        },
         onBroadcast: (request, intent) => {
           broadcasted = true;
           broadcastRecord = {
             txHash: request.txHash,
-            srcChainKey,
-            dstChainKey,
-            srcTokenAddress: review.srcToken.address,
-            dstTokenAddress: review.dstToken.address,
-            inputAmount: review.intent.inputAmount,
-            walletAddress: review.intent.srcAddress,
-            recipient: review.intent.dstAddress,
-            summary: `${input.amount} ${review.srcToken.symbol} → ${review.dstToken.symbol}`,
-            createdAt: Date.now(),
-            intent,
-            relayData: request.relayData,
-            pair: input.pair,
+            ...recordFields(request.walletAddress, request.relayData, intent),
           };
           setStorageAvailable(saveActivity(broadcastRecord));
           setActivity(broadcastRecord);
+          // A batch that confirmed is an ordinary broadcast now, with its hash on the record.
+          if (batchSent) storePendingBatch(undefined);
           postEmbedEvent({ type: 'sodax:swap', status: 'submitted' });
           if (input.pair) {
             submittedPair.current = input.pair;
@@ -342,8 +381,12 @@ export function useExecution(input: ExecutionInput) {
       void balanceQuery.refetch();
     } catch (cause) {
       setError(executionError(cause));
-      if (isUnconfirmedBatch(cause)) setHeldReview(review);
+      const unconfirmed = isUnconfirmedBatch(cause);
+      // A batch the wallet reports as never included or reverted deposited nothing: it holds nothing.
+      if (batchSent && !broadcasted && !unconfirmed) storePendingBatch(undefined);
       if (isUpgradeDeclined(cause)) upgradeDeclined.current = true;
+      // An unconfirmed batch may still land, so it is not reported as failed.
+      if (unconfirmed) return;
       if (!broadcasted) postEmbedEvent({ type: 'sodax:swap', status: 'failed' });
       if (input.pair) {
         const reason: SwapFailureReason = isUserRejection(cause) ? 'rejected' : phaseRef.current;
@@ -389,7 +432,15 @@ export function useExecution(input: ExecutionInput) {
 
   const resumeReview = () => {
     setDismissed(false);
-    if (activity && !review && restorable) setReview(restorable);
+    if ((activity || pendingBatch) && !review && restorable) setReview(restorable);
+  };
+
+  const submitRecord = async (record: Activity) => {
+    const result = await sodax.api.swaps.submitTx(submissionFor(record));
+    if (!result.ok) throw result.error;
+    if (!result.value.success) throw new Error('The relay has not accepted this swap yet. Try again shortly.');
+    markRelaySubmitted(record);
+    await statusQuery.refetch();
   };
 
   const retrySubmission = async () => {
@@ -398,11 +449,45 @@ export function useExecution(input: ExecutionInput) {
     setPhase('submitting');
     setError(undefined);
     try {
-      const result = await sodax.api.swaps.submitTx(submissionFor(activity));
-      if (!result.ok) throw result.error;
-      if (!result.value.success) throw new Error('The relay has not accepted this swap yet. Try again shortly.');
-      markRelaySubmitted(activity);
-      await statusQuery.refetch();
+      await submitRecord(activity);
+    } catch (cause) {
+      setError(executionError(cause));
+    } finally {
+      busyRef.current = false;
+      setPhase(undefined);
+    }
+  };
+
+  // Asks the wallet again about the held batch. A confirmed one becomes the swap's activity and goes
+  // to the relay; one that never landed releases the hold; anything else keeps holding.
+  const recheckBatch = async () => {
+    if (!pendingBatch || !wallet || wallet.chainType !== 'EVM' || busyRef.current) return;
+    busyRef.current = true;
+    setPhase('submitting');
+    setError(undefined);
+    try {
+      const confirmed = await confirmApprovalBatch({
+        walletProvider: wallet,
+        batchId: pendingBatch.batchId,
+        callCount: pendingBatch.callCount,
+        timeoutMs: BATCH_RECHECK_TIMEOUT_MS,
+        feature: 'swap',
+      });
+      if (!confirmed.ok) {
+        if (isUnconfirmedBatch(confirmed.error)) {
+          setError('Your wallet still has not confirmed this swap. Check its activity, then try again.');
+          return;
+        }
+        storePendingBatch(undefined);
+        setError('This swap did not go through, and nothing was deposited. You can review it again.');
+        return;
+      }
+      const recovered = activityFromBatch(pendingBatch, confirmed.value.txHash);
+      setStorageAvailable(saveActivity(recovered));
+      setActivity(recovered);
+      storePendingBatch(undefined);
+      postEmbedEvent({ type: 'sodax:swap', status: 'submitted' });
+      await submitRecord(recovered);
     } catch (cause) {
       setError(executionError(cause));
     } finally {
@@ -435,11 +520,17 @@ export function useExecution(input: ExecutionInput) {
     review,
     openReview,
     confirm,
-    held: !!review && review === heldReview,
+    pendingBatch,
+    held: !!pendingBatch,
+    recheckBatch,
     releaseHeld: () => {
-      setHeldReview(undefined);
+      if (busyRef.current) return;
+      storePendingBatch(undefined);
       setError(undefined);
       setReview(undefined);
+      setDismissed(false);
+      // The widget stops tracking it; whether it landed is the wallet's to tell the visitor now.
+      postEmbedEvent({ type: 'sodax:swap', status: 'failed' });
     },
     closeReview,
     resumeReview,

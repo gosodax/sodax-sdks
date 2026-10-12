@@ -8,7 +8,7 @@ import type {
   SpokeChainKey,
 } from '@sodax/types';
 import type { SodaxErrorCode, SodaxErrorContext, SodaxFeature } from '../../errors/codes.js';
-import { SodaxError } from '../../errors/SodaxError.js';
+import { isSodaxError, SodaxError } from '../../errors/SodaxError.js';
 import { intentCreationFailed } from '../../errors/wrappers.js';
 import { isEvmSpokeOnlyChainKeyType, isEvmWalletProviderType } from '../guards.js';
 import { getEvmViemChain } from './constant-utils.js';
@@ -104,6 +104,12 @@ export type SendApprovalBatchParams = {
   feature: SodaxFeature;
   /** Merged into every returned error's `context`. */
   context?: SodaxErrorContext;
+  /**
+   * Called with the batch id as soon as the wallet accepts the batch, before the wait. Persist it: if the
+   * wait ends without a receipt, {@link confirmApprovalBatch} with that id is the only way back to the
+   * deposit. A listener that throws is ignored.
+   */
+  onBatchSent?: (batchId: string) => void;
 };
 
 export type ApprovalBatchResult = {
@@ -133,6 +139,7 @@ export async function sendApprovalBatch({
   timeoutMs,
   feature,
   context,
+  onBatchSent,
 }: SendApprovalBatchParams): Promise<Result<ApprovalBatchResult, SodaxError<ApprovalBatchErrorCode>>> {
   if (!canSendAtomicBatch(walletProvider)) {
     return {
@@ -156,7 +163,44 @@ export async function sendApprovalBatch({
     return { ok: false, error: intentCreationFailed(feature, error, { ...context, ...(reason && { reason }) }) };
   }
 
-  // From here the wallet holds the batch: a failure to confirm it must not read as "nothing sent".
+  try {
+    onBatchSent?.(batchId);
+  } catch {
+    // Advisory: a listener that throws must not cost the user a batch they already signed.
+  }
+  return confirmApprovalBatch({ walletProvider, batchId, callCount: txs.length, timeoutMs, feature, context });
+}
+
+export type ConfirmApprovalBatchParams = {
+  walletProvider: IEvmWalletProvider;
+  /** The id `sendAtomicBatch` returned — what {@link SendApprovalBatchParams.onBatchSent} reported. */
+  batchId: string;
+  /** How many calls the batch carried, deposit last. */
+  callCount: number;
+  /** How long to wait for the batch to confirm, in ms. */
+  timeoutMs: number;
+  feature: SodaxFeature;
+  context?: SodaxErrorContext;
+};
+
+/**
+ * Waits for a batch the wallet already accepted and reads the deposit's transaction from it. This is
+ * the second half of {@link sendApprovalBatch}, and how an app resumes a batch it reported as
+ * unconfirmed (after a reload, say) instead of sending the deposit again.
+ *
+ * - Never included or fully reverted (EIP-5792 400 / 500) → `INTENT_CREATION_FAILED` with
+ *   `context.reason: 'atomic-batch-failed'`. Nothing was deposited.
+ * - Anything else short of a confirmed deposit receipt → `TX_VERIFICATION_FAILED` with
+ *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED} and `context.batchId`. It may still land.
+ */
+export async function confirmApprovalBatch({
+  walletProvider,
+  batchId,
+  callCount,
+  timeoutMs,
+  feature,
+  context,
+}: ConfirmApprovalBatchParams): Promise<Result<ApprovalBatchResult, SodaxError<ApprovalBatchErrorCode>>> {
   const unconfirmed = (cause?: unknown): Result<never, SodaxError<ApprovalBatchErrorCode>> => ({
     ok: false,
     error: new SodaxError('TX_VERIFICATION_FAILED', 'Atomic approval batch was sent but not confirmed', {
@@ -165,6 +209,7 @@ export async function sendApprovalBatch({
       context: { ...context, phase: 'verify', reason: ATOMIC_BATCH_UNCONFIRMED, batchId },
     }),
   });
+  if (!canSendAtomicBatch(walletProvider)) return unconfirmed();
   try {
     // viem reads a zero timeout as "no timeout"; give up at once instead.
     const batch = await walletProvider.waitForBatch(batchId, { timeout: Math.max(1, timeoutMs) });
@@ -186,7 +231,7 @@ export async function sendApprovalBatch({
     }
     // One receipt (the whole batch as one tx) or one per call, else the deposit's tx is unknown.
     const { receipts } = batch;
-    const depositReceipt = receipts.length === 1 || receipts.length === txs.length ? receipts.at(-1) : undefined;
+    const depositReceipt = receipts.length === 1 || receipts.length === callCount ? receipts.at(-1) : undefined;
     if (depositReceipt?.status !== 'success') return unconfirmed();
     return { ok: true, value: { txHash: depositReceipt.transactionHash, batchId } };
   } catch (error) {
@@ -228,6 +273,16 @@ export async function confirmApproval({
 }
 
 /**
+ * Whether `error` is a batch the wallet refused before anything was signed or sent — the one batch
+ * failure after which approving separately cannot duplicate anything.
+ */
+export function isAtomicBatchRefusal(error: unknown): boolean {
+  return (
+    isSodaxError(error) && error.code === 'INTENT_CREATION_FAILED' && error.context?.reason === ATOMIC_BATCH_REFUSED
+  );
+}
+
+/**
  * Sends the deposit down the path `strategy` picked. Only a batch the wallet refused before anything
  * was signed (`ATOMIC_BATCH_REFUSED`) falls back to approving separately; any other batch failure is
  * returned as is, because the user saw that batch and it may still land. Resolves with the path that ran.
@@ -242,19 +297,16 @@ export async function runWithApproval<T, E extends SodaxError>({
   strategy: ApprovalStrategy;
   notRequired: () => Promise<Result<T, E>>;
   atomicBatch: () => Promise<Result<T, E>>;
-  sequential: () => Promise<Result<T, E>>;
+  /** `afterRefusedBatch`: the batch path already built the deposit, so it needs no second validation. */
+  sequential: (afterRefusedBatch: boolean) => Promise<Result<T, E>>;
   onBatchRefused?: (error: E) => void;
 }): Promise<{ result: Result<T, E>; approvalStrategy: ApprovalStrategy }> {
   if (strategy === 'not-required') return { result: await notRequired(), approvalStrategy: strategy };
-  if (strategy === 'sequential') return { result: await sequential(), approvalStrategy: strategy };
+  if (strategy === 'sequential') return { result: await sequential(false), approvalStrategy: strategy };
 
   const batched = await atomicBatch();
-  const refused =
-    !batched.ok &&
-    batched.error.code === 'INTENT_CREATION_FAILED' &&
-    batched.error.context?.reason === ATOMIC_BATCH_REFUSED;
-  if (batched.ok || !refused) return { result: batched, approvalStrategy: 'atomic-batch' };
+  if (batched.ok || !isAtomicBatchRefusal(batched.error)) return { result: batched, approvalStrategy: 'atomic-batch' };
 
   onBatchRefused?.(batched.error);
-  return { result: await sequential(), approvalStrategy: 'sequential' };
+  return { result: await sequential(true), approvalStrategy: 'sequential' };
 }

@@ -9,6 +9,7 @@
 
 import {
   ACCOUNT_UPGRADE_DECLINED,
+  ATOMIC_BATCH_REFUSED,
   ATOMIC_BATCH_UNCONFIRMED,
   ChainKeys,
   type EvmAtomicBatchSupport,
@@ -155,6 +156,38 @@ describe('useSwapsApiBroadcastWithApproval', () => {
     });
     expect(calls).toEqual(['send:0x02', 'wait:0xhash02', 'send:0x03']);
     expect(walletProvider.sendTransaction).toHaveBeenLastCalledWith(INTENT_TX, { expectedChainId: BASE_CHAIN_ID });
+  });
+
+  it('reports the batch id and call count once the wallet accepts the batch', async () => {
+    const onBatchSent = vi.fn();
+    await run({ walletProvider: batchWallet([], 'supported'), onBatchSent });
+    expect(onBatchSent).toHaveBeenCalledWith('batch-1', 2);
+  });
+
+  it('rejects a refused batch instead of approving when fallbackOnRefusal is false', async () => {
+    const calls: string[] = [];
+    const walletProvider = batchWallet(calls, 'supported');
+    walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
+
+    await expect(run({ walletProvider, fallbackOnRefusal: false })).rejects.toMatchObject({
+      code: 'INTENT_CREATION_FAILED',
+      context: { reason: ATOMIC_BATCH_REFUSED },
+    });
+    expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refreshes the allowance once the approval lands, even when the intent is then rejected', async () => {
+    const calls: string[] = [];
+    const walletProvider = plainWallet(calls);
+    walletProvider.sendTransaction.mockImplementation(async (tx: EvmRawTransaction) => {
+      calls.push(`send:${tx.data}`);
+      if (tx.data === INTENT_TX.data) throw new Error('User rejected the request.');
+      return `0xhash${tx.data.slice(2)}` as const;
+    });
+
+    await expect(run({ walletProvider })).rejects.toThrow('User rejected');
+    expect(calls).toEqual(['send:0x02', 'wait:0xhash02', 'send:0x03']);
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['swapsApi', 'allowance'] });
   });
 
   it('falls back to approving separately when the wallet refuses the batch before signing', async () => {

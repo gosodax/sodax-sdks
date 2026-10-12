@@ -2,10 +2,12 @@ import {
   ACCOUNT_UPGRADE_DECLINED,
   ATOMIC_BATCH_UNCONFIRMED,
   baseChainInfo,
+  isAtomicBatchRefusal,
   isSodaxError,
   type ChainKey,
   type ChainType,
   type CreateIntentParamsV2,
+  type CreateIntentResponseV2,
   type IntentResponseV2,
   type IntentRequestV2,
   type InjectiveRawTransaction,
@@ -165,10 +167,23 @@ export type ExecutionDependencies = {
   approve: (body: CreateIntentParamsV2) => Promise<void>;
   /** `'atomic-batch'` when the wallet can approve and sign the deposit in one prompt. */
   approvalStrategy: (body: CreateIntentParamsV2) => Promise<'atomic-batch' | 'sequential'>;
-  /** Approve and sign the deposit in one wallet prompt; resolves to the deposit's hash. */
-  approveAndSign: (body: CreateIntentParamsV2, tx: RawTxReturnType) => Promise<string>;
+  /**
+   * Approve and sign the deposit in one wallet prompt; resolves to the deposit's hash. Rejects with an
+   * `isAtomicBatchRefusal` error when the wallet turns the batch down, so the two-step path runs instead.
+   */
+  approveAndSign: (
+    body: CreateIntentParamsV2,
+    tx: RawTxReturnType,
+    onBatchSent: (batchId: string, callCount: number) => void,
+  ) => Promise<string>;
   sign: (tx: RawTxReturnType) => Promise<string>;
   onPhase: (phase: ExecutionPhase) => void;
+  /** The wallet took the one-signature batch. Persist it: it may land after the wait has given up. */
+  onBatchSent: (
+    batch: { batchId: string; callCount: number },
+    submission: Omit<SubmitTxRequestV2, 'txHash'>,
+    intent: IntentResponseV2,
+  ) => void;
   onBroadcast: (request: SubmitTxRequestV2, intent: IntentResponseV2) => void;
   /** The relay holds the deposit. Durable, because only a resubmission can move one it does not. */
   onRelayAccepted: () => void;
@@ -192,36 +207,55 @@ export async function executeSwap(body: CreateIntentParamsV2, deps: ExecutionDep
       throw new Error('The quote changed beyond your slippage. Review a new quote before swapping.');
     }
   };
+  const approveSeparately = async () => {
+    onPhase('approving');
+    await deps.approve(body);
+    await checkQuote();
+  };
+  const build = async (): Promise<CreateIntentResponseV2> => {
+    const deadline = await api.getDeadline();
+    if (!deadline.ok) throw deadline.error;
+    onPhase('building');
+    const created = await api.createIntent({ ...body, deadline: deadline.value.deadline });
+    if (!created.ok) throw created.error;
+    return created.value;
+  };
+  const submissionOf = (created: CreateIntentResponseV2): Omit<SubmitTxRequestV2, 'txHash'> => ({
+    srcChainKey: body.srcChainKey,
+    walletAddress: body.srcAddress,
+    intent: toIntentRequest(created.intent),
+    relayData: created.relayData.payload,
+  });
+
   onPhase('checking');
   await checkQuote();
   const allowance = await api.checkAllowance(body);
   if (!allowance.ok) throw allowance.error;
-  let sign = deps.sign;
-  if (!allowance.value.valid) {
-    if ((await deps.approvalStrategy(body)) === 'atomic-batch') {
-      // The approval lands with the deposit, so the quote just checked is the one it signs against.
-      sign = tx => deps.approveAndSign(body, tx);
-    } else {
-      onPhase('approving');
-      await deps.approve(body);
-      await checkQuote();
-    }
-  }
-  const deadline = await api.getDeadline();
-  if (!deadline.ok) throw deadline.error;
-  onPhase('building');
-  const created = await api.createIntent({ ...body, deadline: deadline.value.deadline });
-  if (!created.ok) throw created.error;
+  const batch = !allowance.value.valid && (await deps.approvalStrategy(body)) === 'atomic-batch';
+  if (!allowance.value.valid && !batch) await approveSeparately();
+  let created = await build();
   onPhase('signing');
-  const txHash = await sign(created.value.tx);
-  const request: SubmitTxRequestV2 = {
-    txHash,
-    srcChainKey: body.srcChainKey,
-    walletAddress: body.srcAddress,
-    intent: toIntentRequest(created.value.intent),
-    relayData: created.value.relayData.payload,
-  };
-  deps.onBroadcast(request, created.value.intent);
+  let txHash: string;
+  if (batch) {
+    const batched = created;
+    try {
+      // The approval lands with the deposit, so the quote just checked is the one it signs against.
+      txHash = await deps.approveAndSign(body, batched.tx, (batchId, callCount) =>
+        deps.onBatchSent({ batchId, callCount }, submissionOf(batched), batched.intent),
+      );
+    } catch (error) {
+      if (!isAtomicBatchRefusal(error)) throw error;
+      // Refused before signing, so nothing was sent: take the two-step path, re-quote included.
+      await approveSeparately();
+      created = await build();
+      onPhase('signing');
+      txHash = await deps.sign(created.tx);
+    }
+  } else {
+    txHash = await deps.sign(created.tx);
+  }
+  const request: SubmitTxRequestV2 = { txHash, ...submissionOf(created) };
+  deps.onBroadcast(request, created.intent);
   onPhase('submitting');
   const submitted = await api.submitTx(request);
   if (!submitted.ok) throw submitted.error;

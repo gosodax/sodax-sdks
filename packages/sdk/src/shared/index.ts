@@ -6,6 +6,8 @@ export {
   ACCOUNT_UPGRADE_DECLINED,
   ATOMIC_BATCH_REFUSED,
   ATOMIC_BATCH_UNCONFIRMED,
+  confirmApprovalBatch,
+  isAtomicBatchRefusal,
   resolveApprovalStrategy,
   sendApprovalBatch,
 } from './utils/approvalBatch.js';
@@ -16,6 +18,7 @@ export type {
   ApprovalStrategy,
   ApprovalStrategyError,
   ApprovalStrategyErrorCode,
+  ConfirmApprovalBatchParams,
   ResolveApprovalStrategyParams,
   SendApprovalBatchParams,
 } from './utils/approvalBatch.js';
