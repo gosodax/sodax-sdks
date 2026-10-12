@@ -643,7 +643,7 @@ class SodaxError<C extends string = string> extends Error {
 - `error.cause` walks the underlying error chain (loggers like Sentry/Pino/Datadog walk this automatically).
 - `error.context` carries structured metadata: `srcChainKey`, `dstChainKey`, `phase`, plus per-code extras (`relayCode`, `field`).
 - `error.toJSON()` is the canonical logger surface; `JSON.stringify(error)` invokes it automatically and produces a logger-safe payload (bigints in `context` are coerced to strings, cause walked depth-3, no circular hazards).
-- Use `isBridgeError(e)` (broad) or one of the narrow guards `isBridgeOrchestrationError(e)` / `isBridgeCreateIntentError(e)` / `isBridgeApproveError(e)` / `isBridgeAllowanceCheckError(e)` / `isBridgeLookupError(e)` from `@sodax/sdk` instead of `instanceof SodaxError` in dapp/app code (bundle-safe).
+- Use `isBridgeError(e)` (broad) or one of the narrow guards `isBridgeOrchestrationError(e)` / `isBridgeWithApprovalError(e)` / `isBridgeCreateIntentError(e)` / `isBridgeApproveError(e)` / `isBridgeAllowanceCheckError(e)` / `isBridgeLookupError(e)` from `@sodax/sdk` instead of `instanceof SodaxError` in dapp/app code (bundle-safe).
 
 ### Per-method error code unions
 
@@ -660,7 +660,7 @@ class SodaxError<C extends string = string> extends Error {
 
 **Important:** `bridge` orchestrates verify + relay only on the **client-side path** (the fallback, or `useBackendSubmitTx: false`), so `TX_VERIFICATION_FAILED`, `TX_SUBMIT_FAILED`, `RELAY_TIMEOUT` and `RELAY_FAILED` never surface on a bridge the backend completes. When the backend attempt does not complete, its own error is logged and discarded — the fallback runs and its outcome is what you receive, so the code you see always describes the client-side attempt, never the backend one. Check the logs, not the `Result`, to tell why the backend path was abandoned. See [Completion paths and `timeout`](#completion-paths-and-timeout).
 
-The exported narrow types are `BridgeOrchestrationError` (for `bridge`), `BridgeWithApprovalError` (for `bridgeWithApproval`, guard `isBridgeWithApprovalError`), `BridgeCreateIntentError` (for `createBridgeIntent`), `BridgeApproveError`, `BridgeAllowanceCheckError`, and a single `BridgeLookupError` shared by `getBridgeableAmount` and `getBridgeableTokens` (discriminate them at runtime via `error.context.method`). Each has a matching narrow guard listed above.
+The exported narrow types are `BridgeOrchestrationError` (for `bridge`), `BridgeWithApprovalError` (for `bridgeWithApproval`), `BridgeCreateIntentError` (for `createBridgeIntent`), `BridgeApproveError`, `BridgeAllowanceCheckError`, and a single `BridgeLookupError` shared by `getBridgeableAmount` and `getBridgeableTokens` (discriminate them at runtime via `error.context.method`). Each has a matching narrow guard listed above.
 
 ### Standard `context` fields
 

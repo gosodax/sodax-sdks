@@ -543,6 +543,7 @@ Use the exported guards instead of `instanceof SodaxError` (bundle-safe):
 - `isLeverageYieldError(e)` — broad guard for any leverage-yield error.
 - `isLeverageYieldCreateIntentError(e)` — `createVaultIntent` and the create-intent arm of `deposit` / `withdraw` (whose default-deadline read can instead yield a `LOOKUP_FAILED` caught by `isLeverageYieldLookupError`).
 - `isLeverageYieldSwapError(e)` — `vaultSwap`.
+- `isVaultSwapWithApprovalError(e)` — `vaultSwapWithApproval`.
 - `isLeverageYieldApproveError(e)` — `approve`.
 - `isLeverageYieldAllowanceCheckError(e)` — `isAllowanceValid`.
 - `isLeverageYieldLookupError(e)` — read methods.
