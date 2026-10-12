@@ -638,8 +638,8 @@ The exported narrow types are `BridgeOrchestrationError` (for `bridge`), `Bridge
 A post-broadcast failure does not mean the bridge failed: the deposit is on-chain, a slow relay may still deliver,
 and with backend submit-tx on the backend keeps working on it after `bridge()` gives up. Read `error.context.srcTxHash` (with `srcChainKey`)
 and keep polling [`getDetailedStatus`](#get-detailed-status) rather than reporting the bridge as lost. Failures
-before the broadcast (`VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `USER_REJECTED`) carry no `srcTxHash` —
-nothing left the wallet.
+before the broadcast (`VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `USER_REJECTED`) carry no `srcTxHash` — the
+SDK has no tx hash to give for them.
 
 ### Discrimination example
 
@@ -671,7 +671,8 @@ if (!result.ok) {
 
     case 'TX_SUBMIT_FAILED':
       // CRITICAL: spoke tx landed but the relay submission failed. Funds may be in flight.
-      // Persist the input params and retry submission.
+      // Don't call bridge() again — that is a second deposit. Keep polling getDetailedStatus with
+      // error.context.srcTxHash, and show that hash to the user if it never delivers.
       break;
 
     case 'RELAY_TIMEOUT':
@@ -713,7 +714,7 @@ If you were on the previous CODE-on-`error.message` pattern (or the older `Bridg
 
 ### Best practices
 
-1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Funds may be in flight; persist the user's input and retry.
+1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Funds may be in flight; keep `error.context.srcTxHash`, poll `getDetailedStatus` with it, and never start a new bridge for the same transfer.
 2. **Handle `RELAY_TIMEOUT` gracefully**. The spoke tx succeeded; the relay just didn't deliver in time. Poll `getDetailedStatus` with `error.context.srcTxHash` instead of starting a new bridge.
 3. **Discriminate `RELAY_FAILED` via `context.relayCode`**. `'RELAY_POLLING_FAILED'` (polling outage — packet status unknown) needs different UX from generic `'UNKNOWN'`.
 4. **Use `error.cause` for forensics**. Every wrapped error preserves the original on `cause`. Loggers walk it automatically.
