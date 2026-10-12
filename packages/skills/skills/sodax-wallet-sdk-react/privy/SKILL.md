@@ -24,7 +24,7 @@ You write the code; the user owns the Privy app and receives the email code. Ask
 
 1. [`../integration/knowledge/ai-rules.md`](../integration/knowledge/ai-rules.md) — DO / DON'T (read first).
 2. [`../integration/knowledge/recipes/setup.md`](../integration/knowledge/recipes/setup.md) — prerequisite: provider mounted with the `EVM` slot.
-3. [`../integration/knowledge/recipes/privy-email-login.md`](../integration/knowledge/recipes/privy-email-login.md) — install the peer, add `privy: privy({ appId })`, verify.
+3. [`../integration/knowledge/recipes/privy-email-login.md`](../integration/knowledge/recipes/privy-email-login.md) — install the peer, add `privy: privy({ appId })`, verify. Whole-file starter: [`../integration/knowledge/examples/05-privy-email-login.tsx`](../integration/knowledge/examples/05-privy-email-login.tsx).
 4. Lookups → [`../integration/knowledge/reference/api-surface.md`](../integration/knowledge/reference/api-surface.md) (`privy`, `PrivyOptions`, `PRIVY_CONNECTOR_ID`).
 
 ### Privy-specific anti-patterns

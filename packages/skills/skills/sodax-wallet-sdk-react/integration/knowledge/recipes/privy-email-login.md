@@ -2,7 +2,7 @@
 
 Add an **"Email (Privy)"** entry to the EVM wallet list: the user logs in with an email one-time code and gets a Privy embedded wallet that signs like any other EVM wallet. Opt-in, behind the `@sodax/wallet-sdk-react/privy` sub-path.
 
-**Depends on:** [`setup.md`](./setup.md)
+**Depends on:** [`setup.md`](./setup.md) · **Full file:** [`examples/05-privy-email-login.tsx`](../examples/05-privy-email-login.tsx)
 
 You write the code. The user owns the Privy app and receives the email code, so step 0 asks them first and the [Verification](#verification) hands them the login test.
 
@@ -10,7 +10,7 @@ You write the code. The user owns the Privy app and receives the email code, so 
 
 ## 0. Ask the user before coding
 
-1. **Trade-offs.** Tell them (full text in the package guide `docs/WALLET_PRIVY.md`): Privy custodies access, so no signing is possible while Privy is unreachable; addresses belong to their Privy app; a user who loses their email loses the wallet; their Privy app is billed per signature.
+1. **Trade-offs.** Tell them (full text in the [package guide](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PRIVY.md)): Privy custodies access, so no signing is possible while Privy is unreachable; addresses belong to their Privy app; a user who loses their email loses the wallet; their Privy app is billed per signature.
 2. **Their Privy App ID.** If they have none, give them this checklist for dashboard.privy.io:
    - Create an app and copy its App ID.
    - Enable **Email** login and **Ethereum embedded wallets**. The SDK shows email login only.
@@ -40,6 +40,8 @@ pnpm add @privy-io/react-auth
 ## 2. Pass `privy()` as `EVM.privy`
 
 ```typescript
+'use client'; // Next.js App Router: privy()'s value cannot cross from a Server Component
+
 import { type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
 import { privy } from '@sodax/wallet-sdk-react/privy';
 import { ChainKeys } from '@sodax/types';

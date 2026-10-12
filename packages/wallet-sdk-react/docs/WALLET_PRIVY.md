@@ -54,7 +54,7 @@ import { privy } from '@sodax/wallet-sdk-react/privy';
 
 const walletConfig: SodaxWalletConfig = {
   EVM: {
-    walletConnect: { projectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID! }, // still works alongside
+    walletConnect: { projectId: process.env.NEXT_PUBLIC_WC_PROJECT_ID ?? '' }, // still works alongside
     privy: privy({ appId: process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? '' }),
   },
 };

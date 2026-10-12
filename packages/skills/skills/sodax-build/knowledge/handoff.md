@@ -19,6 +19,8 @@ The last step. Map the brief's build shape to the exact developer skill(s) the u
 
 **Non-EVM chains:** if the product touches **any non-EVM chain**, add the matching chain in `sodax-wallet-sdk-core` to the handoff — each non-EVM chain needs its own wallet provider.
 
+**Email login:** if the brief chose it, name the privy concern of `sodax-wallet-sdk-react` in the handoff (EVM only, React only). The builder must create a Privy app before the dev skill can finish.
+
 ## How to choose mode
 
 - **Integration** (write new v2 code) — the default for a brand-new product.
@@ -53,6 +55,7 @@ handoff:
   mode: integration      # or "migration" (port v1 first), then integration
   partner_fee: true      # if true, also load the sodax-sdk partner feature (+ sodax-dapp-kit in React)
   non_evm_chains: []     # each entry adds a sodax-wallet-sdk-core/<chain> provider
+  email_login: false     # if true, also load sodax-wallet-sdk-react/privy (EVM, React only)
   starter_app: apps/demo
   phase1_goal: "one working cross-chain transfer in the safest supported environment"
 ```
