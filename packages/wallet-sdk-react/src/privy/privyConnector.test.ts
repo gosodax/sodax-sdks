@@ -159,11 +159,28 @@ async function request(connector: Connector, args: RequestArgs): Promise<unknown
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+/** Lets a chain of provider calls run out (each `settle` drains one round of timers and microtasks). */
+const drain = async () => {
+  for (let i = 0; i < 5; i++) await settle();
+};
+
+// happy-dom caches `localStorage` methods after first use, so a later `Storage.prototype` spy never fires.
+function refuseStorageWrites() {
+  const items = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => items.get(key) ?? null,
+    setItem: () => {
+      throw new Error('QuotaExceededError');
+    },
+    removeItem: (key: string) => void items.delete(key),
+  });
+}
 
 beforeEach(() => localStorage.clear());
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('privyConnector — first login', () => {
@@ -527,6 +544,43 @@ describe('privyConnector — while connected', () => {
     await expect(request(privy, { method: 'wallet_switchEthereumChain', params: [] })).rejects.toThrow(/Invalid/);
   });
 
+  it('aligns a replacement wallet to a chain switch that finished while it was loading', async () => {
+    const { runtime, config, privy } = await connected();
+    const providerGate = Promise.withResolvers<void>();
+    const replacement = fakeWallet(ADDRESS, { providerGate: providerGate.promise });
+
+    runtime.publish(loggedIn(replacement));
+    await vi.waitFor(() => expect(replacement.getEthereumProvider).toHaveBeenCalled());
+    await switchChain(config, { chainId: base.id });
+    providerGate.resolve();
+    await drain();
+
+    expect(config.state.chainId).toBe(base.id);
+    expect(Number(await request(privy, { method: 'eth_chainId' }))).toBe(base.id);
+  });
+
+  it('aligns a replacement wallet that finished loading while a chain switch was still running', async () => {
+    const context = setup();
+    const switchGate = Promise.withResolvers<void>();
+    context.runtime.publish(loggedIn(fakeWallet(ADDRESS, { switchGate: switchGate.promise })));
+    await connect(context.config, { connector: context.privy });
+    const providerGate = Promise.withResolvers<void>();
+    const replacement = fakeWallet(ADDRESS, { providerGate: providerGate.promise });
+
+    context.runtime.publish(loggedIn(replacement));
+    await vi.waitFor(() => expect(replacement.getEthereumProvider).toHaveBeenCalled());
+    const switching = switchChain(context.config, { chainId: base.id });
+    await drain();
+    providerGate.resolve();
+    await drain();
+    switchGate.resolve();
+    await switching;
+    await drain();
+
+    expect(context.config.state.chainId).toBe(base.id);
+    expect(Number(await request(context.privy, { method: 'eth_chainId' }))).toBe(base.id);
+  });
+
   it('ends the session once a switch settles when the logout arrived mid-switch', async () => {
     const context = setup();
     const switchGate = Promise.withResolvers<void>();
@@ -663,6 +717,34 @@ describe('privyConnector — signing out', () => {
     await expect(connect(config, { connector: privy })).rejects.toThrow('Could not sign out');
     expect(ops.login).not.toHaveBeenCalled();
     expect(localStorage.getItem(SIGN_OUT_KEY)).toBe('1');
+  });
+
+  it('waits for a sign-out still in flight even when storage refused the marker', async () => {
+    const { runtime, ops, config, privy, wallet } = await connected();
+    const { gate, logout } = signOutGate(runtime);
+    ops.logout.mockImplementation(logout);
+    ops.login.mockImplementation(() => queueMicrotask(() => runtime.publish(loggedIn(wallet))));
+    refuseStorageWrites();
+
+    await disconnect(config, { connector: privy });
+    const reconnecting = connect(config, { connector: privy });
+    await settle();
+    expect(ops.login).not.toHaveBeenCalled();
+    gate.resolve();
+
+    await expect(reconnecting).resolves.toEqual({ accounts: [getAddress(ADDRESS)], chainId: sonic.id });
+    expect(ops.login).toHaveBeenCalledOnce();
+  });
+
+  it('refuses to reuse a session whose sign-out failed when storage refused the marker', async () => {
+    const { ops, config, privy } = await connected();
+    ops.logout.mockRejectedValue(new Error('offline'));
+    refuseStorageWrites();
+
+    await disconnect(config, { connector: privy });
+
+    await expect(connect(config, { connector: privy })).rejects.toThrow('Could not sign out');
+    expect(ops.login).not.toHaveBeenCalled();
   });
 
   it('signs out when the SDK disconnects while the page-load restore is still waiting on Privy', async () => {

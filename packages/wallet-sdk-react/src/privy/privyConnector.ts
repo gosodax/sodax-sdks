@@ -25,7 +25,9 @@ type PrivyConnectorOptions = {
   disconnectBehavior?: 'logout' | 'detach';
 };
 
+/** `wallet` is the one whose provider is attached; a replacement takes its place only once attached. */
 type Session = { readonly address: Address; readonly wallet: EmbeddedWallet };
+type Replacement = { readonly wallet: EmbeddedWallet; readonly chainId: number | undefined };
 
 export type PrivyConnectorHandle = {
   readonly connector: CreateConnectorFn;
@@ -60,8 +62,21 @@ export function privyConnector({
   const connector = createConnector<DeferredProvider>(config => {
     const prefix = `${config.storage?.key ?? EVM_DEFAULT_PERSIST_KEY}.privy`;
     const flag = createStoredFlag(`${prefix}.connected`);
-    // A sign-out the user asked for that Privy has not confirmed yet; it outlives a reload or a closed tab.
-    const signOutOwed = createStoredFlag(`${prefix}.signout`);
+    // A sign-out the user asked for that Privy has not confirmed yet; stored so it outlives a reload or a
+    // closed tab, and held in memory so a refused storage write cannot drop it in this tab.
+    const storedSignOut = createStoredFlag(`${prefix}.signout`);
+    let signOutPending = false;
+    const signOutOwed = {
+      read: () => signOutPending || storedSignOut.read(),
+      write: () => {
+        signOutPending = true;
+        storedSignOut.write();
+      },
+      clear: () => {
+        signOutPending = false;
+        storedSignOut.clear();
+      },
+    };
     const deferred = createDeferredProvider(chainId => switchChain(chainId));
     let session: Session | undefined;
     let chainId: number | undefined; // last chain verified on the attached provider
@@ -69,6 +84,7 @@ export function privyConnector({
     let attemptIsInteractive = false; // started by a user connect, not by wagmi's restore
     let unwatch: (() => void) | undefined;
     let switching = false;
+    let replacing: Replacement | undefined; // a replacement wallet's provider being prepared
     let signingOut: Promise<void> | undefined;
 
     const readChainId = async (provider: Eip1193Like, signal?: AbortSignal) =>
@@ -97,6 +113,7 @@ export function privyConnector({
     function detachSession() {
       unwatch?.();
       unwatch = undefined;
+      replacing = undefined;
       deferred.detach();
       session = undefined;
     }
@@ -151,15 +168,21 @@ export function privyConnector({
       const wallet = sessionWallet(runtime.getSnapshot(), current.address);
       if (wallet === 'ended') return endSession();
       if (wallet === 'pending' || wallet === current.wallet) return;
-      const next = { ...current, wallet };
-      session = next;
-      prepare(wallet, chainId).then(
+      if (replacing?.wallet === wallet && replacing.chainId === chainId) return;
+      const pending: Replacement = { wallet, chainId };
+      replacing = pending;
+      prepare(wallet, pending.chainId).then(
         ({ provider }) => {
-          // Not after a detach, and not over a newer replacement.
-          if (session === next) deferred.attach(provider);
+          if (replacing !== pending) return; // detached, or a newer replacement took over
+          replacing = undefined;
+          // A switch moved the attached provider meanwhile: prepare again for the chain now current.
+          if (switching || chainId !== pending.chainId) return onRuntimeChange();
+          session = { ...current, wallet };
+          deferred.attach(provider);
         },
         () => {
-          // Keep the previous attachment; it still signs for the same address.
+          // Keep the previous attachment; it still signs for the same address. The next Privy update retries.
+          if (replacing === pending) replacing = undefined;
         },
       );
     }
