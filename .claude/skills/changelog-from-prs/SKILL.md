@@ -38,9 +38,9 @@ Stable tags sit on the `release` branch, and `main` is merged into `release` wit
 FROM='@sdks@2.1.0'; TO='origin/release'   # or the target tag / origin/main
 BASE=$(git merge-base origin/main "$FROM")
 # PRs that landed on main (first-parent = one squash commit per PR):
-git log --first-parent --reverse --format='%h%x09%s' "$BASE..origin/main"
+git log --first-parent --reverse --format='%h%x09%s%x09%an <%ae>%x09%(trailers:key=Co-authored-by,valueonly,separator=; )' "$BASE..origin/main"
 # Fixes committed directly on release (cherry-picks, hotfixes) since the last stable tag:
-git log --no-merges --format='%h%x09%s' "$TO" ^origin/main "^$FROM"
+git log --no-merges --format='%h%x09%s%x09%an <%ae>%x09%(trailers:key=Co-authored-by,valueonly,separator=; )' "$TO" ^origin/main "^$FROM"
 ```
 
 If `TO` is a tag, replace `origin/main` in the first command with `$(git merge-base origin/main "$TO")`. Skip `Merge branch 'main' … into release` merges and version-bump commits (`chore: release @sdks@…`, `chore: bump … to <version>`); the release-only list is usually just those.
@@ -50,10 +50,18 @@ If `TO` is a tag, replace `origin/main` in the first command with `$(git merge-b
 Every PR is squash-merged with a validated conventional title, so each subject reads `type(scope)!: summary (#<n>)`. The number in the trailing `(#<n>)` is the PR. Fetch details only where the subject is not enough to classify or describe the change:
 
 ```bash
-gh pr view <n> --repo icon-project/sodax-sdks --json title,body,labels,files,url
+gh pr view <n> --repo icon-project/sodax-sdks --json title,body,labels,files,url,author
 ```
 
 (Without `gh`, use the GitHub MCP `pull_request_read` tool.) Read the body for `BREAKING CHANGE`, migration notes, and the actual user impact. Read `files` when the scope is missing or vague.
+
+## 2b. Record contributors (every PR in range)
+
+Credit is collected **before** filtering, from every PR in range, including the apps, CI, and docs PRs that step 3 drops from the notes. For each PR keep:
+
+- **Author** — the PR's GitHub login (`author.login` from `gh pr view`). Without `gh`, take the login from a `<id>+<login>@users.noreply.github.com` commit email; otherwise keep the git name as plain text. Never guess an `@handle` from a name.
+- **Co-authors** — the commit's `Co-authored-by:` trailers, resolved the same way.
+- **Drop bots and AI tools** — `[bot]` logins (dependabot, renovate, github-actions), Mintlify, and AI co-author trailers such as `noreply@anthropic.com`. They are not contributors.
 
 **Reverts cancel out.** A `revert(...)` PR and the PR it reverts are both dropped when both are in range; a "reapply" PR is described on its own merits.
 
@@ -104,14 +112,18 @@ Ask one question: **would a consumer's unchanged code still pass `tsc` and their
 - Prefix with the package(s) in bold when it is not obvious: `**@sodax/dapp-kit** — …`. Derive the package from the scope or the changed files, not the title alone.
 - Name public symbols in backticks exactly as exported; verify against `src/` when you mention one.
 - 🚨 entries state the **code migration**: the compile error a consumer will hit and what to change, from → to. ⚠️ entries state **what now happens differently** and how to keep the old behavior if an opt-out exists. Take both from the PR body or diff; if the PR does not support a concrete step, say "see PR" rather than inventing one.
-- End each bullet with the PR link: `([#<n>](https://github.com/icon-project/sodax-sdks/pull/<n>))`. Fold several PRs that ship one feature into a single bullet with all links.
+- End each bullet with the PR link and its human authors: `([#<n>](https://github.com/icon-project/sodax-sdks/pull/<n>)) by @<login>`, joining co-authors with `and`. Fold several PRs that ship one feature into a single bullet with all links and every distinct author.
 - Do not list exact chain or token counts unless you counted them from the diff.
 
 ## 6. Order and assemble
 
-Sections in the table order above: 🚨, ⚠️, 🚀, ⚡, 🐞, 🔒, 🗑️, ❓. Within a section, most impactful first, not PR order. Close with the compare link and the bump check:
+Sections in the table order above: 🚨, ⚠️, 🚀, ⚡, 🐞, 🔒, 🗑️, ❓. Within a section, most impactful first, not PR order. `❤️ Contributors` lists every distinct human from step 2b, alphabetically, once each, even when none of their PRs made the notes. Close with the contributors, the compare link, and the bump check:
 
 ```markdown
+### ❤️ Contributors
+
+@<login>, @<login>, <Plain Name>
+
 **Full changelog:** https://github.com/icon-project/sodax-sdks/compare/@sdks@<from>...@sdks@<target>
 ```
 
@@ -125,14 +137,14 @@ If a PR's impact is ambiguous after reading its body and files, list it under `#
 
 ## Example
 
-**Input** — target `2.2.0`, range `@sdks@2.1.0` → `origin/release`, after filtering:
+**Input** — target `2.2.0`, range `@sdks@2.1.0` → `origin/release`, with authors from step 2b:
 
 ```text
-feat(sdk,dapp-kit): add leverage-yield service and hooks (#<a>)
-feat(leverage-yield)!: submit-tx on by default, per-action API key (#<b>)
-fix(sdk): retry relay status on 429 (#<c>)
-fix(demo): make every demo page usable on phones (#<d>)      -> omitted (apps)
-ci(docs): remove the marketing docs auto-merge lane (#<e>)   -> omitted (ci)
+feat(sdk,dapp-kit): add leverage-yield service and hooks (#<a>)   @alice, co-author @bob
+feat(leverage-yield)!: submit-tx on by default, per-action API key (#<b>)   @alice, co-author Claude -> AI, not credited
+fix(sdk): retry relay status on 429 (#<c>)   @carol
+fix(demo): make every demo page usable on phones (#<d>)   @dave -> omitted (apps), still credited
+ci(docs): remove the marketing docs auto-merge lane (#<e>)   dependabot[bot] -> omitted (ci), bot not credited
 ```
 
 **Answer:**
@@ -141,16 +153,20 @@ ci(docs): remove the marketing docs auto-merge lane (#<e>)   -> omitted (ci)
 ## @sdks@2.2.0 — 2026-10-12
 
 ### 🚨 Breaking Changes
-- **@sodax/sdk** — Leverage-yield actions now require a per-action API key; calls without it no longer typecheck. Pass the key on each action call. ([#<b>](https://github.com/icon-project/sodax-sdks/pull/<b>))
+- **@sodax/sdk** — Leverage-yield actions now require a per-action API key; calls without it no longer typecheck. Pass the key on each action call. ([#<b>](https://github.com/icon-project/sodax-sdks/pull/<b>)) by @alice
 
 ### ⚠️ Behavior Changes
-- **@sodax/sdk** — Leverage-yield actions now submit through the backend by default instead of broadcasting from the client. Opt out with the flag described in the PR. ([#<b>](https://github.com/icon-project/sodax-sdks/pull/<b>))
+- **@sodax/sdk** — Leverage-yield actions now submit through the backend by default instead of broadcasting from the client. Opt out with the flag described in the PR. ([#<b>](https://github.com/icon-project/sodax-sdks/pull/<b>)) by @alice
 
 ### 🚀 Features
-- **@sodax/sdk, @sodax/dapp-kit** — Added the leverage-yield service and matching React hooks. ([#<a>](https://github.com/icon-project/sodax-sdks/pull/<a>))
+- **@sodax/sdk, @sodax/dapp-kit** — Added the leverage-yield service and matching React hooks. ([#<a>](https://github.com/icon-project/sodax-sdks/pull/<a>)) by @alice and @bob
 
 ### 🐞 Bug Fixes
-- **@sodax/sdk** — Relay status polling now retries when rate-limited instead of failing. ([#<c>](https://github.com/icon-project/sodax-sdks/pull/<c>))
+- **@sodax/sdk** — Relay status polling now retries when rate-limited instead of failing. ([#<c>](https://github.com/icon-project/sodax-sdks/pull/<c>)) by @carol
+
+### ❤️ Contributors
+
+@alice, @bob, @carol, @dave
 
 **Full changelog:** https://github.com/icon-project/sodax-sdks/compare/@sdks@2.1.0...@sdks@2.2.0
 
