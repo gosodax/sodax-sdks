@@ -708,9 +708,11 @@ step carry `context.action: 'swapWithApproval'`; once the path is chosen they al
 same policy is exported for your own flow. `resolveApprovalStrategy({ srcChainKey, walletProvider,
 allowAccountUpgrade })` says whether a short allowance can ride in the deposit's batch. `sendApprovalBatch({
 walletProvider, srcChainKey, txs, timeoutMs, feature })` sends `[resetTx?, approve tx, intent tx]` and returns the
-deposit's `txHash` for `/swaps/submit-tx`, with the failures above. A refusal comes back as `INTENT_CREATION_FAILED`
-with `context.reason: ATOMIC_BATCH_REFUSED`: approve separately, then send the intent tx. In React,
-`useSwapsApiBroadcastWithApproval` from `@sodax/dapp-kit` does all of this.
+deposit's `txHash` for `/swaps/submit-tx`, with the failures above. A refusal (`isAtomicBatchRefusal(error)`) means
+nothing was sent: approve separately, then send the intent tx. Its `onBatchSent` reports the batch id before the
+wait — persist it, because `confirmApprovalBatch` with that id is how to resume a batch that came back
+`ATOMIC_BATCH_UNCONFIRMED` instead of sending a second deposit. In React, `useSwapsApiBroadcastWithApproval` from
+`@sodax/dapp-kit` does all of this.
 
 ---
 

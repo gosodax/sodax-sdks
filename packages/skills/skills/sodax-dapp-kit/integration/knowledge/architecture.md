@@ -230,14 +230,17 @@ take — each API builds its approval for its own hub spender, so an approval bu
 satisfy the other. Only a leverage-yield **deposit** needs one; a withdraw spends `lsoda*` from the
 hub wallet and never approves.
 
-For a swap from an EVM source, **`useSwapsApiBroadcastWithApproval`** goes one step further: given the
+For a swap from an EVM source whose allowance is short (`/swaps/allowance/check` says so — the hook
+always approves), **`useSwapsApiBroadcastWithApproval`** goes one step further: given the
 create-intent `body` and the unsigned `intentTx`, it sends the approval and `intentTx` as one EIP-5792
 atomic batch — one signature — when the wallet supports it, and otherwise approves (as above) and then
 sends `intentTx`. It resolves with `{ txHash, approvalStrategy, approval? }` and stops there: persist
-`txHash`, then call `useSwapsApiSubmitTx`. A `TX_VERIFICATION_FAILED` with `context.reason ===
-ATOMIC_BATCH_UNCONFIRMED` means the batch may still land, so never let the user sign that swap again.
+`txHash`, then call `useSwapsApiSubmitTx`. Persist the `batchId` its `onBatchSent` reports too: a
+`TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` means the batch may still
+land, so never let the user sign that swap again — resume it with `confirmApprovalBatch` instead. Pass
+`fallbackOnRefusal: false` to get a refused batch back and run your own two-step path.
 
-All three accept an optional **`onProgress`** in their mutation vars. It reports each transaction as
+All three, and `useSwapsApiBroadcastWithApproval` for its separate approval, accept an optional **`onProgress`** in their mutation vars. It reports each transaction as
 `{ step, phase, index, total, hash?, error? }` — `step` is `'allowance-reset'` or `'approve'`, `phase`
 walks `signing → broadcast → confirmed` (or `failed`), and `index`/`total` give "1 of 2" without the
 caller tracking anything. Advisory: the listener is never awaited, one that throws is ignored rather
@@ -247,8 +250,8 @@ vars rather than the hook options so it is never a stale closure.
 `useSwapsApiApprove` / `useBridgeApiApprove` / `useLeverageYieldApiApprove` still exist and return
 the API's `{ tx, resetTx? }` verbatim — use them only when you need to own signing. If you do,
 broadcast `resetTx` **first and wait for it to succeed**; the approve is not a valid state
-transition until the reset has landed, so sending both together spends the user's gas on a certain
-revert. Waiting is not enough on its own —
+transition until the reset has landed, so sending both as separate transactions at once spends the
+user's gas on a certain revert (an EIP-5792 atomic batch runs them in order, so it can carry both). Waiting is not enough on its own —
 check the receipt's status, because a mined-and-reverted reset leaves the allowance exactly where it
 was.
 

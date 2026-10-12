@@ -1,5 +1,6 @@
 import {
   ACCOUNT_UPGRADE_DECLINED,
+  ATOMIC_BATCH_REFUSED,
   ATOMIC_BATCH_UNCONFIRMED,
   ChainKeys,
   SodaxError,
@@ -23,7 +24,7 @@ import {
   sourceExtras,
   type ExecutionDependencies,
 } from './execution';
-import { readActivity, submissionFor, type Activity } from './activity';
+import { activityFromBatch, readActivity, readPendingBatch, submissionFor, type Activity } from './activity';
 
 const address = '0x1234567890abcdef1234567890abcdef12345678';
 const tx: EvmRawTransaction = { from: address, to: address, value: 0n, data: '0x' };
@@ -77,10 +78,14 @@ function setup(allowed = true, strategy: 'atomic-batch' | 'sequential' = 'sequen
       calls.push('approve');
     }),
     approvalStrategy: vi.fn(async () => strategy),
-    approveAndSign: vi.fn(async () => {
-      calls.push('approveAndSign');
-      return '0xbatch';
-    }),
+    approveAndSign: vi.fn(
+      async (_body: CreateIntentParamsV2, _tx: unknown, onBatchSent: (batchId: string, callCount: number) => void) => {
+        onBatchSent('batch-1', 2);
+        calls.push('approveAndSign');
+        return '0xbatch';
+      },
+    ),
+    onBatchSent: vi.fn(() => calls.push('batchSent')),
     sign: vi.fn(async () => {
       calls.push('sign');
       return '0x1234';
@@ -133,12 +138,39 @@ describe('swap execution', () => {
   it('approves and signs in one prompt on a batch-capable wallet', async () => {
     const { deps, calls } = setup(false, 'atomic-batch');
     await executeSwap(body, deps);
-    expect(calls).toEqual(['approveAndSign', 'save', 'submit', 'accepted']);
+    // The batch is persisted the moment the wallet takes it, before its hash is known.
+    expect(calls).toEqual(['batchSent', 'approveAndSign', 'save', 'submit', 'accepted']);
     expect(deps.approve).not.toHaveBeenCalled();
     expect(deps.sign).not.toHaveBeenCalled();
     expect(deps.onPhase).not.toHaveBeenCalledWith('approving');
-    expect(deps.approveAndSign).toHaveBeenCalledWith(body, tx);
+    expect(deps.approveAndSign).toHaveBeenCalledWith(body, tx, expect.any(Function));
+    expect(deps.onBatchSent).toHaveBeenCalledWith(
+      { batchId: 'batch-1', callCount: 2 },
+      {
+        srcChainKey: body.srcChainKey,
+        walletAddress: body.srcAddress,
+        intent: toIntentRequest(intent),
+        relayData: '0x00',
+      },
+      intent,
+    );
     expect(deps.api.submitTx).toHaveBeenCalledWith(expect.objectContaining({ txHash: '0xbatch' }));
+  });
+  it('takes the two-step path, re-quote included, when the wallet refuses the batch', async () => {
+    const { deps, calls } = setup(false, 'atomic-batch');
+    vi.mocked(deps.approveAndSign).mockRejectedValueOnce(
+      new SodaxError('INTENT_CREATION_FAILED', 'refused', {
+        feature: 'swap',
+        context: { reason: ATOMIC_BATCH_REFUSED },
+      }),
+    );
+    await executeSwap(body, deps);
+    expect(calls).toEqual(['approve', 'sign', 'save', 'submit', 'accepted']);
+    expect(deps.onPhase).toHaveBeenCalledWith('approving');
+    // Quoted before the batch and again after the separate approval; the intent is rebuilt after it too.
+    expect(deps.api.getQuote).toHaveBeenCalledTimes(2);
+    expect(deps.api.createIntent).toHaveBeenCalledTimes(2);
+    expect(deps.onBatchSent).not.toHaveBeenCalled();
   });
   it('asks for a strategy only when the allowance is short', async () => {
     const { deps } = setup(true, 'atomic-batch');
@@ -352,6 +384,37 @@ describe('swap execution', () => {
       ),
     ).rejects.toThrow('cannot sign');
     expect(sign).not.toHaveBeenCalled();
+  });
+});
+
+describe('pending batch', () => {
+  const pending = {
+    batchId: '0xabc123',
+    callCount: 2,
+    srcChainKey: ChainKeys.BASE_MAINNET,
+    dstChainKey: ChainKeys.SOLANA_MAINNET,
+    srcTokenAddress: address,
+    dstTokenAddress: 'mint',
+    inputAmount: '1000',
+    walletAddress: address,
+    recipient: 'recipient',
+    summary: '1 ETH → USDC',
+    createdAt: 1000,
+    intent,
+    relayData: '0x00',
+  };
+  it('restores what it takes to resume the batch and to submit its deposit later', () => {
+    expect(readPendingBatch(JSON.stringify(pending))).toEqual(pending);
+    const activity = activityFromBatch(pending, '0xdeposit');
+    expect(activity).toEqual({ ...pending, batchId: undefined, callCount: undefined, txHash: '0xdeposit' });
+    expect(submissionFor(activity).txHash).toBe('0xdeposit');
+  });
+  it('rejects a record that cannot identify its batch', () => {
+    expect(readPendingBatch(JSON.stringify({ ...pending, batchId: '' }))).toBeUndefined();
+    expect(readPendingBatch(JSON.stringify({ ...pending, batchId: '<script>' }))).toBeUndefined();
+    expect(readPendingBatch(JSON.stringify({ ...pending, callCount: 0 }))).toBeUndefined();
+    expect(readPendingBatch(JSON.stringify({ ...pending, callCount: 1.5 }))).toBeUndefined();
+    expect(readPendingBatch(JSON.stringify({ ...pending, intent: { ...intent, deadline: 'soon' } }))).toBeUndefined();
   });
 });
 
