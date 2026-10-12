@@ -1,0 +1,39 @@
+{
+  "exclude": ["**/*.test.ts", "./dist/**"],
+  "include": ["src"],
+  "compilerOptions": {
+    "outDir": "./dist",
+    "lib": ["ESNext", "DOM"],
+    "target": "ES2023",
+    // Bundler resolution (not NodeNext): this package is consumed by bundlers
+    // (esbuild/Vite/webpack) and depends on CJS device SDKs whose .d.ts use
+    // `export default class`. Bundler + esModuleInterop resolves those defaults to
+    // the class — NodeNext resolves them to a namespace and breaks `new Eth()`.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "importHelpers": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": false,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": false,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}

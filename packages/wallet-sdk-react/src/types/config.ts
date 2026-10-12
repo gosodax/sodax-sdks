@@ -28,7 +28,7 @@ import type {
   StellarWalletDefaults,
   SuiWalletDefaults,
 } from '@sodax/wallet-sdk-core';
-import type { State as WagmiState } from 'wagmi';
+import type { CreateConnectorFn, State as WagmiState } from 'wagmi';
 import type { WalletConnectParameters } from 'wagmi/connectors';
 import type { IXConnector } from './interfaces.js';
 
@@ -94,6 +94,12 @@ export type EvmAdapterFields = {
   initialState?: WagmiState;
   /** WalletConnect configuration. Adds a WalletConnect connector when provided. */
   walletConnect?: WalletConnectParameters;
+  /**
+   * Extra wagmi connectors merged into the EVM wagmi config — the supported way to
+   * add custom EVM wallets (e.g. hardware wallets via `@sodax/wallet-hw`, Coinbase, Safe).
+   * Appended after any WalletConnect connector; discovered automatically by `EvmHydrator`.
+   */
+  wagmiConnectors?: CreateConnectorFn[];
 };
 
 /** `@solana/wallet-adapter-react` provider settings. */

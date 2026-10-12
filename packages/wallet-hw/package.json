@@ -1,0 +1,83 @@
+{
+  "name": "@sodax/wallet-hw",
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "license": "MIT",
+  "version": "0.0.1-test",
+  "description": "Optional hardware-wallet add-on for the Sodax wallet SDK (Ledger and Trezor on EVM)",
+  "keywords": ["sodax", "wallet", "hardware", "ledger", "trezor", "wagmi", "web3", "multichain"],
+  "homepage": "https://github.com/icon-project/sodax-sdks/tree/main/packages/wallet-hw",
+  "bugs": {
+    "url": "https://github.com/icon-project/sodax-sdks/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.mjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "files": ["dist", "!dist/**/*.map", "README.md"],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs"
+    },
+    "./ledger": {
+      "types": "./dist/ledger/index.d.ts",
+      "import": "./dist/ledger/index.mjs"
+    },
+    "./trezor": {
+      "types": "./dist/trezor/index.d.ts",
+      "import": "./dist/trezor/index.mjs"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "ledger": ["./dist/ledger/index.d.ts"],
+      "trezor": ["./dist/trezor/index.d.ts"]
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/icon-project/sodax-sdks"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch ./src",
+    "prepublishOnly": "pnpm run build",
+    "clean": "rm -rf dist && rm -rf node_modules && rm -rf .turbo",
+    "pretty": "biome format . --write",
+    "checkTs": "tsc --noEmit",
+    "check-exports": "attw --pack --profile esm-only",
+    "test": "vitest run",
+    "check:circular-deps": "madge --circular $(find ./src -name '*.ts')",
+    "lint": "biome lint . --write"
+  },
+  "dependencies": {
+    "@ledgerhq/hw-app-eth": "^6.47.1",
+    "@ledgerhq/hw-transport": "^6.35.2",
+    "@ledgerhq/hw-transport-webhid": "^6.35.2",
+    "@ledgerhq/hw-transport-webusb": "^6.34.2",
+    "@trezor/connect-web": "^9.7.3"
+  },
+  "peerDependencies": {
+    "viem": "2.x",
+    "wagmi": "2.x"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "catalog:",
+    "@types/node": "catalog:",
+    "cross-env": "catalog:",
+    "madge": "catalog:",
+    "tslib": "catalog:",
+    "tsup": "catalog:",
+    "typescript": "catalog:",
+    "viem": "catalog:",
+    "vitest": "catalog:",
+    "wagmi": "catalog:"
+  }
+}

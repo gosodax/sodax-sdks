@@ -20,6 +20,7 @@ Do not hardcode supported chain counts or chain lists in agent guidance. When ex
 | `packages/swaps-api`, `packages/bridge-api` | Standalone type-safe HTTP clients for the backend Swaps / Bridge APIs; the wire sources the SDK's `sodax.api.swaps` / `sodax.api.bridge` wrap | [`swaps-api`](packages/swaps-api/README.md), [`bridge-api`](packages/bridge-api/README.md) |
 | `packages/wallet-sdk-core` | Multi-chain wallet providers for signing and broadcasting | [`packages/wallet-sdk-core/AGENTS.md`](packages/wallet-sdk-core/AGENTS.md) |
 | `packages/wallet-sdk-react` | React wallet state layer, connectors, providers, wallet modal primitives | [`packages/wallet-sdk-react/AGENTS.md`](packages/wallet-sdk-react/AGENTS.md) |
+| `packages/wallet-hw` | Optional, opt-in hardware-wallet add-on (Ledger + Trezor on EVM) exposing wagmi connectors for the EVM slot | [`packages/wallet-hw/AGENTS.md`](packages/wallet-hw/AGENTS.md) |
 | `packages/dapp-kit` | React hooks combining SDK services, wallet providers, and React Query | [`packages/dapp-kit/AGENTS.md`](packages/dapp-kit/AGENTS.md) |
 | `packages/skills` | Consumer-facing AI skills and knowledge for `@sodax/*` SDK users, plus the cross-cutting `sodax-build` front-door ideation skill | [`packages/skills/AGENTS.md`](packages/skills/AGENTS.md) |
 | `packages/assets` | Static brand assets (chain logos) served by URL, never bundled into runtime packages | [`packages/assets/AGENTS.md`](packages/assets/AGENTS.md) |
@@ -48,6 +49,7 @@ Do not hardcode supported chain counts or chain lists in agent guidance. When ex
 - `@sodax/wallet-sdk-core` depends on `@sodax/types`.
 - `@sodax/wallet-sdk-react` depends on `@sodax/types` and `@sodax/wallet-sdk-core`.
 - `@sodax/dapp-kit` depends on `@sodax/sdk` and imports wallet-provider contracts through SDK/type exports.
+- `@sodax/wallet-hw` has peer dependencies on `viem` and `wagmi` only, and is not a dependency of any `@sodax/*` package (opt-in add-on).
 - `@sodax/skills` is markdown/package metadata only and must not depend on runtime SDK packages.
 
 Respect these boundaries when adding imports. If a change seems to need a reverse dependency, stop and find the package-level pattern first.

@@ -32,6 +32,7 @@
     "@sentry/react": "^8.55.0",
     "@sodax/dapp-kit": "workspace:*",
     "@sodax/swaps-api": "workspace:*",
+    "@sodax/wallet-hw": "workspace:*",
     "@sodax/wallet-sdk-react": "workspace:*",
     "@tanstack/react-query": "catalog:",
     "@types/node": "catalog:",
@@ -46,6 +47,7 @@
     "react-router": "^7.18.2",
     "tailwind-merge": "^2.5.4",
     "viem": "catalog:",
+    "wagmi": "catalog:",
     "web-vitals": "^2.1.4",
     "zustand": "4.5.2"
   },

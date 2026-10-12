@@ -1,6 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "concurrency": "16",
+  "concurrency": "20",
   "globalDependencies": ["pnpm-workspace.yaml", "patches/**", ".npmrc"],
   "tasks": {
     "dev": {

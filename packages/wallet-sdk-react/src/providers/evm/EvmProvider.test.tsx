@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import type { ReactNode } from 'react';
+import { mock } from 'wagmi/connectors';
 import type { EvmTypeConfig } from '@/types/config.js';
 import * as EvmXService from '@/xchains/evm/EvmXService.js';
 import { EvmProvider } from './EvmProvider.js';
@@ -50,5 +51,20 @@ describe('EvmProvider', () => {
 
     expect(captured.initialState).toBeUndefined();
     expect(warn).toHaveBeenCalled();
+  });
+
+  it('merges wagmiConnectors into the connectors passed to createWagmiConfig', () => {
+    const spy = vi.spyOn(EvmXService, 'createWagmiConfig');
+    const connector = mock({ accounts: ['0x0000000000000000000000000000000000000001'] });
+
+    render(<EvmProvider config={{ wagmiConnectors: [connector] }}>{null}</EvmProvider>);
+
+    expect(spy).toHaveBeenCalledWith(undefined, expect.objectContaining({ connectors: [connector] }));
+  });
+
+  it('adds no connectors when neither walletConnect nor wagmiConnectors is provided', () => {
+    const spy = vi.spyOn(EvmXService, 'createWagmiConfig');
+    render(<EvmProvider config={{}}>{null}</EvmProvider>);
+    expect(spy).toHaveBeenCalledWith(undefined, expect.objectContaining({ connectors: [] }));
   });
 });

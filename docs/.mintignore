@@ -7,3 +7,6 @@ AGENTS.md
 
 # Contributor workflow, not product documentation.
 local-package-testing.md
+
+# Internal engineering research, not product documentation.
+research/

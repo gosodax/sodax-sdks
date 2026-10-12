@@ -41,6 +41,7 @@ Non-provider chains register actions and create wallet providers through the cha
 - Providing `EVM.walletConnect` adds a WalletConnect connector through wagmi config.
 - WalletConnect filtering belongs in `walletConnect.qrModalOptions`; do not add wallet-specific branching to modal primitives.
 - Async connector discovery belongs in `discoverConnectors` on the chain registry entry.
+- Custom EVM connectors (hardware wallets, Coinbase, Safe) go in `EVM.wagmiConnectors` as wagmi `CreateConnectorFn[]`; the per-chain `connectors` override is only read for non-provider chains. `EvmProvider` appends them to the wagmi config and `EvmHydrator` discovers them through `useConnectors()`.
 
 ## Hooks And Store Rules
 

@@ -2,6 +2,7 @@ import React, { useMemo, type ReactNode } from 'react';
 
 import { QueryClientProvider } from '@tanstack/react-query';
 import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
+import { ledgerEvmConnectors, trezorEvmConnectors } from '@sodax/wallet-hw';
 import {
   SodaxProvider,
   createSodaxQueryClient,
@@ -67,6 +68,10 @@ export default function Providers({ children }: { children: ReactNode }) {
         ssr: true,
         reconnectOnMount: true,
         walletConnect,
+        // Hardware-wallet add-on: registers Ledger (WebHID) and Trezor (hosted
+        // popup) connectors that appear alongside the injected/WalletConnect wallets
+        // in the EVM row of the wallet modal. Desktop only.
+        wagmiConnectors: [...ledgerEvmConnectors(), ...trezorEvmConnectors()],
         chains: {
           [ChainKeys.SONIC_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.SONIC_MAINNET] },
           [ChainKeys.AVALANCHE_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.AVALANCHE_MAINNET] },
