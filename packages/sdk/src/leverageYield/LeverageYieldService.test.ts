@@ -3824,7 +3824,35 @@ describe('LeverageYieldService.getApprovalStrategy and vaultSwapWithApproval', (
         approveTxHash: '0xapproveTx',
         approvalStrategy: 'sequential',
       });
-      expect(createSpy).not.toHaveBeenCalled();
+      // Only the unsigned preflight build ran; no deposit went out over the failed approval.
+      expect(createSpy).toHaveBeenCalledOnce();
+      expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ raw: true, partnerFee: FEE }));
+    });
+
+    it('asks for no approval when the deposit cannot be built', async () => {
+      allowance(false);
+      const invalid = new SodaxError('VALIDATION_FAILED', 'Unsupported spoke chain token', {
+        feature: 'leverageYield',
+      });
+      vi.spyOn(sodax.leverageYield, 'createVaultIntent').mockResolvedValueOnce({ ok: false, error: invalid });
+      const approveSpy = vi.spyOn(sodax.spoke, 'approve');
+
+      const result = await sodax.leverageYield.vaultSwapWithApproval(deposit(mockEvmProvider));
+
+      expect(!result.ok && result.error.code).toBe('VALIDATION_FAILED');
+      expect(approveSpy).not.toHaveBeenCalled();
+    });
+
+    it('reports a wallet of the wrong family as VALIDATION_FAILED, not as a failed approval', async () => {
+      allowance(false);
+      stubCreate();
+      const approveSpy = vi.spyOn(sodax.spoke, 'approve');
+
+      const result = await sodax.leverageYield.vaultSwapWithApproval(deposit(mockBitcoinProvider as never));
+
+      expect(!result.ok && result.error.code).toBe('VALIDATION_FAILED');
+      expect(!result.ok && result.error.context?.approvalStrategy).toBe('sequential');
+      expect(approveSpy).not.toHaveBeenCalled();
     });
 
     it('runs a withdraw as vaultSwap does, with no approval', async () => {

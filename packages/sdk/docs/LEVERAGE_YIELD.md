@@ -211,7 +211,7 @@ const result = await sodax.leverageYield.vaultSwapWithApproval({ ...intentResult
 if (result.ok) console.log(result.value.approvalStrategy, result.value.intentDeliveryInfo.srcTxHash);
 ```
 
-It approves the same spender as above, keeps the leverage-yield partner fee and the backend `operation`, and follows the swap rules for wallet support, `allowAccountUpgrade` and failures (see [Approve and Swap in One Signature](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#approve-and-swap-in-one-signature)). A batch that was sent but not confirmed (`TX_VERIFICATION_FAILED`, `context.reason: ATOMIC_BATCH_UNCONFIRMED`) may still land, so do not deposit it again.
+It approves the same spender as above, keeps the leverage-yield partner fee and the backend `operation`, and follows the swap rules for wallet support, `allowAccountUpgrade` and failures (see [Approve and Swap in One Signature](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#approve-and-swap-in-one-signature)). On the two-step path it builds the deposit unsigned before approving, so params that can never deposit fail before the user pays for an approval. A batch that was sent but not confirmed (`TX_VERIFICATION_FAILED`, `context.reason: ATOMIC_BATCH_UNCONFIRMED`) may still land, so do not deposit it again.
 
 ### Withdraw (`lsoda*` → any token)
 

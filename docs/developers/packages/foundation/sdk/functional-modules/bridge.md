@@ -263,8 +263,9 @@ support, `allowAccountUpgrade` and the failure rules are the same as for swaps (
   deposited;
 - sent but not confirmed → `TX_VERIFICATION_FAILED`, `context.reason: ATOMIC_BATCH_UNCONFIRMED` and
   `context.batchId`. It may still land, so do not bridge it again;
-- on the sequential path, an approval that does not confirm → `APPROVE_FAILED`, `context.reason:
-  'approve-not-confirmed'`.
+- on the sequential path, the deposit is built unsigned before anything is approved, so params that can never bridge
+  fail with `bridge()`'s validation codes and cost the user nothing. An approval that then does not confirm →
+  `APPROVE_FAILED`, `context.reason: 'approve-not-confirmed'`.
 
 ### createBridgeIntent
 
@@ -650,7 +651,7 @@ class SodaxError<C extends string = string> extends Error {
 |---|---|
 | `bridge` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `TX_VERIFICATION_FAILED`, `TX_SUBMIT_FAILED`, `RELAY_TIMEOUT`, `RELAY_FAILED`, `EXECUTION_FAILED`, `UNKNOWN` |
 | `bridgeWithApproval` | every `bridge` code, plus `APPROVE_FAILED` and `ALLOWANCE_CHECK_FAILED` |
-| `getApprovalStrategy` | `ALLOWANCE_CHECK_FAILED` |
+| `getApprovalStrategy` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` (`isAllowanceValid`'s) |
 | `createBridgeIntent` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` |
 | `approve` | `USER_REJECTED`, `VALIDATION_FAILED`, `APPROVE_FAILED`, `UNKNOWN` |
 | `isAllowanceValid` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` |

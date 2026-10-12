@@ -1662,6 +1662,15 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
       ).resolves.toEqual({ ok: true, value: 'sequential' });
     });
 
+    it('keeps invalid params a VALIDATION_FAILED, as bridge() reports them', async () => {
+      const result = await sodax.bridge.getApprovalStrategy({
+        ...input(makeBatchProvider()),
+        params: { ...input(makeBatchProvider()).params, amount: 0n },
+      });
+      expect(!result.ok && result.error.code).toBe('VALIDATION_FAILED');
+      expect(!result.ok && result.error.context).toMatchObject({ field: 'amount', action: 'bridgeWithApproval' });
+    });
+
     it('reports a failed allowance read as ALLOWANCE_CHECK_FAILED', async () => {
       vi.spyOn(sodax.bridge, 'isAllowanceValid').mockResolvedValueOnce({
         ok: false,
@@ -1787,7 +1796,8 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
 
       expect(result.ok && result.value.approvalStrategy).toBe('sequential');
       expect(waitSpy).toHaveBeenCalledWith({ txHash: '0xapproveTx', chainKey: BSC });
-      expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ raw: false }));
+      expect(createSpy.mock.calls[0]?.[0]).toMatchObject({ raw: true });
+      expect(createSpy.mock.calls[1]?.[0]).toMatchObject({ raw: false });
     });
 
     it('does not deposit over an approval that did not confirm', async () => {
@@ -1807,7 +1817,22 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
         approveTxHash: '0xapproveTx',
         approvalStrategy: 'sequential',
       });
-      expect(createSpy).not.toHaveBeenCalled();
+      // Only the unsigned preflight build ran; no deposit went out over the failed approval.
+      expect(createSpy).toHaveBeenCalledOnce();
+      expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ raw: true }));
+    });
+
+    it('asks for no approval when the deposit cannot be built', async () => {
+      allowance(false);
+      const invalid = new SodaxError('VALIDATION_FAILED', 'Unsupported destination token', { feature: 'bridge' });
+      vi.spyOn(sodax.bridge, 'createBridgeIntent').mockResolvedValueOnce({ ok: false, error: invalid });
+      const approveSpy = vi.spyOn(sodax.bridge, 'approve');
+
+      const result = await sodax.bridge.bridgeWithApproval(input(mockEvmProvider));
+
+      expect(!result.ok && result.error.code).toBe('VALIDATION_FAILED');
+      expect(!result.ok && result.error.context?.approvalStrategy).toBe('sequential');
+      expect(approveSpy).not.toHaveBeenCalled();
     });
 
     it('bridges straight away when no approval is needed', async () => {

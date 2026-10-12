@@ -87,13 +87,15 @@ import { runBackendSubmitTx } from '../backendApi/runBackendSubmitTx.js';
 import { createSubmitTxAttempt, type SubmitTxAttempt } from '../backendApi/submitTxAttempt.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
 import {
-  ATOMIC_BATCH_REFUSED,
   confirmApproval,
   resolveApprovalStrategy,
+  runWithApproval,
   sendApprovalBatch,
+  type ApprovalOptions,
   type ApprovalStrategy,
   type ApprovalStrategyError,
 } from '../shared/utils/approvalBatch.js';
+import { intentDepositSpender } from '../swap/intentDepositSpender.js';
 import type { ApprovalTxs } from '../shared/types/spoke-types.js';
 import { encodeFunctionData, erc20Abi, isAddress, isAddressEqual, isHex, parseAbi, zeroAddress } from 'viem';
 import type { ConfigService } from '../shared/config/ConfigService.js';
@@ -654,19 +656,13 @@ export type CreateVaultIntentResult<K extends SpokeChainKey, Raw extends boolean
   relayData: RelayExtraData;
 };
 
+/** Params for `vaultSwapWithApproval` / `getApprovalStrategy`: `vaultSwap()`'s, plus the account-upgrade choice. */
+export type VaultSwapWithApprovalParams<K extends SpokeChainKey> = VaultSwapActionParams<K, false> & ApprovalOptions;
+
 /**
  * Success value of {@link LeverageYieldService.vaultSwap}. Mirrors the swap domain's
  * `SwapResponse` — duplicated deliberately so the leverage-yield surface stands alone.
  */
-/** Params for `vaultSwapWithApproval` / `getApprovalStrategy`: `vaultSwap()`'s, plus the account-upgrade choice. */
-export type VaultSwapWithApprovalParams<K extends SpokeChainKey> = VaultSwapActionParams<K, false> & {
-  /**
-   * Whether a wallet that must first upgrade the account to batch (EIP-5792 `'ready'`, e.g. a MetaMask
-   * EOA becoming a smart account) may be asked to. `false` approves separately instead. Defaults to `true`.
-   */
-  allowAccountUpgrade?: boolean;
-};
-
 export type VaultSwapResponse = {
   solverExecutionResponse: SolverExecutionResponse;
   intent: Intent;
@@ -1379,27 +1375,20 @@ export class LeverageYieldService {
           const strategy = await this.getApprovalStrategy(_params);
           if (!strategy.ok) return strategy;
 
-          let approvalStrategy = strategy.value;
-          let created: Result<CreateVaultIntentResult<K, false>, VaultSwapWithApprovalError> = approvalStrategy ===
-          'atomic-batch'
-            ? await this.createVaultIntentInAtomicBatch(_params)
-            : approvalStrategy === 'sequential'
-              ? await this.approveThenCreateVaultIntent(_params)
-              : await this.createVaultIntent(_params);
-          if (
-            !created.ok &&
-            created.error.code === 'INTENT_CREATION_FAILED' &&
-            created.error.context?.reason === ATOMIC_BATCH_REFUSED
-          ) {
-            // Nothing was signed or sent yet, so approving separately cannot duplicate anything.
-            this.config.logger.warn('[vaultSwapWithApproval] wallet refused the atomic batch; approving separately', {
-              error: created.error,
-            });
-            approvalStrategy = 'sequential';
-            created = await this.approveThenCreateVaultIntent(_params);
-          }
+          const { result: created, approvalStrategy } = await runWithApproval<
+            CreateVaultIntentResult<K, false>,
+            VaultSwapWithApprovalError
+          >({
+            strategy: strategy.value,
+            notRequired: () => this.createVaultIntent(_params),
+            atomicBatch: () => this.createVaultIntentInAtomicBatch(_params),
+            sequential: () => this.approveThenCreateVaultIntent(_params),
+            onBatchRefused: error =>
+              this.config.logger.warn('[vaultSwapWithApproval] wallet refused the atomic batch; approving separately', {
+                error,
+              }),
+          });
           if (!created.ok) return created;
-
           const completed = await this.completeVaultSwap(_params, created.value);
           if (!completed.ok) return completed;
           return { ok: true, value: { ...completed.value, approvalStrategy } };
@@ -1449,9 +1438,11 @@ export class LeverageYieldService {
       approvalStrategy: 'atomic-batch',
     };
 
-    const approval = await this.buildDepositApproveTxs(params, srcChainKey);
+    const [approval, created] = await Promise.all([
+      this.buildDepositApproveTxs(params, srcChainKey),
+      this.createVaultIntent<K, true>({ params, extras, skipSimulation, partnerFee, raw: true }),
+    ]);
     if (!approval.ok) return { ok: false, error: approveFailed('leverageYield', approval.error, ctx) };
-    const created = await this.createVaultIntent<K, true>({ params, extras, skipSimulation, partnerFee, raw: true });
     if (!created.ok) return { ok: false, error: withErrorContext(created.error, ctx) };
 
     const { resetTx, approveTx } = approval.value;
@@ -1480,7 +1471,7 @@ export class LeverageYieldService {
   private async approveThenCreateVaultIntent<K extends SpokeChainKey>(
     _params: VaultSwapActionParams<K, false>,
   ): Promise<Result<CreateVaultIntentResult<K, false>, VaultSwapWithApprovalError>> {
-    const { params } = _params;
+    const { params, extras, skipSimulation, partnerFee } = _params;
     const ctx = {
       srcChainKey: params.srcChainKey,
       dstChainKey: params.dstChainKey,
@@ -1488,8 +1479,19 @@ export class LeverageYieldService {
       approvalStrategy: 'sequential',
     };
 
+    // Build the deposit unsigned first, so params that can never deposit fail before the user pays for an approval.
+    const preflight = await this.createVaultIntent<K, true>({ params, extras, skipSimulation, partnerFee, raw: true });
+    if (!preflight.ok) return { ok: false, error: withErrorContext(preflight.error, ctx) };
+
     const approved = await this.approveDeposit(_params);
-    if (!approved.ok) return { ok: false, error: approveFailed('leverageYield', approved.error, ctx) };
+    if (!approved.ok) {
+      return {
+        ok: false,
+        error: isLeverageYieldApproveError(approved.error)
+          ? withErrorContext(approved.error, ctx)
+          : approveFailed('leverageYield', approved.error, ctx),
+      };
+    }
 
     const confirmed = await confirmApproval({
       waitForTxReceipt: receiptParams => this.spoke.waitForTxReceipt(receiptParams),
@@ -1501,13 +1503,6 @@ export class LeverageYieldService {
     if (!confirmed.ok) return confirmed;
 
     return this.createVaultIntent(_params);
-  }
-
-  /** A deposit approves the same spender as a swap: the intents contract on the hub, the asset manager on a spoke. */
-  private depositSpender(srcChainKey: HubChainKey | EvmSpokeOnlyChainKey): Address {
-    return isHubChainKeyType(srcChainKey)
-      ? this.config.solver.intentsContract
-      : this.config.getChainConfig(srcChainKey).addresses.assetManager;
   }
 
   /** Whether the deposit's source-token allowance already covers `inputAmount`. */
@@ -1522,7 +1517,7 @@ export class LeverageYieldService {
           token: params.inputToken,
           amount: params.inputAmount,
           owner: params.srcAddress,
-          spender: this.depositSpender(srcChainKey),
+          spender: intentDepositSpender(this.config, srcChainKey),
         } satisfies SpokeIsAllowanceValidParamsHub);
       }
       if (isEvmSpokeOnlyChainKeyType(srcChainKey)) {
@@ -1531,7 +1526,7 @@ export class LeverageYieldService {
           token: params.inputToken,
           amount: params.inputAmount,
           owner: params.srcAddress,
-          spender: this.depositSpender(srcChainKey),
+          spender: intentDepositSpender(this.config, srcChainKey),
         } satisfies SpokeIsAllowanceValidParamsEvmSpoke);
       }
       if (isStellarChainKeyType(srcChainKey)) {
@@ -1559,7 +1554,7 @@ export class LeverageYieldService {
         owner: params.srcAddress as GetAddressType<EvmSpokeOnlyChainKey>,
         token: params.inputToken as GetTokenAddressType<EvmSpokeOnlyChainKey>,
         amount: params.inputAmount,
-        spender: this.depositSpender(srcChainKey),
+        spender: intentDepositSpender(this.config, srcChainKey),
         raw: true,
       });
     } catch (error) {
@@ -1583,7 +1578,7 @@ export class LeverageYieldService {
           owner: params.srcAddress as GetAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
           token: params.inputToken as GetTokenAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
           amount: params.inputAmount,
-          spender: this.depositSpender(params.srcChainKey),
+          spender: intentDepositSpender(this.config, params.srcChainKey),
           raw: false,
           walletProvider,
         });
@@ -1612,7 +1607,10 @@ export class LeverageYieldService {
           value: result.value satisfies TxReturnType<StellarChainKey, false> as TxReturnType<K, false>,
         };
       }
-      return { ok: false, error: new Error('Approve only supported for hub (Sonic), EVM spokes, and Stellar') };
+      leverageYieldInvariant(false, 'Approve only supported for hub (Sonic), EVM spokes, and Stellar', {
+        srcChainKey: params.srcChainKey,
+        field: 'srcChainKey',
+      });
     } catch (error) {
       return { ok: false, error };
     }

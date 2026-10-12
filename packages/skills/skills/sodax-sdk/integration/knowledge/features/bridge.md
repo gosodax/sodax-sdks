@@ -233,7 +233,7 @@ different contract on the hub.
 |---|---|---|
 | `bridge` | full exec set | `action: 'bridge'` |
 | `bridgeWithApproval` | `bridge`'s codes + `APPROVE_FAILED`, `ALLOWANCE_CHECK_FAILED` | `action: 'bridgeWithApproval'`, `approvalStrategy`; a batch that may still land is `TX_VERIFICATION_FAILED` with `reason: ATOMIC_BATCH_UNCONFIRMED` — never bridge it again |
-| `getApprovalStrategy` | `ALLOWANCE_CHECK_FAILED` | `action: 'bridgeWithApproval'` |
+| `getApprovalStrategy` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` (`isAllowanceValid`'s) | `action: 'bridgeWithApproval'` |
 | `createBridgeIntent` | `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` | `action: 'bridge'` |
 | `approve` | `VALIDATION_FAILED`, `APPROVE_FAILED`, `UNKNOWN` | n/a |
 | `isAllowanceValid` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` | n/a |

@@ -41,12 +41,12 @@ import type { DetailedBridgeStatus, DetailedBridgeStatusKey } from './detailedSt
 import { createSubmitTxAttempt, type SubmitTxAttempt } from '../backendApi/submitTxAttempt.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
 import {
-  ATOMIC_BATCH_REFUSED,
   confirmApproval,
   resolveApprovalStrategy,
+  runWithApproval,
   sendApprovalBatch,
+  type ApprovalOptions,
   type ApprovalStrategy,
-  type ApprovalStrategyError,
 } from '../shared/utils/approvalBatch.js';
 import {
   type SpokeChainKey,
@@ -147,13 +147,7 @@ export type BridgeParams<ChainKey extends SpokeChainKey, Raw extends boolean> = 
 >;
 
 /** Params for `bridgeWithApproval` / `getApprovalStrategy`: `bridge()`'s, plus the account-upgrade choice. */
-export type BridgeWithApprovalParams<K extends SpokeChainKey> = BridgeParams<K, false> & {
-  /**
-   * Whether a wallet that must first upgrade the account to batch (EIP-5792 `'ready'`, e.g. a MetaMask
-   * EOA becoming a smart account) may be asked to. `false` approves separately instead. Defaults to `true`.
-   */
-  allowAccountUpgrade?: boolean;
-};
+export type BridgeWithApprovalParams<K extends SpokeChainKey> = BridgeParams<K, false> & ApprovalOptions;
 
 export type BridgeWithApprovalResponse = TxHashPair & { approvalStrategy: ApprovalStrategy };
 
@@ -570,18 +564,19 @@ export class BridgeService {
    * Stellar and wallets without batch support get `'sequential'`; other non-EVM sources have no
    * allowance and get `'not-required'`.
    *
-   * @returns `ALLOWANCE_CHECK_FAILED` when the allowance read fails; otherwise the strategy.
+   * @returns `isAllowanceValid`'s error — `VALIDATION_FAILED` for invalid params, `ALLOWANCE_CHECK_FAILED`
+   *   when the read fails — or the strategy.
    */
   public async getApprovalStrategy<K extends SpokeChainKey>(
     _params: BridgeWithApprovalParams<K>,
-  ): Promise<Result<ApprovalStrategy, ApprovalStrategyError>> {
+  ): Promise<Result<ApprovalStrategy, BridgeAllowanceCheckError>> {
     const { params, walletProvider, allowAccountUpgrade = true } = _params;
 
     const allowance = await this.isAllowanceValid(_params);
     if (!allowance.ok) {
       return {
         ok: false,
-        error: allowanceCheckFailed('bridge', allowance.error, {
+        error: withErrorContext(allowance.error, {
           srcChainKey: params.srcChainKey,
           dstChainKey: params.dstChainKey,
           action: 'bridgeWithApproval',
@@ -627,26 +622,20 @@ export class BridgeService {
           const strategy = await this.getApprovalStrategy(_params);
           if (!strategy.ok) return strategy;
 
-          let approvalStrategy = strategy.value;
-          let created: Result<IntentTxResult<K, false>, BridgeWithApprovalError> = approvalStrategy === 'atomic-batch'
-            ? await this.createBridgeIntentInAtomicBatch(_params)
-            : approvalStrategy === 'sequential'
-              ? await this.approveThenCreateBridgeIntent(_params)
-              : await this.createBridgeIntent(_params);
-          if (
-            !created.ok &&
-            created.error.code === 'INTENT_CREATION_FAILED' &&
-            created.error.context?.reason === ATOMIC_BATCH_REFUSED
-          ) {
-            // Nothing was signed or sent yet, so approving separately cannot duplicate anything.
-            this.config.logger.warn('[bridgeWithApproval] wallet refused the atomic batch; approving separately', {
-              error: created.error,
-            });
-            approvalStrategy = 'sequential';
-            created = await this.approveThenCreateBridgeIntent(_params);
-          }
+          const { result: created, approvalStrategy } = await runWithApproval<
+            IntentTxResult<K, false>,
+            BridgeWithApprovalError
+          >({
+            strategy: strategy.value,
+            notRequired: () => this.createBridgeIntent(_params),
+            atomicBatch: () => this.createBridgeIntentInAtomicBatch(_params),
+            sequential: () => this.approveThenCreateBridgeIntent(_params),
+            onBatchRefused: error =>
+              this.config.logger.warn('[bridgeWithApproval] wallet refused the atomic batch; approving separately', {
+                error,
+              }),
+          });
           if (!created.ok) return created;
-
           const completed = await this.completeBridge(_params, created.value);
           if (!completed.ok) return completed;
           return { ok: true, value: { ...completed.value, approvalStrategy } };
@@ -695,9 +684,11 @@ export class BridgeService {
       approvalStrategy: 'atomic-batch',
     };
 
-    const approval = await this.buildApproveTxs<K>({ params, raw: true });
+    const [approval, created] = await Promise.all([
+      this.buildApproveTxs<K>({ params, raw: true }),
+      this.createBridgeIntent<K, true>({ params, extras, skipSimulation, raw: true }),
+    ]);
     if (!approval.ok) return { ok: false, error: withErrorContext(approval.error, ctx) };
-    const created = await this.createBridgeIntent<K, true>({ params, extras, skipSimulation, raw: true });
     if (!created.ok) return { ok: false, error: withErrorContext(created.error, ctx) };
 
     // An EVM spoke source makes every unsigned leg an EvmRawTransaction.
@@ -725,13 +716,17 @@ export class BridgeService {
   private async approveThenCreateBridgeIntent<K extends SpokeChainKey>(
     _params: BridgeParams<K, false>,
   ): Promise<Result<IntentTxResult<K, false>, BridgeWithApprovalError>> {
-    const { params } = _params;
+    const { params, extras, skipSimulation } = _params;
     const ctx = {
       srcChainKey: params.srcChainKey,
       dstChainKey: params.dstChainKey,
       action: 'bridgeWithApproval',
       approvalStrategy: 'sequential',
     };
+
+    // Build the deposit unsigned first, so params that can never bridge fail before the user pays for an approval.
+    const preflight = await this.createBridgeIntent<K, true>({ params, extras, skipSimulation, raw: true });
+    if (!preflight.ok) return { ok: false, error: withErrorContext(preflight.error, ctx) };
 
     const approved = await this.approve(_params);
     if (!approved.ok) return { ok: false, error: withErrorContext(approved.error, ctx) };

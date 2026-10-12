@@ -57,14 +57,14 @@ export function BridgeDialog({
   const [bridgeError, setBridgeError] = useState<string | null>(null);
   const [allowAccountUpgrade, setAllowAccountUpgrade] = useState(true);
   const [upgradeDeclined, setUpgradeDeclined] = useState(false);
-  // A batch the wallet took but never confirmed may still land, so this order is not sent again.
+  // A batch the wallet took but never confirmed may still land, so nothing is bridged again until the
+  // user starts over — closing or reopening the dialog does not clear it.
   const [unconfirmedBatchId, setUnconfirmedBatchId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setBridgeError(null);
     setUpgradeDeclined(false);
-    setUnconfirmedBatchId(null);
   }, [open]);
 
   const toAccount = useXAccount({ xChainId: toChainKey });
@@ -248,7 +248,10 @@ export function BridgeDialog({
         {unconfirmedBatchId !== null && (
           <div className="text-amber-600 text-sm wrap-anywhere">
             Your wallet sent the bridge (batch {unconfirmedBatchId}) but it was not confirmed in time. It may still land
-            — check your wallet activity before bridging again.
+            — check your wallet activity before bridging again.{' '}
+            <button type="button" className="underline" onClick={() => setUnconfirmedBatchId(null)}>
+              I checked — start over
+            </button>
           </div>
         )}
 

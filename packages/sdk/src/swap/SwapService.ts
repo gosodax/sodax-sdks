@@ -58,6 +58,7 @@ import {
 } from '../shared/utils/approvalBatch.js';
 import type { ApprovalTxs } from '../shared/types/spoke-types.js';
 import { selectSolvedIntentPacket } from './selectSolvedIntentPacket.js';
+import { intentDepositSpender } from './intentDepositSpender.js';
 import { estimateSwapSpeedTier, type SwapSpeedTierParams, type SwapSpeedTierResult } from './speed-tier.js';
 import { isSodaxError, SodaxError } from '../errors/SodaxError.js';
 import { isAuthFailure } from '../errors/guards.js';
@@ -1165,7 +1166,7 @@ export class SwapService {
           token: params.inputToken,
           amount: params.inputAmount,
           owner: params.srcAddress,
-          spender: this.solver.intentsContract,
+          spender: intentDepositSpender(this.config, srcChainKey),
         } satisfies SpokeIsAllowanceValidParamsHub);
       }
 
@@ -1175,7 +1176,7 @@ export class SwapService {
           token: params.inputToken,
           amount: params.inputAmount,
           owner: params.srcAddress,
-          spender: this.config.getChainConfig(srcChainKey).addresses.assetManager,
+          spender: intentDepositSpender(this.config, srcChainKey),
         } satisfies SpokeIsAllowanceValidParamsEvmSpoke);
       }
 
@@ -1225,9 +1226,7 @@ export class SwapService {
           isOptionalEvmWalletProviderType(_params.walletProvider),
           'Invalid wallet provider. Expected Evm wallet provider.',
         );
-        const spender = isHubChainKeyType(params.srcChainKey)
-          ? this.solver.intentsContract
-          : this.config.getChainConfig(params.srcChainKey).addresses.assetManager;
+        const spender = intentDepositSpender(this.config, params.srcChainKey);
         const coreParams = {
           srcChainKey: params.srcChainKey,
           owner: params.srcAddress as GetAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
@@ -1312,9 +1311,7 @@ export class SwapService {
 
     try {
       if (isHubChainKeyType(params.srcChainKey) || isEvmSpokeOnlyChainKeyType(params.srcChainKey)) {
-        const spender = isHubChainKeyType(params.srcChainKey)
-          ? this.solver.intentsContract
-          : this.config.getChainConfig(params.srcChainKey).addresses.assetManager;
+        const spender = intentDepositSpender(this.config, params.srcChainKey);
 
         const result = await this.spoke.buildApproveTxs<HubChainKey | EvmSpokeOnlyChainKey>({
           srcChainKey: params.srcChainKey,

@@ -200,7 +200,6 @@ export default function LeverageYieldPage() {
   useEffect(() => {
     setSourceAmount('');
     setIntentOrderPayload(undefined);
-    setUnconfirmedBatchId(null);
   }, [tab, selectedVaultName, userChain, userToken?.address]);
 
   // Gross amount: the leverage-yield quote deducts the same fee the vault intent charges.
@@ -244,7 +243,8 @@ export default function LeverageYieldPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [allowAccountUpgrade, setAllowAccountUpgrade] = useState(true);
   const [upgradeDeclined, setUpgradeDeclined] = useState(false);
-  // A batch the wallet took but never confirmed may still land, so this payload is not sent again.
+  // A batch the wallet took but never confirmed may still land, so nothing is deposited again until the
+  // user starts over — a new review or a form change does not clear it.
   const [unconfirmedBatchId, setUnconfirmedBatchId] = useState<string | null>(null);
 
   // A deposit's approval rides in the deposit's own signature on an EIP-5792 wallet. A withdraw needs
@@ -356,7 +356,6 @@ export default function LeverageYieldPage() {
   const prepare = async () => {
     setActionError(null);
     setUpgradeDeclined(false);
-    setUnconfirmedBatchId(null);
     if (
       !src.token ||
       !dst.token ||
@@ -825,7 +824,10 @@ export default function LeverageYieldPage() {
               {unconfirmedBatchId !== null && (
                 <div className="text-sm text-amber-600 wrap-anywhere">
                   Your wallet sent the deposit (batch {unconfirmedBatchId}) but it was not confirmed in time. It may
-                  still land — check your wallet activity before depositing again.
+                  still land — check your wallet activity before depositing again.{' '}
+                  <button type="button" className="underline" onClick={() => setUnconfirmedBatchId(null)}>
+                    I checked — start over
+                  </button>
                 </div>
               )}
               {upgradeDeclined && (
