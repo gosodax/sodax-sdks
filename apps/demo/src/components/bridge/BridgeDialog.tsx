@@ -40,6 +40,9 @@ interface BridgeDialogProps {
   walletProvider: GetWalletProviderType<SpokeChainKey>;
   fromChainType: ChainType | undefined;
   toChainKey: SpokeChainKey;
+  /** A batch the wallet took but never confirmed. Owned by the manager, which outlives this dialog. */
+  heldBatchId: string | null;
+  onBatchHeld: (batchId: string | null) => void;
 }
 
 export function BridgeDialog({
@@ -51,15 +54,14 @@ export function BridgeDialog({
   walletProvider,
   fromChainType,
   toChainKey,
+  heldBatchId,
+  onBatchHeld,
 }: BridgeDialogProps) {
   const [isFromBtcReady, setIsFromBtcReady] = useState(false);
   const [isToBtcReady, setIsToBtcReady] = useState(false);
   const [bridgeError, setBridgeError] = useState<string | null>(null);
   const [allowAccountUpgrade, setAllowAccountUpgrade] = useState(true);
   const [upgradeDeclined, setUpgradeDeclined] = useState(false);
-  // A batch the wallet took but never confirmed may still land, so nothing is bridged again until the
-  // user starts over — closing or reopening the dialog does not clear it.
-  const [unconfirmedBatchId, setUnconfirmedBatchId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -126,7 +128,7 @@ export function BridgeDialog({
       const { error } = result;
       const context = isSodaxError(error) ? error.context : undefined;
       if (context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
-        setUnconfirmedBatchId(String(context.batchId ?? ''));
+        onBatchHeld(String(context.batchId ?? ''));
       } else if (context?.reason === ACCOUNT_UPGRADE_DECLINED) {
         setUpgradeDeclined(true);
       } else {
@@ -165,7 +167,7 @@ export function BridgeDialog({
 
   const isBridgeDisabled =
     isBridging ||
-    unconfirmedBatchId !== null ||
+    heldBatchId !== null ||
     isBelowDestinationUnit ||
     (order.srcChainKey === ChainKeys.BITCOIN_MAINNET && !isFromBtcReady) ||
     (toChainKey === ChainKeys.BITCOIN_MAINNET && !isToBtcReady) ||
@@ -245,11 +247,11 @@ export function BridgeDialog({
 
         {bridgeError && <div className="text-red-500 text-sm wrap-anywhere">{bridgeError}</div>}
 
-        {unconfirmedBatchId !== null && (
+        {heldBatchId !== null && (
           <div className="text-amber-600 text-sm wrap-anywhere">
-            Your wallet sent the bridge (batch {unconfirmedBatchId}) but it was not confirmed in time. It may still land
-            — check your wallet activity before bridging again.{' '}
-            <button type="button" className="underline" onClick={() => setUnconfirmedBatchId(null)}>
+            Your wallet sent the bridge (batch {heldBatchId}) but it was not confirmed in time. It may still land —
+            check your wallet activity before bridging again.{' '}
+            <button type="button" className="underline" onClick={() => onBatchHeld(null)}>
               I checked — start over
             </button>
           </div>

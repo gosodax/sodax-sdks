@@ -3754,7 +3754,7 @@ describe('LeverageYieldService.getApprovalStrategy and vaultSwapWithApproval', (
     it('approves separately when the wallet refuses the batch before signing', async () => {
       allowance(false);
       vi.spyOn(sodax.spoke, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
-      stubCreate();
+      const createSpy = stubCreate();
       const approveSpy = vi.spyOn(sodax.spoke, 'approve').mockResolvedValueOnce({ ok: true, value: '0xapproveTx' });
       vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({
         ok: true,
@@ -3771,6 +3771,44 @@ describe('LeverageYieldService.getApprovalStrategy and vaultSwapWithApproval', (
       expect(approveSpy).toHaveBeenCalledWith(
         expect.objectContaining({ spender: sodax.config.getChainConfig(ARBITRUM).addresses.assetManager, raw: false }),
       );
+      // The batch path already built the deposit, so the fallback skips a second unsigned build.
+      expect(createSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("returns vaultSwap()'s own error once the deposit is broadcast", async () => {
+      allowance(true);
+      stubCreate();
+      mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: new Error('RELAY_TIMEOUT') });
+
+      const result = await sodax.leverageYield.vaultSwapWithApproval(deposit(makeBatchProvider()));
+
+      expect(!result.ok && result.error.code).toBe('RELAY_TIMEOUT');
+      expect(!result.ok && result.error.context?.action).toBe('vaultSwap');
+      expect(!result.ok && result.error.context?.approvalStrategy).toBeUndefined();
+    });
+
+    it('approves a Stellar deposit separately, with no spender, then deposits', async () => {
+      const allowanceSpy = allowance(false);
+      const createSpy = stubCreate();
+      const approveSpy = vi.spyOn(sodax.spoke, 'approve').mockResolvedValueOnce({ ok: true, value: '0xtrustline' });
+      vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({
+        ok: true,
+        value: { status: 'success', receipt: {} as never },
+      });
+      stubCompletion();
+      const STELLAR = ChainKeys.STELLAR_MAINNET satisfies SpokeChainKey;
+
+      const result = await sodax.leverageYield.vaultSwapWithApproval({
+        params: vaultIntentParams(STELLAR),
+        walletProvider: { chainType: 'STELLAR' } as never,
+      });
+
+      expect(result.ok && result.value.approvalStrategy).toBe('sequential');
+      expect(allowanceSpy).toHaveBeenCalledWith(expect.not.objectContaining({ spender: expect.anything() }));
+      expect(approveSpy).toHaveBeenCalledWith(expect.objectContaining({ srcChainKey: STELLAR, raw: false }));
+      expect(approveSpy).toHaveBeenCalledWith(expect.not.objectContaining({ spender: expect.anything() }));
+      // The unsigned build first, then the signed deposit.
+      expect(createSpy.mock.calls.map(([call]) => call.raw === true)).toEqual([true, false]);
     });
 
     it('reports a rejected batch as USER_REJECTED without approving separately', async () => {

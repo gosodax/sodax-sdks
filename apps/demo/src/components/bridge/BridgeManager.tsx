@@ -129,6 +129,9 @@ export function BridgeManager() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [order, setOrder] = useState<CreateBridgeIntentParams | undefined>(undefined);
+  // A batch the wallet took but never confirmed may still land. Held here, not in the dialog, because the
+  // dialog unmounts with the source wallet; only the user's "start over" releases it.
+  const [heldBatchId, setHeldBatchId] = useState<string | null>(null);
 
   const handleOpenDialog = () => {
     if (!fromToken || !toToken || !fromAccount.address || !toAccount.address) return;
@@ -308,6 +311,8 @@ export function BridgeManager() {
           walletProvider={walletProvider}
           fromChainType={fromChainType}
           toChainKey={toChainKey}
+          heldBatchId={heldBatchId}
+          onBatchHeld={setHeldBatchId}
         />
       )}
     </>

@@ -1382,7 +1382,7 @@ export class LeverageYieldService {
             strategy: strategy.value,
             notRequired: () => this.createVaultIntent(_params),
             atomicBatch: () => this.createVaultIntentInAtomicBatch(_params),
-            sequential: () => this.approveThenCreateVaultIntent(_params),
+            sequential: afterRefusedBatch => this.approveThenCreateVaultIntent(_params, afterRefusedBatch),
             onBatchRefused: error =>
               this.config.logger.warn('[vaultSwapWithApproval] wallet refused the atomic batch; approving separately', {
                 error,
@@ -1470,6 +1470,7 @@ export class LeverageYieldService {
   /** Approve, wait for the approval to confirm, then send the deposit — two or more signatures. */
   private async approveThenCreateVaultIntent<K extends SpokeChainKey>(
     _params: VaultSwapActionParams<K, false>,
+    validated = false,
   ): Promise<Result<CreateVaultIntentResult<K, false>, VaultSwapWithApprovalError>> {
     const { params, extras, skipSimulation, partnerFee } = _params;
     const ctx = {
@@ -1480,8 +1481,16 @@ export class LeverageYieldService {
     };
 
     // Build the deposit unsigned first, so params that can never deposit fail before the user pays for an approval.
-    const preflight = await this.createVaultIntent<K, true>({ params, extras, skipSimulation, partnerFee, raw: true });
-    if (!preflight.ok) return { ok: false, error: withErrorContext(preflight.error, ctx) };
+    if (!validated) {
+      const preflight = await this.createVaultIntent<K, true>({
+        params,
+        extras,
+        skipSimulation,
+        partnerFee,
+        raw: true,
+      });
+      if (!preflight.ok) return { ok: false, error: withErrorContext(preflight.error, ctx) };
+    }
 
     const approved = await this.approveDeposit(_params);
     if (!approved.ok) {

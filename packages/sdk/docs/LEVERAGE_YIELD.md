@@ -347,7 +347,7 @@ Which path `vaultSwapWithApproval` would take for a payload: `'not-required'` (a
 
 ### vaultSwapWithApproval
 
-`vaultSwap()` with a deposit's source-token approval folded in — see the Deposit flow above. A withdraw (`hubWalletSwap`) runs exactly as `vaultSwap()` does. **Returns:** `Promise<Result<VaultSwapWithApprovalResponse, VaultSwapWithApprovalError>>` — `vaultSwap()`'s response plus `approvalStrategy`. `context.action` is `'vaultSwapWithApproval'`.
+`vaultSwap()` with a deposit's source-token approval folded in — see the Deposit flow above. A withdraw (`hubWalletSwap`) runs exactly as `vaultSwap()` does. **Returns:** `Promise<Result<VaultSwapWithApprovalResponse, VaultSwapWithApprovalError>>` — `vaultSwap()`'s response plus `approvalStrategy`. Errors from the approval step carry `context.action: 'vaultSwapWithApproval'` and `context.approvalStrategy`; errors after the deposit is broadcast are `vaultSwap()`'s own.
 
 ### getDetailedStatus
 

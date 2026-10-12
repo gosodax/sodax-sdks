@@ -629,7 +629,7 @@ export class BridgeService {
             strategy: strategy.value,
             notRequired: () => this.createBridgeIntent(_params),
             atomicBatch: () => this.createBridgeIntentInAtomicBatch(_params),
-            sequential: () => this.approveThenCreateBridgeIntent(_params),
+            sequential: afterRefusedBatch => this.approveThenCreateBridgeIntent(_params, afterRefusedBatch),
             onBatchRefused: error =>
               this.config.logger.warn('[bridgeWithApproval] wallet refused the atomic batch; approving separately', {
                 error,
@@ -715,6 +715,7 @@ export class BridgeService {
   /** Approve, wait for the approval to confirm, then send the deposit — two or more signatures. */
   private async approveThenCreateBridgeIntent<K extends SpokeChainKey>(
     _params: BridgeParams<K, false>,
+    validated = false,
   ): Promise<Result<IntentTxResult<K, false>, BridgeWithApprovalError>> {
     const { params, extras, skipSimulation } = _params;
     const ctx = {
@@ -725,8 +726,10 @@ export class BridgeService {
     };
 
     // Build the deposit unsigned first, so params that can never bridge fail before the user pays for an approval.
-    const preflight = await this.createBridgeIntent<K, true>({ params, extras, skipSimulation, raw: true });
-    if (!preflight.ok) return { ok: false, error: withErrorContext(preflight.error, ctx) };
+    if (!validated) {
+      const preflight = await this.createBridgeIntent<K, true>({ params, extras, skipSimulation, raw: true });
+      if (!preflight.ok) return { ok: false, error: withErrorContext(preflight.error, ctx) };
+    }
 
     const approved = await this.approve(_params);
     if (!approved.ok) return { ok: false, error: withErrorContext(approved.error, ctx) };

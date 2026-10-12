@@ -257,7 +257,7 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 | `deposit`, `withdraw` | `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| LOOKUP_FAILED \| UNKNOWN` (create-intent subset + `LOOKUP_FAILED` with `method: 'resolveDeadline'` when the default-deadline hub-block read fails) |
 | `createVaultIntent` | `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| UNKNOWN` (create-intent subset) |
 | `vaultSwap` | `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| TX_VERIFICATION_FAILED \| TX_SUBMIT_FAILED \| RELAY_TIMEOUT \| RELAY_FAILED \| EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` |
-| `vaultSwapWithApproval` | `vaultSwap`'s codes + `APPROVE_FAILED \| ALLOWANCE_CHECK_FAILED` (action `'vaultSwapWithApproval'`) |
+| `vaultSwapWithApproval` | `vaultSwap`'s codes + `APPROVE_FAILED \| ALLOWANCE_CHECK_FAILED` (approval-step errors carry action `'vaultSwapWithApproval'`; after the broadcast, `vaultSwap`'s own context) |
 | `getApprovalStrategy` | `ALLOWANCE_CHECK_FAILED` |
 | `notifySolver` | `EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` (with `phase: 'postExecution'`) |
 | `approve` | `VALIDATION_FAILED \| APPROVE_FAILED \| UNKNOWN` |

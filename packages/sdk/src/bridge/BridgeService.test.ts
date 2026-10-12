@@ -1723,7 +1723,7 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
     it('approves separately when the wallet refuses the batch before signing', async () => {
       allowance(false);
       vi.spyOn(sodax.bridge, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
-      stubCreate();
+      const createSpy = stubCreate();
       const approveSpy = vi.spyOn(sodax.bridge, 'approve').mockResolvedValueOnce({ ok: true, value: '0xapproveTx' });
       vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({
         ok: true,
@@ -1738,6 +1738,43 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
       expect(result.ok && result.value.approvalStrategy).toBe('sequential');
       expect(result.ok && result.value.srcChainTxHash).toBe('0xspokeTx');
       expect(approveSpy).toHaveBeenCalledOnce();
+      // The batch path already built the deposit, so the fallback skips a second unsigned build.
+      expect(createSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("returns bridge()'s own error once the deposit is broadcast", async () => {
+      allowance(true);
+      stubCreate();
+      vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
+      mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: new Error('RELAY_TIMEOUT') });
+
+      const result = await sodax.bridge.bridgeWithApproval(input(makeBatchProvider()));
+
+      expect(!result.ok && result.error.code).toBe('RELAY_TIMEOUT');
+      expect(!result.ok && result.error.context?.phase).toBe('relay');
+      expect(!result.ok && result.error.context?.action).not.toBe('bridgeWithApproval');
+      expect(!result.ok && result.error.context?.approvalStrategy).toBeUndefined();
+    });
+
+    it('approves a Stellar source separately, then deposits', async () => {
+      allowance(false);
+      const createSpy = stubCreate();
+      const approveSpy = vi.spyOn(sodax.bridge, 'approve').mockResolvedValueOnce({ ok: true, value: '0xtrustline' });
+      const waitSpy = vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({
+        ok: true,
+        value: { status: 'success', receipt: {} as never },
+      });
+      stubCompletion();
+
+      const result = await sodax.bridge.bridgeWithApproval({
+        ...input(mockEvmProvider, ChainKeys.STELLAR_MAINNET),
+        walletProvider: { chainType: 'STELLAR' } as never,
+      });
+
+      expect(result.ok && result.value.approvalStrategy).toBe('sequential');
+      expect(approveSpy).toHaveBeenCalledOnce();
+      expect(waitSpy).toHaveBeenCalledWith({ txHash: '0xtrustline', chainKey: ChainKeys.STELLAR_MAINNET });
+      expect(createSpy.mock.calls.map(([call]) => call.raw)).toEqual([true, false]);
     });
 
     it.each([

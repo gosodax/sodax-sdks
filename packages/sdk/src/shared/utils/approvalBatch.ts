@@ -28,7 +28,10 @@ import {
  */
 export type ApprovalStrategy = 'not-required' | 'atomic-batch' | 'sequential';
 
-/** The only code a feature's `getApprovalStrategy` returns: the allowance read failed. */
+/**
+ * What swap's and leverage yield's `getApprovalStrategy` return when the allowance read fails. Bridge's
+ * returns `isAllowanceValid`'s own error, so invalid params stay `VALIDATION_FAILED` there.
+ */
 export type ApprovalStrategyErrorCode = Extract<SodaxErrorCode, 'ALLOWANCE_CHECK_FAILED'>;
 export type ApprovalStrategyError = SodaxError<ApprovalStrategyErrorCode>;
 
