@@ -1,0 +1,73 @@
+---
+title: "Swaps on Polygon"
+description: "Intent-based cross-network swaps from a Polygon perspective: one signed EVM transaction, solver-filled, settled across networks."
+icon: rotate
+---
+
+SODAX swaps are intents, not bridges. Your user signs one transaction on Polygon that locks the input and declares what they want on the destination network. Solvers fill it; the SODAX relayer carries proof between Polygon, the hub (Sonic), and the destination. If nothing fills, the intent can be cancelled and funds recovered.
+
+From your side it is one SDK call. From your user's side it is one wallet prompt, plus an approval the first time they swap an ERC-20 token.
+
+## What this looks like on Polygon
+
+- **Source**: the intent transaction is an ordinary EVM transaction on Polygon PoS. `ChainKeys.POLYGON_MAINNET` (`'0x89.polygon'`) identifies the network everywhere in the SDK.
+- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets today. The [on-Polygon asset list](/polygon/networks-and-assets) only bounds what users hold on Polygon itself, not what they can swap into.
+- **Tokens**: standard ERC-20 contracts at their Polygon addresses; native POL uses the zero address. Read addresses from the SDK config rather than typing them, and match by address: two Polygon contracts report the symbol `USDC`, and SODAX supports one.
+- **Settlement**: output lands on the destination network at `dstAddress`. Swaps into Polygon settle as ordinary POL or ERC-20 balances; the recipient needs no setup.
+
+## Approvals {#approvals}
+
+`swap()` does not approve the input token for you. POL is the native token and needs no approval. Every ERC-20 does: SODAX's asset manager on Polygon pulls it through the token's ERC-20 interface, so check the allowance first and approve when it falls short.
+
+```typescript
+const allowance = await sodax.swaps.isAllowanceValid({ params, walletProvider });
+if (!allowance.ok) throw allowance.error;
+
+if (!allowance.value) {
+  const approval = await sodax.swaps.approve({ params, walletProvider });
+  if (!approval.ok) throw approval.error;
+  // wait for the approval to be mined before calling swap()
+}
+```
+
+`params` is the same intent params object you pass to `swap()`. `isAllowanceValid` reads the allowance through the `Sodax` instance's own Polygon RPC, so construct it with a working endpoint, as in the [Quickstart](/polygon/quickstart#3-look-up-supported-tokens); against the packaged default the check fails with an HTTP 401 error.
+
+## Quoting
+
+The solver API quotes both directions:
+
+```typescript
+const quoteResult = await sodax.swaps.getQuote({
+  token_src: usdc.address,            // token on Polygon
+  token_dst: usdcBase.address,        // token on the destination network
+  token_src_blockchain_id: ChainKeys.POLYGON_MAINNET,
+  token_dst_blockchain_id: ChainKeys.BASE_MAINNET,
+  amount: 100n * 10n ** BigInt(usdc.decimals), // 100 USDC
+  quote_type: 'exact_input',          // the only supported quote type
+});
+```
+
+`getQuote` deducts any configured partner fee before quoting, so `quoted_amount` is the net output the user actually receives.
+
+## Fees
+
+Using SODAX is free to integrate. Two fees can apply to a trade:
+
+- **Base fee**: a fixed 0.1% of the input, taken by the protocol. Not configurable; compute it ahead of time with `getSolverFee(inputAmount)`.
+- **Your fee**: optional platform fee on top, set by you and paid to you. It is the only fee you control. Configure it at SDK setup and check it with `getPartnerFee(inputAmount)`. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+The user also pays Polygon's network fee for the intent transaction, in POL, like any other Polygon transaction.
+
+## Executing
+
+Prefer `swap()`. It creates the intent on Polygon, verifies it landed, submits it to the relay, waits for the packet on the hub, and notifies the solver. The [Quickstart](/polygon/quickstart#4-quote-and-swap) has the complete call. Track progress with `getStatus(request)`, and cancel unfilled intents with `cancelIntent`. Limit orders (intents without deadlines) work from Polygon too, via `createLimitOrder`.
+
+Orchestrating manually with `createIntent` and `submitIntent` works the same as on any EVM network: Polygon intents need no relay extra data.
+
+## Error handling
+
+Operations return `Result<T>` instead of throwing. The core methods (`swap`, `createIntent`, `postExecution`) return a typed `SodaxError` union you can `switch` on by `error.code`.
+
+---
+
+Full reference, including raw mode, limit orders, cancellation, and the complete error-code table: [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps).

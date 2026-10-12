@@ -233,7 +233,7 @@ export function BridgeDialog({
         )}
 
         {(approveError ?? bridgeError) && (
-          <div className="text-red-500 text-sm space-y-1">
+          <div className="text-red-500 text-sm space-y-1 wrap-anywhere">
             {approveError ? <div>{approveError}</div> : null}
             {bridgeError ? <div>{bridgeError}</div> : null}
           </div>

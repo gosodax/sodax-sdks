@@ -423,7 +423,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
     <>
       <Card className="w-full max-w-lg mx-auto">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-center">Cross-Chain Transfer (API)</CardTitle>
+          <CardTitle className="text-xl sm:text-2xl font-bold text-center">Cross-Chain Transfer (API)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
@@ -476,7 +476,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
           <div className="grow">
             <PartnerFeeFields draft={feeDraft} unsetBehavior="use the backend's configured fee" />
             {feeQuote && fromToken ? (
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground wrap-anywhere">
                 Fee: {formatUnits(BigInt(feeQuote.fee), fromToken.decimals)} {fromToken.symbol}
                 {partnerFee ? ` → ${partnerFee.address}` : ' (backend default)'}
               </p>
@@ -631,7 +631,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
           </div>
 
           {(approveError ?? bridgeError) && (
-            <div className="text-red-500 text-sm space-y-1">
+            <div className="text-red-500 text-sm space-y-1 wrap-anywhere">
               {approveError ? <div>{approveError}</div> : null}
               {bridgeError ? <div>{bridgeError}</div> : null}
             </div>

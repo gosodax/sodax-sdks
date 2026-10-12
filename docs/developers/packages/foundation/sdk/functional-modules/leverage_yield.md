@@ -40,6 +40,8 @@ At a target LTV `L`, the steady-state amounts (as a multiple of your principal) 
 | Total borrowed | `L / (1 − L)` | `5.67×` principal |
 | **Leverage multiplier** (`leverageMultiplierWad`) | `L / (1 − L)` | `5.67×` |
 
+The multiplier is the **borrowed** multiple, not the exposure. The exposure a depositor holds is total collateral, `1 / (1 − L)` = `1 + leverageMultiplier` (`6.67×` here). A UI label that reads "Leverage" should show that sum.
+
 Your net yield is the base supply rate on your principal **plus** the leverage multiplier applied to the *spread* between the supply and borrow rates:
 
 ```
@@ -93,7 +95,7 @@ The service does **not** expose bespoke "deposit into vault" / "redeem from vaul
 - **Enter** a position = swap *any token → `lsoda*` shares*.
 - **Exit** a position = swap *`lsoda*` shares → any token*.
 
-`LeverageYieldService`'s job is to build the correct swap payload (the `CreateIntentParams` plus any execution flags) via `deposit()` / `withdraw()`, then execute it via `vaultSwap()` (or `createVaultIntent()` for manual relay control); the solver (plus the vault's ERC-4626 mechanics) does the rest. This is why deposits and withdrawals are cross-chain by default and require no vault-specific approvals on the spoke side.
+`LeverageYieldService`'s job is to build the correct swap payload (the `CreateIntentParams` plus any execution flags) via `deposit()` / `withdraw()`, then execute it via `vaultSwap()` (or `createVaultIntent()` for manual relay control); the solver (plus the vault's ERC-4626 mechanics) does the rest. This is why deposits and withdrawals are cross-chain by default and need no vault-specific approval: a deposit approves its input token the same way a swap does, with `sodax.swaps.isAllowanceValid` / `sodax.swaps.approve`, and a withdraw needs no approval at all.
 
 `createVaultIntent` / `vaultSwap` are leverage-yield copies of the swap domain's `createIntent` / `swap()` — duplicated **deliberately** so the vault-specific execution modifiers (`hubWalletSwap`, per-intent `partnerFee`) live on the leverage-yield action wrapper (`VaultSwapActionParams`) and never leak into the generic swap surface.
 
@@ -131,16 +133,25 @@ Because the fee comes out of `inputAmount`, its **denomination differs by direct
 Size `minOutputAmount` with `sodax.leverageYield.getQuote()`, which deducts the same effective leverage-yield fee the intent will charge:
 
 ```typescript
+// Deposit quote. For a withdraw, swap the two sides: the vault on SONIC_MAINNET is token_src,
+// the output token on its chain is token_dst, and amount is the lsoda* shares to burn.
+const inputAmount = 1_000_000_000_000_000_000n; // 1 weETH, in the input token's decimals
 const quote = await sodax.leverageYield.getQuote({
-  token_src: '0x...',                                  // spoke token in (deposit) — or the vault (withdraw)
+  token_src: '0x...weETHonArbitrum',                   // spoke token in
   token_src_blockchain_id: ChainKeys.ARBITRUM_MAINNET,
-  token_dst: vault.vault,                              // the vault (deposit) — or the spoke token out (withdraw)
+  token_dst: vault.vault,                              // the vault, always on Sonic
   token_dst_blockchain_id: ChainKeys.SONIC_MAINNET,
-  amount: 1_000_000n,
+  amount: inputAmount,
   quote_type: 'exact_input',
   // partnerFee — pass the same value you pass to deposit()/withdraw()/vaultSwap(), or omit on both
 });
+if (!quote.ok) return;
+
+const slippageBps = 100n; // 1%
+const minOutputAmount = (quote.value.quoted_amount * (10_000n - slippageBps)) / 10_000n;
 ```
+
+Never pass `minOutputAmount: 0n` or a hand-picked constant. The SDK accepts zero, and the intent then accepts any fill.
 
 Do **not** use `sodax.swaps.getQuote()` for vault flows: it deducts the effective *swap* fee, so once the two feature fees differ the quote and the intent disagree — and when the leverage-yield fee is the larger one, the `minOutputAmount` derived from that quote exceeds what the intent can deliver and it never fills.
 
@@ -156,24 +167,43 @@ Whichever quote method you use, keep the fee consistent across both calls: pass 
 import { ChainKeys } from '@sodax/sdk';
 
 const vault = sodax.leverageYield.getVault('lsodaWEETH');
+if (!vault) throw new Error('Unknown vault');
+const srcChainKey = ChainKeys.ARBITRUM_MAINNET;
 
 const intentResult = await sodax.leverageYield.deposit({
   vault: vault.vault,
-  srcChainKey: ChainKeys.ARBITRUM_MAINNET,
+  srcChainKey,
   srcAddress: '0xYourArbitrumEOA...',
   inputToken: '0x...weETHonArbitrum',
-  inputAmount: 1_000_000_000_000_000_000n, // input-token decimals
-  minOutputAmount: 900_000_000_000_000_000n, // lsoda* (18 dp), slippage already applied
+  inputAmount, // the amount you quoted, in input-token decimals
+  minOutputAmount, // lsoda* (18 dp): the quote minus slippage, from Quoting above
 });
 
-if (intentResult.ok) {
-  // Spread the payload straight into the vault-swap executor.
-  const swapResult = await sodax.leverageYield.vaultSwap({
-    ...intentResult.value,
+if (!intentResult.ok) throw intentResult.error;
+
+// The spoke asset manager pulls `inputToken`, so approve it first — the swap-domain helpers take the payload's params.
+const allowance = await sodax.swaps.isAllowanceValid({ params: intentResult.value.params, walletProvider: evmWalletProvider });
+if (!allowance.ok) throw allowance.error;
+if (!allowance.value) {
+  // Pin the chain so the result narrows to an EVM tx hash.
+  const approval = await sodax.swaps.approve<typeof srcChainKey, false>({
+    params: { ...intentResult.value.params, srcChainKey },
     walletProvider: evmWalletProvider,
   });
+  if (!approval.ok) throw approval.error;
+  const receipt = await evmWalletProvider.waitForTransactionReceipt(approval.value);
+  // Providers report a revert as viem's 'reverted' or the JSON-RPC '0x0'.
+  if (receipt.status === 'reverted' || receipt.status === '0x0') throw new Error('Approval reverted');
 }
+
+// Spread the payload straight into the vault-swap executor.
+const swapResult = await sodax.leverageYield.vaultSwap({
+  ...intentResult.value,
+  walletProvider: evmWalletProvider,
+});
 ```
+
+`deposit()` and `vaultSwap()` do not approve anything themselves. On an EVM spoke the asset manager pulls an ERC-20 input from the user's wallet, so the deposit reverts without the allowance. On Sonic the spender is the intents contract, and on Stellar the helper sets up a trustline. On other networks nothing needs approving, and the check returns `true`. The swap-domain helpers resolve all of this for each network, the same as for a swap.
 
 ### Withdraw (`lsoda*` → any token)
 
@@ -187,7 +217,7 @@ const intentResult = await sodax.leverageYield.withdraw({
   dstChainKey: ChainKeys.ARBITRUM_MAINNET, // where the swapped-back token is delivered
   outputToken: '0x...weETHonArbitrum',
   inputAmount: shareBalance, // lsoda* shares (18 dp)
-  minOutputAmount: 900_000_000_000_000_000n,
+  minOutputAmount: withdrawMinOutputAmount, // from a withdraw quote (vault as token_src) minus slippage, as in Quoting
   // recipient?: defaults to srcAddress
 });
 
@@ -199,7 +229,7 @@ if (intentResult.ok) {
 }
 ```
 
-To size a full exit, read the withdrawable balance with `getMaxWithdrawForUser(vault, srcChainKey, srcAddress)` (already dust-buffered) or the raw share balance with `getShareBalanceForUser(...)`.
+To size a full exit, read the share balance with `getShareBalanceForUser(vault, srcChainKey, srcAddress)`. `inputAmount` is denominated in `lsoda*` **shares**. `getMaxWithdrawForUser` returns the ERC-4626 `maxWithdraw`, which is denominated in the underlying **asset**, so it is the wrong unit for `inputAmount`.
 
 ### Completion paths and `timeout`
 
@@ -263,7 +293,7 @@ see [LEVERAGE_YIELD_API.md](https://github.com/icon-project/sodax-sdks/blob/main
 
 ### Direct allowance management (hub-side)
 
-`approve()` and `isAllowanceValid()` manage the allowance of the vault's underlying `asset` to the vault on Sonic. These are for callers interacting with the vault **directly on the hub** — the swap-style `deposit()` flow handles its own approvals, so most integrations never need them.
+`approve()` and `isAllowanceValid()` manage the allowance of the vault's underlying `asset` to the vault on Sonic. These are for callers interacting with the vault **directly on the hub**. The swap-style `deposit()` flow does not use them: it approves its input token with the swap-domain `sodax.swaps.isAllowanceValid` / `approve` (see [Flows](#flows)), and a withdraw needs no approval.
 
 ```typescript
 const ok = await sodax.leverageYield.isAllowanceValid({
@@ -289,7 +319,7 @@ Solver quote for a vault deposit (`token_dst` = the vault) or withdraw (`token_s
 
 ### deposit
 
-Builds the `LeverageYieldSwapPayload` for a deposit (any token → `lsoda*`, delivered to the hub wallet). An optional `partnerFee` is forwarded on the payload as the per-intent override of the effective leverage-yield fee. **Returns:** `Promise<Result<LeverageYieldSwapPayload, LeverageYieldCreateIntentError>>`. `context.action` is `'deposit'`.
+Builds the `LeverageYieldSwapPayload` for a deposit (any token → `lsoda*`, delivered to the hub wallet). An optional `partnerFee` is forwarded on the payload as the per-intent override of the effective leverage-yield fee. **Returns:** `Promise<Result<LeverageYieldSwapPayload, LeverageYieldCreateIntentError | LeverageYieldLookupError>>`. `context.action` is `'deposit'`.
 
 ### withdraw
 
@@ -311,16 +341,17 @@ sources can answer, and returns that source's payload unmodified.
 
 ```typescript
 const result = await sodax.leverageYield.getDetailedStatus({
-  srcChainKey: 'arb',
+  srcChainKey: ChainKeys.ARBITRUM_MAINNET,
   srcTxHash: vaultSwapResponse.intentDeliveryInfo.srcTxHash,
 });
 
 if (result.ok) {
   if (result.value.source === 'backend') {
     // `data` is the SubmitTxStatusDataV2 from sodax.api.leverageYield.getSubmitTxStatus
-    console.log(result.value.data.status, result.value.data.userMessage);
+    console.log(result.value.data.status); // pending … posted_execution | solved
   } else {
-    // `data` is the SolverIntentStatusResponse — the vault intent IS a solver intent
+    // `data` is the SolverIntentStatusResponse — the vault intent IS a solver intent.
+    // A failed or abandoned backend record routes here, so failure is the solver's FAILED code.
     console.log(result.value.data.status, result.value.dstTxHash);
   }
 }
@@ -444,7 +475,7 @@ type LeverageYieldApr = {
   supplyAprRay: bigint;          // AAVE supply rate of asset, in RAY (1e27)
   borrowAprRay: bigint;          // AAVE variable borrow rate of borrowToken, in RAY
   targetLtvBps: bigint;          // vault targetLTV(), in basis points
-  leverageMultiplierWad: bigint; // targetLTV / (1 - targetLTV), in WAD (1e18)
+  leverageMultiplierWad: bigint; // targetLTV / (1 - targetLTV), in WAD (1e18): borrowed multiple; exposure = 1 + this
   netAprRay: bigint;             // net APR at targetLTV, in RAY — can be negative
 };
 ```

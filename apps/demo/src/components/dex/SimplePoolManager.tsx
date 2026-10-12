@@ -308,7 +308,7 @@ export function SimplePoolManager(): JSX.Element {
       {error && (
         <div className="flex items-start gap-3 rounded-lg border border-destructive bg-destructive/10 p-4 text-sm text-destructive">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-          <div className="flex-1">{error}</div>
+          <div className="flex-1 min-w-0 wrap-anywhere">{error}</div>
         </div>
       )}
     </div>

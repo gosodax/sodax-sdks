@@ -160,6 +160,7 @@
         "pages": [
           "developers/how-to/index",
           "developers/how-to/how_to_make_a_swap",
+          "developers/how-to/integrate_leverage_yield",
           "developers/how-to/migrate_swap_to_submit_tx",
           "developers/how-to/api-keys",
           "developers/how-to/api-key-good-practices",
@@ -199,6 +200,194 @@
                 "pages": [
                   "developers/how-to/stellar-sponsoring-getting-started",
                   "developers/how-to/quick-sponsoring-stellar-guide"
+                ]
+              },
+              {
+                "group": "EVM networks",
+                "icon": "layer-group",
+                "pages": [
+                  {
+                    "group": "Sonic",
+                    "icon": "s",
+                    "pages": [
+                      "sonic/index",
+                      "sonic/quickstart",
+                      "sonic/swaps",
+                      "sonic/money-market",
+                      "sonic/wallets",
+                      "sonic/networks-and-assets",
+                      "sonic/faq"
+                    ]
+                  },
+                  {
+                    "group": "Ethereum",
+                    "icon": "ethereum",
+                    "pages": [
+                      "ethereum/index",
+                      "ethereum/quickstart",
+                      "ethereum/swaps",
+                      "ethereum/money-market",
+                      "ethereum/wallets",
+                      "ethereum/networks-and-assets",
+                      "ethereum/faq"
+                    ]
+                  },
+                  {
+                    "group": "Arbitrum",
+                    "icon": "a",
+                    "pages": [
+                      "arbitrum/index",
+                      "arbitrum/quickstart",
+                      "arbitrum/swaps",
+                      "arbitrum/money-market",
+                      "arbitrum/wallets",
+                      "arbitrum/networks-and-assets",
+                      "arbitrum/faq"
+                    ]
+                  },
+                  {
+                    "group": "Base",
+                    "icon": "b",
+                    "pages": [
+                      "base/index",
+                      "base/quickstart",
+                      "base/swaps",
+                      "base/money-market",
+                      "base/wallets",
+                      "base/networks-and-assets",
+                      "base/faq"
+                    ]
+                  },
+                  {
+                    "group": "Optimism",
+                    "icon": "o",
+                    "pages": [
+                      "optimism/index",
+                      "optimism/quickstart",
+                      "optimism/swaps",
+                      "optimism/money-market",
+                      "optimism/wallets",
+                      "optimism/networks-and-assets",
+                      "optimism/faq"
+                    ]
+                  },
+                  {
+                    "group": "BNB Chain",
+                    "icon": "cubes",
+                    "pages": [
+                      "bnb-chain/index",
+                      "bnb-chain/quickstart",
+                      "bnb-chain/swaps",
+                      "bnb-chain/money-market",
+                      "bnb-chain/wallets",
+                      "bnb-chain/networks-and-assets",
+                      "bnb-chain/faq"
+                    ]
+                  },
+                  {
+                    "group": "Polygon",
+                    "icon": "draw-polygon",
+                    "pages": [
+                      "polygon/index",
+                      "polygon/quickstart",
+                      "polygon/swaps",
+                      "polygon/money-market",
+                      "polygon/wallets",
+                      "polygon/networks-and-assets",
+                      "polygon/faq"
+                    ]
+                  },
+                  {
+                    "group": "Avalanche",
+                    "icon": "mountain",
+                    "pages": [
+                      "avalanche/index",
+                      "avalanche/quickstart",
+                      "avalanche/swaps",
+                      "avalanche/money-market",
+                      "avalanche/wallets",
+                      "avalanche/networks-and-assets",
+                      "avalanche/faq"
+                    ]
+                  },
+                  {
+                    "group": "HyperEVM",
+                    "icon": "bolt-lightning",
+                    "pages": [
+                      "hyperevm/index",
+                      "hyperevm/quickstart",
+                      "hyperevm/swaps",
+                      "hyperevm/money-market",
+                      "hyperevm/wallets",
+                      "hyperevm/networks-and-assets",
+                      "hyperevm/faq"
+                    ]
+                  },
+                  {
+                    "group": "LightLink",
+                    "icon": "link",
+                    "pages": [
+                      "lightlink/index",
+                      "lightlink/quickstart",
+                      "lightlink/swaps",
+                      "lightlink/money-market",
+                      "lightlink/wallets",
+                      "lightlink/networks-and-assets",
+                      "lightlink/faq"
+                    ]
+                  },
+                  {
+                    "group": "Kaia",
+                    "icon": "k",
+                    "pages": [
+                      "kaia/index",
+                      "kaia/quickstart",
+                      "kaia/swaps",
+                      "kaia/money-market",
+                      "kaia/wallets",
+                      "kaia/networks-and-assets",
+                      "kaia/faq"
+                    ]
+                  },
+                  {
+                    "group": "Hedera",
+                    "icon": "h",
+                    "pages": [
+                      "hedera/index",
+                      "hedera/quickstart",
+                      "hedera/swaps",
+                      "hedera/money-market",
+                      "hedera/wallets",
+                      "hedera/networks-and-assets",
+                      "hedera/faq"
+                    ]
+                  },
+                  {
+                    "group": "Redbelly",
+                    "icon": "r",
+                    "pages": [
+                      "redbelly/index",
+                      "redbelly/quickstart",
+                      "redbelly/swaps",
+                      "redbelly/money-market",
+                      "redbelly/wallets",
+                      "redbelly/networks-and-assets",
+                      "redbelly/faq"
+                    ]
+                  },
+                  {
+                    "group": "Robinhood Chain",
+                    "icon": "feather",
+                    "pages": [
+                      "robinhood-chain/index",
+                      "robinhood-chain/quickstart",
+                      "robinhood-chain/swaps",
+                      "robinhood-chain/money-market",
+                      "robinhood-chain/wallets",
+                      "robinhood-chain/networks-and-assets",
+                      "robinhood-chain/faq"
+                    ]
+                  }
                 ]
               }
             ]
@@ -242,7 +431,53 @@
       {
         "tab": "Community",
         "align": "end",
-        "pages": ["resources/index", "resources/product-updates", "resources/videos", "resources/blog"]
+        "pages": [
+          "resources/index",
+          "resources/product-updates",
+          "resources/videos",
+          {
+            "group": "Blog",
+            "icon": "rss",
+            "pages": [
+              "resources/blog",
+              {
+                "group": "SDK",
+                "icon": "code",
+                "pages": [
+                  "resources/blog/hub-and-spoke",
+                  "resources/blog/six-categories-one-sdk",
+                  "resources/blog/builders-mcp-agent",
+                  "resources/blog/swaps-api-any-language",
+                  "resources/blog/swap-widget",
+                  "resources/blog/limit-orders"
+                ]
+              },
+              {
+                "group": "Bespoke Builds",
+                "icon": "hammer",
+                "pages": [
+                  "resources/blog/oracle-candles-api",
+                  "resources/blog/stellar-account-sponsorship",
+                  "resources/blog/flint-rwa-vault-deposits"
+                ]
+              },
+              {
+                "group": "VibeCode Saga",
+                "icon": "wand-magic-sparkles",
+                "pages": [
+                  "resources/blog/vibecode-saga-crypto-to-wallstreet-mac",
+                  "resources/blog/vibecode-saga-dust-sweeper",
+                  "resources/blog/vibecode-saga-harena",
+                  "resources/blog/vibecode-saga-sodax-terminal",
+                  "resources/blog/vibecode-saga-sodaxpay",
+                  "resources/blog/vibecode-saga-swaps-without-borders",
+                  "resources/blog/vibecode-saga-yield-pachinko"
+                ]
+              }
+            ]
+          },
+          { "group": "Workshops", "pages": ["resources/workshops/leverage-yield", "resources/workshops/colosseum-worlds-fair"] }
+        ]
       },
       {
         "tab": "Help",

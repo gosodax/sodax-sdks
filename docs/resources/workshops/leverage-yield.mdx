@@ -1,0 +1,180 @@
+---
+title: "Workshop: build Leverage Yield with AI"
+sidebarTitle: "Leverage Yield"
+icon: chalkboard-user
+description: "Fork the SODAX Leverage Yield starter, build a vault deposit app with AI in about an hour, and open a PR to show your solution."
+---
+
+In about an hour you use AI (Claude Code, Codex, Cursor or similar) to add pooled vault deposits to a React app, make a real deposit into a SODAX vault, then open a pull request to show what you built. Start from the [starter repo](https://github.com/gosodax/sodax-leverage-yield-starter), and compare with the [finished app](https://sodax-leverage-yield-starter-git-solution-icon-foundation.vercel.app) (branch `solution`) at any time.
+
+<Warning>
+  **Real funds.** There is no testnet vault. Use a fresh wallet you funded yourself and small amounts (about \$5 per deposit).
+</Warning>
+
+## 1. Set up
+
+Takes about 15 minutes. Do it before the session if you can, because the install is large.
+
+<Steps>
+  <Step title="Get the prerequisites">
+    - **Node.js 22.12 or newer** (`node -v`), with pnpm enabled: `corepack enable`.
+    - **An AI coding assistant**, installed and signed in.
+    - **A fresh EVM wallet** in one browser extension (MetaMask, Rabby or Hana). Not a Safe or other smart-contract wallet.
+    - **At least \$10 of USDC plus about \$2 of ETH for gas on Base** (Arbitrum works too). The fastest option is USDC plus a little S on **Sonic**, which skips the cross-network delivery step.
+  </Step>
+  <Step title="Fork the starter">
+    Fork [gosodax/sodax-leverage-yield-starter](https://github.com/gosodax/sodax-leverage-yield-starter/fork) and **untick "Copy the `main` branch only"**, so the checkpoint branches come with your fork.
+  </Step>
+  <Step title="Clone your fork and run it">
+    ```bash
+    git clone https://github.com/<your-username>/sodax-leverage-yield-starter.git
+    cd sodax-leverage-yield-starter
+    pnpm install
+    pnpm dev
+    ```
+    Open `http://localhost:5173`, click **Connect wallet**, and check that your address appears top right.
+  </Step>
+</Steps>
+
+<Info>
+  **No API key required.** The starter and the `/v1/leverage-yield/*` API are keyless today. You can still use a [SODAX API key](/developers/how-to/api-keys): it attributes your traffic to your organisation, and it will be required once key enforcement is switched on. This is a browser app, so the key belongs behind your own backend proxy, never in the `SodaxProvider` config. See [API key good practices](/developers/how-to/api-key-good-practices).
+</Info>
+
+## 2. Build it with AI
+
+The repo gives your AI no SODAX-specific help. The prompts send it to the [AI integration guide](/ai-integration-guide), and the guide tells it the rest. Paste them as-is into any AI.
+
+<Info>
+  **No MCP server needed.** The SDK already in the starter reads vault data, APR and quotes itself, so skip the [Builders MCP](/builders-mcp) for this workshop, even if your AI offers to add it.
+</Info>
+
+### All at once (recommended)
+
+With a capable model (Claude Opus 5.5, Codex Sol 6 or similar), one prompt builds the whole app:
+
+```text wrap
+Build the SODAX Leverage Yield vault feature with a nice, polished UI: browse the vaults, deposit from any supported
+network and token, see my shares and withdraw. Use https://docs.sodax.com/ai-integration-guide as your guide.
+```
+
+Then check: a live deposit quote, a real ~\$5 deposit that shows your shares, every vault with live APR / TVL, and a withdraw quote.
+
+### Milestone by milestone
+
+Use this path with a lighter model, or to watch each step come together. Only M1 points your AI at the guide, so run M2–M4 in the same session, or give a fresh session the guide link again. The app also shows the next prompt at the top of the page, with a Copy button, and links the checkpoint builds still ahead of you, so you can see the target before you build it.
+
+| Milestone | What you build | Check | Checkpoint |
+| --- | --- | --- | --- |
+| **M1** | Deposit form + live quote | 5 USDC → ≈ 4.5 lsodaSUSDS quote | [`checkpoint/m1`](https://sodax-leverage-yield-starter-git-checkpoint-m1-icon-foundation.vercel.app) |
+| **M2** | Execute a real ~\$5 deposit | Your new shares show | [`checkpoint/m2`](https://sodax-leverage-yield-starter-git-checkpoint-m2-icon-foundation.vercel.app) |
+| **M3** | Vault browser | A card per vault with live APR / TVL | [`checkpoint/m3`](https://sodax-leverage-yield-starter-git-checkpoint-m3-icon-foundation.vercel.app) |
+| **M4** | Withdraw | A withdraw quote (optionally, withdraw for real) | [`checkpoint/m4`](https://sodax-leverage-yield-starter-git-checkpoint-m4-icon-foundation.vercel.app) |
+
+<AccordionGroup>
+  <Accordion title="M1 — Deposit form + live quote">
+    ```text wrap
+    Using https://docs.sodax.com/ai-integration-guide, add a deposit form for the SODAX Leverage Yield vaults: pick a
+    vault, a source network and token, enter an amount, and show a live quote of the vault shares I'd get and the
+    minimum I'd accept. Don't send anything yet. Then tell me how to verify it in the browser.
+    ```
+  </Accordion>
+  <Accordion title="M2 — Execute deposit + shares">
+    ```text wrap
+    Make the deposit work: when I confirm, ask my wallet for approval if needed, submit the deposit, show each step's
+    progress with explorer links, and show my vault shares once it fills.
+    ```
+  </Accordion>
+  <Accordion title="M3 — Vault browser">
+    ```text wrap
+    Add a vault browser: a card per vault with live APR, TVL, share price, leverage and health, plus my shares in it.
+    Its Deposit button selects that vault in the deposit form.
+    ```
+  </Accordion>
+  <Accordion title="M4 — Withdraw">
+    ```text wrap
+    Add withdraw: from the shares I hold, quote and withdraw back to a token on a network I choose, with the same
+    progress steps.
+    ```
+  </Accordion>
+  <Accordion title="Bonus — Rebrand">
+    ```text wrap
+    Rebrand this app for <Company> using <brand site or colours>. Only change src/brand/theme.css,
+    src/brand/brand.config.ts and the files in public/brand/. Keep contrast accessible.
+    ```
+    Compare with the polished [`solution`](https://sodax-leverage-yield-starter-git-solution-icon-foundation.vercel.app) build.
+  </Accordion>
+</AccordionGroup>
+
+**Falling behind?** M2 is the one that matters. Switch to its checkpoint so you can still deposit:
+
+```bash
+git stash -u
+git switch checkpoint/m2   # or m1 / m3 / m4 / solution
+```
+
+If your fork has no checkpoint branches, fetch one from the starter instead:
+
+```bash
+git fetch https://github.com/gosodax/sodax-leverage-yield-starter.git checkpoint/m2
+git switch -c m2 FETCH_HEAD
+```
+
+## 3. Show your solution
+
+<Steps>
+  <Step title="Commit to a branch on your fork">
+    ```bash
+    git switch -c my-solution
+    git add -A && git commit -m "feat: my leverage yield vault app"
+    git push -u origin my-solution
+    ```
+  </Step>
+  <Step title="Open a pull request">
+    Open a PR from your branch to [gosodax/sodax-leverage-yield-starter](https://github.com/gosodax/sodax-leverage-yield-starter/pulls). In the description, include a screenshot or short video, your deposit transaction link, the AI you used, and anything you built beyond the milestones.
+  </Step>
+</Steps>
+
+If your build breaks after you deposit, your shares are safe. They belong to your wallet and network, not to the app. Open the [hosted solution](https://sodax-leverage-yield-starter-git-solution-icon-foundation.vercel.app) to see them and withdraw.
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| `pnpm install` very slow | It is a big dependency tree. Use a phone hotspot, or pair with someone who installed at home. |
+| Blank page, "No QueryClient set" or two Reacts in the console | Your AI changed `vite.config.ts` or providers, or added a package. Run `git checkout vite.config.ts src/providers.tsx package.json pnpm-lock.yaml && pnpm install`. |
+| `pnpm check` fails in `check-versions` | Your AI ran `pnpm add @sodax/...`. Restore `package.json` and `pnpm-lock.yaml` from git, then run `pnpm install`. |
+| Wallet not listed | Install or unlock a browser wallet extension and reload. Only EVM wallets are supported. |
+| Button says "Switch to Base" | Your wallet is on another network. Click the button and approve in the wallet. |
+| "No route right now" | Solvers are rebalancing. The app retries automatically, or press Retry after a few seconds. |
+| "Amount too low" | Deposit at least about \$2. |
+| "Simulation reverted" | The transaction would fail: not enough balance, gas or shares. Top up gas on the source network. |
+| Deposit stuck on "Delivering to Sonic" or "Solver fills" | It usually takes under 2 minutes. Keep the dialog open; the transaction link shows it is on-chain. If it is still pending after 5 minutes, check your position on the [hosted solution](https://sodax-leverage-yield-starter-git-solution-icon-foundation.vercel.app) and ask a facilitator. |
+| "Where are my shares?" | In your SODAX hub wallet on Sonic, per source network, never in MetaMask. The [hosted solution](https://sodax-leverage-yield-starter-git-solution-icon-foundation.vercel.app) lists every vault and network. |
+| AI built "leverage positions" | Wrong product. Revert, and tell it: "Vaults only, not leverage positions. Read AGENTS.md." |
+| AI doesn't know the SODAX SDK | Send it to the [AI integration guide](/ai-integration-guide). |
+
+The full table is in the repo's [WORKSHOP.md](https://github.com/gosodax/sodax-leverage-yield-starter/blob/main/docs/WORKSHOP.md#5-troubleshooting).
+
+## How it works
+
+- **The vaults:** pooled ERC-4626 vaults on Sonic. Each vault holds a liquid staking token, borrows against it and re-stakes up to a target LTV. That multiplies the staking yield, and the risk.
+- **A deposit:** you sign one intent on your network (plus an approval the first time). SODAX delivers it to Sonic, and a solver fills it by delivering vault shares to your hub wallet.
+- **The risks:** real funds, and leveraged positions (health factor ~1.2). The APR is variable and can go negative, the share price can fall, and the only exit is withdraw.
+- **The API option:** everything the SDK does is also available through the keyless REST API at `https://api.sodax.com/v1/leverage-yield/*`. The `solution` branch has a toggle that shows both.
+
+## Go further
+
+<CardGroup cols={2}>
+  <Card title="AI integration guide" icon="robot" href="/ai-integration-guide">
+    Everything your AI needs to build with SODAX.
+  </Card>
+  <Card title="Yield" icon="money-bill-trend-up" href="/yield">
+    Leverage-yield vaults as intent-based swaps.
+  </Card>
+  <Card title="HTTP API" icon="server" href="/developers/http-api/leverage">
+    Vault deposit and withdraw over HTTP.
+  </Card>
+  <Card title="SDK reference" icon="code" href="/developers/packages/foundation/sdk/functional-modules/leverage_yield">
+    `@sodax/sdk` deposit, withdraw, APR and position data.
+  </Card>
+</CardGroup>

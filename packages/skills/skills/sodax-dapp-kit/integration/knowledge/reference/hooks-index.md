@@ -101,15 +101,18 @@ Comprehensive hook table across 12 feature domains. Use this when you know the f
 
 ## Leverage Yield
 
+No hook lists the vaults: read the registry with `useSodaxContext().sodax.leverageYield.listVaults()` (synchronous; `{ name, vault, asset, borrowToken, lsdSource? }[]`) and pass `vault` to the hooks below. `targetLtvBps` and position `ltv` are basis points; `healthFactor` and `leverageMultiplierWad` are WAD, and the multiplier is the **borrowed** multiple (exposure = 1 + multiplier).
+
 | Hook | Type | Purpose |
 |---|---|---|
 | `useLeverageYieldDeposit` | Mutation | Build a deposit payload (any token → `lsoda*` shares) — spread into `useLeverageYieldVaultSwap` |
 | `useLeverageYieldWithdraw` | Mutation | Build a withdraw payload (`lsoda*` → any token; `hubWalletSwap`) |
 | `useLeverageYieldVaultSwap` | Mutation | Execute a built payload end-to-end; backend submit-tx by default, falling back to the client-side create → verify → relay → notify path. `extras.apiKey` keys the backend leg per action |
 | `useLeverageYieldDetailedStatus` | Query | Track a vault swap from its source tx (`{ srcChainKey, srcTxHash, apiConfig? }`; polls 3s; Result-wrapped; stops on the answering source's terminal state, on a rejected API key, and after 40 consecutive ambiguous reads — solver NOT_FOUND, or a relay with no packet for the tx; outages keep polling). Returns a tagged union — backend submit-tx record or solver answer — narrow on `source`. Unlike `useLeverageYieldApiSubmitTxStatus`, answers for both `vaultSwap()` completion paths |
+| `useLeverageYieldQuote` | Query | Deposit (vault = `token_dst`) or withdraw (vault = `token_src`) quote with the leverage-yield fee (polls 3s; Result-wrapped). Size `minOutputAmount` from `quoted_amount` minus slippage, never `0n` |
 | `useLeverageYieldNotifySolver` | Mutation | Manual-flow notify step (after a self-driven `createVaultIntent` + relay) |
 | `useLeverageYieldEffectiveApr` | Query | AAVE + LSD effective net APR (60s) |
-| `useLeverageYieldPosition` | Query | Live position: collateral, debt, LTV, health factor, idle (30s) |
+| `useLeverageYieldPosition` | Query | Live position: collateral, debt, LTV (bps), health factor (WAD), idle (30s) |
 | `useLeverageYieldTotalAssets` | Query | Vault TVL (18-dp bigint, 60s) |
 | `useLeverageYieldPreviewRedeem` | Query | Assets for N shares; pass `1e18` for price-per-share (60s) |
 | `useLeverageYieldShareBalances` | Query | Per-chain `lsoda*` balances via `useQueries` — returns an array (15s) |
@@ -242,7 +245,7 @@ Typed React Query wrappers over the backend Leverage Yield API (`sodax.api.lever
 | `useLeverageYieldApiVaults` | Query; the deployed-vault registry |
 | `useLeverageYieldApiVault` | Query; one vault descriptor by lsoda* `name` |
 | `useLeverageYieldApiAsset` | Query; the vault's underlying hub asset |
-| `useLeverageYieldApiPosition` | Query; `{ collateral, debt, ltv, healthFactor, idleAsset }` |
+| `useLeverageYieldApiPosition` | Query; `{ collateral, debt, ltv, healthFactor, idleAsset }` as decimal strings (`ltv` bps, `healthFactor` WAD) |
 | `useLeverageYieldApiApr` | Query; AAVE-only steady-state APR (RAY strings; can be negative) |
 | `useLeverageYieldApiEffectiveApr` | Query; combined AAVE + LSD APR — `effectiveNetAprRay` is the headline |
 | `useLeverageYieldApiLsdApr` | Query; off-chain LSD staking-APR snapshot |
@@ -251,7 +254,7 @@ Typed React Query wrappers over the backend Leverage Yield API (`sodax.api.lever
 | `useLeverageYieldApiPreviewWithdraw` | Query; ERC-4626 `previewWithdraw` — shares burned for `assets` |
 | `useLeverageYieldApiPreviewRedeem` | Query; ERC-4626 `previewRedeem` — assets for `shares` |
 | `useLeverageYieldApiShareBalance` | Query; an owner's lsoda* balance (the HUB wallet, not the EOA) |
-| `useLeverageYieldApiMaxWithdraw` | Query; RAW ERC-4626 `maxWithdraw` — NOT dust-trimmed, apply a margin for a MAX withdraw |
+| `useLeverageYieldApiMaxWithdraw` | Query; RAW ERC-4626 `maxWithdraw` in ASSET units, NOT dust-trimmed — never a withdraw's `inputAmount`, which is shares; size a MAX withdraw from `useLeverageYieldApiShareBalance` |
 | `useLeverageYieldApiDepositQuote` | Query; any token → lsoda* (set `query.includeTxData` for `txData`) |
 | `useLeverageYieldApiWithdrawQuote` | Query; lsoda* → any token |
 | `useLeverageYieldApiDeadline` | Query; computed vault-swap deadline |

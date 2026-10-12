@@ -110,7 +110,7 @@ export default function OracleCandlesCard() {
 
         {isLoading && <Skeleton className="h-80 w-full" />}
         {!isLoading && error && (
-          <div className="text-sm text-red-500">Error loading oracle data: {error.message}</div>
+          <div className="text-sm text-red-500 wrap-anywhere">Error loading oracle data: {error.message}</div>
         )}
         {!isLoading && !error && candles.length === 0 && (
           <div className="text-sm text-muted-foreground">No candles for this range.</div>

@@ -456,6 +456,14 @@ and origin gating are the real controls. Proxy through your own backend if that 
 | Reserves data (mm) | 5s | `useReservesData` / `useReservesHumanized` / user position hooks |
 | `useBalances` | 5s | refetchInterval |
 | `useXBalances` | 5s | refetchInterval |
+| `useLeverageYieldQuote` | 3s | refetchInterval; solver prices go stale |
+| `useLeverageYieldDetailedStatus` | 3s | stops on the answering source's terminal state |
+| `useLeverageYieldApiStatus` / `useLeverageYieldApiSubmitTxStatus` | 1s | stop on a terminal status |
+| `useLeverageYieldShareBalances` | 15s | per holder |
+| `useLeverageYieldPosition` | 30s | refetchInterval |
+| `useLeverageYieldEffectiveApr` / `useLeverageYieldTotalAssets` / `useLeverageYieldPreviewRedeem` | 60s | Sonic RPC reads with no multicall: one APR refresh is six `eth_call`s per vault, so don't shorten these on a vault grid |
+| `useLeveragePositionAccount` / `useLeveragePositionCollateral` | 30s | refetchInterval |
+| `useLeveragePositionPending` | 15s | refetchInterval |
 | Most others | None | |
 
 All overridable via `queryOptions.refetchInterval`.

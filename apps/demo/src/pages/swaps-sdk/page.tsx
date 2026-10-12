@@ -36,7 +36,7 @@ export default function SwapsSdkPage() {
   }, []);
 
   return (
-    <main className="flex flex-col items-center content-center justify-center space-y-2 pt-8 pb-12">
+    <main className="flex flex-col items-center content-center justify-center space-y-2 px-4 pt-8 pb-12">
       <Tabs value={solverEnvironment} onValueChange={value => setSolverEnvironment(value as SolverEnv)}>
         <TabsList>
           <TabsTrigger value={SolverEnv.Staging}>Staging</TabsTrigger>

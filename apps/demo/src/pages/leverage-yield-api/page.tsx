@@ -21,7 +21,7 @@ export default function LeverageYieldApiPage() {
   const [orders, setOrders] = useState<LeverageYieldApiOrder[]>([]);
 
   return (
-    <main className="flex flex-col items-center content-center justify-center space-y-2">
+    <main className="flex flex-col items-center content-center justify-center space-y-2 px-4 pt-8 pb-12">
       {orders.map((order, index) => (
         <OrderStatus key={`${order.txHash}-${index}`} order={order} />
       ))}

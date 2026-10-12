@@ -110,13 +110,15 @@ export function BorrowAssetsList({ initialChainId }: BorrowAssetsListProps): JSX
       </CardHeader>
 
       <div className="py-2 mx-2 my-1">
-        <div className="flex items-center gap-3 mx-6 pb-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mx-4 sm:mx-6 pb-2">
           <span className="text-sm font-medium text-clay">Chain:</span>
           <ChainSelector selectedChainId={selectedChainId} selectChainId={selectChainId} />
           {address && (
-            <div className="flex items-center gap-2 ml-2">
-              <Wallet className="w-3.5 h-3.5 text-clay" />
-              <span className="px-3 py-1.5 bg-cream rounded-lg text-cherry-dark text-xs">{address}</span>
+            <div className="flex min-w-0 max-w-full items-center gap-2 sm:ml-2">
+              <Wallet className="w-3.5 h-3.5 shrink-0 text-clay" />
+              <span className="min-w-0 px-3 py-1.5 bg-cream rounded-lg text-cherry-dark text-xs break-all">
+                {address}
+              </span>
             </div>
           )}
         </div>
@@ -125,8 +127,8 @@ export function BorrowAssetsList({ initialChainId }: BorrowAssetsListProps): JSX
       <CardContent className="p-0">
         {address ? (
           <div className="overflow-hidden">
-            <div className="max-h-[500px] overflow-y-auto">
-              <Table unstyled className="w-full">
+            <div className="sm:max-h-[500px] overflow-y-auto">
+              <Table unstyled className="w-full min-w-[56rem]">
                 <TableHeader className="sticky top-0 bg-cream backdrop-blur-sm z-20 border-b border-cherry-grey/20">
                   <TableRow>
                     {TABLE_HEADERS.map((header, index) => {
@@ -143,7 +145,7 @@ export function BorrowAssetsList({ initialChainId }: BorrowAssetsListProps): JSX
                                   <button
                                     type="button"
                                     aria-label="Available Liquidity Info"
-                                    className="inline-flex items-center text-clay hover:text-cherry-dark"
+                                    className="inline-flex items-center -m-1 p-1 text-clay hover:text-cherry-dark"
                                   >
                                     <Info className="w-3.5 h-3.5" />
                                   </button>
@@ -172,7 +174,7 @@ export function BorrowAssetsList({ initialChainId }: BorrowAssetsListProps): JSX
                                   <button
                                     type="button"
                                     aria-label="Borrow APY info"
-                                    className="inline-flex items-center text-clay hover:text-cherry-dark"
+                                    className="inline-flex items-center -m-1 p-1 text-clay hover:text-cherry-dark"
                                   >
                                     <Info className="w-3.5 h-3.5" />
                                   </button>
@@ -201,7 +203,7 @@ export function BorrowAssetsList({ initialChainId }: BorrowAssetsListProps): JSX
                                   <button
                                     type="button"
                                     aria-label="Borrow APR info"
-                                    className="inline-flex items-center text-clay hover:text-cherry-dark"
+                                    className="inline-flex items-center -m-1 p-1 text-clay hover:text-cherry-dark"
                                   >
                                     <Info className="w-3.5 h-3.5" />
                                   </button>
@@ -268,7 +270,7 @@ export function BorrowAssetsList({ initialChainId }: BorrowAssetsListProps): JSX
             </div>
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center min-h-[500px] bg-white rounded-xl shadow-sm border border-cherry-grey/20 p-12">
+          <div className="flex flex-col items-center justify-center min-h-[320px] sm:min-h-[500px] bg-white rounded-xl shadow-sm border border-cherry-grey/20 p-6 sm:p-12">
             <div className="max-w-md text-center space-y-6">
               <div className="w-15 h-15 bg-cherry-brighter rounded-full flex items-center justify-center mx-auto">
                 <Wallet className="w-8 h-8 text-cherry-dark" />

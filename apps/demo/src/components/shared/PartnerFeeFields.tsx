@@ -72,7 +72,7 @@ export function PartnerFeeFields({ draft, unsetBehavior }: { draft: PartnerFeeDr
   return (
     <div className="grow">
       <Label>Partner fee (optional)</Label>
-      <div className="flex space-x-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <Input
           type="text"
           placeholder="Fee receiver address (0x…)"
@@ -82,7 +82,7 @@ export function PartnerFeeFields({ draft, unsetBehavior }: { draft: PartnerFeeDr
         <Input
           type="number"
           step="0.01"
-          className="w-[130px]"
+          className="w-full shrink-0 sm:w-[130px]"
           placeholder={`% (max ${draft.maxPercent})`}
           value={draft.percent}
           onChange={e => draft.setPercent(e.target.value)}

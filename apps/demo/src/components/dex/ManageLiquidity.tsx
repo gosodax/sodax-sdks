@@ -256,13 +256,13 @@ export function ManageLiquidity({
       <CardContent>
         <Tabs defaultValue="deposit" className="w-full">
           <TabsList className="grid w-full grid-cols-3 gap-1 divide-x divide-border">
-            <TabsTrigger className="cursor-pointer" value="deposit">
+            <TabsTrigger className="cursor-pointer px-1.5 text-xs sm:px-3 sm:text-sm" value="deposit">
               Deposit
             </TabsTrigger>
-            <TabsTrigger className="cursor-pointer" value="withdraw">
+            <TabsTrigger className="cursor-pointer px-1.5 text-xs sm:px-3 sm:text-sm" value="withdraw">
               Withdraw
             </TabsTrigger>
-            <TabsTrigger className="cursor-pointer" value="positions">
+            <TabsTrigger className="cursor-pointer px-1.5 text-xs sm:px-3 sm:text-sm" value="positions">
               My positions
             </TabsTrigger>
           </TabsList>
@@ -418,12 +418,12 @@ export function ManageLiquidity({
 
             {/* Supply Liquidity Section */}
             <Card className="bg-primary/5 border-primary/20">
-              <CardHeader>
+              <CardHeader className="px-4 sm:px-6">
                 <CardTitle className="text-lg">
                   {positionId && isValidPosition ? 'Manage Position' : 'Supply Liquidity to Pool'}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="px-4 sm:px-6 space-y-4">
                 {/* Position ID Input */}
                 <div className="space-y-2">
                   <Label htmlFor="position-id" className="text-sm font-medium">
@@ -495,7 +495,7 @@ export function ManageLiquidity({
                         </div>
                         <div className="col-span-2">
                           <span className="text-muted-foreground">Liquidity:</span>
-                          <span className="ml-1 font-mono">{positionInfo.liquidity.toString()}</span>
+                          <span className="ml-1 font-mono break-all">{positionInfo.liquidity.toString()}</span>
                         </div>
                         <div className="col-span-2 pt-2 border-t border-green-200 dark:border-green-800">
                           <p className="font-medium text-green-800 dark:text-green-200 mb-1">💰 Unclaimed Fees</p>
@@ -633,7 +633,7 @@ export function ManageLiquidity({
                   <Label htmlFor="slippage" className="text-sm font-medium">
                     Slippage Tolerance
                   </Label>
-                  <div className="flex gap-2 items-center">
+                  <div className="flex flex-wrap gap-2 items-center">
                     <Input
                       id="slippage"
                       type="number"
@@ -832,7 +832,7 @@ export function ManageLiquidity({
       {error && (
         <div className="flex items-start gap-3 rounded-lg border border-destructive bg-destructive/10 p-4 text-sm text-destructive">
           <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-          <div className="flex-1">{error}</div>
+          <div className="flex-1 min-w-0 wrap-anywhere">{error}</div>
         </div>
       )}
     </Card>

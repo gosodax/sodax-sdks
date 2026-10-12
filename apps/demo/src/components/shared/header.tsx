@@ -1,11 +1,12 @@
 import React from 'react';
-import { NavLink, useLocation } from 'react-router';
+import { NavLink, useLocation, useMatch } from 'react-router';
 import { Button } from '@/components/ui/button';
+import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { WalletModal } from '@/components/shared/wallet-modal';
 import { SodaxSettingsModal } from '@/components/shared/SodaxSettingsModal';
 import { useXAccounts } from '@sodax/wallet-sdk-react';
 import { useAppStore } from '@/zustand/useAppStore';
-import { ChevronDown, Settings2, Wallet } from 'lucide-react';
+import { ChevronDown, Menu, Settings2, Wallet } from 'lucide-react';
 import { ROUTES } from '@/constants';
 import { hasActiveOverrides } from '@/lib/sodaxSettings';
 
@@ -29,8 +30,6 @@ const navEntries: NavEntry[] = [
       { to: ROUTES.BRIDGE_API, label: 'Bridge (API)' },
     ],
   },
-  { to: ROUTES.STAKING, label: 'Staking' },
-  { to: ROUTES.DEX, label: 'Dex' },
   {
     label: 'Leverage Yield',
     items: [
@@ -39,10 +38,12 @@ const navEntries: NavEntry[] = [
       { to: ROUTES.LEVERAGE_POSITIONS, label: 'Leverage Positions' },
     ],
   },
-  { to: ROUTES.ORACLE, label: 'Oracle' },
   {
     label: 'More',
     items: [
+      { to: ROUTES.STAKING, label: 'Staking' },
+      { to: ROUTES.DEX, label: 'Dex' },
+      { to: ROUTES.ORACLE, label: 'Oracle' },
       { to: ROUTES.PARTNER_FEE_CLAIM, label: 'Partner Fee Claim' },
       { to: ROUTES.RECOVERY, label: 'Recovery' },
     ],
@@ -98,7 +99,7 @@ function NavDropdown({ label, items }: { label: string; items: NavItem[] }) {
 
 export function NavigationMenu() {
   return (
-    <nav className="flex items-center gap-1">
+    <nav className="hidden xl:flex items-center gap-1">
       {navEntries.map(entry =>
         'items' in entry ? (
           <NavDropdown key={entry.label} label={entry.label} items={entry.items} />
@@ -109,6 +110,50 @@ export function NavigationMenu() {
         ),
       )}
     </nav>
+  );
+}
+
+// A string className (not NavLink's function form): SheetClose's Slot merges className by string concatenation.
+function MobileNavLink({ to, label }: NavItem) {
+  const isActive = useMatch({ path: to, end: false }) !== null;
+  return (
+    <SheetClose asChild>
+      <NavLink to={to} className={menuItemClass(isActive)}>
+        {label}
+      </NavLink>
+    </SheetClose>
+  );
+}
+
+// The one-line nav does not fit below xl, so it moves into a sheet there.
+function MobileNav() {
+  return (
+    <Sheet>
+      <SheetTrigger asChild>
+        <Button variant="cherryOutline" size="sm" className="xl:hidden" aria-label="Open navigation">
+          <Menu className="w-4 h-4" />
+        </Button>
+      </SheetTrigger>
+      <SheetContent side="left" aria-describedby={undefined} className="overflow-y-auto">
+        <SheetTitle className="sr-only">Navigation</SheetTitle>
+        <nav className="flex flex-col gap-1 mt-6">
+          {navEntries.map(entry =>
+            'items' in entry ? (
+              <div key={entry.label} className="flex flex-col gap-1">
+                <span className="px-3 pt-3 pb-1 text-xs font-semibold uppercase tracking-wide text-clay">
+                  {entry.label}
+                </span>
+                {entry.items.map(item => (
+                  <MobileNavLink key={item.to} {...item} />
+                ))}
+              </div>
+            ) : (
+              <MobileNavLink key={entry.to} {...entry} />
+            ),
+          )}
+        </nav>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -123,10 +168,11 @@ export default function Header() {
   return (
     <header className="bg-cherry-dark border-b border-cherry-soda/20 sticky top-0 z-50 backdrop-blur-sm">
       <div className="container mx-auto px-4">
-        <div className="flex justify-between items-center gap-4 py-3">
-          <div className="flex items-center gap-4 min-w-0">
+        <div className="flex justify-between items-center gap-2 sm:gap-4 py-3">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <MobileNav />
             <NavLink to="/" className="whitespace-nowrap text-lg font-bold tracking-wide text-cream-white">
-              SODAX <span className="font-normal opacity-60">demo</span>
+              SODAX <span className="font-normal opacity-60 max-sm:hidden">demo</span>
             </NavLink>
             <NavigationMenu />
           </div>
@@ -140,7 +186,7 @@ export default function Header() {
               title="Sodax Settings"
             >
               <Settings2 className="w-4 h-4" />
-              Settings
+              <span className="max-sm:sr-only">Settings</span>
               {hasActiveOverrides(sodaxSettings) && (
                 <span
                   className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-amber-400 rounded-full"
@@ -155,11 +201,12 @@ export default function Header() {
                   <Button
                     onClick={() => setShowChains(!showChains)}
                     onBlur={() => setTimeout(() => setShowChains(false), 200)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-cherry-bright/20 rounded-lg hover:bg-cherry-soda/30 transition-colors"
+                    className="flex items-center gap-2 px-3 py-1.5 max-[360px]:gap-1 max-[360px]:px-2 bg-cherry-bright/20 rounded-lg hover:bg-cherry-soda/30 transition-colors"
                   >
                     <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
                     <span className="text-sm text-cream-white font-medium whitespace-nowrap">
-                      {connectedXAccounts.length} Chain{connectedXAccounts.length > 1 ? 's' : ''}
+                      {connectedXAccounts.length}
+                      <span className="max-sm:sr-only"> Chain{connectedXAccounts.length > 1 ? 's' : ''}</span>
                     </span>
                     <ChevronDown
                       className={`w-4 h-4 text-cream-white transition-transform ${showChains ? 'rotate-180' : ''}`}
@@ -167,7 +214,7 @@ export default function Header() {
                   </Button>
 
                   {showChains && (
-                    <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-lg shadow-lg border border-cherry-grey/20 p-3 z-50">
+                    <div className="absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-2rem)] bg-white rounded-lg shadow-lg border border-cherry-grey/20 p-3 z-50">
                       <h4 className="font-semibold text-sm text-cherry-dark mb-3">Connected Chains</h4>
                       <div className="space-y-2">
                         {connectedXAccounts.map((xAccount, index) => (
@@ -191,13 +238,15 @@ export default function Header() {
 
                 <Button onClick={openWalletModal} variant="cherryOutline" size="sm">
                   <Wallet className="w-4 h-4" />
-                  Wallet
+                  <span className="max-sm:sr-only">Wallet</span>
                 </Button>
               </>
             ) : (
               <Button onClick={openWalletModal} variant="cherryOutline" size="sm" className="whitespace-nowrap">
                 <Wallet className="w-4 h-4" />
-                Connect Wallet
+                <span>
+                  Connect<span className="max-[360px]:sr-only"> Wallet</span>
+                </span>
               </Button>
             )}
           </div>

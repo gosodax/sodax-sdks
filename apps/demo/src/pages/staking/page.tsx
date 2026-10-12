@@ -288,7 +288,7 @@ export default function StakingPage() {
             SODA Staking
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="px-4 sm:px-6 space-y-6">
           <div className="space-y-2">
             <Label>Select Chain</Label>
             <SelectChain
@@ -303,7 +303,7 @@ export default function StakingPage() {
 
           <div className="space-y-2">
             <Label>Account</Label>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <Input
                 type="text"
                 placeholder="Connect wallet to see address"
@@ -316,16 +316,18 @@ export default function StakingPage() {
                 <Button onClick={openWalletModal}>Connect</Button>
               )}
               {isWrongChain && (
-                <Button className="w-full max-w-40" type="button" variant="default" onClick={handleSwitchChain}>
+                <Button className="w-full sm:max-w-40" type="button" variant="default" onClick={handleSwitchChain}>
                   Switch Chain
                 </Button>
               )}
             </div>
           </div>
           {walletAddressOnHub && (
-            <div className="flex items-center gap-2 text-sm">
+            <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2 text-sm">
               <span className="text-clay">Hub Wallet Address:</span>
-              <span className="px-3 py-1.5 bg-cream rounded-lg text-cherry-dark text-xs">{walletAddressOnHub}</span>
+              <span className="px-3 py-1.5 bg-cream rounded-lg text-cherry-dark text-xs break-all">
+                {walletAddressOnHub}
+              </span>
             </div>
           )}
 
@@ -390,13 +392,13 @@ export default function StakingPage() {
                       </div>
                     ) : stakeRatio ? (
                       <div className="space-y-2">
-                        <div className="flex justify-between items-center">
+                        <div className="flex justify-between items-center gap-2">
                           <span className="text-sm">Swapped Amount:</span>
-                          <span className="font-medium">{formatTokenAmount(stakeRatio[0], 18)} xSODA</span>
+                          <span className="font-medium text-right">{formatTokenAmount(stakeRatio[0], 18)} xSODA</span>
                         </div>
-                        <div className="flex justify-between items-center">
+                        <div className="flex justify-between items-center gap-2">
                           <span className="text-sm">Stake Amount:</span>
-                          <span className="font-medium">{formatTokenAmount(stakeRatio[1], 18)} SODA</span>
+                          <span className="font-medium text-right">{formatTokenAmount(stakeRatio[1], 18)} SODA</span>
                         </div>
                       </div>
                     ) : (
@@ -451,15 +453,15 @@ export default function StakingPage() {
                       </div>
                     ) : instantUnstakeRatio && convertedAssets ? (
                       <div className="space-y-2">
-                        <div className="flex justify-between items-center">
+                        <div className="flex justify-between items-center gap-2">
                           <span className="text-sm">Instant unstake (you will receive):</span>
-                          <span className="font-medium text-green-600">
+                          <span className="font-medium text-green-600 text-right">
                             {formatTokenAmount(instantUnstakeRatio, 18)} SODA
                           </span>
                         </div>
-                        <div className="flex justify-between items-center">
+                        <div className="flex justify-between items-center gap-2">
                           <span className="text-sm">Unstake Amount (you will receive):</span>
-                          <span className="font-medium text-blue-600">
+                          <span className="font-medium text-blue-600 text-right">
                             {formatTokenAmount(convertedAssets, 18)} SODA
                           </span>
                         </div>

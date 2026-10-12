@@ -1,0 +1,140 @@
+---
+title: "Quickstart on Robinhood Chain"
+description: "Install the SDK, wire up a Robinhood Chain wallet provider, and execute your first cross-network swap from Robinhood Chain."
+icon: bolt
+---
+
+This page takes you from zero to a cross-network swap sourced from Robinhood Chain. No new contracts, no approval for native ETH, one signed transaction for your user.
+
+<Note>
+  Building with an AI assistant? Add the [SODAX Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`) to Claude, Cursor, or any MCP-capable tool and it can pull live token lists, real quotes, and these docs while it writes your integration.
+</Note>
+
+## 1. Install
+
+```bash
+npm install @sodax/sdk @sodax/wallet-sdk-core
+# or: pnpm add / yarn add
+```
+
+## 2. Create a Robinhood Chain wallet provider
+
+Robinhood Chain uses the same `EvmWalletProvider` as every other EVM network, keyed by `ChainKeys.ROBINHOOD_MAINNET`.
+
+<CodeGroup>
+  ```typescript Private key (scripts / bots)
+  import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+  import { ChainKeys } from '@sodax/sdk';
+
+  const walletProvider = new EvmWalletProvider({
+    privateKey: '0x…', // private key of the Robinhood Chain account
+    chainId: ChainKeys.ROBINHOOD_MAINNET,
+    rpcUrl: 'https://rpc.mainnet.chain.robinhood.com', // rate-limited: use a provider endpoint in production
+  });
+  ```
+
+  ```typescript Browser extension (dApps)
+  import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+
+  // walletClient and publicClient are viem clients for Robinhood Chain,
+  // usually supplied by wagmi from the user's connected EVM wallet
+  const walletProvider = new EvmWalletProvider({
+    walletClient,
+    publicClient,
+  });
+  ```
+</CodeGroup>
+
+If you build those viem clients yourself, use the `robinhoodChain` definition from `@sodax/wallet-sdk-core`; see [Wallets](/robinhood-chain/wallets#your-own-viem-or-wagmi-setup). Building in React? [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) connects EVM wallets for you and hands back a ready-made provider via `useWalletProvider`.
+
+## 3. Look up supported tokens
+
+Token addresses and decimals come from the SDK config, so you never hard-code them.
+
+```typescript
+import { Sodax, ChainKeys, type XToken } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// find() returns XToken | undefined, so narrow before using the address
+const bySymbol = (tokens: readonly XToken[], symbol: string) => {
+  const token = tokens.find(t => t.symbol === symbol);
+  if (!token) throw new Error(`${symbol} is not a supported swap token`);
+  return token;
+};
+
+const eth = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.ROBINHOOD_MAINNET), 'ETH');
+const usdcBase = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.BASE_MAINNET), 'USDC');
+```
+
+In `@sodax/sdk` 2.1.0 the Robinhood Chain list holds ETH, bnUSD, SODA, and USDG. Stock Tokens arrive in the next release; see [Stock Tokens](/robinhood-chain/swaps#stock-tokens).
+
+## 4. Quote and swap
+
+`swap()` runs the full lifecycle: it creates the intent on Robinhood Chain, verifies the transaction landed, relays it to the hub, and notifies the solver to fill on the destination network.
+
+```typescript
+import type { SolverIntentQuoteRequest } from '@sodax/sdk';
+
+// 0.01 ETH, built from the token's own decimals
+const inputAmount = 10n ** BigInt(eth.decimals) / 100n;
+
+// Quote: 0.01 ETH -> USDC on Base
+const quoteResult = await sodax.swaps.getQuote({
+  token_src: eth.address,
+  token_dst: usdcBase.address,
+  token_src_blockchain_id: ChainKeys.ROBINHOOD_MAINNET,
+  token_dst_blockchain_id: ChainKeys.BASE_MAINNET,
+  amount: inputAmount,
+  quote_type: 'exact_input',
+} satisfies SolverIntentQuoteRequest);
+
+if (!quoteResult.ok) throw new Error('Quote failed');
+const { quoted_amount } = quoteResult.value;
+
+// `deadline` is an absolute Unix timestamp; getSwapDeadline turns an offset into one
+const deadlineResult = await sodax.swaps.getSwapDeadline(300n); // 5 minutes from now
+if (!deadlineResult.ok) throw new Error('Deadline lookup failed');
+
+// Execute
+const swapResult = await sodax.swaps.swap({
+  params: {
+    inputToken: eth.address,
+    outputToken: usdcBase.address,
+    inputAmount,
+    minOutputAmount: (quoted_amount * 99n) / 100n, // your slippage policy
+    deadline: deadlineResult.value,
+    allowPartialFill: false,
+    srcChainKey: ChainKeys.ROBINHOOD_MAINNET,
+    dstChainKey: ChainKeys.BASE_MAINNET,
+    srcAddress: await walletProvider.getWalletAddress(),
+    dstAddress: '0x...', // recipient on Base
+    solver: '0x0000000000000000000000000000000000000000',
+    data: '0x',
+  },
+  walletProvider,
+  timeout: 120_000,
+});
+
+if (swapResult.ok) {
+  console.log('Submitted. Hub tx:', swapResult.value.intentDeliveryInfo.dstTxHash);
+} else {
+  console.error('Swap failed:', swapResult.error);
+}
+```
+
+`ok` means the intent was created, relayed to the hub, and the solver notified, **not** that it was
+filled. Poll `sodax.swaps.getStatus({ intent_tx_hash: intentDeliveryInfo.dstTxHash })` until the
+status is `SolverIntentStatusCode.SOLVED`, which is the only success signal. The
+[main quickstart](/quickstart) has the full polling loop, including why `NOT_FOUND` is not terminal.
+
+A few things to know on Robinhood Chain:
+
+- **ETH needs no approval.** It is the native gas token. Swapping an ERC-20 token on Robinhood Chain needs an allowance first; see [Approvals](/robinhood-chain/swaps#approvals).
+- **Amounts follow `token.decimals`.** ETH has 18 decimals, but USDG has 6. Always build amounts from the token's own `decimals`.
+
+## Next steps
+
+- [Swaps on Robinhood Chain](/robinhood-chain/swaps): approvals, fees, Stock Tokens, manual orchestration.
+- [Money Market on Robinhood Chain](/robinhood-chain/money-market): supply and borrow with cross-network collateral.
+- Full API reference: [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps) in the SDK docs.

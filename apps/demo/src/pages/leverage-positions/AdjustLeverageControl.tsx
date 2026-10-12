@@ -297,7 +297,7 @@ export function AdjustLeverageControl({
           setTarget(rounded);
         }}
       />
-      <div className="flex justify-between text-[10px] text-muted-foreground">
+      <div className="flex justify-between gap-2 text-[10px] text-muted-foreground">
         <span>1.00x (repay all)</span>
         <span>now {currentLeverage.toFixed(2)}x</span>
         <span>max {maxLeverage.toFixed(2)}x</span>
@@ -354,7 +354,7 @@ export function AdjustLeverageControl({
         <Label className="text-xs whitespace-nowrap">Max slippage</Label>
         <input
           type="range"
-          className="flex-1"
+          className="min-w-0 flex-1"
           min={0.1}
           max={5}
           step={0.1}
@@ -387,7 +387,7 @@ export function AdjustLeverageControl({
       )}
 
       <Button
-        className="w-full"
+        className="h-auto min-h-9 w-full whitespace-normal text-center"
         size="sm"
         disabled={
           !inputAmount || !legQuote.data || legQuote.isLoading || busy || !owner || pending || projected?.exceedsMaxLtv

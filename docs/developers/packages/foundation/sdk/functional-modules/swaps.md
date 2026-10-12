@@ -1046,7 +1046,7 @@ if (statusResult.ok) {
 
 ```typescript
 const result = await sodax.swaps.getDetailedStatus({
-  srcChainKey: 'arb',
+  srcChainKey: ChainKeys.ARBITRUM_MAINNET,
   srcTxHash: swapResponse.intentDeliveryInfo.srcTxHash,
 });
 

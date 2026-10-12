@@ -1,6 +1,6 @@
 ---
 name: sodax-wallet-sdk-react
-description: 'Add SODAX multi-chain wallet connectivity to a React dapp with @sodax/wallet-sdk-react — connect/disconnect, account & signing hooks, a headless wallet modal, WalletConnect, and bridging the connected wallet into @sodax/sdk. INTEGRATION (write NEW code) — the React wallet connectivity layer for multi-chain dapps. Covers `SodaxWalletProvider` setup, hook-based connect/disconnect/account/signing UX across 9 chain types (EVM, Solana, Sui, Bitcoin, Stellar, ICON, Injective, NEAR, Stacks), headless wallet-modal primitives, WalletConnect for non-injected wallets (Fireblocks/Ledger/mobile), and `useWalletProvider` for bridging the connected wallet into `@sodax/sdk` calls. Use whenever a React dapp needs SODAX wallet connectivity. Triggers on "add wallet connect", "set up SodaxWalletProvider", "useXConnect", "useXAccount", "useWalletProvider", "useWalletModal", "wallet modal", "connect button", "multi-chain wallet UI", "WalletConnect for Fireblocks". Peer deps: `react >= 19`, `@tanstack/react-query 5.x`. MIGRATION (port v1 → v2) — the v2 reshape removed `useXWagmiStore` from the public API (each selector must be replaced with a public hook like `useXServices` / `useXService({ xChainType })` / `useXConnections` / `useXConnection({ xChainType })`; do NOT rename to `useXWalletStore` — the v2 barrel does not export it), unified hook signatures to single-object params, reshaped `SodaxWalletProvider` props (removed `rpcConfig` / `options` / `initialState` in favor of `config: SodaxWalletConfig`), and flattened the chain-slot wrapper (`chains: { EVM, SOLANA, ... }` → top-level slots on `SodaxWalletConfig`). Triggers on "useXWagmiStore is gone", "SodaxWalletProvider props broke", "old wallet-sdk-react hooks", "upgrade @sodax/wallet-sdk-react". Load this skill if EITHER applies; the body gates by mode.'
+description: 'Add SODAX multi-chain wallet connectivity to a React dapp with @sodax/wallet-sdk-react — connect/disconnect, account & signing hooks, a headless wallet modal, EVM chain switching, WalletConnect, and bridging the connected wallet into @sodax/sdk. INTEGRATION (write NEW code) — `SodaxWalletProvider` setup and hook-based UX across EVM, Solana, Sui, Bitcoin, Stellar, ICON, Injective, NEAR and Stacks; WalletConnect for non-injected wallets (Fireblocks/Ledger/mobile); `useWalletProvider` for signing SODAX calls. Triggers on "add wallet connect", "set up SodaxWalletProvider", "useXConnect", "useXAccount", "useWalletProvider", "useWalletModal", "wallet modal", "connect button", "multi-chain wallet UI", "WalletConnect for Fireblocks". Peer deps: `react >= 19`, `@tanstack/react-query 5.x`. MIGRATION (port v1 → v2) — `useXWagmiStore` left the public API (replace each selector with `useXServices` / `useXService({ xChainType })` / `useXConnections` / `useXConnection({ xChainType })`; do NOT rename to `useXWalletStore`, which is not exported), hooks take single-object params, `SodaxWalletProvider` takes `config: SodaxWalletConfig` (no `rpcConfig` / `options` / `initialState`), and chain slots are top-level on `SodaxWalletConfig` (no `chains: { EVM, … }` wrapper). Triggers on "useXWagmiStore is gone", "SodaxWalletProvider props broke", "old wallet-sdk-react hooks", "upgrade @sodax/wallet-sdk-react". Load this skill if EITHER applies; the body gates by mode.'
 license: MIT
 metadata:
   version: '0.0.1'
@@ -19,6 +19,21 @@ AGENTS.md routes you here when you're working with `@sodax/wallet-sdk-react` v2 
 
 For backend / non-React → use `sodax-wallet-sdk-core` instead.
 For React dapps with hooks wrapping the SDK → also load `sodax-dapp-kit`.
+
+## Prefer a granular skill if the concern is known
+
+If the task is one wallet concern, load its granular skill instead of this broad one. Each links straight to its recipe, for both integration and migration.
+
+| Concern | Granular skill | Trigger phrases |
+|---|---|---|
+| Connect / disconnect, account and connection state | [`./connect/SKILL.md`](./connect/SKILL.md) | "useXConnect", "useXAccount", "connect button" |
+| Headless wallet modal and multi-chain UI | [`./wallet-modal/SKILL.md`](./wallet-modal/SKILL.md) | "useWalletModal", "wallet modal", "connect several chains" |
+| Connected wallet → SDK signer | [`./bridge-to-sdk/SKILL.md`](./bridge-to-sdk/SKILL.md) | "useWalletProvider", "pass the wallet to @sodax/sdk" |
+| EVM chain switching / wrong network | [`./switch-chain/SKILL.md`](./switch-chain/SKILL.md) | "useEvmSwitchChain", "wrong network banner" |
+| Sign an arbitrary message | [`./sign-message/SKILL.md`](./sign-message/SKILL.md) | "useXSignMessage", "prove wallet ownership", "SIWE" |
+| WalletConnect / enterprise custody | [`./walletconnect/SKILL.md`](./walletconnect/SKILL.md) | "WalletConnect", "Fireblocks", "Ledger", "mobile-only wallet" |
+
+Load this broad skill (keep reading below) for a full wallet setup, several concerns at once, or a v1 port.
 
 ---
 

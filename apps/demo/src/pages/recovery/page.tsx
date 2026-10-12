@@ -138,9 +138,9 @@ export default function RecoveryPage() {
             </div>
 
             {hubWalletAddress && (
-              <div className="flex items-center gap-2 text-sm">
+              <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2 text-sm">
                 <span className="text-clay">Hub Wallet:</span>
-                <span className="px-3 py-1.5 bg-cream rounded-lg text-cherry-dark text-xs font-mono">
+                <span className="px-3 py-1.5 bg-cream rounded-lg text-cherry-dark text-xs font-mono break-all">
                   {hubWalletAddress}
                 </span>
               </div>
@@ -150,7 +150,7 @@ export default function RecoveryPage() {
 
         {srcAddress ? (
           <Card className="animate-in fade-in duration-500">
-            <CardHeader className="flex flex-row items-center justify-between">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
               <CardTitle className="text-cherry-dark">Hub Wallet Assets</CardTitle>
               <div className="flex items-center gap-2">
                 <Button
@@ -181,10 +181,10 @@ export default function RecoveryPage() {
                 )}
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="px-4 sm:px-6">
               {isWrongChain && (
-                <div className="flex items-center gap-3 p-3 mb-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                <div className="flex flex-wrap items-center gap-3 p-3 mb-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <AlertTriangle className="w-5 h-5 shrink-0 text-yellow-600" />
                   <span className="text-sm text-yellow-800">Your wallet is connected to a different network.</span>
                   <Button variant="cherry" size="sm" onClick={handleSwitchChain}>
                     Switch Network
@@ -193,7 +193,7 @@ export default function RecoveryPage() {
               )}
 
               {balanceError && (
-                <div className="p-3 mb-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+                <div className="p-3 mb-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 wrap-anywhere">
                   {balanceError}
                 </div>
               )}
@@ -288,7 +288,7 @@ export default function RecoveryPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="flex flex-col items-center justify-center min-h-[500px] bg-white rounded-xl shadow-sm border border-cherry-grey/20 p-12">
+          <div className="flex flex-col items-center justify-center min-h-[320px] sm:min-h-[500px] bg-white rounded-xl shadow-sm border border-cherry-grey/20 p-6 sm:p-12">
             <div className="max-w-md text-center space-y-6">
               <div className="w-15 h-15 bg-cherry-brighter rounded-full flex items-center justify-center mx-auto">
                 <Wallet className="w-8 h-8 text-cherry-dark" />

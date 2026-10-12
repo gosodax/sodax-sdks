@@ -729,7 +729,7 @@ export function CreatePositionCard({ chain, owner }: { chain: SpokeChainKey; own
       </CardHeader>
       <CardContent className="space-y-3">
         {/* ---- What the position is. Two tokens and a size; nothing derived. ---- */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <Label className="flex items-center gap-1">
               <Coins className="h-3 w-3" />
@@ -765,12 +765,12 @@ export function CreatePositionCard({ chain, owner }: { chain: SpokeChainKey; own
 
         {/* ---- Your money in. The balance doubles as the max button, as before. ---- */}
         <div className="space-y-1">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <Label>Deposit{fundingSymbol || depositSymbol ? ` (${fundingSymbol ?? depositSymbol})` : ''}</Label>
             {depositBalance !== undefined && (
               <button
                 type="button"
-                className="text-[10px] text-muted-foreground hover:underline"
+                className="-my-1.5 py-1.5 text-right text-[10px] text-muted-foreground hover:underline"
                 onClick={() => setAmount(formatUnits(depositBalance, depositDecimals))}
               >
                 Use max: {Number(formatUnits(depositBalance, depositDecimals)).toFixed(4)}{' '}
@@ -798,7 +798,7 @@ export function CreatePositionCard({ chain, owner }: { chain: SpokeChainKey; own
 
         {/* ---- Leverage. The track stops where the solver's price stops. ---- */}
         <div className="space-y-1">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <Label className="flex items-center gap-1">
               <TrendingUp className="h-3 w-3" />
               Leverage
@@ -807,7 +807,7 @@ export function CreatePositionCard({ chain, owner }: { chain: SpokeChainKey; own
                 what the open position reports — the spread comes out of your equity, so it reads higher.
               </InfoHint>
             </Label>
-            <span className="font-mono text-sm">
+            <span className="font-mono text-sm text-right">
               {leverage.toFixed(2)}x
               {landsAt !== undefined && Math.abs(landsAt - leverage) >= 0.005 && (
                 <span className="text-muted-foreground"> &rarr; {fmtLeverageCap(landsAt)} open</span>
@@ -960,7 +960,7 @@ export function CreatePositionCard({ chain, owner }: { chain: SpokeChainKey; own
             </Label>
             <input
               type="range"
-              className="flex-1"
+              className="min-w-0 flex-1"
               min={0.1}
               max={5}
               step={0.1}

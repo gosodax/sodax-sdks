@@ -43,8 +43,9 @@ export function SelectToken<T extends { name: string; symbol: string; address: s
       <SelectTrigger className={className}>
         <SelectValue placeholder="Token" />
       </SelectTrigger>
-      {/* Fixed width so the long Robinhood equity names ellipsize instead of widening the menu. */}
-      <SelectContent className="w-[240px]">
+      {/* Fixed width so the long Robinhood equity names ellipsize instead of widening the menu; never
+          narrower than the trigger, whose width the list inherits, or the list is clipped. */}
+      <SelectContent className="w-[max(240px,var(--radix-select-trigger-width))]">
         <div className="sticky top-0 z-10 bg-white p-1">
           <Input autoFocus placeholder="Search token..." className="h-8" {...inputProps} />
         </div>

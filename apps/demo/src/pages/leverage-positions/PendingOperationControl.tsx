@@ -173,7 +173,13 @@ export function PendingOperationControl({
           <div className="text-[10px] text-muted-foreground">
             This position is locked while the solver fills. If it expires, cancel to recover funds.
           </div>
-          <Button className="w-full" size="sm" variant="outline" disabled={busy || !owner} onClick={onCancel}>
+          <Button
+            className="h-auto min-h-9 w-full whitespace-normal text-center"
+            size="sm"
+            variant="outline"
+            disabled={busy || !owner}
+            onClick={onCancel}
+          >
             {busy ? 'Working…' : 'Cancel and recover funds'}
           </Button>
         </>
@@ -186,7 +192,12 @@ export function PendingOperationControl({
             <span className="font-mono">{owner ? `${owner.slice(0, 6)}…${owner.slice(-4)}` : ''}</span> — `settle()`
             takes no destination, so it can only pay the position's owner.
           </Notice>
-          <Button className="w-full" size="sm" disabled={busy || !owner} onClick={onSettle}>
+          <Button
+            className="h-auto min-h-9 w-full whitespace-normal text-center"
+            size="sm"
+            disabled={busy || !owner}
+            onClick={onSettle}
+          >
             {busy ? 'Working…' : 'Settle and recover funds'}
           </Button>
         </>
@@ -203,7 +214,13 @@ export function PendingOperationControl({
             The operation stays on record until it is cleared, which keeps the position's grant open. Adjusting and
             closing still work meanwhile.
           </Notice>
-          <Button className="w-full" size="sm" variant="outline" disabled={busy || !owner} onClick={onSettle}>
+          <Button
+            className="h-auto min-h-9 w-full whitespace-normal text-center"
+            size="sm"
+            variant="outline"
+            disabled={busy || !owner}
+            onClick={onSettle}
+          >
             {busy ? 'Working…' : 'Clear the finished operation'}
           </Button>
         </>

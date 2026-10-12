@@ -112,7 +112,7 @@ function PositionRow({
   const currentLeverage = equityBase > 0 ? collateralBase / equityBase : undefined;
 
   return (
-    <div className="rounded-md border p-3 space-y-2">
+    <div className="rounded-md border p-2 sm:p-3 space-y-2">
       {/* Pair and leverage lead, because together they are what the position IS. The address is an
           identifier, so it is demoted to the smallest muted thing on the row. */}
       <div className="flex items-baseline justify-between gap-2">
@@ -244,11 +244,11 @@ export function LeveragePositionsPanel({
 
   return (
     <Card className="w-full max-w-xl mx-auto">
-      <CardHeader>
+      <CardHeader className="px-4 sm:px-6">
         <CardTitle className="text-lg font-bold">Your positions</CardTitle>
         <CardDescription>Review health, adjust leverage, or close an open position.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="px-4 sm:px-6 space-y-3">
         {/* The empty and loading states are the page's business now: with nothing to show there is no
             column, and it centres on the form instead. An error still has to surface somewhere. */}
         {error && (

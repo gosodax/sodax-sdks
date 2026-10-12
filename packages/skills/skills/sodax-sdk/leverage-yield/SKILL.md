@@ -16,8 +16,9 @@ Granular skill for `LeverageYieldService` — `sodax.leverageYield`. Feature tag
 0. **Vault or leverage position?** Ask this first — they share the service and nothing else. A **vault** is one pooled ERC-4626 position at a single target LTV, entered/exited as an intent swap (`deposit` / `withdraw` / `vaultSwap`). A **leverage position** is the user's own AAVE account, cloned per position, with its own eMode category and leverage tier (`openLeveragePosition` and friends). "Deposit into a leverage vault" is the first; "open a leverage position", "adjust my leverage", "close my position" is the second. If the answer is positions, jump to Step 1b.
 1. **Deposit or withdraw?** Deposit = any spoke token → `lsoda*` shares (delivered to the user's hub wallet). Withdraw = `lsoda*` shares (in the hub wallet) → any token on any chain.
 2. **Build vs execute.** `deposit` / `withdraw` only *build* a `LeverageYieldSwapPayload`; `vaultSwap` *executes* it end-to-end. Spread the built payload into `vaultSwap({ ...payload, walletProvider })`.
-3. **End-to-end or manual relay?** `vaultSwap` does create → verify → relay → notify. For backend submit-tx, use `createVaultIntent` then relay yourself and finish with the public `notifySolver`.
-4. **Reads?** `getEffectiveApr` (headline, AAVE + LSD), `getApr` (AAVE-only — can be negative), `getPosition`, `getTotalAssets`, `previewRedeem`, `getMaxWithdrawForUser` / `getShareBalanceForUser` (resolve the hub wallet from a spoke address internally).
+3. **End-to-end or manual relay?** By default `vaultSwap` creates the intent and hands it to the backend submit-tx flow, which relays and notifies the solver; on any backend non-success it falls back to verify → relay → notify client-side, and then resolves before the fill (opt out of the backend path with `leverageYield: { useBackendSubmitTx: false }`). For a fully manual flow, use `createVaultIntent`, relay yourself, and finish with the public `notifySolver`.
+4. **Which vaults?** `listVaults()` (synchronous registry: `{ name, vault, asset, borrowToken, lsdSource? }`); pass `vault` to every call.
+5. **Reads?** `getEffectiveApr` (headline, AAVE + LSD), `getApr` (AAVE-only — can be negative), `getPosition`, `getTotalAssets`, `previewRedeem`, `getMaxWithdrawForUser` / `getShareBalanceForUser` (resolve the hub wallet from a spoke address internally).
 
 ### Step 1b — leverage positions
 
@@ -41,6 +42,9 @@ Granular skill for `LeverageYieldService` — `sodax.leverageYield`. Feature tag
 - **Using `getApr` as the headline number.** For LSD-backed vaults the AAVE-only spread is often negative; `getEffectiveApr` folds in the LSD staking yield (the real source of return).
 - **Passing a spoke address to `getShareBalance` / `getMaxWithdraw`.** Those take a hub address. Use the `*ForUser(vault, srcChainKey, srcAddress)` variants to resolve the hub wallet first.
 - **Gating withdraw on `approve` / `isAllowanceValid`.** Those are Sonic-direct allowance helpers for the vault's underlying asset; the swap-style withdraw authorises the share spend via a hub-wallet `Connection.sendMessage` (`hubWalletSwap: true`).
+- **Sending `minOutputAmount: 0n`.** Derive it from `sodax.leverageYield.getQuote`'s `quoted_amount` minus a slippage tolerance in basis points. The SDK does not reject zero, and a zero minimum accepts any fill.
+- **Adding a `partnerFee` nobody asked for.** It is optional and opt-in; leave it out unless the integrator gave you their own receiver. Never copy a fee address from a SODAX demo or doc.
+- **Reading `leverageMultiplierWad` as total exposure.** It is the borrowed multiple, `targetLTV / (1 − targetLTV)`; exposure is `1 + multiplier`. `targetLtvBps` and `getPosition().ltv` are basis points.
 - **Quoting a vault flow through `sodax.swaps.getQuote`.** It deducts the effective *swap* fee, while the vault intent charges the effective *leverage-yield* fee (`leverageYield.partnerFee ?? fee`) — the two disagree whenever the feature fees differ. It can be made to agree by passing the leverage-yield fee explicitly (with a zero fee — `{ address, percentage: 0 }` — where that fee is `undefined`, since an explicit `undefined` falls back to the swap fee), but prefer `sodax.leverageYield.getQuote` (`token_dst` = vault for a deposit, `token_src` = vault for a withdraw).
 - **Quoting with a different `partnerFee` than the intent charges.** The fee is deducted from the input before the swap, so the quote is sized on a different net input; when the intent's fee is the larger one, the `minOutputAmount` derived from that quote can't be met and the intent never fills. Pass the same `partnerFee` to `getQuote` and to `deposit()` / `vaultSwap()`, or omit it on both.
 - **Assuming `swaps.partnerFee` monetizes vault flows.** It does not — configure `leverageYield.partnerFee` (or the global `fee`).
@@ -63,14 +67,17 @@ Granular skill for `LeverageYieldService` — `sodax.leverageYield`. Feature tag
 
 1. `pnpm tsc --noEmit` clean.
 2. Every `await sodax.leverageYield.<method>(...)` has `if (!result.ok)`.
-3. Deposit/withdraw build a payload that is then run through `vaultSwap` (or `createVaultIntent` + relay + `notifySolver`).
-4. APR display uses `getEffectiveApr`; share/withdraw sizing from a spoke address uses the `*ForUser` reads.
-5. Positions: every `borrowAmount` / `minCollateralOut` traces back to `sizeLeverageBorrow` + `projectLeverageLeg` (never oracle parity), `exceedsMaxLtv` is checked before posting, and `notified` is read on every open / leverage change.
-6. Positions: leverage changes go through `submitLeveragePositionIntent`, not `runLeveragePositionOperation`; `notifySolver` is given `dstChainTxHash`; exits are sized from `getPositionCollateralBalance` and charge the fee from `getPositionInfo`.
+3. Every `minOutputAmount` comes from `sodax.leverageYield.getQuote` minus slippage; no `0n`, no unrequested `partnerFee`.
+4. Deposit/withdraw build a payload that is then run through `vaultSwap` (or `createVaultIntent` + relay + `notifySolver`).
+5. APR display uses `getEffectiveApr`; share/withdraw sizing from a spoke address uses the `*ForUser` reads.
+6. Positions: every `borrowAmount` / `minCollateralOut` traces back to `sizeLeverageBorrow` + `projectLeverageLeg` (never oracle parity), `exceedsMaxLtv` is checked before posting, and `notified` is read on every open / leverage change.
+7. Positions: leverage changes go through `submitLeveragePositionIntent`, not `runLeveragePositionOperation`; `notifySolver` is given `dstChainTxHash`; exits are sized from `getPositionCollateralBalance` and charge the fee from `getPositionInfo`.
 
 ## Related granular skills (same family)
 
-- [`../swap/SKILL.md`](../swap/SKILL.md) — `vaultSwap` is a leverage-yield copy of the swap intent flow; quote `minOutputAmount` via the solver quote there.
+- [`../swap/SKILL.md`](../swap/SKILL.md) — `vaultSwap` is a leverage-yield copy of the swap intent flow. Quote `minOutputAmount` with `sodax.leverageYield.getQuote`, not the swap skill's `getQuote`.
 - [`../recovery/SKILL.md`](../recovery/SKILL.md) — recover stuck hub-wallet assets (including `lsoda*` shares) back to a spoke chain.
 
 For multi-feature tasks, load the broad [`sodax-sdk` skill](../SKILL.md).
+
+Building a user-facing React vault screen? Load the `sodax-dapp-kit` skill's leverage-yield granular skill: its product anatomy covers the journey, the states, USD prices, derived values and the units table.

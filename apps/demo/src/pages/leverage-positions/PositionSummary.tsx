@@ -36,7 +36,11 @@ export function InfoHint({ children }: { children: React.ReactNode }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button type="button" className="text-muted-foreground/70 hover:text-muted-foreground" aria-label="More info">
+        <button
+          type="button"
+          className="-m-1.5 p-1.5 text-muted-foreground/70 hover:text-muted-foreground"
+          aria-label="More info"
+        >
           <Info className="h-3 w-3" />
         </button>
       </TooltipTrigger>
@@ -48,7 +52,9 @@ export function InfoHint({ children }: { children: React.ReactNode }) {
 }
 
 export function SummaryTiles({ children }: { children: React.ReactNode }) {
-  return <div className="grid grid-cols-3 gap-2 rounded-md border bg-muted/30 p-2">{children}</div>;
+  return (
+    <div className="grid grid-cols-1 gap-1 rounded-md border bg-muted/30 p-2 sm:grid-cols-3 sm:gap-2">{children}</div>
+  );
 }
 
 export function SummaryTile({
@@ -75,8 +81,10 @@ export function SummaryTile({
 }) {
   const toneClass = tone === 'danger' ? 'bg-negative/10' : tone === 'caution' ? 'bg-yellow-soda/20' : '';
   return (
-    <div className={`space-y-0.5 rounded-sm px-1 py-1 text-center ${toneClass}`}>
-      <div className="flex items-center justify-center gap-1 text-[10px] text-muted-foreground">
+    <div
+      className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 rounded-sm px-1 py-1 text-left sm:block sm:space-y-0.5 sm:text-center ${toneClass}`}
+    >
+      <div className="flex items-center justify-start gap-1 text-[10px] text-muted-foreground sm:justify-center">
         <Icon className="h-3 w-3" />
         <span>{label}</span>
         {info && <InfoHint>{info}</InfoHint>}
@@ -162,7 +170,7 @@ export function Disclosure({
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="flex w-full items-center gap-1 text-left"
+        className="flex w-full min-h-9 items-center gap-1 text-left sm:min-h-0"
         aria-expanded={open}
       >
         <ChevronRight className={`h-3 w-3 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />

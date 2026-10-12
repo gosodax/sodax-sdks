@@ -24,7 +24,13 @@ useLeverageYieldPosition({ params, queryOptions });      // collateral/debt/ltv/
 useLeverageYieldTotalAssets({ params, queryOptions });   // vault TVL, 18-dp bigint (60s)
 useLeverageYieldPreviewRedeem({ params, queryOptions }); // assets for N shares; price-per-share (60s)
 useLeverageYieldShareBalances({ params, queryOptions }); // per-chain share balances via useQueries (15s)
+
+// Vault registry — no hook; static SDK config, read synchronously
+const { sodax } = useSodaxContext();
+const vaults = useMemo(() => sodax.leverageYield.listVaults(), [sodax]); // { name, vault, asset, borrowToken, lsdSource? }[]
 ```
+
+Every read and builder takes the vault's `vault` field (the `lsoda*` proxy address). `useLeverageYieldApiVaults` is the backend REST equivalent of `listVaults()`. For symbols, logos, USD prices and a single units table, see [`../recipes/leverage-yield-product-anatomy.md`](../recipes/leverage-yield-product-anatomy.md).
 
 `deposit` / `withdraw` are **builders** — they assemble a `LeverageYieldSwapPayload`, they do NOT broadcast. Spread the built payload into `useLeverageYieldVaultSwap`'s `mutate`, adding the `walletProvider`. `vaultSwap` takes the **backend submit-tx** path by default and falls back to the client-side relay on any non-success, so track the result with `useLeverageYieldDetailedStatus` — it keys on the source tx and answers for whichever path completed. Pass `extras.apiKey` in `mutate` to key the backend leg per action. There is no dedicated leverage-yield approve hook: the swap-style deposit approves the spoke-side asset manager, so reuse `useSwapApprove` / `useSwapAllowance` (see Approval pattern).
 
@@ -65,12 +71,15 @@ type UseLeverageYieldNotifySolverVars = SolverExecutionRequest;
 useLeverageYieldEffectiveApr({ params: { vault } })
 //   → UseQueryResult<LeverageYieldEffectiveApr>
 //   LeverageYieldEffectiveApr = LeverageYieldApr & { lsdApr, effectiveSupplyAprRay, effectiveNetAprRay }
-//   LeverageYieldApr = { supplyAprRay, borrowAprRay, targetLtvBps, leverageMultiplierWad, netAprRay } (RAY = 1e27)
+//   LeverageYieldApr = { supplyAprRay, borrowAprRay, targetLtvBps, leverageMultiplierWad, netAprRay }
+//   rates RAY (1e27); targetLtvBps basis points (8_200 = 82%); leverageMultiplierWad WAD (1e18) and the
+//   BORROWED multiple, targetLTV / (1 − targetLTV) — total exposure is 1 + multiplier
 
 // useLeverageYieldPosition — live position snapshot
 useLeverageYieldPosition({ params: { vault } })
 //   → UseQueryResult<LeverageYieldPosition>
 //   LeverageYieldPosition = { collateral, debt, ltv, healthFactor, idleAsset } (all bigint)
+//   ltv basis points (10_000 = 100%); healthFactor WAD; amounts 18 dp
 
 // useLeverageYieldPreviewRedeem — assets per shares; pass 1e18 for price-per-share
 useLeverageYieldPreviewRedeem({ params: { vault, shares: 10n ** 18n } })
@@ -123,6 +132,9 @@ Branch on `data?.ok` for those two hooks only.
 5. **Quote vault flows with `useLeverageYieldQuote`, never `useQuote`.** `useQuote` deducts the effective *swap* fee (`swaps.partnerFee ?? fee`) while a vault intent charges the effective *leverage-yield* fee (`leverageYield.partnerFee ?? fee`) — they disagree whenever the two feature fees differ, and when the leverage-yield one is larger the `minOutputAmount` you derive is unfillable and the intent never settles. Pass the same per-intent `partnerFee` to `useLeverageYieldQuote` and to `useLeverageYieldDeposit` / `useLeverageYieldVaultSwap`, or omit it on both — either way the two sides resolve the same fee.
 6. **`useLeverageYieldVaultSwap` invalidates xBalances on both chains** (`['shared', 'xBalances', srcChainKey]` and `dstChainKey`) on success. Compose your own `onSuccess` after the hook's — it runs first.
 7. **`useLeverageYieldNotifySolver` is for the manual flow only.** `useLeverageYieldVaultSwap` already notifies the solver internally — only reach for the standalone notify hook when you built the intent with `sodax.leverageYield.createVaultIntent` and relayed it yourself. It does NOT invalidate any queries: its only var is `{ intent_tx_hash }` (no chain context), and the fill lands asynchronously afterward.
+8. **Never send `minOutputAmount: 0n`.** Size it from `useLeverageYieldQuote`'s `quoted_amount` minus a slippage tolerance in basis points, and keep the deposit disabled until the quote is `ok`. A zero minimum accepts any fill.
+9. **Show "Leverage" as `1 + leverageMultiplierWad`.** The multiplier is the borrowed multiple (4.56× at an 82% target LTV); the exposure a depositor holds is 5.56×.
+10. **Don't shorten the vault-stat intervals.** One `useLeverageYieldEffectiveApr` refresh is six Sonic `eth_call`s plus a DefiLlama fetch per vault, with no multicall. A grid of vault cards on the defaults is already the heavy part of the page.
 
 ## Leverage positions (separate from vaults)
 

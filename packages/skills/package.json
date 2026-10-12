@@ -41,7 +41,8 @@
     "check:ai-tsx-examples": "bash ./scripts/check-ai-tsx-examples.sh",
     "check:ai-keys": "bash ./scripts/check-ai-keys.sh",
     "check:ai-consistency": "bash ./scripts/check-ai-consistency.sh",
-    "check:ai": "pnpm run check:ai-structural && pnpm run check:ai-imports && pnpm run check:ai-snippets && pnpm run check:ai-tsx-examples && pnpm run check:ai-keys && pnpm run check:ai-consistency",
+    "check:ai-safety": "bash ./scripts/check-ai-safety.sh",
+    "check:ai": "pnpm run check:ai-structural && pnpm run check:ai-imports && pnpm run check:ai-snippets && pnpm run check:ai-tsx-examples && pnpm run check:ai-keys && pnpm run check:ai-consistency && pnpm run check:ai-safety",
     "ci": "pnpm run pretty && pnpm run check:ai",
     "prepublishOnly": "pnpm run ci",
     "clean": "rm -rf node_modules && rm -rf .turbo"

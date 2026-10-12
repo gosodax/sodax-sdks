@@ -1,0 +1,155 @@
+---
+title: "VibeCode Saga: Yield Pachinko: a no-loss parlor on the SODAX money market"
+sidebarTitle: "Yield Pachinko"
+icon: gamepad
+description: "A neon pachinko board on top of real cross-network USDC deposits into the SODAX money market. Four dapp-kit hooks carry the money, a canvas physics board carries the fun, and principal comes back out whenever you want."
+---
+
+## What it is
+
+[Yield Pachinko](https://yield-pachinko.vercel.app) is a Showa-era neon pachinko parlor that runs on SODAX. The pitch fits on the sign over the door: the house pays in interest.
+
+You connect an EVM wallet and supply USDC from Base, Arbitrum, Polygon, or BNB Chain. SODAX relays it to the hub on Sonic and supplies it into the SODAX money market as your own position. You can withdraw your full supplied position whenever you want. While it sits there, balls drop into your tray, and you fire them through a peg field into multiplier buckets (×50, ×5, ×2, ×0.5, ×0).
+
+The impressive part is how little code the real money takes. Cross-network deposits into a live money market, with approvals, relaying and hub settlement, are four hooks in one component. Everything else in the repo is the parlor.
+
+It is a no-loss mechanic demo, not a gambling product. The footer and the README both say so: not financial advice, not a licensed gambling product, an experiment in no-loss play.
+
+## The design idea: real money, playful game
+
+The build hangs on one split, written into the README as a table:
+
+| Real (on-chain via SODAX) | Playful visualization |
+|---|---|
+| Wallet connect | Multiplier payouts |
+| `supply` / `withdraw` / `approve` against the live money market | The prize pool |
+| Cross-network USDC relay, per-network decimals | Yield-to-ball drip rate |
+
+Deposits are real deposits on SODAX's money market, going in and coming out through the SDK, never custodied by me. The parlor's ball economy is a playful visualization on top: a client-side canvas physics toy. The comment at the top of `lib/config.ts` sets the rule: payouts are labelled DEMO "until a real prize/custody contract exists. We do not fake a house contract the SDK does not give us."
+
+SODAX gives you a non-custodial money market, and the parlor builds right up to that edge. The tray panel says "Demo payouts" so players always know which part is which.
+
+### How the balls flow
+
+The ball economy lives in `app/page.tsx` and is driven by deposits and a timer:
+
+```tsx
+// on a successful supply: 1 ball per $5 deposited, minimum 1
+setBalls((b) => b + Math.max(1, Math.floor(usd / 5)));
+
+// "yield funds your balls": while principal is supplied, drip a ball
+useEffect(() => {
+  if (deposited <= 0) return;
+  const id = setInterval(() => {
+    setBalls((b) => b + 1);
+    setYieldBalls((y) => y + 1);
+  }, 9000);
+  return () => clearInterval(id);
+}, [deposited]);
+```
+
+A deposit earns balls up front, and while principal is supplied a ball drips every 9 seconds. It visualizes the loop of supplied money producing play. A natural next step is reading the user's reserve position so real accrued interest sets the drip rate.
+
+## The SDK pieces that carried this
+
+### 1. Three providers
+
+`app/providers.tsx` nests three providers, and the README marks the order as "DO NOT loosen":
+
+```tsx
+const queryClient = createSodaxQueryClient();
+
+<SodaxProvider config={sodaxConfig}>
+  <QueryClientProvider client={queryClient}>
+    <SodaxWalletProvider config={walletConfig}>{children}</SodaxWalletProvider>
+  </QueryClientProvider>
+</SodaxProvider>
+```
+
+`sodaxConfig` sets RPC URLs per network using `ChainKeys` (Sonic, Base, Arbitrum, Polygon, BSC). `walletConfig` tells the wallet layer which EVM networks to expose. The query client comes from `createSodaxQueryClient()` in `@sodax/dapp-kit`, preconfigured for the SDK.
+
+### 2. Money-market hooks from dapp-kit
+
+All of the real money movement is four hooks in `components/DepositPanel.tsx`:
+
+```tsx
+const { data: allowanceOk } = useMMAllowance(
+  supplyParams ? { params: { payload: supplyParams } } : undefined,
+);
+const { mutateAsyncSafe: approve } = useMMApprove();
+const { mutateAsyncSafe: supply } = useSupply();
+const { mutateAsyncSafe: withdraw } = useWithdraw();
+```
+
+The supply params are small:
+
+```ts
+{
+  srcChainKey: chainKey,   // e.g. ChainKeys.BASE_MAINNET
+  srcAddress: address,
+  token,                   // native USDC on that network
+  amount: amountWei,
+  action: 'supply',
+}
+```
+
+Withdraw reuses the same object with `action: 'withdraw'`. The deposit flow is: check allowance, approve if `allowanceOk === false`, then `supply({ params, walletProvider })`. The status line tells the user the supply "relays cross-chain, about 1-2 min", because the deposit is signed on the source network and lands in the money market via the hub. I never wrote any relay or hub logic.
+
+### 3. `mutateAsyncSafe` and `Result<T>`
+
+The mutation hooks expose `mutateAsyncSafe`, which returns a `Result` and never throws. That shaped the handler into a flat sequence of `if (!r.ok)` checks:
+
+```ts
+const r = await supply({ params: supplyParams, walletProvider });
+if (!r.ok) {
+  setStatus({ kind: 'err', msg: `Deposit failed: ${errMsg(r.error)}` });
+  return;
+}
+```
+
+A tiny `errMsg(e: unknown)` helper turns `r.error` into display text.
+
+### 4. EVM connect through wagmi
+
+SODAX mounts a `WagmiProvider` inside `SodaxWalletProvider`, so `ConnectButton.tsx` uses wagmi's own `useConnectors`, `useConnect`, and `useDisconnect`. SODAX's EvmHydrator mirrors the connected account into `useXAccount` and `useWalletProvider`, so the deposit panel only ever talks to SODAX hooks. You get wagmi's full connector ecosystem with SODAX's chain-agnostic hooks on top.
+
+### 5. Per-network decimals
+
+USDC on BNB Chain is 18 decimals, while Base, Arbitrum, and Polygon USDC are 6. `lib/config.ts` keeps a `USDC_DECIMALS_BY_CHAIN` map and the panel parses the typed amount with the right one, so the same deposit form works on all four networks.
+
+## The parlor
+
+On the presentation side, a chrome ball descends a right-gutter rail mapped to scroll progress, read inside a `requestAnimationFrame` loop, and `prefers-reduced-motion` parks it. The peg field is 12 staggered rows over 10 buckets, with the jackpots on the edges and the ×0 buckets in the middle, which is why the board feels chaotic. The physics are hand-written canvas code with no animation libraries.
+
+## What made it easy
+
+- **The money market is four hooks.** Approve, supply, and withdraw against a cross-network market fit in under 200 lines in one component.
+- **No relay code.** Signing on Base or BNB Chain and landing on the Sonic hub is handled by the SDK.
+- **One params object.** Supply and withdraw share the same shape, with only `action` changing.
+- **`mutateAsyncSafe`.** Error handling stays flat and predictable.
+- **wagmi under the hood.** Standard EVM connectors plug straight into SODAX's hooks.
+
+## Tips for builders
+
+- For EVM wallets, connect with wagmi's hooks inside `SodaxWalletProvider` and read the account back through `useXAccount`.
+- Note the two param shapes: `useMMAllowance` takes `{ params: { payload } }`, while the mutation hooks take `{ params, walletProvider }`.
+- Pin `@sodax/*` packages to an explicit version (this build uses `2.0.0-rc.11`) and keep a per-network decimals map for stablecoins.
+
+## Stack
+
+Next.js 15.5 (App Router) · React 19 · `@sodax/sdk`, `@sodax/dapp-kit`, `@sodax/wallet-sdk-react` all at `2.0.0-rc.11` · wagmi 2.x · `@tanstack/react-query` · hand-written canvas physics for the board and the scroll ball · Higgsfield-generated hero, chrome ball, and torii assets
+
+## Try it
+
+Live: [yield-pachinko.vercel.app](https://yield-pachinko.vercel.app)
+
+Repo: [github.com/hazy2go/yield-pachinko](https://github.com/hazy2go/yield-pachinko)
+
+The parlor, scroll ball, and board are explorable without a wallet. To exercise the real deposit path you need an EVM wallet holding at least 5 USDC on Base, Arbitrum, Polygon, or BNB Chain.
+
+```bash
+npm install --legacy-peer-deps
+npm run dev
+```
+
+Optional: set `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` in `.env.local` for mobile QR connect.

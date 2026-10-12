@@ -372,14 +372,14 @@ export default function PartnerFeeClaimPage() {
     <main className="container mx-auto px-4 py-8 max-w-4xl">
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-cream-white mb-2">Partner Fee Claim Demo</h1>
-          <p className="text-cream/70">Query asset balances for any address on Sonic chain</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-cherry-dark mb-2">Partner Fee Claim Demo</h1>
+          <p className="text-clay">Query asset balances for any address on Sonic chain</p>
         </div>
 
         {srcAddress && isWrongChain && (
-          <div className="flex items-center gap-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <div className="flex flex-wrap items-center gap-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
             <AlertTriangle className="w-5 h-5 text-yellow-600 shrink-0" />
-            <span className="text-sm text-yellow-800">
+            <span className="flex-1 min-w-[12rem] text-sm text-yellow-800">
               Your wallet is connected to a different network. Switch to Sonic to claim, withdraw, or recover fees.
             </span>
             <Button variant="cherry" size="sm" onClick={handleSwitchChain} className="ml-auto shrink-0">
@@ -406,7 +406,7 @@ export default function PartnerFeeClaimPage() {
                 className="font-mono"
               />
               {sonicAccount?.address && (
-                <p className="text-sm text-cream/60">
+                <p className="text-sm text-muted-foreground">
                   Connected: {sonicAccount.address.slice(0, 10)}...{sonicAccount.address.slice(-8)}
                 </p>
               )}
@@ -416,7 +416,11 @@ export default function PartnerFeeClaimPage() {
               {isFetchingBalances ? 'Loading...' : 'Fetch Balances'}
             </Button>
 
-            {error && <div className="p-3 bg-negative border border-red rounded-lg text-black text-sm">{error}</div>}
+            {error && (
+              <div className="p-3 bg-negative border border-red rounded-lg text-black text-sm wrap-anywhere">
+                {error}
+              </div>
+            )}
             {balancesError && (
               <div className="p-3 bg-negative border border-red rounded-lg text-black text-sm break-all">
                 {formatSdkError(balancesError, 'Failed to fetch balances')}
@@ -441,16 +445,16 @@ export default function PartnerFeeClaimPage() {
             </CardHeader>
             <CardContent>
               {balancesArray.length === 0 ? (
-                <p className="text-cream/60">No balances found</p>
+                <p className="text-muted-foreground">No balances found</p>
               ) : (
                 <div className="space-y-2">
                   <div className="max-h-96 overflow-y-auto space-y-2">
                     {balancesArray.map(asset => (
                       <div
                         key={asset.address}
-                        className="flex items-center justify-between p-3 rounded-lg border bg-white/90 border-cherry-soda/30"
+                        className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-white/90 border-cherry-soda/30"
                       >
-                        <div>
+                        <div className="min-w-0">
                           <div className="font-semibold text-black">{asset.symbol}</div>
                           <div className="text-sm text-gray-800">{asset.name}</div>
                           <div className="text-xs mt-1 text-gray-700">
@@ -460,7 +464,7 @@ export default function PartnerFeeClaimPage() {
                             Wrapped: {asset.address.slice(0, 10)}...{asset.address.slice(-8)}
                           </div>
                         </div>
-                        <div className="text-right">
+                        <div className="min-w-0 text-right break-all">
                           <div className="font-semibold text-cherry-bright">
                             {formatUnits(asset.balance, asset.decimal)}
                           </div>
@@ -604,13 +608,13 @@ export default function PartnerFeeClaimPage() {
             </Button>
 
             {setPreferenceError && (
-              <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm">
+              <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm wrap-anywhere">
                 {setPreferenceError}
               </div>
             )}
 
             {setPreferenceSuccess && (
-              <div className="p-3 bg-green-500/20 border border-green-500/50 rounded-lg text-black text-sm">
+              <div className="p-3 bg-green-500/20 border border-green-500/50 rounded-lg text-black text-sm wrap-anywhere">
                 {setPreferenceSuccess}
               </div>
             )}
@@ -672,7 +676,12 @@ export default function PartnerFeeClaimPage() {
                   const maxBalance = formatUnits(token.balance, token.decimal);
                   return (
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setSwapAmount(maxBalance)} className="text-xs">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSwapAmount(maxBalance)}
+                        className="h-auto min-h-9 whitespace-normal text-center text-xs wrap-anywhere"
+                      >
                         Use Max ({maxBalance} {token.symbol})
                       </Button>
                     </div>
@@ -703,13 +712,13 @@ export default function PartnerFeeClaimPage() {
             </Button>
 
             {swapError && (
-              <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm">
+              <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm wrap-anywhere">
                 {swapError}
               </div>
             )}
 
             {swapSuccess && (
-              <div className="p-3 bg-green-500/20 border border-green-500/50 rounded-lg text-black text-sm">
+              <div className="p-3 bg-green-500/20 border border-green-500/50 rounded-lg text-black text-sm wrap-anywhere">
                 {swapSuccess}
               </div>
             )}
@@ -774,7 +783,7 @@ export default function PartnerFeeClaimPage() {
                   variant="outline"
                   size="sm"
                   onClick={() => setWithdrawAmount(formatUnits(withdrawAsset.balance, withdrawAsset.decimal))}
-                  className="text-xs"
+                  className="h-auto min-h-9 whitespace-normal text-center text-xs wrap-anywhere"
                 >
                   Use Max ({formatUnits(withdrawAsset.balance, withdrawAsset.decimal)} {withdrawAsset.symbol})
                 </Button>
@@ -810,7 +819,7 @@ export default function PartnerFeeClaimPage() {
               )}
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="outline"
                 onClick={handleWithdrawApprove}
@@ -851,7 +860,7 @@ export default function PartnerFeeClaimPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="recover-txhash">Claim Transaction Hash (optional)</Label>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <Input
                   id="recover-txhash"
                   placeholder="0x... (paste the failed claim tx to auto-fill tokens)"
@@ -867,7 +876,7 @@ export default function PartnerFeeClaimPage() {
                   {recoverTxLoading ? 'Loading...' : 'Load from Tx'}
                 </Button>
               </div>
-              <p className="text-xs text-cream/60">
+              <p className="text-xs text-muted-foreground">
                 Optional shortcut — reads the intent from the transaction and fills the From/To tokens below. The cancel
                 itself uses the token pair, not the hash.
               </p>
@@ -893,7 +902,7 @@ export default function PartnerFeeClaimPage() {
                 onChange={e => setRecoverToToken(e.target.value)}
                 className="font-mono"
               />
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   size="sm"

@@ -1,0 +1,139 @@
+---
+title: "Quickstart on Sonic"
+description: "Install the SDK, wire up a Sonic wallet provider, and execute your first cross-network swap from the SODAX hub."
+icon: bolt
+---
+
+This page takes you from zero to a cross-network swap sourced from Sonic. No new contracts, no approval for native S, one signed transaction for your user, and no relay hop: the intent is created directly on the hub.
+
+<Note>
+  Building with an AI assistant? Add the [SODAX Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`) to Claude, Cursor, or any MCP-capable tool and it can pull live token lists, real quotes, and these docs while it writes your integration.
+</Note>
+
+## 1. Install
+
+```bash
+npm install @sodax/sdk @sodax/wallet-sdk-core
+# or: pnpm add / yarn add
+```
+
+## 2. Create a Sonic wallet provider
+
+Sonic uses the same `EvmWalletProvider` as every other EVM network, keyed by `ChainKeys.SONIC_MAINNET`.
+
+<CodeGroup>
+  ```typescript Private key (scripts / bots)
+  import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+  import { ChainKeys } from '@sodax/sdk';
+
+  const walletProvider = new EvmWalletProvider({
+    privateKey: '0x…',
+    chainId: ChainKeys.SONIC_MAINNET,
+    rpcUrl: 'https://rpc.soniclabs.com', // Sonic public RPC
+  });
+  ```
+
+  ```typescript Browser extension (dApps)
+  import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+
+  // walletClient and publicClient are viem clients for Sonic mainnet,
+  // usually supplied by wagmi from the user's connected EVM wallet
+  const walletProvider = new EvmWalletProvider({
+    walletClient,
+    publicClient,
+  });
+  ```
+</CodeGroup>
+
+Building in React? [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) connects EVM wallets for you and hands back a ready-made provider via `useWalletProvider`. See [Wallets](/sonic/wallets).
+
+## 3. Look up supported tokens
+
+Token addresses and decimals come from the SDK config, so you never hard-code them. Native S uses the zero address in the config.
+
+```typescript
+import { Sodax, ChainKeys, type XToken } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// find() returns XToken | undefined, so narrow before using the address
+const bySymbol = (tokens: readonly XToken[], symbol: string) => {
+  const token = tokens.find(t => t.symbol === symbol);
+  if (!token) throw new Error(`${symbol} is not a supported swap token`);
+  return token;
+};
+
+const s = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.SONIC_MAINNET), 'S');
+const usdcBase = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.BASE_MAINNET), 'USDC');
+```
+
+## 4. Quote and swap
+
+`swap()` runs the full lifecycle: it creates the intent on Sonic, confirms it, and notifies the solver to fill on the destination network. Because Sonic is the hub, there is no relay step between the source transaction and the solver.
+
+```typescript
+import type { SolverIntentQuoteRequest } from '@sodax/sdk';
+
+// 10 S, built from the token's own decimals
+const inputAmount = 10n * 10n ** BigInt(s.decimals);
+
+// Quote: 10 S -> USDC on Base
+const quoteResult = await sodax.swaps.getQuote({
+  token_src: s.address,
+  token_dst: usdcBase.address,
+  token_src_blockchain_id: ChainKeys.SONIC_MAINNET,
+  token_dst_blockchain_id: ChainKeys.BASE_MAINNET,
+  amount: inputAmount,
+  quote_type: 'exact_input',
+} satisfies SolverIntentQuoteRequest);
+
+if (!quoteResult.ok) throw new Error('Quote failed');
+const { quoted_amount } = quoteResult.value;
+
+// `deadline` is an absolute Unix timestamp; getSwapDeadline turns an offset into one
+const deadlineResult = await sodax.swaps.getSwapDeadline(300n); // 5 minutes from now
+if (!deadlineResult.ok) throw new Error('Deadline lookup failed');
+
+// Execute
+const swapResult = await sodax.swaps.swap({
+  params: {
+    inputToken: s.address,
+    outputToken: usdcBase.address,
+    inputAmount,
+    minOutputAmount: (quoted_amount * 99n) / 100n, // your slippage policy
+    deadline: deadlineResult.value,
+    allowPartialFill: false,
+    srcChainKey: ChainKeys.SONIC_MAINNET,
+    dstChainKey: ChainKeys.BASE_MAINNET,
+    srcAddress: await walletProvider.getWalletAddress(),
+    dstAddress: '0x...', // recipient on Base
+    solver: '0x0000000000000000000000000000000000000000',
+    data: '0x',
+  },
+  walletProvider,
+  timeout: 120_000,
+});
+
+if (swapResult.ok) {
+  console.log('Submitted. Hub tx:', swapResult.value.intentDeliveryInfo.dstTxHash);
+} else {
+  console.error('Swap failed:', swapResult.error);
+}
+```
+
+`ok` means the intent was created on the hub and the solver notified, **not** that it was
+filled. Poll `sodax.swaps.getStatus({ intent_tx_hash: intentDeliveryInfo.dstTxHash })` until the
+status is `SolverIntentStatusCode.SOLVED`, which is the only success signal. The
+[main quickstart](/quickstart) has the full polling loop, including why `NOT_FOUND` is not terminal.
+
+A few things to know on Sonic:
+
+- **S needs no approval.** It is the native token, sent as the transaction value. Swapping an ERC-20 on Sonic (USDC, wS, SODA, and the rest) needs an allowance for the SODAX intents contract first; see [Approvals](/sonic/swaps#approvals).
+- **The hub tx is your source tx.** The client-side path uses the Sonic transaction hash directly as the hub hash, with no relay packet to wait for. Keep using `intentDeliveryInfo.dstTxHash` for status calls, so the same code works for every source network.
+- **Amounts follow `token.decimals`.** S and most Sonic tokens use 18 decimals, but USDC and USDT on Sonic use 6.
+
+## Next steps
+
+- [Swaps on Sonic](/sonic/swaps): approvals, fees, status, manual orchestration.
+- [Money Market on Sonic](/sonic/money-market): supply and borrow against the hub reserves.
+- Full API reference: [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps) in the SDK docs.

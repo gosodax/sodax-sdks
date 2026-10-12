@@ -529,13 +529,13 @@ export default function LeverageCard({
                 placeholder="0.0"
               />
               {depositToken && depositAccount.address && (
-                <div className="flex justify-between text-xs text-muted-foreground">
+                <div className="flex justify-between gap-2 text-xs text-muted-foreground">
                   <span>
                     Balance: {formatUnits(depositTokenBalance, depositToken.decimals)} {depositToken.symbol}
                   </span>
                   <button
                     type="button"
-                    className="underline"
+                    className="shrink-0 -m-1.5 p-1.5 underline"
                     onClick={() => setDepositAmount(formatUnits(depositTokenBalance, depositToken.decimals))}
                   >
                     Max
@@ -547,7 +547,7 @@ export default function LeverageCard({
               Quoted shares:{' '}
               {isDepositQuoting ? 'quoting…' : depositQuote ? formatUnits18(depositQuote.quotedAmount, 6) : '—'}
             </div>
-            {depositError && <div className="text-red-500 text-sm">{depositError}</div>}
+            {depositError && <div className="text-red-500 text-sm wrap-anywhere">{depositError}</div>}
           </TabsContent>
 
           {/* ── WITHDRAW ── */}
@@ -579,11 +579,11 @@ export default function LeverageCard({
                 placeholder="0.0"
               />
               {withdrawShareBalance && withdrawAccount.address && (
-                <div className="flex justify-between text-xs text-muted-foreground">
+                <div className="flex justify-between gap-2 text-xs text-muted-foreground">
                   <span>Your shares: {formatUnits18(withdrawShareBalance.balance, 6)}</span>
                   <button
                     type="button"
-                    className="underline"
+                    className="shrink-0 -m-1.5 p-1.5 underline"
                     onClick={() => setWithdrawShares(formatUnits(BigInt(withdrawShareBalance.balance), SHARE_DECIMALS))}
                   >
                     Max
@@ -599,7 +599,7 @@ export default function LeverageCard({
                   ? `${formatUnits(BigInt(withdrawQuote.quotedAmount), withdrawToken.decimals)} ${withdrawToken.symbol}`
                   : '—'}
             </div>
-            {withdrawError && <div className="text-red-500 text-sm">{withdrawError}</div>}
+            {withdrawError && <div className="text-red-500 text-sm wrap-anywhere">{withdrawError}</div>}
           </TabsContent>
         </Tabs>
       </CardContent>

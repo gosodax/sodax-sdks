@@ -13,7 +13,7 @@ Access: `sodax.leverageYield`. Service class: `LeverageYieldService`. Feature ta
 - A vault holds `asset` (a Sodax vault token like the weETH vault, `SodaTokens.sodaWEETH`) as collateral, borrows `borrowToken` (e.g. sodaETH) from the Sodax-forked AAVE pool, swaps it back into the asset, and re-supplies — to a `targetLTV`.
 - The ERC-4626 **share token is the vault proxy address itself** (`lsoda*`). Holding shares = holding the leveraged position.
 - **Deposit** = swap any spoke token → `lsoda*`, delivered to the user's **hub wallet** on Sonic. **Withdraw** = swap `lsoda*` (held in the hub wallet) → any token on any chain.
-- **Steady-state APR**: `netAprRay = supplyAprRay + leverageMultiplier × (supplyAprRay − borrowAprRay)`, where `leverageMultiplier = targetLTV / (1 − targetLTV)`. Rates are RAY (`1e27`); the multiplier is WAD (`1e18`). `netAprRay` goes **negative** when the borrow rate exceeds supply — for LSD-backed vaults the LSD's native staking yield (folded in by `getEffectiveApr`) is the real alpha.
+- **Steady-state APR**: `netAprRay = supplyAprRay + leverageMultiplier × (supplyAprRay − borrowAprRay)`, where `leverageMultiplier = targetLTV / (1 − targetLTV)` — the **borrowed** multiple of equity (debt ÷ equity), not total exposure. Exposure (collateral ÷ equity) is `1 + leverageMultiplier` = `1 / (1 − targetLTV)`: at `targetLtvBps` 8200 that is 4.56× borrowed, 5.56× exposure, so a UI label reading "Leverage" shows `1 + multiplier`. Rates are RAY (`1e27`); the multiplier and `healthFactor` are WAD (`1e18`); `targetLtvBps` and the position `ltv` are basis points (`10_000` = 100%). `netAprRay` goes **negative** when the borrow rate exceeds supply — for LSD-backed vaults the LSD's native staking yield (folded in by `getEffectiveApr`) is the real alpha.
 
 ## Public methods
 
@@ -40,7 +40,7 @@ sodax.leverageYield.getDetailedStatus(key: { srcChainKey, srcTxHash }, config?: 
   Promise<Result<DetailedLeverageYieldStatus, SodaxError>>;
 sodax.leverageYield.getIntentStatus(request: { intent_tx_hash: string }): Promise<Result<SolverIntentStatusResponse, SodaxError>>;
 
-// Sonic-direct allowance for the vault's underlying asset (the swap-style deposit handles its own approvals)
+// Sonic-direct allowance for the vault's underlying asset — NOT the deposit approval (that is sodax.swaps.isAllowanceValid / approve)
 sodax.leverageYield.approve<R>(params: LeverageYieldApproveParams<R>): Promise<Result<TxReturnType<HubChainKey, R>, SodaxError>>;
 sodax.leverageYield.isAllowanceValid(params: LeverageYieldAllowanceParams): Promise<Result<boolean, SodaxError>>;
 
@@ -117,16 +117,47 @@ type DetailedLeverageYieldStatus =
 ### Deposit (any token → `lsoda*`)
 
 ```ts
+const srcChainKey = ChainKeys.ARBITRUM_MAINNET;
+const inputToken = '0x…weETHonArbitrum';
+const inputAmount = parseUnits('1', 18);
+const SLIPPAGE_BPS = 100n; // 1%; take it from the user, capped
+
+// Size the minimum from a live quote: vault as token_dst. Never ship 0n — that accepts any fill.
+const quote = await sodax.leverageYield.getQuote({
+  token_src: inputToken,
+  token_src_blockchain_id: srcChainKey,
+  token_dst: vault.vault,
+  token_dst_blockchain_id: ChainKeys.SONIC_MAINNET,
+  amount: inputAmount,
+  quote_type: 'exact_input',
+});
+if (!quote.ok) return;
+const minOutputAmount = (quote.value.quoted_amount * (10_000n - SLIPPAGE_BPS)) / 10_000n;
+
 const built = await sodax.leverageYield.deposit({
   vault: vault.vault,
-  srcChainKey: ChainKeys.ARBITRUM_MAINNET,
+  srcChainKey,
   srcAddress: '0x…',
-  inputToken: '0x…weETHonArbitrum',
-  inputAmount: parseUnits('1', 18),
-  minOutputAmount: 0n,                 // quote via sodax.leverageYield.getQuote (token_dst = vault), then apply slippage
-  partnerFee: { address: '0x…', percentage: 100 }, // optional 1% per-intent fee
+  inputToken,
+  inputAmount,
+  minOutputAmount,
 });
 if (!built.ok) return;
+
+// deposit()/vaultSwap() never approve: the spoke asset manager pulls inputToken, so approve it swap-style first.
+const allowance = await sodax.swaps.isAllowanceValid({ params: built.value.params, walletProvider });
+if (!allowance.ok) return;
+if (!allowance.value) {
+  // Pin the chain so the result narrows to an EVM tx hash.
+  const approval = await sodax.swaps.approve<typeof srcChainKey, false>({
+    params: { ...built.value.params, srcChainKey },
+    walletProvider,
+  });
+  if (!approval.ok) return;
+  const receipt = await walletProvider.waitForTransactionReceipt(approval.value);
+  // Providers report a revert as viem's 'reverted' or the JSON-RPC '0x0'.
+  if (receipt.status === 'reverted' || receipt.status === '0x0') return;
+}
 
 const result = await sodax.leverageYield.vaultSwap({ ...built.value, walletProvider });
 if (!result.ok) return;
@@ -136,19 +167,34 @@ const { solverExecutionResponse, intent, intentDeliveryInfo } = result.value;
 ### Withdraw (`lsoda*` → any token)
 
 ```ts
+const outputToken = '0x…weETHonArbitrum';
+const SLIPPAGE_BPS = 100n;
+// Withdraw quote: vault as token_src, on the hub (the shares live in the hub wallet).
+const withdrawQuote = await sodax.leverageYield.getQuote({
+  token_src: vault.vault,
+  token_src_blockchain_id: ChainKeys.SONIC_MAINNET,
+  token_dst: outputToken,
+  token_dst_blockchain_id: ChainKeys.ARBITRUM_MAINNET,
+  amount: shareBalance,
+  quote_type: 'exact_input',
+});
+if (!withdrawQuote.ok) return;
+
 const built = await sodax.leverageYield.withdraw({
   vault: vault.vault,
   srcChainKey: ChainKeys.ARBITRUM_MAINNET, // user signs the sendMessage here
   srcAddress: '0x…',
   dstChainKey: ChainKeys.ARBITRUM_MAINNET, // token delivered here
-  outputToken: '0x…weETHonArbitrum',
+  outputToken,
   inputAmount: shareBalance,               // lsoda* to burn
-  minOutputAmount: 0n,                     // quote via sodax.leverageYield.getQuote (token_src = vault)
+  minOutputAmount: (withdrawQuote.value.quoted_amount * (10_000n - SLIPPAGE_BPS)) / 10_000n,
 });
 if (!built.ok) return;
 // built.value.hubWalletSwap === true — no spoke approval; the hub wallet authorises the spend
 await sodax.leverageYield.vaultSwap({ ...built.value, walletProvider });
 ```
+
+**Partner fee is opt-in.** Omit `partnerFee` unless the integrator supplied their own receiver address. To override the fee per intent, pass the same `partnerFee` to `getQuote` and to `deposit()` / `withdraw()`, and quote the gross `inputAmount`: `getQuote` deducts the fee itself, so both sides end up on the same net input.
 
 ### Manual create → relay → notify
 
@@ -171,10 +217,10 @@ await sodax.leverageYield.notifySolver({ intent_tx_hash: hubIntentTxHash });
 | `notifySolver` | `SolverExecutionResponse` (`{ answer, intent_hash }`) |
 | `approve` | `TxReturnType<HubChainKey, R>` |
 | `isAllowanceValid` | `boolean` |
-| `getApr` | `LeverageYieldApr` (`{ supplyAprRay, borrowAprRay, targetLtvBps, leverageMultiplierWad, netAprRay }`, RAY/WAD) |
+| `getApr` | `LeverageYieldApr` (`{ supplyAprRay, borrowAprRay, targetLtvBps, leverageMultiplierWad, netAprRay }` — rates RAY, `targetLtvBps` basis points, multiplier WAD and the **borrowed** multiple) |
 | `getEffectiveApr` | `LeverageYieldEffectiveApr` (= `LeverageYieldApr & { lsdApr, effectiveSupplyAprRay, effectiveNetAprRay }`) |
 | `getLsdApr` | `LeverageYieldLsdApr` (`{ aprRay, label, stale }`) |
-| `getPosition` | `LeverageYieldPosition` (`{ collateral, debt, ltv, healthFactor, idleAsset }`) |
+| `getPosition` | `LeverageYieldPosition` (`{ collateral, debt, ltv, healthFactor, idleAsset }` — `ltv` basis points, `healthFactor` WAD, amounts 18 dp) |
 | `getTotalAssets`, `preview*`, `getMaxWithdraw*`, `getShareBalance*` | `bigint` |
 | `getAsset` | `Address` |
 | `listVaults` / `getVault` / `getVaultByAddress` | `LeverageYieldVault[]` / `LeverageYieldVault \| undefined` (synchronous) |

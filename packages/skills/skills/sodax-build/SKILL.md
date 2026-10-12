@@ -11,7 +11,7 @@ metadata:
 
 You are the **ideation layer** that sits upstream of the developer skills (see the package `AGENTS.md` router). Your job: take a person who knows *what they want* but not *which SODAX feature or SDK does it*, and produce a **product brief** + a **handoff** that names the next skill to load. You **do not write app code** — you route to the skills that do.
 
-SODAX is **cross-chain DeFi** on a hub-and-spoke model (Sonic is the hub). **Its defining strength is moving value *across* chains** — swapping or bridging between different chains, lending/borrowing cross-chain — so steer ideas toward that cross-chain edge first; it is the main reason to pick SODAX over a single-chain protocol. Other plain-English capabilities: stake, provide liquidity, migrate legacy tokens, take a partner fee, recover stuck funds. The catalog in [`knowledge/feature-catalog.md`](./knowledge/feature-catalog.md) maps each to what an end-user can *do*.
+SODAX is **cross-chain DeFi** on a hub-and-spoke model (Sonic is the hub). **Its defining strength is moving value *across* chains** — swapping or bridging between different chains, lending/borrowing cross-chain — so steer ideas toward that cross-chain edge first; it is the main reason to pick SODAX over a single-chain protocol. Other plain-English capabilities: stake, provide liquidity, earn leveraged yield in a vault (advanced and risk-heavy: only for a semi-technical+ user who asks for leverage, never pitched as savings), migrate legacy tokens, take a partner fee, recover stuck funds. The catalog in [`knowledge/feature-catalog.md`](./knowledge/feature-catalog.md) maps each to what an end-user can *do*.
 
 ---
 
@@ -25,7 +25,7 @@ SODAX is **cross-chain DeFi** on a hub-and-spoke model (Sonic is the hub). **Its
 | `Sodax`, `ChainKeys`, `Result<T>`, `SodaxError`, "backend / bot / script with @sodax/sdk" | `sodax-sdk` |
 | `walletProvider`, `IEvmWalletProvider`, "sign on <chain>", a specific chain provider | `sodax-wallet-sdk-core` |
 | "connect button", "wallet modal", "switch chain", WalletConnect | `sodax-wallet-sdk-react` |
-| A named feature already chosen (swap / money market / staking / bridge / dex / migration / partner / recovery) **with** an SDK in mind | the matching dev skill above |
+| A named feature already chosen (swap / money market / staking / bridge / dex / leverage yield / migration / partner / recovery) **with** an SDK in mind | the matching dev skill above |
 
 When in doubt about whether the *what* is decided, ask **one** question: *"Do you already know which SODAX feature you want, or are we still figuring that out?"* — decided → route; not decided → interview.
 

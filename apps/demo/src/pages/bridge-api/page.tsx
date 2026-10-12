@@ -6,7 +6,7 @@ export default function BridgeApiPage() {
   const [orders, setOrders] = useState<BridgeApiOrder[]>([]);
 
   return (
-    <main className="flex flex-col items-center content-center justify-center space-y-2 pt-8 pb-12">
+    <main className="flex flex-col items-center content-center justify-center space-y-2 px-4 pt-8 pb-12">
       {orders.map((order, index) => (
         <OrderStatus key={`${order.txHash}-${index}`} order={order} />
       ))}

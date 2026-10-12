@@ -402,7 +402,7 @@ export function ClosePositionControl({
             <span className="text-xs whitespace-nowrap">Max slippage</span>
             <input
               type="range"
-              className="flex-1"
+              className="min-w-0 flex-1"
               min={0.1}
               max={5}
               step={0.1}
@@ -422,7 +422,7 @@ export function ClosePositionControl({
             </div>
           )}
           <Button
-            className="w-full"
+            className="h-auto min-h-9 w-full whitespace-normal text-center"
             size="sm"
             disabled={!repayInput || !legQuote.data || legQuote.isLoading || busy || !owner || pending || shortOfDebt}
             onClick={onRepay}
@@ -464,7 +464,7 @@ export function ClosePositionControl({
             . Unwrapping it back to the underlying is a separate step.
           </Notice>
           <Button
-            className="w-full"
+            className="h-auto min-h-9 w-full whitespace-normal text-center"
             size="sm"
             disabled={
               busy || !owner || !payoutAddress || pending || withdrawAmount === undefined || withdrawAmount === 0n

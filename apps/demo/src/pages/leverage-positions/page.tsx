@@ -106,7 +106,7 @@ export default function LeveragePositionsPage() {
                 <ChainSelector selectedChainId={chain} selectChainId={setChain} />
               </div>
 
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+              <div className="grid grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-2 gap-x-4 gap-y-1 text-xs">
                 <span className="text-muted-foreground">Connected address</span>
                 <span className="text-right font-mono text-xs break-all">{account.address ?? '—'}</span>
                 <span className="flex items-center gap-1 text-muted-foreground">

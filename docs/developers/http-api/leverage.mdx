@@ -137,9 +137,9 @@ Same shapes as swaps: fixed `amount` or `percentage` (basis points).
 | Surface | Deposit | Withdraw |
 |---------|---------|----------|
 | **SDK** (`sodax.leverageYield`) | Yes | Yes — fee is taken from `inputAmount` (vault **`lsoda*` shares**), not the output token |
-| **HTTP** (this API) | Yes — `partnerFee` on `POST /quote/deposit` and `POST /intents/deposit` | **Not on the wire yet** — `POST /quote/withdraw` and `POST /intents/withdraw` request bodies omit `partnerFee` (backend DTO lag after the SDK added withdraw fees) |
+| **HTTP** (this API) | Yes — `partnerFee` on `POST /quote/deposit` and `POST /intents/deposit` | **Not on the wire yet** — `POST /quote/withdraw` and `POST /intents/withdraw` have no `partnerFee` field. Withdraws are still charged the backend's configured leverage-yield fee, taken from the `lsoda*` input |
 
-For TypeScript product integrations, use the SDK so both directions can monetize. On raw HTTP, only deposit requests currently accept `partnerFee`; a withdraw body field would be ignored / rejected until the backend DTOs catch up.
+For TypeScript product integrations, use the SDK so you can set your own fee in both directions. On raw HTTP, only deposit requests currently accept `partnerFee`. The backend rejects unknown body fields, so a `partnerFee` on a withdraw request fails the request instead of being ignored.
 
 Vault fees use the **leverage-yield** fee path (`leverageYield.partnerFee` / per-intent override), **not** `swaps.partnerFee`.
 
@@ -193,6 +193,8 @@ For product UI that needs the levered yield figure, prefer:
 
 Do not invent multipliers client-side unless you reimplement the same formula.
 
+Every bigint-derived field is a decimal string. APR fields ending in `Ray` are RAY (`1e27` = 100%). `targetLtvBps` and the `/position` `ltv` are basis points (`10000` = 100%). `healthFactor` and `leverageMultiplierWad` are WAD (`1e18`). `leverageMultiplierWad` is the **borrowed** multiple, `targetLTV / (1 − targetLTV)`, so the exposure a depositor holds is `1 +` that value.
+
 ---
 
 ## Relation to Swaps API
@@ -203,7 +205,7 @@ Do not invent multipliers client-side unless you reimplement the same formula.
 | Create intent | `/intents` | `/intents/deposit` · `/intents/withdraw` |
 | Submit machine | shared | shared (+ `operation`) |
 | Quote | pair quote | deposit/withdraw quote against vault |
-| Partner fee | either direction | SDK: either direction · HTTP: deposit only (withdraw field not on wire yet) |
+| Partner fee | either direction | SDK: either direction · HTTP: per-request fee on deposit only (withdraws pay the configured fee) |
 
 If you already integrated [Swaps submit-tx](/developers/http-api/swaps), reuse the same polling, cancel-to-recover, and failure-field handling here.
 

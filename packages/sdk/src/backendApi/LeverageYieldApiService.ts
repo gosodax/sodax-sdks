@@ -511,7 +511,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   /**
    * Build an unsigned token-approval transaction for the deposit input token.
    *
-   * @returns `Result<ApproveResponseV2>` — `{ tx }` (chain-specific unsigned tx).
+   * @returns `Result<ApproveResponseV2>` — `{ tx, resetTx? }` (chain-specific unsigned txs); mine `resetTx` first when present.
    */
   public async approve(
     body: CreateDepositIntentParamsV2,

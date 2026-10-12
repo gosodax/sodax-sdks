@@ -403,7 +403,7 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
   return (
     <Card className="w-full max-w-lg mx-auto">
       <CardHeader>
-        <CardTitle className="text-2xl font-bold text-center">Cross-Chain Swap (SDK)</CardTitle>
+        <CardTitle className="text-xl sm:text-2xl font-bold text-center">Cross-Chain Swap (SDK)</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
@@ -432,8 +432,8 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
             className="w-[110px]"
           />
         </div>
-        <div className="mix-blend-multiply text-black text-(length:--body-comfortable) font-medium font-['InterRegular'] flex gap-1">
-          <span className="hidden sm:inline">Balance:</span>
+        <div className="mix-blend-multiply text-black text-(length:--body-comfortable) font-medium flex gap-1">
+          <span>Balance:</span>
           <span className="inline">
             {formatTokenAmount(
               src.chain === ChainKeys.BITCOIN_MAINNET && srcTradingBal ? srcTradingBal.btcSatoshi : sourceTokenBalance,
@@ -493,8 +493,8 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
             className="w-[110px]"
           />
         </div>
-        <div className="mix-blend-multiply text-black text-(length:--body-comfortable) font-medium font-['InterRegular'] flex gap-1">
-          <span className="hidden sm:inline">Balance:</span>
+        <div className="mix-blend-multiply text-black text-(length:--body-comfortable) font-medium flex gap-1">
+          <span>Balance:</span>
           <span className="inline">
             {formatTokenAmount(
               dst.chain === ChainKeys.BITCOIN_MAINNET && destTradingBal ? destTradingBal.btcSatoshi : destTokenBalance,
@@ -536,13 +536,13 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
       </CardContent>
       <CardFooter className="flex flex-col space-y-4">
         <div className="w-full text-sm text-muted-foreground">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center gap-2">
             <span>Exchange Rate</span>
-            <span>
+            <span className="text-right">
               1 {src.token?.symbol} ≈ {exchangeRate.toString()} {dst.token?.symbol}
             </span>
           </div>
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center gap-2">
             <span>Slippage:</span>
             <div className="flex items-center gap-2">
               <Input type="number" value={slippage} onChange={e => setSlippage(e.target.value)} />
@@ -550,21 +550,23 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
             </div>
           </div>
 
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center gap-2">
             <span>Minimum Output Amount</span>
-            <span>
+            <span className="text-right">
               {minOutputAmount ? formatUnits(BigInt(minOutputAmount.toFixed(0)), dst.token?.decimals ?? 0) : '0'}{' '}
               {dst.token?.symbol}
             </span>
           </div>
 
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center gap-2">
             <span>Estimated Settlement</span>
-            <span>{speedTier ? `~${speedTier.estimatedSeconds}s (${speedTier.tier})` : '—'}</span>
+            <span className="text-right">
+              {speedTier ? `~${speedTier.estimatedSeconds}s (${speedTier.tier})` : '—'}
+            </span>
           </div>
         </div>
 
-        <div className="">
+        <div className="wrap-anywhere">
           {quoteQuery.data?.ok === false && <div className="text-red-500">{quoteQuery.data.error.detail.message}</div>}
         </div>
 
@@ -604,7 +606,7 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
               <DialogDescription>See details of intent order.</DialogDescription>
             </DialogHeader>
             <div className="">
-              <div className="flex flex-col">
+              <div className="flex flex-col wrap-anywhere">
                 <div>
                   inputToken: {intentOrderPayload?.inputToken} on {intentOrderPayload?.srcChainKey}
                 </div>

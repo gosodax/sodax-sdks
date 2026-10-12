@@ -280,7 +280,7 @@ function TextRow({
           placeholder={placeholder}
           autoComplete={secret ? 'off' : undefined}
           onChange={e => onChange(e.target.value)}
-          className={`h-9 text-sm font-mono flex-1 min-w-0 ${modified ? 'border-amber-400' : ''}`}
+          className={`h-9 font-mono flex-1 min-w-0 ${modified ? 'border-amber-400' : ''}`}
         />
         {secret && value.trim() !== '' && (
           <Button
@@ -453,8 +453,8 @@ export function SodaxSettingsModal({ open, onOpenChange }: { open: boolean; onOp
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col gap-0 p-0">
-        <DialogHeader className="px-6 pt-5 pb-3 border-b">
+      <DialogContent className="sm:max-w-2xl max-h-[85dvh] flex flex-col gap-0 p-0">
+        <DialogHeader className="px-4 sm:px-6 pt-5 pb-3 border-b">
           <DialogTitle>Sodax Settings</DialogTitle>
           <DialogDescription>
             Feature-aware SDK and API config, ready to copy. Edit a value to override it — equal to its default (or
@@ -462,7 +462,7 @@ export function SodaxSettingsModal({ open, onOpenChange }: { open: boolean; onOp
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 flex flex-col gap-3">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 flex flex-col gap-3">
           <SectionTitle>Swap SDK</SectionTitle>
 
           <div className="grid sm:grid-cols-[10rem_1fr] items-center gap-x-3 gap-y-1">
@@ -651,15 +651,15 @@ export function SodaxSettingsModal({ open, onOpenChange }: { open: boolean; onOp
           />
         </div>
 
-        <div className="px-6 py-4 border-t flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-2">
+        <div className="px-4 sm:px-6 py-4 border-t flex flex-col gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <CopyButtonWithLabel text={draftToDebugJson(draft)} />
               <Button variant="outline" size="sm" onClick={handleReset}>
                 Reset all
               </Button>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 ml-auto">
               <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>

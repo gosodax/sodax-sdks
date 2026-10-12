@@ -21,7 +21,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ChainSelector } from '@/components/shared/ChainSelector';
 import { fmtBps, fmtHealthFactor } from '@/lib/utils';
 import {
-  useQuote,
+  useLeverageYieldQuote,
   useSodaxContext,
   useSwapAllowance,
   useSwapApprove,
@@ -35,12 +35,11 @@ import {
   useLeverageYieldPreviewRedeem,
   useLeverageYieldShareBalances,
   ChainKeys,
-  adjustAmountByFee,
   getSupportedSolverTokens,
+  type LeverageYieldQuoteParams,
   type LeverageYieldSwapPayload,
   type LeverageYieldVault,
   type PartnerFee,
-  type SolverIntentQuoteRequest,
   type SpokeChainKey,
   type XToken,
 } from '@sodax/dapp-kit';
@@ -63,9 +62,8 @@ import { SolverEnv, useAppStore } from '@/zustand/useAppStore';
 const SONIC = ChainKeys.SONIC_MAINNET satisfies SpokeChainKey;
 const DEFAULT_SLIPPAGE = '0.5'; // %
 
-// Partner fee charged on leverage-vault DEPOSITS only (100 bps = 1%, the max). Rides on the
-// deposit payload as the swap layer's per-intent fee override, so withdraws and ordinary
-// swaps stay on the global `config.swaps.partnerFee` (unset in this demo).
+// Per-intent partner fee on leverage-vault DEPOSITS (10 bps = 0.1%). Passed to both the quote and the
+// deposit builder; withdraws use the configured leverage-yield fee (`leverageYield.partnerFee ?? fee`).
 const DEPOSIT_PARTNER_FEE = {
   address: '0x93D5CE288b3BF6b33F913b98FD1fA844Acc462d4',
   percentage: 10,
@@ -196,22 +194,21 @@ export default function LeverageYieldPage() {
     setIntentOrderPayload(undefined);
   }, [tab, selectedVaultName, userChain, userToken?.address]);
 
-  const quotePayload: SolverIntentQuoteRequest | undefined = useMemo(() => {
+  // Gross amount: the leverage-yield quote deducts the same fee the vault intent charges.
+  const quotePayload: LeverageYieldQuoteParams | undefined = useMemo(() => {
     if (!src.token || !dst.token || Number(sourceAmount) <= 0) return undefined;
-    const amount = parseUnits(sourceAmount, src.token.decimals);
     return {
       token_src: src.token.address,
       token_src_blockchain_id: src.chain,
       token_dst: dst.token.address,
       token_dst_blockchain_id: dst.chain,
-      // Deposits carry DEPOSIT_PARTNER_FEE, which createIntent() deducts from inputAmount
-      // before the swap — quote on the post-fee amount so minOutputAmount stays fillable.
-      amount: tab === 'deposit' ? adjustAmountByFee(amount, DEPOSIT_PARTNER_FEE, 'exact_input') : amount,
+      amount: parseUnits(sourceAmount, src.token.decimals),
       quote_type: 'exact_input',
-    } satisfies SolverIntentQuoteRequest;
+      ...(tab === 'deposit' ? { partnerFee: DEPOSIT_PARTNER_FEE } : {}),
+    } satisfies LeverageYieldQuoteParams;
   }, [src.token, dst.token, src.chain, dst.chain, sourceAmount, tab]);
 
-  const quoteQuery = useQuote({ params: { payload: quotePayload } });
+  const quoteQuery = useLeverageYieldQuote({ params: { payload: quotePayload } });
   const quote = quoteQuery.data?.ok ? quoteQuery.data.value : undefined;
 
   const exchangeRate = useMemo(() => {
@@ -610,9 +607,9 @@ export default function LeverageYieldPage() {
               leverage deposits always deliver shares. Total sums all chains. */}
           {connectedHolders.length > 0 && (
             <div className="border-t pt-3 space-y-1 text-sm">
-              <div className="flex justify-between font-medium">
+              <div className="flex justify-between gap-2 font-medium">
                 <span>Your shares (all chains)</span>
-                <span className="font-mono">
+                <span className="font-mono text-right">
                   {fmtUnits(totalShares, lsodaToken.decimals)} {lsodaToken.symbol}
                 </span>
               </div>
@@ -620,9 +617,9 @@ export default function LeverageYieldPage() {
                   user would get if they fully exited *right now*, in vault-asset units
                   (sodaWEETH-style, 18 dec). Tracks vault performance for the user. */}
               {vaultStats && totalShares > 0n && (
-                <div className="flex justify-between text-xs">
+                <div className="flex justify-between gap-2 text-xs">
                   <span className="text-muted-foreground">≈ underlying</span>
-                  <span className="font-mono text-muted-foreground">
+                  <span className="font-mono text-muted-foreground text-right">
                     {fmtUnits((totalShares * vaultStats.sharePrice) / 10n ** 18n, 18)}
                   </span>
                 </div>
@@ -633,11 +630,11 @@ export default function LeverageYieldPage() {
                   const d = q?.data;
                   if (d && d.shares > 0n) {
                     return (
-                      <div key={chainKey} className="flex justify-between text-xs">
+                      <div key={chainKey} className="flex justify-between gap-2 text-xs">
                         <span className="text-muted-foreground">
                           {chainKey} <span className="opacity-60">(hub wallet)</span>
                         </span>
-                        <span className="font-mono">{fmtUnits(d.shares, lsodaToken.decimals)}</span>
+                        <span className="font-mono text-right">{fmtUnits(d.shares, lsodaToken.decimals)}</span>
                       </div>
                     );
                   }
@@ -687,7 +684,7 @@ export default function LeverageYieldPage() {
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <Label>{tab === 'deposit' ? 'Pay with' : 'Receive token'}</Label>
                   {tab === 'deposit' && userToken && userBalance !== undefined && (
                     <span className="text-xs text-muted-foreground">
@@ -778,7 +775,7 @@ export default function LeverageYieldPage() {
                     type="number"
                     value={slippage}
                     onChange={e => setSlippage(e.target.value)}
-                    className="h-7 w-24 text-xs"
+                    className="h-9 w-24 text-base sm:h-7 sm:text-xs"
                   />
                 </div>
               </div>

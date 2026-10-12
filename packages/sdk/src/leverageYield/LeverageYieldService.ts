@@ -437,8 +437,10 @@ export type LeverageYieldApr = {
   /** Target LTV in basis points, as read from `vault.targetLTV()`. */
   targetLtvBps: bigint;
   /**
-   * Leverage multiplier ×1e18 (e.g. 5.667x is `5_666_666_666_666_666_667n`). Caller can
-   * divide by `10n ** 18n` for the decimal form.
+   * Borrowed multiple of equity (debt ÷ equity) ×1e18, i.e. `targetLTV / (1 - targetLTV)` — e.g.
+   * 5.667x is `5_666_666_666_666_666_666n` (integer division truncates). Not total exposure: that is
+   * `1 + leverageMultiplier` (= `1 / (1 - targetLTV)`), so a UI "Leverage" label shows the sum.
+   * Divide by `10n ** 18n` for the decimal form.
    */
   leverageMultiplierWad: bigint;
   /** Net APR earned by a depositor at `targetLtvBps`, in RAY. Can be negative. */

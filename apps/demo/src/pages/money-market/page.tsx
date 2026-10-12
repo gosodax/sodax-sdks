@@ -58,7 +58,7 @@ export default function MoneyMarketPage() {
                 <button
                   type="button"
                   aria-label="Money Market Info"
-                  className="inline-flex items-center text-clay hover:text-cherry-dark "
+                  className="inline-flex items-center -m-1 p-1 text-clay hover:text-cherry-dark"
                 >
                   <Info className="w-4 h-4 text-clay" />
                 </button>
@@ -73,7 +73,7 @@ export default function MoneyMarketPage() {
         {/* Controls Bar */}
         <div className="bg-white rounded-xl shadow-sm border border-cherry-grey/20 p-3 my-3">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span className="text-sm font-medium text-clay">Chain:</span>
               <ChainSelector selectedChainId={chainId} selectChainId={handleSelectChain} />
               <div className="text-xs text-muted-foreground">
@@ -82,9 +82,11 @@ export default function MoneyMarketPage() {
             </div>
 
             {walletAddressOnHub && (
-              <div className="flex items-center gap-2 text-sm">
+              <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-2 text-sm">
                 <span className="text-clay">Hub Wallet Address:</span>
-                <span className="px-3 py-1.5 bg-cream rounded-lg text-cherry-dark text-xs">{walletAddressOnHub}</span>
+                <span className="px-3 py-1.5 bg-cream rounded-lg text-cherry-dark text-xs break-all">
+                  {walletAddressOnHub}
+                </span>
               </div>
             )}
           </div>
@@ -98,7 +100,7 @@ export default function MoneyMarketPage() {
             <BorrowAssetsList initialChainId={chainId} />
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center min-h-[500px] bg-white rounded-xl shadow-sm border border-cherry-grey/20 p-12">
+          <div className="flex flex-col items-center justify-center min-h-[320px] sm:min-h-[500px] bg-white rounded-xl shadow-sm border border-cherry-grey/20 p-6 sm:p-12">
             <div className="max-w-md text-center space-y-6">
               <div className="w-15 h-15 bg-cherry-brighter rounded-full flex items-center justify-center mx-auto">
                 <Wallet className="w-8 h-8 text-cherry-dark" />

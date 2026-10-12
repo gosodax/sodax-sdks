@@ -23,7 +23,7 @@ export default function SwapsApiPage() {
   }, []);
 
   return (
-    <main className="flex flex-col items-center content-center justify-center space-y-2 pt-8 pb-12">
+    <main className="flex flex-col items-center content-center justify-center space-y-2 px-4 pt-8 pb-12">
       <SwapCard setOrders={setOrders} />
 
       {/* Below the form on small screens; a fixed left sidebar on xl+ (see OrderStatusPanel). */}

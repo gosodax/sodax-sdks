@@ -164,7 +164,7 @@ export function BridgeManager() {
     <>
       <Card className="w-full max-w-lg mx-auto">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-center">Cross-Chain Transfer (SDK)</CardTitle>
+          <CardTitle className="text-xl sm:text-2xl font-bold text-center">Cross-Chain Transfer (SDK)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
