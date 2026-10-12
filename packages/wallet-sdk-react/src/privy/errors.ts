@@ -1,9 +1,18 @@
 import { UserRejectedRequestError } from 'viem';
+import { withDeadline } from '@/shared/withDeadline.js';
 
 export class PrivyTimeoutError extends Error {
   override name = 'PrivyTimeoutError';
   constructor(what: string, ms: number) {
     super(`[wallet-sdk-react/privy] ${what} did not complete within ${ms} ms.`);
+  }
+}
+
+/** The connector cannot use the current Privy session: it ended, was not signed out, or holds no embedded wallet. */
+export class PrivySessionError extends Error {
+  override name = 'PrivySessionError';
+  constructor(message: string) {
+    super(`[wallet-sdk-react/privy] ${message}`);
   }
 }
 
@@ -25,19 +34,11 @@ export function abortReason(signal: AbortSignal | undefined): Error {
 
 /** Settles with `promise`, or rejects on the deadline or when `signal` aborts — whichever comes first. */
 export function withTimeout<T>(promise: Promise<T>, ms: number, what: string, signal?: AbortSignal): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const finish = (settle: () => void) => {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
-      settle();
-    };
-    const onAbort = () => finish(() => reject(abortReason(signal)));
-    const timer = setTimeout(() => finish(() => reject(new PrivyTimeoutError(what, ms))), ms);
-    if (signal?.aborted) return onAbort();
-    signal?.addEventListener('abort', onAbort);
-    promise.then(
-      value => finish(() => resolve(value)),
-      (error: unknown) => finish(() => reject(error)),
-    );
-  });
+  return withDeadline(
+    promise,
+    ms,
+    () => new PrivyTimeoutError(what, ms),
+    signal,
+    () => abortReason(signal),
+  );
 }

@@ -10,7 +10,7 @@ import {
   WALLET_MS,
 } from './constants.js';
 import { createDeferredProvider, type DeferredProvider, type Eip1193Like } from './deferredProvider.js';
-import { PrivyTimeoutError, userRejected, withTimeout } from './errors.js';
+import { PrivySessionError, PrivyTimeoutError, userRejected, withTimeout } from './errors.js';
 import { PRIVY_ICON } from './icon.js';
 import type { EmbeddedWallet, PrivyRuntime, PrivySnapshot } from './runtime.js';
 import { createStoredFlag } from './storedFlag.js';
@@ -98,8 +98,8 @@ export function privyConnector({
         signal,
       );
 
-    // No side effects: a provider from `getEthereumProvider()` starts on the chain Privy last recorded,
-    // so it is pulled to `alignTo` before anyone can sign through it.
+    // Changes no connector state; it may switch the provider's own chain: a provider from
+    // `getEthereumProvider()` starts on the chain Privy last recorded, so it is pulled to `alignTo` first.
     async function prepare(wallet: EmbeddedWallet, alignTo: number | undefined, signal?: AbortSignal) {
       const provider = await withTimeout(wallet.getEthereumProvider(), INTERNAL_CALL_MS, 'getEthereumProvider', signal);
       let current = await readChainId(provider, signal);
@@ -175,8 +175,8 @@ export function privyConnector({
         ({ provider }) => {
           if (replacing !== pending) return; // detached, or a newer replacement took over
           replacing = undefined;
-          // A switch moved the attached provider meanwhile: prepare again for the chain now current.
-          if (switching || chainId !== pending.chainId) return onRuntimeChange();
+          // Mid-switch: the switch's own final check prepares it again for the chain it lands on.
+          if (switching) return;
           session = { ...current, wallet };
           deferred.attach(provider);
         },
@@ -253,18 +253,18 @@ export function privyConnector({
           let ready = await runtime.waitFor(s => s.ready, READY_CONNECT_MS, signal, 'Waiting for Privy to be ready');
           // Until Privy confirms an owed sign-out, `authenticated` may still be the previous user's session.
           if (signOutOwed.read()) {
-            if (isReconnecting) throw new Error('[wallet-sdk-react/privy] The Privy session was signed out.');
+            if (isReconnecting) throw new PrivySessionError('The Privy session was signed out.');
             await signOut();
             signal.throwIfAborted();
             if (signOutOwed.read()) {
-              throw new Error('[wallet-sdk-react/privy] Could not sign out of the previous Privy session.');
+              throw new PrivySessionError('Could not sign out of the previous Privy session.');
             }
             ready = runtime.getSnapshot();
           }
           if (!ready.authenticated) {
             if (isReconnecting) {
               flag.clear();
-              throw new Error('[wallet-sdk-react/privy] The Privy session has ended.');
+              throw new PrivySessionError('The Privy session has ended.');
             }
             await runtime.login(signal);
           }
@@ -277,7 +277,7 @@ export function privyConnector({
           if (!user.hasEmbeddedAccount) {
             if (isReconnecting) {
               flag.clear();
-              throw new Error('[wallet-sdk-react/privy] The Privy user has no embedded wallet.');
+              throw new PrivySessionError('The Privy user has no embedded wallet.');
             }
             // Only on positive evidence: createWallet() throws for a user who already has one.
             await withTimeout(runtime.createWallet(), WALLET_MS, 'Creating the Privy wallet', signal).catch(
@@ -290,7 +290,7 @@ export function privyConnector({
             signal,
             'Waiting for the Privy embedded wallet',
           );
-          if (!embedded) throw new Error('[wallet-sdk-react/privy] The Privy session has ended.');
+          if (!embedded) throw new PrivySessionError('The Privy session has ended.');
 
           const prepared = await prepare(embedded, undefined, signal);
           signal.throwIfAborted();
@@ -312,7 +312,7 @@ export function privyConnector({
           // `watch()` only sees later changes: a logout while preparing or switching is caught here.
           if (sessionWallet(runtime.getSnapshot(), session.address) === 'ended') {
             flag.clear();
-            throw new Error('[wallet-sdk-react/privy] The Privy session has ended.');
+            throw new PrivySessionError('The Privy session has ended.');
           }
           flag.write();
           watch();

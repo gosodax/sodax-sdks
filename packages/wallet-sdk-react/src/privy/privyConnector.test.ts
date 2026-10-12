@@ -256,7 +256,10 @@ describe('privyConnector — first login', () => {
       return undefined;
     });
 
-    await expect(connect(config, { connector: privy })).rejects.toThrow('The Privy session has ended.');
+    await expect(connect(config, { connector: privy })).rejects.toMatchObject({
+      name: 'PrivySessionError',
+      message: expect.stringContaining('The Privy session has ended.'),
+    });
   });
 
   it('skips the modal for an already-authenticated user and creates a wallet only when none exists', async () => {

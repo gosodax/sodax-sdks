@@ -235,6 +235,10 @@ Or close your dialog before the action starts, if it does not need to show the r
   With `disconnectBehavior: 'detach'`
   the Privy session stays: the next click on "Email (Privy)" reconnects without a code, and so would
   anyone else using that browser until the session expires or your app signs the user out.
+- **Disconnecting while Privy's login is open** — only your own code can, through an SDK disconnect such as
+  `useXDisconnect`, since the dialog covers the page — cancels the SDK's connect, but the SDK cannot close Privy's dialog. If the user
+  still finishes the code there, Privy is signed in with nothing connected in the SDK, and the next
+  "Email (Privy)" connect goes through without a code.
 - **Account changes are not followed.** If the Privy session switches to a different wallet, the SDK
   disconnects instead of signing as the new address.
 

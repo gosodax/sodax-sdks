@@ -2,16 +2,12 @@ import { useEffect, useRef } from 'react';
 import { useConfig, useConnect, useSignMessage } from 'wagmi';
 import { disconnect } from 'wagmi/actions';
 import { EVM_DISCONNECT_TIMEOUT_MS } from '@/constants.js';
+import { withDeadline } from '@/shared/withDeadline.js';
 import { useXWalletStore } from '@/useXWalletStore.js';
 
-/** Rejects once `ms` pass without `promise` settling, so one stalled wallet cannot hold the whole disconnect. */
-function withDeadline<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${what} did not finish within ${ms} ms`)), ms);
-  });
-  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
-}
+/** The error for one disconnect that outlived `EVM_DISCONNECT_TIMEOUT_MS`; a stalled wallet is not awaited further. */
+const disconnectTimeout = (what: string) => () =>
+  new Error(`${what} did not finish within ${EVM_DISCONNECT_TIMEOUT_MS} ms`);
 
 type EvmActionsProps = {
   /** Also run by an SDK disconnect, for a wallet source wagmi may not list yet (Privy mid-restore). */
@@ -70,12 +66,22 @@ export const EvmActions = ({ onDisconnect }: EvmActionsProps) => {
         // connected earlier cannot come back through a later connect without its own sign-in.
         const config = wagmiConfigRef.current;
         const pending = [...config.state.connections.values()].map(({ connector }) =>
-          withDeadline(disconnect(config, { connector }), EVM_DISCONNECT_TIMEOUT_MS, `disconnect of "${connector.id}"`),
+          withDeadline(
+            disconnect(config, { connector }),
+            EVM_DISCONNECT_TIMEOUT_MS,
+            disconnectTimeout(`disconnect of "${connector.id}"`),
+          ),
         );
         // A source still restoring on page load has no wagmi connection yet, and must end all the same.
         const disconnectSource = onDisconnectRef.current;
         if (disconnectSource) {
-          pending.push(withDeadline(disconnectSource(), EVM_DISCONNECT_TIMEOUT_MS, 'disconnect of the wallet source'));
+          pending.push(
+            withDeadline(
+              disconnectSource(),
+              EVM_DISCONNECT_TIMEOUT_MS,
+              disconnectTimeout('disconnect of the wallet source'),
+            ),
+          );
         }
         const results = await Promise.allSettled(pending);
         for (const result of results) {
