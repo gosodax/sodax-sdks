@@ -5,11 +5,11 @@ High-level React hooks library for dApp developers. Wraps `@sodax/sdk` with Reac
 ## Features
 
 - **Swap/Intent** — `useSwapLifecycle`, `useQuote`, `useSwap`, `useSwapWithApproval`, `useSwapApprovalStrategy`, `useSwapAllowance`, `useSwapApprove`, `useDetailedStatus`, `useCancelSwap`, `useCreateLimitOrder`, `useCancelLimitOrder`, `useStatus`
-- **Bridge** — `useBridge`, `useBridgeDetailedStatus`, `useBridgeAllowance`, `useBridgeApprove`, `useGetBridgeableAmount`, `useGetBridgeableTokens`
+- **Bridge** — `useBridge`, `useBridgeWithApproval`, `useBridgeApprovalStrategy`, `useBridgeDetailedStatus`, `useBridgeAllowance`, `useBridgeApprove`, `useGetBridgeableAmount`, `useGetBridgeableTokens`
 - **Money Market** — `useSupply`, `useWithdraw`, `useBorrow`, `useRepay`, `useMMAllowance`, `useMMApprove`, plus reserves data hooks
 - **Staking** — `useStake`, `useUnstake`, `useInstantUnstake`, `useClaim`, `useCancelUnstake`, approval hooks, info/config/ratio queries
 - **DEX** — `useDexDeposit`, `useDexWithdraw`, `useSupplyLiquidity`, `useDecreaseLiquidity`, `useClaimRewards`, pool/position queries, param builders
-- **Leverage Yield** — `useLeverageYieldDeposit`, `useLeverageYieldWithdraw`, `useLeverageYieldVaultSwap`, `useLeverageYieldDetailedStatus`, `useLeverageYieldNotifySolver`, plus vault position/APR/TVL/share queries
+- **Leverage Yield** — `useLeverageYieldDeposit`, `useLeverageYieldWithdraw`, `useLeverageYieldVaultSwap`, `useLeverageYieldVaultSwapWithApproval`, `useLeverageYieldApprovalStrategy`, `useLeverageYieldDetailedStatus`, `useLeverageYieldNotifySolver`, plus vault position/APR/TVL/share queries
 - **Migration** — `useMigrateIcxToSoda`, `useRevertMigrateSodaToIcx`, `useMigratebnUSD`, `useMigrateBaln`, `useMigrationApprove`, `useMigrationAllowance`
 - **Bitcoin (Bound Exchange)** — `useRadfiAuth`, `useEnsureRadfiAccessToken`, `useRadfiSession`, `useTradingWallet`, `useTradingWalletBalance`, `useBitcoinBalance`, `useBitcoinTradingSetup`, `useFundTradingWallet`, `useRadfiWithdraw`, `useExpiredUtxos`, `useRenewUtxos`
 - **Partner** — `useFetchAssetsBalances`, `useGetAutoSwapPreferences`, `useIsTokenApproved`, `useApproveToken`, `useSetSwapPreference`, `useFeeClaimSwap`, `useFeeClaimWithdraw`, `usePartnerCancelIntent`, `useGetUserIntent`, `useGetIntentDetails`
@@ -169,6 +169,8 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 ### Bridge Hooks
 
 - [`useBridge()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridge/useBridge.ts) — Execute a cross-chain bridge transfer
+- [`useBridgeWithApproval()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridge/useBridgeWithApproval.ts) — Bridge with the approval folded in: one signature on an EIP-5792 wallet
+- [`useBridgeApprovalStrategy()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridge/useBridgeApprovalStrategy.ts) — Which approval path `useBridgeWithApproval` would take
 - [`useBridgeDetailedStatus()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridge/useBridgeDetailedStatus.ts) — Track a bridge from its source tx, whichever completion path ran
 - [`useBridgeAllowance()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridge/useBridgeAllowance.ts) — Check token approval
 - [`useBridgeApprove()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridge/useBridgeApprove.ts) — Approve token spending
@@ -250,6 +252,8 @@ expires unfilled, so those go through `useSubmitLeveragePositionIntent()`, which
 - [`useLeverageYieldDeposit()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldDeposit.ts) — Build the deposit payload (any token → `lsoda*` shares) for `useLeverageYieldVaultSwap`
 - [`useLeverageYieldWithdraw()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldWithdraw.ts) — Build the withdraw payload (`lsoda*` shares → any token) for `useLeverageYieldVaultSwap`
 - [`useLeverageYieldVaultSwap()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldVaultSwap.ts) — Execute an end-to-end vault swap (deposit or withdraw); backend 2-step by default, with the client-side fallback
+- [`useLeverageYieldVaultSwapWithApproval()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldVaultSwapWithApproval.ts) — `useLeverageYieldVaultSwap` with a deposit's approval folded in: one signature on an EIP-5792 wallet
+- [`useLeverageYieldApprovalStrategy()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldApprovalStrategy.ts) — Which approval path `useLeverageYieldVaultSwapWithApproval` would take
 - [`useLeverageYieldDetailedStatus()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldDetailedStatus.ts) — Track a vault swap from its source tx, whichever completion path ran
 - [`useLeverageYieldNotifySolver()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldNotifySolver.ts) — Notify the solver that a vault intent landed on the hub (standalone step for manual relay flows)
 

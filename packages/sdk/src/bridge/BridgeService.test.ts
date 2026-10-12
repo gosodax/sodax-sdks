@@ -20,8 +20,22 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
-import { decodeAbiParameters, decodeFunctionData, erc20Abi, parseAbiParameters } from 'viem';
-import type { Address, IEvmWalletProvider, SpokeChainKey } from '@sodax/types';
+import {
+  AtomicityNotSupportedError,
+  AtomicReadyWalletRejectedUpgradeError,
+  decodeAbiParameters,
+  decodeFunctionData,
+  erc20Abi,
+  parseAbiParameters,
+  UserRejectedRequestError,
+} from 'viem';
+import type {
+  Address,
+  EvmAtomicBatchSupport,
+  EvmRawTransaction,
+  IEvmWalletProvider,
+  SpokeChainKey,
+} from '@sodax/types';
 import { ChainKeys, DEFAULT_BACKEND_API_TIMEOUT, DEFAULT_RELAY_TX_TIMEOUT, getIntentRelayChainId } from '@sodax/types';
 import { RELAY_FALLBACK_FLOOR_MS } from '../shared/services/intentRelay/IntentRelayApiService.js';
 import { EvmVaultTokenService } from '../shared/services/hub/EvmVaultTokenService.js';
@@ -30,7 +44,8 @@ import { SodaxError } from '../errors/SodaxError.js';
 import { isAuthFailure } from '../errors/guards.js';
 import { DETAILED_STATUS_NOT_DELIVERED } from '../backendApi/detailedStatusRouting.js';
 import { invariant } from '../shared/utils/tiny-invariant.js';
-import type { BridgeParams } from './BridgeService.js';
+import type { BridgeParams, BridgeWithApprovalParams } from './BridgeService.js';
+import { ACCOUNT_UPGRADE_DECLINED, ATOMIC_BATCH_UNCONFIRMED } from '../shared/utils/approvalBatch.js';
 
 const mocks = vi.hoisted(() => ({
   relayTxAndWaitPacket: vi.fn(),
@@ -1568,5 +1583,249 @@ describe('BridgeService.getDetailedStatus', () => {
 
     invariant(!result.ok, 'expected LOOKUP_FAILED');
     expect(result.error.code).toBe('LOOKUP_FAILED');
+  });
+});
+
+describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
+  const RAW_APPROVE: EvmRawTransaction = { from: SAMPLE_USER, to: HUB_WALLET, value: 0n, data: '0x095ea7b3' };
+  const RAW_DEPOSIT: EvmRawTransaction = { from: SAMPLE_USER, to: HUB_WALLET, value: 0n, data: '0xdeadbeef' };
+  const RELAY_DATA = { address: HUB_WALLET, payload: '0x' as const };
+  const BSC_CHAIN_ID = 56;
+
+  const makeBatchProvider = (support: EvmAtomicBatchSupport = 'supported') => ({
+    chainType: 'EVM' as const,
+    getWalletAddress: vi.fn<IEvmWalletProvider['getWalletAddress']>(),
+    sendTransaction: vi.fn<IEvmWalletProvider['sendTransaction']>(),
+    waitForTransactionReceipt: vi.fn<IEvmWalletProvider['waitForTransactionReceipt']>(),
+    getAtomicBatchSupport: vi.fn(async (_chainId: number) => support),
+    sendAtomicBatch: vi.fn(
+      async (_txs: readonly EvmRawTransaction[], _options: { expectedChainId: number }) => 'batch-1',
+    ),
+    waitForBatch: vi.fn(async (_batchId: string) => ({
+      status: 'success' as const,
+      statusCode: 200,
+      atomic: true,
+      receipts: [{ transactionHash: '0xbatchTx' as const, status: 'success' as const }],
+    })),
+  });
+
+  const input = (
+    walletProvider: IEvmWalletProvider,
+    srcChainKey: SpokeChainKey = BSC,
+    allowAccountUpgrade?: boolean,
+  ): BridgeWithApprovalParams<SpokeChainKey> => ({
+    ...bridgeInput(srcChainKey, ARBITRUM),
+    walletProvider,
+    allowAccountUpgrade,
+  });
+  const allowance = (valid: boolean) =>
+    vi.spyOn(sodax.bridge, 'isAllowanceValid').mockResolvedValue({ ok: true, value: valid });
+  const stubCreate = () =>
+    vi
+      .spyOn(sodax.bridge, 'createBridgeIntent')
+      .mockImplementation(
+        async ({ raw }) =>
+          ({ ok: true, value: { tx: raw ? RAW_DEPOSIT : '0xspokeTx', relayData: RELAY_DATA } }) as never,
+      );
+  const stubCompletion = () => {
+    vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
+    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xDST' } });
+  };
+
+  describe('getApprovalStrategy', () => {
+    it('needs no approval when the allowance already covers the amount', async () => {
+      allowance(true);
+      await expect(sodax.bridge.getApprovalStrategy(input(makeBatchProvider()))).resolves.toEqual({
+        ok: true,
+        value: 'not-required',
+      });
+    });
+
+    it('batches on an EVM spoke whose wallet supports EIP-5792', async () => {
+      allowance(false);
+      const wallet = makeBatchProvider('ready');
+      await expect(sodax.bridge.getApprovalStrategy(input(wallet))).resolves.toEqual({
+        ok: true,
+        value: 'atomic-batch',
+      });
+      expect(wallet.getAtomicBatchSupport).toHaveBeenCalledWith(BSC_CHAIN_ID);
+    });
+
+    it('keeps a ready wallet sequential when the upgrade is not allowed, and the hub always', async () => {
+      allowance(false);
+      await expect(sodax.bridge.getApprovalStrategy(input(makeBatchProvider('ready'), BSC, false))).resolves.toEqual({
+        ok: true,
+        value: 'sequential',
+      });
+      await expect(
+        sodax.bridge.getApprovalStrategy(input(makeBatchProvider(), ChainKeys.SONIC_MAINNET)),
+      ).resolves.toEqual({ ok: true, value: 'sequential' });
+    });
+
+    it('reports a failed allowance read as ALLOWANCE_CHECK_FAILED', async () => {
+      vi.spyOn(sodax.bridge, 'isAllowanceValid').mockResolvedValueOnce({
+        ok: false,
+        error: new SodaxError('ALLOWANCE_CHECK_FAILED', 'rpc down', { feature: 'bridge' }),
+      });
+      const result = await sodax.bridge.getApprovalStrategy(input(makeBatchProvider()));
+      expect(!result.ok && result.error.code).toBe('ALLOWANCE_CHECK_FAILED');
+      expect(!result.ok && result.error.context?.action).toBe('bridgeWithApproval');
+    });
+  });
+
+  describe('bridgeWithApproval', () => {
+    it('sends approve + deposit as one batch and relays the batch tx', async () => {
+      allowance(false);
+      vi.spyOn(sodax.bridge, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
+      const createSpy = stubCreate();
+      const approveSpy = vi.spyOn(sodax.bridge, 'approve');
+      stubCompletion();
+      const wallet = makeBatchProvider();
+
+      const result = await sodax.bridge.bridgeWithApproval(input(wallet));
+
+      expect(result).toEqual({
+        ok: true,
+        value: { srcChainTxHash: '0xbatchTx', dstChainTxHash: '0xDST', approvalStrategy: 'atomic-batch' },
+      });
+      expect(wallet.sendAtomicBatch).toHaveBeenCalledWith([RAW_APPROVE, RAW_DEPOSIT], {
+        expectedChainId: BSC_CHAIN_ID,
+      });
+      expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ raw: true }));
+      expect(approveSpy).not.toHaveBeenCalled();
+    });
+
+    it('puts the allowance reset first in the batch', async () => {
+      allowance(false);
+      const RAW_RESET = { ...RAW_APPROVE, data: '0x00' as const };
+      vi.spyOn(sodax.bridge, 'buildApproveTxs').mockResolvedValueOnce({
+        ok: true,
+        value: { resetTx: RAW_RESET, approveTx: RAW_APPROVE },
+      });
+      stubCreate();
+      stubCompletion();
+      const wallet = makeBatchProvider();
+
+      await sodax.bridge.bridgeWithApproval(input(wallet));
+
+      expect(wallet.sendAtomicBatch.mock.calls[0]?.[0]).toEqual([RAW_RESET, RAW_APPROVE, RAW_DEPOSIT]);
+    });
+
+    it('approves separately when the wallet refuses the batch before signing', async () => {
+      allowance(false);
+      vi.spyOn(sodax.bridge, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
+      stubCreate();
+      const approveSpy = vi.spyOn(sodax.bridge, 'approve').mockResolvedValueOnce({ ok: true, value: '0xapproveTx' });
+      vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({
+        ok: true,
+        value: { status: 'success', receipt: {} as never },
+      });
+      stubCompletion();
+      const wallet = makeBatchProvider();
+      wallet.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
+
+      const result = await sodax.bridge.bridgeWithApproval(input(wallet));
+
+      expect(result.ok && result.value.approvalStrategy).toBe('sequential');
+      expect(result.ok && result.value.srcChainTxHash).toBe('0xspokeTx');
+      expect(approveSpy).toHaveBeenCalledOnce();
+    });
+
+    it.each([
+      ['a rejected batch', new UserRejectedRequestError(new Error('User rejected')), undefined],
+      [
+        'a declined upgrade',
+        new AtomicReadyWalletRejectedUpgradeError(new Error('declined')),
+        ACCOUNT_UPGRADE_DECLINED,
+      ],
+    ])('reports %s as USER_REJECTED without approving separately', async (_label, cause, reason) => {
+      allowance(false);
+      vi.spyOn(sodax.bridge, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
+      stubCreate();
+      const approveSpy = vi.spyOn(sodax.bridge, 'approve');
+      const wallet = makeBatchProvider('ready');
+      wallet.sendAtomicBatch.mockRejectedValueOnce(cause);
+
+      const result = await sodax.bridge.bridgeWithApproval(input(wallet));
+
+      expect(!result.ok && result.error.code).toBe('USER_REJECTED');
+      expect(!result.ok && result.error.context?.reason).toBe(reason);
+      expect(approveSpy).not.toHaveBeenCalled();
+    });
+
+    it('never relays or resends a batch that was sent but not confirmed', async () => {
+      allowance(false);
+      vi.spyOn(sodax.bridge, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
+      stubCreate();
+      const approveSpy = vi.spyOn(sodax.bridge, 'approve');
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockRejectedValueOnce(new Error('timed out'));
+
+      const result = await sodax.bridge.bridgeWithApproval(input(wallet));
+
+      expect(!result.ok && result.error.code).toBe('TX_VERIFICATION_FAILED');
+      expect(!result.ok && result.error.context).toMatchObject({
+        reason: ATOMIC_BATCH_UNCONFIRMED,
+        batchId: 'batch-1',
+        action: 'bridgeWithApproval',
+      });
+      expect(approveSpy).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
+    });
+
+    it('approves, waits, then deposits on a wallet that cannot batch', async () => {
+      allowance(false);
+      const createSpy = stubCreate();
+      vi.spyOn(sodax.bridge, 'approve').mockResolvedValueOnce({ ok: true, value: '0xapproveTx' });
+      const waitSpy = vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({
+        ok: true,
+        value: { status: 'success', receipt: {} as never },
+      });
+      stubCompletion();
+
+      const result = await sodax.bridge.bridgeWithApproval(input(mockEvmProvider));
+
+      expect(result.ok && result.value.approvalStrategy).toBe('sequential');
+      expect(waitSpy).toHaveBeenCalledWith({ txHash: '0xapproveTx', chainKey: BSC });
+      expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ raw: false }));
+    });
+
+    it('does not deposit over an approval that did not confirm', async () => {
+      allowance(false);
+      const createSpy = stubCreate();
+      vi.spyOn(sodax.bridge, 'approve').mockResolvedValueOnce({ ok: true, value: '0xapproveTx' });
+      vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({
+        ok: true,
+        value: { status: 'failure', error: new Error('reverted') },
+      });
+
+      const result = await sodax.bridge.bridgeWithApproval(input(mockEvmProvider));
+
+      expect(!result.ok && result.error.code).toBe('APPROVE_FAILED');
+      expect(!result.ok && result.error.context).toMatchObject({
+        reason: 'approve-not-confirmed',
+        approveTxHash: '0xapproveTx',
+        approvalStrategy: 'sequential',
+      });
+      expect(createSpy).not.toHaveBeenCalled();
+    });
+
+    it('bridges straight away when no approval is needed', async () => {
+      allowance(true);
+      const createSpy = stubCreate();
+      const buildSpy = vi.spyOn(sodax.bridge, 'buildApproveTxs');
+      const approveSpy = vi.spyOn(sodax.bridge, 'approve');
+      stubCompletion();
+
+      const result = await sodax.bridge.bridgeWithApproval(input(makeBatchProvider()));
+
+      expect(result.ok && result.value).toMatchObject({
+        srcChainTxHash: '0xspokeTx',
+        approvalStrategy: 'not-required',
+      });
+      expect(createSpy).toHaveBeenCalledOnce();
+      expect(buildSpy).not.toHaveBeenCalled();
+      expect(approveSpy).not.toHaveBeenCalled();
+    });
   });
 });

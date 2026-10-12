@@ -14,10 +14,12 @@ Leveraged-yield ERC-4626 vaults on the Sonic hub. Deposit any token → `lsoda*`
 useLeverageYieldDeposit({ mutationOptions });   // build a deposit payload (any token → lsoda*)
 useLeverageYieldWithdraw({ mutationOptions });  // build a withdraw payload (lsoda* → any token; hubWalletSwap)
 useLeverageYieldVaultSwap({ mutationOptions });  // EXECUTE the built payload end-to-end
+useLeverageYieldVaultSwapWithApproval({ mutationOptions }); // same, with a deposit's approval folded in (one EIP-5792 signature)
 useLeverageYieldNotifySolver({ mutationOptions }); // manual-flow: notify the solver after a self-driven relay
 
 // Reads
 useLeverageYieldDetailedStatus({ params, queryOptions }); // track a vault swap from its SOURCE tx (3s)
+useLeverageYieldApprovalStrategy({ params: { payload, walletProvider, allowAccountUpgrade? }, queryOptions }); // label the deposit button
 useLeverageYieldQuote({ params, queryOptions });          // vault deposit/withdraw quote (3s) — NOT useQuote
 useLeverageYieldEffectiveApr({ params, queryOptions });  // AAVE + LSD effective net APR (60s)
 useLeverageYieldPosition({ params, queryOptions });      // collateral/debt/ltv/healthFactor/idle (30s)
@@ -94,7 +96,7 @@ useLeverageYieldShareBalances({ params: { vault, holders } })
 
 ## Approval pattern
 
-Leverage-yield has **no dedicated approve hook**. A deposit is a swap-style intent that bridges `inputToken` from the spoke chain, so it approves the spoke-side asset manager exactly like a swap — reuse the swap hooks. A withdraw needs no spoke-side approval: the payload carries `hubWalletSwap: true` and `vaultSwap` authorises the hub wallet to spend the `lsoda*` shares via a `Connection.sendMessage` the user signs on `srcChainKey`.
+`useLeverageYieldVaultSwapWithApproval` approves and deposits in one call — one signature on an EIP-5792 wallet — and needs none of the hooks below. For the two-step flow, leverage-yield has **no dedicated approve hook**. A deposit is a swap-style intent that bridges `inputToken` from the spoke chain, so it approves the spoke-side asset manager exactly like a swap — reuse the swap hooks. A withdraw needs no spoke-side approval: the payload carries `hubWalletSwap: true` and `vaultSwap` authorises the hub wallet to spend the `lsoda*` shares via a `Connection.sendMessage` the user signs on `srcChainKey`.
 
 | Flow | Token approved | Hook |
 |---|---|---|

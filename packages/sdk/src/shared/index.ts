@@ -13,6 +13,8 @@ export type {
   ApprovalBatchErrorCode,
   ApprovalBatchResult,
   ApprovalStrategy,
+  ApprovalStrategyError,
+  ApprovalStrategyErrorCode,
   ResolveApprovalStrategyParams,
   SendApprovalBatchParams,
 } from './utils/approvalBatch.js';

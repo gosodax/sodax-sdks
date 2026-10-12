@@ -16,7 +16,8 @@ Granular skill for `BridgeService` — `sodax.bridge`. Feature tag: `'bridge'`.
 1. **New code or v1 → v2 port?**
 2. **Signed flow (frontend) or unsigned-tx (backend)?**
 3. **Need a bridgeable-amount precheck?** Vault deposit limits may cap the transfer; `getBridgeableAmount` (or equivalent) read tells you the cap before submitting.
-4. **Source / destination chains** — confirm both are supported spoke chains, and the destination address format matches the chain (vd Stellar address starts with `G`, Solana base58, Bitcoin specific encodings).
+4. **One signature?** `bridgeWithApproval` folds the approval in (one EIP-5792 batch when the wallet can); `getApprovalStrategy` labels the button first. Plain `bridge()` expects the allowance to be set already.
+5. **Source / destination chains** — confirm both are supported spoke chains, and the destination address format matches the chain (vd Stellar address starts with `G`, Solana base58, Bitcoin specific encodings).
 
 ## Integration workflow
 

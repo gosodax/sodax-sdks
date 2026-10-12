@@ -11,10 +11,14 @@ Pair: [`features/bridge.md`](../../../migration-v1-to-v2/knowledge/features/brid
 // Mutation
 useBridge({ mutationOptions });
 useBridgeApprove({ mutationOptions });
+// bridge with the approval folded in: one EIP-5792 batch (one signature) when the wallet can
+useBridgeWithApproval({ mutationOptions });
 
 // Queries
 // useBridgeAllowance nests payload + walletProvider under params (NOT at top level)
 useBridgeAllowance({ params: { payload: CreateBridgeIntentParams<K>, walletProvider }, queryOptions });
+// 'not-required' | 'atomic-batch' | 'sequential' — the path useBridgeWithApproval would take; not polled
+useBridgeApprovalStrategy({ params: { payload, walletProvider, allowAccountUpgrade? }, queryOptions });
 // Polls 3s from the source tx; stops on a terminal source, a rejected API key, or 40 consecutive
 // ambiguous reads. Result-wrapped — narrow `data.value.source` ('backend' | 'relay').
 useBridgeDetailedStatus({ params: { srcChainKey, srcTxHash, apiConfig? }, queryOptions });
@@ -81,6 +85,8 @@ type UseGetBridgeableTokensParams = ReadHookParams<XToken[], {
 |---|---|
 | `useBridge` | `SafeUseMutationResult<TxHashPair, Error, ...>` (`{ srcChainTxHash, dstChainTxHash }`) |
 | `useBridgeApprove` | `SafeUseMutationResult<TxReturnType<K, false>, Error, UseBridgeApproveVars<K>>` — chain-keyed receipt union (EVM/Stellar/Sui differ) |
+| `useBridgeWithApproval` | `SafeUseMutationResult<BridgeWithApprovalResponse, Error, ...>` — `TxHashPair` plus `approvalStrategy`. A `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` may still land: never bridge it again |
+| `useBridgeApprovalStrategy` | `UseQueryResult<ApprovalStrategy, Error>` |
 | `useBridgeAllowance` | `UseQueryResult<boolean, Error>` — already unwrapped; on SDK `!ok` the queryFn returns `false` (does NOT throw), so `isError` stays clean |
 | `useGetBridgeableAmount` | `UseQueryResult<BridgeLimit, Error>` (richer than v1's bare `bigint`) |
 | `useGetBridgeableTokens` | `UseQueryResult<XToken[], Error>` |

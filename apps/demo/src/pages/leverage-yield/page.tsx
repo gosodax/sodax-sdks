@@ -23,18 +23,21 @@ import { fmtBps, fmtHealthFactor } from '@/lib/utils';
 import {
   useLeverageYieldQuote,
   useSodaxContext,
-  useSwapAllowance,
-  useSwapApprove,
   useBalances,
+  useLeverageYieldApprovalStrategy,
   useLeverageYieldDeposit,
-  useLeverageYieldVaultSwap,
+  useLeverageYieldVaultSwapWithApproval,
   useLeverageYieldWithdraw,
   useLeverageYieldEffectiveApr,
   useLeverageYieldPosition,
   useLeverageYieldTotalAssets,
   useLeverageYieldPreviewRedeem,
   useLeverageYieldShareBalances,
+  ACCOUNT_UPGRADE_DECLINED,
+  ATOMIC_BATCH_UNCONFIRMED,
   ChainKeys,
+  isSodaxError,
+  type ApprovalStrategy,
   getSupportedSolverTokens,
   type LeverageYieldQuoteParams,
   type LeverageYieldSwapPayload,
@@ -58,6 +61,11 @@ import BigNumber from 'bignumber.js';
 import { useQueryClient } from '@tanstack/react-query';
 import { formatUnits, parseUnits } from 'viem';
 import { SolverEnv, useAppStore } from '@/zustand/useAppStore';
+
+function depositLabel(strategy: ApprovalStrategy | undefined): string {
+  if (strategy === 'atomic-batch') return 'Approve & Deposit (1 signature)';
+  return strategy === 'sequential' ? 'Approve, then Deposit' : 'Deposit';
+}
 
 const SONIC = ChainKeys.SONIC_MAINNET satisfies SpokeChainKey;
 const DEFAULT_SLIPPAGE = '0.5'; // %
@@ -192,6 +200,7 @@ export default function LeverageYieldPage() {
   useEffect(() => {
     setSourceAmount('');
     setIntentOrderPayload(undefined);
+    setUnconfirmedBatchId(null);
   }, [tab, selectedVaultName, userChain, userToken?.address]);
 
   // Gross amount: the leverage-yield quote deducts the same fee the vault intent charges.
@@ -233,19 +242,18 @@ export default function LeverageYieldPage() {
 
   const [intentOrderPayload, setIntentOrderPayload] = useState<LeverageYieldSwapPayload | undefined>();
   const [actionError, setActionError] = useState<string | null>(null);
+  const [allowAccountUpgrade, setAllowAccountUpgrade] = useState(true);
+  const [upgradeDeclined, setUpgradeDeclined] = useState(false);
+  // A batch the wallet took but never confirmed may still land, so this payload is not sent again.
+  const [unconfirmedBatchId, setUnconfirmedBatchId] = useState<string | null>(null);
 
-  // Withdraw skips the spoke-side allowance/approve: the [approve, createIntent] pair
-  // is encoded into the sendMessage payload and the hub wallet executes it on Sonic.
-  const { data: hasAllowance, isLoading: isAllowanceLoading } = useSwapAllowance({
-    params: {
-      payload: tab === 'deposit' ? intentOrderPayload?.params : undefined,
-      srcChainKey: src.chain,
-      walletProvider: sourceWalletProvider,
-    },
+  // A deposit's approval rides in the deposit's own signature on an EIP-5792 wallet. A withdraw needs
+  // none: the [approve, createIntent] pair is encoded into the sendMessage the hub wallet executes.
+  const { data: approvalStrategy } = useLeverageYieldApprovalStrategy({
+    params: { payload: intentOrderPayload, walletProvider: sourceWalletProvider, allowAccountUpgrade },
   });
 
-  const { mutateAsyncSafe: approve, isPending: isApproving } = useSwapApprove();
-  const { mutateAsync: vaultSwap, isPending: isSwapping } = useLeverageYieldVaultSwap();
+  const { mutateAsync: vaultSwapWithApproval, isPending: isSwapping } = useLeverageYieldVaultSwapWithApproval();
 
   // Leverage-yield intent builders. `mutateAsyncSafe` returns `Result<LeverageYieldSwapPayload>`
   // and never rejects, so `prepare()` branches on `.ok` exactly like the SDK's own builder did.
@@ -347,6 +355,8 @@ export default function LeverageYieldPage() {
   // so the vault swap routes via the hub wallet internally.
   const prepare = async () => {
     setActionError(null);
+    setUpgradeDeclined(false);
+    setUnconfirmedBatchId(null);
     if (
       !src.token ||
       !dst.token ||
@@ -385,13 +395,6 @@ export default function LeverageYieldPage() {
     setIntentOrderPayload(result.value);
   };
 
-  const handleApprove = async () => {
-    if (!intentOrderPayload || !sourceWalletProvider) return;
-    setActionError(null);
-    const result = await approve({ params: intentOrderPayload.params, walletProvider: sourceWalletProvider });
-    if (!result.ok) setActionError(result.error instanceof Error ? result.error.message : 'Approve failed');
-  };
-
   /**
    * Executes the prepared intent. Tab-agnostic — the action-shaped `intentOrderPayload`
    * already encodes deposit vs withdraw (withdraw carries `hubWalletSwap: true`, handled
@@ -405,17 +408,19 @@ export default function LeverageYieldPage() {
    * used to own that choice itself and POST to the *swaps* submit-tx route, which meant a vault
    * swap submitted without its `operation` discriminator and with no relay fallback.
    */
-  const handleSwap = async () => {
+  const handleSwap = async (upgrade = allowAccountUpgrade) => {
     if (!intentOrderPayload || !sourceWalletProvider) return;
     setActionError(null);
+    setUpgradeDeclined(false);
 
     // "AMOUNT TOKEN (NETWORK) => AMOUNT TOKEN (NETWORK)" snapshot for the order card.
     const summary = buildOrderSummary(src, dst, sourceAmount, quote?.quoted_amount);
 
     try {
-      const { solverExecutionResponse, intent, intentDeliveryInfo } = await vaultSwap({
+      const { solverExecutionResponse, intent, intentDeliveryInfo } = await vaultSwapWithApproval({
         ...intentOrderPayload,
         walletProvider: sourceWalletProvider,
+        allowAccountUpgrade: upgrade,
         // Per-action key from Sodax Settings; omitted entirely when unset, so the backend legs fall
         // back to the instance key rather than being handed an empty credential.
         ...(sodaxSettings.leverageYieldApiKey ? { extras: { apiKey: sodaxSettings.leverageYieldApiKey } } : {}),
@@ -435,8 +440,16 @@ export default function LeverageYieldPage() {
       );
       resetAfterSubmit();
     } catch (e) {
-      setActionError(`Swap failed: ${e instanceof Error ? e.message : String(e)}`);
+      const context = isSodaxError(e) ? e.context : undefined;
+      if (context?.reason === ATOMIC_BATCH_UNCONFIRMED) setUnconfirmedBatchId(String(context.batchId ?? ''));
+      else if (context?.reason === ACCOUNT_UPGRADE_DECLINED) setUpgradeDeclined(true);
+      else setActionError(`Swap failed: ${e instanceof Error ? e.message : String(e)}`);
     }
+  };
+
+  const depositWithoutUpgrade = async () => {
+    setAllowAccountUpgrade(false);
+    await handleSwap(false);
   };
 
   // ─── Render ──────────────────────────────────────────────────────────────
@@ -798,21 +811,31 @@ export default function LeverageYieldPage() {
                 >
                   {quoteQuery.isFetching ? 'Quoting…' : 'Review'}
                 </Button>
-              ) : tab === 'deposit' && isAllowanceLoading ? (
-                <Button disabled className="w-full">
-                  Checking allowance…
-                </Button>
-              ) : tab === 'deposit' && !hasAllowance ? (
-                <Button onClick={handleApprove} disabled={isApproving} className="w-full">
-                  {isApproving ? 'Approving…' : 'Approve'}
-                </Button>
               ) : (
-                <Button onClick={handleSwap} disabled={isSwapping} className="w-full">
-                  {isSwapping ? 'Swapping…' : tab === 'deposit' ? 'Deposit' : 'Withdraw'}
+                <Button
+                  onClick={() => void handleSwap()}
+                  disabled={isSwapping || unconfirmedBatchId !== null}
+                  className="w-full"
+                >
+                  {isSwapping ? 'Swapping…' : tab === 'deposit' ? depositLabel(approvalStrategy) : 'Withdraw'}
                 </Button>
               )}
 
               {actionError && <div className="text-sm text-red-600 break-all">{actionError}</div>}
+              {unconfirmedBatchId !== null && (
+                <div className="text-sm text-amber-600 wrap-anywhere">
+                  Your wallet sent the deposit (batch {unconfirmedBatchId}) but it was not confirmed in time. It may
+                  still land — check your wallet activity before depositing again.
+                </div>
+              )}
+              {upgradeDeclined && (
+                <div className="text-sm text-amber-600">
+                  You declined the smart account upgrade, so nothing was sent.{' '}
+                  <button type="button" className="underline" onClick={() => void depositWithoutUpgrade()}>
+                    Deposit without upgrading (2 signatures)
+                  </button>
+                </div>
+              )}
             </TabsContent>
           </Tabs>
         </CardContent>

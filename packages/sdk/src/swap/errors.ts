@@ -42,15 +42,11 @@ export type SwapWithApprovalErrorCode =
   | SwapErrorCode
   | Extract<SodaxErrorCode, 'APPROVE_FAILED' | 'ALLOWANCE_CHECK_FAILED'>;
 
-/** The only code `getApprovalStrategy` returns: the allowance read failed. */
-export type ApprovalStrategyErrorCode = Extract<SodaxErrorCode, 'ALLOWANCE_CHECK_FAILED'>;
-
 export type SwapCreateIntentError = SodaxError<SwapCreateIntentErrorCode>;
 export type PostExecutionError = SodaxError<PostExecutionErrorCode>;
 export type SwapError = SodaxError<SwapErrorCode>;
 export type DetailedStatusError = SodaxError<DetailedStatusErrorCode>;
 export type SwapWithApprovalError = SodaxError<SwapWithApprovalErrorCode>;
-export type ApprovalStrategyError = SodaxError<ApprovalStrategyErrorCode>;
 
 const POST_EXECUTION_ERROR_CODES: ReadonlySet<PostExecutionErrorCode> = new Set([
   'EXECUTION_FAILED',

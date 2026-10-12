@@ -14,6 +14,10 @@ A bridge call deposits the source token into its vault on the hub, then triggers
 
 ```ts
 sodax.bridge.bridge<K>(action: BridgeParams<K, false>): Promise<Result<TxHashPair, SodaxError>>;
+// bridge() with the approval folded in: one EIP-5792 batch (one signature) when the wallet can, else approve → wait → bridge.
+sodax.bridge.bridgeWithApproval<K>(action: BridgeWithApprovalParams<K>): Promise<Result<BridgeWithApprovalResponse, SodaxError>>;
+// 'not-required' | 'atomic-batch' | 'sequential' — the path bridgeWithApproval would take; label the button with it.
+sodax.bridge.getApprovalStrategy<K>(action: BridgeWithApprovalParams<K>): Promise<Result<ApprovalStrategy, SodaxError>>;
 sodax.bridge.createBridgeIntent<K, Raw>(action: BridgeParams<K, Raw>): Promise<Result<IntentTxResult<K, Raw>, SodaxError>>;
 sodax.bridge.approve<K, Raw>(args): Promise<Result<TxReturnType<K, Raw>, SodaxError>>;
 // Unsigned callers only: returns both transactions when a stale allowance must be cleared first.
@@ -228,6 +232,8 @@ different contract on the hub.
 | Method | Codes | `error.context` |
 |---|---|---|
 | `bridge` | full exec set | `action: 'bridge'` |
+| `bridgeWithApproval` | `bridge`'s codes + `APPROVE_FAILED`, `ALLOWANCE_CHECK_FAILED` | `action: 'bridgeWithApproval'`, `approvalStrategy`; a batch that may still land is `TX_VERIFICATION_FAILED` with `reason: ATOMIC_BATCH_UNCONFIRMED` — never bridge it again |
+| `getApprovalStrategy` | `ALLOWANCE_CHECK_FAILED` | `action: 'bridgeWithApproval'` |
 | `createBridgeIntent` | `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` | `action: 'bridge'` |
 | `approve` | `VALIDATION_FAILED`, `APPROVE_FAILED`, `UNKNOWN` | n/a |
 | `isAllowanceValid` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` | n/a |

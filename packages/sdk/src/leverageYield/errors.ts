@@ -36,6 +36,7 @@ export type LeverageYieldAction =
   | 'approve'
   | 'allowanceCheck'
   | 'vaultSwap'
+  | 'vaultSwapWithApproval'
   | 'openPosition'
   | 'openPositionFromDebtToken'
   | 'operatePosition'
@@ -85,6 +86,11 @@ export type LeverageYieldSwapErrorCode = Extract<
   | 'UNKNOWN'
 >;
 
+/** Codes returnable by `vaultSwapWithApproval`: every `vaultSwap` code plus the approval leg's. */
+export type VaultSwapWithApprovalErrorCode =
+  | LeverageYieldSwapErrorCode
+  | Extract<SodaxErrorCode, 'APPROVE_FAILED' | 'ALLOWANCE_CHECK_FAILED'>;
+
 export type LeverageYieldErrorCode = Extract<
   SodaxErrorCode,
   | 'USER_REJECTED'
@@ -109,6 +115,7 @@ export type LeverageYieldLookupError = SodaxError<LeverageYieldLookupErrorCode>;
 export type LeverageYieldDetailedStatusError = SodaxError<LeverageYieldDetailedStatusErrorCode>;
 export type LeverageYieldPostExecutionError = SodaxError<LeverageYieldPostExecutionErrorCode>;
 export type LeverageYieldSwapError = SodaxError<LeverageYieldSwapErrorCode>;
+export type VaultSwapWithApprovalError = SodaxError<VaultSwapWithApprovalErrorCode>;
 export type LeverageYieldError = SodaxError<LeverageYieldErrorCode>;
 
 const LEVERAGE_YIELD_CODES: ReadonlySet<LeverageYieldErrorCode> = new Set<LeverageYieldErrorCode>([
@@ -155,4 +162,7 @@ export const isLeverageYieldPostExecutionError = isCodeMember<LeverageYieldPostE
   LEVERAGE_YIELD_POST_EXECUTION_CODES,
 );
 export const isLeverageYieldSwapError = isCodeMember<LeverageYieldSwapErrorCode>(LEVERAGE_YIELD_SWAP_CODES);
+export const isVaultSwapWithApprovalError = isCodeMember<VaultSwapWithApprovalErrorCode>(
+  new Set<VaultSwapWithApprovalErrorCode>([...LEVERAGE_YIELD_SWAP_CODES, 'APPROVE_FAILED', 'ALLOWANCE_CHECK_FAILED']),
+);
 export const isLeverageYieldError = isCodeMember<LeverageYieldErrorCode>(LEVERAGE_YIELD_CODES);

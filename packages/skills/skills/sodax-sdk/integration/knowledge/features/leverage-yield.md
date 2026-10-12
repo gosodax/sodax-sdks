@@ -31,6 +31,10 @@ sodax.leverageYield.withdraw(params: LeverageYieldSwapWithdrawParams): Promise<R
 // Intent create + end-to-end execute (leverage-yield copies of swap's createIntent / swap)
 sodax.leverageYield.createVaultIntent<K, Raw>(params: VaultSwapActionParams<K, Raw>): Promise<Result<CreateVaultIntentResult<K, Raw>, SodaxError>>;
 sodax.leverageYield.vaultSwap<K>(params: VaultSwapActionParams<K, false>): Promise<Result<VaultSwapResponse, SodaxError>>;
+// vaultSwap() with a deposit's spoke-side approval folded in: one EIP-5792 batch (one signature) when the wallet can.
+// A withdraw (hubWalletSwap) needs no approval and runs as vaultSwap does.
+sodax.leverageYield.vaultSwapWithApproval<K>(params: VaultSwapWithApprovalParams<K>): Promise<Result<VaultSwapWithApprovalResponse, SodaxError>>;
+sodax.leverageYield.getApprovalStrategy<K>(params: VaultSwapWithApprovalParams<K>): Promise<Result<ApprovalStrategy, SodaxError>>;
 sodax.leverageYield.notifySolver(request: { intent_tx_hash: string }): Promise<Result<SolverExecutionResponse, SodaxError>>;
 //   notifySolver is PUBLIC — call it to finish a manual createVaultIntent → relay → notify flow
 
@@ -164,6 +168,18 @@ if (!result.ok) return;
 const { solverExecutionResponse, intent, intentDeliveryInfo } = result.value;
 ```
 
+Or replace the allowance check, the approval and `vaultSwap` with one call. On an EIP-5792 wallet the approval and the
+deposit go out as one batch, so the user signs once; it approves the same spender and keeps the leverage-yield fee and
+the backend `operation`:
+
+```ts
+const result = await sodax.leverageYield.vaultSwapWithApproval({ ...built.value, walletProvider });
+// result.value.approvalStrategy: 'not-required' | 'atomic-batch' | 'sequential'
+```
+
+A `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` means the batch may still land — do not
+deposit again.
+
 ### Withdraw (`lsoda*` → any token)
 
 ```ts
@@ -233,7 +249,7 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 
 ## Error codes
 
-`feature: 'leverageYield'`. Action discriminator on `context.action`: `'deposit' | 'withdraw' | 'approve' | 'allowanceCheck' | 'vaultSwap' | 'openPosition' | 'openPositionFromDebtToken' | 'operatePosition' | 'openLeveragePosition' | 'submitLeveragePositionIntent' | 'runLeveragePositionOperation' | 'getPositionLegQuote'`. Read methods partition on `context.method`.
+`feature: 'leverageYield'`. Action discriminator on `context.action`: `'deposit' | 'withdraw' | 'approve' | 'allowanceCheck' | 'vaultSwap' | 'vaultSwapWithApproval' | 'openPosition' | 'openPositionFromDebtToken' | 'operatePosition' | 'openLeveragePosition' | 'submitLeveragePositionIntent' | 'runLeveragePositionOperation' | 'getPositionLegQuote'`. Read methods partition on `context.method`.
 
 | Method | Narrow code union |
 |---|---|
@@ -241,6 +257,8 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 | `deposit`, `withdraw` | `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| LOOKUP_FAILED \| UNKNOWN` (create-intent subset + `LOOKUP_FAILED` with `method: 'resolveDeadline'` when the default-deadline hub-block read fails) |
 | `createVaultIntent` | `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| UNKNOWN` (create-intent subset) |
 | `vaultSwap` | `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| TX_VERIFICATION_FAILED \| TX_SUBMIT_FAILED \| RELAY_TIMEOUT \| RELAY_FAILED \| EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` |
+| `vaultSwapWithApproval` | `vaultSwap`'s codes + `APPROVE_FAILED \| ALLOWANCE_CHECK_FAILED` (action `'vaultSwapWithApproval'`) |
+| `getApprovalStrategy` | `ALLOWANCE_CHECK_FAILED` |
 | `notifySolver` | `EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` (with `phase: 'postExecution'`) |
 | `approve` | `VALIDATION_FAILED \| APPROVE_FAILED \| UNKNOWN` |
 | `isAllowanceValid` | `VALIDATION_FAILED \| ALLOWANCE_CHECK_FAILED \| UNKNOWN` (action `'allowanceCheck'`) |

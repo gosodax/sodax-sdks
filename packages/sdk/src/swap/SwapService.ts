@@ -49,9 +49,11 @@ import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
 import { canSendAtomicBatch } from '../shared/utils/evmAtomicBatch.js';
 import {
   ATOMIC_BATCH_REFUSED,
+  confirmApproval,
   resolveApprovalStrategy,
   sendApprovalBatch,
   type ApprovalStrategy,
+  type ApprovalStrategyError,
 } from '../shared/utils/approvalBatch.js';
 import type { ApprovalTxs } from '../shared/types/spoke-types.js';
 import { selectSolvedIntentPacket } from './selectSolvedIntentPacket.js';
@@ -81,7 +83,6 @@ import {
   type SwapError,
   type DetailedStatusError,
   type SwapWithApprovalError,
-  type ApprovalStrategyError,
   isSwapCreateIntentError,
   isPostExecutionError,
   isSwapError,
@@ -947,18 +948,14 @@ export class SwapService {
       };
     }
 
-    // The intent tx is only valid once the allowance is on-chain; `approve` returns at broadcast.
-    const receipt = await this.spoke.waitForTxReceipt({ txHash: approved.value, chainKey: params.srcChainKey });
-    if (!receipt.ok || receipt.value.status !== 'success') {
-      return {
-        ok: false,
-        error: new SodaxError('APPROVE_FAILED', `Approval transaction ${approved.value} did not confirm`, {
-          feature: 'swap',
-          cause: receipt.ok ? receipt.value : receipt.error,
-          context: { ...ctx, phase: 'approve', reason: 'approve-not-confirmed', approveTxHash: approved.value },
-        }),
-      };
-    }
+    const confirmed = await confirmApproval({
+      waitForTxReceipt: receiptParams => this.spoke.waitForTxReceipt(receiptParams),
+      txHash: approved.value,
+      chainKey: params.srcChainKey,
+      feature: 'swap',
+      context: ctx,
+    });
+    if (!confirmed.ok) return confirmed;
 
     return this.createIntent(_params);
   }
