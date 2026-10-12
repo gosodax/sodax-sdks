@@ -113,6 +113,7 @@ export const useSwapsApiBroadcastWithApproval = ({
         throw new Error(`[${HOOK_NAME}] ${body.srcChainKey} is not an EVM chain; approve and sign it separately.`);
       }
 
+      // The backend call stays ahead of any wallet call: `_apiKeyWire.test.ts` pins it as the first step.
       const plan = unwrapResult(await sodax.api.swaps.approve(body, apiConfig));
 
       const account = await walletProvider.getWalletAddress();
