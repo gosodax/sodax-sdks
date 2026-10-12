@@ -12,8 +12,10 @@ import {
   ATOMIC_BATCH_REFUSED,
   ATOMIC_BATCH_UNCONFIRMED,
   resolveApprovalStrategy,
+  runWithApproval,
   sendApprovalBatch,
 } from './approvalBatch.js';
+import { SodaxError } from '../../errors/SodaxError.js';
 
 const BASE_CHAIN_ID = 8453;
 
@@ -203,5 +205,57 @@ describe('sendApprovalBatch', () => {
     const result = await send(walletProvider);
     expect(!result.ok && result.error.code).toBe('TX_VERIFICATION_FAILED');
     expect(!result.ok && result.error.context?.reason).toBe(ATOMIC_BATCH_UNCONFIRMED);
+  });
+});
+
+describe('runWithApproval', () => {
+  const paths = () => ({
+    notRequired: vi.fn(async () => ({ ok: true as const, value: 'direct' })),
+    atomicBatch: vi.fn(async () => ({ ok: true as const, value: 'batch' })),
+    sequential: vi.fn(async () => ({ ok: true as const, value: 'approved-first' })),
+  });
+  const failed = (code: 'INTENT_CREATION_FAILED' | 'USER_REJECTED' | 'TX_VERIFICATION_FAILED', reason?: string) => ({
+    ok: false as const,
+    error: new SodaxError(code, 'batch failed', { feature: 'bridge', context: { reason } }),
+  });
+
+  it.each([
+    ['not-required', 'notRequired', 'direct'],
+    ['sequential', 'sequential', 'approved-first'],
+    ['atomic-batch', 'atomicBatch', 'batch'],
+  ] as const)('runs only the %s path', async (strategy, path, value) => {
+    const p = paths();
+    const { result, approvalStrategy } = await runWithApproval({ strategy, ...p });
+    expect(result).toEqual({ ok: true, value });
+    expect(approvalStrategy).toBe(strategy);
+    expect(Object.values(p).filter(fn => fn.mock.calls.length > 0)).toEqual([p[path]]);
+  });
+
+  it('approves separately when the wallet refused the batch before signing', async () => {
+    const p = paths();
+    const refusal = failed('INTENT_CREATION_FAILED', ATOMIC_BATCH_REFUSED);
+    p.atomicBatch.mockResolvedValueOnce(refusal as never);
+    const onBatchRefused = vi.fn();
+
+    const { result, approvalStrategy } = await runWithApproval({ strategy: 'atomic-batch', ...p, onBatchRefused });
+
+    expect(result).toEqual({ ok: true, value: 'approved-first' });
+    expect(approvalStrategy).toBe('sequential');
+    expect(onBatchRefused).toHaveBeenCalledWith(refusal.error);
+  });
+
+  it.each([
+    ['a rejected batch', failed('USER_REJECTED')],
+    ['a failed batch', failed('INTENT_CREATION_FAILED', 'atomic-batch-failed')],
+    ['an unconfirmed batch', failed('TX_VERIFICATION_FAILED', ATOMIC_BATCH_UNCONFIRMED)],
+  ])('never approves separately after %s', async (_label, outcome) => {
+    const p = paths();
+    p.atomicBatch.mockResolvedValueOnce(outcome as never);
+
+    const { result, approvalStrategy } = await runWithApproval({ strategy: 'atomic-batch', ...p });
+
+    expect(result).toBe(outcome);
+    expect(approvalStrategy).toBe('atomic-batch');
+    expect(p.sequential).not.toHaveBeenCalled();
   });
 });

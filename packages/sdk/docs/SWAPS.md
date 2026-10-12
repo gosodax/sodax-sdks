@@ -696,8 +696,9 @@ prompts or a duplicate of a batch that may still land:
   that do not identify the deposit) → `TX_VERIFICATION_FAILED` with `context.reason: ATOMIC_BATCH_UNCONFIRMED`
   (`'atomic-batch-unconfirmed'`) and `context.batchId`. It may have landed, so do not retry it; check the
   wallet's activity for that batch first;
-- on the sequential path, an approval that does not confirm → `APPROVE_FAILED` with `context.reason:
-  'approve-not-confirmed'` and `context.approveTxHash`;
+- on the sequential path, the intent is built unsigned before anything is approved, so params that can never become
+  a swap fail with `swap()`'s validation codes and cost the user nothing. An approval that then does not confirm →
+  `APPROVE_FAILED` with `context.reason: 'approve-not-confirmed'` and `context.approveTxHash`;
 - a failed allowance read → `ALLOWANCE_CHECK_FAILED`.
 
 Every other code is `swap()`'s, including `context.srcTxHash` on post-broadcast failures. Errors from the approval

@@ -4630,7 +4630,9 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         ok: true,
         value: { status: 'success', receipt: {} as never },
       });
-      vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce(intentResult('0xspokeTx'));
+      vi.spyOn(sodax.swaps, 'createIntent')
+        .mockResolvedValueOnce(intentResult(RAW_DEPOSIT))
+        .mockResolvedValueOnce(intentResult('0xspokeTx'));
       stubRelayAndSolver();
 
       const result = await swapWithBatch(wallet);
@@ -4649,6 +4651,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       vi.spyOn(sodax.swaps, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
       const createSpy = vi
         .spyOn(sodax.swaps, 'createIntent')
+        .mockResolvedValueOnce(intentResult(RAW_DEPOSIT))
         .mockResolvedValueOnce(intentResult(RAW_DEPOSIT))
         .mockResolvedValueOnce(intentResult('0xspokeTx'));
       const approveSpy = vi.spyOn(sodax.swaps, 'approve').mockResolvedValueOnce({ ok: true, value: '0xapproveTx' });
@@ -4677,7 +4680,9 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         ok: true,
         value: { status: 'success', receipt: {} as never },
       });
-      vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce(intentResult('0xspokeTx'));
+      vi.spyOn(sodax.swaps, 'createIntent')
+        .mockResolvedValueOnce(intentResult(RAW_DEPOSIT))
+        .mockResolvedValueOnce(intentResult('0xspokeTx'));
       stubRelayAndSolver();
 
       const result = await sodax.swaps.swapWithApproval({
@@ -4691,13 +4696,16 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(wallet.sendAtomicBatch).not.toHaveBeenCalled();
     });
 
-    it('waits for the approval to confirm before creating the intent', async () => {
+    it('builds the intent, then approves and waits for it, then sends the intent', async () => {
       allowance(false);
       const approveSpy = vi.spyOn(sodax.swaps, 'approve').mockResolvedValueOnce({ ok: true, value: '0xapproveTx' });
       const receiptSpy = vi
         .spyOn(sodax.spoke, 'waitForTxReceipt')
         .mockResolvedValueOnce({ ok: true, value: { status: 'success', receipt: {} as never } });
-      const createSpy = vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce(intentResult('0xspokeTx'));
+      const createSpy = vi
+        .spyOn(sodax.swaps, 'createIntent')
+        .mockResolvedValueOnce(intentResult(RAW_DEPOSIT))
+        .mockResolvedValueOnce(intentResult('0xspokeTx'));
       stubRelayAndSolver();
 
       const result = await sodax.swaps.swapWithApproval({
@@ -4708,11 +4716,29 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.value.approvalStrategy).toBe('sequential');
       expect(receiptSpy).toHaveBeenCalledWith({ txHash: '0xapproveTx', chainKey: ChainKeys.BSC_MAINNET });
+      expect(createSpy.mock.calls[0]?.[0]).toMatchObject({ raw: true });
+      expect(createSpy.mock.calls[1]?.[0]).toMatchObject({ walletProvider: mockEvmProvider });
+      const [preflightOrder, createOrder] = createSpy.mock.invocationCallOrder;
       const [approveOrder] = approveSpy.mock.invocationCallOrder;
       const [receiptOrder] = receiptSpy.mock.invocationCallOrder;
-      const [createOrder] = createSpy.mock.invocationCallOrder;
+      expect(preflightOrder).toBeLessThan(approveOrder ?? 0);
       expect(approveOrder).toBeLessThan(receiptOrder ?? 0);
       expect(receiptOrder).toBeLessThan(createOrder ?? 0);
+    });
+
+    it('asks for no approval when the intent cannot be built', async () => {
+      allowance(false);
+      const invalid = new SodaxError('VALIDATION_FAILED', 'Unsupported spoke chain token', { feature: 'swap' });
+      vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce({ ok: false, error: invalid });
+      const approveSpy = vi.spyOn(sodax.swaps, 'approve');
+
+      const result = await sodax.swaps.swapWithApproval({
+        params: intentInput(ChainKeys.BSC_MAINNET),
+        walletProvider: mockEvmProvider,
+      });
+
+      expect(!result.ok && result.error).toBe(invalid);
+      expect(approveSpy).not.toHaveBeenCalled();
     });
 
     it('stops at a rejected approval', async () => {
@@ -4721,7 +4747,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         ok: false,
         error: new SodaxError('USER_REJECTED', 'User rejected the request', { feature: 'swap' }),
       });
-      const createSpy = vi.spyOn(sodax.swaps, 'createIntent');
+      const createSpy = vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce(intentResult(RAW_DEPOSIT));
 
       const result = await sodax.swaps.swapWithApproval({
         params: intentInput(ChainKeys.BSC_MAINNET),
@@ -4733,7 +4759,9 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         expect(result.error.code).toBe('USER_REJECTED');
         expect(result.error.context).toMatchObject({ action: 'swapWithApproval', approvalStrategy: 'sequential' });
       }
-      expect(createSpy).not.toHaveBeenCalled();
+      // Only the unsigned preflight build ran; nothing was sent after the rejected approval.
+      expect(createSpy).toHaveBeenCalledOnce();
+      expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ raw: true }));
     });
 
     it('stops at an approval that did not confirm', async () => {
@@ -4743,7 +4771,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         ok: true,
         value: { status: 'failure', error: new Error('reverted') },
       });
-      const createSpy = vi.spyOn(sodax.swaps, 'createIntent');
+      const createSpy = vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce(intentResult(RAW_DEPOSIT));
 
       const result = await sodax.swaps.swapWithApproval({
         params: intentInput(ChainKeys.BSC_MAINNET),
@@ -4755,7 +4783,8 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         expect(result.error.code).toBe('APPROVE_FAILED');
         expect(result.error.context).toMatchObject({ reason: 'approve-not-confirmed', approveTxHash: '0xapproveTx' });
       }
-      expect(createSpy).not.toHaveBeenCalled();
+      expect(createSpy).toHaveBeenCalledOnce();
+      expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ raw: true }));
     });
 
     it('creates the intent directly when no approval is needed', async () => {

@@ -11,6 +11,7 @@ export {
 } from './utils/approvalBatch.js';
 export type {
   ApprovalBatchErrorCode,
+  ApprovalOptions,
   ApprovalBatchResult,
   ApprovalStrategy,
   ResolveApprovalStrategyParams,

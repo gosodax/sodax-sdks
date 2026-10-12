@@ -45,7 +45,13 @@ pnpm check:ai-dev-files
   non-EVM destination. Show the complete receiving address and minimum amount in the review.
 - Recheck the quote before approval and after approval. Preserve the reviewed minimum through
   intent creation. Bind every EVM broadcast to the selected chain and reject malformed raw payloads.
-- Use `useSwapsApiApproveAndBroadcast`: it confirms approval resets before subsequent approvals.
+- Use `useSwapsApiApproveAndBroadcast` for a separate approval: it confirms approval resets before
+  subsequent approvals. When `resolveApprovalStrategy` says the wallet batches (`'atomic-batch'`),
+  `useSwapsApiBroadcastWithApproval` sends the approval inside the deposit's own batch instead, so
+  the quote check before it is the last one — nothing lands between the two.
+- A batch the wallet took but never confirmed (`ATOMIC_BATCH_UNCONFIRMED`) has no hash to save or
+  resubmit and may still land. Its review stays held — reopening offers that same snapshot, unsigned —
+  until the visitor explicitly starts over; never re-arm it on close, a form change or a new quote.
 - Save the broadcast transaction and relay payload before calling `submitTx`. Recovery resubmits
   that same transaction; it must never create or sign a second deposit. Failed/abandoned statuses
   need a recovery/support path, not a success label or silent retry of the trade.

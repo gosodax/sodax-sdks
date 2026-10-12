@@ -140,7 +140,8 @@ export function useExecution(input: ExecutionInput) {
   const { mutateAsync: broadcastWithApproval } = useSwapsApiBroadcastWithApproval();
   // Once declined, the smart-account upgrade is not asked for again this session.
   const upgradeDeclined = useRef(false);
-  // A snapshot whose batch the wallet took but never confirmed: it may still land, so it is not signed again.
+  // A snapshot whose batch the wallet took but never confirmed. It may still land, so the widget keeps
+  // offering that snapshot, unsigned, until the visitor explicitly starts over.
   const [heldReview, setHeldReview] = useState<ReviewSnapshot>();
   const statusQuery = useSwapsApiSubmitTxStatus({
     params: { txHash: activity?.txHash, srcChainKey: activity?.srcChainKey },
@@ -214,6 +215,10 @@ export function useExecution(input: ExecutionInput) {
     setPreparation(await action.run());
   };
   const openReview = () => {
+    if (heldReview) {
+      setReview(heldReview);
+      return;
+    }
     setError(undefined);
     if (
       !input.enabled ||
@@ -431,6 +436,11 @@ export function useExecution(input: ExecutionInput) {
     openReview,
     confirm,
     held: !!review && review === heldReview,
+    releaseHeld: () => {
+      setHeldReview(undefined);
+      setError(undefined);
+      setReview(undefined);
+    },
     closeReview,
     resumeReview,
     dismissed,

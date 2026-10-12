@@ -48,9 +48,10 @@ import { isFillEvent } from '../backendApi/guards.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
 import { canSendAtomicBatch } from '../shared/utils/evmAtomicBatch.js';
 import {
-  ATOMIC_BATCH_REFUSED,
   resolveApprovalStrategy,
+  runWithApproval,
   sendApprovalBatch,
+  type ApprovalOptions,
   type ApprovalStrategy,
 } from '../shared/utils/approvalBatch.js';
 import type { ApprovalTxs } from '../shared/types/spoke-types.js';
@@ -158,13 +159,7 @@ export type SwapApprovalStrategy = ApprovalStrategy;
 export type SwapWithApprovalResponse = SwapResponse & { approvalStrategy: SwapApprovalStrategy };
 
 /** Params for `swapWithApproval` / `getApprovalStrategy`: `swap()`'s, plus the account-upgrade choice. */
-export type SwapWithApprovalParams<K extends SpokeChainKey> = SwapActionParams<K, false> & {
-  /**
-   * Whether a wallet that must first upgrade the account to batch (EIP-5792 `'ready'`, e.g. a MetaMask
-   * EOA becoming a smart account) may be asked to. `false` approves separately instead. Defaults to `true`.
-   */
-  allowAccountUpgrade?: boolean;
-};
+export type SwapWithApprovalParams<K extends SpokeChainKey> = SwapActionParams<K, false> & ApprovalOptions;
 
 export type CreateIntentResult<K extends SpokeChainKey, Raw extends boolean> = {
   tx: TxReturnType<K, Raw>;
@@ -822,24 +817,19 @@ export class SwapService {
           const strategy = await this.getApprovalStrategy(_params);
           if (!strategy.ok) return strategy;
 
-          let approvalStrategy = strategy.value;
-          let created: Result<CreateIntentResult<K, false>, SwapWithApprovalError> = approvalStrategy === 'atomic-batch'
-            ? await this.createIntentInAtomicBatch(_params)
-            : approvalStrategy === 'sequential'
-              ? await this.approveThenCreateIntent(_params)
-              : await this.createIntent(_params);
-          if (
-            !created.ok &&
-            created.error.code === 'INTENT_CREATION_FAILED' &&
-            created.error.context?.reason === ATOMIC_BATCH_REFUSED
-          ) {
-            // Nothing was signed or sent yet, so approving separately cannot duplicate anything.
-            this.config.logger.warn('[swapWithApproval] wallet refused the atomic batch; approving separately', {
-              error: created.error,
-            });
-            approvalStrategy = 'sequential';
-            created = await this.approveThenCreateIntent(_params);
-          }
+          const { result: created, approvalStrategy } = await runWithApproval<
+            CreateIntentResult<K, false>,
+            SwapWithApprovalError
+          >({
+            strategy: strategy.value,
+            notRequired: () => this.createIntent(_params),
+            atomicBatch: () => this.createIntentInAtomicBatch(_params),
+            sequential: () => this.approveThenCreateIntent(_params),
+            onBatchRefused: error =>
+              this.config.logger.warn('[swapWithApproval] wallet refused the atomic batch; approving separately', {
+                error,
+              }),
+          });
           if (!created.ok) return created;
 
           const completed = await this.completeSwap(_params, created.value);
@@ -890,7 +880,10 @@ export class SwapService {
       approvalStrategy: 'atomic-batch',
     };
 
-    const approval = await this.buildApproveTxs<K>({ params, raw: true });
+    const [approval, created] = await Promise.all([
+      this.buildApproveTxs<K>({ params, raw: true }),
+      this.createIntent<K, true>({ params, extras, skipSimulation, raw: true }),
+    ]);
     if (!approval.ok) {
       return {
         ok: false,
@@ -899,7 +892,6 @@ export class SwapService {
           : approveFailed('swap', approval.error, ctx),
       };
     }
-    const created = await this.createIntent<K, true>({ params, extras, skipSimulation, raw: true });
     if (!created.ok) return created;
 
     // An EVM spoke source makes every unsigned leg an EvmRawTransaction.
@@ -929,13 +921,17 @@ export class SwapService {
   private async approveThenCreateIntent<K extends SpokeChainKey>(
     _params: SwapActionParams<K, false>,
   ): Promise<Result<CreateIntentResult<K, false>, SwapWithApprovalError>> {
-    const { params } = _params;
+    const { params, extras, skipSimulation } = _params;
     const ctx = {
       srcChainKey: params.srcChainKey,
       dstChainKey: params.dstChainKey,
       action: 'swapWithApproval',
       approvalStrategy: 'sequential',
     };
+
+    // Build the intent unsigned first, so params that can never become a swap fail before the user pays for an approval.
+    const preflight = await this.createIntent<K, true>({ params, extras, skipSimulation, raw: true });
+    if (!preflight.ok) return preflight;
 
     const approved = await this.approve(_params);
     if (!approved.ok) {

@@ -5,6 +5,7 @@ import type { SwapFlow } from '../hooks/useSwapFlow';
 import type { Activity } from '../lib/activity';
 import { chainName, txExplorerUrl } from '../lib/chains';
 import { formatTokenAmount } from '../lib/format';
+import { UNCONFIRMED_BATCH_MESSAGE } from '../lib/execution';
 import { STATUS_LABELS, failureMessage, progressLabel, refundAccounted } from '../lib/progress';
 import { AssetLogo } from './AssetLogo';
 import { CheckGlyph } from './CopyLabel';
@@ -87,6 +88,7 @@ function Leg({
 
 /** One slot, one line: the failure first, then whatever makes tracking less than it looks. */
 function reviewMessage(e: Execution): string | undefined {
+  if (e.held) return UNCONFIRMED_BATCH_MESSAGE;
   if (e.failed) return failureMessage(e.status);
   if (e.error) return e.error;
   if (!e.activity) return undefined;
@@ -132,11 +134,12 @@ function ConfirmAction({ flow, token, chain }: { flow: SwapFlow; token?: XToken;
       </button>
     );
 
-  // The wallet took this snapshot's batch without confirming it: it may still land, so it is not signed again.
+  // The wallet took this snapshot's batch without confirming it: it may still land, so only the visitor
+  // releases it, after checking the wallet — never a close, a reload of the form or a new quote.
   if (e.held)
     return (
-      <button type="button" className="btn btn-primary" disabled>
-        Check your wallet activity
+      <button type="button" className="btn btn-primary" onClick={e.releaseHeld}>
+        I checked my wallet — start over
       </button>
     );
 
