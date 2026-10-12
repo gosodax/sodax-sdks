@@ -341,6 +341,7 @@ Typed wrappers over the backend Swaps API — one `useSwapsApi*` hook per endpoi
 
 - [`useSwapsApiQuote()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swapsApi/useSwapsApiQuote.ts) — Solver quote for a cross-chain swap
 - [`useSwapsApiCreateIntent()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swapsApi/useSwapsApiCreateIntent.ts) — Build an unsigned create-intent tx
+- [`useSwapsApiBroadcastWithApproval()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swapsApi/useSwapsApiBroadcastWithApproval.ts) — Approve and broadcast the intent tx in one signature on an EIP-5792 wallet (EVM sources)
 - [`useSwapsApiSubmitTx()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swapsApi/useSwapsApiSubmitTx.ts) — Submit swap tx to backend
 - [`useSwapsApiSubmitTxStatus()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swapsApi/useSwapsApiSubmitTxStatus.ts) — Check submitted swap status
 

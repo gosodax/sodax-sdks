@@ -8,7 +8,7 @@ export type AtomicBatchEvmWalletProvider = IEvmWalletProvider &
  * Whether `walletProvider` implements the EIP-5792 batch methods. They are optional on
  * `IEvmWalletProvider`, so a provider without them is sent separate transactions instead.
  *
- * Deliberately NOT re-exported from `shared/utils/index.ts`: an internal guard, not SDK surface.
+ * Deliberately NOT re-exported: an internal guard, not SDK surface. `approvalBatch.ts` is the public policy.
  */
 export function canSendAtomicBatch(walletProvider: IEvmWalletProvider): walletProvider is AtomicBatchEvmWalletProvider {
   return (

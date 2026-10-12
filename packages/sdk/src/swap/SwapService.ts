@@ -32,7 +32,6 @@ import {
   isOptionalStellarWalletProviderType,
   isBitcoinWalletProviderType,
   isEvmWalletProviderType,
-  getEvmViemChain,
   type RelayExtraData,
   type TxHashPair,
   isStacksChainKeyType,
@@ -47,13 +46,13 @@ import { runBackendSubmitTx } from '../backendApi/runBackendSubmitTx.js';
 import { createSubmitTxAttempt, type SubmitTxAttempt } from '../backendApi/submitTxAttempt.js';
 import { isFillEvent } from '../backendApi/guards.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
+import { canSendAtomicBatch } from '../shared/utils/evmAtomicBatch.js';
 import {
-  canSendAtomicBatch,
-  isAccountUpgradeDeclined,
-  isAtomicBatchRefused,
-  readAtomicBatchSupport,
-  type AtomicBatchEvmWalletProvider,
-} from '../shared/utils/evmAtomicBatch.js';
+  ATOMIC_BATCH_REFUSED,
+  resolveApprovalStrategy,
+  sendApprovalBatch,
+  type ApprovalStrategy,
+} from '../shared/utils/approvalBatch.js';
 import type { ApprovalTxs } from '../shared/types/spoke-types.js';
 import { selectSolvedIntentPacket } from './selectSolvedIntentPacket.js';
 import { estimateSwapSpeedTier, type SwapSpeedTierParams, type SwapSpeedTierResult } from './speed-tier.js';
@@ -88,8 +87,6 @@ import {
   isSwapError,
   isSwapWithApprovalError,
   swapInvariant,
-  ACCOUNT_UPGRADE_DECLINED,
-  ATOMIC_BATCH_UNCONFIRMED,
 } from './errors.js';
 export type {
   CreateIntentParams,
@@ -155,14 +152,8 @@ export type SwapResponse = {
   intentDeliveryInfo: IntentDeliveryInfo;
 };
 
-/**
- * How {@link SwapService.swapWithApproval} gets the source token approved:
- * - `'not-required'` — allowance already sufficient (or none needed, e.g. a native token): one transaction.
- * - `'atomic-batch'` — approve and the swap transaction go out as one EIP-5792 batch: one signature.
- * - `'sequential'` — approve first, wait for it to confirm, then the swap transaction: two signatures, or
- *   three when the token must reset a stale allowance first.
- */
-export type SwapApprovalStrategy = 'not-required' | 'atomic-batch' | 'sequential';
+/** How {@link SwapService.swapWithApproval} gets the source token approved — see {@link ApprovalStrategy}. */
+export type SwapApprovalStrategy = ApprovalStrategy;
 
 export type SwapWithApprovalResponse = SwapResponse & { approvalStrategy: SwapApprovalStrategy };
 
@@ -262,12 +253,6 @@ const RECONCILE_TIMEOUT_MS = 5_000;
  * cutoff like dapp-kit's bounds attempts, not wall clock, and by a factor the consumer controls.
  */
 const DETAILED_STATUS_SOLVER_TIMEOUT_MS = 5_000;
-
-/** `context.reason` for a batch the wallet refused before anything was signed: safe to approve separately. */
-const ATOMIC_BATCH_REFUSED = 'atomic-batch-refused';
-
-/** EIP-5792 status codes that say nothing landed: 400 never included, 500 fully reverted. 600 may have partly landed. */
-const BATCH_NOTHING_LANDED_CODES: ReadonlySet<number> = new Set([400, 500]);
 
 /**
  * Main entry point for the SODAX swap feature.
@@ -797,18 +782,7 @@ export class SwapService {
       };
     }
     if (allowance.value) return { ok: true, value: 'not-required' };
-
-    if (
-      isEvmSpokeOnlyChainKeyType(srcChainKey) &&
-      isEvmWalletProviderType(walletProvider) &&
-      canSendAtomicBatch(walletProvider)
-    ) {
-      const support = await readAtomicBatchSupport(walletProvider, getEvmViemChain(srcChainKey).id);
-      if (support === 'supported' || (support === 'ready' && allowAccountUpgrade)) {
-        return { ok: true, value: 'atomic-batch' };
-      }
-    }
-    return { ok: true, value: 'sequential' };
+    return { ok: true, value: await resolveApprovalStrategy({ srcChainKey, walletProvider, allowAccountUpgrade }) };
   }
 
   /**
@@ -932,74 +906,23 @@ export class SwapService {
     const { resetTx, approveTx } = approval.value as ApprovalTxs<EvmSpokeOnlyChainKey>;
     const depositTx = created.value.tx as EvmRawTransaction;
     const txs = resetTx ? [resetTx, approveTx, depositTx] : [approveTx, depositTx];
-    const timeoutMs = resolveTimeoutMs(_params.timeout, DEFAULT_RELAY_TX_TIMEOUT);
-    return this.sendAtomicBatch(walletProvider, txs, getEvmViemChain(srcChainKey).id, timeoutMs, ctx, created.value);
-  }
-
-  private async sendAtomicBatch<K extends SpokeChainKey>(
-    walletProvider: AtomicBatchEvmWalletProvider,
-    txs: readonly EvmRawTransaction[],
-    expectedChainId: number,
-    timeoutMs: number,
-    ctx: Record<string, string>,
-    created: CreateIntentResult<K, true>,
-  ): Promise<Result<CreateIntentResult<K, false>, SwapWithApprovalError>> {
-    let batchId: string;
-    try {
-      batchId = await walletProvider.sendAtomicBatch(txs, { expectedChainId });
-    } catch (error) {
-      const reason = isAtomicBatchRefused(error)
-        ? ATOMIC_BATCH_REFUSED
-        : isAccountUpgradeDeclined(error)
-          ? ACCOUNT_UPGRADE_DECLINED
-          : undefined;
-      return { ok: false, error: intentCreationFailed('swap', error, { ...ctx, ...(reason && { reason }) }) };
-    }
-
-    // From here the wallet holds the batch: a failure to confirm it must not read as "nothing sent".
-    const unconfirmed = (cause?: unknown): Result<never, SwapWithApprovalError> => ({
-      ok: false,
-      error: new SodaxError('TX_VERIFICATION_FAILED', 'Atomic approve + swap batch was sent but not confirmed', {
-        feature: 'swap',
-        cause,
-        context: { ...ctx, phase: 'verify', reason: ATOMIC_BATCH_UNCONFIRMED, batchId },
-      }),
+    const sent = await sendApprovalBatch({
+      walletProvider,
+      srcChainKey,
+      txs,
+      timeoutMs: resolveTimeoutMs(_params.timeout, DEFAULT_RELAY_TX_TIMEOUT),
+      feature: 'swap',
+      context: ctx,
     });
-    try {
-      // viem reads a zero timeout as "no timeout"; give up at once instead.
-      const batch = await walletProvider.waitForBatch(batchId, { timeout: Math.max(1, timeoutMs) });
-      if (batch.status !== 'success' && !BATCH_NOTHING_LANDED_CODES.has(batch.statusCode)) return unconfirmed();
-      if (batch.status !== 'success') {
-        return {
-          ok: false,
-          error: new SodaxError('INTENT_CREATION_FAILED', 'Atomic approve + swap batch did not succeed', {
-            feature: 'swap',
-            context: {
-              ...ctx,
-              phase: 'intentCreation',
-              reason: 'atomic-batch-failed',
-              batchId,
-              statusCode: batch.statusCode,
-            },
-          }),
-        };
-      }
-      // One receipt (the whole batch as one tx) or one per call, else the deposit's tx is unknown.
-      const { receipts } = batch;
-      const intentTx = receipts.length === 1 || receipts.length === txs.length ? receipts.at(-1) : undefined;
-      if (intentTx?.status !== 'success') return unconfirmed();
-      return {
-        ok: true,
-        value: {
-          // The deposit is the batch's last call, so its receipt carries the tx the relay indexes.
-          tx: intentTx.transactionHash as TxReturnType<K, false>,
-          intent: created.intent,
-          relayData: created.relayData,
-        },
-      };
-    } catch (error) {
-      return unconfirmed(error);
-    }
+    if (!sent.ok) return sent;
+    return {
+      ok: true,
+      value: {
+        tx: sent.value.txHash satisfies TxReturnType<EvmSpokeOnlyChainKey, false> as TxReturnType<K, false>,
+        intent: created.value.intent,
+        relayData: created.value.relayData,
+      },
+    };
   }
 
   /** Approve, wait for the approval to confirm, then create the intent — two or more signatures. */

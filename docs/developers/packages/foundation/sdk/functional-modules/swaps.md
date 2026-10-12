@@ -707,6 +707,14 @@ prompts or a duplicate of a batch that may still land:
 Every other code is `swap()`'s, including `context.srcTxHash` on post-broadcast failures. Errors from the approval
 step carry `context.action: 'swapWithApproval'`; once the path is chosen they also carry `context.approvalStrategy`.
 
+**The swaps API lane.** When the backend builds the transactions (`sodax.api.swaps.approve` and `createIntent`), the
+same policy is exported for your own flow. `resolveApprovalStrategy({ srcChainKey, walletProvider,
+allowAccountUpgrade })` says whether a short allowance can ride in the deposit's batch. `sendApprovalBatch({
+walletProvider, srcChainKey, txs, timeoutMs, feature })` sends `[resetTx?, approve tx, intent tx]` and returns the
+deposit's `txHash` for `/swaps/submit-tx`, with the failures above. A refusal comes back as `INTENT_CREATION_FAILED`
+with `context.reason: ATOMIC_BATCH_REFUSED`: approve separately, then send the intent tx. In React,
+`useSwapsApiBroadcastWithApproval` from `@sodax/dapp-kit` does all of this.
+
 ---
 
 ## Estimate Gas for Raw Transactions

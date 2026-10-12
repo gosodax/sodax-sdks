@@ -183,6 +183,7 @@ Typed wrappers over `sodax.api.swaps.*` (one per Swaps API endpoint), all keyed 
 | `['swapsApi', 'submitTx', 'status', txHash, srcChainKey]` | `useSwapsApiSubmitTxStatus` — both identifiers required |
 | `['swapsApi', 'approve']` | `useSwapsApiApprove` mutation |
 | `['swapsApi', 'approveAndBroadcast']` | `useSwapsApiApproveAndBroadcast` mutation |
+| `['swapsApi', 'broadcastWithApproval']` | `useSwapsApiBroadcastWithApproval` mutation |
 | `['swapsApi', 'createIntent']` | `useSwapsApiCreateIntent` mutation |
 | `['swapsApi', 'submitIntent']` | `useSwapsApiSubmitIntent` mutation |
 | `['swapsApi', 'cancelIntent']` | `useSwapsApiCancelIntent` mutation |

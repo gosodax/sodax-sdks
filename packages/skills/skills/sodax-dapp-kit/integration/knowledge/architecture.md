@@ -230,6 +230,13 @@ take — each API builds its approval for its own hub spender, so an approval bu
 satisfy the other. Only a leverage-yield **deposit** needs one; a withdraw spends `lsoda*` from the
 hub wallet and never approves.
 
+For a swap from an EVM source, **`useSwapsApiBroadcastWithApproval`** goes one step further: given the
+create-intent `body` and the unsigned `intentTx`, it sends the approval and `intentTx` as one EIP-5792
+atomic batch — one signature — when the wallet supports it, and otherwise approves (as above) and then
+sends `intentTx`. It resolves with `{ txHash, approvalStrategy, approval? }` and stops there: persist
+`txHash`, then call `useSwapsApiSubmitTx`. A `TX_VERIFICATION_FAILED` with `context.reason ===
+ATOMIC_BATCH_UNCONFIRMED` means the batch may still land, so never let the user sign that swap again.
+
 All three accept an optional **`onProgress`** in their mutation vars. It reports each transaction as
 `{ step, phase, index, total, hash?, error? }` — `step` is `'allowance-reset'` or `'approve'`, `phase`
 walks `signing → broadcast → confirmed` (or `failed`), and `index`/`total` give "1 of 2" without the

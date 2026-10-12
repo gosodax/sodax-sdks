@@ -1,11 +1,15 @@
 import {
+  ACCOUNT_UPGRADE_DECLINED,
+  ATOMIC_BATCH_UNCONFIRMED,
   baseChainInfo,
+  isSodaxError,
   type ChainKey,
   type ChainType,
   type CreateIntentParamsV2,
   type IntentResponseV2,
   type IntentRequestV2,
   type InjectiveRawTransaction,
+  type IEvmWalletProvider,
   type IWalletProvider,
   type NearRawTransaction,
   type RawTxReturnType,
@@ -96,10 +100,14 @@ async function senderMismatch(tx: RawTxReturnType, wallet: IWalletProvider): Pro
   return wallet.chainType === 'EVM' ? claimed.toLowerCase() !== account.toLowerCase() : claimed !== account;
 }
 
+async function assertSigner(chain: ChainKey, tx: RawTxReturnType, wallet: IWalletProvider): Promise<void> {
+  if (baseChainInfo[chain].type !== wallet.chainType) throw new Error('Reconnect the wallet for the source network.');
+  if (await senderMismatch(tx, wallet)) throw new Error('The signing account changed. Review the swap again.');
+}
+
 export async function broadcast(chain: ChainKey, tx: RawTxReturnType, wallet: IWalletProvider): Promise<string> {
   const network = baseChainInfo[chain];
-  if (network.type !== wallet.chainType) throw new Error('Reconnect the wallet for the source network.');
-  if (await senderMismatch(tx, wallet)) throw new Error('The signing account changed. Review the swap again.');
+  await assertSigner(chain, tx, wallet);
 
   if (wallet.chainType === 'EVM' && typeof network.chainId === 'number' && isEvmTransfer(tx)) {
     return wallet.sendTransaction(tx, { expectedChainId: network.chainId });
@@ -125,6 +133,19 @@ export async function broadcast(chain: ChainKey, tx: RawTxReturnType, wallet: IW
   throw new Error('This wallet cannot sign this transaction. Try another wallet.');
 }
 
+/** `broadcast`'s checks for an EVM deposit, handing back the narrowed payload and wallet a batch needs. */
+export async function evmDeposit(
+  chain: ChainKey,
+  tx: RawTxReturnType,
+  wallet: IWalletProvider,
+): Promise<{ tx: EvmRawTransaction; wallet: IEvmWalletProvider }> {
+  await assertSigner(chain, tx, wallet);
+  if (wallet.chainType !== 'EVM' || !isEvmTransfer(tx)) {
+    throw new Error('This wallet cannot sign this transaction. Try another wallet.');
+  }
+  return { tx, wallet };
+}
+
 export function toIntentRequest(intent: IntentResponseV2): IntentRequestV2 {
   return {
     ...intent,
@@ -142,6 +163,10 @@ export type ExecutionPhase = 'checking' | 'approving' | 'building' | 'signing' |
 export type ExecutionDependencies = {
   api: Pick<Sodax['api']['swaps'], 'getQuote' | 'checkAllowance' | 'getDeadline' | 'createIntent' | 'submitTx'>;
   approve: (body: CreateIntentParamsV2) => Promise<void>;
+  /** `'atomic-batch'` when the wallet can approve and sign the deposit in one prompt. */
+  approvalStrategy: (body: CreateIntentParamsV2) => Promise<'atomic-batch' | 'sequential'>;
+  /** Approve and sign the deposit in one wallet prompt; resolves to the deposit's hash. */
+  approveAndSign: (body: CreateIntentParamsV2, tx: RawTxReturnType) => Promise<string>;
   sign: (tx: RawTxReturnType) => Promise<string>;
   onPhase: (phase: ExecutionPhase) => void;
   onBroadcast: (request: SubmitTxRequestV2, intent: IntentResponseV2) => void;
@@ -171,10 +196,16 @@ export async function executeSwap(body: CreateIntentParamsV2, deps: ExecutionDep
   await checkQuote();
   const allowance = await api.checkAllowance(body);
   if (!allowance.ok) throw allowance.error;
+  let sign = deps.sign;
   if (!allowance.value.valid) {
-    onPhase('approving');
-    await deps.approve(body);
-    await checkQuote();
+    if ((await deps.approvalStrategy(body)) === 'atomic-batch') {
+      // The approval lands with the deposit, so the quote just checked is the one it signs against.
+      sign = tx => deps.approveAndSign(body, tx);
+    } else {
+      onPhase('approving');
+      await deps.approve(body);
+      await checkQuote();
+    }
   }
   const deadline = await api.getDeadline();
   if (!deadline.ok) throw deadline.error;
@@ -182,7 +213,7 @@ export async function executeSwap(body: CreateIntentParamsV2, deps: ExecutionDep
   const created = await api.createIntent({ ...body, deadline: deadline.value.deadline });
   if (!created.ok) throw created.error;
   onPhase('signing');
-  const txHash = await deps.sign(created.value.tx);
+  const txHash = await sign(created.value.tx);
   const request: SubmitTxRequestV2 = {
     txHash,
     srcChainKey: body.srcChainKey,
@@ -198,6 +229,18 @@ export async function executeSwap(body: CreateIntentParamsV2, deps: ExecutionDep
   deps.onRelayAccepted();
 }
 
+/** A batch the wallet took but did not confirm. It may still land, so the swap must not be signed again. */
+export function isUnconfirmedBatch(error: unknown): boolean {
+  return (
+    isSodaxError(error) && error.code === 'TX_VERIFICATION_FAILED' && error.context?.reason === ATOMIC_BATCH_UNCONFIRMED
+  );
+}
+
+/** The visitor declined the smart-account upgrade a batch needed; the next attempt approves separately. */
+export function isUpgradeDeclined(error: unknown): boolean {
+  return isSodaxError(error) && error.code === 'USER_REJECTED' && error.context?.reason === ACCOUNT_UPGRADE_DECLINED;
+}
+
 export function isUserRejection(error: unknown): boolean {
   const message = error instanceof Error ? error.message : '';
   return /reject|denied|cancelled by user|canceled by user/i.test(message);
@@ -207,6 +250,8 @@ export function executionError(error: unknown): string {
   const message = error instanceof Error ? error.message : 'Could not complete this step. Please try again.';
   if (/\b403\b|access forbidden/i.test(message))
     return 'The network connection refused this request (403). Please try again once the connection is restored.';
+  if (isUnconfirmedBatch(error))
+    return 'Your wallet accepted the swap but it has not confirmed yet. Check your wallet activity before swapping again.';
   if (isUserRejection(error)) return 'Request declined in your wallet. You can try again.';
   return message;
 }

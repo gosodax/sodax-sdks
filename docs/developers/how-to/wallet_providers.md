@@ -513,8 +513,8 @@ Requirements for a valid custom implementation:
    that already declares its own second options parameter must widen it to
    `YourOptions & EvmSendTransactionOptions` to keep satisfying the interface.
 5. **EIP-5792 batch methods are optional** — `getAtomicBatchSupport`, `sendAtomicBatch` and
-   `waitForBatch` let `sodax.swaps.swapWithApproval` send approve + swap as one atomic batch. Omit all
-   three and the SDK falls back to separate transactions. Implement them only together:
+   `waitForBatch` let `sodax.swaps.swapWithApproval` and `sendApprovalBatch` (the swaps API lane) send
+   approve + deposit as one atomic batch. Omit all three and the SDK falls back to separate transactions. Implement them only together:
    `getAtomicBatchSupport(chainId)` reports the wallet's `atomic` capability (`'supported'`, `'ready'`
    or `'unsupported'`), `sendAtomicBatch` must request atomic execution and send the batch for
    `options.expectedChainId` only, and `waitForBatch(batchId, { timeout })` resolves to the batch's receipts once

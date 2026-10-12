@@ -1,6 +1,21 @@
 export * from './abis/index.js';
 export * from './config/index.js';
 export * from './utils/index.js';
+// Named, so the raw EIP-5792 primitives in `utils/evmAtomicBatch.ts` stay internal.
+export {
+  ACCOUNT_UPGRADE_DECLINED,
+  ATOMIC_BATCH_REFUSED,
+  ATOMIC_BATCH_UNCONFIRMED,
+  resolveApprovalStrategy,
+  sendApprovalBatch,
+} from './utils/approvalBatch.js';
+export type {
+  ApprovalBatchErrorCode,
+  ApprovalBatchResult,
+  ApprovalStrategy,
+  ResolveApprovalStrategyParams,
+  SendApprovalBatchParams,
+} from './utils/approvalBatch.js';
 export * from './services/index.js';
 export * from './entities/index.js';
 export * from './guards.js';

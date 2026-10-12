@@ -37,20 +37,6 @@ export type SwapErrorCode = Extract<
   | 'UNKNOWN'
 >;
 
-/**
- * `context.reason` of a `swapWithApproval` batch the wallet accepted but that did not confirm as a
- * deposit — not within the timeout, or with a result that does not say whether it landed
- * (`TX_VERIFICATION_FAILED`, with `context.batchId`). It may have landed: do not retry it.
- */
-export const ATOMIC_BATCH_UNCONFIRMED = 'atomic-batch-unconfirmed';
-
-/**
- * `context.reason` of the `USER_REJECTED` returned when the user declined the account upgrade a
- * `'ready'` wallet asked for (EIP-5792 5750), as opposed to rejecting the swap itself. Retry with
- * `allowAccountUpgrade: false` to swap without upgrading.
- */
-export const ACCOUNT_UPGRADE_DECLINED = 'account-upgrade-declined';
-
 /** Codes returnable by `swapWithApproval`: every `swap` code plus the approval leg's. */
 export type SwapWithApprovalErrorCode =
   | SwapErrorCode

@@ -3,11 +3,13 @@ import {
   ChainKeys,
   spokeChainConfig,
   isNativeToken,
+  resolveApprovalStrategy,
   useBalances,
   useNearStorageGate,
   useSodaxContext,
   useStellarGate,
   useSwapsApiApproveAndBroadcast,
+  useSwapsApiBroadcastWithApproval,
   useSwapsApiSubmitTxStatus,
   type ChainKey,
   type ChainType,
@@ -41,8 +43,11 @@ import { type ReviewSnapshot, reviewFromActivity } from '../lib/review';
 import {
   broadcast,
   canExecute,
+  evmDeposit,
   executeSwap,
   executionError,
+  isUnconfirmedBatch,
+  isUpgradeDeclined,
   isUserRejection,
   sourceExtras,
   type ExecutionPhase,
@@ -132,6 +137,11 @@ export function useExecution(input: ExecutionInput) {
   const submittedPair = useRef<PairDimensions | undefined>(activity?.pair);
   const settledTx = useRef<string | undefined>(undefined);
   const { mutateAsync: approve } = useSwapsApiApproveAndBroadcast();
+  const { mutateAsync: broadcastWithApproval } = useSwapsApiBroadcastWithApproval();
+  // Once declined, the smart-account upgrade is not asked for again this session.
+  const upgradeDeclined = useRef(false);
+  // A snapshot whose batch the wallet took but never confirmed: it may still land, so it is not signed again.
+  const [heldReview, setHeldReview] = useState<ReviewSnapshot>();
   const statusQuery = useSwapsApiSubmitTxStatus({
     params: { txHash: activity?.txHash, srcChainKey: activity?.srcChainKey },
   });
@@ -249,7 +259,7 @@ export function useExecution(input: ExecutionInput) {
   };
 
   const confirm = async () => {
-    if (!input.enabled || !review || !wallet || busyRef.current || activity) return;
+    if (!input.enabled || !review || !wallet || busyRef.current || activity || review === heldReview) return;
     busyRef.current = true;
     phaseRef.current = 'checking';
     setPhase('checking');
@@ -273,6 +283,22 @@ export function useExecution(input: ExecutionInput) {
         api: sodax.api.swaps,
         approve: async body => {
           await approve({ body, walletProvider: wallet });
+        },
+        approvalStrategy: () =>
+          resolveApprovalStrategy({
+            srcChainKey,
+            walletProvider: wallet,
+            allowAccountUpgrade: !upgradeDeclined.current,
+          }),
+        approveAndSign: async (body, tx) => {
+          const deposit = await evmDeposit(srcChainKey, tx, wallet);
+          const { txHash } = await broadcastWithApproval({
+            body,
+            intentTx: deposit.tx,
+            walletProvider: deposit.wallet,
+            allowAccountUpgrade: !upgradeDeclined.current,
+          });
+          return txHash;
         },
         sign: tx => broadcast(srcChainKey, tx, wallet),
         onPhase: next => {
@@ -311,6 +337,8 @@ export function useExecution(input: ExecutionInput) {
       void balanceQuery.refetch();
     } catch (cause) {
       setError(executionError(cause));
+      if (isUnconfirmedBatch(cause)) setHeldReview(review);
+      if (isUpgradeDeclined(cause)) upgradeDeclined.current = true;
       if (!broadcasted) postEmbedEvent({ type: 'sodax:swap', status: 'failed' });
       if (input.pair) {
         const reason: SwapFailureReason = isUserRejection(cause) ? 'rejected' : phaseRef.current;
@@ -402,6 +430,7 @@ export function useExecution(input: ExecutionInput) {
     review,
     openReview,
     confirm,
+    held: !!review && review === heldReview,
     closeReview,
     resumeReview,
     dismissed,

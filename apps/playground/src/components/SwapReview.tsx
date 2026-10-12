@@ -132,6 +132,14 @@ function ConfirmAction({ flow, token, chain }: { flow: SwapFlow; token?: XToken;
       </button>
     );
 
+  // The wallet took this snapshot's batch without confirming it: it may still land, so it is not signed again.
+  if (e.held)
+    return (
+      <button type="button" className="btn btn-primary" disabled>
+        Check your wallet activity
+      </button>
+    );
+
   if (!token || !chain) return null;
   return (
     <button type="button" className="btn btn-primary" onClick={e.confirm}>

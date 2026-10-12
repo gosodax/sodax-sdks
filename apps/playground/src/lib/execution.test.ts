@@ -1,8 +1,12 @@
 import {
+  ACCOUNT_UPGRADE_DECLINED,
+  ATOMIC_BATCH_UNCONFIRMED,
   ChainKeys,
+  SodaxError,
   type CreateIntentParamsV2,
   type IntentResponseV2,
   type EvmRawTransaction,
+  type IEvmWalletProvider,
   type ISuiWalletProvider,
 } from '@sodax/dapp-kit';
 import { describe, expect, it, vi } from 'vitest';
@@ -12,6 +16,9 @@ import {
   toIntentRequest,
   broadcast,
   isUserRejection,
+  isUnconfirmedBatch,
+  isUpgradeDeclined,
+  evmDeposit,
   executionError,
   sourceExtras,
   type ExecutionDependencies,
@@ -50,7 +57,7 @@ const intent: IntentResponseV2 = {
   data: '0x',
 };
 
-function setup(allowed = true) {
+function setup(allowed = true, strategy: 'atomic-batch' | 'sequential' = 'sequential') {
   const calls: string[] = [];
   const deps: ExecutionDependencies = {
     api: {
@@ -68,6 +75,11 @@ function setup(allowed = true) {
     },
     approve: vi.fn(async () => {
       calls.push('approve');
+    }),
+    approvalStrategy: vi.fn(async () => strategy),
+    approveAndSign: vi.fn(async () => {
+      calls.push('approveAndSign');
+      return '0xbatch';
     }),
     sign: vi.fn(async () => {
       calls.push('sign');
@@ -117,6 +129,33 @@ describe('swap execution', () => {
     await executeSwap(body, deps);
     expect(calls).toEqual(['approve', 'sign', 'save', 'submit', 'accepted']);
     expect(deps.api.getQuote).toHaveBeenCalledTimes(2);
+  });
+  it('approves and signs in one prompt on a batch-capable wallet', async () => {
+    const { deps, calls } = setup(false, 'atomic-batch');
+    await executeSwap(body, deps);
+    expect(calls).toEqual(['approveAndSign', 'save', 'submit', 'accepted']);
+    expect(deps.approve).not.toHaveBeenCalled();
+    expect(deps.sign).not.toHaveBeenCalled();
+    expect(deps.onPhase).not.toHaveBeenCalledWith('approving');
+    expect(deps.approveAndSign).toHaveBeenCalledWith(body, tx);
+    expect(deps.api.submitTx).toHaveBeenCalledWith(expect.objectContaining({ txHash: '0xbatch' }));
+  });
+  it('asks for a strategy only when the allowance is short', async () => {
+    const { deps } = setup(true, 'atomic-batch');
+    await executeSwap(body, deps);
+    expect(deps.approvalStrategy).not.toHaveBeenCalled();
+    expect(deps.approveAndSign).not.toHaveBeenCalled();
+  });
+  it('neither saves nor submits a batch the wallet did not confirm', async () => {
+    const { deps } = setup(false, 'atomic-batch');
+    const unconfirmed = new SodaxError('TX_VERIFICATION_FAILED', 'not confirmed', {
+      feature: 'swap',
+      context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' },
+    });
+    vi.mocked(deps.approveAndSign).mockRejectedValue(unconfirmed);
+    await expect(executeSwap(body, deps)).rejects.toBe(unconfirmed);
+    expect(deps.onBroadcast).not.toHaveBeenCalled();
+    expect(deps.api.submitTx).not.toHaveBeenCalled();
   });
   it('stops before approval when the reviewed minimum is no longer available', async () => {
     const { deps } = setup(false);
@@ -369,6 +408,49 @@ describe('activity recovery', () => {
     expect(readActivity(JSON.stringify(noSource))).toBeUndefined();
     expect(readActivity(JSON.stringify(noDestination))).toBeUndefined();
     expect(readActivity(JSON.stringify({ ...activity, dstTokenAddress: '' }))).toBeUndefined();
+  });
+});
+
+describe('evmDeposit', () => {
+  const evmWallet: IEvmWalletProvider = {
+    chainType: 'EVM',
+    getWalletAddress: async () => address,
+    sendTransaction: vi.fn(),
+    waitForTransactionReceipt: vi.fn(),
+  };
+  it('hands back the payload and wallet a batch needs', async () => {
+    await expect(evmDeposit(ChainKeys.BASE_MAINNET, tx, evmWallet)).resolves.toEqual({ tx, wallet: evmWallet });
+  });
+  it('refuses a deposit built for another account', async () => {
+    const other = { ...tx, from: '0x00000000000000000000000000000000000000ff' };
+    await expect(evmDeposit(ChainKeys.BASE_MAINNET, other, evmWallet)).rejects.toThrow('signing account changed');
+  });
+  it('refuses a malformed payload', async () => {
+    const malformed = { ...tx, data: 'not-hex' } as unknown as EvmRawTransaction; // a payload that fails the hex check
+    await expect(evmDeposit(ChainKeys.BASE_MAINNET, malformed, evmWallet)).rejects.toThrow('cannot sign');
+  });
+});
+
+describe('batch outcomes', () => {
+  const unconfirmed = new SodaxError('TX_VERIFICATION_FAILED', 'not confirmed', {
+    feature: 'swap',
+    context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' },
+  });
+  const declined = new SodaxError('USER_REJECTED', 'User rejected the request', {
+    feature: 'swap',
+    context: { reason: ACCOUNT_UPGRADE_DECLINED },
+  });
+  it('tells an unconfirmed batch apart, and asks the visitor to check the wallet before swapping again', () => {
+    expect(isUnconfirmedBatch(unconfirmed)).toBe(true);
+    expect(isUnconfirmedBatch(declined)).toBe(false);
+    expect(executionError(unconfirmed)).toMatch(/check your wallet activity before swapping again/i);
+  });
+  it('tells a declined upgrade apart from a declined swap', () => {
+    expect(isUpgradeDeclined(declined)).toBe(true);
+    expect(isUpgradeDeclined(new SodaxError('USER_REJECTED', 'User rejected the request', { feature: 'swap' }))).toBe(
+      false,
+    );
+    expect(isUserRejection(declined)).toBe(true);
   });
 });
 
