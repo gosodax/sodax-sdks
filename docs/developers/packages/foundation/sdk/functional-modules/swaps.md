@@ -261,7 +261,7 @@ function isSodaxError(e: unknown): e is SodaxError;
 | `createIntent` / `createLimitOrderIntent` | `SwapCreateIntentError` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` |
 | `postExecution` | `PostExecutionError` | `EXECUTION_FAILED`, `EXTERNAL_API_ERROR`, `UNKNOWN` |
 | `createLimitOrder` | `SwapError` | (same as `swap`) |
-| `swapWithApproval` | `SwapWithApprovalError` | `swap`'s codes, plus `APPROVE_FAILED` and `ALLOWANCE_CHECK_FAILED` |
+| `swapWithApproval` | `SwapWithApprovalError` (guard `isSwapWithApprovalError`) | `swap`'s codes, plus `APPROVE_FAILED` and `ALLOWANCE_CHECK_FAILED` |
 | `getApprovalStrategy` | `ApprovalStrategyError` | `ALLOWANCE_CHECK_FAILED` |
 
 **Important:** `postExecution` alone never emits relay/verify codes — those appear only on `swap` because only `swap` orchestrates verify + relay. Don't write a unified switch that handles both with the same union. Note that `swap` orchestrates verify + relay only on the **client-side path** (the fallback, or `useBackendSubmitTx: false`), so `TX_VERIFICATION_FAILED` and `phase: 'verify'` never surface on a swap the backend completes.
