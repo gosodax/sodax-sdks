@@ -229,6 +229,10 @@ export async function executeSwap(body: CreateIntentParamsV2, deps: ExecutionDep
   deps.onRelayAccepted();
 }
 
+/** What the widget says while a batch the wallet took but never confirmed holds its review. */
+export const UNCONFIRMED_BATCH_MESSAGE =
+  'Your wallet accepted the swap but it has not confirmed yet. Check your wallet activity before swapping again.';
+
 /** A batch the wallet took but did not confirm. It may still land, so the swap must not be signed again. */
 export function isUnconfirmedBatch(error: unknown): boolean {
   return (
@@ -250,8 +254,7 @@ export function executionError(error: unknown): string {
   const message = error instanceof Error ? error.message : 'Could not complete this step. Please try again.';
   if (/\b403\b|access forbidden/i.test(message))
     return 'The network connection refused this request (403). Please try again once the connection is restored.';
-  if (isUnconfirmedBatch(error))
-    return 'Your wallet accepted the swap but it has not confirmed yet. Check your wallet activity before swapping again.';
+  if (isUnconfirmedBatch(error)) return UNCONFIRMED_BATCH_MESSAGE;
   if (isUserRejection(error)) return 'Request declined in your wallet. You can try again.';
   return message;
 }

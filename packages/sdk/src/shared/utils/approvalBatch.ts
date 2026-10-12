@@ -56,14 +56,18 @@ export const ACCOUNT_UPGRADE_DECLINED = 'account-upgrade-declined';
 // EIP-5792 status codes that say nothing landed: 400 never included, 500 fully reverted. 600 may have partly landed.
 const BATCH_NOTHING_LANDED_CODES: ReadonlySet<number> = new Set([400, 500]);
 
-export type ResolveApprovalStrategyParams = {
-  srcChainKey: SpokeChainKey;
-  walletProvider: IWalletProvider;
+/** The account-upgrade choice every approve-then-deposit flow and its strategy read take. */
+export type ApprovalOptions = {
   /**
    * Whether a wallet that must first upgrade the account to batch (EIP-5792 `'ready'`, e.g. a MetaMask
    * EOA becoming a smart account) may be asked to. `false` approves separately instead. Defaults to `true`.
    */
   allowAccountUpgrade?: boolean;
+};
+
+export type ResolveApprovalStrategyParams = ApprovalOptions & {
+  srcChainKey: SpokeChainKey;
+  walletProvider: IWalletProvider;
 };
 
 /**
@@ -221,4 +225,36 @@ export async function confirmApproval({
       context: { ...context, phase: 'approve', reason: 'approve-not-confirmed', approveTxHash: txHash },
     }),
   };
+}
+
+/**
+ * Sends the deposit down the path `strategy` picked. Only a batch the wallet refused before anything
+ * was signed (`ATOMIC_BATCH_REFUSED`) falls back to approving separately; any other batch failure is
+ * returned as is, because the user saw that batch and it may still land. Resolves with the path that ran.
+ */
+export async function runWithApproval<T, E extends SodaxError>({
+  strategy,
+  notRequired,
+  atomicBatch,
+  sequential,
+  onBatchRefused,
+}: {
+  strategy: ApprovalStrategy;
+  notRequired: () => Promise<Result<T, E>>;
+  atomicBatch: () => Promise<Result<T, E>>;
+  sequential: () => Promise<Result<T, E>>;
+  onBatchRefused?: (error: E) => void;
+}): Promise<{ result: Result<T, E>; approvalStrategy: ApprovalStrategy }> {
+  if (strategy === 'not-required') return { result: await notRequired(), approvalStrategy: strategy };
+  if (strategy === 'sequential') return { result: await sequential(), approvalStrategy: strategy };
+
+  const batched = await atomicBatch();
+  const refused =
+    !batched.ok &&
+    batched.error.code === 'INTENT_CREATION_FAILED' &&
+    batched.error.context?.reason === ATOMIC_BATCH_REFUSED;
+  if (batched.ok || !refused) return { result: batched, approvalStrategy: 'atomic-batch' };
+
+  onBatchRefused?.(batched.error);
+  return { result: await sequential(), approvalStrategy: 'sequential' };
 }

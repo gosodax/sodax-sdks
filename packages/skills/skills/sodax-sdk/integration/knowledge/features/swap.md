@@ -99,6 +99,9 @@ transactions:
   receipts) → `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` and `context.batchId`. It
   may have landed — **do not retry**; tell the user to check the wallet's activity.
 
+On the two-step path the intent is built unsigned before the approval, so invalid params fail before the user pays
+for an approval.
+
 Do not chain your own `approve` after any of these; that is exactly the double prompt this method avoids.
 
 ## Reading swap status
