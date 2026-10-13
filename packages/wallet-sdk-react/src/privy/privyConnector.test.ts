@@ -224,6 +224,7 @@ describe('privyConnector — first login', () => {
 
     await expect(connect(config, { connector: privy })).rejects.toBeInstanceOf(UserRejectedRequestError);
     expect(localStorage.getItem(FLAG_KEY)).toBeNull();
+    expect(ops.logout).not.toHaveBeenCalled();
   });
 
   it("leaves a new user's wallet to Privy's own create-on-login instead of creating a second one", async () => {
@@ -767,6 +768,65 @@ describe('privyConnector — signing out', () => {
     expect(localStorage.getItem(FLAG_KEY)).toBeNull();
     await vi.waitFor(() => expect(localStorage.getItem(SIGN_OUT_KEY)).toBeNull());
     expect(ops.logout).toHaveBeenCalledOnce();
+  });
+
+  it('signs out of a login whose connect lost to another wallet, so the next connect asks for a new code', async () => {
+    const { runtime, ops, config, privy, other, sdkDisconnect } = setup();
+    const wallet = fakeWallet();
+    runtime.publish(loggedOut);
+    ops.logout.mockImplementation(async () => runtime.publish(loggedOut));
+    const loggingIn = connect(config, { connector: privy });
+    await vi.waitFor(() => expect(ops.login).toHaveBeenCalled());
+
+    await connect(config, { connector: other });
+    runtime.publish(loggedIn(wallet));
+    runtime.loginCompleted();
+    await expect(loggingIn).rejects.toBeInstanceOf(UserRejectedRequestError);
+    await sdkDisconnect();
+    await disconnect(config, { connector: other });
+    await vi.waitFor(() => expect(localStorage.getItem(SIGN_OUT_KEY)).toBeNull());
+    expect(ops.logout).toHaveBeenCalledOnce();
+
+    ops.login.mockImplementation(() => queueMicrotask(() => runtime.publish(loggedIn(wallet))));
+    await expect(connect(config, { connector: privy })).resolves.toMatchObject({ accounts: [getAddress(ADDRESS)] });
+    expect(ops.login).toHaveBeenCalledTimes(2);
+  });
+
+  it('signs out of a login whose wallet provider never loaded', async () => {
+    vi.useFakeTimers();
+    const { runtime, ops, config, privy } = setup();
+    const stalled = fakeWallet(ADDRESS, { providerGate: new Promise<void>(() => undefined) });
+    runtime.publish(loggedOut);
+    ops.logout.mockImplementation(async () => runtime.publish(loggedOut));
+    ops.login.mockImplementation(() =>
+      queueMicrotask(() => {
+        runtime.publish(loggedIn(stalled));
+        runtime.loginCompleted();
+      }),
+    );
+
+    const failed = expect(connect(config, { connector: privy })).rejects.toThrow('getEthereumProvider');
+    await vi.advanceTimersByTimeAsync(INTERNAL_CALL_MS);
+    await failed;
+
+    await vi.waitFor(() => expect(localStorage.getItem(SIGN_OUT_KEY)).toBeNull());
+    expect(ops.logout).toHaveBeenCalledOnce();
+  });
+
+  it("with disconnectBehavior 'detach', keeps the session of a login whose connect failed", async () => {
+    const { runtime, ops, config, privy, other } = setup({ disconnectBehavior: 'detach' });
+    runtime.publish(loggedOut);
+    const loggingIn = connect(config, { connector: privy });
+    await vi.waitFor(() => expect(ops.login).toHaveBeenCalled());
+
+    await connect(config, { connector: other });
+    runtime.publish(loggedIn(fakeWallet()));
+    runtime.loginCompleted();
+    await expect(loggingIn).rejects.toBeInstanceOf(UserRejectedRequestError);
+    await settle();
+
+    expect(ops.logout).not.toHaveBeenCalled();
+    expect(localStorage.getItem(SIGN_OUT_KEY)).toBeNull();
   });
 
   it('leaves Privy alone on an SDK disconnect when it was not in use', async () => {

@@ -248,6 +248,7 @@ export function privyConnector({
             )
           : undefined;
         const startCurrent = getState().current;
+        let loggedIn = false;
 
         try {
           let ready = await runtime.waitFor(s => s.ready, READY_CONNECT_MS, signal, 'Waiting for Privy to be ready');
@@ -267,6 +268,7 @@ export function privyConnector({
               throw new PrivySessionError('The Privy session has ended.');
             }
             await runtime.login(signal);
+            loggedIn = true;
           }
           const user = await runtime.waitFor(
             s => s.authenticated && s.userLoaded,
@@ -318,7 +320,18 @@ export function privyConnector({
           watch();
           return { accounts: [session.address], chainId: chainId ?? defaultChainId };
         } catch (error) {
-          if (attempt === controller) detachSession();
+          if (attempt === controller) {
+            detachSession();
+            // No flag was written, so a later SDK disconnect would find nothing to sign out of.
+            if (
+              !isReconnecting &&
+              disconnectBehavior === 'logout' &&
+              (loggedIn || runtime.getSnapshot().authenticated)
+            ) {
+              signOutOwed.write();
+              void signOut();
+            }
+          }
           throw error;
         } finally {
           clearTimeout(budget);

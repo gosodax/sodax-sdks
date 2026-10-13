@@ -226,7 +226,8 @@ Or close your dialog before the action starts, if it does not need to show the r
   are never held back longer. If Privy takes longer, the user shows as disconnected; one click on
   "Email (Privy)" reconnects without a new code.
 - **Disconnect signs the user out of Privy** by default, so the next connect asks for a code again — also
-  when the user disconnects while the page-load restore is still running. It also ends any other EVM
+  when the user disconnects while the page-load restore is still running, and when a connect fails after
+  the code was accepted (another wallet connected first, or the wallet did not load). It also ends any other EVM
   wallet connected in the same session, so nothing can be revived without its own sign-in — this keeps a
   shared device safe (a third-party wallet whose own disconnect stalls past 10 seconds is the exception:
   wagmi keeps it until that disconnect finishes). The disconnect returns at once and the sign-out request
