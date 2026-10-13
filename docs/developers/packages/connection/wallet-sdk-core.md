@@ -93,6 +93,7 @@ if (support !== 'unsupported') {
 
 `'ready'` means the wallet asks the user to upgrade the account (MetaMask: an EIP-7702 smart account) when the
 first batch is sent.
+`waitForBatch` reads the batch status again after a failed read, within its timeout and up to three reads.
 
 ### Solana
 

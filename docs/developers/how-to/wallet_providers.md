@@ -229,6 +229,8 @@ In browser-extension mode the provider also implements the optional EIP-5792 met
 (`getAtomicBatchSupport`, `sendAtomicBatch`, `waitForBatch`) over viem's `getCapabilities`, `sendCalls`
 (with `forceAtomic`) and `waitForCallsStatus`. A private-key account reports `'unsupported'`: a plain RPC
 endpoint has no `wallet_sendCalls`. A `waitForBatch` timeout of `0` gives up at once rather than waiting forever.
+A failed status read does not end the wait: `waitForBatch` reads again within the timeout, up to three reads in
+all, where viem's own wait stops at the first error.
 
 ### Solana (`SolanaWalletProvider`)
 

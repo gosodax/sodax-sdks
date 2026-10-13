@@ -83,6 +83,7 @@ describe('isSameIntent', () => {
     expect(isSameIntent(PARAMS, { ...PARAMS, hook: { kind: HookKind.FLINT_DEPOSIT } })).toBe(false);
     expect(isSameIntent(PARAMS, { ...PARAMS, data: '0x01' })).toBe(false);
     expect(isSameIntent(PARAMS, { ...PARAMS, allowPartialFill: true })).toBe(false);
+    expect(isSameIntent(PARAMS, { ...PARAMS, deliveryData: '0x02' })).toBe(false);
   });
 });
 
@@ -269,6 +270,11 @@ describe('resolveSwapLifecycle', () => {
     expect(resolveSwapLifecycle(inputs({ strategy: { data: undefined, error: null } }))).toEqual({ kind: 'checking' });
     const error = new Error('allowance read failed');
     expect(resolveSwapLifecycle(inputs({ strategy: { data: undefined, error } }))).toEqual({ kind: 'failed', error });
+    // A failed background refetch keeps the cached strategy, so a ready form stays ready.
+    expect(resolveSwapLifecycle(inputs({ strategy: { data: 'sequential', error } }))).toEqual({
+      kind: 'ready',
+      approvalStrategy: 'sequential',
+    });
   });
 });
 

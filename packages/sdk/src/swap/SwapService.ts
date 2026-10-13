@@ -48,6 +48,7 @@ import { isFillEvent } from '../backendApi/guards.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
 import { canSendAtomicBatch } from '../shared/utils/evmAtomicBatch.js';
 import {
+  approvalBatchWaitMs,
   resolveApprovalStrategy,
   runWithApproval,
   sendApprovalBatch,
@@ -910,7 +911,7 @@ export class SwapService {
       walletProvider,
       srcChainKey,
       txs,
-      timeoutMs: resolveTimeoutMs(_params.timeout, DEFAULT_RELAY_TX_TIMEOUT),
+      timeoutMs: approvalBatchWaitMs(_params.timeout),
       feature: 'swap',
       context: ctx,
     });

@@ -4509,7 +4509,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       }
     });
 
-    it("gives the wait the caller's timeout", async () => {
+    it("gives the wait the caller's timeout when it is above the default", async () => {
       allowance(false);
       const wallet = makeBatchProvider();
       vi.spyOn(sodax.swaps, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
@@ -4519,10 +4519,10 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       await sodax.swaps.swapWithApproval({
         params: intentInput(ChainKeys.BSC_MAINNET),
         walletProvider: wallet,
-        timeout: 30_000,
+        timeout: 300_000,
       });
 
-      expect(wallet.waitForBatch).toHaveBeenCalledWith('batch-1', { timeout: 30_000 });
+      expect(wallet.waitForBatch).toHaveBeenCalledWith('batch-1', { timeout: 300_000 });
     });
 
     const stubBatchLegs = () => {
@@ -4530,7 +4530,8 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce(intentResult(RAW_DEPOSIT));
     };
 
-    it('gives up at once on a zero timeout instead of waiting forever', async () => {
+    // A short relay timeout must not cut the batch wait short: that reports a landing batch as unconfirmed.
+    it('never waits less than the default for the batch, even on a zero timeout', async () => {
       allowance(false);
       const wallet = makeBatchProvider();
       stubBatchLegs();
@@ -4542,7 +4543,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         timeout: 0,
       });
 
-      expect(wallet.waitForBatch).toHaveBeenCalledWith('batch-1', { timeout: 1 });
+      expect(wallet.waitForBatch).toHaveBeenCalledWith('batch-1', { timeout: DEFAULT_RELAY_TX_TIMEOUT });
     });
 
     it.each([

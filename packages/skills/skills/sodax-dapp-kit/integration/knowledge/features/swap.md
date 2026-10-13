@@ -23,8 +23,9 @@ useSwapApprove({ mutationOptions });
 useSwapWithApproval({ mutationOptions });           // useSwap + approval; one EIP-5792 signature when the wallet can batch
 
 // Composite — the whole form as one state machine; see recipes/swap.md § One Hook for the Whole Form
-useSwapLifecycle({ intentParams, srcWalletProvider, dstWalletProvider, dstAccountAddress, chainSwitch?, externalBlocked?, extras?, timeout?, mutationOptions? });
+useSwapLifecycle({ intentParams, srcWalletProvider, dstWalletProvider, chainSwitch?, externalBlocked?, extras?, timeout?, mutationOptions? });
 //   → { state, error, next, reset, approvalStrategy, swap, status, stellar, nearStorage }
+//   the Stellar and NEAR gates check intentParams.dstAddress; dstWalletProvider must control it for the setup actions
 //   state.kind: idle | checking | needsChainSwitch | needsSetup(reason) | ready(approvalStrategy) | submitting
 //               | pending (error? after a post-broadcast failure) | unconfirmed (batch may still land — never retried) | settled | failed
 useCancelSwap({ mutationOptions });                  // TVars are FLAT: { srcChainKey, intent, walletProvider }
