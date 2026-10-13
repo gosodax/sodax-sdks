@@ -205,7 +205,7 @@ Under the hood, the user deposits the Hedera token into the SODAX SpokeAssetMana
 The steps are:
 
 1. **Confirm the pair** with `sodax.bridge.isBridgeable`. Two tokens are bridgeable when they share the same vault on Sonic.
-2. **Check capacity** with `sodax.bridge.getBridgeableAmount`. It returns the most that can move right now, in the source token's smallest unit.
+2. **Check capacity** with `sodax.bridge.getBridgeableAmount`. It returns the most that can move right now, with its own `decimals`: a `DEPOSIT_LIMIT` is in the source token's units, a `WITHDRAWAL_LIMIT` in the destination token's. Scale before you compare.
 3. **Check and approve** with `sodax.bridge.isAllowanceValid` and `sodax.bridge.approve`.
 4. **Execute** with `sodax.bridge.bridge`.
 5. **Track** with `sodax.bridge.getDetailedStatus`, using the source transaction hash.
@@ -222,7 +222,8 @@ const limit = await sodax.bridge.getBridgeableAmount(from, to);
 if (!limit.ok) return;
 
 const amount = 1_000_000n; // 0.01 AAPL in Hedera's 8 decimals
-if (amount > limit.value.amount) {
+// Cross-multiply so both sides share a scale: the limit may be in Robinhood's 18 decimals.
+if (amount * 10n ** BigInt(limit.value.decimals) > limit.value.amount * 10n ** BigInt(from.decimals)) {
   console.log('Above the current limit:', limit.value.type); // 'DEPOSIT_LIMIT' | 'WITHDRAWAL_LIMIT'
   return;
 }
@@ -305,13 +306,13 @@ const hederaCirculating = hederaSupply - hederaHeldBySodax;
 
 console.log('In users\' hands on Hedera:', formatUnits(hederaCirculating, 8));
 console.log('Locked on Robinhood Chain: ', formatUnits(robinhoodLocked, 18));
-console.log('Backed:', robinhoodLocked >= hederaCirculating * 10n ** 10n); // scale 8 to 18 decimals
+console.log('Covers Hedera:', robinhoodLocked >= hederaCirculating * 10n ** 10n); // scale 8 to 18 decimals
 ```
 
 You can also read the same balances in a block explorer: [HashScan](https://hashscan.io/mainnet/contract/0x0df73542cc68bdc01b361d231c60f726b0e0bc05) for Hedera and [Robinhood Chain Blockscout](https://robinhoodchain.blockscout.com/address/0x0df73542cC68bDC01b361d231c60F726B0e0bC05) for Robinhood Chain.
 
 <Note>
-  The locked balance on Robinhood Chain can be higher than the Hedera figure, because the same locked tokens also back that ticker on Stellar. {/* [TO CONFIRM with Code specialist] wording of this note. */}
+  This script checks Hedera only. The same locked tokens also back that ticker on Stellar (7 decimals), so full backing means the locked balance covers the Hedera and Stellar circulating supply combined. A `true` here does not prove that on its own. {/* [TO CONFIRM with Code specialist] wording of this note. */}
 </Note>
 
 ## Gotchas {#gotchas}
