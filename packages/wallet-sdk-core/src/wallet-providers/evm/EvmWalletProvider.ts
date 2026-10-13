@@ -21,7 +21,7 @@ import type {
   WalletClient,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { createWalletClient, createPublicClient, http, defineChain } from 'viem';
+import { createWalletClient, createPublicClient, http, defineChain, WaitForCallsStatusTimeoutError } from 'viem';
 import { BaseWalletProvider } from '../BaseWalletProvider.js';
 import type {
   BrowserExtensionEvmWalletConfig,
@@ -54,6 +54,9 @@ import {
  * here using `defineChain` with the canonical RPC, block-explorer, and Multicall3
  * contract address.
  */
+/** Status reads one {@link EvmWalletProvider.waitForBatch} makes before a read error ends the wait. */
+const BATCH_STATUS_ATTEMPTS = 3;
+
 export const hyper = /*#__PURE__*/ defineChain({
   id: 999,
   name: 'HyperEVM',
@@ -252,15 +255,32 @@ export class EvmWalletProvider extends BaseWalletProvider<EvmWalletDefaults> imp
     return id;
   }
 
-  /** Polls until the batch reaches a terminal EIP-5792 status and returns its receipts. Throws on timeout. */
+  /**
+   * Polls until the batch reaches a terminal EIP-5792 status and returns its receipts. Throws on timeout.
+   * A failed status read is retried within the timeout, up to {@link BATCH_STATUS_ATTEMPTS} reads in all:
+   * viem's own wait ends on the first one, which would report a batch that is still landing as lost.
+   */
   async waitForBatch(batchId: string, options?: EvmWaitForCallsStatusPolicy): Promise<EvmBatchResult> {
     const { timeout, ...policy } = this.mergePolicy('waitForCallsStatus', options);
-    const result = await this.walletClient.waitForCallsStatus({
-      ...policy,
-      // viem reads a zero timeout as "no timeout"; give up at once instead.
-      timeout: timeout === undefined ? undefined : Math.max(1, timeout),
-      id: batchId,
-    });
+    // viem reads a zero timeout as "no timeout"; give up at once instead.
+    const budget = timeout === undefined ? undefined : Math.max(1, timeout);
+    const deadline = budget === undefined ? undefined : Date.now() + budget;
+    const retryDelay = policy.pollingInterval ?? this.walletClient.pollingInterval;
+    let remaining = budget;
+    let result: Awaited<ReturnType<WalletClient['waitForCallsStatus']>>;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        result = await this.walletClient.waitForCallsStatus({ ...policy, timeout: remaining, id: batchId });
+        break;
+      } catch (error) {
+        const timeLeft = deadline === undefined ? retryDelay : deadline - Date.now() - retryDelay;
+        if (error instanceof WaitForCallsStatusTimeoutError || attempt >= BATCH_STATUS_ATTEMPTS || timeLeft <= 0) {
+          throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        remaining = deadline === undefined ? undefined : Math.max(1, deadline - Date.now());
+      }
+    }
     return {
       status: result.status === 'success' ? 'success' : 'failure',
       statusCode: result.statusCode,

@@ -411,9 +411,16 @@ describe('pending batch', () => {
     expect(activity).toEqual({ ...pending, batchId: undefined, callCount: undefined, txHash: '0xdeposit' });
     expect(submissionFor(activity).txHash).toBe('0xdeposit');
   });
+  // A wallet's id that this check turns away is a held batch lost on reload.
+  it('keeps a long or base64 batch id, as EIP-5792 allows', () => {
+    const base64 = 'YmF0Y2gtaWQ+/=';
+    expect(readPendingBatch(JSON.stringify({ ...pending, batchId: base64 }))?.batchId).toBe(base64);
+    expect(readPendingBatch(JSON.stringify({ ...pending, batchId: 'a'.repeat(4096) }))?.batchId).toHaveLength(4096);
+  });
   it('rejects a record that cannot identify its batch', () => {
     expect(readPendingBatch(JSON.stringify({ ...pending, batchId: '' }))).toBeUndefined();
     expect(readPendingBatch(JSON.stringify({ ...pending, batchId: '<script>' }))).toBeUndefined();
+    expect(readPendingBatch(JSON.stringify({ ...pending, batchId: 'x'.repeat(4097) }))).toBeUndefined();
     expect(readPendingBatch(JSON.stringify({ ...pending, callCount: 0 }))).toBeUndefined();
     expect(readPendingBatch(JSON.stringify({ ...pending, callCount: 1.5 }))).toBeUndefined();
     expect(readPendingBatch(JSON.stringify({ ...pending, intent: { ...intent, deadline: 'soon' } }))).toBeUndefined();

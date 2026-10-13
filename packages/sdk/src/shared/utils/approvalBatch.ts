@@ -7,11 +7,13 @@ import type {
   Result,
   SpokeChainKey,
 } from '@sodax/types';
+import { DEFAULT_RELAY_TX_TIMEOUT } from '@sodax/types';
 import type { SodaxErrorCode, SodaxErrorContext, SodaxFeature } from '../../errors/codes.js';
 import { isSodaxError, SodaxError } from '../../errors/SodaxError.js';
 import { intentCreationFailed } from '../../errors/wrappers.js';
 import { isEvmSpokeOnlyChainKeyType, isEvmWalletProviderType } from '../guards.js';
 import { getEvmViemChain } from './constant-utils.js';
+import { resolveTimeoutMs } from './resolveTimeoutMs.js';
 import {
   canSendAtomicBatch,
   isAccountUpgradeDeclined,
@@ -34,6 +36,14 @@ export type ApprovalStrategy = 'not-required' | 'atomic-batch' | 'sequential';
  */
 export type ApprovalStrategyErrorCode = Extract<SodaxErrorCode, 'ALLOWANCE_CHECK_FAILED'>;
 export type ApprovalStrategyError = SodaxError<ApprovalStrategyErrorCode>;
+
+/**
+ * How long an SDK `*WithApproval` call waits for its batch: the caller's `timeout`, never below
+ * `DEFAULT_RELAY_TX_TIMEOUT`. A batch given up on early may still land, and then it can only be waited out.
+ */
+export function approvalBatchWaitMs(timeout: number | undefined): number {
+  return Math.max(resolveTimeoutMs(timeout, DEFAULT_RELAY_TX_TIMEOUT), DEFAULT_RELAY_TX_TIMEOUT);
+}
 
 /**
  * `context.reason` of the `INTENT_CREATION_FAILED` returned when the wallet refused the batch before

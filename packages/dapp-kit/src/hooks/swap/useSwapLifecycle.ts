@@ -29,9 +29,11 @@ export type UseSwapLifecycleParams<K extends SpokeChainKey = SpokeChainKey> = {
    */
   intentParams: CreateIntentParams<K> | undefined;
   srcWalletProvider: GetWalletProviderType<K> | undefined;
-  /** Destination wallet + account, for the Stellar trustline and NEAR storage gates. */
+  /**
+   * Destination wallet, for the Stellar and NEAR setup actions. The gates check `intentParams.dstAddress`,
+   * the account the swap pays, so this wallet must control it for those actions to clear them.
+   */
   dstWalletProvider: GetWalletProviderType<SpokeChainKey> | undefined;
-  dstAccountAddress: string | undefined;
   /** Source-chain switching, e.g. `useEvmSwitchChain` from `@sodax/wallet-sdk-react`. */
   chainSwitch?: { isWrongChain: boolean; switchChain: () => void | Promise<void> };
   /** An app-owned prerequisite that must hold before swapping (e.g. a Bitcoin trading-wallet setup). */
@@ -83,7 +85,6 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
   intentParams,
   srcWalletProvider,
   dstWalletProvider,
-  dstAccountAddress,
   chainSwitch,
   externalBlocked = false,
   allowAccountUpgrade,
@@ -99,13 +100,13 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     dstChainKey: intentParams?.dstChainKey,
     token: intentParams?.outputToken,
     amount: intentParams?.minOutputAmount,
-    address: dstAccountAddress,
+    address: intentParams?.dstAddress,
     walletProvider: dstWalletProvider,
   });
   const nearStorage = useNearStorageGate({
     dstChainKey: intentParams?.dstChainKey,
     token: intentParams?.outputToken,
-    accountId: dstAccountAddress,
+    accountId: intentParams?.dstAddress,
     walletProvider: dstWalletProvider,
   });
 

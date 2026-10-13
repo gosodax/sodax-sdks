@@ -73,7 +73,7 @@ type EvmWalletDefaults = {
 | `waitForTransactionReceipt` | `(txHash: Hash, options?: EvmWaitForTransactionReceiptPolicy) => Promise<EvmRawTransactionReceipt>` | bigint-stringified receipt | `defaults.waitForTransactionReceipt` |
 | `getAtomicBatchSupport` | `(chainId: number) => Promise<EvmAtomicBatchSupport>` | `'supported' \| 'ready' \| 'unsupported'` (EIP-5792 `atomic` capability) | — |
 | `sendAtomicBatch` | `(txs: readonly EvmRawTransaction[], options: EvmSendBatchOptions) => Promise<string>` | EIP-5792 batch id (not a tx hash) | — |
-| `waitForBatch` | `(batchId: string, options?: EvmWaitForCallsStatusPolicy) => Promise<EvmBatchResult>` | terminal status + receipts | `defaults.waitForCallsStatus` |
+| `waitForBatch` | `(batchId: string, options?: EvmWaitForCallsStatusPolicy) => Promise<EvmBatchResult>` | terminal status + receipts; a failed status read is retried within the timeout (three reads at most) | `defaults.waitForCallsStatus` |
 
 The serialised receipt converts all `bigint` fields to `string` so it can be `JSON.stringify`'d safely. This is enforced at the type level — `EvmRawTransactionReceipt` (from `@sodax/types`) is the stringified shape.
 

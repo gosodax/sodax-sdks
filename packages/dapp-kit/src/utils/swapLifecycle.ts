@@ -94,7 +94,8 @@ export function isSameIntent(a: CreateIntentParams, b: CreateIntentParams): bool
     a.allowPartialFill === b.allowPartialFill &&
     a.solver === b.solver &&
     a.data === b.data &&
-    a.hook?.kind === b.hook?.kind
+    a.hook?.kind === b.hook?.kind &&
+    a.deliveryData === b.deliveryData
   );
 }
 
@@ -156,7 +157,8 @@ export function resolveSwapLifecycle(inputs: SwapLifecycleInputs): SwapLifecycle
   if (reason) return inputs.setupBusy ? { kind: 'checking' } : { kind: 'needsSetup', reason };
   if (inputs.stellar.blocksAction || inputs.nearStorage.blocksAction) return { kind: 'checking' };
   if (inputs.isWrongChain) return { kind: 'needsChainSwitch' };
-  if (inputs.strategy.error) return { kind: 'failed', error: inputs.strategy.error };
+  // A failed refetch keeps the last strategy; `swapWithApproval` resolves its own before sending anyway.
+  if (inputs.strategy.error && !inputs.strategy.data) return { kind: 'failed', error: inputs.strategy.error };
   if (!inputs.strategy.data) return { kind: 'checking' };
   return { kind: 'ready', approvalStrategy: inputs.strategy.data };
 }

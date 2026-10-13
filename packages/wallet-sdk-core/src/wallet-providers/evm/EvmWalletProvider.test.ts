@@ -7,6 +7,7 @@ import {
   createWalletClient,
   createPublicClient,
   http,
+  WaitForCallsStatusTimeoutError,
   type GetCallsStatusReturnType,
   type TransactionReceipt,
 } from 'viem';
@@ -510,9 +511,51 @@ describe('EvmWalletProvider', () => {
       it('propagates a wait that times out, so the caller can tell it from a failed batch', async () => {
         const config = makeConnectedWalletConfig();
         const provider = new EvmWalletProvider(config);
-        vi.spyOn(config.walletClient, 'waitForCallsStatus').mockRejectedValue(new Error('Timed out'));
+        const spy = vi
+          .spyOn(config.walletClient, 'waitForCallsStatus')
+          .mockRejectedValue(new WaitForCallsStatusTimeoutError({ id: 'batch-1' }));
 
-        await expect(provider.waitForBatch('batch-1', { timeout: 1_000 })).rejects.toThrow('Timed out');
+        await expect(provider.waitForBatch('batch-1', { timeout: 60_000, pollingInterval: 1 })).rejects.toBeInstanceOf(
+          WaitForCallsStatusTimeoutError,
+        );
+        expect(spy).toHaveBeenCalledOnce();
+      });
+
+      // viem ends its wait on the first failed status read; one RPC blip must not report a landing batch as lost.
+      it('retries a failed status read within the timeout', async () => {
+        const config = makeConnectedWalletConfig();
+        const provider = new EvmWalletProvider(config);
+        const spy = vi
+          .spyOn(config.walletClient, 'waitForCallsStatus')
+          .mockRejectedValueOnce(new Error('network blip'))
+          .mockResolvedValueOnce(makeCallsStatus());
+
+        await expect(provider.waitForBatch('batch-1', { timeout: 60_000, pollingInterval: 1 })).resolves.toMatchObject({
+          status: 'success',
+        });
+        expect(spy).toHaveBeenCalledTimes(2);
+      });
+
+      it('gives up after a bounded number of failed status reads', async () => {
+        const config = makeConnectedWalletConfig();
+        const provider = new EvmWalletProvider(config);
+        const spy = vi.spyOn(config.walletClient, 'waitForCallsStatus').mockRejectedValue(new Error('unknown bundle'));
+
+        await expect(provider.waitForBatch('batch-1', { timeout: 60_000, pollingInterval: 1 })).rejects.toThrow(
+          'unknown bundle',
+        );
+        expect(spy).toHaveBeenCalledTimes(3);
+      });
+
+      it('does not retry once the timeout leaves no room for another read', async () => {
+        const config = makeConnectedWalletConfig();
+        const provider = new EvmWalletProvider(config);
+        const spy = vi.spyOn(config.walletClient, 'waitForCallsStatus').mockRejectedValue(new Error('network blip'));
+
+        await expect(provider.waitForBatch('batch-1', { timeout: 1_000, pollingInterval: 5_000 })).rejects.toThrow(
+          'network blip',
+        );
+        expect(spy).toHaveBeenCalledOnce();
       });
     });
   });

@@ -192,7 +192,8 @@ export function readPendingBatch(value: string | null): PendingBatch | undefined
     if (
       !record(data) ||
       typeof data.batchId !== 'string' ||
-      !/^[\w:.-]{1,200}$/.test(data.batchId) ||
+      // EIP-5792 ids run to 4096 bytes, and some wallets return base64; markup characters stay out.
+      !/^[\w:.+/=-]{1,4096}$/.test(data.batchId) ||
       typeof data.callCount !== 'number' ||
       !Number.isInteger(data.callCount) ||
       data.callCount < 1 ||
