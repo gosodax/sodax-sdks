@@ -153,6 +153,7 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
         if (state.reason === 'stellarTrustline') return stellar.requestTrustline();
         if (state.reason === 'nearStorage') return nearStorage.registerStorage();
         if (state.reason === 'stellarCheckFailed') stellar.retry();
+        if (state.reason === 'nearStorageCheckFailed') nearStorage.retry();
         // `stellarFunding` and `external` are for the app to resolve.
         return undefined;
       case 'ready':

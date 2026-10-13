@@ -187,6 +187,17 @@ describe('useSwapLifecycle', () => {
     expect(mutateAsyncSafe).not.toHaveBeenCalled();
   });
 
+  it('retries a failed NEAR storage check instead of swapping', async () => {
+    const nearRetry = vi.fn();
+    stub({ near: { isNear: true, checkFailed: true, retry: nearRetry } });
+    const lifecycle = run();
+
+    expect(lifecycle.state).toEqual({ kind: 'needsSetup', reason: 'nearStorageCheckFailed' });
+    await lifecycle.next();
+    expect(nearRetry).toHaveBeenCalledOnce();
+    expect(mutateAsyncSafe).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['a trustline tx in flight', { stellar: { needsTrustline: true, isRequestingTrustline: true } }, 0],
     ['a storage tx in flight', { near: { needsRegistration: true, isRegistering: true } }, 0],

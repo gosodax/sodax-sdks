@@ -18,6 +18,7 @@ export type SwapSetupReason =
   | 'stellarTrustline'
   | 'stellarCheckFailed'
   | 'nearStorage'
+  | 'nearStorageCheckFailed'
   | 'external';
 
 /**
@@ -70,7 +71,8 @@ export type SwapLifecycleInputs = {
   /** Intent params and a source wallet provider are both present. */
   hasInputs: boolean;
   stellar: StellarGateState;
-  nearStorage: NearStorageGateState;
+  /** `checkFailed`: the registration check errored, so the swap waits for a retry rather than going out blind. */
+  nearStorage: NearStorageGateState & { checkFailed?: boolean };
   externalBlocked: boolean;
   /** A setup tx is in flight, or the check it invalidated is still refreshing: acting now would resend it. */
   setupBusy: boolean;
@@ -165,6 +167,7 @@ function setupReason({ stellar, nearStorage, externalBlocked }: SwapLifecycleInp
   if (stellar.needsTrustline) return 'stellarTrustline';
   if (stellar.checkFailed) return 'stellarCheckFailed';
   if (nearStorage.needsRegistration) return 'nearStorage';
+  if (nearStorage.checkFailed) return 'nearStorageCheckFailed';
   if (externalBlocked) return 'external';
   return undefined;
 }

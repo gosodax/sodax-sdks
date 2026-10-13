@@ -377,7 +377,7 @@ if (isRegistered === false) {
 }
 ```
 
-For the common UI path, `useNearStorageGate` returns `{ isNear, needsRegistration, blocksAction, isChecking, isRegistering, registerStorage }`.
+For the common UI path, `useNearStorageGate` returns `{ isNear, needsRegistration, blocksAction, isChecking, checkFailed, retry, isRegistering, registerStorage }`. `blocksAction` stays `false` when the check errors, so read `checkFailed` too and offer `retry` rather than letting the action through: whether the recipient can receive is unknown until the check succeeds. `useSwapLifecycle` does this as the `nearStorageCheckFailed` setup reason.
 
 Derive UI gate flags with the unwrapped `resolveNearStorageGate` util (no hook) when you need custom check/register composition:
 
