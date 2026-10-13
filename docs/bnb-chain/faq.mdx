@@ -1,0 +1,59 @@
+---
+title: "BNB Chain FAQ"
+description: "The questions BNB Chain engineers actually ask about integrating SODAX."
+icon: comment-question
+---
+
+#### Do I need to write or deploy a contract?
+
+No. SODAX's BNB Chain spoke contracts are already deployed; your integration is TypeScript against `@sodax/sdk` (or the React packages on top of it). You write no on-chain code and hold no admin key for any part of the flow.
+
+#### How does a swap from BNB Chain actually settle?
+
+Your user signs one EVM transaction on BNB Chain that creates an intent. The SODAX relayer carries proof of that transaction to the hub network (Sonic), a solver fills the intent on the destination network, and the output lands at the recipient address there. Swaps into BNB Chain settle as ordinary BNB or BEP-20 balances at the recipient's address. If an intent is never filled, it can be cancelled and the funds recovered.
+
+#### Which assets are supported on BNB Chain?
+
+Two answers, and the difference matters. On BNB Chain itself, <span data-sodax-config="count" data-metric="chain-swap-tokens" data-chain="0x38.bsc">18</span> assets are live for swaps: BNB plus BEP-20 tokens, including stablecoins, BTCB, CAKE, bnUSD, and SODA. <span data-sodax-config="count" data-metric="chain-money-market-tokens" data-chain="0x38.bsc">8</span> assets work in the money market, BNB among them; the two lists overlap but are not identical.
+
+But your users are not limited to the BNB Chain-side list. Every swap is cross-network, so from BNB Chain they can reach all <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets across every SODAX-supported network. Both lists grow as the backend config adds them; read them from the SDK at runtime, or see the live tables in [Networks & Assets](/bnb-chain/networks-and-assets).
+
+#### Why is my USDT amount off by 10^12?
+
+Because USDC and USDT have 18 decimals on BNB Chain and 6 on most other networks. An amount built with 6 decimals is 10^12 too small on BNB Chain; a BNB Chain balance formatted with 6 is 10^12 too large. Build every amount from the `decimals` of the token on the network it lives on, and read `quoted_amount` in the destination token's units. See [Decimals across networks](/bnb-chain/swaps#decimals-across-networks).
+
+#### Why can't I find ETH in the BNB Chain token list?
+
+SODAX lists the Binance-Peg ETH token on BNB Chain as `ETHB`, although the contract's on-chain symbol is `ETH`. Look it up as `ETHB`, or by address.
+
+#### Is there an approve step before swapping or supplying?
+
+For BEP-20 tokens, yes. SODAX's asset manager pulls them through their ERC-20 interface, so `isAllowanceValid` checks the allowance and `approve` sets it, the same as on any EVM network. Native BNB needs no approval.
+
+#### Which RPC endpoint should I use?
+
+Any BNB Smart Chain JSON-RPC endpoint. The SODAX config uses `https://56.rpc.thirdweb.com`; BNB Chain also publishes its own [public endpoints](https://docs.bnbchain.org/bnb-smart-chain/developers/json_rpc/json-rpc-endpoint/), which are rate limited. Pass your choice through `rpcUrl` on `EvmWalletProvider`, per chain in the `@sodax/wallet-sdk-react` config, and in the `Sodax` constructor under `chains[ChainKeys.BSC_MAINNET].rpcUrl` for the SDK's own reads.
+
+#### Is there a testnet?
+
+No. SODAX is mainnet-only on every network, BNB Chain included.
+
+#### What does it cost?
+
+Using SODAX is free: no license, no integration fee, no SDK cost. Trades carry a fixed 0.1% base fee taken by the protocol; on top of that you set your own platform fee and keep it. Your users also pay BNB Chain's network fees in BNB. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+#### How do I know if something went wrong?
+
+SDK operations return `Result<T>` rather than throwing. Core swap and money market methods return typed error codes (for example `'RELAY_TIMEOUT'`, `'EXECUTION_FAILED'`) you can branch on, with structured context attached.
+
+#### Where are the audits?
+
+Audits for the SODAX protocol are collected on the [Audits](/developers/audits) page.
+
+#### Can my AI coding assistant do the integration?
+
+Largely, yes. Add the [SODAX Builders MCP](/builders-mcp) to Claude, Cursor, VS Code, Windsurf, or any MCP-capable client (`https://builders.sodax.com/mcp`) and it gets live access to the SODAX System: chains, tokens, swap quotes, money market rates, intent history, and auto-synced SDK docs. Use it to scope the integration against your own codebase first, then to write and verify the code. Setup per client is at [builders.sodax.com](https://builders.sodax.com/).
+
+#### I want a plan specific to my protocol. Who do I talk to?
+
+Reach the SODAX team through any platform listed at [linktr.ee/go.sodax](https://linktr.ee/go.sodax).

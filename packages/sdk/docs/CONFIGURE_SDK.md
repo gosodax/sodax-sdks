@@ -227,7 +227,17 @@ const sodax = new Sodax();
 const sodaxClientSide = new Sodax({ swaps: { useBackendSubmitTx: false } });
 ```
 
-The earlier `swapsOptions` / `bridgeOptions` keys are **deprecated but still honoured**, so an existing explicit opt-out keeps working; they apply only when the matching `swaps` / `bridge` flag is omitted. Move to `swaps` / `bridge`.
+The earlier `swapsOptions` / `bridgeOptions` keys (`SwapsClientOptions` / `BridgeClientOptions`) are **deprecated but still honoured** in v2, so an existing explicit opt-out keeps working; they apply only when the matching `swaps` / `bridge` flag is omitted. **v3 removes them**: from v3 the flag lives only in the feature slot, next to `partnerFee`. Move now:
+
+```diff
+- new Sodax({ swaps: { partnerFee }, swapsOptions: { useBackendSubmitTx: false } });
++ new Sodax({ swaps: { partnerFee, useBackendSubmitTx: false } });
+
+- new Sodax({ bridge: { partnerFee }, bridgeOptions: { useBackendSubmitTx: false } });
++ new Sodax({ bridge: { partnerFee, useBackendSubmitTx: false } });
+```
+
+Read the effective value back from `sodax.config.swapUseBackendSubmitTx` (or `sodax.swaps.useBackendSubmitTx`), never from the raw `swaps` slot, which stays `undefined` when the flag is omitted. A `SwapService` constructed directly (rather than through `new Sodax`) still accepts the deprecated `useBackendSubmitTx` constructor field in v2, which wins over the configured value; v3 removes it too.
 
 If the backend path does not reach `solved` for **any** reason (submission rejected, terminal `failed`/abandoned status, or poll timeout), `swap()` automatically falls back to the fully client-side relay + post-execution so the swap still completes — **safely**, because re-relaying / re-posting an already-processed swap is idempotent (no double-fill; verified by `e2e-tests/e2e-relay.test.ts`). `timeout` is a **per-attempt** budget: the backend attempt gets it, and the fallback relay then gets a fresh one that starts after on-chain verification, so neither a stalled backend nor a slow source-chain confirmation shortens the client-side wait, and raising `timeout` grows both. It does not bound intent creation, verification (the source chain's `pollingConfig.maxTimeoutMs`) or post-execution. See [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#backend-2-step-submit) for the flow and [How `timeout` bounds each attempt](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt) for the full breakdown.
 

@@ -1,0 +1,139 @@
+---
+title: "Quickstart on BNB Chain"
+description: "Install the SDK, wire up a BNB Chain wallet provider, and execute your first cross-network swap from BNB Chain."
+icon: bolt
+---
+
+This page takes you from zero to a cross-network swap sourced from BNB Chain. No new contracts, no approval for native BNB, one signed transaction for your user.
+
+<Note>
+  Building with an AI assistant? Add the [SODAX Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`) to Claude, Cursor, or any MCP-capable tool and it can pull live token lists, real quotes, and these docs while it writes your integration.
+</Note>
+
+## 1. Install
+
+```bash
+npm install @sodax/sdk @sodax/wallet-sdk-core
+# or: pnpm add / yarn add
+```
+
+## 2. Create a BNB Chain wallet provider
+
+BNB Chain uses the same `EvmWalletProvider` as every other EVM network, keyed by `ChainKeys.BSC_MAINNET`.
+
+<CodeGroup>
+  ```typescript Private key (scripts / bots)
+  import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+  import { ChainKeys } from '@sodax/sdk';
+
+  const walletProvider = new EvmWalletProvider({
+    privateKey: '0x…',
+    chainId: ChainKeys.BSC_MAINNET,
+    rpcUrl: 'https://56.rpc.thirdweb.com', // the RPC in the SODAX config
+  });
+  ```
+
+  ```typescript Browser extension (dApps)
+  import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+
+  // walletClient and publicClient are viem clients for BNB Smart Chain,
+  // usually supplied by wagmi from the user's connected EVM wallet
+  const walletProvider = new EvmWalletProvider({
+    walletClient,
+    publicClient,
+  });
+  ```
+</CodeGroup>
+
+Building in React? [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) connects EVM wallets for you and hands back a ready-made provider via `useWalletProvider`. See [Wallets](/bnb-chain/wallets).
+
+## 3. Look up supported tokens
+
+Token addresses and decimals come from the SDK config, so you never hard-code them. On BNB Chain this matters more than usual: USDC and USDT use 18 decimals there, not 6.
+
+```typescript
+import { Sodax, ChainKeys, type XToken } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// find() returns XToken | undefined, so narrow before using the address
+const bySymbol = (tokens: readonly XToken[], symbol: string) => {
+  const token = tokens.find(t => t.symbol === symbol);
+  if (!token) throw new Error(`${symbol} is not a supported swap token`);
+  return token;
+};
+
+const bnb = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.BSC_MAINNET), 'BNB');
+const usdcBase = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.BASE_MAINNET), 'USDC');
+```
+
+## 4. Quote and swap
+
+`swap()` runs the full lifecycle: it creates the intent on BNB Chain, verifies the transaction landed, relays it to the hub, and notifies the solver to fill on the destination network.
+
+```typescript
+import type { SolverIntentQuoteRequest } from '@sodax/sdk';
+
+// 0.1 BNB, built from the token's own decimals (18 for BNB)
+const inputAmount = 10n ** BigInt(bnb.decimals) / 10n;
+
+// Quote: 0.1 BNB -> USDC on Base
+const quoteResult = await sodax.swaps.getQuote({
+  token_src: bnb.address,
+  token_dst: usdcBase.address,
+  token_src_blockchain_id: ChainKeys.BSC_MAINNET,
+  token_dst_blockchain_id: ChainKeys.BASE_MAINNET,
+  amount: inputAmount,
+  quote_type: 'exact_input',
+} satisfies SolverIntentQuoteRequest);
+
+if (!quoteResult.ok) throw new Error('Quote failed');
+const { quoted_amount } = quoteResult.value;
+
+// `deadline` is an absolute Unix timestamp; getSwapDeadline turns an offset into one
+const deadlineResult = await sodax.swaps.getSwapDeadline(300n); // 5 minutes from now
+if (!deadlineResult.ok) throw new Error('Deadline lookup failed');
+
+// Execute
+const swapResult = await sodax.swaps.swap({
+  params: {
+    inputToken: bnb.address,
+    outputToken: usdcBase.address,
+    inputAmount,
+    minOutputAmount: (quoted_amount * 99n) / 100n, // your slippage policy
+    deadline: deadlineResult.value,
+    allowPartialFill: false,
+    srcChainKey: ChainKeys.BSC_MAINNET,
+    dstChainKey: ChainKeys.BASE_MAINNET,
+    srcAddress: await walletProvider.getWalletAddress(),
+    dstAddress: '0x...', // recipient on Base
+    solver: '0x0000000000000000000000000000000000000000',
+    data: '0x',
+  },
+  walletProvider,
+  timeout: 120_000,
+});
+
+if (swapResult.ok) {
+  console.log('Submitted. Hub tx:', swapResult.value.intentDeliveryInfo.dstTxHash);
+} else {
+  console.error('Swap failed:', swapResult.error);
+}
+```
+
+`ok` means the intent was created, relayed to the hub, and the solver notified, **not** that it was
+filled. Poll `sodax.swaps.getStatus({ intent_tx_hash: intentDeliveryInfo.dstTxHash })` until the
+status is `SolverIntentStatusCode.SOLVED`, which is the only success signal. The
+[main quickstart](/quickstart) has the full polling loop, including why `NOT_FOUND` is not terminal.
+
+A few things to know on BNB Chain:
+
+- **BNB needs no approval.** It is the native token. Swapping a BEP-20 token (USDT, BTCB, and the rest) needs an ERC-20 allowance first; see [Approvals](/bnb-chain/swaps#approvals).
+- **Amounts follow `token.decimals`.** BNB uses 18, and so do USDC and USDT on BNB Chain. `quoted_amount` is in the destination token's units: 6 decimals for USDC on Base in this example.
+- **Look tokens up by SODAX symbol.** Binance-Peg ETH is `ETHB` in the SODAX list, not `ETH`.
+
+## Next steps
+
+- [Swaps on BNB Chain](/bnb-chain/swaps): approvals, fees, decimals across networks, manual orchestration.
+- [Money Market on BNB Chain](/bnb-chain/money-market): supply and borrow with cross-network collateral.
+- Full API reference: [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps) in the SDK docs.

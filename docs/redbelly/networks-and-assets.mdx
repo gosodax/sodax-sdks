@@ -1,0 +1,67 @@
+---
+title: "Redbelly: Networks & Assets"
+description: "What is live on Redbelly today, and the networks and assets your users can reach from it."
+icon: coins
+---
+
+Redbelly is a spoke network in the SODAX System. User funds stay on Redbelly; the hub (Sonic) coordinates execution, and solvers settle against deep native liquidity on each network rather than isolated bridge pools.
+
+There are two asset lists to keep straight, and the difference is the point of SODAX:
+
+- **Assets on Redbelly**: the <span data-sodax-config="count" data-metric="chain-swap-tokens" data-chain="redbelly">15</span> assets that live on Redbelly itself, RBNT and ERC-20 tokens. These are what your users hold, send, and receive on Redbelly; the entry and exit points of any Redbelly-side flow.
+- **Assets across the SODAX System**: <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets across all supported networks. Every one of them is a valid swap destination or collateral source for your Redbelly users, because every SODAX action is cross-network by default.
+
+A user holding RBNT is not limited to the Redbelly-side list. They can swap RBNT into ETH on Ethereum, USDC on Base, SOL on Solana, or any other listed asset on any network, in one signed transaction. The on-Redbelly assets are simply where those journeys start and end on your side.
+
+Every count and list below is read live from the backend config API, `GET https://api.sodax.com/v2/be/config/all`, so it reflects what the backend serves today rather than what an SDK release has listed.
+
+## Assets on Redbelly
+
+Live for swaps on Redbelly:
+
+<div data-sodax-config="swap-tokens" data-chain="redbelly">
+  Live token list loads from the config API. If it has not appeared, read `config.swaps.supportedTokens.redbelly` from [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all), or use the SDK call below.
+</div>
+
+Live in the [Money Market](/redbelly/money-market) for supply, borrow, repay, and withdraw:
+
+<div data-sodax-config="money-market-tokens" data-chain="redbelly">
+  Live token list loads from the config API: `config.moneyMarket.supportedTokens.redbelly` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+</div>
+
+RBNT uses the zero address in these lists; every other entry is an ERC-20 contract address on Redbelly mainnet. The r-prefixed tokens (rBTC, rETH, and the rest) are Redbelly-side tokens for assets from other networks. In the SODAX config each one shares its hub vault with the original asset, so rBTC, for example, uses the same hub vault as BTC on Bitcoin.
+
+Hub vault addresses per asset are listed in [Swaps: Compatible Assets](/developers/deployments/swaps-compatible-assets).
+
+## Assets your users can reach
+
+From a Redbelly-sourced action, users can trade, lend, and borrow across every SODAX-supported network:
+
+<div data-sodax-config="chains">
+  Live network list loads from the config API: `config.chains` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+</div>
+
+Chain identifiers come from `ChainKeys.*` in the SDK (`ChainKeys.REDBELLY_MAINNET` = `'redbelly'`), and the SDK's chain list from `sodax.config.getSupportedSpokeChains()`. Prefer these over hard-coding: networks are added over time.
+
+## Asset discovery in code
+
+Never hard-code token addresses or asset lists; read them from the SDK config at runtime:
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// Swappable assets on Redbelly
+const swapTokens = sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.REDBELLY_MAINNET);
+
+// Money market assets on Redbelly
+const mmTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.REDBELLY_MAINNET);
+```
+
+These lists ship with the SDK package, so a token the backend has added since your SDK release appears in the live tables above before it appears here.
+
+---
+
+- All deployment addresses by network: [Mainnet Deployments](/developers/deployments/mainnet)
+- The full cross-network asset directory: [sodax.com/partners/asset-directory](https://sodax.com/partners/asset-directory)

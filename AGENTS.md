@@ -119,7 +119,7 @@ These guide every change. Where a rule maps to tooling (types, lint, tests, `che
 
 To review a change against these rules, use the `review-core-sdk` skill (`.claude/skills/review-core-sdk/`).
 
-To cut a release, follow [`packages/RELEASE_INSTRUCTIONS.md`](packages/RELEASE_INSTRUCTIONS.md). `pnpm release` prompts for the version and applies it; committing, tagging, and publishing stay human steps.
+To cut a release, follow [`packages/RELEASE_INSTRUCTIONS.md`](packages/RELEASE_INSTRUCTIONS.md). `pnpm release` prompts for the version and applies it; committing, tagging, and publishing stay human steps. For curated stable-release notes, use the `changelog-from-prs` skill (`.claude/skills/changelog-from-prs/`).
 
 ## AI File Maintenance
 

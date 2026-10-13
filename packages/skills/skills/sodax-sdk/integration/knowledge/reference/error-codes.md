@@ -99,9 +99,22 @@ type LookupErrorCode = 'VALIDATION_FAILED' | 'LOOKUP_FAILED' | 'UNKNOWN';
 |---|---|
 | `createIntent` | `CreateIntentErrorCode` |
 | `swap` | All of {`USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `EXECUTION_FAILED`, `TX_VERIFICATION_FAILED`, `TX_SUBMIT_FAILED`, `RELAY_TIMEOUT`, `RELAY_FAILED`, `EXTERNAL_API_ERROR`, `UNKNOWN`} |
+| `swapWithApproval` | `SwapWithApprovalErrorCode`: the `swap` codes plus `APPROVE_FAILED \| ALLOWANCE_CHECK_FAILED`. See [Atomic approval batches](#atomic-approval-batches-contextreason) for the batch reasons |
+| `getApprovalStrategy` | `ApprovalStrategyErrorCode` (`ALLOWANCE_CHECK_FAILED` only) |
 | `postExecution` | `EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` (with `phase: 'postExecution'`) |
 | `createLimitOrder`, `createLimitOrderIntent` | `CreateIntentErrorCode` |
 | `cancelIntent`, `cancelLimitOrder` | `EXECUTION_FAILED \| VALIDATION_FAILED \| UNKNOWN` |
+
+#### Atomic approval batches (`context.reason`)
+
+When the approval and the deposit go out as one EIP-5792 batch, these codes carry a `context.reason`
+that changes what the caller should do. Check it before the generic retry advice above.
+
+| Code | `context.reason` | Meaning | Retry? |
+|---|---|---|---|
+| `USER_REJECTED` | `ACCOUNT_UPGRADE_DECLINED` | The user declined the smart-account upgrade, not the swap. | Offer it again with `allowAccountUpgrade: false` (two signatures). |
+| `INTENT_CREATION_FAILED` | `'atomic-batch-failed'` (with `batchId`, `statusCode`) | The batch was never included or fully reverted. Nothing was deposited. | Yes. |
+| `TX_VERIFICATION_FAILED` | `ATOMIC_BATCH_UNCONFIRMED` (with `batchId`) | The wallet took the batch but it did not confirm in time. **It may still land.** | **No.** Do not let the user send it again; tell them to check the wallet's activity. |
 
 ### Money Market (`feature: 'moneyMarket'`)
 

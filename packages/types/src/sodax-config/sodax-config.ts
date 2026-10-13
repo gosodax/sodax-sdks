@@ -96,16 +96,16 @@ export type RadfiOptions = {
 };
 
 /**
- * @deprecated in favor of `swaps` property of SodaxOptionalConfig, kept for backward compatibility.
- * Still honoured, but only when `swaps.useBackendSubmitTx` is omitted; the default is now `true`.
+ * @deprecated Use `swaps: { partnerFee, useBackendSubmitTx }` ({@link SwapsOptions}) instead; removed in v3. Kept for backward
+ * compatibility: still honoured, but only when `swaps.useBackendSubmitTx` is omitted; the default is now `true`.
  */
 export type SwapsClientOptions = {
   useBackendSubmitTx?: boolean;
 };
 
 /**
- * @deprecated in favor of `bridge` property of SodaxOptionalConfig, kept for backward compatibility.
- * Still honoured, but only when `bridge.useBackendSubmitTx` is omitted; the default is now `true`.
+ * @deprecated Use `bridge: { partnerFee, useBackendSubmitTx }` ({@link BridgeOptions}) instead; removed in v3. Kept for backward
+ * compatibility: still honoured, but only when `bridge.useBackendSubmitTx` is omitted; the default is now `true`.
  */
 export type BridgeClientOptions = {
   useBackendSubmitTx?: boolean;
@@ -128,9 +128,9 @@ export type SodaxOptionalConfig = {
   moneyMarket?: MoneyMarketOptions;
   bridge?: BridgeOptions;
   leverageYield?: LeverageYieldOptions;
-  /** @deprecated Use `swaps` instead — still honoured, but only when `swaps.useBackendSubmitTx` is absent. */
+  /** @deprecated Use `swaps` instead; removed in v3. Still honoured, but only when `swaps.useBackendSubmitTx` is absent. */
   swapsOptions?: SwapsClientOptions;
-  /** @deprecated Use `bridge` instead — still honoured, but only when `bridge.useBackendSubmitTx` is absent. */
+  /** @deprecated Use `bridge` instead; removed in v3. Still honoured, but only when `bridge.useBackendSubmitTx` is absent. */
   bridgeOptions?: BridgeClientOptions;
 };
 

@@ -1,5 +1,6 @@
 import { XService } from '@/core/XService.js';
-import { ChainKeys, type XToken } from '@sodax/types';
+import { EVM_DEFAULT_PERSIST_KEY } from '@/constants.js';
+import { ChainKeys, getEvmChainKeyByChainId, type XToken } from '@sodax/types';
 import type { EvmTypeConfig } from '@/types/config.js';
 import { getRpcUrl, getWagmiChainId, isNativeToken } from '@/utils/index.js';
 
@@ -91,27 +92,44 @@ export const robinhoodChain = /*#__PURE__*/ defineChain({
   },
 });
 
+/** The EVM chains every SODAX wagmi config carries. */
+export const SODAX_EVM_CHAINS = [
+  mainnet,
+  avalanche,
+  arbitrum,
+  base,
+  bsc,
+  sonic,
+  optimism,
+  polygon,
+  hyper,
+  lightlinkPhoenix,
+  kaia,
+  redbellyMainnet,
+  hedera,
+  robinhoodChain,
+] as const satisfies readonly [Chain, ...Chain[]];
+
+/**
+ * RPC URL per chain id — the partner's `rpcUrl` override, else the chain default. Shared by the wagmi
+ * transports and EVM wallet sources, so reads and a source's own sends hit the same endpoint.
+ */
+export function resolveEvmRpcUrls(evmChains?: EvmTypeConfig['chains']): Record<number, string> {
+  const urls: Record<number, string> = {};
+  for (const chain of SODAX_EVM_CHAINS) {
+    const key = getEvmChainKeyByChainId(chain.id);
+    urls[chain.id] = getRpcUrl(key ? evmChains?.[key] : undefined) ?? chain.rpcUrls.default.http[0];
+  }
+  return urls;
+}
+
 export const createWagmiConfig = (
   evmChains?: EvmTypeConfig['chains'],
   options?: WagmiOptions & { connectors?: CreateConnectorFn[] },
 ): Config => {
+  const rpcUrls = resolveEvmRpcUrls(evmChains);
   return createConfig({
-    chains: [
-      mainnet,
-      avalanche,
-      arbitrum,
-      base,
-      bsc,
-      sonic,
-      optimism,
-      polygon,
-      hyper,
-      lightlinkPhoenix,
-      kaia,
-      redbellyMainnet,
-      hedera,
-      robinhoodChain,
-    ],
+    chains: SODAX_EVM_CHAINS,
     connectors: options?.connectors ?? [],
     // NOTE: wagmi's `ssr` is a hydration-timing flag, not an "is host app SSR"
     // flag. `true` defers `Hydrate.onMount()` into `useEffect` (safe for both
@@ -121,24 +139,24 @@ export const createWagmiConfig = (
     // `false` if you have a specific reason. See issue #129.
     ssr: options?.ssr ?? true,
     transports: {
-      [mainnet.id]: http(getRpcUrl(evmChains?.[ChainKeys.ETHEREUM_MAINNET])),
-      [avalanche.id]: http(getRpcUrl(evmChains?.[ChainKeys.AVALANCHE_MAINNET])),
-      [arbitrum.id]: http(getRpcUrl(evmChains?.[ChainKeys.ARBITRUM_MAINNET])),
-      [base.id]: http(getRpcUrl(evmChains?.[ChainKeys.BASE_MAINNET])),
-      [bsc.id]: http(getRpcUrl(evmChains?.[ChainKeys.BSC_MAINNET])),
-      [sonic.id]: http(getRpcUrl(evmChains?.[ChainKeys.SONIC_MAINNET])),
-      [optimism.id]: http(getRpcUrl(evmChains?.[ChainKeys.OPTIMISM_MAINNET])),
-      [polygon.id]: http(getRpcUrl(evmChains?.[ChainKeys.POLYGON_MAINNET])),
-      [hyper.id]: http(getRpcUrl(evmChains?.[ChainKeys.HYPEREVM_MAINNET])),
-      [lightlinkPhoenix.id]: http(getRpcUrl(evmChains?.[ChainKeys.LIGHTLINK_MAINNET])),
-      [redbellyMainnet.id]: http(getRpcUrl(evmChains?.[ChainKeys.REDBELLY_MAINNET])),
-      [kaia.id]: http(getRpcUrl(evmChains?.[ChainKeys.KAIA_MAINNET])),
-      [hedera.id]: http(getRpcUrl(evmChains?.[ChainKeys.HEDERA_MAINNET])),
-      [robinhoodChain.id]: http(getRpcUrl(evmChains?.[ChainKeys.ROBINHOOD_MAINNET])),
+      [mainnet.id]: http(rpcUrls[mainnet.id]),
+      [avalanche.id]: http(rpcUrls[avalanche.id]),
+      [arbitrum.id]: http(rpcUrls[arbitrum.id]),
+      [base.id]: http(rpcUrls[base.id]),
+      [bsc.id]: http(rpcUrls[bsc.id]),
+      [sonic.id]: http(rpcUrls[sonic.id]),
+      [optimism.id]: http(rpcUrls[optimism.id]),
+      [polygon.id]: http(rpcUrls[polygon.id]),
+      [hyper.id]: http(rpcUrls[hyper.id]),
+      [lightlinkPhoenix.id]: http(rpcUrls[lightlinkPhoenix.id]),
+      [redbellyMainnet.id]: http(rpcUrls[redbellyMainnet.id]),
+      [kaia.id]: http(rpcUrls[kaia.id]),
+      [hedera.id]: http(rpcUrls[hedera.id]),
+      [robinhoodChain.id]: http(rpcUrls[robinhoodChain.id]),
     },
     storage: createStorage({
       storage: cookieStorage,
-      key: options?.persistKey ?? 'sodax',
+      key: options?.persistKey ?? EVM_DEFAULT_PERSIST_KEY,
     }),
   });
 };

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite --port 3000 --host",
-    "build": "vite build",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=6144 vite build",
     "preview": "vite preview",
     "test": "true",
     "checkTs": "tsc --noEmit",
@@ -51,10 +51,12 @@
   },
   "devDependencies": {
     "@bangjelkoski/vite-plugin-node-polyfills": "^0.0.2",
+    "@privy-io/react-auth": "3.40.0",
     "@tailwindcss/vite": "^4.1.16",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "babel-plugin-macros": "3.1.0",
+    "cross-env": "catalog:",
     "tailwindcss": "^4.1.16",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "catalog:",

@@ -1,0 +1,80 @@
+---
+title: "SODAX for Polygon"
+sidebarTitle: "Overview"
+description: "Reach the users and liquidity of every SODAX network from your Polygon product. No contracts to deploy, your entire integration is TypeScript."
+icon: draw-polygon
+---
+
+<Note>
+  **No new contracts.** SODAX's Polygon spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary EVM transactions on Polygon PoS, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+You keep shipping on Polygon. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## Three things to know on Polygon
+
+Polygon (Polygon PoS, chain ID 137) takes the standard SODAX EVM path: the same `EvmWalletProvider` as every other EVM network, ERC-20 approvals for tokens, no approval for the native token, and no chain-specific handling in the SDK. These three are yours to know about:
+
+- **The native token is POL.** Polygon's gas token changed from MATIC to POL, and the SODAX config lists it as `POL` (18 decimals, zero address). Look it up as `POL`; there is no `MATIC` entry.
+- **Set your own RPC.** Pass an RPC endpoint you control, or one from [Polygon's RPC list](https://docs.polygon.technology/pos/reference/rpc-endpoints/), to the SDK and your wallet config, rather than relying on the packaged default. SDK reads such as allowance checks go through it; see [Quickstart](/polygon/quickstart#2-create-a-polygon-wallet-provider).
+- **Match tokens by address.** Two Polygon contracts report the symbol `USDC` on-chain. SODAX supports Circle's native USDC; the older bridged token, named `USD Coin (PoS)`, is not in the list. In the other direction, the token SODAX lists as `USDT` reports `USDT0` on-chain. See [Networks & Assets](/polygon/networks-and-assets).
+
+## What you can build
+
+Two SODAX modules are relevant to Polygon builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/polygon/swaps">
+    Intent-based cross-network swaps. Users swap between POL or ERC-20 tokens on Polygon and assets on any supported network with one signed transaction. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/polygon/money-market">
+    Cross-network lending and borrowing. Supply from Polygon, borrow to Polygon or any other supported network, and manage positions without running lending infrastructure.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/polygon/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/polygon/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/polygon/quickstart): install the SDK, connect a Polygon wallet, make your first cross-network swap.
+- [Swaps on Polygon](/polygon/swaps): approvals, quoting, and fees.
+- [Money Market on Polygon](/polygon/money-market): supply, borrow, repay, and withdraw with cross-network collateral.
+- [Wallets](/polygon/wallets): EVM wallets on Polygon, and every other network's wallets through one interface.
+- [Networks & Assets](/polygon/networks-and-assets): what is live on Polygon today and what your users can reach.
+- [Polygon FAQ](/polygon/faq): the questions Polygon engineers actually ask.
+
+## Polygon references
+
+- [**Polygon documentation**](https://docs.polygon.technology/): Polygon PoS and its developer tooling.
+- [**RPC endpoints**](https://docs.polygon.technology/pos/reference/rpc-endpoints/): chain ID, gas token, and public RPC endpoints for Polygon mainnet.
+- [**USDC contract addresses**](https://developers.circle.com/stablecoins/usdc-contract-addresses): Circle's list, including native USDC on Polygon PoS.
+- [**PolygonScan**](https://polygonscan.com/): the explorer the SODAX config uses for Polygon.
+
+---
+
+Building something? Start with the [Quickstart](/polygon/quickstart).
