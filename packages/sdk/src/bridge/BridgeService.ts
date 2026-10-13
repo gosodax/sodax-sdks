@@ -41,6 +41,7 @@ import type { DetailedBridgeStatus, DetailedBridgeStatusKey } from './detailedSt
 import { createSubmitTxAttempt, type SubmitTxAttempt } from '../backendApi/submitTxAttempt.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
 import {
+  approvalBatchWaitMs,
   confirmApproval,
   resolveApprovalStrategy,
   runWithApproval,
@@ -698,7 +699,7 @@ export class BridgeService {
       walletProvider,
       srcChainKey,
       txs: resetTx ? [resetTx, approveTx, depositTx] : [approveTx, depositTx],
-      timeoutMs: resolveTimeoutMs(_params.timeout, DEFAULT_RELAY_TX_TIMEOUT),
+      timeoutMs: approvalBatchWaitMs(_params.timeout),
       feature: 'bridge',
       context: ctx,
     });

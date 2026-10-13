@@ -87,6 +87,7 @@ import { runBackendSubmitTx } from '../backendApi/runBackendSubmitTx.js';
 import { createSubmitTxAttempt, type SubmitTxAttempt } from '../backendApi/submitTxAttempt.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
 import {
+  approvalBatchWaitMs,
   confirmApproval,
   resolveApprovalStrategy,
   runWithApproval,
@@ -1452,7 +1453,7 @@ export class LeverageYieldService {
       walletProvider,
       srcChainKey,
       txs: resetTx ? [resetTx, approveTx, depositTx] : [approveTx, depositTx],
-      timeoutMs: resolveTimeoutMs(_params.timeout, DEFAULT_RELAY_TX_TIMEOUT),
+      timeoutMs: approvalBatchWaitMs(_params.timeout),
       feature: 'leverageYield',
       context: ctx,
     });

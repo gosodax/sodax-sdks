@@ -1819,6 +1819,19 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
       expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
 
+    // A short relay timeout must not cut the batch wait short: that reports a landing batch as unconfirmed.
+    it('never waits less than the default for the batch, even on a zero timeout', async () => {
+      allowance(false);
+      vi.spyOn(sodax.bridge, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
+      stubCreate();
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockRejectedValueOnce(new Error('timed out'));
+
+      await sodax.bridge.bridgeWithApproval({ ...input(wallet), timeout: 0 });
+
+      expect(wallet.waitForBatch).toHaveBeenCalledWith('batch-1', { timeout: DEFAULT_RELAY_TX_TIMEOUT });
+    });
+
     it('approves, waits, then deposits on a wallet that cannot batch', async () => {
       allowance(false);
       const createSpy = stubCreate();
