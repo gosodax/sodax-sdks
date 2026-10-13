@@ -88,7 +88,6 @@ const run = (overrides: Partial<Parameters<typeof useSwapLifecycle>[0]> = {}) =>
     intentParams: PARAMS,
     srcWalletProvider: WALLET,
     dstWalletProvider: undefined,
-    dstAccountAddress: '0x2222222222222222222222222222222222222222',
     ...overrides,
   });
 
@@ -185,6 +184,15 @@ describe('useSwapLifecycle', () => {
     await lifecycle.next();
     expect(openGate[action]).toHaveBeenCalledOnce();
     expect(mutateAsyncSafe).not.toHaveBeenCalled();
+  });
+
+  // The gates must check the account the swap pays, not whichever destination account the app tracks.
+  it('checks the Stellar and NEAR gates on the intent recipient', () => {
+    stub();
+    run();
+
+    expect(stellarHook).toHaveBeenCalledWith(expect.objectContaining({ address: PARAMS.dstAddress }));
+    expect(nearHook).toHaveBeenCalledWith(expect.objectContaining({ accountId: PARAMS.dstAddress }));
   });
 
   it('retries a failed NEAR storage check instead of swapping', async () => {

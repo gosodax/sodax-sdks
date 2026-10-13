@@ -354,7 +354,6 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
     intentParams: intentOrderPayload,
     srcWalletProvider: sourceWalletProvider,
     dstWalletProvider: destWalletProvider,
-    dstAccountAddress: destAccount.address,
     chainSwitch: { isWrongChain, switchChain: handleSwitchChain },
     externalBlocked:
       (src.chain === ChainKeys.BITCOIN_MAINNET && !isBitcoinReady) ||

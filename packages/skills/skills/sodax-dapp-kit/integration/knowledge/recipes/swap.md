@@ -145,7 +145,7 @@ one `next()` action. Render from `state.kind`; wire the button to `next()`. Chai
 
 ```tsx
 import { useSwapLifecycle, type CreateIntentParams, type SwapLifecycleState } from '@sodax/dapp-kit';
-import { useEvmSwitchChain, useWalletProvider, useXAccount } from '@sodax/wallet-sdk-react';
+import { useEvmSwitchChain, useWalletProvider } from '@sodax/wallet-sdk-react';
 
 function buttonLabel(state: SwapLifecycleState): string {
   switch (state.kind) {
@@ -182,14 +182,12 @@ function isPassive(state: SwapLifecycleState): boolean {
 function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
   const srcWalletProvider = useWalletProvider({ xChainId: intentParams.srcChainKey });
   const dstWalletProvider = useWalletProvider({ xChainId: intentParams.dstChainKey });
-  const dstAccount = useXAccount({ xChainId: intentParams.dstChainKey });
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: intentParams.srcChainKey });
 
   const { state, error, next, reset, stellar } = useSwapLifecycle({
     intentParams,
     srcWalletProvider,
     dstWalletProvider,
-    dstAccountAddress: dstAccount.address,
     chainSwitch: { isWrongChain, switchChain: handleSwitchChain },
   });
 

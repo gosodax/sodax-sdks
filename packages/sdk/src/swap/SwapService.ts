@@ -940,7 +940,8 @@ export class SwapService {
     const { resetTx, approveTx } = approval.value as ApprovalTxs<EvmSpokeOnlyChainKey>;
     const depositTx = created.value.tx as EvmRawTransaction;
     const txs = resetTx ? [resetTx, approveTx, depositTx] : [approveTx, depositTx];
-    const timeoutMs = resolveTimeoutMs(_params.timeout, DEFAULT_RELAY_TX_TIMEOUT);
+    // Never below the default: a batch given up on early is one the user can only wait out.
+    const timeoutMs = Math.max(resolveTimeoutMs(_params.timeout, DEFAULT_RELAY_TX_TIMEOUT), DEFAULT_RELAY_TX_TIMEOUT);
     return this.sendAtomicBatch(walletProvider, txs, getEvmViemChain(srcChainKey).id, timeoutMs, ctx, created.value);
   }
 
