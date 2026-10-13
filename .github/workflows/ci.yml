@@ -220,7 +220,7 @@ jobs:
 
       - name: Build Apps
         timeout-minutes: 10
-        run: pnpm turbo run build --filter='./apps/demo' --filter='./apps/example-next-js-16'
+        run: pnpm turbo run build --filter='./apps/demo' --filter='./apps/example-next-js-16' --filter='./apps/wallet-modal-example'
 
       - name: SDK features powered by @sodax/libs (Node smoke)
         run: pnpm --filter node test-libs

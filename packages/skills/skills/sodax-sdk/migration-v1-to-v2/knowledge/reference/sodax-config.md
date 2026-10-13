@@ -52,7 +52,7 @@ All v1 fields were **optional**. v1 had **no** top-level `rpcConfig` on `SodaxCo
 | `SodaxConfig.swaps` (`SolverConfigParams` — `{ intentsContract, solverApiEndpoint, protocolIntentsContract?, partnerFee? }`) | **Split into two:** `SodaxConfig.solver: SolverConfig` (`{ intentsContract, solverApiEndpoint, protocolIntentsContract }`) and `SodaxConfig.swaps: SwapsConfig` (supported tokens per chain — new in v2). | v1 partner-fee inside `SolverConfigParams` moves to the global `SodaxOptions.fee` option or per-feature configs. |
 | `SodaxConfig.hubProviderConfig` (`EvmHubProviderConfig` — `{ hubRpcUrl, chainConfig }`) | **`SodaxConfig.hub`** (`HubConfig` — full hub addresses + native token + bnUSD + polling + RPC URL). | Field renamed `hubProviderConfig` → `hub`. Shape expanded: v1 just had RPC URL + chain config; v2 ships the full hub-contract address map. |
 | `SodaxConfig.moneyMarket` (`MoneyMarketConfigParams`) | `SodaxConfig.moneyMarket` (`MoneyMarketConfig` — required, shape changed). | Reshape, see `@sodax/types/src/common/common.ts` MoneyMarketConfig. |
-| `SodaxConfig.bridge` (`BridgeServiceConfig`) | `SodaxConfig.bridge` (`BridgeConfig` — `{ partnerFee }`). | Reshape; smaller. |
+| `SodaxConfig.bridge` (`BridgeServiceConfig`) | `SodaxConfig.bridge` (`BridgeConfig` — `{ partnerFee }`). | Reshape; smaller. Client-side option `bridge.useBackendSubmitTx` (default **on**) selects the backend submit-tx path. |
 | `SodaxConfig.dex` (`DexServiceConfig`) | `SodaxConfig.dex` (`DexConfig`). | Reshape. |
 | `SodaxConfig.relayerApiEndpoint: HttpUrl` (string) | **`SodaxConfig.relay`** (`RelayConfig` — object with relayer URL + chain-id map). | Renamed + reshaped from string to object. |
 | `SodaxConfig.backendApiConfig` (`BackendApiConfig`) | **`SodaxConfig.api`** (`ApiConfig`). | Renamed. |
@@ -62,6 +62,14 @@ All v1 fields were **optional**. v1 had **no** top-level `rpcConfig` on `SodaxCo
 | `SodaxConfig.sharedConfig` (`typeof defaultSharedConfig`) | **Removed.** | Absorbed into `ConfigService` + per-chain `SpokeChainConfig`. Override individual chains via `SodaxConfig.chains[key]`. |
 | (none in v1) | **`SodaxOptions.fee?: PartnerFee`** (new — a client-side option, NOT a `SodaxConfig` data field). | Global partner fee, set via `new Sodax({ fee })` and read back on `sodax.config.fee`. A client option like `logger` — never fetched from or overwritten by the backend. Per-feature overrides still live on `SodaxConfig` (`bridge.partnerFee`, `swaps.partnerFee`, `moneyMarket.partnerFee`). |
 | (v1 had no top-level `configService` injection slot on `SodaxConfig` — `ConfigService` was always constructed internally from `backendApiConfig` + `sharedConfig`.) | Same — `ConfigService` is internal. v2 does **not** expose a typed slot to inject a custom `IConfigApi` either. To swap the backend in tests, point `SodaxConfig.api.baseURL` at a mock server. | See Pitfall below. |
+
+**Within v2, too:** `swaps.useBackendSubmitTx` / `bridge.useBackendSubmitTx` (client-side options, default **on**)
+replace the earlier `swapsOptions` / `bridgeOptions` keys (`SwapsClientOptions` / `BridgeClientOptions`). The old keys
+are deprecated, honoured only when the new flag is omitted, and removed in v3, where the only form is
+`swaps: { partnerFee, useBackendSubmitTx }` / `bridge: { partnerFee, useBackendSubmitTx }`. Do not generate the old
+keys; an explicit `false` on the new key keeps the fully client-side relay path. A `SwapService` built directly
+(not through `new Sodax`) also still accepts a deprecated `useBackendSubmitTx` constructor field, which wins over the
+configured value; it is removed in v3 too.
 
 Migration:
 

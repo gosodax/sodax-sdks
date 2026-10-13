@@ -3,7 +3,6 @@ import {
   ChainKeys,
   spokeChainConfig,
   isNativeToken,
-  confirmApprovalBatch,
   resolveApprovalStrategy,
   useBalances,
   useNearStorageGate,
@@ -35,6 +34,7 @@ import {
   loadActivity,
   loadPendingBatch,
   saveActivity,
+  saveBatchActivity,
   savePendingBatch,
   submissionFor,
   type Activity,
@@ -57,6 +57,7 @@ const BATCH_RECHECK_TIMEOUT_MS = 15_000;
 import {
   broadcast,
   canExecute,
+  checkHeldBatch,
   evmDeposit,
   executeSwap,
   executionError,
@@ -163,6 +164,8 @@ export function useExecution(input: ExecutionInput) {
     setStorageAvailable(savePendingBatch(batch));
     setPendingBatch(batch);
   };
+  // The batch's own wallet, not the form's source: only the account that sent it can say where it went.
+  const batchWallet = useWalletProvider({ xChainType: pendingBatch ? 'EVM' : undefined });
   const statusQuery = useSwapsApiSubmitTxStatus({
     params: { txHash: activity?.txHash, srcChainKey: activity?.srcChainKey },
   });
@@ -364,10 +367,10 @@ export function useExecution(input: ExecutionInput) {
             txHash: request.txHash,
             ...recordFields(request.walletAddress, request.relayData, intent),
           };
-          setStorageAvailable(saveActivity(broadcastRecord));
+          setStorageAvailable(batchSent ? saveBatchActivity(broadcastRecord) : saveActivity(broadcastRecord));
           setActivity(broadcastRecord);
           // A batch that confirmed is an ordinary broadcast now, with its hash on the record.
-          if (batchSent) storePendingBatch(undefined);
+          if (batchSent) setPendingBatch(undefined);
           postEmbedEvent({ type: 'sodax:swap', status: 'submitted' });
           if (input.pair) {
             submittedPair.current = input.pair;
@@ -410,6 +413,9 @@ export function useExecution(input: ExecutionInput) {
   const clearActivity = () => {
     if (!terminal) return;
     saveActivity(undefined);
+    // A batch kept because its activity could not be saved settles with that activity.
+    savePendingBatch(undefined);
+    setPendingBatch(undefined);
     setActivity(undefined);
     setError(undefined);
     setReview(undefined);
@@ -461,31 +467,35 @@ export function useExecution(input: ExecutionInput) {
   // Asks the wallet again about the held batch. A confirmed one becomes the swap's activity and goes
   // to the relay; one that never landed releases the hold; anything else keeps holding.
   const recheckBatch = async () => {
-    if (!pendingBatch || !wallet || wallet.chainType !== 'EVM' || busyRef.current) return;
+    if (!pendingBatch || busyRef.current) return;
     busyRef.current = true;
     setPhase('submitting');
     setError(undefined);
     try {
-      const confirmed = await confirmApprovalBatch({
-        walletProvider: wallet,
-        batchId: pendingBatch.batchId,
-        callCount: pendingBatch.callCount,
-        timeoutMs: BATCH_RECHECK_TIMEOUT_MS,
-        feature: 'swap',
-      });
-      if (!confirmed.ok) {
-        if (isUnconfirmedBatch(confirmed.error)) {
-          setError('Your wallet still has not confirmed this swap. Check its activity, then try again.');
-          return;
-        }
+      const check = await checkHeldBatch(pendingBatch, batchWallet, BATCH_RECHECK_TIMEOUT_MS);
+      if (check.status === 'connect') {
+        setError('Connect the wallet that sent this swap, then check again.');
+        openConnect('EVM');
+        return;
+      }
+      if (check.status === 'wrong-account') {
+        const sender = pendingBatch.walletAddress;
+        setError(`Switch your wallet to ${sender.slice(0, 6)}…${sender.slice(-4)}, the account that sent this swap.`);
+        return;
+      }
+      if (check.status === 'pending') {
+        setError('Your wallet still has not confirmed this swap. Check its activity, then try again.');
+        return;
+      }
+      if (check.status === 'failed') {
         storePendingBatch(undefined);
         setError('This swap did not go through, and nothing was deposited. You can review it again.');
         return;
       }
-      const recovered = activityFromBatch(pendingBatch, confirmed.value.txHash);
-      setStorageAvailable(saveActivity(recovered));
+      const recovered = activityFromBatch(pendingBatch, check.txHash);
+      setStorageAvailable(saveBatchActivity(recovered));
       setActivity(recovered);
-      storePendingBatch(undefined);
+      setPendingBatch(undefined);
       postEmbedEvent({ type: 'sodax:swap', status: 'submitted' });
       await submitRecord(recovered);
     } catch (cause) {

@@ -224,6 +224,14 @@ export function savePendingBatch(batch: PendingBatch | undefined): boolean {
   }
 }
 
+/**
+ * Stores the activity a confirmed batch became, then drops the batch. The batch stays stored if the
+ * activity cannot be, so a reload still finds the deposit through it. False when either write failed.
+ */
+export function saveBatchActivity(activity: Activity): boolean {
+  return saveActivity(activity) && savePendingBatch(undefined);
+}
+
 /** The activity a pending batch becomes once its deposit's hash is known. */
 export function activityFromBatch(
   { batchId: _batchId, callCount: _callCount, ...fields }: PendingBatch,

@@ -31,6 +31,7 @@ If this is your first time using the package:
 6. [`recipes/chain-detection.md`](./recipes/chain-detection.md) — list enabled chains, render connected list with hydration gate, install detection.
 7. Add advanced features as needed:
    - [`recipes/walletconnect-setup.md`](./recipes/walletconnect-setup.md) — enable WalletConnect for enterprise-custody / mobile-only wallets.
+   - [`recipes/privy-email-login.md`](./recipes/privy-email-login.md) — add "Email (Privy)" email login with an embedded wallet (`EVM.privy`).
    - [`recipes/batch-operations.md`](./recipes/batch-operations.md) — batch connect / disconnect across multiple chains.
    - [`recipes/sub-path-imports.md`](./recipes/sub-path-imports.md) — deep imports from `xchains/<chain>` for `instanceof` checks or custom connector lists.
 8. Reference docs (lookup as needed):

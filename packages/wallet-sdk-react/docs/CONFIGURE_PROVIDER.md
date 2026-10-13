@@ -12,9 +12,10 @@ The canonical TypeScript shape is [`SodaxWalletConfig`](https://github.com/icon-
 4. [Per-chain entries (`chains[ChainKey]`)](#per-chain-entries-chainschainkey)
 5. [Per-chain wallet defaults](#per-chain-wallet-defaults)
 6. [WalletConnect (EVM only)](#walletconnect-evm-only)
-7. [Config is captured once on mount](#config-is-captured-once-on-mount)
-8. [Single source of truth — `ChainMeta`](#single-source-of-truth--chainmeta)
-9. [Breaking changes from v1](#breaking-changes-from-v1)
+7. [Email login with Privy (EVM only)](#email-login-with-privy-evm-only)
+8. [Config is captured once on mount](#config-is-captured-once-on-mount)
+9. [Single source of truth — `ChainMeta`](#single-source-of-truth--chainmeta)
+10. [Breaking changes from v1](#breaking-changes-from-v1)
 
 ---
 
@@ -62,7 +63,7 @@ Top-level keys are `ChainType` strings — one slot per chain family. **Every sl
 
 | Key | Mounts | Adapter fields | Per-chain entries |
 |-----|--------|----------------|-------------------|
-| `EVM` | wagmi (13 EVM chains) | `ssr`, `reconnectOnMount`, `initialState`, `persistKey`, `walletConnect` | `{ rpcUrl?, defaults? }` per `EvmChainKey` |
+| `EVM` | wagmi (13 EVM chains) | `ssr`, `reconnectOnMount`, `initialState`, `persistKey`, `walletConnect`, `privy` | `{ rpcUrl?, defaults? }` per `EvmChainKey` |
 | `SOLANA` | `@solana/wallet-adapter-react` | `autoConnect` | `{ rpcUrl?, defaults? }` per `SolanaChainKey` |
 | `SUI` | `@mysten/dapp-kit-react` | `autoConnect`, `network` | `{ grpcUrl?, defaults? }` per `SuiChainKey` (`rpcUrl` is a deprecated alias) |
 | `ICON` | (no React adapter) | — | `{ rpcUrl?, defaults? }` per `IconChainKey` |
@@ -248,6 +249,24 @@ walletConnect: {
 ```
 
 If `projectId` is missing, the WalletConnect connector is silently skipped and a warning is logged. See [`WALLETCONNECT.md`](./WALLETCONNECT.md) for the partner integration guide.
+
+---
+
+## Email login with Privy (EVM only)
+
+The `privy` field adds an "Email (Privy)" wallet: email one-time-code login and a Privy embedded wallet. Build its value with `privy()` from the `@sodax/wallet-sdk-react/privy` sub-path and install `@privy-io/react-auth` (an optional peer):
+
+```typescript
+import { privy } from '@sodax/wallet-sdk-react/privy';
+
+const config: SodaxWalletConfig = {
+  EVM: {
+    privy: privy({ appId: process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? '' }),
+  },
+};
+```
+
+The connector (id `privy`) joins the same EVM list as injected wallets and WalletConnect, and the SDK mounts `PrivyProvider` around your app. Without the field no Privy code is loaded. See [`WALLET_PRIVY.md`](./WALLET_PRIVY.md) — it covers custody, recovery and availability trade-offs to read before enabling it.
 
 ---
 

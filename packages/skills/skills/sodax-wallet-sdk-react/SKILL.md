@@ -1,6 +1,6 @@
 ---
 name: sodax-wallet-sdk-react
-description: 'Add SODAX multi-chain wallet connectivity to a React dapp with @sodax/wallet-sdk-react — connect/disconnect, account & signing hooks, a headless wallet modal, EVM chain switching, WalletConnect, and bridging the connected wallet into @sodax/sdk. INTEGRATION (write NEW code) — `SodaxWalletProvider` setup and hook-based UX across EVM, Solana, Sui, Bitcoin, Stellar, ICON, Injective, NEAR and Stacks; WalletConnect for non-injected wallets (Fireblocks/Ledger/mobile); `useWalletProvider` for signing SODAX calls. Triggers on "add wallet connect", "set up SodaxWalletProvider", "useXConnect", "useXAccount", "useWalletProvider", "useWalletModal", "wallet modal", "connect button", "multi-chain wallet UI", "WalletConnect for Fireblocks". Peer deps: `react >= 19`, `@tanstack/react-query 5.x`. MIGRATION (port v1 → v2) — `useXWagmiStore` left the public API (replace each selector with `useXServices` / `useXService({ xChainType })` / `useXConnections` / `useXConnection({ xChainType })`; do NOT rename to `useXWalletStore`, which is not exported), hooks take single-object params, `SodaxWalletProvider` takes `config: SodaxWalletConfig` (no `rpcConfig` / `options` / `initialState`), and chain slots are top-level on `SodaxWalletConfig` (no `chains: { EVM, … }` wrapper). Triggers on "useXWagmiStore is gone", "SodaxWalletProvider props broke", "old wallet-sdk-react hooks", "upgrade @sodax/wallet-sdk-react". Load this skill if EITHER applies; the body gates by mode.'
+description: 'Add SODAX multi-chain wallet connectivity to a React dapp with @sodax/wallet-sdk-react — connect/disconnect, account & signing hooks, a headless wallet modal, EVM chain switching, WalletConnect, Privy email login, and bridging the connected wallet into @sodax/sdk. INTEGRATION (write NEW code) — `SodaxWalletProvider` setup and hook-based UX across EVM, Solana, Sui, Bitcoin, Stellar, ICON, Injective, NEAR and Stacks; WalletConnect for non-injected wallets (Fireblocks/Ledger/mobile); `useWalletProvider` for signing SODAX calls. Triggers on "add wallet connect", "set up SodaxWalletProvider", "useXConnect", "useXAccount", "useWalletProvider", "useWalletModal", "wallet modal", "connect button", "multi-chain wallet UI", "WalletConnect for Fireblocks", "email login with Privy". Peer deps: `react >= 19`, `@tanstack/react-query 5.x`. MIGRATION (port v1 → v2) — `useXWagmiStore` left the public API (replace each selector with `useXServices` / `useXService({ xChainType })` / `useXConnections` / `useXConnection({ xChainType })`; do NOT rename to `useXWalletStore`, which is not exported), hooks take single-object params, `SodaxWalletProvider` takes `config: SodaxWalletConfig` (no `rpcConfig` / `options` / `initialState`), and chain slots are top-level on `SodaxWalletConfig` (no `chains: { EVM, … }` wrapper). Triggers on "useXWagmiStore is gone", "SodaxWalletProvider props broke", "old wallet-sdk-react hooks", "upgrade @sodax/wallet-sdk-react". Load this skill if EITHER applies; the body gates by mode.'
 license: MIT
 metadata:
   version: '0.0.1'
@@ -32,6 +32,7 @@ If the task is one wallet concern, load its granular skill instead of this broad
 | EVM chain switching / wrong network | [`./switch-chain/SKILL.md`](./switch-chain/SKILL.md) | "useEvmSwitchChain", "wrong network banner" |
 | Sign an arbitrary message | [`./sign-message/SKILL.md`](./sign-message/SKILL.md) | "useXSignMessage", "prove wallet ownership", "SIWE" |
 | WalletConnect / enterprise custody | [`./walletconnect/SKILL.md`](./walletconnect/SKILL.md) | "WalletConnect", "Fireblocks", "Ledger", "mobile-only wallet" |
+| Email login (Privy embedded wallet) | [`./privy/SKILL.md`](./privy/SKILL.md) | "add email login", "Privy", "embedded wallet" |
 
 Load this broad skill (keep reading below) for a full wallet setup, several concerns at once, or a v1 port.
 
@@ -45,6 +46,7 @@ Pick this mode when the consumer is a React dapp that needs SODAX wallet connect
 - "Multi-chain modal UI" — `useWalletModal`, `useChainGroups`, `useConnectedChains`.
 - "Pass the connected wallet to a `@sodax/sdk` swap" — `useWalletProvider({ xChainId })`.
 - "Add WalletConnect for enterprise custody (Fireblocks, mobile)" — `walletConnect` field on `SodaxWalletConfig.EVM`.
+- "Let users log in with email" / "Privy" — `privy` field on `SodaxWalletConfig.EVM`, built with `privy()` from `@sodax/wallet-sdk-react/privy`.
 - "SSR with Next.js" — `ssr: true` flag on the EVM slot.
 
 ### Workflow
@@ -52,8 +54,8 @@ Pick this mode when the consumer is a React dapp that needs SODAX wallet connect
 1. Read [`integration/knowledge/ai-rules.md`](./integration/knowledge/ai-rules.md) — DO / DON'T + workflow.
 2. **Always start with setup** → [`integration/knowledge/recipes/setup.md`](./integration/knowledge/recipes/setup.md). Mount `SodaxWalletProvider`, declare chain-type slots, wire `@tanstack/react-query`.
 3. Read [`integration/knowledge/architecture.md`](./integration/knowledge/architecture.md) — provider mount tree, frozen config, EVM single-connection model, `xChainType` vs `xChainId`.
-4. Task-specific recipes → [`integration/knowledge/recipes/`](./integration/knowledge/recipes/) — `connect-button.md`, `multi-chain-modal.md`, `walletconnect-setup.md`, `bridge-to-sdk.md`, `sign-message.md`, `switch-chain.md`, `batch-operations.md`, `chain-detection.md`, `sub-path-imports.md`.
-5. Working examples → [`integration/knowledge/examples/`](./integration/knowledge/examples/) — 4 working `.tsx` app shells (`01-minimal-evm`, `02-multi-chain-modal`, `03-nextjs-app-router`, `04-walletconnect-setup`).
+4. Task-specific recipes → [`integration/knowledge/recipes/`](./integration/knowledge/recipes/) — `connect-button.md`, `multi-chain-modal.md`, `walletconnect-setup.md`, `privy-email-login.md`, `bridge-to-sdk.md`, `sign-message.md`, `switch-chain.md`, `batch-operations.md`, `chain-detection.md`, `sub-path-imports.md`.
+5. Working examples → [`integration/knowledge/examples/`](./integration/knowledge/examples/) — 5 working `.tsx` app shells (`01-minimal-evm`, `02-multi-chain-modal`, `03-nextjs-app-router`, `04-walletconnect-setup`, `05-privy-email-login`).
 6. Lookups → [`integration/knowledge/reference/`](./integration/knowledge/reference/) — hooks, connectors, chain-support, wallet-brands, api-surface.
 
 ### Conventions to follow (integration)

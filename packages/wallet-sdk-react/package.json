@@ -40,12 +40,19 @@
     "./xchains/*": {
       "types": "./dist/xchains/*/index.d.ts",
       "import": "./dist/xchains/*/index.mjs"
+    },
+    "./privy": {
+      "types": "./dist/privy/index.d.ts",
+      "import": "./dist/privy/index.mjs"
     }
   },
   "typesVersions": {
     "*": {
       "xchains/*": [
         "./dist/xchains/*/index.d.ts"
+      ],
+      "privy": [
+        "./dist/privy/index.d.ts"
       ]
     }
   },
@@ -54,7 +61,7 @@
     "url": "https://github.com/icon-project/sodax-sdks"
   },
   "scripts": {
-    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsup && node ../../scripts/verify-dist-exports.mjs",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsup && tsup --config tsup.privy-dts.config.ts && node ../../scripts/verify-dist-exports.mjs && node scripts/check-privy-isolation.mjs",
     "dev": "tsup --watch ./src",
     "prepublishOnly": "pnpm run build",
     "clean": "rm -rf dist && rm -rf node_modules && rm -rf .turbo",
@@ -94,6 +101,7 @@
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",
+    "@privy-io/react-auth": "3.40.0",
     "@testing-library/react": "^16.1.0",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
@@ -108,7 +116,13 @@
     "vitest": "catalog:"
   },
   "peerDependencies": {
+    "@privy-io/react-auth": "*",
     "@tanstack/react-query": "5.x",
     "react": ">=19"
+  },
+  "peerDependenciesMeta": {
+    "@privy-io/react-auth": {
+      "optional": true
+    }
   }
 }

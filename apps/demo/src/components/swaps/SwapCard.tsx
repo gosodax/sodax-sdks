@@ -60,6 +60,7 @@ const SETUP_LABELS: Record<SwapSetupReason, string> = {
   stellarTrustline: 'Request Trustline',
   stellarCheckFailed: 'Retry Stellar Check',
   nearStorage: 'Register Storage',
+  nearStorageCheckFailed: 'Retry NEAR Storage Check',
   external: 'Finish the Bitcoin setup first',
 };
 

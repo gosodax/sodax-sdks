@@ -2,6 +2,7 @@ import {
   ACCOUNT_UPGRADE_DECLINED,
   ATOMIC_BATCH_UNCONFIRMED,
   baseChainInfo,
+  confirmApprovalBatch,
   isAtomicBatchRefusal,
   isSodaxError,
   type ChainKey,
@@ -22,6 +23,7 @@ import {
   type EvmRawTransaction,
 } from '@sodax/dapp-kit';
 import { isAddress, isHex } from 'viem';
+import type { PendingBatch } from './activity';
 
 /**
  * Wallet families this widget can sign for. Bitcoin is deliberately absent: it settles through a
@@ -272,6 +274,39 @@ export function isUnconfirmedBatch(error: unknown): boolean {
   return (
     isSodaxError(error) && error.code === 'TX_VERIFICATION_FAILED' && error.context?.reason === ATOMIC_BATCH_UNCONFIRMED
   );
+}
+
+/** What asking the wallet about a held batch found. */
+export type HeldBatchCheck =
+  | { status: 'connect' }
+  | { status: 'wrong-account' }
+  | { status: 'pending' }
+  | { status: 'failed' }
+  | { status: 'confirmed'; txHash: string };
+
+/**
+ * Asks the wallet that sent a held batch whether its deposit landed. Only that EVM account can answer
+ * for its batch id, so a missing or different connection is reported instead of asked.
+ */
+export async function checkHeldBatch(
+  batch: Pick<PendingBatch, 'batchId' | 'callCount' | 'walletAddress'>,
+  wallet: IWalletProvider | undefined,
+  timeoutMs: number,
+  confirm: typeof confirmApprovalBatch = confirmApprovalBatch,
+): Promise<HeldBatchCheck> {
+  if (!wallet || wallet.chainType !== 'EVM') return { status: 'connect' };
+  const account = await wallet.getWalletAddress();
+  if (account.toLowerCase() !== batch.walletAddress.toLowerCase()) return { status: 'wrong-account' };
+  const confirmed = await confirm({
+    walletProvider: wallet,
+    batchId: batch.batchId,
+    callCount: batch.callCount,
+    timeoutMs,
+    feature: 'swap',
+  });
+  if (confirmed.ok) return { status: 'confirmed', txHash: confirmed.value.txHash };
+  // Anything but "unconfirmed" means the wallet reported the batch never landed: nothing was deposited.
+  return isUnconfirmedBatch(confirmed.error) ? { status: 'pending' } : { status: 'failed' };
 }
 
 /** The visitor declined the smart-account upgrade a batch needed; the next attempt approves separately. */

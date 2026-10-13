@@ -1,5 +1,7 @@
 import {
+  ATOMIC_BATCH_REFUSED,
   DEFAULT_RELAY_TX_TIMEOUT,
+  SodaxError,
   getEvmViemChain,
   isEvmChainKeyType,
   isAtomicBatchRefusal,
@@ -40,8 +42,9 @@ export type UseSwapsApiBroadcastWithApprovalVars = ApprovalOptions & {
    */
   onBatchSent?: (batchId: string, callCount: number) => void;
   /**
-   * `false`: a batch the wallet refuses before signing rejects with that refusal (`isAtomicBatchRefusal`)
-   * instead of approving separately — for callers that run their own two-step path. Defaults to `true`.
+   * `false`: never approve separately. A batch the wallet refuses before signing, or a wallet that cannot
+   * batch by the time this runs, rejects with a refusal (`isAtomicBatchRefusal`) instead — for callers
+   * that run their own two-step path. Defaults to `true`.
    */
   fallbackOnRefusal?: boolean;
 };
@@ -69,7 +72,8 @@ const sameAddress = (a: string, b: string): boolean => a.toLowerCase() === b.toL
  *
  * The rules match the SDK's `swapWithApproval`. The Sonic hub always approves separately. A wallet
  * that refuses the batch before signing falls back to approving separately (or rejects, with
- * `fallbackOnRefusal: false`); a batch the user saw is never resent:
+ * `fallbackOnRefusal: false`, which also rejects when the wallet cannot batch at all); a batch the user
+ * saw is never resent:
  * - rejected → `SodaxError` `USER_REJECTED`, with `context.reason: ACCOUNT_UPGRADE_DECLINED` when the
  *   user declined the account upgrade — retry with `allowAccountUpgrade: false`;
  * - never included or fully reverted → `INTENT_CREATION_FAILED`, `context.reason: 'atomic-batch-failed'`;
@@ -139,6 +143,19 @@ export const useSwapsApiBroadcastWithApproval = ({
         if (sent.ok || !isAtomicBatchRefusal(sent.error) || !fallbackOnRefusal) {
           return { txHash: unwrapResult(sent).txHash, approvalStrategy: 'atomic-batch' };
         }
+      } else if (!fallbackOnRefusal) {
+        // The caller runs its own two-step path, so a wallet that cannot batch now is handed back like a refusal.
+        throw new SodaxError('INTENT_CREATION_FAILED', `[${HOOK_NAME}] the wallet cannot send this approval as a batch.`, {
+          feature: 'swap',
+          context: {
+            srcChainKey,
+            dstChainKey: body.dstChainKey,
+            action: HOOK_NAME,
+            approvalStrategy: strategy,
+            phase: 'intentCreation',
+            reason: ATOMIC_BATCH_REFUSED,
+          },
+        });
       }
 
       const approval = await runApprovalPlan({ plan, srcChainKey, walletProvider, hookName: HOOK_NAME, onProgress });

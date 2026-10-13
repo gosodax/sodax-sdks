@@ -32,6 +32,8 @@ export type SodaxSettings = {
   partnerFeeAddress: Address | null;
   /** Fee in basis points (100 = 1%), capped by the SDK at `FEE_PERCENTAGE_SCALE` (10000 = 100%). */
   partnerFeeBps: number | null;
+  /** Privy app id for "Email (Privy)". Read once at page load, so the modal reloads on a change. */
+  privyAppId: string | null;
 };
 
 export const DEFAULT_SODAX_SETTINGS: SodaxSettings = {
@@ -50,6 +52,7 @@ export const DEFAULT_SODAX_SETTINGS: SodaxSettings = {
   relayerApiEndpoint: null,
   partnerFeeAddress: null,
   partnerFeeBps: null,
+  privyAppId: null,
 };
 
 /** The SDK's own bound (`FEE_PERCENTAGE_SCALE`); the backend swaps/bridge APIs cap far lower. */
@@ -147,6 +150,7 @@ export function loadSodaxSettings(): SodaxSettings {
     relayerApiEndpoint: isHttpUrl(raw.relayerApiEndpoint) ? raw.relayerApiEndpoint : null,
     partnerFeeAddress: isEvmAddress(raw.partnerFeeAddress) ? raw.partnerFeeAddress : null,
     partnerFeeBps: isFeeBps(raw.partnerFeeBps) ? raw.partnerFeeBps : null,
+    privyAppId: nonEmptyEnv(raw.privyAppId) ? raw.privyAppId : null,
   };
 }
 
@@ -207,4 +211,11 @@ export function effectiveLeverageYieldApiBaseUrl(settings: SodaxSettings): HttpU
 /** The `x-api-key` the SDK sends, so a direct client authenticates with the same credential. */
 export function effectiveSodaxApiKey(settings: SodaxSettings): string | undefined {
   return settings.apiKey ?? envSodaxApiKey;
+}
+
+const privyAppIdEnv: unknown = import.meta.env.VITE_PRIVY_APP_ID;
+export const envPrivyAppId: string | undefined = nonEmptyEnv(privyAppIdEnv) ? privyAppIdEnv : undefined;
+
+export function effectivePrivyAppId(settings: SodaxSettings): string | undefined {
+  return settings.privyAppId ?? envPrivyAppId;
 }

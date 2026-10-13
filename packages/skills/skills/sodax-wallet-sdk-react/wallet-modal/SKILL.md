@@ -50,5 +50,6 @@ Granular skill for the headless multi-chain modal + connection-flow + batch hook
 
 - [`../connect/SKILL.md`](../connect/SKILL.md) — a plain connect/disconnect button + account reads (no modal).
 - [`../walletconnect/SKILL.md`](../walletconnect/SKILL.md) — add Fireblocks / Ledger / mobile wallets to the modal.
+- [`../privy/SKILL.md`](../privy/SKILL.md) — add "Email (Privy)"; render nothing while Privy's own dialog is open.
 
 For multi-feature work, load the broad [`sodax-wallet-sdk-react` skill](../SKILL.md).

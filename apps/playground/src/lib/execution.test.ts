@@ -4,6 +4,7 @@ import {
   ATOMIC_BATCH_UNCONFIRMED,
   ChainKeys,
   SodaxError,
+  type confirmApprovalBatch,
   type CreateIntentParamsV2,
   type IntentResponseV2,
   type EvmRawTransaction,
@@ -19,6 +20,7 @@ import {
   isUserRejection,
   isUnconfirmedBatch,
   isUpgradeDeclined,
+  checkHeldBatch,
   evmDeposit,
   executionError,
   sourceExtras,
@@ -514,6 +516,63 @@ describe('batch outcomes', () => {
       false,
     );
     expect(isUserRejection(declined)).toBe(true);
+  });
+});
+
+describe('checkHeldBatch', () => {
+  const held = { batchId: 'batch-1', callCount: 2, walletAddress: address };
+  const evmWallet = (account: `0x${string}` = address): IEvmWalletProvider => ({
+    chainType: 'EVM',
+    getWalletAddress: async () => account,
+    sendTransaction: vi.fn(),
+    waitForTransactionReceipt: vi.fn(),
+  });
+  const confirmWith = (result: Awaited<ReturnType<typeof confirmApprovalBatch>>) =>
+    vi.fn<typeof confirmApprovalBatch>(async () => result);
+
+  // After a reload the EVM wallet is not reconnected, and the form's source may be another family.
+  it('asks for the wallet when no EVM account is connected', async () => {
+    const confirm = confirmWith({ ok: true, value: { txHash: '0xdeposit', batchId: 'batch-1' } });
+    await expect(checkHeldBatch(held, undefined, 1000, confirm)).resolves.toEqual({ status: 'connect' });
+    const sui = { chainType: 'SUI' } as unknown as ISuiWalletProvider; // only the family is read
+    await expect(checkHeldBatch(held, sui, 1000, confirm)).resolves.toEqual({ status: 'connect' });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+  it('does not ask another account about the batch', async () => {
+    const confirm = confirmWith({ ok: true, value: { txHash: '0xdeposit', batchId: 'batch-1' } });
+    const other = evmWallet('0x00000000000000000000000000000000000000ff');
+    await expect(checkHeldBatch(held, other, 1000, confirm)).resolves.toEqual({ status: 'wrong-account' });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+  it('finds the deposit of a batch that landed', async () => {
+    const confirm = confirmWith({ ok: true, value: { txHash: '0xdeposit', batchId: 'batch-1' } });
+    await expect(
+      checkHeldBatch(held, evmWallet('0x1234567890ABCDEF1234567890ABCDEF12345678'), 1000, confirm),
+    ).resolves.toEqual({
+      status: 'confirmed',
+      txHash: '0xdeposit',
+    });
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ batchId: 'batch-1', callCount: 2, timeoutMs: 1000 }),
+    );
+  });
+  it('keeps holding a batch that is still unconfirmed, and releases one that never landed', async () => {
+    const unconfirmed = new SodaxError('TX_VERIFICATION_FAILED', 'not confirmed', {
+      feature: 'swap',
+      context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' },
+    });
+    const failed = new SodaxError('INTENT_CREATION_FAILED', 'reverted', {
+      feature: 'swap',
+      context: { reason: 'atomic-batch-failed', batchId: 'batch-1' },
+    });
+    await expect(
+      checkHeldBatch(held, evmWallet(), 1000, confirmWith({ ok: false, error: unconfirmed })),
+    ).resolves.toEqual({
+      status: 'pending',
+    });
+    await expect(checkHeldBatch(held, evmWallet(), 1000, confirmWith({ ok: false, error: failed }))).resolves.toEqual({
+      status: 'failed',
+    });
   });
 });
 

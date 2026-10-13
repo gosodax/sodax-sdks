@@ -224,6 +224,11 @@ export type SwapServiceConstructorParams = {
   spoke: SpokeService;
   hubProvider: HubProvider;
   backendApi: BackendApiService;
+  /**
+   * @deprecated Configure through `new Sodax({ swaps: { useBackendSubmitTx } })` ({@link SwapsOptions});
+   * removed in v3. Still honored: when set, it wins over the configured value.
+   */
+  useBackendSubmitTx?: boolean;
 };
 
 /**
@@ -280,13 +285,15 @@ export class SwapService {
   // backend swaps-API client
   readonly backendApi: BackendApiService;
 
+  private readonly useBackendSubmitTxOverride: boolean | undefined;
+
   /**
    * Effective 2-step submit-tx flow (`swaps.useBackendSubmitTx`, default on). Read live off
    * `ConfigService`, like {@link SwapService.partnerFee}, so the config object and the behavior can
-   * never disagree.
+   * never disagree — unless a direct constructor caller passed the deprecated override.
    */
   get useBackendSubmitTx(): boolean {
-    return this.config.swapUseBackendSubmitTx;
+    return this.useBackendSubmitTxOverride ?? this.config.swapUseBackendSubmitTx;
   }
 
   /**
@@ -299,13 +306,14 @@ export class SwapService {
     return this.config.swapPartnerFee;
   }
 
-  public constructor({ config, hubProvider, spoke, backendApi }: SwapServiceConstructorParams) {
+  public constructor({ config, hubProvider, spoke, backendApi, useBackendSubmitTx }: SwapServiceConstructorParams) {
     this.solver = config.solver;
     this.relayerApiEndpoint = config.relay.relayerApiEndpoint;
     this.config = config;
     this.hubProvider = hubProvider;
     this.spoke = spoke;
     this.backendApi = backendApi;
+    this.useBackendSubmitTxOverride = useBackendSubmitTx;
   }
 
   /**

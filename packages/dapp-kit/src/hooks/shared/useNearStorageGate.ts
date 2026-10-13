@@ -23,6 +23,10 @@ export interface NearStorageGate {
   blocksAction: boolean;
   /** The registration-status query is actively fetching. */
   isChecking: boolean;
+  /** Destination is NEAR and the registration check failed, so whether the recipient can receive is unknown. */
+  checkFailed: boolean;
+  /** Re-run the registration check. */
+  retry: () => void;
   /** A `storage_deposit` tx is in flight. */
   isRegistering: boolean;
   /** Submit the `storage_deposit`; resolves to the SDK `Result` or `undefined` if inputs are missing. */
@@ -54,6 +58,8 @@ export function useNearStorageGate({
     needsRegistration,
     blocksAction,
     isChecking: storageCheck.isLoading,
+    checkFailed: isNear && storageCheck.isError && storageCheck.data === undefined,
+    retry: () => void storageCheck.refetch(),
     isRegistering,
     registerStorage,
   };

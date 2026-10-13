@@ -159,6 +159,7 @@ function buttonLabel(state: SwapLifecycleState): string {
       if (state.reason === 'stellarTrustline') return 'Add trustline';
       if (state.reason === 'stellarCheckFailed') return 'Retry check';
       if (state.reason === 'nearStorage') return 'Register storage';
+      if (state.reason === 'nearStorageCheckFailed') return 'Retry check';
       return 'Waiting on setup';
     case 'submitting':
     case 'pending':

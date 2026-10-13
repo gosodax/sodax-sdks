@@ -224,6 +224,12 @@ describe('resolveSwapLifecycle', () => {
     expect(
       resolveSwapLifecycle(inputs({ nearStorage: { isNear: true, needsRegistration: true, blocksAction: true } })),
     ).toEqual({ kind: 'needsSetup', reason: 'nearStorage' });
+    // An errored check leaves `blocksAction` false; the lifecycle must not read that as "registered".
+    expect(
+      resolveSwapLifecycle(
+        inputs({ nearStorage: { isNear: true, needsRegistration: false, blocksAction: false, checkFailed: true } }),
+      ),
+    ).toEqual({ kind: 'needsSetup', reason: 'nearStorageCheckFailed' });
     expect(resolveSwapLifecycle(inputs({ externalBlocked: true }))).toEqual({ kind: 'needsSetup', reason: 'external' });
   });
 

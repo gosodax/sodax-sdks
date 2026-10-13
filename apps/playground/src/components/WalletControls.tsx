@@ -11,7 +11,9 @@ export function shortAddress(address: string): string {
 
 export function WalletControls({ execution }: { execution: Execution }) {
   const e = execution;
-  const connected = e.connectType === e.sourceType ? e.source : e.destination;
+  // A held batch can ask for EVM while neither leg is EVM; that family has no account here to show.
+  const connected =
+    e.connectType === e.sourceType ? e.source : e.connectType === e.destinationType ? e.destination : undefined;
   return (
     <Modal
       title={`Connect ${familyName(e.connectType ?? '')} wallet`}

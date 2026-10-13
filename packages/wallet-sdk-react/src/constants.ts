@@ -24,6 +24,10 @@ export const SUI_DEFAULT_GRPC_URLS: Record<NonNullable<SuiAdapterFields['network
 // ─── EVM ────────────────────────────────────────────────────────────────────
 export const EVM_DEFAULT_RECONNECT_ON_MOUNT = false;
 export const EVM_DEFAULT_SSR = true;
+/** Base key of wagmi's storage when `EVM.persistKey` is unset; the Privy connected flag derives from it too. */
+export const EVM_DEFAULT_PERSIST_KEY = 'sodax';
+/** How long SDK disconnect waits on each wagmi connector; one that stalls (e.g. a WalletConnect relay) is not awaited further. */
+export const EVM_DISCONNECT_TIMEOUT_MS = 10_000;
 
 // ─── Solana ─────────────────────────────────────────────────────────────────
 export const SOLANA_DEFAULT_AUTO_CONNECT = true;

@@ -24,7 +24,7 @@ SODAX is **cross-chain DeFi** on a hub-and-spoke model (Sonic is the hub). **Its
 | `useSwap`, `useXxx` hook, `@sodax/dapp-kit`, "React dapp + dapp-kit" | `sodax-dapp-kit` (+ `sodax-wallet-sdk-react`) |
 | `Sodax`, `ChainKeys`, `Result<T>`, `SodaxError`, "backend / bot / script with @sodax/sdk" | `sodax-sdk` |
 | `walletProvider`, `IEvmWalletProvider`, "sign on <chain>", a specific chain provider | `sodax-wallet-sdk-core` |
-| "connect button", "wallet modal", "switch chain", WalletConnect | `sodax-wallet-sdk-react` |
+| "connect button", "wallet modal", "switch chain", WalletConnect, "email login", Privy | `sodax-wallet-sdk-react` |
 | A named feature already chosen (swap / money market / staking / bridge / dex / leverage yield / migration / partner / recovery) **with** an SDK in mind | the matching dev skill above |
 
 When in doubt about whether the *what* is decided, ask **one** question: *"Do you already know which SODAX feature you want, or are we still figuring that out?"* — decided → route; not decided → interview.

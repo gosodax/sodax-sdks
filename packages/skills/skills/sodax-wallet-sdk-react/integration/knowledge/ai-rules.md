@@ -50,6 +50,7 @@ Only after the connect UX works should you add:
 - Switch active EVM network ([`recipes/switch-chain.md`](./recipes/switch-chain.md))
 - Chain & wallet detection patterns ([`recipes/chain-detection.md`](./recipes/chain-detection.md))
 - WalletConnect ([`recipes/walletconnect-setup.md`](./recipes/walletconnect-setup.md))
+- Email login with Privy ([`recipes/privy-email-login.md`](./recipes/privy-email-login.md))
 - Batch connect / disconnect ([`recipes/batch-operations.md`](./recipes/batch-operations.md))
 
 Each is independent — apply only what the user asked for.
@@ -62,6 +63,7 @@ If the user wants a full working starter file rather than narrative steps, point
 - `02-multi-chain-modal.tsx` — full headless modal
 - `03-nextjs-app-router.tsx` — Next.js 15 SSR setup
 - `04-walletconnect-setup.tsx` — WalletConnect setup (optional single-wallet filter)
+- `05-privy-email-login.tsx` — Privy email login (`EVM.privy`) with the modal and dialog guards
 
 Always combine with the narrative recipe — examples are skeletons, recipes explain why each piece exists.
 

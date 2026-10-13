@@ -84,6 +84,26 @@ useSwapsApiSubmitTx({ mutationOptions });               // mutation → sodax.ap
 useSwapsApiSubmitTxStatus({ params, queryOptions });    // query    → sodax.api.swaps.getSubmitTxStatus
 ```
 
+**Approving and sending with a wallet.** `useSwapsApiApproveAndBroadcast` builds, signs and confirms the
+`/swaps/approve` plan, reset first when there is one. For an EVM source whose allowance is short,
+`useSwapsApiBroadcastWithApproval` sends the approval and the `/swaps/intents` tx as one EIP-5792 batch
+(one signature) when the wallet can, and otherwise approves, then sends. It always approves, so check
+`useSwapsApiAllowance` first, and it stops at the broadcast: persist `txHash`, then submit it. Its
+errors, the unconfirmed-batch rule and `fallbackOnRefusal` are in
+[architecture.md](../architecture.md#approve-hooks-can-prompt-the-wallet-twice).
+
+```ts
+// @ai-snippets-skip
+const { mutateAsync: broadcastWithApproval } = useSwapsApiBroadcastWithApproval();
+const { txHash } = await broadcastWithApproval({
+  body,                    // the create-intent body
+  intentTx: created.tx,    // the unsigned tx /swaps/intents returned for it
+  walletProvider,          // the source chain's IEvmWalletProvider
+  onBatchSent: (batchId, callCount) => saveBatch(batchId, callCount), // persist before the wait
+});
+await submitSwapTx({ request: { txHash, ...submission } });
+```
+
 These hooks forward the body verbatim, so `partnerFee` has no default (SDK fee config does not
 apply). Put the same value on quote and create-intent:
 
@@ -357,7 +377,7 @@ if (isRegistered === false) {
 }
 ```
 
-For the common UI path, `useNearStorageGate` returns `{ isNear, needsRegistration, blocksAction, isChecking, isRegistering, registerStorage }`.
+For the common UI path, `useNearStorageGate` returns `{ isNear, needsRegistration, blocksAction, isChecking, checkFailed, retry, isRegistering, registerStorage }`. `blocksAction` stays `false` when the check errors, so read `checkFailed` too and offer `retry` rather than letting the action through: whether the recipient can receive is unknown until the check succeeds. `useSwapLifecycle` does this as the `nearStorageCheckFailed` setup reason.
 
 Derive UI gate flags with the unwrapped `resolveNearStorageGate` util (no hook) when you need custom check/register composition:
 
