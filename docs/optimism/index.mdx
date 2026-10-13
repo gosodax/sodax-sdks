@@ -1,0 +1,78 @@
+---
+title: "SODAX for Optimism"
+sidebarTitle: "Overview"
+description: "Reach the users and liquidity of every SODAX network from your Optimism product. No contracts to deploy, your entire integration is TypeScript."
+icon: o
+---
+
+<Note>
+  **No new contracts.** SODAX's Optimism spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary EVM transactions on OP Mainnet, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+You keep shipping on Optimism. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## What to know on Optimism
+
+Optimism (OP Mainnet, chain ID 10) takes the standard SODAX EVM path: the same `EvmWalletProvider` as every other EVM network, ERC-20 approvals for tokens, no approval for native ETH, and no chain-specific handling in the SDK. ETH is the gas token, with 18 decimals.
+
+The one difference from Ethereum itself is the fee. Every OP Mainnet transaction pays an L1 data fee in ETH on top of execution gas, and the SDK's `estimateGas` counts execution gas units only. See [Fees](/optimism/swaps#fees).
+
+## What you can build
+
+Two SODAX modules are relevant to Optimism builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/optimism/swaps">
+    Intent-based cross-network swaps. Users swap between ETH or ERC-20 tokens on Optimism and assets on any supported network with one signed transaction. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/optimism/money-market">
+    Cross-network lending and borrowing. Supply from Optimism, borrow to Optimism or any other supported network, and manage positions without running lending infrastructure.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/optimism/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/optimism/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/optimism/quickstart): install the SDK, connect an Optimism wallet, make your first cross-network swap.
+- [Swaps on Optimism](/optimism/swaps): approvals, quoting, and fees.
+- [Money Market on Optimism](/optimism/money-market): supply, borrow, repay, and withdraw with cross-network collateral.
+- [Wallets](/optimism/wallets): EVM wallets on Optimism, and every other network's wallets through one interface.
+- [Networks & Assets](/optimism/networks-and-assets): what is live on Optimism today and what your users can reach.
+- [Optimism FAQ](/optimism/faq): the questions Optimism engineers actually ask.
+
+## Optimism references
+
+- [**Optimism documentation**](https://docs.optimism.io/): OP Mainnet and the OP Stack.
+- [**Connecting to OP Mainnet**](https://docs.optimism.io/op-mainnet/network-information/connecting-to-op): chain ID, public RPC, and explorer.
+- [**Transaction fees on OP Mainnet**](https://docs.optimism.io/op-stack/transactions/fees): execution gas and the L1 data fee.
+- [**Optimistic Etherscan**](https://optimistic.etherscan.io/): the explorer the SODAX config uses for OP Mainnet.
+
+---
+
+Building something? Start with the [Quickstart](/optimism/quickstart).

@@ -1,0 +1,83 @@
+---
+title: "BNB Chain Wallets"
+description: "EVM wallets on BNB Chain, and every other network's wallets through one interface, with @sodax/wallet-sdk-react or a direct provider."
+icon: wallet
+---
+
+Welcoming cross-network users means supporting the wallets they already use. On BNB Chain, SODAX works with any EVM wallet that can sign for BNB Smart Chain (chain ID 56), such as MetaMask or Rabby. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
+
+There are no BNB Chain-specific account requirements: any EVM account works.
+
+## React apps: `@sodax/wallet-sdk-react`
+
+The React package wraps each chain family's native wallet SDK (wagmi for EVM networks, including BNB Chain) behind a uniform connector interface with a single persisted store.
+
+```bash
+pnpm add @sodax/wallet-sdk-react
+```
+
+Mount the provider with the chains you serve. BNB Chain is an entry under `EVM`, alongside any other EVM network you support:
+
+```tsx
+import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
+import { ChainKeys } from '@sodax/types';
+
+const config: SodaxWalletConfig = {
+  EVM: {
+    chains: {
+      [ChainKeys.BSC_MAINNET]: { rpcUrl: 'https://56.rpc.thirdweb.com' },
+      [ChainKeys.SONIC_MAINNET]: { rpcUrl: 'https://rpc.soniclabs.com' },
+    },
+  },
+};
+```
+
+Then connect and read accounts with the same three hooks for every chain family:
+
+```tsx
+import { useXConnectors, useXConnect, useXAccount } from '@sodax/wallet-sdk-react';
+
+function EvmConnect() {
+  const connectors = useXConnectors({ xChainType: 'EVM' }); // MetaMask, Rabby, ...
+  const { mutateAsync: connect } = useXConnect();
+  const account = useXAccount({ xChainType: 'EVM' });
+
+  if (account.address) return <p>Connected: {account.address}</p>;
+
+  return connectors.map(c => (
+    <button key={c.id} onClick={() => connect(c)}>{c.name}</button>
+  ));
+}
+```
+
+One EVM connection covers every EVM network, so the wallet may be on a different network than BNB Chain when your user acts. `useEvmSwitchChain({ xChainId: ChainKeys.BSC_MAINNET })` returns `isWrongChain` and a `handleSwitchChain` callback to prompt the switch.
+
+### Bridging to SDK calls
+
+`useWalletProvider({ xChainId: ChainKeys.BSC_MAINNET })` returns a typed `IEvmWalletProvider` ready to pass into any `@sodax/sdk` method. The [swap](/bnb-chain/swaps) and [money market](/bnb-chain/money-market) calls take it directly.
+
+### Showing balances
+
+Format every balance with its own token's `decimals` from the SDK config. A wallet UI that assumes 6 decimals for USDC or USDT shows BNB Chain balances 10^12 times too large.
+
+## Scripts and backends: `EvmWalletProvider`
+
+Outside React, construct the provider from `@sodax/wallet-sdk-core` directly:
+
+```typescript
+import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+import { ChainKeys } from '@sodax/sdk';
+
+const walletProvider = new EvmWalletProvider({
+  privateKey: '0x…',
+  chainId: ChainKeys.BSC_MAINNET,
+  rpcUrl: 'https://56.rpc.thirdweb.com',
+});
+```
+
+`EvmWalletDefaults` lets you tune behavior per provider: `sendTransaction`, `waitForTransactionReceipt`, `publicClient`, `walletClient`, and `transport`.
+
+---
+
+- Full React reference: [@sodax/wallet-sdk-react](/developers/packages/connection/wallet-sdk-react)
+- Every chain family's providers: [Setup Wallet Providers](/developers/how-to/wallet_providers)

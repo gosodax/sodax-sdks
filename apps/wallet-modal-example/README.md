@@ -13,6 +13,9 @@ pnpm --filter @sodax/wallet-modal-example dev
 # → http://localhost:3002
 ```
 
+Optional: set `VITE_PRIVY_APP_ID` in `.env` (see `example.env`) to add "Email (Privy)" to the EVM
+wallet list and show the Privy panel. Without it the build carries no Privy code.
+
 ## What it covers
 
 | Component                            | Primitive demonstrated                                       | Phase |
@@ -25,6 +28,7 @@ pnpm --filter @sodax/wallet-modal-example dev
 | `components/ConnectedChains.tsx`     | `useConnectedChains` — aggregate view + `status` hydration   | 2     |
 | `components/BatchActions.tsx`        | `useBatchConnect` + `useBatchDisconnect` (Hana scope + universal disconnect) | 4 |
 | `components/ConnectionFlowDemo.tsx`  | `useConnectionFlow` — standalone (no modal)                  | 3     |
+| `components/PrivyPanel.tsx`          | `EVM.privy` — Privy user, key export and signing through `useXSignMessage` | — |
 
 Together these cover the full §A-G primitive surface from the spec, with
 no fallback to internal SDK helpers.

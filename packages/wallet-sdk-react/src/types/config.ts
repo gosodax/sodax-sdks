@@ -94,7 +94,16 @@ export type EvmAdapterFields = {
   initialState?: WagmiState;
   /** WalletConnect configuration. Adds a WalletConnect connector when provided. */
   walletConnect?: WalletConnectParameters;
+  /**
+   * Opt-in Privy email login as an EVM wallet (connector id `privy`, "Email (Privy)"). Build it with
+   * `privy()` from '@sodax/wallet-sdk-react/privy', which needs `@privy-io/react-auth` installed.
+   * Omit it and no Privy code is loaded.
+   */
+  privy?: PrivySource;
 };
+
+/** Opaque value returned by `privy()` from '@sodax/wallet-sdk-react/privy'. */
+export type PrivySource = { readonly kind: 'privy' };
 
 /** `@solana/wallet-adapter-react` provider settings. */
 export type SolanaAdapterFields = {

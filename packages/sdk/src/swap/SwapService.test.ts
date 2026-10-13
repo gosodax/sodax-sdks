@@ -39,7 +39,11 @@ import {
   ATOMIC_BATCH_UNCONFIRMED,
   DETAILED_STATUS_NOT_DELIVERED,
   SPEED_TIER_SECONDS,
+  SwapService,
   type IntentResponse,
+  type SodaxOptions,
+  type SwapsClientOptions,
+  type SwapServiceConstructorParams,
   type SpokeIsAllowanceValidParamsEvmSpoke,
   type SpokeIsAllowanceValidParamsHub,
   type WalletProviderSlot,
@@ -4809,5 +4813,67 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       ['swapWithApproval', 'success'],
     ]);
     expect(events[1]?.data).toMatchObject({ approvalStrategy: 'not-required', srcTxHash: '0xspokeTx' });
+  });
+});
+
+// =========================================================================
+// swaps.useBackendSubmitTx — the deprecated forms stay honoured (type-wise and at runtime).
+// =========================================================================
+
+describe('SwapService.useBackendSubmitTx — deprecated forms', () => {
+  it('routes swap() to the client-side relay for a legacy swapsOptions opt-out', async () => {
+    const legacy = new Sodax({ logger: 'silent', swapsOptions: { useBackendSubmitTx: false } });
+    const intent = makeIntent(ChainKeys.BSC_MAINNET);
+    vi.spyOn(legacy.swaps, 'createIntent').mockResolvedValueOnce({
+      ok: true,
+      value: {
+        tx: '0xspokeTx',
+        intent: { ...intent, feeAmount: 0n },
+        relayData: { address: intent.creator, payload: '0xpay' },
+      },
+    });
+    vi.spyOn(legacy.spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
+    const submitSpy = vi.spyOn(legacy.api.swaps, 'submitTx');
+    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xdstTx' } });
+    mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK' } });
+
+    const result = await legacy.swaps.swap({
+      params: intentInput(ChainKeys.BSC_MAINNET),
+      raw: false,
+      walletProvider: mockEvmProvider,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(submitSpy).not.toHaveBeenCalled();
+    expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledOnce();
+  });
+
+  it('gives swaps.useBackendSubmitTx precedence over swapsOptions in both directions', () => {
+    expect(
+      new Sodax({ swaps: { useBackendSubmitTx: false }, swapsOptions: { useBackendSubmitTx: true } }).swaps
+        .useBackendSubmitTx,
+    ).toBe(false);
+    expect(
+      new Sodax({ swaps: { useBackendSubmitTx: true }, swapsOptions: { useBackendSubmitTx: false } }).swaps
+        .useBackendSubmitTx,
+    ).toBe(true);
+  });
+
+  it('honours the deprecated constructor flag over the configured value', () => {
+    const configured = new Sodax();
+    const deps = {
+      config: configured.config,
+      spoke: configured.spoke,
+      hubProvider: configured.hubProvider,
+      backendApi: configured.swaps.backendApi,
+    };
+
+    expect(new SwapService({ ...deps, useBackendSubmitTx: false }).useBackendSubmitTx).toBe(false);
+    expect(new SwapService(deps).useBackendSubmitTx).toBe(true);
+  });
+
+  it('keeps the deprecated types assignable', () => {
+    expectTypeOf<SwapsClientOptions>().toEqualTypeOf<NonNullable<SodaxOptions['swapsOptions']>>();
+    expectTypeOf<SwapServiceConstructorParams['useBackendSubmitTx']>().toEqualTypeOf<boolean | undefined>();
   });
 });

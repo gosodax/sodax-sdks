@@ -1,0 +1,78 @@
+---
+title: "SODAX for LightLink"
+sidebarTitle: "Overview"
+description: "Reach the users and liquidity of every SODAX network from your LightLink product. No contracts to deploy, your entire integration is TypeScript."
+icon: link
+---
+
+<Note>
+  **No new contracts.** SODAX's LightLink spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary EVM transactions on LightLink, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+You keep shipping on LightLink. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer, against LightLink's EVM. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## Two things to know on LightLink
+
+To the SDK, LightLink is a standard EVM network (chain ID 1890): the same wallet provider, approvals, and intent flow apply as on any other EVM network. Two details trip people up:
+
+- **Gas is paid in ETH, including for SODAX transactions.** ETH is LightLink's native gas token; LL is an ERC-20 token. LightLink's Enterprise Mode lets a project cover its users' gas for contracts it registers, but SODAX's SDK sends LightLink transactions as standard EVM transactions with no Enterprise Mode handling, so your users need ETH on LightLink to sign.
+- **`.LL` assets use 18 decimals.** Assets from other networks appear on LightLink as `.LL` tokens, such as BTC.LL and SOL.LL, and each uses 18 decimals whatever the asset uses on its home network. Bitcoin's BTC uses 8; BTC.LL uses 18. Build every amount from `token.decimals`.
+
+## What you can build
+
+Two SODAX modules are relevant to LightLink builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/lightlink/swaps">
+    Intent-based cross-network swaps. Users swap between ETH or LightLink tokens and assets on any supported network with one signed transaction on LightLink. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/lightlink/money-market">
+    Cross-network lending and borrowing. Supply from LightLink, borrow to LightLink or any other supported network, and manage positions without running lending infrastructure.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/lightlink/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/lightlink/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/lightlink/quickstart): install the SDK, connect a LightLink wallet, make your first cross-network swap.
+- [Swaps on LightLink](/lightlink/swaps): approvals, quoting, fees, and execution.
+- [Money Market on LightLink](/lightlink/money-market): supply, borrow, repay, and withdraw with cross-network collateral.
+- [Wallets](/lightlink/wallets): EVM wallets on LightLink, and every other network's wallets through one interface.
+- [Networks & Assets](/lightlink/networks-and-assets): what is live on LightLink today and what your users can reach.
+- [LightLink FAQ](/lightlink/faq): the questions LightLink engineers actually ask.
+
+## LightLink references
+
+- [**Live networks**](https://docs.lightlink.io/lightlink-protocol/building-on-lightlink/live-networks): Phoenix mainnet chain ID, RPC, and explorer.
+- [**Enterprise Mode**](https://docs.lightlink.io/lightlink-protocol/building-on-lightlink/enterprise-mode-overview): how LightLink's gasless transactions work for registered contracts.
+- [**Phoenix explorer**](https://phoenix.lightlink.io/): the LightLink mainnet explorer, for checking transactions and token balances.
+
+---
+
+Building something? Start with the [Quickstart](/lightlink/quickstart).

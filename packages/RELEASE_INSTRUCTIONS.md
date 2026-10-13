@@ -37,6 +37,10 @@ Every publishable `@sodax/*` package shares one version, cut as a single `@sdks@
 
 6. **Create the GitHub Release** — the tag is what triggers publishing:
 
+   For a stable release, replace the raw `release-notes.md` with curated notes first: the
+   `changelog-from-prs` skill (`.claude/skills/changelog-from-prs/`) drafts them from the PRs merged
+   since the previous stable tag.
+
    ```bash
    gh release create "@sdks@<version>" \
      --target release \

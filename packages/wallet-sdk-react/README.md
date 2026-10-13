@@ -12,6 +12,7 @@ React layer over [`@sodax/wallet-sdk-core`](https://github.com/icon-project/soda
 - **Headless wallet modal** — `useWalletModal` state machine (chainSelect → walletSelect → connecting → success | error), render-agnostic
 - **Batch operations** — connect/disconnect every chain a wallet identifier covers, in sequence
 - **WalletConnect** — opt-in for enterprise custody (Fireblocks, etc.) via `config.EVM.walletConnect`
+- **Email login (Privy)** — opt-in "Email (Privy)" EVM wallet via `config.EVM.privy` and `@sodax/wallet-sdk-react/privy`; needs `@privy-io/react-auth` 3.40+ (an optional peer — partners who skip it install nothing). The wallet is custodied by Privy: no signing while Privy is unreachable, addresses belong to your Privy app, a user who loses their email loses the wallet, and your Privy app is billed per signature. Read the [Privy guide](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PRIVY.md) before enabling it.
 
 ## Installation
 
@@ -56,6 +57,8 @@ const config: SodaxWalletConfig = {
     },
     // Optional: add WalletConnect support (requires wc projectId)
     // walletConnect: { projectId: '...' },
+    // Optional: email login — privy() comes from the '@sodax/wallet-sdk-react/privy' sub-path (read the Privy guide first)
+    // privy: privy({ appId: '...' }),
   },
   ICON: {
     chains: {
@@ -107,6 +110,7 @@ The full guide lives in [`docs/`](https://github.com/icon-project/sodax-sdks/tre
 | [Wallet Provider Bridge](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PROVIDER_BRIDGE.md) | `useWalletProvider` → typed `IXxxWalletProvider` for `@sodax/sdk` calls; `useXService` / `useXServices` |
 | [Wallet Modal](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_MODAL.md) | Headless state machine for multi-chain modal UIs; `useConnectionFlow` non-modal alternative |
 | [WalletConnect](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLETCONNECT.md) | Enterprise custody integration (Fireblocks, Ledger); `qrModalOptions` filtering |
+| [Email login (Privy)](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PRIVY.md) | `EVM.privy` setup, the Privy user in your app, sessions, custody and recovery, availability, chains, cost |
 | [Batch Operations](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/BATCH_OPERATIONS.md) | Sequential multi-chain connect/disconnect by wallet identifier |
 | [Chain Detection](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CHAIN_DETECTION.md) | `useChainGroups`, `useConnectedChains`, `useIsWalletInstalled`, `useEnabledChains`; hydration status |
 | [Sign Message](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SIGN_MESSAGE.md) | `useXSignMessage` cross-chain; Bitcoin BIP-322 vs ECDSA auto-detect |
@@ -158,6 +162,8 @@ if (connector instanceof XverseXConnector) {
   connector.setAddressPurpose('payment');
 }
 ```
+
+`@sodax/wallet-sdk-react/privy` is the one sub-path that is a feature, not a deep import: it exports `privy()` for `EVM.privy` and is the only entry that loads `@privy-io/react-auth`.
 
 See [Connectors](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECTORS.md) for the full list of deep-import sub-paths.
 

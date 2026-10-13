@@ -19,6 +19,8 @@ trustPolicyExclude:
   - "@noble/secp256k1@1.7.2"
   - "tailwind-merge@2.6.1"
   - "undici-types@6.19.8 || 6.21.0"
+  - "jose@4.15.9" # via @privy-io/react-auth; 5.x carried provenance first, same maintainer
+  - "ua-parser-js@1.0.41" # via @privy-io/react-auth > react-device-detect; 2.x carried provenance first, same maintainer
   # Hand-published releases by the package's own long-standing maintainer.
   - "@noble/curves@1.8.0"
   - "@noble/hashes@1.7.0"

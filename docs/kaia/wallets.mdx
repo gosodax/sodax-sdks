@@ -1,0 +1,81 @@
+---
+title: "Kaia Wallets"
+description: "EVM wallets on Kaia, and every other network's wallets through one interface, with @sodax/wallet-sdk-react or a direct provider."
+icon: wallet
+---
+
+Welcoming cross-network users means supporting the wallets they already use. On Kaia, SODAX works through the EVM: any wallet that can sign Ethereum-format transactions on Kaia mainnet (chain ID 8217), such as MetaMask. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
+
+## Account requirements
+
+- **Legacy account key.** Kaia accounts can replace their key, or use multisig and role-based keys. Ethereum-format transactions only work from accounts with the `AccountKeyLegacy` type, whose address is derived from their key. Kaia creates accounts with that type, so EVM wallet accounts qualify unless the owner has updated the account key. An updated account can still hold KAIA and tokens, but it cannot sign SODAX transactions.
+
+## React apps: `@sodax/wallet-sdk-react`
+
+The React package wraps each chain family's native wallet SDK (wagmi for EVM networks, including Kaia) behind a uniform connector interface with a single persisted store.
+
+```bash
+pnpm add @sodax/wallet-sdk-react
+```
+
+Mount the provider with the chains you serve. Kaia is an entry under `EVM`, alongside any other EVM network you support:
+
+```tsx
+import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
+import { ChainKeys } from '@sodax/types';
+
+const config: SodaxWalletConfig = {
+  EVM: {
+    chains: {
+      [ChainKeys.KAIA_MAINNET]: { rpcUrl: 'https://public-en.node.kaia.io' }, // use your own endpoint in production
+      [ChainKeys.SONIC_MAINNET]: { rpcUrl: 'https://rpc.soniclabs.com' },
+    },
+  },
+};
+```
+
+Then connect and read accounts with the same three hooks for every chain family:
+
+```tsx
+import { useXConnectors, useXConnect, useXAccount } from '@sodax/wallet-sdk-react';
+
+function EvmConnect() {
+  const connectors = useXConnectors({ xChainType: 'EVM' }); // MetaMask, Rabby, ...
+  const { mutateAsync: connect } = useXConnect();
+  const account = useXAccount({ xChainType: 'EVM' });
+
+  if (account.address) return <p>Connected: {account.address}</p>;
+
+  return connectors.map(c => (
+    <button key={c.id} onClick={() => connect(c)}>{c.name}</button>
+  ));
+}
+```
+
+One EVM connection covers every EVM network, so the wallet may be on a different network than Kaia when your user acts. `useEvmSwitchChain({ xChainId: ChainKeys.KAIA_MAINNET })` returns `isWrongChain` and a `handleSwitchChain` callback to prompt the switch.
+
+### Bridging to SDK calls
+
+`useWalletProvider({ xChainId: ChainKeys.KAIA_MAINNET })` returns a typed `IEvmWalletProvider` ready to pass into any `@sodax/sdk` method. The [swap](/kaia/swaps) and [money market](/kaia/money-market) calls take it directly.
+
+## Scripts and backends: `EvmWalletProvider`
+
+Outside React, construct the provider from `@sodax/wallet-sdk-core` directly:
+
+```typescript
+import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+import { ChainKeys } from '@sodax/sdk';
+
+const walletProvider = new EvmWalletProvider({
+  privateKey: '0x…', // private key of the Kaia account
+  chainId: ChainKeys.KAIA_MAINNET,
+  rpcUrl: 'https://public-en.node.kaia.io', // use your own endpoint in production
+});
+```
+
+`EvmWalletDefaults` lets you tune behavior per provider: `sendTransaction`, `waitForTransactionReceipt`, `publicClient`, `walletClient`, and `transport`.
+
+---
+
+- Full React reference: [@sodax/wallet-sdk-react](/developers/packages/connection/wallet-sdk-react)
+- Every chain family's providers: [Setup Wallet Providers](/developers/how-to/wallet_providers)

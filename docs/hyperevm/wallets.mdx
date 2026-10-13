@@ -1,0 +1,86 @@
+---
+title: "HyperEVM Wallets"
+description: "EVM wallets on HyperEVM, and every other network's wallets through one interface, with @sodax/wallet-sdk-react or a direct provider."
+icon: wallet
+---
+
+Welcoming cross-network users means supporting the wallets they already use. On HyperEVM, SODAX works with any wallet that can sign EVM transactions on HyperEVM mainnet (chain ID 999), such as MetaMask. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
+
+## Account requirements
+
+- **The network may need adding.** If a user's wallet does not list HyperEVM yet, they add it as a custom network: chain ID 999, RPC URL `https://rpc.hyperliquid.xyz/evm`, currency symbol HYPE. Hyperliquid's [onboarding guide](https://hyperliquid.gitbook.io/hyperliquid-docs/onboarding/how-to-use-the-hyperevm) walks through it.
+- **HYPE for gas, held on HyperEVM.** HYPE is HyperEVM's native gas token. HYPE in the user's HyperCore spot balance does not pay HyperEVM gas until it is transferred to HyperEVM.
+
+## React apps: `@sodax/wallet-sdk-react`
+
+The React package wraps each chain family's native wallet SDK (wagmi for EVM networks, including HyperEVM) behind a uniform connector interface with a single persisted store.
+
+```bash
+pnpm add @sodax/wallet-sdk-react
+```
+
+Mount the provider with the chains you serve. HyperEVM is an entry under `EVM`, alongside any other EVM network you support:
+
+```tsx
+import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
+import { ChainKeys } from '@sodax/types';
+
+const config: SodaxWalletConfig = {
+  EVM: {
+    chains: {
+      [ChainKeys.HYPEREVM_MAINNET]: { rpcUrl: 'https://rpc.hyperliquid.xyz/evm' },
+      [ChainKeys.SONIC_MAINNET]: { rpcUrl: 'https://rpc.soniclabs.com' },
+    },
+  },
+};
+```
+
+Then connect and read accounts with the same three hooks for every chain family:
+
+```tsx
+import { useXConnectors, useXConnect, useXAccount } from '@sodax/wallet-sdk-react';
+
+function EvmConnect() {
+  const connectors = useXConnectors({ xChainType: 'EVM' }); // MetaMask, Rabby, ...
+  const { mutateAsync: connect } = useXConnect();
+  const account = useXAccount({ xChainType: 'EVM' });
+
+  if (account.address) return <p>Connected: {account.address}</p>;
+
+  return connectors.map(c => (
+    <button key={c.id} onClick={() => connect(c)}>{c.name}</button>
+  ));
+}
+```
+
+One EVM connection covers every EVM network, so the wallet may be on a different network than HyperEVM when your user acts. `useEvmSwitchChain({ xChainId: ChainKeys.HYPEREVM_MAINNET })` returns `isWrongChain` and a `handleSwitchChain` callback to prompt the switch.
+
+### Bridging to SDK calls
+
+`useWalletProvider({ xChainId: ChainKeys.HYPEREVM_MAINNET })` returns a typed `IEvmWalletProvider` ready to pass into any `@sodax/sdk` method. The [swap](/hyperevm/swaps) and [money market](/hyperevm/money-market) calls take it directly.
+
+### Showing balances
+
+Balances read through SODAX (for example `useXBalances` from [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit)) are HyperEVM balances. They do not include what the user holds in HyperCore spot or perps, so label the figure as the HyperEVM balance.
+
+## Scripts and backends: `EvmWalletProvider`
+
+Outside React, construct the provider from `@sodax/wallet-sdk-core` directly:
+
+```typescript
+import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+import { ChainKeys } from '@sodax/sdk';
+
+const walletProvider = new EvmWalletProvider({
+  privateKey: '0x…', // private key of the HyperEVM account
+  chainId: ChainKeys.HYPEREVM_MAINNET,
+  rpcUrl: 'https://rpc.hyperliquid.xyz/evm',
+});
+```
+
+`EvmWalletDefaults` lets you tune behavior per provider: `sendTransaction`, `waitForTransactionReceipt`, `publicClient`, `walletClient`, and `transport`.
+
+---
+
+- Full React reference: [@sodax/wallet-sdk-react](/developers/packages/connection/wallet-sdk-react)
+- Every chain family's providers: [Setup Wallet Providers](/developers/how-to/wallet_providers)
