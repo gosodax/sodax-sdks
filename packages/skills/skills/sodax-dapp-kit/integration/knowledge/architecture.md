@@ -238,7 +238,9 @@ sends `intentTx`. It resolves with `{ txHash, approvalStrategy, approval? }` and
 `txHash`, then call `useSwapsApiSubmitTx`. Persist the `batchId` its `onBatchSent` reports too: a
 `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` means the batch may still
 land, so never let the user sign that swap again — resume it with `confirmApprovalBatch` instead. Pass
-`fallbackOnRefusal: false` to get a refused batch back and run your own two-step path.
+`fallbackOnRefusal: false` to run your own two-step path: the hook then never approves separately, and a
+refused batch, or a wallet that no longer reports batch support, rejects with an `isAtomicBatchRefusal`
+error instead.
 
 All three, and `useSwapsApiBroadcastWithApproval` for its separate approval, accept an optional **`onProgress`** in their mutation vars. It reports each transaction as
 `{ step, phase, index, total, hash?, error? }` — `step` is `'allowance-reset'` or `'approve'`, `phase`

@@ -176,6 +176,20 @@ describe('useSwapsApiBroadcastWithApproval', () => {
     expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
   });
 
+  // The caller chose the batch on an earlier capability read; a later read that fails must not approve
+  // and send its pre-approval intent behind the caller's back.
+  it('hands back a wallet that can no longer batch when fallbackOnRefusal is false', async () => {
+    const calls: string[] = [];
+    const walletProvider = batchWallet(calls, 'supported');
+    walletProvider.getAtomicBatchSupport.mockRejectedValueOnce(new Error('capabilities unavailable'));
+
+    await expect(run({ walletProvider, fallbackOnRefusal: false })).rejects.toMatchObject({
+      code: 'INTENT_CREATION_FAILED',
+      context: { reason: ATOMIC_BATCH_REFUSED, approvalStrategy: 'sequential' },
+    });
+    expect(calls).toEqual([]);
+  });
+
   it('refreshes the allowance once the approval lands, even when the intent is then rejected', async () => {
     const calls: string[] = [];
     const walletProvider = plainWallet(calls);
