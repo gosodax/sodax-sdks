@@ -1,6 +1,6 @@
 ---
 name: sodax-sdk-swaps-api
-description: 'Granular skill for the @sodax/sdk v2 Swaps API client — `sodax.api.swaps` (class SwapsApiService), a typed HTTP client for the backend Swaps API (`/swaps/*`, 21 endpoints: quote, deadline, allowance/approve, create-intent, intent submit/status/cancel/hash/packet/extra-data, limit orders, gas estimate, partner/solver fees, submit-tx + status). Every method returns Promise<Result<T>>, never throws, and validates the response. Use when the task calls the swaps backend directly (e.g. "get a swap quote from the Sodax backend", "sodax.api.swaps", "submit swap tx", "createIntent via the backend API", "poll submit-tx status", "swaps API v2", "point swaps at a custom endpoint"). For the higher-level end-to-end swap orchestrator use the `swap` skill instead. Skill links into the parent sodax-sdk knowledge tree.'
+description: 'Granular skill for the @sodax/sdk v2 Swaps API client — `sodax.api.swaps` (class SwapsApiService), a typed HTTP client for the backend Swaps API (`/swaps/*`, 21 endpoints: quote, deadline, allowance/approve, create-intent, intent submit/status/cancel/hash/packet/extra-data, limit orders, gas estimate, partner/solver fees, submit-tx + status). Every method returns Promise<Result<T>>, never throws, and validates the response. Use when the task calls the swaps backend directly (e.g. "get a swap quote from the Sodax backend", "sodax.api.swaps", "submit swap tx", "createIntent via the backend API", "poll submit-tx status", "swaps API v2", "point swaps at a custom endpoint", "approve and send the swap in one signature"). For the higher-level end-to-end swap orchestrator use the `swap` skill instead. Skill links into the parent sodax-sdk knowledge tree.'
 ---
 
 # Swaps API (Core SDK granular skill)
@@ -26,7 +26,7 @@ validates the response. Errors carry `feature: 'backend'`, `context.api: 'swaps'
 ## Integration workflow
 
 1. [`../integration/knowledge/ai-rules.md`](../integration/knowledge/ai-rules.md) — DO / DO NOT (read first).
-2. [`../integration/knowledge/features/swaps-api.md`](../integration/knowledge/features/swaps-api.md) — the full 21-endpoint client: signatures, wire shapes (bigint vs decimal string), common call shapes (quote, create-intent, submit-tx + status), per-call overrides, custom endpoint.
+2. [`../integration/knowledge/features/swaps-api.md`](../integration/knowledge/features/swaps-api.md) — the full 21-endpoint client: signatures, wire shapes (bigint vs decimal string), common call shapes (quote, create-intent, submit-tx + status), per-call overrides, custom endpoint, and sending the approval and the intent tx in one EIP-5792 signature.
 3. For the end-to-end swap flow that wraps these calls → [`../integration/knowledge/features/swap.md`](../integration/knowledge/features/swap.md); for the sibling read client (`sodax.backendApi`) → [`../integration/knowledge/features/backend-api.md`](../integration/knowledge/features/backend-api.md).
 4. Errors are `Result<T, SodaxError<'EXTERNAL_API_ERROR'>>` → [`../integration/knowledge/recipes/result-and-errors.md`](../integration/knowledge/recipes/result-and-errors.md) and [`../integration/knowledge/reference/error-codes.md`](../integration/knowledge/reference/error-codes.md).
 
@@ -36,6 +36,7 @@ validates the response. Errors carry `feature: 'backend'`, `context.api: 'swaps'
 - **`try/catch` for failures.** Every method returns `Result<T>` — branch on `result.ok`. `catch` won't fire for HTTP/timeout/validation failures.
 - **Passing the `RelayExtraData` object** to `submitTx`'s `relayData`. The field is a `string` — pass `relayData.payload`.
 - **Stringifying `intent` numerics yourself.** `IntentRequestV2` fields are `bigint`; the client serializes them to decimal strings — pass the bigint intent through as-is.
+- **Approving, waiting, then signing the intent tx on an EVM source.** Where the wallet supports EIP-5792, `sendApprovalBatch` sends `[resetTx?, tx, intentTx]` as one batch (one signature): `features/swaps-api.md` § "Approve and send the intent in one signature". Never re-send a batch that returned `ATOMIC_BATCH_UNCONFIRMED`; resume it with `confirmApprovalBatch`.
 - **Calling `getSubmitTxStatus` with only `txHash`.** Both `txHash` AND `srcChainKey` are required.
 - **Confusing `sodax.api.swaps` with `sodax.swaps`.** The former is the backend HTTP client; the latter is the on-chain intent orchestrator.
 
