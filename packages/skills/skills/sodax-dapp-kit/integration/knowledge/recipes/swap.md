@@ -164,6 +164,8 @@ function buttonLabel(state: SwapLifecycleState): string {
     case 'submitting':
     case 'pending':
       return 'Swapping…';
+    case 'unconfirmed':
+      return 'Check the batch again';
     case 'settled':
       return 'Swap again';
     case 'failed':
@@ -173,10 +175,10 @@ function buttonLabel(state: SwapLifecycleState): string {
   }
 }
 
-// Nothing to click: waiting, a prerequisite only the user or the app can resolve, or a batch that may still land.
+// Nothing to click: waiting, or a prerequisite only the user or the app can resolve.
 function isPassive(state: SwapLifecycleState): boolean {
   if (state.kind === 'needsSetup') return state.reason === 'stellarFunding' || state.reason === 'external';
-  return ['idle', 'checking', 'submitting', 'pending', 'unconfirmed'].includes(state.kind);
+  return ['idle', 'checking', 'submitting', 'pending'].includes(state.kind);
 }
 
 function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
@@ -207,7 +209,7 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
       )}
       {state.kind === 'unconfirmed' && (
         <p>
-          Your wallet sent the swap but it is not confirmed yet. Check your wallet activity before swapping again.{' '}
+          Your wallet sent the swap but it is not confirmed yet. Check the batch again to finish it once it lands.{' '}
           <button type="button" onClick={reset}>
             Start over
           </button>
@@ -228,7 +230,8 @@ swap lands in `state`:
   budget of ambiguous reads), so keep a "stop tracking" `reset()` reachable throughout `pending`; it cancels nothing
   on-chain;
 - an approve + swap batch the wallet accepted but that was not confirmed in time → `unconfirmed`. It may still land,
-  so `next()` won't retry it; only `reset()` clears it.
+  so `next()` never sends it again: it waits for that batch (`swapWithApproval` with `resumeBatchId`) and finishes
+  the swap once it lands, staying `unconfirmed` while the batch is pending. `reset()` stops tracking it.
 
 Those last two hold even when `intentParams` changes (a refreshed quote rebuilds them), so a param edit cannot
 re-enable the swap while the first one may still land. `next()` also ignores a call while the previous one is still

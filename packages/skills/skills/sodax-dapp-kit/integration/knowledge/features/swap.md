@@ -27,7 +27,7 @@ useSwapLifecycle({ intentParams, srcWalletProvider, dstWalletProvider, chainSwit
 //   → { state, error, next, reset, approvalStrategy, swap, status, stellar, nearStorage }
 //   the Stellar and NEAR gates check intentParams.dstAddress; dstWalletProvider must control it for the setup actions
 //   state.kind: idle | checking | needsChainSwitch | needsSetup(reason) | ready(approvalStrategy) | submitting
-//               | pending (error? after a post-broadcast failure) | unconfirmed (batch may still land — never retried) | settled | failed
+//               | pending (error? after a post-broadcast failure) | unconfirmed (batch may still land — next() re-checks it, never re-sends) | settled | failed
 useCancelSwap({ mutationOptions });                  // TVars are FLAT: { srcChainKey, intent, walletProvider }
 useCreateLimitOrder({ mutationOptions });           // No deadline; cancel manually
 useCancelLimitOrder({ mutationOptions });           // TVars are FLAT: { srcChainKey, intent, walletProvider }

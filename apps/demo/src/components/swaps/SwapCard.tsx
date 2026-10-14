@@ -83,7 +83,7 @@ function primaryLabel(state: SwapLifecycleState): string {
     case 'pending':
       return 'Swap in progress…';
     case 'unconfirmed':
-      return 'Waiting for the batch to confirm';
+      return 'Check the batch again';
     case 'settled':
       return 'Swap again';
     case 'failed':
@@ -91,16 +91,10 @@ function primaryLabel(state: SwapLifecycleState): string {
   }
 }
 
-/** States the button cannot act on: waiting, a prerequisite only the user (or the app) can resolve, or a batch that may still land. */
+/** States the button cannot act on: waiting, or a prerequisite only the user (or the app) can resolve. */
 function isPassive(state: SwapLifecycleState): boolean {
   if (state.kind === 'needsSetup') return state.reason === 'stellarFunding' || state.reason === 'external';
-  return (
-    state.kind === 'idle' ||
-    state.kind === 'checking' ||
-    state.kind === 'submitting' ||
-    state.kind === 'pending' ||
-    state.kind === 'unconfirmed'
-  );
+  return state.kind === 'idle' || state.kind === 'checking' || state.kind === 'submitting' || state.kind === 'pending';
 }
 
 export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAction<Order[]>) => void }) {
@@ -395,11 +389,13 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
   const handlePrimary = async (): Promise<void> => {
     setActionError(null);
     const swapping = state.kind === 'ready';
+    // Resuming a batch keeps the summary snapshotted when it was sent; its failures land in `state` too.
+    const callsSwap = swapping || state.kind === 'unconfirmed';
     // onSuccess runs with the latest render's values; snapshot what the user confirmed instead.
     if (swapping) submittedSummary.current = buildOrderSummary(src, dst, sourceAmount, quote?.quoted_amount);
-    if (swapping) setOpen(false);
+    if (callsSwap) setOpen(false);
     const result = await lifecycle.next();
-    if (!swapping && result && !result.ok) {
+    if (!callsSwap && result && !result.ok) {
       setActionError(formatMutationFailureMessage(result.error, 'Action failed'));
     }
   };
@@ -729,7 +725,7 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
             {state.kind === 'unconfirmed' && (
               <div className="text-amber-600">
                 Your wallet sent the swap (batch {state.batchId}) but it was not confirmed in time. It may still land —
-                check your wallet activity before swapping again.{' '}
+                check the batch again to finish the swap once it does.{' '}
                 <button type="button" className="underline" onClick={lifecycle.reset}>
                   Start over
                 </button>

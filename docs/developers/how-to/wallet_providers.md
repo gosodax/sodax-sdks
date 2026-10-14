@@ -521,5 +521,5 @@ Requirements for a valid custom implementation:
    or `'unsupported'`), `sendAtomicBatch` must request atomic execution and send the batch for
    `options.expectedChainId` only, and `waitForBatch(batchId, { timeout })` resolves to the batch's receipts once
    it is terminal and throws if it is not by then. The SDK always passes a positive `timeout`, and reads the
-   receipts as one for a batch executed as one transaction, or one per call in call order; any other shape is
-   treated as unconfirmed.
+   receipts as the batch's transaction when they all carry one hash (extra calls the wallet adds are fine), or —
+   right after sending — as one per call in call order; any other shape is treated as unconfirmed.

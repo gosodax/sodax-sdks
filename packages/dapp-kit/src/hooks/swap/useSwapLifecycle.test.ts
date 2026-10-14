@@ -233,32 +233,35 @@ describe('useSwapLifecycle', () => {
     expect(mutateAsyncSafe).not.toHaveBeenCalled();
   });
 
-  it('never retries an unconfirmed batch from next(), and exposes its error', async () => {
+  it('resumes an unconfirmed batch from next() instead of sending it again, and exposes its error', async () => {
     const error = new SodaxError('TX_VERIFICATION_FAILED', 'batch not confirmed', {
       feature: 'swap',
       context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' },
     });
-    stub({ swap: { status: 'error', error, variables: { params: PARAMS } } });
+    const sent = { params: PARAMS, walletProvider: WALLET, extras: { apiKey: 'k' }, timeout: 30_000 };
+    stub({ swap: { status: 'error', error, variables: sent } });
+    mutateAsyncSafe.mockResolvedValueOnce({ ok: true, value: {} });
     const lifecycle = run();
 
     expect(lifecycle.state).toEqual({ kind: 'unconfirmed', batchId: 'batch-1', error });
     expect(lifecycle.error).toBe(error);
-    await expect(lifecycle.next()).resolves.toBeUndefined();
+    await lifecycle.next();
     expect(resetSwap).not.toHaveBeenCalled();
-    expect(mutateAsyncSafe).not.toHaveBeenCalled();
+    expect(mutateAsyncSafe).toHaveBeenCalledWith({ ...sent, resumeBatchId: 'batch-1' });
   });
 
-  it('keeps an unconfirmed batch after the params change, so the swap cannot be sent again', async () => {
+  it('keeps an unconfirmed batch after the params change, and resumes it with the params that sent it', async () => {
     const error = new SodaxError('TX_VERIFICATION_FAILED', 'batch not confirmed', {
       feature: 'swap',
       context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' },
     });
-    stub({ swap: { status: 'error', error, variables: { params: PARAMS } } });
+    stub({ swap: { status: 'error', error, variables: { params: PARAMS, walletProvider: WALLET } } });
+    mutateAsyncSafe.mockResolvedValueOnce({ ok: true, value: {} });
     const lifecycle = run({ intentParams: { ...PARAMS, minOutputAmount: 899_000n } });
 
     expect(lifecycle.state).toEqual({ kind: 'unconfirmed', batchId: 'batch-1', error });
     await lifecycle.next();
-    expect(mutateAsyncSafe).not.toHaveBeenCalled();
+    expect(mutateAsyncSafe).toHaveBeenCalledWith({ params: PARAMS, walletProvider: WALLET, resumeBatchId: 'batch-1' });
   });
 
   it('runs one next() at a time, so a double click swaps once', async () => {

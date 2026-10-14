@@ -97,7 +97,9 @@ transactions:
   `context.reason: 'atomic-batch-failed'` (nothing deposited);
 - anything else short of a confirmed deposit receipt (not confirmed within `timeout`, a partial revert, unclear
   receipts) → `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` and `context.batchId`. It
-  may have landed — **do not retry**; tell the user to check the wallet's activity.
+  may have landed — **never send it again**; call `swapWithApproval` with the same `params` and wallet plus
+  `resumeBatchId: context.batchId`, which only waits for that batch and finishes the swap once it lands (the same
+  unconfirmed error while it is still pending).
 
 Do not chain your own `approve` after any of these; that is exactly the double prompt this method avoids.
 
