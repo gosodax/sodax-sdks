@@ -1,0 +1,239 @@
+---
+title: "Leverage positions: a leveraged account per user, opened in one call"
+sidebarTitle: "Leverage positions"
+icon: layer-group
+description: "SDK 2.2.0 adds leverage positions: an owner-controlled lending account per position, at the leverage and eMode the user picks. Here is how to size, open, track and adjust one."
+---
+
+SODAX already had leverage-yield vaults: deposit, receive a share token, and the vault runs the leverage loop for everyone in it. SDK 2.2.0 adds the unpooled version. A **leverage position** is a lending account that belongs to one owner, opened at the leverage the user picks, and the SDK opens it with a single call.
+
+This post covers what a position is, how it differs from a vault, and the four things an integration does with one: size it, open it, track it and adjust it.
+
+## Vaults and positions
+
+A vault is one shared position. Every depositor sits in the same eMode category at the same target loan-to-value, which is what lets the vault hand out a simple share token. A position gives that up in exchange for control.
+
+| | Leverage-yield vault | Leverage position |
+| --- | --- | --- |
+| Who owns the account | The vault, shared by all depositors | One owner per position |
+| Leverage | The vault's fixed target LTV | Whatever the user chooses, up to the reserve's limit |
+| eMode category | One, set by the vault | Chosen at open, fixed for that position |
+| What the user holds | An `lsoda*` share token | The position itself |
+| Multiple tiers | No | Yes: one owner can hold several positions at different leverage |
+
+Under the hood, each position is a clone created by the `LeveragePositionFactory` on the Sonic hub, with its own account in the SODAX money market. The leverage itself comes from an intent: the position borrows, and a solver on SODAX trades the borrowed asset into more collateral. You set the floor on what that trade must return, so a bad fill cannot go through.
+
+Both products live on `sodax.leverageYield`, and `new Sodax()` already knows the factory address. No extra configuration is needed.
+
+## 1. Size the leverage from a quote, not from oracle prices
+
+This is the one step not to shortcut. A position's leverage is bought through a solver, and the two legs do not trade at exactly their oracle ratio. If you size the borrow from oracle prices alone, the position can land above the pool's maximum LTV. The intent is accepted, then the fill is rejected.
+
+The SDK ships two helpers that do this properly: `sizeLeverageBorrow` for the first estimate and `projectLeverageLeg` for the real numbers once you have a quote.
+
+```ts
+import { Sodax, sizeLeverageBorrow, projectLeverageLeg, type LeverageLegRequest } from '@sodax/sdk';
+import { parseUnits } from 'viem';
+
+const sodax = new Sodax();
+
+const request: LeverageLegRequest = {
+  side: 'collateral',
+  deposit: parseUnits('1', 18),
+  depositDecimals: 18,
+  collateralPriceUsd: Number(collateralReserve.priceInUSD),
+  borrowPriceUsd: Number(borrowReserve.priceInUSD),
+  borrowDecimals: borrowReserve.decimals,
+  leverage: 3,
+};
+
+// 1. Oracle sizing: what to borrow, and what the solver will be asked to trade.
+const { borrowAmount, intentInput } = sizeLeverageBorrow(request);
+
+// 2. Ask solvers what that trade really returns.
+const leg = await sodax.leverageYield.getPositionLegQuote({
+  inputHubToken: borrowReserve.underlyingAsset,
+  outputHubToken: collateralReserve.underlyingAsset,
+  amount: intentInput,
+});
+if (!leg.ok) throw leg.error;
+
+// 3. Project the position from the quote, with 1% slippage.
+const p = projectLeverageLeg(
+  request,
+  { quotedCollateral: leg.value.quotedAmount, collateralDecimals: 18 },
+  risk, // { ltv, liquidationThreshold } as fractions, from the reserve or its eMode category
+  1,
+);
+if (p.exceedsMaxLtv) {
+  throw new Error(`Too much leverage at this price. Max is about ${p.usableMaxLeverage.toFixed(2)}x`);
+}
+console.log(`Exposure ${p.exposureLeverage.toFixed(2)}x, health factor ${p.healthFactor.toFixed(2)}`);
+```
+
+The projection gives you everything a confirmation screen needs:
+
+- **`exceedsMaxLtv`** is a hard gate. If it is true, do not post the intent.
+- **`usableMaxLeverage`** is the real ceiling at this price. It is slightly below the textbook `1 / (1 - ltv)`, because the trade costs something. Use it to cap your leverage slider.
+- **`exposureLeverage`** is what the open position will report, which is a little above the leverage the user asked for. Show this number, not the input.
+- **`minCollateralOut`** is the floor to post with the intent. Everything in the projection is computed at that floor, so if the floor is safe, every possible fill is.
+
+The collateral and borrow reserves, with their prices and risk parameters, come from the money market data you already read for lending (`collateralReserve` and `borrowReserve` above). If the user picks an eMode category, use that category's LTV and liquidation threshold instead of the reserve's base values.
+
+## 2. Open the position
+
+`openLeveragePosition` funds the position, creates it and posts the leverage intent in one call, then reports the intent to solvers so it gets filled. The deposit needs one token approval first, and the SDK knows which spender that network uses:
+
+```ts
+import { ChainKeys } from '@sodax/types';
+
+const funding = { srcChainKey: ChainKeys.SONIC_MAINNET, srcAddress: userAddress, token: collateralToken, amount: request.deposit };
+const allowed = await sodax.leverageYield.isPositionFundingAllowanceValid(funding);
+if (!allowed.ok) throw allowed.error;
+if (!allowed.value) {
+  const approved = await sodax.leverageYield.approvePositionFunding({ ...funding, walletProvider });
+  if (!approved.ok) throw approved.error;
+}
+
+const opened = await sodax.leverageYield.openLeveragePosition({
+  side: 'collateral',
+  params: {
+    srcChainKey: ChainKeys.SONIC_MAINNET,
+    srcAddress: userAddress,
+    token: collateralToken,
+    amount: request.deposit,
+    eModeCategory,
+    borrowToken: borrowReserve.underlyingAsset,
+    borrowAmount,
+    minCollateralOut: p.minCollateralOut,
+  },
+  walletProvider,
+});
+if (!opened.ok) throw opened.error;
+
+// The intent is live. `notified: false` means no solver was told about it yet.
+if (!opened.value.notified) console.warn('Solver notification failed:', opened.value.notifyError);
+```
+
+Two details worth building your UI around:
+
+- **Resolving means the intent is live, not that the leverage has arrived.** The solver fills it right after. Track it with the pending state in the next section.
+- **`side: 'debt'` opens from the borrow asset instead.** A user holding only the debt token (a stablecoin, for example) can end up in a leveraged collateral position without ever buying the collateral. Pass `collateral` and `totalInput` instead of `borrowToken` and `borrowAmount`, and size it with `side: 'debt'` in the request.
+
+The approval goes to the user's own hub wallet on Sonic, or the asset manager on other networks, never to a shared position contract. The deposit lands at the address the position will be created at, and the transfer and the create happen together.
+
+## 3. Track it
+
+Positions are owned by the user's hub wallet, and `listPositionsForUser` resolves that from the address the user connected with.
+
+```ts
+const list = await sodax.leverageYield.listPositionsForUser(ChainKeys.SONIC_MAINNET, userAddress);
+if (!list.ok) throw list.error;
+
+for (const position of list.value) {
+  const account = await sodax.leverageYield.getPositionAccount(position);
+  const pending = await sodax.leverageYield.getPositionPendingState(position);
+  if (!account.ok || !pending.ok) continue;
+
+  const hf = Number(account.value.healthFactor) / 1e18;  // WAD
+  const ltv = Number(account.value.ltv) / 100;           // basis points -> %
+  console.log(position, { hf, ltv, inFlight: pending.value.isLive, needsSettle: pending.value.needsSettle });
+}
+```
+
+- **`getPositionAccount`** is the live snapshot: collateral, debt, LTV and health factor. A health factor below 1 means the position can be liquidated, so this is the number to warn users about.
+- **`getPositionPendingState`** tells you whether an operation is in flight (`isLive`) or finished and waiting to be cleaned up (`needsSettle`). A position accepts one operation at a time.
+- **`getPositionCollateralBalance`** gives the exact collateral amount. Use it, not the USD figures, whenever an amount goes into a transaction such as a full close.
+
+## 4. Adjust and close
+
+Every change to a position runs as the owner's hub wallet. You build the call, then hand it to one of two methods depending on whether it posts an intent:
+
+| Operation | Builder | Run it with |
+| --- | --- | --- |
+| Add leverage | `buildAddLeverage` | `submitLeveragePositionIntent` |
+| Reduce leverage or close into the debt token | `buildDecreaseLeverage` | `submitLeveragePositionIntent` |
+| Withdraw collateral | `buildPositionWithdraw` | `runLeveragePositionOperation` |
+| Settle a finished operation | `buildSettlePosition` | `runLeveragePositionOperation` |
+| Cancel the operation in flight | `buildCancelPositionOperation` | `runLeveragePositionOperation` |
+
+The split is enforced by the compiler: the builders return branded types, and each method only accepts its own kind. Sending a leverage change down the path that does not notify solvers is a type error, not a silent expiry.
+
+```ts
+const info = await sodax.leverageYield.getPositionInfo(position);
+if (!info.ok) throw info.error;
+
+// Leverage up: borrow more and have a solver turn it into collateral.
+const addTx = sodax.leverageYield.buildAddLeverage({
+  from: info.value.owner,
+  position,
+  borrowAmount: moreBorrow,
+  minCollateralOut,
+});
+const added = await sodax.leverageYield.submitLeveragePositionIntent({
+  params: { srcChainKey: ChainKeys.SONIC_MAINNET, srcAddress: userAddress, calls: [addTx] },
+  walletProvider,
+});
+if (!added.ok) throw added.error;
+```
+
+Withdraw, settle and cancel complete on the hub right away, so they go through `runLeveragePositionOperation`:
+
+```ts
+const settleTx = sodax.leverageYield.buildSettlePosition({ from: info.value.owner, position });
+const settled = await sodax.leverageYield.runLeveragePositionOperation({
+  params: { srcChainKey: ChainKeys.SONIC_MAINNET, srcAddress: userAddress, calls: [settleTx] },
+  walletProvider,
+});
+if (!settled.ok) throw settled.error;
+```
+
+There are two ways out of a position:
+
+- **Into the collateral.** Decrease leverage by just enough collateral to cover the debt, wait for the fill, then withdraw the rest to any address.
+- **Into the debt token.** Decrease leverage with the whole collateral balance in one operation. The debt is repaid and the remaining equity, now in the debt token, is swept to the owner by `buildSettlePosition`.
+
+A full exit cannot half-happen: if the fill would not cover the debt, the whole operation reverts and the position stays as it was.
+
+Defending a position never has to wait for a solver either. Adding collateral or repaying debt works directly against the position's account in the money market.
+
+## In React
+
+`@sodax/dapp-kit` wraps every call above in a hook, and its write hooks refresh the position reads after each action.
+
+```tsx
+import { useOpenLeveragePosition, useLeveragePositionsForUser, useLeveragePositionAccount } from '@sodax/dapp-kit';
+import { ChainKeys } from '@sodax/types';
+
+export function Positions() {
+  const { data: positions } = useLeveragePositionsForUser({
+    params: { spokeChainKey: ChainKeys.SONIC_MAINNET, spokeAddress: userAddress },
+  });
+  const { mutateAsync: openPosition, isPending } = useOpenLeveragePosition();
+  // openPosition({ side: 'collateral', params: { ... }, walletProvider }) takes the same input as the SDK call
+  // ...
+}
+
+export function PositionHealth({ position }: { position: `0x${string}` }) {
+  const { data: account } = useLeveragePositionAccount({ params: { position } });
+  const hf = account ? Number(account.healthFactor) / 1e18 : undefined;
+  // ...
+}
+```
+
+The others follow the same pattern: `useLeveragePositionPending`, `useSubmitLeveragePositionIntent` and `useRunLeveragePositionOperation`.
+
+## Funding from other networks
+
+Positions live on the Sonic hub, but the user does not have to. Set `srcChainKey` to another supported network and the same calls deposit from there, create the position and post the intent in one relayed message. A refund for an intent that never fills goes back to the network and address the user funded from.
+
+<Note>
+  Opening and operating positions from a network other than Sonic is marked **experimental** in SDK 2.2.0. It is fully exercised on Sonic. Verify a non-Sonic origin against your own deployment before putting user funds through it. Bitcoin is not supported as a funding source for positions yet, and the SDK refuses it with a validation error.
+</Note>
+
+## Where to go next
+
+- [Leverage positions reference](/developers/packages/foundation/sdk/functional-modules/leverage_yield#leverage-positions): every method, the fee rules and the sizing details.
+- [Integrate leverage yield](/developers/how-to/integrate_leverage_yield): the vault side, if a pooled share token suits your product better.
+- [Demo source](https://github.com/icon-project/sodax-sdks/tree/main/apps/demo/src/pages/leverage-positions): a complete create, adjust and close UI built on the hooks above.
+- [SODAX skills](/developers/packages/experience/skills): give your AI coding agent the leverage-yield guidance, including the sizing rules.
