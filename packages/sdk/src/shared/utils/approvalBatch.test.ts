@@ -206,7 +206,11 @@ describe('sendApprovalBatch', () => {
     walletProvider.waitForBatch.mockResolvedValueOnce(batch);
     const result = await send(walletProvider);
     expect(!result.ok && result.error.code).toBe('TX_VERIFICATION_FAILED');
-    expect(!result.ok && result.error.context).toMatchObject({ reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' });
+    expect(!result.ok && result.error.context).toMatchObject({
+      reason: ATOMIC_BATCH_UNCONFIRMED,
+      batchId: 'batch-1',
+      callCount: 2,
+    });
   });
 
   it('reports a wait that throws (e.g. a timeout) as unconfirmed', async () => {
@@ -346,7 +350,11 @@ describe('confirmApprovalBatch', () => {
     const walletProvider = batchProvider();
     walletProvider.waitForBatch.mockRejectedValueOnce(new Error('unknown bundle id'));
     const result = await resume(walletProvider);
-    expect(!result.ok && result.error.context).toMatchObject({ reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' });
+    expect(!result.ok && result.error.context).toMatchObject({
+      reason: ATOMIC_BATCH_UNCONFIRMED,
+      batchId: 'batch-1',
+      callCount: 2,
+    });
 
     const plain = await resume(plainProvider());
     expect(!plain.ok && plain.error.context?.reason).toBe(ATOMIC_BATCH_UNCONFIRMED);
@@ -366,6 +374,7 @@ describe('confirmApprovalBatch', () => {
 
     const split = await resumeUncounted();
     expect(!split.ok && split.error.context?.reason).toBe(ATOMIC_BATCH_UNCONFIRMED);
+    expect(!split.ok && split.error.context).not.toHaveProperty('callCount');
     await expect(resumeUncounted()).resolves.toMatchObject({ ok: true, value: { txHash: '0xdeposit' } });
   });
 });

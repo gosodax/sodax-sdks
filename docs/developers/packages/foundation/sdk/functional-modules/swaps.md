@@ -698,8 +698,8 @@ prompts or a duplicate of a batch that may still land:
   `context.statusCode`. Nothing was deposited;
 - anything else short of a confirmed deposit receipt (not confirmed within `timeout`, a partial revert, receipts
   that do not identify the deposit) → `TX_VERIFICATION_FAILED` with `context.reason: ATOMIC_BATCH_UNCONFIRMED`
-  (`'atomic-batch-unconfirmed'`) and `context.batchId`. It may have landed, so do not send it again — resume it
-  (below);
+  (`'atomic-batch-unconfirmed'`), `context.batchId` and `context.callCount`. It may have landed, so do not send it
+  again — resume it (below);
 - on the sequential path, the intent is built unsigned before anything is approved, so params that can never become
   a swap fail with `swap()`'s validation codes and cost the user nothing. An approval that then does not confirm →
   `APPROVE_FAILED` with `context.reason: 'approve-not-confirmed'` and `context.approveTxHash`;
@@ -709,10 +709,11 @@ Every other code is `swap()`'s, including `context.srcTxHash` on post-broadcast 
 step carry `context.action: 'swapWithApproval'`; once the path is chosen they also carry `context.approvalStrategy`.
 
 **Resuming an unconfirmed batch.** Call `swapWithApproval` again with the same `params` and wallet, plus
-`resumeBatchId: error.context.batchId`. It sends nothing: it waits for that batch again and, once its deposit
-confirms, relays it client-side and notifies the solver — the original intent is read back from the hub
-transaction, so nothing from the first call is needed. While the batch is still pending it returns the same
-unconfirmed error, so you can keep calling it; a batch the wallet reports as never included comes back as
+`resumeBatchId: error.context.batchId` and `resumeBatchCallCount: error.context.callCount` (without the count, a
+batch the wallet confirmed as one transaction per call stays unconfirmed). It sends nothing: it waits for that batch
+again and, once its deposit confirms, relays it client-side and notifies the solver — the original intent is read
+back from the hub transaction, so nothing from the first call is needed. While the batch is still pending it returns
+the same unconfirmed error, so you can keep calling it; a batch the wallet reports as never included comes back as
 `atomic-batch-failed`.
 
 ```typescript
@@ -720,9 +721,14 @@ import { ATOMIC_BATCH_UNCONFIRMED } from '@sodax/sdk';
 
 const result = await sodax.swaps.swapWithApproval({ params, walletProvider });
 if (!result.ok && result.error.context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
-  const batchId = String(result.error.context.batchId);
+  const { batchId, callCount } = result.error.context;
   // Later, e.g. from a "Check again" button — this sends nothing new:
-  const resumed = await sodax.swaps.swapWithApproval({ params, walletProvider, resumeBatchId: batchId });
+  const resumed = await sodax.swaps.swapWithApproval({
+    params,
+    walletProvider,
+    resumeBatchId: String(batchId),
+    resumeBatchCallCount: Number(callCount),
+  });
 }
 ```
 
@@ -732,9 +738,9 @@ allowAccountUpgrade })` says whether a short allowance can ride in the deposit's
 walletProvider, srcChainKey, txs, timeoutMs, feature })` sends `[resetTx?, approve tx, intent tx]` and returns the
 deposit's `txHash` for `/swaps/submit-tx`, with the failures above. A refusal (`isAtomicBatchRefusal(error)`) means
 nothing was sent: approve separately, then send the intent tx. Its `onBatchSent` reports the batch id before the
-wait — persist it, because `confirmApprovalBatch` with that id is how to resume a batch that came back
-`ATOMIC_BATCH_UNCONFIRMED` instead of sending a second deposit. In React, `useSwapsApiBroadcastWithApproval` from
-`@sodax/dapp-kit` does all of this.
+wait — persist it with `txs.length`, because `confirmApprovalBatch` with that id and `callCount` is how to resume a
+batch that came back `ATOMIC_BATCH_UNCONFIRMED` instead of sending a second deposit. In React,
+`useSwapsApiBroadcastWithApproval` from `@sodax/dapp-kit` does all of this.
 
 ---
 

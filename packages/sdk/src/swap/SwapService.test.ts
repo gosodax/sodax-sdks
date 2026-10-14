@@ -4486,7 +4486,11 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe('TX_VERIFICATION_FAILED');
-        expect(result.error.context).toMatchObject({ reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' });
+        expect(result.error.context).toMatchObject({
+          reason: ATOMIC_BATCH_UNCONFIRMED,
+          batchId: 'batch-1',
+          callCount: 2,
+        });
       }
       // It may still land: no second attempt of any kind.
       expect(approveSpy).not.toHaveBeenCalled();
@@ -4701,12 +4705,20 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xdstTx' } });
       mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK', intent_hash: '0xhash' } });
     };
-    const resume = (wallet: ReturnType<typeof makeBatchProvider>) =>
+    const resume = (wallet: ReturnType<typeof makeBatchProvider>, resumeBatchCallCount?: number) =>
       sodax.swaps.swapWithApproval({
         params: intentInput(ChainKeys.BSC_MAINNET),
         walletProvider: wallet,
         resumeBatchId: 'batch-1',
+        resumeBatchCallCount,
       });
+    const perCallReceipts: EvmBatchResult = {
+      ...confirmedBatch,
+      receipts: [
+        { transactionHash: '0xapproveTx', status: 'success' },
+        { transactionHash: '0xdepositTx', status: 'success' },
+      ],
+    };
 
     it('finishes a batch that confirms after the first wait, without sending anything again', async () => {
       allowance(false);
@@ -4722,7 +4734,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       });
       expect(first.ok).toBe(false);
       if (first.ok) return;
-      expect(first.error.context).toMatchObject({ reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' });
+      expect(first.error.context).toMatchObject({ reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1', callCount: 2 });
 
       const hubIntent = makeIntent(ChainKeys.BSC_MAINNET);
       mocks.getIntent.mockResolvedValueOnce(hubIntent);
@@ -4770,18 +4782,45 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(submitSpy).not.toHaveBeenCalled();
     });
 
-    it('stays unconfirmed while the batch is still pending', async () => {
+    it('stays unconfirmed while the batch is still pending, keeping the call count for the next try', async () => {
       const wallet = makeBatchProvider();
       wallet.waitForBatch.mockRejectedValueOnce(new Error('Timed out while waiting for call bundle'));
 
-      const result = await resume(wallet);
+      const result = await resume(wallet, 2);
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.error.code).toBe('TX_VERIFICATION_FAILED');
-        expect(result.error.context).toMatchObject({ reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' });
+        expect(result.error.context).toMatchObject({
+          reason: ATOMIC_BATCH_UNCONFIRMED,
+          batchId: 'batch-1',
+          callCount: 2,
+        });
       }
       expect(wallet.sendAtomicBatch).not.toHaveBeenCalled();
+      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+    });
+
+    it('relays the deposit of a late batch confirmed as one tx per call, given the call count', async () => {
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockResolvedValueOnce(perCallReceipts);
+      mocks.getIntent.mockResolvedValueOnce(makeIntent(ChainKeys.BSC_MAINNET));
+      stubResumeRelay();
+
+      const result = await resume(wallet, 2);
+
+      expect(result.ok).toBe(true);
+      expect(mocks.submitTransaction.mock.calls[0]?.[0]).toMatchObject({ params: { tx_hash: '0xdepositTx' } });
+    });
+
+    it('keeps a batch confirmed as one tx per call unconfirmed without the call count', async () => {
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockResolvedValueOnce(perCallReceipts);
+
+      const result = await resume(wallet);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.context?.reason).toBe(ATOMIC_BATCH_UNCONFIRMED);
       expect(mocks.submitTransaction).not.toHaveBeenCalled();
     });
 

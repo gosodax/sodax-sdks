@@ -236,18 +236,18 @@ describe('useSwapLifecycle', () => {
   it('resumes an unconfirmed batch from next() instead of sending it again, and exposes its error', async () => {
     const error = new SodaxError('TX_VERIFICATION_FAILED', 'batch not confirmed', {
       feature: 'swap',
-      context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' },
+      context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1', callCount: 2 },
     });
     const sent = { params: PARAMS, walletProvider: WALLET, extras: { apiKey: 'k' }, timeout: 30_000 };
     stub({ swap: { status: 'error', error, variables: sent } });
     mutateAsyncSafe.mockResolvedValueOnce({ ok: true, value: {} });
     const lifecycle = run();
 
-    expect(lifecycle.state).toEqual({ kind: 'unconfirmed', batchId: 'batch-1', error });
+    expect(lifecycle.state).toEqual({ kind: 'unconfirmed', batchId: 'batch-1', callCount: 2, error });
     expect(lifecycle.error).toBe(error);
     await lifecycle.next();
     expect(resetSwap).not.toHaveBeenCalled();
-    expect(mutateAsyncSafe).toHaveBeenCalledWith({ ...sent, resumeBatchId: 'batch-1' });
+    expect(mutateAsyncSafe).toHaveBeenCalledWith({ ...sent, resumeBatchId: 'batch-1', resumeBatchCallCount: 2 });
   });
 
   it('keeps an unconfirmed batch after the params change, and resumes it with the params that sent it', async () => {

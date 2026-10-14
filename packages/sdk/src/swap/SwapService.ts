@@ -169,6 +169,11 @@ export type SwapWithApprovalParams<K extends SpokeChainKey> = SwapActionParams<K
      * anything and, once its deposit confirms, completes the swap through the client-side relay.
      */
     resumeBatchId?: string;
+    /**
+     * With `resumeBatchId`: that error's `context.callCount`. Without it, a batch the wallet confirmed as one
+     * transaction per call cannot be matched to its deposit and stays unconfirmed.
+     */
+    resumeBatchCallCount?: number;
   };
 
 export type CreateIntentResult<K extends SpokeChainKey, Raw extends boolean> = {
@@ -814,8 +819,9 @@ export class SwapService {
    *   `context.reason: 'atomic-batch-failed'`;
    * - anything else short of a confirmed deposit receipt (not confirmed within `timeout`, a partial
    *   revert, receipts that do not identify the deposit) → `TX_VERIFICATION_FAILED` with
-   *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED} and `context.batchId`. It may have landed —
-   *   do not send it again; call again with `resumeBatchId` to finish it once it does.
+   *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED}, `context.batchId` and `context.callCount`. It may
+   *   have landed — do not send it again; call again with `resumeBatchId` and `resumeBatchCallCount` to
+   *   finish it once it does.
    *
    * @returns A `Result<SwapWithApprovalResponse, SwapWithApprovalError>` — `swap()`'s response plus the
    *   `approvalStrategy` that ran. Errors are `swap()`'s codes plus `APPROVE_FAILED` and
@@ -962,7 +968,14 @@ export class SwapService {
     };
     const timeoutMs = approvalBatchWaitMs(_params.timeout);
 
-    const deposit = await confirmApprovalBatch({ walletProvider, batchId, timeoutMs, feature: 'swap', context: ctx });
+    const deposit = await confirmApprovalBatch({
+      walletProvider,
+      batchId,
+      callCount: _params.resumeBatchCallCount,
+      timeoutMs,
+      feature: 'swap',
+      context: ctx,
+    });
     if (!deposit.ok) return deposit;
     const srcTxHash = deposit.value.txHash;
     const txCtx = { ...ctx, srcTxHash };

@@ -47,6 +47,9 @@ import {
   hedera,
 } from 'viem/chains';
 
+/** Status reads one {@link EvmWalletProvider.waitForBatch} makes before a read error ends the wait. */
+const BATCH_STATUS_ATTEMPTS = 3;
+
 /**
  * Manually defined viem chain config for HyperEVM.
  *
@@ -54,9 +57,6 @@ import {
  * here using `defineChain` with the canonical RPC, block-explorer, and Multicall3
  * contract address.
  */
-/** Status reads one {@link EvmWalletProvider.waitForBatch} makes before a read error ends the wait. */
-const BATCH_STATUS_ATTEMPTS = 3;
-
 export const hyper = /*#__PURE__*/ defineChain({
   id: 999,
   name: 'HyperEVM',
