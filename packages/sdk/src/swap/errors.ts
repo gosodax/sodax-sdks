@@ -40,7 +40,8 @@ export type SwapErrorCode = Extract<
 /**
  * `context.reason` of a `swapWithApproval` batch the wallet accepted but that did not confirm as a
  * deposit — not within the timeout, or with a result that does not say whether it landed
- * (`TX_VERIFICATION_FAILED`, with `context.batchId`). It may have landed: do not retry it.
+ * (`TX_VERIFICATION_FAILED`, with `context.batchId` and `context.callCount`). It may have landed: do
+ * not retry it.
  */
 export const ATOMIC_BATCH_UNCONFIRMED = 'atomic-batch-unconfirmed';
 

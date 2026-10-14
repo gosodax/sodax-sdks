@@ -6,7 +6,10 @@ import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/** Mutation variables for {@link useSwapWithApproval}: `useSwap`'s, plus `allowAccountUpgrade` and `resumeBatchId`. */
+/**
+ * Mutation variables for {@link useSwapWithApproval}: `useSwap`'s, plus `allowAccountUpgrade`, `resumeBatchId` and
+ * `resumeBatchCallCount`.
+ */
 export type UseSwapWithApprovalVars<K extends SpokeChainKey = SpokeChainKey> = Omit<SwapWithApprovalParams<K>, 'raw'>;
 
 /**
