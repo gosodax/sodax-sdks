@@ -450,7 +450,8 @@
                   "resources/blog/builders-mcp-agent",
                   "resources/blog/swaps-api-any-language",
                   "resources/blog/swap-widget",
-                  "resources/blog/limit-orders"
+                  "resources/blog/limit-orders",
+                  "resources/blog/leverage-positions"
                 ]
               },
               {
