@@ -97,7 +97,9 @@ transactions:
   `context.reason: 'atomic-batch-failed'` (nothing deposited);
 - anything else short of a confirmed deposit receipt (not confirmed within `timeout`, a partial revert, unclear
   receipts) → `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` and `context.batchId`. It
-  may have landed — **do not retry**; tell the user to check the wallet's activity.
+  may have landed — **never send it again**; call `swapWithApproval` with the same `params` and wallet plus
+  `resumeBatchId: context.batchId`, which only waits for that batch and finishes the swap once it lands (the same
+  unconfirmed error while it is still pending).
 
 On the two-step path the intent is built unsigned before the approval, so invalid params fail before the user pays
 for an approval.
