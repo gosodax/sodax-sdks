@@ -128,6 +128,14 @@ describe('sendApprovalBatch', () => {
     expect(result.ok && result.value.txHash).toBe('0xdeposit');
   });
 
+  it('reads the deposit from receipts that all share one tx, even with a call the wallet added', async () => {
+    const walletProvider = batchProvider();
+    const receipt = { transactionHash: '0xdeposit', status: 'success' } as const;
+    walletProvider.waitForBatch.mockResolvedValueOnce({ ...confirmed, receipts: [receipt, receipt, receipt] });
+    const result = await send(walletProvider);
+    expect(result.ok && result.value.txHash).toBe('0xdeposit');
+  });
+
   it('gives up at once on a zero timeout instead of waiting forever', async () => {
     const walletProvider = batchProvider();
     await send(walletProvider, 0);
@@ -342,6 +350,23 @@ describe('confirmApprovalBatch', () => {
 
     const plain = await resume(plainProvider());
     expect(!plain.ok && plain.error.context?.reason).toBe(ATOMIC_BATCH_UNCONFIRMED);
+  });
+
+  it('without callCount, reads the deposit only from receipts that share one tx', async () => {
+    const walletProvider = batchProvider();
+    walletProvider.waitForBatch.mockResolvedValueOnce({
+      ...confirmed,
+      receipts: [
+        { transactionHash: '0xapprove', status: 'success' },
+        { transactionHash: '0xdeposit', status: 'success' },
+      ],
+    });
+    const resumeUncounted = () =>
+      confirmApprovalBatch({ walletProvider, batchId: 'batch-1', timeoutMs: 15_000, feature: 'swap' });
+
+    const split = await resumeUncounted();
+    expect(!split.ok && split.error.context?.reason).toBe(ATOMIC_BATCH_UNCONFIRMED);
+    await expect(resumeUncounted()).resolves.toMatchObject({ ok: true, value: { txHash: '0xdeposit' } });
   });
 });
 

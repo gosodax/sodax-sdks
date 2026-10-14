@@ -4601,6 +4601,26 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0].srcTxHash).toBe('0xdepositTx');
     });
 
+    it('relays a batch whose receipts are all one tx, even with a call the wallet added', async () => {
+      allowance(false);
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockResolvedValueOnce({
+        ...confirmedBatch,
+        receipts: [
+          { transactionHash: '0xbatchTx', status: 'success' },
+          { transactionHash: '0xbatchTx', status: 'success' },
+          { transactionHash: '0xbatchTx', status: 'success' },
+        ],
+      });
+      stubBatchLegs();
+      stubRelayAndSolver();
+
+      const result = await swapWithBatch(wallet);
+
+      expect(result.ok).toBe(true);
+      expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0].srcTxHash).toBe('0xbatchTx');
+    });
+
     it.each([
       ['a generic RPC error', { code: -32603, message: 'Internal error' }],
       ['a plain error', new Error('connection lost')],
@@ -4672,6 +4692,152 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(createSpy).toHaveBeenCalledTimes(2);
       expect(createSpy).toHaveBeenLastCalledWith(expect.objectContaining({ walletProvider: wallet }));
       expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0].srcTxHash).toBe('0xspokeTx');
+    });
+  });
+
+  describe('swapWithApproval — resuming an unconfirmed batch', () => {
+    const stubResumeRelay = () => {
+      mocks.submitTransaction.mockResolvedValueOnce({ ok: true, value: { success: true, message: 'submitted' } });
+      mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xdstTx' } });
+      mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK', intent_hash: '0xhash' } });
+    };
+    const resume = (wallet: ReturnType<typeof makeBatchProvider>) =>
+      sodax.swaps.swapWithApproval({
+        params: intentInput(ChainKeys.BSC_MAINNET),
+        walletProvider: wallet,
+        resumeBatchId: 'batch-1',
+      });
+
+    it('finishes a batch that confirms after the first wait, without sending anything again', async () => {
+      allowance(false);
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockRejectedValueOnce(new Error('Timed out while waiting for call bundle'));
+      vi.spyOn(sodax.swaps, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
+      const createSpy = vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce(intentResult(RAW_DEPOSIT));
+      const approveSpy = vi.spyOn(sodax.swaps, 'approve');
+
+      const first = await sodax.swaps.swapWithApproval({
+        params: intentInput(ChainKeys.BSC_MAINNET),
+        walletProvider: wallet,
+      });
+      expect(first.ok).toBe(false);
+      if (first.ok) return;
+      expect(first.error.context).toMatchObject({ reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' });
+
+      const hubIntent = makeIntent(ChainKeys.BSC_MAINNET);
+      mocks.getIntent.mockResolvedValueOnce(hubIntent);
+      stubResumeRelay();
+
+      const result = await resume(wallet);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.approvalStrategy).toBe('atomic-batch');
+        expect(result.value.intent).toBe(hubIntent);
+        expect(result.value.intentDeliveryInfo).toMatchObject({ srcTxHash: '0xbatchTx', dstTxHash: '0xdstTx' });
+      }
+      expect(wallet.sendAtomicBatch).toHaveBeenCalledOnce();
+      expect(createSpy).toHaveBeenCalledOnce();
+      expect(approveSpy).not.toHaveBeenCalled();
+      expect(wallet.waitForBatch).toHaveBeenLastCalledWith('batch-1', { timeout: DEFAULT_RELAY_TX_TIMEOUT });
+      // The relay takes an EVM tx by hash; the intent comes back from the hub tx it delivered.
+      expect(mocks.submitTransaction.mock.calls[0]?.[0]).toEqual({
+        action: 'submit',
+        params: { chain_id: getIntentRelayChainId(ChainKeys.BSC_MAINNET).toString(), tx_hash: '0xbatchTx' },
+      });
+      expect(mocks.waitUntilIntentExecuted.mock.calls[0]?.[0]).toMatchObject({ srcTxHash: '0xbatchTx' });
+      expect(mocks.getIntent.mock.calls[0]?.[0]).toBe('0xdstTx');
+      expect(mocks.solverPostExecution).toHaveBeenCalledOnce();
+    });
+
+    it('skips the approval strategy and the submit-tx backend', async () => {
+      const wallet = makeBatchProvider();
+      const backendOn = new Sodax({ logger: 'silent', swaps: { useBackendSubmitTx: true } });
+      const allowanceSpy = vi.spyOn(backendOn.swaps, 'isAllowanceValid');
+      const submitSpy = vi.spyOn(backendOn.api.swaps, 'submitTx');
+      mocks.getIntent.mockResolvedValueOnce(makeIntent(ChainKeys.BSC_MAINNET));
+      stubResumeRelay();
+
+      const result = await backendOn.swaps.swapWithApproval({
+        params: intentInput(ChainKeys.BSC_MAINNET),
+        walletProvider: wallet,
+        resumeBatchId: 'batch-1',
+      });
+
+      expect(result.ok).toBe(true);
+      expect(allowanceSpy).not.toHaveBeenCalled();
+      expect(wallet.getAtomicBatchSupport).not.toHaveBeenCalled();
+      expect(submitSpy).not.toHaveBeenCalled();
+    });
+
+    it('stays unconfirmed while the batch is still pending', async () => {
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockRejectedValueOnce(new Error('Timed out while waiting for call bundle'));
+
+      const result = await resume(wallet);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('TX_VERIFICATION_FAILED');
+        expect(result.error.context).toMatchObject({ reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' });
+      }
+      expect(wallet.sendAtomicBatch).not.toHaveBeenCalled();
+      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+    });
+
+    it('never waits less than the default for the batch, even on a zero timeout', async () => {
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockRejectedValueOnce(new Error('Timed out while waiting for call bundle'));
+
+      await sodax.swaps.swapWithApproval({
+        params: intentInput(ChainKeys.BSC_MAINNET),
+        walletProvider: wallet,
+        resumeBatchId: 'batch-1',
+        timeout: 0,
+      });
+
+      expect(wallet.waitForBatch).toHaveBeenCalledWith('batch-1', { timeout: DEFAULT_RELAY_TX_TIMEOUT });
+    });
+
+    it('reports a batch that never landed as atomic-batch-failed', async () => {
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockResolvedValueOnce({ status: 'failure', statusCode: 400, atomic: true, receipts: [] });
+
+      const result = await resume(wallet);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('INTENT_CREATION_FAILED');
+        expect(result.error.context).toMatchObject({ reason: 'atomic-batch-failed', batchId: 'batch-1' });
+      }
+      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+    });
+
+    it('keeps the deposit tx on a relay failure, so its status can still be read', async () => {
+      const wallet = makeBatchProvider();
+      mocks.submitTransaction.mockResolvedValueOnce({ ok: true, value: { success: true, message: 'submitted' } });
+      mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: false, error: new Error('RELAY_TIMEOUT') });
+
+      const result = await resume(wallet);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('RELAY_TIMEOUT');
+        expect(result.error.context?.srcTxHash).toBe('0xbatchTx');
+      }
+      expect(mocks.solverPostExecution).not.toHaveBeenCalled();
+    });
+
+    it('rejects resuming with a wallet that cannot batch', async () => {
+      const result = await sodax.swaps.swapWithApproval({
+        params: intentInput(ChainKeys.BSC_MAINNET),
+        walletProvider: mockEvmProvider,
+        resumeBatchId: 'batch-1',
+      });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe('VALIDATION_FAILED');
+      expect(mocks.submitTransaction).not.toHaveBeenCalled();
     });
   });
 

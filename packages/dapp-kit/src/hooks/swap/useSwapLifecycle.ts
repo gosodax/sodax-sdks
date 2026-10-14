@@ -53,9 +53,9 @@ export type SwapLifecycle<K extends SpokeChainKey = SpokeChainKey> = {
   /** The error behind `failed`, `unconfirmed` or a `pending` with one. Setup-action failures come back from `next()`. */
   error: Error | undefined;
   /**
-   * Does what the current state needs: switch chain, resolve a setup step, swap, or start over after a
-   * settled or failed swap. Does nothing while waiting or while a previous call is still running, and
-   * never retries an `unconfirmed` batch.
+   * Does what the current state needs: switch chain, resolve a setup step, swap, re-check an `unconfirmed`
+   * batch (finishing the swap once it lands, never sending it again), or start over after a settled or
+   * failed swap. Does nothing while waiting or while a previous call is still running.
    */
   next: () => Promise<Result<unknown> | undefined>;
   /**
@@ -166,11 +166,14 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
           extras,
           timeout,
         });
+      // Sending it again could swap twice, so this only waits for the batch the wallet already holds.
+      case 'unconfirmed':
+        if (!swap.variables) return undefined;
+        return swap.mutateAsyncSafe({ ...swap.variables, resumeBatchId: state.batchId });
       case 'settled':
       case 'failed':
         reset();
         return undefined;
-      // `unconfirmed` may still land: retrying it could swap twice, so only an explicit reset() clears it.
       default:
         return undefined;
     }

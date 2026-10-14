@@ -32,7 +32,8 @@ export type SwapSetupReason =
  *   still complete either way. The read can also stop polling without an error (after its budget of
  *   ambiguous reads), so keep `reset()` reachable here.
  * - `unconfirmed` — the wallet accepted an approve + swap batch that was not confirmed in time. It may
- *   still land, so `next()` will not retry it; only an explicit `reset()` clears it.
+ *   still land, so `next()` never sends it again: it waits for that batch and finishes the swap once it
+ *   lands. `reset()` stops tracking it.
  */
 export type SwapLifecycleState =
   | { kind: 'idle' }

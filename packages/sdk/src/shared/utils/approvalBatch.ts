@@ -188,8 +188,11 @@ export type ConfirmApprovalBatchParams = {
   walletProvider: IEvmWalletProvider;
   /** The id `sendAtomicBatch` returned — what {@link SendApprovalBatchParams.onBatchSent} reported. */
   batchId: string;
-  /** How many calls the batch carried, deposit last. */
-  callCount: number;
+  /**
+   * How many calls the batch carried, deposit last. Without it, only a batch whose receipts all share one
+   * transaction identifies the deposit.
+   */
+  callCount?: number;
   /** How long to wait for the batch to confirm, in ms. */
   timeoutMs: number;
   feature: SodaxFeature;
@@ -242,9 +245,11 @@ export async function confirmApprovalBatch({
         }),
       };
     }
-    // One receipt (the whole batch as one tx) or one per call, else the deposit's tx is unknown.
+    // The deposit is the last call: either every receipt is the same tx (a wallet may add its own fee
+    // call to it), or there is one receipt per call.
     const { receipts } = batch;
-    const depositReceipt = receipts.length === 1 || receipts.length === callCount ? receipts.at(-1) : undefined;
+    const oneTx = new Set(receipts.map(receipt => receipt.transactionHash)).size === 1;
+    const depositReceipt = oneTx || receipts.length === callCount ? receipts.at(-1) : undefined;
     if (depositReceipt?.status !== 'success') return unconfirmed();
     return { ok: true, value: { txHash: depositReceipt.transactionHash, batchId } };
   } catch (error) {
