@@ -43,7 +43,7 @@ export type SwapLifecycleState =
   | { kind: 'ready'; approvalStrategy: SwapApprovalStrategy }
   | { kind: 'submitting' }
   | { kind: 'pending'; srcChainKey: SpokeChainKey; srcTxHash: string; error?: Error }
-  | { kind: 'unconfirmed'; batchId: string; error: Error }
+  | { kind: 'unconfirmed'; batchId: string; callCount?: number; error: Error }
   | { kind: 'settled'; srcChainKey: SpokeChainKey; srcTxHash: string; fillTxHash?: Hex }
   | { kind: 'failed'; error: Error; srcChainKey?: SpokeChainKey; srcTxHash?: string };
 
@@ -60,7 +60,7 @@ export type SwapAttempt =
   | { phase: 'none' }
   | { phase: 'submitting' }
   | { phase: 'broadcast'; srcChainKey: SpokeChainKey; srcTxHash: string; error?: Error }
-  | { phase: 'unconfirmed'; batchId: string; error: Error }
+  | { phase: 'unconfirmed'; batchId: string; callCount?: number; error: Error }
   | { phase: 'failed'; error: Error };
 
 export type SwapLifecycleInputs = {
@@ -128,7 +128,9 @@ function toFinishedAttempt(mutation: SwapAttemptSource, attempted: CreateIntentP
     return { phase: 'broadcast', srcChainKey: attempted.srcChainKey, srcTxHash: context.srcTxHash, error };
   }
   if (context?.reason === ATOMIC_BATCH_UNCONFIRMED && typeof context.batchId === 'string') {
-    return { phase: 'unconfirmed', batchId: context.batchId, error };
+    return typeof context.callCount === 'number'
+      ? { phase: 'unconfirmed', batchId: context.batchId, callCount: context.callCount, error }
+      : { phase: 'unconfirmed', batchId: context.batchId, error };
   }
   return { phase: 'failed', error };
 }
@@ -150,7 +152,12 @@ export function resolveSwapLifecycle(inputs: SwapLifecycleInputs): SwapLifecycle
     const error = attempt.error ?? inputs.statusError;
     return error ? { kind: 'pending', srcChainKey, srcTxHash, error } : { kind: 'pending', srcChainKey, srcTxHash };
   }
-  if (attempt.phase === 'unconfirmed') return { kind: 'unconfirmed', batchId: attempt.batchId, error: attempt.error };
+  if (attempt.phase === 'unconfirmed') {
+    const { batchId, callCount, error } = attempt;
+    return callCount === undefined
+      ? { kind: 'unconfirmed', batchId, error }
+      : { kind: 'unconfirmed', batchId, callCount, error };
+  }
   if (attempt.phase === 'failed') return { kind: 'failed', error: attempt.error };
   if (!inputs.hasInputs) return { kind: 'idle' };
 

@@ -55,7 +55,7 @@ export const ATOMIC_BATCH_REFUSED = 'atomic-batch-refused';
 /**
  * `context.reason` of a batch the wallet accepted but that did not confirm as a deposit — not within
  * the timeout, or with a result that does not say whether it landed (`TX_VERIFICATION_FAILED`, with
- * `context.batchId`). It may have landed: do not retry it.
+ * `context.batchId`, plus `context.callCount` when known). It may have landed: do not retry it.
  */
 export const ATOMIC_BATCH_UNCONFIRMED = 'atomic-batch-unconfirmed';
 
@@ -142,8 +142,8 @@ export type ApprovalBatchResult = {
  * - Never included or fully reverted (EIP-5792 400 / 500) → `INTENT_CREATION_FAILED` with
  *   `context.reason: 'atomic-batch-failed'`. Nothing was deposited.
  * - Anything else short of a confirmed deposit receipt → `TX_VERIFICATION_FAILED` with
- *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED} and `context.batchId`. It may have landed —
- *   never retry it, as a batch or as separate transactions.
+ *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED}, `context.batchId` and `context.callCount`. It may
+ *   have landed — never retry it, as a batch or as separate transactions.
  */
 export async function sendApprovalBatch({
   walletProvider,
@@ -207,7 +207,8 @@ export type ConfirmApprovalBatchParams = {
  * - Never included or fully reverted (EIP-5792 400 / 500) → `INTENT_CREATION_FAILED` with
  *   `context.reason: 'atomic-batch-failed'`. Nothing was deposited.
  * - Anything else short of a confirmed deposit receipt → `TX_VERIFICATION_FAILED` with
- *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED} and `context.batchId`. It may still land.
+ *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED}, `context.batchId` and any `callCount` given. It
+ *   may still land.
  */
 export async function confirmApprovalBatch({
   walletProvider,
@@ -222,7 +223,13 @@ export async function confirmApprovalBatch({
     error: new SodaxError('TX_VERIFICATION_FAILED', 'Atomic approval batch was sent but not confirmed', {
       feature,
       cause,
-      context: { ...context, phase: 'verify', reason: ATOMIC_BATCH_UNCONFIRMED, batchId },
+      context: {
+        ...context,
+        phase: 'verify',
+        reason: ATOMIC_BATCH_UNCONFIRMED,
+        batchId,
+        ...(callCount !== undefined && { callCount }),
+      },
     }),
   });
   if (!canSendAtomicBatch(walletProvider)) return unconfirmed();

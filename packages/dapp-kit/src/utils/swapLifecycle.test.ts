@@ -138,6 +138,15 @@ describe('toSwapAttempt', () => {
     expect(toSwapAttempt(failed, REQUOTED)).toEqual({ phase: 'unconfirmed', batchId: 'batch-1', error });
   });
 
+  it('keeps the call count of an unconfirmed batch, so resuming can match one receipt per call', () => {
+    const error = new SodaxError('TX_VERIFICATION_FAILED', 'batch not confirmed', {
+      feature: 'swap',
+      context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1', callCount: 2 },
+    });
+    const failed = mutation({ status: 'error', error, variables: { params: PARAMS } });
+    expect(toSwapAttempt(failed, PARAMS)).toEqual({ phase: 'unconfirmed', batchId: 'batch-1', callCount: 2, error });
+  });
+
   it('reports a failure before broadcast as failed', () => {
     const error = new SodaxError('USER_REJECTED', 'User rejected the request', { feature: 'swap' });
     const failed = mutation({ status: 'error', error, variables: { params: PARAMS } });
@@ -199,9 +208,9 @@ describe('resolveSwapLifecycle', () => {
     const error = new Error('batch not confirmed');
     expect(
       resolveSwapLifecycle(
-        inputs({ attempt: { phase: 'unconfirmed', batchId: 'batch-1', error }, isWrongChain: true }),
+        inputs({ attempt: { phase: 'unconfirmed', batchId: 'batch-1', callCount: 2, error }, isWrongChain: true }),
       ),
-    ).toEqual({ kind: 'unconfirmed', batchId: 'batch-1', error });
+    ).toEqual({ kind: 'unconfirmed', batchId: 'batch-1', callCount: 2, error });
   });
 
   it('reports a failure before broadcast', () => {

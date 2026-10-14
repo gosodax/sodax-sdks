@@ -169,7 +169,11 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
       // Sending it again could swap twice, so this only waits for the batch the wallet already holds.
       case 'unconfirmed':
         if (!swap.variables) return undefined;
-        return swap.mutateAsyncSafe({ ...swap.variables, resumeBatchId: state.batchId });
+        return swap.mutateAsyncSafe({
+          ...swap.variables,
+          resumeBatchId: state.batchId,
+          resumeBatchCallCount: state.callCount,
+        });
       case 'settled':
       case 'failed':
         reset();
