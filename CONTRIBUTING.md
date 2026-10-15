@@ -65,6 +65,11 @@ Do not bypass them with `--no-verify`. If a check fails, fix the cause.
   as a draft.
 - Fill in the [pull request template](./.github/PULL_REQUEST_TEMPLATE.md): what the change does,
   which issue it closes, and which docs it updated (see [Documentation](#documentation)).
+- Every pull request links an issue: the **Issue linked** check (`.github/workflows/issue-link.yml`)
+  fails unless the PR body contains `Closes #N`, `Fixes #N` or `Resolves #N`, or the PR carries the
+  `no-issue` label. Use the label only for work with no issue to point at (typo, dependency bump,
+  release chore, Mintlify `sodax/draft-*` publish) and give the reason in the PR Summary. The check
+  re-runs when the body or labels change, so fix it by editing the PR, not by pushing.
 - The PR title must be a conventional commit (`feat(sdk): …`, `fix(wallet-sdk-react): …`,
   `docs: …`). `Lint PR` checks it, and while the PR has a single commit, checks that the commit
   message matches the title.
