@@ -7,19 +7,34 @@ import { numberToHex, sha256, type Hex } from 'viem';
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
-/** base58check Tron address → 41-prefixed hex (drops the 4-byte checksum). Accepts hex/0x pass-through. */
+/**
+ * base58check Tron address → 41-prefixed hex (drops the 4-byte checksum). Also accepts the 41-prefixed
+ * hex form, with or without `0x`.
+ *
+ * Strict on purpose: these bytes become MPC-relay recipients and withdraw identities, so a typo that
+ * still decodes must throw rather than resolve to someone else's account.
+ */
 export function tronBase58ToHex(addr: string): string {
-  if (addr.startsWith('0x')) return addr.slice(2);
-  if (/^41[0-9a-fA-F]{40}$/.test(addr)) return addr;
+  const hex = addr.startsWith('0x') ? addr.slice(2) : addr;
+  if (/^41[0-9a-fA-F]{40}$/.test(hex)) return hex;
+  if (addr.startsWith('0x')) throw new Error(`invalid Tron hex address (expected 0x41 + 20 bytes): ${addr}`);
+
   let n = 0n;
   for (const c of addr) {
     const i = B58.indexOf(c);
     if (i < 0) throw new Error(`invalid base58 char in Tron address: ${addr}`);
     n = n * 58n + BigInt(i);
   }
-  let h = n.toString(16);
-  if (h.length % 2) h = `0${h}`;
-  return h.slice(0, -8); // strip checksum
+  // A Tron address is 25 bytes (0x41 ‖ 20-byte hash ‖ 4-byte checksum); the leading 0x41 means no
+  // leading zero bytes, so the big-integer form is exactly 50 hex chars.
+  const h = n.toString(16).padStart(50, '0');
+  if (h.length !== 50 || !h.startsWith('41')) {
+    throw new Error(`invalid Tron address (expected 25 bytes with 0x41 version): ${addr}`);
+  }
+  const payload = h.slice(0, 42);
+  const checksum = sha256(sha256(`0x${payload}`)).slice(2, 10);
+  if (h.slice(42) !== checksum) throw new Error(`invalid Tron address checksum: ${addr}`);
+  return payload;
 }
 
 /**

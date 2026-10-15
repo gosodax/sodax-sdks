@@ -284,11 +284,7 @@ export type FeeEstimateTransaction = {
 
 export type NearGasEstimate = bigint;
 
-/**
- * Tron prices a transaction in two separate resources rather than one gas number, and the sender
- * pays them from their own staked resources (or burns TRX at the network rate when short) — so there
- * is no single fee figure to return.
- */
+/** Tron prices a transaction in two staked resources rather than one gas number. */
 export type TronGasEstimate = {
   /** Energy the contract call consumes. `0n` for a native TRX transfer, which uses none. */
   energy: bigint;

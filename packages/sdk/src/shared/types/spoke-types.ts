@@ -249,12 +249,8 @@ export type RawDestinationParams = {
 };
 
 /**
- * Direction of the cross-chain settlement a feature waits on. `inbound` is spoke→hub (a deposit the
- * hub executes), `outbound` is hub→spoke (a borrow/withdraw released back to the spoke).
- *
- * The two are not symmetric per chain family: Bitcoin outbound is relayed on demand under a derived
- * poll id, and Tron settles through the MPC relay's withdrawal record rather than its deposit record.
- * Feature services pass the direction; {@link SpokeService.settle} owns the per-family behavior.
+ * Direction of the settlement a feature waits on: `inbound` is spoke→hub, `outbound` hub→spoke. The
+ * two are not symmetric per chain family; {@link SpokeService.settle} owns that behaviour.
  */
 export type SettlementDirection = 'inbound' | 'outbound';
 
@@ -267,8 +263,5 @@ export type SettleParams = {
   timeout?: number;
 };
 
-/**
- * Why a settlement failed. `phase` lets a feature keep its own error taxonomy (a source tx that
- * never landed vs a relay that never delivered) without knowing which settlement mechanism ran.
- */
+/** Why a settlement failed. `phase` lets a feature map it onto its own errors. */
 export type SettlementFailure = { phase: 'verification' | 'relay'; cause: unknown };

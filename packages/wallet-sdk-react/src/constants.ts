@@ -41,6 +41,9 @@ export const STELLAR_DEFAULT_SOROBAN_RPC_URL = 'https://rpc.ankr.com/stellar_sor
 // ─── NEAR ───────────────────────────────────────────────────────────────────
 export const NEAR_DEFAULT_RPC_URL = 'https://1rpc.io/near';
 
+// ─── Tron ───────────────────────────────────────────────────────────────────
+export const TRON_DEFAULT_RPC_URL = 'https://api.trongrid.io';
+
 // ─── Wallet metadata (install URLs + icons for extension-based wallets) ────
 // Keys are wallet-level, not per-connector: one OKX extension serves both
 // Bitcoin and EVM connectors, so metadata is shared.

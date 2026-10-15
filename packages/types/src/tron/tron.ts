@@ -1,9 +1,8 @@
 import type { ICoreWallet } from '../wallet/wallet.js';
 
 /**
- * Tron types for the MPC (memo-mode) deposit flow. Tron does NOT ride the intent relay — deposits
- * are plain TRX/TRC-20 transfers to the shared MPC reserve carrying a 32-byte payload-hash memo,
- * picked up by the NEAR chain-signatures relay. See `MpcRelayApiService` in the sdk package.
+ * Tron types for the MPC memo-mode deposit flow: transfers to the shared reserve carrying a 32-byte
+ * payload-hash memo. See `MpcRelayApiService` in the sdk package.
  */
 
 /** An unsigned Tron transaction as returned by TronGrid `createtransaction` / `triggersmartcontract`. */
@@ -23,10 +22,8 @@ export interface TronSignedTransaction extends TronUnsignedTransaction {
 }
 
 /**
- * Structural raw-tx shape shared with the other spoke chains (see `RawTxReturnType`). `to` is the
- * MPC reserve the funds go to and `data` the memo to tag the transfer with, for both a native TRX
- * transfer and a TRC-20 one — `token` is what distinguishes them (the zero sentinel for native),
- * since a TRC-20 deposit is a `transfer` call on that contract rather than a value transfer.
+ * Structural raw-tx shape shared with the other spoke chains. `to` is the MPC reserve and `data` the
+ * memo; `token` distinguishes a TRC-20 `transfer` call from a native value transfer.
  */
 export type TronRawTransaction = {
   from: string;
@@ -59,17 +56,11 @@ export type TronRawTransactionReceipt = {
 
 export interface ITronWalletProvider extends ICoreWallet {
   readonly chainType: 'TRON';
-  /**
-   * Sign an unsigned Tron transaction (TronWeb-shaped: signs `txID`, attaching `signature`).
-   * The sdk builds the memo transfer and computes `txID`; the wallet only holds the key.
-   */
+  /** Sign an unsigned transaction: signs `txID` and attaches `signature`. */
   signTransaction: (tx: TronUnsignedTransaction) => Promise<TronSignedTransaction>;
   /**
-   * Sign a 32-byte withdrawal-auth digest (scheme 1: Tron `signMessageV2`, which UTF-8 encodes the
-   * `"0x"`-prefixed lowercase hex STRING of the hash — 66 characters — under the
-   * `"\x19TRON Signed Message:\n66"` prefix, NOT the raw 32 bytes).
-   * Returns the 65-byte `r‖s‖v` signature hex.
-   * Used by the hub→Tron withdraw/borrow flow.
+   * Sign a withdrawal-auth digest with `signMessageV2` (scheme 1), which signs the hash's hex text
+   * rather than its raw bytes. Returns the 65-byte `r‖s‖v` hex.
    */
   signMessage: (hash: `0x${string}`) => Promise<`0x${string}`>;
   waitForTransactionReceipt: (txHash: string) => Promise<TronRawTransactionReceipt>;
