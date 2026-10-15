@@ -24,15 +24,31 @@ jobs:
     timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
+      # The repo is public: only issues opened, reopened or transferred by a writer reach the board.
+      - name: Require write access from the sender
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SENDER: ${{ github.event.sender.login }}
+        run: |
+          set -euo pipefail
+          permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$SENDER/permission" --jq .permission)
+          case "$permission" in
+            admin | maintain | write) echo 'allowed=true' >> "$GITHUB_OUTPUT" ;;
+            *) echo "$SENDER has $permission access: not adding to the board." ;;
+          esac
+
       # PROJECT_TOKEN needs the org `project` scope; GITHUB_TOKEN cannot write org projects.
       - name: Add to project 12
         id: add
+        if: steps.gate.outputs.allowed == 'true'
         uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
         with:
           project-url: ${{ env.PROJECT_URL }}
           github-token: ${{ secrets.PROJECT_TOKEN }}
 
       - name: Set Stream = SDK
+        if: steps.gate.outputs.allowed == 'true'
         env:
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           ITEM_ID: ${{ steps.add.outputs.itemId }}
