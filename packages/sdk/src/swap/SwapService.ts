@@ -37,13 +37,12 @@ import {
   isNativeBitcoinTransfer,
   RELAY_FALLBACK_FLOOR_MS,
 } from '../shared/index.js';
-import { resolveDeliveredPacket } from '../backendApi/detailedStatusRouting.js';
+import { readIntentJournalOutcome, resolveDeliveredPacket } from '../backendApi/detailedStatusRouting.js';
 import { SolverApiService } from './SolverApiService.js';
 import { EvmSolverService } from './EvmSolverService.js';
 import type { BackendApiService } from '../backendApi/index.js';
 import { runBackendSubmitTx } from '../backendApi/runBackendSubmitTx.js';
 import { createSubmitTxAttempt, type SubmitTxAttempt } from '../backendApi/submitTxAttempt.js';
-import { readIntentJournalOutcome } from '../backendApi/intentJournal.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
 import type { ApprovalTxs } from '../shared/types/spoke-types.js';
 import { selectSolvedIntentPacket } from './selectSolvedIntentPacket.js';

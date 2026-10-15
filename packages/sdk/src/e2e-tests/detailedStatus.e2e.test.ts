@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ChainKeys } from '@sodax/types';
 import { DETAILED_STATUS_NOT_DELIVERED, isSodaxError, Sodax } from '../index.js';
-import { readIntentJournalOutcome } from '../backendApi/intentJournal.js';
+import { readIntentJournalOutcome } from '../backendApi/detailedStatusRouting.js';
 
 /**
  * E2e contract pin for `SwapService.getDetailedStatus`, against live APIs.

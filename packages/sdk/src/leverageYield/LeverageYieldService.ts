@@ -73,9 +73,9 @@ import type { BackendApiService, RequestOverrideConfig } from '../backendApi/ind
 import {
   DETAILED_STATUS_NOT_DELIVERED,
   isBackendSubmitTxAbandoned,
+  readIntentJournalOutcome,
   resolveDeliveredPacket,
 } from '../backendApi/detailedStatusRouting.js';
-import { readIntentJournalOutcome } from '../backendApi/intentJournal.js';
 import { isAuthFailure, isSodaxError } from '../errors/guards.js';
 import type { DetailedLeverageYieldStatus, DetailedLeverageYieldStatusKey } from './detailedStatus.js';
 import { runBackendSubmitTx } from '../backendApi/runBackendSubmitTx.js';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { IntentResponse } from './BackendApiService.js';
-import { readIntentJournalOutcome } from './intentJournal.js';
+import { readIntentJournalOutcome } from './detailedStatusRouting.js';
 
 const journal = (open: boolean, events: unknown[]): IntentResponse => ({
   intentHash: '0x82cd1da49cb359107181167abf53e876944a763243aeb3a78f75fe9b4ba73240',
