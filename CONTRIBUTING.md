@@ -240,3 +240,9 @@ Merge strategy:
 1. Feature branches → `main`: **squash merge**
 2. `main` → `staging`: **normal merge**
 3. `staging` → `production`: **normal merge**
+
+Every pull request links an issue: the **Issue linked** check (`.github/workflows/issue-link.yml`)
+fails unless the PR body contains `Closes #N`, `Fixes #N` or `Resolves #N`, or the PR carries the
+`no-issue` label. Use the label only for work with no issue to point at (typo, dependency bump,
+release chore, Mintlify `sodax/draft-*` publish) and give the reason in the PR Summary. The check
+re-runs when the body or labels change, so fix it by editing the PR, not by pushing.
