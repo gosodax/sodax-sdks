@@ -372,10 +372,8 @@ export function useExecution(input: ExecutionInput) {
           // A batch that confirmed is an ordinary broadcast now, with its hash on the record.
           if (batchSent) setPendingBatch(undefined);
           postEmbedEvent({ type: 'sodax:swap', status: 'submitted' });
-          if (input.pair) {
-            submittedPair.current = input.pair;
-            trackSwapSubmitted(input.pair);
-          }
+          submittedPair.current = input.pair;
+          if (input.pair) trackSwapSubmitted(input.pair);
         },
         onRelayAccepted: () => {
           if (broadcastRecord) markRelaySubmitted(broadcastRecord);
@@ -417,6 +415,7 @@ export function useExecution(input: ExecutionInput) {
     savePendingBatch(undefined);
     setPendingBatch(undefined);
     setActivity(undefined);
+    submittedPair.current = undefined;
     setError(undefined);
     setReview(undefined);
     setDismissed(false);
@@ -505,6 +504,8 @@ export function useExecution(input: ExecutionInput) {
       setActivity(recovered);
       setPendingBatch(undefined);
       postEmbedEvent({ type: 'sodax:swap', status: 'submitted' });
+      submittedPair.current = recovered.pair;
+      if (recovered.pair) trackSwapSubmitted(recovered.pair);
       await submitRecord(recovered);
     } catch (cause) {
       setError(executionError(cause));
