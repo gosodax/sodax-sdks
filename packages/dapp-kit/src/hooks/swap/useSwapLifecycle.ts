@@ -25,8 +25,8 @@ export type { SwapLifecycleState, SwapSetupReason } from '../../utils/swapLifecy
 export type UseSwapLifecycleParams<K extends SpokeChainKey = SpokeChainKey> = {
   /**
    * The swap to run. Changing it starts a new lifecycle once the current swap is done; one that may still
-   * land (failed after broadcast, or an unconfirmed batch) holds until `reset()`. Never pass a `0n`
-   * `minOutputAmount`: it accepts any fill, and keeps a Stellar destination that needs a trustline in `checking`.
+   * land (failed after broadcast, or an unconfirmed batch) holds until `reset()`. A `0n` `minOutputAmount`
+   * accepts any fill, so an app should not send one.
    */
   intentParams: CreateIntentParams<K> | undefined;
   srcWalletProvider: GetWalletProviderType<K> | undefined;
@@ -100,7 +100,8 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
   const stellar = useStellarGate({
     dstChainKey: intentParams?.dstChainKey,
     token: intentParams?.outputToken,
-    amount: intentParams?.minOutputAmount,
+    // A 0n amount disables the trustline check, which would hold the lifecycle in `checking`.
+    amount: intentParams && (intentParams.minOutputAmount > 0n ? intentParams.minOutputAmount : 1n),
     address: intentParams?.dstAddress,
     walletProvider: dstWalletProvider,
   });
