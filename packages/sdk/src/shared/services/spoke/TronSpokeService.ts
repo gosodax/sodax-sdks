@@ -234,10 +234,19 @@ export class TronSpokeService {
     const signature = signed.signature[0];
     if (!signature) throw new Error('[TronSpokeService.deposit] wallet returned no signature');
 
-    const broadcast = await this.rpc<{ result?: boolean; message?: string }>('/wallet/broadcasthex', {
-      transaction: assembleBroadcastHex(rawWithMemo, signature),
-    });
-    if (!broadcast.result) throw new Error(`[TronSpokeService.deposit] broadcast failed: ${broadcast.message ?? ''}`);
+    // The tx is signed, so a lost or rejected broadcast response does not prove it missed the chain;
+    // keep the deterministic txID in the error so the caller can look it up or re-notify it.
+    let broadcast: { result?: boolean; message?: string };
+    try {
+      broadcast = await this.rpc<{ result?: boolean; message?: string }>('/wallet/broadcasthex', {
+        transaction: assembleBroadcastHex(rawWithMemo, signature),
+      });
+    } catch (error) {
+      throw new Error(`[TronSpokeService.deposit] broadcast of ${txID} failed or timed out`, { cause: error });
+    }
+    if (!broadcast.result) {
+      throw new Error(`[TronSpokeService.deposit] broadcast of ${txID} failed: ${broadcast.message ?? ''}`);
+    }
     return txID;
   }
 

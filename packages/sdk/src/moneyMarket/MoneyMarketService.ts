@@ -547,6 +547,8 @@ export class MoneyMarketService {
 
           // Settlement is skipped only when the source chain is the hub.
           if (isHubChainKeyType(srcChainKey)) {
+            const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
+            if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
             return {
               ok: true,
               value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx },
@@ -756,6 +758,8 @@ export class MoneyMarketService {
             (params.dstChainKey != null && params.dstAddress != null && params.dstChainKey !== hubChainId);
 
           if (!needsSettlement) {
+            const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
+            if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
             return {
               ok: true,
               value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx },
@@ -939,6 +943,8 @@ export class MoneyMarketService {
               params.dstAddress !== walletRouter);
 
           if (!needsSettlement) {
+            const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
+            if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
             return {
               ok: true,
               value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx },
@@ -1111,6 +1117,8 @@ export class MoneyMarketService {
 
           // Settlement is skipped only when the source chain is the hub.
           if (isHubChainKeyType(srcChainKey)) {
+            const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
+            if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
             return {
               ok: true,
               value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx },
