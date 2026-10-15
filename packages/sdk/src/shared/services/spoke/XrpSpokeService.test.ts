@@ -197,7 +197,27 @@ describe('XrpSpokeService.deposit — submit results', () => {
   it('treats a tec* applied-but-failed result as a failure and does not notify', async () => {
     stubRippled({ submit: { engine_result: 'tecUNFUNDED_PAYMENT', tx_json: { hash: TX_HASH } } });
 
-    await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toThrow(/submit failed: tecUNFUNDED_PAYMENT/);
+    await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toThrow(
+      new RegExp(`submit of ${TX_HASH} failed: tecUNFUNDED_PAYMENT`),
+    );
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
+  it('keeps the signed tx hash in the error when the submit call itself fails', async () => {
+    stubRippled();
+    const fetchMock = vi.mocked(fetch);
+    const answer = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation(async (url, init) => {
+      const { method } = JSON.parse(String(init?.body)) as { method: string };
+      if (method === 'submit') throw new Error('aborted');
+      return answer ? answer(url, init) : Promise.reject(new Error('no stub'));
+    });
+
+    const failure = await xrp.deposit(depositParams(NATIVE_XRP)).catch((error: Error) => error);
+
+    // A signed blob may still land after a lost response; the hash is the only way to find it.
+    expect((failure as Error).message).toMatch(new RegExp(`submit of ${TX_HASH} failed or timed out`));
+    expect(((failure as Error).cause as Error).message).toMatch(/aborted/);
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 

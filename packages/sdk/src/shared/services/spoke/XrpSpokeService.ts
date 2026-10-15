@@ -235,13 +235,23 @@ export class XrpSpokeService {
       return signed.hash;
     }
 
-    const submitted = await this.rpc<{ engine_result?: string; tx_json?: { hash?: string } }>('submit', {
-      tx_blob: signed.tx_blob,
-    });
+    // The blob is signed, so a lost or provisional submit response does not prove it missed the
+    // ledger (a ter* result can still apply later); keep the hash in the error so it can be looked up.
+    let submitted: { engine_result?: string; tx_json?: { hash?: string } };
+    try {
+      submitted = await this.rpc<{ engine_result?: string; tx_json?: { hash?: string } }>('submit', {
+        tx_blob: signed.tx_blob,
+      });
+    } catch (error) {
+      throw new Error(`[XrpSpokeService.deposit] submit of ${signed.hash ?? 'unknown tx'} failed or timed out`, {
+        cause: error,
+      });
+    }
     // tesSUCCESS is the only unambiguous accept; tec* codes are applied-but-failed and ter*/tem* are
     // rejections, so anything else would notify the relay about a tx that never moved funds.
     if (submitted.engine_result !== 'tesSUCCESS') {
-      throw new Error(`[XrpSpokeService.deposit] submit failed: ${submitted.engine_result ?? 'unknown'}`);
+      const txHash = signed.hash ?? submitted.tx_json?.hash ?? 'unknown tx';
+      throw new Error(`[XrpSpokeService.deposit] submit of ${txHash} failed: ${submitted.engine_result ?? 'unknown'}`);
     }
     const hash = signed.hash ?? submitted.tx_json?.hash;
     if (!hash) throw new Error('[XrpSpokeService.deposit] submitted but no transaction hash returned');
