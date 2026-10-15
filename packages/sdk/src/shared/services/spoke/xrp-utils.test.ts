@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { sha256 } from 'viem';
 import { decodeAccountId, xrpCurrencyCode, encodeAccountId, xrpIdentityBytes } from './xrp-utils.js';
 
 /**
@@ -47,4 +48,30 @@ describe('xrp-utils', () => {
     const bad = `${RESERVE.slice(0, -1)}${RESERVE.endsWith('7') ? '8' : '7'}`;
     expect(() => decodeAccountId(bad)).toThrow(/checksum/);
   });
+
+  it('rejects a string of the wrong length', () => {
+    expect(() => decodeAccountId(RESERVE.slice(0, -2))).toThrow(/bad address length/);
+    expect(() => decodeAccountId(`${RESERVE}r`)).toThrow(/bad address length/);
+  });
+
+  it('rejects a checksummed payload whose type prefix is not an account (0x00)', () => {
+    const accountId = Buffer.from(RLUSD_ISSUER_ACCOUNT_ID.slice(2), 'hex');
+    const notAnAccount = base58Check(Uint8Array.from([0x01, ...accountId]));
+
+    expect(() => decodeAccountId(notAnAccount)).toThrow(/not an XRPL account address/);
+  });
 });
+
+/** base58check over the XRPL alphabet for an arbitrary payload — builds inputs `encodeAccountId` cannot. */
+function base58Check(payload: Uint8Array): string {
+  const alphabet = 'rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz';
+  const checksum = sha256(sha256(payload, 'bytes'), 'bytes').subarray(0, 4);
+  const full = Uint8Array.from([...payload, ...checksum]);
+  let n = BigInt(`0x${Buffer.from(full).toString('hex')}`);
+  let out = '';
+  while (n > 0n) {
+    out = alphabet[Number(n % 58n)] + out;
+    n /= 58n;
+  }
+  return out;
+}
