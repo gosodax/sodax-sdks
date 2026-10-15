@@ -5,9 +5,12 @@ import {
   PENDING_BATCH_KEY,
   type Activity,
   loadActivity,
+  loadPendingBatch,
   readActivity,
   saveBatchActivity,
+  savePendingBatch,
 } from './activity';
+import { heldBatchMessage, UNCONFIRMED_BATCH_MESSAGE } from './execution';
 
 const evmAddress = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 
@@ -105,6 +108,7 @@ describe('saveBatchActivity', () => {
     Object.defineProperty(globalThis, 'localStorage', {
       configurable: true,
       value: {
+        getItem: (key: string) => entries[key] ?? null,
         setItem: (key: string, value: string) => {
           if (full.includes(key)) throw new Error('QuotaExceededError');
           entries[key] = value;
@@ -127,5 +131,15 @@ describe('saveBatchActivity', () => {
     const entries = withStore({ [PENDING_BATCH_KEY]: 'batch' }, [ACTIVITY_KEY]);
     expect(saveBatchActivity(activity)).toBe(false);
     expect(entries[PENDING_BATCH_KEY]).toBe('batch');
+  });
+
+  // The batch then holds only in memory, so the held dialog must say so even over confirm's own error.
+  it('reports a batch it could not save, which a reload cannot find and the held dialog warns about', () => {
+    withStore({}, [PENDING_BATCH_KEY]);
+    const { txHash: _txHash, ...fields } = activity;
+    const saved = savePendingBatch({ ...fields, batchId: 'batch-1', callCount: 2 });
+    expect(saved).toBe(false);
+    expect(loadPendingBatch()).toBeUndefined();
+    expect(heldBatchMessage(UNCONFIRMED_BATCH_MESSAGE, saved)).toMatch(/blocked saving it\. Keep this page open/);
   });
 });
