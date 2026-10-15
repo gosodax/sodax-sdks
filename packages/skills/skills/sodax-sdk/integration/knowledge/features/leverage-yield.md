@@ -178,7 +178,8 @@ const result = await sodax.leverageYield.vaultSwapWithApproval({ ...built.value,
 ```
 
 A `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` means the batch may still land — do not
-deposit again.
+deposit again. Call it again with `resumeBatchId: context.batchId` and `resumeBatchCallCount: context.callCount`: that
+sends nothing, and once the batch lands it relays the deposit and notifies the solver.
 
 ### Withdraw (`lsoda*` → any token)
 

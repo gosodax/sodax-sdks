@@ -6,7 +6,10 @@ import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/** Mutation variables for {@link useLeverageYieldVaultSwapWithApproval}: `useLeverageYieldVaultSwap`'s, plus `allowAccountUpgrade`. */
+/**
+ * Mutation variables for {@link useLeverageYieldVaultSwapWithApproval}: `useLeverageYieldVaultSwap`'s, plus
+ * `allowAccountUpgrade`, `resumeBatchId` and `resumeBatchCallCount`.
+ */
 export type UseLeverageYieldVaultSwapWithApprovalVars<K extends SpokeChainKey = SpokeChainKey> = Omit<
   VaultSwapWithApprovalParams<K>,
   'raw'

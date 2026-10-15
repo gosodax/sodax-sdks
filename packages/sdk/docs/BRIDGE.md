@@ -257,11 +257,36 @@ support, `allowAccountUpgrade` and the failure rules are the same as for swaps (
   account upgrade (retry with `allowAccountUpgrade: false`);
 - never included or fully reverted → `INTENT_CREATION_FAILED`, `context.reason: 'atomic-batch-failed'`. Nothing was
   deposited;
-- sent but not confirmed → `TX_VERIFICATION_FAILED`, `context.reason: ATOMIC_BATCH_UNCONFIRMED` and
-  `context.batchId`. It may still land, so do not bridge it again;
+- sent but not confirmed → `TX_VERIFICATION_FAILED`, `context.reason: ATOMIC_BATCH_UNCONFIRMED`, `context.batchId`
+  and `context.callCount`. It may still land, so do not bridge it again — resume it (below);
 - on the sequential path, the deposit is built unsigned before anything is approved, so params that can never bridge
   fail with `bridge()`'s validation codes and cost the user nothing. An approval that then does not confirm →
   `APPROVE_FAILED`, `context.reason: 'approve-not-confirmed'`.
+
+**Resuming an unconfirmed batch.** Call `bridgeWithApproval` again with the same `params` and wallet, plus
+`resumeBatchId: error.context.batchId` and `resumeBatchCallCount: error.context.callCount` (without the count, a
+batch the wallet confirmed as one transaction per call stays unconfirmed). It sends nothing: it waits for that batch
+again and, once its deposit confirms, relays it client-side by its hash and returns the usual `TxHashPair` with
+`approvalStrategy: 'atomic-batch'`. It skips the backend submit-tx, which needs the `relayData` the first call held.
+While the batch is still pending it returns the same unconfirmed error, so you can keep calling it; a batch the wallet
+reports as never included comes back as `atomic-batch-failed`, and a relay failure after the deposit landed carries
+`context.srcTxHash`, so calling it again only re-relays.
+
+```typescript
+import { ATOMIC_BATCH_UNCONFIRMED } from '@sodax/sdk';
+
+const result = await sodax.bridge.bridgeWithApproval({ params, walletProvider });
+if (!result.ok && result.error.context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
+  const { batchId, callCount } = result.error.context;
+  // Later, e.g. from a "Check again" button — this sends nothing new:
+  const resumed = await sodax.bridge.bridgeWithApproval({
+    params,
+    walletProvider,
+    resumeBatchId: String(batchId),
+    resumeBatchCallCount: Number(callCount),
+  });
+}
+```
 
 ### createBridgeIntent
 

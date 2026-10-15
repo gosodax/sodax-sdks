@@ -42,6 +42,16 @@ describe('useBridgeWithApproval', () => {
     expect(bridgeWithApproval).toHaveBeenCalledWith({ ...VARS, raw: false });
   });
 
+  it('passes a batch resume through to the SDK', async () => {
+    bridgeWithApproval.mockResolvedValueOnce({ ok: true, value: { approvalStrategy: 'atomic-batch' } });
+    useBridgeWithApproval();
+    const resume = { ...VARS, resumeBatchId: 'batch-1', resumeBatchCallCount: 2 };
+
+    await captured.mutationFn(resume);
+
+    expect(bridgeWithApproval).toHaveBeenCalledWith({ ...resume, raw: false });
+  });
+
   it('throws the SDK error so React Query sees a failure', async () => {
     const error = new Error('USER_REJECTED');
     bridgeWithApproval.mockResolvedValueOnce({ ok: false, error });

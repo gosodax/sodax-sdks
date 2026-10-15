@@ -85,7 +85,7 @@ type UseGetBridgeableTokensParams = ReadHookParams<XToken[], {
 |---|---|
 | `useBridge` | `SafeUseMutationResult<TxHashPair, Error, ...>` (`{ srcChainTxHash, dstChainTxHash }`) |
 | `useBridgeApprove` | `SafeUseMutationResult<TxReturnType<K, false>, Error, UseBridgeApproveVars<K>>` — chain-keyed receipt union (EVM/Stellar/Sui differ) |
-| `useBridgeWithApproval` | `SafeUseMutationResult<BridgeWithApprovalResponse, Error, ...>` — `TxHashPair` plus `approvalStrategy`. A `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` may still land: never bridge it again |
+| `useBridgeWithApproval` | `SafeUseMutationResult<BridgeWithApprovalResponse, Error, ...>` — `TxHashPair` plus `approvalStrategy`. A `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` may still land: never bridge it again — mutate again with `resumeBatchId` / `resumeBatchCallCount` from its `context`, which sends nothing |
 | `useBridgeApprovalStrategy` | `UseQueryResult<ApprovalStrategy, Error>` |
 | `useBridgeAllowance` | `UseQueryResult<boolean, Error>` — already unwrapped; on SDK `!ok` the queryFn returns `false` (does NOT throw), so `isError` stays clean |
 | `useGetBridgeableAmount` | `UseQueryResult<BridgeLimit, Error>` (richer than v1's bare `bigint`) |

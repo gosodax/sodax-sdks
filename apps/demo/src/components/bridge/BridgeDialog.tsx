@@ -31,6 +31,9 @@ import { formatMutationFailureMessage, rescaleTokenAmount } from '@/lib/utils';
 import { ArrowLeftRight, Loader2 } from 'lucide-react';
 import { formatUnits } from 'viem';
 
+/** A bridge batch the wallet took but never confirmed, kept with the order it was sent for. */
+export type HeldBridgeBatch = { batchId: string; callCount?: number; order: CreateBridgeIntentParams };
+
 interface BridgeDialogProps {
   open: boolean;
   onClose: () => void;
@@ -41,8 +44,8 @@ interface BridgeDialogProps {
   fromChainType: ChainType | undefined;
   toChainKey: SpokeChainKey;
   /** A batch the wallet took but never confirmed. Owned by the manager, which outlives this dialog. */
-  heldBatchId: string | null;
-  onBatchHeld: (batchId: string | null) => void;
+  heldBatch: HeldBridgeBatch | null;
+  onBatchHeld: (batch: HeldBridgeBatch | null) => void;
 }
 
 export function BridgeDialog({
@@ -54,7 +57,7 @@ export function BridgeDialog({
   walletProvider,
   fromChainType,
   toChainKey,
-  heldBatchId,
+  heldBatch,
   onBatchHeld,
 }: BridgeDialogProps) {
   const [isFromBtcReady, setIsFromBtcReady] = useState(false);
@@ -84,6 +87,8 @@ export function BridgeDialog({
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: order.srcChainKey });
 
   const toWalletProvider = useWalletProvider({ xChainId: toChainKey });
+  // Batches are EVM-only; the source chain may have changed since the held one was sent.
+  const evmWalletProvider = useWalletProvider({ xChainType: 'EVM' });
 
   const fromBtcWalletProvider =
     walletProvider.chainType === 'BITCOIN' ? (walletProvider as IBitcoinWalletProvider) : undefined;
@@ -128,7 +133,11 @@ export function BridgeDialog({
       const { error } = result;
       const context = isSodaxError(error) ? error.context : undefined;
       if (context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
-        onBatchHeld(String(context.batchId ?? ''));
+        onBatchHeld({
+          batchId: String(context.batchId ?? ''),
+          callCount: typeof context.callCount === 'number' ? context.callCount : undefined,
+          order,
+        });
       } else if (context?.reason === ACCOUNT_UPGRADE_DECLINED) {
         setUpgradeDeclined(true);
       } else {
@@ -137,6 +146,36 @@ export function BridgeDialog({
       return;
     }
     onClose();
+  };
+
+  // Sends nothing: waits for the held batch again and finishes the bridge once it lands.
+  const recheckHeldBatch = async (): Promise<void> => {
+    if (!heldBatch) return;
+    if (!evmWalletProvider) {
+      setBridgeError('Connect the EVM wallet that sent the batch to check it.');
+      return;
+    }
+    setBridgeError(null);
+    const result = await bridgeWithApproval({
+      params: heldBatch.order,
+      walletProvider: evmWalletProvider,
+      resumeBatchId: heldBatch.batchId,
+      resumeBatchCallCount: heldBatch.callCount,
+    });
+    if (result.ok) {
+      onBatchHeld(null);
+      onClose();
+      return;
+    }
+    const context = isSodaxError(result.error) ? result.error.context : undefined;
+    if (context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
+      setBridgeError('The batch is still not confirmed. Check again in a moment.');
+    } else if (context?.reason === 'atomic-batch-failed') {
+      onBatchHeld(null);
+      setBridgeError('The batch never landed, so nothing was bridged.');
+    } else {
+      setBridgeError(formatMutationFailureMessage(result.error, 'Recheck failed'));
+    }
   };
 
   const bridgeWithoutUpgrade = async (): Promise<void> => {
@@ -167,7 +206,7 @@ export function BridgeDialog({
 
   const isBridgeDisabled =
     isBridging ||
-    heldBatchId !== null ||
+    heldBatch !== null ||
     isBelowDestinationUnit ||
     (order.srcChainKey === ChainKeys.BITCOIN_MAINNET && !isFromBtcReady) ||
     (toChainKey === ChainKeys.BITCOIN_MAINNET && !isToBtcReady) ||
@@ -247,10 +286,14 @@ export function BridgeDialog({
 
         {bridgeError && <div className="text-red-500 text-sm wrap-anywhere">{bridgeError}</div>}
 
-        {heldBatchId !== null && (
+        {heldBatch !== null && (
           <div className="text-amber-600 text-sm wrap-anywhere">
-            Your wallet sent the bridge (batch {heldBatchId}) but it was not confirmed in time. It may still land —
-            check your wallet activity before bridging again.{' '}
+            Your wallet sent the bridge (batch {heldBatch.batchId}) but it was not confirmed in time. It may still land,
+            so check it again instead of bridging again.{' '}
+            <button type="button" className="underline" disabled={isBridging} onClick={() => void recheckHeldBatch()}>
+              {isBridging ? 'Checking…' : 'Check the batch again'}
+            </button>
+            {' · '}
             <button type="button" className="underline" onClick={() => onBatchHeld(null)}>
               I checked — start over
             </button>

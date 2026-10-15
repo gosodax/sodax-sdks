@@ -32,6 +32,7 @@ import {
 import type {
   Address,
   EvmAtomicBatchSupport,
+  EvmBatchResult,
   EvmRawTransaction,
   IEvmWalletProvider,
   SpokeChainKey,
@@ -50,6 +51,8 @@ import { ACCOUNT_UPGRADE_DECLINED, ATOMIC_BATCH_UNCONFIRMED } from '../shared/ut
 const mocks = vi.hoisted(() => ({
   relayTxAndWaitPacket: vi.fn(),
   getTransactionPackets: vi.fn(),
+  submitTransaction: vi.fn(),
+  waitUntilIntentExecuted: vi.fn(),
 }));
 vi.mock('../shared/services/intentRelay/IntentRelayApiService.js', async () => {
   const actual = await vi.importActual<object>('../shared/services/intentRelay/IntentRelayApiService.js');
@@ -57,6 +60,8 @@ vi.mock('../shared/services/intentRelay/IntentRelayApiService.js', async () => {
     ...actual,
     relayTxAndWaitPacket: mocks.relayTxAndWaitPacket,
     getTransactionPackets: mocks.getTransactionPackets,
+    submitTransaction: mocks.submitTransaction,
+    waitUntilIntentExecuted: mocks.waitUntilIntentExecuted,
   };
 });
 
@@ -1591,6 +1596,12 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
   const RAW_DEPOSIT: EvmRawTransaction = { from: SAMPLE_USER, to: HUB_WALLET, value: 0n, data: '0xdeadbeef' };
   const RELAY_DATA = { address: HUB_WALLET, payload: '0x' as const };
   const BSC_CHAIN_ID = 56;
+  const confirmedBatch: EvmBatchResult = {
+    status: 'success',
+    statusCode: 200,
+    atomic: true,
+    receipts: [{ transactionHash: '0xbatchTx', status: 'success' }],
+  };
 
   const makeBatchProvider = (support: EvmAtomicBatchSupport = 'supported') => ({
     chainType: 'EVM' as const,
@@ -1601,12 +1612,7 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
     sendAtomicBatch: vi.fn(
       async (_txs: readonly EvmRawTransaction[], _options: { expectedChainId: number }) => 'batch-1',
     ),
-    waitForBatch: vi.fn(async (_batchId: string) => ({
-      status: 'success' as const,
-      statusCode: 200,
-      atomic: true,
-      receipts: [{ transactionHash: '0xbatchTx' as const, status: 'success' as const }],
-    })),
+    waitForBatch: vi.fn(async (_batchId: string) => confirmedBatch),
   });
 
   const input = (
@@ -1901,6 +1907,162 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
       expect(createSpy).toHaveBeenCalledOnce();
       expect(buildSpy).not.toHaveBeenCalled();
       expect(approveSpy).not.toHaveBeenCalled();
+    });
+  });
+  describe('bridgeWithApproval — resuming an unconfirmed batch', () => {
+    const stubResumeRelay = () => {
+      mocks.submitTransaction.mockResolvedValueOnce({ ok: true, value: { success: true, message: 'submitted' } });
+      mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xDST' } });
+    };
+    const resume = (wallet: ReturnType<typeof makeBatchProvider>, resumeBatchCallCount?: number) =>
+      sodax.bridge.bridgeWithApproval({ ...input(wallet), resumeBatchId: 'batch-1', resumeBatchCallCount });
+    const perCallReceipts: EvmBatchResult = {
+      ...confirmedBatch,
+      receipts: [
+        { transactionHash: '0xapproveTx', status: 'success' },
+        { transactionHash: '0xdepositTx', status: 'success' },
+      ],
+    };
+
+    it('finishes a batch that confirms after the first wait, without sending anything again', async () => {
+      allowance(false);
+      vi.spyOn(sodax.bridge, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
+      const createSpy = stubCreate();
+      const approveSpy = vi.spyOn(sodax.bridge, 'approve');
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockRejectedValueOnce(new Error('Timed out while waiting for call bundle'));
+
+      const first = await sodax.bridge.bridgeWithApproval(input(wallet));
+      expect(first.ok).toBe(false);
+      if (first.ok) return;
+      expect(first.error.context).toMatchObject({ reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1', callCount: 2 });
+
+      stubResumeRelay();
+      const result = await resume(wallet);
+
+      expect(result).toEqual({
+        ok: true,
+        value: { srcChainTxHash: '0xbatchTx', dstChainTxHash: '0xDST', approvalStrategy: 'atomic-batch' },
+      });
+      expect(wallet.sendAtomicBatch).toHaveBeenCalledOnce();
+      expect(createSpy).toHaveBeenCalledOnce();
+      expect(approveSpy).not.toHaveBeenCalled();
+      expect(wallet.waitForBatch).toHaveBeenLastCalledWith('batch-1', { timeout: DEFAULT_RELAY_TX_TIMEOUT });
+      // The relay takes an EVM tx by hash, so the relayData lost with the first call is not needed.
+      expect(mocks.submitTransaction.mock.calls[0]?.[0]).toEqual({
+        action: 'submit',
+        params: { chain_id: getIntentRelayChainId(BSC).toString(), tx_hash: '0xbatchTx' },
+      });
+      expect(mocks.waitUntilIntentExecuted.mock.calls[0]?.[0]).toMatchObject({ srcTxHash: '0xbatchTx' });
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
+    });
+
+    it('skips the approval strategy and the submit-tx backend', async () => {
+      const wallet = makeBatchProvider();
+      const backendOn = new Sodax({ logger: 'silent', bridge: { useBackendSubmitTx: true } });
+      const allowanceSpy = vi.spyOn(backendOn.bridge, 'isAllowanceValid');
+      const submitSpy = vi.spyOn(backendOn.api.bridge, 'submitTx');
+      stubResumeRelay();
+
+      const result = await backendOn.bridge.bridgeWithApproval({
+        ...input(wallet),
+        resumeBatchId: 'batch-1',
+      });
+
+      expect(result.ok).toBe(true);
+      expect(allowanceSpy).not.toHaveBeenCalled();
+      expect(wallet.getAtomicBatchSupport).not.toHaveBeenCalled();
+      expect(submitSpy).not.toHaveBeenCalled();
+    });
+
+    it('stays unconfirmed while the batch is still pending, keeping the call count for the next try', async () => {
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockRejectedValueOnce(new Error('Timed out while waiting for call bundle'));
+
+      const result = await resume(wallet, 2);
+
+      expect(!result.ok && result.error.code).toBe('TX_VERIFICATION_FAILED');
+      expect(!result.ok && result.error.context).toMatchObject({
+        reason: ATOMIC_BATCH_UNCONFIRMED,
+        batchId: 'batch-1',
+        callCount: 2,
+        action: 'bridgeWithApproval',
+      });
+      expect(wallet.sendAtomicBatch).not.toHaveBeenCalled();
+      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+    });
+
+    it('relays the deposit of a late batch confirmed as one tx per call, given the call count', async () => {
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockResolvedValueOnce(perCallReceipts);
+      stubResumeRelay();
+
+      const result = await resume(wallet, 2);
+
+      expect(result.ok && result.value.srcChainTxHash).toBe('0xdepositTx');
+      expect(mocks.submitTransaction.mock.calls[0]?.[0]).toMatchObject({ params: { tx_hash: '0xdepositTx' } });
+    });
+
+    it('keeps a batch confirmed as one tx per call unconfirmed without the call count', async () => {
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockResolvedValueOnce(perCallReceipts);
+
+      const result = await resume(wallet);
+
+      expect(!result.ok && result.error.context?.reason).toBe(ATOMIC_BATCH_UNCONFIRMED);
+      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+    });
+
+    it('never waits less than the default for the batch, even on a zero timeout', async () => {
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockRejectedValueOnce(new Error('Timed out while waiting for call bundle'));
+
+      await sodax.bridge.bridgeWithApproval({ ...input(wallet), resumeBatchId: 'batch-1', timeout: 0 });
+
+      expect(wallet.waitForBatch).toHaveBeenCalledWith('batch-1', { timeout: DEFAULT_RELAY_TX_TIMEOUT });
+    });
+
+    it('reports a batch that never landed as atomic-batch-failed', async () => {
+      const wallet = makeBatchProvider();
+      wallet.waitForBatch.mockResolvedValueOnce({ status: 'failure', statusCode: 400, atomic: true, receipts: [] });
+
+      const result = await resume(wallet);
+
+      expect(!result.ok && result.error.code).toBe('INTENT_CREATION_FAILED');
+      expect(!result.ok && result.error.context).toMatchObject({ reason: 'atomic-batch-failed', batchId: 'batch-1' });
+      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+    });
+
+    it('keeps the deposit tx on a relay failure, so the bridge can be resumed or tracked', async () => {
+      const wallet = makeBatchProvider();
+      mocks.submitTransaction.mockResolvedValueOnce({ ok: true, value: { success: true, message: 'submitted' } });
+      mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: false, error: new Error('RELAY_TIMEOUT') });
+
+      const result = await resume(wallet);
+
+      expect(!result.ok && result.error.code).toBe('RELAY_TIMEOUT');
+      expect(!result.ok && result.error.context).toMatchObject({
+        srcTxHash: '0xbatchTx',
+        action: 'bridgeWithApproval',
+      });
+    });
+
+    it('keeps the deposit tx when the relay rejects the submission', async () => {
+      const wallet = makeBatchProvider();
+      mocks.submitTransaction.mockResolvedValueOnce({ ok: false, error: new Error('SUBMIT_TX_FAILED') });
+
+      const result = await resume(wallet);
+
+      expect(!result.ok && result.error.code).toBe('TX_SUBMIT_FAILED');
+      expect(!result.ok && result.error.context?.srcTxHash).toBe('0xbatchTx');
+      expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+    });
+
+    it('rejects resuming with a wallet that cannot batch', async () => {
+      const result = await sodax.bridge.bridgeWithApproval({ ...input(mockEvmProvider), resumeBatchId: 'batch-1' });
+
+      expect(!result.ok && result.error.code).toBe('VALIDATION_FAILED');
+      expect(mocks.submitTransaction).not.toHaveBeenCalled();
     });
   });
 });

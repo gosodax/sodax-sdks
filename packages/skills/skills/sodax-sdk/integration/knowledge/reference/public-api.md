@@ -109,7 +109,7 @@ import {
   type SwapWithApprovalResponse,
   type SwapWithApprovalErrorCode,
   type ApprovalStrategyErrorCode,
-  ATOMIC_BATCH_UNCONFIRMED,      // context.reason: the batch may still land, do not retry
+  ATOMIC_BATCH_UNCONFIRMED,      // context.reason: the batch may still land; resume it with resumeBatchId, never resend
   ACCOUNT_UPGRADE_DECLINED,      // context.reason: retry with allowAccountUpgrade: false
 
   // Approval batch helpers, for flows that build their own deposit (see features/swaps-api.md)

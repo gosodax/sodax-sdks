@@ -6,7 +6,10 @@ import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/** Mutation variables for {@link useBridgeWithApproval}: `useBridge`'s, plus the optional `allowAccountUpgrade`. */
+/**
+ * Mutation variables for {@link useBridgeWithApproval}: `useBridge`'s, plus `allowAccountUpgrade`, `resumeBatchId` and
+ * `resumeBatchCallCount`.
+ */
 export type UseBridgeWithApprovalVars<K extends SpokeChainKey = SpokeChainKey> = Omit<
   BridgeWithApprovalParams<K>,
   'raw'

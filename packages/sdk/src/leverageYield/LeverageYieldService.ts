@@ -25,6 +25,8 @@ import {
   isPartnerFeePercentage,
   isUndefinedOrValidWalletProviderForChainKey,
   relayTxAndWaitPacket,
+  submitTransaction,
+  waitUntilIntentExecuted,
   RELAY_FALLBACK_FLOOR_MS,
   retry,
   type RelayExtraData,
@@ -49,6 +51,7 @@ import type {
   GetAddressType,
   GetTokenAddressType,
   GetWalletProviderType,
+  Hash,
   Hex,
   HubChainKey,
   IEvmWalletProvider,
@@ -86,9 +89,11 @@ import type { DetailedLeverageYieldStatus, DetailedLeverageYieldStatusKey } from
 import { runBackendSubmitTx } from '../backendApi/runBackendSubmitTx.js';
 import { createSubmitTxAttempt, type SubmitTxAttempt } from '../backendApi/submitTxAttempt.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
+import { canSendAtomicBatch } from '../shared/utils/evmAtomicBatch.js';
 import {
   approvalBatchWaitMs,
   confirmApproval,
+  confirmApprovalBatch,
   resolveApprovalStrategy,
   runWithApproval,
   sendApprovalBatch,
@@ -658,7 +663,20 @@ export type CreateVaultIntentResult<K extends SpokeChainKey, Raw extends boolean
 };
 
 /** Params for `vaultSwapWithApproval` / `getApprovalStrategy`: `vaultSwap()`'s, plus the account-upgrade choice. */
-export type VaultSwapWithApprovalParams<K extends SpokeChainKey> = VaultSwapActionParams<K, false> & ApprovalOptions;
+export type VaultSwapWithApprovalParams<K extends SpokeChainKey> = VaultSwapActionParams<K, false> &
+  ApprovalOptions & {
+    /**
+     * `vaultSwapWithApproval` only: the `context.batchId` of an {@link ATOMIC_BATCH_UNCONFIRMED} error from an
+     * earlier call with the same `params` and wallet. Waits for that batch again instead of sending
+     * anything and, once its deposit confirms, completes the vault swap through the client-side relay.
+     */
+    resumeBatchId?: string;
+    /**
+     * With `resumeBatchId`: that error's `context.callCount`. Without it, a batch the wallet confirmed as one
+     * transaction per call cannot be matched to its deposit and stays unconfirmed.
+     */
+    resumeBatchCallCount?: number;
+  };
 
 /**
  * Success value of {@link LeverageYieldService.vaultSwap}. Mirrors the swap domain's
@@ -1353,8 +1371,9 @@ export class LeverageYieldService {
    * - never included or fully reverted (EIP-5792 400 / 500) → `INTENT_CREATION_FAILED` with
    *   `context.reason: 'atomic-batch-failed'`;
    * - anything else short of a confirmed deposit receipt → `TX_VERIFICATION_FAILED` with
-   *   `context.reason: 'atomic-batch-unconfirmed'` and `context.batchId`. It may have landed — do not
-   *   retry it.
+   *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED}, `context.batchId` and `context.callCount`. It may
+   *   have landed — do not send it again; call again with `resumeBatchId` and `resumeBatchCallCount` to
+   *   finish it once it does.
    *
    * @returns `vaultSwap()`'s response plus the `approvalStrategy` that ran. Errors are `vaultSwap()`'s
    *   codes plus `APPROVE_FAILED` and `ALLOWANCE_CHECK_FAILED`.
@@ -1373,6 +1392,8 @@ export class LeverageYieldService {
       'vaultSwapWithApproval',
       async () => {
         try {
+          if (_params.resumeBatchId !== undefined) return await this.resumeAtomicBatch(_params, _params.resumeBatchId);
+
           const strategy = await this.getApprovalStrategy(_params);
           if (!strategy.ok) return strategy;
 
@@ -1464,6 +1485,90 @@ export class LeverageYieldService {
         tx: sent.value.txHash satisfies TxReturnType<EvmSpokeOnlyChainKey, false> as TxReturnType<K, false>,
         intent: created.value.intent,
         relayData: created.value.relayData,
+      },
+    };
+  }
+
+  /**
+   * Finishes a batch an earlier call left {@link ATOMIC_BATCH_UNCONFIRMED}, without sending anything to
+   * the wallet: waits for it again, relays its deposit client-side and notifies the solver. The
+   * original intent went with that call, so it is read back from the hub tx the relay delivers.
+   */
+  private async resumeAtomicBatch<K extends SpokeChainKey>(
+    _params: VaultSwapWithApprovalParams<K>,
+    batchId: string,
+  ): Promise<Result<VaultSwapWithApprovalResponse, VaultSwapWithApprovalError>> {
+    const { params, walletProvider } = _params;
+    const srcChainKey = params.srcChainKey;
+    leverageYieldInvariant(
+      isEvmSpokeOnlyChainKeyType(srcChainKey) &&
+        isEvmWalletProviderType(walletProvider) &&
+        canSendAtomicBatch(walletProvider),
+      'Resuming an atomic batch needs an EVM spoke source and an EIP-5792 wallet provider',
+    );
+    const ctx = {
+      srcChainKey,
+      dstChainKey: params.dstChainKey,
+      action: 'vaultSwapWithApproval' satisfies LeverageYieldAction,
+      approvalStrategy: 'atomic-batch',
+    };
+    const timeoutMs = approvalBatchWaitMs(_params.timeout);
+
+    const deposit = await confirmApprovalBatch({
+      walletProvider,
+      batchId,
+      callCount: _params.resumeBatchCallCount,
+      timeoutMs,
+      feature: 'leverageYield',
+      context: ctx,
+    });
+    if (!deposit.ok) return deposit;
+    const srcTxHash = deposit.value.txHash;
+    const txCtx = { ...ctx, srcTxHash };
+
+    // An EVM spoke tx is relayed by its hash alone, so the lost `relayData` is not needed.
+    const relayerApiEndpoint = this.config.relay.relayerApiEndpoint;
+    const intentRelayChainId = getIntentRelayChainId(srcChainKey).toString();
+    const submitted = await submitTransaction(
+      { action: 'submit', params: { chain_id: intentRelayChainId, tx_hash: srcTxHash } },
+      relayerApiEndpoint,
+    );
+    if (!submitted.ok) {
+      return { ok: false, error: mapRelayFailure(submitted.error, { feature: 'leverageYield', ...txCtx }) };
+    }
+    const packet = await waitUntilIntentExecuted({
+      intentRelayChainId,
+      srcTxHash,
+      timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
+      apiUrl: relayerApiEndpoint,
+    });
+    if (!packet.ok) return { ok: false, error: mapRelayFailure(packet.error, { feature: 'leverageYield', ...txCtx }) };
+    const dstTxHash = packet.value.dst_tx_hash as Hash;
+
+    let intent: Intent;
+    try {
+      intent = await EvmSolverService.getIntent(dstTxHash, this.config, this.hubProvider.publicClient);
+    } catch (error) {
+      return { ok: false, error: unknownFailed('leverageYield', error, { ...txCtx, dstTxHash }) };
+    }
+    const solved = await this.notifySolver({ intent_tx_hash: dstTxHash });
+    // The hub tx is what a retried `notifySolver` needs.
+    if (!solved.ok) return { ok: false, error: withErrorContext(solved.error, { srcChainKey, srcTxHash, dstTxHash }) };
+
+    return {
+      ok: true,
+      value: {
+        solverExecutionResponse: solved.value,
+        intent,
+        intentDeliveryInfo: {
+          srcChainKey,
+          srcTxHash,
+          srcAddress: params.srcAddress,
+          dstChainKey: params.dstChainKey,
+          dstTxHash,
+          dstAddress: params.dstAddress,
+        } satisfies IntentDeliveryInfo,
+        approvalStrategy: 'atomic-batch',
       },
     };
   }

@@ -42,6 +42,16 @@ describe('useLeverageYieldVaultSwapWithApproval', () => {
     expect(vaultSwapWithApproval).toHaveBeenCalledWith({ ...VARS, raw: false });
   });
 
+  it('passes a batch resume through to the SDK', async () => {
+    vaultSwapWithApproval.mockResolvedValueOnce({ ok: true, value: { approvalStrategy: 'atomic-batch' } });
+    useLeverageYieldVaultSwapWithApproval();
+    const resume = { ...VARS, resumeBatchId: 'batch-1', resumeBatchCallCount: 2 };
+
+    await captured.mutationFn(resume);
+
+    expect(vaultSwapWithApproval).toHaveBeenCalledWith({ ...resume, raw: false });
+  });
+
   it('throws the SDK error so React Query sees a failure', async () => {
     const error = new Error('USER_REJECTED');
     vaultSwapWithApproval.mockResolvedValueOnce({ ok: false, error });

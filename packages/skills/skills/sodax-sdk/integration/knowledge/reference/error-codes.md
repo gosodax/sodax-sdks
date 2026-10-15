@@ -117,7 +117,7 @@ what the caller should do. Check it before the generic retry advice above.
 | `USER_REJECTED` | `ACCOUNT_UPGRADE_DECLINED` | The user declined the smart-account upgrade, not the swap. | Offer it again with `allowAccountUpgrade: false` (two signatures). |
 | `INTENT_CREATION_FAILED` | `ATOMIC_BATCH_REFUSED` | The wallet refused the batch before signing, or cannot batch. Nothing was sent. | Yes, approve separately. `swapWithApproval` does this itself; a caller of `sendApprovalBatch` does it. Test with `isAtomicBatchRefusal(error)`. |
 | `INTENT_CREATION_FAILED` | `'atomic-batch-failed'` (with `batchId`, `statusCode`) | The batch was never included or fully reverted. Nothing was deposited. | Yes. |
-| `TX_VERIFICATION_FAILED` | `ATOMIC_BATCH_UNCONFIRMED` (with `batchId`) | The wallet took the batch but it did not confirm in time. **It may still land.** | **No.** Do not let the user send it again; tell them to check the wallet's activity. |
+| `TX_VERIFICATION_FAILED` | `ATOMIC_BATCH_UNCONFIRMED` (with `batchId`, `callCount`) | The wallet took the batch but it did not confirm in time. **It may still land.** | **No.** Do not let the user send it again. Resume it: call `swapWithApproval` / `bridgeWithApproval` / `vaultSwapWithApproval` again with `resumeBatchId` and `resumeBatchCallCount`, which sends nothing and finishes the flow once the batch lands; a `sendApprovalBatch` caller uses `confirmApprovalBatch`. |
 
 `sendApprovalBatch` and `confirmApprovalBatch` return `ApprovalBatchErrorCode`
 (`USER_REJECTED | INTENT_CREATION_FAILED | TX_VERIFICATION_FAILED`) on the `feature` the caller passes.

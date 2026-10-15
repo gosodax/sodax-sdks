@@ -44,6 +44,7 @@ import {
   type LeverageYieldVault,
   type PartnerFee,
   type SpokeChainKey,
+  type VaultSwapWithApprovalResponse,
   type XToken,
 } from '@sodax/dapp-kit';
 import {
@@ -53,7 +54,13 @@ import {
   useXAccount,
   useXAccounts,
 } from '@sodax/wallet-sdk-react';
-import { type FinalStatus, type Order, buildOrderSummary, orderId } from '@/components/swaps/OrderStatus';
+import {
+  type FinalStatus,
+  type Order,
+  type OrderSummary,
+  buildOrderSummary,
+  orderId,
+} from '@/components/swaps/OrderStatus';
 import OrderStatusPanel from '@/components/swaps/OrderStatusPanel';
 import { LEVERAGE_YIELD_ORDERS_KEY, appendOrder, loadOrders, saveOrders } from '@/lib/orderHistory';
 import { LEVERAGE_YIELD_PANEL_KEY } from '@/lib/panelPrefs';
@@ -76,6 +83,9 @@ const DEPOSIT_PARTNER_FEE = {
   address: '0x93D5CE288b3BF6b33F913b98FD1fA844Acc462d4',
   percentage: 10,
 } as const satisfies PartnerFee;
+
+/** A deposit batch the wallet took but never confirmed, kept with what is needed to finish it. */
+type HeldBatch = { batchId: string; callCount?: number; payload: LeverageYieldSwapPayload; summary: OrderSummary };
 
 function fmtUnits(value: bigint | undefined, decimals: number, digits = 6): string {
   if (value === undefined || value === null) return '—';
@@ -243,9 +253,11 @@ export default function LeverageYieldPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [allowAccountUpgrade, setAllowAccountUpgrade] = useState(true);
   const [upgradeDeclined, setUpgradeDeclined] = useState(false);
-  // A batch the wallet took but never confirmed may still land, so nothing is deposited again until the
-  // user starts over — a new review or a form change does not clear it.
-  const [unconfirmedBatchId, setUnconfirmedBatchId] = useState<string | null>(null);
+  // A batch the wallet took but never confirmed may still land, so nothing is deposited again until it is
+  // rechecked or the user starts over — a new review or a form change does not clear it.
+  const [heldBatch, setHeldBatch] = useState<HeldBatch | null>(null);
+  // Batches are EVM-only; the source chain may have changed since this one was sent.
+  const evmWalletProvider = useWalletProvider({ xChainType: 'EVM' });
 
   // A deposit's approval rides in the deposit's own signature on an EIP-5792 wallet. A withdraw needs
   // none: the [approve, createIntent] pair is encoded into the sendMessage the hub wallet executes.
@@ -416,7 +428,7 @@ export default function LeverageYieldPage() {
     const summary = buildOrderSummary(src, dst, sourceAmount, quote?.quoted_amount);
 
     try {
-      const { solverExecutionResponse, intent, intentDeliveryInfo } = await vaultSwapWithApproval({
+      const response = await vaultSwapWithApproval({
         ...intentOrderPayload,
         walletProvider: sourceWalletProvider,
         allowAccountUpgrade: upgrade,
@@ -424,26 +436,67 @@ export default function LeverageYieldPage() {
         // back to the instance key rather than being handed an empty credential.
         ...(sodaxSettings.leverageYieldApiKey ? { extras: { apiKey: sodaxSettings.leverageYieldApiKey } } : {}),
       });
-      setOrders(prev =>
-        appendOrder(prev, {
-          mode: 'solver',
-          intentHash: solverExecutionResponse.intent_hash,
-          orderId: intent.intentId.toString(),
-          dstTxHash: intentDeliveryInfo.dstTxHash as string,
-          srcTxHash: intentDeliveryInfo.srcTxHash,
-          srcChainKey: intentDeliveryInfo.srcChainKey,
-          statusEndpoint: sodax.config.solver.solverApiEndpoint,
-          createdAt: Date.now(),
-          summary,
-        }),
-      );
-      resetAfterSubmit();
+      recordOrder(response, summary);
     } catch (e) {
       const context = isSodaxError(e) ? e.context : undefined;
-      if (context?.reason === ATOMIC_BATCH_UNCONFIRMED) setUnconfirmedBatchId(String(context.batchId ?? ''));
-      else if (context?.reason === ACCOUNT_UPGRADE_DECLINED) setUpgradeDeclined(true);
+      if (context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
+        setHeldBatch({
+          batchId: String(context.batchId ?? ''),
+          callCount: typeof context.callCount === 'number' ? context.callCount : undefined,
+          payload: intentOrderPayload,
+          summary,
+        });
+      } else if (context?.reason === ACCOUNT_UPGRADE_DECLINED) setUpgradeDeclined(true);
       else setActionError(`Swap failed: ${e instanceof Error ? e.message : String(e)}`);
     }
+  };
+
+  // Sends nothing: waits for the held batch again and finishes the deposit once it lands.
+  const recheckHeldBatch = async () => {
+    if (!heldBatch) return;
+    if (!evmWalletProvider) {
+      setActionError('Connect the EVM wallet that sent the batch to check it.');
+      return;
+    }
+    setActionError(null);
+    try {
+      const response = await vaultSwapWithApproval({
+        ...heldBatch.payload,
+        walletProvider: evmWalletProvider,
+        resumeBatchId: heldBatch.batchId,
+        resumeBatchCallCount: heldBatch.callCount,
+      });
+      setHeldBatch(null);
+      recordOrder(response, heldBatch.summary);
+    } catch (e) {
+      const context = isSodaxError(e) ? e.context : undefined;
+      if (context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
+        setActionError('The batch is still not confirmed. Check again in a moment.');
+      } else if (context?.reason === 'atomic-batch-failed') {
+        setHeldBatch(null);
+        setActionError('The batch never landed, so nothing was deposited.');
+      } else setActionError(`Recheck failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const recordOrder = (
+    { solverExecutionResponse, intent, intentDeliveryInfo }: VaultSwapWithApprovalResponse,
+    summary: OrderSummary,
+  ) => {
+    setOrders(prev =>
+      appendOrder(prev, {
+        mode: 'solver',
+        intentHash: solverExecutionResponse.intent_hash,
+        orderId: intent.intentId.toString(),
+        dstTxHash: intentDeliveryInfo.dstTxHash as string,
+        srcTxHash: intentDeliveryInfo.srcTxHash,
+        srcChainKey: intentDeliveryInfo.srcChainKey,
+        statusEndpoint: sodax.config.solver.solverApiEndpoint,
+        createdAt: Date.now(),
+        summary,
+      }),
+    );
+    resetAfterSubmit();
   };
 
   const depositWithoutUpgrade = async () => {
@@ -813,7 +866,7 @@ export default function LeverageYieldPage() {
               ) : (
                 <Button
                   onClick={() => void handleSwap()}
-                  disabled={isSwapping || unconfirmedBatchId !== null}
+                  disabled={isSwapping || heldBatch !== null}
                   className="w-full"
                 >
                   {isSwapping ? 'Swapping…' : tab === 'deposit' ? depositLabel(approvalStrategy) : 'Withdraw'}
@@ -821,11 +874,20 @@ export default function LeverageYieldPage() {
               )}
 
               {actionError && <div className="text-sm text-red-600 break-all">{actionError}</div>}
-              {unconfirmedBatchId !== null && (
+              {heldBatch !== null && (
                 <div className="text-sm text-amber-600 wrap-anywhere">
-                  Your wallet sent the deposit (batch {unconfirmedBatchId}) but it was not confirmed in time. It may
-                  still land — check your wallet activity before depositing again.{' '}
-                  <button type="button" className="underline" onClick={() => setUnconfirmedBatchId(null)}>
+                  Your wallet sent the deposit (batch {heldBatch.batchId}) but it was not confirmed in time. It may
+                  still land, so check it again instead of depositing again.{' '}
+                  <button
+                    type="button"
+                    className="underline"
+                    disabled={isSwapping}
+                    onClick={() => void recheckHeldBatch()}
+                  >
+                    {isSwapping ? 'Checking…' : 'Check the batch again'}
+                  </button>
+                  {' · '}
+                  <button type="button" className="underline" onClick={() => setHeldBatch(null)}>
                     I checked — start over
                   </button>
                 </div>

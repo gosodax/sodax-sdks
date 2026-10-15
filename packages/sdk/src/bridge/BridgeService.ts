@@ -3,6 +3,8 @@ import {
   Erc20Service,
   type HubProvider,
   relayTxAndWaitPacket,
+  submitTransaction,
+  waitUntilIntentExecuted,
   RELAY_FALLBACK_FLOOR_MS,
   EvmVaultTokenService,
   EvmAssetManagerService,
@@ -40,9 +42,11 @@ import { isAuthFailure, isSodaxError } from '../errors/guards.js';
 import type { DetailedBridgeStatus, DetailedBridgeStatusKey } from './detailedStatus.js';
 import { createSubmitTxAttempt, type SubmitTxAttempt } from '../backendApi/submitTxAttempt.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
+import { canSendAtomicBatch } from '../shared/utils/evmAtomicBatch.js';
 import {
   approvalBatchWaitMs,
   confirmApproval,
+  confirmApprovalBatch,
   resolveApprovalStrategy,
   runWithApproval,
   sendApprovalBatch,
@@ -66,6 +70,7 @@ import {
   type GetWalletProviderType,
   type EvmSpokeOnlyChainKey,
   type GetTokenAddressType,
+  getIntentRelayChainId,
   type SpokeExecActionParams,
   type GetChainType,
   type EvmRawTransaction,
@@ -148,7 +153,20 @@ export type BridgeParams<ChainKey extends SpokeChainKey, Raw extends boolean> = 
 >;
 
 /** Params for `bridgeWithApproval` / `getApprovalStrategy`: `bridge()`'s, plus the account-upgrade choice. */
-export type BridgeWithApprovalParams<K extends SpokeChainKey> = BridgeParams<K, false> & ApprovalOptions;
+export type BridgeWithApprovalParams<K extends SpokeChainKey> = BridgeParams<K, false> &
+  ApprovalOptions & {
+    /**
+     * `bridgeWithApproval` only: the `context.batchId` of an {@link ATOMIC_BATCH_UNCONFIRMED} error from an
+     * earlier call with the same `params` and wallet. Waits for that batch again instead of sending
+     * anything and, once its deposit confirms, completes the bridge through the client-side relay.
+     */
+    resumeBatchId?: string;
+    /**
+     * With `resumeBatchId`: that error's `context.callCount`. Without it, a batch the wallet confirmed as one
+     * transaction per call cannot be matched to its deposit and stays unconfirmed.
+     */
+    resumeBatchCallCount?: number;
+  };
 
 export type BridgeWithApprovalResponse = TxHashPair & { approvalStrategy: ApprovalStrategy };
 
@@ -604,8 +622,9 @@ export class BridgeService {
    * - never included or fully reverted (EIP-5792 400 / 500) → `INTENT_CREATION_FAILED` with
    *   `context.reason: 'atomic-batch-failed'`;
    * - anything else short of a confirmed deposit receipt → `TX_VERIFICATION_FAILED` with
-   *   `context.reason: 'atomic-batch-unconfirmed'` and `context.batchId`. It may have landed — do not
-   *   retry it.
+   *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED}, `context.batchId` and `context.callCount`. It may
+   *   have landed — do not send it again; call again with `resumeBatchId` and `resumeBatchCallCount` to
+   *   finish it once it does.
    *
    * @returns `bridge()`'s `TxHashPair` plus the `approvalStrategy` that ran. Errors are `bridge()`'s
    *   codes plus `APPROVE_FAILED` and `ALLOWANCE_CHECK_FAILED`.
@@ -620,6 +639,8 @@ export class BridgeService {
       'bridgeWithApproval',
       async () => {
         try {
+          if (_params.resumeBatchId !== undefined) return await this.resumeAtomicBatch(_params, _params.resumeBatchId);
+
           const strategy = await this.getApprovalStrategy(_params);
           if (!strategy.ok) return strategy;
 
@@ -710,6 +731,64 @@ export class BridgeService {
         tx: sent.value.txHash satisfies TxReturnType<EvmSpokeOnlyChainKey, false> as TxReturnType<K, false>,
         relayData: created.value.relayData,
       },
+    };
+  }
+
+  /**
+   * Finishes a batch an earlier call left {@link ATOMIC_BATCH_UNCONFIRMED}, without sending anything to
+   * the wallet: waits for it again, then relays its deposit client-side and waits for the settlement packet.
+   */
+  private async resumeAtomicBatch<K extends SpokeChainKey>(
+    _params: BridgeWithApprovalParams<K>,
+    batchId: string,
+  ): Promise<Result<BridgeWithApprovalResponse, BridgeWithApprovalError>> {
+    const { params, walletProvider } = _params;
+    const srcChainKey = params.srcChainKey;
+    bridgeInvariant(
+      isEvmSpokeOnlyChainKeyType(srcChainKey) &&
+        isEvmWalletProviderType(walletProvider) &&
+        canSendAtomicBatch(walletProvider),
+      'Resuming an atomic batch needs an EVM spoke source and an EIP-5792 wallet provider',
+    );
+    const ctx = {
+      srcChainKey,
+      dstChainKey: params.dstChainKey,
+      action: 'bridgeWithApproval',
+      approvalStrategy: 'atomic-batch',
+    };
+    const timeoutMs = approvalBatchWaitMs(_params.timeout);
+
+    const deposit = await confirmApprovalBatch({
+      walletProvider,
+      batchId,
+      callCount: _params.resumeBatchCallCount,
+      timeoutMs,
+      feature: 'bridge',
+      context: ctx,
+    });
+    if (!deposit.ok) return deposit;
+    const srcTxHash = deposit.value.txHash;
+    const txCtx = { ...ctx, srcTxHash };
+
+    // An EVM spoke tx is relayed by its hash alone, so the lost `relayData` is not needed.
+    const relayerApiEndpoint = this.config.relay.relayerApiEndpoint;
+    const intentRelayChainId = getIntentRelayChainId(srcChainKey).toString();
+    const submitted = await submitTransaction(
+      { action: 'submit', params: { chain_id: intentRelayChainId, tx_hash: srcTxHash } },
+      relayerApiEndpoint,
+    );
+    if (!submitted.ok) return { ok: false, error: mapRelayFailure(submitted.error, { feature: 'bridge', ...txCtx }) };
+    const packet = await waitUntilIntentExecuted({
+      intentRelayChainId,
+      srcTxHash,
+      timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
+      apiUrl: relayerApiEndpoint,
+    });
+    if (!packet.ok) return { ok: false, error: mapRelayFailure(packet.error, { feature: 'bridge', ...txCtx }) };
+
+    return {
+      ok: true,
+      value: { srcChainTxHash: srcTxHash, dstChainTxHash: packet.value.dst_tx_hash, approvalStrategy: 'atomic-batch' },
     };
   }
 
