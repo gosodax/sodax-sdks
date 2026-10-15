@@ -60,7 +60,10 @@ pnpm check:ai-dev-files
   the check asks that account and opens the EVM connect dialog when none is connected (EVM does not
   reconnect on load). Never re-arm it on close, a form change or a new quote, and never report it as
   failed while it is held. The batch record is dropped only once the activity replacing it is saved
-  (`saveBatchActivity`), so a failed write still leaves a reload a way back to the deposit.
+  (`saveBatchActivity`), so a failed write still leaves a reload a way back to the deposit. A batch
+  whose own save failed is held in memory only, so the held dialog's line says to keep the page open
+  over anything a check reports. A snapshot rebuilt from a record (`restored`) has no partner fee and
+  never signs: when a check finds the batch never landed, the next swap starts from a fresh review.
 - Save the broadcast transaction and relay payload before calling `submitTx`. Recovery resubmits
   that same transaction; it must never create or sign a second deposit. Failed/abandoned statuses
   need a recovery/support path, not a success label or silent retry of the trade.

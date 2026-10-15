@@ -269,6 +269,16 @@ export async function executeSwap(body: CreateIntentParamsV2, deps: ExecutionDep
 export const UNCONFIRMED_BATCH_MESSAGE =
   'Your wallet accepted the swap but it has not confirmed yet. Check your wallet activity before swapping again.';
 
+/**
+ * The held dialog's line. A batch the browser could not save is held only in memory and a reload
+ * forgets it, so that warning outranks anything a recheck has to say.
+ */
+export function heldBatchMessage(error: string | undefined, saved: boolean): string {
+  if (!saved)
+    return 'Your wallet has not confirmed this swap, and this browser blocked saving it. Keep this page open and check your wallet activity.';
+  return error ?? UNCONFIRMED_BATCH_MESSAGE;
+}
+
 /** A batch the wallet took but did not confirm. It may still land, so the swap must not be signed again. */
 export function isUnconfirmedBatch(error: unknown): boolean {
   return (

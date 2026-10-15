@@ -5,7 +5,7 @@ import type { SwapFlow } from '../hooks/useSwapFlow';
 import type { Activity } from '../lib/activity';
 import { chainName, txExplorerUrl } from '../lib/chains';
 import { formatTokenAmount } from '../lib/format';
-import { UNCONFIRMED_BATCH_MESSAGE } from '../lib/execution';
+import { heldBatchMessage } from '../lib/execution';
 import { STATUS_LABELS, failureMessage, progressLabel, refundAccounted } from '../lib/progress';
 import { AssetLogo } from './AssetLogo';
 import { CheckGlyph } from './CopyLabel';
@@ -88,7 +88,7 @@ function Leg({
 
 /** One slot, one line: the failure first, then whatever makes tracking less than it looks. */
 function reviewMessage(e: Execution): string | undefined {
-  if (e.held) return e.error ?? UNCONFIRMED_BATCH_MESSAGE;
+  if (e.held) return heldBatchMessage(e.error, e.storageAvailable);
   if (e.failed) return failureMessage(e.status);
   if (e.error) return e.error;
   if (!e.activity) return undefined;
@@ -146,6 +146,14 @@ function ConfirmAction({ flow, token, chain }: { flow: SwapFlow; token?: XToken;
           I checked my wallet — start over
         </button>
       </>
+    );
+
+  // Rebuilt from storage, it has no partner fee: a batch that never landed is retried from a fresh review.
+  if (e.review?.restored)
+    return (
+      <button type="button" className="btn btn-primary" onClick={e.reviewAgain}>
+        Review again
+      </button>
     );
 
   if (!token || !chain) return null;

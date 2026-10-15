@@ -23,7 +23,9 @@ import {
   checkHeldBatch,
   evmDeposit,
   executionError,
+  heldBatchMessage,
   sourceExtras,
+  UNCONFIRMED_BATCH_MESSAGE,
   type ExecutionDependencies,
 } from './execution';
 import { activityFromBatch, readActivity, readPendingBatch, submissionFor, type Activity } from './activity';
@@ -523,6 +525,14 @@ describe('batch outcomes', () => {
       false,
     );
     expect(isUserRejection(declined)).toBe(true);
+  });
+  // Confirm reports the held batch as its own error, so a warning that only filled an empty slot never showed.
+  it('tells the visitor to stay on the page while a batch the browser could not save is held', () => {
+    const recheck = 'Your wallet still has not confirmed this swap. Check its activity, then try again.';
+    expect(heldBatchMessage(undefined, true)).toBe(UNCONFIRMED_BATCH_MESSAGE);
+    expect(heldBatchMessage(recheck, true)).toBe(recheck);
+    for (const error of [executionError(unconfirmed), recheck, undefined])
+      expect(heldBatchMessage(error, false)).toMatch(/blocked saving it\. Keep this page open/);
   });
 });
 

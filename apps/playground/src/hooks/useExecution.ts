@@ -289,7 +289,7 @@ export function useExecution(input: ExecutionInput) {
   };
 
   const confirm = async () => {
-    if (!input.enabled || !review || !wallet || busyRef.current || activity || pendingBatch) return;
+    if (!input.enabled || !review || review.restored || !wallet || busyRef.current || activity || pendingBatch) return;
     busyRef.current = true;
     phaseRef.current = 'checking';
     setPhase('checking');
@@ -441,6 +441,14 @@ export function useExecution(input: ExecutionInput) {
     if ((activity || pendingBatch) && !review && restorable) setReview(restorable);
   };
 
+  // A restored snapshot gives way to the form's own review, current fee included, or closes when the
+  // form cannot build one yet.
+  const reviewAgain = () => {
+    if (busyRef.current) return;
+    setReview(undefined);
+    openReview();
+  };
+
   const submitRecord = async (record: Activity) => {
     const result = await sodax.api.swaps.submitTx(submissionFor(record));
     if (!result.ok) throw result.error;
@@ -544,6 +552,7 @@ export function useExecution(input: ExecutionInput) {
     },
     closeReview,
     resumeReview,
+    reviewAgain,
     dismissed,
     phase,
     error,
