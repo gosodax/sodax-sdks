@@ -25,7 +25,8 @@ export type { SwapLifecycleState, SwapSetupReason } from '../../utils/swapLifecy
 export type UseSwapLifecycleParams<K extends SpokeChainKey = SpokeChainKey> = {
   /**
    * The swap to run. Changing it starts a new lifecycle once the current swap is done; one that may still
-   * land (failed after broadcast, or an unconfirmed batch) holds until `reset()`.
+   * land (failed after broadcast, or an unconfirmed batch) holds until `reset()`. Never pass a `0n`
+   * `minOutputAmount`: it accepts any fill, and keeps a Stellar destination that needs a trustline in `checking`.
    */
   intentParams: CreateIntentParams<K> | undefined;
   srcWalletProvider: GetWalletProviderType<K> | undefined;
