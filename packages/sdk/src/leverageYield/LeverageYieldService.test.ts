@@ -1271,7 +1271,28 @@ describe('LeverageYieldService.vaultSwap', () => {
     expect(result.error.code).toBe('EXTERNAL_API_ERROR');
     expect(result.error.context?.solverCode).toBe(-7);
     expect(result.error.context?.phase).toBe('postExecution');
-    expect(result.error.context).toMatchObject({ srcChainKey: SONIC, srcTxHash: '0xspokeTx' });
+    // A hub-sourced intent tx is already the hub tx.
+    expect(result.error.context).toMatchObject({ srcChainKey: SONIC, srcTxHash: '0xspokeTx', dstTxHash: '0xspokeTx' });
+  });
+
+  it('carries the relayed hub tx on a postExecution failure, so notifySolver can be retried', async () => {
+    stubCreateVaultIntentOk(ARBITRUM);
+    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xhubTx' } });
+    mocks.solverPostExecution.mockResolvedValueOnce({ ok: false, error: { detail: { code: -7, message: 'down' } } });
+
+    const result = await sodax.leverageYield.vaultSwap({
+      params: vaultIntentParams(ARBITRUM),
+      walletProvider: mockEvmProvider,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.context).toMatchObject({
+      phase: 'postExecution',
+      srcChainKey: ARBITRUM,
+      srcTxHash: '0xspokeTx',
+      dstTxHash: '0xhubTx',
+    });
   });
 });
 

@@ -3068,7 +3068,7 @@ describe('SwapService.swap', () => {
       }
     });
 
-    it('on a postExecution failure, keeping the solver code', async () => {
+    it('on a postExecution failure, keeping the solver code and the hub tx to notify again', async () => {
       stubCreateIntentOk(ChainKeys.BSC_MAINNET, '0xbscTx');
       mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xdstTx' } });
       mocks.solverPostExecution.mockResolvedValueOnce({
@@ -3085,6 +3085,7 @@ describe('SwapService.swap', () => {
           solverCode: -7,
           srcChainKey: ChainKeys.BSC_MAINNET,
           srcTxHash: '0xbscTx',
+          dstTxHash: '0xdstTx',
         });
       }
     });
@@ -4863,6 +4864,19 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         expect(result.error.context?.srcTxHash).toBe('0xbatchTx');
       }
       expect(mocks.solverPostExecution).not.toHaveBeenCalled();
+    });
+
+    it('keeps the hub tx on a postExecution failure, so the solver can be notified again', async () => {
+      const wallet = makeBatchProvider();
+      mocks.submitTransaction.mockResolvedValueOnce({ ok: true, value: { success: true, message: 'submitted' } });
+      mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xdstTx' } });
+      mocks.getIntent.mockResolvedValueOnce(makeIntent(ChainKeys.BSC_MAINNET));
+      mocks.solverPostExecution.mockResolvedValueOnce({ ok: false, error: { detail: { code: -7, message: 'down' } } });
+
+      const result = await resume(wallet);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.context).toMatchObject({ srcTxHash: '0xbatchTx', dstTxHash: '0xdstTx' });
     });
 
     it('rejects resuming with a wallet that cannot batch', async () => {

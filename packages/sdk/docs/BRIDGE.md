@@ -671,8 +671,8 @@ if (!result.ok) {
 
     case 'TX_SUBMIT_FAILED':
       // CRITICAL: spoke tx landed but the relay submission failed. Funds may be in flight.
-      // Don't call bridge() again — that is a second deposit. Keep polling getDetailedStatus with
-      // error.context.srcTxHash, and show that hash to the user if it never delivers.
+      // Don't call bridge() again — that is a second deposit. Poll getDetailedStatus with
+      // error.context.srcTxHash; if no packet ever shows up, resubmit that same tx to the relay.
       break;
 
     case 'RELAY_TIMEOUT':
@@ -714,7 +714,17 @@ If you were on the previous CODE-on-`error.message` pattern (or the older `Bridg
 
 ### Best practices
 
-1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Funds may be in flight; keep `error.context.srcTxHash`, poll `getDetailedStatus` with it, and never start a new bridge for the same transfer.
+1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Never start a new bridge for the same transfer: that is a second deposit. Poll `getDetailedStatus` with `error.context.srcTxHash` — if the backend took the deposit, it still relays it. If no packet ever shows up (backend submit-tx off, or the backend rejected the submit), nothing else will submit it: resubmit **the same tx** to the relay, which ignores a tx it already has. An EVM source needs only the hash; a Solana or Bitcoin source also needs the original `relayData`, which `bridge()` does not return.
+
+   ```typescript
+   import { getIntentRelayChainId, submitTransaction } from '@sodax/sdk';
+
+   // srcChainKey: the bridge's source chain; srcTxHash: error.context.srcTxHash
+   await submitTransaction(
+     { action: 'submit', params: { chain_id: getIntentRelayChainId(srcChainKey).toString(), tx_hash: srcTxHash } },
+     sodax.config.relay.relayerApiEndpoint,
+   );
+   ```
 2. **Handle `RELAY_TIMEOUT` gracefully**. The spoke tx succeeded; the relay just didn't deliver in time. Poll `getDetailedStatus` with `error.context.srcTxHash` instead of starting a new bridge.
 3. **Discriminate `RELAY_FAILED` via `context.relayCode`**. `'RELAY_POLLING_FAILED'` (polling outage — packet status unknown) needs different UX from generic `'UNKNOWN'`.
 4. **Use `error.cause` for forensics**. Every wrapped error preserves the original on `cause`. Loggers walk it automatically.

@@ -1361,7 +1361,15 @@ export class LeverageYieldService {
     });
     if (!postExecResult.ok) {
       // LeverageYieldPostExecutionErrorCode ⊂ LeverageYieldSwapErrorCode by definition.
-      return { ok: false, error: withErrorContext(postExecResult.error, { srcChainKey, srcTxHash: spokeTxHash }) };
+      // The hub tx is what a retried `notifySolver` needs; status reads cannot surface it while unnotified.
+      return {
+        ok: false,
+        error: withErrorContext(postExecResult.error, {
+          srcChainKey,
+          srcTxHash: spokeTxHash,
+          dstTxHash: dstIntentTxHash,
+        }),
+      };
     }
 
     return {

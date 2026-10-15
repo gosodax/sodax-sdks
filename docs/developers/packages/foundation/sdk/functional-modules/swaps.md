@@ -285,6 +285,8 @@ function isSodaxError(e: unknown): e is SodaxError;
   // On `swap` failures after the source tx was broadcast (TX_VERIFICATION_FAILED, the relay codes,
   // and postExecution failures) — the tx to keep reading status for with `getDetailedStatus`:
   srcTxHash?: string;
+  // On postExecution failures: the hub tx that registered the intent, to notify the solver again with:
+  dstTxHash?: string;
   // swapWithApproval only:
   action?: 'swapWithApproval';
   approvalStrategy?: 'atomic-batch' | 'sequential';
@@ -297,6 +299,16 @@ function isSodaxError(e: unknown): e is SodaxError;
 A post-broadcast failure does not mean the swap failed: with backend submit-tx on, the backend keeps working on
 it after `swap()` gives up. Read `error.context.srcTxHash` (with `srcChainKey`) and keep polling
 [`getDetailedStatus`](#get-detailed-status) rather than reporting the swap as lost.
+
+Polling only reads, so it cannot fix one case: a failed solver notification (`EXECUTION_FAILED` /
+`EXTERNAL_API_ERROR` with `phase: 'postExecution'`). Unless the backend took the swap, nothing else notifies the
+solver, and the intent expires unfilled. Notify it again with the hub tx the error carries — the solver only
+re-affirms an intent it already has — then keep polling:
+
+```typescript
+// dstTxHash: error.context.dstTxHash
+await sodax.swaps.postExecution({ intent_tx_hash: dstTxHash });
+```
 
 #### Discrimination example
 

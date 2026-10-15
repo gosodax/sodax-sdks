@@ -233,7 +233,7 @@ different contract on the hub.
 | `isAllowanceValid` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` | n/a |
 | `getBridgeableAmount`, `getBridgeableTokens` | `VALIDATION_FAILED`, `LOOKUP_FAILED`, `UNKNOWN` | `method: 'getBridgeableAmount' \| 'getBridgeableTokens'` |
 
-**A `bridge()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED` and the relay codes set `error.context.srcTxHash` (plus `srcChainKey`). The deposit is on-chain and the bridge may still complete — a slow relay can deliver late, and on the default backend path the backend keeps working after `bridge()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the bridge as lost or retrying `bridge()`. Failures before the broadcast carry no `srcTxHash`.
+**A `bridge()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED` and the relay codes set `error.context.srcTxHash` (plus `srcChainKey`). The deposit is on-chain and the bridge may still complete — a slow relay can deliver late, and on the default backend path the backend keeps working after `bridge()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the bridge as lost or retrying `bridge()`. Failures before the broadcast carry no `srcTxHash`. After `TX_SUBMIT_FAILED`, if the backend did not take the deposit (submit-tx off or rejected) nothing else submits it: when no packet ever shows up, resubmit the same tx with `submitTransaction({ action: 'submit', params: { chain_id, tx_hash } }, relayerApiEndpoint)` — the relay ignores a tx it already has. A Solana or Bitcoin source also needs the original `relayData`, which `bridge()` does not return.
 
 ## Cross-references
 

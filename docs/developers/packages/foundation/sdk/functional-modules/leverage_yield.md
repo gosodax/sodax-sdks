@@ -530,6 +530,7 @@ The broad union type is `LeverageYieldError` (`SodaxError<LeverageYieldErrorCode
 - **`context.field`** — set on `VALIDATION_FAILED` (`'inputAmount'`, `'vault'`, `'inputToken'`, `'outputToken'`, `'amount'`, `'targetLtvBps'`).
 - **`context.phase`** — `'intentCreation' | 'approve' | 'allowanceCheck' | 'lookup' | 'validate' | 'verify' | 'relay' | 'postExecution'`.
 - **`context.srcTxHash`** — set, with `srcChainKey`, on `vaultSwap` failures after the intent tx was broadcast (`TX_VERIFICATION_FAILED`, the relay codes, and post-execution failures). Such a failure does not mean the vault swap failed: the tx is on-chain, and with backend submit-tx on the backend keeps working on it after `vaultSwap()` gives up. Keep polling [`getDetailedStatus`](#getdetailedstatus) with it rather than reporting the vault swap as lost. Failures before the broadcast carry none.
+- **`context.dstTxHash`** — set, with `srcTxHash`, when the solver notification fails (`EXECUTION_FAILED` / `EXTERNAL_API_ERROR` with `phase: 'postExecution'`): the hub tx that registered the intent. Polling cannot fix this one — `getDetailedStatus` only reads, and unless the backend took the vault swap nothing else notifies the solver, so the intent expires unfilled. Call `notifySolver({ intent_tx_hash: error.context.dstTxHash })` again (the solver only re-affirms an intent it already has), then keep polling.
 
 ### Guards
 

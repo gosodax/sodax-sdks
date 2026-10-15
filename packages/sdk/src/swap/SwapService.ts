@@ -1102,7 +1102,7 @@ export class SwapService {
     const intent = await this.getIntent(dstTxHash);
     if (!intent.ok) return { ok: false, error: unknownFailed('swap', intent.error, txCtx) };
     const solved = await this.postExecution({ intent_tx_hash: dstTxHash });
-    if (!solved.ok) return { ok: false, error: withErrorContext(solved.error, { srcChainKey, srcTxHash }) };
+    if (!solved.ok) return { ok: false, error: withErrorContext(solved.error, { srcChainKey, srcTxHash, dstTxHash }) };
 
     return {
       ok: true,
@@ -1245,8 +1245,15 @@ export class SwapService {
       intent_tx_hash: dstIntentTxHash as `0x${string}`,
     });
     if (!postExecResult.ok) {
-      // PostExecutionErrorCode ⊂ SwapErrorCode by definition.
-      return { ok: false, error: withErrorContext(postExecResult.error, { srcChainKey, srcTxHash: spokeTxHash }) };
+      // PostExecutionErrorCode ⊂ SwapErrorCode by definition. The hub tx is what a retried `postExecution` needs.
+      return {
+        ok: false,
+        error: withErrorContext(postExecResult.error, {
+          srcChainKey,
+          srcTxHash: spokeTxHash,
+          dstTxHash: dstIntentTxHash,
+        }),
+      };
     }
 
     return {

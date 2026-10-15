@@ -255,7 +255,7 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 
 Relay/tx-verification codes appear **only** on `vaultSwap` — `createVaultIntent` alone stays within the create-intent subset. `notifySolver` (public, for manual orchestration) emits the post-execution subset, which `vaultSwap` also surfaces.
 
-**A `vaultSwap()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED`, the relay codes and post-execution failures set `error.context.srcTxHash` (plus `srcChainKey`). The vault swap may still complete — on the default backend path the backend keeps working after `vaultSwap()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the vault swap as lost. Failures before the broadcast carry no `srcTxHash`.
+**A `vaultSwap()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED`, the relay codes and post-execution failures set `error.context.srcTxHash` (plus `srcChainKey`). The vault swap may still complete — on the default backend path the backend keeps working after `vaultSwap()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the vault swap as lost. Failures before the broadcast carry no `srcTxHash`. A failed solver notification (`EXECUTION_FAILED` / `EXTERNAL_API_ERROR`, `phase: 'postExecution'`) also sets `error.context.dstTxHash`, the hub tx: unless the backend took the vault swap nothing else notifies the solver and the intent expires, so call `notifySolver({ intent_tx_hash: dstTxHash })` again, then poll.
 
 ## Leverage positions
 
