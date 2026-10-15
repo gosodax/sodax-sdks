@@ -29,15 +29,21 @@ To try unreleased packages in a project outside this repo, use `pnpm pack:local`
 
 ## Checks
 
-The commands a contributor runs locally are the ones CI runs:
+Run these before you push:
 
 ```shell
 pnpm lint             # Biome lint (auto-fixes)
-pnpm pretty           # Biome format
+pnpm pretty           # Biome format — local only, CI does not check formatting
 pnpm checkTs          # typecheck
 pnpm test             # unit tests, plus the release and CI script tests
 pnpm check:ai         # when you change packages/skills
 ```
+
+CI runs more than this: `check:circular-deps`, `check:knip`, `check-exports`, the package and app
+builds, and the docs gates (`check:doc-links`, `check:docs-nav`, `check:docs-pages`,
+`check:ai-dev-files`, plus `pnpm docs:validate`). See
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) for the full list, and run the ones that
+cover what you changed.
 
 For one package: `cd packages/<pkg> && pnpm test` (or `npx vitest run path/to/file.test.ts`).
 `pnpm test:e2e` hits live mainnet services; in CI it runs on pull requests only and is advisory, so
@@ -64,9 +70,9 @@ Do not bypass them with `--no-verify`. If a check fails, fix the cause.
   message matches the title.
 - Keep the change scoped to the task — no drive-by refactors or renames.
 - Cover new code with tests beside the changed code.
-- Every required check is green before you request a review. Changes under `.github/`, the docs
-  gates and release scripts in `scripts/`, and `docs/` need a code-owner review
-  ([`CODEOWNERS`](./.github/CODEOWNERS)).
+- Every required check is green before you request a review. Changes to `.github/workflows/`,
+  `.github/scripts/`, the docs gates and release scripts in `scripts/`, and `docs/` need a
+  code-owner review — [`CODEOWNERS`](./.github/CODEOWNERS) lists the exact paths.
 - Pull requests are **squash merged** into `main`, so the PR title becomes the commit subject on
   `main` — and the input to the next release's notes.
 
