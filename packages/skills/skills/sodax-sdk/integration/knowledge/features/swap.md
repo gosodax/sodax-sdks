@@ -71,12 +71,12 @@ Three readers. Pick by which transaction hash you hold:
 - **`sodax.swaps.getStatus({ intent_tx_hash })`** — the solver's view of one intent, keyed on the **hub** tx hash (`intentDeliveryInfo.dstTxHash`). Returns the legacy `SolverErrorResponse` error shape, so do not `switch (error.code)` on it.
 - **`sodax.swaps.getDetailedStatus({ srcChainKey, srcTxHash })`** — routes between the two, keyed on the **source** tx. Use this when you only have the source hash and do not know which path the swap took.
 
-`getDetailedStatus` defines no status of its own. It returns whichever source can answer, tagged, with that source's payload unmodified. The union is discriminated on `source` — no type guards are exported, narrow on the field:
+`getDetailedStatus` defines no status of its own. It returns whichever source can answer, tagged. The backend record is unmodified; a solver answer short of `SOLVED`/`FAILED` is first checked against the backend's durable intent record, so a fill that consumed the remainder reads `SOLVED` and a cancelled intent with nothing filled reads `FAILED` (already refunded — do not offer a cancel). The union is discriminated on `source` — no type guards are exported, narrow on the field:
 
 ```ts
 type DetailedSwapStatus =
   | { source: 'backend'; data: SubmitTxStatusDataV2 }         // same as getSubmitTxStatus
-  | { source: 'solver'; dstTxHash: Hex; data: SolverIntentStatusResponse }; // same as getStatus
+  | { source: 'solver'; dstTxHash: Hex; data: SolverIntentStatusResponse }; // getStatus, reconciled
 
 if (status.source === 'backend') status.data.processingAttempts;
 ```

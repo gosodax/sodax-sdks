@@ -30,6 +30,7 @@ import {
   getIntentRelayChainId,
   type IBitcoinWalletProvider,
   type IEvmWalletProvider,
+  type IntentResponse,
   isAuthFailure,
   isSodaxError,
   MAX_POSITION_FEE_BPS,
@@ -1972,6 +1973,109 @@ describe('LeverageYieldService.getDetailedStatus', () => {
 
     // The clamped reconcile timeout still rides along; the key is additional, not a replacement.
     expect(intentSpy.mock.calls[0]?.[1]).toMatchObject({ apiKey: 'per-action-key', timeout: expect.any(Number) });
+  });
+
+  // ── reconciling a non-final solver answer ──────────────────────────────
+
+  const journal = (open: boolean, events: unknown[]): IntentResponse => ({
+    intentHash: '0xintent',
+    txHash: HUB_TX,
+    logIndex: 0,
+    chainId: 146,
+    blockNumber: 1,
+    open,
+    intent: {
+      intentId: '1',
+      creator: '0xcreator',
+      inputToken: '0xin',
+      outputToken: '0xout',
+      inputAmount: '1000',
+      minOutputAmount: '900',
+      deadline: '1791963740',
+      allowPartialFill: false,
+      srcChain: 1,
+      dstChain: 146,
+      srcAddress: '0xsrc',
+      dstAddress: '0xdst',
+      solver: '0xsolver',
+      data: '0x',
+    },
+    events,
+  });
+  const cancelled = journal(false, [{ eventType: 'intent-cancelled', txHash: '0xcancel' }]);
+  const journalReturns = (intent: IntentResponse) =>
+    vi.spyOn(sodaxDS.api, 'getIntentByTxHash').mockResolvedValueOnce({ ok: true, value: intent });
+  const solverStatusOf = (result: Awaited<ReturnType<typeof sodaxDS.leverageYield.getDetailedStatus>>) =>
+    result.ok && result.value.source === 'solver' ? result.value.data : undefined;
+
+  // The solver can keep reporting a keeper-cancelled vault intent in flight, which polls forever.
+  it.each([
+    SolverIntentStatusCode.STARTED_NOT_FINISHED,
+    SolverIntentStatusCode.NOT_FOUND,
+  ])('reads a cancelled intent past a failed record as FAILED when the solver answers %s', async status => {
+    record({ status: 'failed', failureReason: 'Intent deadline expired', abandonedAt: '2026-10-14T07:48:07.869Z' });
+    packets(delivered);
+    solverSays(status);
+    journalReturns(cancelled);
+
+    expect(solverStatusOf(await sodaxDS.leverageYield.getDetailedStatus(key))).toEqual({
+      status: SolverIntentStatusCode.FAILED,
+    });
+  });
+
+  it('reads a settling fill as SOLVED while the solver still reports the intent in flight', async () => {
+    backendFails('not found', 404);
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    journalReturns(
+      journal(false, [{ eventType: 'intent-filled', txHash: '0xfill', intentState: { remainingInput: '0' } }]),
+    );
+
+    expect(solverStatusOf(await sodaxDS.leverageYield.getDetailedStatus(key))).toEqual({
+      status: SolverIntentStatusCode.SOLVED,
+      fill_tx_hash: '0xfill',
+    });
+  });
+
+  it('leaves an in-flight answer standing while the intent is open or the journal unreadable', async () => {
+    backendFails('not found', 404);
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    journalReturns(journal(true, []));
+    expect(solverStatusOf(await sodaxDS.leverageYield.getDetailedStatus(key))?.status).toBe(
+      SolverIntentStatusCode.STARTED_NOT_FINISHED,
+    );
+
+    backendFails('not found', 404);
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    vi.spyOn(sodaxDS.api, 'getIntentByTxHash').mockResolvedValueOnce({ ok: false, error: new Error('down') });
+    expect(solverStatusOf(await sodaxDS.leverageYield.getDetailedStatus(key))?.status).toBe(
+      SolverIntentStatusCode.STARTED_NOT_FINISHED,
+    );
+  });
+
+  it('does not read the journal behind a final solver answer', async () => {
+    backendFails('not found', 404);
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.FAILED);
+    const intentSpy = vi.spyOn(sodaxDS.api, 'getIntentByTxHash');
+
+    expect(solverStatusOf(await sodaxDS.leverageYield.getDetailedStatus(key))?.status).toBe(
+      SolverIntentStatusCode.FAILED,
+    );
+    expect(intentSpy).not.toHaveBeenCalled();
+  });
+
+  it('sends the per-request key to the journal read behind an in-flight answer', async () => {
+    backendFails('not found', 404);
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    const intentSpy = journalReturns(cancelled);
+
+    await sodaxDS.leverageYield.getDetailedStatus(key, { apiKey: 'per-action-key' });
+
+    expect(intentSpy.mock.calls[0]?.[1]).toMatchObject({ apiKey: 'per-action-key' });
   });
 
   it.each([401, 403])('treats a rejected API key as terminal instead of degrading (%i)', async status => {

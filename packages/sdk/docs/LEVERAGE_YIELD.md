@@ -333,7 +333,8 @@ Executes the full end-to-end vault swap. `createVaultIntent` broadcasts the inte
 
 Answers "what happened to this vault swap?" from the **source-chain** tx — the one identifier you always
 hold after `vaultSwap()`. It does not define a new status: it routes to whichever of the two existing
-sources can answer, and returns that source's payload unmodified.
+sources can answer, and returns that source's payload. The backend record comes back unmodified; the
+solver's answer is checked against the durable intent record first (step 2 below).
 
 ```typescript
 const result = await sodax.leverageYield.getDetailedStatus({
@@ -371,7 +372,12 @@ So the method routes:
 
 1. Read the backend record; return it while it is still in play.
 2. Otherwise resolve the hub tx hash — the source tx itself for hub-source vault swaps, else the
-   delivered relay packet's `dst_tx_hash` — and return the solver's answer for it.
+   delivered relay packet's `dst_tx_hash` — and return the solver's answer for it. Any answer short of
+   `SOLVED` or `FAILED` is checked against the backend's durable intent record first: a fill that
+   consumed the remainder reads `SOLVED` (a restarted solver answers `NOT_FOUND` for intents it already
+   filled), and a cancel with nothing filled reads `FAILED` (expired intents are cancelled on the hub and
+   refunded, and the solver can keep reporting one in flight). Anything else, a cancel after a partial
+   fill included, leaves the solver's answer standing.
 
 **A rejected API key stops there.** It is not a source with nothing to say — only a corrected key
 resolves it — so it surfaces directly with `context.status` set for `isAuthFailure`, instead of being
@@ -384,7 +390,7 @@ failure a caller should bound with a retry budget. Every other one is a dependen
 (relay 5xx, solver down), so keep retrying until it recovers.
 
 Takes an optional second argument, a `RequestOverrideConfig`. Its `apiKey` reaches every keyed leg —
-the submit-tx record read, the solver read, and the durable-intent read a solver `NOT_FOUND` falls
+the submit-tx record read, the solver read, and the durable-intent read a non-final solver answer falls
 back to — so one override keys the whole call. The relay leg is unauthenticated and takes none.
 
 A point-in-time read — poll it yourself, or use `@sodax/dapp-kit`'s `useLeverageYieldDetailedStatus`.

@@ -43,7 +43,7 @@ import { EvmSolverService } from './EvmSolverService.js';
 import type { BackendApiService } from '../backendApi/index.js';
 import { runBackendSubmitTx } from '../backendApi/runBackendSubmitTx.js';
 import { createSubmitTxAttempt, type SubmitTxAttempt } from '../backendApi/submitTxAttempt.js';
-import { isFillEvent } from '../backendApi/guards.js';
+import { readIntentJournalOutcome } from '../backendApi/intentJournal.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
 import type { ApprovalTxs } from '../shared/types/spoke-types.js';
 import { selectSolvedIntentPacket } from './selectSolvedIntentPacket.js';
@@ -224,9 +224,9 @@ const RECONCILE_TIMEOUT_MS = 5_000;
  *
  * Worst case for one `getDetailedStatus` call is the sum of its legs, not this number: the backend
  * record's own request budget, then 15s for the relay, then 5s here, plus a further
- * {@link RECONCILE_TIMEOUT_MS} for the durable-record reconcile a failed solver read falls through
- * to. That first leg is not a fixed 30s — `DEFAULT_BACKEND_API_TIMEOUT` is only its fallback, and a
- * consumer configuring `api.timeout` higher raises it, and the whole tick with it. So a poll-count
+ * {@link RECONCILE_TIMEOUT_MS} for the durable-record reconcile any non-final solver read falls
+ * through to. That first leg is not a fixed 30s — `DEFAULT_BACKEND_API_TIMEOUT` is only its
+ * fallback, and a consumer configuring `api.timeout` higher raises it, and the whole tick with it. So a poll-count
  * cutoff like dapp-kit's bounds attempts, not wall clock, and by a factor the consumer controls.
  */
 const DETAILED_STATUS_SOLVER_TIMEOUT_MS = 5_000;
@@ -386,12 +386,16 @@ export class SwapService {
    * polled and passes {@link DETAILED_STATUS_SOLVER_TIMEOUT_MS}. Both go through here so the
    * durable-intent reconcile below is written once.
    *
-   * `timeoutMs` bounds the solver request alone. The reconcile that a failed or NOT_FOUND solver read
-   * falls through to carries its own {@link RECONCILE_TIMEOUT_MS}, so a bounded call can cost both.
+   * `timeoutMs` bounds the solver request alone. The reconcile that a non-final solver read falls
+   * through to carries its own {@link RECONCILE_TIMEOUT_MS}, so a bounded call can cost both.
+   *
+   * `reconcileNonFinal` is for `getDetailedStatus` alone: it reconciles an in-flight answer as well as
+   * a `NOT_FOUND`, and reads a journal cancel as `FAILED`. The solver can keep reporting a cancelled
+   * intent in flight, and nothing else ends that poll. `getStatus` leaves it off and keeps its answers.
    */
   private async resolveSolverStatus(
     request: SolverIntentStatusRequest,
-    timeoutMs?: number,
+    { timeoutMs, reconcileNonFinal = false }: { timeoutMs?: number; reconcileNonFinal?: boolean } = {},
   ): Promise<Result<SolverIntentStatusResponse, SolverErrorResponse>> {
     const solverResult = await SolverApiService.getStatus(
       request,
@@ -400,27 +404,29 @@ export class SwapService {
       timeoutMs,
       this.config.apiKey,
     );
-    const forgotten = !solverResult.ok || solverResult.value.status === SolverIntentStatusCode.NOT_FOUND;
-    if (!forgotten) return solverResult;
+    const status = solverResult.ok ? solverResult.value.status : undefined;
+    if (status === SolverIntentStatusCode.SOLVED || status === SolverIntentStatusCode.FAILED) return solverResult;
+    const forgotten = !solverResult.ok || status === SolverIntentStatusCode.NOT_FOUND;
+    if (!forgotten && !reconcileNonFinal) return solverResult;
 
     // The solver keeps intent state in memory, so a restart makes it answer NOT_FOUND for intents it
-    // already filled. The backend's record is durable; a read that *completes* without terminal fill
+    // already filled. The backend's record is durable; a read that *completes* without terminal
     // evidence leaves the solver's answer standing. A read that could not complete proves nothing —
     // see below.
-    //
-    // A fill event is not by itself proof of completion: an intent created with `allowPartialFill`
-    // emits one per fill while input remains. Only a fill that consumed the remainder settles the
-    // whole intent, so `SOLVED` is claimed for that one alone — otherwise a partially filled swap
-    // would be reported complete, and `useStatus` would stop polling it for good.
     // Bound the reconcile so a status poll cannot hang on it — but clamp rather than override, since
     // a per-call timeout *replaces* the configured one and would otherwise lengthen the request for
     // a consumer who configured something stricter than this ceiling.
     const timeout = Math.min(RECONCILE_TIMEOUT_MS, this.backendApi.requestTimeoutMs);
     const intent = await this.backendApi.getIntentByTxHash(request.intent_tx_hash, { timeout });
-    const settled = intent.ok
-      ? intent.value.events.filter(isFillEvent).find(fill => fill.intentState.remainingInput === '0')
-      : undefined;
-    if (settled) return { ok: true, value: { status: SolverIntentStatusCode.SOLVED, fill_tx_hash: settled.txHash } };
+    const outcome = intent.ok ? readIntentJournalOutcome(intent.value) : undefined;
+    if (outcome?.kind === 'solved') {
+      return { ok: true, value: { status: SolverIntentStatusCode.SOLVED, fill_tx_hash: outcome.fillTxHash } };
+    }
+    if (outcome?.kind === 'cancelled' && reconcileNonFinal) {
+      return { ok: true, value: { status: SolverIntentStatusCode.FAILED } };
+    }
+    // Without terminal evidence an in-flight answer stands, even behind an unreadable record.
+    if (!forgotten) return solverResult;
 
     // Same reading as `getDetailedStatus`: a record — or a 404, which is the backend saying it has
     // none — answers the question, so the solver's NOT_FOUND stands and a caller may budget it. A
@@ -447,9 +453,14 @@ export class SwapService {
   /**
    * Reads a swap's status from its source-chain transaction — the identifier a caller always holds.
    *
-   * **Routes; does not translate.** Returns the backend submit-tx record while it is in play,
-   * otherwise the solver's answer via the hub tx hash resolved from the relay packet. The result is
-   * tagged with `source` (discriminate on it) and carries that source's payload unmodified.
+   * **Routes; defines no status of its own.** Returns the backend submit-tx record while it is in
+   * play, otherwise the solver's answer via the hub tx hash resolved from the relay packet. The result
+   * is tagged with `source` (discriminate on it).
+   *
+   * The solver arm is reconciled against the backend's durable intent record: a settling fill reads
+   * `SOLVED`, and a cancel with nothing filled reads `FAILED` even while the solver still reports the
+   * intent in flight. A cancelled intent is already refunded, so do not offer to cancel it again.
+   * Otherwise it carries the solver's answer unmodified, and the backend arm its record unmodified.
    *
    * **Any** unusable backend response routes to the solver — a 404, a transport or server error, or
    * a record the backend gave up on. See `docs/SWAPS.md` § Get Detailed Status for why.
@@ -500,10 +511,10 @@ export class SwapService {
       if (!dstTxHash.ok) return dstTxHash;
 
       // `this.resolveSolverStatus`, not `SolverApiService.getStatus` — the durable-intent reconcile
-      // on solver NOT_FOUND stays in one place. Bounded, because this read is polled.
+      // stays in one place. Bounded, because this read is polled.
       const solver = await this.resolveSolverStatus(
         { intent_tx_hash: dstTxHash.value },
-        DETAILED_STATUS_SOLVER_TIMEOUT_MS,
+        { timeoutMs: DETAILED_STATUS_SOLVER_TIMEOUT_MS, reconcileNonFinal: true },
       );
       if (!solver.ok) {
         return { ok: false, error: this.detailedStatusLookupFailed(solver.error, params.srcChainKey) };

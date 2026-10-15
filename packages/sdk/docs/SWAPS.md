@@ -1038,7 +1038,7 @@ if (statusResult.ok) {
 
 ## Get Detailed Status
 
-`getDetailedStatus` answers "what is the status of this swap?" from the **source-chain** tx — the one identifier you always hold. It does not define a new status: it routes to whichever of the two existing sources can answer, and returns that source's payload unmodified.
+`getDetailedStatus` answers "what is the status of this swap?" from the **source-chain** tx — the one identifier you always hold. It does not define a new status: it routes to whichever of the two existing sources can answer, and returns that source's payload. The backend record comes back unmodified; the solver's answer is [checked against the durable intent record](#the-solver-answer-is-reconciled) first.
 
 ```typescript
 const result = await sodax.swaps.getDetailedStatus({
@@ -1051,7 +1051,7 @@ if (result.ok) {
     // `data` is the SubmitTxStatusDataV2 from sodax.api.swaps.getSubmitTxStatus
     console.log(result.value.data.status, result.value.data.userMessage);
   } else {
-    // `data` is the SolverIntentStatusResponse from sodax.swaps.getStatus
+    // `data` is a SolverIntentStatusResponse, reconciled against the durable intent record
     console.log(result.value.data.status, result.value.dstTxHash);
   }
 }
@@ -1076,13 +1076,23 @@ Sometimes there is **no record**, and it reads 404 — you opted out with `useBa
 `sodax.swaps.getStatus` can answer for it, but needs the **hub** tx hash, which the caller may not have. So the caller had to know which path ran and pick an API. This method makes that choice instead:
 
 1. Read the backend record; return it while it is still in play.
-2. Otherwise resolve the hub tx hash — the source tx itself for hub-source swaps, else the delivered relay packet's `dst_tx_hash` — and return `getStatus`'s answer.
+2. Otherwise resolve the hub tx hash — the source tx itself for hub-source swaps, else the delivered relay packet's `dst_tx_hash` — and return the solver's answer, reconciled as described below.
 
 A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 2, and on the default path this is the *common* branch rather than an edge case: the record almost always exists, so abandonment — not a 404 — is what usually signals the fallback ran. It never self-heals, so keeping it would report `failed` for a swap the fallback went on to complete. A `success: false` envelope takes step 2 as well — that is the wire contract's "no record found", whatever `data` carries. A transport or server error routes on too, so a transient backend outage does not fail a swap the solver can still report on.
 
 **One failure does not route on: a rejected API key.** The swaps apiguard covers `POST /swaps/*`, so this `GET` does not normally see a 401/403 — unlike the bridge sibling, where the apiguard reads every `/bridge/*` route. Wherever one does arrive, it is a terminal configuration problem rather than a source that had nothing to say. Degrading to the solver would bury it behind a relay or solver error and leave a poller retrying a request only a corrected key can satisfy, so it surfaces directly, with `context.status` set for `isAuthFailure`. The transient key-verification `503` is not this case: it routes on like any other outage.
 
-Both payloads are already documented — the submit-tx record in [SWAPS_API.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md), the solver response under [Get Intent Status](#get-intent-status). Nothing is translated between them, so no field is dropped and no status code is reinterpreted.
+Both payloads are already documented — the submit-tx record in [SWAPS_API.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md), the solver response under [Get Intent Status](#get-intent-status). Nothing is translated between them, so no field is dropped.
+
+### The solver answer is reconciled
+
+The solver is not the last word on its own intents, so any answer short of `SOLVED` or `FAILED` is checked against the backend's durable intent record (`sodax.api.getIntentByTxHash`):
+
+- **A fill that consumed the remainder reads `SOLVED`**, with that fill's tx as `fill_tx_hash`. The solver keeps intent state in memory, so after a restart it answers `NOT_FOUND` for intents it already filled.
+- **A cancel with nothing filled reads `FAILED`.** Expired intents are cancelled on the hub and refunded, and the solver can keep reporting one as in flight (`1` or `2`) long after — a poller would never stop. Its funds are already back, so do not offer the user a cancel for it.
+- **Anything else leaves the solver's answer standing**, including a cancel after a partial fill (it is neither solved nor failed) and a record that cannot be read right now; the next poll asks again.
+
+`getStatus` keeps its narrower check: it reads the record only behind a `NOT_FOUND` or a failed request, and only for a fill — never a cancel.
 
 ### When it fails
 
@@ -1090,8 +1100,8 @@ Both payloads are already documented — the submit-tx record in [SWAPS_API.md](
 
 If you poll this yourself, branch on `error.context.reason`. It equals `DETAILED_STATUS_NOT_DELIVERED` when the backend answered (a record, or a definitive 404) **and** the relay has no packet for the source tx — whether it answers 404 for a tx it has not indexed, or returns no matching delivered packet. You cannot tell that apart from "still in flight", so bound it with a retry budget. Any other `LOOKUP_FAILED` is a dependency failing right now — relay 5xx or unreachable, malformed response, solver down, or a backend outage that left the relay miss unprovable. Keep retrying those, since retrying is how the read recovers. A rejected key is the exception: `isAuthFailure(error)` is true and no budget applies, because only a corrected key changes the answer — and none would ever be spent, since an unanswered backend leaves the relay miss untagged. `useDetailedStatus` applies exactly this split.
 
-Because it is meant to be polled, each dependency read it makes — the relay packet lookup and the solver status call —
-carries its own budget and gives up rather than hanging. An expiry lands in that second group: it is a dependency
+Because it is meant to be polled, each dependency read it makes — the relay packet lookup, the solver status call and
+the intent-record check — carries its own budget and gives up rather than hanging. An expiry lands in that second group: it is a dependency
 failing right now, so it stays retryable and does not consume a not-delivered budget.
 
 ## Get Solved Intent Packet

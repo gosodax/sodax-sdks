@@ -27,6 +27,7 @@ import {
   SolverIntentErrorCode,
   SolverIntentStatusCode,
   type Result,
+  type SolverIntentStatusResponse,
   type SpokeChainKey,
   type SubmitTxStatusDataV2,
 } from '@sodax/types';
@@ -1803,6 +1804,7 @@ const intentResponse = (events: unknown[], allowPartialFill = false): IntentResp
   },
   events,
 });
+const cancelEvent = { eventType: 'intent-cancelled', txHash: '0xcancel' };
 
 describe('SwapService.getStatus', () => {
   const request = { intent_tx_hash: '0xsome' } as const;
@@ -1955,6 +1957,24 @@ describe('SwapService.getStatus', () => {
         context: { api: 'backend', status: 404 },
       }),
     });
+
+    expect(await sodax.swaps.getStatus(request)).toBe(notFound);
+  });
+
+  // Reading a journal cancel as FAILED is `getDetailedStatus`'s; this one keeps the solver's answers.
+  it('leaves an in-flight answer unreconciled', async () => {
+    const inFlight = { ok: true as const, value: { status: SolverIntentStatusCode.STARTED_NOT_FINISHED } };
+    mocks.solverGetStatus.mockResolvedValueOnce(inFlight);
+    const backendSpy = vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash');
+
+    expect(await sodax.swaps.getStatus(request)).toBe(inFlight);
+    expect(backendSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps the solver NOT_FOUND for an intent the journal shows cancelled', async () => {
+    const notFound = { ok: true as const, value: { status: SolverIntentStatusCode.NOT_FOUND } };
+    mocks.solverGetStatus.mockResolvedValueOnce(notFound);
+    backendReturns([cancelEvent]);
 
     expect(await sodax.swaps.getStatus(request)).toBe(notFound);
   });
@@ -2152,6 +2172,126 @@ describe('SwapService.getDetailedStatus', () => {
 
     expect(!result.ok && isSodaxError(result.error) && result.error.code).toBe('LOOKUP_FAILED');
     expect(!result.ok && isSodaxError(result.error) && result.error.context?.reason).toBeUndefined();
+  });
+
+  // ── reconciling a non-final solver answer ────────────────────────────────
+
+  const journalReturns = (intent: IntentResponse) =>
+    vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({ ok: true, value: intent });
+  const solverArm = (data: SolverIntentStatusResponse) => ({
+    ok: true,
+    value: { source: 'solver', dstTxHash: HUB_TX, data },
+  });
+
+  // The solver can keep reporting a keeper-cancelled intent in flight, which polls forever.
+  it.each<[string, () => void]>([
+    [
+      'a failed record',
+      () =>
+        record({ status: 'failed', failureReason: 'Intent deadline expired', abandonedAt: '2026-10-14T07:48:07.869Z' }),
+    ],
+    ['a record abandoned mid-flight', () => record({ status: 'relaying', abandonedAt: '2026-10-14T07:48:07.869Z' })],
+    ['no record', () => noRecord()],
+  ])('reads a cancelled intent as FAILED past %s while the solver reports it in flight', async (_label, arrange) => {
+    arrange();
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    journalReturns(intentResponse([cancelEvent]));
+
+    expect(await sodax.swaps.getDetailedStatus(key)).toEqual(solverArm({ status: SolverIntentStatusCode.FAILED }));
+  });
+
+  it.each<[string, () => void]>([
+    ['not started', () => solverSays(SolverIntentStatusCode.NOT_STARTED_YET)],
+    ['NOT_FOUND', () => solverSays(SolverIntentStatusCode.NOT_FOUND)],
+    [
+      'a failed request',
+      () =>
+        mocks.solverGetStatus.mockResolvedValueOnce({
+          ok: false,
+          error: { detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'solver down' } },
+        }),
+    ],
+  ])('reads a cancelled intent as FAILED when the solver answers %s', async (_label, arrange) => {
+    noRecord();
+    packets(delivered);
+    arrange();
+    journalReturns(intentResponse([cancelEvent]));
+
+    expect(await sodax.swaps.getDetailedStatus(key)).toEqual(solverArm({ status: SolverIntentStatusCode.FAILED }));
+  });
+
+  it('reads a settling fill as SOLVED while the solver still reports the intent in flight', async () => {
+    noRecord();
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    journalReturns(
+      intentResponse([{ eventType: 'intent-filled', txHash: '0xfill', intentState: { remainingInput: '0' } }]),
+    );
+
+    expect(await sodax.swaps.getDetailedStatus(key)).toEqual(
+      solverArm({ status: SolverIntentStatusCode.SOLVED, fill_tx_hash: '0xfill' }),
+    );
+  });
+
+  // A cancel after a partial fill delivered some output, so it is neither SOLVED nor FAILED.
+  it('leaves the solver answer standing for a cancel after a partial fill', async () => {
+    noRecord();
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    const partial = { eventType: 'intent-filled', txHash: '0xpartial', intentState: { remainingInput: '500' } };
+    journalReturns({ ...intentResponse([partial, cancelEvent], true), open: false });
+
+    expect(await sodax.swaps.getDetailedStatus(key)).toEqual(
+      solverArm({ status: SolverIntentStatusCode.STARTED_NOT_FINISHED }),
+    );
+  });
+
+  it('leaves an in-flight answer standing while the intent is open', async () => {
+    noRecord();
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    journalReturns(intentResponse([], true));
+
+    expect(await sodax.swaps.getDetailedStatus(key)).toEqual(
+      solverArm({ status: SolverIntentStatusCode.STARTED_NOT_FINISHED }),
+    );
+  });
+
+  // Unlike an unverified NOT_FOUND, an in-flight answer spends no budget, so it stays a plain read.
+  it.each<[string, Error]>([
+    [
+      '404',
+      new SodaxError('EXTERNAL_API_ERROR', 'not found', {
+        feature: 'backend',
+        context: { api: 'backend', status: 404 },
+      }),
+    ],
+    ['outage', new Error('down')],
+  ])('leaves an in-flight answer standing when the journal read fails with %s', async (_label, error) => {
+    noRecord();
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({ ok: false, error });
+
+    expect(await sodax.swaps.getDetailedStatus(key)).toEqual(
+      solverArm({ status: SolverIntentStatusCode.STARTED_NOT_FINISHED }),
+    );
+  });
+
+  it.each([
+    SolverIntentStatusCode.SOLVED,
+    SolverIntentStatusCode.FAILED,
+  ])('does not read the journal behind a final solver answer (%s)', async status => {
+    noRecord();
+    packets(delivered);
+    solverSays(status);
+    const backendSpy = vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash');
+
+    const result = await sodax.swaps.getDetailedStatus(key);
+
+    expect(result.ok && result.value.source === 'solver' && result.value.data.status).toBe(status);
+    expect(backendSpy).not.toHaveBeenCalled();
   });
 
   it('uses the source tx as the hub tx for a hub-source swap', async () => {

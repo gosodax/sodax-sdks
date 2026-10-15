@@ -75,7 +75,7 @@ import {
   isBackendSubmitTxAbandoned,
   resolveDeliveredPacket,
 } from '../backendApi/detailedStatusRouting.js';
-import { isFillEvent } from '../backendApi/guards.js';
+import { readIntentJournalOutcome } from '../backendApi/intentJournal.js';
 import { isAuthFailure, isSodaxError } from '../errors/guards.js';
 import type { DetailedLeverageYieldStatus, DetailedLeverageYieldStatusKey } from './detailedStatus.js';
 import { runBackendSubmitTx } from '../backendApi/runBackendSubmitTx.js';
@@ -1590,6 +1590,9 @@ export class LeverageYieldService {
    * unreadable backend into an error, which is right for a polled read that would otherwise spend a
    * budget on an unverified miss, and wrong to impose on a surface that already ships without it.
    *
+   * Every non-final answer is reconciled, an in-flight one included, and a journal cancel reads
+   * `FAILED`: the solver can keep reporting a cancelled intent in flight, and nothing else ends that poll.
+   *
    * `timeoutMs` bounds the solver request alone. The reconcile carries its own
    * {@link RECONCILE_TIMEOUT_MS}, so a bounded call can cost both.
    */
@@ -1599,30 +1602,32 @@ export class LeverageYieldService {
     apiKey?: string,
   ): Promise<Result<SolverIntentStatusResponse, SolverErrorResponse>> {
     const solverResult = await this.solverStatus(request, timeoutMs, apiKey);
-    const forgotten = !solverResult.ok || solverResult.value.status === SolverIntentStatusCode.NOT_FOUND;
-    if (!forgotten) return solverResult;
+    const status = solverResult.ok ? solverResult.value.status : undefined;
+    if (status === SolverIntentStatusCode.SOLVED || status === SolverIntentStatusCode.FAILED) return solverResult;
+    const forgotten = !solverResult.ok || status === SolverIntentStatusCode.NOT_FOUND;
 
     // The solver keeps intent state in memory, so a restart makes it answer NOT_FOUND for intents it
     // already filled. The backend's record is durable, and a vault intent is in it: `createVaultIntent`
     // goes through the same `EvmSolverService.constructCreateIntentData` as a swap, so it lands on the
     // same hub Intents contract and the same `IntentCreated` / `IntentFilled` events feed the journal
-    // this endpoint reads. A read that *completes* without terminal fill evidence leaves the solver's
+    // this endpoint reads. A read that *completes* without terminal evidence leaves the solver's
     // answer standing; a read that could not complete proves nothing — see below.
     //
-    // A fill event is not by itself proof of completion: an intent created with `allowPartialFill`
-    // emits one per fill while input remains. Only a fill that consumed the remainder settles the
-    // whole intent. Clamp rather than override, since a per-call timeout *replaces* the configured
-    // one and would otherwise lengthen the request for a consumer who configured something stricter.
+    // Clamp rather than override, since a per-call timeout *replaces* the configured one and would
+    // otherwise lengthen the request for a consumer who configured something stricter.
     const timeout = Math.min(RECONCILE_TIMEOUT_MS, this.backendApi.requestTimeoutMs);
     // The override keys this leg too — a third request, on the data API rather than the leverage-yield
     // one, and whether that deployment checks a key must not be assumed here. No `|| this.config.apiKey`
     // as on the solver leg: `BackendApiService` bakes the instance key into its headers, and an empty
     // string sends no header at all, so both fall back on their own.
     const intent = await this.backendApi.getIntentByTxHash(request.intent_tx_hash, { timeout, apiKey });
-    const settled = intent.ok
-      ? intent.value.events.filter(isFillEvent).find(fill => fill.intentState.remainingInput === '0')
-      : undefined;
-    if (settled) return { ok: true, value: { status: SolverIntentStatusCode.SOLVED, fill_tx_hash: settled.txHash } };
+    const outcome = intent.ok ? readIntentJournalOutcome(intent.value) : undefined;
+    if (outcome?.kind === 'solved') {
+      return { ok: true, value: { status: SolverIntentStatusCode.SOLVED, fill_tx_hash: outcome.fillTxHash } };
+    }
+    if (outcome?.kind === 'cancelled') return { ok: true, value: { status: SolverIntentStatusCode.FAILED } };
+    // Without terminal evidence an in-flight answer stands, even behind an unreadable record.
+    if (!forgotten) return solverResult;
 
     // Same reading as `getDetailedStatus`: a record — or a 404, which is the backend saying it has
     // none — answers the question, so the solver's NOT_FOUND stands and a caller may budget it. A
@@ -1649,9 +1654,14 @@ export class LeverageYieldService {
    * Reads a vault swap's status from its source-chain transaction — the identifier a caller always
    * holds after `vaultSwap()`.
    *
-   * **Routes; does not translate.** Returns the backend submit-tx record while it is in play,
-   * otherwise the solver's answer via the hub tx hash resolved from the relay packet. The result is
-   * tagged with `source` (discriminate on it) and carries that source's payload unmodified.
+   * **Routes; defines no status of its own.** Returns the backend submit-tx record while it is in
+   * play, otherwise the solver's answer via the hub tx hash resolved from the relay packet. The result
+   * is tagged with `source` (discriminate on it).
+   *
+   * The solver arm is reconciled against the backend's durable intent record: a settling fill reads
+   * `SOLVED`, and a cancel with nothing filled reads `FAILED` even while the solver still reports the
+   * intent in flight. Otherwise it carries the solver's answer unmodified, and the backend arm its
+   * record unmodified.
    *
    * `sodax.api.leverageYield.getSubmitTxStatus` cannot answer for every vault swap. Sometimes there
    * is no record — `useBackendSubmitTx: false`, or the submit was rejected. More often the record
@@ -1671,8 +1681,8 @@ export class LeverageYieldService {
    *
    * @param params - `srcChainKey` and `srcTxHash` of the source-chain vault-swap transaction.
    * @param config - Optional per-request override. Its `apiKey` reaches every keyed leg — the
-   *   submit-tx record read, the solver read, and the durable-intent read a solver `NOT_FOUND` falls
-   *   back to — so one override keys the whole call. The relay leg is unauthenticated and takes none.
+   *   submit-tx record read, the solver read, and the durable-intent read a non-final solver answer
+   *   falls back to — so one override keys the whole call. The relay leg is unauthenticated and takes none.
    * @returns A `Result` containing a {@link DetailedLeverageYieldStatus}. Fails with `LOOKUP_FAILED`
    *   when no source can answer yet. Branch on `error.context.reason`:
    *   `DETAILED_STATUS_NOT_DELIVERED` is the ambiguous miss a caller should bound with a retry
@@ -1715,7 +1725,7 @@ export class LeverageYieldService {
       if (!dstTxHash.ok) return dstTxHash;
 
       // `this.resolveSolverStatus`, not `SolverApiService.getStatus` — the durable-intent reconcile
-      // on solver NOT_FOUND stays in one place. Bounded, because this read is polled.
+      // stays in one place. Bounded, because this read is polled.
       const solver = await this.resolveSolverStatus(
         { intent_tx_hash: dstTxHash.value },
         DETAILED_STATUS_SOLVER_TIMEOUT_MS,
