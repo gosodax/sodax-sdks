@@ -109,6 +109,15 @@ describe('useSwapLifecycle', () => {
     expect(statusHook).toHaveBeenCalledWith({ params: { srcChainKey: undefined, srcTxHash: undefined } });
   });
 
+  it('checks the Stellar trustline for one unit when the minimum is 0n, so the check still runs', () => {
+    stub();
+    run({ intentParams: { ...PARAMS, minOutputAmount: 0n } });
+    expect(stellarHook).toHaveBeenLastCalledWith(expect.objectContaining({ amount: 1n }));
+
+    run({ intentParams: undefined });
+    expect(stellarHook).toHaveBeenLastCalledWith(expect.objectContaining({ amount: undefined }));
+  });
+
   it('swaps from the ready state with the configured extras and timeout', async () => {
     stub();
     mutateAsyncSafe.mockResolvedValueOnce({ ok: true, value: {} });
