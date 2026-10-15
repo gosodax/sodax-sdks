@@ -215,21 +215,26 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     expect(intent.dstAddress).toBe(DST_USER);
   });
 
-  it('encodes an MPC-relay (Tron) dstAddress as the 32-byte recipient word, not the 20-byte identity', () => {
+  it.each([
+    { chainKey: ChainKeys.TRON_MAINNET, address: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow' },
+    { chainKey: ChainKeys.XRP_MAINNET, address: 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah' },
+  ])('encodes an MPC-relay ($chainKey) dstAddress as the 32-byte recipient word, not the 20-byte identity', ({
+    chainKey,
+    address,
+  }) => {
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
       .mockReturnValueOnce(hubInputXToken)
       .mockReturnValueOnce(hubOutputXToken);
-    const tronAddress = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
 
     const [, intent] = EvmSolverService.constructCreateIntentData(
-      { ...baseParams(), dstChainKey: ChainKeys.TRON_MAINNET, dstAddress: tronAddress },
+      { ...baseParams(), dstChainKey: chainKey, dstAddress: address },
       HUB_WALLET,
       mockConfig,
       undefined,
     );
 
-    const identity = encodeAddress(ChainKeys.TRON_MAINNET, tronAddress);
-    expect(intent.dstAddress).toBe(encodeRecipient(ChainKeys.TRON_MAINNET, tronAddress));
+    const identity = encodeAddress(chainKey, address);
+    expect(intent.dstAddress).toBe(encodeRecipient(chainKey, address));
     expect(intent.dstAddress).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
     expect(intent.srcAddress).toBe(SRC_USER);
   });
