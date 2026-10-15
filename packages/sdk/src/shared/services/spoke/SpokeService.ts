@@ -1196,27 +1196,13 @@ export class SpokeService {
   }
 
   /**
-   * Wait for a spoke action to settle on the other side of the bridge, and return both hashes.
+   * Wait for a spoke action to settle and return both hashes — the single settlement seam for feature
+   * services, keeping the per-chain-family mechanics here. Whether settlement is needed stays with the
+   * caller.
    *
-   * This is the single settlement seam for feature services: they hand over the value their
-   * `create*Intent` returned and the direction it travels, and the per-chain-family mechanics stay
-   * here — the same way {@link deposit} and {@link sendMessage} hide them for the send side.
-   *
-   *   intent relay (default)  verify the source tx → submit → wait for the delivery packet
-   *   Bitcoin outbound        no source tx at all: submit the signed payload on demand, poll `od:<hash>`
-   *   MPC relay (Tron)        already broadcast and notified: poll the deposit/withdrawal record
-   *
-   * Callers keep the decision of *whether* settlement is needed (a hub-to-hub action needs none) —
-   * that is feature policy, and hub chain keys never reach here.
-   *
-   * @returns `srcChainTxHash`/`dstChainTxHash`, or a {@link SettlementFailure} carrying the phase
-   *   that failed so the caller can map it onto its own error taxonomy.
+   * @returns both tx hashes, or a {@link SettlementFailure} naming the phase that failed.
    */
-  /**
-   * The settlement service for a chain that rides the MPC relay, or `undefined` when the chain rides
-   * the intent relay. `MpcRelayChainMap` decides *whether*; this switch only says *which* — so
-   * adding XRP or Aptos is one case here plus a spoke service implementing {@link MpcRelaySettlement}.
-   */
+  /** The MPC-relay settlement service for a chain, or `undefined` when it rides the intent relay. */
   private getMpcRelayService(chainKey: SpokeChainKey): MpcRelaySettlement | undefined {
     if (!isMpcRelayChainKeyType(chainKey)) return undefined;
 
@@ -1226,8 +1212,7 @@ export class SpokeService {
       case 'XRP':
         return this.xrp;
       default:
-        // Listed as an MPC-relay chain with no service to settle it. Failing loudly beats falling
-        // through to the intent relay, which would submit a packet no relay is waiting for.
+        // Falling through to the intent relay would submit a packet nothing is waiting for.
         throw new Error(`[SpokeService.settle] no MPC relay settlement service for chain ${chainKey}`);
     }
   }
@@ -1238,8 +1223,7 @@ export class SpokeService {
     try {
       const mpcRelay = this.getMpcRelayService(chainKey);
       if (mpcRelay) {
-        // The relay reports the far leg only once it lands; fall back to the source id so a caller
-        // always has a handle to track, matching the intent-relay flows.
+        // The relay reports the far leg only once it lands; fall back to the source id until then.
         if (direction === 'inbound') {
           const settled = await mpcRelay.waitForDeposit(tx, timeout);
           if (!settled.ok) return { ok: false, error: { phase: 'relay', cause: settled.error } };
@@ -1260,8 +1244,7 @@ export class SpokeService {
       const verify = await this.verifyTxHash({ txHash: tx, chainKey });
       if (!verify.ok) return { ok: false, error: { phase: 'verification', cause: verify.error } };
 
-      // Bitcoin borrow/withdraw are on-demand: the "tx" is a signed payload JSON that the relay
-      // submits under the literal "withdraw" tx_hash and tracks under a derived `od:<hash>` poll id.
+      // Bitcoin borrow/withdraw are on-demand: a signed payload, tracked under a derived `od:<hash>`.
       const identity =
         direction === 'outbound' && isBitcoinChainKeyType(chainKey)
           ? this.bitcoin.getOnDemandRelayIdentity(tx)
@@ -1275,8 +1258,7 @@ export class SpokeService {
       });
       if (!packet.ok) return { ok: false, error: { phase: 'relay', cause: packet.error } };
 
-      // On-demand relays expose the derived poll id as the source identifier — what the relay and
-      // SodaxScan track — not the opaque signed payload; other chains keep the spoke tx.
+      // On-demand relays track the derived poll id, not the opaque payload; others keep the spoke tx.
       return {
         ok: true,
         value: { srcChainTxHash: identity.pollTxHash ?? tx, dstChainTxHash: packet.value.dst_tx_hash },

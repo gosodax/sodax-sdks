@@ -50,7 +50,7 @@ import {
 import { IntentsAbi } from '../shared/abis/intents.abi.js';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import { IntentDataType, type CreateIntentParams, type Intent } from '../shared/types/intent-types.js';
-import { calculatePercentageFeeAmount } from '../shared/utils/shared-utils.js';
+import { calculatePercentageFeeAmount, encodeAddress, encodeRecipient } from '../shared/utils/shared-utils.js';
 import { EvmSolverService } from './EvmSolverService.js';
 import { HookService } from './HookService.js';
 import { IntentDataService } from './IntentDataService.js';
@@ -213,6 +213,25 @@ describe('EvmSolverService.constructCreateIntentData', () => {
 
     expect(intent.srcAddress).toBe(SRC_USER);
     expect(intent.dstAddress).toBe(DST_USER);
+  });
+
+  it('encodes an MPC-relay (Tron) dstAddress as the 32-byte recipient word, not the 20-byte identity', () => {
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(hubOutputXToken);
+    const tronAddress = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
+
+    const [, intent] = EvmSolverService.constructCreateIntentData(
+      { ...baseParams(), dstChainKey: ChainKeys.TRON_MAINNET, dstAddress: tronAddress },
+      HUB_WALLET,
+      mockConfig,
+      undefined,
+    );
+
+    const identity = encodeAddress(ChainKeys.TRON_MAINNET, tronAddress);
+    expect(intent.dstAddress).toBe(encodeRecipient(ChainKeys.TRON_MAINNET, tronAddress));
+    expect(intent.dstAddress).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
+    expect(intent.srcAddress).toBe(SRC_USER);
   });
 
   it('treats the input token as already-on-hub when srcChainKey is the hub chain (skips lookup)', () => {

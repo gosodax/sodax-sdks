@@ -1,8 +1,10 @@
 import { XService } from '@/core/XService.js';
 import type { XToken } from '@sodax/types';
 
-const DEFAULT_RPC = 'https://api.trongrid.io';
-const NATIVE_TRX = '0x0000000000000000000000000000000000000000';
+import { TRON_DEFAULT_RPC_URL } from '@/constants.js';
+
+/** Zero-address sentinel the token lists use for native TRX. */
+const TRON_NATIVE_TOKEN_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 /** base58check Tron address → 41-prefixed hex (drops the 4-byte checksum). */
 function tronToHex(addr: string): string {
@@ -22,7 +24,7 @@ export class TronXService extends XService {
 
   private constructor(config?: { rpcUrl?: string }) {
     super('TRON');
-    this.rpcUrl = config?.rpcUrl ?? DEFAULT_RPC;
+    this.rpcUrl = config?.rpcUrl ?? TRON_DEFAULT_RPC_URL;
   }
 
   public static getInstance(config?: { rpcUrl?: string }): TronXService {
@@ -42,15 +44,12 @@ export class TronXService extends XService {
     });
   }
 
-  /**
-   * @warning Network / fetch failures are silently swallowed — `0n` is returned on any error.
-   * Callers cannot distinguish "zero balance" from "fetch failed".
-   */
+  /** @warning Any fetch failure returns `0n`, indistinguishable from a zero balance. */
   override async getBalance(address: string | undefined, xToken: XToken): Promise<bigint> {
     if (!address) return 0n;
     try {
       // Native TRX
-      if (xToken.symbol === 'TRX' || xToken.address.toLowerCase() === NATIVE_TRX) {
+      if (xToken.symbol === 'TRX' || xToken.address.toLowerCase() === TRON_NATIVE_TOKEN_ADDRESS) {
         const res = await this.post('/wallet/getaccount', { address, visible: true });
         const data = (await res.json()) as { balance?: number };
         return BigInt(data.balance ?? 0);

@@ -190,8 +190,7 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
     case 'INJECTIVE':
       return toHex(Buffer.from(address, 'utf-8'));
     case 'TRON':
-      // Tron's hub-wallet identity (the `bytes user` for WalletFactory.getDeployedAddress) is the
-      // 20-byte address hash — the base58 payload with the 0x41 version byte dropped.
+      // Tron's hub-wallet identity is the 20-byte address hash: base58 payload without the 0x41 byte.
       return tronIdentityBytes(address);
     case 'XRP':
       // XRPL's identity is the 20-byte AccountID — ripemd160(sha256(pubkey)) — which a classic

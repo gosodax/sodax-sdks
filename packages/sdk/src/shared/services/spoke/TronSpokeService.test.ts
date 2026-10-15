@@ -213,7 +213,7 @@ describe('TronSpokeService.deposit — rotated reserve', () => {
   // The relay's client contract: `reserveAddress` is not a constant, and a client must pay the
   // address from the CURRENT response. Refusing a rotation would strand deposits, so this warns.
   it('pays the reserve the relay returned even when the chain config names another, and warns', async () => {
-    const rotated = 'TW7ArGnLzGFvXeYbFmjzGVQwFwCJBiLLLL';
+    const rotated = 'TYBNgWfhGuNzdLtjKtxXTfskAhTbMcqbaG';
     stubTronGrid();
     vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue({
       ok: true,
@@ -252,6 +252,32 @@ describe('TronSpokeService.deposit — hub wallet assertion', () => {
 
     await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(/relay derives hub wallet/);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('TronSpokeService.deposit — broadcast failure', () => {
+  it('keeps the signed txID in the error when the node rejects the broadcast', async () => {
+    stubTronGrid({ '/wallet/broadcasthex': { result: false, message: 'DUP_TRANSACTION_ERROR' } });
+
+    await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(
+      /broadcast of [0-9a-f]{64} failed: DUP_TRANSACTION_ERROR/,
+    );
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
+  it('keeps the signed txID in the error when the broadcast call itself fails', async () => {
+    stubTronGrid();
+    const fetchMock = vi.mocked(fetch);
+    const answer = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation(async (url, init) => {
+      if (new URL(String(url)).pathname === '/wallet/broadcasthex') throw new Error('aborted');
+      return answer ? answer(url, init) : Promise.reject(new Error('no stub'));
+    });
+
+    const failure = await tron.deposit(depositParams(NATIVE_TRX)).catch((error: Error) => error);
+
+    expect((failure as Error).message).toMatch(/broadcast of [0-9a-f]{64} failed or timed out/);
+    expect(((failure as Error).cause as Error).message).toMatch(/aborted/);
   });
 });
 

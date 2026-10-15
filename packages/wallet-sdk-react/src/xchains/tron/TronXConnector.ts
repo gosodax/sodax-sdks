@@ -8,19 +8,23 @@ const TRONLINK_ICON =
 const TRONLINK_INSTALL_URL = 'https://www.tronlink.org/';
 
 /** TIP-6963 discovery handshake, the Tron analogue of EIP-6963. */
-const TIP6963_REQUEST = 'TIP6963:requestProvider';
-const TIP6963_ANNOUNCE = 'TIP6963:announceProvider';
+const TRON_TIP6963_REQUEST = 'TIP6963:requestProvider';
+const TRON_TIP6963_ANNOUNCE = 'TIP6963:announceProvider';
 
 /** How long to let wallets answer the announce broadcast. Extensions reply near-immediately. */
-const DISCOVERY_WINDOW_MS = 300;
+const TRON_DISCOVERY_WINDOW_MS = 300;
 
 /** EIP-1193 code for a user-rejected request. */
-const USER_REJECTED = 4001;
+const TRON_USER_REJECTED_CODE = 4001;
 
-/**
- * A Tron wallet provider. Authorization goes through `eth_requestAccounts`; the legacy
- * `tron_requestAccounts` is deprecated and answers a code instead of prompting.
- */
+/** Connector identity, as the wallet modal and stored connections refer to it. */
+const TRON_CONNECTOR_NAME = 'TronLink';
+const TRON_CONNECTOR_ID = 'TronLink';
+
+/** How long to wait for the wallet to publish its base58 address after authorizing. */
+const TRON_ADDRESS_WAIT_MS = 2000;
+
+/** A Tron wallet provider. Authorize with `eth_requestAccounts`; the legacy call does not prompt. */
 interface TronProvider {
   request: (args: { method: string; params?: unknown }) => Promise<unknown>;
   tronWeb?: TronWebLike;
@@ -40,17 +44,16 @@ type TronWindow = {
   tronWeb?: TronWebLike;
 };
 
-const tronWindow = (): TronWindow | undefined =>
-  typeof window === 'undefined' ? undefined : (window as unknown as TronWindow);
+function tronWindow(): TronWindow | undefined {
+  return typeof window === 'undefined' ? undefined : (window as unknown as TronWindow);
+}
 
-const isTronLinkDetail = (d: Tip6963ProviderDetail): boolean =>
-  /tronlink/i.test(d.info?.name ?? '') || /tronlink/i.test(d.info?.rdns ?? '');
+function isTronLinkDetail(detail: Tip6963ProviderDetail): boolean {
+  return /tronlink/i.test(detail.info?.name ?? '') || /tronlink/i.test(detail.info?.rdns ?? '');
+}
 
-/**
- * Discover Tron providers via TIP-6963: broadcast a request, collect the announcements. Each wallet
- * identifies itself, so TronLink is picked rather than inferred from the shared globals.
- */
-async function discoverProviders(timeoutMs = DISCOVERY_WINDOW_MS): Promise<Tip6963ProviderDetail[]> {
+/** Discover Tron providers via TIP-6963, so TronLink is identified rather than inferred. */
+async function discoverProviders(timeoutMs = TRON_DISCOVERY_WINDOW_MS): Promise<Tip6963ProviderDetail[]> {
   if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return [];
 
   const found: Tip6963ProviderDetail[] = [];
@@ -59,23 +62,22 @@ async function discoverProviders(timeoutMs = DISCOVERY_WINDOW_MS): Promise<Tip69
     if (detail?.provider && !found.some(d => d.provider === detail.provider)) found.push(detail);
   };
 
-  window.addEventListener(TIP6963_ANNOUNCE, onAnnounce);
-  window.dispatchEvent(new Event(TIP6963_REQUEST));
+  window.addEventListener(TRON_TIP6963_ANNOUNCE, onAnnounce);
+  window.dispatchEvent(new Event(TRON_TIP6963_REQUEST));
   await new Promise(resolve => setTimeout(resolve, timeoutMs));
-  window.removeEventListener(TIP6963_ANNOUNCE, onAnnounce);
+  window.removeEventListener(TRON_TIP6963_ANNOUNCE, onAnnounce);
 
   // TronLink first; another announcing wallet is still usable when it is all that is present.
   return [...found.filter(isTronLinkDetail), ...found.filter(d => !isTronLinkDetail(d))];
 }
 
 /** Tron's canonical account form: base58check, always `T`-prefixed. */
-const isBase58Address = (value: string): boolean => /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value);
+function isBase58Address(value: string): boolean {
+  return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(value);
+}
 
-/**
- * Wait briefly for the wallet to publish its base58 address. `eth_requestAccounts` can resolve a
- * tick before `tronWeb.defaultAddress` is populated, and a single read then misses it.
- */
-async function waitForBase58(provider: TronProvider, timeoutMs = 2000): Promise<string | undefined> {
+/** Wait briefly: `eth_requestAccounts` can resolve before `tronWeb.defaultAddress` is populated. */
+async function waitForBase58(provider: TronProvider, timeoutMs = TRON_ADDRESS_WAIT_MS): Promise<string | undefined> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const address = provider.tronWeb?.defaultAddress?.base58;
@@ -85,10 +87,7 @@ async function waitForBase58(provider: TronProvider, timeoutMs = 2000): Promise<
   }
 }
 
-/**
- * The announced provider, cached from the last discovery run. The provider getters are sync and run
- * after a reload without `connect()`, so without a cache they would fall back to an unconnected global.
- */
+/** Cached announcement: the provider getters are sync, so after a reload they have nothing to await. */
 let announcedProvider: TronProvider | undefined;
 /** The window the cache belongs to — a different one means a different page, so start over. */
 let primedFor: unknown;
@@ -120,16 +119,14 @@ async function resolveProvider(): Promise<TronProvider | undefined> {
 }
 
 /**
- * TronLink connector, built on TIP-6963 discovery. `connect()` authorizes against the announced
- * provider and reads its base58 address. The registry's `createWalletProvider` reads
- * {@link getTronWeb} to build a browser-mode `TronWalletProvider`.
+ * TronLink connector over TIP-6963. The registry reads {@link getTronWeb} to build the wallet provider.
  */
 export class TronXConnector extends XConnector {
   /** Set by `connect()`, so the registry builds from the wallet that actually authorized. */
   private connected?: TronProvider;
 
   constructor() {
-    super('TRON', 'TronLink', 'TronLink');
+    super('TRON', TRON_CONNECTOR_NAME, TRON_CONNECTOR_ID);
     // A reload rebuilds this connector without re-running `connect()`, so warm the cache now.
     primeDiscovery();
   }
@@ -145,7 +142,7 @@ export class TronXConnector extends XConnector {
       accounts = (await provider.request({ method: 'eth_requestAccounts' })) as string[] | undefined;
     } catch (error) {
       const { code, message } = (error ?? {}) as { code?: number; message?: string };
-      if (code === USER_REJECTED) {
+      if (code === TRON_USER_REJECTED_CODE) {
         throw new Error('Tron connection request was rejected in the wallet.');
       }
       throw new Error(`Could not connect a Tron account${message ? `: ${message}` : ''}.`);
