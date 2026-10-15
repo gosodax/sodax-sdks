@@ -262,6 +262,8 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
       ? new BigNumber(quote?.quoted_amount).multipliedBy(new BigNumber(100).minus(new BigNumber(slippage))).div(100)
       : undefined;
   }, [quote, slippage]);
+  // A 0 minimum accepts any fill, and the Stellar trustline check never runs on it.
+  const isZeroMinOutput = minOutputAmount?.integerValue().lte(0) ?? false;
 
   const speedTier = useMemo(
     () =>
@@ -286,6 +288,11 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
 
     if (!minOutputAmount) {
       console.error('minOutputAmount undefined');
+      return;
+    }
+
+    if (isZeroMinOutput) {
+      console.error('minOutputAmount rounds to 0');
       return;
     }
 
@@ -577,6 +584,7 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
 
         <div className="wrap-anywhere">
           {quoteQuery.data?.ok === false && <div className="text-red-500">{quoteQuery.data.error.detail.message}</div>}
+          {isZeroMinOutput && <div className="text-red-500">The minimum output rounds to 0. Lower the slippage.</div>}
         </div>
 
         {availableHookKind && (
@@ -608,6 +616,7 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
           <DialogTrigger asChild>
             <Button
               variant="outline"
+              disabled={isZeroMinOutput && !holdsSentSwap}
               onClick={() => {
                 if (!holdsSentSwap) void createIntentOrderPayload();
               }}
