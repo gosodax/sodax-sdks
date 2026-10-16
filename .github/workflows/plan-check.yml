@@ -1,4 +1,4 @@
-name: Plan Check
+name: Plan check
 
 on:
   # `pull_request_target` so fork PRs can get the sticky comment; nothing from the PR is checked out or run.
@@ -34,6 +34,10 @@ jobs:
           script: |
             const STICKY = '<!-- sodax:plan-check -->';
             const PLAN = '<!-- sodax:plan -->';
+            // The repo is public: a plan counts only from a collaborator or from this repo's own workflows.
+            const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+            const ACTIONS_BOT = 'github-actions';
+            const isTrusted = (c) => TRUSTED.has(c.authorAssociation) || (c.author?.__typename === 'Bot' && c.author.login === ACTIONS_BOT);
             const pr = context.payload.pull_request;
             const { owner, repo } = context.repo;
             const labels = pr.labels.map((l) => l.name);
@@ -41,25 +45,32 @@ jobs:
             const findings = [];
             if (!labels.includes('no-plan') && !labels.includes('no-issue')) {
               const body = (pr.body ?? '').replace(/<!--[\s\S]*?-->/g, '');
-              const refs = [...body.matchAll(/(?:^|[^\w])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)/gi)];
-              const issues = [...new Set(refs.map((m) => Number(m[1])))];
+              // Same grammar as issue-link.yml; a reference into another repository is out of scope here.
+              const refs = [...body.matchAll(/(?:^|[^\w])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:([\w.-]+\/[\w.-]+))?#(\d+)/gi)];
+              const issues = [...new Set(refs.filter((m) => !m[1] || m[1].toLowerCase() === `${owner}/${repo}`.toLowerCase()).map((m) => Number(m[2])))];
               if (issues.length === 0) findings.push('No linked issue in this repository (`Closes #N`).');
 
               for (const number of issues) {
-                const { repository } = await github.graphql(
-                  `query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){issueOrPullRequest(number:$number){
-                    ... on Issue { body createdAt lastEditedAt labels(first:50){nodes{name}} comments(last:100){nodes{body}} }}}}`,
-                  { owner, repo, number },
-                );
-                const issue = repository.issueOrPullRequest;
-                if (!issue || issue.body === undefined) continue;
                 const ref = `#${number}`;
+                let issue;
+                try {
+                  const { repository } = await github.graphql(
+                    `query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){issueOrPullRequest(number:$number){
+                      ... on Issue { body createdAt lastEditedAt labels(first:50){nodes{name}} comments(last:100){nodes{body authorAssociation author{login __typename}}} }}}}`,
+                    { owner, repo, number },
+                  );
+                  issue = repository.issueOrPullRequest;
+                } catch (error) {
+                  findings.push(`${ref}: could not load the issue; does it exist in this repository?`);
+                  continue;
+                }
+                if (!issue || issue.body === undefined) continue;
                 if (!/^##\s+Acceptance criteria/im.test(issue.body)) {
                   findings.push(`${ref}: the issue body has no spec (no \`## Acceptance criteria\` section).`);
                 }
-                const plan = issue.comments.nodes.find((c) => c.body.includes(PLAN));
+                const plan = issue.comments.nodes.find((c) => isTrusted(c) && c.body.includes(PLAN));
                 if (!plan) {
-                  findings.push(`${ref}: no plan comment (\`${PLAN}\`).`);
+                  findings.push(`${ref}: no plan comment (\`${PLAN}\`) from a collaborator.`);
                 } else {
                   const revision = plan.body.match(/\*\*Spec revision:\*\*\s*(\S+)/)?.[1];
                   const specEditedAt = Date.parse(issue.lastEditedAt ?? issue.createdAt);
@@ -76,7 +87,7 @@ jobs:
             }
 
             const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number });
-            const sticky = comments.find((c) => c.body?.includes(STICKY));
+            const sticky = comments.find((c) => c.user?.login === `${ACTIONS_BOT}[bot]` && c.body?.includes(STICKY));
             if (findings.length === 0) {
               if (sticky) await github.rest.issues.deleteComment({ owner, repo, comment_id: sticky.id });
               core.info('Spec and plan in order.');
