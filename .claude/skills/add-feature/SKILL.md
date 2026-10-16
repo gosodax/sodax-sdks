@@ -6,7 +6,7 @@ description: 'Use when adding a NEW feature/service to the @sodax/sdk core — a
 # Adding a Feature to the SODAX SDK
 
 > A feature's domain logic is **bespoke** — design it by starting from the nearest existing feature
-> service (`swap`, `moneyMarket`, `bridge`, `staking`, `dex`, `migration`, `partner`, `recovery`).
+> service (`swap`, `moneyMarket`, `bridge`, `staking`, `dex`, `leverageYield`, `migration`, `partner`, `recovery`).
 > This skill covers the **cross-cutting wiring** that is easy to miss, not the logic. Verify each
 > slot against current `src/`.
 
@@ -19,6 +19,7 @@ Most "new feature" work is closest to one of the existing services in `packages/
 - **`moneyMarket`** — supply / borrow / repay / withdraw + collateral / liquidation; reserve + user-data services; `math-utils` / formatters; MM token + reserve wiring.
 - **`staking`** — SODA stake / unstake / claim; chain support matrix.
 - **`dex`** — concentrated-liquidity pool / liquidity / position / reward flows.
+- **`leverageYield`** — hub-side ERC-4626 vault loop (supply → borrow → swap → re-supply); reuses the swap domain via an action-shaped vault-swap payload, derives shares to the user's hub wallet, registry in `@sodax/types`. The closest template for a new **vault / hub-only** feature.
 - **`migration` · `partner` · `recovery`** — smaller, specialized templates.
 
 > If the task is really "extend an existing feature to a new chain", "add a money-market asset", "add a bridge route", or "add a solver swap token" — that's a feature **update**, not a new service: update the owning module above, don't create a new `<Feature>Service`.
@@ -45,7 +46,8 @@ If consumers call it from React, add a `packages/dapp-kit/src/hooks/<feature>/` 
 
 ## Tests & docs
 - `<Feature>Service.test.ts` for core flows, invariants, and edge cases; add an `e2e-tests/` entry if the flow is cross-chain.
-- Update `packages/sdk/docs/` and the consumer skills in `packages/skills` **only when public SDK behavior, imports, signatures, or examples changed** — then run `pnpm check:ai`.
+- **Docs Drift CI** fails the PR unless a *related* publishable site doc changed (JSDoc is not enough). Update the matching file in `packages/sdk/docs/` that is listed in `scripts/docs-pages-map.json` (e.g. `SWAPS.md`). A brand-new page must be added to that map's `mirrored` list — every mapped src is published — and given a nav entry in `docs/docs.json`, or it is live but absent from the sidebar and search; a page not ready to go live goes on the map's `unpublished` list instead. An unrelated mapped file (for example `packages/skills/README.md`) does not satisfy an SDK source change.
+- **`packages/skills` is separate** — it teaches *partner* agents how to call the public API, not how we add the feature. After the feature is wired, update the consumer skills so integrators' agents can use it, then run `pnpm check:ai`. That does not satisfy Docs Drift.
 
 ## Verify
 - `cd packages/sdk && pnpm test && pnpm checkTs` (and `pnpm test:e2e` if you added a cross-chain e2e).

@@ -1,6 +1,6 @@
 # Swaps API — `SwapsApiService`
 
-Typed HTTP client for the backend **Swaps API v2** (`/swaps/*`). Reachable as `sodax.api.swaps`
+Typed HTTP client for the backend **Swaps API** (`/swaps/*`). Reachable as `sodax.api.swaps`
 (`sodax.api` is an alias for `sodax.backendApi`; `.swaps` is the `SwapsApiService` instance). One method
 per endpoint (21 total). Every method returns `Promise<Result<T>>` — it **never throws** — and every
 response is validated at runtime against a valibot schema, so a backend contract drift surfaces as
@@ -54,7 +54,7 @@ sodax.api.swaps.submitTx(body: SubmitTxRequestV2, config?): Promise<Result<Submi
 sodax.api.swaps.getSubmitTxStatus(query: SubmitTxStatusQueryV2, config?): Promise<Result<SubmitTxStatusResponseV2>>;
 ```
 
-The optional trailing `config?: RequestOverrideConfig` (`{ baseURL?, timeout?, headers? }`) on every method
+The optional trailing `config?: RequestOverrideConfig` (`{ baseURL?, timeout?, headers?, apiKey? }`) on every method
 applies per-call overrides that take precedence over the service config (see "Per-call overrides" below).
 
 ## `approve` can return two transactions
@@ -95,7 +95,37 @@ Optional on the type, but no default: the backend does not fill it in, and
 `new Sodax({ fee })` / `new Sodax({ swaps: { partnerFee } })` only reach the
 `sodax.swaps` orchestrator — not this wire path. Send the same value on quote and
 create-intent. `checkAllowance` / `approve` inherit the field but ignore it.
-Bridge API v2 is different: omitted `partnerFee` falls back to `bridgePartnerFee`.
+The Bridge API is different: omitted `partnerFee` falls back to `bridgePartnerFee`.
+
+## API key
+
+The backend guards `POST /swaps/*` routes with an `x-api-key` header check (keys come from the partner
+portal). Unlike `partnerFee`, the config-level key DOES reach this wire path: there is ONE
+instance-wide key, `new Sodax({ apiKey })`, sent on every backend request — this client,
+`sodax.backendApi`, `sodax.api.bridge`, the solver API, and the backend submit-tx legs of `swap()` /
+`bridge()`. There is no per-feature or per-slice swaps key. Override per call via the trailing
+`RequestOverrideConfig`:
+
+```ts
+// Server-side only — a key in a browser bundle is public
+await sodax.api.swaps.createIntent(body, { apiKey: 'per-request-key' });
+```
+
+The key belongs on a server. Never read it from `NEXT_PUBLIC_*` / `VITE_*` / `REACT_APP_*` — those are
+inlined into the client bundle. When the SDK runs in a browser, point `api.baseURL` and
+`solver.solverApiEndpoint` at the app's own backend proxy and attach the key there: https://docs.sodax.com/developers/how-to/api-key-good-practices.
+
+Precedence, highest first: per-call `headers['x-api-key']` (any casing) → per-call `apiKey` → a
+configured explicit `x-api-key` header (`api.headers` / `setHeaders`) → the configured `apiKey`. That
+full order is what the data, swaps, and bridge transports resolve; sponsoring's tier 3 is its own
+slice/runtime headers (shared `api.headers` / `backendApi.setHeaders` never reach it — rotate via
+`sodax.api.sponsoring.setHeaders`), and the solver API has no per-call override surface and no
+configured-header slot, so it carries the configured `apiKey` alone. An empty `apiKey` counts as unset
+and falls back. Read the configured value back on `sodax.config.apiKey`.
+Auth failures surface as `EXTERNAL_API_ERROR` with `context.status` `401` (missing/invalid key) or `403`
+(suspended org / missing scope) — terminal until the consumer fixes the key. The transient verification
+`503` is retried automatically by the wire client (all calls, mutations included — the guard rejects
+before the handler runs).
 
 ## Common call shapes
 
@@ -131,6 +161,26 @@ if (!created.ok) return;
 const { tx, intent, relayData } = created.value;
 ```
 
+**Delivery hooks are deployment-dependent here.** `hook?: HookRequestV2` (`{ kind: HookKind }`) lives on
+`SwapExtrasV2`, so it's structurally present on both `CreateIntentParamsV2` (`checkAllowance` /
+`approve` / `createIntent` / `createLimitOrderIntent`) and `QuoteRequestV2` (`getQuote`), but only
+`createIntent` / `createLimitOrderIntent` / `getQuote` with `includeTxData: true` actually consume it
+— those are the only calls that build a delivery target. `checkAllowance` / `approve` inherit the
+field but ignore it, same as `partnerFee` above: allowance-checking and approval are source-side only.
+Unlike the SDK path, the hook is resolved **server-side**, so it only works when the backend forwards
+the field *and* its pinned SDK has that kind registered for the request's destination chain —
+`dstChainKey` everywhere except `getQuote`, which names it `tokenDstChainKey`; an unregistered kind
+fails the request rather than falling back to a plain transfer. `dstAddress` still means the recipient the hook credits — the
+backend substitutes the hook's own address on-chain. Whether the `getQuote` path forwards `hook` at all
+is a backend question this SDK can't verify — confirm with the deployment before relying on it there.
+The `deliveryData` payload encoding and the `supportedTokens` metadata-vs-enforcement distinction are
+the full canonical contract on `SwapExtrasV2.hook`'s own doc comment in `@sodax/types`
+(`backendApiV2.ts`) — read that before implementing server-side hook resolution.
+
+When you need hook support independent of the deployment, build with `sodax.swaps` instead: it resolves
+the hook client-side into `dstAddress`/`data`, and under the default `useBackendSubmitTx` still hands the
+broadcast tx to this API's `submitTx`. See [`swap.md`](swap.md) § "Delivery hooks".
+
 ### Submit tx + poll status
 
 ```ts
@@ -160,7 +210,7 @@ if (status.ok && status.value.data.status === 'solved') { /* settled */ }
 ## Per-call overrides
 
 Every method accepts a trailing `RequestOverrideConfig` to redirect a single call to a different host or
-attach request-specific headers (auth, tracing), overriding the service config:
+attach request-specific headers (auth, tracing) or a per-call `apiKey`, overriding the service config:
 
 ```ts
 // `baseURL` is the gateway ROOT — the SDK appends `/swaps/*` itself. Never include a service segment.

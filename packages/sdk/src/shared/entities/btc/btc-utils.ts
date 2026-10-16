@@ -1,4 +1,5 @@
 import type { BtcAddressType } from '@sodax/types';
+import { address as bitcoinjsAddress } from 'bitcoinjs-lib';
 
 export type WalletMode = 'USER' | 'TRADING';
 
@@ -70,8 +71,11 @@ export function estimateBitcoinTxSize(
 }
 
 export function encodeBtcPayloadToBytes(payload: BtcPayload): string {
+  // Bech32 addresses (P2WPKH/P2TR) are case-insensitive with a lowercase canonical form;
+  // Base58Check (P2PKH/P2SH) is case-sensitive, so lowercasing corrupts it.
+  const isBase58Check = payload.address_type === 'P2PKH' || payload.address_type === 'P2SH';
   return JSON.stringify({
-    src_address: payload.src_address.toLowerCase(),
+    src_address: isBase58Check ? payload.src_address : payload.src_address.toLowerCase(),
     data: payload.data.toLowerCase(),
     src_chain_id: payload.src_chain_id,
     dst_chain_id: payload.dst_chain_id,
@@ -79,6 +83,43 @@ export function encodeBtcPayloadToBytes(payload: BtcPayload): string {
     timestamp: payload.timestamp,
     address_type: payload.address_type,
   });
+}
+
+/**
+ * Checksum-validate a Bitcoin destination address (every spendable type). Testnet forms are
+ * accepted deliberately: the network is config-driven under the single BITCOIN_MAINNET chain key
+ * (BitcoinSpokeService.getBtcNetwork), and this pure utility cannot see that config.
+ * Decodes via fromBech32/fromBase58Check — payments.p2tr would require initEccLib, which a pure
+ * utility must not depend on. Prefix/version checks keep other bech32 chains (e.g. inj1…) out.
+ */
+export function isValidBitcoinAddress(address: string): boolean {
+  try {
+    const { prefix, version, data } = bitcoinjsAddress.fromBech32(address);
+    if (prefix !== 'bc' && prefix !== 'tb') return false;
+    return (version === 0 && (data.length === 20 || data.length === 32)) || (version === 1 && data.length === 32);
+  } catch {
+    // not bech32 — fall through to Base58Check
+  }
+  try {
+    const { version } = bitcoinjsAddress.fromBase58Check(address);
+    // 0/5 mainnet P2PKH/P2SH, 111/196 their testnet counterparts
+    return version === 0 || version === 5 || version === 111 || version === 196;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Canonical byte form of a validated Bitcoin address. bech32 is case-insensitive (BIP-173), so the
+ * two cases of one address would otherwise encode to different bytes; Base58Check is case-sensitive.
+ */
+export function canonicalizeBitcoinAddress(address: string): string {
+  try {
+    bitcoinjsAddress.fromBech32(address);
+    return address.toLowerCase();
+  } catch {
+    return address;
+  }
 }
 
 /**

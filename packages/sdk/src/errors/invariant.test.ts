@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createInvariant, sodaxInvariant } from './invariant.js';
+import { createInvariant, sodaxInvariant, type FeatureInvariant } from './invariant.js';
 import { isSodaxError, type SodaxError } from './SodaxError.js';
 
 describe('sodaxInvariant', () => {
@@ -36,7 +36,8 @@ describe('sodaxInvariant', () => {
 
 describe('createInvariant', () => {
   it('returns a feature-bound invariant whose throws carry the bound feature', () => {
-    const swapInvariant = createInvariant('swap');
+    // Explicit annotation — TS requires it to apply an `asserts` signature from a factory result.
+    const swapInvariant: FeatureInvariant = createInvariant('swap');
     try {
       swapInvariant(false, 'oops', { field: 'token' });
       throw new Error('expected throw');

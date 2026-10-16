@@ -18,6 +18,7 @@
  */
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { sodaxConfig, type Result, type SodaxConfig } from '@sodax/types';
+import { invariant } from '../utils/tiny-invariant.js';
 
 // --- hoisted shared state -------------------------------------------------
 //
@@ -186,11 +187,16 @@ describe('Sodax constructor — instanceConfig', () => {
   it('applies a nested override while preserving sibling defaults under the same parent', () => {
     const customTimeout = 99_999;
     const sodax = new Sodax({ api: { timeout: customTimeout } });
-    expect(sodax.instanceConfig.api.timeout).toBe(customTimeout);
+    const api = sodax.instanceConfig.api;
+    invariant(
+      !('baseApiConfig' in api) && !('swapsApiConfig' in api) && !('sponsoringApiConfig' in api),
+      'default api config is the flat variant',
+    );
+    expect(api.timeout).toBe(customTimeout);
     // baseURL was NOT touched by the override — must equal the default. Catches a deepMerge
     // mutation that would replace the entire `api` object instead of merging key-by-key.
-    expect(sodax.instanceConfig.api.baseURL).toBe(sodaxConfig.api.baseURL);
-    expect(sodax.instanceConfig.api.headers).toEqual(sodaxConfig.api.headers);
+    expect(api.baseURL).toBe(sodaxConfig.api.baseURL);
+    expect(api.headers).toEqual(sodaxConfig.api.headers);
   });
 
   it('leaves untouched top-level fields untouched (override one branch, others survive)', () => {
@@ -203,11 +209,13 @@ describe('Sodax constructor — instanceConfig', () => {
   });
 
   it('does not mutate the imported sodaxConfig default when an override is applied', () => {
-    const before = sodaxConfig.bridge.partnerFee;
+    // The packaged default declares `bridge` without partnerFee; widen to read the optional slot.
+    const bridgeDefaults = sodaxConfig.bridge as { partnerFee?: unknown };
+    const before = bridgeDefaults.partnerFee;
     new Sodax({ bridge: { partnerFee: { address: '0x3333333333333333333333333333333333333333', percentage: 25 } } });
     // Critical immutability invariant — the singleton default must remain pristine across
     // instances. Catches a deepMerge mutation that writes into `target` instead of cloning.
-    expect(sodaxConfig.bridge.partnerFee).toBe(before);
+    expect(bridgeDefaults.partnerFee).toBe(before);
   });
 });
 
@@ -238,7 +246,7 @@ describe('Sodax constructor — sub-services are instantiated as the correct cla
 
   it.each(FIELDS)('sodax.%s is a %s instance', (field, expectedType) => {
     const sodax = new Sodax();
-    const instance = (sodax as unknown as Record<string, unknown>)[field];
+    const instance = sodax[field];
     expect(asFake(instance).__type).toBe(expectedType);
   });
 });
@@ -309,7 +317,7 @@ describe('Sodax constructor — dependency wiring', () => {
     // Defensive: also pin that the field-name → sink-name mapping is correct so a mutation
     // that swaps `this.swaps = new SwapService(...)` and `this.moneyMarket = new MoneyMarket(...)`
     // gets caught.
-    expect((sodax as unknown as Record<string, FakeInstance>)[fieldName].__args).toBe(args);
+    expect((sodax as unknown as Record<string, FakeInstance>)[fieldName]?.__args).toBe(args);
   });
 
   it('shares ONE config instance across every service that needs it', () => {
@@ -379,7 +387,12 @@ describe('Sodax constructor — config override propagates downstream', () => {
     const sodax = new Sodax({ api: { timeout: 75 } });
     const configArg = helpers.captured.config[0] as { config: SodaxConfig };
     expect(configArg.config).toBe(sodax.instanceConfig);
-    expect(configArg.config.api.timeout).toBe(75);
+    const storedApi = configArg.config.api;
+    invariant(
+      !('baseApiConfig' in storedApi) && !('swapsApiConfig' in storedApi) && !('sponsoringApiConfig' in storedApi),
+      'default api config is the flat variant',
+    );
+    expect(storedApi.timeout).toBe(75);
   });
 
   it('forwards the global fee option to ConfigService as a separate held option', () => {
@@ -391,14 +404,14 @@ describe('Sodax constructor — config override propagates downstream', () => {
     expect(configArg.fee).toEqual(fee);
   });
 
-  it('the RAW override (not the merged result) is forwarded to ConfigService as userConfig', () => {
+  it('the unmerged override (apiKey stripped, not the merged result) is forwarded to ConfigService as userConfig', () => {
     // ConfigService needs the unmerged partial so initialize() can re-layer it on top of the
-    // dynamic config. Passing the merged instanceConfig instead would defeat that — assert identity
-    // with the exact object handed to the constructor.
-    const override = { api: { timeout: 5 } };
+    // dynamic config. The credential is stripped from that copy too, so a future re-merge
+    // cannot land it back on the swapped config.
+    const override = { api: { timeout: 5 }, apiKey: 'secret-key' };
     new Sodax(override);
     const configArg = helpers.captured.config[0] as { config: SodaxConfig; userConfig: unknown };
-    expect(configArg.userConfig).toBe(override);
+    expect(configArg.userConfig).toEqual({ api: { timeout: 5 }, apiKey: undefined });
     // And it is distinct from the merged config the service also receives.
     expect(configArg.userConfig).not.toBe(configArg.config);
   });

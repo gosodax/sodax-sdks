@@ -1,0 +1,163 @@
+---
+title: "Price charts without a data vendor: the SODAX Oracle candles API"
+sidebarTitle: "Oracle candles API"
+icon: chart-line
+description: "Free, unauthenticated USD OHLC candles for every asset SODAX supports. One GET request gives your app candlestick charts, with no API key and no data contract."
+---
+
+You can put a candlestick chart for any SODAX-supported asset into your product with one HTTP request. The Oracle candles API returns USD OHLC candles at four intervals, needs no API key and costs nothing to call. No data vendor, no signup, no SDK required.
+
+The prices come from SODAX itself: the same USD prices SODAX uses across the protocol. A chart built on this API shows your users the market SODAX actually trades on, so what they see on the chart lines up with what they get when they swap.
+
+Two endpoints cover the whole surface:
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET https://api.sodax.com/v1/be/oracle/markets` | The quote currency, the available intervals and every symbol with candle data |
+| `GET https://api.sodax.com/v1/be/oracle/candles` | Oldest-first USD candles for one symbol, one interval and one time range |
+
+## Built for Bound Exchange
+
+The candles endpoint started with a partner request. [Bound Exchange](https://bound.exchange) wanted candle charts in its trading interface and asked for a chart data source its UI could call directly. SODAX shipped it as a public endpoint rather than a private integration, so every builder on SODAX gets the same chart data Bound does.
+
+## Discover what is available
+
+Start with the markets endpoint. It tells you which symbols and intervals exist, so your symbol picker and interval switcher never need a hardcoded list.
+
+```bash
+curl -s 'https://api.sodax.com/v1/be/oracle/markets'
+```
+
+```json
+{
+  "quote": "USD",
+  "intervals": [
+    { "key": "1m", "label": "1 minute", "seconds": 60 },
+    { "key": "5m", "label": "5 minutes", "seconds": 300 },
+    { "key": "1h", "label": "1 hour", "seconds": 3600 },
+    { "key": "1d", "label": "1 day", "seconds": 86400 }
+  ],
+  "symbols": ["AAPL", "AAVE", "ADA", "AERO", "AFSUI", "...", "weETH", "wstETH"]
+}
+```
+
+On 1 October 2026 the list held 137 symbols. It spans majors such as BTC, ETH, SOL and XRP, stablecoins such as USDC, USDT and bnUSD, liquid staking tokens such as JitoSOL and wstETH, gold tokens such as PAXG and XAUt, tokenized equities such as NVDA and TSLAx, and SODAX assets including SODA. The list changes as coverage grows, so read it at startup instead of copying it.
+
+## Fetch candles
+
+The candles endpoint takes four required query parameters:
+
+| Param | Description |
+| --- | --- |
+| `symbol` | A symbol from `/oracle/markets`, exact case (for example `ETH`) |
+| `interval` | `1m`, `5m`, `1h` or `1d` |
+| `from` | Range start in UNIX seconds, inclusive |
+| `to` | Range end in UNIX seconds, exclusive |
+
+Here is a request for the last few hours of hourly ETH candles:
+
+```bash
+curl -s 'https://api.sodax.com/v1/be/oracle/candles?symbol=ETH&interval=1h&from=1790823600&to=1790841600'
+```
+
+Trimmed to the first and last candle, the live response looked like this:
+
+```json
+{
+  "symbol": "ETH",
+  "quote": "USD",
+  "interval": "1h",
+  "candles": [
+    {
+      "timestamp": 1790823600,
+      "open": "2685.53014444",
+      "high": "2694.75304015",
+      "low": "2683.23245997",
+      "close": "2694.00783691"
+    },
+    {
+      "timestamp": 1790838000,
+      "open": "2714.06614935",
+      "high": "2719.35186435",
+      "low": "2682.50886325",
+      "close": "2682.50886325",
+      "final": false
+    }
+  ]
+}
+```
+
+A few conventions keep chart code simple:
+
+- **`timestamp` is the bucket start** in UNIX seconds. A `1h` candle at `T` covers `T` up to `T + 3600`.
+- **Symbols are network-agnostic.** `BTC` is one price for Bitcoin, whichever network or wrapped form your user holds it in. Ask for the asset, not the token address.
+- **Prices are decimal strings**, so no precision is lost in transit. Convert at the edge of your app.
+- **`final: false` marks the candle still forming.** Closed candles omit the field. Re-poll while the last candle is open to keep it current.
+- **Candles are price only.** There is no volume field.
+- **Up to 5000 candles per request.** Wider ranges return `400`, so page through long histories.
+- **Empty ranges return `200` with `"candles": []`.** An unknown symbol does the same, which is another reason to validate against `/oracle/markets` first.
+- **Responses are cached for about 10 seconds**, which makes browser polling at chart refresh rates comfortable.
+
+## Call it from TypeScript
+
+`@sodax/sdk` wraps both endpoints on `sodax.backendApi`, returning the same payloads as a schema-validated `Result`:
+
+```typescript
+import { Sodax } from '@sodax/sdk';
+
+const sodax = new Sodax();
+const to = Math.floor(Date.now() / 1000);
+
+const result = await sodax.backendApi.getOracleCandles({
+  symbol: 'ETH',
+  interval: '1h',
+  from: to-24*3600,
+  to,
+});
+
+if (result.ok) {
+  console.log(result.value.candles.length);
+}
+```
+
+<Note>
+  `getOracleMarkets` and `getOracleCandles` ship in the release candidate line of `@sodax/sdk` (`2.2.0-rc.8` on the `rc` tag at the time of writing). The current stable `latest` release, `2.1.0`, does not include them. Install with `npm install @sodax/sdk@rc` to use the methods today, or call the REST endpoints with `fetch`, which work the same from any language.
+</Note>
+
+## Draw the chart
+
+The response maps almost directly onto the `{ time, open, high, low, close }` shape most candlestick libraries accept. With [TradingView Lightweight Charts](https://github.com/tradingview/lightweight-charts) v5 the whole integration fits in a few lines:
+
+```javascript
+import { createChart, CandlestickSeries } from 'lightweight-charts';
+
+const to = Math.floor(Date.now() / 1000);
+const from = to-24*3600;
+
+const res = await fetch(
+  `https://api.sodax.com/v1/be/oracle/candles?symbol=ETH&interval=1h&from=${from}&to=${to}`
+);
+const { candles } = await res.json();
+
+const chart = createChart(document.getElementById('chart'));
+const series = chart.addSeries(CandlestickSeries);
+
+series.setData(
+  candles.map((c) => ({
+    time: c.timestamp,
+    open: Number(c.open),
+    high: Number(c.high),
+    low: Number(c.low),
+    close: Number(c.close),
+  }))
+);
+```
+
+From there, a symbol dropdown fed by `/oracle/markets` and an interval toggle fed by its `intervals` array give you a full chart panel. Poll the latest bucket on a timer and call `series.update()` with the newest candle to keep it moving.
+
+## Start building
+
+- The [Oracle API reference](/developers/http-api/oracle) covers every field and convention.
+- The [Backend API module docs](/developers/packages/foundation/sdk/tooling-modules/backend_api) show the SDK methods and types.
+- The interactive [API explorer](https://api.sodax.com/v1/be/docs) lets you try both endpoints in the browser.
+- Building something that needs heavier read volume? [Get in touch](/contact).

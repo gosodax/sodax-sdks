@@ -16,7 +16,13 @@ A bridge call deposits the source token into its vault on the hub, then triggers
 sodax.bridge.bridge<K>(action: BridgeParams<K, false>): Promise<Result<TxHashPair, SodaxError>>;
 sodax.bridge.createBridgeIntent<K, Raw>(action: BridgeParams<K, Raw>): Promise<Result<IntentTxResult<K, Raw>, SodaxError>>;
 sodax.bridge.approve<K, Raw>(args): Promise<Result<TxReturnType<K, Raw>, SodaxError>>;
+// Unsigned callers only: returns both transactions when a stale allowance must be cleared first.
+sodax.bridge.buildApproveTxs<K>(action: BridgeParams<K, true>): Promise<Result<ApprovalTxs<K>, SodaxError>>;
 sodax.bridge.isAllowanceValid<K, Raw>(args): Promise<Result<boolean, SodaxError>>;
+
+// Routes from the source tx to whichever source can answer — the backend record while it is in
+// play, else the delivered relay packet. Covers a bridge the client-side fallback completed.
+sodax.bridge.getDetailedStatus({ srcChainKey, srcTxHash }, config?): Promise<Result<DetailedBridgeStatus, SodaxError>>;
 
 sodax.bridge.getBridgeableAmount(from: XToken, to: XToken): Promise<Result<BridgeLimit, SodaxError>>;
 sodax.bridge.getBridgeableTokens(from: SpokeChainKey, to: SpokeChainKey, token: string): Result<XToken[], SodaxError>;
@@ -57,12 +63,14 @@ type BridgeExtras<K extends SpokeChainKey> = (GetChainType<K> extends 'STACKS'
   : { srcPublicKey?: never }) &
   (GetChainType<K> extends 'BITCOIN' ? { bound?: { accessToken?: string } } : { bound?: never }) & {
     partnerFee?: PartnerFee;
+    apiKey?: string;
   };
 ```
 
 | Slot | When | Notes |
 |---|---|---|
 | `partnerFee` | any chain, optional | Takes precedence over the config-level `bridge.partnerFee` for this call. Omit to use the configured fee. |
+| `apiKey` | any chain, optional | Overrides the configured backend API key (`x-api-key`) for this action's backend submit-tx leg. Omit to use `new Sodax({ apiKey })`. |
 | `srcPublicKey` | Stacks source + `raw: true` — **required** | A Stacks address can't yield the signer public key at raw-tx build time. Omitting it fails `VALIDATION_FAILED` (`field: 'srcPublicKey'`). |
 | `bound` | raw Bitcoin TRADING source, optional | Bound Exchange (Radfi) access token; falls back to the `RadfiProvider` instance token. |
 
@@ -195,6 +203,7 @@ if (result.ok) {
 | `bridge` | `TxHashPair` |
 | `createBridgeIntent` | `IntentTxResult<K, Raw>` = `{ tx: TxReturnType<K, Raw>, relayData }` |
 | `approve` | `TxReturnType<K, Raw>` |
+| `buildApproveTxs` | `ApprovalTxs<K> = { approveTx, resetTx? }` |
 | `isAllowanceValid` | `boolean` |
 | `getBridgeableAmount` | `BridgeLimit = { amount, decimals, type }` |
 | `getBridgeableTokens` | `XToken[]` |
@@ -204,6 +213,13 @@ change (Ethereum USDT is the only listed one today): `approve(0)` is mined first
 approval, so the user signs twice. The returned value is unchanged — one hash, the **last**
 transaction's. Detection simulates the approval, so never gate on a token list. Full note: "ERC-20
 approval can take two transactions" in [`architecture.md`](../architecture.md).
+
+Unsigned callers cannot get that from `approve({ raw: true })`, which returns a single transaction.
+Use `buildApproveTxs` instead — it returns `{ approveTx, resetTx? }`, and when `resetTx` is present
+you must broadcast it and wait for it to be mined before `approveTx`. It resolves the same spender as
+`approve` and `isAllowanceValid` (the caller's own hub wallet router on the hub, the asset manager on
+an EVM spoke), so do not substitute `sodax.swaps.buildApproveTxs` for a bridge — swaps approves a
+different contract on the hub.
 
 ## Error codes
 

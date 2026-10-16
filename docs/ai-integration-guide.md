@@ -1,18 +1,30 @@
-# Use SODAX SDKs with your AI coding agent
+---
+title: "AI Integration Guide"
+description: "Ship v2-correct SODAX code from your AI coding agent using the @sodax/skills bundle."
+icon: robot
+---
 
-SODAX ships agent-native documentation as [`@sodax/skills`](https://github.com/icon-project/sodax-sdks/tree/main/packages/skills) — four mode-gated skills (one per `@sodax/*` SDK package, each bundling `integration/knowledge/` for new v2 code and `migration-v1-to-v2/knowledge/` for v1→v2 porting). The goal is v2-correct code on the first try instead of stale training-data APIs.
+SODAX ships agent-native documentation as [`@sodax/skills`](https://github.com/icon-project/sodax-sdks/tree/main/packages/skills) — five skills: four mode-gated ones (one per `@sodax/*` SDK package, each bundling `integration/knowledge/` for new v2 code and `migration-v1-to-v2/knowledge/` for v1→v2 porting), plus the cross-cutting `sodax-build` front-door skill for when you haven't picked a package yet. The goal is v2-correct code on the first try instead of stale training-data APIs.
 
 LLM training data drifts; public docs at [docs.sodax.com](https://docs.sodax.com) are for humans. Agents only use what you install or attach. For what’s in the bundle (skills, knowledge layout, routing table), see [packages/skills/README.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/skills/README.md).
+
+<Note>
+  **Optional: the [Builders MCP](/builders-mcp)** (`https://builders.sodax.com/mcp`). The skills are
+  enough to write correct code. The MCP adds live values while the agent works: supported chains and
+  tokens, swap quotes, money market rates, intent lookups, and doc search. Its tools don't cover
+  leverage-yield vaults, and the SDK reads vault data itself, so skip it for vault work.
+</Note>
 
 ## Pick a setup
 
 | You are… | Do this | Entry point |
 |---|---|---|
+| Any agent that can fetch a URL; nothing to install | Point it at the hosted skill: **[https://www.sodax.com/skill.md](https://www.sodax.com/skill.md)** | The skill itself — an entry point that routes to the granular `sodax-*` skills. Listed for discovery at [`/.well-known/agent-skills/index.json`](https://www.sodax.com/.well-known/agent-skills/index.json). |
 | Using Claude Code, Cursor, Copilot, Codex, etc. with the [skills CLI](https://github.com/vercel-labs/skills) | `npx skills@latest add icon-project/sodax-sdks/packages/skills` | Auto-discovered — each `.<agent>/skills/sodax-<pkg>/SKILL.md` is loaded by the agent via its frontmatter `description`. No `AGENTS.md` lands in the install path; SKILL.md mode-gates internally (integration vs migration). |
 | Any project; npm from the registry | `pnpm add -D @sodax/skills` | `node_modules/@sodax/skills/AGENTS.md` |
 | Unreleased docs; app lives **inside** the sodax-sdks pnpm workspace | `pnpm add -D @sodax/skills@workspace:*` | `node_modules/@sodax/skills/AGENTS.md` |
 | Unreleased docs; sodax-sdks is a **sibling repo, submodule, or separate clone** | `pnpm add -D @sodax/skills@file:../sodax-sdks/packages/skills` (not `workspace:*`) | `node_modules/@sodax/skills/AGENTS.md` |
-| Sodax-sdks clone on disk, no install | Point your agent rules at the checkout | `/path/to/sodax-sdks/packages/skills/AGENTS.md` |
+| `sodax-sdks` clone on disk, no install | Point your agent rules at the checkout | `/path/to/sodax-sdks/packages/skills/AGENTS.md` |
 | Web chat (ChatGPT, Claude.ai, etc.) | Attach files to the conversation | `AGENTS.md` + one relevant `skills/sodax-<pkg>/SKILL.md` |
 
 **Canonical entry point:** [`AGENTS.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/skills/AGENTS.md) — tool-neutral router (shipped on npm). [`CLAUDE.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/skills/CLAUDE.md) in `packages/skills/` is optional and **git-only** (not in the npm package); use it when you maintain sodax-sdks or want maintainer layout context. You can also paste a one-line pointer into your own project `CLAUDE.md`.
@@ -27,7 +39,7 @@ From your consumer repo root:
 npx skills@latest add icon-project/sodax-sdks/packages/skills
 ```
 
-The CLI detects your tool and installs the four mode-gated skill directories into the conventional discovery path (e.g. `.claude/skills/sodax-<pkg>/`, `.cursor/skills/sodax-<pkg>/`). Each skill's `SKILL.md` carries trigger phrases for both integration and migration in its frontmatter `description` — the agent picks the right skill (and the SKILL.md body's mode gate picks the right subtree) automatically. **Note:** the CLI does **not** copy the package-level `AGENTS.md`; agents auto-discover skills via `SKILL.md` frontmatter. **Upgrade (CLI only):** when you bump `@sodax/*` SDK packages, re-run the same `npx skills@latest add …` command — the CLI refreshes from GitHub; it does not follow a `@sodax/skills` entry in `package.json`.
+The CLI detects your tool and installs all five skill directories — the four mode-gated per-package skills plus `sodax-build` — into the conventional discovery path (e.g. `.claude/skills/sodax-<pkg>/`, `.cursor/skills/sodax-<pkg>/`). Each skill's `SKILL.md` carries trigger phrases for both integration and migration in its frontmatter `description` — the agent picks the right skill (and the SKILL.md body's mode gate picks the right subtree) automatically. **Note:** the CLI does **not** copy the package-level `AGENTS.md`; agents auto-discover skills via `SKILL.md` frontmatter. **Upgrade (CLI only):** when you bump `@sodax/*` SDK packages, re-run the same `npx skills@latest add …` command — the CLI refreshes from GitHub; it does not follow a `@sodax/skills` entry in `package.json`.
 
 Useful flags:
 
@@ -68,7 +80,7 @@ If you keep a sodax-sdks clone next to your app, reference `packages/skills/AGEN
 **For npm, `file:`, `workspace:`, or path-only installs**, paste this into project rules (adapt `<ENTRY_POINT>` to your install path):
 
 ```markdown
-Before writing or changing Sodax (@sodax/*) code, read and follow:
+Before writing or changing SODAX (@sodax/*) code, read and follow:
 `<ENTRY_POINT>/AGENTS.md`
 Load only the skills it routes you to; each SKILL.md mode-gates internally
 (integration for new v2 code, migration for v1 → v2 porting).
@@ -101,5 +113,6 @@ For v1 → v2 ports, say something like “migrate my project to SODAX v2” —
 
 - Bundle overview: [packages/skills/README.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/skills/README.md)
 - Router (agents): [packages/skills/AGENTS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/skills/AGENTS.md)
+- Live data for agents: [Builders MCP](/builders-mcp)
 
 Wrong output despite the skills? That’s a doc bug — [open an issue](https://github.com/icon-project/sodax-sdks/issues) with the prompt and what the agent generated.

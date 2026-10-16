@@ -8,7 +8,7 @@ If you are looking for "how do I do X", go to [`recipes/`](./recipes/). This fil
 
 ## The shape of the package
 
-`@sodax/wallet-sdk-react` is a **uniform React layer over heterogeneous chain wallet libraries**. Each chain family ships a different React adapter (wagmi, `@solana/wallet-adapter-react`, `@mysten/dapp-kit`) or no React adapter at all (Bitcoin, Stellar, ICON, Injective, NEAR, Stacks). The package wraps all nine families behind one set of hooks so consumer code does not branch on chain family.
+`@sodax/wallet-sdk-react` is a **uniform React layer over heterogeneous chain wallet libraries**. Each chain family ships a different React adapter (wagmi, `@solana/wallet-adapter-react`, `@mysten/dapp-kit-react`) or no React adapter at all (Bitcoin, Stellar, ICON, Injective, NEAR, Stacks). The package wraps all nine families behind one set of hooks so consumer code does not branch on chain family.
 
 Two abstractions make this work:
 
@@ -25,12 +25,14 @@ Hooks always operate on `XService` / `XConnector` — never directly on a chain 
 
 ```
 <WalletConfigProvider value={frozenConfig}>
-  <EvmProvider config={config.EVM}>           ← only if EVM slot present (mounts wagmi.WagmiProvider)
-    <SuiProvider config={config.SUI}>          ← only if SUI slot present (mounts dapp-kit providers)
-      <SolanaProvider config={config.SOLANA}>  ← only if SOLANA slot present (mounts solana-wallet-adapter)
-        {children}
-      </SolanaProvider>
-    </SuiProvider>
+  <EvmProvider config={config.EVM}>              ← only if EVM slot present (mounts wagmi.WagmiProvider)
+    <PrivyHost>                                  ← only if config.EVM.privy is set (mounts PrivyProvider inside wagmi)
+      <SuiProvider config={config.SUI}>          ← only if SUI slot present (mounts dapp-kit providers)
+        <SolanaProvider config={config.SOLANA}>  ← only if SOLANA slot present (mounts solana-wallet-adapter)
+          {children}
+        </SolanaProvider>
+      </SuiProvider>
+    </PrivyHost>
   </EvmProvider>
 </WalletConfigProvider>
 ```
@@ -168,6 +170,8 @@ src/
 ├── utils/                      # sortConnectors, walletRpcConfig, isNativeToken
 ├── types/                      # Public types — config, interfaces, chainActions
 ├── providers/                  # Per-chain-type React provider implementations
+├── privy/                      # Privy email login; sub-path import: '@sodax/wallet-sdk-react/privy'
+│                               # The only code that imports the optional peer @privy-io/react-auth
 └── xchains/<chain>/            # Per-chain XService + XConnector implementations
     │                           # Sub-path import: '@sodax/wallet-sdk-react/xchains/<chain>'
     └── ...                     # Auto-discovered by tsup; not re-exported from barrel

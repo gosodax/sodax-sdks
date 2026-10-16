@@ -1,12 +1,12 @@
 ---
 name: sodax-sdk-swaps-api
-description: 'Granular skill for the @sodax/sdk v2 Swaps API client — `sodax.api.swaps` (class SwapsApiService), a typed HTTP client for the backend Swaps API v2 (`/swaps/*`, 21 endpoints: quote, deadline, allowance/approve, create-intent, intent submit/status/cancel/hash/packet/extra-data, limit orders, gas estimate, partner/solver fees, submit-tx + status). Every method returns Promise<Result<T>>, never throws, and validates the response. Use when the task calls the swaps backend directly (e.g. "get a swap quote from the Sodax backend", "sodax.api.swaps", "submit swap tx", "createIntent via the backend API", "poll submit-tx status", "swaps API v2", "point swaps at a custom endpoint"). For the higher-level end-to-end swap orchestrator use the `swap` skill instead. Skill links into the parent sodax-sdk knowledge tree.'
+description: 'Granular skill for the @sodax/sdk v2 Swaps API client — `sodax.api.swaps` (class SwapsApiService), a typed HTTP client for the backend Swaps API (`/swaps/*`, 21 endpoints: quote, deadline, allowance/approve, create-intent, intent submit/status/cancel/hash/packet/extra-data, limit orders, gas estimate, partner/solver fees, submit-tx + status). Every method returns Promise<Result<T>>, never throws, and validates the response. Use when the task calls the swaps backend directly (e.g. "get a swap quote from the Sodax backend", "sodax.api.swaps", "submit swap tx", "createIntent via the backend API", "poll submit-tx status", "swaps API v2", "point swaps at a custom endpoint"). For the higher-level end-to-end swap orchestrator use the `swap` skill instead. Skill links into the parent sodax-sdk knowledge tree.'
 ---
 
 # Swaps API (Core SDK granular skill)
 
 Granular skill for `sodax.api.swaps` (class `SwapsApiService`) — the typed HTTP client for the backend
-**Swaps API v2** (`/swaps/*`). `sodax.api` is an alias for `sodax.backendApi`; `.swaps` is the swaps
+**Swaps API** (`/swaps/*`). `sodax.api` is an alias for `sodax.backendApi`; `.swaps` is the swaps
 client. 21 endpoints, one method each; every method returns `Promise<Result<T>>` (never throws) and
 validates the response. Errors carry `feature: 'backend'`, `context.api: 'swaps'`, `context.endpoint`.
 

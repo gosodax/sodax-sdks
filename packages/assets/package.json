@@ -15,7 +15,7 @@
   },
   "type": "module",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.12.0"
   },
   "files": ["chain", "token", "AGENTS.md", "README.md"],
   "scripts": {

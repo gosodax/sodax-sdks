@@ -1,6 +1,6 @@
 # Backend API Service Documentation
 
-The `BackendApiService` provides a comprehensive HTTP client for the SODAX backend API, covering intent lookup, swap submission, solver orderbook, money market data, and runtime configuration. It implements `IConfigApi` so that `ConfigService` and other services can fetch dynamic chain/token configuration without coupling to a concrete HTTP implementation.
+The `BackendApiService` provides a comprehensive HTTP client for the SODAX backend API, covering intent lookup, swap submission, solver orderbook, money market data, USD OHLC price candles, and runtime configuration. It implements `IConfigApiV1` so that `ConfigService` and other services can fetch dynamic chain/token configuration without coupling to a concrete HTTP implementation.
 
 The service is automatically instantiated when you create a `Sodax` instance and is available as `sodax.backendApi`.
 
@@ -15,6 +15,7 @@ All public methods return `Promise<Result<T>>` — they never throw. On network 
 - [Swap Endpoints](#swap-endpoints)
 - [Solver Endpoints](#solver-endpoints)
 - [Money Market Endpoints](#money-market-endpoints)
+- [Oracle Endpoints](#oracle-endpoints)
 - [Config Endpoints](#config-endpoints)
 - [Utility Methods](#utility-methods)
 - [Complete Example](#complete-example)
@@ -82,20 +83,22 @@ type BaseApiConfig = {
 type BackendApiConfig = BaseApiConfig & { basePath?: string }; // default: '/be'
 
 // Point the swaps and/or sponsoring APIs at their own hosts, separate from the base backend API
-// (at least one slice required):
+// (at least one slice required). Only sponsoring carries a slice `apiKey` — it is routed
+// independently, so it owns its credential; every other service takes the instance-wide key.
+type SwapsApiConfig = BaseApiConfig;
 type SponsoringApiConfig = BaseApiConfig & { apiKey?: string };
 
 type CustomApiConfig =
-  | { baseApiConfig: BackendApiConfig; swapsApiConfig?: BaseApiConfig; sponsoringApiConfig?: SponsoringApiConfig }
-  | { baseApiConfig?: BackendApiConfig; swapsApiConfig: BaseApiConfig; sponsoringApiConfig?: SponsoringApiConfig }
-  | { baseApiConfig?: BackendApiConfig; swapsApiConfig?: BaseApiConfig; sponsoringApiConfig: SponsoringApiConfig };
+  | { baseApiConfig: BackendApiConfig; swapsApiConfig?: SwapsApiConfig; sponsoringApiConfig?: SponsoringApiConfig }
+  | { baseApiConfig?: BackendApiConfig; swapsApiConfig: SwapsApiConfig; sponsoringApiConfig?: SponsoringApiConfig }
+  | { baseApiConfig?: BackendApiConfig; swapsApiConfig?: SwapsApiConfig; sponsoringApiConfig: SponsoringApiConfig };
 
 type ApiConfig = BackendApiConfig | CustomApiConfig;
 ```
 
 **`baseURL` is the gateway root, never a service path.** Every service resolves the same root and appends
 its own path below it — `/be` here, `/swaps` for the swaps client, `/bridge` for the bridge client,
-`/sponsorships/stellar` for sponsoring. A `baseURL` ending in `/be` is trimmed with a warning: that was
+`/leverage-yield` for the leverage-yield client, `/sponsorships/stellar` for sponsoring. A `baseURL` ending in `/be` is trimmed with a warning: that was
 the previous packaged default, and inheriting it nested the sibling services a level too deep
 (`/v1/be/swaps/submit-tx`). See
 [CONFIGURE_SDK.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md)
@@ -120,6 +123,19 @@ transmitted to the sponsoring host. `timeout` does inherit. For the same reason,
 `backendApi.setHeaders(...)` reaches `swaps` but NOT `sponsoring`; set sponsoring headers on the
 slice, or via `sodax.api.sponsoring.setHeaders(...)`.
 
+### API key
+
+There is one instance-wide backend key: `new Sodax({ apiKey })`, sent as `x-api-key` on this client,
+`sodax.api.swaps`, `sodax.api.bridge`, and `sodax.api.leverageYield`. Override it for a single call with
+`apiKey` on the trailing `RequestOverrideConfig`. The key follows a per-call `baseURL` override on these
+gateway clients too —
+including a plaintext local target — so point one only at a trusted SODAX-related deployment.
+Sponsoring is the exception — its slice key wins there, and the instance-wide
+key reaches it only when the call targets a SODAX gateway root. See
+[CONFIGURE_SDK.md § API key](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#api-key)
+for the full precedence order. The key belongs server-side; when this client runs in a browser, point
+`baseURL` at your own proxy instead — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
+
 ### `RequestOverrideConfig` Type
 
 Every public method accepts an optional `RequestOverrideConfig` as its last argument. These per-call overrides take precedence over the `ApiConfig` the service was constructed with.
@@ -129,6 +145,7 @@ type RequestOverrideConfig = {
   baseURL?: string;   // gateway root; the calling service's own path still applies
   timeout?: number;
   headers?: Record<string, string>;
+  apiKey?: string;    // per-call x-api-key; an explicit headers['x-api-key'] here still wins
 };
 ```
 
@@ -180,6 +197,10 @@ console.log(result.value); // OrderbookResponse
 | `'HTTP_REQUEST_FAILED'` | Non-2xx HTTP response. Check `error.cause` for `HTTP <status>: <body>`. |
 | `'REQUEST_TIMEOUT'` | Request exceeded the configured timeout. Check `error.cause` for the timeout duration. |
 | `'UNKNOWN_REQUEST_ERROR'` | Any other unexpected failure. |
+
+Those sentinels are this client's surface only. The typed sibling clients — `sodax.api.swaps` and
+`sodax.api.bridge` — take their `error.message` from the wire client they wrap, so discriminate on
+`error.context.code` there instead (see [Bridge Endpoints](#bridge-endpoints)).
 
 ## Intent Endpoints
 
@@ -300,7 +321,7 @@ interface UserIntentsResponse {
 
 ## Swap Endpoints
 
-Swap-tx submission and the rest of the typed Swaps API v2 moved off `BackendApiService` onto the swaps
+Swap-tx submission and the rest of the typed Swaps API moved off `BackendApiService` onto the swaps
 client — `sodax.api.swaps` (`SwapsApiService`). Submit a signed spoke-chain swap transaction with
 `sodax.api.swaps.submitTx(...)` and poll it with
 `sodax.api.swaps.getSubmitTxStatus({ txHash, srcChainKey })` (both fields required). See
@@ -309,12 +330,50 @@ status, fees, …).
 
 ## Bridge Endpoints
 
-The Bridge API v2 is a sibling typed client — `sodax.api.bridge` (`BridgeApiService`), also reached via the
+The Bridge API is a sibling typed client — `sodax.api.bridge` (`BridgeApiService`), also reached via the
 `sodax.api` alias and sharing the same backend host (`/bridge/*` sub-paths). It mirrors the swaps client
 minus the solver/intent surface: allowance/approve/create-bridge-intent, submit-tx + status, tokens, and
 the fee/bridgeable-amount/bridgeable discovery quotes. Submit a signed spoke-deposit with
 `sodax.api.bridge.submitTx(...)` (passing the FULL `relayData { address, payload }` envelope, not just the
 payload). See [`BRIDGE_API.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md) for the full reference.
+
+`BridgeApiService` is a thin adapter over the standalone
+[`@sodax/bridge-api`](https://github.com/icon-project/sodax-sdks/tree/main/packages/bridge-api) client —
+the same split as `sodax.api.swaps` over `@sodax/swaps-api` — so the wire behaviour below is shared by both:
+
+- **Errors.** Every method returns `Result<T>` and never throws. A failure carries
+  `SodaxError<'EXTERNAL_API_ERROR'>` with `feature: 'backend'`, `context.api: 'bridge'` and
+  `context.endpoint`; `error.cause` is the underlying `BridgeApiError`, whose `code`
+  (`NETWORK_ERROR` | `TIMEOUT_ERROR` | `HTTP_ERROR` | `PARSE_ERROR` | `VALIDATION_ERROR`) is mirrored on
+  `error.context.code`, with `context.status` set for HTTP failures. Discriminate on `context.code`, not
+  on the message. `BridgeApiError` and `BridgeApiErrorCode` are re-exported from `@sodax/sdk`.
+- **Retries.** Idempotent calls — reads, `getSubmitTxStatus` polls, and pure-compute POSTs like `getFee` —
+  replay transient failures (network errors and 408/429/5xx), up to **3 attempts** (the first try plus two
+  retries) issued back to back with no delay. Mutations (`approve`, `createBridgeIntent`, `submitTx`) never
+  retry, except on the API-key guard's transient verification `503`: that one is rejected before the route
+  handler runs, so replaying it cannot double-apply anything, and it is the one case that backs off.
+  A `timeout` bounds the whole call, retries included, and is never replayed.
+- **Budgets multiply.** This wire budget is *per call*, so a caller that also retries multiplies against it.
+  The `@sodax/dapp-kit` backend hooks default to three React Query retries, which is four executions of a
+  query — against three wire attempts each, a persistently failing idempotent endpoint can cost up to 12
+  requests before the error surfaces. A terminal API-key rejection (401/403) is never replayed at the wire
+  level, and the `swapsApi`, `leverageYieldApi` and `bridgeApi` hooks stop retrying it at the query level
+  too (`retryUnlessAuthFailure`). Lower either with `queryOptions.retry` (or `mutationOptions.retry`) when
+  you want a tighter ceiling.
+
+## Leverage Yield Endpoints
+
+The Leverage Yield API is a third sibling typed client — `sodax.api.leverageYield`
+(`LeverageYieldApiService`), also reached via the `sodax.api` alias and sharing the same backend host
+(`/leverage-yield/*` sub-paths). A leverage-yield deposit/withdraw **is** an intent-based swap (the vault's
+`lsoda*` share token is a solver-tradeable token), so its intent-relay / gas / fee / submit-tx endpoints
+reuse the swaps wire shapes; what is its own is the vault registry (`getVaults` / `getVault`), the vault
+reads (position, APRs, ERC-4626 previews, share balance, max-withdraw), and the split deposit/withdraw
+quote + create-intent routes. `sodax.api.leverageYield.submitTx(...)` additionally carries a required
+`operation: 'deposit' | 'withdraw'` discriminator — echoed back by `getSubmitTxStatus` as
+`data.operation: 'leverage_deposit' | 'leverage_withdraw'` — and its terminal submit-tx status is
+`'solved'` (the solver filled), not the bridge's `'executed'`. See
+[`LEVERAGE_YIELD_API.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/LEVERAGE_YIELD_API.md) for the full reference.
 
 ## Solver Endpoints
 
@@ -573,9 +632,145 @@ interface MoneyMarketBorrowers {
 }
 ```
 
+## Oracle Endpoints
+
+USD OHLC price candles for charting, served from the backend's oracle candle store. Both reads are plain `GET`s with no authentication requirement beyond the usual API key handling.
+
+### Get Oracle Markets
+
+Retrieves the candle store's discovery payload: the quote currency, the selectable intervals, and the canonical symbols that have candle data. Use it to populate a symbol picker and interval switcher before requesting candles.
+
+```typescript
+const result = await sodax.backendApi.getOracleMarkets();
+
+if (result.ok) {
+  const { quote, intervals, symbols } = result.value;
+  console.log(quote); // 'USD'
+  console.log(intervals.map(i => i.key)); // ['1m', '5m', '1h', '1d']
+  console.log(symbols); // ['BTC', 'ETH', 'SOL', ...]
+}
+```
+
+**Signature:**
+```typescript
+getOracleMarkets(
+  config?: RequestOverrideConfig,
+): Promise<Result<OracleMarketsResponse>>
+```
+
+- **Method:** GET
+- **Endpoint:** `/oracle/markets`
+
+**Response type:**
+```typescript
+type OracleCandleInterval = '1m' | '5m' | '1h' | '1d';
+
+// Exported alongside the union: the raw list, and the guard that narrows a `key` to it.
+const ORACLE_CANDLE_INTERVALS: readonly OracleCandleInterval[];
+function isOracleCandleInterval(value: string): value is OracleCandleInterval;
+
+interface OracleMarketInterval {
+  // `string`, not `OracleCandleInterval` — see the note under this section.
+  key: string;
+  label: string;
+  seconds: number;
+}
+
+interface OracleMarketsResponse {
+  quote: string;
+  intervals: OracleMarketInterval[];
+  symbols: string[];
+}
+```
+
+`intervals[].key` is typed `string` on purpose: discovery is what tells you which intervals exist, so this read stays tolerant of an interval a newer backend serves and this SDK version does not know. Membership-test it before passing it to `getOracleCandles`, which accepts only the four literals:
+
+```typescript
+import { isOracleCandleInterval } from '@sodax/sdk';
+
+// `filter` would leave `key` as `string`; narrowing inside `flatMap` yields the union.
+const selectable = result.value.intervals.flatMap(i => (isOracleCandleInterval(i.key) ? [i.key] : []));
+```
+
+`ORACLE_CANDLE_INTERVALS` is also exported if you need the raw list (to render every option, say).
+
+### Get Oracle Candles
+
+Retrieves USD OHLC candles for one symbol over the half-open time range `[from, to)`.
+
+```typescript
+import { isSodaxError } from '@sodax/sdk';
+
+const now = Math.floor(Date.now() / 1000);
+
+const result = await sodax.backendApi.getOracleCandles({
+  symbol: 'ETH',
+  interval: '1h',
+  from: now - 86400, // last 24 hours
+  to: now,
+});
+
+if (!result.ok) {
+  // `result.error` is `unknown` — narrow before reading `.message` / `.context`.
+  if (isSodaxError(result.error)) console.error(result.error.message, result.error.context?.status);
+  return;
+}
+
+const series = result.value.candles.map(c => ({
+  time: c.timestamp,
+  open: Number(c.open),
+  high: Number(c.high),
+  low: Number(c.low),
+  close: Number(c.close),
+}));
+```
+
+**Signature:**
+```typescript
+getOracleCandles(
+  params: { symbol: string; interval: OracleCandleInterval; from: number; to: number },
+  config?: RequestOverrideConfig,
+): Promise<Result<OracleCandlesResponse>>
+```
+
+- **Method:** GET
+- **Endpoint:** `/oracle/candles?symbol={symbol}&interval={interval}&from={from}&to={to}`
+
+**Response type:**
+```typescript
+interface OracleCandle {
+  timestamp: number;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  final?: boolean;
+}
+
+interface OracleCandlesResponse {
+  symbol: string;
+  quote: string;
+  interval: OracleCandleInterval;
+  candles: OracleCandle[];
+}
+```
+
+**Conventions:**
+
+- `open` / `high` / `low` / `close` are USD prices as **decimal strings** — convert them yourself; never assume a JSON number.
+- `timestamp` is the bucket **start** in UNIX seconds. A `1h` candle at `T` covers `[T, T + 3600)`.
+- `from` and `to` are UNIX **seconds** (integers). `to` is **exclusive** and must be greater than `from`; a zero-width or reversed range returns HTTP 400.
+- A request may cover at most **5000 buckets** of the requested interval. A wider range (or an invalid parameter) returns HTTP 400, which surfaces as `ok: false` with `error.message === 'HTTP_REQUEST_FAILED'` and `error.context.status === 400` (narrow with `isSodaxError(result.error)` first).
+- A valid range with no stored candles resolves `ok: true` with `candles: []`. Render the gap rather than branching on an error.
+- An unknown symbol also currently resolves `ok: true` with `candles: []` rather than a 404; use `getOracleMarkets()` when you need to distinguish selectable symbols before requesting data.
+- Candles are ordered **oldest first**, and the last one may still be forming. Branch on the value, not the field's presence: `final === false` means still forming, so re-poll while that holds; absent (the backend's usual encoding for a closed candle) means closed.
+- There is **no volume field** — candles are sampled from the SODAX price feed, not trade flow.
+- `interval` on the response echoes what you sent and is validated strictly — an unrecognized value resolves `ok: false` with `error.context.reason === 'invalid_response_shape'` rather than a value outside `OracleCandleInterval`.
+- Responses are cached server-side for roughly 10 seconds per distinct URL.
+
 ## Config Endpoints
 
-These methods implement `IConfigApi` and are consumed internally by `ConfigService`. You generally do not call them directly — use `sodax.config` instead. They are documented here for completeness and for custom `IConfigApi` implementations.
+These methods implement `IConfigApiV1` and are consumed internally by `ConfigService`. You generally do not call them directly — use `sodax.config` instead. They are documented here for completeness and for custom `IConfigApiV1` implementations.
 
 | Method | Endpoint | Returns |
 |---|---|---|

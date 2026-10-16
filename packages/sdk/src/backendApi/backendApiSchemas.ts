@@ -55,6 +55,20 @@ const IntentStructSchema = v.object({
   data: v.string(),
 });
 
+/** An `intent-filled` entry in `IntentResponse.events`. Narrow with `isFillEvent`. */
+export const FillEventSchema = v.object({
+  eventType: v.literal('intent-filled'),
+  // The hub-chain fill tx; an empty one is no use as `fill_tx_hash`.
+  txHash: v.pipe(v.string(), v.nonEmpty()),
+  // Terminality. An intent created with `allowPartialFill` emits a fill event per fill, so the
+  // event alone does not mean the intent is done — only `remainingInput === '0'` does. Required:
+  // without it there is no proof of completion, and claiming SOLVED on a partial fill would report
+  // an unfinished swap as complete.
+  intentState: v.object({
+    remainingInput: v.string(),
+  }),
+});
+
 /** GET /intent/tx/:txHash · GET /intent/:intentHash (`IntentResponse`). */
 export const IntentResponseSchema = v.object({
   intentHash: v.string(),
@@ -194,3 +208,47 @@ export const TokensListSchema = v.array(XTokenSchema);
 
 /** GET /config/money-market/reserve-assets (`readonly Address[]`). */
 export const ReserveAssetsSchema = v.array(AddressSchema);
+
+/**
+ * Candle bucket sizes the oracle serves (60s / 300s / 3600s / 86400s). Runtime source of truth for
+ * the public `OracleCandleInterval` union, which is derived from it in `BackendApiService.ts`.
+ */
+export const ORACLE_CANDLE_INTERVALS = ['1m', '5m', '1h', '1d'] as const;
+
+/** Closed set of interval keys; also backs the public `isOracleCandleInterval` guard. */
+export const OracleCandleIntervalSchema = v.picklist(ORACLE_CANDLE_INTERVALS);
+
+/** GET /oracle/markets. `intervals[].key` is `v.string()`, not a picklist — see `OracleMarketInterval`. */
+export const OracleMarketsResponseSchema = v.object({
+  quote: v.string(),
+  intervals: v.array(
+    v.object({
+      key: v.string(),
+      label: v.string(),
+      seconds: v.number(),
+    }),
+  ),
+  symbols: v.array(v.string()),
+});
+
+/**
+ * GET /oracle/candles (`OracleCandlesResponse`). OHLC prices are USD decimal strings. `interval` is a
+ * strict picklist: it echoes a caller-supplied `OracleCandleInterval`, so anything else is real drift.
+ * `final` stays `v.optional(v.boolean())` — the backend only ever sends `false` today, but `true` is the
+ * benign complement, and rejecting it would blank a whole chart over an advisory flag.
+ */
+export const OracleCandlesResponseSchema = v.object({
+  symbol: v.string(),
+  quote: v.string(),
+  interval: OracleCandleIntervalSchema,
+  candles: v.array(
+    v.object({
+      timestamp: v.number(),
+      open: v.string(),
+      high: v.string(),
+      low: v.string(),
+      close: v.string(),
+      final: v.optional(v.boolean()),
+    }),
+  ),
+});

@@ -131,9 +131,7 @@ export type { Account, Address, Chain, Transport, PublicClient, WalletClient,
               TransactionReceipt } from 'viem';
 
 // Sui types
-export type { SuiTransactionBlockResponseOptions } from '@mysten/sui/client';
 export type { Transaction, TransactionArgument } from '@mysten/sui/transactions';
-export type { SuiWalletFeatures, WalletAccount, WalletWithFeatures } from '@mysten/wallet-standard';
 
 // Solana types
 export type { Commitment, ConnectionConfig, SendOptions } from '@solana/web3.js';

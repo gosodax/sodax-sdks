@@ -13,6 +13,8 @@ export type Erc20ApproveParams<Raw extends boolean> = {
   amount: bigint;
   from: Address;
   spender: Address;
+  // Refuse to broadcast when the wallet's active chain differs (see EvmSendTransactionOptions).
+  expectedChainId?: number;
 } & WalletProviderSlot<EvmChainKey, Raw>;
 
 export type Erc20IsAllowanceParams<ChainKey extends EvmChainKey> = {
@@ -234,10 +236,9 @@ export class Erc20Service {
       return rawTx satisfies TxReturnType<EvmChainKey, true> as TxReturnType<EvmChainKey, Raw>;
     }
 
-    return (await params.walletProvider.sendTransaction(rawTx)) satisfies TxReturnType<
-      EvmChainKey,
-      false
-    > as TxReturnType<EvmChainKey, Raw>;
+    return (await params.walletProvider.sendTransaction(rawTx, {
+      expectedChainId: params.expectedChainId,
+    })) satisfies TxReturnType<EvmChainKey, false> as TxReturnType<EvmChainKey, Raw>;
   }
 
   /**

@@ -70,6 +70,8 @@ queryClient.invalidateQueries({ queryKey: ['swap', 'allowance'] }); // wipe all 
 queryKey: ['mm', 'allowance', srcChainKey, token, action]
 queryKey: ['swap', 'allowance', srcChainKey, srcAddress, inputToken, inputAmount.toString()]
 queryKey: ['bridge', 'allowance', srcChainKey, srcAddress, srcToken, amount.toString()]
+queryKey: ['bridge', 'detailedStatus', srcChainKey, srcTxHash]        // useBridgeDetailedStatus — apiConfig excluded
+queryKey: ['leverageYield', 'detailedStatus', srcChainKey, srcTxHash] // useLeverageYieldDetailedStatus — apiConfig excluded
 queryKey: ['dex', 'allowance', srcChainKey, asset, amount.toString()]
 queryKey: ['staking', 'allowance', srcChainKey, action, srcAddress, amount.toString()]
 //   ^^ action is a fixed literal per hook: 'stake' / 'unstake' / 'instantUnstake'
@@ -77,7 +79,8 @@ queryKey: ['staking', 'allowance', srcChainKey, action, srcAddress, amount.toStr
 // User position reads
 queryKey: ['mm', 'userReservesData', spokeChainKey, userAddress]
 queryKey: ['staking', 'info', srcChainKey, srcAddress]              // useStakingInfo — second segment is 'info', not 'stakingInfo'
-queryKey: ['shared', 'xBalances', xChainId, tokens, address]
+queryKey: ['shared', 'balances', chainKey, tokens, address]        // useBalances (SDK-backed)
+queryKey: ['shared', 'xBalances', xChainId, tokens, address]       // useXBalances (wallet-layer)
 queryKey: ['shared', 'nearStorageCheck', chainId, token, accountId] // useNearStorageCheck
 
 // Mutation default keys
@@ -106,8 +109,11 @@ Skip if you're writing a feature hook for the first time and want to align with 
 | `['swap', 'quote', { ...payload, amount: payload.amount.toString() }]` | `useQuote` (object segment with bigint stringified) |
 | `['swap', 'allowance', srcChainKey, srcAddress, inputToken, inputAmount.toString()]` | `useSwapAllowance` |
 | `['swap', 'status', intentTxHash]` | `useStatus` |
+| `['swap', 'detailedStatus', srcChainKey, srcTxHash]` | `useDetailedStatus` |
+| `['swap', 'approvalStrategy', srcChainKey, srcAddress, inputToken, inputAmount.toString(), allowAccountUpgrade]` | `useSwapApprovalStrategy` |
 | `['swap']` | `useSwap` mutation key |
 | `['swap', 'approve']` | `useSwapApprove` |
+| `['swap', 'swapWithApproval']` | `useSwapWithApproval` |
 | `['swap', 'cancel']` | `useCancelSwap` |
 | `['swap', 'limitOrder', 'create']` | `useCreateLimitOrder` |
 | `['swap', 'limitOrder', 'cancel']` | `useCancelLimitOrder` |
@@ -156,7 +162,7 @@ Backend read hooks (`useBackendIntentByTxHash`, `useBackendIntentByHash`, `useBa
 
 ### Swaps API (`sodax.api.swaps`)
 
-Typed wrappers over `sodax.api.swaps.*` (one per Swaps API v2 endpoint), all keyed `['swapsApi', action, ...]`.
+Typed wrappers over `sodax.api.swaps.*` (one per Swaps API endpoint), all keyed `['swapsApi', action, ...]`.
 
 | Key | Hook |
 |---|---|
@@ -185,7 +191,7 @@ Typed wrappers over `sodax.api.swaps.*` (one per Swaps API v2 endpoint), all key
 
 ### Bridge API (`sodax.api.bridge`)
 
-Typed wrappers over `sodax.api.bridge.*` (one per Bridge API v2 endpoint), all keyed `['bridgeApi', action, ...]`.
+Typed wrappers over `sodax.api.bridge.*` (one per Bridge API endpoint), all keyed `['bridgeApi', action, ...]`.
 
 | Key | Hook |
 |---|---|
@@ -197,8 +203,50 @@ Typed wrappers over `sodax.api.bridge.*` (one per Bridge API v2 endpoint), all k
 | `['bridgeApi', 'bridgeable', srcChainKey, dstChainKey, inputToken, outputToken]` | `useBridgeApiIsBridgeable` |
 | `['bridgeApi', 'submitTx', 'status', txHash, srcChainKey]` | `useBridgeApiSubmitTxStatus` — both identifiers required |
 | `['bridgeApi', 'approve']` | `useBridgeApiApprove` mutation |
+| `['bridgeApi', 'approveAndBroadcast']` | `useBridgeApiApproveAndBroadcast` mutation |
 | `['bridgeApi', 'createBridgeIntent']` | `useBridgeApiCreateBridgeIntent` mutation |
 | `['bridgeApi', 'submitTx']` | `useBridgeApiSubmitTx` mutation |
+
+### Leverage Yield API (`sodax.api.leverageYield`)
+
+Typed wrappers over `sodax.api.leverageYield.*` (one per Leverage Yield API endpoint), all keyed `['leverageYieldApi', action, ...]`.
+
+| Key | Hook |
+|---|---|
+| `['leverageYieldApi', 'vaults']` | `useLeverageYieldApiVaults` |
+| `['leverageYieldApi', 'vault', name]` | `useLeverageYieldApiVault` |
+| `['leverageYieldApi', 'asset', vault]` | `useLeverageYieldApiAsset` |
+| `['leverageYieldApi', 'position', vault]` | `useLeverageYieldApiPosition` |
+| `['leverageYieldApi', 'apr', vault]` | `useLeverageYieldApiApr` |
+| `['leverageYieldApi', 'effectiveApr', vault]` | `useLeverageYieldApiEffectiveApr` |
+| `['leverageYieldApi', 'lsdApr', vault]` | `useLeverageYieldApiLsdApr` |
+| `['leverageYieldApi', 'totalAssets', vault]` | `useLeverageYieldApiTotalAssets` |
+| `['leverageYieldApi', 'previewDeposit', vault, assets]` | `useLeverageYieldApiPreviewDeposit` |
+| `['leverageYieldApi', 'previewWithdraw', vault, assets]` | `useLeverageYieldApiPreviewWithdraw` |
+| `['leverageYieldApi', 'previewRedeem', vault, shares]` | `useLeverageYieldApiPreviewRedeem` |
+| `['leverageYieldApi', 'shareBalance', vault, owner]` | `useLeverageYieldApiShareBalance` |
+| `['leverageYieldApi', 'maxWithdraw', vault, owner]` | `useLeverageYieldApiMaxWithdraw` |
+| `['leverageYieldApi', 'depositQuote', …]` | `useLeverageYieldApiDepositQuote` |
+| `['leverageYieldApi', 'withdrawQuote', …]` | `useLeverageYieldApiWithdrawQuote` |
+| `['leverageYieldApi', 'deadline', …]` | `useLeverageYieldApiDeadline` |
+| `['leverageYieldApi', 'allowance', …]` | `useLeverageYieldApiAllowance` |
+| `['leverageYieldApi', 'status', intentTxHash]` | `useLeverageYieldApiStatus` |
+| `['leverageYieldApi', 'intentHash', …]` | `useLeverageYieldApiIntentHash` |
+| `['leverageYieldApi', 'intentPacket', …]` | `useLeverageYieldApiIntentPacket` |
+| `['leverageYieldApi', 'intentExtraData', …]` | `useLeverageYieldApiIntentExtraData` |
+| `['leverageYieldApi', 'filledIntent', txHash]` | `useLeverageYieldApiFilledIntent` |
+| `['leverageYieldApi', 'intent', txHash]` | `useLeverageYieldApiIntent` |
+| `['leverageYieldApi', 'estimateGas', …]` | `useLeverageYieldApiEstimateGas` |
+| `['leverageYieldApi', 'partnerFee', amount]` | `useLeverageYieldApiPartnerFee` |
+| `['leverageYieldApi', 'solverFee', amount]` | `useLeverageYieldApiSolverFee` |
+| `['leverageYieldApi', 'submitTx', 'status', txHash, srcChainKey]` | `useLeverageYieldApiSubmitTxStatus` — both identifiers required |
+| `['leverageYieldApi', 'approve']` | `useLeverageYieldApiApprove` mutation |
+| `['leverageYieldApi', 'approveAndBroadcast']` | `useLeverageYieldApiApproveAndBroadcast` mutation |
+| `['leverageYieldApi', 'createDepositIntent']` | `useLeverageYieldApiCreateDepositIntent` mutation |
+| `['leverageYieldApi', 'createWithdrawIntent']` | `useLeverageYieldApiCreateWithdrawIntent` mutation |
+| `['leverageYieldApi', 'submitIntent']` | `useLeverageYieldApiSubmitIntent` mutation |
+| `['leverageYieldApi', 'cancelIntent']` | `useLeverageYieldApiCancelIntent` mutation |
+| `['leverageYieldApi', 'submitTx']` | `useLeverageYieldApiSubmitTx` mutation |
 
 ### Leverage Yield
 

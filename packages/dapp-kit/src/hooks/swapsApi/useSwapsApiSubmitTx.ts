@@ -1,5 +1,6 @@
 import type { RequestOverrideConfig, SubmitTxRequestV2, SubmitTxResponseV2 } from '@sodax/sdk';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { retryUnlessAuthFailure } from '../shared/retryUnlessAuthFailure.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
@@ -18,8 +19,9 @@ export type UseSwapsApiSubmitTxVars = {
  * React hook for submitting a swap transaction to be processed (relay, post execution to the
  * solver, etc.) via the swaps API — `sodax.api.swaps.submitTx`.
  *
- * Pure mutation: pass `{ request, apiConfig? }` to `mutate({...})`. Default `retry: 3` is applied
- * at the hook level — consumers can override via `mutationOptions.retry`.
+ * Pure mutation: pass `{ request, apiConfig? }` to `mutate({...})`. Retries up to 3 times at the hook
+ * level, except on a terminal API-key rejection (401/403) — see `retryUnlessAuthFailure`. Consumers
+ * can override via `mutationOptions.retry`.
  *
  * @example
  * const { mutateAsync: submitSwapTx, isPending, error } = useSwapsApiSubmitTx();
@@ -40,7 +42,7 @@ export const useSwapsApiSubmitTx = ({
 
   return useSafeMutation<SubmitTxResponseV2, Error, UseSwapsApiSubmitTxVars>({
     mutationKey: ['swapsApi', 'submitTx'],
-    retry: 3,
+    retry: retryUnlessAuthFailure,
     ...mutationOptions,
     mutationFn: async ({ request, apiConfig }): Promise<SubmitTxResponseV2> =>
       unwrapResult(await sodax.api.swaps.submitTx(request, apiConfig)),

@@ -1,6 +1,7 @@
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import { retry } from '../shared/utils/shared-utils.js';
 import type { ConfigService } from '../shared/config/ConfigService.js';
+import { apiKeyHeader, mergeHeaders } from '../backendApi/api-utils.js';
 import { silentLogger } from '../shared/logger.js';
 import {
   SolverIntentErrorCode,
@@ -88,9 +89,7 @@ export class SolverApiService {
     try {
       const response = await fetch(`${config.solverApiEndpoint}/quote`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: mergeHeaders({ 'Content-Type': 'application/json' }, apiKeyHeader(configService.apiKey)),
         body: JSON.stringify({
           token_src: tokenSrc,
           token_dst: tokenDst,
@@ -140,20 +139,21 @@ export class SolverApiService {
    *
    * @param request - Object containing `intent_tx_hash` (the hub-chain tx hash of the created intent).
    * @param config - Solver endpoint configuration.
+   * @param logger - Diagnostics sink; defaults to the silent logger.
+   * @param apiKey - Configured backend API key (`config.apiKey`), sent as the `x-api-key` header.
    * @returns A `Result` containing `{ answer: 'OK', intent_hash: Hex }` on success.
    */
   public static async postExecution(
     request: SolverExecutionRequest,
     config: SolverConfig,
     logger: SodaxLogger = silentLogger,
+    apiKey?: string,
   ): Promise<Result<SolverExecutionResponse, SolverErrorResponse>> {
     try {
       const response = await retry(() =>
         fetch(`${config.solverApiEndpoint}/execute`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: mergeHeaders({ 'Content-Type': 'application/json' }, apiKeyHeader(apiKey)),
           body: JSON.stringify(request),
         }),
       );
@@ -191,6 +191,16 @@ export class SolverApiService {
    *
    * @param request - Object containing `intent_tx_hash` — the hub-chain tx hash of the intent.
    * @param config - Solver endpoint configuration.
+   * @param logger - Diagnostics sink; defaults to the silent logger.
+   * @param timeoutMs - Optional budget for the request. Omit it and the call is unbounded, as it has
+   *   always been. Supply it when a stalled solver must not hold the caller open — a status read
+   *   polled on a short interval, say. An expiry surfaces as `UNKNOWN`, like any other failure.
+   *   A non-finite value (`NaN` out of `Number(process.env.X)`, or `Infinity`) is treated as no
+   *   budget at all rather than passed to `setTimeout`, which would coerce it to ~0 and fail every
+   *   request instantly. A non-positive one is a real budget of zero: the request aborts at once.
+   *   The relay's `getTransactionPackets` takes the same parameter but degrades a non-finite value
+   *   to its own per-request budget instead; the divergence is deliberate, and explained inline.
+   * @param apiKey - Configured backend API key (`config.apiKey`), sent as the `x-api-key` header.
    * @returns A `Result` containing `{ status: SolverIntentStatusCode, fill_tx_hash?: string }`.
    *   `fill_tx_hash` is set only when `status === SolverIntentStatusCode.SOLVED (3)`.
    * @throws Invariant error if `intent_tx_hash` is empty (thrown before the async request).
@@ -199,15 +209,29 @@ export class SolverApiService {
     request: SolverIntentStatusRequest,
     config: SolverConfig,
     logger: SodaxLogger = silentLogger,
+    timeoutMs?: number,
+    apiKey?: string,
   ): Promise<Result<SolverIntentStatusResponse, SolverErrorResponse>> {
     invariant(request.intent_tx_hash.length > 0, 'Empty intent_tx_hash');
+    // A budget only bounds anything if it is a usable number. `setTimeout` coerces `NaN`/`Infinity`
+    // to ~0, so passing one straight through would abort every healthy request on the next tick and
+    // report it as a timeout. Degrade to the unbounded call the caller would have got by omitting
+    // the argument instead — losing the bound beats failing every request.
+    //
+    // Not `resolveTimeoutMs`, which the relay's `getTransactionPackets` uses for the same input:
+    // that needs a fallback duration, and this endpoint has no per-request budget to name. A
+    // constant invented here to absorb bad input would be a policy nobody could justify.
+    const budgetMs = timeoutMs !== undefined && Number.isFinite(timeoutMs) ? Math.max(0, timeoutMs) : undefined;
+    // Cleared in `finally`, never between the fetch and the body read: `fetch` resolves as soon as
+    // headers arrive, so a response can stall indefinitely in `json()` with the request "complete".
+    const controller = budgetMs === undefined ? undefined : new AbortController();
+    const timeoutId = controller ? setTimeout(() => controller.abort(), budgetMs) : undefined;
     try {
       const response = await fetch(`${config.solverApiEndpoint}/status`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: mergeHeaders({ 'Content-Type': 'application/json' }, apiKeyHeader(apiKey)),
         body: JSON.stringify(request),
+        signal: controller?.signal,
       });
 
       if (!response.ok) {
@@ -226,15 +250,23 @@ export class SolverApiService {
         '[SolverApiService.getStatus] failed',
         e instanceof Error ? e : new Error(JSON.stringify(e, bigintReplacer)),
       );
+      // Any abort here is ours — nothing else holds the controller. Name the timeout rather than
+      // reporting `JSON.stringify(DOMException)`, which is `{}`.
       return {
         ok: false,
         error: {
           detail: {
             code: SolverIntentErrorCode.UNKNOWN,
-            message: e ? JSON.stringify(e, bigintReplacer) : 'Unknown error',
+            message: controller?.signal.aborted
+              ? `solver /status timed out after ${budgetMs}ms`
+              : e
+                ? JSON.stringify(e, bigintReplacer)
+                : 'Unknown error',
           },
         },
       };
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 }

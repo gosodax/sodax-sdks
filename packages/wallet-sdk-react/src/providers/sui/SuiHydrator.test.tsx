@@ -3,35 +3,53 @@ import { render, cleanup } from '@testing-library/react';
 import { ChainKeys } from '@sodax/types';
 import type { SodaxWalletConfig } from '@/types/config.js';
 
+const GRPC_URL = 'https://fullnode.mainnet.sui.io';
+
 const dappKit = {
-  suiClient: { _client: 'fake' } as unknown,
+  suiClient: { core: {} } as unknown,
   currentWallet: undefined as { name: string } | undefined,
   currentAccount: undefined as { address: string } | undefined,
   wallets: [] as unknown[],
+  signTransaction: vi.fn(),
 };
 
-vi.mock('@mysten/dapp-kit', () => ({
-  useSuiClient: () => dappKit.suiClient,
-  useCurrentWallet: () => ({ currentWallet: dappKit.currentWallet }),
+vi.mock('@mysten/dapp-kit-react', () => ({
+  useDAppKit: () => ({ signTransaction: dappKit.signTransaction }),
+  useCurrentClient: () => dappKit.suiClient,
+  useCurrentWallet: () => dappKit.currentWallet,
   useCurrentAccount: () => dappKit.currentAccount,
   useWallets: () => dappKit.wallets,
+  getWalletUniqueIdentifier: (w: { name: string }) => w.name,
 }));
 
 const suiCtor = vi.fn();
 vi.mock('@sodax/wallet-sdk-core', () => ({
-  SuiWalletProvider: vi.fn().mockImplementation(opts => {
-    suiCtor(opts);
-    return { defaults: opts.defaults, _opts: opts };
-  }),
+  // vitest 4 builds the instance with Reflect.construct, so a `new`-ed mock needs a class impl.
+  SuiWalletProvider: vi.fn(
+    class {
+      defaults: unknown;
+      _opts: { defaults?: unknown };
+      constructor(opts: { defaults?: unknown }) {
+        suiCtor(opts);
+        this.defaults = opts.defaults;
+        this._opts = opts;
+      }
+    },
+  ),
 }));
 
 vi.mock('../../xchains/sui/index.js', () => ({
   SuiXService: { getInstance: () => ({ setXConnectors: vi.fn() }) },
-  SuiXConnector: vi.fn().mockImplementation(w => ({ id: 'sui-connector', _wrapped: w })),
+  SuiXConnector: vi.fn(
+    class {
+      id = 'sui-connector';
+      _wrapped: unknown;
+      constructor(w: unknown) {
+        this._wrapped = w;
+      }
+    },
+  ),
 }));
-
-// Bypass shape assertion — stub objects intentionally don't match the runtime shape.
-vi.mock('@/shared/guards.js', () => ({ assertSuiProviderShape: vi.fn() }));
 
 const setters = {
   setXConnection: vi.fn(),
@@ -55,13 +73,13 @@ const connect = () => {
 const renderWith = (config: SodaxWalletConfig) =>
   render(
     <WalletConfigProvider value={config}>
-      <SuiHydrator />
+      <SuiHydrator grpcUrl={GRPC_URL} />
     </WalletConfigProvider>,
   );
 
 describe('SuiHydrator → SuiWalletProvider', () => {
   beforeEach(() => {
-    dappKit.suiClient = { _client: 'fake' };
+    dappKit.suiClient = { core: {} };
     dappKit.currentWallet = undefined;
     dappKit.currentAccount = undefined;
     dappKit.wallets = [];
@@ -71,23 +89,23 @@ describe('SuiHydrator → SuiWalletProvider', () => {
     vi.clearAllMocks();
   });
 
-  it('forwards defaults + client/wallet/account from config to ctor', () => {
+  it('forwards defaults, the resolved endpoint and the connected address to the ctor', () => {
     connect();
     renderWith({
       SUI: {
         chains: {
           [ChainKeys.SUI_MAINNET]: {
-            defaults: { signAndExecuteTxn: { response: { showEffects: true, showEvents: true } } },
+            defaults: { signAndExecuteTxn: { dryRun: { enabled: false } } },
           },
         },
       },
     });
     expect(suiCtor.mock.calls[0]?.[0]).toMatchObject({
-      defaults: { signAndExecuteTxn: { response: { showEffects: true, showEvents: true } } },
-      client: dappKit.suiClient,
-      wallet: dappKit.currentWallet,
-      account: dappKit.currentAccount,
+      defaults: { signAndExecuteTxn: { dryRun: { enabled: false } } },
+      grpcUrl: GRPC_URL,
+      address: '0xsui-account',
     });
+    expect(typeof suiCtor.mock.calls[0]?.[0].signTransaction).toBe('function');
   });
 
   it('passes undefined defaults when SUI chains map omits SUI_MAINNET entry', () => {
@@ -96,18 +114,7 @@ describe('SuiHydrator → SuiWalletProvider', () => {
     expect(suiCtor.mock.calls[0]?.[0].defaults).toBeUndefined();
   });
 
-  // SuiHydrator requires both `currentWallet` AND `currentAccount` — missing
-  // either short-circuits ctor invocation. Parametrize to cover both paths.
-  it.each<{ name: string; preset: () => void }>([
-    { name: 'wallet disconnected (no wallet, no account)', preset: () => {} },
-    {
-      name: 'wallet present but account missing',
-      preset: () => {
-        dappKit.currentWallet = { name: 'Sui Wallet' };
-      },
-    },
-  ])('does not construct SuiWalletProvider when $name', ({ preset }) => {
-    preset();
+  it('does not construct SuiWalletProvider while no account is connected', () => {
     renderWith({ SUI: { chains: { [ChainKeys.SUI_MAINNET]: { defaults: { signAndExecuteTxn: {} } } } } });
     expect(suiCtor).not.toHaveBeenCalled();
   });
@@ -116,13 +123,22 @@ describe('SuiHydrator → SuiWalletProvider', () => {
     connect();
     renderWith({
       SUI: {
-        chains: { [ChainKeys.SUI_MAINNET]: { defaults: { signAndExecuteTxn: { response: { showEffects: true } } } } },
+        chains: { [ChainKeys.SUI_MAINNET]: { defaults: { signAndExecuteTxn: { dryRun: { enabled: true } } } } },
       },
     });
     const [chain, provider] = setters.setWalletProvider.mock.calls.at(-1) ?? [];
     expect(chain).toBe('SUI');
     expect((provider as { defaults?: unknown }).defaults).toEqual({
-      signAndExecuteTxn: { response: { showEffects: true } },
+      signAndExecuteTxn: { dryRun: { enabled: true } },
+    });
+  });
+
+  it('records the connection with the wallet identifier dApp Kit derives', () => {
+    connect();
+    renderWith({ SUI: {} });
+    expect(setters.setXConnection).toHaveBeenCalledWith('SUI', {
+      xAccount: { address: '0xsui-account', xChainType: 'SUI' },
+      xConnectorId: 'Sui Wallet',
     });
   });
 });

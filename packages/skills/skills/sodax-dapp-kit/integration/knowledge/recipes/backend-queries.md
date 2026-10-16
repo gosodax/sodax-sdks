@@ -31,6 +31,13 @@ Read-only data hooks. No wallet connection required.
 | `useBackendMoneyMarketAssetBorrowers` | Borrowers for an asset |
 | `useBackendAllMoneyMarketBorrowers` | All borrowers |
 
+### Oracle
+
+| Hook | Purpose |
+|------|---------|
+| `useBackendOracleMarkets` | Oracle candle discovery: quote, intervals, symbols (cached 60s) |
+| `useBackendOracleCandles` | USD OHLC candles for a symbol over `[from, to)` in UNIX seconds (cached 10s) |
+
 ### Swaps API (`sodax.api.swaps`)
 
 | Hook | Purpose |
@@ -38,7 +45,7 @@ Read-only data hooks. No wallet connection required.
 | `useSwapsApiSubmitTx` | Submit swap tx to backend |
 | `useSwapsApiSubmitTxStatus` | Check submitted swap status |
 
-The full Swaps API v2 surface (quote, allowance, approve, create/submit/cancel intent, fees, gas, …) is wrapped one hook per endpoint under the `useSwapsApi*` prefix — see [hooks-index.md](../reference/hooks-index.md).
+The full Swaps API surface (quote, allowance, approve, create/submit/cancel intent, fees, gas, …) is wrapped one hook per endpoint under the `useSwapsApi*` prefix — see [hooks-index.md](../reference/hooks-index.md).
 
 ## Track Intent
 
@@ -95,6 +102,41 @@ function Orderbook() {
 }
 ```
 
+## Oracle Candles
+
+```tsx
+import { useState } from 'react';
+import { useBackendOracleCandles, useBackendOracleMarkets } from '@sodax/dapp-kit';
+
+function DailyEthCandles() {
+  const { data: markets, isLoading } = useBackendOracleMarkets();
+  // `from`/`to` are UNIX seconds over the half-open range [from, to), at most 5000 buckets.
+  // Hold the window end in state: deriving it from `Date.now()` during render changes the query
+  // key on every render that crosses a second boundary, so the query refetches from scratch.
+  const [to, setTo] = useState(() => Math.floor(Date.now() / 1000));
+  const { data } = useBackendOracleCandles({
+    params: { symbol: 'ETH', interval: '1d', from: to - 30 * 86400, to },
+  });
+
+  if (isLoading) return <div>Loading...</div>;
+  if (!markets?.symbols.includes('ETH')) return <div>No ETH candle data</div>;
+  return (
+    <>
+      <button type="button" onClick={() => setTo(Math.floor(Date.now() / 1000))}>
+        Refresh
+      </button>
+      <ul>
+        {data?.candles.map(candle => (
+          <li key={candle.timestamp}>
+            O {candle.open} H {candle.high} L {candle.low} C {candle.close}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+```
+
 ## Money Market Dashboard
 
 ```tsx
@@ -136,7 +178,7 @@ import type { SubmitTxRequestV2 } from '@sodax/sdk';
 
 function SubmitButton({ request, baseURL }: { request: SubmitTxRequestV2; baseURL: string }) {
   const { mutateAsync: submitSwapTx, isPending } = useSwapsApiSubmitTx({
-    mutationOptions: { retry: 5 }, // overrides default retry: 3
+    mutationOptions: { retry: 5 }, // overrides the default `retryUnlessAuthFailure` (3 retries, never on 401/403)
   });
 
   const handleSubmit = async () => {
@@ -151,7 +193,7 @@ function SubmitButton({ request, baseURL }: { request: SubmitTxRequestV2; baseUR
 }
 ```
 
-Poll the processing status with `useSwapsApiSubmitTxStatus` — it requires **both** `txHash` and `srcChainKey` (the v2 status endpoint needs the source chain key) and stops polling on `solved` / `failed`:
+Poll the processing status with `useSwapsApiSubmitTxStatus` — it requires **both** `txHash` and `srcChainKey` (the status endpoint needs the source chain key) and stops polling on `solved` / `failed`:
 
 ```tsx
 import { useSwapsApiSubmitTxStatus } from '@sodax/dapp-kit';

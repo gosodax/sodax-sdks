@@ -1,0 +1,191 @@
+{
+  "note": "src is the file authored in this repo; dest is its page path under docs/ (the docs.sodax.com site root). pnpm docs:sync-pages generates docs/<dest> from each src whose home is a package; title overrides the source H1 as the sidebar label. A src already under docs/ is the page itself, so it is listed for link checking only and needs no title or icon. pkgs: [\"<package-dir>\", …] declares which packages a page documents.",
+  "unpublishedNote": "packages/sdk/docs/ pages that deliberately do not publish yet. Docs Drift requires every new page there to be on one of the two lists, so this is where a page waits until publishing it is ready to be its own change. Editing one is not a Docs Drift signal.",
+  "sourceRepo": "icon-project/sodax-sdks",
+  "unpublished": [
+    "packages/sdk/docs/DEX.md",
+    "packages/sdk/docs/SPONSORING.md",
+    "packages/sdk/docs/SWAPS_API.md",
+    "packages/sdk/docs/BRIDGE_API.md",
+    "packages/sdk/docs/LEVERAGE_YIELD_API.md",
+    "packages/sdk/docs/ORACLE.md",
+    "packages/sdk/docs/ARCHITECTURE_REFACTOR_SUMMARY.md",
+    "packages/sdk/docs/RECOVERY.md"
+  ],
+  "mirrored": [
+    {
+      "src": "packages/sdk/README.md",
+      "dest": "developers/packages/foundation/sdk/index.md",
+      "icon": "cup-straw"
+    },
+    {
+      "src": "packages/swaps-api/README.md",
+      "dest": "developers/packages/foundation/swaps-api.md",
+      "icon": "code"
+    },
+    {
+      "src": "packages/bridge-api/README.md",
+      "dest": "developers/packages/foundation/bridge-api.md",
+      "icon": "code"
+    },
+    {
+      "src": "packages/sdk/docs/SWAPS.md",
+      "dest": "developers/packages/foundation/sdk/functional-modules/swaps.md",
+      "title": "Swaps",
+      "icon": "rotate"
+    },
+    {
+      "src": "packages/sdk/docs/MONEY_MARKET.md",
+      "dest": "developers/packages/foundation/sdk/functional-modules/money_market.md",
+      "icon": "money-bill-trend-up"
+    },
+    {
+      "src": "packages/sdk/docs/BRIDGE.md",
+      "dest": "developers/packages/foundation/sdk/functional-modules/bridge.md",
+      "title": "Bridge",
+      "icon": "bridge-suspension"
+    },
+    {
+      "src": "packages/sdk/docs/STAKING.md",
+      "dest": "developers/packages/foundation/sdk/functional-modules/staking.md",
+      "title": "Staking",
+      "icon": "piggy-bank"
+    },
+    {
+      "src": "packages/sdk/docs/MIGRATION.md",
+      "dest": "developers/packages/foundation/sdk/functional-modules/migration.md",
+      "icon": "truck"
+    },
+    {
+      "src": "packages/sdk/docs/LEVERAGE_YIELD.md",
+      "dest": "developers/packages/foundation/sdk/functional-modules/leverage_yield.md",
+      "title": "Leverage Yield",
+      "icon": "chart-line"
+    },
+    {
+      "src": "packages/sdk/docs/LEVERAGE_YIELD_APR.md",
+      "dest": "developers/packages/foundation/sdk/functional-modules/leverage_yield_apr.md",
+      "icon": "percent"
+    },
+    {
+      "src": "packages/sdk/docs/BACKEND_API.md",
+      "dest": "developers/packages/foundation/sdk/tooling-modules/backend_api.md",
+      "title": "Backend API",
+      "icon": "plug"
+    },
+    {
+      "src": "packages/sdk/docs/INTENT_RELAY_API.md",
+      "dest": "developers/packages/foundation/sdk/tooling-modules/intent_relay_api.md",
+      "title": "Intent Relay API",
+      "icon": "tower-broadcast"
+    },
+    {
+      "src": "packages/sdk/docs/CONFIGURE_SDK.md",
+      "dest": "developers/how-to/configure_sdk.md",
+      "icon": "gears"
+    },
+    {
+      "src": "packages/sdk/docs/LOGGING.md",
+      "dest": "developers/how-to/logging.md",
+      "title": "Logging",
+      "icon": "file-lines"
+    },
+    {
+      "src": "packages/sdk/docs/ESTIMATE_GAS.md",
+      "dest": "developers/how-to/estimate_gas.md",
+      "title": "Estimate Gas",
+      "icon": "gauge"
+    },
+    {
+      "src": "packages/sdk/docs/HOW_TO_MAKE_A_SWAP.md",
+      "dest": "developers/how-to/how_to_make_a_swap.md",
+      "title": "Make a swap (SDK)",
+      "icon": "list-check"
+    },
+    {
+      "src": "packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md",
+      "dest": "developers/how-to/migrate_swap_to_submit_tx.md",
+      "title": "Migrate a manual swap to submit-tx",
+      "icon": "rotate"
+    },
+    {
+      "src": "packages/sdk/docs/MONETIZE_SDK.md",
+      "dest": "developers/how-to/monetize_sdk.md",
+      "icon": "sack-dollar"
+    },
+    {
+      "src": "packages/sdk/docs/WALLET_PROVIDERS.md",
+      "dest": "developers/how-to/wallet_providers.md",
+      "icon": "wallet"
+    },
+    {
+      "src": "packages/sdk/docs/STELLAR_TRUSTLINE.md",
+      "dest": "developers/how-to/stellar_trustline.md",
+      "icon": "star"
+    },
+    {
+      "src": "packages/sdk/docs/RELAYER_API_ENDPOINTS.md",
+      "dest": "developers/deployments/relayer-api-endpoints.md",
+      "icon": "network-wired"
+    },
+    {
+      "src": "packages/sdk/docs/SOLVER_API_ENDPOINTS.md",
+      "dest": "developers/deployments/solver-api-endpoints.md",
+      "icon": "handshake"
+    },
+    {
+      "src": "packages/sdk/docs/installation/nextjs.md",
+      "dest": "developers/packages/sdk/docs/installation/nextjs.md",
+      "icon": "download"
+    },
+    {
+      "src": "packages/sdk/docs/BITCOIN_INTEGRATION.md",
+      "dest": "developers/how-to/bitcoin-integration.md",
+      "icon": "bitcoin-sign"
+    },
+    {
+      "src": "docs/developers/how-to/stellar-sponsoring-getting-started.md",
+      "dest": "developers/how-to/stellar-sponsoring-getting-started.md",
+      "pkgs": ["sdk", "dapp-kit"]
+    },
+    {
+      "src": "docs/developers/how-to/quick-sponsoring-stellar-guide.md",
+      "dest": "developers/how-to/quick-sponsoring-stellar-guide.md",
+      "pkgs": ["sdk", "dapp-kit"]
+    },
+    {
+      "src": "docs/developers/deployments/mainnet.md",
+      "dest": "developers/deployments/mainnet.md",
+      "pkgs": ["types"]
+    },
+    {
+      "src": "docs/developers/deployments/swaps-compatible-assets.md",
+      "dest": "developers/deployments/swaps-compatible-assets.md",
+      "pkgs": ["types", "sdk"]
+    },
+    {
+      "src": "docs/ai-integration-guide.md",
+      "dest": "ai-integration-guide.md"
+    },
+    {
+      "src": "packages/wallet-sdk-core/README.md",
+      "dest": "developers/packages/connection/wallet-sdk-core.md",
+      "icon": "wallet"
+    },
+    {
+      "src": "packages/wallet-sdk-react/README.md",
+      "dest": "developers/packages/connection/wallet-sdk-react.md",
+      "icon": "atom"
+    },
+    {
+      "src": "packages/dapp-kit/README.md",
+      "dest": "developers/packages/experience/dapp-kit.md",
+      "icon": "layer-group"
+    },
+    {
+      "src": "packages/skills/README.md",
+      "dest": "developers/packages/experience/skills.md",
+      "icon": "graduation-cap"
+    }
+  ]
+}

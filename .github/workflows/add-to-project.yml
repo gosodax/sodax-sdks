@@ -1,0 +1,66 @@
+name: Add to Project
+
+on:
+  issues:
+    types:
+      - opened
+      - reopened
+      - transferred
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number }}
+
+permissions: {}
+
+env:
+  PROJECT_URL: https://github.com/orgs/icon-project/projects/12
+  PROJECT_ID: PVT_kwDOAikF3s4AvJ_D
+  STREAM_FIELD_ID: PVTSSF_lADOAikF3s4AvJ_Dzgn3ZhA
+  STREAM_SDK_OPTION_ID: 76c54170
+
+jobs:
+  main:
+    name: Add issue to board
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      # The repo is public: only issues opened, reopened or transferred by a writer reach the board.
+      - name: Require write access from the sender
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SENDER: ${{ github.event.sender.login }}
+        run: |
+          set -euo pipefail
+          permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$SENDER/permission" --jq .permission)
+          case "$permission" in
+            admin | maintain | write) echo 'allowed=true' >> "$GITHUB_OUTPUT" ;;
+            *) echo "$SENDER has $permission access: not adding to the board." ;;
+          esac
+
+      # PROJECT_TOKEN needs the org `project` scope; GITHUB_TOKEN cannot write org projects.
+      - name: Add to project 12
+        id: add
+        if: steps.gate.outputs.allowed == 'true'
+        uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
+        with:
+          project-url: ${{ env.PROJECT_URL }}
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+
+      - name: Set Stream = SDK
+        if: steps.gate.outputs.allowed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          ITEM_ID: ${{ steps.add.outputs.itemId }}
+        run: |
+          set -euo pipefail
+          gh api graphql \
+            -f query='mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+              updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field, value: {singleSelectOptionId: $option}}) {
+                projectV2Item { id }
+              }
+            }' \
+            -f project="$PROJECT_ID" \
+            -f item="$ITEM_ID" \
+            -f field="$STREAM_FIELD_ID" \
+            -f option="$STREAM_SDK_OPTION_ID"

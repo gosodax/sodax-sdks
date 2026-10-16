@@ -1,0 +1,9 @@
+# Everything else in this directory is published on docs.sodax.com, whether or not docs.json
+# links to it. Syntax and semantics: https://www.mintlify.com/docs/organize/mintignore
+
+# Authoring guidance (Mintlify's defaults already skip README.md; kept for explicitness).
+README.md
+AGENTS.md
+
+# Contributor workflow, not product documentation.
+local-package-testing.md

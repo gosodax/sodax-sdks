@@ -1,6 +1,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { GetBridgeTokensResponseV2, RequestOverrideConfig } from '@sodax/sdk';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { retryUnlessAuthFailure } from '../shared/retryUnlessAuthFailure.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 import type { ReadHookParams } from '../shared/types.js';
 
@@ -29,7 +30,7 @@ export const useBridgeApiTokens = ({
   return useQuery<GetBridgeTokensResponseV2, Error>({
     queryKey: ['bridgeApi', 'tokens'],
     queryFn: async (): Promise<GetBridgeTokensResponseV2> => unwrapResult(await sodax.api.bridge.getTokens(apiConfig)),
-    retry: 3,
+    retry: retryUnlessAuthFailure,
     ...queryOptions,
   });
 };

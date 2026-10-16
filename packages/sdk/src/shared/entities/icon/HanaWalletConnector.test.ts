@@ -15,7 +15,7 @@ describe('HanaWalletConnector — ICONEX relay helpers (WALLET-L-1)', () => {
 
   function onRequest(reply: (detail: any) => void) {
     win.addEventListener('ICONEX_RELAY_REQUEST', (event: Event) => {
-      reply((event as any).detail);
+      reply((event as CustomEvent).detail);
     });
   }
 
@@ -76,7 +76,7 @@ describe('HanaWalletConnector — ICONEX relay helpers (WALLET-L-1)', () => {
     // first response would resolve BOTH promises).
     const dispatched: string[] = [];
     win.addEventListener('ICONEX_RELAY_REQUEST', (event: Event) => {
-      const d = (event as any).detail;
+      const d = (event as CustomEvent).detail;
       if (d.type === 'REQUEST_SIGNING') dispatched.push(d.payload.hash);
     });
 

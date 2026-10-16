@@ -1,6 +1,6 @@
 ---
 name: sodax-wallet-sdk-core
-description: 'Sign and broadcast SODAX transactions from a backend, script, CI, bot, or non-React app with @sodax/wallet-sdk-core — one wallet-provider class per chain family (EVM, Solana, Sui, Bitcoin, Stellar, ICON, Injective, NEAR, Stacks). INTEGRATION (write NEW code) — the low-level multi-chain wallet layer (one provider class per chain family across 9 chain types). Each class accepts either a private-key config (Node scripts, CI, bots, indexers) or a browser-extension config (custom non-React browser flows) and signs + broadcasts transactions. Use whenever a backend, script, test, or non-React browser flow needs to instantiate a wallet provider directly — `EvmWalletProvider`, `SolanaWalletProvider`, etc. Triggers on "instantiate EvmWalletProvider", "sign a tx from a Node script", "wallet provider for backend", "private-key signing", "wallet-sdk-core setup", any `*WalletProvider` class name. For React dapps prefer `sodax-wallet-sdk-react` instead — most React consumers never touch this package directly and get a typed `IXxxWalletProvider` via `useWalletProvider(...)`. MIGRATION (port v1 → v2) — v1 → v2 changes are additive (same class names, same config-type names, same config shapes). The only mechanical migration is replacing deep imports from v1''s flat `wallet-providers/<chain>.ts` layout with barrel imports, plus optionally adopting the new `defaults` field and re-imported library types. Triggers on imports from `@sodax/wallet-sdk-core/wallet-providers/…`, bumping from an older RC, or adopting new additive `defaults` / `*WalletDefaults` / `*Policy` fields. Most projects don''t need a wallet-sdk-core migration — the real migration target is usually `@sodax/sdk` or `@sodax/types`. Load this skill if EITHER applies; the body gates by mode.'
+description: 'Sign and broadcast SODAX transactions from a backend, script, CI, bot, or non-React app with @sodax/wallet-sdk-core — one wallet-provider class per chain family (EVM, Solana, Sui, Bitcoin, Stellar, ICON, Injective, NEAR, Stacks). INTEGRATION (write NEW code) — each class accepts a private-key config (Node scripts, CI, bots, indexers) or a browser-extension config (custom non-React browser flows). Use whenever non-React code must instantiate a wallet provider directly. Triggers on "instantiate EvmWalletProvider", "sign a tx from a Node script", "wallet provider for backend", "private-key signing", "wallet-sdk-core setup", any `*WalletProvider` class name. For React dapps prefer `sodax-wallet-sdk-react` — React consumers get a typed `IXxxWalletProvider` via `useWalletProvider(...)`. MIGRATION (port v1 → v2) — changes are additive (same class, config-type and config-shape names). The only mechanical step is replacing deep imports from v1''s flat `wallet-providers/<chain>.ts` layout with barrel imports, plus optionally adopting the new `defaults` field and re-imported library types. Triggers on imports from `@sodax/wallet-sdk-core/wallet-providers/…`, bumping from an older RC, or adopting `defaults` / `*WalletDefaults` / `*Policy` fields. Most projects need no wallet-sdk-core migration — the real target is usually `@sodax/sdk` or `@sodax/types`. Load this skill if EITHER applies; the body gates by mode.'
 license: MIT
 metadata:
   version: '0.0.1'
@@ -18,6 +18,24 @@ AGENTS.md routes you here when you're working with `@sodax/wallet-sdk-core` v2 �
 
 For React consumers → use `sodax-wallet-sdk-react` (they get the typed wallet provider via `useWalletProvider(...)` and pass it to `@sodax/sdk` calls).
 
+## Prefer a granular skill if the chain is known
+
+If the task targets one chain family, load its granular skill instead of this broad one. It covers that provider's config, methods and gotchas, for both integration and migration.
+
+| Chain family | Granular skill | Trigger phrases |
+|---|---|---|
+| EVM (Sonic hub + every EVM spoke) | [`./evm/SKILL.md`](./evm/SKILL.md) | "instantiate EvmWalletProvider", "viem wallet for Sonic / Base / Arbitrum" |
+| Solana | [`./solana/SKILL.md`](./solana/SKILL.md) | "SolanaWalletProvider", "sign a Solana tx from Node" |
+| Sui | [`./sui/SKILL.md`](./sui/SKILL.md) | "SuiWalletProvider", "Sui signing from a script" |
+| Bitcoin (PSBT) | [`./bitcoin/SKILL.md`](./bitcoin/SKILL.md) | "BitcoinWalletProvider", "sign a PSBT" |
+| Stellar | [`./stellar/SKILL.md`](./stellar/SKILL.md) | "StellarWalletProvider", "Stellar signing from a backend" |
+| ICON | [`./icon/SKILL.md`](./icon/SKILL.md) | "IconWalletProvider", "Hana wallet relay" |
+| Injective | [`./injective/SKILL.md`](./injective/SKILL.md) | "InjectiveWalletProvider", "Injective MsgBroadcaster" |
+| NEAR | [`./near/SKILL.md`](./near/SKILL.md) | "NearWalletProvider", "NEAR signing from Node" |
+| Stacks | [`./stacks/SKILL.md`](./stacks/SKILL.md) | "StacksWalletProvider", "Stacks signing from a script" |
+
+Load this broad skill (keep reading below) when the task spans several chain families or the chain is undecided.
+
 ---
 
 ## Integration mode (writing new v2 code)
@@ -33,7 +51,7 @@ Direct usage of `@sodax/wallet-sdk-core` is the right choice for:
 1. Read [`integration/knowledge/ai-rules.md`](./integration/knowledge/ai-rules.md) — DO / DON'T + workflow + stop conditions.
 2. Read [`integration/knowledge/architecture.md`](./integration/knowledge/architecture.md) — mental model: `BaseWalletProvider`, dual-config discriminants (Bitcoin/Stellar via an explicit `type` field, every other chain via field presence), shallow `defaults` merge, library-exports.
 3. Read [`integration/knowledge/quickstart.md`](./integration/knowledge/quickstart.md) — copy-paste minimal example for the chain you need.
-4. For your chain, read [`integration/knowledge/features/`](./integration/knowledge/features/) — per-chain config table + methods + gotchas (one file per chain family).
+4. For your chain, read [`integration/knowledge/features/`](./integration/knowledge/features/) — per-chain config table + methods + gotchas, one file per chain family: `evm.md`, `solana.md`, `sui.md`, `bitcoin.md`, `stellar.md`, `icon.md`, `injective.md`, `near.md`, `stacks.md`.
 5. Task-specific recipes → [`integration/knowledge/recipes/`](./integration/knowledge/recipes/) — `setup-private-key.md`, `setup-browser-extension.md`, `sign-and-broadcast.md`, `defaults-and-overrides.md`, `library-exports.md`, `bridge-to-sdk.md` (pass provider to `@sodax/sdk`).
 6. Lookups → [`integration/knowledge/reference/`](./integration/knowledge/reference/) — public API, provider classes, interfaces (`IXxxWalletProvider`), chain support, glossary.
 

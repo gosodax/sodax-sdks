@@ -99,7 +99,6 @@ Type-only (selected examples):
 ```ts
 import type {
   WalletClient, PublicClient, TransactionReceipt,   // from viem
-  SuiTransactionBlockResponseOptions,                // from @mysten/sui
   Commitment, ConnectionConfig, SendOptions,         // from @solana/web3.js
   Network, ChainId, EvmChainId, MsgBroadcaster,      // from @injectivelabs/*
   ClarityValue, PostConditionModeName,               // from @stacks/transactions

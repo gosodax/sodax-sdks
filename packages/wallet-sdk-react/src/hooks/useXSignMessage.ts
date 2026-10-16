@@ -14,16 +14,16 @@ export type XSignMessageVariables = {
  * `ChainActions.signMessage` — registered per chain by the `chainRegistry` (non-provider
  * chains) or by the `<Chain>Actions` component (provider-managed chains).
  *
- * The signature shape varies by chain: hex `\`0x${string}\`` for EVM, `Uint8Array` for
- * Solana, base64 `string` for Stellar/Sui, etc. Branch on `xChainType` when consuming.
+ * The signature shape varies by chain: hex `\`0x${string}\`` for EVM, base64 `string` for
+ * Stellar/Solana/Sui, etc. Branch on `xChainType` when consuming.
  *
  * **Bitcoin auto-selects** between BIP-322 (P2WPKH/P2TR) and ECDSA (P2SH/P2PKH) based
  * on the connected address type — same dispatch logic as the SDK's
- * `BitcoinSpokeProvider.authenticateWithWallet`.
+ * `RadfiProvider.authenticateWithWallet`.
  *
  * **Returns `undefined`** when the chain doesn't implement `signMessage` — currently
- * only ICON (Hana wallet exposes no signing API). A one-time `console.warn` accompanies
- * the `undefined`.
+ * ICON (Hana wallet exposes no signing API), NEAR and Stacks. A `console.warn`
+ * accompanies each such call; there is no dedupe.
  *
  * @see {@link https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SIGN_MESSAGE.md | Sign Message}
  */

@@ -10,6 +10,7 @@ For narrative + step-by-step explanation, see [`../recipes/`](../recipes/). Exam
 | [`02-multi-chain-modal.tsx`](./02-multi-chain-modal.tsx) | Headless wallet modal with chain → connector → connecting flow | ~120 |
 | [`03-nextjs-app-router.tsx`](./03-nextjs-app-router.tsx) | Next.js 15 App Router setup (SSR + `'use client'`) | ~60 |
 | [`04-walletconnect-setup.tsx`](./04-walletconnect-setup.tsx) | WalletConnect connector setup (with optional single-wallet filter) | ~50 |
+| [`05-privy-email-login.tsx`](./05-privy-email-login.tsx) | Privy email login (`EVM.privy`), hiding the modal during Privy's login, a dialog that survives Privy's screens. Also needs `@privy-io/react-auth` 3.40+ | ~150 |
 
 ## Conventions
 

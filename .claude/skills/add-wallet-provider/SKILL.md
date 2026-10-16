@@ -47,6 +47,9 @@ The wallet layer is two independent slices: **wallet-sdk-core** signs/broadcasts
 
 See `wallet-sdk-core/AGENTS.md` → "Adding a New Chain Provider" / "Config variants" for the full provider shape.
 
+## Docs
+Docs Drift CI fails unless a related publishable site surface changed with `src/`. Update `packages/wallet-sdk-react/docs/` (Case A) or `packages/wallet-sdk-core/README.md` (Case B). If `packages/types/src` changed too, note that neither of those covers it — update a mapped `packages/sdk/docs/` page such as `WALLET_PROVIDERS.md`, since the `types` README passes the gate but does not publish. JSDoc is not enough. If you add a brand-new published page, add it to `scripts/docs-pages-map.json` and give it a nav entry in `docs/docs.json`, or it is live but absent from the sidebar and search; a page not ready to go live goes on the map's `unpublished` list instead. `packages/skills` is partner-agent docs (how integrators connect/sign) — update it when that public surface changed, then run `pnpm check:ai`; it does not satisfy Docs Drift. An unrelated mapped file (for example `packages/skills/README.md`) does not satisfy a wallet-package source change.
+
 ## Verify
 - Case A: `cd packages/wallet-sdk-react && pnpm test && pnpm checkTs`. Case B: `cd packages/wallet-sdk-core && pnpm test && pnpm checkTs`.
 - Confirm the connector base's abstract method set in `src/xchains/<chain>/<Chain>XConnector.ts` before implementing — it differs by family.

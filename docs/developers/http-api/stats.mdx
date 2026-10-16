@@ -1,0 +1,202 @@
+---
+title: "Protocol stats API"
+sidebarTitle: "Protocol stats"
+icon: chart-simple
+description: "Headline SODAX metrics over HTTP — networks, partners, supported assets, filled-intent volume, and SODA supply."
+---
+
+Unauthenticated `GET`s for dashboards, marketing sites, partner portals, or analytics jobs. There is **no single “TVL” endpoint** — compose metrics from the surfaces below.
+
+## Base URL
+
+```
+https://api.sodax.com/v1/be
+```
+
+All paths below are relative to that prefix.
+
+## Summary
+
+| Metric | Endpoint | Response | How to use |
+|--------|----------|----------|------------|
+| Integrated networks | `GET /config/spoke/chains` | `string[]` | `length` |
+| Partner receivers | `GET /partners` | `{ partners: string[] }` | `partners.length` |
+| Swap-supported assets | `GET /config/swap/tokens` | `Record<chainKey, Token[]>` | see below |
+| Money-market assets | `GET /config/money-market/tokens` | `Record<chainKey, Token[]>` | same shapes |
+| Filled-intent count | `GET /solver/volume/stats` | `{ filledCount: number }` | use as-is |
+| Filled-intent feed | `GET /solver/volume` | cursor page | analytics export |
+| Total SODA supply | `GET /sodax/total_supply` | string | use as-is |
+| Circulating SODA | `GET /sodax/circulating_supply` | string | use as-is |
+| Full supply doc | `GET /sodax/supply` | object | both + metadata |
+| Partner fee/volume | `GET /partners/:receiver/summary` | object | per-partner |
+
+---
+
+## Integrated networks
+
+```http
+GET /v1/be/config/spoke/chains
+```
+
+```bash
+curl -s 'https://api.sodax.com/v1/be/config/spoke/chains'
+```
+
+```json
+["0xa86a.avax", "sonic", "0x2105.base", "…"]
+```
+
+- **Count** = `response.length`.
+- Richer per-chain config (names, RPCs, contracts):  
+  `GET /v1/be/config/spoke/all-chains-configs`.
+
+---
+
+## Partner integrations
+
+```http
+GET /v1/be/partners
+```
+
+```json
+{ "partners": ["0xabc…", "0xdef…", "…"] }
+```
+
+- **Count** = `response.partners.length`.
+- Optional filter: `?chainId=<id>` for partners active on one chain.
+
+### Per-partner summary
+
+```http
+GET /v1/be/partners/:receiver/summary
+```
+
+Returns fee and volume rollups for a fee-receiver address (useful for partner dashboards). Pair with the [Monetize SDK](/developers/how-to/monetize_sdk) for on-chain fee claim flows.
+
+---
+
+## Supported assets
+
+Pick the set that matches what you are counting:
+
+| Set | Endpoint | Meaning |
+|-----|----------|---------|
+| Swap tokens | `GET /config/swap/tokens` | Tokens available for cross-network swaps |
+| Money-market tokens | `GET /config/money-market/tokens` | Tokens in the money market |
+| Hub assets | `GET /config/hub/assets` | Spoke tokens as represented on the Sonic hub |
+
+**Swap / money-market shape** — `Record<chainKey, Token[]>`:
+
+```json
+{
+  "sonic": [
+    { "symbol": "USDC", "address": "0x…", "decimals": 6 }
+  ],
+  "0xa86a.avax": [
+    { "symbol": "AVAX", "address": "0x…", "decimals": 18 }
+  ]
+}
+```
+
+Two legitimate counts — choose deliberately and label them in UI:
+
+```ts
+// Per-chain instances (USDC on 5 chains → counts as 5)
+const instanceCount = Object.values(tokens).flat().length;
+
+// Distinct symbols across all chains
+const distinctSymbols = new Set(
+  Object.values(tokens).flat().map((t) => t.symbol)
+).size;
+```
+
+**Hub assets** — `Record<chainKey, Record<assetAddress, HubAsset>>`:
+
+```ts
+const hubAssetCount = Object.values(hub).reduce(
+  (n, m) => n + Object.keys(m).length,
+  0
+);
+```
+
+---
+
+## Filled-intent volume
+
+### Headline count
+
+```http
+GET /v1/be/solver/volume/stats
+```
+
+```bash
+curl -s 'https://api.sodax.com/v1/be/solver/volume/stats'
+# → { "filledCount": 147107 }
+```
+
+| Field | Meaning |
+|-------|---------|
+| `filledCount` | Approximate number of **fill records** in the volume store |
+
+**What it is not:** a count of distinct intent hashes.
+
+- Partial fills produce one record per fill event.
+- The same `intentHash` can appear for different intent instances over time; a distinct-hash count would under-count.
+
+The figure is backed by a cheap collection-metadata estimate (cached ~60s). In normal operation it matches the true count; it can briefly diverge after unusual DB events. Safe to poll for a dashboard ticker.
+
+### Paginated feed
+
+```http
+GET /v1/be/solver/volume
+```
+
+Returns a keyset-paginated list `{ items, nextCursor, hasMore }` of filled-intent events. There is **no** total on this feed — use `/volume/stats` for the headline number.
+
+### Per-intent history
+
+```http
+GET /v1/be/solver/intents/:intentHash?includeAll=true
+```
+
+→ `{ items, count }` for all stored fill records for that hash.
+
+---
+
+## SODA supply
+
+```http
+GET /v1/be/sodax/total_supply
+GET /v1/be/sodax/circulating_supply
+GET /v1/be/sodax/supply
+```
+
+```bash
+curl -s 'https://api.sodax.com/v1/be/sodax/total_supply'
+# → 1499655823.120187263279086593
+```
+
+- Single-field endpoints return a **stringified number**.
+- `/supply` returns the full document when you need both figures plus metadata in one call.
+- The figure is **fractional**, so it is not `BigInt`-parseable: `BigInt("1499655823.120187263279086593")` throws a `SyntaxError`, and `Number()` silently truncates it to `1499655823.1201873`. Keep it as a string for display, or parse it with a decimal library.
+
+Suitable for CoinGecko-style listings and public dashboards.
+
+---
+
+## Related reads (not headline stats)
+
+| Endpoint | Use |
+|----------|-----|
+| `GET /v1/be/solver/orderbook` | Open intents |
+| `GET /v1/be/moneymarket/*` | Reserve / position data for deeper MM analytics |
+| `GET /v1/a/*` | Sonic data backend (pools, prices, volume series) — separate prefix |
+| `GET /v1/be/oracle/markets` | Candle-backed symbol list for price UIs — see [Oracle](/developers/http-api/oracle) |
+
+---
+
+## Caching & errors
+
+- Stats reads are server-cached (order of seconds to ~60s depending on endpoint).
+- Invalid paths → edge `{ "ok": false, "error": "route_not_found" }`.
+- No authentication for the endpoints on this page.

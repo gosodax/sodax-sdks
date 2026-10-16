@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { calcOpReturnOutputVbytes, estimateBitcoinTxSize, normalizeSignatureToBase64 } from './btc-utils.js';
+import {
+  type BtcPayload,
+  calcOpReturnOutputVbytes,
+  encodeBtcPayloadToBytes,
+  estimateBitcoinTxSize,
+  normalizeSignatureToBase64,
+} from './btc-utils.js';
 
 describe('calcOpReturnOutputVbytes', () => {
   // Formula: script = OP_RETURN(1) + OP_12(1) + pushdata_overhead + payload
@@ -94,5 +100,65 @@ describe('normalizeSignatureToBase64', () => {
   // A private-key wallet may hand back a hex signature; it is encoded to base64 before relay submit.
   it('encodes a hex signature to base64', () => {
     expect(normalizeSignatureToBase64('deadbeef')).toBe('3q2+7w==');
+  });
+});
+
+describe('encodeBtcPayloadToBytes', () => {
+  const base: BtcPayload = {
+    src_address: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+    data: '0xDEADBEEF',
+    src_chain_id: 1,
+    dst_chain_id: 2,
+    wallet_used: 'USER',
+    timestamp: 1756280000000,
+    address_type: 'P2WPKH',
+  };
+
+  // Base58Check is case-sensitive: lowercasing a P2PKH/P2SH address breaks its checksum and
+  // no longer names the signer's address, so the relay-side verifier rejects the payload.
+  it('preserves a case-sensitive P2PKH address exactly', () => {
+    const json = encodeBtcPayloadToBytes({
+      ...base,
+      src_address: '1BoatSLRHtKNngkdXEeobR76b53LETtpyT',
+      address_type: 'P2PKH',
+    });
+    expect(JSON.parse(json).src_address).toBe('1BoatSLRHtKNngkdXEeobR76b53LETtpyT');
+  });
+
+  it('preserves a case-sensitive P2SH address exactly', () => {
+    const json = encodeBtcPayloadToBytes({
+      ...base,
+      src_address: '3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy',
+      address_type: 'P2SH',
+    });
+    expect(JSON.parse(json).src_address).toBe('3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy');
+  });
+
+  // Bech32 is case-insensitive with a lowercase canonical form — normalization stays.
+  it('canonicalizes a bech32 address to lowercase', () => {
+    const json = encodeBtcPayloadToBytes({
+      ...base,
+      src_address: 'BC1QW508D6QEJXTDG4Y5R3ZARVARY0C5XW7KV8F3T4',
+    });
+    expect(JSON.parse(json).src_address).toBe('bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4');
+  });
+
+  it('lowercases hex data for every address type', () => {
+    const p2pkh = encodeBtcPayloadToBytes({ ...base, address_type: 'P2PKH' });
+    expect(JSON.parse(p2pkh).data).toBe('0xdeadbeef');
+    expect(JSON.parse(encodeBtcPayloadToBytes(base)).data).toBe('0xdeadbeef');
+  });
+
+  // The wallet signs this exact string; key order is part of the signed bytes.
+  it('keeps the signed key order stable', () => {
+    expect(Object.keys(JSON.parse(encodeBtcPayloadToBytes(base)))).toEqual([
+      'src_address',
+      'data',
+      'src_chain_id',
+      'dst_chain_id',
+      'wallet_used',
+      'timestamp',
+      'address_type',
+    ]);
   });
 });

@@ -1,0 +1,142 @@
+---
+title: "VibeCode Saga: SodaxPay: cross-chain payment links, vibecoded"
+sidebarTitle: "SodaxPay"
+icon: credit-card
+description: "A weekend build on the SODAX SDK. One link accepts payment from any wallet on 12 networks, the recipient gets exactly what they asked for, and a departures board tracks every intent from signature to settlement."
+---
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.youtube.com/embed/V_uHEmH-Unc"
+  title="SodaxPay demo video"
+  frameBorder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  referrerPolicy="strict-origin-when-cross-origin"
+  allowFullScreen
+></iframe>
+
+## What it is
+
+[SodaxPay](https://sodaxpay.vercel.app) turns one URL into cross-chain payment acceptance. You pick a destination network and token, an amount, a memo. You get a link. Whoever opens it pays with whatever they hold on whatever network they hold it. The recipient receives exactly what they asked for.
+
+Nobody signs up. SodaxPay never holds funds. Every transaction is signed in the payer's own wallet. SodaxPay takes no fee on top; the payer covers network and solver costs.
+
+Four surfaces:
+
+- `/create`: the requester builds a link. Desktop-shaped, deliberate.
+- `/p/[id]`: the payer opens it cold. Often mobile, one shot at credibility.
+- `/activity`: look up a wallet address and see its payment history as Arrivals (money requested to that address) and Departures (links it paid).
+- `/`: the landing page for both audiences.
+
+## The mental model that drove the design
+
+A payment is an itinerary. Origin, transfer at a hub, destination, and a wait in the middle you cannot shorten. The UI is a departures board. Settlement takes tens of seconds, and the design decision is to render the wait as the product rather than hide it behind a spinner.
+
+The board carries all the way through: the landing page lists destinations like a departures screen, and checkout tracks the intent from signature to settlement.
+
+## Real numbers, all read from the live registry
+
+- **21** networks SODAX settles across, as the site reads it from the SDK
+- **12** networks wired in SodaxPay today
+- **164** swap-routable tokens on those 12
+
+Nothing on the board is hardcoded. The landing page regenerates at most once an hour from the registry, so if SODAX adds a network or a token, SodaxPay picks it up without a deploy. Both "settled" and "wired" are printed on the site, because the first grows when SODAX adds a network and the second grows when I wire another wallet adapter family.
+
+## The five SDK pieces that carried this
+
+### 1. A live directory of everything supported
+
+Networks, tokens, and their metadata come from `sodax.config.initialize()` and `sodax.config.getSwapTokensByChainId(key)`. Every number on the site is read this way.
+
+`initialize()` returns a `Result` and never throws. If the live fetch fails, the SDK falls back to the config bundled with the package, so the app always has a usable registry. SodaxPay logs that case so I can see when it happens.
+
+### 2. One wallet system for five blockchain worlds
+
+`@sodax/wallet-sdk-react` puts EVM, Solana, Sui, Stellar, and ICON behind one component and one hook shape:
+
+```tsx
+<SodaxWalletProvider config={walletConfig}>
+  {/* app */}
+</SodaxWalletProvider>
+
+// Anywhere inside:
+const account = useXAccount({ xChainType });
+const connectors = useXConnectors({ xChainType });
+const provider = useWalletProvider({ xChainId });
+```
+
+Anyone who has integrated even two of these families by hand knows what a week that saves. Without it the app would have been a month of adapter plumbing before any real logic.
+
+### 3. Pricing backwards, because invoices fix the output
+
+A normal swap says "here's \$100 of X, what do I get?" Input fixed, output solved. Invoices are the opposite: the recipient must receive exactly 250 USDC, so the output is fixed and the input is what you solve for.
+
+SODAX quotes `exact_input`, and that is all an invoice needs. SodaxPay guesses an input, asks what that produces, rescales, and asks again until two estimates agree (at most three probes), then adds a small slippage buffer. Converging matters: paying a 100 USDC invoice in ETH, a naive first guess would quote 100 ETH.
+
+An exact-output invoice costs the payer a little more than face value (a 1 USDC invoice paid from Solana needs about 1.0088 USDC), so checkout reads the payer's balance first (EVM and Solana today) and, if it is short, disables the button and says how much to add. On other families the check returns "unknown" and never blocks.
+
+### 4. A live progress board from the intent lifecycle
+
+A cross-chain payment is a sequence, and the SDK exposes every step:
+
+```
+createIntent            // 1. submit on the source network
+relayTxAndWaitPacket    // 2. relay to Sonic (the hub), await the packet
+postExecution           // 3. notify the solver
+getStatus               // 4. poll until SolverIntentStatusCode.SOLVED
+```
+
+If you just want the payment done, one call runs the whole lifecycle:
+
+```ts
+await sodax.swaps.swap(params);
+```
+
+SodaxPay drives the four steps itself, because the departures board wants to show the source transaction hash while the relay is still in flight. `lib/pay.ts` runs `createIntent`, then `relayTxAndWaitPacket`, then `postExecution`, then polls `getStatus`, and reports each phase to the UI as it starts. When the source network is Sonic itself, the relay step is skipped, since the source transaction already is the hub transaction.
+
+### 5. Failure recovery that is real
+
+If the relay times out, or the solver cannot fill the order, the funds are not stuck with SodaxPay, because SodaxPay never has them. They are parked at the hub, under the payer's own control. The SDK gives you the tools to show them what is there and let them pull it back themselves:
+
+```ts
+const balances = await sodax.recovery.fetchHubAssetBalances({
+  chainKey, srcAddress,
+});
+// each entry: { balance, spokeTokenAddress, decimal }
+await sodax.recovery.withdrawHubAsset({ params, raw: false, walletProvider });
+```
+
+No support ticket, no operator refund. The recovery panel only appears on a real failure, not on a settlement that happens to run long.
+
+## Two more things that shipped
+
+**Price charts.** The landing page board opens a network row into its token list, and picking a token draws candles inside the board. Checkout charts the token the payer is about to spend, so a solver rate has something to be judged against. Candles come straight from the SODAX oracle REST API. Hub-side wrapper tokens are charted at their underlying asset's price and marked with ≈.
+
+**A Solana RPC proxy.** Payments from Solana go through a same-origin proxy with an allowlist of RPC methods, which also keeps the provider key off the client. The SDK builds its own Solana connection for intent creation, and overriding `chains` in the `Sodax` constructor points it at the proxy. One constructor option, and every Solana call goes where I want.
+
+## What made it easy
+
+- **The wallet layer.** The biggest time saver by a wide margin: five chain families behind one provider and three hooks.
+- **The live registry.** Networks and tokens show up on the site as SODAX adds them.
+- **`Result<T, E>` everywhere.** Nothing throws, so error handling is explicit at every step.
+- **Recovery built in.** "What if it fails" becomes a self-serve button.
+- **Rich errors.** `SodaxError` carries `message`, `cause`, and `context`, which makes logs specific.
+
+## Tips for builders
+
+- Use `swap()` for the full lifecycle; use the step-by-step calls when you want to render live progress.
+- Read SDK responses through their declared types (recovery balances are `{ balance, spokeTokenAddress, decimal }`) rather than casting.
+- For invoices, converge on the input with a few `exact_input` quotes and check the payer's balance before enabling pay.
+
+## What the app deliberately does not do
+
+No testimonials. No logo wall. No volume claims. No press citations. `PRODUCT.md` in the repo says it directly: users, transaction volume, testimonials, customer logos, press, funding, team size, uptime figures, and any partner relationship beyond SODAX do not exist and must never be fabricated. The landing page earns trust on mechanism and craft alone.
+## Stack
+
+Next.js 16 · `@sodax/sdk` 2.0.0 · `@sodax/wallet-sdk-react` 2.0.0 · `@sodax/types` 2.0.0 · Neon Postgres · anime.js · Selawik · DM Mono
+
+## Try it
+
+Live: [sodaxpay.vercel.app](https://sodaxpay.vercel.app)
+
+Repo: currently private. If you want a look at the code, ask.

@@ -1,6 +1,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { IntentExtraDataRequestV2, IntentExtraDataResponseV2, RequestOverrideConfig } from '@sodax/sdk';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { retryUnlessAuthFailure } from '../shared/retryUnlessAuthFailure.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 import type { ReadHookParams } from '../shared/types.js';
 
@@ -35,7 +36,7 @@ export const useSwapsApiIntentExtraData = ({
       return unwrapResult(await sodax.api.swaps.getIntentSubmitTxExtraData(body, apiConfig));
     },
     enabled: !!body && (!!body.txHash || !!body.intent),
-    retry: 3,
+    retry: retryUnlessAuthFailure,
     ...queryOptions,
   });
 };

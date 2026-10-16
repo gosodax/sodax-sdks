@@ -7,7 +7,6 @@ import {
   EvmWalletAbstraction,
   Sodax,
   type SodaxConfig,
-  type SolverConfigParams,
   SpokeService,
   getHubChainConfig,
   getMoneyMarketConfig,
@@ -19,6 +18,7 @@ import { type Address, type Hash, type Hex, toHex } from 'viem';
 import { SONIC_MAINNET_CHAIN_ID, type SpokeChainId, INJECTIVE_MAINNET_CHAIN_ID } from '@sodax/types';
 import dotenv from 'dotenv';
 import { InjectiveWalletProvider } from '@sodax/wallet-sdk-core';
+import { solverConfig } from './config.js';
 import { Network } from '@injectivelabs/networks';
 import type { ChainId } from '@injectivelabs/ts-types';
 dotenv.config();
@@ -62,12 +62,6 @@ const hubConfig = {
 } satisfies EvmHubProviderConfig;
 
 const moneyMarketConfig = getMoneyMarketConfig(HUB_CHAIN_ID);
-
-const solverConfig = {
-  intentsContract: '0x6382D6ccD780758C5e8A6123c33ee8F4472F96ef',
-  solverApiEndpoint: 'https://sodax-solver-staging.iconblockchain.xyz',
-  partnerFee: undefined,
-} satisfies SolverConfigParams;
 
 const sodax = new Sodax({
   swaps: solverConfig,

@@ -40,7 +40,7 @@ The return type is conditional on the source chain's chain family. The concrete 
 
 | Chain family | Type | Notes |
 |---|---|---|
-| EVM (Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera) | `bigint` (`EvmGasEstimate`) | Gas units |
+| EVM (Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood) | `bigint` (`EvmGasEstimate`) | Gas units |
 | EVM hub (Sonic) | `bigint` (`EvmGasEstimate`) | Gas units |
 | Solana | `number \| undefined` (`SolanaGasEstimate`) | Compute units; `undefined` if simulation unavailable |
 | Stellar | `bigint` (`StellarGasEstimate`) | Fee in stroops |
@@ -155,7 +155,7 @@ const supplyResult = await sodax.moneyMarket.createSupplyIntent({
 if (supplyResult.ok) {
   // Step 2: Estimate gas
   const gasResult = await sodax.moneyMarket.estimateGas({
-    tx: supplyResult.value,
+    tx: supplyResult.value.tx,
     chainKey: ChainKeys.ETHEREUM_MAINNET,
   });
 

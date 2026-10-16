@@ -3,6 +3,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
+import { isInPrivyDialog } from '@/privy';
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
 import type { WalletItemProps } from './wallet-item';
 import WalletItem from './wallet-item';
@@ -58,13 +59,20 @@ export const xChainTypes: WalletItemProps[] = [
 export const WalletModal = ({ isOpen, onDismiss }: WalletModalProps) => {
   return (
     <Sheet open={isOpen} onOpenChange={_ => onDismiss()} modal={false}>
-      <SheetContent side={'right'}>
+      <SheetContent
+        side={'right'}
+        className="w-full p-4 sm:w-3/4 sm:max-w-sm sm:p-6"
+        // Privy's login dialog renders outside this sheet; typing into it must not close the sheet mid-connect.
+        onInteractOutside={event => {
+          if (isInPrivyDialog(event.target)) event.preventDefault();
+        }}
+      >
         <VisuallyHidden.Root>
           <SheetTitle>Wallet Modal</SheetTitle>
           <SheetDescription>Wallet Modal</SheetDescription>
         </VisuallyHidden.Root>
-        <div className="mt-10 p-4">
-          <div className={cn('flex flex-col justify-between', 'h-[calc(100vh-290px)]')}>
+        <div className="mt-10 sm:p-4">
+          <div className={cn('flex flex-col justify-between', 'h-[calc(100dvh-8rem)] sm:h-[calc(100vh-290px)]')}>
             <ScrollArea className="h-full">
               <div className="w-full flex flex-col gap-4 mt-2">
                 <Separator className="h-1 bg-[#ffffff59]" />

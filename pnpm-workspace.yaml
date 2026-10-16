@@ -2,6 +2,33 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# Supply-chain cooldown: resolve a version only once it is 14+ days old, so a
+# just-published malicious release never enters the lockfile (audit secrets-supply-chain:M-2).
+minimumReleaseAge: 20160
+# Refuse a release whose npm trust evidence (trusted publisher/provenance) is
+# weaker than an earlier release of the same package.
+trustPolicy: no-downgrade
+# Exact versions only, so an exception lapses as soon as the tree moves off them. Each was
+# checked against the registry: same maintainer account as the provenance-bearing releases,
+# same upstream repo, npm-signed — a release that skipped CI, not a publisher change.
+# One entry per package name — pnpm keeps only the first. Several versions of one
+# package go in a single entry joined with `||`.
+trustPolicyExclude:
+  # Legacy-line backports published after the current major had moved to provenance.
+  - "semver@6.3.1"
+  - "@noble/secp256k1@1.7.2"
+  - "tailwind-merge@2.6.1"
+  - "undici-types@6.19.8 || 6.21.0"
+  - "jose@4.15.9" # via @privy-io/react-auth; 5.x carried provenance first, same maintainer
+  - "ua-parser-js@1.0.41" # via @privy-io/react-auth > react-device-detect; 2.x carried provenance first, same maintainer
+  # Hand-published releases by the package's own long-standing maintainer.
+  - "@noble/curves@1.8.0"
+  - "@noble/hashes@1.7.0"
+  - "chokidar@4.0.3"
+  - "slow-redact@0.3.2"
+# Refuse git/tarball-URL sub-dependencies (registry-only transitive graph).
+blockExoticSubdeps: true
+
 catalog:
   "@types/node": "22.18.1"
   "@types/react": "19.0.8"
@@ -13,14 +40,17 @@ catalog:
   react: "19.1.1"
   react-dom: "19.1.1"
   "icon-sdk-js": "1.5.3"
-  "@vitest/coverage-v8": "3.2.4"
+  "@vitest/coverage-v8": "4.1.11"
   "tsup": "8.5.0"
   "@arethetypeswrong/cli": "0.17.4"
-  "vitest": "3.2.6"
+  "vitest": "4.1.11"
+  vite: "7.3.6"
+  "@vitejs/plugin-react": "5.1.4"
+  "vite-plugin-svgr": "4.5.0"
   "bignumber.js": "9.3.1"
-  "@mysten/sui": "1.21.2"
-  "@mysten/wallet-standard": "0.15.6"
-  "@mysten/dapp-kit": "0.14.18"
+  "@mysten/sui": "2.23.2"
+  "@mysten/wallet-standard": "0.21.13"
+  "@mysten/dapp-kit-react": "2.1.15"
   "@stellar/stellar-sdk": "15.1.0"
   "@injectivelabs/sdk-ts": "1.18.14"
   "@injectivelabs/networks": "1.18.14"
@@ -38,10 +68,13 @@ catalog:
   "@stacks/connect": "8.2.6"
   "near-api-js": "7.2.0"
   "madge": "8.0.0"
-  "knip": "5.30.5"
+  # Held on 5.x: knip 6 resolves the pnpm catalog only from its own cwd, and every package runs
+  # `knip` in its own directory, so 6.x reports all 109 `catalog:` specifiers as unresolved.
+  # Moving to 6 needs a single root-level knip run first.
+  "knip": "5.88.1"
   "tslib": "2.8.1"
   "cross-env": "7.0.3"
-  "valibot": "1.4.1"
+  "valibot": "1.4.2"
   # Pin exact: pancake's parents transitively exact-pin @pancakeswap/swap-sdk-evm,
   # so floating v3-sdk->3.10.1 / infinity-sdk->1.0.9 pulls sdk 5.9.1 -> swap-sdk-evm 1.2.1.
   # Hold at 3.10.0 / 1.0.8 to keep swap-sdk-evm at 1.2.0. Bump all three together.
@@ -56,12 +89,39 @@ overrides:
   "@hpke/core": ">=1.8.0"
   # Pulls valibot forward to a release without the GHSA-q8pj-h94p-6m4r advisory.
   valibot: ">=1.2.0"
-  # Pin to flush out two transitive axios versions resolved by @injectivelabs/*.
-  axios: "1.13.2"
-  # Clears 8 transitive Trezor advisories that resolve protobufjs <7.5.8.
-  protobufjs: "^7.5.8"
-  # Clears a Next.js transitive XSS advisory against postcss <8.5.10.
-  postcss: "^8.5.10"
+  # Pulls fflate forward past the GHSA-px8p-9vwx-vf98 unzipSync loop; only via @arethetypeswrong/core.
+  fflate: ">=0.8.3"
+  # Pin patched axios (1.13.2 sat inside ~29 advisories); only pulled via @injectivelabs/* (^1.13.2).
+  axios: "1.19.0"
+  # Pin patched ws per major (DoS GHSA-96hv-2xvq-fx4p, mem-disclosure GHSA-58qx-3vcg-4xpx).
+  "ws@7": "7.5.13"
+  "ws@8": "8.21.3"
+  # Pin patched protobufjs 7.6.5 (7.6.0 was still in 3 advisory ranges); only via @trezor/protobuf.
+  protobufjs: "7.6.5"
+  # Clears the postcss GHSA-r28c-9q8g-f849 parser advisory; also floors next@16.3.4's copy.
+  postcss: "^8.5.18"
+  # Clears nanoid GHSA-28wg-ghj8-5hjv and GHSA-2v37-7h3g-55p8; reached only via postcss.
+  "nanoid@3": "^3.3.18"
+  # Clears browserslist GHSA-c83g-rgw3-j3cx and GHSA-73wf-gq98-2v4g; via @babel/helper-compilation-targets.
+  browserslist: "^4.28.7"
+  # Clears brace-expansion GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg and GHSA-rgw5-rvv9-x895 per major.
+  # Only the 5.x line resolves today (via minimatch@10); the 2.x floor is a guard if a 2.x consumer returns.
+  "brace-expansion@2": "^2.1.4"
+  "brace-expansion@5": "^5.0.9"
+  # Clears js-yaml GHSA-52cp-r559-cp3m, GHSA-5p4m-2wfm-xmqj and GHSA-2883-xcg3-v3hh; reached via commitlint's cosmiconfig.
+  "js-yaml@4": "^4.3.2"
+  # Clears six fast-uri host-confusion/IDN advisories (GHSA-jqff-g426-hqxp et al); only the 3.x line is in the tree, via ajv.
+  fast-uri: "^3.1.6"
+  # Clears smol-toml GHSA-7w5x-hrqm-74c2; reached only via knip, held on 5.x (see the catalog note).
+  smol-toml: "^1.7.1"
+  # Clears ip-address GHSA-mwp4-54f8-5fhr; via @trezor/blockchain-link -> socks-proxy-agent -> socks (^10.1.1).
+  "ip-address": "^10.3.1"
+  # Clears socket.io-parser GHSA-2m8v-j782-fhvr; via @metamask/sdk -> socket.io-client (~4.2.4).
+  "socket.io-parser": "^4.2.7"
+  # Clears CVE-2026-63376 (__proto__ path desync) in toml <4.1.2. Reached via
+  # @stellar/stellar-sdk's stellartoml, which parses a TOML file fetched from a
+  # remote domain. Held on 4.x: 5.0.0 throws on integers outside the safe range.
+  toml: "^4.1.2"
   # Force every transitive `@tanstack/react-query` to the catalog version.
   # Without this, @mysten/dapp-kit's peer `^5.50.1` can resolve to 5.100.x
   # while demo / wagmi keep 5.87.4 — two React Query contexts in the same

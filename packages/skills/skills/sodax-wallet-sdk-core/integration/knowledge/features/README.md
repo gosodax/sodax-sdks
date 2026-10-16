@@ -11,7 +11,7 @@ One file per chain family. Each file documents:
 |---|---|---|---|
 | [EVM](./evm.md)           | `EvmWalletProvider`       | Field presence (no `type`) | `viem` |
 | [Solana](./solana.md)     | `SolanaWalletProvider`    | Field presence | `@solana/web3.js` |
-| [Sui](./sui.md)           | `SuiWalletProvider`       | Field presence (uses `mnemonics`) | `@mysten/sui` + `@mysten/wallet-standard` |
+| [Sui](./sui.md)           | `SuiWalletProvider`       | Field presence (uses `mnemonics`) | `@mysten/sui` |
 | [Bitcoin](./bitcoin.md)   | `BitcoinWalletProvider`   | Explicit `type` | `bitcoinjs-lib`, `ecpair`, `secp256k1` |
 | [Stellar](./stellar.md)   | `StellarWalletProvider`   | Explicit `type` | `@stellar/stellar-sdk` |
 | [ICON](./icon.md)         | `IconWalletProvider`      | Field presence | `icon-sdk-js` |

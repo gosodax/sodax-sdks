@@ -1,12 +1,12 @@
 ---
 name: sodax-sdk-bridge-api
-description: 'Granular skill for the @sodax/sdk v2 Bridge API client — `sodax.api.bridge` (class BridgeApiService), a typed HTTP client for the backend Bridge API v2 (`/bridge/*`: tokens, allowance/approve, create-bridge-intent, submit-tx + status, fee/bridgeable-amount/bridgeable discovery). Every method returns Promise<Result<T>>, never throws, and validates the response. Use when the task calls the bridge backend directly (e.g. "sodax.api.bridge", "createBridgeIntent via the backend API", "submit bridge tx", "poll bridge submit-tx status", "bridge API v2", "point bridge at a custom endpoint", "bridge.useBackendSubmitTx"). For the higher-level end-to-end bridge orchestrator use the `bridge` skill instead. Skill links into the parent sodax-sdk knowledge tree.'
+description: 'Granular skill for the @sodax/sdk v2 Bridge API client — `sodax.api.bridge` (class BridgeApiService), a typed HTTP client for the backend Bridge API (`/bridge/*`: tokens, allowance/approve, create-bridge-intent, submit-tx + status, fee/bridgeable-amount/bridgeable discovery). Every method returns Promise<Result<T>>, never throws, and validates the response. Use when the task calls the bridge backend directly (e.g. "sodax.api.bridge", "createBridgeIntent via the backend API", "submit bridge tx", "poll bridge submit-tx status", "bridge API v2", "point bridge at a custom endpoint", "bridge.useBackendSubmitTx"). For the higher-level end-to-end bridge orchestrator use the `bridge` skill instead. Skill links into the parent sodax-sdk knowledge tree.'
 ---
 
 # Bridge API (Core SDK granular skill)
 
 Granular skill for `sodax.api.bridge` (class `BridgeApiService`) — the typed HTTP client for the backend
-**Bridge API v2** (`/bridge/*`). `sodax.api` is an alias for `sodax.backendApi`; `.bridge` is the bridge
+**Bridge API** (`/bridge/*`). `sodax.api` is an alias for `sodax.backendApi`; `.bridge` is the bridge
 client. One method per endpoint; every method returns `Promise<Result<T>>` (never throws) and
 validates the response. Errors carry `feature: 'backend'`, `context.api: 'bridge'`, `context.endpoint`.
 

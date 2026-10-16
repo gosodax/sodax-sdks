@@ -4,14 +4,18 @@ import type {
   DepositParams,
   EstimateGasParams,
   GetDepositParams,
+  GetBalanceParams,
+  GetBalancesParams,
   WaitForTxReceiptParams,
   WaitForTxReceiptReturnType,
 } from '../../types/spoke-types.js';
+import type { WalletBalanceMap } from './balance-utils.js';
 import type { ConfigService } from '../../config/ConfigService.js';
 import { sleep } from '../../utils/shared-utils.js';
 import {
   toBase64,
   ChainGrpcWasmApi,
+  IndexerGrpcAccountPortfolioApi,
   TxGrpcApi,
   fromBase64,
   MsgExecuteContract,
@@ -23,6 +27,7 @@ import { TxRaw } from 'cosmjs-types/cosmos/tx/v1beta1/tx.js';
 import { Network, getNetworkEndpoints, type NetworkEndpoints } from '@injectivelabs/networks';
 import {
   getIntentRelayChainId,
+  isNativeToken,
   ChainKeys,
   type InjectiveChainKey,
   type InjectiveRawTransaction,
@@ -110,6 +115,7 @@ const GAS_PRICE_REGEX = /^(\d+)(.*)$/;
 export class InjectiveSpokeService {
   private readonly config: ConfigService;
   public readonly chainGrpcWasmApi: ChainGrpcWasmApi;
+  public readonly indexerGrpcAccountPortfolioApi: IndexerGrpcAccountPortfolioApi;
   public readonly txClient: TxGrpcApi;
   public readonly endpoints: NetworkEndpoints;
   private readonly pollingIntervalMs: number;
@@ -120,6 +126,7 @@ export class InjectiveSpokeService {
     this.config = config;
     this.endpoints = getNetworkEndpoints(Network.Mainnet);
     this.chainGrpcWasmApi = new ChainGrpcWasmApi(this.endpoints.grpc);
+    this.indexerGrpcAccountPortfolioApi = new IndexerGrpcAccountPortfolioApi(this.endpoints.indexer);
     this.txClient = new TxGrpcApi(this.endpoints.grpc);
     this.pollingIntervalMs =
       this.config.sodaxConfig.chains[ChainKeys.INJECTIVE_MAINNET].pollingConfig.pollingIntervalMs;
@@ -218,6 +225,48 @@ export class InjectiveSpokeService {
 
     // TODO: check if this is correct
     return BigInt(fromBase64(response.data as unknown as string) as unknown as number);
+  }
+
+  /**
+   * Get the user's own wallet balance of a token on Injective, in smallest units. On Injective every
+   * asset is a bank coin, so the native coin (`inj`) and factory/peggy/IBC tokens are all read from the
+   * account's portfolio bank balances and matched by denom. The denom is the chain's native denom for
+   * the native coin and `params.token.address` for standard tokens.
+   * @param {GetBalanceParams<InjectiveChainKey>} params - The chain key, user address, and token.
+   * @returns {Promise<bigint>} The token balance in smallest units, or 0n when the account holds none.
+   */
+  public async getWalletBalance(params: GetBalanceParams<InjectiveChainKey>): Promise<bigint> {
+    const denom = isNativeToken(params.srcChainKey, params.token)
+      ? this.config.getChainConfig(params.srcChainKey).nativeToken
+      : params.token.address;
+
+    const portfolio = await this.indexerGrpcAccountPortfolioApi.fetchAccountPortfolioBalances(params.srcAddress);
+    const balance = portfolio.bankBalancesList.find(_balance => _balance.denom === denom);
+
+    return balance ? BigInt(balance.amount) : 0n;
+  }
+
+  /**
+   * Get the user's own wallet balances of multiple tokens on Injective, in smallest units.
+   * @param {GetBalancesParams<InjectiveChainKey>} params - The chain key, user address, and tokens.
+   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
+   */
+  public async getWalletBalances(params: GetBalancesParams<InjectiveChainKey>): Promise<WalletBalanceMap> {
+    const { srcChainKey, srcAddress, tokens } = params;
+    // One portfolio fetch returns every bank balance, so read once and match each token by denom
+    // instead of fanning out a full portfolio request per token. A failure here is batch-wide —
+    // there is no per-token read to isolate — so it propagates to the router.
+    const portfolio = await this.indexerGrpcAccountPortfolioApi.fetchAccountPortfolioBalances(srcAddress);
+    const amountByDenom = new Map(portfolio.bankBalancesList.map(balance => [balance.denom, BigInt(balance.amount)]));
+    const nativeDenom = this.config.getChainConfig(srcChainKey).nativeToken;
+
+    const balances: WalletBalanceMap = {};
+    for (const token of tokens) {
+      const denom = isNativeToken(srcChainKey, token) ? nativeDenom : token.address;
+      // The bank module omits zero-balance denoms, so an absent denom is a confirmed zero.
+      balances[token.address] = amountByDenom.get(denom) ?? 0n;
+    }
+    return balances;
   }
 
   public async getRawTransaction(

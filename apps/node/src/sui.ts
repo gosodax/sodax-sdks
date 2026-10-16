@@ -31,7 +31,7 @@ const IS_TESTNET = process.env.IS_TESTNET === 'true';
 const HUB_RPC_URL = IS_TESTNET ? 'https://rpc.blaze.soniclabs.com' : 'https://rpc.soniclabs.com';
 const HUB_CHAIN_ID = SONIC_MAINNET_CHAIN_ID;
 const SUI_CHAIN_ID = SUI_MAINNET_CHAIN_ID;
-const SUI_RPC_URL = IS_TESTNET ? 'https://sui-testnet-rpc.publicnode.com' : 'https://sui-rpc.publicnode.com';
+const SUI_GRPC_URL = IS_TESTNET ? 'https://fullnode.testnet.sui.io' : 'https://fullnode.mainnet.sui.io';
 
 const hubChainConfig = getHubChainConfig();
 const hubConfig = {
@@ -67,7 +67,7 @@ if (!suiWalletMnemonics) {
   throw new Error('SUI_MNEMONICS environment variable is required');
 }
 const suiWalletProvider = new SuiWalletProvider({
-  rpcUrl: SUI_RPC_URL,
+  grpcUrl: SUI_GRPC_URL,
   mnemonics: suiWalletMnemonics,
 });
 const suiSpokeProvider = new SuiSpokeProvider(suiConfig, suiWalletProvider);

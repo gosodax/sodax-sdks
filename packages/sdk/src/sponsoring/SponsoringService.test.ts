@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { type FeeBumpTransaction, Keypair, Networks, TransactionBuilder } from '@stellar/stellar-sdk';
+import { beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
+import { type FeeBumpTransaction, type Horizon, Keypair, Networks, TransactionBuilder } from '@stellar/stellar-sdk';
 import type { AnalyticsEvent, IStellarWalletProvider, StellarSponsorConfig } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { SPONSOR_CONFIG_TTL_MS } from './SponsoringService.js';
@@ -70,11 +70,19 @@ function makeWallet(
   } as unknown as IStellarWalletProvider;
 }
 
-function makeSodax() {
+function makeSodax(keys: { instanceApiKey?: string; sponsoringApiKey?: string } = { sponsoringApiKey: 'test-key' }) {
   // Install analytics in every test because disabled emitters do not evaluate payload builders.
   const events: AnalyticsEvent[] = [];
   const sodax = new Sodax({
-    api: { sponsoringApiConfig: { baseURL: SPONSORING_BASE_URL, timeout: 5000, headers: {}, apiKey: 'test-key' } },
+    ...(keys.instanceApiKey ? { apiKey: keys.instanceApiKey } : {}),
+    api: {
+      sponsoringApiConfig: {
+        baseURL: SPONSORING_BASE_URL,
+        timeout: 5000,
+        headers: {},
+        ...(keys.sponsoringApiKey ? { apiKey: keys.sponsoringApiKey } : {}),
+      },
+    },
     logger: 'silent',
     analytics: { tracker: event => void events.push(event) },
   });
@@ -88,7 +96,10 @@ function makeSodax() {
 }
 
 /** Stub the `.order().limit().call()` chain the base-reserve read walks. */
-function stubBaseReserve(ledgers: ReturnType<typeof vi.spyOn>, baseReserveInStroops: number | undefined): void {
+function stubBaseReserve(
+  ledgers: MockInstance<Horizon.Server['ledgers']>,
+  baseReserveInStroops: number | undefined,
+): void {
   const call = vi.fn(async () => ({
     records: baseReserveInStroops === undefined ? [] : [{ base_reserve_in_stroops: baseReserveInStroops }],
   }));
@@ -96,7 +107,7 @@ function stubBaseReserve(ledgers: ReturnType<typeof vi.spyOn>, baseReserveInStro
 }
 
 // Horizon uses its own HTTP client, so stub it independently of global fetch.
-function stubHorizon(loadAccount: ReturnType<typeof vi.spyOn>, sequence = '100'): void {
+function stubHorizon(loadAccount: MockInstance<Horizon.Server['loadAccount']>, sequence = '100'): void {
   loadAccount.mockImplementation(async (address: string) => {
     if (address === SPONSOR.publicKey()) return sponsorAccountResponse(sequence) as never;
     throw horizonNotFound();
@@ -269,7 +280,11 @@ describe('sequence conflict handling', () => {
     const sponsorReads = loadAccount.mock.calls.filter(([a]) => a === SPONSOR.publicKey());
     expect(sponsorReads).toHaveLength(1);
     const [, second] = accountRequests().map(([, init]) => JSON.parse((init as { body: string }).body).data);
-    expect(TransactionBuilder.fromXDR(second, Networks.PUBLIC).sequence).toBe('778');
+    const secondTx = TransactionBuilder.fromXDR(second, Networks.PUBLIC) as Exclude<
+      ReturnType<typeof TransactionBuilder.fromXDR>,
+      FeeBumpTransaction
+    >;
+    expect(secondTx.sequence).toBe('778');
   });
 
   it('falls back to a Horizon read when the 409 carries no hint', async () => {
@@ -558,6 +573,33 @@ describe('sponsor config caching', () => {
     expect(configRequests()).toHaveLength(2);
   });
 
+  it('keeps two per-request API keys on separate entries', async () => {
+    // A key scoped to another deployment selects another sponsor account; sharing one entry would
+    // serve one caller's config to the other.
+    const { sodax } = makeSodax();
+    mockFetch
+      .mockResolvedValueOnce(jsonOk({ ...SPONSOR_CONFIG, networkPassphrase: Networks.TESTNET }))
+      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
+
+    const first = await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'key-a' } });
+    const second = await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'key-b' } });
+
+    expect(first.ok && first.value.networkPassphrase).toBe(Networks.TESTNET);
+    expect(second.ok && second.value.networkPassphrase).toBe(Networks.PUBLIC);
+    expect(configRequests()).toHaveLength(2);
+  });
+
+  it('shares one entry between apiKey and the equivalent raw x-api-key header', async () => {
+    // Both spell the same wire request, so the second must be served from the first one's entry.
+    const { sodax } = makeSodax();
+    mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
+
+    await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'same-key' } });
+    await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { headers: { 'X-Api-Key': 'same-key' } } });
+
+    expect(configRequests()).toHaveLength(1);
+  });
+
   it('still caches per header set, so a repeated override is not refetched', async () => {
     const { sodax } = makeSodax();
     mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
@@ -620,6 +662,94 @@ describe('sponsor config caching', () => {
 
     await sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
     expect(configRequests()).toHaveLength(2);
+  });
+});
+
+describe('per-request credentials on the wire', () => {
+  it('sends requestConfig.apiKey as x-api-key on the config request, over the configured slice key', async () => {
+    const { sodax } = makeSodax();
+    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
+
+    await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'call-key' } });
+
+    expect(configRequests()).toHaveLength(1);
+    const [url, init] = configRequests()[0] as [string, { headers: Record<string, string> }];
+    expect(url).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/config`);
+    expect(new Headers(init.headers).get('x-api-key')).toBe('call-key');
+  });
+
+  it('sends a raw X-Api-Key header as the ONLY key header on the config request', async () => {
+    const { sodax } = makeSodax();
+    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
+
+    // forceRefresh guards against a cache hit ever serving this call without a request.
+    await sodax.sponsoring.getStellarSponsorConfig({
+      forceRefresh: true,
+      requestConfig: { headers: { 'X-Api-Key': 'raw-key' } },
+    });
+
+    expect(configRequests()).toHaveLength(1);
+    const [url, init] = configRequests()[0] as [string, { headers: Record<string, string> }];
+    expect(url).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/config`);
+    expect(Object.keys(init.headers).filter(h => h.toLowerCase() === 'x-api-key')).toHaveLength(1);
+    expect(new Headers(init.headers).get('x-api-key')).toBe('raw-key');
+  });
+
+  it('forwards requestConfig.apiKey to the account-creation POST', async () => {
+    const { sodax, loadAccount } = makeSodax();
+    stubHorizon(loadAccount);
+    mockFetch
+      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
+
+    await sodax.sponsoring.activateStellarAccount({
+      address: USER.publicKey(),
+      walletProvider: makeWallet(),
+      requestConfig: { apiKey: 'call-key' },
+    });
+
+    expect(accountRequests()).toHaveLength(1);
+    const [url, init] = accountRequests()[0] as [string, { headers: Record<string, string> }];
+    expect(url).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/accounts`);
+    expect(new Headers(init.headers).get('x-api-key')).toBe('call-key');
+  });
+
+  it('forwards a raw X-Api-Key header as the ONLY key header to the account-creation POST', async () => {
+    const { sodax, loadAccount } = makeSodax();
+    stubHorizon(loadAccount);
+    mockFetch
+      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
+
+    await sodax.sponsoring.activateStellarAccount({
+      address: USER.publicKey(),
+      walletProvider: makeWallet(),
+      requestConfig: { headers: { 'X-Api-Key': 'raw-key' } },
+    });
+
+    expect(accountRequests()).toHaveLength(1);
+    const [url, init] = accountRequests()[0] as [string, { headers: Record<string, string> }];
+    expect(url).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/accounts`);
+    expect(Object.keys(init.headers).filter(h => h.toLowerCase() === 'x-api-key')).toHaveLength(1);
+    expect(new Headers(init.headers).get('x-api-key')).toBe('raw-key');
+  });
+
+  it('carries explicit per-request credentials to a custom origin the inherited instance key never reaches', async () => {
+    // Instance key only — no slice key — while sponsoring points off the allowed roots.
+    const { sodax } = makeSodax({ instanceApiKey: 'instance-key' });
+    mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
+
+    await sodax.sponsoring.getStellarSponsorConfig();
+    await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'explicit-key' } });
+    await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { headers: { 'X-Api-Key': 'explicit-raw-key' } } });
+
+    // Distinct keys keep the three calls on separate cache entries, so each provably hit fetch.
+    expect(configRequests()).toHaveLength(3);
+    const sentKeys = configRequests().map(([url, init]) => {
+      expect(url).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/config`);
+      return new Headers((init as { headers: Record<string, string> }).headers).get('x-api-key');
+    });
+    expect(sentKeys).toEqual([null, 'explicit-key', 'explicit-raw-key']);
   });
 });
 

@@ -1,11 +1,11 @@
-import { SodaxError } from '@sodax/sdk';
+import { SodaxError, type Result, type SponsoringLookupError } from '@sodax/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { getStellarAccountActiveQueryOptions } from './useStellarAccountActive.js';
 
 const ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const OTHER = 'GBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
 
-const makeSodax = (result: { ok: true; value: boolean } | { ok: false; error: SodaxError }) => {
+const makeSodax = (result: Result<boolean, SponsoringLookupError>) => {
   const isStellarAccountActive = vi.fn(async () => result);
   return { sodax: { sponsoring: { isStellarAccountActive } }, isStellarAccountActive };
 };

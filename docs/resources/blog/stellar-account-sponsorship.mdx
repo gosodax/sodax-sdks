@@ -1,0 +1,176 @@
+---
+title: "Onboarding brand-new Stellar wallets with sponsored activation"
+sidebarTitle: "Stellar sponsored activation"
+icon: star
+description: "How the SODAX Sponsoring API activates empty Stellar accounts so new users can receive funds on their first interaction, and how to add it to your app."
+---
+
+[XLM Domains](https://xlmdomains.com) wanted something ambitious: let a MetaMask user hold and trade `.xlm` domains and Stellar-native tokens such as XLM, AQUA and USDC, all from the EVM wallet they already use. SODAX handled the cross-network swap. One step stood between those users and Stellar: their destination account did not exist yet.
+
+On most chains a brand-new address can receive tokens right away. On Stellar it cannot, and the reason is a deliberate design choice rather than a gap. SODAX built sponsored activation to close that first step. It is open to any integrator, and this post covers why it exists, how it works, and how to wire it into a swap or bridge flow.
+
+## Why a new Stellar account cannot receive anything
+
+A Stellar account does not exist on the ledger until it is created, and creating it requires a minimum balance held as a base reserve. A wallet that has generated a keypair but never been funded is just an address. Send it a payment and the network rejects it, because there is no account there to credit.
+
+Stellar designed it this way as an anti-spam measure. Every account and every entry an account holds (trustlines, offers, data entries) locks up a small amount of XLM, which makes flooding the ledger expensive.
+
+Compare that with EVM chains. Anyone can push any token into any address, and it shows up in the wallet and in the explorer whether the owner wanted it or not. That is why EVM users see airdropped scam tokens sitting in their balances. On Stellar, an account has to exist and opt in to each non-native asset with a trustline before it can hold it. Unsolicited tokens never arrive.
+
+The trade-off is onboarding. A new user with zero XLM cannot create their own account, and they cannot receive the XLM they would need to create it. Someone has to go first.
+
+## What SODAX built
+
+SODAX runs a Sponsoring API that activates empty Stellar accounts using Stellar's [sponsored reserves](https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves) mechanism. The activation is a single transaction made of three operations, often called a sponsorship sandwich:
+
+1. `BeginSponsoringFutureReserves`, signed by the SODAX sponsor account.
+2. `CreateAccount` for the user's address, with a starting balance of `0`.
+3. `EndSponsoringFutureReserves`, signed by the new account to accept the sponsorship.
+
+The SODAX sponsor carries the base reserve for the new account, which is about 1 XLM. The user pays nothing and does not need to own any XLM to start.
+
+Two properties make this a good fit for production onboarding:
+
+- **The user still signs.** Stellar requires the account being created to sign the end of the sponsorship, so nobody can create a sponsored account on a user's behalf without their wallet approving it. The SODAX backend co-signs as sponsor and submits.
+- **It unwinds itself.** The reserve is fronted, not given away. Once the user holds XLM of their own, the account can carry its own reserve, and the sponsored amount returns to SODAX. The sponsor's balance is recycled across new users rather than spent.
+
+## From a partner brief to a general feature
+
+The XLM Domains team arrived with a brief that read almost like a spec. It described the right behavior: before delivering to a Stellar address, check whether the account exists, and create it if it does not.
+
+The part that took design work was *where* that check lives. Doing it at the last moment, inside delivery, is too late to involve the user, and it cannot help with assets that need a trustline. So SODAX made activation its own step that runs **before** the swap starts. The SDK exposes the account check directly, the frontend prompts the user while they are still in the flow, and delivery only begins once the destination is ready.
+
+The result is general purpose. Nothing in it is specific to XLM Domains: any app that delivers to a Stellar address can use it.
+
+## The order of operations
+
+Activation is the first of up to three steps, and the order matters.
+
+<Steps>
+  <Step title="Activate the account">
+    Free and sponsored. The account now exists on the ledger and can receive XLM straight away.
+  </Step>
+  <Step title="Receive XLM">
+    No trustline is needed for native XLM. Receiving some XLM is what gives the account a spendable balance to pay transaction fees.
+  </Step>
+  <Step title="Add a trustline for non-native assets">
+    A trustline for an asset such as USDC adds a ledger entry, which needs its own reserve plus a fee. The account needs XLM first, so this step comes after step 2.
+  </Step>
+</Steps>
+
+<Warning>
+Sponsored activation is **mainnet only**. A sponsored account can receive XLM immediately, but adding a trustline for a non-native asset requires the account to hold XLM first.
+</Warning>
+
+If your destination token is native XLM, step 1 is all you need. For any other Stellar asset, plan your UI around all three.
+
+## Get an API key
+
+The Sponsoring API is gated by an `x-api-key` header. Keys are issued on request: reach out to the SODAX team through any channel listed at [linktr.ee/go.sodax](https://linktr.ee/go.sodax). While you wait, the [`stellar-sponsor-example`](https://github.com/icon-project/sodax-sdks/tree/main/apps/stellar-sponsor-example) app in the SDK repo ships an offline mock backend, so you can build the whole flow before a real key arrives.
+
+Configure the key once on the SDK:
+
+```ts
+import { Sodax } from '@sodax/sdk';
+
+const sodax = new Sodax({
+  api: {
+    sponsoringApiConfig: { apiKey: process.env.SODAX_SPONSORING_API_KEY },
+  },
+});
+```
+
+In React, pass the same `api` object to `SodaxProvider` as its `config` prop.
+
+<Tip>
+A key shipped in a browser bundle is readable by anyone. If that does not suit your deployment, point `sponsoringApiConfig.baseURL` at your own backend and add the header there. The [API key good practices](/developers/how-to/api-key-good-practices) page has a worked proxy.
+</Tip>
+
+## React: one hook for all three steps
+
+`@sodax/dapp-kit` exposes `useStellarGate`, which checks the destination account and sequences activation, funding and trustline for you. Use it anywhere a swap or bridge delivers to a Stellar address:
+
+```tsx
+import { useStellarGate } from '@sodax/dapp-kit';
+
+const stellar = useStellarGate({
+  dstChainKey: toChainKey,
+  token: destinationToken,
+  amount: destinationAmount,
+  address: destinationAddress,
+  walletProvider: destinationWalletProvider,
+});
+
+if (stellar.needsActivation) {
+  return <Button onClick={() => stellar.activate()}>Activate Stellar account (free)</Button>;
+}
+if (stellar.needsFunding) {
+  return <Notice>Send some XLM to this account before adding a trustline.</Notice>;
+}
+if (stellar.needsTrustline) {
+  return <Button onClick={() => stellar.requestTrustline()}>Add trustline</Button>;
+}
+
+return <SubmitButton disabled={stellar.blocksAction}>Continue</SubmitButton>;
+```
+
+`address` and `walletProvider` must be the same connected Stellar account, since that account is the one that signs its own activation. The full version, including loading and retry states, is in the [Stellar Sponsoring guide](/developers/how-to/stellar-sponsoring-getting-started).
+
+## Without React: the SDK directly
+
+Outside React, `sodax.sponsoring` covers the same flow. `getStellarAccountStatus` reports whether the account exists and whether it can afford a trustline, and `activateStellarAccount` builds the sponsorship transaction, asks the wallet to sign, and submits it:
+
+```ts
+const result = await sodax.sponsoring.activateStellarAccount({
+  address: stellarAddress,
+  walletProvider: stellarWalletProvider,
+});
+
+if (!result.ok) {
+  // Branch on result.error.context.nextAction
+  return;
+}
+
+// 'submitted' and 'alreadyActive' are both success
+console.log(result.value.status);
+```
+
+For non-native assets, the trustline helpers live on the Stellar spoke service:
+
+```ts
+import { ChainKeys } from '@sodax/sdk';
+
+const hasTrustline = await sodax.spoke.stellar.hasSufficientTrustline(
+  tokenAddress,
+  amount,
+  walletAddress,
+);
+
+if (!hasTrustline) {
+  const txHash = await sodax.spoke.stellar.requestTrustline({
+    srcChainKey: ChainKeys.STELLAR_MAINNET,
+    srcAddress: walletAddress,
+    token: tokenAddress,
+    amount,
+    raw: false,
+    walletProvider: stellarWalletProvider,
+  });
+}
+```
+
+`hasSufficientTrustline` returns `true` for native XLM, so the same check is safe to run on every Stellar destination. The [Stellar trustline guide](/developers/how-to/stellar_trustline) covers source chain behavior and raw transaction mode.
+
+Teams not using TypeScript can call the HTTP endpoints directly. The interactive reference is at [api.sodax.com/v1/sponsorships/docs](https://api.sodax.com/v1/sponsorships/docs).
+
+## What this means for your users
+
+Without sponsorship, a new user's path to holding a Stellar asset runs through an exchange: buy XLM, withdraw to the new wallet, then set up a trustline. Each step is a place where people give up.
+
+With sponsored activation, the first step costs the user nothing and takes one signature. Stellar keeps its anti-spam guarantees, the user keeps control of their account, and the reserve returns to the sponsor once the user is funded.
+
+## Learn more
+
+- [Stellar Sponsoring guide](/developers/how-to/stellar-sponsoring-getting-started)
+- [Stellar trustline requirements](/developers/how-to/stellar_trustline)
+- [SPONSORING.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SPONSORING.md): method reference, error handling and retry behavior
+- [Sponsored reserves](https://developers.stellar.org/docs/build/guides/transactions/sponsored-reserves) in the Stellar docs

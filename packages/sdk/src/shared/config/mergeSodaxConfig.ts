@@ -19,6 +19,8 @@ import { deepMerge } from '../utils/deepMerge.js';
  * and held on `ConfigService.fee`, where it acts as the per-feature fee fallback (`featureFee ?? fee`, via
  * `ConfigService.swapPartnerFee` / `moneyMarketPartnerFee` / `bridgePartnerFee`). Config merging and
  * effective-fee resolution are separate concerns, so the merge layer deliberately leaves `fee` alone.
+ * The global `apiKey` is likewise kept off the merged config — `Sodax` strips it at the call site so the
+ * credential never lands on the publicly readable `instanceConfig`; it is held on `ConfigService.apiKey`.
  */
 export function mergeSodaxConfig(base: SodaxDefaultConfig, override: SodaxOptions): SodaxConfig {
   return deepMerge<SodaxConfig>(base, override);

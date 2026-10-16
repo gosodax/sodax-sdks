@@ -1,4 +1,5 @@
 import type { Result } from '@sodax/types';
+import { isAuthFailure } from '../errors/guards.js';
 import { sleep } from '../shared/utils/shared-utils.js';
 import type { RequestOverrideConfig } from './api-utils.js';
 import type { SubmitTxAttempt } from './submitTxAttempt.js';
@@ -71,7 +72,7 @@ export async function pollBackendSubmitTx<TResult, TValue>({
 }): Promise<BackendSubmitTxPollResult<TValue>> {
   let polls = 0;
   // Last transport-level failure, cleared whenever a request succeeds. Mirrors `lastPollingError` in
-  // `waitUntilIntentExecuted`: without it, a status endpoint that answers 401 on every call is
+  // `waitUntilIntentExecuted`: without the record, a status endpoint that keeps timing out is
   // indistinguishable from a backend that simply never finished, and the caller logs the wrong story.
   let lastStatusError: unknown;
 
@@ -99,6 +100,14 @@ export async function pollBackendSubmitTx<TResult, TValue>({
       }
     } else {
       lastStatusError = statusResult.error;
+      // A rejected key cannot become success by waiting, so stop instead of burning the attempt the
+      // caller's client-side fallback is waiting on. Timeouts and other transport failures still retry.
+      if (isAuthFailure(statusResult.error)) {
+        return {
+          ok: false,
+          cause: new Error('backend submit-tx status rejected the API key', { cause: statusResult.error }),
+        };
+      }
     }
     // transient !ok / pending / relaying / relayed / posting_execution → wait, then poll again. Give up
     // instead once an interval would swallow the rest of the attempt: that sleep can only be followed by

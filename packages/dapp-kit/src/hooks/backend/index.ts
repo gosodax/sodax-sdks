@@ -22,4 +22,8 @@ export { useBackendMoneyMarketAsset } from './useBackendMoneyMarketAsset.js';
 export { useBackendMoneyMarketAssetBorrowers } from './useBackendMoneyMarketAssetBorrowers.js';
 export { useBackendMoneyMarketAssetSuppliers } from './useBackendMoneyMarketAssetSuppliers.js';
 export { useBackendAllMoneyMarketBorrowers } from './useBackendAllMoneyMarketBorrowers.js';
+
+// Oracle hooks
+export { useBackendOracleMarkets } from './useBackendOracleMarkets.js';
+export { useBackendOracleCandles } from './useBackendOracleCandles.js';
 export * from './types.js';

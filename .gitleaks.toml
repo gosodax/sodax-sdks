@@ -24,12 +24,15 @@ paths = [
   '''(^|/)build/''',
   '''(^|/)coverage/''',
   '''.*\.md$''',
+  '''.*\.mdx$''',
 ]
 regexes = [
   # Public addresses / chain ids. The 40-hex \b boundary won't match a 64-hex key.
   '''\b0x[a-fA-F0-9]{40}\b''',
   '''\b[GC][A-Z2-7]{55}\b''',
   '''0x[a-fA-F0-9]+\.[a-z0-9-]+''',
+  # Stacks c32 principals (public addresses / contract ids like SP….soda).
+  '''\bS[PTMN][0-9A-HJKMNP-TV-Z]{28,41}(\.[a-z0-9-]+)?\b''',
   # Code identifiers (type name, doc method ref) and the documented mock ICON key.
   '''Ed25519SecretKey''',
   '''ERC20\.approve''',

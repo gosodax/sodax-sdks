@@ -1,22 +1,48 @@
 /**
- * Tests for the ERC-20 approval execution in `SpokeService`.
+ * Tests for `SpokeService`: ERC-20 approval execution, and the chain-agnostic balance router
+ * (`getWalletBalance` / `getWalletBalances`).
  *
- * A token of the 2017 TetherToken lineage rejects an allowance change from one non-zero value to
- * another, so a stale allowance has to be zeroed first. The two transactions cannot be batched: the
- * second is only valid once the first has been mined. What matters here is the ordering and the
- * abort — sending the second approve after an unconfirmed reset produces a revert the user pays for.
+ * Approval tests: a token of the 2017 TetherToken lineage rejects an allowance change from one
+ * non-zero value to another, so a stale allowance has to be zeroed first. The two transactions
+ * cannot be batched: the second is only valid once the first has been mined. What matters here is
+ * the ordering and the abort — sending the second approve after an unconfirmed reset produces a
+ * revert the user pays for. Follows the fixture pattern used by the feature-service tests: one real
+ * `Sodax` instance, with the static `Erc20Service` collaborators and the receipt wait stubbed per
+ * test.
  *
- * Follows the fixture pattern used by the feature-service tests: one real `Sodax` instance, with the
- * static `Erc20Service` collaborators and the receipt wait stubbed per test.
+ * Balance router tests: these mirror the `getDeposit` router: they dispatch by chain type to the
+ * per-chain spoke service and translate a thrown error into an unsuccessful `Result` instead of
+ * propagating it. Per-chain read behaviour is covered by each `*SpokeService.test.ts`; here we only
+ * assert routing, the chain-key guard, and the Result contract, so the target service method is
+ * spied. Both routers hand-duplicate the same 10-arm switch, so the dispatch table below asserts not
+ * just that the right service was called but that no OTHER service was — a copy-paste slip between
+ * two arms is otherwise invisible.
  */
-
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Address, Hex, SpokeChainKey } from '@sodax/types';
-import type { IEvmWalletProvider } from '@sodax/types';
+import {
+  ChainKeys,
+  spokeChainConfig,
+  type Address,
+  type Hex,
+  type IconAddress,
+  type IEvmWalletProvider,
+  type SpokeChainKey,
+  type XToken,
+} from '@sodax/types';
 import { Sodax } from '../../entities/Sodax.js';
 import { Erc20Service } from '../erc-20/Erc20Service.js';
+import type { WalletBalanceMap } from './balance-utils.js';
 
 const sodax = new Sodax();
+const spoke = sodax.spoke;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+// =========================================================================
+// 1. SpokeService.approve / buildApproveTxs — sequential plan execution
+// =========================================================================
 
 const ARBITRUM = '0xa4b1.arbitrum' satisfies SpokeChainKey;
 const TOKEN = '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9' as Address;
@@ -56,10 +82,6 @@ const stubPlan = (plan: { resetAmount?: bigint; approveAmount: bigint }, reason 
     ...plan,
     reason: reason as Awaited<ReturnType<typeof Erc20Service.planApproval>>['reason'],
   });
-
-afterEach(() => {
-  vi.restoreAllMocks();
-});
 
 describe('SpokeService.approve — sequential plan execution', () => {
   it('zeroes the allowance, waits for it, then approves and returns the last hash', async () => {
@@ -184,5 +206,273 @@ describe('SpokeService.buildApproveTxs', () => {
     } as never);
 
     expect(requestTrustline).toHaveBeenCalledWith(expect.objectContaining({ raw: true }));
+  });
+});
+
+// =========================================================================
+// 2. Balance router — every chain-type arm of both routers
+// =========================================================================
+
+const ARB = ChainKeys.ARBITRUM_MAINNET;
+const SRC: Address = '0x1111111111111111111111111111111111111111';
+
+const xtoken = (address: Address): XToken => ({
+  symbol: 'TKN',
+  name: 'TKN',
+  decimals: 18,
+  address,
+  chainKey: ARB,
+  hubAsset: address,
+  vault: address,
+});
+
+/** First real token of a chain, so the router's `token.chainKey === srcChainKey` guard passes. */
+const firstToken = (chainKey: keyof typeof spokeChainConfig): XToken => {
+  const token = Object.values(spokeChainConfig[chainKey].supportedTokens)[0];
+  if (!token) throw new Error(`no supported tokens configured for ${chainKey}`);
+  return token;
+};
+
+/**
+ * One spy pair per chain service, so a route can assert the other nine stayed untouched. Every spy
+ * is stubbed: an un-stubbed `spyOn` calls through, and these methods open real RPC connections.
+ */
+const stub = <S extends { getWalletBalance: unknown; getWalletBalances: unknown }>(service: S) =>
+  [
+    vi.spyOn(service as { getWalletBalance: () => Promise<bigint> }, 'getWalletBalance').mockResolvedValue(0n),
+    vi
+      .spyOn(service as { getWalletBalances: () => Promise<WalletBalanceMap> }, 'getWalletBalances')
+      .mockResolvedValue({}),
+  ] as const;
+
+const spyEveryService = () => ({
+  evm: stub(spoke.evm),
+  sonic: stub(spoke.sonic),
+  injective: stub(spoke.injective),
+  icon: stub(spoke.icon),
+  sui: stub(spoke.sui),
+  solana: stub(spoke.solana),
+  stellar: stub(spoke.stellar),
+  bitcoin: stub(spoke.bitcoin),
+  near: stub(spoke.near),
+  stacks: stub(spoke.stacks),
+});
+
+type ServiceName = keyof ReturnType<typeof spyEveryService>;
+
+// `srcAddress` is typed per chain family by `GetAddressType`; each row supplies a value of the
+// declared type. (Solana, Stellar, Sui and NEAR declare `Hex`/`Address` even though their real
+// addresses are not 0x-prefixed — a pre-existing type wart, harmless here because the per-chain
+// service is spied and never parses the value.)
+const ROUTES: readonly {
+  service: ServiceName;
+  callOne: () => Promise<unknown>;
+  callMany: () => Promise<unknown>;
+}[] = [
+  {
+    // Sonic is also an EVM chain, so the hub short-circuit must win over the EVM arm.
+    service: 'sonic',
+    callOne: () =>
+      spoke.getWalletBalance({
+        srcChainKey: ChainKeys.SONIC_MAINNET,
+        srcAddress: SRC,
+        token: firstToken(ChainKeys.SONIC_MAINNET),
+      }),
+    callMany: () =>
+      spoke.getWalletBalances({
+        srcChainKey: ChainKeys.SONIC_MAINNET,
+        srcAddress: SRC,
+        tokens: [firstToken(ChainKeys.SONIC_MAINNET)],
+      }),
+  },
+  {
+    service: 'evm',
+    callOne: () => spoke.getWalletBalance({ srcChainKey: ARB, srcAddress: SRC, token: firstToken(ARB) }),
+    callMany: () => spoke.getWalletBalances({ srcChainKey: ARB, srcAddress: SRC, tokens: [firstToken(ARB)] }),
+  },
+  {
+    service: 'injective',
+    callOne: () =>
+      spoke.getWalletBalance({
+        srcChainKey: ChainKeys.INJECTIVE_MAINNET,
+        srcAddress: 'inj1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq',
+        token: firstToken(ChainKeys.INJECTIVE_MAINNET),
+      }),
+    callMany: () =>
+      spoke.getWalletBalances({
+        srcChainKey: ChainKeys.INJECTIVE_MAINNET,
+        srcAddress: 'inj1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq',
+        tokens: [firstToken(ChainKeys.INJECTIVE_MAINNET)],
+      }),
+  },
+  {
+    service: 'stellar',
+    callOne: () =>
+      spoke.getWalletBalance({
+        srcChainKey: ChainKeys.STELLAR_MAINNET,
+        srcAddress: SRC as Hex,
+        token: firstToken(ChainKeys.STELLAR_MAINNET),
+      }),
+    callMany: () =>
+      spoke.getWalletBalances({
+        srcChainKey: ChainKeys.STELLAR_MAINNET,
+        srcAddress: SRC as Hex,
+        tokens: [firstToken(ChainKeys.STELLAR_MAINNET)],
+      }),
+  },
+  {
+    service: 'sui',
+    callOne: () =>
+      spoke.getWalletBalance({
+        srcChainKey: ChainKeys.SUI_MAINNET,
+        srcAddress: SRC as Hex,
+        token: firstToken(ChainKeys.SUI_MAINNET),
+      }),
+    callMany: () =>
+      spoke.getWalletBalances({
+        srcChainKey: ChainKeys.SUI_MAINNET,
+        srcAddress: SRC as Hex,
+        tokens: [firstToken(ChainKeys.SUI_MAINNET)],
+      }),
+  },
+  {
+    service: 'icon',
+    callOne: () =>
+      spoke.getWalletBalance({
+        srcChainKey: ChainKeys.ICON_MAINNET,
+        srcAddress: 'hx0000000000000000000000000000000000000001' as IconAddress,
+        token: firstToken(ChainKeys.ICON_MAINNET),
+      }),
+    callMany: () =>
+      spoke.getWalletBalances({
+        srcChainKey: ChainKeys.ICON_MAINNET,
+        srcAddress: 'hx0000000000000000000000000000000000000001' as IconAddress,
+        tokens: [firstToken(ChainKeys.ICON_MAINNET)],
+      }),
+  },
+  {
+    service: 'solana',
+    callOne: () =>
+      spoke.getWalletBalance({
+        srcChainKey: ChainKeys.SOLANA_MAINNET,
+        srcAddress: SRC as Hex,
+        token: firstToken(ChainKeys.SOLANA_MAINNET),
+      }),
+    callMany: () =>
+      spoke.getWalletBalances({
+        srcChainKey: ChainKeys.SOLANA_MAINNET,
+        srcAddress: SRC as Hex,
+        tokens: [firstToken(ChainKeys.SOLANA_MAINNET)],
+      }),
+  },
+  {
+    service: 'stacks',
+    callOne: () =>
+      spoke.getWalletBalance({
+        srcChainKey: ChainKeys.STACKS_MAINNET,
+        srcAddress: 'SP000000000000000000002Q6VF78',
+        token: firstToken(ChainKeys.STACKS_MAINNET),
+      }),
+    callMany: () =>
+      spoke.getWalletBalances({
+        srcChainKey: ChainKeys.STACKS_MAINNET,
+        srcAddress: 'SP000000000000000000002Q6VF78',
+        tokens: [firstToken(ChainKeys.STACKS_MAINNET)],
+      }),
+  },
+  {
+    service: 'bitcoin',
+    callOne: () =>
+      spoke.getWalletBalance({
+        srcChainKey: ChainKeys.BITCOIN_MAINNET,
+        srcAddress: 'bc1q5q3xczsl9zlt0gjys5khjknfp40zfdmkme9ene',
+        token: firstToken(ChainKeys.BITCOIN_MAINNET),
+      }),
+    callMany: () =>
+      spoke.getWalletBalances({
+        srcChainKey: ChainKeys.BITCOIN_MAINNET,
+        srcAddress: 'bc1q5q3xczsl9zlt0gjys5khjknfp40zfdmkme9ene',
+        tokens: [firstToken(ChainKeys.BITCOIN_MAINNET)],
+      }),
+  },
+  {
+    service: 'near',
+    callOne: () =>
+      spoke.getWalletBalance({
+        srcChainKey: ChainKeys.NEAR_MAINNET,
+        srcAddress: SRC,
+        token: firstToken(ChainKeys.NEAR_MAINNET),
+      }),
+    callMany: () =>
+      spoke.getWalletBalances({
+        srcChainKey: ChainKeys.NEAR_MAINNET,
+        srcAddress: SRC,
+        tokens: [firstToken(ChainKeys.NEAR_MAINNET)],
+      }),
+  },
+];
+
+describe.each(ROUTES)('SpokeService balance router → spoke.$service', ({ service, callOne, callMany }) => {
+  it('getWalletBalance dispatches to that service and no other', async () => {
+    const spies = spyEveryService();
+
+    await callOne();
+
+    for (const [name, [one]] of Object.entries(spies) as [ServiceName, (typeof spies)[ServiceName]][]) {
+      expect(one, `spoke.${name}.getWalletBalance`).toHaveBeenCalledTimes(name === service ? 1 : 0);
+    }
+  });
+
+  it('getWalletBalances dispatches to that service and no other', async () => {
+    const spies = spyEveryService();
+
+    await callMany();
+
+    for (const [name, [, many]] of Object.entries(spies) as [ServiceName, (typeof spies)[ServiceName]][]) {
+      expect(many, `spoke.${name}.getWalletBalances`).toHaveBeenCalledTimes(name === service ? 1 : 0);
+    }
+  });
+});
+
+describe('SpokeService.getWalletBalance (chain-agnostic router)', () => {
+  it("routes to the chain-type's spoke service and wraps the value in a Result", async () => {
+    const spy = vi.spyOn(spoke.evm, 'getWalletBalance').mockResolvedValueOnce(4_200n);
+    const params = { srcChainKey: ARB, srcAddress: SRC, token: xtoken(SRC) };
+
+    const result = await spoke.getWalletBalance(params);
+
+    expect(result).toEqual({ ok: true, value: 4_200n });
+    expect(spy).toHaveBeenCalledWith(params);
+  });
+
+  it('wraps a thrown error in an unsuccessful Result instead of throwing', async () => {
+    const boom = new Error('rpc down');
+    vi.spyOn(spoke.evm, 'getWalletBalance').mockRejectedValueOnce(boom);
+
+    const result = await spoke.getWalletBalance({ srcChainKey: ARB, srcAddress: SRC, token: xtoken(SRC) });
+
+    expect(result).toEqual({ ok: false, error: boom });
+  });
+});
+
+describe('SpokeService.getWalletBalances (chain-agnostic router)', () => {
+  it("routes to the chain-type's spoke service and wraps the record in a Result", async () => {
+    const record = { [SRC]: 1n };
+    const spy = vi.spyOn(spoke.evm, 'getWalletBalances').mockResolvedValueOnce(record);
+    const params = { srcChainKey: ARB, srcAddress: SRC, tokens: [xtoken(SRC)] };
+
+    const result = await spoke.getWalletBalances(params);
+
+    expect(result).toEqual({ ok: true, value: record });
+    expect(spy).toHaveBeenCalledWith(params);
+  });
+
+  it('wraps a thrown error in an unsuccessful Result instead of throwing', async () => {
+    const boom = new Error('rpc down');
+    vi.spyOn(spoke.evm, 'getWalletBalances').mockRejectedValueOnce(boom);
+
+    const result = await spoke.getWalletBalances({ srcChainKey: ARB, srcAddress: SRC, tokens: [xtoken(SRC)] });
+
+    expect(result).toEqual({ ok: false, error: boom });
   });
 });

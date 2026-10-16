@@ -228,20 +228,20 @@ Default: `5_000` ms. Ignored for non-provider chains (Bitcoin, ICON, Stellar, NE
 
 ## WalletConnect QR modal caveat
 
-When the user picks an EVM WalletConnect connector, wagmi opens **its own** QR modal as a third-party UI. While that QR modal is visible, `useWalletModal` stays in `connecting` — two dialogs would stack visually.
+When the user picks an EVM WalletConnect connector, wagmi opens **its own** QR modal as a third-party UI. While that QR modal is visible, `useWalletModal` stays in `connecting` — two dialogs would stack visually. "Email (Privy)" behaves the same way with Privy's login dialog.
 
-The SDK doesn't bake in a hide policy because partners want different UX. Detect WC and conditionally render `null`:
+The SDK doesn't bake in a hide policy because partners want different UX. Detect those connectors and conditionally render `null`:
 
 ```typescript
 if (
   modal.state.kind === 'connecting' &&
-  modal.state.connector.id === 'walletConnect'
+  ['walletConnect', 'privy'].includes(modal.state.connector.id)
 ) {
-  return null; // let wagmi's QR modal own the screen
+  return null; // let wagmi's QR modal / Privy's login dialog own the screen
 }
 ```
 
-The wagmi connector id is `'walletConnect'`. Resume rendering when the state transitions to `success` / `error`.
+The connector ids are `'walletConnect'` and `'privy'`. Resume rendering when the state transitions to `success` / `error`.
 
 ---
 
@@ -324,8 +324,9 @@ function ConnectButton({ connector }: { connector: IXConnector }) {
 
 ## Related docs
 
-- [Connect Flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md) — the underlying `useXConnect` lifecycle
-- [Configure SodaxWalletProvider](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md) — opt in chain-type slots before users can pick them
-- [Chain Detection](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CHAIN_DETECTION.md) — `useChainGroups` for the chain picker, `useIsWalletInstalled` for filtering
-- [WalletConnect](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLETCONNECT.md) — `walletConnect` slot config + Fireblocks/custody filters
-- [Connectors](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECTORS.md) — `IXConnector` contract for `selectWallet` argument
+- [Connect Flow](./CONNECT_FLOW.md) — the underlying `useXConnect` lifecycle
+- [Configure SodaxWalletProvider](./CONFIGURE_PROVIDER.md) — opt in chain-type slots before users can pick them
+- [Chain Detection](./CHAIN_DETECTION.md) — `useChainGroups` for the chain picker, `useIsWalletInstalled` for filtering
+- [WalletConnect](./WALLETCONNECT.md) — `walletConnect` slot config + Fireblocks/custody filters
+- [Email login with Privy](./WALLET_PRIVY.md) — `privy` slot config, the Privy user, custody trade-offs
+- [Connectors](./CONNECTORS.md) — `IXConnector` contract for `selectWallet` argument

@@ -127,7 +127,7 @@ if (!isApproved) await approve({ params: supplyParams, walletProvider });
 | `useReservesData` | `[ReserveData[], ...]` | Raw data for custom rendering |
 | `useReservesHumanized` | `ReserveDataHumanized[]` | Decimal-normalized (most common for UI) |
 | `useReservesList` | `Address[]` | Just the reserve addresses |
-| `useReservesUsdFormat` | `ReserveDataWithUsd[]` | With USD price overlays |
+| `useReservesUsdFormat` | `ReserveUsdFormat[]` | With USD price overlays |
 | `useUserFormattedSummary` | `{ totalCollateralUSD, totalBorrowsUSD, healthFactor, ... }` | Dashboard-ready summary |
 | `useUserReservesData` | `UserReserveData[]` | Per-reserve user position |
 

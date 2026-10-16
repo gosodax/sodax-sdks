@@ -2,6 +2,7 @@
 import type { SpokeChainKey, StakeAction, TxHashPair } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
@@ -35,7 +36,7 @@ export function useStake<K extends SpokeChainKey = SpokeChainKey>({
       queryClient.invalidateQueries({ queryKey: ['staking', 'allowance', params.srcChainKey, 'stake'] });
       queryClient.invalidateQueries({ queryKey: ['staking', 'stakeRatio'] });
       queryClient.invalidateQueries({ queryKey: ['staking', 'convertedAssets'] });
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', params.srcChainKey] });
+      invalidateBalances(queryClient, params.srcChainKey);
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },
   });

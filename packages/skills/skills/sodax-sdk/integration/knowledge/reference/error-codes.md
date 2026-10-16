@@ -99,9 +99,22 @@ type LookupErrorCode = 'VALIDATION_FAILED' | 'LOOKUP_FAILED' | 'UNKNOWN';
 |---|---|
 | `createIntent` | `CreateIntentErrorCode` |
 | `swap` | All of {`USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `EXECUTION_FAILED`, `TX_VERIFICATION_FAILED`, `TX_SUBMIT_FAILED`, `RELAY_TIMEOUT`, `RELAY_FAILED`, `EXTERNAL_API_ERROR`, `UNKNOWN`} |
+| `swapWithApproval` | `SwapWithApprovalErrorCode`: the `swap` codes plus `APPROVE_FAILED \| ALLOWANCE_CHECK_FAILED`. See [Atomic approval batches](#atomic-approval-batches-contextreason) for the batch reasons |
+| `getApprovalStrategy` | `ApprovalStrategyErrorCode` (`ALLOWANCE_CHECK_FAILED` only) |
 | `postExecution` | `EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` (with `phase: 'postExecution'`) |
 | `createLimitOrder`, `createLimitOrderIntent` | `CreateIntentErrorCode` |
 | `cancelIntent`, `cancelLimitOrder` | `EXECUTION_FAILED \| VALIDATION_FAILED \| UNKNOWN` |
+
+#### Atomic approval batches (`context.reason`)
+
+When the approval and the deposit go out as one EIP-5792 batch, these codes carry a `context.reason`
+that changes what the caller should do. Check it before the generic retry advice above.
+
+| Code | `context.reason` | Meaning | Retry? |
+|---|---|---|---|
+| `USER_REJECTED` | `ACCOUNT_UPGRADE_DECLINED` | The user declined the smart-account upgrade, not the swap. | Offer it again with `allowAccountUpgrade: false` (two signatures). |
+| `INTENT_CREATION_FAILED` | `'atomic-batch-failed'` (with `batchId`, `statusCode`) | The batch was never included or fully reverted. Nothing was deposited. | Yes. |
+| `TX_VERIFICATION_FAILED` | `ATOMIC_BATCH_UNCONFIRMED` (with `batchId`) | The wallet took the batch but it did not confirm in time. **It may still land.** | **No.** Do not let the user send it again; tell them to check the wallet's activity. |
 
 ### Money Market (`feature: 'moneyMarket'`)
 
@@ -162,7 +175,7 @@ Both follow the same shape: action methods get the full exec union (`'EXECUTION_
 
 ### Backend / Swaps API (`feature: 'backend'`)
 
-`BackendApiService` (`sodax.backendApi`) and the Swaps API v2 client (`sodax.api.swaps`) are the HTTP-client layer — not domain features. Every method returns `Result<T, SodaxError<'EXTERNAL_API_ERROR'>>` with `context.endpoint`, and the transport failure (timeout / non-2xx / response-shape mismatch) preserved on `error.cause`. `context.api` distinguishes the two clients: `'backend'` for `BackendApiService`, `'swaps'` for the `sodax.api.swaps` client.
+`BackendApiService` (`sodax.backendApi`) and the Swaps API client (`sodax.api.swaps`) are the HTTP-client layer — not domain features. Every method returns `Result<T, SodaxError<'EXTERNAL_API_ERROR'>>` with `context.endpoint`, and the transport failure (timeout / non-2xx / response-shape mismatch) preserved on `error.cause`. `context.api` distinguishes the two clients: `'backend'` for `BackendApiService`, `'swaps'` for the `sodax.api.swaps` client.
 
 ### Leverage Yield (`feature: 'leverageYield'`)
 

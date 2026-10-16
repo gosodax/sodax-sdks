@@ -1,0 +1,219 @@
+---
+title: "Leverage yield API"
+sidebarTitle: "Leverage yield"
+icon: money-bill-trend-up
+description: "HTTP reference for SODAX leveraged yield vaults — list vaults, quote deposit/withdraw, build intents, and submit-tx."
+---
+
+Deposit into looped LST strategies (e.g. `lsodaWEETH`) and exit via the solver. A deposit or withdraw **is** an intent-based swap under the hood; this is the vault-shaped HTTP surface.
+
+<Note>
+Every route on this page is live on production (`https://api.sodax.com`). The [SDK leverage yield
+module](/developers/packages/foundation/sdk/functional-modules/leverage_yield) remains the
+recommended path for product integrations — it handles the intent, relay and settlement lifecycle
+for you — but the HTTP surface is fully available if you need it directly.
+</Note>
+
+| Path | Role |
+|------|------|
+| **HTTP** (this page) | `https://api.sodax.com/v1/leverage-yield/*` |
+| **SDK (recommended for full UX)** | `sodax.leverageYield` ([SDK docs](/developers/packages/foundation/sdk/functional-modules/leverage_yield)) |
+| **Swaps HTTP** | Shared submit-tx / fee / intent lifecycle patterns — see [Swaps](/developers/http-api/swaps) |
+
+## Base URL
+
+```
+https://api.sodax.com/v1/leverage-yield
+```
+
+Canary: `https://canary-api.sodax.com/v1/leverage-yield`.
+
+Same conventions as Swaps: **decimal strings**, unauthenticated reads, rate-limited writes on `submit-tx`.
+
+```bash
+curl -s 'https://api.sodax.com/v1/leverage-yield/vaults'
+```
+
+---
+
+## Endpoint catalog
+
+### Vault registry
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/vaults` | List vault descriptors |
+| `GET` | `/vaults/:name` | One vault by name (e.g. `lsodaWEETH`) |
+
+### Vault reads
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/asset` | Underlying asset address |
+| `GET` | `/position` | Vault position snapshot |
+| `GET` | `/apr` | APR series / snapshot |
+| `GET` | `/apr/effective` | Effective (levered) APR |
+| `GET` | `/apr/lsd` | Underlying LSD APR (incl. off-chain source) |
+| `GET` | `/total-assets` | Vault TVL in asset units |
+| `GET` | `/preview/deposit` | Assets in → shares out (ERC-4626 `previewDeposit`) |
+| `GET` | `/preview/withdraw` | Assets in → shares that would be **burned** (ERC-4626 `previewWithdraw`; query `assets`) |
+| `GET` | `/preview/redeem` | Shares in → assets out (ERC-4626 `previewRedeem`; query `shares`) |
+| `GET` | `/share-balance` | Share balance for owner |
+| `GET` | `/max-withdraw` | Max withdrawable for owner |
+
+Query params typically include vault address/name and owner where relevant (see OpenAPI / SDK mapping for exact names).
+
+### Quote · deadline
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/quote/deposit` | Quote deposit (any token → vault shares) |
+| `POST` | `/quote/withdraw` | Quote withdraw (shares → any token) |
+| `GET` | `/deadline` | Suggested deadline (same hub-time semantics as swaps) |
+
+Vault share tokens (`lsoda*`) are solver-tradeable. The vault-share side of a quote is always on the **Sonic hub**.
+
+### Deposit / withdraw intents
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/allowance/check` | Allowance for deposit input (swap-domain) |
+| `POST` | `/approve` | Build approve for deposit input |
+| `POST` | `/intents/deposit` | Build deposit intent + tx + relayData |
+| `POST` | `/intents/withdraw` | Build withdraw intent + tx + relayData |
+
+### Shared intent lifecycle (mirrors Swaps)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/intents/submit` | Submit intent |
+| `POST` | `/intents/status` | Status (numeric codes) |
+| `POST` | `/intents/cancel` | Cancel |
+| `POST` | `/intents/hash` | Intent hash |
+| `POST` | `/intents/packet` | Long-poll solved packet |
+| `POST` | `/intents/extra-data` | Extra data helper |
+| `GET` | `/intents/:txHash/fill` | Filled state |
+| `GET` | `/intents/:txHash` | Intent by tx |
+| `POST` | `/gas/estimate` | Gas estimate |
+| `GET` | `/fees/partner` | Partner fee helper |
+| `GET` | `/fees/solver` | Solver fee helper |
+| `POST` | `/submit-tx` | Async execution handoff |
+| `GET` | `/submit-tx/status` | Poll until `solved` \| `failed` |
+
+`POST /submit-tx` accepts the same core fields as swaps plus an **`operation`** discriminator:
+
+| `operation` | Meaning |
+|-------------|---------|
+| `"deposit"` | Leverage deposit pipeline |
+| `"withdraw"` | Leverage withdraw pipeline |
+
+(Plain swaps use `"swap"` on the shared queue; leverage endpoints set deposit/withdraw.)
+
+`GET /submit-tx/status` echoes the queued row's discriminator as `data.operation` — `leverage_deposit` / `leverage_withdraw` here, `swap` for a plain swap — so one poller can tell the three apart.
+
+Status lifecycle is the same as [Swaps submit-tx](/developers/http-api/swaps#bot-flow-create-submit-tx-poll):
+
+```
+pending → relaying → relayed → posting_execution → posted_execution → solved | failed
+```
+
+---
+
+## Mental model
+
+```
+Deposit:  any supported token  →  (solver)  →  lsoda* vault shares
+Withdraw: lsoda* shares        →  (solver)  →  any supported token
+```
+
+- Shares are ERC-4626-style on the hub; cross-network entry uses the same intent rails as swaps.  
+- **Spoke deposit approval** goes through the swap-domain allowance/approve endpoints above (not hub-vault approve).  
+- Hub-side vault allowance helpers exist on the SDK (`sodax.leverageYield.approve` / `isAllowanceValid`) for direct hub flows.
+
+### Partner fees
+
+Same shapes as swaps: fixed `amount` or `percentage` (basis points).
+
+| Surface | Deposit | Withdraw |
+|---------|---------|----------|
+| **SDK** (`sodax.leverageYield`) | Yes | Yes — fee is taken from `inputAmount` (vault **`lsoda*` shares**), not the output token |
+| **HTTP** (this API) | Yes — `partnerFee` on `POST /quote/deposit` and `POST /intents/deposit` | **Not on the wire yet** — `POST /quote/withdraw` and `POST /intents/withdraw` have no `partnerFee` field. Withdraws are still charged the backend's configured leverage-yield fee, taken from the `lsoda*` input |
+
+For TypeScript product integrations, use the SDK so you can set your own fee in both directions. On raw HTTP, only deposit requests currently accept `partnerFee`. The backend rejects unknown body fields, so a `partnerFee` on a withdraw request fails the request instead of being ignored.
+
+Vault fees use the **leverage-yield** fee path (`leverageYield.partnerFee` / per-intent override), **not** `swaps.partnerFee`.
+
+---
+
+## Recommended partner paths
+
+| Situation | Recommendation |
+|-----------|----------------|
+| Product UI in React / TS | `sodax.leverageYield` + dapp-kit hooks |
+| Bot / non-TS on HTTP | This API: quote → approve → intents deposit or withdraw → broadcast → submit-tx → poll |
+| Display APR / TVL only | `GET /vaults`, `/apr*`, `/total-assets` |
+| Full risk / loop explanation | [SDK leverage yield docs](/developers/packages/foundation/sdk/functional-modules/leverage_yield) (how the loop works, multiplier, risk of inverted spread) |
+
+---
+
+## Example: list vaults
+
+```bash
+curl -s 'https://api.sodax.com/v1/leverage-yield/vaults' | jq '.[].name'
+# lsodaWEETH
+# lsodaWSTETH
+# lsodaJITOSOL
+# …
+```
+
+Example descriptor fields (shape can grow; treat as illustrative):
+
+```json
+{
+  "name": "lsodaWEETH",
+  "vault": "0x…",
+  "asset": "0x…",
+  "borrowToken": "0x…",
+  "lsdSource": {
+    "poolId": "…",
+    "fallbackAprPct": 3,
+    "label": "EtherFi (weETH)"
+  }
+}
+```
+
+---
+
+## Effective APR
+
+For product UI that needs the levered yield figure, prefer:
+
+- `GET /apr/effective` on this API, or  
+- SDK `getEffectiveApr` / the [Effective APR](/developers/packages/foundation/sdk/functional-modules/leverage_yield_apr) page  
+
+Do not invent multipliers client-side unless you reimplement the same formula.
+
+Every bigint-derived field is a decimal string. APR fields ending in `Ray` are RAY (`1e27` = 100%). `targetLtvBps` and the `/position` `ltv` are basis points (`10000` = 100%). `healthFactor` and `leverageMultiplierWad` are WAD (`1e18`). `leverageMultiplierWad` is the **borrowed** multiple, `targetLTV / (1 − targetLTV)`, so the exposure a depositor holds is `1 +` that value.
+
+---
+
+## Relation to Swaps API
+
+| Concern | Swaps | Leverage yield |
+|---------|-------|----------------|
+| Product prefix | `/v1/swaps` | `/v1/leverage-yield` |
+| Create intent | `/intents` | `/intents/deposit` · `/intents/withdraw` |
+| Submit machine | shared | shared (+ `operation`) |
+| Quote | pair quote | deposit/withdraw quote against vault |
+| Partner fee | either direction | SDK: either direction · HTTP: per-request fee on deposit only (withdraws pay the configured fee) |
+
+If you already integrated [Swaps submit-tx](/developers/http-api/swaps), reuse the same polling, cancel-to-recover, and failure-field handling here.
+
+---
+
+## See also
+
+- [Swaps API](/developers/http-api/swaps)  
+- [Stats](/developers/http-api/stats) — protocol volume, not vault-specific  
+- [Oracle](/developers/http-api/oracle) — asset charts  
+- [Leverage yield (SDK)](/developers/packages/foundation/sdk/functional-modules/leverage_yield)  

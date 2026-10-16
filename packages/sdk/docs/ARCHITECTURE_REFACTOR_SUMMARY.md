@@ -9,7 +9,7 @@ Key design points:
 - [Concept 3: Raw Transaction Handling](#concept-3-raw-transaction-handling) — `raw: true / false` is a discriminated union that enforces wallet-provider rules at compile time.
 - [Concept 4: Chain Keys](#concept-4-chain-keys) — All chain constants live under a single `ChainKeys.*` namespace.
 - [Concept 5: Result\<T\>](#concept-5-resultt) — Every public async method returns `Promise<Result<T>>` — no throws across service boundaries.
-- [Concept 6: Error-message convention](#concept-6-error-message-convention) — CODE form for catch blocks, prose form for precondition guards.
+- [Concept 6: Error convention](#concept-6-error-convention) — most public failures are a `SodaxError`; check `isSodaxError(error)` before reading `error.code`.
 
 For a direct mapping of old `*_CHAIN_ID` constants to `ChainKeys.*`, see [`packages/sdk/CHAIN_ID_MIGRATION.md`](../CHAIN_ID_MIGRATION.md).
 
@@ -117,7 +117,7 @@ await sodax.config.initialize(); // fetch dynamic config from backend; falls bac
 
 ### The discriminated union: `WalletProviderSlot<K, Raw>`
 
-The discriminated union lives in [`packages/types/src/common/common.ts`](../../types/src/common/common.ts):
+The discriminated union lives in [`packages/types/src/common/common.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/common/common.ts):
 
 ```ts
 export type WalletProviderSlot<K extends SpokeChainKey | ChainType, Raw extends boolean> =
@@ -215,48 +215,51 @@ There is no `toResult` / `tryCatch` / `safeCall` helper. Explicit `try/catch` is
 
 ### Branching on errors
 
-Module-specific typed error unions (e.g. `MoneyMarketError<Code>`, `IntentError<Code>`) are deleted. Branch on the error message (and/or `.cause`):
+The v1 per-module error unions (`MoneyMarketError<Code>`, `IntentError<Code>`, and the rest) are gone. Their replacement is one canonical `SodaxError<C>` carrying a string-literal `code`:
 
 ```ts
-// After
-if (!result.ok && result.error instanceof Error &&
-    result.error.message === 'CREATE_SUPPLY_INTENT_FAILED') { … }
+import { isSodaxError } from '@sodax/sdk';
+
+if (!result.ok && isSodaxError(result.error) && result.error.code === 'INTENT_CREATION_FAILED') { … }
 ```
+
+Use `isSodaxError` rather than `instanceof SodaxError`, which is not bundle-safe. Each module also exports narrow guards — `isBridgeCreateIntentError`, `isDexApproveError` and so on — listed in that module's page.
 
 ---
 
-## Concept 6: Error-message convention
+## Concept 6: Error convention
 
-Two forms of `new Error(…)` coexist. **Rule of thumb: if the error comes from a `catch` block, it's CODE form. If it comes from an `invariant`-style guard before any async call, it's prose.**
-
-### CODE form — `new Error('PHASE_FAILED', { cause?: underlying })`
-
-For **phase tags** — errors that originate in a `catch` block and wrap a lower-level failure. `PHASE` is `SCREAMING_SNAKE_CASE`, ending in `_FAILED` or `_TIMEOUT`.
+Most public failures are a `SodaxError<C>` (the exceptions are called out on each module's page — DEX relay legs and the Recovery spoke leg return the underlying error unchanged): a string-literal `code`, the originating `feature`, a structured `context`, and an ES2022 `cause` chain. Check `isSodaxError(error)` before reading `error.code`, and never discriminate on `error.message` — the message is human-readable and may change.
 
 ```ts
-// With cause (a lower-level error was caught and re-wrapped)
-return { ok: false, error: new Error('POST_EXECUTION_FAILED', { cause: result.error }) };
-return { ok: false, error: new Error('HTTP_REQUEST_FAILED', { cause: new Error(`HTTP ${status}: ${text}`) }) };
-
-// Without cause (operation reported failure via boolean/status, not an exception)
-return { ok: false, error: new Error('SIMULATION_FAILED') };
-return { ok: false, error: new Error('RELAY_TIMEOUT') };
+new SodaxError('INTENT_CREATION_FAILED', 'Intent creation failed', {
+  feature: 'bridge',
+  cause: error,
+  context: { srcChainKey, dstChainKey, phase: 'intentCreation' },
+});
 ```
 
-### Prose form — `new Error('<human sentence>')`
+Services do not construct these by hand. `src/errors/wrappers.ts` supplies one wrapper per failure phase — `approveFailed`, `intentCreationFailed`, `lookupFailed`, `verifyFailed`, `allowanceCheckFailed`, `executionFailed` — each of which sets `phase` for you. `approveFailed` and `intentCreationFailed` additionally test `isWalletRejection(cause)` first, so a dismissed wallet prompt arrives as `USER_REJECTED`. Relay failures pass through `mapRelayFailure`, which translates the relay layer's `RELAY_ERROR_CODES` strings into typed codes and records the original on `context.relayCode`.
 
-For **preconditions / invariants** — input validation, unsupported chain type, config lookup failures. No underlying error to wrap — the prose is the information.
+Preconditions use a feature-bound invariant rather than a bare throw:
 
 ```ts
-invariant(params.amount > 0n, 'Amount must be greater than 0');
-return { ok: false, error: new Error('Approve only supported for EVM/Stellar spoke chains') };
+import { bridgeInvariant } from '@sodax/sdk';
+
+bridgeInvariant(params.amount > 0n, 'Amount must be greater than 0', { field: 'amount' });
 ```
 
-### `Error.cause`
+This yields `SodaxError<'VALIDATION_FAILED'>` with `context.phase: 'validate'`. A plain `invariant(...)` throws a bare `Error` that the enclosing catch re-wraps, so the resulting code reflects the phase it was caught in rather than `VALIDATION_FAILED`.
 
-Attach `cause` whenever a lower-level error exists (most CODE-form sites). Omit only when the failure is boolean/status-derived with no wrapped throw.
+### `error.cause`
 
-See [`packages/sdk/CLAUDE.md`](../CLAUDE.md) for the full convention with worked examples.
+Attach `cause` whenever a lower-level error exists. Omit it only when the failure is boolean or status-derived with no wrapped throw.
+
+### Serialization
+
+`error.toJSON()` is the canonical logger surface, and `JSON.stringify(error)` invokes it automatically — `bigint` values inside `context` are coerced to strings. See [Logging](./LOGGING.md).
+
+See [Errors And Results](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/AGENTS.md#errors-and-results) for the full convention with worked examples.
 
 ---
 
@@ -331,14 +334,14 @@ Supported values: `'EVM'`, `'BITCOIN'`, `'SOLANA'`, `'STELLAR'`, `'SUI'`, `'ICON
 
 | Chain | Provider class | Native SDK |
 |-------|----------------|------------|
-| EVM (12 chains) | `EvmWalletProvider` | viem |
+| EVM | `EvmWalletProvider` | viem |
 | Solana | `SolanaWalletProvider` | @solana/web3.js |
 | Sui | `SuiWalletProvider` | @mysten/sui |
 | ICON | `IconWalletProvider` | icon-sdk-js |
 | Injective | `InjectiveWalletProvider` | @injectivelabs/sdk-ts |
 | Stellar | `StellarWalletProvider` | @stellar/stellar-sdk |
 | Stacks | `StacksWalletProvider` | @stacks/transactions |
-| Bitcoin | `BTCWalletProvider` | bitcoinjs-lib (PSBT) |
+| Bitcoin | `BitcoinWalletProvider` | bitcoinjs-lib (PSBT) |
 | NEAR | `NearWalletProvider` | near-api-js |
 
 ---
@@ -416,7 +419,7 @@ Integrators upgrading from v1 will encounter these breaking changes:
 - **`AddressType` renamed to `BtcAddressType`** — Bitcoin-specific address-type union (`'P2PKH' | 'P2SH' | 'P2WPKH' | 'P2TR'`). Bitcoin wallet-provider implementations must import the new name.
 - **Wallet-provider `chainType` discriminants** — every `I*WalletProvider` now declares `readonly chainType: '<CHAIN>'` as a literal field. Custom implementations must add the field.
 - **`RpcConfig` shape** — now a mapped type keyed by `ChainKey` **values** (`rpcConfig[ChainKeys.SONIC_MAINNET]`), with `BitcoinRpcConfig` for Bitcoin, `StellarRpcConfig` for Stellar, and `string` (the RPC URL) for every other chain.
-- **`IConfigApi` now returns `Promise<Result<T>>`** — every method on the backend-API contract (`getChains`, `getSwapTokens`, `getSwapTokensByChainId`, `getMoneyMarketTokens`, `getMoneyMarketTokensByChainId`). External implementers must update method signatures.
-- **Module error types deleted** — `MoneyMarketError<Code>`, `IntentError<Code>`, `StakingError<Code>`, `BridgeError<Code>`, `MigrationError<Code>`, `AssetServiceError<Code>`, `ConcentratedLiquidityError<Code>`, `RelayError`, plus five Partner error types and their type-guard helpers. See [Concept 5](#concept-5-resultt) for the `Result<T>` replacement and [Concept 6](#concept-6-error-message-convention) for how error CODEs appear on `error.message`.
+- **`IConfigApiV1` now returns `Promise<Result<T>>`** — every method on the backend-API contract (`getChains`, `getSwapTokens`, `getSwapTokensByChainId`, `getMoneyMarketTokens`, `getMoneyMarketTokensByChainId`). External implementers must update method signatures.
+- **Module error types deleted** — `MoneyMarketError<Code>`, `IntentError<Code>`, `StakingError<Code>`, `BridgeError<Code>`, `MigrationError<Code>`, `AssetServiceError<Code>`, `ConcentratedLiquidityError<Code>`, `RelayError`, plus five Partner error types and their type-guard helpers. See [Concept 5](#concept-5-resultt) for the `Result<T>` replacement and [Concept 6](#concept-6-error-convention) for the `SodaxError<C>` shape that replaced them.
 
 If you maintain wrappers/enums around chain identifiers, they should now accept/emit the **string keys from `ChainKeys`**.

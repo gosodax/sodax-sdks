@@ -19,6 +19,7 @@
 // @stacks/transactions — values
 export {
   Cl,
+  Pc,
   serializeCV,
   cvToString,
   deserializeCV,

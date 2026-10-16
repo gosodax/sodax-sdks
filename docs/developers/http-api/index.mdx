@@ -1,0 +1,161 @@
+---
+title: "HTTP API"
+sidebarTitle: "Overview"
+icon: server
+description: "Public SODAX HTTP surfaces for partners — base URLs, route prefixes, conventions, and which API to use."
+---
+
+Use this section when integrating over raw HTTP (any language). Prefer a [solution hub](/introduction) when you already know the outcome (Swap, Yield, …). For TypeScript end-to-end flows (create intent → relay → settle), use the [SDK functional modules](/developers/packages/foundation/sdk/functional-modules).
+
+<CardGroup cols={2}>
+  <Card title="Swap API" icon="rotate" href="/developers/http-api/swaps">
+    Quote, build intents, submit-tx, status. Product overview: [Swap hub](/swap).
+  </Card>
+  <Card title="Leverage yield API" icon="money-bill-trend-up" href="/developers/http-api/leverage">
+    Vault deposit / withdraw. Product overview: [Yield hub](/yield).
+  </Card>
+  <Card title="Oracle" icon="chart-line" href="/developers/http-api/oracle">
+    USD OHLC candles for charts, plus live solver mark prices.
+  </Card>
+  <Card title="Protocol stats" icon="chart-simple" href="/developers/http-api/stats">
+    Networks, partners, assets, filled-intent volume, and SODA supply.
+  </Card>
+</CardGroup>
+
+<Note>
+  **Exploring these routes with an AI agent?** The [Builders MCP](/builders-mcp)
+  (`https://builders.sodax.com/mcp`) wraps the read surfaces below as tools, so the agent works from
+  today's chains, tokens, quotes and rates instead of its training data.
+</Note>
+
+## Base URLs
+
+| Environment | Host | Use |
+|-------------|------|-----|
+| **Production** | `https://api.sodax.com` | Default for partners |
+| **Canary** | `https://canary-api.sodax.com` | Early features / soak |
+
+Always use these public hosts. Do not hard-code private infrastructure hostnames.
+
+Send `x-api-key` from your server, never from a browser: a key in front-end code is public. [API key good practices](/developers/how-to/api-key-good-practices) shows how to proxy browser traffic through your own backend.
+
+## Route map
+
+| Prefix | Purpose | Auth |
+|--------|---------|------|
+| `/v1/swaps/*` | Swaps API — quote, build intent, submit-tx, status | No key enforced yet (rate-limited writes) — see [API keys](/developers/how-to/api-keys) |
+| `/v1/leverage-yield/*` | Leveraged yield vaults over HTTP | No key enforced yet (same pattern as swaps) — see [API keys](/developers/how-to/api-keys) |
+| `/v1/be/oracle/*` | USD OHLC price candles for charts | Unauthenticated `GET` |
+| `/v1/be/solver/*` | Solver volume / orderbook / intent journal reads | Unauthenticated `GET` |
+| `/v1/be/config/*` | Chains, tokens, hub assets | Unauthenticated `GET` |
+| `/v1/be/partners/*` | Partner receivers + fee/volume summary | Unauthenticated `GET` |
+| `/v1/be/sodax/*` | SODA total / circulating supply | Unauthenticated `GET` |
+| `/v1/be/intent/*` | Intent lookup by hash / tx / user | Unauthenticated `GET` |
+| `/v1/be/moneymarket/*` | Money-market positions & reserves (read) | Unauthenticated `GET` |
+| `/v1/intent/*` | Solver service (quote / execute / status / oracle prices) | Unauthenticated |
+| `/v1/a/*` | Sonic data backend (pools, volume, prices) | Unauthenticated `GET` |
+| `/v1/sponsorships/*` | Stellar sponsoring | API key (enforced; its own key registry, not a portal key — see [API keys](/developers/how-to/api-keys)) |
+
+## Shared conventions
+
+### BigInt as decimal strings
+
+Any amount, chain id field, or token quantity larger than a safe JSON integer is serialized as a **decimal string** on the wire (e.g. `"1000000"`, never a bare JS number for wei-scale values).
+
+```json
+{ "inputAmount": "1000000", "deadline": "1786500000" }
+```
+
+Not every decimal string is an integer, though — prices and supply figures carry a fractional part. Match the parser to the value: integer strings take `BigInt`, fractional strings need a decimal library. See [SODA supply](/developers/http-api/stats#soda-supply) for the trap this creates.
+
+### Timestamps
+
+There is no single representation — read the unit off the endpoint you are calling.
+
+| Where | Representation |
+|-------|----------------|
+| Oracle candle `timestamp`, and the `from` / `to` query parameters | UNIX **seconds** |
+| Date fields inside JSON bodies — e.g. `now` in the health response, `abandonedAt` on swap status | **ISO 8601** strings |
+| Intent date filters (`startDate` / `endDate`) | **ISO 8601** on the wire |
+
+<Note>
+  Porting from the SDK? `backendApi.getUserIntents()` takes `startDate` / `endDate` as
+  **milliseconds** and converts them to ISO 8601 before sending. That conversion is a client-side
+  convenience, not the wire format — calling the endpoint directly with a millisecond value will not
+  work.
+</Note>
+
+### Errors at the edge
+
+Unknown routes return:
+
+```json
+{ "ok": false, "error": "route_not_found" }
+```
+
+Service-level validation errors are typically HTTP `400` with a descriptive message body. Rate-limited writes return `429`.
+
+Two 404 shapes exist, and telling them apart saves debugging time. The payload above is the
+**gateway** shape: the path matched no published route, so the request never reached a service — this
+almost always means a wrong or missing prefix. A **service** 404 carries a message instead, meaning
+the prefix was right and the service itself rejected the path:
+
+```json
+{ "message": "Cannot GET /api/swaps", "error": "Not Found", "statusCode": 404 }
+```
+
+To confirm a base URL and prefix are right before debugging anything else:
+
+```bash
+curl -s 'https://api.sodax.com/v1/be/healthz'
+# → {"status":"ok","service":"api","aggregatorBlockHeight":"78868510","now":"…","acceptTraffic":true}
+```
+
+A `route_not_found` from that path means the prefix is wrong, not that the API is down.
+
+### Caching
+
+Read endpoints are often cached server-side (seconds to a minute). Polling faster than the cache TTL does not yield fresher data. Exact TTLs are noted per page where known.
+
+Read endpoints also send a weak `ETag` and honour `If-None-Match`, so a poller can skip
+re-downloading an unchanged payload:
+
+```bash
+curl -s -D- -o /dev/null 'https://api.sodax.com/v1/be/oracle/markets' | grep -i etag
+# etag: W/"319-AoMQadrF9GEZWYlx1LKeFt0/Lc4"
+
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H 'If-None-Match: W/"319-AoMQadrF9GEZWYlx1LKeFt0/Lc4"' \
+  'https://api.sodax.com/v1/be/oracle/markets'
+# → 304
+```
+
+### Partner fees
+
+Partner monetization uses a per-request `partnerFee` object on quote/create-intent style endpoints — there is **no** global default fee. See [Swaps](/developers/http-api/swaps#partner-fee) and the [Monetize SDK](/developers/how-to/monetize_sdk) guide for claiming.
+
+## Choose a path
+
+| You want to… | Use |
+|--------------|-----|
+| Chart USD prices for SODAX assets | [Oracle candles](/developers/http-api/oracle) |
+| Show live hub token prices | [Solver oracle](/developers/http-api/oracle#solver-oracle-live-prices) |
+| Show “networks / partners / volume / supply” on a site | [Stats](/developers/http-api/stats) |
+| Run swaps from a bot or non-TS stack | [Swaps API](/developers/http-api/swaps) |
+| Deposit into leverage vaults over HTTP | [Leverage yield](/developers/http-api/leverage) |
+| Activate a new Stellar account | [Stellar sponsoring](/developers/how-to/stellar-sponsoring-getting-started) (`/v1/sponsorships/*`, API key) |
+| Full wallet + multi-chain UX in React | [`@sodax/sdk`](/developers/packages/foundation/sdk) + [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) |
+
+## OpenAPI
+
+Machine-readable OpenAPI for the backend API is available at:
+
+- `https://api.sodax.com/v1/be/docs` (interactive)
+- `https://api.sodax.com/v1/be/docs-json`
+
+Swaps / leverage share the swaps-api app OpenAPI when that service is enabled (`/docs` on the service origin; edge pathing is under `/v1/swaps` and `/v1/leverage-yield`).
+
+The Stateful API — the partner-portal surface behind [API keys](/developers/how-to/api-keys) — publishes
+its own spec at `https://api.sodax.com/v1/bes/docs` (interactive) and `/v1/bes/docs-json`. Read it as a
+service reference, not a callable base path: the edge publishes only `docs`, `docs-json` and `healthz`
+under `/v1/bes`, so the portal and user routes the spec lists answer a gateway `route_not_found` there.

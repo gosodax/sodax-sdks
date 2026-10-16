@@ -32,8 +32,6 @@ export default function Providers({ children }: { children: ReactNode }) {
       BITCOIN: {
         chains: {
           [ChainKeys.BITCOIN_MAINNET]: {
-            radfiApiUrl: 'https://api.bound.exchange/api',
-            radfiUmsUrl: 'https://api.ums.bound.exchange/api',
             rpcUrl: 'https://mempool.space/api',
           },
         },

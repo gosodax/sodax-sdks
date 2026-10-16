@@ -1,4 +1,9 @@
-import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import {
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  getAssociatedTokenAddressSync,
+  unpackAccount,
+} from '@solana/spl-token';
 import {
   ComputeBudgetProgram,
   Connection,
@@ -20,14 +25,18 @@ import type {
   DepositParams,
   EstimateGasParams,
   GetDepositParams,
+  GetBalanceParams,
+  GetBalancesParams,
   SendMessageParams,
   WaitForTxReceiptParams,
   WaitForTxReceiptReturnType,
 } from '../../types/spoke-types.js';
+import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 import type { ConfigService } from '../../config/ConfigService.js';
 import { sleep } from '../../utils/shared-utils.js';
 import {
   getIntentRelayChainId,
+  isNativeToken,
   ChainKeys,
   type SolanaAccountMeta,
   type SolanaBase58PublicKey,
@@ -205,6 +214,61 @@ export class SolanaSpokeService {
     const tokenAccount = await SolanaSpokeService.getTokenAccountBalance(this.connection, vaultToken.pda.toBase58());
 
     return BigInt(tokenAccount.value.amount);
+  }
+
+  /**
+   * Get the user's own wallet balance of a token on Solana, in smallest units. Native SOL via
+   * `getBalance`; SPL via the associated token account. The mint may belong to the legacy SPL
+   * Token program or Token-2022 (e.g. xStock tokens), which derive different ATAs, so both
+   * candidate ATAs are read in one call and the existing one is used.
+   * @param {GetBalanceParams<SolanaChainKey>} params - The chain key, user address, and token.
+   * @returns {Promise<bigint>} The token balance in smallest units.
+   */
+  public async getWalletBalance(params: GetBalanceParams<SolanaChainKey>): Promise<bigint> {
+    const { srcChainKey, srcAddress, token } = params;
+
+    if (isNativeToken(srcChainKey, token)) {
+      return BigInt(await SolanaSpokeService.getBalance(this.connection, srcAddress));
+    }
+
+    const owner = new PublicKey(srcAddress);
+    const mint = new PublicKey(token.address);
+
+    const candidates = [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID].map(programId => ({
+      programId,
+      ata: getAssociatedTokenAddressSync(mint, owner, true, programId),
+    }));
+
+    const accounts = await this.connection.getMultipleAccountsInfo(candidates.map(c => c.ata));
+
+    // A mint is owned by exactly one program, so normally only one ATA exists. Summing (and
+    // skipping anything that isn't a token account for that program) stays correct even if a
+    // stray account sits at the other candidate address.
+    let balance = 0n;
+    for (const [i, candidate] of candidates.entries()) {
+      const info = accounts[i];
+      if (!info) continue;
+      try {
+        balance += unpackAccount(candidate.ata, info, candidate.programId).amount;
+      } catch {
+        // Not a token account for this program — ignore it.
+      }
+    }
+    return balance;
+  }
+
+  /**
+   * Get the user's own wallet balances of multiple tokens on Solana, in smallest units.
+   * @param {GetBalancesParams<SolanaChainKey>} params - The chain key, user address, and tokens.
+   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
+   */
+  public async getWalletBalances(params: GetBalancesParams<SolanaChainKey>): Promise<WalletBalanceMap> {
+    const { srcChainKey, srcAddress, tokens } = params;
+    const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
+    await settleWalletBalances(collector, tokens, token =>
+      this.getWalletBalance({ srcChainKey, srcAddress, token }),
+    );
+    return collector.finish();
   }
 
   /**

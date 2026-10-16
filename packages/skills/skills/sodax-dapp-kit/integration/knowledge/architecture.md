@@ -132,6 +132,7 @@ import {
   useSodaxContext,
   useSafeMutation,
   unwrapResult,
+  invalidateBalances,
   type MutationHookParams,
   type SafeUseMutationResult,
 } from '@sodax/dapp-kit';
@@ -149,8 +150,8 @@ export function useSwap<K extends SpokeChainKey = SpokeChainKey>({
     ...mutationOptions,
     mutationFn: async vars => unwrapResult(await sodax.swaps.swap({ ...vars, raw: false })),
     onSuccess: async (data, vars, ctx) => {
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', vars.params.srcChainKey] });
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', vars.params.dstChainKey] });
+      // Covers both balance query families; they never prefix-match each other.
+      invalidateBalances(queryClient, vars.params.srcChainKey, vars.params.dstChainKey);
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },
   });
@@ -210,24 +211,39 @@ resolves with is the **last** transaction's.
 Nothing about the hook contract changes and there is no flag to set. What matters for UI:
 
 - An `isPending` that renders a single "Approving…" now spans two wallet prompts. Say so in the copy,
-  or the second prompt reads as a bug.
+  or the second prompt reads as a bug. On the unsigned paths, pass `onProgress` (below) and name the
+  step instead of guessing.
 - Anything estimating gas or counting transactions from "one approve = one transaction" is wrong on
   that branch.
 - If the second signature is rejected after the reset landed, the allowance is now zero, so the next
   attempt is a single transaction — retrying is always safe.
 
-On the unsigned (swaps-API) path, prefer **`useSwapsApiApproveAndBroadcast`**: it asks the API for
-the transactions, then signs, broadcasts, and waits for each, resolving with
-`{ approveTxHash, resetTxHash? }` only once the final approval has landed. A transaction that mines
-but reverts rejects the mutation naming that step, so the approve is never sent over a reset that
-did not take. It also invalidates `['swapsApi','allowance']` itself, because confirmation now
-happens inside the hook.
+On the unsigned (backend-API) paths, prefer **`useSwapsApiApproveAndBroadcast`** —
+**`useBridgeApiApproveAndBroadcast`** for a bridge, **`useLeverageYieldApiApproveAndBroadcast`** for a
+leverage-yield deposit: each asks its API for the transactions, then signs, broadcasts, and waits for
+each, resolving with `{ approveTxHash, resetTxHash? }` only once the final approval has landed. A
+transaction that mines but reverts rejects the mutation naming that step, so the approve is never
+sent over a reset that did not take. Each also invalidates its own allowance query
+(`['swapsApi','allowance']` / `['bridgeApi','allowance']` / `['leverageYieldApi','allowance']`),
+because confirmation now happens inside the hook. Pick the one matching the action you are about to
+take — each API builds its approval for its own hub spender, so an approval built by one does not
+satisfy the other. Only a leverage-yield **deposit** needs one; a withdraw spends `lsoda*` from the
+hub wallet and never approves.
 
-`useSwapsApiApprove` still exists and returns the API's `{ tx, resetTx? }` verbatim — use it only
-when you need to own signing. If you do, broadcast `resetTx` **first and wait for it to succeed**;
-the approve is not a valid state transition until the reset has landed, so sending both together
-spends the user's gas on a certain revert. Waiting is not enough on its own — check the receipt's
-status, because a mined-and-reverted reset leaves the allowance exactly where it was.
+All three accept an optional **`onProgress`** in their mutation vars. It reports each transaction as
+`{ step, phase, index, total, hash?, error? }` — `step` is `'allowance-reset'` or `'approve'`, `phase`
+walks `signing → broadcast → confirmed` (or `failed`), and `index`/`total` give "1 of 2" without the
+caller tracking anything. Advisory: the listener is never awaited, one that throws is ignored rather
+than aborting a broadcast, and the mutation's own result stays the source of truth. It lives in the
+vars rather than the hook options so it is never a stale closure.
+
+`useSwapsApiApprove` / `useBridgeApiApprove` / `useLeverageYieldApiApprove` still exist and return
+the API's `{ tx, resetTx? }` verbatim — use them only when you need to own signing. If you do,
+broadcast `resetTx` **first and wait for it to succeed**; the approve is not a valid state
+transition until the reset has landed, so sending both together spends the user's gas on a certain
+revert. Waiting is not enough on its own —
+check the receipt's status, because a mined-and-reverted reset leaves the allowance exactly where it
+was.
 
 ## queryKey / mutationKey conventions (mandatory)
 
@@ -263,7 +279,8 @@ Worked examples:
 // @ai-snippets-skip
 queryKey: ['mm', 'userReservesData', spokeChainKey, userAddress]
 queryKey: ['mm', 'allowance', srcChainKey, token, action]
-queryKey: ['shared', 'xBalances', xChainId, tokens, address]
+queryKey: ['shared', 'balances', chainKey, tokens, address]   // useBalances
+queryKey: ['shared', 'xBalances', xChainId, tokens, address] // useXBalances
 mutationKey: ['mm', 'supply']
 queryClient.invalidateQueries({ queryKey: ['dex', 'positionInfo', tokenId, poolKey] });
 ```
@@ -275,10 +292,12 @@ Hooks organized by feature domain in `src/hooks/`:
 ```
 hooks/
 ├── shared/     # useSodaxContext, useSafeMutation, unwrapResult, useEstimateGas,
-│               # useDeriveUserWalletAddress, useGetUserHubWalletAddress, useXBalances,
+│               # useDeriveUserWalletAddress, useGetUserHubWalletAddress,
+│               # useBalances, useXBalances, invalidateBalances,
 │               # useStellarTrustlineCheck, useEstablishTrustline (+ deprecated useRequestTrustline)
 ├── provider/   # useHubProvider
-├── swap/       # useQuote, useSwap, useStatus, useSwapAllowance, useSwapApprove,
+├── swap/       # useSwapLifecycle, useSwapWithApproval, useSwapApprovalStrategy,
+│               # useQuote, useSwap, useDetailedStatus, useStatus, useSwapAllowance, useSwapApprove,
 │               # useCancelSwap, useCreateLimitOrder, useCancelLimitOrder
 ├── mm/         # useSupply, useWithdraw, useBorrow, useRepay, useMMAllowance, useMMApprove,
 │               # reserves data hooks

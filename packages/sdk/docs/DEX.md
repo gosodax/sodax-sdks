@@ -1,7 +1,7 @@
 <!-- packages/sdk/docs/DEX.md -->
 # DEX (Concentrated Liquidity)
 
-> **Error handling conventions:** This module uses the **relay-layer contract** — discriminate on `error.message === 'RELAY_TIMEOUT'` / `'SUBMIT_TX_FAILED'` (also exported as `RELAY_ERROR_CODES` from `@sodax/sdk`). The **swap module** uses a different convention (`SodaxError<SwapErrorCode>` — see [SWAPS.md](./SWAPS.md) Error Handling). Both conventions coexist during the swap-first migration; the legacy pattern documented below is unchanged for DEX.
+> **Error handling conventions:** DEX has a **mixed** contract. Everything except the relay leg returns a typed `SodaxError` with `feature: 'dex'` — discriminate on `error.code`. Relay failures are the exception: DEX is the only feature module that does not run them through `mapRelayFailure`, so they surface as a plain `Error` whose `.message` is one of `RELAY_ERROR_CODES`. See [Error Handling](#error-handling) below before writing any branching.
 
 The DEX portion of the SDK provides helpers for asset wrapping/deposits and concentrated liquidity (CL) operations.
 All DEX features are accessible through the `dex` property of a `Sodax` instance.
@@ -85,7 +85,7 @@ The required spender varies by chain type:
 
 **Note**: For Stellar-based operations, allowance works differently:
 - **Source Chain (Stellar)**: `isAllowanceValid` checks trustlines automatically.
-- **Destination Chain (Stellar)**: You must manually check trustlines before executing DEX operations. See [Stellar Trustline Requirements](./STELLAR_TRUSTLINE.md).
+- **Destination Chain (Stellar)**: You must manually check trustlines before executing DEX operations. See [Stellar Trustline Requirements](https://docs.sodax.com/developers/how-to/stellar_trustline).
 
 **Example:**
 ```typescript
@@ -124,7 +124,7 @@ Supported chain types: Stellar, EVM spoke chains, hub chain (Sonic). Returns an 
 
 **Note**: For Stellar-based operations:
 - **Source Chain (Stellar)**: `approve` requests trustlines automatically.
-- **Destination Chain (Stellar)**: You must establish trustlines before receiving assets. See [Stellar Trustline Requirements](./STELLAR_TRUSTLINE.md).
+- **Destination Chain (Stellar)**: You must establish trustlines before receiving assets. See [Stellar Trustline Requirements](https://docs.sodax.com/developers/how-to/stellar_trustline).
 
 **Example:**
 ```typescript
@@ -602,40 +602,137 @@ type Result<T> =
   | { ok: false; error: Error | unknown };
 ```
 
-There are no module-specific typed error discriminators (`AssetServiceError<Code>` and `ConcentratedLiquidityError<Code>` have been removed). Branch on `result.error.message` for CODE-form errors, and check `.cause` for the underlying error:
+### Two contracts coexist
+
+Almost every DEX failure is a `SodaxError` carrying `feature: 'dex'`, a `code`, and a `context`
+object. The exception is the **relay leg**: DEX is the only feature module that does not pass relay
+failures through `mapRelayFailure`, so the relay-waiting variants (`deposit`, `withdraw`,
+`supplyLiquidity`, `increaseLiquidity`, `decreaseLiquidity`, `claimRewards`) forward the relay layer's
+own error unchanged — a plain `Error` whose `.message` is one of `RELAY_ERROR_CODES`:
+`SUBMIT_TX_FAILED`, `RELAY_TIMEOUT`, `RELAY_POLLING_FAILED`.
+
+Handle both shapes:
 
 ```typescript
+import { isSodaxError, isDexCreateIntentError } from "@sodax/sdk";
+
+const result = await sodax.dex.assetService.deposit(params);
+
 if (!result.ok) {
-  if (result.error instanceof Error) {
-    // CODE-form errors (from catch blocks): e.g. 'RELAY_TIMEOUT', 'GET_POOL_DATA_FAILED'
-    console.error("Error code:", result.error.message);
-    // Underlying cause (if any)
-    if (result.error.cause) console.error("Cause:", result.error.cause);
+  if (isSodaxError(result.error)) {
+    // Typed path — feature === 'dex'
+    switch (result.error.code) {
+      case "USER_REJECTED":         /* wallet popup dismissed */ break;
+      case "VALIDATION_FAILED":     /* bad input, see error.context.field */ break;
+      case "INTENT_CREATION_FAILED":/* build/sign/broadcast failed */ break;
+      default:                      /* UNKNOWN */ break;
+    }
+    console.error(result.error.context, result.error.cause);
+  } else if (result.error instanceof Error) {
+    // Relay path — 'SUBMIT_TX_FAILED' | 'RELAY_TIMEOUT' | 'RELAY_POLLING_FAILED'.
+    // The spoke transaction already landed; only delivery to the hub failed.
+    console.error("relay:", result.error.message);
   }
 }
 ```
 
-Common error message codes emitted by these services:
+The distinction matters operationally. All three relay codes mean the source-chain transaction
+landed and only cross-chain delivery is unresolved, so the response is to keep polling or to
+reconcile, not to resubmit.
 
-**AssetService:**
-- `RELAY_TIMEOUT` — relay packet did not arrive within the timeout
+Ordering the `isSodaxError` check first also keeps this code correct if DEX later routes relay
+failures through `mapRelayFailure`: the relay branch simply stops being reached.
 
-**ConcentratedLiquidityService (`ClService`):**
-- `GET_POOL_DATA_FAILED`
-- `GET_POSITION_INFO_FAILED`
-- `GET_POOL_REWARD_CONFIG_FAILED`
-- `GET_MINT_POSITION_EVENT_FAILED`
-- `RELAY_TIMEOUT`
+### Guards
 
-Prose-form error messages (precondition failures) include: `'Amount must be greater than 0'`, `'Approve only supported for EVM/Stellar spoke chains'`, `'Pool has no hook configured'`.
+`@sodax/sdk` exports three narrowing guards for DEX, each matching a code set:
+
+| Guard | Code set | Use on |
+| --- | --- | --- |
+| `isDexApproveError` | `USER_REJECTED`, `VALIDATION_FAILED`, `APPROVE_FAILED`, `UNKNOWN` | `assetService.approve` |
+| `isDexCreateIntentError` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` | every `execute*` method |
+| `isDexError` | `VALIDATION_FAILED`, `LOOKUP_FAILED`, `UNKNOWN` | every read/lookup method |
+
+`USER_REJECTED` takes precedence wherever it can appear. The `approveFailed` and
+`intentCreationFailed` wrappers test `isWalletRejection(cause)` first, so a dismissed wallet prompt
+arrives as `USER_REJECTED` rather than the generic failure code for that phase.
+
+### Codes per method
+
+| Method | Codes | Guard |
+| --- | --- | --- |
+| `assetService.approve` | `USER_REJECTED`, `VALIDATION_FAILED`, `APPROVE_FAILED`, `UNKNOWN` | `isDexApproveError` |
+| `assetService.executeDeposit` / `executeWithdraw` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` | `isDexCreateIntentError` |
+| `assetService.deposit` / `withdraw` | the above **plus** a raw relay `Error` | both, plus the `instanceof Error` fallback |
+| `assetService.getWrappedAmount` / `getUnwrappedAmount` / `getDeposit` | `LOOKUP_FAILED`, `UNKNOWN` | `isDexError` |
+| `assetService.isAllowanceValid` | **untyped** — see below | none |
+| `clService.executeSupplyLiquidity` / `executeIncreaseLiquidity` / `executeDecreaseLiquidity` / `executeClaimRewards` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` | `isDexCreateIntentError` |
+| `clService.supplyLiquidity` / `increaseLiquidity` / `decreaseLiquidity` / `claimRewards` | the above **plus** a raw relay `Error` | both |
+| `clService.getMintPositionEvent` | `LOOKUP_FAILED`, `UNKNOWN` | `isDexError` |
+| `clService.getPoolData` / `getPositionInfo` | `LOOKUP_FAILED`, `UNKNOWN` | `isDexError` |
+| `clService.getPoolRewardConfig` | `VALIDATION_FAILED` (`'Pool has no hook configured'`), `LOOKUP_FAILED`, `UNKNOWN` | `isDexError` |
+
+Codes listed here are the ones these methods actually produce; `UNKNOWN` is the forward-compatible
+catch-all. The guards narrow to a wider code set than any single method emits.
+
+`LOOKUP_FAILED` does not vary by method — the method name is carried on `error.context.method`
+(`'getPoolData'`, `'getPositionInfo'`, `'getPoolRewardConfig'`, `'getMintPositionEvent'`,
+`'getWrappedAmount'`, `'getUnwrappedAmount'`, `'getDeposit'`). Branch on `context.method`, not on the
+code.
+
+### `isAllowanceValid` is on neither contract
+
+`assetService.isAllowanceValid` still returns its raw failure — the thrown `tiny-invariant` `Error`,
+or a forwarded spoke-service error — without wrapping it in a `SodaxError`. Treat its error channel
+as `unknown` and do not assume a `code`. It is the one method in the module still on this shape.
+
+### Precondition failures are not uniformly `VALIDATION_FAILED`
+
+DEX uses two different assertion helpers and they produce different codes:
+
+- `dexInvariant(...)` throws a `SodaxError<'VALIDATION_FAILED'>` with `context.phase: 'validate'`.
+  Only two consumer-visible messages come from it: `'Approve only supported for EVM/Stellar spoke
+  chains'` and the `getAssetsForPool` token-not-found messages.
+- plain `invariant(...)` throws a bare `Error`, which the enclosing catch then re-wraps with
+  `approveFailed` / `intentCreationFailed`.
+
+The same message therefore surfaces under different codes depending on the method: `'Amount must be
+greater than 0'` arrives as `APPROVE_FAILED` from `approve()` and as `INTENT_CREATION_FAILED` from
+`executeDeposit()`. Do not key user-facing copy on `VALIDATION_FAILED` alone; read
+`error.message` / `error.cause` when you need the specific precondition.
+
+### Methods that throw instead of returning `Result`
+
+These helpers throw rather than returning a `Result`, so wrap them in `try`/`catch`:
+
+- `assetService.isSodaAsXSodaInPool()` — `[isSodaDepositToXSoda] Spoke token not found for asset …`
+- `assetService.getTokenWrapAction()` / `getTokenUnwrapAction()` — `[withdrawData] Hub asset not found`
+- `clService.getAssetsForPool()` — throws `SodaxError<'VALIDATION_FAILED'>` via `dexInvariant`
+- `ClService.sqrtBigInt()` — `sqrtBigInt: negative input`
+
+### `context` fields
+
+DEX populates `phase` (`validate` | `intentCreation` | `approve` | `lookup`), `method` (on
+`LOOKUP_FAILED`), and `method` (on lookup failures). It does **not** set `relayCode` —
+that field only exists on modules whose relay failures go through `mapRelayFailure`.
 
 ## Usage Flow
 
 1. **Check allowance** using `assetService.isAllowanceValid()`
 2. **Approve** using `assetService.approve()` if needed (trustlines are handled automatically for Stellar as source)
-3. **For Stellar destination chains**: check and establish trustlines manually (see [Stellar Trustline Requirements](./STELLAR_TRUSTLINE.md))
+3. **For Stellar destination chains**: check and establish trustlines manually (see [Stellar Trustline Requirements](https://docs.sodax.com/developers/how-to/stellar_trustline))
 4. **Deposit** using `assetService.deposit()` to wrap tokens into StatAToken pool-token balances
 5. **Supply liquidity** using `clService.supplyLiquidity()` (or increase an existing position)
 6. **Retrieve tokenId** from the mint event using `clService.getMintPositionEvent(dstChainTxHash)` if needed for subsequent operations
 7. **Manage position** using `increaseLiquidity` / `decreaseLiquidity` / `claimRewards`
 8. **Withdraw** using `assetService.withdraw()` to unwrap StatATokens back to the original asset
+
+## Runnable example
+
+[`apps/demo`](https://github.com/icon-project/sodax-sdks/tree/main/apps/demo/src/pages/dex) —
+`pnpm dev:demo`, then `/dex`. It walks the eight steps above in order, so it is the fastest way to
+see which of them need an approval and which return a position `tokenId`.
+
+There is no backend counterpart in
+[`apps/node`](https://github.com/icon-project/sodax-sdks/tree/main/apps/node) for the DEX module
+yet.

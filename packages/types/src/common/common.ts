@@ -7,7 +7,7 @@ import type { BitcoinRawTransaction, BitcoinReturnType } from '../bitcoin/bitcoi
 import type { IconRawTransaction, IconReturnType } from '../icon/icon.js';
 import type { InjectiveRawTransaction, InjectiveReturnType } from '../injective/injective.js';
 import type { NearRawTransaction, NearReturnType } from '../near/near.js';
-import type { SolanaRawTransaction, SolanaReturnType } from '../solana/solana.js';
+import type { SolanaBase58PublicKey, SolanaRawTransaction, SolanaReturnType } from '../solana/solana.js';
 import type { StacksRawTransaction, StacksReturnType } from '../stacks/stacks.js';
 import type { StellarRawTransaction, StellarReturnType } from '../stellar/stellar.js';
 import type { SuiRawTransaction, SuiReturnType } from '../sui/sui.js';
@@ -94,7 +94,7 @@ export type GetAddressType<C extends SpokeChainKey | ChainType> =
           : GetChainType<C> extends 'SUI'
             ? Hex
             : GetChainType<C> extends 'SOLANA'
-              ? Hex
+              ? SolanaBase58PublicKey
               : GetChainType<C> extends 'STACKS'
                 ? string
                 : GetChainType<C> extends 'NEAR'
@@ -354,11 +354,10 @@ export type StellarRpcConfig = {
   sorobanRpcUrl?: string;
 };
 
-// Type for Bitcoin RPC configuration with Bound Exchange API endpoints
+// Type for Bitcoin RPC configuration. Bound Exchange hosts are NOT set here — nothing reads
+// them off this shape. They live on `chains[BITCOIN_MAINNET].radfi` in the SDK config.
 export type BitcoinRpcConfig = {
   rpcUrl?: string;
-  radfiApiUrl?: string;
-  radfiUmsUrl?: string;
 };
 
 // Type for Injective RPC configuration — covers indexer and gRPC endpoints.
@@ -394,7 +393,7 @@ export type StacksNetworkLike = {
 
 // Mapped type that uses ChainKey as keys and assigns appropriate value types per chain:
 // - Stellar    → StellarRpcConfig                   (horizon + soroban URLs)
-// - Bitcoin    → BitcoinRpcConfig                   (rpcUrl + radfi endpoints)
+// - Bitcoin    → BitcoinRpcConfig                   (rpcUrl only; Bound hosts live on chains.radfi)
 // - Injective  → InjectiveRpcConfig                 (indexer + grpc endpoints)
 // - Stacks     → StacksNetworkName | StacksNetworkLike (preset name or full network)
 // - All others → string                             (single RPC URL)

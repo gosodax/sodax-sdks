@@ -129,7 +129,7 @@ export type SodaxErrorContext = {
   srcChainKey?: string;
   dstChainKey?: string;
   relayCode?: RelayCode;
-  api?: 'solver' | 'backend' | 'swaps' | 'sponsoring' | 'bridge';
+  api?: 'solver' | 'backend' | 'swaps' | 'leverageYield' | 'sponsoring' | 'bridge';
   method?: string;
   status?: number;
   nextAction?: string;

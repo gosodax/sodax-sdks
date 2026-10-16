@@ -155,6 +155,19 @@ describe('api key handling', () => {
     expect(init.headers['x-api-key']).toBe('from-headers');
   });
 
+  it('sends a directly configured key to any target, including a per-call override', async () => {
+    // Direct construction carries no inherited-key gating (that applies only to the instance key
+    // `BackendApiService` passes in): this key is the consumer's own config for their own origin.
+    const service = makeService({ apiKey: 'secret-key' });
+    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
+
+    await service.getStellarSponsorConfig({ baseURL: 'http://localhost:3011' });
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
+    expect(url).toBe('http://localhost:3011/sponsorships/stellar/config');
+    expect(init.headers['x-api-key']).toBe('secret-key');
+  });
+
   it('sends no x-api-key when none is configured', async () => {
     const service = makeService();
     mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
@@ -180,6 +193,21 @@ describe('api key handling', () => {
     const [url, init] = mockFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
     expect(url.startsWith('https://backend.mydapp.com')).toBe(false);
     expect(init.headers).not.toHaveProperty('Authorization');
+  });
+
+  it('a repeated mixed-casing update sends the newest value, not a stale case variant', async () => {
+    // Updating an existing object key does NOT move it in insertion order, so a raw
+    // `headers[name] = value` would leave the older casing last and let it win the merge.
+    const service = makeService({ apiKey: 'v1' });
+    service.setHeaders({ 'X-Api-Key': 'v2' });
+    service.setHeaders({ 'x-api-key': 'v3' });
+    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
+
+    await service.getStellarSponsorConfig();
+
+    const headers = mockFetch.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    expect(Object.keys(headers).filter(h => h.toLowerCase() === 'x-api-key')).toHaveLength(1);
+    expect(new Headers(headers).get('x-api-key')).toBe('v3');
   });
 
   it('applies setHeaders to subsequent calls', async () => {

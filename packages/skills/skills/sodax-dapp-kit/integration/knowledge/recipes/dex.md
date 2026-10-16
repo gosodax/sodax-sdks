@@ -186,15 +186,30 @@ function Position({ positionId, poolKey }: { positionId: bigint; poolKey: PoolKe
 
 ## Remove Liquidity
 
-```tsx
-// @ai-snippets-skip
-const walletProvider = useWalletProvider({ xChainId: ChainKeys.BASE_MAINNET });
-const { mutateAsync: decreaseLiquidity } = useDecreaseLiquidity();
+Size `amount0Min` / `amount1Min` from the position with `useCreateDecreaseLiquidityParams` (slippage in percent). Zero minimums accept any price. It throws during render when `percentage` or `slippageTolerance` is outside (0, 100], so clamp slider and input values before passing them.
 
-await decreaseLiquidity({
-  params: { srcChainKey: ChainKeys.BASE_MAINNET, positionId, liquidity: 500_000n, amount0Min: 0n, amount1Min: 0n },
-  walletProvider,
-});
+```tsx
+import { isUserRejectedError, useCreateDecreaseLiquidityParams, useDecreaseLiquidity } from '@sodax/dapp-kit';
+import { useWalletProvider } from '@sodax/wallet-sdk-react';
+import { ChainKeys, type Address, type ClPositionInfo, type PoolKey } from '@sodax/sdk';
+
+function RemoveLiquidity({ poolKey, tokenId, positionInfo, srcAddress }: { poolKey: PoolKey; tokenId: bigint; positionInfo: ClPositionInfo; srcAddress: Address }) {
+  const walletProvider = useWalletProvider({ xChainId: ChainKeys.BASE_MAINNET });
+  const { mutateAsyncSafe: decreaseLiquidity, isPending } = useDecreaseLiquidity();
+  // positionInfo from usePositionInfo({ params: { tokenId: tokenId.toString(), poolKey } }).data.positionInfo
+  const decrease = useCreateDecreaseLiquidityParams({ poolKey, tokenId, percentage: 50, positionInfo, slippageTolerance: 1 });
+
+  const onRemove = async () => {
+    if (!walletProvider) return;
+    const result = await decreaseLiquidity({
+      params: { ...decrease, srcChainKey: ChainKeys.BASE_MAINNET, srcAddress },
+      walletProvider,
+    });
+    if (!result.ok && !isUserRejectedError(result.error)) console.error(result.error); // surface it in your UI
+  };
+
+  return <button onClick={onRemove} disabled={isPending || !walletProvider}>Remove 50%</button>;
+}
 ```
 
 ## Notes

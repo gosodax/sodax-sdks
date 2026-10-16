@@ -13,7 +13,7 @@ When using the SODAX SDK, you can monetize your integration by collecting fees f
 | Configured fee, no `partnerFee` on the request | Applies automatically | Ignored — config is never read here |
 
 On the Swaps API path there is no default: omit `partnerFee` and the swap succeeds with no fee.
-See [Swaps API monetization](#swaps-api-monetization). Bridge API v2 is different — omitted
+See [Swaps API monetization](#swaps-api-monetization). The Bridge API is different — omitted
 `partnerFee` falls back to the backend's `bridgePartnerFee`.
 
 The sections immediately below describe the orchestrator path.
@@ -97,7 +97,7 @@ Money market is the exception: it has no per-action override, so every money-mar
 
 ### Quote request
 
-`SwapService.getQuote()` deducts the partner fee from the `amount` before forwarding to the solver, so `quoted_amount` reflects the net output. No fee field appears in the solver request payload — the deduction happens client-side. Pass an optional `partnerFee` second argument to match a per-action override used on `createIntent` / `swap`; omit it to use the configured swap fee.
+`SwapService.getQuote()` deducts the partner fee from the `amount` before forwarding to the solver, so `quoted_amount` reflects the net output. No fee field appears in the solver request payload — the deduction happens client-side. Pass an optional `partnerFee` field on the request payload to match a per-action override used on `createIntent` / `swap`; omit it to use the configured swap fee.
 
 ```typescript
 import {
@@ -458,6 +458,9 @@ import { isPartnerError, type PartnerError } from '@sodax/sdk';
 if (!result.ok) {
   // result.error: PartnerError = SodaxError<PartnerErrorCode>
   switch (result.error.code) {
+    case 'USER_REJECTED':
+      // User cancelled the approveToken wallet prompt. Not a failure — reset the UI.
+      break;
     case 'VALIDATION_FAILED':
       // Bad input — see context.field.
       break;
@@ -475,11 +478,13 @@ if (!result.ok) {
     case 'UNKNOWN':
       break;
   }
-  console.error('Partner error:', result.error.toJSON());
+  if (result.error.code !== 'USER_REJECTED') {
+    console.error('Partner error:', result.error.toJSON());
+  }
 }
 ```
 
-`PartnerErrorCode` is the narrow union `'VALIDATION_FAILED' | 'LOOKUP_FAILED' | 'APPROVE_FAILED' | 'EXECUTION_FAILED' | 'UNKNOWN'`. Use `isPartnerError(e)` instead of `instanceof SodaxError` in dapp/app code (bundle-safe).
+`PartnerErrorCode` is the narrow union `'USER_REJECTED' | 'VALIDATION_FAILED' | 'LOOKUP_FAILED' | 'APPROVE_FAILED' | 'EXECUTION_FAILED' | 'UNKNOWN'`. Use `isPartnerError(e)` instead of `instanceof SodaxError` in dapp/app code (bundle-safe).
 
 ### Raw transaction mode
 

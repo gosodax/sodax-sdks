@@ -1,0 +1,5 @@
+{
+  "src/hooks/leverageYield/useLeverageYieldQuote.test.ts": 1,
+  "src/hooks/shared/useEstablishTrustline.test.ts": 1,
+  "src/hooks/swap/useQuote.test.ts": 1
+}

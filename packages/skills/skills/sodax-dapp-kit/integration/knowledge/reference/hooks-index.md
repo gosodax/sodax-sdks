@@ -19,7 +19,11 @@ Comprehensive hook table across 12 feature domains. Use this when you know the f
 | `useSwap` | Mutation | Execute a complete cross-chain swap |
 | `useSwapAllowance` | Query | Check token approval status |
 | `useSwapApprove` | Mutation | Approve tokens for the swap contract |
-| `useStatus` | Query | Track intent execution status (polls 3s once `intentTxHash` supplied; Result-wrapped data) |
+| `useSwapApprovalStrategy` | Query | Which path `useSwapWithApproval` takes — `'not-required'` / `'atomic-batch'` (one EIP-5792 signature) / `'sequential'`; `allowAccountUpgrade: false` keeps a `'ready'` wallet sequential; no polling |
+| `useSwapLifecycle` | Composite | One swap form: `state` (`idle` … `ready` … `pending` / `unconfirmed` / `settled` / `failed`, discriminated on `kind`) + `next()`; composes the strategy, Stellar/NEAR gates, injected chain switch, `useSwapWithApproval` and `useDetailedStatus`, and returns each as an escape hatch; `allowAccountUpgrade` is passed to both |
+| `useSwapWithApproval` | Mutation | `useSwap` with the approval folded in: one atomic batch on an EIP-5792 wallet, else approve → swap; `data.approvalStrategy` |
+| `useStatus` | Query | Track intent execution status (polls 3s once `intentTxHash` supplied; stops on `3`/`4` and after 40 consecutive NOT_FOUND fetches; Result-wrapped data) |
+| `useDetailedStatus` | Query | Track a swap from its source tx (`{ srcChainKey, srcTxHash }`; polls 3s; Result-wrapped; stops on the answering source's terminal state and after 40 consecutive ambiguous reads — solver NOT_FOUND, or a relay with no packet for the tx; outages keep polling). Returns a tagged union — backend submit-tx record or solver answer — narrow on `source`. Unlike `useSwapsApiSubmitTxStatus`, answers for both `swap()` completion paths |
 | `useCancelSwap` | Mutation | Cancel an active swap intent |
 | `useCreateLimitOrder` | Mutation | Create a limit order (no deadline) |
 | `useCancelLimitOrder` | Mutation | Cancel a limit order |
@@ -48,6 +52,7 @@ Comprehensive hook table across 12 feature domains. Use this when you know the f
 | Hook | Type | Purpose |
 |---|---|---|
 | `useBridge` | Mutation | Execute a cross-chain bridge transfer |
+| `useBridgeDetailedStatus` | Query | Track a bridge from its source tx (`{ srcChainKey, srcTxHash, apiConfig? }`; polls 3s; Result-wrapped; stops on the answering source's terminal state, on a rejected API key, and after 40 consecutive ambiguous reads — a relay with no packet for the tx; outages keep polling). Returns a tagged union — backend submit-tx record or delivered relay packet — narrow on `source`. Unlike `useBridgeApiSubmitTxStatus`, answers for both `bridge()` completion paths |
 | `useBridgeAllowance` | Query | Approval check |
 | `useBridgeApprove` | Mutation | Approve tokens for bridge |
 | `useGetBridgeableAmount` | Query | Max bridgeable amount between two `XToken`s |
@@ -99,14 +104,18 @@ Comprehensive hook table across 12 feature domains. Use this when you know the f
 
 ## Leverage Yield
 
+No hook lists the vaults: read the registry with `useSodaxContext().sodax.leverageYield.listVaults()` (synchronous; `{ name, vault, asset, borrowToken, lsdSource? }[]`) and pass `vault` to the hooks below. `targetLtvBps` and position `ltv` are basis points; `healthFactor` and `leverageMultiplierWad` are WAD, and the multiplier is the **borrowed** multiple (exposure = 1 + multiplier).
+
 | Hook | Type | Purpose |
 |---|---|---|
 | `useLeverageYieldDeposit` | Mutation | Build a deposit payload (any token → `lsoda*` shares) — spread into `useLeverageYieldVaultSwap` |
 | `useLeverageYieldWithdraw` | Mutation | Build a withdraw payload (`lsoda*` → any token; `hubWalletSwap`) |
-| `useLeverageYieldVaultSwap` | Mutation | Execute a built payload end-to-end (create → verify → relay → notify solver) |
+| `useLeverageYieldVaultSwap` | Mutation | Execute a built payload end-to-end; backend submit-tx by default, falling back to the client-side create → verify → relay → notify path. `extras.apiKey` keys the backend leg per action |
+| `useLeverageYieldDetailedStatus` | Query | Track a vault swap from its source tx (`{ srcChainKey, srcTxHash, apiConfig? }`; polls 3s; Result-wrapped; stops on the answering source's terminal state, on a rejected API key, and after 40 consecutive ambiguous reads — solver NOT_FOUND, or a relay with no packet for the tx; outages keep polling). Returns a tagged union — backend submit-tx record or solver answer — narrow on `source`. Unlike `useLeverageYieldApiSubmitTxStatus`, answers for both `vaultSwap()` completion paths |
+| `useLeverageYieldQuote` | Query | Deposit (vault = `token_dst`) or withdraw (vault = `token_src`) quote with the leverage-yield fee (polls 3s; Result-wrapped). Size `minOutputAmount` from `quoted_amount` minus slippage, never `0n` |
 | `useLeverageYieldNotifySolver` | Mutation | Manual-flow notify step (after a self-driven `createVaultIntent` + relay) |
 | `useLeverageYieldEffectiveApr` | Query | AAVE + LSD effective net APR (60s) |
-| `useLeverageYieldPosition` | Query | Live position: collateral, debt, LTV, health factor, idle (30s) |
+| `useLeverageYieldPosition` | Query | Live position: collateral, debt, LTV (bps), health factor (WAD), idle (30s) |
 | `useLeverageYieldTotalAssets` | Query | Vault TVL (18-dp bigint, 60s) |
 | `useLeverageYieldPreviewRedeem` | Query | Assets for N shares; pass `1e18` for price-per-share (60s) |
 | `useLeverageYieldShareBalances` | Query | Per-chain `lsoda*` balances via `useQueries` — returns an array (15s) |
@@ -164,9 +173,16 @@ Comprehensive hook table across 12 feature domains. Use this when you know the f
 | `useBackendMoneyMarketAssetBorrowers` | Borrowers for an asset |
 | `useBackendAllMoneyMarketBorrowers` | All borrowers |
 
+### Oracle data
+
+| Hook | Purpose |
+|---|---|
+| `useBackendOracleMarkets` | Candle discovery: quote, intervals, symbols (`staleTime: 60s`) |
+| `useBackendOracleCandles` | USD OHLC candles for a symbol over `[from, to)` (`staleTime: 10s`) |
+
 ## Swaps API (`sodax.api.swaps`)
 
-Typed React Query wrappers over the backend Swaps API v2 (`sodax.api.swaps.*`), one per endpoint. Distinct from the on-chain `swap/` hooks (`useQuote`/`useStatus`/`useSwap`/…), which drive `sodax.swaps` (the `SwapService`).
+Typed React Query wrappers over the backend Swaps API (`sodax.api.swaps.*`), one per endpoint. Distinct from the on-chain `swap/` hooks (`useQuote`/`useStatus`/`useSwap`/…), which drive `sodax.swaps` (the `SwapService`).
 
 ### Tokens · quote · fees · gas (reads)
 
@@ -198,7 +214,7 @@ Typed React Query wrappers over the backend Swaps API v2 (`sodax.api.swaps.*`), 
 | Hook | Type |
 |---|---|
 | `useSwapsApiApprove` | Mutation; builds unsigned approval tx(s) — `{ tx, resetTx? }`, caller signs |
-| `useSwapsApiApproveAndBroadcast` | Mutation; builds **and** signs/broadcasts/waits — preferred; `{ approveTxHash, resetTxHash? }` |
+| `useSwapsApiApproveAndBroadcast` | Mutation; builds **and** signs/broadcasts/waits — preferred; `{ approveTxHash, resetTxHash? }`; optional `onProgress` per step |
 | `useSwapsApiCreateIntent` | Mutation; builds `{ tx, intent, relayData }` |
 | `useSwapsApiSubmitIntent` | Mutation; submits broadcast intent to the relay |
 | `useSwapsApiCancelIntent` | Mutation; builds unsigned cancel tx |
@@ -207,7 +223,7 @@ Typed React Query wrappers over the backend Swaps API v2 (`sodax.api.swaps.*`), 
 
 ## Bridge API (`sodax.api.bridge`)
 
-Typed React Query wrappers over the backend Bridge API v2 (`sodax.api.bridge.*`). Distinct from the on-chain `bridge/` hooks (`useBridge`/`useBridgeAllowance`/…), which drive `sodax.bridge` (the `BridgeService`). Smaller than the swaps family (no intent/solver surface). The fee / bridgeable-amount / bridgeable quotes are computable client-side (prefer the on-chain `useGetBridgeableAmount` / `sodax.bridge.*` — no round-trip), but are also mirrored here as HTTP hooks for parity.
+Typed React Query wrappers over the backend Bridge API (`sodax.api.bridge.*`). Distinct from the on-chain `bridge/` hooks (`useBridge`/`useBridgeAllowance`/…), which drive `sodax.bridge` (the `BridgeService`). Smaller than the swaps family (no intent/solver surface). The fee / bridgeable-amount / bridgeable quotes are computable client-side (prefer the on-chain `useGetBridgeableAmount` / `sodax.bridge.*` — no round-trip), but are also mirrored here as HTTP hooks for parity.
 
 | Hook | Type / Polling |
 |---|---|
@@ -217,10 +233,52 @@ Typed React Query wrappers over the backend Bridge API v2 (`sodax.api.bridge.*`)
 | `useBridgeApiFee` | Query; `{ fee }` partner fee for an amount (per-request `partnerFee` override or configured default) |
 | `useBridgeApiBridgeableAmount` | Query; `{ limit }` deposit capacity / withdrawal liquidity for a pair |
 | `useBridgeApiIsBridgeable` | Query; `{ bridgeable }` whether a (from, to) pair is bridgeable |
-| `useBridgeApiSubmitTxStatus` | Query (1s); requires `txHash` + `srcChainKey`; polls until `executed` / `failed` |
-| `useBridgeApiApprove` | Mutation; builds unsigned approval tx |
+| `useBridgeApiSubmitTxStatus` | Query (1s); requires `txHash` + `srcChainKey`; polls until `executed` / `failed` / `abandonedAt`, or the backend rejects the API key |
+| `useBridgeApiApprove` | Mutation; builds the unsigned approval txs — `{ tx, resetTx? }`, ordering is yours to handle |
+| `useBridgeApiApproveAndBroadcast` | Mutation; builds **and** signs/broadcasts/waits — preferred; `{ approveTxHash, resetTxHash? }`; optional `onProgress` per step |
 | `useBridgeApiCreateBridgeIntent` | Mutation; builds `{ tx, relayData }` (no intent) |
 | `useBridgeApiSubmitTx` | Mutation; `request: BridgeSubmitTxRequestV2` (FULL relayData envelope) |
+
+## Leverage Yield API (`sodax.api.leverageYield`)
+
+Typed React Query wrappers over the backend Leverage Yield API (`sodax.api.leverageYield.*`), one per endpoint. Distinct from the on-chain `leverageYield/` hooks (`useLeverageYieldDeposit`/`useLeverageYieldWithdraw`/…), which drive `sodax.leverageYield` (the `LeverageYieldService`). A vault deposit/withdraw IS an intent-based swap, so the intent / gas / fee / submit-tx hooks mirror the swaps family; the vault registry, vault reads and the split deposit/withdraw quote + create-intent hooks are leverage-yield's own.
+
+| Hook | Type / Polling |
+|---|---|
+| `useLeverageYieldApiVaults` | Query; the deployed-vault registry |
+| `useLeverageYieldApiVault` | Query; one vault descriptor by lsoda* `name` |
+| `useLeverageYieldApiAsset` | Query; the vault's underlying hub asset |
+| `useLeverageYieldApiPosition` | Query; `{ collateral, debt, ltv, healthFactor, idleAsset }` as decimal strings (`ltv` bps, `healthFactor` WAD) |
+| `useLeverageYieldApiApr` | Query; AAVE-only steady-state APR (RAY strings; can be negative) |
+| `useLeverageYieldApiEffectiveApr` | Query; combined AAVE + LSD APR — `effectiveNetAprRay` is the headline |
+| `useLeverageYieldApiLsdApr` | Query; off-chain LSD staking-APR snapshot |
+| `useLeverageYieldApiTotalAssets` | Query; total assets under management |
+| `useLeverageYieldApiPreviewDeposit` | Query; ERC-4626 `previewDeposit` — shares for `assets` |
+| `useLeverageYieldApiPreviewWithdraw` | Query; ERC-4626 `previewWithdraw` — shares burned for `assets` |
+| `useLeverageYieldApiPreviewRedeem` | Query; ERC-4626 `previewRedeem` — assets for `shares` |
+| `useLeverageYieldApiShareBalance` | Query; an owner's lsoda* balance (the HUB wallet, not the EOA) |
+| `useLeverageYieldApiMaxWithdraw` | Query; RAW ERC-4626 `maxWithdraw` in ASSET units, NOT dust-trimmed — never a withdraw's `inputAmount`, which is shares; size a MAX withdraw from `useLeverageYieldApiShareBalance` |
+| `useLeverageYieldApiDepositQuote` | Query; any token → lsoda* (set `query.includeTxData` for `txData`) |
+| `useLeverageYieldApiWithdrawQuote` | Query; lsoda* → any token |
+| `useLeverageYieldApiDeadline` | Query; computed vault-swap deadline |
+| `useLeverageYieldApiAllowance` | Query; `{ valid }` — the DEPOSIT body only (withdraw needs no spoke allowance) |
+| `useLeverageYieldApiStatus` | Query (1s); polls until status `3` (SOLVED) / `4` (FAILED) |
+| `useLeverageYieldApiIntentHash` | Query; keccak256 of an intent struct |
+| `useLeverageYieldApiIntentPacket` | Query; long-polls the relayer for the fill packet (no client interval) |
+| `useLeverageYieldApiIntentExtraData` | Query; relay extra-data for submit |
+| `useLeverageYieldApiFilledIntent` | Query; on-chain fill state by tx hash |
+| `useLeverageYieldApiIntent` | Query; decoded intent struct by tx hash |
+| `useLeverageYieldApiEstimateGas` | Query; gas estimate for a raw tx |
+| `useLeverageYieldApiPartnerFee` | Query; partner fee for an amount |
+| `useLeverageYieldApiSolverFee` | Query; protocol (solver) fee for an amount |
+| `useLeverageYieldApiSubmitTxStatus` | Query (1s); requires `txHash` + `srcChainKey`; polls until `solved` / `failed` / `abandonedAt` |
+| `useLeverageYieldApiApprove` | Mutation; builds unsigned approval tx(s) — `{ tx, resetTx? }`, ordering is yours to handle |
+| `useLeverageYieldApiApproveAndBroadcast` | Mutation; builds **and** signs/broadcasts/waits — preferred; `{ approveTxHash, resetTxHash? }`; optional `onProgress` per step |
+| `useLeverageYieldApiCreateDepositIntent` | Mutation; builds `{ tx, intent, relayData }` (any token → lsoda*) |
+| `useLeverageYieldApiCreateWithdrawIntent` | Mutation; builds `{ tx, intent, relayData }` (lsoda* → any token) |
+| `useLeverageYieldApiSubmitIntent` | Mutation; submits broadcast intent to the relay |
+| `useLeverageYieldApiCancelIntent` | Mutation; builds unsigned cancel tx |
+| `useLeverageYieldApiSubmitTx` | Mutation; `request: LeverageYieldSubmitTxRequestV2` — the swaps body PLUS a required `operation: 'deposit' \| 'withdraw'` |
 
 ## Partner
 
@@ -248,6 +306,7 @@ Typed React Query wrappers over the backend Bridge API v2 (`sodax.api.bridge.*`)
 
 | Hook | Type | Purpose |
 |---|---|---|
+| `useBalances` | Query | SDK-backed wallet token balances (no xService) |
 | `useXBalances` | Query | Cross-chain token balances |
 | `useDeriveUserWalletAddress` | Query | Derive hub wallet (CREATE3) |
 | `useGetUserHubWalletAddress` | Query | Derive hub wallet (wallet router) |

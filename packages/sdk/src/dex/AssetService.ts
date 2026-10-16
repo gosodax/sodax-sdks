@@ -434,7 +434,7 @@ export class AssetService {
         ok: true,
         value: {
           tx: txResult.value satisfies TxReturnType<K, boolean> as TxReturnType<K, Raw>,
-          relayData: { address: recipient as `0x${string}`, payload: data },
+          relayData: { address: fromHubWallet, payload: data },
         },
       };
     } catch (error) {

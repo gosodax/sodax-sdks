@@ -1,0 +1,69 @@
+---
+title: "Robinhood Chain: Networks & Assets"
+description: "What is live on Robinhood Chain today, and the networks and assets your users can reach from it."
+icon: coins
+---
+
+Robinhood Chain is a spoke network in the SODAX System. User funds stay on Robinhood Chain; the hub (Sonic) coordinates execution, and solvers settle against deep native liquidity on each network rather than isolated bridge pools.
+
+There are two asset lists to keep straight, and the difference is the point of SODAX:
+
+- **Assets on Robinhood Chain**: the <span data-sodax-config="count" data-metric="chain-swap-tokens" data-chain="robinhood">29</span> assets that live on Robinhood Chain itself, ETH and ERC-20 tokens, including Robinhood Stock Tokens. These are what your users hold, send, and receive on Robinhood Chain; the entry and exit points of any Robinhood Chain flow.
+- **Assets across the SODAX System**: <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets across all supported networks. Every one of them is a valid swap destination or collateral source for your Robinhood Chain users, because every SODAX action is cross-network by default.
+
+A user holding ETH on Robinhood Chain is not limited to the Robinhood Chain list. They can swap it into USDC on Base, SOL on Solana, or any other listed asset on any network, in one signed transaction. The on-Robinhood Chain assets are simply where those journeys start and end on your side.
+
+Every count and list below is read live from the backend config API, `GET https://api.sodax.com/v2/be/config/all`, so it reflects what the backend serves today rather than what an SDK release has listed.
+
+## Assets on Robinhood Chain
+
+Live for swaps on Robinhood Chain:
+
+<div data-sodax-config="swap-tokens" data-chain="robinhood">
+  Live token list loads from the config API. If it has not appeared, read `config.swaps.supportedTokens.robinhood` from [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all), or use the SDK call below.
+</div>
+
+Live in the [Money Market](/robinhood-chain/money-market) for supply, borrow, repay, and withdraw:
+
+<div data-sodax-config="money-market-tokens" data-chain="robinhood">
+  Live token list loads from the config API: `config.moneyMarket.supportedTokens.robinhood` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+</div>
+
+ETH uses the zero address in these lists; every other entry is an ERC-20 contract address on Robinhood Chain. Stock Tokens carry `isRwa: true` in the config, and they are swap-only. To confirm that an address is a Robinhood Stock Token, Robinhood's [Token Contracts](https://docs.robinhood.com/chain/contracts) page is the canonical list. The Sonic vaults behind them are under [Robinhood Tokenized Equities](/developers/deployments/mainnet#robinhood-tokenized-equities).
+
+### What `@sodax/sdk` 2.1.0 knows
+
+The live lists above are ahead of the published SDK. In `@sodax/sdk` 2.1.0, `getSupportedSwapTokensByChainId(ChainKeys.ROBINHOOD_MAINNET)` returns ETH, bnUSD, SODA, and USDG only, and `getSupportedTokensByChainId` on the money market returns an empty list. The SDK validates tokens against its own lists, so Stock Token swaps and Robinhood Chain money market actions fail on 2.1.0. Both are on `main` for the next release.
+
+## Assets your users can reach
+
+From a Robinhood Chain-sourced action, users can trade, lend, and borrow across every SODAX-supported network:
+
+<div data-sodax-config="chains">
+  Live network list loads from the config API: `config.chains` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+</div>
+
+Chain identifiers come from `ChainKeys.*` in the SDK (`ChainKeys.ROBINHOOD_MAINNET` = `'robinhood'`), and the SDK's chain list from `sodax.config.getSupportedSpokeChains()`. Prefer these over hard-coding: networks are added over time.
+
+## Asset discovery in code
+
+Never hard-code token addresses or asset lists; read them from the SDK config at runtime:
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// Swappable assets on Robinhood Chain (2.1.0: base assets only)
+const swapTokens = sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.ROBINHOOD_MAINNET);
+
+// Money market assets on Robinhood Chain (2.1.0: empty)
+const mmTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.ROBINHOOD_MAINNET);
+```
+
+These lists ship with the SDK package, so a token the backend has added since your SDK release appears in the live tables above before it appears here.
+
+---
+
+- All deployment addresses by network: [Mainnet Deployments](/developers/deployments/mainnet)
+- The full cross-network asset directory: [sodax.com/partners/asset-directory](https://sodax.com/partners/asset-directory)

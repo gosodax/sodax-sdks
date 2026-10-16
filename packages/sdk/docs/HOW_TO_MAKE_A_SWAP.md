@@ -1,12 +1,17 @@
 # How to Make a Swap
 
-> **Error handling conventions:** The swap module returns `SodaxError<SwapErrorCode>` from `swap`, `createIntent`, `postExecution`, `createLimitOrder`, and `createLimitOrderIntent`. Discriminate on `result.error.code` (e.g. `'RELAY_TIMEOUT'`) — not `result.error.message`. See [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#error-handling) for the full per-method code unions. The lower-level methods (`getQuote`, `getStatus`, `submitIntent`, `getSolvedIntentPacket`, `cancelIntent`, …) still return `Result<T, SolverErrorResponse>` or `Result<T, Error | unknown>` — `cancelIntent`/`cancelLimitOrder` were not migrated to `SodaxError`, so don't `switch (error.code)` on those.
+Use this guide to understand each step of an SDK swap, including allowance, settlement, and failure handling.
+For a shorter complete ESM example, start with [Your first swap](https://github.com/icon-project/sodax-sdks/blob/main/docs/quickstart.mdx).
 
-This guide provides a step-by-step walkthrough for executing a cross-chain swap using the SODAX SDK. It covers everything from initializing the SDK to handling errors during the swap process.
-
-For detailed API reference, see [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md).
-
-**Example Source Code**: A complete working example can be found in [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts). This example demonstrates a full swap implementation from Arbitrum ETH to Polygon POL, including all error handling and status polling.
+| Find an answer | Section |
+| --- | --- |
+| Initialize configuration and wallets | [Setup](#step-1-initialize-sodax-instance) |
+| Check allowance and approve | [Token allowance](#step-4-check-token-allowance) |
+| Submit a swap | [Execution](#step-7-execute-the-swap) |
+| Track settlement | [Intent status](#step-8-check-intent-status) |
+| Handle execution failures | [Errors](#step-9-handle-errors) |
+| Orchestrate the steps yourself | [Migrate a manual swap to submit-tx](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md) |
+| Look up fields and error codes | [Swap reference](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) |
 
 ## Prerequisites
 
@@ -28,10 +33,7 @@ import { Sodax } from "@sodax/sdk";
 // Create Sodax instance (defaults to mainnet configs)
 const sodax = new Sodax();
 
-// Initialize to fetch latest configuration from the backend API (optional, use version-based
-// approach without initialize for more stability).
-// Initialization fetches the latest configuration from the backend API, including supported
-// tokens and chains. This ensures you have the most up-to-date token and chain information.
+// The current SDK keeps the constructor configuration when initialized.
 const initResult = await sodax.initialize();
 if (!initResult.ok) {
   console.warn('Initialization failed, using packaged defaults:', initResult.error);
@@ -42,8 +44,7 @@ if (!initResult.ok) {
 **Note**:
 
 - The `new Sodax()` constructor defaults to mainnet configuration automatically. No configuration is required for basic usage.
-- `initialize()` returns `Promise<Result<void>>`. If it fails the SDK falls back to the configuration packaged with the SDK version you installed.
-- If you skip `initialize()`, the SDK will use the configuration from the specific SDK version you're using. Initialization is recommended for production applications to ensure you have the latest supported tokens and chains.
+- Read effective configuration from `sodax.config` to include constructor overrides. For initialization behavior and configuration options, see [Configure SDK](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#default-configuration).
 
 ### Optional: Custom Configuration
 
@@ -65,7 +66,7 @@ if (!initResult.ok) {
 }
 ```
 
-See [CONFIGURE_SDK.md](./CONFIGURE_SDK.md) for the full `SodaxConfig` shape and canonical override patterns.
+See [CONFIGURE_SDK.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md) for the full `SodaxConfig` shape and canonical override patterns.
 
 ## Step 2: Obtain a Wallet Provider
 
@@ -119,7 +120,7 @@ supportedTokens.forEach(token => {
 
 Before executing a swap, it is good practice to get a quote to show users the expected output amount. This helps set proper expectations and allows you to calculate slippage tolerance.
 
-**Example**: See how quotes are obtained in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts#L62-L80).
+**Example**: See how quotes are obtained in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts).
 
 ```typescript
 import {
@@ -127,11 +128,7 @@ import {
   type SolverIntentQuoteRequest
 } from "@sodax/sdk";
 
-// Read chain config off the Sodax instance — this picks up any config overrides
-// passed to `new Sodax(...)` and any dynamic updates loaded by `sodax.config.initialize()`.
-// Do NOT import `spokeChainConfig` directly from `@sodax/types` (or its `@sodax/sdk`
-// re-export): that's a packaged-default snapshot frozen at SDK release time and will
-// silently miss your overrides.
+// Instance configuration includes constructor overrides; the packaged export does not.
 const arbEthToken = sodax.config.spokeChainConfig[ChainKeys.ARBITRUM_MAINNET].nativeToken; // ETH on Arbitrum
 const polygonPolToken = sodax.config.spokeChainConfig[ChainKeys.POLYGON_MAINNET].nativeToken; // POL on Polygon
 
@@ -164,7 +161,7 @@ if (!quoteResult.ok) {
 
 Before creating a swap intent, check whether the Asset Manager contract already has permission to spend your tokens. If not, you will need to approve it first.
 
-**Example**: See how allowance checking is implemented in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts#L82-L112).
+**Example**: See how allowance checking is implemented in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts).
 
 ```typescript
 import type { CreateIntentParams } from "@sodax/sdk";
@@ -217,7 +214,7 @@ another. When the wallet already holds a stale allowance on such a token, `appro
 The returned value is still a single hash — the **last** transaction's — so the code below is
 unchanged. If you show an "Approving…" state, expect a second wallet prompt on those tokens.
 
-**Example**: See how token approval is handled in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts#L114-L135).
+**Example**: See how token approval is handled in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts).
 
 ```typescript
 if (!allowanceResult.value) {
@@ -298,7 +295,7 @@ Now you're ready to execute the swap. The `swap` method orchestrates the complet
 3. Submits the transaction to the relayer and waits for the relay packet to land on the hub (Sonic). This step is skipped when `srcChainKey` is the hub itself.
 4. Calls `postExecution` to notify the solver, triggering it to fill the intent
 
-**Example**: See how the swap is executed in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts#L137-L183).
+**Example**: See how the swap is executed in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts).
 
 ```typescript
 const swapResult = await sodax.swaps.swap({
@@ -329,7 +326,7 @@ if (!swapResult.ok) {
 
 After a successful swap submission, continuously monitor the intent status until it reaches a terminal state. Poll every 5 seconds until the swap is completed, failed, or not found.
 
-**Example**: See the complete status polling implementation in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts#L189-L289).
+**Example**: See the complete status polling implementation in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts).
 
 ```typescript
 import type { SolverIntentStatusRequest, SolverIntentStatusCode } from "@sodax/sdk";
@@ -436,7 +433,7 @@ await checkIntentStatus(sodax, intentDeliveryInfo.dstTxHash);
 
 ## Step 9: Handle Errors
 
-All swap methods return `Result<T, SodaxError<SwapErrorCode>>`. Discriminate on **`result.error.code`** (a closed reason-only union), never on `error.message` (human-readable, may change). The original lower-level failure is preserved on `error.cause`; structured metadata is on `error.context`.
+`swap()` returns `Result<SwapResponse, SodaxError<SwapErrorCode>>`. Lower-level methods such as `getQuote()` and `getStatus()` use their own error types; consult the per-method reference. Discriminate on **`result.error.code`** (a closed reason-only union), never on `error.message` (human-readable, may change). The original lower-level failure is preserved on `error.cause`; structured metadata is on `error.context`.
 
 See [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#error-handling) for the full per-method code unions and `context` schema.
 
@@ -487,246 +484,18 @@ if (!swapResult.ok) {
 
 ## Complete Example
 
-Here's a complete end-to-end example combining all the steps. For a production-ready implementation, see the example source code in [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts):
+[Your first swap](https://github.com/icon-project/sodax-sdks/blob/main/docs/quickstart.mdx) is the complete ESM example: follow its snippets
+in order for installation, configuration, quoting, execution, and settlement polling. It uses native
+gas tokens; for other inputs, also follow [Check Token Allowance](#step-4-check-token-allowance)
+and [Approve Tokens](#step-5-approve-tokens-if-needed) above. On EVM chains this grants an ERC-20
+allowance, on Stellar it sets up a trustline, and on other chains the check returns `true`.
 
-```typescript
-import {
-  Sodax,
-  ChainKeys,
-  type CreateIntentParams,
-  type SolverIntentQuoteRequest,
-  type SolverIntentStatusRequest,
-  SolverIntentStatusCode,
-  type IEvmWalletProvider
-} from "@sodax/sdk";
-
-async function executeSwap(
-  evmWalletProvider: IEvmWalletProvider,
-  inputAmount: bigint
-): Promise<void> {
-  try {
-    // Step 1: Initialize Sodax
-    console.log('Step 1: Initializing Sodax...');
-    const sodax = new Sodax();
-    const initResult = await sodax.initialize();
-    if (!initResult.ok) {
-      console.warn('Initialization failed, using packaged defaults:', initResult.error);
-    }
-
-    // Read chain config off the Sodax instance — picks up any constructor overrides
-    // and any dynamic config loaded by initialize(). Never use a static import of
-    // `spokeChainConfig` from `@sodax/types` here — overrides will be silently lost.
-    const arbEthToken = sodax.config.spokeChainConfig[ChainKeys.ARBITRUM_MAINNET].nativeToken; // ETH on Arbitrum
-    const polygonPolToken = sodax.config.spokeChainConfig[ChainKeys.POLYGON_MAINNET].nativeToken; // POL on Polygon
-
-    // Step 2: Get Quote
-    console.log('Step 2: Getting quote...');
-    const quoteRequest: SolverIntentQuoteRequest = {
-      token_src: arbEthToken,
-      token_dst: polygonPolToken,
-      token_src_blockchain_id: ChainKeys.ARBITRUM_MAINNET,
-      token_dst_blockchain_id: ChainKeys.POLYGON_MAINNET,
-      amount: inputAmount,
-      quote_type: 'exact_input',
-    };
-
-    const quoteResult = await sodax.swaps.getQuote(quoteRequest);
-    if (!quoteResult.ok) {
-      console.error('Failed to get quote:', quoteResult.error);
-      return;
-    }
-
-    const quotedAmount = quoteResult.value.quoted_amount;
-    console.log('Quoted amount:', quotedAmount);
-
-    // Step 3: Prepare intent parameters
-    const walletAddress = await evmWalletProvider.getWalletAddress();
-    const deadlineResult = await sodax.swaps.getSwapDeadline(300n); // 5 minutes
-    if (!deadlineResult.ok) {
-      console.error('Failed to compute deadline:', deadlineResult.error);
-      return;
-    }
-
-    const createIntentParams: CreateIntentParams<typeof ChainKeys.ARBITRUM_MAINNET> = {
-      inputToken: arbEthToken,
-      outputToken: polygonPolToken,
-      inputAmount: inputAmount,
-      minOutputAmount: (quotedAmount * 95n) / 100n, // 5% slippage tolerance
-      deadline: deadlineResult.value,
-      allowPartialFill: false,
-      srcChainKey: ChainKeys.ARBITRUM_MAINNET,
-      dstChainKey: ChainKeys.POLYGON_MAINNET,
-      srcAddress: walletAddress,
-      dstAddress: walletAddress,
-      solver: '0x0000000000000000000000000000000000000000',
-      data: '0x',
-    };
-
-    // Step 4: Check Allowance
-    console.log('Step 4: Checking allowance...');
-    const allowanceResult = await sodax.swaps.isAllowanceValid({
-      params: createIntentParams,
-      walletProvider: evmWalletProvider,
-    });
-
-    if (!allowanceResult.ok) {
-      console.error('Failed to check allowance:', allowanceResult.error);
-      return;
-    }
-
-    // Step 5: Approve if Needed
-    if (!allowanceResult.value) {
-      console.log('Step 5: Approving tokens...');
-      const approveResult = await sodax.swaps.approve({
-        params: createIntentParams,
-        walletProvider: evmWalletProvider,
-      });
-
-      if (!approveResult.ok) {
-        console.error('Failed to approve tokens:', approveResult.error);
-        return;
-      }
-
-      const approvalTxHash = approveResult.value;
-      console.log('Approval transaction hash:', approvalTxHash);
-
-      // Wait for approval confirmation
-      await evmWalletProvider.waitForTransactionReceipt(approvalTxHash);
-      console.log('Approval confirmed');
-    } else {
-      console.log('Step 5: Approval not needed');
-    }
-
-    // Step 6: Execute Swap
-    console.log('Step 6: Executing swap...');
-    const swapResult = await sodax.swaps.swap({
-      params: createIntentParams,
-      walletProvider: evmWalletProvider,
-    });
-
-    // Step 7: Handle Swap Result
-    if (!swapResult.ok) {
-      const error = swapResult.error;
-      console.error('Swap failed');
-
-      if (error instanceof Error) {
-        switch (error.message) {
-          case 'POST_EXECUTION_FAILED':
-            console.error('Post execution failed. Cause:', error.cause);
-            break;
-          case 'RELAY_TIMEOUT':
-            console.error('Hub relay timed out. Cause:', error.cause);
-            break;
-          default:
-            console.error('Error:', error.message, error.cause ?? '');
-        }
-      } else {
-        console.error('Non-Error failure:', error);
-      }
-      return;
-    }
-
-    // Success!
-    const { solverExecutionResponse, intent, intentDeliveryInfo } = swapResult.value;
-    console.log('Step 7: Swap transaction submitted successfully!');
-    console.log('Solver execution response:', solverExecutionResponse);
-    console.log('Intent:', intent);
-    console.log('Source transaction hash:', intentDeliveryInfo.srcTxHash);
-    console.log('Destination transaction hash:', intentDeliveryInfo.dstTxHash);
-
-    // Step 8: Check Intent Status (with continuous polling)
-    console.log('Step 8: Checking intent status...');
-    await checkIntentStatus(sodax, intentDeliveryInfo.dstTxHash);
-  } catch (error) {
-    console.error('Unexpected error during swap:', error);
-  }
-}
-
-/**
- * Polls the solver API until the intent reaches a terminal state.
- * Pass the hub-chain (destination) tx hash from the swap result.
- */
-async function checkIntentStatus(
-  sodax: Sodax,
-  dstTxHash: string,
-  maxAttempts = 60,
-  intervalMs = 5000,
-): Promise<void> {
-  const statusRequest: SolverIntentStatusRequest = {
-    intent_tx_hash: dstTxHash as `0x${string}`,
-  };
-
-  let attempt = 0;
-  let lastStatus: SolverIntentStatusCode | null = null;
-  let notFoundCount = 0;
-
-  while (attempt < maxAttempts) {
-    attempt++;
-    const statusResult = await sodax.swaps.getStatus(statusRequest);
-
-    if (!statusResult.ok) {
-      console.error(`[Attempt ${attempt}] Failed to check intent status:`, statusResult.error);
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
-      continue;
-    }
-
-    const { status, fill_tx_hash } = statusResult.value;
-
-    if (status === SolverIntentStatusCode.SOLVED) {
-      console.log(`[Attempt ${attempt}] Swap completed successfully!`);
-      if (fill_tx_hash) {
-        console.log(`Fill transaction hash: ${fill_tx_hash}`);
-      }
-      return;
-    }
-
-    if (status === SolverIntentStatusCode.FAILED) {
-      console.log(`[Attempt ${attempt}] Swap failed`);
-      return;
-    }
-
-    if (status === SolverIntentStatusCode.NOT_FOUND) {
-      notFoundCount++;
-      if (notFoundCount >= 3) {
-        console.log(`[Attempt ${attempt}] Intent not found after ${notFoundCount} attempts. Check tx hash manually.`);
-        return;
-      }
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
-      continue;
-    }
-
-    if (status !== lastStatus) {
-      switch (status) {
-        case SolverIntentStatusCode.NOT_STARTED_YET:
-          console.log(`[Attempt ${attempt}] Intent queued, waiting to be processed`);
-          break;
-        case SolverIntentStatusCode.STARTED_NOT_FINISHED:
-          console.log(`[Attempt ${attempt}] Intent is being processed`);
-          break;
-        default:
-          console.log(`[Attempt ${attempt}] Unknown status (${status})`);
-          return;
-      }
-      lastStatus = status;
-    } else {
-      console.log(`[Attempt ${attempt}] Still processing... (status: ${status})`);
-    }
-
-    await new Promise(resolve => setTimeout(resolve, intervalMs));
-  }
-
-  console.log(`Status polling reached maximum attempts (${maxAttempts}).`);
-  console.log(`Last known status: ${lastStatus ?? 'unknown'}`);
-  console.log(`Check manually using destination tx hash: ${dstTxHash}`);
-}
-
-// Usage
-await executeSwap(evmWalletProvider, 100000000000000n); // 0.0001 ETH
-```
+The [Node smoke script](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts)
+is an additional repository example. It executes on mainnet and reads its private key from the environment.
 
 ## Next Steps
 
-- **See the complete example**: Check out the working implementation in [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts) for a production-ready swap example
+- **Recovery**: Follow the [failed-swap recovery guidance](https://github.com/icon-project/sodax-sdks/blob/main/docs/developers/faq.md) before retrying a transaction that may have already been submitted
 - Learn more about swap configuration and advanced features in [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md)
 - Explore other SDK features like [Money Market](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MONEY_MARKET.md), [Bridge](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE.md), and [Staking](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STAKING.md)
 - Check the [README.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/README.md) for general SDK usage and configuration

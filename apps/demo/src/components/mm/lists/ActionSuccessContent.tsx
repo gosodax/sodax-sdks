@@ -99,7 +99,7 @@ export function ActionSuccessContent({ action, data, onClose }: ActionSuccessCon
 
       <div className="bg-cream rounded-lg p-4 text-center">
         <p className="text-sm uppercase tracking-wider text-clay mb-2">{currentConfig.label}</p>
-        <p className="text-2xl font-bold text-cherry-dark font-mono">
+        <p className="text-2xl font-bold text-cherry-dark font-mono break-all">
           {data.amount} {data.token.symbol}
         </p>
       </div>
@@ -108,7 +108,7 @@ export function ActionSuccessContent({ action, data, onClose }: ActionSuccessCon
 
       {data.txHash && (
         <div className=" border-t border-cherry-grey/10">
-          <div className="flex items-center justify-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
             <p className="text-xs text-clay-light uppercase tracking-wide font-semibold">Transaction Hash</p>
             <code className="text-sm font-mono text-clay whitespace-nowrap">
               {data.txHash.slice(0, TX_HASH_DISPLAY_LENGTH)}...{data.txHash.slice(-TX_HASH_DISPLAY_LENGTH)}

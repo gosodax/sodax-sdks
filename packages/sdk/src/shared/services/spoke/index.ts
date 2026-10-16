@@ -1,3 +1,4 @@
+export * from './balance-utils.js';
 export * from './EvmSpokeService.js';
 export * from './SpokeService.js';
 export * from './IconSpokeService.js';
@@ -6,6 +7,7 @@ export * from './SolanaSpokeService.js';
 export * from './SonicSpokeService.js';
 export * from './StellarSpokeService.js';
 export * from './SuiSpokeService.js';
+export * from './SuiGrpcTransport.js';
 export * from './StacksSpokeService.js';
 export * from './BitcoinSpokeService.js';
 export * from './NearSpokeService.js';

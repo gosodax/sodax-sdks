@@ -8,7 +8,7 @@ The trading wallet amortizes Bitcoin's settlement cost. Users sign in once (BIP3
 
 The trade-off is the one-time setup (sign in + fund) and a custody disclosure to end-users (the partner is one of two multisig keys). Once that's done, the dApp UX matches any other spoke chain.
 
-The transaction-signing partner is [**Bound Exchange**](https://bound.exchange) (formerly Radfi). SDK hook names and config field names still use the `Radfi*` prefix for API-compatibility (`useRadfiSession`, `useRadfiWithdraw`, `radfiApiUrl`, etc.), but the live endpoints now resolve to `api.bound.exchange`. For the rest of this guide, "the partner" refers to Bound Exchange.
+The transaction-signing partner is [**Bound Exchange**](https://bound.exchange) (formerly Radfi). SDK hook and config names still use the `Radfi*` prefix for API-compatibility (`useRadfiSession`, `useRadfiWithdraw`, `radfi.apiUrl`, etc.), but the live endpoints now resolve to Bound's own hosts. For the rest of this guide, "the partner" refers to Bound Exchange.
 
 For the generic intent flow, see [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) and [BRIDGE.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE.md). This guide only covers Bitcoin-specific differences.
 
@@ -21,7 +21,7 @@ For the generic intent flow, see [SWAPS.md](https://github.com/icon-project/soda
 
 The trading-wallet flow described in this guide is the only Bitcoin path currently supported end-to-end by the SDK frontend layer (`@sodax/dapp-kit`, `@sodax/wallet-sdk-react`).
 
-A second flow — **direct deposit** from the user's personal wallet without an intermediate trading wallet — exists at the SDK core level but does not yet have frontend hooks or production usage. In that flow, every swap requires its own on-chain Bitcoin transaction and a fresh \~10-minute block confirmation, with miner fees paid each time. It is on the roadmap for users who prefer fully non-custodial execution and infrequent swaps, and will be exposed through a separate service so that future Bitcoin integrations (Lightning, additional partners, alternative custody models) can sit alongside the existing one as parallel services rather than modes of the same provider.
+A second flow — **direct deposit** from the user's personal wallet without an intermediate trading wallet — exists at the SDK core level but does not yet have frontend hooks or production usage. In that flow, every swap requires its own on-chain Bitcoin transaction and a fresh \~10-minute block confirmation, with miner fees paid each time.
 
 **For builders evaluating Bitcoin today:** only the trading-wallet flow is production-ready. Plan against it; the direct-deposit path will be additive when released and will not break existing integrations.
 
@@ -39,7 +39,7 @@ Add `BITCOIN: {}` to `SodaxWalletProvider`. Defaults already point at production
 import { SodaxProvider } from "@sodax/dapp-kit";
 import { SodaxWalletProvider } from "@sodax/wallet-sdk-react";
 
-<SodaxProvider testnet={false}>
+<SodaxProvider>
   <QueryClientProvider client={queryClient}>
     <SodaxWalletProvider config={{ BITCOIN: {} }}>
       {children}
@@ -47,6 +47,70 @@ import { SodaxWalletProvider } from "@sodax/wallet-sdk-react";
   </QueryClientProvider>
 </SodaxProvider>
 ```
+
+### Bound hosts
+
+Bound serves its API from four hosts. The SDK routes three of them by path family; UMS is called
+directly on `umsUrl` and is never routed. You do not need to configure any of this — the packaged
+defaults are correct:
+
+| Path family | Host |
+| --- | --- |
+| `/sodax/*` | `svc.bound.exchange` |
+| `/auth/*`, `/wallets/*` | `auth.bound.exchange` |
+| `/transactions/*` | `api.radfi.co` |
+| `/wallets/balance`, `/utxos` | `api.ums.bound.exchange` |
+
+**`api.radfi.co` is a different registrable domain.** If your app sets a Content-Security-Policy
+`connect-src`, or runs behind an egress allowlist, allow it explicitly — a rule written as
+`https://*.bound.exchange` will block BTC withdrawal and UTXO renewal, and a rule naming
+`https://api.bound.exchange` will block everything.
+
+To point the SDK somewhere else — a proxy, or a test environment — set `apiUrl` on the SDK
+config (**not** on the wallet provider):
+
+```tsx
+new Sodax({
+  chains: {
+    [ChainKeys.BITCOIN_MAINNET]: {
+      radfi: { apiUrl: "https://my-proxy.internal/bound" },
+    },
+  },
+});
+```
+
+**Setting `apiUrl` to a host of your own sends all three routed families there** — `/sodax/*`,
+`/auth/*` + `/wallets/*`, and `/transactions/*`. The split above is registered against Bound's own
+service host, so it applies only while `apiUrl` is that host. That is deliberate: it keeps a
+single-host setup working, and it makes it impossible to half-migrate and have auth traffic
+silently land in a different environment from the rest. To keep the split while changing one
+family, set that family's host explicitly with `authUrl` or `transactionsUrl`.
+
+**`api.bound.exchange` is refused.** This SDK routes to the split hosts, so a `radfi.apiUrl`,
+`authUrl` or `transactionsUrl` still naming the retired host throws at construction with the
+replacement for that field. Remove the setting to take the packaged default, or point it at the
+new host. Migrating from an older SDK:
+
+```ts
+// before — retired, now throws
+radfi: { apiUrl: 'https://api.bound.exchange/api' }
+
+// after — either of these
+radfi: { }                                              // packaged default
+radfi: { apiUrl: 'https://svc.bound.exchange/api' }     // explicit
+```
+
+Moving to a test environment stays two lines, and both are needed — `apiUrl` does not carry UMS:
+
+```ts
+radfi: {
+  apiUrl: 'https://staging.api.bound.exchange/api',
+  umsUrl: 'https://staging.api.ums.bound.exchange/api',
+}
+```
+
+**UMS is not routed by `apiUrl`.** `/wallets/balance` and `/utxos` always use `umsUrl`, so a
+proxy or test environment that must capture *all* Bound traffic has to override `umsUrl` too.
 
 To override RPC endpoints (canary, signet), pass them under `BITCOIN.chains[ChainKeys.BITCOIN_MAINNET]`:
 
@@ -59,8 +123,6 @@ import { ChainKeys } from "@sodax/types";
       chains: {
         [ChainKeys.BITCOIN_MAINNET]: {
           rpcUrl: "https://mempool.space/api",
-          radfiApiUrl: "https://api.bound.exchange/api",
-          radfiUmsUrl: "https://api.ums.bound.exchange/api",
         },
       },
     },
@@ -69,6 +131,11 @@ import { ChainKeys } from "@sodax/types";
   {children}
 </SodaxWalletProvider>
 ```
+
+That block used to accept `radfiApiUrl` and `radfiUmsUrl` as well. Both are removed: nothing
+ever read them, so setting one silently did nothing. If they fail to compile after upgrading,
+delete them — the Bound hosts they looked like they configured are the `radfi` block on the SDK
+config shown above, which is where they have always actually lived.
 
 ### Step 2: Connect a Bitcoin wallet
 
@@ -320,7 +387,7 @@ If you need additional information that is not directly available in this page, 
 Perform an HTTP GET request on the current page URL with the `ask` query parameter:
 
 ```
-GET https://docs.sodax.com/developers/how-to/bitcoin-integration.md?ask=<question>
+GET https://docs.sodax.com/developers/how-to/bitcoin-integration?ask=<question>
 ```
 
 The question should be specific, self-contained, and written in natural language.

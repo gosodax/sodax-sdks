@@ -70,7 +70,7 @@ type EvmSpokeFixture = (typeof EVM_SPOKES)[number];
 
 const SAMPLE_USER = '0x4444444444444444444444444444444444444444' as Address;
 const SAMPLE_TOKEN = '0x2170Ed0880ac9A755fd29B2688956BD959F933F8' as Address;
-const SPOKE_TX_HASH = '0xspokeTxHash' as never;
+const SPOKE_TX_HASH = '0xspokeTxHash';
 
 const mockEvmProvider = {
   chainType: 'EVM',
@@ -163,6 +163,7 @@ describe('StakingService.stake — integration error-path coverage', () => {
     // the error code is in CreateStakeIntentErrorCode (a subset of StakeErrorCode), so
     // `stake()` returns the same SodaxError unchanged — no extra wrap, no code rewrite.
     const intentError = new SodaxError('INTENT_CREATION_FAILED', 'spoke deposit reverted', {
+      feature: 'staking',
       context: { srcChainKey: BSC, action: 'stake', phase: 'intentCreation' },
     });
     vi.spyOn(sodax.staking, 'createStakeIntent').mockResolvedValueOnce({ ok: false, error: intentError });
@@ -202,7 +203,7 @@ describe('StakingService.stake — integration error-path coverage', () => {
 
   it('wraps a relayTxAndWaitPacket failure via mapRelayFailureToStakingError', async () => {
     vi.spyOn(sodax.staking, 'createStakeIntent').mockResolvedValueOnce({ ok: true, value: validIntent });
-    vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValueOnce({ ok: true, value: undefined });
+    vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValueOnce({ ok: true, value: true });
     const relayError = new Error('RELAY_TIMEOUT');
     mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: relayError });
 

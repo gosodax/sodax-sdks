@@ -1,0 +1,195 @@
+---
+title: Your first swap
+sidebarTitle: First swap
+description: Install the SDK, quote an intent, and submit a mainnet swap — then poll until it settles.
+icon: bolt
+---
+
+Prefer HTTP? Same flow over REST: [Swap API](/developers/http-api/swaps). Prefer Solana-first? [Solana quickstart](/solana/quickstart).
+
+<Note>
+  Getting this code running and having a submitted swap settle are two different things — see the
+  last step, **Poll until settled**.
+</Note>
+
+<Warning>
+  This submits a real transaction on mainnet and spends real funds. Use a throwaway wallet holding
+  only what you intend to swap, and keep its key in an environment variable — never in source.
+</Warning>
+
+<Steps>
+  <Step title="Install">
+    ```bash
+    npm install @sodax/sdk @sodax/wallet-sdk-core
+    ```
+
+    Two packages: `@sodax/sdk` builds and tracks the intent, `@sodax/wallet-sdk-core` signs it. Both
+    are needed — the SDK never holds a key.
+
+    Every snippet below is one ESM module, top to bottom.
+  </Step>
+
+  <Step title="Initialize">
+    ```typescript
+    import { Sodax, ChainKeys, type CreateIntentParams, type Hex } from '@sodax/sdk';
+    import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+
+    const sodax = new Sodax(); // mainnet defaults
+    const init = await sodax.initialize();
+    if (!init.ok) {
+      console.warn('Using packaged config', init.error);
+    }
+
+    const privateKey = process.env.EVM_PRIVATE_KEY;
+    if (!privateKey?.startsWith('0x')) {
+      throw new Error('Set EVM_PRIVATE_KEY to a 0x-prefixed private key');
+    }
+
+    const wallet = new EvmWalletProvider({
+      privateKey: privateKey as Hex, // the guard above is what makes this cast safe
+      chainId: ChainKeys.ARBITRUM_MAINNET,
+      // rpcUrl is optional — omitted, the chain's default RPC is used.
+    });
+    ```
+
+    In a browser you pass a `walletClient` / `publicClient` pair instead of a key. See
+    [`@sodax/wallet-sdk-core`](/developers/packages/connection/wallet-sdk-core).
+  </Step>
+
+  <Step title="Quote">
+    ```typescript
+    const srcChainKey = ChainKeys.ARBITRUM_MAINNET;
+    const dstChainKey = ChainKeys.BSC_MAINNET;
+
+    // Instance configuration includes constructor overrides.
+    const inputToken = sodax.config.spokeChainConfig[srcChainKey].nativeToken; // ETH on Arbitrum
+    const outputToken = sodax.config.spokeChainConfig[dstChainKey].nativeToken; // BNB on BNB Chain
+
+    const inputAmount = 100_000_000_000_000n; // 0.0001 ETH
+
+    const quote = await sodax.swaps.getQuote({
+      token_src: inputToken,
+      token_dst: outputToken,
+      token_src_blockchain_id: srcChainKey,
+      token_dst_blockchain_id: dstChainKey,
+      amount: inputAmount,
+      quote_type: 'exact_input',
+    });
+    if (!quote.ok) {
+      throw new Error(`Quote failed: ${quote.error.detail.code}`);
+    }
+    ```
+
+    A quote costs nothing and signs nothing — a good place to confirm your setup works before
+    spending anything.
+  </Step>
+
+  <Step title="Execute">
+    ```typescript
+    // Absolute hub deadline (seconds). Prefer getSwapDeadline; 0n = no deadline.
+    const deadline = await sodax.swaps.getSwapDeadline(300n); // valid for the next 5 minutes
+    if (!deadline.ok) {
+      console.error(deadline.error);
+      throw new Error('Deadline failed');
+    }
+
+    const walletAddress = await wallet.getWalletAddress();
+
+    const params: CreateIntentParams<typeof srcChainKey> = {
+      inputToken,
+      outputToken,
+      inputAmount,
+      minOutputAmount: (quote.value.quoted_amount * 95n) / 100n, // 5% slippage tolerance
+      deadline: deadline.value,
+      allowPartialFill: false,
+      srcChainKey,
+      dstChainKey,
+      srcAddress: walletAddress,
+      dstAddress: walletAddress,
+      data: '0x',
+    };
+
+    const result = await sodax.swaps.swap({ params, walletProvider: wallet });
+    if (!result.ok) {
+      console.error(result.error.code, result.error.context);
+      throw new Error('Swap failed');
+    }
+
+    const { intentDeliveryInfo } = result.value;
+    console.log('Hub transaction:', intentDeliveryInfo.dstTxHash);
+    ```
+
+    Always branch on `result.ok` / `error.code` — never `try/catch` on the message string.
+
+    <Note>
+      This example swaps native gas tokens, which need no allowance. **`swap()` does not approve for
+      you** — with an ERC-20 input, call `sodax.swaps.isAllowanceValid` and then
+      `sodax.swaps.approve` first, or the swap fails. Full sequence:
+      [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap).
+    </Note>
+  </Step>
+
+  <Step title="Poll until settled">
+    ```typescript
+    import { SolverIntentStatusCode } from '@sodax/sdk';
+
+    let notFoundCount = 0;
+    let solved = false;
+
+    for (let attempt = 0; attempt < 60; attempt++) {
+      // getStatus takes a Hex; intentDeliveryInfo.dstTxHash is typed string.
+      const status = await sodax.swaps.getStatus({ intent_tx_hash: intentDeliveryInfo.dstTxHash as Hex });
+
+      if (status.ok) {
+        if (status.value.status === SolverIntentStatusCode.SOLVED) {
+          console.log('Solved. Fill transaction:', status.value.fill_tx_hash);
+          solved = true;
+          break;
+        }
+        if (status.value.status === SolverIntentStatusCode.FAILED) {
+          throw new Error('Intent failed');
+        }
+        // NOT_FOUND is not terminal: the solver can answer it for the first few polls after
+        // creation, so retry before giving up. Reset once any other status arrives.
+        if (status.value.status === SolverIntentStatusCode.NOT_FOUND) {
+          if (++notFoundCount >= 3) throw new Error('Intent not found after 3 consecutive polls');
+        } else {
+          notFoundCount = 0;
+        }
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+
+    // Running out of polls is not settlement: the intent is still pending, not done.
+    if (!solved) {
+      throw new Error('Intent still unsettled after 60 polls');
+    }
+    ```
+
+    **Settlement is not instant, and it is not on a fixed schedule.** This loop gives up after 5
+    minutes (60 polls × 5s) — tune that budget to your needs. How long a fill actually takes depends
+    on solver and relay conditions rather than on your code, so treat `SOLVED` as the only success
+    signal and don't design around a fixed duration.
+
+    Watch destination fills via `fill_tx_hash`, or track cross-network message delivery on
+    [SODAX Scan](https://sodaxscan.com).
+  </Step>
+</Steps>
+
+### Next
+
+<CardGroup cols={2}>
+  <Card title="Full swap walkthrough" icon="book" href="/developers/how-to/how_to_make_a_swap">
+    Wallet setup, errors, limit orders, and status codes.
+  </Card>
+  <Card title="HTTP Swap API" icon="server" href="/developers/http-api/swaps">
+    Quote, build intent, submit-tx, status — any language.
+  </Card>
+  <Card title="AI coding agents" icon="robot" href="/ai-integration-guide">
+    Install `@sodax/skills` so agents write v2-correct code.
+  </Card>
+  <Card title="Builders MCP" icon="plug" href="/builders-mcp">
+    Live chains, tokens, quotes, and SDK docs for agents.
+  </Card>
+</CardGroup>

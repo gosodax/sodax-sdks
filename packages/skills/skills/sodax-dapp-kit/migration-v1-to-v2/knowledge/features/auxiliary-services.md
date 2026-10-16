@@ -53,7 +53,7 @@ Read-only. No `walletProvider` involved. Convert to single-object query shape.
 + await submit({ request: swapPayload, apiConfig: { baseURL: 'https://...' } });   // v2: per-call config
 ```
 
-`useSwapsApiSubmitTxStatus` (v1: `useBackendSubmitSwapTxStatus`) now requires **both** `txHash` and `srcChainKey` (the v2 status endpoint needs the source chain key) — a v1 call that passed only a tx hash won't run until `srcChainKey` is supplied. The full Swaps API v2 surface is now wrapped as `useSwapsApi*` hooks (see the integration `hooks-index`).
+`useSwapsApiSubmitTxStatus` (v1: `useBackendSubmitSwapTxStatus`) now requires **both** `txHash` and `srcChainKey` (the status endpoint needs the source chain key) — a v1 call that passed only a tx hash won't run until `srcChainKey` is supplied. The full Swaps API surface is now wrapped as `useSwapsApi*` hooks (see the integration `hooks-index`).
 
 ## Shared utilities
 

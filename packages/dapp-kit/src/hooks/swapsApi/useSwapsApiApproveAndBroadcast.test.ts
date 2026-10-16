@@ -8,7 +8,8 @@
  * mocked so `mutationFn` can be captured and driven directly.
  */
 
-import { ChainKeys } from '@sodax/sdk';
+import { ChainKeys, getEvmViemChain } from '@sodax/sdk';
+import type { ApprovalProgress } from '../../utils/approvalPlan.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const approve = vi.fn();
@@ -128,6 +129,10 @@ describe('useSwapsApiApproveAndBroadcast', () => {
 
     expect(result).toEqual({ approveTxHash: APPROVE_HASH });
     expect(walletProvider.sendTransaction).toHaveBeenCalledTimes(1);
+    // Backend-built approvals are chain-bound: the runner must pass the source chain's id.
+    expect(walletProvider.sendTransaction).toHaveBeenCalledWith(expect.anything(), {
+      expectedChainId: getEvmViemChain(ChainKeys.ARBITRUM_MAINNET).id,
+    });
   });
 
   it('works on the hub chain, not just EVM spokes', async () => {
@@ -188,5 +193,40 @@ describe('useSwapsApiApproveAndBroadcast', () => {
 
     // The hook owns confirmation now, so unlike useSwapsApiApprove it can refresh this itself.
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['swapsApi', 'allowance'] });
+  });
+
+  it('awaits the allowance refetch before resolving — a stale cache must not re-enable Approve', async () => {
+    useSwapsApiApproveAndBroadcast();
+    const order: string[] = [];
+    // A macrotask, not a microtask: any resolution that happens without awaiting invalidateQueries
+    // would land before this fires, so a regression here proves the mutation returned too early.
+    invalidateQueries.mockImplementationOnce(
+      () =>
+        new Promise<void>(resolve => {
+          setTimeout(() => {
+            order.push('invalidate:done');
+            resolve();
+          }, 0);
+        }),
+    );
+
+    await captured.onSuccess({ approveTxHash: APPROVE_HASH }, {}, undefined);
+    order.push('onSuccess:resolved');
+
+    expect(order).toEqual(['invalidate:done', 'onSuccess:resolved']);
+  });
+
+  it('reports progress too — the runner is shared, so swaps must not be left without it', async () => {
+    approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX, resetTx: RESET_TX } });
+    const events: ApprovalProgress[] = [];
+
+    await run({
+      body: body(ChainKeys.ARBITRUM_MAINNET),
+      walletProvider: evmProvider([]),
+      onProgress: (progress: ApprovalProgress) => events.push(progress),
+    });
+
+    expect(events).toHaveLength(6);
+    expect(events.at(-1)).toMatchObject({ step: 'approve', phase: 'confirmed', index: 2, total: 2 });
   });
 });

@@ -1,0 +1,36 @@
+---
+title: "Yield"
+icon: money-bill-trend-up
+description: "Leveraged yield vaults as ordinary intent-based swaps — open-source SDK or HTTP API, both live on mainnet."
+---
+
+Enter and exit leverage-yield vault positions as ordinary intent-based swaps — no vault-specific approvals or bespoke deposit calls.
+
+Both integration paths are live on production: the `@sodax/sdk` leverage yield module, and the HTTP API at `https://api.sodax.com/v1/leverage-yield`. For a step-by-step walkthrough of either, see [Integrate Leverage Yield](/developers/how-to/integrate_leverage_yield).
+
+For an SDK integration, start with the [deposit and withdraw flows](/developers/packages/foundation/sdk/functional-modules/leverage_yield#flows). Review [vault risks](/developers/packages/foundation/sdk/functional-modules/leverage_yield#the-risk-the-spread-can-invert), [completion](/developers/packages/foundation/sdk/functional-modules/leverage_yield#completion-paths-and-timeout), and [errors](/developers/packages/foundation/sdk/functional-modules/leverage_yield#error-handling) before integrating.
+
+## Integration reference
+
+<CardGroup cols={2}>
+  <Card title="HTTP API" icon="server" href="/developers/http-api/leverage">
+    Vault deposit / withdraw over HTTP.
+  </Card>
+  <Card title="SDK method reference" icon="code" href="/developers/packages/foundation/sdk/functional-modules/leverage_yield">
+    `@sodax/sdk` — deposit, withdraw, APR, and position data.
+  </Card>
+</CardGroup>
+
+### Next steps
+
+<CardGroup cols={2}>
+  <Card title="Effective APR" icon="chart-line" href="/developers/packages/foundation/sdk/functional-modules/leverage_yield_apr">
+    How vault APR is calculated in the SDK.
+  </Card>
+  <Card title="React frontend" icon="react" href="/developers/packages/experience/dapp-kit">
+    `@sodax/dapp-kit` hooks with wallet wiring included.
+  </Card>
+  <Card title="Build it with an AI agent" icon="robot" href="/developers/how-to/integrate_leverage_yield#ai-agents">
+    The `@sodax/skills` leverage-yield skills teach your agent the vault flows.
+  </Card>
+</CardGroup>

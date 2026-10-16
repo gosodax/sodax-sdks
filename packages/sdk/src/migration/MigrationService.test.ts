@@ -307,7 +307,7 @@ describe('MigrationService.isAllowanceValid — migrate', () => {
       srcChainKey: ChainKeys.SONIC_MAINNET,
       token: params.srcbnUSD,
       // Hub spender comes from supportedTokens.bnUSD.address, not the asset manager.
-      spender: sodax.config.sodaxConfig.chains[ChainKeys.SONIC_MAINNET].supportedTokens.bnUSD.address,
+      spender: sodax.config.sodaxConfig.chains[ChainKeys.SONIC_MAINNET]?.supportedTokens.bnUSD?.address,
     });
   });
 
@@ -834,7 +834,9 @@ describe('MigrationService.migratebnUSD', () => {
   });
 
   it('forwards a createMigratebnUSDIntent failure as Result.error', async () => {
-    const createError = new Error('CREATE_INTENT_FAILED');
+    const createError = new SodaxError('INTENT_CREATION_FAILED', 'create bnUSD intent failed', {
+      feature: 'migration',
+    });
     vi.spyOn(sodax.migration, 'createMigratebnUSDIntent').mockResolvedValueOnce({
       ok: false,
       error: createError,
@@ -933,7 +935,9 @@ describe('MigrationService.migrateIcxToSoda', () => {
   });
 
   it('forwards a createMigrateIcxToSodaIntent failure as Result.error', async () => {
-    const intentError = new Error('CREATE_FAILED');
+    const intentError = new SodaxError('INTENT_CREATION_FAILED', 'create ICX intent failed', {
+      feature: 'migration',
+    });
     vi.spyOn(sodax.migration, 'createMigrateIcxToSodaIntent').mockResolvedValueOnce({
       ok: false,
       error: intentError,
@@ -1009,7 +1013,9 @@ describe('MigrationService.revertMigrateSodaToIcx', () => {
   });
 
   it('forwards a createRevertSodaToIcxMigrationIntent failure as Result.error', async () => {
-    const intentError = new Error('CREATE_REVERT_FAILED');
+    const intentError = new SodaxError('INTENT_CREATION_FAILED', 'create revert intent failed', {
+      feature: 'migration',
+    });
     vi.spyOn(sodax.migration, 'createRevertSodaToIcxMigrationIntent').mockResolvedValueOnce({
       ok: false,
       error: intentError,
@@ -1084,7 +1090,9 @@ describe('MigrationService.migrateBaln', () => {
   });
 
   it('forwards a createMigrateBalnIntent failure as Result.error', async () => {
-    const intentError = new Error('CREATE_BALN_FAILED');
+    const intentError = new SodaxError('INTENT_CREATION_FAILED', 'create BALN intent failed', {
+      feature: 'migration',
+    });
     vi.spyOn(sodax.migration, 'createMigrateBalnIntent').mockResolvedValueOnce({
       ok: false,
       error: intentError,
@@ -1766,6 +1774,7 @@ describe('MigrationService.migratebnUSD — SodaxError wrap-path coverage', () =
     // CreateMigrateIntentErrorCode ⊂ MigrateOrchestrationErrorCode, so `migratebnUSD` returns
     // the same SodaxError instance unchanged — no extra wrap.
     const intentError = new SodaxError('INTENT_CREATION_FAILED', 'spoke deposit reverted', {
+      feature: 'migration',
       context: { srcChainKey: ChainKeys.ICON_MAINNET, action: 'migratebnUSD', phase: 'intentCreation' },
     });
     vi.spyOn(sodax.migration, 'createMigratebnUSDIntent').mockResolvedValueOnce({ ok: false, error: intentError });
@@ -1796,7 +1805,7 @@ describe('MigrationService.migratebnUSD — SodaxError wrap-path coverage', () =
       ok: true,
       value: { tx: spokeTxHash, relayData: { address: hubWalletAddress, payload: '0xp' } },
     });
-    vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValueOnce({ ok: true, value: undefined });
+    vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValueOnce({ ok: true, value: true });
     mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: okPacket });
     const execError = new Error('RELAY_TIMEOUT');
     mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: false, error: execError });

@@ -1,0 +1,315 @@
+---
+title: "Swaps API"
+sidebarTitle: "Swaps"
+icon: rotate
+description: "HTTP reference for the SODAX Swaps API — quote, build intents, submit-tx, status polling, fees, and partner monetization."
+---
+
+Raw HTTP for intent-based swaps — use from any language when you do not want (or cannot) embed the full SDK orchestrator.
+
+| Path | Role |
+|------|------|
+| **HTTP** (this page) | `https://api.sodax.com/v1/swaps/*` |
+| **Standalone TS client** | [`@sodax/swaps-api`](/developers/packages/foundation/swaps-api) — thin wire client; methods **throw** `SwapsApiError` on failure |
+| **SDK adapter** | `sodax.api.swaps` — same endpoints, wraps the standalone client; returns `Result<T>` and **never throws** |
+| **SDK orchestrator** | `sodax.swaps` — end-to-end create → relay → settle ([Swaps module](/developers/packages/foundation/sdk/functional-modules/swaps)) |
+
+> The legacy path `/v1/bes/swaps` is retired and answers `404`. Always use `/v1/swaps`.
+
+## Base URL
+
+```
+https://api.sodax.com/v1/swaps
+```
+
+Canary: `https://canary-api.sodax.com/v1/swaps`.
+
+All amounts on the wire are **decimal strings**. Unauthenticated; write endpoints such as `submit-tx` are **rate-limited** — the exact limit is not published, so treat `429` as the signal.
+
+---
+
+## Endpoint catalog
+
+### Tokens
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/tokens` | All swap-supported tokens by chain key |
+| `GET` | `/tokens/:chainKey` | Tokens for one chain |
+
+### Quote · deadline
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/quote` | Firm quote for a pair + amount |
+| `GET` | `/deadline` | Suggested intent deadline (hub time + offset) |
+
+### Allowance · approve · create intent
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/allowance/check` | Whether allowance covers the intent |
+| `POST` | `/approve` | Build approve tx (`tx` + optional `resetTx`) |
+| `POST` | `/intents` | Build create-intent tx + intent + relayData |
+
+### Intent lifecycle
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/intents/submit` | Submit intent payload (solver path) |
+| `POST` | `/intents/status` | Solver-style status (numeric codes) |
+| `POST` | `/intents/cancel` | Build cancel-intent tx |
+| `POST` | `/intents/hash` | Compute intent hash |
+| `POST` | `/intents/packet` | **Long-poll** for solved packet (await once) |
+| `POST` | `/intents/extra-data` | Extra data for submit-tx flows |
+| `GET` | `/intents/:txHash/fill` | Filled intent state |
+| `GET` | `/intents/:txHash` | Intent by create tx |
+
+### Limit orders · gas · fees
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/limit-orders` | Build limit-order intent (`deadline = 0` style) |
+| `POST` | `/gas/estimate` | Gas estimate for a built action |
+| `GET` | `/fees/partner` | Partner fee math for an amount |
+| `GET` | `/fees/solver` | Solver fee math for an amount |
+
+### Submit-tx state machine (recommended bot path)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/submit-tx` | Hand off broadcast source tx + intent for async execution |
+| `GET` | `/submit-tx/status` | Poll pipeline until `solved` or `failed` |
+
+---
+
+## Partner fee
+
+Optional on quote / create-intent / allowance / approve / limit-orders. **Not** on `submit-tx` — by then the fee is already encoded in `intent.data`.
+
+```jsonc
+// Fixed amount in the input token's smallest unit
+"partnerFee": { "address": "0x<hub-fee-receiver>", "amount": "1000" }
+
+// Or basis points (1–100; 100 = 1%)
+"partnerFee": { "address": "0x<hub-fee-receiver>", "percentage": 50 }
+```
+
+If both `amount` and `percentage` are present, **`amount` wins**. There is no global default fee.
+
+---
+
+## Bot flow: create, submit-tx, poll
+
+Same for same-chain and cross-chain swaps.
+
+```
+[you]  approve ERC-20 (if needed)
+[you]  build + broadcast create-intent on the SOURCE chain
+[you]  POST /submit-tx          → hand off txHash + intent + relayData
+[you]  GET  /submit-tx/status   → poll until solved | failed
+```
+
+### 1. Approve (if needed)
+
+`POST /approve` returns `{ tx, resetTx? }`.
+
+Some ERC-20s (notably Ethereum USDT of the 2017 TetherToken lineage) reject allowance changes from one non-zero value to another. When `resetTx` is present:
+
+1. Broadcast `resetTx` and wait for confirmation.  
+2. Then broadcast `tx`.
+
+Native inputs (`0x000…000`) need no approval.
+
+### 2. Build + broadcast the intent
+
+Use either:
+
+- `POST /intents` (HTTP build) and sign/broadcast `tx` yourself, or  
+- `@sodax/sdk` `sodax.swaps.createIntent({ … })` then continue with HTTP submit-tx.
+
+Wait for the **source-chain receipt** before step 3.
+
+### 3. Submit
+
+```http
+POST /v1/swaps/submit-tx
+Content-Type: application/json
+```
+
+```jsonc
+{
+  "txHash": "0x…",
+  "srcChainKey": "sonic",
+  "walletAddress": "0x…",
+  "intent": {
+    "intentId": "1",
+    "creator": "0x…",
+    "inputToken": "0x…",
+    "outputToken": "0x…",
+    "inputAmount": "1000000",
+    "minOutputAmount": "990000",
+    "deadline": "1786500000",
+    "allowPartialFill": false,
+    "srcChain": "…",
+    "dstChain": "…",
+    "srcAddress": "0x…",
+    "dstAddress": "0x…",
+    "solver": "0x0000000000000000000000000000000000000000",
+    "data": "0x…"
+  },
+  "relayData": "0x…"   // required non-empty; always pass SDK/API payload
+}
+```
+
+- **Idempotent** on `(txHash, srcChainKey)` — safe to retry.  
+- Response `data.status` is `"inserted"` or `"duplicate"`.  
+- Rate-limited → back off on `429`. Implement your own backoff: `@sodax/swaps-api` replays a `429` immediately, without one.
+
+### 4. Poll status
+
+```http
+GET /v1/swaps/submit-tx/status?txHash=0x…&srcChainKey=sonic
+```
+
+Pipeline:
+
+```
+pending → relaying → relayed → posting_execution → posted_execution → solved | failed
+```
+
+| Status | Meaning |
+|--------|---------|
+| `solved` | Terminal **success** — solver filled the intent |
+| `failed` | Terminal **failure** — act on `userMessage` / cancel if needed |
+| anything else | Keep polling (~3s) |
+
+On success, treat these `result` fields as the contract for pollers:
+
+| Field | Role |
+|-------|------|
+| `dstIntentTxHash` | Hub intent-creation tx (present once relayed) |
+| `intent_hash` | Solver intent hash (after post-execution), when present |
+| `packetData` | Cross-chain relay packet, when present |
+
+Optional wire field: the backend **may** also return `result.fillTxHash` (solver destination-chain fill) when the solver reported a fill. It can be **absent** even on `solved` if the fill was confirmed via the on-chain journal instead, and the typed TypeScript contract (`SubmitTxStatusResultV2` / `@sodax/swaps-api`) types it as optional for that reason. For a fill hash that is always set on a solved intent, use `POST /intents/status` (numeric status `3` SOLVED → top-level `fillTxHash`) or the [on-chain journal](#5-optional-on-chain-journal). The row also carries an `operation` discriminator — `swap` here; `leverage_deposit` / `leverage_withdraw` for rows queued through the Leverage Yield API.
+
+On failure, inspect `failedAtStep`, `failureReason`, `userMessage`, `intentCancelled`, `abandonedAt`.
+
+**Open intent after failed fill:** if status is `failed` and the intent is still open on-chain (`intentCancelled` not true), surface `userMessage` and cancel to recover funds. Timed intents can also expire via deadline; **limit orders** (`deadline = 0`) never expire — cancel explicitly.
+
+> Transient relay blips are **retried internally** and stay on intermediate statuses — they do **not** appear as `failed`. Treat `failed` as real.
+
+### 5. Optional on-chain journal
+
+Independent of swaps-api self-report (base `https://api.sodax.com/v1/be`):
+
+- Sonic-source create tx: `GET /intent/tx/:txHash`  
+- Cross-chain: `GET /intent/:intentHash`  
+
+Lifecycle: `404` → open → filled/cancelled. Aggregator lag means this can trail `submit-tx/status` — soft check only.
+
+---
+
+## Three different `status` fields
+
+Do not mix these up:
+
+| Call | Field | Values |
+|------|-------|--------|
+| `POST /intents/status` | numeric status code | `-1` not found · `1` not started · `2` in progress · `3` solved · `4` failed |
+| `POST /submit-tx` | `data.status` | `"inserted"` \| `"duplicate"` |
+| `GET /submit-tx/status` | `data.status` | pipeline strings above |
+
+---
+
+## Long-poll: solved packet
+
+`POST /intents/packet` is a **server-side long-poll** — one request held until the fill packet lands or `timeout` elapses (default ~60s). Call once and await; do **not** spin client-side.
+
+---
+
+## Quote sketch
+
+```bash
+curl -s -X POST 'https://api.sodax.com/v1/swaps/quote' \
+  -H 'content-type: application/json' \
+  -d '{
+    "tokenSrc": "0x…",
+    "tokenSrcChainKey": "sonic",
+    "tokenDst": "0x…",
+    "tokenDstChainKey": "0x2105.base",
+    "amount": "1000000",
+    "quoteType": "exact_input"
+  }'
+```
+
+Exact field names follow the OpenAPI / `@sodax/types` `QuoteRequestV2` shapes — prefer generating clients from the live schema if you are not on TypeScript.
+
+---
+
+## TypeScript clients (optional)
+
+Two packages hit the same HTTP API with **different error contracts**:
+
+| Client | Package / entry | Failure behaviour |
+|--------|-----------------|-------------------|
+| Standalone | `@sodax/swaps-api` → `new SwapsApi({ baseUrl })` | **Throws** `SwapsApiError` (network, timeout, HTTP, parse, validation) |
+| SDK adapter | `@sodax/sdk` → `sodax.api.swaps` | Returns `Result<T>` — **never throws** (wraps the standalone client) |
+
+### SDK adapter (`Result<T>`)
+
+```ts
+import { Sodax } from '@sodax/sdk';
+
+const sodax = new Sodax();
+// Gateway root — client appends /swaps/*
+// new Sodax({ api: { baseApiConfig: { baseURL: 'https://api.sodax.com/v1' } } })
+
+const quote = await sodax.api.swaps.getQuote({ /* … */ });
+if (!quote.ok) {
+  // handle quote.error — no try/catch required for API failures
+  return;
+}
+const created = await sodax.api.swaps.createIntent({ /* … */ });
+const submit = await sodax.api.swaps.submitTx({ /* … */ });
+const status = await sodax.api.swaps.getSubmitTxStatus({ txHash, srcChainKey });
+```
+
+### Standalone client (throws)
+
+```ts
+import { SwapsApi, SwapsApiError } from '@sodax/swaps-api';
+
+const api = new SwapsApi({ baseUrl: 'https://api.sodax.com/v1' });
+
+try {
+  const quote = await api.getQuote({ /* … */ });
+  const created = await api.createIntent({ /* … */ });
+  await api.submitTx({ /* … */ });
+  const status = await api.getSubmitTxStatus({ txHash, srcChainKey });
+} catch (e) {
+  if (e instanceof SwapsApiError) {
+    // e.code: NETWORK_ERROR | TIMEOUT_ERROR | HTTP_ERROR | PARSE_ERROR | VALIDATION_ERROR
+  }
+  throw e;
+}
+```
+
+---
+
+## Operational checklist
+
+- [ ] Source balance ≥ `inputAmount` + gas; use a fresh, tip-synced RPC  
+- [ ] Approve once (or large allowance) when possible  
+- [ ] Wait for source-chain receipt before `submit-tx`  
+- [ ] Respect rate limits; retry submit freely (idempotent)  
+- [ ] Poll until `solved` / `failed`; log failure fields  
+- [ ] Cross-chain destination funds may lag `solved` by minutes — poll destination balance with a generous timeout if the next step depends on arrival  
+
+## See also
+
+- [Oracle](/developers/http-api/oracle) — prices for charts  
+- [Stats](/developers/http-api/stats) — filled-intent volume  
+- [Leverage yield](/developers/http-api/leverage) — same submit-tx machine for vaults  
+- [Make a Swap (SDK)](/developers/how-to/how_to_make_a_swap)  

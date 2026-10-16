@@ -104,6 +104,10 @@ export default function RootLayout({
 }
 ```
 
+`SodaxProvider.tsx` is a `'use client'` module, so everything in it ships to the browser. Do not pass
+it an `apiKey` — renaming `SODAX_API_KEY` to `NEXT_PUBLIC_SODAX_API_KEY` publishes the key in your bundle.
+Keep keyed calls in a Server Action or Route Handler, or proxy them — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
+
 ## Step 4: Start Your Build Process
 
 Start the development server:
@@ -182,8 +186,8 @@ Make sure your `tsconfig.json` includes the necessary paths for the `@` alias:
 
 Now that you have `@sodax/sdk` set up in your Next.js project, you can:
 
-1. **Explore Solver Features**: Check out the [Swaps documentation](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) for cross-chain swaps
-2. **Explore Money Market Features**: Check out the [Money Market documentation](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MONEY_MARKET.md) for lending and borrowing
+1. **Explore Solver Features**: Check out the [Swaps documentation](https://docs.sodax.com/developers/packages/foundation/sdk/functional-modules/swaps) for cross-chain swaps
+2. **Explore Money Market Features**: Check out the [Money Market documentation](https://docs.sodax.com/developers/packages/foundation/sdk/functional-modules/money_market) for lending and borrowing
 3. **Set up Wallet Integration**: Implement wallet providers for the chains you want to support
 4. **Add Error Handling**: Implement proper error handling for SDK operations
 5. **Add Loading States**: Add loading indicators for async operations
@@ -196,12 +200,40 @@ Now that you have `@sodax/sdk` set up in your Next.js project, you can:
 
 2. **Import Errors**: Ensure all imports are using the correct paths and that the packages are properly installed.
 
+### Next.js 16 + Turbopack: "module factory is not available"
+
+Building a Next 16 app that imports `@sodax/sdk` used to crash at SSR prerender with:
+
+```
+Error: Module XXXXXX was instantiated because it was required from module YYYYYY,
+but the module factory is not available.
+```
+
+The cause was upstream Turbopack scope-hoisting bugs in three transitive dependencies —
+`@stacks/transactions` (reproducible with a bare `import { Cl } from '@stacks/transactions'` in a
+fresh Next 16 app, no SODAX code involved), `@stacks/connect`, and
+`@injectivelabs/wallet-ledger`.
+
+No workaround is needed on the consumer side. Those dependencies are isolated inside
+[`@sodax/libs`](https://github.com/icon-project/sodax-sdks/blob/main/packages/libs/README.md), which
+sits at the bottom of the dependency chain and re-exports each one through its own pre-bundled
+subpath. `@sodax/sdk`, `@sodax/wallet-sdk-core` and `@sodax/wallet-sdk-react` consume those subpaths,
+so the published `dist` contains no top-level import that triggers the cycle.
+
+If you hit this error, upgrade the `@sodax/*` packages first. A runnable regression app for the
+fix — server component, client component and an automated build check — lives at
+[`apps/example-next-js-16`](https://github.com/icon-project/sodax-sdks/tree/main/apps/example-next-js-16).
+
+One consumer-side requirement remains: the Injective wallet path declares
+`libsodium-wrappers-sumo` as an **optional peer dependency**, so install it in your app if you enable
+Injective wallet support.
+
 ### Getting Help
 
 If you encounter any issues:
 
-- Check the [main SDK documentation](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/README.md)
-- Review the [Swaps documentation](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) for swap-related features
-- Review the [Money Market documentation](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MONEY_MARKET.md) for lending/borrowing features
+- Check the [main SDK documentation](https://docs.sodax.com/developers/packages/foundation/sdk)
+- Review the [Swaps documentation](https://docs.sodax.com/developers/packages/foundation/sdk/functional-modules/swaps) for swap-related features
+- Review the [Money Market documentation](https://docs.sodax.com/developers/packages/foundation/sdk/functional-modules/money_market) for lending/borrowing features
 - Open an issue on the [GitHub repository](https://github.com/icon-project/sodax-sdks/issues)
 - Join the [Discord community](https://discord.gg/xM2Nh4S6vN) for support

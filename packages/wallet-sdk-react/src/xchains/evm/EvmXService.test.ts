@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { ChainKeys } from '@sodax/types';
-import { createWagmiConfig, tryCookieToInitialState } from './EvmXService.js';
+import { baseChainInfo, ChainKeys, EVM_CHAIN_KEYS } from '@sodax/types';
+import { createWagmiConfig, resolveEvmRpcUrls, SODAX_EVM_CHAINS, tryCookieToInitialState } from './EvmXService.js';
 import type { EvmTypeConfig } from '@/types/config.js';
 
 // Verifies user-supplied `rpcUrl` from `SodaxWalletConfig.EVM.chains[K]` is
@@ -55,6 +55,29 @@ describe('createWagmiConfig — rpcUrl forwarding', () => {
     const arbClient = config.getClient({ chainId: 42161 });
     const ethClient = config.getClient({ chainId: 1 });
     expect(arbClient.transport.url).not.toBe(ethClient.transport.url);
+  });
+});
+
+describe('SODAX_EVM_CHAINS / resolveEvmRpcUrls', () => {
+  it('carries exactly the chains behind EvmChainKey', () => {
+    const tupleIds = SODAX_EVM_CHAINS.map(chain => chain.id).sort((a, b) => a - b);
+    const keyIds = EVM_CHAIN_KEYS.map(key => baseChainInfo[key].chainId).sort((a, b) => a - b);
+    expect(tupleIds).toEqual(keyIds);
+  });
+
+  it('maps every EVM chain key override onto its own chain id', () => {
+    const evmChains = Object.fromEntries(EVM_CHAIN_KEYS.map(key => [key, { rpcUrl: `https://${key}.example` }]));
+    const urls = resolveEvmRpcUrls(evmChains);
+    for (const key of EVM_CHAIN_KEYS) {
+      expect(urls[baseChainInfo[key].chainId]).toBe(`https://${key}.example`);
+    }
+  });
+
+  it('falls back to each chain default without overrides', () => {
+    const urls = resolveEvmRpcUrls(undefined);
+    for (const chain of SODAX_EVM_CHAINS) {
+      expect(urls[chain.id]).toBe(chain.rpcUrls.default.http[0]);
+    }
   });
 });
 

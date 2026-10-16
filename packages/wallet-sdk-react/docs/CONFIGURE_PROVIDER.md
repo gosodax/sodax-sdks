@@ -12,15 +12,16 @@ The canonical TypeScript shape is [`SodaxWalletConfig`](https://github.com/icon-
 4. [Per-chain entries (`chains[ChainKey]`)](#per-chain-entries-chainschainkey)
 5. [Per-chain wallet defaults](#per-chain-wallet-defaults)
 6. [WalletConnect (EVM only)](#walletconnect-evm-only)
-7. [Config is captured once on mount](#config-is-captured-once-on-mount)
-8. [Single source of truth — `ChainMeta`](#single-source-of-truth--chainmeta)
-9. [Breaking changes from v1](#breaking-changes-from-v1)
+7. [Email login with Privy (EVM only)](#email-login-with-privy-evm-only)
+8. [Config is captured once on mount](#config-is-captured-once-on-mount)
+9. [Single source of truth — `ChainMeta`](#single-source-of-truth--chainmeta)
+10. [Breaking changes from v1](#breaking-changes-from-v1)
 
 ---
 
 ## Quick start — minimal config
 
-Mount `<SodaxWalletProvider>` inside `<QueryClientProvider>` with the chain-type slots your dApp needs. Omit any slot you don't need — its native adapter (wagmi, `@solana/wallet-adapter`, `@mysten/dapp-kit`) won't be mounted.
+Mount `<SodaxWalletProvider>` inside `<QueryClientProvider>` with the chain-type slots your dApp needs. Omit any slot you don't need — its native adapter (wagmi, `@solana/wallet-adapter`, `@mysten/dapp-kit-react`) won't be mounted.
 
 ```tsx
 import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
@@ -52,7 +53,7 @@ export function App({ children }: { children: React.ReactNode }) {
 }
 ```
 
-`SodaxWalletProvider` mounts the EVM (wagmi), Solana (`@solana/wallet-adapter-react`), and Sui (`@mysten/dapp-kit`) React providers conditionally based on which slots are present, then registers chain services for non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks).
+`SodaxWalletProvider` mounts the EVM (wagmi), Solana (`@solana/wallet-adapter-react`), and Sui (`@mysten/dapp-kit-react`) React providers conditionally based on which slots are present, then registers chain services for non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks).
 
 ---
 
@@ -62,9 +63,9 @@ Top-level keys are `ChainType` strings — one slot per chain family. **Every sl
 
 | Key | Mounts | Adapter fields | Per-chain entries |
 |-----|--------|----------------|-------------------|
-| `EVM` | wagmi (13 EVM chains) | `ssr`, `reconnectOnMount`, `initialState`, `persistKey`, `walletConnect` | `{ rpcUrl?, defaults? }` per `EvmChainKey` |
+| `EVM` | wagmi (13 EVM chains) | `ssr`, `reconnectOnMount`, `initialState`, `persistKey`, `walletConnect`, `privy` | `{ rpcUrl?, defaults? }` per `EvmChainKey` |
 | `SOLANA` | `@solana/wallet-adapter-react` | `autoConnect` | `{ rpcUrl?, defaults? }` per `SolanaChainKey` |
-| `SUI` | `@mysten/dapp-kit` | `autoConnect`, `network` | `{ rpcUrl?, defaults? }` per `SuiChainKey` |
+| `SUI` | `@mysten/dapp-kit-react` | `autoConnect`, `network` | `{ grpcUrl?, defaults? }` per `SuiChainKey` (`rpcUrl` is a deprecated alias) |
 | `ICON` | (no React adapter) | — | `{ rpcUrl?, defaults? }` per `IconChainKey` |
 | `NEAR` | (no React adapter) | — | `{ rpcUrl?, defaults? }` per `NearChainKey` |
 | `STELLAR` | (no React adapter) | — | `StellarRpcConfig & { defaults? }` per `StellarChainKey` |
@@ -74,7 +75,7 @@ Top-level keys are `ChainType` strings — one slot per chain family. **Every sl
 
 **Provider-managed vs non-provider** — EVM, Solana, and Sui need React context providers from their native SDKs (Hydrator components sync state into the Zustand store). The remaining six chains use direct browser-extension APIs and skip the React adapter layer; their actions are registered during `initChainServices()` after the provider mounts.
 
-Each slot also accepts an optional `connectors?: IXConnector[]` array to override the default connectors registered by `chainRegistry`.
+Every slot declares an optional `connectors?: IXConnector[]` array, but it only takes effect on the six non-provider slots (`ICON`, `NEAR`, `STELLAR`, `BITCOIN`, `INJECTIVE`, `STACKS`), where it replaces the default connectors registered by `chainRegistry`. `EVM`, `SOLANA`, and `SUI` ignore it — their connector lists are written by the Hydrators from wagmi, `@solana/wallet-adapter`, and `@mysten/dapp-kit-react`, so passing `connectors` there type-checks but has no effect. Supplied connectors must extend the abstract `XConnector` class; entries that only implement `IXConnector` are filtered out with a console warning.
 
 ---
 
@@ -87,14 +88,14 @@ const walletConfig: SodaxWalletConfig = {
   // Adapter fields only — wagmi mounts with the bundled chain set, no custom RPCs
   EVM: { ssr: true },
 
-  // Per-chain entries only — wagmi adapter uses defaults
+  // Per-chain entries only — @solana/wallet-adapter-react uses defaults (autoConnect: true)
   SOLANA: { chains: { [ChainKeys.SOLANA_MAINNET]: { rpcUrl: 'https://...' } } },
 
   // Both
   SUI: {
     network: 'mainnet',
     autoConnect: true,
-    chains: { [ChainKeys.SUI_MAINNET]: { rpcUrl: 'https://sui-rpc.publicnode.com' } },
+    chains: { [ChainKeys.SUI_MAINNET]: { grpcUrl: 'https://fullnode.mainnet.sui.io' } },
   },
 
   // Empty object — opt in with SDK defaults
@@ -112,7 +113,7 @@ Each slot's `chains` field is keyed by `ChainKey` constants. The entry shape var
 
 ### Simple chains — `{ rpcUrl?, defaults? }`
 
-EVM, Solana, Sui, ICON, and NEAR share the simple shape — single RPC URL plus optional wallet provider defaults.
+EVM, Solana, Sui, ICON, NEAR and Bitcoin share the simple shape — single RPC URL plus optional wallet provider defaults.
 
 ```typescript
 import { ChainKeys } from '@sodax/types';
@@ -130,12 +131,23 @@ const walletConfig: SodaxWalletConfig = {
   ICON: {
     chains: { [ChainKeys.ICON_MAINNET]: { rpcUrl: 'https://ctz.solidwallet.io/api/v3' } },
   },
+  BITCOIN: {
+    chains: {
+      [ChainKeys.BITCOIN_MAINNET]: {
+        rpcUrl: 'https://mempool.space/api',
+        defaults: { defaultFinalize: true },
+      },
+    },
+  },
 };
 ```
 
-### Multi-field RPC — Stellar, Bitcoin, Injective
+Bound Exchange hosts are **not** configured here — they live on `chains[BITCOIN_MAINNET].radfi` in
+the SDK config. See [Bitcoin Integration](https://docs.sodax.com/developers/how-to/bitcoin-integration#bound-hosts).
 
-Stellar (Horizon + Soroban), Bitcoin (RPC + Bound Exchange indexer), and Injective (gRPC + indexer) extend their existing `*RpcConfig` types from `@sodax/types`. Mirror the full shape:
+### Multi-field RPC — Stellar, Injective
+
+Stellar (Horizon + Soroban) and Injective (gRPC + indexer) extend their existing `*RpcConfig` types from `@sodax/types`. Mirror the full shape:
 
 ```typescript
 import { ChainKeys } from '@sodax/types';
@@ -150,22 +162,16 @@ const walletConfig: SodaxWalletConfig = {
       },
     },
   },
-  BITCOIN: {
-    chains: {
-      [ChainKeys.BITCOIN_MAINNET]: {
-        // BitcoinRpcConfig fields + defaults
-        defaults: { defaultFinalize: true },
-      },
-    },
-  },
 };
 ```
 
 ### Stacks — preset name OR network object
 
-Stacks accepts either a preset name string (`'mainnet' | 'testnet'`) or a full `StacksNetworkLike` object:
+Stacks accepts either a `StacksNetworkName` preset string (`'mainnet' | 'testnet' | 'devnet' | 'mocknet'`) or a full `StacksNetworkLike` object:
 
 ```typescript
+import { PostConditionMode } from '@sodax/wallet-sdk-core';
+
 const walletConfig: SodaxWalletConfig = {
   STACKS: {
     chains: {
@@ -180,7 +186,7 @@ const advanced: SodaxWalletConfig = {
     chains: {
       [ChainKeys.STACKS_MAINNET]: {
         // StacksNetworkLike fields...
-        defaults: { network: 'mainnet', postConditionMode: 'deny' },
+        defaults: { network: 'mainnet', postConditionMode: PostConditionMode.Deny },
       },
     },
   },
@@ -242,7 +248,25 @@ walletConnect: {
 }
 ```
 
-If `projectId` is missing, the WalletConnect connector is silently skipped and a warning is logged. See [`WALLETCONNECT.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLETCONNECT.md) for the partner integration guide.
+If `projectId` is missing, the WalletConnect connector is silently skipped and a warning is logged. See [`WALLETCONNECT.md`](./WALLETCONNECT.md) for the partner integration guide.
+
+---
+
+## Email login with Privy (EVM only)
+
+The `privy` field adds an "Email (Privy)" wallet: email one-time-code login and a Privy embedded wallet. Build its value with `privy()` from the `@sodax/wallet-sdk-react/privy` sub-path and install `@privy-io/react-auth` (an optional peer):
+
+```typescript
+import { privy } from '@sodax/wallet-sdk-react/privy';
+
+const config: SodaxWalletConfig = {
+  EVM: {
+    privy: privy({ appId: process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? '' }),
+  },
+};
+```
+
+The connector (id `privy`) joins the same EVM list as injected wallets and WalletConnect, and the SDK mounts `PrivyProvider` around your app. Without the field no Privy code is loaded. See [`WALLET_PRIVY.md`](./WALLET_PRIVY.md) — it covers custody, recovery and availability trade-offs to read before enabling it.
 
 ---
 
@@ -353,8 +377,8 @@ If a previous session connected a chain that is no longer in `config`, the persi
 
 ## Related docs
 
-- [Connect Flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md) — discover connectors, connect, read account, disconnect
-- [Wallet Provider Bridge](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PROVIDER_BRIDGE.md) — `useWalletProvider` → typed `IXxxWalletProvider` for SDK calls
-- [WalletConnect](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLETCONNECT.md) — enterprise/custody wallet setup (Fireblocks, etc.)
+- [Connect Flow](./CONNECT_FLOW.md) — discover connectors, connect, read account, disconnect
+- [Wallet Provider Bridge](./WALLET_PROVIDER_BRIDGE.md) — `useWalletProvider` → typed `IXxxWalletProvider` for SDK calls
+- [WalletConnect](./WALLETCONNECT.md) — enterprise/custody wallet setup (Fireblocks, etc.)
 - [Adding a New Chain](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ADDING_A_NEW_CHAIN.md) — `ChainMeta` extension and chain registry
 - [SDK Wallet Providers Reference](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) — per-chain `defaults` shape reference

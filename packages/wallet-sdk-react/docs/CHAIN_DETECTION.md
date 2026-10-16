@@ -33,13 +33,13 @@ Use cases:
 - Cross-reference with `useXConnections()` to compute "of N enabled chains, M are connected".
 - Drive `<Tabs>` / `<Select>` UIs without hard-coding a list.
 
-`useChainGroups` and `useConnectedChains` both already filter by `useEnabledChains` internally — reach for `useEnabledChains` directly only when you need the raw list.
+`useChainGroups` filters by `useEnabledChains` internally — one group per enabled chain type. `useConnectedChains` does not: it walks the canonical `ChainTypeArr` from `@sodax/types` and keeps the chain types holding a connected account, so a persisted connection for a chain type no longer present in your `SodaxWalletConfig` still shows up until `cleanupDisabledConnections()` prunes it right after the store rehydrates. Reach for `useEnabledChains` directly when you need the raw enabled list.
 
 ---
 
 ## `useChainGroups` — picker model
 
-Returns one `ChainGroup` per enabled chain type, with display metadata + connection status. Designed for chain-picker UIs (the "select a chain" step in [`useWalletModal`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_MODAL.md)).
+Returns one `ChainGroup` per enabled chain type, with display metadata + connection status. Designed for chain-picker UIs (the "select a chain" step in [`useWalletModal`](./WALLET_MODAL.md)).
 
 ```tsx
 import { useChainGroups } from '@sodax/wallet-sdk-react';
@@ -71,7 +71,7 @@ function ChainPicker({ onPick }: { onPick: (chainType: ChainType) => void }) {
 
 ### EVM collapses
 
-EVM's `chainIds` lists every configured EVM `ChainKey`, but the group itself is **one row**. wagmi maintains a single connection across all those networks — there's no "per-network connection state" to render. If a user needs to switch the active EVM network, that's [`useEvmSwitchChain`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/EVM_SWITCH_CHAIN.md), not a separate group.
+EVM's `chainIds` lists every configured EVM `ChainKey`, but the group itself is **one row**. wagmi maintains a single connection across all those networks — there's no "per-network connection state" to render. If a user needs to switch the active EVM network, that's [`useEvmSwitchChain`](./EVM_SWITCH_CHAIN.md), not a separate group.
 
 ### Custom display order
 
@@ -84,7 +84,7 @@ const groups = useChainGroups({ order: ORDER });
 // EVM first, then ICON, then SOLANA, then SUI; chains not in ORDER fall to the bottom alphabetically.
 ```
 
-Without `order`, groups follow `enabledChains` insertion order (driven by `SodaxWalletProvider` config object key order — not stable across reloads in some bundlers). Pass `order` for deterministic UIs.
+Without `order`, groups follow the `enabledChains` array. `createChainServices` builds that array by walking the canonical `ChainTypeArr` from `@sodax/types` (ICON, EVM, INJECTIVE, SUI, STELLAR, SOLANA, STACKS, NEAR, BITCOIN) and keeping the chain types whose slot is present in config, so the default order is identical across reloads and does not depend on your config object's key order. Pass `order` when you want a different display order (e.g. hub-first).
 
 ---
 
@@ -141,7 +141,7 @@ type UseConnectedChainsResult = {
 
 ## `useIsWalletInstalled` — install detection
 
-Read hook that pairs with the [batch operation](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/BATCH_OPERATIONS.md) hooks. Use it to gate "Connect" buttons on actual installation:
+Read hook that pairs with the [batch operation](./BATCH_OPERATIONS.md) hooks. Use it to gate "Connect" buttons on actual installation:
 
 ```typescript
 import { useIsWalletInstalled } from '@sodax/wallet-sdk-react';
@@ -156,11 +156,11 @@ const hasBitcoinWallet = useIsWalletInstalled({ chainType: 'BITCOIN' });
 const hanaOnEvm = useIsWalletInstalled({ connectors: ['hana'], chainType: 'EVM' });
 ```
 
-Filters AND together. The type union enforces at compile time that **at least one of `connectors` / `chainType`** is present — `useIsWalletInstalled({})` is a type error. At runtime, bypassing the type union returns `false` plus a one-time warning (better than a render-tree crash).
+Filters AND together. The type union enforces at compile time that **at least one of `connectors` / `chainType`** is present — `useIsWalletInstalled({})` is a type error. At runtime, bypassing the type union returns `false` and logs a `console.warn` on every call — the warning is not deduplicated, so it repeats on every render of the offending component (better than a render-tree crash).
 
 `connectors: []` is explicit "match nothing" — returns `false`.
 
-See [Identifier matching](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/BATCH_OPERATIONS.md#identifier-matching) for the substring-match rules.
+See [Identifier matching](./BATCH_OPERATIONS.md#identifier-matching) for the substring-match rules.
 
 ---
 
@@ -180,7 +180,7 @@ return status === 'loading'
   : chains.length >= 1 ? <Connected /> : <ConnectCta />;
 ```
 
-The flag tracks `useXWalletStore.persist.hasHydrated()` via `useSyncExternalStore`. `useChainGroups` does not expose this flag — its outputs are stable across hydration because the connection-status fields (`isConnected`, `account`) start as `false` / `undefined` and gain values atomically when the persist middleware finishes.
+The flag tracks `useXWalletStore.persist.hasHydrated()` via `useSyncExternalStore`. `useChainGroups` does not expose it and is subject to the same flicker: its `isConnected` / `account` / `connectorId` fields are derived from the persisted `xConnections` slice, so they read `false` / `undefined` until rehydration completes and then flip in one update — a "Connected" badge rendered from `useChainGroups` flashes on reload. The remaining `ChainGroup` fields (`chainType`, `chainIds`, `displayName`, `iconUrl`) come from config and are unaffected. `usePersistHydrated` is internal and not exported, so gate connection-dependent UI on `useConnectedChains().status` and use `useChainGroups` for the chain list itself.
 
 For first-paint correctness in SSR (Next.js), prefer `useConnectedChains.status` over an ad-hoc `useEffect(() => setMounted(true), [])` pattern — it's the official hydration signal.
 
@@ -192,9 +192,7 @@ Both `useChainGroups` and `useConnectedChains` accept an `order?: readonly Chain
 
 1. Chains in the array render in array order.
 2. Chains **not** in the array fall to the bottom, **sorted alphabetically among themselves**.
-3. Without `order`:
-   - `useChainGroups` follows `enabledChains` insertion order (driven by config key order).
-   - `useConnectedChains` follows the canonical `ChainTypeArr` order from `@sodax/types` — stable across reloads.
+3. Without `order`, both hooks follow the canonical `ChainTypeArr` order from `@sodax/types` — `useChainGroups` because `enabledChains` is itself built by walking `ChainTypeArr`, `useConnectedChains` because it walks `ChainTypeArr` directly. Both defaults are stable across reloads.
 
 The compare function lives in [`utils/chainOrder.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/utils/chainOrder.ts).
 
@@ -203,14 +201,14 @@ const groups = useChainGroups({ order: ['EVM', 'ICON'] });
 // EVM → ICON → (alphabetical: BITCOIN, INJECTIVE, NEAR, SOLANA, STACKS, STELLAR, SUI)
 ```
 
-For custom-stable UIs (e.g. a header chain list that must not reflow on reload), always pass `order`.
+Pass `order` when you need an order other than the canonical `ChainTypeArr` order — for example a header chain list that renders hub-first.
 
 ---
 
 ## Related docs
 
-- [Configure SodaxWalletProvider](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md) — which slots show up in `useEnabledChains`
-- [Connect Flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md) — populates `xConnections` consumed here
-- [Wallet Modal](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_MODAL.md) — drives chain picker from `useChainGroups`
-- [Batch Operations](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/BATCH_OPERATIONS.md) — `useIsWalletInstalled` shares the same identifier matcher
-- [EVM Switch Chain](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/EVM_SWITCH_CHAIN.md) — the per-network EVM control absent from `useChainGroups`
+- [Configure SodaxWalletProvider](./CONFIGURE_PROVIDER.md) — which slots show up in `useEnabledChains`
+- [Connect Flow](./CONNECT_FLOW.md) — populates `xConnections` consumed here
+- [Wallet Modal](./WALLET_MODAL.md) — drives chain picker from `useChainGroups`
+- [Batch Operations](./BATCH_OPERATIONS.md) — `useIsWalletInstalled` shares the same identifier matcher
+- [EVM Switch Chain](./EVM_SWITCH_CHAIN.md) — the per-network EVM control absent from `useChainGroups`

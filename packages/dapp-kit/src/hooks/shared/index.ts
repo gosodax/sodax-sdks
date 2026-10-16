@@ -1,4 +1,5 @@
 export * from './isUserRejectedError.js';
+export * from './retryUnlessAuthFailure.js';
 export * from './types.js';
 export * from './unwrapResult.js';
 export * from './useSafeMutation.js';
@@ -14,3 +15,5 @@ export * from './useNearStorageGate.js';
 export * from './useStellarGate.js';
 export * from './useGetUserHubWalletAddress.js';
 export * from './useXBalances.js';
+export * from './useBalances.js';
+export * from './invalidateBalances.js';

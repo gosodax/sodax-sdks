@@ -1,0 +1,290 @@
+---
+title: "Swap widget"
+icon: "window-maximize"
+description: "Embed cross-network swaps in your product with one iframe. Configure it visually, copy the snippet, paste it into your page."
+---
+
+The SODAX swap widget puts a cross-network swap inside your product. Your users pick a pair, get a
+live quote, connect a wallet and sign — without leaving your page, and without you running any of it.
+SODAX routes the trade and independent solvers fill it, so there is no liquidity to bootstrap and no
+per-network deployment to maintain.
+
+It ships as a **hosted page you put in an `<iframe>`**. There is no `@sodax/*` package to install and
+no backend to run: the widget carries its own SDK version and its own token list, so it picks up new
+networks and assets without a release on your side.
+
+<Card title="Build your widget" icon="sliders" href="https://widget.sodax.com" horizontal arrow>
+  Set the pair, restrict networks and tokens, brand it to match your product, and copy the embed —
+  with a live preview of the real widget beside you.
+</Card>
+
+## Before you start
+
+The widget is a complete application, not a component you wire up. Knowing where the line falls
+saves you from looking for integration points that do not exist.
+
+<CardGroup cols={2}>
+  <Card title="The widget handles" icon="circle-check">
+    Quoting, token and network lists, wallet connection, balances, approvals and allowance resets,
+    intent creation, signing, broadcast, settlement tracking, recovery after a reload, and the
+    receiving-account prerequisites some networks require.
+  </Card>
+  <Card title="Your page handles" icon="circle-half-stroke">
+    A slot at least 760px tall, the `<iframe>` and its `allow` attribute, a `frame-src` entry if you
+    run a Content Security Policy, and — optionally — a `message` listener for height and swap
+    status.
+  </Card>
+</CardGroup>
+
+Three consequences worth reading before you paste anything:
+
+- **The frame owns its wallet session.** Your user connects inside the widget. The React snippet
+  below wraps that same iframe — it is not a native component and it does not accept your app's
+  wallet provider. If you want swaps on your own wallet connection, use
+  [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) instead.
+- **Quoting never needs a wallet.** Visitors see live prices before connecting, so the widget is
+  useful on a page where most people are logged out.
+- **Swaps are real and on mainnet.** There is no test mode. The preview in the builder moves real
+  funds, and the review dialog says so before anyone confirms.
+
+## Quickstart
+
+<Steps>
+  <Step title="Configure it">
+    Open the [builder](https://widget.sodax.com), set your pair and restrictions, and brand it.
+  </Step>
+  <Step title="Copy the embed">
+    The **Integrate** panel gives you HTML, a React component, or a prompt for your coding agent.
+  </Step>
+  <Step title="Paste it in">
+    Drop it into your page, keeping the `allow` attribute. Everything you configured travels in the
+    URL's query string.
+  </Step>
+</Steps>
+
+## What the widget can execute
+
+Users can **connect and sign in-widget** for EVM, Solana, Sui, Stellar, NEAR, Stacks and Injective.
+Both sides of a route must be executable for the in-widget flow.
+
+The swaps API lists more networks than that. Those routes still **quote** in the widget, which then
+offers an explicit **Continue on SODAX** handoff rather than failing at signing time. Bitcoin is
+deliberately excluded from in-widget signing: it settles through a funded trading wallet, which is a
+different flow rather than another connector.
+
+<Note>
+  Treat the executable list above as the coverage you advertise to your users, not the wider list the
+  token picker can quote.
+</Note>
+
+## Configure it in the builder
+
+Three panels, with a live preview beside them that is a real iframe, not a mock.
+
+<Steps>
+  <Step title="Setup">
+    Choose the starting pair, amount and slippage, and restrict which networks and tokens each side
+    may use. Lock either side to its default token and network for a fixed corridor — a deposit-only
+    widget, say, or one that always sells your token.
+  </Step>
+  <Step title="Appearance">
+    Set theme, accent, surface, font, radius and density. Text and button labels are derived from
+    your colours and contrast-checked, so a brand palette cannot produce a control nobody can read.
+  </Step>
+  <Step title="Integrate">
+    Copy the embed as HTML or as a React component, or take the agent prompt and hand it to your
+    coding agent. A separate SDK example shows the same quote through `@sodax/sdk`.
+  </Step>
+</Steps>
+
+<Warning>
+  The preview is connected to mainnet. A swap you try in it moves real funds, and the review dialog
+  says so before you confirm.
+</Warning>
+
+## Embed it
+
+Both snippets are what the **Integrate** panel generates, already carrying whatever you configured —
+minus the panel's inline comments, which this page covers in prose. The listener is optional; the
+`<iframe>` alone works.
+
+<CodeGroup>
+
+```html HTML
+<iframe
+  src="https://widget.sodax.com/?embed=1"
+  title="SODAX swap"
+  width="480"
+  height="760"
+  loading="lazy"
+  referrerpolicy="origin"
+  allow="ethereum; solana; clipboard-write"
+  style="border: 0; border-radius: 24px; max-width: 100%"
+></iframe>
+<script>
+  (() => {
+    const frame = document.currentScript.previousElementSibling;
+    const origin = new URL(frame.src).origin;
+    window.addEventListener('message', event => {
+      if (event.source !== frame.contentWindow || event.origin !== origin) return;
+      const data = event.data;
+      if (!data || typeof data !== 'object') return;
+      if (data.type === 'sodax:swap' && ['started', 'submitted', 'completed', 'failed'].includes(data.status)) {
+        frame.dispatchEvent(new CustomEvent('sodax:swap', { detail: { status: data.status } }));
+      }
+      if (data.type === 'sodax:resize' && 'height' in data && typeof data.height === 'number' && Number.isFinite(data.height)) {
+        frame.height = String(Math.max(760, Math.min(1600, data.height)));
+      }
+    });
+  })();
+</script>
+```
+
+```tsx React
+import { useEffect, useRef } from 'react';
+
+type SwapStatus = 'started' | 'submitted' | 'completed' | 'failed';
+type SodaxSwapWidgetProps = { src?: string; height?: number; onSwapStatus?: (status: SwapStatus) => void };
+
+export function SodaxSwapWidget({ src = 'https://widget.sodax.com/?embed=1', height = 760, onSwapStatus }: SodaxSwapWidgetProps) {
+  const frame = useRef<HTMLIFrameElement>(null);
+  useEffect(() => {
+    const onMessage = (event: MessageEvent<unknown>) => {
+      const element = frame.current;
+      if (!element || event.source !== element.contentWindow || event.origin !== new URL(src).origin) return;
+      const data = event.data;
+      if (!data || typeof data !== 'object' || !('type' in data)) return;
+      const status = 'status' in data ? data.status : undefined;
+      if (data.type === 'sodax:swap' && (status === 'started' || status === 'submitted' || status === 'completed' || status === 'failed')) {
+        onSwapStatus?.(status);
+      }
+      if (data.type === 'sodax:resize' && 'height' in data && typeof data.height === 'number' && Number.isFinite(data.height)) {
+        element.style.height = String(Math.max(760, Math.min(1600, data.height))) + 'px';
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [src, onSwapStatus]);
+  return (
+    <iframe
+      ref={frame}
+      src={src}
+      title="SODAX swap"
+      loading="lazy"
+      referrerPolicy="origin"
+      allow="ethereum; solana; clipboard-write"
+      style={{ width: '100%', maxWidth: 480, height, border: 0, borderRadius: 24 }}
+    />
+  );
+}
+```
+
+</CodeGroup>
+
+<Warning>
+  Keep the `allow` attribute. Brave exposes wallet providers to a third-party frame only when the
+  host page grants those features; other browsers ignore the names, so it costs you nothing to keep.
+</Warning>
+
+If your site sends a Content Security Policy, add the widget origin to `frame-src`:
+
+```http
+Content-Security-Policy: frame-src https://widget.sodax.com;
+```
+
+Wallet availability inside frames varies by browser and extension, so the widget always keeps an
+**Open in a new tab** fallback for users whose wallet will not appear in an embedded context.
+
+## Configuration parameters
+
+Everything the builder sets is a query parameter on the `src`, so your page decides what the widget
+opens on. Unknown values are discarded rather than guessed at.
+
+| Parameter | Value |
+| --- | --- |
+| `embed` | `1` renders the widget alone, without the builder |
+| `srcChain`, `dstChain` | Chain keys, resolved against the live token list |
+| `srcToken`, `dstToken` | Token symbols, resolved within the chosen chain |
+| `amount`, `slippage` | Decimal amount and percentage tolerance |
+| `allowedSrc`, `allowedDst` | Comma-separated chain keys. Absent or empty means every listed network |
+| `allowedSrcTokens`, `allowedDstTokens` | Comma-separated `chainKey:symbol`. Absent means all; present but empty permits none |
+| `lockSrc`, `lockDst` | `1` pins that side to the pair already in the URL. `lockSrc` needs `srcChain` **and** `srcToken`, `lockDst` needs `dstChain` **and** `dstToken` |
+| `theme` | `light`, `dark` or `auto` |
+| `accent`, `cta`, `surface`, `text` | Six-digit hex, without `#` |
+| `radius`, `font`, `density` | Named scales offered in **Appearance** |
+
+A lock filters the side down to exactly the chain and token it was given, so it only does something
+next to `embed=1` and a pair. On its own it matches nothing and the side lists no assets at all:
+
+```
+https://widget.sodax.com/?embed=1&srcChain=0x2105.base&srcToken=USDC&lockSrc=1&dstChain=solana
+```
+
+That URL fixes the user on Base USDC and leaves them free to pick anything on the destination side.
+The builder writes the pair for you whenever you tick a lock.
+
+Restrictions shape this UI, not access to the public API. A restriction that currently matches no
+listed asset permits no route, rather than substituting a different one — including a locked default
+token that is temporarily unavailable.
+
+Set `surface` and `theme` together when hand-writing a URL. With `surface` alone the first paint uses
+the visitor's stored or system theme and then flips — the builder always writes both for you.
+
+## Swap lifecycle messages
+
+The widget posts to your page's origin, never `*`. Verify both `event.origin` and
+`event.source === frame.contentWindow` in any listener, as the snippets above do.
+
+| Message | Meaning |
+| --- | --- |
+| `sodax:ready` | Widget mounted. Does not assert that assets or wallets are ready |
+| `sodax:resize` | Content height; clamp it to 760–1600px |
+| `sodax:swap` `started` | The user confirmed a review and execution checks began |
+| `sodax:swap` `submitted` | Deposit broadcast; settlement still pending |
+| `sodax:swap` `completed` | Settlement solved |
+| `sodax:swap` `failed` | Execution failed before broadcast, or settlement failed |
+
+Your page can send `{ type: 'sodax:theme', theme: 'light' | 'dark' | 'auto' }` back after
+`sodax:ready` to follow a theme toggle. Theme messages never connect a wallet or request a signature.
+
+<Warning>
+  Lifecycle messages carry a status and nothing else — no addresses, amounts, hashes or errors. They
+  are UI notifications and delivery is best effort, so confirm settlement server-side before you
+  credit an account, release an order or otherwise act on a payment.
+</Warning>
+
+## Earning on swaps
+
+The widget can carry a partner fee, but it is deployment configuration rather than a URL parameter:
+the one field that redirects money is not something a page can set. That means your own deployment of
+the widget — [get in touch](/contact) and we will set it up with you.
+
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| Wallet does not appear in the frame | Keep `allow="ethereum; solana; clipboard-write"` on the `<iframe>`. Brave requires it; if the wallet still will not attach, users have the **Open in a new tab** fallback |
+| The widget does not load at all | Add `https://widget.sodax.com` to your `frame-src` if you send a Content Security Policy |
+| Content is clipped or scrolls inside the frame | Reserve at least 760px of height and add the resize listener, which grows the frame up to 1600px |
+| The theme flashes on first paint | Set `theme` alongside `surface`. With `surface` alone the first paint uses the visitor's stored theme, then flips |
+| A branded colour renders as something else | Colours are six-digit hex **without** `#`, and derived text is contrast-corrected against your surface |
+| No `message` events reach your page | Verify you compare `event.origin` against the widget origin and `event.source` against `frame.contentWindow` — and keep `referrerpolicy="origin"`, which is how browsers without `ancestorOrigins` resolve your origin |
+| A pair quotes but will not let the user sign | That route is quote-only. The widget offers **Continue on SODAX** instead; see [what the widget can execute](#what-the-widget-can-execute) |
+| A token you restricted to never appears | An explicit but empty allowlist permits nothing, and a `chainKey:symbol` that matches no listed asset permits no route |
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Swap overview" icon="rotate" href="/swap">
+    How swaps are quoted and filled, and the other two ways to integrate them.
+  </Card>
+  <Card title="HTTP API" icon="server" href="/developers/http-api/swaps">
+    Build your own swap UI in any language — quote, intent, submit, poll.
+  </Card>
+  <Card title="React hooks" icon="react" href="/developers/packages/experience/dapp-kit">
+    `@sodax/dapp-kit` when you want swaps native to your app, on your own wallet connection.
+  </Card>
+  <Card title="Widget reference" icon="book" href="https://github.com/icon-project/sodax-sdks/blob/main/apps/playground/README.md">
+    Deployment variables, analytics events and the full lifecycle, in the repo.
+  </Card>
+</CardGroup>

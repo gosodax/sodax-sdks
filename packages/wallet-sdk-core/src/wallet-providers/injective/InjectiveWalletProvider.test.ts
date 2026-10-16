@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { Network } from '@injectivelabs/networks';
+import type { ChainId } from '@injectivelabs/ts-types';
 
 const msgExecuteContractFromJSON = vi.fn().mockReturnValue({ kind: 'MsgExecuteContract' });
 const msgExecuteContractCompatFromJSON = vi.fn().mockReturnValue({ kind: 'MsgExecuteContractCompat' });
@@ -74,16 +76,15 @@ const { InjectiveWalletProvider } = await import('./InjectiveWalletProvider.js')
 
 const SENDER = 'inj1abc';
 const CONTRACT = 'inj1contract';
-const CHAIN_ID = 'injective-1';
+const CHAIN_ID: ChainId = 'injective-1';
+const NETWORK: Network = 'mainnet';
 const MSG = { foo: 'bar' };
 
 function makeProvider(defaults?: ConstructorParameters<typeof InjectiveWalletProvider>[0]['defaults']) {
   return new InjectiveWalletProvider({
     secret: { privateKey: 'pk' },
-    // biome-ignore lint/suspicious/noExplicitAny: mocked Network
-    network: 'mainnet' as any,
-    // biome-ignore lint/suspicious/noExplicitAny: mocked ChainId
-    chainId: CHAIN_ID as any,
+    network: NETWORK,
+    chainId: CHAIN_ID,
     defaults,
   });
 }

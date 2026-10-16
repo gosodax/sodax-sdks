@@ -1,13 +1,18 @@
 import { encodeFunctionData, type Address, type PublicClient } from 'viem';
 import { erc4626Abi } from '../abis/erc4626.abi.js';
-import type {
-  EvmChainKey,
-  EvmContractCall,
-  EvmReturnType,
-  IEvmWalletProvider,
-  Result,
-  TxReturnType,
+import {
+  ChainKeys,
+  type EvmChainKey,
+  type EvmContractCall,
+  type EvmReturnType,
+  type IEvmWalletProvider,
+  type Result,
+  type TxReturnType,
 } from '@sodax/types';
+import { getEvmViemChain } from '../utils/constant-utils.js';
+
+// The vaults live on the hub; refuse to broadcast from a wallet on another EVM network.
+const HUB_CHAIN_ID = getEvmViemChain(ChainKeys.SONIC_MAINNET).id;
 
 export class Erc4626Service {
   private constructor() {}
@@ -208,7 +213,9 @@ export class Erc4626Service {
       return rawTx as EvmReturnType<R>;
     }
 
-    return walletProvider.sendTransaction(rawTx) as Promise<TxReturnType<EvmChainKey, R>>;
+    return walletProvider.sendTransaction(rawTx, { expectedChainId: HUB_CHAIN_ID }) as Promise<
+      TxReturnType<EvmChainKey, R>
+    >;
   }
 
   /**
@@ -299,7 +306,9 @@ export class Erc4626Service {
       return rawTx as EvmReturnType<R>;
     }
 
-    return walletProvider.sendTransaction(rawTx) as Promise<TxReturnType<EvmChainKey, R>>;
+    return walletProvider.sendTransaction(rawTx, { expectedChainId: HUB_CHAIN_ID }) as Promise<
+      TxReturnType<EvmChainKey, R>
+    >;
   }
 
   /**
@@ -392,7 +401,9 @@ export class Erc4626Service {
       return rawTx as EvmReturnType<R>;
     }
 
-    return walletProvider.sendTransaction(rawTx) as Promise<TxReturnType<EvmChainKey, R>>;
+    return walletProvider.sendTransaction(rawTx, { expectedChainId: HUB_CHAIN_ID }) as Promise<
+      TxReturnType<EvmChainKey, R>
+    >;
   }
 
   /**
@@ -485,7 +496,9 @@ export class Erc4626Service {
       return rawTx as EvmReturnType<R>;
     }
 
-    return walletProvider.sendTransaction(rawTx) as Promise<TxReturnType<EvmChainKey, R>>;
+    return walletProvider.sendTransaction(rawTx, { expectedChainId: HUB_CHAIN_ID }) as Promise<
+      TxReturnType<EvmChainKey, R>
+    >;
   }
 
   /**

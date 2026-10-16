@@ -152,7 +152,15 @@ routes at its bare origin is reached with `baseURL: 'http://localhost:3011'`.
 
 `apiKey` is folded into `x-api-key`. An api key in a browser bundle is public by nature: the service's
 per-key quotas, fleet-wide daily cap, per-IP throttle, and origin gating are the real controls. Proxy
-through your own backend if that is not acceptable.
+through your own backend if that is not acceptable: https://docs.sodax.com/developers/how-to/api-key-good-practices.
+
+The instance-wide `new Sodax({ apiKey })` is **gated** here, unlike every other backend service: it is
+inherited only when the call targets a SODAX gateway (the packaged sponsoring default or the resolved
+shared root), and the check runs per request against the effective target, so a per-call `baseURL`
+override cannot carry it off-gateway. A custom sponsoring origin never receives it. The slice `apiKey`
+above is the credential for independently hosted sponsoring and wins wherever the slice points.
+Sponsoring keys come from their own registry (issued by the SODAX team, not the partner portal), so a
+portal key that reaches sponsoring through inheritance is rejected — always set the slice `apiKey`.
 
 ## Cross-references
 

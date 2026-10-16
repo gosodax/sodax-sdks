@@ -207,22 +207,29 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
         const store = getStore();
         const connection = store.xConnections.BITCOIN;
         const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
-        if (!(connector instanceof BitcoinXConnector)) {
+        if (!connection || !(connector instanceof BitcoinXConnector)) {
           throw new Error('Bitcoin wallet not connected');
         }
-        const address = connection?.xAccount.address;
+        const address = connection.xAccount.address;
         if (!address) throw new Error('Bitcoin address not found');
+        // Signing lives on the wallet provider, not on the connector. Prefer the live one from
+        // `connect()`; after a page reload that is gone, so rebuild it from the stored account —
+        // same lookup as `createWalletProvider` below.
+        const walletProvider = connector.getWalletProvider() ?? connector.recreateWalletProvider(connection.xAccount);
+        if (!walletProvider) {
+          throw new Error(`${connector.id} has no wallet provider`);
+        }
         // Pick the message-signing scheme by address type: P2WPKH/P2TR sign via BIP322, P2SH/P2PKH via ECDSA.
         if (usesBip322MessageSigning(detectBitcoinAddressType(address))) {
-          if (!hasSignBip322(connector)) {
+          if (!hasSignBip322(walletProvider)) {
             throw new Error(`${connector.id} does not support BIP-322 signing`);
           }
-          return connector.signBip322Message(message);
+          return walletProvider.signBip322Message(message);
         }
-        if (!hasSignEcdsa(connector)) {
+        if (!hasSignEcdsa(walletProvider)) {
           throw new Error(`${connector.id} does not support ECDSA signing`);
         }
-        return connector.signEcdsaMessage(message);
+        return walletProvider.signEcdsaMessage(message);
       },
     }),
     createWalletProvider: (service, getStore) => {

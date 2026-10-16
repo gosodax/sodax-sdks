@@ -50,15 +50,123 @@ describe('e2e', () => {
   const isMmTokenSyncExcludedStaleInTypes = (chain: SpokeChainKey, address: string): boolean =>
     mmTokenSyncExcludedStaleInTypes.has(toMmTokenSyncKey(chain, address));
 
-  // Specific tokens skipped from the vault getAllTokenInfo hub-asset containment check.
-  const mmTokenSyncExcludedFromVaultHubAssetCheck = new Set<string>([
-    `${ChainKeys.NEAR_MAINNET}|bnusd.sodax.near`, // bnUSD — NEAR account id, not a hex address
-    // Drift: sodaBTC vault does not list this hubAsset on-chain — track and remove once fixed upstream.
-    `${ChainKeys.STACKS_MAINNET}|sm3vdxk3wzzsa84xxfkafaf15nnzx32ctsg82jfq4.sbtc-token`, // sBTC
-  ]);
+  /**
+   * Money-market tokens whose `hubAsset` is knowingly absent from its vault's on-chain
+   * `getAllTokenInfo` list. Each entry pins the exact (chain, address, hubAsset, vault) tuple it
+   * expects to fail, so editing either address in config stops matching and surfaces rather than
+   * hiding behind the exception. An entry that no longer reproduces fails the test — delete it.
+   *
+   * Prerequisite this test does NOT enforce: that each `hubAsset` really is the hub-side asset for
+   * `address`. That rests on `assetManager.assetInfo(hubAsset)` returning the entry's chain and
+   * spoke address, and checking it needs per-chain-family spoke-address encoding (Stellar strkey,
+   * Stacks Clarity principal, NEAR utf8) that is out of scope here. To re-verify by hand, read
+   * `assetInfo(hubAsset)` on `hubConfig.addresses.assetManager` and confirm `chainID` plus the
+   * decoded spoke address match the entry. Every entry below was verified that way on 2026-08-17.
+   */
+  type VaultHubAssetDrift = {
+    readonly chain: SpokeChainKey;
+    /** Display only — deliberately not part of the key, so a symbol rename cannot fail this test. */
+    readonly symbol: string;
+    readonly address: string;
+    readonly hubAsset: Address;
+    readonly vault: Address;
+    readonly reason: string;
+  };
 
-  const isMmTokenSyncExcludedFromVaultHubAssetCheck = (chain: SpokeChainKey, address: string): boolean =>
-    mmTokenSyncExcludedFromVaultHubAssetCheck.has(toMmTokenSyncKey(chain, address));
+  const VAULT_HUB_ASSET_UNREGISTERED = 'vault has not registered this hub asset on-chain';
+
+  const KNOWN_VAULT_HUB_ASSET_DRIFT: readonly VaultHubAssetDrift[] = [
+    {
+      chain: ChainKeys.STELLAR_MAINNET,
+      symbol: 'sodaETH',
+      address: 'CDK5EWVTZLGSLI6D5OSES7XUKWZUKBXDRNOWUVDNPP5RJRP5EYWCW7SL',
+      hubAsset: '0x4985a4b72ac723723e9ae82382d12d77e9a715de',
+      vault: '0x4effB5813271699683C25c734F4daBc45B363709',
+      reason: VAULT_HUB_ASSET_UNREGISTERED,
+    },
+    {
+      chain: ChainKeys.STELLAR_MAINNET,
+      symbol: 'sodaBTC',
+      address: 'CD6XWBW74YVFDQQYUM2GALCULMA5MAWGP6NTCWF3ZYXP4Z7MEVY4JKBX',
+      hubAsset: '0xddee01f63c18843e2bac30cb702864d7632c83a2',
+      vault: '0x7A1A5555842Ad2D0eD274d09b5c4406a95799D5d',
+      reason: VAULT_HUB_ASSET_UNREGISTERED,
+    },
+    {
+      chain: ChainKeys.STELLAR_MAINNET,
+      symbol: 'sodaBNB',
+      address: 'CCXTXZAFLVNTMORVWYB6BGL7YEW3U3ONDAL2FGBRGDUQH7AGANVQPRS6',
+      hubAsset: '0xa10be5f5c2dea7d272555dc73ea2a7317c3c5b63',
+      vault: '0x40Cd41b35DB9e5109ae7E54b44De8625dB320E6b',
+      reason: VAULT_HUB_ASSET_UNREGISTERED,
+    },
+    {
+      chain: ChainKeys.STACKS_MAINNET,
+      symbol: 'sBTC',
+      address: 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token',
+      hubAsset: '0x6f6c039b07e25bb86d8223643a84122404963d9b',
+      vault: '0x7A1A5555842Ad2D0eD274d09b5c4406a95799D5d',
+      reason: VAULT_HUB_ASSET_UNREGISTERED,
+    },
+    {
+      chain: ChainKeys.NEAR_MAINNET,
+      symbol: 'bnUSD',
+      address: 'bnusd.sodax.near',
+      hubAsset: '0x1979904d6d5ef1178e242471f7091f36d79f8ab4',
+      vault: '0x9D4b663Eb075d2a1C7B8eaEFB9eCCC0510388B51',
+      reason: 'IbnUSD migration vault, not a live pool reserve',
+    },
+  ];
+
+  type VaultHubAssetMismatch = {
+    readonly chain: SpokeChainKey;
+    readonly symbol: string;
+    readonly address: string;
+    readonly hubAsset: Address;
+    readonly vault: Address;
+  };
+
+  // Identity is the four addresses; symbol and reason are human-facing only.
+  const toVaultHubAssetDriftKey = (
+    entry: Pick<VaultHubAssetMismatch, 'chain' | 'address' | 'hubAsset' | 'vault'>,
+  ): string =>
+    `${entry.chain}|${entry.address.toLowerCase()}|${entry.hubAsset.toLowerCase()}|${entry.vault.toLowerCase()}`;
+
+  const reconcileVaultHubAssetDrift = (
+    actual: readonly VaultHubAssetMismatch[],
+    expected: readonly VaultHubAssetDrift[],
+  ): { unexpectedDrift: VaultHubAssetMismatch[]; staleDrift: VaultHubAssetDrift[] } => {
+    const expectedKeys = new Set(expected.map(toVaultHubAssetDriftKey));
+
+    // A Set silently collapses duplicated tuples, which would hide a copy-paste in the list above.
+    if (expectedKeys.size !== expected.length) {
+      throw new Error('KNOWN_VAULT_HUB_ASSET_DRIFT contains duplicate (chain, address, hubAsset, vault) entries');
+    }
+
+    const actualKeys = new Set(actual.map(toVaultHubAssetDriftKey));
+
+    return {
+      unexpectedDrift: actual.filter(mismatch => !expectedKeys.has(toVaultHubAssetDriftKey(mismatch))),
+      staleDrift: expected.filter(entry => !actualKeys.has(toVaultHubAssetDriftKey(entry))),
+    };
+  };
+
+  const formatVaultHubAssetMismatches = (label: string, items: readonly VaultHubAssetMismatch[]): string =>
+    items.length === 0
+      ? label
+      : `${label}: ${items
+          .map(item => `${item.chain} ${item.symbol} (${item.address}, hubAsset=${item.hubAsset}, vault=${item.vault})`)
+          .join(' | ')}`;
+
+  const formatStaleVaultHubAssetDrift = (label: string, items: readonly VaultHubAssetDrift[]): string =>
+    items.length === 0
+      ? label
+      : `${label}: ${items
+          .map(
+            item =>
+              `${item.chain} ${item.symbol} (${item.address}, hubAsset=${item.hubAsset}, vault=${item.vault}) — recorded reason: ${item.reason}`,
+          )
+          .join(' | ')}`;
 
   // date: 10.07.2025
   const solverCompatibleAssets: Record<SpokeChainKey, Address[]> = {
@@ -135,10 +243,13 @@ describe('e2e', () => {
     [ChainKeys.KAIA_MAINNET]: [],
     [ChainKeys.STACKS_MAINNET]: [],
     [ChainKeys.HEDERA_MAINNET]: [],
+    [ChainKeys.ROBINHOOD_MAINNET]: [],
+    [ChainKeys.TRON_MAINNET]: [],
   };
 
   it('Verify money market supported tokens as hub assets are contained in the Soda token vaults', async () => {
     const vaultGetAllTokenInfoMap = new Map<string, Address[]>();
+    const actualDrift: VaultHubAssetMismatch[] = [];
 
     for (const spokeChain of sodax.config.getSupportedSpokeChains()) {
       // console.log('************************************************');
@@ -147,10 +258,6 @@ describe('e2e', () => {
       );
 
       for (const token of supportedTokens) {
-        if (isMmTokenSyncExcludedFromVaultHubAssetCheck(spokeChain, token.address)) {
-          continue;
-        }
-
         // console.log('--------------------------------');
         // console.log(`${spokeChain} ${token.symbol} ${token.address}`);
 
@@ -186,15 +293,126 @@ describe('e2e', () => {
         // );
 
         const hubAssetLower = token.hubAsset.toLowerCase();
-        expect(
+        const isContained =
           vaultAssets.includes(hubAssetLower as Address) ||
-            hubAssetLower === '0x0000000000000000000000000000000000000000' ||
-            hubAssetLower === vaultAddress.toLowerCase(),
-          `${spokeChain} ${token.symbol}: hub asset ${token.hubAsset} not found in vault ${vaultAddress}`,
-        ).toBe(true);
+          hubAssetLower === '0x0000000000000000000000000000000000000000' ||
+          hubAssetLower === vaultAddress.toLowerCase();
+
+        if (!isContained) {
+          actualDrift.push({
+            chain: spokeChain,
+            symbol: token.symbol,
+            address: token.address,
+            hubAsset: token.hubAsset,
+            vault: vaultAddress,
+          });
+        }
       }
     }
+
+    // Every token is evaluated and every mismatch collected, then reconciled against the known-drift
+    // list both ways: new drift must fail, and an exception that no longer reproduces must fail too
+    // so it gets deleted rather than silently skipping a token forever.
+    const { unexpectedDrift, staleDrift } = reconcileVaultHubAssetDrift(actualDrift, KNOWN_VAULT_HUB_ASSET_DRIFT);
+
+    expect(
+      unexpectedDrift,
+      formatVaultHubAssetMismatches('hub assets not found in their vault', unexpectedDrift),
+    ).toEqual([]);
+    expect(
+      staleDrift,
+      formatStaleVaultHubAssetDrift('known vault drift entries no longer reproduce — delete them', staleDrift),
+    ).toEqual([]);
   }, 100000);
+
+  describe('reconcileVaultHubAssetDrift', () => {
+    const mismatch = (overrides: Partial<VaultHubAssetMismatch> = {}): VaultHubAssetMismatch => ({
+      chain: ChainKeys.STELLAR_MAINNET,
+      symbol: 'sodaETH',
+      address: 'CDK5EWV',
+      hubAsset: '0x1111111111111111111111111111111111111111',
+      vault: '0x2222222222222222222222222222222222222222',
+      ...overrides,
+    });
+
+    const drift = (overrides: Partial<VaultHubAssetDrift> = {}): VaultHubAssetDrift => ({
+      chain: ChainKeys.STELLAR_MAINNET,
+      symbol: 'sodaETH',
+      address: 'CDK5EWV',
+      hubAsset: '0x1111111111111111111111111111111111111111',
+      vault: '0x2222222222222222222222222222222222222222',
+      reason: 'test fixture',
+      ...overrides,
+    });
+
+    it('reports nothing when every actual mismatch has a matching expectation', () => {
+      expect(reconcileVaultHubAssetDrift([mismatch()], [drift()])).toEqual({
+        unexpectedDrift: [],
+        staleDrift: [],
+      });
+    });
+
+    it('reports an actual mismatch with no expectation as unexpected drift', () => {
+      const unexpected = mismatch({ address: 'CNEWTOKEN' });
+
+      expect(reconcileVaultHubAssetDrift([mismatch(), unexpected], [drift()])).toEqual({
+        unexpectedDrift: [unexpected],
+        staleDrift: [],
+      });
+    });
+
+    it('reports an expectation that no longer reproduces as stale drift', () => {
+      expect(reconcileVaultHubAssetDrift([], [drift()])).toEqual({
+        unexpectedDrift: [],
+        staleDrift: [drift()],
+      });
+    });
+
+    it('reports both sides when the expected hubAsset no longer matches the actual one', () => {
+      const actual = mismatch({ hubAsset: '0x3333333333333333333333333333333333333333' });
+
+      expect(reconcileVaultHubAssetDrift([actual], [drift()])).toEqual({
+        unexpectedDrift: [actual],
+        staleDrift: [drift()],
+      });
+    });
+
+    it('reports both sides when the expected vault no longer matches the actual one', () => {
+      const actual = mismatch({ vault: '0x4444444444444444444444444444444444444444' });
+
+      expect(reconcileVaultHubAssetDrift([actual], [drift()])).toEqual({
+        unexpectedDrift: [actual],
+        staleDrift: [drift()],
+      });
+    });
+
+    it('matches regardless of casing on either side', () => {
+      const actual = mismatch({
+        address: 'cdk5ewv',
+        // Deliberate casts: uppercase 0X prefixes are exactly the casing this test exercises.
+        hubAsset: '0X1111111111111111111111111111111111111111' as unknown as `0x${string}`,
+        vault: '0X2222222222222222222222222222222222222222' as unknown as `0x${string}`,
+      });
+
+      expect(reconcileVaultHubAssetDrift([actual], [drift()])).toEqual({
+        unexpectedDrift: [],
+        staleDrift: [],
+      });
+    });
+
+    it('ignores symbol and reason when matching', () => {
+      const result = reconcileVaultHubAssetDrift(
+        [mismatch({ symbol: 'renamedUpstream' })],
+        [drift({ symbol: 'sodaETH', reason: 'some other reason' })],
+      );
+
+      expect(result).toEqual({ unexpectedDrift: [], staleDrift: [] });
+    });
+
+    it('throws when the expected list contains duplicate tuples', () => {
+      expect(() => reconcileVaultHubAssetDrift([], [drift(), drift({ reason: 'copy-paste' })])).toThrow(/duplicate/i);
+    });
+  });
 
   it('Verify solver-compatible assets resolve to original spoke addresses', async () => {
     for (const [spokeChain, assets] of Object.entries(solverCompatibleAssets)) {

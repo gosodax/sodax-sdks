@@ -1,0 +1,110 @@
+---
+title: "Money Market on Sonic"
+description: "Lending and borrowing on the SODAX hub: supply, borrow, repay, and withdraw from Sonic against reserves that live on Sonic, with positions held by the user's hub wallet."
+icon: sack-dollar
+---
+
+Fragmented money markets mean lower capital efficiency and worse rates. The SODAX money market pools lending liquidity on the hub, and the hub is Sonic: the reserves live there, and every user's positions are held there. Users on other networks reach it through the relayer. Users on Sonic act on it directly, so supply and repay complete in one Sonic transaction, and so do borrow and withdraw when the funds are delivered on Sonic.
+
+Four actions, all through `sodax.moneyMarket`: `supply`, `borrow`, `withdraw`, `repay`. Each has a complete one-call form and a `create*Intent` form when you want the transaction only. On Sonic, the transaction goes to the SODAX wallet router, which executes the action through the user's hub wallet.
+
+The assets that work in the money market from Sonic are listed at runtime, as below, or see [Networks & Assets](/sonic/networks-and-assets). Native S is one of them.
+
+## Supply on Sonic {#supply-on-sonic}
+
+Supplying native S needs no approval: the SDK sends it as the transaction value and wraps it to wS in the same transaction. Supplying an ERC-20 needs an allowance first, and on Sonic the spender is not an asset manager but the user's own **hub wallet**. `isAllowanceValid` and `approve` resolve it for you:
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// find() returns XToken | undefined, so narrow before using the address
+const sonicTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.SONIC_MAINNET);
+const usdc = sonicTokens.find(t => t.symbol === 'USDC');
+if (!usdc) throw new Error('USDC is not a supported money-market token on Sonic');
+
+const params = {
+  srcChainKey: ChainKeys.SONIC_MAINNET,
+  srcAddress: await walletProvider.getWalletAddress(),
+  token: usdc.address,
+  amount: 100n * 10n ** BigInt(usdc.decimals), // 100 USDC (6 decimals on Sonic)
+  action: 'supply',
+} as const;
+
+// On Sonic the spender is the user's hub wallet, not the swaps intents contract
+const allowance = await sodax.moneyMarket.isAllowanceValid({ params });
+if (!allowance.ok) throw allowance.error;
+if (!allowance.value) {
+  const approval = await sodax.moneyMarket.approve({ params, walletProvider });
+  if (!approval.ok) throw approval.error;
+  // wait for the approval to be mined before supplying
+}
+
+const result = await sodax.moneyMarket.supply({ params, walletProvider });
+if (result.ok) {
+  // No relay on the hub: both fields hold the same Sonic transaction hash
+  console.log(result.value.srcChainTxHash, result.value.dstChainTxHash);
+}
+```
+
+An allowance granted for swaps does not cover this: swaps on Sonic approve the intents contract, the money market approves the hub wallet.
+
+## Borrow to Sonic, or anywhere
+
+`dstChainKey` and `dstAddress` default to the source. Borrowing into Sonic is one transaction with no relay. Set any other supported network as the destination and the SDK relays the delivery there: collateral on the hub, borrowed liquidity on the network your user needs it.
+
+```typescript
+const bnUSD = sonicTokens.find(t => t.symbol === 'bnUSD');
+if (!bnUSD) throw new Error('bnUSD is not a supported money-market token on Sonic');
+
+const borrowResult = await sodax.moneyMarket.borrow({
+  params: {
+    srcChainKey: ChainKeys.SONIC_MAINNET,  // where the caller acts from
+    srcAddress: userSonicAddress,
+    token: bnUSD.address,                  // token on the destination network
+    amount: 50n * 10n ** BigInt(bnUSD.decimals), // 50 bnUSD
+    action: 'borrow',
+    dstChainKey: ChainKeys.SONIC_MAINNET,  // deliver on Sonic: no relay
+    dstAddress: userSonicAddress,
+  },
+  walletProvider,
+});
+```
+
+`withdraw` and `repay` follow the same shape. Withdraw and borrow need no approval; repaying with an ERC-20 needs an allowance for the hub wallet, like supply. Repay never relays from Sonic; withdraw relays only when it delivers to another network.
+
+## Hub wallets {#hub-wallets}
+
+SODAX gives every user a deterministic wallet on the hub, and that wallet, not the user's address, holds their money market positions. It is derived from the user's address together with the network they act from:
+
+- From a spoke network, the hub wallet is derived from the spoke's chain ID and the user's address.
+- From Sonic, it is derived from the user's Sonic address through the SODAX wallet router. This is the address the money market approves as spender on Sonic.
+
+The same EVM address therefore has a different hub wallet on Sonic than it does acting from, say, Base, and positions opened from each are separate. Always read positions with the network the user acted from:
+
+```typescript
+// Hub wallet that holds this user's Sonic-sourced positions
+const hubWallet = await sodax.hubProvider.getUserHubWalletAddress(userSonicAddress, ChainKeys.SONIC_MAINNET);
+
+// Positions: pass the source network and the user's own address, the SDK resolves the hub wallet
+const positions = await sodax.moneyMarket.data.getUserReservesHumanized(ChainKeys.SONIC_MAINNET, userSonicAddress);
+```
+
+[Hub Wallet Abstraction](/developers/technical-overview/hub-wallet-abstraction) explains the contracts behind it.
+
+## Building a lending UI
+
+`sodax.moneyMarket.data` exposes what you need for rates, positions, and health factors without extra indexing:
+
+- `getReservesHumanized()`: all reserves, human-readable.
+- `getUserReservesHumanized(spokeChainKey, userAddress)`: a user's positions, with `ChainKeys.SONIC_MAINNET` for users acting on Sonic.
+- `formatReservesUSD(request)` / `formatUserSummary(request)`: USD-converted reserves and portfolio summaries.
+
+## Error handling
+
+The module returns typed results. Discriminate on `result.error.code` (`'EXECUTION_FAILED'`, `'TX_VERIFICATION_FAILED'`, …) with structured context on `result.error.context`. Relay codes such as `'RELAY_TIMEOUT'` only apply when a Sonic action delivers to another network.
+
+---
+
+Full reference, including intent-only methods, gas estimation, and the per-method error-code table: [Lend / Borrow (Money Market)](/developers/packages/foundation/sdk/functional-modules/money_market).

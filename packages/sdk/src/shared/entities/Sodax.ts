@@ -54,19 +54,25 @@ export class Sodax {
     // so feature services can call `config.analytics.emit(...)` unconditionally with zero cost when off.
     const analytics = resolveAnalytics(options?.analytics);
     const fee = options?.fee;
+    // Client-side runtime option like `fee`, sent as `x-api-key` on every backend API request. Held out
+    // of the merge below so the credential never lands on the publicly readable `instanceConfig`.
+    const apiKey = options?.apiKey || undefined;
     // RadFi/Bound request signer: another client-side runtime hook (like `logger`/`analytics`/`fee`),
     // held off the data config so the dynamic-config swap never touches it. See `RadfiOptions` / gh-831.
     const radfiSigner = options?.radfi?.signRequest;
-    this.instanceConfig = options ? mergeSodaxConfig(sodaxConfig, options) : sodaxConfig;
-    this.backendApi = new BackendApiService(this.instanceConfig.api, logger);
+    // Also the `userConfig` a future dynamic-config re-merge would use, so the strip survives it.
+    const mergeOptions = options ? { ...options, apiKey: undefined } : undefined;
+    this.instanceConfig = mergeOptions ? mergeSodaxConfig(sodaxConfig, mergeOptions) : sodaxConfig;
+    this.backendApi = new BackendApiService(this.instanceConfig.api, logger, { apiKey });
     this.api = this.backendApi;
     this.config = new ConfigService({
       api: this.backendApi,
       config: this.instanceConfig,
-      userConfig: options,
+      userConfig: mergeOptions,
       logger,
       analytics,
       fee,
+      apiKey,
       radfiSigner,
     });
 
@@ -117,6 +123,7 @@ export class Sodax {
       hubProvider: this.hubProvider,
       config: this.config,
       spoke: this.spoke,
+      backendApi: this.backendApi,
     });
     // Sponsored activation never touches the hub.
     this.sponsoring = new SponsoringService({

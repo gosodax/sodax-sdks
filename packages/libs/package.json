@@ -69,7 +69,7 @@
     }
   },
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=22.12.0"
   },
   "files": [
     "dist",
@@ -77,7 +77,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "node scripts/verify-stacks-connect-ui-stub.mjs && tsup && node scripts/verify-dist-self-contained.mjs && node scripts/verify-runtime-smoke.mjs",
+    "build": "node scripts/verify-stacks-connect-ui-stub.mjs && tsup && node scripts/verify-dist-self-contained.mjs && node scripts/verify-runtime-smoke.mjs && node ../../scripts/verify-dist-exports.mjs",
     "dev": "tsup --watch",
     "checkTs": "tsc --noEmit",
     "pretty": "biome format . --write",

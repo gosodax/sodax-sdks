@@ -1,0 +1,51 @@
+---
+title: "Solana FAQ"
+description: "The questions Solana engineers actually ask about integrating SODAX."
+icon: comment-question
+---
+
+#### Do I need to write or deploy a program?
+
+No. SODAX's Solana programs, its on-chain smart contracts, are already deployed and audited; your integration is TypeScript against `@sodax/sdk` (or the React packages on top of it). You write no on-chain code and take on no program upgrade authority for any part of the flow.
+
+#### How does a swap from Solana actually settle?
+
+Your user signs one Solana transaction that creates an intent. The SODAX relayer carries proof of that transaction to the hub network (Sonic), a solver fills the intent on the destination network, and the output lands at the recipient address there. Swaps into Solana settle as SPL balances at the user's address. If an intent is never filled, it can be cancelled and the funds recovered.
+
+#### Which assets are supported on Solana?
+
+Two answers, and the difference matters. On Solana itself, <span data-sodax-config="count" data-metric="chain-swap-tokens" data-chain="solana">21</span> assets are live: SOL, USDC, USDT, bnUSD, SODA, WBTC, ecosystem tokens like BONK, JUP, RAY, PYTH, and JTO, the liquid staking tokens JitoSOL and mSOL, and tokenized equities (xStocks). <span data-sodax-config="count" data-metric="chain-money-market-tokens" data-chain="solana">Six</span> of these also work in the money market.
+
+But your users are not limited to the Solana-side list. Every swap is cross-network, so from Solana they can reach all <span data-sodax-config="count" data-metric="swap-tokens">140</span> assets across every SODAX-supported network: SOL into ETH on Ethereum, USDC on Base, BTC on Bitcoin, and so on. Both lists grow as the backend config adds them; read them from `sodax.config` at runtime, or see the live tables in [Networks & Assets](/solana/networks-and-assets).
+
+#### Do my users need a new wallet?
+
+No. Phantom, Backpack, Solflare, and other wallet-standard wallets work through `@sodax/wallet-sdk-react` (which wraps `@solana/wallet-adapter`) or directly via `SolanaWalletProvider`. See [Solana Wallets](/solana/wallets).
+
+#### Is there an approve step before swapping or supplying?
+
+No. Token allowances are an EVM and Stellar concept. On Solana the SDK's `isAllowanceValid` check passes without an on-chain transaction, so the quote-to-action path is a single signature.
+
+#### Can I tune commitment levels and send options?
+
+Yes. `SolanaWalletProvider` accepts `SolanaWalletDefaults`: `connectionCommitment`, `connectionConfig`, `sendOptions`, and `confirmCommitment`. Bring your own RPC endpoint (Helius, Triton, or your own node) via the `endpoint` field.
+
+#### What does it cost?
+
+Using SODAX is free: no license, no integration fee, no SDK cost. Trades carry a fixed 0.1% base fee taken by the protocol; on top of that you set your own platform fee and keep it. Your integration is a revenue line, not a cost center. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+#### How do I know if something went wrong?
+
+SDK operations return `Result<T>` rather than throwing. Core swap and money market methods return typed error codes (for example `'RELAY_TIMEOUT'`, `'EXECUTION_FAILED'`) you can branch on, with structured context attached.
+
+#### Where are the audits?
+
+SODAX's Solana programs have their own published report: [SODAX (Solana) Smart Contract Audit (Final Report v2)](https://github.com/icon-project/sodax-sdks/blob/main/Audits/Sodax%20%28Solana%29%20Smart%20Contract%20Audit%20Report%20-%20Final%20Report%20v2%20%281%29.pdf). Audits for the rest of the protocol are collected on the [Audits](/developers/audits) page.
+
+#### Can my AI coding assistant do the integration?
+
+Largely, yes. Add the [SODAX Builders MCP](/builders-mcp) to Claude, Cursor, VS Code, Windsurf, or any MCP-capable client (`https://builders.sodax.com/mcp`) and it gets 40 tools with live access to the SODAX System: chains, tokens, swap quotes, money market rates, intent history, and auto-synced SDK docs. Use it to scope the integration against your own codebase first, then to write and verify the code. Setup per client is at [builders.sodax.com](https://builders.sodax.com/).
+
+#### I want a plan specific to my protocol. Who do I talk to?
+
+Generate a tailored integration guide at [sodax.com/solana](https://sodax.com/solana): paste your protocol's URL and it maps SODAX onto your stack. From there you can reach the BD team directly.

@@ -121,3 +121,8 @@ tsup: dual ESM (`.mjs`) + CJS (`.cjs`) with sibling `.d.ts` / `.d.cts` (`dts: tr
 ## Tests
 
 Vitest. Co-located tests (`*.test.ts`) inside each provider folder. Provider tests should cover constructor variants and defaults merge; add deeper method behavior coverage when changing signing or broadcasting logic. `utils/merge.test.ts` covers `shallowMerge` edge cases.
+
+`checkTs` typechecks test files too: `tsconfig.json` deliberately does not exclude them, and the shared
+`scripts/check-tests-typechecked.mjs` (repo root, the tail of `checkTs`) fails loudly if a future exclude hides them
+again. It also requires a one-line why-comment on every `as unknown as` in a test file — this package carries no
+grandfathered baseline, so every such cast must be documented where it stands.

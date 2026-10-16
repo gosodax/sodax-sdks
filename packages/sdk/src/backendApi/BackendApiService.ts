@@ -17,21 +17,24 @@ import type {
   ApiConfig,
   SodaxLogger,
 } from '@sodax/types';
-import { BACKEND_API_BASE_PATH, DEFAULT_API_BASE_URL } from '@sodax/types';
+import { BACKEND_API_BASE_PATH, DEFAULT_API_BASE_URL, DEFAULT_SPONSORING_API_ENDPOINT } from '@sodax/types';
 import { consoleLogger } from '../shared/logger.js';
 
 import * as v from 'valibot';
 import {
+  assignHeaders,
   makeRequest,
   resolveRequestConfig,
   toExternalApiError,
   toInvalidResponseShapeError,
+  withApiKey,
   type RequestConfig,
   type RequestOverrideConfig,
 } from './api-utils.js';
 import { SwapsApiService } from './SwapsApiService.js';
 import { SponsoringApiService } from './SponsoringApiService.js';
 import { BridgeApiService } from './BridgeApiService.js';
+import { LeverageYieldApiService } from './LeverageYieldApiService.js';
 import {
   hasExplicitBasePath,
   hasLegacyBackendBaseURL,
@@ -39,6 +42,7 @@ import {
   stripLegacyBackendMount,
   resolveBaseApiConfig,
   resolveBridgeApiConfig,
+  resolveLeverageYieldApiConfig,
   resolveSponsoringApiConfig,
   resolveSwapsApiConfig,
   type ResolvedBackendApiConfig,
@@ -173,6 +177,59 @@ export interface MoneyMarketBorrowers {
   limit: number;
 }
 
+/** Interval keys accepted by the oracle candles endpoint (bucket sizes 60s / 300s / 3600s / 86400s). */
+export type OracleCandleInterval = (typeof schemas.ORACLE_CANDLE_INTERVALS)[number];
+
+/** One selectable candle interval in the oracle markets discovery payload. */
+export interface OracleMarketInterval {
+  /**
+   * Interval id for {@link BackendApiService.getOracleCandles}. Typed `string`, not
+   * `OracleCandleInterval`: discovery must survive the backend adding an interval this SDK version
+   * does not know, so membership-test against `ORACLE_CANDLE_INTERVALS` before passing it on.
+   */
+  key: string;
+  label: string;
+  seconds: number;
+}
+
+/** Discovery payload for the oracle candle store: quote currency, selectable intervals, and covered symbols. */
+export interface OracleMarketsResponse {
+  quote: string;
+  intervals: OracleMarketInterval[];
+  symbols: string[];
+}
+
+/**
+ * One USD OHLC bucket. `timestamp` is the bucket START in UNIX seconds; prices are USD decimal
+ * strings. Treat `final === false` as "still forming" — the backend sends it only on the current
+ * bucket and omits it on closed ones, so absent (or `true`) means closed.
+ */
+export interface OracleCandle {
+  timestamp: number;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  final?: boolean;
+}
+
+/** GET /oracle/candles response: the echoed query dimensions plus oldest-first candles (no volume field). */
+export interface OracleCandlesResponse {
+  symbol: string;
+  quote: string;
+  interval: OracleCandleInterval;
+  candles: OracleCandle[];
+}
+
+/** Construction options for {@link BackendApiService}. */
+export type BackendApiServiceOptions = {
+  /**
+   * Config-level API key for every gateway service (`new Sodax({ apiKey })`), sent as the `x-api-key`
+   * header. Sponsoring receives it only when its target is an allowed root — see the constructor.
+   */
+  apiKey?: string;
+};
+
 /**
  * HTTP client for the SODAX backend API.
  *
@@ -186,6 +243,7 @@ export interface MoneyMarketBorrowers {
  * - **Solver orderbook** — read open intents waiting to be filled.
  * - **Money market** — query per-user positions, per-reserve asset stats,
  *   and paginated borrower/supplier lists.
+ * - **Oracle** — USD OHLC candle discovery and reads for charting.
  *
  * All public methods return `Promise<Result<T>>` — they never throw. On network
  * failure, timeout, non-2xx HTTP response, or unexpected response shape the
@@ -193,7 +251,7 @@ export interface MoneyMarketBorrowers {
  * (`feature: 'backend'`, `context.api: 'backend'`) in the `error` field; the
  * underlying failure is preserved on `error.cause`.
  *
- * Per-call request overrides (base URL, timeout, headers) can be passed as
+ * Per-call request overrides (base URL, timeout, headers, API key) can be passed as
  * the optional last argument to any method via `RequestOverrideConfig`.
  */
 export class BackendApiService implements IConfigApiV1 {
@@ -201,12 +259,23 @@ export class BackendApiService implements IConfigApiV1 {
   public readonly swaps: SwapsApiService;
   public readonly sponsoring: SponsoringApiService;
   public readonly bridge: BridgeApiService;
+  public readonly leverageYield: LeverageYieldApiService;
 
   // resolved base-API config: the flat fields of the ApiConfig union with any `baseApiConfig` layered on
   // top. `baseURL` is the gateway root; `basePath` is this service's own mount below it.
   private readonly config: ResolvedBackendApiConfig;
   private readonly headers: Record<string, string>;
   private readonly logger: SodaxLogger;
+
+  /**
+   * The resolved request timeout. Exposed so a caller wanting a *shorter* per-call budget can clamp
+   * to it: a `RequestOverrideConfig.timeout` replaces the configured value rather than capping it,
+   * so passing a fixed override would silently lengthen requests for a consumer who configured a
+   * stricter timeout.
+   */
+  public get requestTimeoutMs(): number {
+    return this.config.timeout;
+  }
   /**
    * Whether a legacy `/be` suffix is trimmed off a per-call `baseURL` override. Mirrors the config-level
    * decision: an explicit `basePath` means the consumer writes complete roots, so their per-call value is
@@ -214,8 +283,8 @@ export class BackendApiService implements IConfigApiV1 {
    */
   private readonly trimsLegacyOverrides: boolean;
 
-  constructor(config: ApiConfig, logger: SodaxLogger = consoleLogger) {
-    this.config = resolveBaseApiConfig(config);
+  constructor(config: ApiConfig, logger: SodaxLogger = consoleLogger, options: BackendApiServiceOptions = {}) {
+    this.config = withApiKey(resolveBaseApiConfig(config), options.apiKey);
     this.headers = { ...this.config.headers };
     this.logger = logger;
     this.trimsLegacyOverrides = !hasExplicitBasePath(config);
@@ -224,6 +293,7 @@ export class BackendApiService implements IConfigApiV1 {
     const swapsConfig = resolveSwapsApiConfig(config);
     const sponsoringConfig = resolveSponsoringApiConfig(config);
     const bridgeConfig = resolveBridgeApiConfig(config);
+    const leverageYieldConfig = resolveLeverageYieldApiConfig(config);
 
     const shortRoots = (
       [
@@ -248,13 +318,24 @@ export class BackendApiService implements IConfigApiV1 {
     // `ApiConfig` union, and all must route diagnostics through the same consumer-selected sink. The
     // legacy-trim decision travels with them so their per-call overrides match the config-level choice.
     const overrideOptions = { trimLegacyOverrides: this.trimsLegacyOverrides };
-    this.swaps = new SwapsApiService(swapsConfig, this.logger, overrideOptions);
-    // Sponsoring uses an independent origin and credential scope, and never trims (its default never
-    // carried the data API's mount), so it takes no override option.
-    this.sponsoring = new SponsoringApiService(sponsoringConfig, this.logger);
+    // The config-level key is baked into every gateway service's headers; configured headers win.
+    this.swaps = new SwapsApiService(withApiKey(swapsConfig, options.apiKey), this.logger, overrideOptions);
+    // Sponsoring routes independently, so it never trims and takes no override option. Its inherited key
+    // stays UN-baked and is gated per request against these roots (see `inheritedApiKey`).
+    this.sponsoring = new SponsoringApiService(sponsoringConfig, this.logger, {
+      inheritedApiKey: options.apiKey,
+      inheritedApiKeyBaseURLs: [DEFAULT_SPONSORING_API_ENDPOINT, this.config.baseURL],
+    });
     // Bridge hangs off the same gateway root as `/bridge/*` — resolved from `baseApiConfig` but without
     // this service's `basePath`, so a `swapsApiConfig` slice moves swaps only (see `resolveBridgeApiConfig`).
-    this.bridge = new BridgeApiService(bridgeConfig, this.logger, overrideOptions);
+    this.bridge = new BridgeApiService(withApiKey(bridgeConfig, options.apiKey), this.logger, overrideOptions);
+    // `/leverage-yield/*` is another gateway sibling, resolved like bridge so it never inherits this
+    // service's `basePath` — and it takes the same legacy-override decision.
+    this.leverageYield = new LeverageYieldApiService(
+      withApiKey(leverageYieldConfig, options.apiKey),
+      this.logger,
+      overrideOptions,
+    );
   }
 
   /**
@@ -539,6 +620,53 @@ export class BackendApiService implements IConfigApiV1 {
     return this.request(endpoint, { ...config, method: 'GET' }, schemas.MoneyMarketBorrowersSchema);
   }
 
+  // Oracle endpoints
+  /**
+   * Fetch the oracle candle store's discovery payload: the quote currency (currently always
+   * `"USD"`), the selectable candle intervals, and the canonical symbols that have candle data.
+   *
+   * Use this to populate a symbol picker and interval switcher before calling
+   * {@link getOracleCandles}.
+   *
+   * @returns `Result<OracleMarketsResponse>` — on success, `{ quote, intervals, symbols }`.
+   */
+  public async getOracleMarkets(config?: RequestOverrideConfig): Promise<Result<OracleMarketsResponse>> {
+    return this.request('/oracle/markets', { ...config, method: 'GET' }, schemas.OracleMarketsResponseSchema);
+  }
+
+  /**
+   * Fetch USD OHLC candles for a symbol over the half-open time range `[from, to)`.
+   *
+   * `from` and `to` are UNIX **seconds** (integers); `to` is exclusive and must exceed `from`,
+   * and the range may cover at most 5000 buckets of the requested interval (invalid or wider
+   * ranges fail with HTTP 400). A valid range with no stored candles resolves `ok` with
+   * `candles: []`; an unknown symbol currently does the same rather than returning 404. The last
+   * candle may still be forming; re-poll while its `final === false`.
+   * Responses are cached server-side for roughly 10 seconds per distinct URL.
+   *
+   * @param params.symbol - Canonical symbol, exact case, from {@link getOracleMarkets} (e.g. `"ETH"`).
+   * @param params.interval - Candle bucket size: `'1m' | '5m' | '1h' | '1d'`.
+   * @param params.from - Range start, UNIX seconds, inclusive.
+   * @param params.to - Range end, UNIX seconds, exclusive.
+   * @returns `Result<OracleCandlesResponse>` — on success, the echoed query dimensions and
+   *   oldest-first candles with USD decimal-string prices (no volume field).
+   */
+  public async getOracleCandles(
+    params: { symbol: string; interval: OracleCandleInterval; from: number; to: number },
+    config?: RequestOverrideConfig,
+  ): Promise<Result<OracleCandlesResponse>> {
+    const queryParams = new URLSearchParams();
+    queryParams.append('symbol', params.symbol);
+    queryParams.append('interval', params.interval);
+    queryParams.append('from', String(params.from));
+    queryParams.append('to', String(params.to));
+
+    const queryString = queryParams.toString();
+    const endpoint = `/oracle/candles?${queryString}`;
+
+    return this.request(endpoint, { ...config, method: 'GET' }, schemas.OracleCandlesResponseSchema);
+  }
+
   /**
    * Fetch the complete SODAX runtime configuration in a single request.
    *
@@ -694,17 +822,17 @@ export class BackendApiService implements IConfigApiV1 {
    * without constructing a new service instance. Existing header keys are
    * overwritten; keys absent from `headers` are preserved.
    *
-   * Headers also reach `swaps` and `bridge`, but never `sponsoring`: it is configured independently, so
-   * base-API credentials must not be forwarded to whatever origin it points at. Note `swaps` can also be
-   * retargeted to another origin via `swapsApiConfig`, in which case a header set here follows it.
+   * Headers also reach `swaps`, `bridge` and `leverageYield`, but never `sponsoring`: it is configured
+   * independently, so base-API credentials must not be forwarded to whatever origin it points at. Note
+   * `swaps` can also be retargeted to another origin via `swapsApiConfig`, in which case a header set
+   * here follows it.
    *
    * @param headers - Key-value pairs to add or overwrite in the default headers.
    */
   public setHeaders(headers: Record<string, string>): void {
-    Object.entries(headers).forEach(([key, value]) => {
-      this.headers[key] = value;
-    });
+    assignHeaders(this.headers, headers);
     this.swaps.setHeaders(headers);
+    this.leverageYield.setHeaders(headers);
     this.bridge.setHeaders(headers);
   }
 

@@ -67,7 +67,7 @@ describe('resolveAnalytics — level gating', () => {
     a.emit('swap', 'swap', 'start', undefined, 'detailed'); // gated out at basic
     a.emit('swap', 'swap', 'start', undefined, 'basic');
     expect(events).toHaveLength(1);
-    expect(events[0].level).toBe('basic');
+    expect(events[0]?.level).toBe('basic');
   });
 
   it('emits `detailed` events when configured level is `detailed`', () => {
@@ -107,7 +107,7 @@ describe('resolveAnalytics — trackResult', () => {
     });
     expect(result).toBe(ok);
     expect(events.map(e => e.phase)).toEqual(['start', 'success']);
-    expect(events[1].data).toEqual({ tx: '0xabc' });
+    expect(events[1]?.data).toEqual({ tx: '0xabc' });
   });
 
   it('emits start then failure for an error Result', async () => {
@@ -116,7 +116,7 @@ describe('resolveAnalytics — trackResult', () => {
     const err: Result<never, { code: string }> = { ok: false, error: { code: 'BOOM' } };
     await a.trackResult('swap', 'swap', async () => err, { failure: e => ({ code: e.code }) });
     expect(events.map(e => e.phase)).toEqual(['start', 'failure']);
-    expect(events[1].data).toEqual({ code: 'BOOM' });
+    expect(events[1]?.data).toEqual({ code: 'BOOM' });
   });
 
   it('does not emit when the feature is gated out of the allowlist', async () => {

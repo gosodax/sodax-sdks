@@ -42,6 +42,12 @@ export type BridgeApproveErrorCode = ApproveErrorCode;
 export type BridgeAllowanceCheckErrorCode = AllowanceCheckErrorCode;
 export type BridgeLookupErrorCode = LookupErrorCode;
 
+/**
+ * The only code `getDetailedStatus` returns: no status source could produce a usable answer.
+ * Narrower than {@link BridgeLookupErrorCode}, which also admits `VALIDATION_FAILED` / `UNKNOWN`.
+ */
+export type BridgeDetailedStatusErrorCode = Extract<SodaxErrorCode, 'LOOKUP_FAILED'>;
+
 export type BridgeErrorCode = Extract<
   SodaxErrorCode,
   | 'USER_REJECTED'
@@ -63,6 +69,7 @@ export type BridgeCreateIntentError = SodaxError<BridgeCreateIntentErrorCode>;
 export type BridgeApproveError = SodaxError<BridgeApproveErrorCode>;
 export type BridgeAllowanceCheckError = SodaxError<BridgeAllowanceCheckErrorCode>;
 export type BridgeLookupError = SodaxError<BridgeLookupErrorCode>;
+export type BridgeDetailedStatusError = SodaxError<BridgeDetailedStatusErrorCode>;
 export type BridgeError = SodaxError<BridgeErrorCode>;
 
 const ORCHESTRATION_CODES: ReadonlySet<BridgeOrchestrationErrorCode> = new Set([

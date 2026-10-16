@@ -100,6 +100,8 @@ const balance = await radfi.getBalance(tradingWallet.address);
 const exists = await radfi.checkIfTradingWalletExists(personalAddress);
 ```
 
+**Bound hosts.** Bound serves its API from three hosts and the SDK routes per path family: `/sodax/*` on `svc.bound.exchange`, `/auth/*` + `/wallets/*` on `auth.bound.exchange`, `/transactions/*` on `api.radfi.co`, and `/wallets/balance` + `/utxos` on `api.ums.bound.exchange`. The packaged defaults are correct, so no configuration is needed. `api.bound.exchange` is retired and **refused**: a `radfi.apiUrl`/`authUrl`/`transactionsUrl` still naming it throws at construction, naming the replacement for that field. Two things to know: `api.radfi.co` is a **different registrable domain**, so a Content-Security-Policy `connect-src` or egress allowlist written as `https://*.bound.exchange` will block BTC withdrawal and UTXO renewal; and setting `radfi.apiUrl` yourself sends the **three routed** families to that host (deliberate — it keeps a single-host or proxy setup working and makes a half-migration impossible). To keep the split while moving one family, set `radfi.authUrl` or `radfi.transactionsUrl` explicitly. UMS is not routed by `apiUrl`: `/wallets/balance` and `/utxos` always use `radfi.umsUrl`, so a proxy that must capture all Bound traffic has to override that too.
+
 **Server-side / raw flows (no interactive sign-in).** A backend that builds raw Bitcoin intents can't run the BIP322 login, so seed a pre-provisioned Bound token instead of authenticating. `RadfiProvider` honors three injection points: `new Sodax({ ... })` with `radfi.accessToken` (and optional `refreshToken`) in the Bitcoin chain config (the constructor seeds them), `radfi.setRadfiAccessToken(token)` at runtime, or a per-action `extras.bound.accessToken` on `createIntent` (the Bitcoin-gated `bound` slot groups Bound/Radfi inputs). If an authenticated Bound call has neither a token nor a configured `apiKey`, `RadfiProvider` throws a legible `RadfiApiError` (the message names the fix: inject via `setRadfiAccessToken` or `new Sodax({ ... })` with `radfi.accessToken`) instead of sending an empty bearer and getting an opaque 403.
 
 **Backend request signing.** Separate from the per-user token above: if Bound authenticates your service itself, pass `radfi.signRequest` to `new Sodax({ ... })`. The SDK calls it once per outbound Bound request and merges the returned headers onto it, so the credential stays in your closure and never on the SDK config:
@@ -118,7 +120,7 @@ new Sodax({
 });
 ```
 
-It receives `{ method, path }`, may be async, and runs on every request (a timestamped signature must not be cached). Its headers merge last, so do not return `Authorization` — that is the per-user token. Server-side only: never ship a credential in a browser bundle.
+It receives `{ method, path, baseUrl }` — `baseUrl` is the resolved Bound host for that call, so a signer holding a per-origin credential can branch on it. It may be async, and runs on every routed request (a timestamped signature must not be cached); UMS calls (`/wallets/balance`, `/utxos`) bypass it and go out unsigned. Its headers merge last, so do not return `Authorization` — that is the per-user token. Server-side only: never ship a credential in a browser bundle.
 
 Other public methods on `RadfiProvider` you may need: `setRadfiAccessToken`, `refreshAccessToken`, `createTradingWallet`, `createWithdrawTransaction`, `requestRadfiSignature`, `getExpiredUtxos`, `buildRenewUtxoTransaction`, `signAndBroadcastRenewUtxo`, `withdrawToUser`, `signAndBroadcastWithdraw`, `getMaxWithdrawable`. Read `RadfiProvider` source for argument shapes — the API surface is broader than typical chain providers.
 
@@ -149,7 +151,7 @@ const solanaSpoke = sodax.spoke.getSpokeService(ChainKeys.SOLANA_MAINNET) as Sol
 
 ### Pitfall
 
-Solana addresses are base58 PublicKey strings, not `0x…` hex. `GetAddressType<typeof ChainKeys.SOLANA_MAINNET>` resolves to a base58-typed string brand; passing a hex address is a TypeScript error.
+Solana addresses are base58 PublicKey strings, not `0x…` hex. `GetAddressType<typeof ChainKeys.SOLANA_MAINNET>` resolves to `SolanaBase58PublicKey`, which is a plain `string` alias — not a brand — so a hex address compiles and then throws inside `new PublicKey(...)` when the spoke service reads the balance or builds the deposit. Pass the base58 address.
 
 ---
 
@@ -239,8 +241,8 @@ Deposits **from** NEAR (`deposit()` / `fillIntent()` on the NEAR spoke service) 
 
 | Chain | Notes |
 |---|---|
-| **Sui** (`SUI_MAINNET`) | Address: 32-byte `0x…` (different from EVM addresses despite the prefix). Wallet provider `ISuiWalletProvider` uses `@mysten/sui` under the hood. |
-| **Stacks** (`STACKS_MAINNET`) | Address: `SP…` (mainnet) / `ST…` (testnet). Uses `@stacks/transactions` for tx construction. |
+| **Sui** (`SUI_MAINNET`) | Address: 32-byte `0x…` (different from EVM addresses despite the prefix). Wallet provider `ISuiWalletProvider` uses `@mysten/sui` under the hood. Reads and submission go over gRPC-web (`grpc_url`, default `https://fullnode.mainnet.sui.io`; `rpc_url` remains a deprecated alias that wins when set) — Mysten's public fullnodes stopped serving JSON-RPC in July 2026, and `sui-node` drops it in October 2026. |
+| **Stacks** (`STACKS_MAINNET`) | Address: `SP…` (mainnet) / `ST…` (testnet). Uses `@stacks/transactions` for tx construction. Wallet-signed deposits use post-condition mode `Deny` with exact spend caps (uSTX for native; one cap per fungible token the SIP-10 contract defines), so wallets display the exact spend and anything beyond it aborts on-chain. FT deposits resolve the on-chain asset names via the node's contract-interface endpoint and fail before signing if that lookup fails; `raw: true` skips the lookup — the serialized payload cannot carry post-conditions. |
 | **Injective** (`INJECTIVE_MAINNET`) | Cosmos-ecosystem chain. Address: `inj1…`. Wallet provider uses `@injectivelabs/sdk-ts`. |
 | **Tron** (`TRON_MAINNET`) | Address: base58 `T…`. Settles through the **MPC relay**, not the intent relay — a deposit is a transfer to the shared reserve with a payload-hash memo spliced into the raw transaction, and the reserve address comes from the relay per call rather than being fixed. Withdraw auth is scheme 1: `ITronWalletProvider.signMessage` wraps the payload TIP-191 style, and the signer is recovered from the secp256k1 signature. `estimateGas` returns `{ energy, bandwidth }` rather than a single number. |
 

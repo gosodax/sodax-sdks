@@ -1,6 +1,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { QuoteQueryV2, QuoteRequestV2, QuoteResponseV2, RequestOverrideConfig } from '@sodax/sdk';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { retryUnlessAuthFailure } from '../shared/retryUnlessAuthFailure.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 import type { ReadHookParams } from '../shared/types.js';
 
@@ -27,6 +28,9 @@ export type UseSwapsApiQuoteParams = ReadHookParams<
  *       amount: '1000000', quoteType: 'exact_input',
  *       partnerFee: { address: '0xSonicFeeReceiver', percentage: 10 },
  *     },
+ *     // Optional per-request override of the configured backend API key (`x-api-key`);
+ *     // usually set once instead via new Sodax({ apiKey }).
+ *     apiConfig: { apiKey: 'partner-api-key' },
  *   },
  * });
  */
@@ -50,7 +54,7 @@ export const useSwapsApiQuote = ({
       return unwrapResult(await sodax.api.swaps.getQuote(body, query, apiConfig));
     },
     enabled: !!body,
-    retry: 3,
+    retry: retryUnlessAuthFailure,
     ...queryOptions,
   });
 };

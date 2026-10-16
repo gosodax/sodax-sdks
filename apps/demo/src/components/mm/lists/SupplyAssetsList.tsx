@@ -5,13 +5,13 @@ import {
   useUserFormattedSummary,
   useUserReservesData,
   useATokensBalances,
-  useXBalances,
+  useBalances,
   ChainKeys,
   type XToken,
 } from '@sodax/dapp-kit';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { getXChainType, useXAccount, useXService } from '@sodax/wallet-sdk-react';
+import { useXAccount } from '@sodax/wallet-sdk-react';
 import { formatUnits, isAddress } from 'viem';
 import { SupplyAssetsListItem } from './SupplyAssetsListItem';
 import { useAppStore } from '@/zustand/useAppStore';
@@ -53,16 +53,14 @@ export function SupplyAssetsList(): ReactElement {
   const { isBitcoin, tradingBalanceSats } = useBtcTradingBalance({ chainId: selectedChainId });
 
   const { address } = useXAccount({ xChainId: selectedChainId });
-  const xService = useXService({ xChainType: getXChainType(selectedChainId) });
   const {
     data: balances,
     isLoading: isBalancesLoading,
     refetch: refetchWalletBalances,
-  } = useXBalances({
+  } = useBalances({
     params: {
-      xService,
-      xChainId: selectedChainId,
-      xTokens: tokens,
+      chainKey: selectedChainId,
+      tokens,
       address,
     },
   });
@@ -123,15 +121,15 @@ export function SupplyAssetsList(): ReactElement {
     <>
       <Card>
         <CardHeader className="pb-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>Markets</CardTitle>
-            <div className="flex items-center gap-2 px-4 py-2 bg-cream/50 rounded-lg border border-cherry-grey/20">
+            <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-cream/50 rounded-lg border border-cherry-grey/20">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
                     aria-label="Health Factor info"
-                    className="inline-flex items-center text-clay hover:text-cherry-dark"
+                    className="inline-flex items-center -m-1 p-1 text-clay hover:text-cherry-dark"
                   >
                     <Info className="w-4 h-4 text-cherry-soda" />
                   </button>
@@ -157,8 +155,8 @@ export function SupplyAssetsList(): ReactElement {
             </div>
           ) : (
             <div className="overflow-hidden">
-              <div className="max-h-[500px] overflow-y-auto">
-                <Table unstyled className="w-full">
+              <div className="sm:max-h-[500px] overflow-y-auto">
+                <Table unstyled className="w-full min-w-[56rem]">
                   <TableHeader className="sticky top-0 bg-cream backdrop-blur-sm z-20 border-b border-cherry-grey/20">
                     <TableRow>
                       {TABLE_HEADERS.map((header, index) => {
@@ -175,7 +173,7 @@ export function SupplyAssetsList(): ReactElement {
                                     <button
                                       type="button"
                                       aria-label="Liquidation Threshold info"
-                                      className="inline-flex items-center text-clay hover:text-cherry-dark"
+                                      className="inline-flex items-center -m-1 p-1 text-clay hover:text-cherry-dark"
                                     >
                                       <Info className="w-3.5 h-3.5" />
                                     </button>
@@ -203,7 +201,7 @@ export function SupplyAssetsList(): ReactElement {
                                     <button
                                       type="button"
                                       aria-label="Total Supply info"
-                                      className="inline-flex items-center text-clay hover:text-cherry-dark"
+                                      className="inline-flex items-center -m-1 p-1 text-clay hover:text-cherry-dark"
                                     >
                                       <Info className="w-3.5 h-3.5" />
                                     </button>
@@ -232,7 +230,7 @@ export function SupplyAssetsList(): ReactElement {
                                     <button
                                       type="button"
                                       aria-label="Supply APY info"
-                                      className="inline-flex items-center text-clay hover:text-cherry-dark"
+                                      className="inline-flex items-center -m-1 p-1 text-clay hover:text-cherry-dark"
                                     >
                                       <Info className="w-3.5 h-3.5" />
                                     </button>
@@ -261,7 +259,7 @@ export function SupplyAssetsList(): ReactElement {
                                     <button
                                       type="button"
                                       aria-label="Supply APR info"
-                                      className="inline-flex items-center text-clay hover:text-cherry-dark"
+                                      className="inline-flex items-center -m-1 p-1 text-clay hover:text-cherry-dark"
                                     >
                                       <Info className="w-3.5 h-3.5" />
                                     </button>

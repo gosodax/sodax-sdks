@@ -19,7 +19,7 @@ export function toIntentRequest(intent: IntentResponseV2): IntentRequestV2 {
 
 /**
  * `SwapTokenV2` carries the same fields as `XToken` but as plain JSON strings; cast the
- * branded fields back so wallet-layer hooks (`useXBalances`) accept API-sourced tokens.
+ * branded fields back so the balance hook (`useBalances`) accepts API-sourced tokens.
  */
 export function toXToken(token: SwapTokenV2): XToken {
   return {

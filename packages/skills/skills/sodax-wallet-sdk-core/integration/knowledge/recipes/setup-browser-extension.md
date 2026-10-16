@@ -14,7 +14,7 @@ Each chain has its own browser-extension variant. See [`../features/<chain>.md`]
 |---|---|
 | EVM       | `walletClient` (viem `WalletClient<Transport, Chain, Account>`) + `publicClient` (viem `PublicClient`) |
 | Solana    | `wallet: { publicKey, signTransaction }` + `endpoint` |
-| Sui       | `client` (`SuiClient`) + `wallet` (`WalletWithFeatures<Partial<SuiWalletFeatures>>`) + `account` (`WalletAccount`) |
+| Sui       | `grpcUrl` + `address` + `signTransaction` (returns `{ bytes, signature }`) |
 | Bitcoin   | `type: 'BROWSER_EXTENSION'`, `walletsKit` (consumer-supplied adapter), `network` |
 | Stellar   | `type: 'BROWSER_EXTENSION'`, `walletsKit`, `network` |
 | ICON      | `walletAddress` (optional `hx…`) + `rpcUrl` |
@@ -124,7 +124,8 @@ grep -rn "@sodax/wallet-sdk-core/" <user-src> | grep -v "from '@sodax/wallet-sdk
 | Error | Cause | Fix |
 |---|---|---|
 | `signTransaction is not a function` (Solana) | Wallet adapter didn't provide a signer for the connected wallet | Gate construction on `signTransaction != null`. |
-| `WalletAccount is undefined` (Sui) | Adapter exposes `wallet` but not the active `account` | Read `wallet.accounts[0]` or your adapter's "current account" API before constructing. |
+| `Cannot read properties of undefined` inside the Sui signer, or a type error on `signTransaction` | `dAppKit.signTransaction` assigned directly | Wrap it — the config's callback takes the transaction positionally, dApp Kit's takes `{ transaction, … }`. |
+| Sui wallet signs with the wrong account | `account` omitted from the wrapped `dAppKit.signTransaction` call | Pass it explicitly; dApp Kit defaults to whichever account is connected, not the `address` you configured. |
 | `[EvmWalletProvider] defaults.{transport,publicClient,walletClient} ignored…` | Mixed PK-mode defaults with browser-extension config | Move those defaults out — they only apply in private-key mode. |
 | Mode picked the wrong variant (TypeScript narrowing fails) | Mixed PK and browser fields | Pick **one** discriminated union variant. Don't pass both. |
 

@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
+import { type PrivySource, SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
 import { ChainKeys } from '@sodax/types';
 
 const queryClient = new QueryClient();
 
-const walletConfig: SodaxWalletConfig = {
+const createWalletConfig = (privy: PrivySource | undefined): SodaxWalletConfig => ({
   EVM: {
+    privy,
     ssr: false,
     reconnectOnMount: true,
     chains: {
@@ -29,8 +30,6 @@ const walletConfig: SodaxWalletConfig = {
     chains: {
       [ChainKeys.BITCOIN_MAINNET]: {
         rpcUrl: 'https://mempool.space/api',
-        radfiApiUrl: 'https://api.bound.exchange/api',
-        radfiUmsUrl: 'https://api.ums.bound.exchange/api',
       },
     },
   },
@@ -46,12 +45,12 @@ const walletConfig: SodaxWalletConfig = {
   INJECTIVE: {},
   NEAR: {},
   STACKS: { chains: { [ChainKeys.STACKS_MAINNET]: 'mainnet' } },
-};
+});
 
-export default function Providers({ children }: { children: ReactNode }) {
+export default function Providers({ children, privy }: { children: ReactNode; privy?: PrivySource }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <SodaxWalletProvider config={walletConfig}>{children}</SodaxWalletProvider>
+      <SodaxWalletProvider config={createWalletConfig(privy)}>{children}</SodaxWalletProvider>
     </QueryClientProvider>
   );
 }

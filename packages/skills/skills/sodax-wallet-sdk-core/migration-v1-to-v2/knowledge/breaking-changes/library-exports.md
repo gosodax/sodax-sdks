@@ -28,7 +28,6 @@ Consumer apps previously had to list every chain SDK explicitly in `package.json
     "viem": "^2.x",                          // for WalletClient, PublicClient
     "@stellar/stellar-sdk": "^11.x",          // for Networks
     "@stacks/transactions": "^6.x",           // for PostConditionMode
-    "@mysten/wallet-standard": "^0.x"         // for WalletAccount, WalletWithFeatures
   }
 }
 ```

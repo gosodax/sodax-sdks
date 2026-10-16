@@ -224,7 +224,15 @@ const sodax = new Sodax({
 
 `apiKey` is sugar for the `x-api-key` header the service gates on; an explicit `x-api-key` in
 `headers` wins, so you can proxy through your own backend instead. Keep the key in an env var — never
-inline it.
+inline it — and read it server-side; see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
+
+The instance-wide `new Sodax({ apiKey })` is **gated** for this service: it is inherited only when the
+call actually targets a SODAX gateway — the packaged sponsoring default or the resolved shared root —
+and that check is made per request against the effective target, so a per-call `baseURL` override
+cannot carry it off-gateway. A custom sponsoring origin never receives it. The slice key above is the
+credential for independently hosted sponsoring and wins wherever the slice points. Sponsoring keys come
+from their own registry, so a partner portal key that reaches sponsoring by inheritance is rejected —
+always set the slice `apiKey`.
 
 Two deliberate differences from `swapsApiConfig`:
 

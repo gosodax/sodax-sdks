@@ -50,7 +50,7 @@ For most consumers, this whole pipeline is one method call (`sodax.swaps.swap(..
 
 ### Supported chains
 
-21 total. EVM (13): Sonic (hub), Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera. Non-EVM (8): Solana, Sui, Stellar, ICON, Injective, NEAR, Stacks, Bitcoin. See [`reference/`](reference/) § "Chain keys" for the full table with relay IDs and address-type mapping.
+22 total. EVM (14): Sonic (hub), Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood Chain. Non-EVM (8): Solana, Sui, Stellar, ICON, Injective, NEAR, Stacks, Bitcoin. See [`reference/`](reference/) § "Chain keys" for the full table with relay IDs and address-type mapping.
 
 ---
 
@@ -62,7 +62,7 @@ Instead, the SDK has **one** `SpokeService` instance (owned by `Sodax`) which ho
 
 ```
 SpokeService
- ├── EvmSpokeService        (handles all 13 EVM chains)
+ ├── EvmSpokeService        (handles all 14 EVM chains)
  ├── SonicSpokeService      (special-cased for the hub)
  ├── SolanaSpokeService
  ├── SuiSpokeService
@@ -102,10 +102,12 @@ so a token added or upgraded later is handled without a code change. Consumer im
   transaction hash: the hash of the **last** transaction. Show step progress in the UI if you want,
   but nothing breaks if you do not.
 - **Unsigned flows (`raw: true`)** still return exactly one transaction from `approve`, which cannot
-  express a two-step plan. Use `sodax.swaps.buildApproveTxs({ params, raw: true })` instead — it
-  returns `{ approveTx, resetTx? }`. `resetTx` is present only for a guarded token holding a stale
-  allowance — broadcast it and wait for it to be mined first, because `approveTx` is not valid until
-  the reset has landed.
+  express a two-step plan. Use `sodax.swaps.buildApproveTxs({ params, raw: true })` — or
+  `sodax.bridge.buildApproveTxs` for a bridge — instead; both return `{ approveTx, resetTx? }`.
+  `resetTx` is present only for a guarded token holding a stale allowance — broadcast it and wait for
+  it to be mined first, because `approveTx` is not valid until the reset has landed. Each feature
+  resolves its own spender (a bridge on the hub approves the caller's hub wallet router, a swap the
+  solver's intents contract), so call the one matching the action you are about to take.
 
 ---
 
@@ -136,7 +138,7 @@ Sodax
  ├── partners        — PartnerService         (partner fee claiming)
  ├── recovery        — RecoveryService        (withdraw stuck hub-wallet assets)
  ├── backendApi      — BackendApiService      (intent lookup, orderbook, money-market reads, config fetching)
- ├── api             — alias for backendApi; `api.swaps` is SwapsApiService (typed Swaps API v2 client)
+ ├── api             — alias for backendApi; `api.swaps` is SwapsApiService (typed Swaps API client)
  ├── config          — ConfigService          (dynamic config; see § 4)
  ├── hubProvider     — HubProvider            (hub contract interactions; concrete impl `EvmHubProvider`)
  └── spoke           — SpokeService           (per-chain-family router; see § 2)
@@ -538,3 +540,38 @@ You drop down to the relay layer only when:
 - Per-feature usage: [`features/`](features/).
 - Non-EVM chain quirks: [`chain-specifics.md`](chain-specifics.md).
 - v1 → v2 porting context: [`README.md`](../../migration-v1-to-v2/knowledge/README.md).
+
+### RWA classification and token logos
+
+`XToken.isRwa === true` marks a registered tokenized stock, ETF or commodity,
+including registered cross-chain representations. An omitted flag means no RWA
+classification is declared; it is not a general-purpose crypto/stablecoin taxonomy.
+Chain membership and symbol spelling do not determine RWA status.
+
+Use `isRealWorldAsset({ chainKey, address })` to resolve metadata from the packaged
+SDK registry when your token data comes from an API without the flag. It returns
+false for unknown chains or addresses, ignores symbols, and compares EVM addresses
+case-insensitively while preserving non-EVM identifier casing. It does not read
+custom constructor config or validate swap/money-market support. New registry
+metadata requires an SDK update; it does not automatically update backend payloads.
+
+```typescript
+import { ChainKeys, getSupportedSolverTokens, isRealWorldAsset, tokenLogo } from '@sodax/sdk';
+
+const tokens = getSupportedSolverTokens(ChainKeys.ROBINHOOD_MAINNET);
+const rwaTokens = tokens.filter(isRealWorldAsset);
+const rows = tokens.map(token => ({
+  symbol: token.symbol,
+  isRwa: isRealWorldAsset(token),
+  logo: tokenLogo(token.symbol),
+}));
+```
+
+For API responses using `xChainId`, pass it as `chainKey` alongside the token's
+on-chain `address`. Resolve each chain/address before grouping directory rows;
+keep feature support and UI visibility filters separate from classification.
+
+`tokenLogo(symbol)` serves shared PNGs from the SDK repository's `main` branch.
+Robinhood equity/ETF entries use the Robinhood mark; xStocks retain their own
+artwork. Image replacements become available after merge, subject to caching,
+without an SDK release. Consumers must use these URLs to receive the replacements.

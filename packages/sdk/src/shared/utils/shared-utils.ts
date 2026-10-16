@@ -1,5 +1,13 @@
 import { invariant } from './tiny-invariant.js';
-import { isBitcoinChainKeyType, isIconAddress, isPartnerFeeAmount, isPartnerFeePercentage } from '../guards.js';
+import {
+  isBitcoinChainKeyType,
+  isIconAddress,
+  isPartnerFeeAmount,
+  isPartnerFeePercentage,
+  isValidInjectiveAddress,
+  isValidNearAccountId,
+} from '../guards.js';
+import { canonicalizeBitcoinAddress, isValidBitcoinAddress } from '../entities/btc/btc-utils.js';
 import type { ConfigService } from '../config/ConfigService.js';
 import {
   type SpokeChainKey,
@@ -14,7 +22,7 @@ import {
   type QuoteType,
   isMpcRelayChainKey,
 } from '@sodax/types';
-import { hexToBytes, toHex } from 'viem';
+import { hexToBytes, isAddress, toHex } from 'viem';
 import { tronHashToBase58, tronIdentityBytes } from '../services/spoke/tron-utils.js';
 import { bcs } from '@mysten/sui/bcs';
 import { PublicKey } from '@solana/web3.js';
@@ -60,11 +68,10 @@ export async function retry<T>(
 }
 
 export function getRandomBytes(length: number): Uint8Array {
-  const array = new Uint8Array(length);
-  for (let i = 0; i < length; i++) {
-    array[i] = Math.floor(Math.random() * 256);
+  if (!globalThis.crypto?.getRandomValues) {
+    throw new Error('Web Crypto (crypto.getRandomValues) is unavailable in this runtime');
   }
-  return array;
+  return globalThis.crypto.getRandomValues(new Uint8Array(length));
 }
 
 export function randomUint256(): bigint {
@@ -166,6 +173,9 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
   const chainType = getChainType(spokeChainId);
   switch (chainType) {
     case 'EVM':
+      // Strict: a wrong-length recipient ABI-encodes cleanly, the hub burns the tokens, and the
+      // spoke reverts with no refund path — EIP-55 is what catches a mistyped one. Lowercase passes.
+      invariant(isAddress(address), `Invalid EVM address: ${address}`);
       return address as Hex;
     case 'ICON': {
       // Validate type + length before decoding: `Buffer.from(str, 'hex')` silently stops at the
@@ -185,8 +195,13 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
     case 'STACKS':
       return `0x${serializeCV(Cl.principal(address))}`;
     case 'BITCOIN':
+      invariant(isValidBitcoinAddress(address), `Invalid Bitcoin address: ${address}`);
+      return toHex(Buffer.from(canonicalizeBitcoinAddress(address), 'utf-8'));
     case 'NEAR':
+      invariant(isValidNearAccountId(address), `Invalid NEAR account id: ${address}`);
+      return toHex(Buffer.from(address, 'utf-8'));
     case 'INJECTIVE':
+      invariant(isValidInjectiveAddress(address), `Invalid Injective address: ${address}`);
       return toHex(Buffer.from(address, 'utf-8'));
     case 'TRON':
       // Tron's hub-wallet identity is the 20-byte address hash: base58 payload without the 0x41 byte.
@@ -195,6 +210,23 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);
     }
+  }
+}
+
+/**
+ * Encode a chain-native TOKEN IDENTIFIER for hub-side encoding. On BITCOIN/NEAR/INJECTIVE these are
+ * not addresses ('0:0', '897442:43', 'inj', 'factory/…', 'NEAR') — utf-8 identifier semantics, so
+ * they must not hit {@link encodeAddress}'s recipient validators. Every other family's token IS an
+ * address and keeps the validated path.
+ */
+export function encodeTokenIdentifier(spokeChainId: SpokeChainKey, token: string): Hex {
+  switch (getChainType(spokeChainId)) {
+    case 'BITCOIN':
+    case 'NEAR':
+    case 'INJECTIVE':
+      return toHex(Buffer.from(token, 'utf-8'));
+    default:
+      return encodeAddress(spokeChainId, token);
   }
 }
 

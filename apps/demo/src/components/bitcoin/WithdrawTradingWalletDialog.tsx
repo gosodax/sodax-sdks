@@ -99,7 +99,7 @@ export const WithdrawTradingWalletDialog = ({
         </DialogHeader>
 
         {/* From -> To visual */}
-        <div className="flex items-start justify-center gap-6 py-4">
+        <div className="flex flex-col items-center justify-center gap-3 py-4 sm:flex-row sm:items-start sm:gap-6">
           {/* From: Trading wallet */}
           <div className="flex flex-col items-center gap-2 w-[140px]">
             <span className="text-xs text-muted-foreground font-medium">From trading wallet</span>
@@ -113,7 +113,7 @@ export const WithdrawTradingWalletDialog = ({
           </div>
 
           {/* Arrow */}
-          <ArrowRight className="h-5 w-5 text-muted-foreground mt-8 shrink-0" />
+          <ArrowRight className="h-5 w-5 shrink-0 rotate-90 text-muted-foreground sm:rotate-0 sm:mt-8" />
 
           {/* To: Personal wallet */}
           <div className="flex flex-col items-center gap-2 w-[140px]">
@@ -124,7 +124,7 @@ export const WithdrawTradingWalletDialog = ({
             <span className="text-xs font-mono text-muted-foreground bg-muted px-2 py-1 rounded">
               {withdrawTo ? truncateAddress(withdrawTo) : '---'}
             </span>
-            <span className="text-xs text-muted-foreground invisible">placeholder</span>
+            <span className="text-xs text-muted-foreground invisible hidden sm:inline">placeholder</span>
           </div>
         </div>
 
@@ -136,7 +136,7 @@ export const WithdrawTradingWalletDialog = ({
             placeholder="Bitcoin address (e.g. bc1q...)"
             value={withdrawTo}
             onChange={e => setWithdrawTo(e.target.value)}
-            className="h-9 text-sm font-mono"
+            className="h-9 font-mono"
           />
           <span className="text-xs text-muted-foreground">SegWit address recommended for lower fees</span>
         </div>
@@ -155,7 +155,7 @@ export const WithdrawTradingWalletDialog = ({
               placeholder="0.00"
               value={amount}
               onChange={e => setAmount(e.target.value)}
-              className="h-9 text-sm flex-1"
+              className="h-9 flex-1"
             />
             <Button
               size="sm"
@@ -191,7 +191,7 @@ export const WithdrawTradingWalletDialog = ({
 
         {success && <p className="text-xs text-green-500 text-center">Withdrawal submitted successfully!</p>}
 
-        {error && <p className="text-xs text-red-500 text-center">{error}</p>}
+        {error && <p className="text-xs text-red-500 text-center wrap-anywhere">{error}</p>}
 
         {/* Info */}
         <div className="flex items-start gap-2 text-xs text-muted-foreground">

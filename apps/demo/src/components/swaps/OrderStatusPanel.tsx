@@ -15,11 +15,14 @@ export default function OrderStatusPanel({
   onDismiss,
   onSettle,
   storageKey,
+  feature = 'swap',
 }: {
   orders: Order[];
   onDismiss: (id: string) => void;
   onSettle: (id: string, final: FinalStatus) => void;
   storageKey: string;
+  /** Passed to each card: it decides which status source the card reads. */
+  feature?: 'swap' | 'leverage-yield';
 }) {
   const [collapsed, setCollapsed] = useState(() => loadPanelCollapsed(storageKey));
 
@@ -42,7 +45,9 @@ export default function OrderStatusPanel({
         aria-expanded={!collapsed}
         className="flex items-center gap-2 rounded-md px-1 py-1 text-left transition-colors hover:bg-cherry-soda/10"
       >
-        <span className="text-sm font-semibold text-cherry-dark">Swaps</span>
+        <span className="text-sm font-semibold text-cherry-dark">
+          {feature === 'leverage-yield' ? 'Vault swaps' : 'Swaps'}
+        </span>
         <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-cherry-soda px-1.5 text-xs font-semibold text-white">
           {orders.length}
         </span>
@@ -65,7 +70,15 @@ export default function OrderStatusPanel({
           <div className="flex flex-col gap-3 pt-3">
             {newestFirst.map(order => {
               const id = orderId(order);
-              return <OrderStatus key={id} order={order} onDismiss={() => onDismiss(id)} onSettle={onSettle} />;
+              return (
+                <OrderStatus
+                  key={id}
+                  order={order}
+                  feature={feature}
+                  onDismiss={() => onDismiss(id)}
+                  onSettle={onSettle}
+                />
+              );
             })}
           </div>
         </div>

@@ -1,0 +1,71 @@
+---
+title: "Money Market on Solana"
+description: "Cross-network lending and borrowing from Solana: supply, borrow, repay, and withdraw against collateral sourced on any SODAX network."
+icon: sack-dollar
+---
+
+Fragmented money markets mean lower capital efficiency and worse rates. The SODAX money market pools lending liquidity on the hub while letting users act from any supported network, including Solana. A depositor can supply collateral held on another network and borrow into their Solana workflow, or lend idle SPL balances without your product running its own lending infrastructure.
+
+Four actions, all through `sodax.moneyMarket`: `supply`, `borrow`, `withdraw`, `repay`. Each has a complete one-call form (handles the relay end-to-end) and a `create*Intent` form when you want the transaction only.
+
+## Supply from Solana
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// find() returns XToken | undefined, so narrow before using the address
+const solanaTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.SOLANA_MAINNET);
+const sol = solanaTokens.find(t => t.symbol === 'SOL');
+if (!sol) throw new Error('SOL is not a supported money-market token');
+
+const result = await sodax.moneyMarket.supply({
+  params: {
+    srcChainKey: ChainKeys.SOLANA_MAINNET,
+    srcAddress: await walletProvider.getWalletAddress(),
+    token: sol.address,
+    amount: 1_000_000_000n, // 1 SOL (9 decimals)
+    action: 'supply',
+  },
+  walletProvider, // ISolanaWalletProvider, narrowed by srcChainKey
+  timeout: 120_000, // optional relay timeout (default 120 s)
+});
+```
+
+## Borrow to Solana
+
+`dstChainKey` and `dstAddress` default to the source, but any supported network can be the destination. That is the cross-network story in one parameter: collateral supplied from one network, borrowed liquidity delivered to another.
+
+```typescript
+const result = await sodax.moneyMarket.borrow({
+  params: {
+    srcChainKey: ChainKeys.SOLANA_MAINNET,   // where the caller acts from
+    srcAddress: userSolanaAddress,
+    token: bnUSD.address,                     // token on the destination chain
+    amount: 500_000_000_000_000_000_000n,
+    action: 'borrow',
+    dstChainKey: ChainKeys.SOLANA_MAINNET,    // deliver on Solana
+    dstAddress: userSolanaAddress,
+  },
+  walletProvider,
+});
+```
+
+`withdraw` and `repay` follow the same shape. Withdraw and borrow need no approval on any network; for supply and repay from Solana there is no ERC-20 style allowance either, so no extra transaction precedes the action.
+
+## Building a lending UI
+
+`sodax.moneyMarket.data` exposes what you need for rates, positions, and health factors without extra indexing:
+
+- `getReservesHumanized()`: all reserves, human-readable.
+- `getUserReservesHumanized(spokeChainKey, userAddress)`: a user's positions.
+- `formatReservesUSD(request)` / `formatUserSummary(request)`: USD-converted reserves and portfolio summaries.
+
+## Error handling
+
+The module returns typed results. Discriminate on `result.error.code` (`'RELAY_TIMEOUT'`, `'EXECUTION_FAILED'`, …) with structured context on `result.error.context`.
+
+---
+
+Full reference, including intent-only methods, gas estimation, and the per-method error-code table: [Lend / Borrow (Money Market)](/developers/packages/foundation/sdk/functional-modules/money_market).

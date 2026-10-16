@@ -3,6 +3,8 @@
  * Centralized so consumers and tests have a single source of truth.
  */
 
+import type { SuiAdapterFields } from './types/config.js';
+
 // ─── Stacks ─────────────────────────────────────────────────────────────────
 export const STACKS_DEFAULT_RPC_URL = 'https://api.mainnet.hiro.so';
 export const STACKS_DEFAULT_NETWORK = 'mainnet' as const;
@@ -11,19 +13,21 @@ export const STACKS_DEFAULT_NETWORK = 'mainnet' as const;
 export const SUI_DEFAULT_NETWORK = 'mainnet' as const;
 export const SUI_DEFAULT_AUTO_CONNECT = true;
 /**
- * Default JSON-RPC endpoint per Sui network. Mysten's own fullnodes
- * (`getFullnodeUrl`) stopped serving JSON-RPC in July 2026 and answer every
- * method with `-32601`, so they cannot be used as defaults. No devnet entry:
- * every public devnet endpoint is JSON-RPC-disabled too.
+ * Default gRPC-web endpoint per Sui network. Keyed off the config union, so the networks we
+ * offer and the endpoints we ship cannot drift apart.
  */
-export const SUI_DEFAULT_RPC_URLS: Partial<Record<'mainnet' | 'testnet' | 'devnet', string>> = {
-  mainnet: 'https://sui-rpc.publicnode.com',
-  testnet: 'https://sui-testnet-rpc.publicnode.com',
+export const SUI_DEFAULT_GRPC_URLS: Record<NonNullable<SuiAdapterFields['network']>, string> = {
+  mainnet: 'https://fullnode.mainnet.sui.io',
+  testnet: 'https://fullnode.testnet.sui.io',
 };
 
 // ─── EVM ────────────────────────────────────────────────────────────────────
 export const EVM_DEFAULT_RECONNECT_ON_MOUNT = false;
 export const EVM_DEFAULT_SSR = true;
+/** Base key of wagmi's storage when `EVM.persistKey` is unset; the Privy connected flag derives from it too. */
+export const EVM_DEFAULT_PERSIST_KEY = 'sodax';
+/** How long SDK disconnect waits on each wagmi connector; one that stalls (e.g. a WalletConnect relay) is not awaited further. */
+export const EVM_DISCONNECT_TIMEOUT_MS = 10_000;
 
 // ─── Solana ─────────────────────────────────────────────────────────────────
 export const SOLANA_DEFAULT_AUTO_CONNECT = true;
@@ -39,7 +43,7 @@ export const STELLAR_DEFAULT_HORIZON_RPC_URL = 'https://horizon.stellar.org';
 export const STELLAR_DEFAULT_SOROBAN_RPC_URL = 'https://rpc.ankr.com/stellar_soroban';
 
 // ─── NEAR ───────────────────────────────────────────────────────────────────
-export const NEAR_DEFAULT_RPC_URL = 'https://1rpc.io/near';
+export const NEAR_DEFAULT_RPC_URL = 'https://free.rpc.fastnear.com';
 
 // ─── Tron ───────────────────────────────────────────────────────────────────
 export const TRON_DEFAULT_RPC_URL = 'https://api.trongrid.io';

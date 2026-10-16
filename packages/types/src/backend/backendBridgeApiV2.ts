@@ -118,6 +118,12 @@ export interface BridgeAllowanceCheckResponseV2 {
 export interface BridgeApproveResponseV2 {
   /** Unsigned approval transaction — the `RawTxReturnType` variant for the request's `srcChainKey`. */
   tx: RawTxReturnType;
+  /**
+   * Unsigned transaction that zeroes a stale allowance, present only when the source token rejects an
+   * allowance change from one non-zero value to another (the 2017 TetherToken lineage). Broadcast it
+   * and wait for it to be mined before `tx` — the approve is not valid until the allowance reads zero.
+   */
+  resetTx?: RawTxReturnType;
 }
 
 /**

@@ -1,0 +1,4 @@
+# The widget signs live mainnet transactions and is reached through a partner's <iframe>, never
+# through search. Preview deployments share this file, so a branch build stays unindexed too.
+User-agent: *
+Disallow: /

@@ -5,7 +5,7 @@
     "access": "public"
   },
   "version": "2.0.0-rc.17",
-  "description": "Minimal type-safe HTTP client for the SODAX backend Swaps API v2",
+  "description": "Minimal type-safe HTTP client for the SODAX backend Swaps API",
   "license": "MIT",
   "keywords": [
     "sodax",
@@ -41,7 +41,7 @@
     "./package.json": "./package.json"
   },
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=22.12.0"
   },
   "files": [
     "dist",
@@ -49,10 +49,10 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node ../../scripts/verify-dist-exports.mjs",
     "dev": "tsup --watch",
     "ci": "pnpm run pretty && pnpm run build && pnpm run test",
-    "checkTs": "tsc --noEmit",
+    "checkTs": "tsc --noEmit && node ../../scripts/check-tests-typechecked.mjs",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "pretty": "biome format . --write",

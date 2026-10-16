@@ -2,7 +2,7 @@ import { ChainKeys, type IStellarWalletProvider, type Result, type StellarSponso
 import type { Horizon } from '@stellar/stellar-sdk';
 
 import type { BackendApiService } from '../backendApi/BackendApiService.js';
-import type { RequestOverrideConfig } from '../backendApi/api-utils.js';
+import { apiKeyHeader, mergeHeaders, type RequestOverrideConfig } from '../backendApi/api-utils.js';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import type { SpokeService } from '../shared/services/spoke/SpokeService.js';
 import { isSodaxError, SodaxError } from '../errors/SodaxError.js';
@@ -251,21 +251,20 @@ export class SponsoringService {
   }
 
   /**
-   * Cache key for a config request: the resolved base URL plus any per-call
-   * headers. Headers can select a different response from the same URL — an API
-   * key scoped to another deployment, or a test harness's scenario header — so
-   * folding them in stops one caller's override from being served to, or
-   * overwriting, the default path. Kept in memory as a Map key only.
+   * Cache key for a config request: the resolved base URL plus the per-call headers the request will
+   * actually carry, `apiKey` included. Headers can select a different response from the same URL — an
+   * API key scoped to another deployment, or a test harness's scenario header — so folding them in
+   * stops one caller's override from being served to, or overwriting, the default path. Names are
+   * lower-cased before sorting and serialized as JSON so casing and delimiters cannot collide two
+   * distinct header sets onto one key. Kept in memory as a Map key only.
    */
   private configCacheKey(requestConfig?: RequestOverrideConfig): string {
     const baseURL = requestConfig?.baseURL || this.api.sponsoring.getBaseURL();
-    const headers = requestConfig?.headers;
-    if (!headers) return baseURL;
-    const normalized = Object.keys(headers)
-      .sort()
-      .map(name => `${name.toLowerCase()}=${headers[name]}`)
-      .join('&');
-    return normalized.length === 0 ? baseURL : `${baseURL}|${normalized}`;
+    const headers = mergeHeaders(apiKeyHeader(requestConfig?.apiKey), requestConfig?.headers);
+    const entries = Object.entries(headers)
+      .map(([name, value]): [string, string] => [name.toLowerCase(), value])
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    return entries.length === 0 ? baseURL : `${baseURL}|${JSON.stringify(entries)}`;
   }
 
   /**

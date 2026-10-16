@@ -16,7 +16,7 @@
     "url": "https://github.com/icon-project/sodax-sdks"
   },
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=22.12.0"
   },
   "files": [
     "dist",
@@ -44,10 +44,10 @@
     }
   },
   "scripts": {
-    "build": "rm -rf dist && tsc",
+    "build": "rm -rf dist && tsc && node ../../scripts/verify-dist-exports.mjs",
     "dev": "tsc --watch",
     "ci": "pnpm run pretty && pnpm run build && pnpm run test",
-    "checkTs": "tsc",
+    "checkTs": "tsc && tsc -p tsconfig.check.json && node ../../scripts/check-tests-typechecked.mjs --project tsconfig.check.json",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
     "pretty": "biome format . --write",
@@ -64,6 +64,7 @@
     "knip": "catalog:",
     "madge": "catalog:",
     "typescript": "catalog:",
+    "viem": "catalog:",
     "vitest": "catalog:"
   },
   "keywords": [

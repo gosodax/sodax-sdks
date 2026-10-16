@@ -38,7 +38,7 @@ useXAccount(xChainType) ←─────────────  Zustand stor
                                               ChainActions.disconnect()
                                                       │
                                                       ↓
-                                              clearXConnection(xChainType)
+                                              unsetXConnection(xChainType)
 ```
 
 **Single store, single source of truth** — every hook subscribes to the same Zustand slice. Connect mutations write through `setXConnection`; reads (`useXAccount`, `useXConnection`) reflect that immediately. Provider-managed chains (EVM/Solana/Sui) write via their Hydrator components instead of inside the mutation — see [Provider-managed chains caveat](#provider-managed-chains-caveat).
@@ -169,7 +169,7 @@ const evmConnection = useXConnection({ xChainType: 'EVM' });
 // evmConnection: { xAccount: XAccount, xConnectorId: string } | undefined
 ```
 
-**`xChainId` vs `xChainType`** — `useXAccount` and `useWalletProvider` accept either, never both. `xChainId` (a `SpokeChainKey` like `ChainKeys.BSC_MAINNET`) is resolved to its family via `getXChainType()` internally. For EVM, the family-level view is correct because wagmi maintains a single connection across all configured EVM networks (see [`EVM_SWITCH_CHAIN.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/EVM_SWITCH_CHAIN.md)).
+**`xChainId` vs `xChainType`** — `useXAccount` and `useWalletProvider` accept either, never both. `xChainId` (a `SpokeChainKey` like `ChainKeys.BSC_MAINNET`) is resolved to its family via `getXChainType()` internally. For EVM, the family-level view is correct because wagmi maintains a single connection across all configured EVM networks (see [`EVM_SWITCH_CHAIN.md`](./EVM_SWITCH_CHAIN.md)).
 
 When no wallet is connected, `useXAccount` returns `{ address: undefined, xChainType }` (not `undefined`) so consumers don't need to null-check before reading `xChainType`.
 
@@ -188,13 +188,15 @@ function DisconnectButton() {
 }
 ```
 
-The callback delegates to `ChainActions.disconnect()`. If no actions are registered (chain not enabled in config), it logs a warning and resolves silently — no throw. Connection state is cleared by the chain's action implementation (provider-managed) or by the store side-effect (non-provider).
+The callback delegates to `ChainActions.disconnect()`. If no actions are registered (chain not enabled in config), it logs a warning and resolves silently — no throw.
+
+Which layer clears the store differs by chain family. Non-provider chains clear it inside the action implementation: the default `disconnect` calls `unsetXConnection(xChainType)` in a `finally`, so the store clears even when the wallet's native disconnect throws (NEAR overrides `disconnect` with the same pattern). Solana and Sui actions only trigger the native adapter's disconnect and leave the write to their Hydrator. EVM is the exception to that single-writer rule — `EvmActions.disconnect` calls `unsetXConnection('EVM')` and `markUserDisconnected('EVM')` synchronously before awaiting wagmi's disconnect, so the UI stays consistent whether wagmi throws or hangs. It disconnects **every** wagmi connection, not only the current one: the SDK treats EVM as a single connection, so a wallet connected earlier in the session must not come back through a later connect without its own sign-in. Each wallet gets 10 s to confirm; one that stalls is logged and no longer awaited, so the returned promise always settles. wagmi drops a connection only once its disconnect finishes, though, so a wallet that stalls stays connected in wagmi and can come back on its next connect. With `EVM.privy` set, it also ends Privy when wagmi does not list it yet — a page-load restore still waiting on Privy — so that sign-out is never skipped.
 
 ---
 
 ## Provider-managed chains caveat
 
-EVM, Solana, and Sui mount their native React adapters (wagmi, `@solana/wallet-adapter`, `@mysten/dapp-kit`) and use a **Provider/Hydrator/Actions trio**:
+EVM, Solana, and Sui mount their native React adapters (wagmi, `@solana/wallet-adapter`, `@mysten/dapp-kit-react`) and use a **Provider/Hydrator/Actions trio**:
 
 - `<ChainProvider>` — wraps native adapter context.
 - `<ChainHydrator>` — sole writer of connection state into the store, watching native adapter hooks.
@@ -224,7 +226,7 @@ Connection state is persisted to `localStorage` (key: `xwagmi-store`) by Zustand
 - **NEAR / Stacks** — no auto-reconnect. The user must re-connect manually after a reload.
 - **Cleanup** — connections for chains no longer in `SodaxWalletProvider` config are removed via `cleanupDisabledConnections()` after persist hydration completes.
 
-To detect when persisted state is ready (avoid disconnect flash on first paint), use [`useConnectedChains`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CHAIN_DETECTION.md) and gate UI on `status === 'ready'`.
+To detect when persisted state is ready (avoid disconnect flash on first paint), use [`useConnectedChains`](./CHAIN_DETECTION.md) and gate UI on `status === 'ready'`.
 
 ---
 
@@ -239,7 +241,7 @@ To detect when persisted state is ready (avoid disconnect flash on first paint),
 | Source | Message style |
 |--------|---------------|
 | User rejects in wallet popup | Wallet-specific (`"User rejected the request"`, `"User denied account authorization"`, etc.) |
-| Wallet not installed | `"Wallet extension not detected"` (varies by chain) |
+| Wallet not installed | Non-provider chains throw `"<Wallet> is not installed"` (Stacks and Stellar append an install hint); provider-managed chains surface the native SDK error |
 | Network mismatch | `"Chain not configured"` (wagmi) |
 
 Read `mutation.error.message` and surface to UI; for install CTA, fall back to `connector.installUrl`:
@@ -262,15 +264,15 @@ return (
 );
 ```
 
-For multi-chain modal flows that wrap connect with status + retry semantics, see [`WALLET_MODAL.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_MODAL.md).
+For multi-chain modal flows that wrap connect with status + retry semantics, see [`WALLET_MODAL.md`](./WALLET_MODAL.md).
 
 ---
 
 ## Related docs
 
-- [Configure SodaxWalletProvider](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md) — chain-type slots, opt-in mounting
-- [Wallet Provider Bridge](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PROVIDER_BRIDGE.md) — `useWalletProvider` → typed `IXxxWalletProvider` for SDK calls
-- [Wallet Modal](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_MODAL.md) — headless state machine (chainSelect → walletSelect → connecting → success | error)
-- [Chain Detection](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CHAIN_DETECTION.md) — aggregate connected-chain views + hydration status
-- [EVM Switch Chain](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/EVM_SWITCH_CHAIN.md) — single wagmi connection across EVM networks
-- [Connectors](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECTORS.md) — `IXConnector` contract, deep imports for concrete classes
+- [Configure SodaxWalletProvider](./CONFIGURE_PROVIDER.md) — chain-type slots, opt-in mounting
+- [Wallet Provider Bridge](./WALLET_PROVIDER_BRIDGE.md) — `useWalletProvider` → typed `IXxxWalletProvider` for SDK calls
+- [Wallet Modal](./WALLET_MODAL.md) — headless state machine (chainSelect → walletSelect → connecting → success | error)
+- [Chain Detection](./CHAIN_DETECTION.md) — aggregate connected-chain views + hydration status
+- [EVM Switch Chain](./EVM_SWITCH_CHAIN.md) — single wagmi connection across EVM networks
+- [Connectors](./CONNECTORS.md) — `IXConnector` contract, deep imports for concrete classes

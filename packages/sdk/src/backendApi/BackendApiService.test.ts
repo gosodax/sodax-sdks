@@ -21,10 +21,20 @@
  *      / `.rejects` — matching the runtime contract of each method.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BACKEND_API_BASE_PATH, ChainKeys, type Address, type ApiConfig, type SodaxLogger } from '@sodax/types';
+import {
+  BACKEND_API_BASE_PATH,
+  ChainKeys,
+  DEFAULT_SPONSORING_API_ENDPOINT,
+  type Address,
+  type ApiConfig,
+  type HttpUrl,
+  type SodaxLogger,
+} from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { BackendApiService } from './BackendApiService.js';
 import { SodaxError } from '../errors/SodaxError.js';
+import { silentLogger } from '../shared/logger.js';
+import type { RequestOverrideConfig } from './api-utils.js';
 
 // --- fetch stub -----------------------------------------------------------
 //
@@ -103,6 +113,27 @@ const SAMPLE_XTOKEN = {
   vault: '0x0000000000000000000000000000000000000011',
 };
 
+const SAMPLE_ORACLE_MARKETS = {
+  quote: 'USD',
+  intervals: [
+    { key: '1m', label: '1 minute', seconds: 60 },
+    { key: '5m', label: '5 minutes', seconds: 300 },
+    { key: '1h', label: '1 hour', seconds: 3600 },
+    { key: '1d', label: '1 day', seconds: 86400 },
+  ],
+  symbols: ['BTC', 'ETH', 'SOL'],
+};
+
+const SAMPLE_ORACLE_CANDLES = {
+  symbol: 'ETH',
+  quote: 'USD',
+  interval: '1h',
+  candles: [
+    { timestamp: 1782234000, open: '1665.57', high: '1666.22', low: '1663.01', close: '1665.02' },
+    { timestamp: 1782237600, open: '1665.02', high: '1670.40', low: '1664.88', close: '1669.13', final: false },
+  ],
+};
+
 // --- helpers --------------------------------------------------------------
 
 const okResponse = <T>(data: T) => ({ ok: true, status: 200, json: vi.fn().mockResolvedValue(data) });
@@ -168,6 +199,22 @@ describe('BackendApiService.getIntentByTxHash', () => {
       // cause chain: SodaxError → makeRequest Error('HTTP_REQUEST_FAILED') → Error('HTTP 500: …')
       expect((err.cause as Error).message).toBe('HTTP_REQUEST_FAILED');
       expect(((err.cause as Error).cause as Error).message).toMatch(/HTTP 500: Internal Server Error/);
+    }
+  });
+
+  // `SwapService.resolveSolverStatus` branches on exactly this: a 404 is the backend answering "no
+  // record", which lets a solver NOT_FOUND stand as a definitive miss, while any other failure leaves
+  // it unverified. The status therefore has to survive into `context`, and nothing else pins that.
+  it('lifts the HTTP status into error context on 404, so callers can tell a definitive miss apart', async () => {
+    mockFetch.mockResolvedValueOnce(httpErrorResponse(404, 'Not Found'));
+
+    const result = await sodax.backendApi.getIntentByTxHash(SAMPLE_TX_HASH);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const err = result.error as SodaxError;
+      expect(err.context?.status).toBe(404);
+      expect(err.context?.api).toBe('backend');
     }
   });
 
@@ -449,6 +496,94 @@ describe('BackendApiService.getAllMoneyMarketBorrowers', () => {
 });
 
 // =========================================================================
+// Oracle endpoints — USD OHLC candle discovery and reads. The candles URL is
+// asserted in full because the backend rejects any extra query param with a 400,
+// so the query string this service builds is part of the contract.
+// =========================================================================
+
+describe('BackendApiService.getOracleMarkets', () => {
+  it('issues GET to /oracle/markets and wraps the JSON body in ok:true', async () => {
+    mockFetch.mockResolvedValueOnce(okResponse(SAMPLE_ORACLE_MARKETS));
+
+    const result = await sodax.backendApi.getOracleMarkets();
+
+    expect(result).toEqual({ ok: true, value: SAMPLE_ORACLE_MARKETS });
+    expect(mockFetch).toHaveBeenCalledWith(`${DATA_API}/oracle/markets`, expect.objectContaining({ method: 'GET' }));
+  });
+
+  it('resolves to ok:false with HTTP_REQUEST_FAILED on a non-2xx response', async () => {
+    mockFetch.mockResolvedValueOnce(httpErrorResponse(500, 'boom'));
+
+    await expect(sodax.backendApi.getOracleMarkets()).resolves.toEqual({
+      ok: false,
+      error: expect.objectContaining({ message: 'HTTP_REQUEST_FAILED' }),
+    });
+  });
+});
+
+describe('BackendApiService.getOracleCandles', () => {
+  it('issues GET to /oracle/candles with exactly the four wire params, in order', async () => {
+    mockFetch.mockResolvedValueOnce(okResponse(SAMPLE_ORACLE_CANDLES));
+
+    const result = await sodax.backendApi.getOracleCandles({
+      symbol: 'ETH',
+      interval: '1h',
+      from: 1782234000,
+      to: 1782241200,
+    });
+
+    expect(result).toEqual({ ok: true, value: SAMPLE_ORACLE_CANDLES });
+    expect(mockFetch).toHaveBeenCalledWith(
+      `${DATA_API}/oracle/candles?symbol=ETH&interval=1h&from=1782234000&to=1782241200`,
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  // `from: 0` also guards the serialization: a falsy-conditional append (the getUserIntents shape)
+  // would silently drop it. This valid historical range has no stored candles.
+  it('serializes numeric bounds verbatim, including a zero lower bound', async () => {
+    const body = { symbol: 'BTC', quote: 'USD', interval: '1d', candles: [] };
+    mockFetch.mockResolvedValueOnce(okResponse(body));
+
+    const result = await sodax.backendApi.getOracleCandles({ symbol: 'BTC', interval: '1d', from: 0, to: 86400 });
+
+    expect(result).toEqual({ ok: true, value: body });
+    expect(mockFetch).toHaveBeenCalledWith(
+      `${DATA_API}/oracle/candles?symbol=BTC&interval=1d&from=0&to=86400`,
+      expect.any(Object),
+    );
+  });
+
+  it('returns ok:true with an empty candles array when the backend accepts an unknown symbol', async () => {
+    const body = { symbol: 'NOPE', quote: 'USD', interval: '1h', candles: [] };
+    mockFetch.mockResolvedValueOnce(okResponse(body));
+
+    await expect(
+      sodax.backendApi.getOracleCandles({ symbol: 'NOPE', interval: '1h', from: 0, to: 3600 }),
+    ).resolves.toEqual({ ok: true, value: body });
+  });
+
+  it('lifts a 400 (bad range / too many buckets) into error context', async () => {
+    mockFetch.mockResolvedValueOnce(httpErrorResponse(400, 'range too wide'));
+
+    const result = await sodax.backendApi.getOracleCandles({
+      symbol: 'ETH',
+      interval: '1m',
+      from: 0,
+      to: 100_000_000,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const err = result.error as SodaxError;
+      expect(err.message).toBe('HTTP_REQUEST_FAILED');
+      expect(err.context?.status).toBe(400);
+      expect(err.context?.api).toBe('backend');
+    }
+  });
+});
+
+// =========================================================================
 // Config endpoints — Result<T> wrappers, all GET, exhaustive endpoint coverage.
 // Each endpoint is asserted to hit its exact path so a refactor that flips a
 // path string surfaces immediately.
@@ -457,7 +592,7 @@ describe('BackendApiService.getAllMoneyMarketBorrowers', () => {
 describe('BackendApiService config endpoints', () => {
   type ConfigCase = {
     name: string;
-    invoke: () => Promise<{ ok: boolean }>;
+    invoke: () => Promise<{ ok: true; value: unknown } | { ok: false; error: unknown }>;
     endpoint: string;
     // Schema-valid body for validated endpoints; an arbitrary object for the unvalidated
     // config/relay reads (getAllConfig / getRelayChainIdMap / getSpokeChainConfig).
@@ -592,6 +727,79 @@ describe('BackendApiService response validation', () => {
     if (!result.ok) expect((result.error as SodaxError).context?.reason).toBe('invalid_response_shape');
   });
 
+  it('getOracleCandles rejects a candle whose OHLC prices are JSON numbers, not decimal strings', async () => {
+    mockFetch.mockResolvedValueOnce(
+      okResponse({
+        symbol: 'ETH',
+        quote: 'USD',
+        interval: '1h',
+        candles: [{ timestamp: 1782234000, open: 1665.57, high: 1666.22, low: 1663.01, close: 1665.02 }],
+      }),
+    );
+
+    const result = await sodax.backendApi.getOracleCandles({
+      symbol: 'ETH',
+      interval: '1h',
+      from: 1782234000,
+      to: 1782241200,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect((result.error as SodaxError).context?.reason).toBe('invalid_response_shape');
+  });
+
+  it('getOracleMarkets tolerates an unknown interval key (schema is not a picklist)', async () => {
+    const body = {
+      quote: 'USD',
+      intervals: [{ key: '4h', label: '4 hours', seconds: 14400 }],
+      symbols: ['ETH'],
+    };
+    mockFetch.mockResolvedValueOnce(okResponse(body));
+
+    await expect(sodax.backendApi.getOracleMarkets()).resolves.toEqual({ ok: true, value: body });
+  });
+
+  // `final` is advisory, so the schema tolerates `true` rather than blanking a whole chart over it;
+  // consumers branch on `final === false`, not on the field being present.
+  it('getOracleCandles accepts a candle marked final: true', async () => {
+    const body = {
+      symbol: 'ETH',
+      quote: 'USD',
+      interval: '1h',
+      candles: [
+        { timestamp: 1782234000, open: '1665.57', high: '1666.22', low: '1663.01', close: '1665.02', final: true },
+      ],
+    };
+    mockFetch.mockResolvedValueOnce(okResponse(body));
+
+    await expect(
+      sodax.backendApi.getOracleCandles({ symbol: 'ETH', interval: '1h', from: 1782234000, to: 1782241200 }),
+    ).resolves.toEqual({ ok: true, value: body });
+  });
+
+  it('getOracleCandles rejects an interval echo outside the declared union', async () => {
+    mockFetch.mockResolvedValueOnce(okResponse({ symbol: 'ETH', quote: 'USD', interval: '4h', candles: [] }));
+
+    const result = await sodax.backendApi.getOracleCandles({
+      symbol: 'ETH',
+      interval: '1h',
+      from: 1782234000,
+      to: 1782241200,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect((result.error as SodaxError).context?.reason).toBe('invalid_response_shape');
+  });
+
+  it('getOracleMarkets rejects an intervals entry missing required fields', async () => {
+    mockFetch.mockResolvedValueOnce(okResponse({ quote: 'USD', intervals: [{ key: '1h' }], symbols: ['ETH'] }));
+
+    const result = await sodax.backendApi.getOracleMarkets();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect((result.error as SodaxError).context?.reason).toBe('invalid_response_shape');
+  });
+
   it('getAllConfig (unvalidated) returns ok:true for an arbitrary body — config reads are not schema-validated', async () => {
     const body = { version: 1, config: { anything: true } };
     mockFetch.mockResolvedValueOnce(okResponse(body));
@@ -705,6 +913,32 @@ describe('BackendApiService.setHeaders', () => {
     );
   });
 
+  it('a repeated mixed-casing update sends the newest value, and fans it out to every keyed client', async () => {
+    // Updating an existing object key does NOT move it in insertion order, so a raw
+    // `headers[name] = value` would leave the older casing last and let it win the merge.
+    const isolatedService = new BackendApiService({ baseURL: ROOT, timeout: 30_000, headers: {} });
+    isolatedService.setHeaders({ 'x-api-key': 'v1' });
+    isolatedService.setHeaders({ 'X-Api-Key': 'v2' });
+    isolatedService.setHeaders({ 'x-api-key': 'v3' });
+
+    // Each client gets a body its own schema accepts, so the assertion is not read past a
+    // validation rejection that only shows up as log noise.
+    const calls: Array<[call: () => Promise<unknown>, body: unknown]> = [
+      [() => isolatedService.getIntentByTxHash('0x123'), { ok: true }],
+      [() => isolatedService.swaps.getTokens(), {}],
+      [() => isolatedService.bridge.getTokens(), {}],
+      [() => isolatedService.leverageYield.getVaults(), []],
+    ];
+    for (const [call, body] of calls) {
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValueOnce(okResponse(body));
+      await call();
+      const headers = mockFetch.mock.calls[0]?.[1]?.headers as Record<string, string>;
+      expect(Object.keys(headers).filter(h => h.toLowerCase() === 'x-api-key')).toHaveLength(1);
+      expect(new Headers(headers).get('x-api-key')).toBe('v3');
+    }
+  });
+
   it('overwrites an existing header on subsequent setHeaders calls (last write wins)', async () => {
     const isolatedConfig: ApiConfig = {
       baseURL: ROOT,
@@ -724,7 +958,11 @@ describe('BackendApiService.setHeaders', () => {
     );
   });
 
-  it('propagates the headers to the swaps sub-service (a token set here reaches swaps.* calls)', async () => {
+  it.each([
+    ['swaps', (s: BackendApiService) => s.swaps.getTokens(), {}],
+    ['bridge', (s: BackendApiService) => s.bridge.getTokens(), {}],
+    ['leverageYield', (s: BackendApiService) => s.leverageYield.getVaults(), []],
+  ])('propagates the headers to the %s sub-service (a token set here reaches its calls)', async (_label, call, body) => {
     const isolatedConfig: ApiConfig = {
       baseURL: ROOT,
       timeout: 30_000,
@@ -732,9 +970,9 @@ describe('BackendApiService.setHeaders', () => {
     };
     const isolatedService = new BackendApiService(isolatedConfig);
     isolatedService.setHeaders({ 'X-API-Key': 'shared-key' });
-    mockFetch.mockResolvedValueOnce(okResponse({})); // empty token map is a valid GetSwapTokensResponseV2
+    mockFetch.mockResolvedValueOnce(okResponse(body)); // an empty map / list validates for each client
 
-    await isolatedService.swaps.getTokens();
+    await call(isolatedService);
 
     expect(mockFetch).toHaveBeenCalledWith(
       expect.any(String),
@@ -893,5 +1131,217 @@ describe('BackendApiService ApiConfig variants', () => {
     const s = new Sodax({ api: { timeout: 12_345 } });
     expect(s.backendApi.getBaseURL()).toBe(ROOT);
     expect(s.api.swaps.getBaseURL()).toBe(ROOT);
+  });
+});
+
+// =========================================================================
+// API key — one `new Sodax({ apiKey })` for every backend service.
+//
+// Asserted on the wire (the style of defaultApiUrls.test.ts) rather than on resolved config: what a
+// gateway authenticates is the header it receives, and sponsoring's inherited key is deliberately
+// NOT baked into any config — it is selected per request from the target URL.
+// =========================================================================
+
+/** The `x-api-key` actually sent, read through `Headers` so any casing counts. */
+const sentApiKey = (): string | null => new Headers(mockFetch.mock.calls.at(-1)?.[1]?.headers).get('x-api-key');
+
+const CUSTOM_SPONSORING: HttpUrl = 'https://sponsoring.mydapp.example';
+/** A whole-stack retarget: one root every service is pointed at, distinct from the packaged one. */
+const STAGING_ROOT: HttpUrl = 'https://staging-api.sodax.example/v1';
+
+type ApiCall = (config?: RequestOverrideConfig) => Promise<unknown>;
+
+describe('one key, every service', () => {
+  const keyed = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
+  const services: Array<[label: string, call: ApiCall]> = [
+    ['data', config => keyed.backendApi.getAllConfig(config)],
+    ['swaps', config => keyed.api.swaps.getTokens(config)],
+    ['bridge', config => keyed.api.bridge.getTokens(config)],
+    ['leverageYield', config => keyed.api.leverageYield.getVaults(config)],
+    ['sponsoring', config => keyed.api.sponsoring.getStellarSponsorConfig(config)],
+  ];
+
+  it.each(services)('sends the instance key on the %s wire', async (_label, call) => {
+    mockFetch.mockResolvedValueOnce(okResponse({}));
+    await call();
+    expect(sentApiKey()).toBe('instance-key');
+  });
+
+  it.each(services)('lets a per-request apiKey win on the %s wire', async (_label, call) => {
+    mockFetch.mockResolvedValueOnce(okResponse({}));
+    await call({ apiKey: 'call-key' });
+    expect(sentApiKey()).toBe('call-key');
+  });
+
+  it.each(services)('treats an empty per-request apiKey as unset on the %s wire', async (_label, call) => {
+    mockFetch.mockResolvedValueOnce(okResponse({}));
+    await call({ apiKey: '' });
+    expect(sentApiKey()).toBe('instance-key');
+  });
+
+  // `undefined` is exactly what runBackendSubmitTx passes when `extras` is omitted.
+  it.each(services)('treats an undefined per-request apiKey as unset on the %s wire', async (_label, call) => {
+    mockFetch.mockResolvedValueOnce(okResponse({}));
+    await call({ apiKey: undefined });
+    expect(sentApiKey()).toBe('instance-key');
+  });
+
+  it.each(services)('sends a mixed-case raw header as the ONLY key header on the %s wire', async (_label, call) => {
+    mockFetch.mockResolvedValueOnce(okResponse({}));
+    await call({ headers: { 'X-Api-Key': 'raw-key' } });
+    const headers = mockFetch.mock.calls.at(-1)?.[1]?.headers as Record<string, string>;
+    expect(Object.keys(headers).filter(h => h.toLowerCase() === 'x-api-key')).toHaveLength(1);
+    expect(new Headers(headers).get('x-api-key')).toBe('raw-key');
+  });
+
+  it.each(services)('sends a blank per-request x-api-key header verbatim on the %s wire', async (_label, call) => {
+    mockFetch.mockResolvedValueOnce(okResponse({}));
+    await call({ apiKey: 'call-key', headers: { 'x-api-key': '' } });
+    expect(sentApiKey()).toBe('');
+  });
+
+  it('lets an explicitly configured x-api-key header win over the instance key', async () => {
+    // Sponsoring is excluded on purpose: it never inherits the shared headers.
+    const configured = new Sodax({
+      apiKey: 'instance-key',
+      api: { headers: { 'x-api-key': 'configured-header' } },
+      logger: silentLogger,
+    });
+    for (const call of [
+      () => configured.backendApi.getAllConfig(),
+      () => configured.api.swaps.getTokens(),
+      () => configured.api.bridge.getTokens(),
+      () => configured.api.leverageYield.getVaults(),
+    ]) {
+      mockFetch.mockResolvedValueOnce(okResponse({}));
+      await call();
+      expect(sentApiKey()).toBe('configured-header');
+    }
+  });
+});
+
+describe('sponsoring inherits the instance key only for an allowed root', () => {
+  /**
+   * Issue one sponsoring request and report the `x-api-key` it carried. The target is asserted here
+   * so a "no key sent" expectation can never pass because the request went somewhere else — or nowhere.
+   */
+  const keySentTo = async (target: string, sodax: Sodax, config?: RequestOverrideConfig): Promise<string | null> => {
+    mockFetch.mockResolvedValueOnce(okResponse({}));
+    await sodax.api.sponsoring.getStellarSponsorConfig(config);
+    expect(mockFetch.mock.calls.at(-1)?.[0]).toBe(`${target}/sponsorships/stellar/config`);
+    return sentApiKey();
+  };
+
+  /** POST twin of `keySentTo`: one `createStellarSponsoredAccount` call, target asserted the same way. */
+  const keySentToAccounts = async (
+    target: string,
+    sodax: Sodax,
+    config?: RequestOverrideConfig,
+  ): Promise<string | null> => {
+    mockFetch.mockResolvedValueOnce(okResponse({ hash: '0xhash', alreadyActive: false }));
+    await sodax.api.sponsoring.createStellarSponsoredAccount({ data: 'AAAA' }, config);
+    expect(mockFetch.mock.calls.at(-1)?.[0]).toBe(`${target}/sponsorships/stellar/accounts`);
+    expect(mockFetch.mock.calls.at(-1)?.[1]?.method).toBe('POST');
+    return sentApiKey();
+  };
+
+  const sliceOrigins: Array<[label: string, baseURL: HttpUrl | undefined]> = [
+    ['the packaged default root', undefined],
+    ['a custom origin', CUSTOM_SPONSORING],
+  ];
+
+  it.each(sliceOrigins)('lets the sponsoring slice key win over the instance key at %s', async (_label, baseURL) => {
+    const sodax = new Sodax({
+      apiKey: 'instance-key',
+      api: { sponsoringApiConfig: { ...(baseURL ? { baseURL } : {}), apiKey: 'slice-key' } },
+      logger: silentLogger,
+    });
+    expect(await keySentTo(baseURL ?? DEFAULT_SPONSORING_API_ENDPOINT, sodax)).toBe('slice-key');
+  });
+
+  it('inherits when only the shared root moved and sponsoring stayed on the packaged default', async () => {
+    const sodax = new Sodax({ apiKey: 'instance-key', api: { baseURL: STAGING_ROOT }, logger: silentLogger });
+    // Sponsoring never inherits a base URL, so it is still the origin the key belongs to.
+    expect(await keySentTo(DEFAULT_SPONSORING_API_ENDPOINT, sodax)).toBe('instance-key');
+  });
+
+  it('inherits when the sponsoring slice points at the retargeted shared root', async () => {
+    const sodax = new Sodax({
+      apiKey: 'instance-key',
+      api: { baseURL: STAGING_ROOT, sponsoringApiConfig: { baseURL: STAGING_ROOT } },
+      logger: silentLogger,
+    });
+    expect(await keySentTo(STAGING_ROOT, sodax)).toBe('instance-key');
+  });
+
+  it('withholds the instance key from a custom sponsoring origin', async () => {
+    const sodax = new Sodax({
+      apiKey: 'instance-key',
+      api: { sponsoringApiConfig: { baseURL: CUSTOM_SPONSORING } },
+      logger: silentLogger,
+    });
+    expect(await keySentTo(CUSTOM_SPONSORING, sodax)).toBeNull();
+  });
+
+  // The gate is re-evaluated per request because a `RequestOverrideConfig.baseURL` retargets the call
+  // while keeping the service defaults — a baked-in key would ride along to the new origin.
+  it('withholds the instance key when a per-request baseURL leaves the allowed roots', async () => {
+    const sodax = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
+    expect(await keySentTo(CUSTOM_SPONSORING, sodax, { baseURL: CUSTOM_SPONSORING })).toBeNull();
+  });
+
+  const explicitOverrides: Array<[label: string, override: RequestOverrideConfig]> = [
+    ['a per-request apiKey', { apiKey: 'call-key' }],
+    ['a raw per-request x-api-key header', { headers: { 'X-Api-Key': 'call-key' } }],
+  ];
+
+  it.each(explicitOverrides)('still sends %s to that same custom target', async (_label, override) => {
+    const sodax = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
+    expect(await keySentTo(CUSTOM_SPONSORING, sodax, { baseURL: CUSTOM_SPONSORING, ...override })).toBe('call-key');
+  });
+
+  it('inherits again when a per-request baseURL points back at an allowed root', async () => {
+    const sodax = new Sodax({
+      apiKey: 'instance-key',
+      api: { baseURL: STAGING_ROOT, sponsoringApiConfig: { baseURL: CUSTOM_SPONSORING } },
+      logger: silentLogger,
+    });
+    expect(await keySentTo(CUSTOM_SPONSORING, sodax)).toBeNull();
+    expect(await keySentTo(STAGING_ROOT, sodax, { baseURL: STAGING_ROOT })).toBe('instance-key');
+  });
+
+  it('inherits when the configured sponsoring baseURL differs from an allowed root only by a trailing slash', async () => {
+    const sodax = new Sodax({
+      apiKey: 'instance-key',
+      api: { sponsoringApiConfig: { baseURL: `${DEFAULT_SPONSORING_API_ENDPOINT}/` } },
+      logger: silentLogger,
+    });
+    // The wire URL is built from the trimmed base, so the asserted target carries no slash.
+    expect(await keySentTo(DEFAULT_SPONSORING_API_ENDPOINT, sodax)).toBe('instance-key');
+  });
+
+  it('inherits when a per-request baseURL differs from an allowed root only by a trailing slash', async () => {
+    const sodax = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
+    const config: RequestOverrideConfig = { baseURL: `${DEFAULT_SPONSORING_API_ENDPOINT}/` };
+    expect(await keySentTo(DEFAULT_SPONSORING_API_ENDPOINT, sodax, config)).toBe('instance-key');
+  });
+
+  it('sends the instance key on the account-creation POST at the packaged default root', async () => {
+    const sodax = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
+    expect(await keySentToAccounts(DEFAULT_SPONSORING_API_ENDPOINT, sodax)).toBe('instance-key');
+  });
+
+  it('withholds the instance key from the account-creation POST at a custom sponsoring origin', async () => {
+    const sodax = new Sodax({
+      apiKey: 'instance-key',
+      api: { sponsoringApiConfig: { baseURL: CUSTOM_SPONSORING } },
+      logger: silentLogger,
+    });
+    expect(await keySentToAccounts(CUSTOM_SPONSORING, sodax)).toBeNull();
+  });
+
+  it('withholds the instance key when a per-request baseURL retargets the account-creation POST', async () => {
+    const sodax = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
+    expect(await keySentToAccounts(CUSTOM_SPONSORING, sodax, { baseURL: CUSTOM_SPONSORING })).toBeNull();
   });
 });

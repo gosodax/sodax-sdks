@@ -36,6 +36,7 @@ Copy-paste patterns for adding SODAX features to a React app. Each recipe is sel
 | [`migration.md`](migration.md) | `useMigrateIcxToSoda`, `useRevertMigrateSodaToIcx`, `useMigratebnUSD`, `useMigrateBaln` |
 | [`dex.md`](dex.md) | `useDexDeposit`, `useSupplyLiquidity`, positions, pools |
 | [`leverage-yield.md`](leverage-yield.md) | `useLeverageYieldDeposit`, `useLeverageYieldWithdraw`, `useLeverageYieldVaultSwap`, APR/position/TVL/share-balance reads |
+| [`leverage-yield-product-anatomy.md`](leverage-yield-product-anatomy.md) | A user-facing vault screen: journey, states, display metadata, USD prices, derived values, units, planned steps + explorer links, acceptance |
 | [`bitcoin.md`](bitcoin.md) | `useRadfiSession`, `useFundTradingWallet`, `useRadfiWithdraw`, UTXO management |
 | [`backend-queries.md`](backend-queries.md) | Intent tracking, orderbook, money market position queries (read-only, no wallet) |
 

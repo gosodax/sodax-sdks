@@ -19,4 +19,10 @@ export interface SwapsApiConfig {
   fetch?: typeof globalThis.fetch;
   /** Extra headers merged over the defaults on every request. */
   headers?: Record<string, string>;
+  /**
+   * API key sent as the `x-api-key` header on every request (the backend guards `POST /swaps/*`
+   * routes with it). An explicit `headers['x-api-key']` wins over this convenience option. For a
+   * different key per call, construct another client — instances are cheap and stateless.
+   */
+  apiKey?: string;
 }

@@ -1,17 +1,943 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "name": "SODAX SDKs",
+  "name": "SODAX Docs",
+  "description": "SODAX is non-custodial cross-network execution infrastructure (Sonic hub). Docs cover the open-source SDK and partner HTTP APIs for swaps, lending/borrowing, staking, bridging, and migration \u2014 SODAX routes and settles; solvers on the marketplace fill.",
+  "logo": {
+    "light": "/sodax-lockup-light.svg",
+    "dark": "/sodax-lockup-dark.svg"
+  },
+  "favicon": "/favicon.ico",
   "theme": "mint",
+  "modeToggle": {
+    "default": "light",
+    "isHidden": false
+  },
   "colors": {
-    "primary": "#0EA5E9",
-    "light": "#38BDF8",
-    "dark": "#0284C7"
+    "primary": "#A55C55",
+    "light": "#C36C65",
+    "dark": "#964D48"
+  },
+  "background": {
+    "color": {
+      "light": "#FFFFFF",
+      "dark": "#1D1414"
+    }
+  },
+  "fonts": {
+    "heading": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "App support",
+        "href": "https://support.sodax.com"
+      },
+      {
+        "label": "Talk to us",
+        "href": "/contact"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "SODAX Scan",
+      "href": "https://sodaxscan.com"
+    }
   },
   "navigation": {
-    "groups": [
+    "global": {
+      "anchors": [
+        {
+          "anchor": "FAQ",
+          "icon": "comment-question",
+          "href": "/developers/faq"
+        },
+        {
+          "anchor": "Get in touch",
+          "icon": "envelope",
+          "href": "/contact"
+        }
+      ]
+    },
+    "tabs": [
       {
-        "group": "Getting Started",
-        "pages": ["index"]
+        "tab": "Home",
+        "groups": [
+          {
+            "group": "Start here",
+            "icon": "rocket",
+            "pages": ["index", "introduction", "quickstart", "ai-integration-guide", "builders-mcp"]
+          },
+          {
+            "group": "How SODAX works",
+            "icon": "gears",
+            "pages": ["home/why-sodax", "home/how-execution-works", "home/sdk-stack"]
+          }
+        ]
+      },
+      {
+        "tab": "Solutions",
+        "pages": ["swap/index", "money-market/index", "bridge/index", "yield/index"]
+      },
+      {
+        "tab": "Widget",
+        "pages": ["widget/index"]
+      },
+      {
+        "tab": "API",
+        "pages": [
+          "developers/http-api/index",
+          "developers/http-api/swaps",
+          "developers/http-api/leverage",
+          "developers/http-api/oracle",
+          "developers/http-api/stats"
+        ]
+      },
+      {
+        "tab": "SDK",
+        "pages": [
+          "developers/packages/index",
+          "developers/packages/sdk/docs/installation/nextjs",
+          {
+            "group": "Foundation",
+            "icon": "cup-straw",
+            "pages": [
+              "developers/packages/foundation/index",
+              "developers/packages/foundation/sdk/index",
+              {
+                "group": "Functional modules",
+                "icon": "cubes",
+                "pages": [
+                  "developers/packages/foundation/sdk/functional-modules/index",
+                  "developers/packages/foundation/sdk/functional-modules/swaps",
+                  "developers/packages/foundation/sdk/functional-modules/money_market",
+                  "developers/packages/foundation/sdk/functional-modules/leverage_yield",
+                  "developers/packages/foundation/sdk/functional-modules/leverage_yield_apr",
+                  "developers/packages/foundation/sdk/functional-modules/bridge",
+                  "developers/packages/foundation/sdk/functional-modules/staking",
+                  "developers/packages/foundation/sdk/functional-modules/migration"
+                ]
+              },
+              {
+                "group": "Tooling modules",
+                "icon": "wrench",
+                "pages": [
+                  "developers/packages/foundation/sdk/tooling-modules/index",
+                  "developers/packages/foundation/sdk/tooling-modules/backend_api",
+                  "developers/packages/foundation/sdk/tooling-modules/intent_relay_api"
+                ]
+              },
+              "developers/packages/foundation/swaps-api",
+              "developers/packages/foundation/bridge-api"
+            ]
+          },
+          {
+            "group": "Connection",
+            "icon": "wallet",
+            "pages": [
+              "developers/packages/connection/index",
+              "developers/packages/connection/wallet-sdk-core",
+              "developers/packages/connection/wallet-sdk-react"
+            ]
+          },
+          {
+            "group": "Experience",
+            "icon": "browser",
+            "pages": [
+              "developers/packages/experience/index",
+              "developers/packages/experience/dapp-kit",
+              "developers/packages/experience/skills"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "How To",
+        "pages": [
+          "developers/how-to/index",
+          "developers/how-to/how_to_make_a_swap",
+          "developers/how-to/integrate_leverage_yield",
+          "developers/how-to/robinhood-stocks",
+          "developers/how-to/migrate_swap_to_submit_tx",
+          "developers/how-to/api-keys",
+          "developers/how-to/api-key-good-practices",
+          "developers/how-to/payout-wallet",
+          "developers/how-to/configure_sdk",
+          "developers/how-to/logging",
+          "developers/how-to/monetize_sdk",
+          "developers/how-to/wallet_providers",
+          "developers/how-to/estimate_gas",
+          "developers/how-to/stellar_trustline",
+          "developers/how-to/testnet",
+          {
+            "group": "Network guides",
+            "icon": "globe",
+            "pages": [
+              {
+                "group": "Solana",
+                "icon": "sun",
+                "pages": [
+                  "solana/index",
+                  "solana/quickstart",
+                  "solana/swaps",
+                  "solana/money-market",
+                  "solana/wallets",
+                  "solana/networks-and-assets",
+                  "solana/faq"
+                ]
+              },
+              {
+                "group": "Bitcoin",
+                "icon": "bitcoin-sign",
+                "pages": ["developers/how-to/bitcoin-integration"]
+              },
+              {
+                "group": "Stellar",
+                "icon": "star",
+                "pages": [
+                  "developers/how-to/stellar-sponsoring-getting-started",
+                  "developers/how-to/quick-sponsoring-stellar-guide"
+                ]
+              },
+              {
+                "group": "EVM networks",
+                "icon": "layer-group",
+                "pages": [
+                  {
+                    "group": "Sonic",
+                    "icon": "s",
+                    "pages": [
+                      "sonic/index",
+                      "sonic/quickstart",
+                      "sonic/swaps",
+                      "sonic/money-market",
+                      "sonic/wallets",
+                      "sonic/networks-and-assets",
+                      "sonic/faq"
+                    ]
+                  },
+                  {
+                    "group": "Ethereum",
+                    "icon": "ethereum",
+                    "pages": [
+                      "ethereum/index",
+                      "ethereum/quickstart",
+                      "ethereum/swaps",
+                      "ethereum/money-market",
+                      "ethereum/wallets",
+                      "ethereum/networks-and-assets",
+                      "ethereum/faq"
+                    ]
+                  },
+                  {
+                    "group": "Arbitrum",
+                    "icon": "a",
+                    "pages": [
+                      "arbitrum/index",
+                      "arbitrum/quickstart",
+                      "arbitrum/swaps",
+                      "arbitrum/money-market",
+                      "arbitrum/wallets",
+                      "arbitrum/networks-and-assets",
+                      "arbitrum/faq"
+                    ]
+                  },
+                  {
+                    "group": "Base",
+                    "icon": "b",
+                    "pages": [
+                      "base/index",
+                      "base/quickstart",
+                      "base/swaps",
+                      "base/money-market",
+                      "base/wallets",
+                      "base/networks-and-assets",
+                      "base/faq"
+                    ]
+                  },
+                  {
+                    "group": "Optimism",
+                    "icon": "o",
+                    "pages": [
+                      "optimism/index",
+                      "optimism/quickstart",
+                      "optimism/swaps",
+                      "optimism/money-market",
+                      "optimism/wallets",
+                      "optimism/networks-and-assets",
+                      "optimism/faq"
+                    ]
+                  },
+                  {
+                    "group": "BNB Chain",
+                    "icon": "cubes",
+                    "pages": [
+                      "bnb-chain/index",
+                      "bnb-chain/quickstart",
+                      "bnb-chain/swaps",
+                      "bnb-chain/money-market",
+                      "bnb-chain/wallets",
+                      "bnb-chain/networks-and-assets",
+                      "bnb-chain/faq"
+                    ]
+                  },
+                  {
+                    "group": "Polygon",
+                    "icon": "draw-polygon",
+                    "pages": [
+                      "polygon/index",
+                      "polygon/quickstart",
+                      "polygon/swaps",
+                      "polygon/money-market",
+                      "polygon/wallets",
+                      "polygon/networks-and-assets",
+                      "polygon/faq"
+                    ]
+                  },
+                  {
+                    "group": "Avalanche",
+                    "icon": "mountain",
+                    "pages": [
+                      "avalanche/index",
+                      "avalanche/quickstart",
+                      "avalanche/swaps",
+                      "avalanche/money-market",
+                      "avalanche/wallets",
+                      "avalanche/networks-and-assets",
+                      "avalanche/faq"
+                    ]
+                  },
+                  {
+                    "group": "HyperEVM",
+                    "icon": "bolt-lightning",
+                    "pages": [
+                      "hyperevm/index",
+                      "hyperevm/quickstart",
+                      "hyperevm/swaps",
+                      "hyperevm/money-market",
+                      "hyperevm/wallets",
+                      "hyperevm/networks-and-assets",
+                      "hyperevm/faq"
+                    ]
+                  },
+                  {
+                    "group": "LightLink",
+                    "icon": "link",
+                    "pages": [
+                      "lightlink/index",
+                      "lightlink/quickstart",
+                      "lightlink/swaps",
+                      "lightlink/money-market",
+                      "lightlink/wallets",
+                      "lightlink/networks-and-assets",
+                      "lightlink/faq"
+                    ]
+                  },
+                  {
+                    "group": "Kaia",
+                    "icon": "k",
+                    "pages": [
+                      "kaia/index",
+                      "kaia/quickstart",
+                      "kaia/swaps",
+                      "kaia/money-market",
+                      "kaia/wallets",
+                      "kaia/networks-and-assets",
+                      "kaia/faq"
+                    ]
+                  },
+                  {
+                    "group": "Hedera",
+                    "icon": "h",
+                    "pages": [
+                      "hedera/index",
+                      "hedera/quickstart",
+                      "hedera/swaps",
+                      "hedera/money-market",
+                      "hedera/wallets",
+                      "hedera/networks-and-assets",
+                      "hedera/faq"
+                    ]
+                  },
+                  {
+                    "group": "Redbelly",
+                    "icon": "r",
+                    "pages": [
+                      "redbelly/index",
+                      "redbelly/quickstart",
+                      "redbelly/swaps",
+                      "redbelly/money-market",
+                      "redbelly/wallets",
+                      "redbelly/networks-and-assets",
+                      "redbelly/faq"
+                    ]
+                  },
+                  {
+                    "group": "Robinhood Chain",
+                    "icon": "feather",
+                    "pages": [
+                      "robinhood-chain/index",
+                      "robinhood-chain/quickstart",
+                      "robinhood-chain/swaps",
+                      "robinhood-chain/money-market",
+                      "robinhood-chain/wallets",
+                      "robinhood-chain/networks-and-assets",
+                      "robinhood-chain/faq"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Protocol",
+        "groups": [
+          {
+            "group": "Technical Overview",
+            "icon": "book-open",
+            "pages": [
+              "developers/technical-overview/index",
+              "developers/technical-overview/asset-manager",
+              "developers/technical-overview/vault-token",
+              "developers/technical-overview/hub-wallet-abstraction",
+              "developers/technical-overview/intents",
+              "developers/technical-overview/generalized-messaging-protocol"
+            ]
+          },
+          {
+            "group": "Deployments",
+            "icon": "hard-drive",
+            "pages": [
+              "developers/deployments/index",
+              "developers/deployments/mainnet",
+              "developers/deployments/relayer-api-endpoints",
+              "developers/deployments/solver-api-endpoints",
+              "developers/deployments/sodaxscan",
+              "developers/deployments/swaps-compatible-assets"
+            ]
+          },
+          {
+            "group": "Security",
+            "icon": "shield-halved",
+            "pages": ["developers/audits/index"]
+          }
+        ]
+      },
+      {
+        "tab": "Community",
+        "align": "end",
+        "pages": [
+          "resources/index",
+          "resources/product-updates",
+          "resources/videos",
+          {
+            "group": "Blog",
+            "icon": "rss",
+            "pages": [
+              "resources/blog",
+              {
+                "group": "SDK",
+                "icon": "code",
+                "pages": [
+                  "resources/blog/hub-and-spoke",
+                  "resources/blog/six-categories-one-sdk",
+                  "resources/blog/builders-mcp-agent",
+                  "resources/blog/swaps-api-any-language",
+                  "resources/blog/swap-widget",
+                  "resources/blog/limit-orders"
+                ]
+              },
+              {
+                "group": "Bespoke Builds",
+                "icon": "hammer",
+                "pages": [
+                  "resources/blog/oracle-candles-api",
+                  "resources/blog/stellar-account-sponsorship",
+                  "resources/blog/flint-rwa-vault-deposits"
+                ]
+              },
+              {
+                "group": "VibeCode Saga",
+                "icon": "wand-magic-sparkles",
+                "pages": [
+                  "resources/blog/vibecode-saga-crypto-to-wallstreet-mac",
+                  "resources/blog/vibecode-saga-dust-sweeper",
+                  "resources/blog/vibecode-saga-harena",
+                  "resources/blog/vibecode-saga-sodax-terminal",
+                  "resources/blog/vibecode-saga-sodaxpay",
+                  "resources/blog/vibecode-saga-swaps-without-borders",
+                  "resources/blog/vibecode-saga-yield-pachinko"
+                ]
+              }
+            ]
+          },
+          { "group": "Workshops", "pages": ["resources/workshops/leverage-yield", "resources/workshops/colosseum-worlds-fair"] }
+        ]
+      },
+      {
+        "tab": "Help",
+        "align": "end",
+        "pages": ["developers/faq", "contact"]
+      }
+    ]
+  },
+  "redirects": [
+    {
+      "source": "/resources/changelog",
+      "destination": "/resources/product-updates"
+    },
+    {
+      "source": "/developers/packages/connection/wallet-kit",
+      "destination": "/developers/packages/connection/wallet-sdk-core"
+    },
+    {
+      "source": "/developers/packages/connection/wallet-kit-react",
+      "destination": "/developers/packages/connection/wallet-sdk-react"
+    },
+    {
+      "source": "/developers/packages/foundation/sdk/getting-started",
+      "destination": "/developers/packages/foundation/sdk"
+    },
+    {
+      "source": "/developers/deployments/xcall-scanner",
+      "destination": "/developers/deployments/sodaxscan"
+    },
+    {
+      "source": "/developers/deployments/xCall-scanner",
+      "destination": "/developers/deployments/sodaxscan"
+    },
+    {
+      "source": "/README",
+      "destination": "/"
+    },
+    {
+      "source": "/readme",
+      "destination": "/"
+    },
+    {
+      "source": "/welcome-to-sodax/readme-1",
+      "destination": "/contact"
+    },
+    {
+      "source": "/contact-form",
+      "destination": "/contact"
+    },
+    {
+      "source": "/welcome-to-sodax/audits",
+      "destination": "/developers/audits"
+    },
+    {
+      "source": "/developers/audits/Readme",
+      "destination": "/developers/audits"
+    },
+    {
+      "source": "/developers/audits/README",
+      "destination": "/developers/audits"
+    },
+    {
+      "source": "/developers/packages/README",
+      "destination": "/developers/packages"
+    },
+    {
+      "source": "/developers/deployments/README",
+      "destination": "/developers/deployments"
+    },
+    {
+      "source": "/developers/deployments/relayer_api_endpoints",
+      "destination": "/developers/deployments/relayer-api-endpoints"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/RELAYER_API_ENDPOINTS",
+      "destination": "/developers/deployments/relayer-api-endpoints"
+    },
+    {
+      "source": "/developers/deployments/solver_api_endpoints",
+      "destination": "/developers/deployments/solver-api-endpoints"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/SOLVER_API_ENDPOINTS",
+      "destination": "/developers/deployments/solver-api-endpoints"
+    },
+    {
+      "source": "/developers/packages/foundation/sdk/functional-modules/leverage_yield/leverage_yield_apr",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/leverage_yield_apr"
+    },
+    {
+      "source": "/developers/how-to/README",
+      "destination": "/developers/how-to"
+    },
+    {
+      "source": "/developers/technical-overview/README",
+      "destination": "/developers/technical-overview"
+    },
+    {
+      "source": "/developers/ai-integration/README",
+      "destination": "/ai-integration-guide"
+    },
+    {
+      "source": "/solana/README",
+      "destination": "/solana"
+    },
+    {
+      "source": "/developers/how-to/api_keys",
+      "destination": "/developers/how-to/api-keys"
+    },
+    {
+      "source": "/developers/how-to/monetize-sdk",
+      "destination": "/developers/how-to/monetize_sdk"
+    },
+    {
+      "source": "/developers/how-to/configure-sdk",
+      "destination": "/developers/how-to/configure_sdk"
+    },
+    {
+      "source": "/developers/how-to/how-to-make-a-swap",
+      "destination": "/developers/how-to/how_to_make_a_swap"
+    },
+    {
+      "source": "/developers/how-to/wallet-providers",
+      "destination": "/developers/how-to/wallet_providers"
+    },
+    {
+      "source": "/developers/how-to/estimate-gas",
+      "destination": "/developers/how-to/estimate_gas"
+    },
+    {
+      "source": "/developers/how-to/stellar-trustline",
+      "destination": "/developers/how-to/stellar_trustline"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/MONETIZE_SDK",
+      "destination": "/developers/how-to/monetize_sdk"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/CONFIGURE_SDK",
+      "destination": "/developers/how-to/configure_sdk"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/HOW_TO_MAKE_A_SWAP",
+      "destination": "/developers/how-to/how_to_make_a_swap"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/WALLET_PROVIDERS",
+      "destination": "/developers/how-to/wallet_providers"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/ESTIMATE_GAS",
+      "destination": "/developers/how-to/estimate_gas"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/STELLAR_TRUSTLINE",
+      "destination": "/developers/how-to/stellar_trustline"
+    },
+    {
+      "source": "/developers/packages/sdk",
+      "destination": "/developers/packages/foundation/sdk"
+    },
+    {
+      "source": "/developers/how-to/how_to_create_a_spoke_provider",
+      "destination": "/developers/how-to"
+    },
+    {
+      "source": "/developers/how-to/how-to-create-a-spoke-provider",
+      "destination": "/developers/how-to"
+    },
+    {
+      "source": "/developers/deployments/solver-compatible-assets",
+      "destination": "/developers/deployments/swaps-compatible-assets"
+    },
+    {
+      "source": "/quick-sponsoring-stellar-guide",
+      "destination": "/developers/how-to/quick-sponsoring-stellar-guide"
+    },
+    {
+      "source": "/stellar-sponsoring-getting-started",
+      "destination": "/developers/how-to/stellar-sponsoring-getting-started"
+    },
+    {
+      "source": "/developers/ai-integration",
+      "destination": "/ai-integration-guide"
+    },
+    {
+      "source": "/developers/sdks",
+      "destination": "/developers/packages"
+    },
+    {
+      "source": "/developers/packages/wallet-sdk-core",
+      "destination": "/developers/packages/connection/wallet-sdk-core"
+    },
+    {
+      "source": "/developers/packages/wallet-sdk-react",
+      "destination": "/developers/packages/connection/wallet-sdk-react"
+    },
+    {
+      "source": "/developers/packages/dapp-kit",
+      "destination": "/developers/packages/experience/dapp-kit"
+    },
+    {
+      "source": "/developers/packages/1.-the-foundation",
+      "destination": "/developers/packages/foundation"
+    },
+    {
+      "source": "/developers/packages/1.-the-foundation/sdk",
+      "destination": "/developers/packages/foundation/sdk"
+    },
+    {
+      "source": "/developers/packages/1.-the-foundation/sdk/functional-modules",
+      "destination": "/developers/packages/foundation/sdk/functional-modules"
+    },
+    {
+      "source": "/developers/packages/1.-the-foundation/sdk/functional-modules/bridge",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/bridge"
+    },
+    {
+      "source": "/developers/packages/1.-the-foundation/sdk/functional-modules/migration",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/migration"
+    },
+    {
+      "source": "/developers/packages/1.-the-foundation/sdk/functional-modules/money_market",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/money_market"
+    },
+    {
+      "source": "/developers/packages/1.-the-foundation/sdk/functional-modules/staking",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/staking"
+    },
+    {
+      "source": "/developers/packages/1.-the-foundation/sdk/functional-modules/swaps",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/swaps"
+    },
+    {
+      "source": "/developers/packages/1.-the-foundation/sdk/tooling-modules",
+      "destination": "/developers/packages/foundation/sdk/tooling-modules"
+    },
+    {
+      "source": "/developers/packages/1.-the-foundation/sdk/tooling-modules/backend_api",
+      "destination": "/developers/packages/foundation/sdk/tooling-modules/backend_api"
+    },
+    {
+      "source": "/developers/packages/1.-the-foundation/sdk/tooling-modules/intent_relay_api",
+      "destination": "/developers/packages/foundation/sdk/tooling-modules/intent_relay_api"
+    },
+    {
+      "source": "/developers/packages/2.-the-connection-layer",
+      "destination": "/developers/packages/connection"
+    },
+    {
+      "source": "/developers/packages/2.-the-connection-layer/wallet-sdk-core",
+      "destination": "/developers/packages/connection/wallet-sdk-core"
+    },
+    {
+      "source": "/developers/packages/2.-the-connection-layer/wallet-sdk-react",
+      "destination": "/developers/packages/connection/wallet-sdk-react"
+    },
+    {
+      "source": "/developers/packages/3.-the-experience-layer",
+      "destination": "/developers/packages/experience"
+    },
+    {
+      "source": "/developers/packages/3.-the-experience-layer/dapp-kit",
+      "destination": "/developers/packages/experience/dapp-kit"
+    },
+    {
+      "source": "/welcome-to-sodax",
+      "destination": "/contact"
+    },
+    {
+      "source": "/welcome-to-sodax/readme",
+      "destination": "/"
+    },
+    {
+      "source": "/welcome-to-sodax/contact-form",
+      "destination": "/contact"
+    },
+    {
+      "source": "/developers",
+      "destination": "/developers/deployments"
+    },
+    {
+      "source": "/partners",
+      "destination": "/contact"
+    },
+    {
+      "source": "/solana/solana",
+      "destination": "/solana"
+    },
+    {
+      "source": "/solana/solana/quickstart",
+      "destination": "/solana/quickstart"
+    },
+    {
+      "source": "/developers/how-to/oracle",
+      "destination": "/developers/http-api/oracle"
+    },
+    {
+      "source": "/sodax-mcp-server-or-cross-network-cross-chain-defi-api-data-and-sdk-docs",
+      "destination": "/ai-integration-guide"
+    },
+    {
+      "source": "/developers/packages/sdk/swaps",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/swaps"
+    },
+    {
+      "source": "/developers/packages/sdk/money_market",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/money_market"
+    },
+    {
+      "source": "/developers/packages/sdk/bridge",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/bridge"
+    },
+    {
+      "source": "/developers/packages/sdk/staking",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/staking"
+    },
+    {
+      "source": "/developers/packages/sdk/migration",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/migration"
+    },
+    {
+      "source": "/developers/packages/sdk/backend_api",
+      "destination": "/developers/packages/foundation/sdk/tooling-modules/backend_api"
+    },
+    {
+      "source": "/developers/packages/sdk/intent_relay_api",
+      "destination": "/developers/packages/foundation/sdk/tooling-modules/intent_relay_api"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/SWAPS",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/swaps"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/MONEY_MARKET",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/money_market"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/BRIDGE",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/bridge"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/STAKING",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/staking"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/MIGRATION",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/migration"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/BACKEND_API",
+      "destination": "/developers/packages/foundation/sdk/tooling-modules/backend_api"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/INTENT_RELAY_API",
+      "destination": "/developers/packages/foundation/sdk/tooling-modules/intent_relay_api"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/LEVERAGE_YIELD",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/leverage_yield"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/LEVERAGE_YIELD_APR",
+      "destination": "/developers/packages/foundation/sdk/functional-modules/leverage_yield_apr"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/SWAPS_API",
+      "destination": "/developers/packages/foundation/swaps-api"
+    },
+    {
+      "source": "/developers/packages/sdk/docs/BITCOIN_INTEGRATION",
+      "destination": "/developers/how-to/bitcoin-integration"
+    }
+  ],
+  "thumbnails": {
+    "background": "/images/og/docs-page-background.png",
+    "appearance": "dark",
+    "fonts": {
+      "family": "Inter"
+    }
+  },
+  "seo": {
+    "metatags": {
+      "canonical": "https://docs.sodax.com"
+    }
+  },
+  "contextual": {
+    "options": ["copy", "view", "assistant", "chatgpt", "claude", "cursor", "vscode", "mcp", "add-mcp"]
+  },
+  "feedback": {
+    "suggestEdit": true,
+    "raiseIssue": true
+  },
+  "markdown": {
+    "instructions": "SODAX is mainnet-only (no testnet chains or RPC endpoints exist) with a hub-and-spoke architecture; Sonic is the hub. SODAX is non-custodial protocol/software: it routes and settles; independent solvers on the marketplace fill \u2014 never say 'our solver', 'the SODAX solver', that SODAX trades, takes custody, or fills orders. For frontend/React integrations, prefer @sodax/dapp-kit hooks over calling @sodax/sdk directly. SDK operations \u2014 the methods that build, submit or await a transaction, and the API/quote calls \u2014 return Result<T, E> ({ ok: true, value } or { ok: false, error }): check result.ok, never wrap them in try/catch or branch on error.message; discriminate on the narrow error.code union instead. Synchronous config getters (getPartnerFee, getSupportedSwapTokens, getVault, ...) return their value directly, not a Result."
+  },
+  "integrations": {
+    "ga4": {
+      "measurementId": "G-Z10HMBQ0V9"
+    }
+  },
+  "footer": {
+    "socials": {
+      "x": "https://x.com/gosodax",
+      "discord": "https://www.sodax.com/discord",
+      "linkedin": "https://www.linkedin.com/company/gosodax",
+      "github": "https://github.com/icon-project/sodax-sdks"
+    },
+    "links": [
+      {
+        "header": "SODAX",
+        "items": [
+          {
+            "label": "Website",
+            "href": "https://www.sodax.com"
+          },
+          {
+            "label": "SODA Exchange",
+            "href": "https://www.sodax.com/exchange/swap"
+          },
+          {
+            "label": "SODAX Scan",
+            "href": "https://sodaxscan.com"
+          }
+        ]
+      },
+      {
+        "header": "Resources",
+        "items": [
+          {
+            "label": "FAQ",
+            "href": "/developers/faq"
+          },
+          {
+            "label": "Brand kit",
+            "href": "https://www.sodax.com/brand"
+          },
+          {
+            "label": "Partner portal",
+            "href": "https://www.sodax.com/partner-dashboard"
+          },
+          {
+            "label": "MiCA whitepaper",
+            "href": "https://icon.foundation/projects/publications?view=soda-mica"
+          }
+        ]
+      },
+      {
+        "header": "Contact",
+        "items": [
+          {
+            "label": "Talk to us",
+            "href": "/contact"
+          },
+          {
+            "label": "App support",
+            "href": "https://support.sodax.com"
+          }
+        ]
       }
     ]
   }

@@ -1,6 +1,7 @@
 import type { IStellarWalletProvider, StellarChainKey } from '@sodax/sdk';
 import { ChainKeys } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
+import { invalidateBalances } from './invalidateBalances.js';
 import type { MutationHookParams } from './types.js';
 import { useSafeMutation, type SafeUseMutationResult } from './useSafeMutation.js';
 import { useSodaxContext } from './useSodaxContext.js';
@@ -65,7 +66,7 @@ export function useEstablishTrustline({
           ? ['sponsoring', 'stellarAccountStatus', srcAddress]
           : ['sponsoring', 'stellarAccountStatus'],
       });
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', ChainKeys.STELLAR_MAINNET] });
+      invalidateBalances(queryClient, ChainKeys.STELLAR_MAINNET);
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },
   });

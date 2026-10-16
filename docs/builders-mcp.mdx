@@ -1,0 +1,106 @@
+---
+title: "Builders MCP"
+description: "Give your AI coding agent live access to the SODAX System — chains, tokens, real quotes, money market rates, intent history, and these docs — over one MCP endpoint."
+icon: plug
+---
+
+The **SODAX Builders MCP** is a hosted [Model Context Protocol](https://modelcontextprotocol.io) server. Point an MCP-capable agent at it and the agent stops guessing: it can read the live chain and token lists, pull a real quote, look up an intent, and search these docs while it writes your integration.
+
+```
+https://builders.sodax.com/mcp
+```
+
+No API key required. Landing page and per-client notes: [builders.sodax.com](https://builders.sodax.com/).
+
+<Note>
+  The MCP never holds a key and never signs. The one tool that touches a transaction takes an
+  **already-signed** one and hands it to the intent relay — your code still builds it and your wallet
+  still signs it.
+</Note>
+
+## Add it to your agent
+
+Most clients take the same JSON:
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+| Client | Where it goes |
+|---|---|
+| **Claude Code** | `claude mcp add --transport http sodax-builders https://builders.sodax.com/mcp` |
+| **Cursor** | `.cursor/mcp.json` (project) or Settings → MCP (global) |
+| **VS Code / Copilot** | `.vscode/mcp.json` — its own schema, below |
+| **ChatGPT, Claude Desktop, Windsurf, Cline, Goose, Roo Code, Gemini** | Listed as compatible on [builders.sodax.com](https://builders.sodax.com/) — check the client's own MCP config format |
+
+VS Code keys servers under `servers` and wants the transport named:
+
+```json
+{
+  "servers": {
+    "sodax-builders": {
+      "type": "http",
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+An SSE endpoint is available at `https://builders.sodax.com/sse` for clients that do not speak streamable HTTP.
+
+## What it gives the agent
+
+40 tools across two halves.
+
+**34 live-system tools** — network and asset configuration (supported chains, chain configs, swap tokens, hub assets, relay chain-id map), intents and solver reads (quotes, orderbook, intent lookup, oracle prices), intent relay (submit and inspect packets), AMM pools and candles, money market reserves with their supply and borrow rates, user positions, partner receivers and fee summaries, and SODA supply. They cover the same public data as the [HTTP API](/developers/http-api), so the agent works from today's values rather than its training data.
+
+**6 documentation tools** — search and full-page fetch over docs.sodax.com, a health check, a cache refresh, and a feedback tool so the agent can report a doc bug it hits while working.
+
+## MCP or `@sodax/skills`?
+
+They solve different halves of the same problem, and they compose.
+
+| | **Builders MCP** | **[`@sodax/skills`](/ai-integration-guide)** |
+|---|---|---|
+| What it is | Hosted server the agent calls at runtime | Skill files installed into your repo |
+| Gives the agent | Live data + doc search | v2-correct API shapes, patterns, anti-patterns |
+| Best at | "What tokens can I swap from Base today?" · "Quote this pair" · "Why did this intent fail?" | Writing and porting `@sodax/*` code |
+| Needs a network call | Yes | No |
+| Setup | One config block | `npx skills@latest add icon-project/sodax-sdks/packages/skills` |
+
+Install both. Skills keep the generated code correct; the MCP keeps the values in it real.
+
+## Try it
+
+Once it is wired, ask in plain language:
+
+> "Which networks does SODAX support, and what can I swap into on Solana today?"
+
+> "Look up intent `0x…` and tell me which step it failed at."
+
+Quotes work too, with one wrinkle worth knowing: the solver quotes **hub-chain (Sonic) assets**, so the
+agent resolves the pair through the oracle tool first rather than passing a Solana or Base token address
+straight in.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="AI coding agents" icon="robot" href="/ai-integration-guide">
+    Install `@sodax/skills` so agents write v2-correct code.
+  </Card>
+  <Card title="Your first swap" icon="bolt" href="/quickstart">
+    Install → quote → execute on mainnet.
+  </Card>
+  <Card title="HTTP API" icon="server" href="/developers/http-api">
+    The same public data, callable directly.
+  </Card>
+  <Card title="Talk to the team" icon="envelope" href="/contact">
+    Missing a tool? Tell us what you needed.
+  </Card>
+</CardGroup>

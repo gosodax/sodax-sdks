@@ -1,5 +1,5 @@
 /**
- * Tests for `TronSpokeService.deposit` / `getDeposit` — the two places that branch on token kind.
+ * Tests for `TronSpokeService.deposit` / `getDeposit` / wallet balances — the places that branch on token kind.
  *
  * Tron deposits ride the MPC relay in memo mode: the SDK builds the transfer to the shared reserve
  * itself, splices in the 32-byte payload-hash memo, signs, broadcasts and notifies. Native TRX and a
@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Hex } from '@sodax/types';
+import { ChainKeys, spokeChainConfig, type Hex } from '@sodax/types';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import { assembleBroadcastHex, encodeTrc20TransferParams, spliceMemo, tronBase58ToHex } from './tron-utils.js';
@@ -56,14 +56,18 @@ function stubTronGrid(overrides: Record<string, unknown> = {}) {
         ...overrides,
       };
 
+      // Only `ok` and `json()` are read, so a partial stands in for the full fetch Response.
       return { ok: true, json: async () => responses[path] ?? {} } as unknown as Response;
     }),
   );
 }
 
+// Held apart from `walletProvider`, whose `as never` would erase the mock's type for assertions.
+const signTransaction = vi.fn(async (tx: { txID: string; raw_data_hex: string }) => ({ ...tx, signature: [SIGNATURE] }));
+
 const walletProvider = {
   chainType: 'TRON',
-  signTransaction: vi.fn(async (tx: { txID: string; raw_data_hex: string }) => ({ ...tx, signature: [SIGNATURE] })),
+  signTransaction,
   signMessage: vi.fn(async () => `0x${SIGNATURE}`),
 } as never;
 
@@ -82,6 +86,8 @@ const callTo = (path: string) => calls.find(c => c.path === path);
 
 beforeEach(() => {
   calls = [];
+  // `restoreAllMocks` leaves a plain `vi.fn`'s calls in place, so each test would read an earlier one's.
+  signTransaction.mockClear();
   vi.spyOn(MpcRelayApiService, 'getDepositAddress').mockResolvedValue({
     ok: true,
     value: {
@@ -134,7 +140,7 @@ describe('TronSpokeService.deposit — TRC-20', () => {
 
     await tron.deposit(depositParams(USDT));
 
-    const signed = vi.mocked(walletProvider.signTransaction).mock.calls[0]?.[0] as {
+    const signed = vi.mocked(signTransaction).mock.calls[0]?.[0] as {
       raw_data?: { contract?: unknown[]; data?: string };
       raw_data_hex: string;
     };
@@ -149,7 +155,7 @@ describe('TronSpokeService.deposit — TRC-20', () => {
 
     await tron.deposit(depositParams(USDT));
 
-    const signed = vi.mocked(walletProvider.signTransaction).mock.calls[0]?.[0] as Record<string, unknown>;
+    const signed = vi.mocked(signTransaction).mock.calls[0]?.[0] as Record<string, unknown>;
     expect(signed).not.toHaveProperty('raw_data');
   });
 
@@ -159,7 +165,7 @@ describe('TronSpokeService.deposit — TRC-20', () => {
 
     const txHash = await tron.deposit(depositParams(USDT));
 
-    expect(walletProvider.signTransaction).toHaveBeenCalledWith(expect.objectContaining({ raw_data_hex: rawWithMemo }));
+    expect(signTransaction).toHaveBeenCalledWith(expect.objectContaining({ raw_data_hex: rawWithMemo }));
     expect(callTo('/wallet/broadcasthex')?.body.transaction).toContain(rawWithMemo);
     // The relay keys the deposit on the txid VERBATIM, so notify must get exactly what `deposit`
     // returns — bare hex for Tron. A `0x` prefix here is notified under one id and polled under another.
@@ -444,5 +450,29 @@ describe('TronSpokeService.getDeposit', () => {
 
     expect(callTo('/wallet/triggerconstantcontract')).toBeUndefined();
     expect(balance).toBe(42n);
+  });
+});
+
+describe('TronSpokeService wallet balances', () => {
+  const { TRX, USDT: USDT_TOKEN } = spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens;
+
+  it('routes a single-token read through SpokeService to the on-chain balance', async () => {
+    stubTronGrid();
+
+    const result = await sodax.spoke.getWalletBalance({ srcChainKey: TRON, srcAddress: SENDER, token: USDT_TOKEN });
+
+    expect(result).toEqual({ ok: true, value: 0x539n });
+  });
+
+  it('reads TRX and TRC-20 balances in one batch, keyed by token address', async () => {
+    stubTronGrid();
+
+    const result = await sodax.spoke.getWalletBalances({
+      srcChainKey: TRON,
+      srcAddress: SENDER,
+      tokens: [TRX, USDT_TOKEN],
+    });
+
+    expect(result).toEqual({ ok: true, value: { [TRX.address]: 42n, [USDT_TOKEN.address]: 0x539n } });
   });
 });

@@ -47,6 +47,7 @@ describe('useEstablishTrustline — invalidation after a broadcast trustline', (
     expect(invalidatedKeys()).toEqual([
       ['shared', 'stellarTrustlineCheck', ChainKeys.STELLAR_MAINNET, TOKEN, ADDRESS],
       ['sponsoring', 'stellarAccountStatus', ADDRESS],
+      ['shared', 'balances', ChainKeys.STELLAR_MAINNET],
       ['shared', 'xBalances', ChainKeys.STELLAR_MAINNET],
     ]);
   });
@@ -64,6 +65,7 @@ describe('useEstablishTrustline — invalidation after a broadcast trustline', (
     expect(invalidatedKeys()).toEqual([
       ['shared', 'stellarTrustlineCheck'],
       ['sponsoring', 'stellarAccountStatus'],
+      ['shared', 'balances', ChainKeys.STELLAR_MAINNET],
       ['shared', 'xBalances', ChainKeys.STELLAR_MAINNET],
     ]);
   });

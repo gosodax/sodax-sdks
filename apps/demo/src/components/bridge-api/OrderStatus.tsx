@@ -16,7 +16,7 @@ export default function OrderStatus({ order }: { order: BridgeApiOrder }) {
 
   if (!statusResponse) {
     return (
-      <div className="flex flex-col text-center pb-4">
+      <div className="flex flex-col text-center pb-4 wrap-anywhere">
         <div>Tx Hash: {order.txHash}</div>
         <div>Status: Loading...</div>
       </div>
@@ -26,7 +26,7 @@ export default function OrderStatus({ order }: { order: BridgeApiOrder }) {
   const { status, result, failedAtStep, failureReason, userMessage } = statusResponse.data;
 
   return (
-    <div className="flex flex-col text-center pb-4">
+    <div className="flex flex-col text-center pb-4 wrap-anywhere">
       <div>Tx Hash: {order.txHash}</div>
       <div>Src Chain ID: {order.srcChainKey}</div>
       <div>Status: {status}</div>

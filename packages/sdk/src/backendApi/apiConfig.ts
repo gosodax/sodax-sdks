@@ -217,3 +217,14 @@ export function resolveSponsoringApiConfig(layers: LayeredApiConfig): Sponsoring
 export function resolveBridgeApiConfig(layers: LayeredApiConfig): BaseApiConfig {
   return resolveSharedApiConfig(layers);
 }
+
+/**
+ * Resolve the effective config for the leverage-yield API. Its `/leverage-yield/*` routes are gateway
+ * siblings of `/swaps` and `/bridge`, so — like {@link resolveBridgeApiConfig} — it reads the same
+ * config as the base API but must NOT carry the data API's `basePath`. There is deliberately no
+ * `leverageYieldApiConfig` slice: relocate it via the top-level `baseURL`, the `baseApiConfig` slice,
+ * or a per-call `RequestOverrideConfig`.
+ */
+export function resolveLeverageYieldApiConfig(layers: LayeredApiConfig): BaseApiConfig {
+  return resolveSharedApiConfig(layers);
+}

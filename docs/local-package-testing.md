@@ -91,5 +91,5 @@ The script warns when it re-packs a version that already exists in the output di
   bytes in a `finally` block and on `SIGINT`/`SIGTERM`. An interrupted run leaves the working tree
   clean.
 - These versions are for local testing only. Never commit one, and never publish a `pack:local`
-  tarball — real releases go through the Changesets flow in
+  tarball — real releases go through the release flow in
   [RELEASE_INSTRUCTIONS.md](../packages/RELEASE_INSTRUCTIONS.md).

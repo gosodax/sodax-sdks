@@ -1,5 +1,6 @@
 import type { BridgeSubmitTxRequestV2, BridgeSubmitTxResponseV2, RequestOverrideConfig } from '@sodax/sdk';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { retryUnlessAuthFailure } from '../shared/retryUnlessAuthFailure.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
@@ -20,8 +21,9 @@ export type UseBridgeApiSubmitTxVars = {
  * broadcasting the spoke-deposit tx, handing it (with the FULL `relayData { address, payload }`
  * envelope) to the backend.
  *
- * Pure mutation: pass `{ request, apiConfig? }` to `mutate({...})`. Default `retry: 3` is applied
- * at the hook level — consumers can override via `mutationOptions.retry`.
+ * Pure mutation: pass `{ request, apiConfig? }` to `mutate({...})`. Retries up to 3 times at the
+ * hook level, except on a terminal API-key rejection (401/403) — see `retryUnlessAuthFailure`.
+ * Consumers can override via `mutationOptions.retry`.
  *
  * @example
  * const { mutateAsync: submitBridgeTx, isPending, error } = useBridgeApiSubmitTx();
@@ -42,7 +44,7 @@ export const useBridgeApiSubmitTx = ({
 
   return useSafeMutation<BridgeSubmitTxResponseV2, Error, UseBridgeApiSubmitTxVars>({
     mutationKey: ['bridgeApi', 'submitTx'],
-    retry: 3,
+    retry: retryUnlessAuthFailure,
     ...mutationOptions,
     mutationFn: async ({ request, apiConfig }): Promise<BridgeSubmitTxResponseV2> =>
       unwrapResult(await sodax.api.bridge.submitTx(request, apiConfig)),

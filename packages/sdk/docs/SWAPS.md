@@ -13,7 +13,7 @@ const sodax = new Sodax();
 const quote = await sodax.swaps.getQuote(quoteRequest);
 ```
 
-> **`sodax.swaps` vs `sodax.api.swaps`.** This page documents `sodax.swaps` (`SwapService`) — the end-to-end intent orchestrator that creates, relays, and finalizes swaps on-chain. The lower-level typed HTTP client for the backend Swaps API v2 (quote, create-intent, submit-tx, status, fees — 21 endpoints) is `sodax.api.swaps` (`SwapsApiService`); see [`SWAPS_API.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md).
+> **`sodax.swaps` vs `sodax.api.swaps`.** This page documents `sodax.swaps` (`SwapService`) — the end-to-end intent orchestrator that creates, relays, and finalizes swaps on-chain. The lower-level typed HTTP client for the backend Swaps API (quote, create-intent, submit-tx, status, fees — 21 endpoints) is `sodax.api.swaps` (`SwapsApiService`); see [`SWAPS_API.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md).
 
 ## Using SDK Config and Constants
 
@@ -26,8 +26,7 @@ import type { SpokeChainKey, XToken } from '@sodax/sdk';
 
 const sodax = new Sodax();
 
-// If you want dynamic (backend API-based) configuration, initialize the instance before use.
-// By default the configuration bundled in the SDK version you are using is applied.
+// The current SDK keeps packaged defaults merged with constructor overrides.
 await sodax.initialize();
 
 // All supported spoke chain keys
@@ -39,6 +38,41 @@ const supportedTokens: readonly XToken[] = sodax.swaps.getSupportedSwapTokensByC
 // All supported swap tokens across every spoke chain
 const allTokens: Record<SpokeChainKey, readonly XToken[]> = sodax.swaps.getSupportedSwapTokens();
 ```
+
+### RWA classification and token logos
+
+`XToken.isRwa === true` marks a registered tokenized stock, ETF or commodity,
+including registered cross-chain representations. An omitted flag means no RWA
+classification is declared; it is not a general-purpose crypto/stablecoin taxonomy.
+Chain membership and symbol spelling do not determine RWA status.
+
+Use `isRealWorldAsset({ chainKey, address })` to resolve metadata from the packaged
+SDK registry when your token data comes from an API without the flag. It returns
+false for unknown chains or addresses, ignores symbols, and compares EVM addresses
+case-insensitively while preserving non-EVM identifier casing. It does not read
+custom constructor config or validate swap/money-market support. New registry
+metadata requires an SDK update; it does not automatically update backend payloads.
+
+```typescript
+import { ChainKeys, getSupportedSolverTokens, isRealWorldAsset, tokenLogo } from '@sodax/sdk';
+
+const tokens = getSupportedSolverTokens(ChainKeys.ROBINHOOD_MAINNET);
+const rwaTokens = tokens.filter(isRealWorldAsset);
+const rows = tokens.map(token => ({
+  symbol: token.symbol,
+  isRwa: isRealWorldAsset(token),
+  logo: tokenLogo(token.symbol),
+}));
+```
+
+For API responses using `xChainId`, pass it as `chainKey` alongside the token's
+on-chain `address`. Resolve each chain/address before grouping directory rows;
+keep feature support and UI visibility filters separate from classification.
+
+`tokenLogo(symbol)` serves shared PNGs from the SDK repository's `main` branch.
+Robinhood equity/ETF entries use the Robinhood mark; xStocks retain their own
+artwork. Image replacements become available after merge, subject to caching,
+without an SDK release. Consumers must use these URLs to receive the replacements.
 
 ## Available Methods
 
@@ -54,11 +88,14 @@ All swap methods are accessible through `sodax.swaps`:
 ### Intent Creation & Execution
 
 - `swap(params)` — Full end-to-end swap (recommended — handles all steps automatically); signed execution only
+- `swapWithApproval(params)` — `swap` with the source-token approval folded in; one signature on an EIP-5792 wallet (see [Approve and Swap in One Signature](#approve-and-swap-in-one-signature)); signed execution only
 - `createIntent(params)` — Create an intent on the source spoke chain; supports both signed (`raw: false`) and raw (`raw: true`) modes
 - `createLimitOrder(params)` — Full end-to-end limit order (no deadline, must be cancelled manually); signed execution only
 - `createLimitOrderIntent(params)` — Create a limit order intent only (no relay/solver notify); supports raw and signed modes
-- `submitIntent(payload)` — Submit a spoke tx to the relay API (low-level, called automatically by `swap`)
-- `postExecution(request)` — Notify the solver that an intent is live on the hub chain (low-level, called automatically by `swap`)
+- `submitIntent(payload)` — Submit a spoke tx to the relay API (low-level, called automatically by `swap` on its fallback path)
+- `postExecution(request)` — Notify the solver that an intent is live on the hub chain (low-level, called automatically by `swap` on its fallback path)
+
+Driving these steps yourself instead of calling `swap`? See [Migrate a manual swap to the backend submit-tx flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md).
 
 #### Backend 2-step submit
 
@@ -97,24 +134,29 @@ Only the two `timeout` terms are yours to tune. Opting out with `useBackendSubmi
 
 - `getIntent(txHash)` — Retrieve an `Intent` from a hub-chain transaction hash
 - `getFilledIntent(txHash)` — Retrieve the fill state of an intent from the solver's fill tx hash
-- `getIntentSubmitTxExtraData(params)` — Get the relay extra data (`address` + `payload`) needed to submit a Solana/Bitcoin intent
+- `getIntentSubmitTxExtraData(params)` — Rebuild the relay extra data (`address` + `payload`) for a Solana/Bitcoin intent from a hub-chain tx hash or an `Intent`; byte-identical to the `relayData` that `createIntent` returned
+- `reconstructRelayData(intent)` — The same relay extra data, derived offline from a fully-populated `Intent` (no RPC call)
 - `getSolvedIntentPacket(params)` — Poll the relayer until a solved intent's fill packet arrives on the destination chain
 - `getIntentHash(intent)` — Compute the keccak256 hash of an intent (its on-chain ID)
 - `getStatus(request)` — Poll the solver API for current intent execution status
+- `getDetailedStatus(params)` — Read a swap's status from its **source-chain** tx hash; routes to the backend record or the solver, whichever can answer
 - `cancelIntent(params)` — Cancel an active intent and wait for hub confirmation
 - `createCancelIntent(params)` — Build (and optionally broadcast) only the cancel tx; supports raw and signed modes
+- `getCancelIntentRelayData(intent)` — Relay extra data (`address` + `payload`) for manually relaying a Solana cancel tx
 - `cancelLimitOrder(params)` — Alias for `cancelIntent` with domain-specific naming
 
 ### Token Approval
 
 - `isAllowanceValid(params)` — Check if the spender contract has sufficient token allowance
 - `approve(params)` — Approve token spend (EVM/Sonic/Stellar); supports raw and signed modes
+- `getApprovalStrategy(params)` — Which path `swapWithApproval` would take: `'not-required'`, `'atomic-batch'` (one signature) or `'sequential'`
 
 ### Utility Methods
 
 - `getSupportedSwapTokensByChainId(chainId)` — Get supported swap tokens for a spoke chain
 - `getSupportedSwapTokens()` — Get all supported swap tokens per chain
 - `estimateGas(params)` — Estimate gas for a raw transaction on any spoke chain
+- `getSwapSpeedTier({ srcToken, dstToken })` — Offline estimate of how fast a token pair will settle
 
 ## Core Concepts
 
@@ -189,11 +231,11 @@ All swap-module errors are instances of `SodaxError`, exported from `@sodax/sdk`
 ```typescript
 import { SodaxError, isSodaxError } from '@sodax/sdk';
 
-class SodaxError<C extends string = string> extends Error {
+class SodaxError<C extends SodaxErrorCode = SodaxErrorCode> extends Error {
   readonly code: C;                  // string-literal discriminator
   readonly cause?: unknown;          // ES2022 cause chain
   readonly context?: Record<string, unknown>;
-  toJSON(): { name, code, message, stack, context, cause };
+  toJSON(): { name, code, feature, message, stack, context, cause };
 }
 
 function isSodaxError(e: unknown): e is SodaxError;
@@ -212,9 +254,11 @@ function isSodaxError(e: unknown): e is SodaxError;
 | Method | Error type | Codes |
 |---|---|---|
 | `swap` | `SwapError` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `TX_VERIFICATION_FAILED`, `TX_SUBMIT_FAILED`, `RELAY_TIMEOUT`, `RELAY_FAILED`, `EXECUTION_FAILED`, `EXTERNAL_API_ERROR`, `UNKNOWN` |
-| `createIntent` / `createLimitOrderIntent` | `CreateIntentError` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` |
+| `createIntent` / `createLimitOrderIntent` | `SwapCreateIntentError` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` |
 | `postExecution` | `PostExecutionError` | `EXECUTION_FAILED`, `EXTERNAL_API_ERROR`, `UNKNOWN` |
 | `createLimitOrder` | `SwapError` | (same as `swap`) |
+| `swapWithApproval` | `SwapWithApprovalError` (guard `isSwapWithApprovalError`) | `swap`'s codes, plus `APPROVE_FAILED` and `ALLOWANCE_CHECK_FAILED` |
+| `getApprovalStrategy` | `ApprovalStrategyError` | `ALLOWANCE_CHECK_FAILED` |
 
 **Important:** `postExecution` alone never emits relay/verify codes — those appear only on `swap` because only `swap` orchestrates verify + relay. Don't write a unified switch that handles both with the same union. Note that `swap` orchestrates verify + relay only on the **client-side path** (the fallback, or `useBackendSubmitTx: false`), so `TX_VERIFICATION_FAILED` and `phase: 'verify'` never surface on a swap the backend completes.
 
@@ -224,7 +268,7 @@ function isSodaxError(e: unknown): e is SodaxError;
 {
   srcChainKey?: SpokeChainKey;
   dstChainKey?: SpokeChainKey;
-  phase?: 'validate' | 'createIntent' | 'verify' | 'submit' | 'relay' | 'postExecution';
+  phase?: 'validate' | 'intentCreation' | 'verify' | 'submit' | 'relay' | 'approve' | 'lookup' | 'execution' | 'postExecution';
   // Only on EXTERNAL_API_ERROR:
   api?: 'solver';                // discriminator for upstream API errors (used as Sentry/Datadog tag)
   solverCode?: SolverIntentErrorCode;
@@ -234,8 +278,21 @@ function isSodaxError(e: unknown): e is SodaxError;
   // Only on VALIDATION_FAILED:
   field?: string;
   reason?: string;
+  // On `swap` failures after the source tx was broadcast (TX_VERIFICATION_FAILED, the relay codes,
+  // and postExecution failures) — the tx to keep reading status for with `getDetailedStatus`:
+  srcTxHash?: string;
+  // swapWithApproval only:
+  action?: 'swapWithApproval';
+  approvalStrategy?: 'atomic-batch' | 'sequential';
+  batchId?: string;            // the wallet's EIP-5792 batch id, once it accepted the batch
+  statusCode?: number;         // EIP-5792 status code of a failed batch
+  approveTxHash?: string;      // an approval that did not confirm
 }
 ```
+
+A post-broadcast failure does not mean the swap failed: with backend submit-tx on, the backend keeps working on
+it after `swap()` gives up. Read `error.context.srcTxHash` (with `srcChainKey`) and keep polling
+[`getDetailedStatus`](#get-detailed-status) rather than reporting the swap as lost.
 
 #### Discrimination example
 
@@ -301,7 +358,7 @@ if (!result.ok) {
 
 #### Relay-layer contract
 
-The lower-level relay helpers `relayTxAndWaitPacket` and `submitTransaction` (in `packages/sdk/src/shared/services/intentRelay/IntentRelayApiService.ts`) emit two stable error message strings on failure: `'SUBMIT_TX_FAILED'` and `'RELAY_TIMEOUT'`. These are exported as `RELAY_ERROR_CODES` and form a public contract that other modules (moneyMarket, bridge, dex, migration, staking) still rely on directly.
+The lower-level relay helpers `relayTxAndWaitPacket` and `submitTransaction` (in `packages/sdk/src/shared/services/intentRelay/IntentRelayApiService.ts`) emit three stable error message strings on failure: `'SUBMIT_TX_FAILED'`, `'RELAY_TIMEOUT'` and `'RELAY_POLLING_FAILED'`. These are exported as `RELAY_ERROR_CODES` and form a public contract. Only `dex` consumes them directly; every other feature module maps them into a typed `SodaxError` via `mapRelayFailure`.
 
 The swap module wraps these via the unified `mapRelayFailure`, surfacing the original code on `error.context.relayCode` so swap callers don't need to inspect `error.cause.message`.
 
@@ -320,7 +377,7 @@ If you were on the previous `Error.message`-based pattern:
 
 The full `SolverErrorResponse` payload is preserved on `error.context.solverDetail`, so anything you read from `.detail.*` previously is still reachable.
 
-Other swap methods (`getQuote`, `getStatus`, `submitIntent`, `cancelIntent`, etc.) and other modules (`moneyMarket`, `bridge`, `dex`, …) **remain unchanged in this release** — they still use the legacy `Error | unknown` / `SolverErrorResponse` patterns documented per-module.
+Other swap methods (`getQuote`, `getStatus`, `submitIntent`, `cancelIntent`, etc.) and other modules (`moneyMarket`, `bridge`, `dex`, …) **retain their legacy error shapes in this release** — they still use the `Error | unknown` / `SolverErrorResponse` patterns documented per-module, rather than migrating to `SodaxError`.
 
 ---
 
@@ -328,7 +385,7 @@ Other swap methods (`getQuote`, `getStatus`, `submitIntent`, `cancelIntent`, etc
 
 Requesting a quote requires the user's input amount scaled by the token's decimals. All token addresses and decimals are available via `sodax.config`.
 
-The quoting API supports `'exact_input'` (user specifies the amount to swap) and `'exact_output'` (user specifies the amount to receive).
+The quoting API supports a single quote type, `'exact_input'` — the user specifies the amount to swap and the solver returns the amount they receive. There is no "exact output" mode; the API rejects any other value.
 
 ```typescript
 import { Sodax, ChainKeys } from '@sodax/sdk';
@@ -465,9 +522,24 @@ For limit orders, pass `deadline: 0n` directly to `createIntent` (or use `create
 
 ---
 
+## Get Swap Speed Tier
+
+Offline, rule-based estimate of how fast a `srcToken` → `dstToken` swap will settle. It is derived purely from SDK config — **no network, on-chain, or backend call** — so it is safe to call synchronously while rendering a quote. Tokens whose `vault` is a money-market-reserve (sodaAsset) settle faster, and an Ethereum leg adds a fixed penalty.
+
+```typescript
+const { tier, estimatedSeconds } = sodax.swaps.getSwapSpeedTier({ srcToken, dstToken });
+
+console.log(tier); // 'fast' | 'normal' | 'slow'
+console.log(estimatedSeconds); // e.g. 15
+```
+
+`estimatedSeconds` is the source of truth; `tier` is bucketed from it. The rules: a fast base (15s) applies when **either** token's `vault` is a money-market reserve, otherwise the base is 35s; an Ethereum leg on either side adds a fixed penalty. The check is on `XToken.vault`, not `XToken.hubAsset` — the two differ for most tokens, and only the vault is a reserve address. See `estimateSwapSpeedTier` in the SDK source for the exact constants.
+
+---
+
 ## Token Approval Flow
 
-Before creating an intent, check whether the relevant spender contract already has permission to spend the user's input tokens.
+`swap()` and `createIntent()` do not approve the input token for you. Before executing, call `isAllowanceValid()` and `approve()` when it returns `false` — or call [`swapWithApproval()`](#approve-and-swap-in-one-signature), which does both. On EVM chains this is an ERC-20 allowance; on Stellar it is a trustline; on other chains it returns `true` and no approval is needed. Native gas tokens on EVM need no approval.
 
 - **Hub (Sonic)**: checks allowance against the intents contract
 - **EVM spoke chains**: checks allowance against the spoke's asset manager
@@ -560,6 +632,101 @@ map and no way to broadcast them the wrong way round.
 
 For Stellar as the source chain, `isAllowanceValid` checks trustline balance sufficiency and `approve` adds/increases the trustline. For Stellar as the **destination** chain, frontends must manually establish trustlines before executing swaps. See `packages/sdk/docs/STELLAR_TRUSTLINE.md` for details.
 
+## Approve and Swap in One Signature
+
+`swapWithApproval()` is `swap()` with the approval folded in. On a wallet that supports
+[EIP-5792](https://eips.ethereum.org/EIPS/eip-5792) atomic batches it sends the approval and the swap transaction as
+**one batch — one signature, all or nothing** — and otherwise falls back to approving first. Completion afterwards is
+exactly `swap()`'s (backend submit-tx with the client-side relay fallback). `swap()`, `approve()` and `createIntent()`
+are unchanged.
+
+```typescript
+const strategy = await sodax.swaps.getApprovalStrategy({ params: createIntentParams, walletProvider });
+// 'not-required' | 'atomic-batch' | 'sequential' — label the button before the user clicks
+
+const result = await sodax.swaps.swapWithApproval({ params: createIntentParams, walletProvider });
+if (result.ok) {
+  console.log(result.value.approvalStrategy, result.value.intentDeliveryInfo.srcTxHash);
+}
+```
+
+| Strategy | When | Signatures |
+| --- | --- | --- |
+| `'not-required'` | The allowance already covers `inputAmount`, or the token needs none (native token, chains without allowances) | 1 |
+| `'atomic-batch'` | EVM spoke source, and the wallet reports EIP-5792 atomic support for that chain | 1 |
+| `'sequential'` | Anything else: the Sonic hub, Stellar trustlines, wallets without EIP-5792 | 2 (approve, wait for it to confirm, then swap), or 3 when the token must reset a stale allowance first |
+
+**Which wallets batch.** The wallet provider must implement the optional `getAtomicBatchSupport` / `sendAtomicBatch`
+/ `waitForBatch` methods — `EvmWalletProvider` from `@sodax/wallet-sdk-core` does for a connected browser wallet, never
+for a private-key account. The wallet then decides per chain: a status of `'supported'` batches immediately, and
+`'ready'` means the wallet first asks the user to upgrade the account (MetaMask: an EIP-7702 smart account, same
+address, once per chain). Wallets support EIP-5792 on a subset of networks, so expect `'sequential'` on chains your
+users' wallets do not cover.
+
+**Not asking for the upgrade.** Pass `allowAccountUpgrade: false` to `getApprovalStrategy` and `swapWithApproval` to
+treat a `'ready'` wallet as unable to batch: it approves separately and never sees the upgrade prompt. An account that
+is already `'supported'` still batches. The default is `true`. Whether to set it, and whether to remember a user's
+answer, is up to your app:
+
+```typescript
+import { ACCOUNT_UPGRADE_DECLINED } from '@sodax/sdk';
+
+const result = await sodax.swaps.swapWithApproval({ params, walletProvider });
+if (!result.ok && result.error.code === 'USER_REJECTED' && result.error.context?.reason === ACCOUNT_UPGRADE_DECLINED) {
+  // The user said no to the smart account, not to the swap: offer the two-signature path.
+  await sodax.swaps.swapWithApproval({ params, walletProvider, allowAccountUpgrade: false });
+}
+```
+
+**The batch.** `[approve(0)?, approve(amount), deposit]`, in that order — the reset leg appears only for a token that
+rejects changing a non-zero allowance (see [Raw Approval Transaction](#raw-approval-transaction)). The batch's
+transaction hash becomes `intentDeliveryInfo.srcTxHash`, the hash the relay and backend submit-tx track.
+
+**Failures.** If the wallet turns the batch down before signing anything (for example EIP-5792 `5760`, atomicity
+not supported), `swapWithApproval` approves separately instead and reports `approvalStrategy: 'sequential'`. Once the
+user has seen the batch it is never retried as separate transactions, since that would mean a second round of
+prompts or a duplicate of a batch that may still land:
+
+- the user rejects the batch → `USER_REJECTED`; declining the account upgrade (EIP-5792 `5750`) is also
+  `USER_REJECTED`, with `context.reason: ACCOUNT_UPGRADE_DECLINED` (`'account-upgrade-declined'`);
+- the wallet reports the batch never included or fully reverted (EIP-5792 `400` / `500`) →
+  `INTENT_CREATION_FAILED` with `context.reason: 'atomic-batch-failed'`, `context.batchId` and
+  `context.statusCode`. Nothing was deposited;
+- anything else short of a confirmed deposit receipt (not confirmed within `timeout`, a partial revert, receipts
+  that do not identify the deposit) → `TX_VERIFICATION_FAILED` with `context.reason: ATOMIC_BATCH_UNCONFIRMED`
+  (`'atomic-batch-unconfirmed'`), `context.batchId` and `context.callCount`. It may have landed, so do not send it
+  again — resume it (below);
+- on the sequential path, an approval that does not confirm → `APPROVE_FAILED` with `context.reason:
+  'approve-not-confirmed'` and `context.approveTxHash`;
+- a failed allowance read → `ALLOWANCE_CHECK_FAILED`.
+
+Every other code is `swap()`'s, including `context.srcTxHash` on post-broadcast failures. Errors from the approval
+step carry `context.action: 'swapWithApproval'`; once the path is chosen they also carry `context.approvalStrategy`.
+
+**Resuming an unconfirmed batch.** Call `swapWithApproval` again with the same `params` and wallet, plus
+`resumeBatchId: error.context.batchId` and `resumeBatchCallCount: error.context.callCount` (without the count, a
+batch the wallet confirmed as one transaction per call stays unconfirmed). It sends nothing: it waits for that batch
+again and, once its deposit confirms, relays it client-side and notifies the solver — the original intent is read
+back from the hub transaction, so nothing from the first call is needed. While the batch is still pending it returns
+the same unconfirmed error, so you can keep calling it; a batch the wallet reports as never included comes back as
+`atomic-batch-failed`.
+
+```typescript
+import { ATOMIC_BATCH_UNCONFIRMED } from '@sodax/sdk';
+
+const result = await sodax.swaps.swapWithApproval({ params, walletProvider });
+if (!result.ok && result.error.context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
+  const { batchId, callCount } = result.error.context;
+  // Later, e.g. from a "Check again" button — this sends nothing new:
+  const resumed = await sodax.swaps.swapWithApproval({
+    params,
+    walletProvider,
+    resumeBatchId: String(batchId),
+    resumeBatchCallCount: Number(callCount),
+  });
+}
+```
+
 ---
 
 ## Estimate Gas for Raw Transactions
@@ -596,11 +763,12 @@ if (createIntentResult.ok) {
 The `swap` method is the recommended way to perform a complete cross-chain swap. It orchestrates the full lifecycle automatically:
 
 1. Calls `createIntent` to submit the intent transaction on the source spoke chain
-2. Verifies the spoke transaction landed on-chain
-3. For non-hub source chains: submits the spoke tx to the relayer and waits for the relay packet to land on the hub (Sonic)
-4. Calls `postExecution` to notify the solver, triggering it to fill the intent
+2. **Backend attempt** (default, `swaps.useBackendSubmitTx`): hands the broadcast tx to `sodax.api.swaps.submitTx` — which verifies, relays and post-executes server-side — then polls submit-tx status until the intent is `solved`
+3. **On any non-success, falls back** to the fully client-side path: verifies the spoke transaction landed on-chain, then for non-hub source chains submits the spoke tx to the relayer and waits for the relay packet to land on the hub (Sonic), then calls `postExecution` to notify the solver, triggering it to fill the intent
 
-`swap` is signed-only (no `raw: true` mode) — use `createIntent` if you need raw transaction data.
+Both paths return an identical `SwapResponse`. See [Backend 2-step submit](#backend-2-step-submit) for the flag, the fallback conditions and why re-relaying is safe.
+
+`swap` is signed-only (no `raw: true` mode) — use `createIntent` if you need raw transaction data. If you orchestrate the steps yourself instead of calling `swap`, see [Migrate a manual swap to the backend submit-tx flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md) — the backend attempt and the fallback are not automatic on that path.
 
 ```typescript
 import { Sodax, ChainKeys } from '@sodax/sdk';
@@ -608,13 +776,17 @@ import type { IEvmWalletProvider, SwapResponse } from '@sodax/sdk';
 
 declare const evmWalletProvider: IEvmWalletProvider;
 
+// `deadline` is an absolute Unix timestamp — getSwapDeadline turns an offset into one
+const deadlineResult = await sodax.swaps.getSwapDeadline(300n); // 5 minutes from now
+if (!deadlineResult.ok) throw deadlineResult.error;
+
 const swapResult = await sodax.swaps.swap({
   params: {
     inputToken: '0x2170Ed0880ac9A755fd29B2688956BD959F933F8',
     outputToken: '0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f',
     inputAmount: 1_000_000_000_000_000n,
     minOutputAmount: 900_000n,
-    deadline: 300n, // or use getSwapDeadline()
+    deadline: deadlineResult.value,
     allowPartialFill: false,
     srcChainKey: ChainKeys.BSC_MAINNET,
     dstChainKey: ChainKeys.ARBITRUM_MAINNET,
@@ -626,6 +798,7 @@ const swapResult = await sodax.swaps.swap({
   walletProvider: evmWalletProvider,
   timeout: 120_000,        // optional — relay timeout in ms (default: DEFAULT_RELAY_TX_TIMEOUT = 120 s)
   skipSimulation: false,   // optional — skip spoke tx simulation (default: false)
+  // extras: { partnerFee, apiKey }, // optional per-action overrides — see note below
 });
 
 if (!swapResult.ok) {
@@ -637,6 +810,13 @@ if (!swapResult.ok) {
   console.log('Hub tx hash:', intentDeliveryInfo.dstTxHash);
 }
 ```
+
+The optional `extras` slot carries per-action overrides: `extras.partnerFee` replaces the configured
+swap partner fee for this action, and `extras.apiKey` replaces the configured backend API key
+(`x-api-key`) for this action's backend submit-tx leg. Both fall back to the `Sodax` config when
+omitted — see
+[CONFIGURE_SDK.md § API key](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#api-key).
+Pass `extras.apiKey` only from server-side code: a key in a browser bundle is public — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
 
 ---
 
@@ -766,6 +946,10 @@ if (cancelResult.ok) {
 }
 ```
 
+`cancelIntent` relays the cancel the same way `swap()` relays the intent: on Solana it submits the cancel payload alongside the spoke tx (the tx itself carries only the payload hash), and on Bitcoin it relays the signed on-demand payload — no extra input is needed from the caller. On Bitcoin no spoke transaction is broadcast, so `srcChainTxHash` is the relay's derived `od:<hash>` identifier rather than a chain tx hash.
+
+The cancel message is sent from the intent's `srcAddress` by default. A Bitcoin intent created in TRADING mode stores the trading address, while the cancel must be signed from the personal wallet — signed cancels read that address from `walletProvider`, so nothing changes for `cancelIntent`. Pass `params.srcAddress` only to override it (required for a raw Bitcoin cancel, see below).
+
 > **Error-type note:** `cancelIntent` and `cancelLimitOrder` return `Result<TxHashPair, Error | unknown>` — they were **not** migrated to the `SodaxError<C>` family. Don't `switch` on `error.code` here; treat the error as an opaque `Error` and use `instanceof Error` / `error.message` for diagnostics. The rest of this module (swap, createIntent, postExecution, createLimitOrder, createLimitOrderIntent) uses `SodaxError<SwapErrorCode>` — see [Error Handling](#error-handling).
 
 ### Build Cancel Intent (raw or signed — no relay wait)
@@ -779,6 +963,13 @@ const rawCancelResult = await sodax.swaps.createCancelIntent({
   raw: true,
 });
 
+// Raw Bitcoin cancel in TRADING mode: there is no wallet provider to read the personal address
+// from, and the intent stores the trading address, so the personal wallet address is required.
+const rawBtcCancelResult = await sodax.swaps.createCancelIntent({
+  params: { srcChainKey: ChainKeys.BITCOIN_MAINNET, intent: btcIntent, srcAddress: personalBtcAddress },
+  raw: true,
+});
+
 if (rawCancelResult.ok) {
   // rawTx is the chain-specific raw transaction (EvmRawTransaction for EVM chains,
   // SolanaRawTransaction for Solana, etc.) — TypeScript narrows it from `srcChainKey`.
@@ -786,11 +977,23 @@ if (rawCancelResult.ok) {
 }
 ```
 
+Relaying a cancel tx yourself follows [Submit Intent to Relay API](#submit-intent-to-relay-api), with one difference per chain family. On Solana the spoke tx carries only the payload hash, so pass `data` from `getCancelIntentRelayData(intent)` — the create-intent helpers (`getIntentSubmitTxExtraData`, `reconstructRelayData`) encode a different payload and do not match a cancel tx. On Bitcoin `createCancelIntent` returns the signed on-demand payload JSON rather than a tx hash; submit it under the literal `withdraw` tx hash with the parsed payload as `data`, and poll the derived `od:<hash>` id — `BitcoinSpokeService.getOnDemandRelayIdentity` (`sodax.spoke.bitcoin`) returns all three.
+
+```typescript
+const cancelRelayData = sodax.swaps.getCancelIntentRelayData(intent);
+if (cancelRelayData.ok) {
+  await sodax.swaps.submitIntent({
+    action: 'submit',
+    params: { chain_id: intent.srcChain.toString(), tx_hash: solanaCancelTxHash, data: cancelRelayData.value },
+  });
+}
+```
+
 ---
 
 ## Submit Intent to Relay API
 
-Called automatically by `swap`. Use this manually if you called `createIntent` separately.
+Called automatically by `swap` — but only on its **fallback** path; the backend attempt relays server-side instead. Use this manually if you called `createIntent` separately. If you are orchestrating the steps yourself, try `sodax.api.swaps.submitTx` first and keep this as your fallback — see [Migrate a manual swap to the backend submit-tx flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md).
 
 ```typescript
 import type { IntentRelayRequest } from '@sodax/sdk';
@@ -819,7 +1022,11 @@ if (submitResult.ok) {
 
 ## Get Intent Submit Tx Extra Data
 
-Required only when the source chain is **Solana** or **Bitcoin**. Pass the returned `RelayExtraData` as `data` in `submitIntent`.
+Required only when the source chain is **Solana** or **Bitcoin**. Pass the returned `RelayExtraData` as `data` in `submitIntent` (or `relayTxAndWaitPacket`).
+
+Those deposits commit only a hash of the relay payload on-chain, so the relayer can correlate a submission only with the exact original bytes. For an intent created by `createIntent` (or `swap` / `createLimitOrderIntent`) the payload returned here is byte-identical to the `relayData` that call returned — raw `createIntent` calldata for a Sonic-hub source, the `[approve, createIntent]` multicall for any spoke source — which makes this the recovery path when that runtime `relayData` is no longer available.
+
+One intent shape cannot be reconstructed this way: a leverage-yield `vaultSwap` / `createVaultIntent` intent with `hubWalletSwap`. Its `srcChain` is the hub while the relayed payload is the spoke multicall sent through `sendMessage`, so passing that `intent` to `getIntentSubmitTxExtraData({ intent })` or `reconstructRelayData` yields raw `createIntent` calldata that will not match. Keep the `relayData` the leverage-yield call returned, or use `sodax.api.leverageYield.getIntentSubmitTxExtraData`.
 
 ```typescript
 import type { RelayExtraData } from '@sodax/sdk';
@@ -840,6 +1047,9 @@ if (intentResult.ok) {
     const extraData: RelayExtraData = extraDataResult2.value;
     // Use extraData.address and extraData.payload in the relay submit request
   }
+
+  // Option 3: fully offline — same payload, no RPC call, from a fully-populated Intent
+  const offlineResult = sodax.swaps.reconstructRelayData(intentResult.value);
 }
 ```
 
@@ -847,7 +1057,7 @@ if (intentResult.ok) {
 
 ## Post Execution to Solver API
 
-Called automatically by `swap` after the relay packet lands on the hub. Use this manually when orchestrating the swap steps yourself.
+Called automatically by `swap` after the relay packet lands on the hub — on its **fallback** path only; the backend attempt post-executes server-side. Use this manually when orchestrating the swap steps yourself; [Migrate a manual swap to the backend submit-tx flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md) shows where it belongs in the two-path model.
 
 ```typescript
 import type { SolverExecutionRequest } from '@sodax/sdk';
@@ -916,7 +1126,7 @@ if (filledIntentResult.ok) {
 
 ## Get Intent Status
 
-Poll the solver API for the current execution status of an intent. The `intent_tx_hash` must be the hub-chain tx hash where the intent was registered.
+Poll the solver API for the current execution status of an intent. The `intent_tx_hash` must be the hub-chain tx hash where the intent was registered. If the solver returns `NOT_FOUND` or the request fails, the backend's durable intent record is checked for a recorded fill — see [SOLVER_API_ENDPOINTS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SOLVER_API_ENDPOINTS.md).
 
 ```typescript
 import { SolverIntentStatusCode } from '@sodax/sdk';
@@ -937,6 +1147,77 @@ if (statusResult.ok) {
 ```
 
 ---
+
+## Get Detailed Status
+
+`getDetailedStatus` answers "what is the status of this swap?" from the **source-chain** tx — the one identifier you always hold. It does not define a new status: it routes to whichever of the two existing sources can answer, and returns that source's payload unmodified.
+
+```typescript
+const result = await sodax.swaps.getDetailedStatus({
+  srcChainKey: ChainKeys.ARBITRUM_MAINNET,
+  srcTxHash: swapResponse.intentDeliveryInfo.srcTxHash,
+});
+
+if (result.ok) {
+  if (result.value.source === 'backend') {
+    // `data` is the SubmitTxStatusDataV2 from sodax.api.swaps.getSubmitTxStatus
+    console.log(result.value.data.status, result.value.data.userMessage);
+  } else {
+    // `data` is the SolverIntentStatusResponse from sodax.swaps.getStatus
+    console.log(result.value.data.status, result.value.dstTxHash);
+  }
+}
+```
+
+`DetailedSwapStatus` is discriminated on `source`, so it narrows on its own — no type guards needed:
+
+```typescript
+type DetailedSwapStatus =
+  | { source: 'backend'; data: SubmitTxStatusDataV2 }
+  | { source: 'solver'; dstTxHash: Hex; data: SolverIntentStatusResponse };
+```
+
+A point-in-time read — poll it yourself, or use `@sodax/dapp-kit`'s `useDetailedStatus`.
+
+To show a status without switching on `source`, collapse it with `summarizeSwapStatus` — pure, so it works on any
+`DetailedSwapStatus` you hold:
+
+```typescript
+import { summarizeSwapStatus } from '@sodax/sdk';
+
+if (result.ok) {
+  const { state, hubTxHash, fillTxHash } = summarizeSwapStatus(result.value);
+  // state: 'pending' | 'solved' | 'failed'. fillTxHash may be absent even when solved — the backend can
+  // confirm a fill from the on-chain journal without one.
+}
+```
+
+### Why it exists
+
+`sodax.api.swaps.getSubmitTxStatus` cannot answer for every swap, in two different ways.
+
+Sometimes there is **no record**, and it reads 404 — you opted out with `useBackendSubmitTx: false`, or the submit itself never landed. More often the record exists but is **stale**: [backend 2-step submit](#backend-2-step-submit) POSTs the tx *first* and only falls back to the client-side relay once that path stalls, so a fallback-completed swap leaves behind whatever state the backend last reached — `pending`, `relaying`, or a record it abandoned outright. Neither shape reflects what actually happened to the swap.
+
+`sodax.swaps.getStatus` can answer for it, but needs the **hub** tx hash, which the caller may not have. So the caller had to know which path ran and pick an API. This method makes that choice instead:
+
+1. Read the backend record; return it while it is still in play.
+2. Otherwise resolve the hub tx hash — the source tx itself for hub-source swaps, else the delivered relay packet's `dst_tx_hash` — and return `getStatus`'s answer.
+
+A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 2, and on the default path this is the *common* branch rather than an edge case: the record almost always exists, so abandonment — not a 404 — is what usually signals the fallback ran. It never self-heals, so keeping it would report `failed` for a swap the fallback went on to complete. A `success: false` envelope takes step 2 as well — that is the wire contract's "no record found", whatever `data` carries. A transport or server error routes on too, so a transient backend outage does not fail a swap the solver can still report on.
+
+**One failure does not route on: a rejected API key.** The swaps apiguard covers `POST /swaps/*`, so this `GET` does not normally see a 401/403 — unlike the bridge sibling, where the apiguard reads every `/bridge/*` route. Wherever one does arrive, it is a terminal configuration problem rather than a source that had nothing to say. Degrading to the solver would bury it behind a relay or solver error and leave a poller retrying a request only a corrected key can satisfy, so it surfaces directly, with `context.status` set for `isAuthFailure`. The transient key-verification `503` is not this case: it routes on like any other outage.
+
+Both payloads are already documented — the submit-tx record in [SWAPS_API.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md), the solver response under [Get Intent Status](#get-intent-status). Nothing is translated between them, so no field is dropped and no status code is reinterpreted.
+
+### When it fails
+
+`LOOKUP_FAILED`, and only that. It means no source could answer — most often the relay has not delivered the packet, so there is no hub tx hash for the solver to be asked about. That is a miss, not a lifecycle step: the method will not invent an early status, and it will not fall back to a stale abandoned record.
+
+If you poll this yourself, branch on `error.context.reason`. It equals `DETAILED_STATUS_NOT_DELIVERED` when the backend answered (a record, or a definitive 404) **and** the relay has no packet for the source tx — whether it answers 404 for a tx it has not indexed, or returns no matching delivered packet. You cannot tell that apart from "still in flight", so bound it with a retry budget. Any other `LOOKUP_FAILED` is a dependency failing right now — relay 5xx or unreachable, malformed response, solver down, or a backend outage that left the relay miss unprovable. Keep retrying those, since retrying is how the read recovers. A rejected key is the exception: `isAuthFailure(error)` is true and no budget applies, because only a corrected key changes the answer — and none would ever be spent, since an unanswered backend leaves the relay miss untagged. `useDetailedStatus` applies exactly this split.
+
+Because it is meant to be polled, each dependency read it makes — the relay packet lookup and the solver status call —
+carries its own budget and gives up rather than hanging. An expiry lands in that second group: it is a dependency
+failing right now, so it stays retryable and does not consume a not-delivered budget.
 
 ## Get Solved Intent Packet
 
@@ -1007,6 +1288,10 @@ if (!swapResult.ok) {
   const error = swapResult.error; // SwapError = SodaxError<SwapErrorCode>
 
   switch (error.code) {
+    case 'USER_REJECTED':
+      // User cancelled the wallet prompt. Not a failure — reset the UI, don't show an error.
+      break;
+
     case 'EXECUTION_FAILED':
       // Solver notification failed — the intent may have been created and relayed
       // successfully. Check intent status manually, then retry postExecution.
@@ -1057,7 +1342,7 @@ if (!swapResult.ok) {
 
 ### Handling `createIntent` Errors
 
-`createIntent` returns `Result<CreateIntentResult, CreateIntentError>`. The narrow union is `'VALIDATION_FAILED' | 'INTENT_CREATION_FAILED' | 'UNKNOWN'`:
+`createIntent` returns `Result<CreateIntentResult, SwapCreateIntentError>`. The narrow union is `'USER_REJECTED' | 'VALIDATION_FAILED' | 'INTENT_CREATION_FAILED' | 'UNKNOWN'`:
 
 ```typescript
 const createIntentResult = await sodax.swaps.createIntent({
@@ -1068,6 +1353,9 @@ const createIntentResult = await sodax.swaps.createIntent({
 if (!createIntentResult.ok) {
   const error = createIntentResult.error;
   switch (error.code) {
+    case 'USER_REJECTED':
+      // User cancelled the wallet prompt. Not a failure — reset the UI, don't show an error.
+      break;
     case 'VALIDATION_FAILED':
       // Unsupported token / invalid chain key / Bitcoin dust below 546 sats / wallet provider mismatch
       console.error('Validation failed:', error.message);
@@ -1079,6 +1367,9 @@ if (!createIntentResult.ok) {
     case 'UNKNOWN':
       console.error('Unexpected:', error.cause);
       break;
+    default:
+      // Keeps the switch honest if the union gains a code in a future release.
+      console.error('Unhandled createIntent code:', error.code);
   }
 }
 ```
@@ -1099,7 +1390,7 @@ if (!postExecResult.ok && postExecResult.error.code === 'EXTERNAL_API_ERROR') {
 }
 ```
 
-`getQuote` and `getStatus` are **unchanged in this release** — they still return `Result<T, SolverErrorResponse>`:
+`getQuote` and `getStatus` **retain the legacy error shape in this release** — they still return `Result<T, SolverErrorResponse>`:
 
 ```typescript
 import { SolverIntentErrorCode } from '@sodax/sdk';

@@ -22,5 +22,5 @@
     "declarationMap": false,
     "noUnusedLocals": true
   },
-  "exclude": ["**/*.test.ts", "dist", "node_modules", ".turbo"]
+  "exclude": ["**/*.test.ts", "vitest.config.ts", "coverage", "dist", "node_modules", ".turbo"]
 }

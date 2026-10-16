@@ -9,6 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Result } from '@sodax/types';
+import { SodaxError } from '../errors/SodaxError.js';
 import { runBackendSubmitTx, type BackendSubmitTxApi } from './runBackendSubmitTx.js';
 import { createSubmitTxAttempt } from './submitTxAttempt.js';
 import type { BackendSubmitTxStatusEnvelope } from './pollBackendSubmitTx.js';
@@ -120,6 +121,33 @@ describe('runBackendSubmitTx — happy path', () => {
 
     expect(await promise).toEqual({ ok: true, value: '0xDST' });
     expect(api.statusCalls.length).toBeGreaterThan(1);
+  });
+});
+
+describe('runBackendSubmitTx — per-action override config', () => {
+  it('applies the override to the POST and every status request without touching the timeout bounds', async () => {
+    const api = fakeApi({
+      statuses: [{ status: 'executed' }, { status: 'executed', result: { dstIntentTxHash: '0xDST' } }],
+    });
+
+    const promise = runBackendSubmitTx({
+      attempt: createSubmitTxAttempt(120_000),
+      api,
+      body: { txHash: '0xspokeTx' },
+      statusQuery: { txHash: '0xspokeTx' },
+      terminalStatus: 'executed',
+      onExecuted: (result: TestResult | undefined) => result?.dstIntentTxHash,
+      overrideConfig: { apiKey: 'per-action-key' },
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await promise).toEqual({ ok: true, value: '0xDST' });
+
+    // The POST keeps its attempt-computed bound; the override only adds the key.
+    expect(api.submitCalls[0]?.config).toEqual({ apiKey: 'per-action-key', timeout: SERVICE_TIMEOUT_MS });
+    for (const call of api.statusCalls) {
+      expect(call.config?.apiKey).toBe('per-action-key');
+      expect(call.config?.timeout).toBeDefined(); // the poll's own per-request bound survives the merge
+    }
   });
 });
 
@@ -250,8 +278,10 @@ describe('runBackendSubmitTx — non-success outcomes', () => {
   });
 
   it('carries the last status error as the cause when polling never succeeded', async () => {
-    const unauthorized = new Error('HTTP 401');
-    const api = fakeApi({ statusError: unauthorized });
+    // A statusless transport failure is retryable: the poll spends the attempt and hands back the last
+    // error as the cause, which is all the caller logs. The terminal 401/403 case is the next test.
+    const unreachable = new Error('ECONNRESET');
+    const api = fakeApi({ statusError: unreachable });
 
     const promise = run(api, 5_000);
     await vi.advanceTimersByTimeAsync(5_000);
@@ -259,11 +289,32 @@ describe('runBackendSubmitTx — non-success outcomes', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      // Without the chain, a status endpoint answering 401 on every call is indistinguishable from a
-      // backend that simply never finished — and the caller logs this cause and nothing else.
       expect(String((result.cause as Error).message)).toContain('status polling failed');
-      expect((result.cause as Error).cause).toBe(unauthorized);
+      expect((result.cause as Error).cause).toBe(unreachable);
     }
+    expect(api.statusCalls.length).toBeGreaterThan(1); // retried, unlike the terminal-auth case
+  });
+
+  it('stops immediately when the status endpoint rejects the API key', async () => {
+    // 401/403 is terminal (issue #389): re-requesting cannot succeed, so the poll hands back at once
+    // and the caller proceeds to its client-side fallback instead of burning the whole attempt.
+    const rejected = new SodaxError('EXTERNAL_API_ERROR', 'getSubmitTxStatus responded with 401', {
+      feature: 'backend',
+      context: { api: 'swaps', endpoint: '/swaps/submit-tx/status', status: 401 },
+    });
+    const api = fakeApi({ statusError: rejected });
+
+    const promise = run(api, 120_000);
+    await vi.advanceTimersByTimeAsync(120_000);
+    const result = await promise;
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(String((result.cause as Error).message)).toContain('rejected the API key');
+      expect((result.cause as Error).cause).toBe(rejected);
+    }
+    // One read, then out — no waiting out the 120s attempt.
+    expect(api.statusCalls).toHaveLength(1);
   });
 
   it('reports the terminal failure reason as the cause', async () => {

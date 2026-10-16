@@ -89,7 +89,7 @@ describe('useStellarGate — the trustline read is gated on account existence', 
   it('does not read a Stellar trustline for a non-Stellar destination', () => {
     const { gate, trustlineAddress } = run(
       { data: { exists: true, canAffordTrustline: true } },
-      { dstChainKey: ChainKeys.SONIC },
+      { dstChainKey: ChainKeys.SONIC_MAINNET },
     );
 
     expect(trustlineAddress).toBeUndefined();

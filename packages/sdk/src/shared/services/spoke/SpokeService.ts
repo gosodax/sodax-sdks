@@ -25,7 +25,9 @@ import {
   isBitcoinChainKey,
   type Result,
 } from '@sodax/types';
-import { encodeAddress } from '../../utils/shared-utils.js';
+import type { WalletBalanceMap } from './balance-utils.js';
+import { encodeAddress, encodeTokenIdentifier } from '../../utils/shared-utils.js';
+import { getEvmViemChain } from '../../utils/constant-utils.js';
 import { StacksSpokeService } from './StacksSpokeService.js';
 import { BitcoinSpokeService } from './BitcoinSpokeService.js';
 import { NearSpokeService } from './NearSpokeService.js';
@@ -61,6 +63,8 @@ import type {
   DepositParams,
   EstimateGasParams,
   GetDepositParams,
+  GetBalanceParams,
+  GetBalancesParams,
   SendMessageParams,
   VerifySimulationParams,
   WalletSimulationParams,
@@ -387,9 +391,9 @@ export class SpokeService {
    * Sign and broadcast the approval plan for an ERC-20 on the hub or an EVM spoke.
    *
    * A token of the TetherToken lineage rejects an allowance change from one non-zero value to
-   * another, so a wallet holding a stale allowance needs `approve(0)` first. The transactions cannot
-   * be batched: each one is only valid once its predecessor has been mined. The hash of the last is
-   * returned, so the contract callers see is unchanged.
+   * another, so a wallet holding a stale allowance needs `approve(0)` first. Sent as separate
+   * transactions, each is only valid once its predecessor has been mined, so this waits between them
+   * (an EIP-5792 atomic batch can carry both, in order). The hash of the last is returned.
    */
   private async executeErc20ApprovalPlan<Raw extends boolean>(
     params: SpokeApproveParamsHub<HubChainKey, Raw> | SpokeApproveParamsEvmSpoke<EvmSpokeOnlyChainKey, Raw>,
@@ -409,6 +413,8 @@ export class SpokeService {
         spender: params.spender,
         raw: false,
         walletProvider,
+        // Covers the reset leg too — an approval must not broadcast on the wrong EVM network.
+        expectedChainId: getEvmViemChain(params.srcChainKey).id,
       });
 
     if (plan.resetAmount !== undefined) {
@@ -657,7 +663,8 @@ export class SpokeService {
         return this.sui.encodeSimulationParams(token, assetManager);
       default:
         return {
-          encodedToken: encodeAddress(srcChainKey, token),
+          // Token identifiers on BITCOIN/NEAR/INJECTIVE are not addresses — recipient validation stays on the address leg only.
+          encodedToken: encodeTokenIdentifier(srcChainKey, token),
           encodedSrcAddress: encodeAddress(srcChainKey, assetManager),
         };
     }
@@ -911,6 +918,152 @@ export class SpokeService {
           return {
             ok: false,
             error: new Error(`[getDeposit] Invalid chain type. Valid chain types: ${ChainTypeArr.join(', ')}`),
+          };
+        }
+      }
+    } catch (error) {
+      return { ok: false, error };
+    }
+  }
+
+  /**
+   * Get a user's own wallet balance of a single token on a spoke chain, in smallest units.
+   * Chain-agnostic: dispatches to the per-chain service, which reads the native coin or the
+   * chain's token standard (EVM erc20, Solana SPL, …). Unlike {@link getDeposit}, this reads
+   * `srcAddress` itself, not the protocol asset manager.
+   * @param {GetBalanceParams<C>} params - The chain key, user address, and token.
+   * @returns {Promise<Result<bigint>>} The token balance in smallest units.
+   */
+  public async getWalletBalance<C extends SpokeChainKey>(params: GetBalanceParams<C>): Promise<Result<bigint>> {
+    try {
+      if (isHubChainKeyType(params.srcChainKey)) {
+        const value = await this.sonic.getWalletBalance(params as GetBalanceParams<SonicChainKey>);
+        return { ok: true, value };
+      }
+
+      const chainType = getChainType(params.srcChainKey);
+      switch (chainType) {
+        case 'EVM': {
+          const value = await this.evm.getWalletBalance(params as GetBalanceParams<EvmSpokeOnlyChainKey>);
+          return { ok: true, value };
+        }
+        case 'INJECTIVE': {
+          const value = await this.injective.getWalletBalance(params as GetBalanceParams<InjectiveChainKey>);
+          return { ok: true, value };
+        }
+        case 'STELLAR': {
+          const value = await this.stellar.getWalletBalance(params as GetBalanceParams<StellarChainKey>);
+          return { ok: true, value };
+        }
+        case 'SUI': {
+          const value = await this.sui.getWalletBalance(params as GetBalanceParams<SuiChainKey>);
+          return { ok: true, value };
+        }
+        case 'ICON': {
+          const value = await this.icon.getWalletBalance(params as GetBalanceParams<IconChainKey>);
+          return { ok: true, value };
+        }
+        case 'SOLANA': {
+          const value = await this.solana.getWalletBalance(params as GetBalanceParams<SolanaChainKey>);
+          return { ok: true, value };
+        }
+        case 'STACKS': {
+          const value = await this.stacks.getWalletBalance(params as GetBalanceParams<StacksChainKey>);
+          return { ok: true, value };
+        }
+        case 'BITCOIN': {
+          const value = await this.bitcoin.getWalletBalance(params as GetBalanceParams<BitcoinChainKey>);
+          return { ok: true, value };
+        }
+        case 'NEAR': {
+          const value = await this.near.getWalletBalance(params as GetBalanceParams<NearChainKey>);
+          return { ok: true, value };
+        }
+        case 'TRON': {
+          const value = await this.tron.getWalletBalance(params as GetBalanceParams<TronChainKey>);
+          return { ok: true, value };
+        }
+        default: {
+          const exhaustiveCheck: never = chainType;
+          this.config.logger.debug('Unhandled exhaustive case', { value: exhaustiveCheck });
+          return {
+            ok: false,
+            error: new Error(`[getWalletBalance] Invalid chain type. Valid chain types: ${ChainTypeArr.join(', ')}`),
+          };
+        }
+      }
+    } catch (error) {
+      return { ok: false, error };
+    }
+  }
+
+  /**
+   * Get a user's own wallet balances of multiple tokens on a spoke chain, in smallest units.
+   * Chain-agnostic sibling of {@link getWalletBalance}; per-chain services batch the reads where the
+   * chain supports it (e.g. EVM multicall3, ICON aggregated call data).
+   * @param {GetBalancesParams<C>} params - The chain key, user address, and tokens.
+   * @returns {Promise<Result<WalletBalanceMap>>} A map of token address to balance in smallest
+   * units. A token that could not be read is logged and reported as `0n`; the `Result` fails when
+   * the whole batch is unusable — invalid chain, a shared round-trip every token depends on, or a
+   * batch in which no token could be read at all.
+   */
+  public async getWalletBalances<C extends SpokeChainKey>(
+    params: GetBalancesParams<C>,
+  ): Promise<Result<WalletBalanceMap>> {
+    try {
+      if (isHubChainKeyType(params.srcChainKey)) {
+        const value = await this.sonic.getWalletBalances(params as GetBalancesParams<SonicChainKey>);
+        return { ok: true, value };
+      }
+
+      const chainType = getChainType(params.srcChainKey);
+      switch (chainType) {
+        case 'EVM': {
+          const value = await this.evm.getWalletBalances(params as GetBalancesParams<EvmSpokeOnlyChainKey>);
+          return { ok: true, value };
+        }
+        case 'INJECTIVE': {
+          const value = await this.injective.getWalletBalances(params as GetBalancesParams<InjectiveChainKey>);
+          return { ok: true, value };
+        }
+        case 'STELLAR': {
+          const value = await this.stellar.getWalletBalances(params as GetBalancesParams<StellarChainKey>);
+          return { ok: true, value };
+        }
+        case 'SUI': {
+          const value = await this.sui.getWalletBalances(params as GetBalancesParams<SuiChainKey>);
+          return { ok: true, value };
+        }
+        case 'ICON': {
+          const value = await this.icon.getWalletBalances(params as GetBalancesParams<IconChainKey>);
+          return { ok: true, value };
+        }
+        case 'SOLANA': {
+          const value = await this.solana.getWalletBalances(params as GetBalancesParams<SolanaChainKey>);
+          return { ok: true, value };
+        }
+        case 'STACKS': {
+          const value = await this.stacks.getWalletBalances(params as GetBalancesParams<StacksChainKey>);
+          return { ok: true, value };
+        }
+        case 'BITCOIN': {
+          const value = await this.bitcoin.getWalletBalances(params as GetBalancesParams<BitcoinChainKey>);
+          return { ok: true, value };
+        }
+        case 'NEAR': {
+          const value = await this.near.getWalletBalances(params as GetBalancesParams<NearChainKey>);
+          return { ok: true, value };
+        }
+        case 'TRON': {
+          const value = await this.tron.getWalletBalances(params as GetBalancesParams<TronChainKey>);
+          return { ok: true, value };
+        }
+        default: {
+          const exhaustiveCheck: never = chainType;
+          this.config.logger.debug('Unhandled exhaustive case', { value: exhaustiveCheck });
+          return {
+            ok: false,
+            error: new Error(`[getWalletBalances] Invalid chain type. Valid chain types: ${ChainTypeArr.join(', ')}`),
           };
         }
       }

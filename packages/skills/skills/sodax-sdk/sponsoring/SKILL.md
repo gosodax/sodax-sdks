@@ -74,7 +74,7 @@ narrowing, wallet providers passed per call) are covered in:
 4. Failure handling branches on `error.context.nextAction` — not on `message`, not on `status` alone.
 5. The sponsor account is read from `getStellarSponsorConfig()` (or left to `activateStellarAccount`), never hardcoded.
 6. `onSignatureRequired` is wired in any interactive UI.
-7. The api key comes from an env var via `sponsoringApiConfig.apiKey` (or an `x-api-key` header) — not a literal.
+7. The api key comes from an env var — not a literal. On the packaged SODAX gateway the instance-wide `new Sodax({ apiKey })` is inherited; for an independently hosted sponsoring service set `sponsoringApiConfig.apiKey` (or an `x-api-key` header), which wins.
 
 ## Related granular skills (same family)
 

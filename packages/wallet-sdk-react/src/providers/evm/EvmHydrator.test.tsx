@@ -38,17 +38,32 @@ vi.mock('wagmi', () => ({
 
 const evmCtor = vi.fn();
 vi.mock('@sodax/wallet-sdk-core', () => ({
-  EvmWalletProvider: vi.fn().mockImplementation(opts => {
-    evmCtor(opts);
-    return { defaults: opts.defaults, _opts: opts };
-  }),
+  // vitest 4 builds the instance with Reflect.construct, so a `new`-ed mock needs a class impl.
+  EvmWalletProvider: vi.fn(
+    class {
+      defaults: unknown;
+      _opts: { defaults?: unknown };
+      constructor(opts: { defaults?: unknown }) {
+        evmCtor(opts);
+        this.defaults = opts.defaults;
+        this._opts = opts;
+      }
+    },
+  ),
 }));
 
 vi.mock('@/xchains/evm/EvmXService.js', () => ({
   EvmXService: { getInstance: () => ({ wagmiConfig: undefined, setXConnectors: vi.fn() }) },
 }));
 vi.mock('@/xchains/evm/index.js', () => ({
-  EvmXConnector: vi.fn().mockImplementation(c => ({ id: (c as { id: string }).id })),
+  EvmXConnector: vi.fn(
+    class {
+      id: string;
+      constructor(c: { id: string }) {
+        this.id = c.id;
+      }
+    },
+  ),
 }));
 
 const setters = {

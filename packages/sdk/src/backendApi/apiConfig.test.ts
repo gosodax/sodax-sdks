@@ -2,8 +2,9 @@
  * Tests flat and per-service API config resolution.
  *
  * The invariant under test: `baseURL` is the GATEWAY ROOT, shared by every service, and each service
- * owns its own path below it. Only the backend data API carries a `basePath` (`/be`); swaps, bridge and
- * sponsoring keep their segment in their route tables, so their resolved config must never gain one.
+ * owns its own path below it. Only the backend data API carries a `basePath` (`/be`); swaps, bridge,
+ * leverage-yield and sponsoring keep their segment in their route tables, so their resolved config
+ * must never gain one.
  * Sponsoring additionally keeps its independent origin and credential scope.
  */
 import { describe, expect, it } from 'vitest';
@@ -20,6 +21,7 @@ import {
   isMissingVersionPrefix,
   resolveBaseApiConfig,
   resolveBridgeApiConfig,
+  resolveLeverageYieldApiConfig,
   resolveSponsoringApiConfig,
   resolveSwapsApiConfig,
 } from './apiConfig.js';
@@ -359,6 +361,63 @@ describe('resolveBridgeApiConfig', () => {
   });
 });
 
+describe('resolveLeverageYieldApiConfig', () => {
+  // Leverage-yield hangs off the same gateway root as the base API and reads the same config source
+  // (there is deliberately no `leverageYieldApiConfig` slice) — but its `/leverage-yield/*` routes are
+  // siblings of `/be`, not children, so it must NOT carry the data API's basePath.
+  it('shares a flat config with the base API, minus the data API mount', () => {
+    const config = asConfig({ baseURL: 'https://base.example', timeout: 11, headers: { 'X-A': '1' } });
+    expect(resolveLeverageYieldApiConfig(config)).toEqual({
+      baseURL: 'https://base.example',
+      timeout: 11,
+      headers: { ...D, 'X-A': '1' },
+    });
+  });
+
+  it('uses the baseApiConfig slice of a CustomApiConfig (ignoring swapsApiConfig)', () => {
+    const config = asConfig({
+      baseApiConfig: { baseURL: 'https://base.example', timeout: 7, headers: { 'X-B': '1' } },
+      swapsApiConfig: { baseURL: 'https://swaps.example', timeout: 9, headers: { 'X-S': '1' } },
+    });
+    expect(resolveLeverageYieldApiConfig(config)).toEqual({
+      baseURL: 'https://base.example',
+      timeout: 7,
+      headers: { ...D, 'X-B': '1' },
+    });
+  });
+
+  it('falls back to defaults for an empty config', () => {
+    expect(resolveLeverageYieldApiConfig(asConfig({}))).toEqual({
+      baseURL: DEFAULT_API_BASE_URL,
+      timeout: DEFAULT_BACKEND_API_TIMEOUT,
+      headers: { ...D },
+    });
+  });
+
+  // Same coupling the bridge suite asserts: leverage-yield must track base field-for-field, so a field
+  // added to base resolution cannot skip this client. `basePath` is the single sanctioned divergence.
+  it('tracks the base config field-for-field apart from the mount', () => {
+    for (const config of [
+      asConfig({}),
+      asConfig({ baseURL: 'https://flat.example', timeout: 3, headers: { 'X-A': '1' } }),
+      asConfig({ baseApiConfig: { baseURL: 'https://base.example', timeout: 7, headers: { 'X-B': '1' } } }),
+    ]) {
+      const { basePath: _mount, ...baseWithoutMount } = resolveBaseApiConfig(config);
+      expect(resolveLeverageYieldApiConfig(config)).toEqual(baseWithoutMount);
+    }
+  });
+
+  it('never carries the data API basePath, whatever the base slice asks for', () => {
+    for (const config of [
+      asConfig({}),
+      asConfig({ baseApiConfig: { basePath: '/be' } }),
+      asConfig({ basePath: '/x' }),
+    ]) {
+      expect(resolveLeverageYieldApiConfig(config)).not.toHaveProperty('basePath');
+    }
+  });
+});
+
 describe('basePath — the backend data API mount', () => {
   it('defaults to BACKEND_API_BASE_PATH', () => {
     expect(resolveBaseApiConfig(asConfig({})).basePath).toBe('/be');
@@ -382,9 +441,10 @@ describe('basePath — the backend data API mount', () => {
     expect(resolved.basePath).toBe('/slice');
   });
 
-  it('is not leaked to the swaps or sponsoring config', () => {
+  it('is not leaked to the swaps, leverage-yield or sponsoring config', () => {
     const config = asConfig({ basePath: '/be' });
     expect(resolveSwapsApiConfig(config)).not.toHaveProperty('basePath');
+    expect(resolveLeverageYieldApiConfig(config)).not.toHaveProperty('basePath');
     expect(resolveSponsoringApiConfig(config)).not.toHaveProperty('basePath');
   });
 });
@@ -395,10 +455,11 @@ describe('the shared root does not extend to sponsoring', () => {
   // whether or not inheritance exists, since the two defaults are the same URL.
   const retargeted = asConfig({ baseURL: 'https://staging-api.example.com/v1' });
 
-  it('moves base, swaps and bridge but leaves sponsoring on its own default', () => {
+  it('moves base, swaps, bridge and leverage-yield but leaves sponsoring on its own default', () => {
     expect(resolveBaseApiConfig(retargeted).baseURL).toBe('https://staging-api.example.com/v1');
     expect(resolveSwapsApiConfig(retargeted).baseURL).toBe('https://staging-api.example.com/v1');
     expect(resolveBridgeApiConfig(retargeted).baseURL).toBe('https://staging-api.example.com/v1');
+    expect(resolveLeverageYieldApiConfig(retargeted).baseURL).toBe('https://staging-api.example.com/v1');
     expect(resolveSponsoringApiConfig(retargeted).baseURL).toBe(DEFAULT_SPONSORING_API_ENDPOINT);
   });
 });
@@ -419,6 +480,7 @@ describe('legacy /be-suffixed baseURL', () => {
   it('stops nesting the sibling services under /be', () => {
     expect(resolveSwapsApiConfig(legacy).baseURL).toBe(DEFAULT_API_BASE_URL);
     expect(resolveBridgeApiConfig(legacy).baseURL).toBe(DEFAULT_API_BASE_URL);
+    expect(resolveLeverageYieldApiConfig(legacy).baseURL).toBe(DEFAULT_API_BASE_URL);
   });
 
   it('is trimmed on the baseApiConfig slice too, and reported for a deprecation warning', () => {

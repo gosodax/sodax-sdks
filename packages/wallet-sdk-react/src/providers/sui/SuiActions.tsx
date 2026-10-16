@@ -1,31 +1,21 @@
 import { useEffect, useRef } from 'react';
-import { useConnectWallet, useDisconnectWallet, useWallets, useSignPersonalMessage } from '@mysten/dapp-kit';
+import { getWalletUniqueIdentifier, useDAppKit, useWallets } from '@mysten/dapp-kit-react';
 import { useXWalletStore } from '@/useXWalletStore.js';
 
 /**
  * Registers SUI ChainActions into the store.
  */
 export const SuiActions = () => {
+  const dAppKit = useDAppKit();
   const suiWallets = useWallets();
-  const { mutateAsync: suiConnectAsync } = useConnectWallet();
-  const { mutateAsync: suiDisconnectAsync } = useDisconnectWallet();
-  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
   const registerChainActions = useXWalletStore(state => state.registerChainActions);
 
-  const connectRef = useRef(suiConnectAsync);
-  const disconnectRef = useRef(suiDisconnectAsync);
-  const signMessageRef = useRef(signPersonalMessage);
+  const dAppKitRef = useRef(dAppKit);
   const walletsRef = useRef(suiWallets);
 
   useEffect(() => {
-    connectRef.current = suiConnectAsync;
-  }, [suiConnectAsync]);
-  useEffect(() => {
-    disconnectRef.current = suiDisconnectAsync;
-  }, [suiDisconnectAsync]);
-  useEffect(() => {
-    signMessageRef.current = signPersonalMessage;
-  }, [signPersonalMessage]);
+    dAppKitRef.current = dAppKit;
+  }, [dAppKit]);
   useEffect(() => {
     walletsRef.current = suiWallets;
   }, [suiWallets]);
@@ -33,8 +23,7 @@ export const SuiActions = () => {
   useEffect(() => {
     registerChainActions('SUI', {
       connect: async (xConnectorId: string) => {
-        // Match SuiXConnector.id derivation: prefer Wallet Standard `id`, fall back to `name`.
-        const wallet = walletsRef.current.find(w => (w.id ?? w.name) === xConnectorId);
+        const wallet = walletsRef.current.find(w => getWalletUniqueIdentifier(w) === xConnectorId);
         if (!wallet) {
           console.warn(
             `[SuiActions] connect: wallet "${xConnectorId}" not found in adapter list`,
@@ -42,17 +31,19 @@ export const SuiActions = () => {
           );
           return undefined;
         }
-        await connectRef.current({ wallet });
+        await dAppKitRef.current.connectWallet({ wallet });
         return undefined;
       },
       disconnect: async () => {
-        await disconnectRef.current();
+        await dAppKitRef.current.disconnectWallet();
         // SUI disconnection state is cleared by SuiHydrator (single writer for provider-managed chains)
       },
       getConnectors: () => useXWalletStore.getState().xConnectorsByChain.SUI ?? [],
       getConnection: () => useXWalletStore.getState().xConnections.SUI,
       signMessage: async (message: string) => {
-        const res = await signMessageRef.current({ message: new Uint8Array(new TextEncoder().encode(message)) });
+        const res = await dAppKitRef.current.signPersonalMessage({
+          message: new Uint8Array(new TextEncoder().encode(message)),
+        });
         return res.signature;
       },
     });

@@ -13,10 +13,21 @@ Pair: [`features/swap.md`](../../../migration-v1-to-v2/knowledge/features/swap.m
 useQuote({ params: { payload }, queryOptions });                                  // Real-time quote (3s)
 useSwapAllowance({ params: { payload, srcChainKey, walletProvider }, queryOptions }); // allowance (2s)
 useStatus({ params: { intentTxHash }, queryOptions });                            // Intent execution status (3s)
+// Polls 3s; stops on a terminal source, a rejected API key, or 40 consecutive ambiguous reads.
+useDetailedStatus({ params: { srcChainKey, srcTxHash }, queryOptions });          // Swap status by source tx (3s)
+useSwapApprovalStrategy({ params: { payload, walletProvider }, queryOptions });    // 'not-required' | 'atomic-batch' | 'sequential' (no polling)
 
 // Mutations — domain inputs flow through mutate(vars), see Mutation params below
 useSwap({ mutationOptions });
 useSwapApprove({ mutationOptions });
+useSwapWithApproval({ mutationOptions });           // useSwap + approval; one EIP-5792 signature when the wallet can batch
+
+// Composite — the whole form as one state machine; see recipes/swap.md § One Hook for the Whole Form
+useSwapLifecycle({ intentParams, srcWalletProvider, dstWalletProvider, chainSwitch?, externalBlocked?, extras?, timeout?, mutationOptions? });
+//   → { state, error, next, reset, approvalStrategy, swap, status, stellar, nearStorage }
+//   the Stellar and NEAR gates check intentParams.dstAddress; dstWalletProvider must control it for the setup actions
+//   state.kind: idle | checking | needsChainSwitch | needsSetup(reason) | ready(approvalStrategy) | submitting
+//               | pending (error? after a post-broadcast failure) | unconfirmed (batch may still land — next() re-checks it, never re-sends) | settled | failed
 useCancelSwap({ mutationOptions });                  // TVars are FLAT: { srcChainKey, intent, walletProvider }
 useCreateLimitOrder({ mutationOptions });           // No deadline; cancel manually
 useCancelLimitOrder({ mutationOptions });           // TVars are FLAT: { srcChainKey, intent, walletProvider }
@@ -37,10 +48,16 @@ const { mutateAsyncSafe: swap } = useSwap();
 
 // vars shape (TVars):
 type UseSwapVars<K extends SpokeChainKey = SpokeChainKey> = Omit<SwapActionParams<K, false>, 'raw'>;
-// = { params: CreateIntentParams; walletProvider: GetWalletProviderType<K> }
+// = { params: CreateIntentParams; walletProvider: GetWalletProviderType<K>;
+//     extras?; timeout?; skipSimulation? }  // extras: per-action partnerFee / apiKey overrides
 
 const result = await swap({ params: intentParams, walletProvider });
 ```
+
+`vars` also carries the SDK's optional exec fields: `timeout` (per-attempt relay budget),
+`skipSimulation`, and `extras` — per-action overrides of the configured swap `partnerFee` and the
+backend API key (`extras.apiKey`, sent as `x-api-key` on the backend submit-tx leg). Both fall back to
+the `SodaxProvider` config when omitted.
 
 `useSwapApprove` follows the same `{ params, walletProvider }` shape via `mutate(vars)`, where `params` is `CreateIntentParams<K> | CreateLimitOrderParams<K>` (the union — limit-order params also flow through `useSwapApprove`).
 
@@ -76,6 +93,15 @@ type UseStatusParams = ReadHookParams<
   Result<SolverIntentStatusResponse, SolverErrorResponse> | undefined,
   { intentTxHash: Hex | undefined }
 >;
+
+// useDetailedStatus — keyed on the SOURCE tx (useStatus takes the HUB tx). Also Result-wrapped.
+type UseDetailedStatusParams = ReadHookParams<
+  Result<DetailedSwapStatus, DetailedStatusError> | undefined,
+  { srcChainKey: SpokeChainKey | undefined; srcTxHash: string | undefined }
+>;
+// DetailedSwapStatus is a tagged union — narrow on `source`, do not read `.status` off the top level:
+//   { source: 'backend'; data: SubmitTxStatusDataV2 }
+// | { source: 'solver'; dstTxHash: Hex; data: SolverIntentStatusResponse }
 ```
 
 ## Return shapes
@@ -89,7 +115,42 @@ type UseStatusParams = ReadHookParams<
 | `useCreateLimitOrder` | `SafeUseMutationResult<{ intent, intentDeliveryInfo, ... }, Error, ...>` |
 | `useQuote` | `UseQueryResult<Result<SolverIntentQuoteResponse, SolverErrorResponse> \| undefined, Error>` — `data?.ok` branching required; polls 3 s |
 | `useSwapAllowance` | `UseQueryResult<boolean, Error>` — `data` is already-unwrapped `boolean \| undefined`; truthy when approved; polls 2 s |
-| `useStatus` | `UseQueryResult<Result<SolverIntentStatusResponse, SolverErrorResponse> \| undefined, Error>` — Result-wrapped like `useQuote`; `data?.ok` branching required; polls 3 s |
+| `useStatus` | `UseQueryResult<Result<SolverIntentStatusResponse, SolverErrorResponse> \| undefined, Error>` — Result-wrapped like `useQuote`; `data?.ok` branching required; polls 3 s; stops on status `3`/`4`, and after 40 consecutive NOT_FOUND fetches |
+| `useDetailedStatus` | `UseQueryResult<Result<DetailedSwapStatus, DetailedStatusError> \| undefined, Error>` — Result-wrapped tagged union; polls 3 s; stops when the answering source is terminal (backend `'solved'`, or solver `SOLVED`/`FAILED`), when the backend rejects the API key, and — like `useStatus` — after 40 consecutive ambiguous reads (solver `NOT_FOUND`, or a relay with no packet for the tx); a dependency outage keeps polling |
+
+### `useStatus` vs `useDetailedStatus`
+
+Different transactions — pick by which hash you hold:
+
+- `useStatus` takes the **hub** tx hash (`intentDeliveryInfo.dstTxHash`) and always asks the solver.
+- `useDetailedStatus` takes the **source** tx hash plus chain key (`intentDeliveryInfo.srcTxHash` + `srcChainKey`) and routes to whichever source can answer.
+
+`useDetailedStatus` invents no status of its own — it returns the backend submit-tx record while that is in play, otherwise the solver's answer, tagged with `source`. The union is discriminated, so narrow on the field (no type guards are exported):
+
+```ts
+// @ai-snippets-skip
+if (data?.ok) {
+  if (data.value.source === 'backend') data.value.data.status;      // 'pending' | … | 'solved' | 'failed'
+  if (data.value.source === 'solver') data.value.data.status;       // SolverIntentStatusCode
+}
+```
+
+To render it without switching on `source`, collapse it with `summarizeSwapStatus` (from `@sodax/sdk`, re-exported here) — `{ state: 'pending' | 'solved' | 'failed'; hubTxHash?; fillTxHash? }`. `fillTxHash` may be absent even when solved.
+
+**Default to `useDetailedStatus`.** It is the only swap status read that answers for every completion path, and it takes the identifiers `swap()` hands back on success (`intentDeliveryInfo.srcChainKey` / `srcTxHash`) and on a post-broadcast failure (`error.context.srcChainKey` / `srcTxHash`).
+
+That is what distinguishes it from `useSwapsApiSubmitTxStatus`, which reads the backend record directly — 404 when none exists, and a stale or abandoned record for a swap the client-side fallback completed. A swap whose relay packet has not landed has no hub tx hash and reads as `LOOKUP_FAILED`; that spends the same 40-read budget as a solver `NOT_FOUND`, so a swap nothing can resolve stops instead of polling forever. A dependency outage does **not** spend the budget — it keeps polling so the read recovers on its own.
+
+### `useSwapWithApproval` — approve and swap in one signature
+
+Same vars as `useSwap`. It calls `sodax.swaps.swapWithApproval`: no approval when the allowance suffices; on an EVM
+spoke whose wallet reports EIP-5792 atomic support, approve + swap as **one batch, one signature**; otherwise approve,
+wait for it to confirm, then swap. `data.approvalStrategy` says which ran. Pair it with `useSwapApprovalStrategy` to
+label the button up front (e.g. "Approve & Swap" vs "Approve, then Swap"), instead of the
+`useSwapAllowance` + `useSwapApprove` + `useSwap` trio. A rejected batch — or a declined account upgrade on a
+`'ready'` wallet — is `USER_REJECTED` and is **not** retried as two transactions. A declined upgrade carries
+`context.reason === ACCOUNT_UPGRADE_DECLINED`; pass `allowAccountUpgrade: false` (in the mutation vars and to
+`useSwapApprovalStrategy`) to swap without the upgrade. dapp-kit never stores that choice — the app decides.
 
 ## Gotchas
 

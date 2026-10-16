@@ -1,6 +1,6 @@
 # EVM Switch Chain
 
-A single wagmi connection covers **every configured EVM network** (Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera). The user picks a wallet once; switching the **active network** within that wallet is a separate concern handled by `useEvmSwitchChain`.
+A single wagmi connection covers **every configured EVM network** (Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood). The user picks a wallet once; switching the **active network** within that wallet is a separate concern handled by `useEvmSwitchChain`.
 
 The hook also covers Injective's MetaMask wallet path — when the user connected Injective via MetaMask, the underlying ethereum chain id must be Ethereum mainnet (chain id `1`). `useEvmSwitchChain` detects the mismatch and exposes a switch action.
 
@@ -12,7 +12,7 @@ Source: [`useEvmSwitchChain.ts`](https://github.com/icon-project/sodax-sdks/blob
 2. [`useEvmSwitchChain` API](#useevmswitchchain-api)
 3. [Standard EVM switch flow](#standard-evm-switch-flow)
 4. [Injective MetaMask special case](#injective-metamask-special-case)
-5. [`useEthereumChainId` — read the wagmi/MetaMask chain id](#useethereumchainid--read-the-wagmimetamask-chain-id)
+5. [`useEthereumChainId` (internal) — how the MetaMask chain id is read](#useethereumchainid-internal--how-the-metamask-chain-id-is-read)
 6. [Safe to call when EVM is disabled](#safe-to-call-when-evm-is-disabled)
 
 ---
@@ -119,20 +119,13 @@ Keplr and Leap on Injective don't have this constraint — `isWrongChain` is `fa
 
 ---
 
-## `useEthereumChainId` — read the wagmi/MetaMask chain id
+## `useEthereumChainId` (internal) — how the MetaMask chain id is read
 
-A read-only helper that returns the **active Ethereum chain id** when MetaMask is the Injective wallet, otherwise `null`. Used internally by `useEvmSwitchChain`; expose-able for custom UIs that need to display the network state independently.
+`useEthereumChainId` is an implementation detail of `useEvmSwitchChain`, not part of the public API. `@sodax/wallet-sdk-react` declares only the `.` and `./xchains/*` export entries, so there is no `./hooks/*` subpath to import from and no top-level `useEthereumChainId`. It is described here only to explain where the `ethereumChainId` in the check above comes from.
 
-```typescript
-import useEthereumChainId from '@sodax/wallet-sdk-react/hooks/useEthereumChainId';
+The hook returns the active Ethereum chain id when MetaMask is the Injective wallet, otherwise `null`. It subscribes to MetaMask's `onChainIdChanged` event so the value stays fresh when the user switches networks outside the dApp. For non-MetaMask Injective wallets (Keplr, Leap) and non-Injective use cases, it returns `null`.
 
-const ethereumChainId = useEthereumChainId();
-// number (e.g. 1 for mainnet) or null
-```
-
-It subscribes to MetaMask's `onChainIdChanged` event so the value stays fresh when the user switches networks outside the dApp. For non-MetaMask Injective wallets (Keplr, Leap) and non-Injective use cases, it returns `null`.
-
-This hook is rarely needed in app code — `useEvmSwitchChain` already consumes it internally.
+To read the raw EVM chain id in app code, use wagmi's `useAccount().chainId`. The wrong-network UX is already folded into `useEvmSwitchChain`.
 
 ---
 
@@ -153,9 +146,9 @@ The conditional hook call (early-return before `useEvmSwitchChainInner` runs) is
 
 ## Related docs
 
-- [Configure SodaxWalletProvider](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md) — opt in / out of EVM
-- [Wallet Provider Bridge](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PROVIDER_BRIDGE.md) — `useWalletProvider` returns the same provider for all EVM chain ids
-- [Chain Detection](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CHAIN_DETECTION.md) — EVM collapses to one row in `useChainGroups` / `useConnectedChains` for the same reason
-- [Connect Flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md) — connect once; chain switching is a separate UX
+- [Configure SodaxWalletProvider](./CONFIGURE_PROVIDER.md) — opt in / out of EVM
+- [Wallet Provider Bridge](./WALLET_PROVIDER_BRIDGE.md) — `useWalletProvider` returns the same provider for all EVM chain ids
+- [Chain Detection](./CHAIN_DETECTION.md) — EVM collapses to one row in `useChainGroups` / `useConnectedChains` for the same reason
+- [Connect Flow](./CONNECT_FLOW.md) — connect once; chain switching is a separate UX
 - [wagmi `useSwitchChain` docs](https://wagmi.sh/react/api/hooks/useSwitchChain)
 - [EIP-3326 — `wallet_switchEthereumChain`](https://eips.ethereum.org/EIPS/eip-3326)

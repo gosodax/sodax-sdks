@@ -11,7 +11,9 @@
  *      services there is no static-helper layer to mock, so no `vi.mock` / `vi.hoisted` is needed.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { type Address, type Hash, type Hex, type HttpTransport, type PublicClient, encodeFunctionData } from 'viem';
+import { type Address, type Hash, type HttpTransport, type PublicClient, encodeFunctionData } from 'viem';
+import { ChainKeys } from '@sodax/types';
+import { getEvmViemChain } from '../../utils/constant-utils.js';
 import type { IEvmWalletProvider, TokenInfo } from '@sodax/types';
 import { vaultTokenAbi } from '../../abis/index.js';
 import { EvmVaultTokenService } from './EvmVaultTokenService.js';
@@ -117,7 +119,7 @@ describe('EvmVaultTokenService.getTokenInfos', () => {
   });
 
   it('preserves order: result[i] corresponds to tokens[i]', async () => {
-    vi.mocked(mockPublicClient.multicall).mockResolvedValueOnce([tokenInfoTupleB, tokenInfoTupleA] as never);
+    vi.mocked(mockPublicClient.multicall).mockResolvedValueOnce([tokenInfoTupleB, tokenInfoTupleA]);
 
     const result = await EvmVaultTokenService.getTokenInfos(VAULT, [TOKEN_B, TOKEN_A], mockPublicClient);
 
@@ -160,16 +162,20 @@ describe('EvmVaultTokenService.deposit', () => {
     const result = await EvmVaultTokenService.deposit(VAULT, TOKEN_A, 1_000n, mockWalletProvider);
 
     expect(result).toBe(TX_HASH);
-    expect(mockWalletProvider.sendTransaction).toHaveBeenCalledWith({
-      from: SENDER,
-      to: VAULT,
-      value: 0n,
-      data: encodeFunctionData({
-        abi: vaultTokenAbi,
-        functionName: 'deposit',
-        args: [TOKEN_A, 1_000n],
-      }),
-    });
+    // Second argument pins the hub chain binding — vault sends must refuse a wallet on another network.
+    expect(mockWalletProvider.sendTransaction).toHaveBeenCalledWith(
+      {
+        from: SENDER,
+        to: VAULT,
+        value: 0n,
+        data: encodeFunctionData({
+          abi: vaultTokenAbi,
+          functionName: 'deposit',
+          args: [TOKEN_A, 1_000n],
+        }),
+      },
+      { expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id },
+    );
   });
 
   it('reads the from-address from walletProvider.getWalletAddress', async () => {
@@ -196,16 +202,20 @@ describe('EvmVaultTokenService.withdraw', () => {
     const result = await EvmVaultTokenService.withdraw(VAULT, TOKEN_A, 1_000n, mockWalletProvider);
 
     expect(result).toBe(TX_HASH);
-    expect(mockWalletProvider.sendTransaction).toHaveBeenCalledWith({
-      from: SENDER,
-      to: VAULT,
-      value: 0n,
-      data: encodeFunctionData({
-        abi: vaultTokenAbi,
-        functionName: 'withdraw',
-        args: [TOKEN_A, 1_000n],
-      }),
-    });
+    // Second argument pins the hub chain binding — vault sends must refuse a wallet on another network.
+    expect(mockWalletProvider.sendTransaction).toHaveBeenCalledWith(
+      {
+        from: SENDER,
+        to: VAULT,
+        value: 0n,
+        data: encodeFunctionData({
+          abi: vaultTokenAbi,
+          functionName: 'withdraw',
+          args: [TOKEN_A, 1_000n],
+        }),
+      },
+      { expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id },
+    );
   });
 
   it('uses different calldata than deposit for the same args (regression guard)', async () => {

@@ -46,6 +46,10 @@ If assets end up stranded in a user's hub wallet, recovery withdraws them back t
 
 Leveraged-yield vaults on the hub that loop supply → borrow → swap to build a leveraged position. **Advanced and risk-heavy** — only surface it when a semi-technical+ user explicitly wants leverage, and keep risk framing separate from product design. Net yield can be negative. Never present it to a Tier A user as "savings".
 
+## Email login — users without a crypto wallet
+
+Not a DeFi feature but an onboarding choice: an opt-in "log in with email" entry next to the usual wallets. The user types an email, enters a one-time code, and gets a wallet created for them (a Privy embedded wallet) that signs like MetaMask. EVM chains only, React apps only. Use it when the audience has no wallet yet ("my users are not crypto people"). Be honest about the trade-offs in the brief: Privy holds access, so nobody can sign while Privy is down; the builder needs their own Privy account and pays per signature; a user who loses their email loses that wallet.
+
 ---
 
 **Mapping back to the interview:** the goal → feature table lives in [`interview-guide.md`](./interview-guide.md); worked product combinations are in [`use-case-gallery.md`](./use-case-gallery.md).

@@ -11,11 +11,14 @@ import { getEvmViemChain } from '../../utils/constant-utils.js';
 import type {
   DepositParams,
   GetDepositParams,
+  GetBalanceParams,
+  GetBalancesParams,
   SendMessageParams,
   EstimateGasParams,
   WaitForTxReceiptParams,
   WaitForTxReceiptReturnType,
 } from '../../types/spoke-types.js';
+import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 import { Erc20Service, type Erc20IsAllowanceParams } from '../erc-20/Erc20Service.js';
 import type { ConfigService } from '../../config/ConfigService.js';
 import {
@@ -24,6 +27,7 @@ import {
   type Result,
   type TxReturnType,
   getIntentRelayChainId,
+  isNativeToken,
   type EvmReturnType,
 } from '@sodax/types';
 
@@ -38,6 +42,15 @@ import {
 const HEDERA_NATIVE_VALUE_SCALE = 10n ** 10n;
 function scaleNativeMsgValue(chainKey: EvmSpokeOnlyChainKey, amount: bigint): bigint {
   return chainKey === ChainKeys.HEDERA_MAINNET ? amount * HEDERA_NATIVE_VALUE_SCALE : amount;
+}
+
+/**
+ * Inverse of {@link scaleNativeMsgValue}: scales a native balance read from the EVM layer back
+ * to the token's canonical decimals. `eth_getBalance` returns HBAR in 18-decimal "weibar", but
+ * HBAR is tracked as 8 decimals, so divide by 10^10 on Hedera.
+ */
+function scaleNativeBalance(chainKey: EvmSpokeOnlyChainKey, amount: bigint): bigint {
+  return chainKey === ChainKeys.HEDERA_MAINNET ? amount / HEDERA_NATIVE_VALUE_SCALE : amount;
 }
 
 export type CreateViemPublicClientParams = {
@@ -162,9 +175,9 @@ export class EvmSpokeService {
       return rawTx satisfies TxReturnType<EvmSpokeOnlyChainKey, true> as TxReturnType<EvmSpokeOnlyChainKey, Raw>;
     }
 
-    return params.walletProvider.sendTransaction(rawTx) satisfies Promise<
-      TxReturnType<EvmSpokeOnlyChainKey, false>
-    > as Promise<TxReturnType<EvmSpokeOnlyChainKey, Raw>>;
+    return params.walletProvider.sendTransaction(rawTx, {
+      expectedChainId: getEvmViemChain(srcChainKey).id,
+    }) satisfies Promise<TxReturnType<EvmSpokeOnlyChainKey, false>> as Promise<TxReturnType<EvmSpokeOnlyChainKey, Raw>>;
   }
 
   /**
@@ -179,6 +192,88 @@ export class EvmSpokeService {
       functionName: 'balanceOf',
       args: [this.config.getChainConfig(params.srcChainKey).addresses.assetManager],
     });
+  }
+
+  /**
+   * Get the user's own wallet balance of a token on an EVM spoke chain, in smallest units.
+   * Native coin via `eth_getBalance` (Hedera scaled to canonical decimals); erc20 via `balanceOf`.
+   * @param {GetBalanceParams<EvmSpokeOnlyChainKey>} params - The chain key, user address, and token.
+   * @returns {Promise<bigint>} The token balance in smallest units.
+   */
+  public async getWalletBalance(params: GetBalanceParams<EvmSpokeOnlyChainKey>): Promise<bigint> {
+    const { srcChainKey, srcAddress, token } = params;
+    const publicClient = this.getPublicClient(srcChainKey);
+
+    if (isNativeToken(srcChainKey, token)) {
+      const balance = await publicClient.getBalance({ address: srcAddress });
+      return scaleNativeBalance(srcChainKey, balance);
+    }
+
+    const balance = await publicClient.readContract({
+      address: token.address as Address,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [srcAddress],
+    });
+    return balance ?? 0n;
+  }
+
+  /**
+   * Get the user's own wallet balances of multiple tokens on an EVM spoke chain, in smallest
+   * units. Non-native tokens are batched via multicall3 when the chain supports it, otherwise
+   * read in parallel.
+   * @param {GetBalancesParams<EvmSpokeOnlyChainKey>} params - The chain key, user address, and tokens.
+   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
+   */
+  public async getWalletBalances(params: GetBalancesParams<EvmSpokeOnlyChainKey>): Promise<WalletBalanceMap> {
+    const { srcChainKey, srcAddress, tokens } = params;
+
+    const nativeTokens = tokens.filter(token => isNativeToken(srcChainKey, token));
+    const nonNativeTokens = tokens.filter(token => !isNativeToken(srcChainKey, token));
+
+    const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
+    await settleWalletBalances(collector, nativeTokens, token =>
+      this.getWalletBalance({ srcChainKey, srcAddress, token }),
+    );
+
+    if (nonNativeTokens.length === 0) {
+      return collector.finish();
+    }
+
+    const publicClient = this.getPublicClient(srcChainKey);
+
+    if (getEvmViemChain(srcChainKey).contracts?.multicall3) {
+      // allowFailure (viem's default) keeps a single reverting token — or a rate-limited aggregate3
+      // chunk, which viem fans out as a failure entry per call — from discarding the balances that
+      // did resolve. Each failure still goes through the collector so it is logged, not silent.
+      const results = await publicClient.multicall({
+        contracts: nonNativeTokens.map(token => ({
+          abi: erc20Abi,
+          address: token.address as Address,
+          functionName: 'balanceOf',
+          args: [srcAddress],
+        })),
+      });
+      nonNativeTokens.forEach((token, index) => {
+        const result = results[index];
+        if (result?.status === 'success') {
+          collector.ok(token.address, BigInt(result.result));
+        } else {
+          collector.fail(token.address, result?.error ?? new Error(`missing multicall result for ${token.address}`));
+        }
+      });
+      return collector.finish();
+    }
+
+    await settleWalletBalances(collector, nonNativeTokens, token =>
+      publicClient.readContract({
+        address: token.address as Address,
+        abi: erc20Abi,
+        functionName: 'balanceOf',
+        args: [srcAddress],
+      }),
+    );
+    return collector.finish();
   }
 
   /**
@@ -210,9 +305,9 @@ export class EvmSpokeService {
       return rawTx satisfies TxReturnType<EvmSpokeOnlyChainKey, true> as TxReturnType<EvmSpokeOnlyChainKey, Raw>;
     }
 
-    return params.walletProvider.sendTransaction(rawTx) satisfies Promise<
-      TxReturnType<EvmSpokeOnlyChainKey, false>
-    > as Promise<TxReturnType<EvmSpokeOnlyChainKey, Raw>>;
+    return params.walletProvider.sendTransaction(rawTx, {
+      expectedChainId: getEvmViemChain(srcChainKey).id,
+    }) satisfies Promise<TxReturnType<EvmSpokeOnlyChainKey, false>> as Promise<TxReturnType<EvmSpokeOnlyChainKey, Raw>>;
   }
 
   public async waitForTransactionReceipt(

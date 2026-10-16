@@ -1,5 +1,6 @@
 // packages/sdk/src/partner/PartnerFeeClaimService.ts
 import { invariant } from '../shared/utils/tiny-invariant.js';
+import { getEvmViemChain } from '../shared/utils/constant-utils.js';
 import { erc20Abi, encodeFunctionData, isAddress, type Address } from 'viem';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import type { HubProvider } from '../shared/types/types.js';
@@ -8,6 +9,7 @@ import { lookupFailed, approveFailed } from '../errors/wrappers.js';
 import { SolverApiService } from '../swap/SolverApiService.js';
 import { ProtocolIntentsAbi } from '../shared/abis/protocolIntents.abi.js';
 import {
+  ChainKeys,
   type SpokeChainKey,
   getIntentRelayChainId,
   type Hex,
@@ -391,7 +393,9 @@ export class PartnerFeeClaimService {
             'PartnerFeeClaimService only supports Evm (sonic) wallet provider',
           );
 
-          const txHash = await walletProvider.sendTransaction(rawTx);
+          const txHash = await walletProvider.sendTransaction(rawTx, {
+            expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id,
+          });
 
           return {
             ok: true,
@@ -622,7 +626,9 @@ export class PartnerFeeClaimService {
         };
       }
 
-      const txHash = await _params.walletProvider.sendTransaction(rawTx);
+      const txHash = await _params.walletProvider.sendTransaction(rawTx, {
+        expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id,
+      });
 
       return {
         ok: true,
@@ -692,6 +698,7 @@ export class PartnerFeeClaimService {
             { intent_tx_hash: intentTxHash },
             this.config.solver,
             this.config.logger,
+            this.config.apiKey,
           );
 
           if (!solverExecutionResponse.ok) {
@@ -783,7 +790,9 @@ export class PartnerFeeClaimService {
             };
           }
 
-          const txHash = await _params.walletProvider.sendTransaction(rawTx);
+          const txHash = await _params.walletProvider.sendTransaction(rawTx, {
+            expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id,
+          });
 
           return {
             ok: true,

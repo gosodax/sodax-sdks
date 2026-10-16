@@ -24,9 +24,11 @@ function describeTable(table: Record<string, readonly XToken[]>, label: string) 
   });
 }
 
+// Deliberate cast: Object.fromEntries widens keys to string, but the source record is keyed by
+// every SpokeChainKey, so the Record shape is guaranteed by construction.
 const supportedTokenLists = Object.fromEntries(
   Object.entries(supportedTokensByChain).map(([chainKey, tokens]) => [chainKey, Object.values(tokens) as XToken[]]),
-) as Record<SpokeChainKey, readonly XToken[]>;
+) as unknown as Record<SpokeChainKey, readonly XToken[]>; // deliberate: see comment above
 
 describeTable(supportedTokenLists, 'supportedTokensByChain');
 describeTable(swapSupportedTokens, 'swapSupportedTokens');

@@ -12,16 +12,58 @@ function TooltipProvider({ delayDuration = 0, ...props }: React.ComponentProps<t
   return <TooltipPrimitive.Provider data-slot="tooltip-provider" delayDuration={delayDuration} {...props} />;
 }
 
-function Tooltip({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+type TapToggle = { open: boolean; setOpen: (open: boolean) => void };
+const TapToggleContext = React.createContext<TapToggle | null>(null);
+
+function Tooltip({
+  open: openProp,
+  defaultOpen = false,
+  onOpenChange,
+  ...props
+}: React.ComponentProps<typeof TooltipPrimitive.Root>) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen);
+  const open = openProp ?? uncontrolledOpen;
+  const setOpen = React.useCallback(
+    (next: boolean) => {
+      setUncontrolledOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
+  const tapToggle = React.useMemo(() => ({ open, setOpen }), [open, setOpen]);
+
   return (
     <TooltipProvider>
-      <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+      <TapToggleContext.Provider value={tapToggle}>
+        <TooltipPrimitive.Root data-slot="tooltip" open={open} onOpenChange={setOpen} {...props} />
+      </TapToggleContext.Provider>
     </TooltipProvider>
   );
 }
 
-function TooltipTrigger({ ...props }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
-  return <TooltipPrimitive.Trigger data-slot="tooltip-trigger" {...props} />;
+function TooltipTrigger({ onPointerDown, onClick, ...props }: React.ComponentProps<typeof TooltipPrimitive.Trigger>) {
+  const tapToggle = React.useContext(TapToggleContext);
+  // Radix Tooltip ignores touch: note the state before its pointerdown closes it, then toggle on the tap's click.
+  const openBeforeTap = React.useRef<boolean | null>(null);
+
+  return (
+    <TooltipPrimitive.Trigger
+      data-slot="tooltip-trigger"
+      onPointerDown={event => {
+        onPointerDown?.(event);
+        openBeforeTap.current = event.pointerType === 'touch' && tapToggle ? tapToggle.open : null;
+      }}
+      onClick={event => {
+        onClick?.(event);
+        if (tapToggle && openBeforeTap.current !== null) {
+          event.preventDefault();
+          tapToggle.setOpen(!openBeforeTap.current);
+          openBeforeTap.current = null;
+        }
+      }}
+      {...props}
+    />
+  );
 }
 
 function TooltipContent({

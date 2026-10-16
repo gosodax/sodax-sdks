@@ -50,6 +50,23 @@ describe('mapRelayFailure', () => {
     expect(mapped.message).toBe('weird-thing');
   });
 
+  it('carries srcTxHash on every mapped code when the caller passes it', () => {
+    for (const message of [
+      RELAY_ERROR_CODES.RELAY_TIMEOUT,
+      RELAY_ERROR_CODES.SUBMIT_TX_FAILED,
+      RELAY_ERROR_CODES.RELAY_POLLING_FAILED,
+      'NEW_FUTURE_RELAY_ERROR',
+    ]) {
+      const mapped = mapRelayFailure(new Error(message), { ...ctx, srcTxHash: '0xsrc' });
+      expect(mapped.context?.srcTxHash).toBe('0xsrc');
+    }
+  });
+
+  it('leaves srcTxHash out of the context when the caller does not pass it', () => {
+    const mapped = mapRelayFailure(new Error(RELAY_ERROR_CODES.RELAY_TIMEOUT), ctx);
+    expect(mapped.context).not.toHaveProperty('srcTxHash');
+  });
+
   it('uses default phase=relay when phase is not overridden', () => {
     const inner = new Error(RELAY_ERROR_CODES.RELAY_TIMEOUT);
     const mapped = mapRelayFailure(inner, { feature: 'migration', action: 'migratebnUSD' });

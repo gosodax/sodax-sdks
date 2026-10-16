@@ -1,0 +1,60 @@
+name: Publish @sodax/bridge-api Package to npmjs
+
+on:
+  push:
+    tags:
+      - '@sodax/bridge-api@*.*.*'
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Check out code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 2
+
+      - name: Validate tag matches package.json and determine dist-tag
+        id: dist_tag
+        run: |
+          EXPECTED_VERSION="${GITHUB_REF_NAME#@sodax/bridge-api@}"
+          ACTUAL_VERSION=$(jq -r .version packages/bridge-api/package.json)
+          if [[ "$EXPECTED_VERSION" != "$ACTUAL_VERSION" ]]; then
+            echo "::error::Git tag version ($EXPECTED_VERSION) does not match packages/bridge-api/package.json version ($ACTUAL_VERSION)"
+            exit 1
+          fi
+          if [[ "$EXPECTED_VERSION" == *-* ]]; then
+            PRERELEASE_ID="${EXPECTED_VERSION#*-}"
+            TAG="${PRERELEASE_ID%%.*}"
+          else
+            TAG="latest"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: 10.32.1
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build Packages
+        run: pnpm turbo run build --filter=@sodax/bridge-api...
+      - name: Publish package
+        run: |
+          cd packages/bridge-api
+          pnpm publish --no-git-checks --provenance --access public --tag "$DIST_TAG"
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.SODAX_SDKS_NPM_PUBLISH_TOKEN}}
+          DIST_TAG: ${{ steps.dist_tag.outputs.tag }}

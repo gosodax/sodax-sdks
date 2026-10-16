@@ -1,4 +1,5 @@
 import type { XAccount } from '@/types/index.js';
+import { isIconAddress } from '@sodax/wallet-sdk-core';
 import { ICONexRequestEventType, ICONexResponseEventType, request } from './iconex/index.js';
 
 import { XConnector } from '@/core/XConnector.js';
@@ -37,9 +38,9 @@ export class IconHanaXConnector extends XConnector {
       type: ICONexRequestEventType.REQUEST_ADDRESS,
     });
 
-    if (detail?.type === ICONexResponseEventType.RESPONSE_ADDRESS) {
+    if (detail?.type === ICONexResponseEventType.RESPONSE_ADDRESS && isIconAddress(detail.payload)) {
       return {
-        address: detail?.payload,
+        address: detail.payload,
         xChainType: this.xChainType,
       };
     }

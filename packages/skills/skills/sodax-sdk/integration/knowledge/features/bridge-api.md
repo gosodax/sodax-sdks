@@ -1,6 +1,6 @@
 # Bridge API — `BridgeApiService`
 
-Typed HTTP client for the backend **Bridge API v2** (`/bridge/*`). Reachable as `sodax.api.bridge`
+Typed HTTP client for the backend **Bridge API** (`/bridge/*`). Reachable as `sodax.api.bridge`
 (`sodax.api` is an alias for `sodax.backendApi`; `.bridge` is the `BridgeApiService` instance). One method
 per endpoint. Every method returns `Promise<Result<T>>` — it **never throws** — and every
 response is validated at runtime against a valibot schema, so a backend contract drift surfaces as
@@ -8,8 +8,15 @@ response is validated at runtime against a valibot schema, so a backend contract
 
 Access: `sodax.api.bridge`. Service class: `BridgeApiService`. **Errors:** every failure (network, timeout,
 non-2xx HTTP, or response-shape mismatch) returns `Result<T, SodaxError<'EXTERNAL_API_ERROR'>>` with
-`feature: 'backend'`, `context.api: 'bridge'`, and `context.endpoint` (the path); the underlying failure
-is on `error.cause`. Like `sodax.api.swaps`, the bridge **HTTP client** is uniformly `feature: 'backend'`
+`feature: 'backend'`, `context.api: 'bridge'`, and `context.endpoint` (the path). The underlying failure
+is preserved on `error.cause` — a `BridgeApiError` from the `@sodax/bridge-api` client this service wraps
+(read its `code`: `NETWORK_ERROR` | `TIMEOUT_ERROR` | `HTTP_ERROR` | `PARSE_ERROR` | `VALIDATION_ERROR`;
+the same code is mirrored on `error.context.code`, and both `BridgeApiError` and the `BridgeApiErrorCode`
+union are re-exported from `@sodax/sdk`). Idempotent
+reads/polls (and pure-compute POSTs like `getFee`) retry transient failures; mutating calls do not —
+except the apiguard's transient key-verification `503`, which the wire client replays for every call
+(the guard rejects before the handler runs). A `401`/`403` is terminal until the consumer fixes the key.
+Like `sodax.api.swaps`, the bridge **HTTP client** is uniformly `feature: 'backend'`
 (with a per-service `context.api` tag — `'bridge'`).
 
 > Lower-level than `sodax.bridge` (the `BridgeService` orchestrator that deposits + relays end-to-end).
@@ -62,6 +69,31 @@ Bridge is **vault-backed, not solver-based**, so the surface is smaller and a fe
   *also* have backend endpoints (listed above), mirrored on this client for non-SDK HTTP callers / parity.
   The token *list* is backend-served via `getTokens` / `getTokensByChain`.
 
+## `approve` can return two transactions
+
+`BridgeApproveResponseV2` is `{ tx, resetTx? }`. `resetTx` appears only when the source token rejects
+an allowance change from one non-zero value to another (the 2017 TetherToken lineage) **and** the
+wallet already holds a stale allowance — a wallet in that state cannot approve at all until it is
+zeroed.
+
+Broadcast `resetTx` first and wait for it to be mined, then broadcast `tx`. The two cannot be
+batched: the approval is only valid once the reset has landed on-chain. Submitting `tx` while a
+non-zero stale allowance remains is a guaranteed revert.
+
+```ts
+const { tx, resetTx } = approveResponse;
+
+if (resetTx) {
+  const resetHash = await sendTransaction(resetTx);
+  await waitForTransactionReceipt(resetHash);
+}
+
+await sendTransaction(tx);
+```
+
+The field is optional and absent for every other token, so ignoring it keeps existing behaviour —
+it just cannot rescue a wallet stuck on a guarded token.
+
 ## Common call shapes
 
 ### Allowance · approve · create intent (shared body)
@@ -77,7 +109,13 @@ const body = {
 
 const allowance = await sodax.api.bridge.checkAllowance(body);
 if (allowance.ok && !allowance.value.valid) {
-  const approved = await sodax.api.bridge.approve(body);   // { tx } — sign + broadcast yourself
+  const approved = await sodax.api.bridge.approve(body);
+  if (!approved.ok) return;
+  const { tx: approveTx, resetTx } = approved.value;   // broadcast resetTx first when present, then tx
+  if (resetTx) {
+    await waitForTransactionReceipt(await sendTransaction(resetTx));
+  }
+  await waitForTransactionReceipt(await sendTransaction(approveTx));
 }
 
 const created = await sodax.api.bridge.createBridgeIntent(body);

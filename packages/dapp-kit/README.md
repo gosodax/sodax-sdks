@@ -4,17 +4,18 @@ High-level React hooks library for dApp developers. Wraps `@sodax/sdk` with Reac
 
 ## Features
 
-- **Swap/Intent** — `useQuote`, `useSwap`, `useSwapAllowance`, `useSwapApprove`, `useCancelSwap`, `useCreateLimitOrder`, `useCancelLimitOrder`, `useStatus`
-- **Bridge** — `useBridge`, `useBridgeAllowance`, `useBridgeApprove`, `useGetBridgeableAmount`, `useGetBridgeableTokens`
+- **Swap/Intent** — `useSwapLifecycle`, `useQuote`, `useSwap`, `useSwapWithApproval`, `useSwapApprovalStrategy`, `useSwapAllowance`, `useSwapApprove`, `useDetailedStatus`, `useCancelSwap`, `useCreateLimitOrder`, `useCancelLimitOrder`, `useStatus`
+- **Bridge** — `useBridge`, `useBridgeDetailedStatus`, `useBridgeAllowance`, `useBridgeApprove`, `useGetBridgeableAmount`, `useGetBridgeableTokens`
 - **Money Market** — `useSupply`, `useWithdraw`, `useBorrow`, `useRepay`, `useMMAllowance`, `useMMApprove`, plus reserves data hooks
 - **Staking** — `useStake`, `useUnstake`, `useInstantUnstake`, `useClaim`, `useCancelUnstake`, approval hooks, info/config/ratio queries
 - **DEX** — `useDexDeposit`, `useDexWithdraw`, `useSupplyLiquidity`, `useDecreaseLiquidity`, `useClaimRewards`, pool/position queries, param builders
+- **Leverage Yield** — `useLeverageYieldDeposit`, `useLeverageYieldWithdraw`, `useLeverageYieldVaultSwap`, `useLeverageYieldDetailedStatus`, `useLeverageYieldNotifySolver`, plus vault position/APR/TVL/share queries
 - **Migration** — `useMigrateIcxToSoda`, `useRevertMigrateSodaToIcx`, `useMigratebnUSD`, `useMigrateBaln`, `useMigrationApprove`, `useMigrationAllowance`
-- **Bitcoin (Bound Exchange)** — `useRadfiAuth`, `useRadfiSession`, `useTradingWallet`, `useTradingWalletBalance`, `useBitcoinBalance`, `useFundTradingWallet`, `useRadfiWithdraw`, `useExpiredUtxos`, `useRenewUtxos`
-- **Partner** — `useFetchAssetsBalances`, `useGetAutoSwapPreferences`, `useIsTokenApproved`, `useApproveToken`, `useSetSwapPreference`, `useFeeClaimSwap`
+- **Bitcoin (Bound Exchange)** — `useRadfiAuth`, `useEnsureRadfiAccessToken`, `useRadfiSession`, `useTradingWallet`, `useTradingWalletBalance`, `useBitcoinBalance`, `useBitcoinTradingSetup`, `useFundTradingWallet`, `useRadfiWithdraw`, `useExpiredUtxos`, `useRenewUtxos`
+- **Partner** — `useFetchAssetsBalances`, `useGetAutoSwapPreferences`, `useIsTokenApproved`, `useApproveToken`, `useSetSwapPreference`, `useFeeClaimSwap`, `useFeeClaimWithdraw`, `usePartnerCancelIntent`, `useGetUserIntent`, `useGetIntentDetails`
 - **Recovery** — `useHubAssetBalances`, `useWithdrawHubAsset`
 - **Backend Queries** — Intent tracking, swap-tx submission + status, orderbook, money market position queries
-- **Shared** — `useXBalances`, `useDeriveUserWalletAddress`, `useGetUserHubWalletAddress`, `useStellarTrustlineCheck`, `useEstablishTrustline`, `useStellarGate`, `useEstimateGas`
+- **Shared** — `useXBalances`, `useDeriveUserWalletAddress`, `useGetUserHubWalletAddress`, `useStellarTrustlineCheck`, `useEstablishTrustline`, `useStellarGate`, `useNearStorageCheck`, `useRegisterNearStorage`, `useNearStorageGate`, `useEstimateGas`
 - **Sponsoring** — `useStellarAccountActive`, `useStellarAccountStatus`, `useSponsorConfig`, `useActivateStellarAccount`
 
 ## Installation
@@ -72,6 +73,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
 }
 ```
 
+`SodaxProvider` builds its `Sodax` instance in the browser, so `sodaxConfig` ships in your bundle. Leave
+`apiKey` out of it: to send a SODAX API key, point `api.baseURL` and `solver.solverApiEndpoint` at your own
+backend proxy and attach the key there — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
+
 ### 2. Get a wallet provider
 
 ```tsx
@@ -118,7 +123,7 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 
 ## Requirements
 
-- Node.js >= 20.12.0
+- Node.js >= 22.12.0
 - React >= 18
 - TypeScript
 
@@ -135,7 +140,11 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 - [`useSwap()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwap.ts) — Submit a cross-chain swap intent
 - [`useSwapAllowance()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapAllowance.ts) — Check token approval
 - [`useSwapApprove()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapApprove.ts) — Approve token spending
-- [`useStatus()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useStatus.ts) — Track intent execution status
+- [`useSwapLifecycle()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapLifecycle.ts) — A whole swap form as one discriminated `state` and one `next()` action: approval strategy, Stellar/NEAR destination gates, source-chain switch (passed in), the swap and its status. A swap that fails after broadcast stays `pending` with its `error`; a batch that was sent but not confirmed is `unconfirmed`, and `next()` waits for it again (never re-sends it) and finishes the swap once it lands. The hooks it composes are returned as escape hatches
+- [`useSwapWithApproval()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapWithApproval.ts) — `useSwap` with the approval folded in: approve + swap as one EIP-5792 batch (one signature) on a wallet that can batch, otherwise approve then swap. `allowAccountUpgrade: false` skips the smart-account upgrade prompt a `'ready'` wallet would show and approves separately
+- [`useSwapApprovalStrategy()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapApprovalStrategy.ts) — Which path `useSwapWithApproval` will take (`'not-required'` / `'atomic-batch'` / `'sequential'`), to label the button
+- [`useDetailedStatus()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useDetailedStatus.ts) — Poll a swap's status from its **source** tx (`{ srcChainKey, srcTxHash }`), whichever completion path ran — the default status read. Collapse `data.value` with `summarizeSwapStatus` from `@sodax/sdk`
+- [`useStatus()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useStatus.ts) — Poll the solver's status by **hub** tx hash (`intentDeliveryInfo.dstTxHash`)
 - [`useCancelSwap()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useCancelSwap.ts) — Cancel a pending swap
 - [`useCreateLimitOrder()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useCreateLimitOrder.ts) — Create a limit order (no deadline)
 - [`useCancelLimitOrder()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useCancelLimitOrder.ts) — Cancel a limit order
@@ -160,6 +169,7 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 ### Bridge Hooks
 
 - [`useBridge()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridge/useBridge.ts) — Execute a cross-chain bridge transfer
+- [`useBridgeDetailedStatus()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridge/useBridgeDetailedStatus.ts) — Track a bridge from its source tx, whichever completion path ran
 - [`useBridgeAllowance()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridge/useBridgeAllowance.ts) — Check token approval
 - [`useBridgeApprove()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridge/useBridgeApprove.ts) — Approve token spending
 - [`useGetBridgeableAmount()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridge/useGetBridgeableAmount.ts) — Max bridgeable amount between two tokens
@@ -186,6 +196,31 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 - [`useInstantUnstakeRatio()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/staking/useInstantUnstakeRatio.ts) — Instant unstake rate
 - [`useConvertedAssets()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/staking/useConvertedAssets.ts) — xSODA to SODA conversion
 
+### Leverage Position Hooks
+
+A position is one Aave account owned by the user's **hub wallet**, never their signing address — pass
+the signer as `params.srcAddress` and the SDK resolves the owner.
+
+Which write hook to use is decided by the operation, not by preference. `increaseLeverage` and
+`decreaseLeverage` only **post** a solver intent, and an intent the solver was never told about
+expires unfilled, so those go through `useSubmitLeveragePositionIntent()`, which reports it.
+`withdraw`, `settle` and `cancel` are synchronous on the hub and need no notification.
+
+- [`useOpenLeveragePosition()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useOpenLeveragePosition.ts) — Open a position (`side: 'collateral' | 'debt'`) and report its intent
+- [`useSubmitLeveragePositionIntent()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useSubmitLeveragePositionIntent.ts) — Run `increaseLeverage` / `decreaseLeverage` and report the intent
+- [`useRunLeveragePositionOperation()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useRunLeveragePositionOperation.ts) — Run `withdraw` / `settle` / `cancel`; no intent, nothing to report
+- [`useLeveragePositionPayoutAddress()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeveragePositionPayoutAddress.ts) — Where a withdrawal can be paid, which off the hub is not the signer
+- [`useLeveragePositionFundingAllowance()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeveragePositionFundingAllowance.ts) — Whether the funding token is approved; the spender is chain-dependent
+- [`useApproveLeveragePositionFunding()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useApproveLeveragePositionFunding.ts) — Approve it, against the spender the SDK resolves
+- [`useLeveragePositionsForUser()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeveragePositionsForUser.ts) — A user's positions, discovered through their hub wallet
+- [`useLeveragePositionAccount()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeveragePositionAccount.ts) — Collateral, debt, LTV and health factor
+- [`useLeveragePositionInfo()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeveragePositionInfo.ts) — The position's collateral and borrow reserves
+- [`useLeveragePositionCollateral()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeveragePositionCollateral.ts) — Collateral balance held
+- [`useLeveragePositionPending()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeveragePositionPending.ts) — The pending-operation slot; a position permits one at a time
+
+> Resolving means the intent is **live**, not that leverage moved. Off-hub (spoke) origins are
+> experimental and unverified on-chain; see each hook's JSDoc.
+
 ### DEX Hooks
 
 - [`usePools()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/dex/usePools.ts) — List available pools
@@ -205,6 +240,19 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 - [`useCreateSupplyLiquidityParams()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/dex/useCreateSupplyLiquidityParams.ts) — Build tick range + liquidity params
 - [`useCreateDecreaseLiquidityParams()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/dex/useCreateDecreaseLiquidityParams.ts) — Build decrease params from position state
 
+### Leverage Yield Hooks
+
+- [`useLeverageYieldEffectiveApr()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldEffectiveApr.ts) — Vault effective APR (AAVE rates + LSD yield, leverage-adjusted; refreshes 60s)
+- [`useLeverageYieldPosition()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldPosition.ts) — Live position snapshot: collateral, debt, LTV, health factor, idle assets (refreshes 30s)
+- [`useLeverageYieldTotalAssets()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldTotalAssets.ts) — Vault total underlying assets (TVL)
+- [`useLeverageYieldPreviewRedeem()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldPreviewRedeem.ts) — Assets received for redeeming shares (ERC-4626 `previewRedeem`)
+- [`useLeverageYieldShareBalances()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldShareBalances.ts) — User `lsoda*` share balances across every chain they may hold a position under
+- [`useLeverageYieldDeposit()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldDeposit.ts) — Build the deposit payload (any token → `lsoda*` shares) for `useLeverageYieldVaultSwap`
+- [`useLeverageYieldWithdraw()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldWithdraw.ts) — Build the withdraw payload (`lsoda*` shares → any token) for `useLeverageYieldVaultSwap`
+- [`useLeverageYieldVaultSwap()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldVaultSwap.ts) — Execute an end-to-end vault swap (deposit or withdraw); backend 2-step by default, with the client-side fallback
+- [`useLeverageYieldDetailedStatus()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldDetailedStatus.ts) — Track a vault swap from its source tx, whichever completion path ran
+- [`useLeverageYieldNotifySolver()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/leverageYield/useLeverageYieldNotifySolver.ts) — Notify the solver that a vault intent landed on the hub (standalone step for manual relay flows)
+
 ### Migration Hooks
 
 - [`useMigrateIcxToSoda()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/migrate/useMigrateIcxToSoda.ts) — ICX/wICX (ICON) → SODA (Sonic)
@@ -218,9 +266,11 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 
 - [`useRadfiSession()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bitcoin/useRadfiSession.ts) — Manage Bound Exchange session (login, auto-refresh)
 - [`useRadfiAuth()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bitcoin/useRadfiAuth.ts) — Authenticate with Bound Exchange via BIP322 signing
+- [`useEnsureRadfiAccessToken()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bitcoin/useEnsureRadfiAccessToken.ts) — Ensure a valid Bound Exchange access token (refresh, or full re-auth), returning it for a Bitcoin-source createIntent
 - [`useTradingWallet()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bitcoin/useTradingWallet.ts) — Get trading wallet address from persisted session
 - [`useBitcoinBalance()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bitcoin/useBitcoinBalance.ts) — BTC balance for any address
 - [`useTradingWalletBalance()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bitcoin/useTradingWalletBalance.ts) — Trading wallet balance from Bound Exchange API
+- [`useBitcoinTradingSetup()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bitcoin/useBitcoinTradingSetup.ts) — Bitcoin trading-wallet setup for one side of a cross-chain flow (inert unless the chain is Bitcoin)
 - [`useFundTradingWallet()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bitcoin/useFundTradingWallet.ts) — Fund trading wallet from personal wallet
 - [`useRadfiWithdraw()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bitcoin/useRadfiWithdraw.ts) — Withdraw from trading wallet
 - [`useExpiredUtxos()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bitcoin/useExpiredUtxos.ts) — Fetch expired UTXOs (polls every 60s)
@@ -234,6 +284,10 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 - [`useApproveToken()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/partner/useApproveToken.ts) — Approve token
 - [`useSetSwapPreference()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/partner/useSetSwapPreference.ts) — Set swap preference
 - [`useFeeClaimSwap()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/partner/useFeeClaimSwap.ts) — Claim partner fees via swap
+- [`useFeeClaimWithdraw()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/partner/useFeeClaimWithdraw.ts) — Withdraw a partner fee balance via a Sonic-sourced bridge to the destination chain
+- [`usePartnerCancelIntent()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/partner/usePartnerCancelIntent.ts) — Cancel a stuck partner fee-claim auto-swap intent and recover the locked tokens
+- [`useGetUserIntent()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/partner/useGetUserIntent.ts) — Look up the stored intent hash for a partner `(user, fromToken, toToken)` pair
+- [`useGetIntentDetails()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/partner/useGetIntentDetails.ts) — Fetch the full intent details for a ProtocolIntents intent hash
 
 ### Recovery Hooks
 
@@ -252,6 +306,9 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 - [`useEstablishTrustline()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useEstablishTrustline.ts) — Request Stellar trustline
 - [`useRequestTrustline()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useRequestTrustline.ts) — **Deprecated**, use `useEstablishTrustline()`
 - [`useStellarGate()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useStellarGate.ts) — Sequences the Stellar destination prerequisites (activation → funding → trustline)
+- [`useNearStorageCheck()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useNearStorageCheck.ts) — Check NEP-141 storage registration for a token on NEAR (NEAR's analogue of a Stellar trustline)
+- [`useRegisterNearStorage()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useRegisterNearStorage.ts) — Submit a NEP-141 `storage_deposit` so a NEAR account can receive a token
+- [`useNearStorageGate()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useNearStorageGate.ts) — Derive the NEP-141 storage-registration UI gate state for a NEAR delivery
 
 ### Sponsoring Hooks
 
@@ -275,10 +332,12 @@ These drive sponsored activation, where the SODAX sponsor pays the account's bas
 - [`useBackendMoneyMarketAssetBorrowers()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/backend/useBackendMoneyMarketAssetBorrowers.ts) — Asset borrowers
 - [`useBackendMoneyMarketAssetSuppliers()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/backend/useBackendMoneyMarketAssetSuppliers.ts) — Asset suppliers
 - [`useBackendAllMoneyMarketBorrowers()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/backend/useBackendAllMoneyMarketBorrowers.ts) — All borrowers
+- [`useBackendOracleMarkets()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/backend/useBackendOracleMarkets.ts) — Oracle candle discovery: quote, intervals, symbols (cached 60s)
+- [`useBackendOracleCandles()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/backend/useBackendOracleCandles.ts) — USD OHLC candles for a symbol over `[from, to)` (cached 10s)
 
 ### Swaps API Hooks (`sodax.api.swaps`)
 
-Typed wrappers over the backend Swaps API v2 — one `useSwapsApi*` hook per endpoint (21 total). Highlights:
+Typed wrappers over the backend Swaps API — one `useSwapsApi*` hook per endpoint (21 total). Highlights:
 
 - [`useSwapsApiQuote()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swapsApi/useSwapsApiQuote.ts) — Solver quote for a cross-chain swap
 - [`useSwapsApiCreateIntent()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swapsApi/useSwapsApiCreateIntent.ts) — Build an unsigned create-intent tx
@@ -287,12 +346,33 @@ Typed wrappers over the backend Swaps API v2 — one `useSwapsApi*` hook per end
 
 See [`src/hooks/swapsApi/`](https://github.com/icon-project/sodax-sdks/tree/main/packages/dapp-kit/src/hooks/swapsApi) for the full set (tokens, deadline, allowance, approve, submit/cancel intent, status, hash, packet, extra-data, intent lookups, limit orders, gas, fees).
 
-### DEX Utils
+### Bridge API Hooks (`sodax.api.bridge`)
+
+Typed wrappers over the backend Bridge API v2 — one `useBridgeApi*` hook per endpoint. Highlights:
+
+- [`useBridgeApiSubmitTx()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridgeApi/useBridgeApiSubmitTx.ts) — Hand a broadcast spoke-deposit tx to the backend relay pipeline
+- [`useBridgeApiSubmitTxStatus()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/bridgeApi/useBridgeApiSubmitTxStatus.ts) — Poll a submitted bridge tx by `(txHash, srcChainKey)`
+
+See [`src/hooks/bridgeApi/`](https://github.com/icon-project/sodax-sdks/tree/main/packages/dapp-kit/src/hooks/bridgeApi) for the full set (tokens, allowance, approve, create intent, fee, bridgeable amount, bridgeable pair).
+
+### API-key failures are terminal
+
+Every retrying `useSwapsApi*`, `useLeverageYieldApi*` and `useBridgeApi*` hook defaults `retry` to [`retryUnlessAuthFailure()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/retryUnlessAuthFailure.ts): transport blips retry up to 3 times, a `401`/`403` never replays. `useSwapsApiStatus`, `useSwapsApiSubmitTxStatus`, `useLeverageYieldApiSubmitTxStatus` and `useBridgeApiSubmitTxStatus` stop their 1s poll on a rejected key too, since `retry` bounds attempts within a tick rather than the interval — so a bad key surfaces once, on `error`, instead of re-requesting forever. Override either through `queryOptions` / `mutationOptions`.
+
+`useDetailedStatus` and `useBridgeDetailedStatus` stop on a rejected key as well, but by a different route: the SDK hands them the `401`/`403` inside a `Result` rather than throwing, so React Query never sees an error and `retry` has nothing to withhold. Their poll interval checks `isAuthFailure(data.error)` instead. It has to — a rejected key leaves the backend unanswered, so a relay miss behind it is never tagged `DETAILED_STATUS_NOT_DELIVERED`, and the not-delivered budget that stops every other unresolved read would never advance.
+
+### Utils
+
+DEX param builders:
 
 - [`createDepositParamsProps()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/utils/dex-utils.ts) — Build deposit params from pool data and spoke asset info
 - [`createWithdrawParamsProps()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/utils/dex-utils.ts) — Build withdraw params with optional destination info
 - [`createSupplyLiquidityParamsProps()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/utils/dex-utils.ts) — Build concentrated liquidity supply params
 - [`createDecreaseLiquidityParamsProps()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/utils/dex-utils.ts) — Build decrease liquidity params
+
+NEAR storage gate:
+
+- [`resolveNearStorageGate()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/utils/nearStorageGate.ts) — Derive the NEP-141 storage-registration UI gate state (hook-free counterpart of `useNearStorageGate`)
 
 ## Development
 

@@ -19,13 +19,13 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ChainSelector } from '@/components/shared/ChainSelector';
+import { fmtBps, fmtHealthFactor } from '@/lib/utils';
 import {
-  useSwapsApiSubmitTx,
-  useQuote,
+  useLeverageYieldQuote,
   useSodaxContext,
   useSwapAllowance,
   useSwapApprove,
-  useXBalances,
+  useBalances,
   useLeverageYieldDeposit,
   useLeverageYieldVaultSwap,
   useLeverageYieldWithdraw,
@@ -35,14 +35,12 @@ import {
   useLeverageYieldPreviewRedeem,
   useLeverageYieldShareBalances,
   ChainKeys,
-  adjustAmountByFee,
   getSupportedSolverTokens,
+  type LeverageYieldQuoteParams,
   type LeverageYieldSwapPayload,
   type LeverageYieldVault,
   type PartnerFee,
-  type SolverIntentQuoteRequest,
   type SpokeChainKey,
-  type SubmitTxRequestV2,
   type XToken,
 } from '@sodax/dapp-kit';
 import {
@@ -51,7 +49,6 @@ import {
   useWalletProvider,
   useXAccount,
   useXAccounts,
-  useXService,
 } from '@sodax/wallet-sdk-react';
 import { type FinalStatus, type Order, buildOrderSummary, orderId } from '@/components/swaps/OrderStatus';
 import OrderStatusPanel from '@/components/swaps/OrderStatusPanel';
@@ -61,14 +58,12 @@ import BigNumber from 'bignumber.js';
 import { useQueryClient } from '@tanstack/react-query';
 import { formatUnits, parseUnits } from 'viem';
 import { SolverEnv, useAppStore } from '@/zustand/useAppStore';
-import { solverApiEndpointForEnv } from '@/constants';
 
 const SONIC = ChainKeys.SONIC_MAINNET satisfies SpokeChainKey;
 const DEFAULT_SLIPPAGE = '0.5'; // %
 
-// Partner fee charged on leverage-vault DEPOSITS only (100 bps = 1%, the max). Rides on the
-// deposit payload as the swap layer's per-intent fee override, so withdraws and ordinary
-// swaps stay on the global `config.swaps.partnerFee` (unset in this demo).
+// Per-intent partner fee on leverage-vault DEPOSITS (10 bps = 0.1%). Passed to both the quote and the
+// deposit builder; withdraws use the configured leverage-yield fee (`leverageYield.partnerFee ?? fee`).
 const DEPOSIT_PARTNER_FEE = {
   address: '0x93D5CE288b3BF6b33F913b98FD1fA844Acc462d4',
   percentage: 10,
@@ -107,29 +102,10 @@ function fmtLeverage(multWad: bigint | undefined, digits = 2): string {
   return (Number(scaled) / Number(SCALE)).toFixed(digits);
 }
 
-/** Format a basis-points value (e.g. `8500n`) as a percentage string. */
-function fmtBps(value: bigint | undefined, digits = 2): string {
-  if (value === undefined) return '—';
-  return `${(Number(value) / 100).toFixed(digits)}%`;
-}
-
-/**
- * Format a WAD-scaled health factor. The vault returns `type(uint256).max` when there
- * is no debt — display that as `∞` instead of a giant number.
- */
-function fmtHealthFactor(hfWad: bigint | undefined, digits = 2): string {
-  if (hfWad === undefined) return '—';
-  const UINT256_MAX = (1n << 256n) - 1n;
-  if (hfWad >= UINT256_MAX - 1n) return '∞';
-  const SCALE = 100_000n;
-  const scaled = (hfWad * SCALE) / 1_000_000_000_000_000_000n;
-  return (Number(scaled) / Number(SCALE)).toFixed(digits);
-}
-
 export default function LeverageYieldPage() {
   const { sodax } = useSodaxContext();
   const queryClient = useQueryClient();
-  const { openWalletModal, solverEnvironment, setSolverEnvironment } = useAppStore();
+  const { openWalletModal, solverEnvironment, setSolverEnvironment, sodaxSettings } = useAppStore();
 
   // ─── Vault selection ─────────────────────────────────────────────────────
 
@@ -159,17 +135,16 @@ export default function LeverageYieldPage() {
   const supportedSpokeChains = useMemo(() => sodax.config.getSupportedSpokeChains(), [sodax]);
   const [userChain, setUserChain] = useState<SpokeChainKey>(ChainKeys.ARBITRUM_MAINNET);
   const userTokens = useMemo(() => getSupportedSolverTokens(userChain), [userChain]);
-  const [userToken, setUserToken] = useState<XToken | undefined>(userTokens[0]);
-
-  useEffect(() => {
-    if (userTokens.length === 0) return;
-    // Re-resolve to the NEW chain's token instance on every chain switch. Match by symbol so
-    // the user's selection persists, but always return the entry from `userTokens` (carrying
-    // the new chain's `chainKey`) — never keep the stale `prev` object. Balance readers derive
-    // the chain to query from `xToken.chainKey`, so retaining the old object would fetch the
-    // previous chain's balance for an unchanged token.
-    setUserToken(prev => userTokens.find(t => t.symbol === prev?.symbol) ?? userTokens[0]);
-  }, [userTokens]);
+  // Store the SYMBOL and derive the token during render. Holding the token in its own state and
+  // re-resolving it from an effect left one committed render pairing the new `userChain` with the
+  // previous chain's token — a mismatch `useBalances` reads as `0n` instead of rejecting, so it
+  // surfaces as a phantom empty balance. Deriving from `userTokens`, which recomputes in the same
+  // render as `userChain`, closes that window.
+  const [userTokenSymbol, setUserTokenSymbol] = useState<string | undefined>(userTokens[0]?.symbol);
+  const userToken = useMemo(
+    () => userTokens.find(t => t.symbol === userTokenSymbol) ?? userTokens[0],
+    [userTokens, userTokenSymbol],
+  );
 
   // ─── Active tab ──────────────────────────────────────────────────────────
 
@@ -198,18 +173,14 @@ export default function LeverageYieldPage() {
 
   // ─── Balances (single — user's token on user chain) ──────────────────────
 
-  const userXService = useXService({ xChainType: userChainType });
-  const { data: userBalances } = useXBalances({
+  const { data: userBalances } = useBalances({
     params: {
-      xService: userXService,
-      xChainId: userChain,
-      xTokens: userToken ? [userToken] : [],
+      chainKey: userChain,
+      tokens: userToken ? [userToken] : [],
       address: userAccount.address,
     },
   });
-  const userBalance: bigint | undefined = userToken
-    ? (userBalances?.[userToken.address] as bigint | undefined)
-    : undefined;
+  const userBalance: bigint | undefined = userToken ? userBalances?.[userToken.address] : undefined;
 
   // ─── Amount + quote ──────────────────────────────────────────────────────
 
@@ -223,22 +194,21 @@ export default function LeverageYieldPage() {
     setIntentOrderPayload(undefined);
   }, [tab, selectedVaultName, userChain, userToken?.address]);
 
-  const quotePayload: SolverIntentQuoteRequest | undefined = useMemo(() => {
+  // Gross amount: the leverage-yield quote deducts the same fee the vault intent charges.
+  const quotePayload: LeverageYieldQuoteParams | undefined = useMemo(() => {
     if (!src.token || !dst.token || Number(sourceAmount) <= 0) return undefined;
-    const amount = parseUnits(sourceAmount, src.token.decimals);
     return {
       token_src: src.token.address,
       token_src_blockchain_id: src.chain,
       token_dst: dst.token.address,
       token_dst_blockchain_id: dst.chain,
-      // Deposits carry DEPOSIT_PARTNER_FEE, which createIntent() deducts from inputAmount
-      // before the swap — quote on the post-fee amount so minOutputAmount stays fillable.
-      amount: tab === 'deposit' ? adjustAmountByFee(amount, DEPOSIT_PARTNER_FEE, 'exact_input') : amount,
+      amount: parseUnits(sourceAmount, src.token.decimals),
       quote_type: 'exact_input',
-    } satisfies SolverIntentQuoteRequest;
+      ...(tab === 'deposit' ? { partnerFee: DEPOSIT_PARTNER_FEE } : {}),
+    } satisfies LeverageYieldQuoteParams;
   }, [src.token, dst.token, src.chain, dst.chain, sourceAmount, tab]);
 
-  const quoteQuery = useQuote({ params: { payload: quotePayload } });
+  const quoteQuery = useLeverageYieldQuote({ params: { payload: quotePayload } });
   const quote = quoteQuery.data?.ok ? quoteQuery.data.value : undefined;
 
   const exchangeRate = useMemo(() => {
@@ -275,19 +245,12 @@ export default function LeverageYieldPage() {
   });
 
   const { mutateAsyncSafe: approve, isPending: isApproving } = useSwapApprove();
-  const { mutateAsyncSafe: submitSwapTx, isPending: isSubmitting } = useSwapsApiSubmitTx();
   const { mutateAsync: vaultSwap, isPending: isSwapping } = useLeverageYieldVaultSwap();
 
   // Leverage-yield intent builders. `mutateAsyncSafe` returns `Result<LeverageYieldSwapPayload>`
   // and never rejects, so `prepare()` branches on `.ok` exactly like the SDK's own builder did.
   const { mutateAsyncSafe: buildDepositIntent } = useLeverageYieldDeposit();
   const { mutateAsyncSafe: buildWithdrawIntent } = useLeverageYieldWithdraw();
-
-  // ─── Submit-tx API toggle ────────────────────────────────────────────────
-  // When OFF (default): `useLeverageYieldVaultSwap` creates the intent, relays it, and
-  // notifies the solver (withdraw routes via the hub-wallet `sendMessage` internally).
-  // When ON: createVaultIntent → POST to BES → poll the BES status endpoint.
-  const [useSubmitTxApi, setUseSubmitTxApi] = useState(false);
 
   // ─── Shares across ALL connected chains' hub wallets ─────────────────────
   // Users may hold shares under multiple hub wallets — one per spoke chain they
@@ -349,9 +312,8 @@ export default function LeverageYieldPage() {
   // 30s refresh: faster than APR since LTV shifts with each rebalance/rate tick.
   const { data: vaultPosition } = useLeverageYieldPosition({ params: { vault: selectedVault?.vault } });
 
-  // Accumulated orders — each one polls the BES status endpoint via <OrderStatus> and
-  // shows live progress. Mirrors the solver page's pattern so users see the same UX
-  // whether they deposit/withdraw via this page or swap via /solver.
+  // Accumulated orders — each tracks its vault swap through <OrderStatus>, which reads the status
+  // router, so it answers whether the backend submit-tx path or the relay fallback carried the swap.
   // Own localStorage key (separate from the solver page) since this is a different feature.
   const [orders, setOrders] = useState<Order[]>(() => loadOrders(LEVERAGE_YIELD_ORDERS_KEY));
 
@@ -375,7 +337,7 @@ export default function LeverageYieldPage() {
     setSourceAmount('');
     setIntentOrderPayload(undefined);
     queryClient.invalidateQueries({ queryKey: ['leverageYield'] });
-    queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances'] });
+    queryClient.invalidateQueries({ queryKey: ['shared', 'balances'] });
   };
 
   // Builds the swap payload via the SDK's leverage-yield builders, then stashes it for
@@ -434,11 +396,14 @@ export default function LeverageYieldPage() {
    * Executes the prepared intent. Tab-agnostic — the action-shaped `intentOrderPayload`
    * already encodes deposit vs withdraw (withdraw carries `hubWalletSwap: true`, handled
    * inside `vaultSwap()` / `createVaultIntent()`), so it spreads into either call
-   * unchanged. Two modes via the submit-tx toggle:
-   *  - OFF (default): `useLeverageYieldVaultSwap` creates the intent, relays it, and
-   *    notifies the solver, returning full delivery info. Order renders in 'solver' mode.
-   *  - ON: `createVaultIntent` + BES `submitSwapTx` — POSTs the spoke tx to the backend,
-   *    which drives the relay/solver. Order renders in 'submit-tx' mode.
+   * unchanged.
+   *
+   * One call, whichever transport is configured. `leverageYield.useBackendSubmitTx` (Sodax
+   * Settings → Leverage Yield SDK) decides inside `vaultSwap()` whether the broadcast intent
+   * goes to the leverage-yield API or is relayed client-side, and either way the resolved value
+   * is the same `VaultSwapResponse` — so the order always renders in 'solver' mode. This page
+   * used to own that choice itself and POST to the *swaps* submit-tx route, which meant a vault
+   * swap submitted without its `operation` discriminator and with no relay fallback.
    */
   const handleSwap = async () => {
     if (!intentOrderPayload || !sourceWalletProvider) return;
@@ -447,69 +412,31 @@ export default function LeverageYieldPage() {
     // "AMOUNT TOKEN (NETWORK) => AMOUNT TOKEN (NETWORK)" snapshot for the order card.
     const summary = buildOrderSummary(src, dst, sourceAmount, quote?.quoted_amount);
 
-    if (!useSubmitTxApi) {
-      try {
-        const { solverExecutionResponse, intent, intentDeliveryInfo } = await vaultSwap({
-          ...intentOrderPayload,
-          walletProvider: sourceWalletProvider,
-        });
-        setOrders(prev =>
-          appendOrder(prev, {
-            mode: 'solver',
-            intentHash: solverExecutionResponse.intent_hash,
-            orderId: intent.intentId.toString(),
-            dstTxHash: intentDeliveryInfo.dstTxHash as string,
-            srcTxHash: intentDeliveryInfo.srcTxHash,
-            srcChainKey: intentDeliveryInfo.srcChainKey,
-            statusEndpoint: solverApiEndpointForEnv(solverEnvironment),
-            createdAt: Date.now(),
-            summary,
-          }),
-        );
-        resetAfterSubmit();
-      } catch (e) {
-        setActionError(`Swap failed: ${e instanceof Error ? e.message : String(e)}`);
-      }
-      return;
+    try {
+      const { solverExecutionResponse, intent, intentDeliveryInfo } = await vaultSwap({
+        ...intentOrderPayload,
+        walletProvider: sourceWalletProvider,
+        // Per-action key from Sodax Settings; omitted entirely when unset, so the backend legs fall
+        // back to the instance key rather than being handed an empty credential.
+        ...(sodaxSettings.leverageYieldApiKey ? { extras: { apiKey: sodaxSettings.leverageYieldApiKey } } : {}),
+      });
+      setOrders(prev =>
+        appendOrder(prev, {
+          mode: 'solver',
+          intentHash: solverExecutionResponse.intent_hash,
+          orderId: intent.intentId.toString(),
+          dstTxHash: intentDeliveryInfo.dstTxHash as string,
+          srcTxHash: intentDeliveryInfo.srcTxHash,
+          srcChainKey: intentDeliveryInfo.srcChainKey,
+          statusEndpoint: sodax.config.solver.solverApiEndpoint,
+          createdAt: Date.now(),
+          summary,
+        }),
+      );
+      resetAfterSubmit();
+    } catch (e) {
+      setActionError(`Swap failed: ${e instanceof Error ? e.message : String(e)}`);
     }
-
-    // Submit-tx (BES) path: create the intent, then hand the spoke tx to the backend.
-    const createResult = await sodax.leverageYield.createVaultIntent({
-      ...intentOrderPayload,
-      raw: false,
-      walletProvider: sourceWalletProvider,
-    });
-    if (!createResult.ok) {
-      setActionError(`Create intent failed: ${(createResult.error as Error)?.message ?? 'unknown'}`);
-      return;
-    }
-    const { tx: spokeTxHash, intent, relayData } = createResult.value;
-
-    // BES locates the tx on `srcChainKey` — the spoke chain the user signed on (`userChain`
-    // for both tabs; withdraw signs a `sendMessage` there).
-    const request: SubmitTxRequestV2 = {
-      txHash: spokeTxHash as string,
-      srcChainKey: userChain,
-      walletAddress: intentOrderPayload.params.srcAddress,
-      intent,
-      relayData: relayData.payload,
-    };
-    const submitResult = await submitSwapTx({ request });
-    if (!submitResult.ok) {
-      setActionError(`BES submit failed: ${(submitResult.error as Error)?.message ?? 'unknown'}`);
-      return;
-    }
-
-    setOrders(prev =>
-      appendOrder(prev, {
-        mode: 'submit-tx',
-        txHash: spokeTxHash as string,
-        srcChainKey: userChain,
-        createdAt: Date.now(),
-        summary,
-      }),
-    );
-    resetAfterSubmit();
   };
 
   // ─── Render ──────────────────────────────────────────────────────────────
@@ -560,13 +487,14 @@ export default function LeverageYieldPage() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-start min-h-screen p-4 gap-4">
+    <div className="flex flex-col items-center justify-start min-h-screen p-4 pt-8 pb-12 gap-4">
       {/* Swap history — fixed left sidebar on xl, in-flow below on smaller screens, same as /solver. */}
       <OrderStatusPanel
         orders={orders}
         onDismiss={handleDismissOrder}
         onSettle={handleSettleOrder}
         storageKey={LEVERAGE_YIELD_PANEL_KEY}
+        feature="leverage-yield"
       />
 
       {/* Solver-environment switcher — same control as on /solver. Drives `solverEnvironment`
@@ -679,9 +607,9 @@ export default function LeverageYieldPage() {
               leverage deposits always deliver shares. Total sums all chains. */}
           {connectedHolders.length > 0 && (
             <div className="border-t pt-3 space-y-1 text-sm">
-              <div className="flex justify-between font-medium">
+              <div className="flex justify-between gap-2 font-medium">
                 <span>Your shares (all chains)</span>
-                <span className="font-mono">
+                <span className="font-mono text-right">
                   {fmtUnits(totalShares, lsodaToken.decimals)} {lsodaToken.symbol}
                 </span>
               </div>
@@ -689,9 +617,9 @@ export default function LeverageYieldPage() {
                   user would get if they fully exited *right now*, in vault-asset units
                   (sodaWEETH-style, 18 dec). Tracks vault performance for the user. */}
               {vaultStats && totalShares > 0n && (
-                <div className="flex justify-between text-xs">
+                <div className="flex justify-between gap-2 text-xs">
                   <span className="text-muted-foreground">≈ underlying</span>
-                  <span className="font-mono text-muted-foreground">
+                  <span className="font-mono text-muted-foreground text-right">
                     {fmtUnits((totalShares * vaultStats.sharePrice) / 10n ** 18n, 18)}
                   </span>
                 </div>
@@ -702,11 +630,11 @@ export default function LeverageYieldPage() {
                   const d = q?.data;
                   if (d && d.shares > 0n) {
                     return (
-                      <div key={chainKey} className="flex justify-between text-xs">
+                      <div key={chainKey} className="flex justify-between gap-2 text-xs">
                         <span className="text-muted-foreground">
                           {chainKey} <span className="opacity-60">(hub wallet)</span>
                         </span>
-                        <span className="font-mono">{fmtUnits(d.shares, lsodaToken.decimals)}</span>
+                        <span className="font-mono text-right">{fmtUnits(d.shares, lsodaToken.decimals)}</span>
                       </div>
                     );
                   }
@@ -756,7 +684,7 @@ export default function LeverageYieldPage() {
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <Label>{tab === 'deposit' ? 'Pay with' : 'Receive token'}</Label>
                   {tab === 'deposit' && userToken && userBalance !== undefined && (
                     <span className="text-xs text-muted-foreground">
@@ -772,7 +700,7 @@ export default function LeverageYieldPage() {
                 </div>
                 <Select
                   value={userToken?.address}
-                  onValueChange={addr => setUserToken(userTokens.find(t => t.address === addr))}
+                  onValueChange={addr => setUserTokenSymbol(userTokens.find(t => t.address === addr)?.symbol)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Token" />
@@ -847,24 +775,8 @@ export default function LeverageYieldPage() {
                     type="number"
                     value={slippage}
                     onChange={e => setSlippage(e.target.value)}
-                    className="h-7 w-24 text-xs"
+                    className="h-9 w-24 text-base sm:h-7 sm:text-xs"
                   />
-                </div>
-
-                {/* Submit-tx API toggle — mirrors the solver page. ON: createVaultIntent →
-                    BES POST → poll status. OFF: useLeverageYieldVaultSwap (waits for relay
-                    packet inline). */}
-                <div className="flex items-center gap-2 pt-1">
-                  <input
-                    id="ly-submit-tx-toggle"
-                    type="checkbox"
-                    checked={useSubmitTxApi}
-                    onChange={e => setUseSubmitTxApi(e.target.checked)}
-                    className="h-4 w-4 cursor-pointer"
-                  />
-                  <label htmlFor="ly-submit-tx-toggle" className="text-xs cursor-pointer">
-                    Submit tx to API
-                  </label>
                 </div>
               </div>
 
@@ -895,14 +807,8 @@ export default function LeverageYieldPage() {
                   {isApproving ? 'Approving…' : 'Approve'}
                 </Button>
               ) : (
-                <Button onClick={handleSwap} disabled={isSubmitting || isSwapping} className="w-full">
-                  {isSubmitting || isSwapping
-                    ? isSwapping
-                      ? 'Swapping…'
-                      : 'Submitting…'
-                    : tab === 'deposit'
-                      ? 'Deposit'
-                      : 'Withdraw'}
+                <Button onClick={handleSwap} disabled={isSwapping} className="w-full">
+                  {isSwapping ? 'Swapping…' : tab === 'deposit' ? 'Deposit' : 'Withdraw'}
                 </Button>
               )}
 

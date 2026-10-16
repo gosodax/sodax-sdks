@@ -41,6 +41,10 @@
 #      family) are also allowed.
 #   7. Every relative .md link in packages/skills/{AGENTS,CLAUDE,README}.md and
 #      under skills/ resolves to an existing file (with optional #fragment).
+#   8. Each broad skill routes to all of its children: every nested granular
+#      SKILL.md is linked and every integration features/*.md is named in the
+#      parent SKILL.md, and every registered description fits the 1,536-char
+#      skill-listing cap.
 #
 # Exits 1 on the first failure and prints a list of all problems.
 
@@ -352,6 +356,60 @@ while IFS= read -r -d '' f; do
   fi
 done < <(find . -maxdepth 1 -type f -name '*.md' -print0 2>/dev/null; \
          find skills -type f -name '*.md' -print0 2>/dev/null)
+
+# -----------------------------------------------------------------------------
+# 8. Routing from each broad skill. Only top-level skills are auto-discovered by
+#    agents (Claude Code registers `.claude/skills/<name>/SKILL.md` only), so a
+#    granular skill or feature doc its parent never names is reachable by grep
+#    alone.
+#    a. Every nested granular skill is linked from its parent: `](./<feature>/SKILL.md)`.
+#    b. Every integration/knowledge/features/<file>.md (bar README) is named in
+#       the parent SKILL.md.
+#    c. Every registered skill's description fits Claude Code's skill-listing
+#       cap (1,536 chars); past it the tail, usually the migration triggers, is cut.
+# -----------------------------------------------------------------------------
+for broad in "${EXPECTED_BROAD_SKILLS[@]}"; do
+  [[ -f "$broad/SKILL.md" ]] || continue
+  for granular in "$broad"/*/SKILL.md; do
+    [[ -f "$granular" ]] || continue
+    feature="$(basename "$(dirname "$granular")")"
+    if ! grep -qF "](./$feature/SKILL.md)" "$broad/SKILL.md"; then
+      err "Granular skill not linked from its parent (add a routing-table row): $broad/SKILL.md -> ./$feature/SKILL.md"
+    fi
+  done
+  # Scoped to the "## Integration mode" section, so a same-named migration doc can't stand in for it.
+  if ! grep -q '^## Integration mode' "$broad/SKILL.md" || ! grep -q '^## Migration mode' "$broad/SKILL.md"; then
+    err "Broad skill needs both '## Integration mode' and '## Migration mode' headings: $broad/SKILL.md"
+  fi
+  integration_section=$(awk '/^## Integration mode/{f=1} /^## Migration mode/{f=0} f' "$broad/SKILL.md")
+  for feature_doc in "$broad"/integration/knowledge/features/*.md; do
+    [[ -f "$feature_doc" ]] || continue
+    doc="$(basename "$feature_doc")"
+    [[ "$doc" == "README.md" ]] && continue
+    if ! grep -qE "(^|integration/knowledge/features/|[^a-z0-9/-])${doc//./\\.}([^a-zA-Z0-9]|$)" <<<"$integration_section"; then
+      err "Feature doc not named in its parent's Integration mode section: $broad/SKILL.md -> $doc"
+    fi
+  done
+done
+
+for dir in "${REGISTERED[@]}"; do
+  [[ -f "$dir/SKILL.md" ]] || continue
+  # Invalid YAML is already reported by rule 3; count 0 here rather than abort the report.
+  # `.length` counts UTF-16 code units, the stricter reading of the cap.
+  len=$(node -e '
+    const fs = require("fs"); const { parse } = require("yaml");
+    let n = 0;
+    try {
+      const m = fs.readFileSync(process.argv[1], "utf8").match(/^---\n([\s\S]*?)\n---/);
+      const doc = m ? parse(m[1]) : null;
+      if (doc && typeof doc.description === "string") n = doc.description.length;
+    } catch {}
+    process.stdout.write(String(n));
+  ' "$dir/SKILL.md" || echo 0)
+  if (( len > 1536 )); then
+    err "SKILL.md description is $len chars; Claude Code truncates past 1536: $dir/SKILL.md"
+  fi
+done
 
 # -----------------------------------------------------------------------------
 # Report

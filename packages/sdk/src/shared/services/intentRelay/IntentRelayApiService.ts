@@ -146,8 +146,13 @@ export type RelayAndWaitParams = {
   pollTxHash?: string;
 };
 
-/** Per-attempt HTTP budget — caps a hung connection so it can't hold the polling loop hostage. */
-const RELAY_REQUEST_TIMEOUT_MS = 15_000;
+/**
+ * Per-attempt HTTP budget — caps a hung connection so it can't hold the polling loop hostage, and
+ * the SDK's answer to "how long may a single relay request reasonably take". Exported so a caller
+ * bounding its own one-shot read (see {@link getTransactionPackets}'s `timeoutMs`) can adopt that
+ * answer instead of inventing a second, tighter one that would abort requests this one tolerates.
+ */
+export const RELAY_REQUEST_TIMEOUT_MS = 15_000;
 
 /**
  * Minimum `timeout` a feature's client-side relay path passes to {@link relayTxAndWaitPacket}, applied
@@ -209,10 +214,11 @@ async function postRequest<T extends RelayAction>(
   }
 }
 
-// Polling-only `get_transaction_packets`: bounds each attempt AND its body read with an `AbortSignal`
-// + `deadline`, so a hung connection or a stalled body can't block the wait loop. Retries only
-// transport rejects and aborts; an HTTP error or a genuine parse error is surfaced without retry
-// (submit/getPacket keep the legacy {@link postRequest}, where re-POSTing a delivered request is unsafe).
+// Deadline-bounded `get_transaction_packets`: bounds each attempt AND its body read with an
+// `AbortSignal` + `deadline`, so a hung connection or a stalled body can't block the caller. Retries
+// only transport rejects and aborts; an HTTP error or a genuine parse error is surfaced without retry.
+// Reached from the polling loop and from {@link getTransactionPackets} when a caller supplies a
+// timeout (submit/getPacket keep {@link postRequest}, where re-POSTing a delivered request is unsafe).
 async function pollTransactionPackets(
   payload: IntentRelayRequest<'get_transaction_packets'>,
   apiUrl: string,
@@ -311,18 +317,39 @@ export async function submitTransaction(
 
 /**
  * Retrieves transaction packets from the intent relay service.
+ *
  * @param payload - The request payload containing the 'get_transaction_packets' action type and parameters.
  * @param apiUrl - The URL of the intent relay service.
+ * @param timeoutMs - Optional total budget for the read, covering connection setup, retries, back-off
+ *   **and** the response-body parse. Omit it and the call is unbounded, as it has always been — a
+ *   caller waiting on the relay in its own loop supplies its own bound. Supply it when a stalled
+ *   request must not hold the caller open, e.g. a status read polled on a short interval.
+ *
+ *   The budget truncates retries rather than adding to them: a hung connection consumes the whole
+ *   thing in one attempt. A non-positive value therefore leaves no budget to spend and fails
+ *   immediately **without issuing a request**. A non-finite one (a `NaN` out of
+ *   `Number(process.env.X)`, say) falls back to {@link RELAY_REQUEST_TIMEOUT_MS} — the per-request
+ *   budget this module already applies, and so the closest thing to the short bound such a caller
+ *   was reaching for. Not `DEFAULT_RELAY_TX_TIMEOUT`: that one is sized for the packet wait loop,
+ *   and here it would buy three 15s attempts before the retry cap ended it, ~49s for someone who
+ *   asked for a bound and mistyped it.
+ *
+ *   `SolverApiService.getStatus` takes a `timeoutMs` too but degrades the opposite way, to *no*
+ *   bound — it has no per-request budget of its own to fall back on, and inventing one to absorb
+ *   bad input would be worse than dropping the bound. The two are deliberately different; read
+ *   both before unifying them.
  * @returns The response from the intent relay service.
  */
 export async function getTransactionPackets(
   payload: IntentRelayRequest<'get_transaction_packets'>,
   apiUrl: HttpUrl,
+  timeoutMs?: number,
 ): Promise<Result<GetRelayResponse<'get_transaction_packets'>>> {
   invariant(payload.params.chain_id.length > 0, 'Invalid input parameters. source_chain_id empty');
   invariant(payload.params.tx_hash.length > 0, 'Invalid input parameters. tx_hash empty');
 
-  return postRequest(payload, apiUrl);
+  if (timeoutMs === undefined) return postRequest(payload, apiUrl);
+  return pollTransactionPackets(payload, apiUrl, Date.now() + resolveTimeoutMs(timeoutMs, RELAY_REQUEST_TIMEOUT_MS));
 }
 
 /**

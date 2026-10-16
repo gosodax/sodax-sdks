@@ -1,6 +1,6 @@
 ## Intent Relay API Service
 
-> **Error handling conventions:** Failures from `submitTransaction` / `relayTxAndWaitPacket` follow the **relay-layer contract**: `error.message` is one of the literal strings exported as `RELAY_ERROR_CODES` (`'SUBMIT_TX_FAILED'`, `'RELAY_TIMEOUT'`). Modules other than swap (moneyMarket, bridge, dex, migration, staking) propagate these errors raw. The **swap module** wraps them into `SodaxError<SwapErrorCode>` with `context.relayCode` (see [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) Error Handling).
+> **Error handling conventions:** Failures from `submitTransaction` / `relayTxAndWaitPacket` follow the **relay-layer contract**: `error.message` is one of the literal strings exported as `RELAY_ERROR_CODES` (`'SUBMIT_TX_FAILED'`, `'RELAY_TIMEOUT'`, `'RELAY_POLLING_FAILED'`). Only `dex` propagates these errors raw; every other feature module (moneyMarket, bridge, staking, migration, leverageYield, swap) routes them through `mapRelayFailure` into a typed `SodaxError` with `context.relayCode`. The **swap module** wraps them into `SodaxError<SwapErrorCode>` with `context.relayCode` (see [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) Error Handling).
 
 The Intent Relay API Service provides functionality for submitting transactions and retrieving transaction packets across different chains. This service is part of the cross-chain communication infrastructure.
 
@@ -192,7 +192,7 @@ export type RelayAction = 'submit' | 'get_transaction_packets' | 'get_packet';
 export type IntentRelayRequest<T extends RelayAction> = {
   action: T;
   params: T extends 'submit'
-    ? { chain_id: string; tx_hash: string; data?: RelayExtraData }
+    ? { chain_id: string; tx_hash: string; data?: RelayExtraData | OnDemandRelayData }
     : T extends 'get_transaction_packets'
       ? { chain_id: string; tx_hash: string }
       : T extends 'get_packet'
@@ -202,6 +202,10 @@ export type IntentRelayRequest<T extends RelayAction> = {
 
 // Extra data required for Solana and Bitcoin split-tx chains
 export type RelayExtraData = { address: Hex; payload: Hex };
+
+// Signed Bitcoin on-demand payload (money-market borrow/withdraw), carried as a JSON object.
+// public_key is required by the relay to verify the BIP-322 signature (not key-recoverable).
+export type OnDemandRelayData = { payload_hex: string; signature?: string; public_key?: string };
 
 export type PacketData = {
   src_chain_id: number;    // IntentRelayChainId as number (not a SpokeChainKey)
@@ -232,10 +236,11 @@ export type GetPacketResponse =
 
 export type RelayAndWaitParams = {
   srcTxHash: string;
-  data: RelayExtraData;         // always required; only used in submit payload for Solana/Bitcoin
+  data: RelayExtraData | OnDemandRelayData;  // used in submit payload for Solana/Bitcoin
   chainKey: SpokeChainKey;
   relayerApiEndpoint: HttpUrl;
   timeout: number | undefined;
+  pollTxHash?: string;          // identity used to poll get_transaction_packets when it differs from srcTxHash (Bitcoin on-demand); defaults to srcTxHash
 };
 
 export type IntentDeliveryInfo = {
@@ -252,5 +257,6 @@ export type WaitUntilIntentExecutedPayload = {
   srcTxHash: string;
   timeout?: number;
   apiUrl: HttpUrl;
+  selectPacket?: (packets: PacketData[]) => PacketData | undefined;  // disambiguates when one src tx emits multiple packets; defaults to first candidate
 };
 ```

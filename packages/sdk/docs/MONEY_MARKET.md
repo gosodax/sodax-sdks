@@ -721,7 +721,7 @@ if (a.ok && !a.value) {
 
 ### Migration from the legacy `error.message`-based pattern
 
-If you were on the previous CODE-string-on-`error.message` pattern (or the older `MoneyMarketError<Code>` typed shape that the public docs at <https://docs.sodax.com/developers/packages/foundation/sdk/functional-modules/money_market#error-handling> document), here are the mappings:
+If you were on the previous CODE-string-on-`error.message` pattern (or the older `MoneyMarketError<Code>` typed shape that the public docs [document](https://docs.sodax.com/developers/packages/foundation/sdk/functional-modules/money_market#error-handling)), here are the mappings:
 
 | Before | After |
 |---|---|

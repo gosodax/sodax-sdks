@@ -78,15 +78,16 @@ const mockIconProvider = {
   sendTransaction: vi.fn(),
   getWalletAddress: vi.fn(),
   waitForTransactionReceipt: vi.fn(),
-} as unknown as Parameters<typeof iconSpoke.deposit>[0] extends infer P
-  ? P extends { walletProvider: infer W }
-    ? W
-    : never
-  : never;
+};
 
 // Helper: icon-sdk-js HttpCall<T> is `{ execute(): Promise<T> }`. Spying on the chain entry
 // (`iconService.call(...)` or `.getTransactionResult(...)`) requires returning an object with an
 // `execute` method. This helper builds that shim.
+//
+// T must match what a real node sends: `call()` registers no result converter, so `execute()`
+// resolves the RAW JSON-RPC `result` — a bare hex string for an int-returning SCORE method
+// (`balanceOf`), an object only for a struct-returning one (`tryAggregate`). A `{ value }` wrapper
+// is not a shape icon-sdk-js ever produces.
 const httpCall = <T>(value: T) => ({ execute: () => Promise.resolve(value) });
 const httpCallReject = (err: unknown) => ({ execute: () => Promise.reject(err) });
 
@@ -134,7 +135,7 @@ describe('IconSpokeService.estimateGas', () => {
   it('delegates to estimateStepCost with the per-chain debug RPC URL', async () => {
     mocks.estimateStepCost.mockResolvedValueOnce(123_456n);
 
-    const rawTx = { from: SRC_ADDR, to: ICON_ASSET_MGR } as never;
+    const rawTx = { from: SRC_ADDR, to: ICON_ASSET_MGR };
     const result = await iconSpoke.estimateGas({ chainKey: ICON, tx: rawTx });
 
     expect(result).toBe(123_456n);
@@ -222,7 +223,7 @@ describe('IconSpokeService.deposit', () => {
 
 describe('IconSpokeService.getDeposit', () => {
   it('reads balanceOf with _owner=assetManager via iconService.call(...).execute()', async () => {
-    const callSpy = vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(httpCall({ value: '7500' }) as never);
+    const callSpy = vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(httpCall('0x1d4c') as never);
 
     const result = await iconSpoke.getDeposit({
       srcChainKey: ICON,
@@ -230,13 +231,228 @@ describe('IconSpokeService.getDeposit', () => {
       token: ICON_BNUSD,
     });
 
-    expect(result).toBe(7500n);
+    expect(result).toBe(7500n); // 0x1d4c
     expect(callSpy).toHaveBeenCalledTimes(1);
     // The argument is a CallBuilder.build() output; assert via the relevant shape fields.
     const arg = callSpy.mock.calls[0]?.[0] as { to: string; data: { method: string; params: Record<string, string> } };
     expect(arg.to).toBe(ICON_BNUSD);
     expect(arg.data.method).toBe('balanceOf');
     expect(arg.data.params._owner).toBe(ICON_ASSET_MGR);
+  });
+
+  it('rejects when the node returns a non-string result', async () => {
+    vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(httpCall({ value: '0x1d4c' }) as never);
+
+    await expect(
+      iconSpoke.getDeposit({ srcChainKey: ICON, srcAddress: SRC_ADDR, token: ICON_BNUSD }),
+    ).rejects.toThrow(/Unexpected balanceOf response/);
+  });
+});
+
+// =========================================================================
+// 4b. getWalletBalance — balanceOf(_owner=user) / native ICX
+// =========================================================================
+
+describe('IconSpokeService.getWalletBalance', () => {
+  const ICX_TOKEN = iconConfig.supportedTokens.ICX;
+  const BNUSD_TOKEN = iconConfig.supportedTokens.bnUSD;
+
+  it('reads native ICX via iconService.getBalance and never issues a SCORE call', async () => {
+    const balanceSpy = vi
+      .spyOn(iconSpoke.iconService, 'getBalance')
+      .mockReturnValueOnce(httpCall({ toFixed: () => '12345' }) as never);
+    const callSpy = vi.spyOn(iconSpoke.iconService, 'call');
+
+    const result = await iconSpoke.getWalletBalance({ srcChainKey: ICON, srcAddress: SRC_ADDR, token: ICX_TOKEN });
+
+    expect(result).toBe(12345n);
+    expect(balanceSpy).toHaveBeenCalledWith(SRC_ADDR);
+    expect(callSpy).not.toHaveBeenCalled();
+  });
+
+  it('decodes the bare hex string an IRC-2 balanceOf resolves to, with the USER as _owner', async () => {
+    const callSpy = vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(httpCall('0x1d4c') as never);
+
+    const result = await iconSpoke.getWalletBalance({ srcChainKey: ICON, srcAddress: SRC_ADDR, token: BNUSD_TOKEN });
+
+    expect(result).toBe(7500n);
+    const arg = callSpy.mock.calls[0]?.[0] as { to: string; data: { method: string; params: Record<string, string> } };
+    expect(arg.to).toBe(BNUSD_TOKEN.address);
+    expect(arg.data.method).toBe('balanceOf');
+    // The user, NOT the asset manager — the one field that distinguishes this from getDeposit.
+    expect(arg.data.params._owner).toBe(SRC_ADDR);
+  });
+
+  it('rejects on a `{ value }` wrapper, the shape icon-sdk-js never sends', async () => {
+    vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(httpCall({ value: '0x1d4c' }) as never);
+
+    await expect(
+      iconSpoke.getWalletBalance({ srcChainKey: ICON, srcAddress: SRC_ADDR, token: BNUSD_TOKEN }),
+    ).rejects.toThrow(/Unexpected balanceOf response/);
+  });
+});
+
+// =========================================================================
+// 4c. getWalletBalances — one getBalance for ICX + one tryAggregate for every IRC-2
+// =========================================================================
+
+describe('IconSpokeService.getWalletBalances', () => {
+  const ICX_TOKEN = iconConfig.supportedTokens.ICX;
+  const BNUSD_TOKEN = iconConfig.supportedTokens.bnUSD;
+  const BALN_TOKEN = iconConfig.supportedTokens.BALN;
+
+  // The `to`/`data` shape a CallBuilder.build() produces, narrowed to the fields under assertion.
+  type AggregateCall = { to: string; data: { method: string; params: { requireSuccess: string; calls: unknown[] } } };
+
+  const aggregated = (entries: readonly { returnData: string; success: string }[]) => ({ returnData: entries });
+
+  it('batches every IRC-2 read into a single tryAggregate and reads ICX once', async () => {
+    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
+    const balanceSpy = vi
+      .spyOn(iconSpoke.iconService, 'getBalance')
+      .mockReturnValueOnce(httpCall({ toFixed: () => '12345' }) as never);
+    const callSpy = vi
+      .spyOn(iconSpoke.iconService, 'call')
+      .mockReturnValueOnce(
+        httpCall(
+          aggregated([
+            { returnData: '0x1d4c', success: '0x1' },
+            { returnData: '0x0', success: '0x1' },
+          ]),
+        ) as never,
+      );
+
+    const result = await iconSpoke.getWalletBalances({
+      srcChainKey: ICON,
+      srcAddress: SRC_ADDR,
+      tokens: [ICX_TOKEN, BNUSD_TOKEN, BALN_TOKEN],
+    });
+
+    expect(result).toEqual({
+      [ICX_TOKEN.address]: 12345n,
+      [BNUSD_TOKEN.address]: 7500n,
+      // A confirmed on-chain zero: it counts as a successful read, so it must not trip the
+      // "every read failed" rule that guards a dead RPC.
+      [BALN_TOKEN.address]: 0n,
+    });
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    // The batching invariant: two IRC-2 tokens must cost one round-trip, not two.
+    expect(balanceSpy).toHaveBeenCalledTimes(1);
+    expect(balanceSpy).toHaveBeenCalledWith(SRC_ADDR);
+    expect(callSpy).toHaveBeenCalledTimes(1);
+
+    const arg = callSpy.mock.calls[0]?.[0] as AggregateCall;
+    expect(arg.to).toBe('cxa4aa9185e23558cff990f494c1fd2845f6cbf741');
+    expect(arg.data.method).toBe('tryAggregate');
+    // requireSuccess=0x0 is what keeps one reverting balanceOf from discarding the whole batch.
+    expect(arg.data.params.requireSuccess).toBe('0x0');
+    expect(arg.data.params.calls).toEqual([
+      // The user, NOT the asset manager — the one field that distinguishes this from getDeposit.
+      { target: BNUSD_TOKEN.address, method: 'balanceOf', params: [SRC_ADDR] },
+      { target: BALN_TOKEN.address, method: 'balanceOf', params: [SRC_ADDR] },
+    ]);
+  });
+
+  it("reports a success:'0x0' entry as 0n, logs the failure, and leaves its siblings intact", async () => {
+    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
+    vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(
+      httpCall(
+        aggregated([
+          { returnData: '0x', success: '0x0' },
+          { returnData: '0x1d4c', success: '0x1' },
+        ]),
+      ) as never,
+    );
+
+    const result = await iconSpoke.getWalletBalances({
+      srcChainKey: ICON,
+      srcAddress: SRC_ADDR,
+      tokens: [BNUSD_TOKEN, BALN_TOKEN],
+    });
+
+    // A failed read is indistinguishable from an empty wallet in the flat map, so the log is the
+    // only surviving signal — assert it fired so a silent zero cannot regress.
+    expect(result[BNUSD_TOKEN.address]).toBe(0n);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('balance read failed'),
+      expect.objectContaining({
+        chainKey: ICON,
+        token: BNUSD_TOKEN.address,
+        error: expect.stringContaining(BNUSD_TOKEN.address),
+      }),
+    );
+    expect(result[BALN_TOKEN.address]).toBe(7500n);
+  });
+
+  it('rejects when tryAggregate returns fewer entries than tokens rather than zeroing the tail', async () => {
+    vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(
+      httpCall(aggregated([{ returnData: '0x1d4c', success: '0x1' }])) as never,
+    );
+
+    await expect(
+      iconSpoke.getWalletBalances({
+        srcChainKey: ICON,
+        srcAddress: SRC_ADDR,
+        tokens: [BNUSD_TOKEN, BALN_TOKEN],
+      }),
+    ).rejects.toThrow(/tryAggregate returned 1 entries for 2 tokens/);
+  });
+
+  it('rejects when the response carries no returnData array at all', async () => {
+    vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(httpCall({}) as never);
+
+    await expect(
+      iconSpoke.getWalletBalances({
+        srcChainKey: ICON,
+        srcAddress: SRC_ADDR,
+        tokens: [BNUSD_TOKEN, BALN_TOKEN],
+      }),
+    ).rejects.toThrow(/tryAggregate returned no entries for 2 tokens/);
+  });
+
+  it('isolates a failing native ICX read to the native entry and logs it', async () => {
+    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
+    const rpcError = new Error('icx rpc unavailable');
+    vi.spyOn(iconSpoke.iconService, 'getBalance').mockReturnValueOnce(httpCallReject(rpcError) as never);
+    vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(
+      httpCall(aggregated([{ returnData: '0x1d4c', success: '0x1' }])) as never,
+    );
+
+    const result = await iconSpoke.getWalletBalances({
+      srcChainKey: ICON,
+      srcAddress: SRC_ADDR,
+      tokens: [ICX_TOKEN, BNUSD_TOKEN],
+    });
+
+    expect(result[ICX_TOKEN.address]).toBe(0n);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('balance read failed'),
+      expect.objectContaining({ chainKey: ICON, token: ICX_TOKEN.address, error: rpcError.message }),
+    );
+    expect(result[BNUSD_TOKEN.address]).toBe(7500n);
+  });
+
+  it('rejects when no token in the batch could be read, so a dead RPC never looks like an empty wallet', async () => {
+    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
+    vi.spyOn(iconSpoke.iconService, 'getBalance').mockReturnValueOnce(
+      httpCallReject(new Error('icx rpc unavailable')) as never,
+    );
+    vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(
+      httpCall(aggregated([{ returnData: '0x', success: '0x0' }])) as never,
+    );
+
+    await expect(
+      iconSpoke.getWalletBalances({
+        srcChainKey: ICON,
+        srcAddress: SRC_ADDR,
+        tokens: [ICX_TOKEN, BNUSD_TOKEN],
+      }),
+    ).rejects.toThrow(`every balance read failed on ${ICON} (2/2)`);
+
+    expect(warnSpy).toHaveBeenCalledTimes(2);
   });
 });
 

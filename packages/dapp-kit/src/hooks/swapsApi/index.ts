@@ -1,6 +1,6 @@
 /**
- * Swaps API v2 hooks — typed React Query wrappers over `sodax.api.swaps.*` (the SwapsApiService
- * HTTP client). One hook per endpoint of the backend Swaps API v2.
+ * Swaps API hooks — typed React Query wrappers over `sodax.api.swaps.*` (the SwapsApiService
+ * HTTP client). One hook per endpoint of the backend Swaps API.
  *
  * Distinct from the on-chain `swap/` hooks (`useQuote`/`useStatus`/`useSwap`/…), which drive the
  * `SwapService` path (wallet → hub chain). These hooks call the backend HTTP API instead.

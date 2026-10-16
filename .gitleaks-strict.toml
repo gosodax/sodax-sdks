@@ -10,7 +10,7 @@ useDefault = false
 [[rules]]
 id = "sodax-hardcoded-private-key"
 description = "Hardcoded private key assigned to a credential variable"
-regex = '''(?i)(private[_-]?key|secret[_-]?key)\s*[:=]\s*['"]?(0x)?[0-9a-fA-F]{64}\b'''
+regex = '''(?i)(private[_-]?key|secret[_-]?key)["']?\s*[:=]\s*['"]?(0x)?[0-9a-fA-F]{64}\b'''
 keywords = ["privatekey", "private_key", "private-key", "secretkey", "secret_key"]
 
   [rules.allowlist]

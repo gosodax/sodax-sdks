@@ -23,6 +23,6 @@
     "declarationMap": false,
     "noUnusedLocals": true
   },
-  "exclude": ["**/*.test.ts", "dist", "node_modules", ".turbo"],
+  "exclude": ["dist", "node_modules", ".turbo"],
   "include": ["src"]
 }

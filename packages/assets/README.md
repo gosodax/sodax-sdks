@@ -28,6 +28,11 @@ So adding a chain logo is two steps: drop `<chainKey>.png` here, and add the
 > Note: a logo URL only resolves once these files are merged to `main`. On a
 > feature branch, swap `main` for the branch name to preview.
 
+Both directories are gated in CI by `packages/types/src/chains/logo-assets.test.ts`:
+a chain or token with no logo file fails the build, and so does a PNG that no chain
+or token claims — the latter is what catches a filename that does not match the
+`ChainKeys` value or `tokenLogoSlug(symbol)`.
+
 ## token/
 
 One logo per token, named by the token's **slugified symbol** — the symbol
@@ -49,10 +54,11 @@ logo is two steps: compute the slug for the symbol, and drop `<slug>.png` here.
 Consumers resolve the URL with `tokenLogo(token.symbol)` — they must not
 hardcode token icon paths.
 
-Logos were sourced from CoinGecko's coin image CDN. Variant tokens that wrap or
-bridge a base asset (e.g. `soda*` hub-vault, `*.LL` bridged, `r*` relay, `lsoda*`
-staked) currently reuse their base asset's icon — replace any with branded art
-by dropping a new `<slug>.png` here.
+Logos were sourced from CoinGecko's coin image CDN. Most hub vaults carry their base
+asset's symbol on-chain (`BTC`, `weETH`), so they resolve to the base asset's file.
+Variant tokens with their own symbol (`sodaETH`-style vaults, `*.LL` bridged, `r*`
+relay, `lsoda*` staked) currently reuse their base asset's icon — replace any with
+branded art by dropping a new `<slug>.png` here.
 
 > Same as chains: a token logo URL only resolves once merged to `main`; swap
 > `main` for the branch name to preview on a feature branch.

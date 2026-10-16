@@ -30,6 +30,15 @@ const iconChainConfig = spokeChainConfig[ChainKeys.ICON_MAINNET];
 console.log('iconWalletProvider loaded:', typeof iconWalletProvider);
 console.log('iconChainConfig loaded:', iconChainConfig.chain.name);
 
+// The Sui transport constructs a SuiGrpcClient in the Sodax ctor above, so reaching this line
+// at all proves `require('@mysten/sui/grpc')` resolved — the package is ESM-only.
+assert.strictEqual(
+  sdk.spoke.sui.transport.endpoint,
+  spokeChainConfig[ChainKeys.SUI_MAINNET].grpc_url,
+  'sdk → @mysten/sui/grpc (CJS): Sui transport endpoint regression',
+);
+console.log('Sui gRPC transport (CJS):', sdk.spoke.sui.transport.endpoint);
+
 // Verify the sdk → @sodax/libs/stacks/core path resolves correctly under CJS.
 // The libs bundle ships dual ESM (.mjs) + CJS (.cjs); ESM is exercised by
 // `apps/node/test-libs` + `packages/libs/scripts/verify-runtime-smoke.mjs`,
@@ -49,3 +58,36 @@ assert.strictEqual(
   'sdk → libs/stacks/core (CJS): serializeAddressData regression',
 );
 console.log('Stacks encode (CJS → libs/stacks/core):', expectedHex);
+
+// Building an unsigned Sui transaction is the path a backend uses to hand a tx to a client for
+// signing, and it runs through `@mysten/sui/transactions` + `@mysten/bcs` — both ESM-only. Loading
+// the SDK proves they resolve; this proves they still *work* once called from CJS.
+// `sendMessage` is the one raw builder that needs no network: its addresses come from the packaged
+// spoke config, so this stays deterministic and offline.
+void (async () => {
+  // The explicit `<true>` keeps the return narrowed to `SuiRawTransaction`; a bare `raw: true`
+  // widens to `boolean` and leaves the union unresolved.
+  const raw = await sdk.spoke.sui.sendMessage<true>({
+    srcAddress: '0x6d7b6956589c17b2755193a67bf2d4b68827e58a6d7b6956589c17b2755193a6',
+    srcChainKey: ChainKeys.SUI_MAINNET,
+    dstChainKey: ChainKeys.SONIC_MAINNET,
+    dstAddress: '0x1468d3529032106291433B7e9e3026dF1Ff78F31',
+    payload: '0xdeadbeef',
+    raw: true,
+  });
+
+  assert.ok(
+    typeof raw.data === 'string' && raw.data.length > 0,
+    'sdk → @mysten/sui (CJS): raw tx carries no serialized transaction',
+  );
+  // It must be the Transaction JSON the signing side feeds to `Transaction.from()`, not an opaque blob.
+  const ptb: unknown = JSON.parse(raw.data);
+  assert.ok(
+    ptb !== null && typeof ptb === 'object',
+    'sdk → @mysten/sui (CJS): serialized transaction is not a JSON object',
+  );
+  console.log('Sui raw tx (CJS):', raw.data.length, 'chars,', raw.to);
+})().catch((error: unknown) => {
+  console.error('sdk → @mysten/sui (CJS): Sui raw tx build regression', error);
+  process.exit(1);
+});

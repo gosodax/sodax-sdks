@@ -16,8 +16,9 @@ const B = 'https://b.example';
 const C = 'https://c.example';
 
 // Each configured endpoint URL is at `transport.transports[i].value.url` on the flattened fallback.
-function endpointUrls(transport: { transports: { value: { url: string } }[] }): string[] {
-  return transport.transports.map(t => t.value.url);
+// viem's TransportConfig does not declare `transports`; it exists at runtime on a fallback transport.
+function endpointUrls(transport: unknown): string[] {
+  return (transport as { transports: { value: { url: string } }[] }).transports.map(t => t.value.url);
 }
 
 describe('Sodax hub RPC failover wiring', () => {

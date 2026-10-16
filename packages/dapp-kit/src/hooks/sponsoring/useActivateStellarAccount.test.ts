@@ -23,8 +23,8 @@ function invalidatedKeyPrefixes(): string[][] {
 }
 
 describe('useActivateStellarAccount — cache invalidation', () => {
-  it('invalidates exactly four queries on success', () => {
-    expect(invalidatedKeyPrefixes()).toHaveLength(4);
+  it('hand-rolls exactly three query invalidations on success, the fourth routed through invalidateBalances', () => {
+    expect(invalidatedKeyPrefixes()).toHaveLength(3);
   });
 
   it("invalidates the account-active query using that query's own key prefix", () => {
@@ -63,8 +63,10 @@ describe('useActivateStellarAccount — cache invalidation', () => {
     expect(invalidatedKeyPrefixes()).toContainEqual(['shared', 'stellarTrustlineCheck']);
   });
 
-  it('invalidates the Stellar balance query', () => {
-    expect(invalidatedKeyPrefixes()).toContainEqual(['shared', 'xBalances']);
+  it('invalidates Stellar balances through the shared invalidateBalances helper', () => {
+    // Routed through invalidateBalances (covers both useBalances and useXBalances) rather than a
+    // hand-rolled invalidateQueries call, so it is not one of the literal matches above.
+    expect(SRC).toMatch(/invalidateBalances\(queryClient,\s*ChainKeys\.STELLAR_MAINNET\)/);
   });
 
   it('passes the whole mutation vars through to the SDK', () => {

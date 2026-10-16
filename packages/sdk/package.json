@@ -39,7 +39,7 @@
     "./package.json": "./package.json"
   },
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=22.12.0"
   },
   "files": [
     "dist",
@@ -47,13 +47,13 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node ../../scripts/verify-dist-exports.mjs",
     "test": "vitest run --exclude ./src/e2e-tests",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "coverage": "vitest run --coverage",
     "dev": "tsup --watch",
     "ci": "pnpm run pretty && pnpm run build && pnpm run test",
-    "checkTs": "tsc --noEmit",
+    "checkTs": "tsc --noEmit && node ../../scripts/check-tests-typechecked.mjs",
     "pretty": "biome format . --write",
     "lint": "biome lint . --write",
     "size:check": "node ./scripts/size-check.mjs",
@@ -72,6 +72,7 @@
     "@pancakeswap/infinity-sdk": "catalog:",
     "@pancakeswap/swap-sdk-core": "catalog:",
     "@pancakeswap/v3-sdk": "catalog:",
+    "@sodax/bridge-api": "workspace:*",
     "@sodax/libs": "workspace:*",
     "@sodax/swaps-api": "workspace:*",
     "@sodax/types": "workspace:*",

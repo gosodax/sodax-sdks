@@ -37,7 +37,7 @@ Return type is the discriminated union `` `0x${string}` | Uint8Array | string | 
 |-------|----------------|-----------------|
 | EVM | `signMessageAsync` from wagmi → personal_sign | `` `0x${string}` `` |
 | Solana | `signMessage` from `@solana/wallet-adapter` | `string` (base64) |
-| Sui | `signPersonalMessage` from `@mysten/dapp-kit` | `string` (base64 signature) |
+| Sui | `signPersonalMessage` from `@mysten/dapp-kit-react` | `string` (base64 signature) |
 | Bitcoin | Auto-detect: BIP-322 (P2WPKH/P2TR) or ECDSA (P2SH/P2PKH) | `string` |
 | Stellar | `walletsKit.signMessage` from `@creit.tech/stellar-wallets-kit` | `string` (base64) |
 | Injective | `walletStrategy.signArbitrary` from `@injectivelabs/wallet-base` | `string` |
@@ -58,9 +58,9 @@ Bitcoin's signing flow inspects the connected address and picks the right method
 | P2SH (legacy multi-sig, `3…`) | ECDSA | Unisat, Xverse, OKX, Hana |
 | P2PKH (legacy, `1…`) | ECDSA | Unisat, Xverse, OKX, Hana |
 
-If a custom connector implements only one of the two methods, calling `signMessage` from a wrongly-typed address surfaces the error inline.
+The methods live on the connector's `IBitcoinWalletProvider`, not on the connector: `chainRegistry` resolves the provider via `getWalletProvider()` (falling back to `recreateWalletProvider(xAccount)` after a page reload) and dispatches on it. A custom connector must return a provider implementing both methods; if it implements only one, calling `signMessage` from a wrongly-typed address surfaces the error inline.
 
-The same logic mirrors the SDK's `BitcoinSpokeProvider.authenticateWithWallet` — the React layer doesn't reinvent the dispatch.
+The same logic mirrors the SDK's `RadfiProvider.authenticateWithWallet` — the React layer doesn't reinvent the dispatch.
 
 ---
 

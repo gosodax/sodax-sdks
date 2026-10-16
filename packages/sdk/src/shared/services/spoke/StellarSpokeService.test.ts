@@ -50,14 +50,20 @@
  *  15. getAddressBCSBytes / getTsWalletBytes — pure static helpers
  *  16. waitForTransactionReceipt            — SUCCESS / FAILED / NOT_FOUND / transient throw /
  *                                             custom polling overrides
+ *  17. getWalletBalance                    — the USER's holdings: spendable-XLM reserve math on
+ *                                             Horizon, Soroban `balance` simulation otherwise
+ *  18. getWalletBalances                   — native/Soroban partition, plain per-token balances,
+ *                                             the fetch-once-per-batch pin, shared account sequence
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   Account,
   Address as StellarAddress,
   Contract,
+  type FeeBumpTransaction,
   Networks,
   SorobanDataBuilder,
+  type Transaction,
   TransactionBuilder,
   nativeToScVal,
   type rpc,
@@ -116,12 +122,23 @@ const STELLAR_BASE_FEE = stellarConfig.baseFee;
 const STELLAR_TRUSTLINE_USDC = stellarConfig.trustlineConfigs.find(t => t.contractId === STELLAR_USDC);
 if (!STELLAR_TRUSTLINE_USDC) throw new Error('test setup: USDC trustline config missing');
 
+// Whole XToken records — `getWalletBalance`/`getWalletBalances` take the token, not its address,
+// and pick the native branch by comparing `token.address` against `nativeToken`. Taken from real
+// config: a synthesised address would classify itself and prove nothing about production input.
+const XLM_TOKEN = stellarConfig.supportedTokens.XLM;
+const USDC_TOKEN = stellarConfig.supportedTokens.USDC;
+const BNUSD_TOKEN = stellarConfig.supportedTokens.bnUSD;
+const SODA_TOKEN = stellarConfig.supportedTokens.SODA;
+
 // Per-user / per-flow scratch — these have no config source. Stellar G-addresses are 56-char
 // base32 strkeys with a CRC checksum, so we can't just generate "all A's". These two are real
 // asset-issuer keys from the trustline config (publicly visible on the Stellar network) — they
 // are valid strkeys, which is the only property we need them for (Address.fromString and
 // new Account() both validate the checksum).
-const SRC_ADDR = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+// Deliberate cast: GetAddressType<'stellar…'> is declared as Hex in @sodax/types, but real Stellar
+// addresses are G… strkeys and the service consumes them as such at runtime (see buildDepositCall
+// pinning StellarAddress.fromScAddress(...) back to this exact strkey).
+const SRC_ADDR = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' as unknown as Hex;
 const OTHER_ADDR = 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA';
 const HUB_WALLET = '0x2222222222222222222222222222222222222222' as const;
 const DST_ADDR = '0x3333333333333333333333333333333333333333' as const;
@@ -187,6 +204,62 @@ const makeSimRestore = (): rpc.Api.SimulateTransactionRestoreResponse =>
 const makeAccountResponse = (accountId: string, sequence = '100'): never =>
   ({ account_id: accountId, sequence }) as never;
 
+const ACCOUNT_SEQUENCE = '100';
+
+// `sorobanServer.getAccount` returns an `Account`; the spendable-balance path only calls
+// `accountId()` and `sequenceNumber()` on it.
+const makeSorobanAccount = (sequence = ACCOUNT_SEQUENCE): never =>
+  ({ accountId: () => SRC_ADDR, sequenceNumber: () => sequence }) as never;
+
+/**
+ * Horizon `loadAccount` response for the spendable-XLM math: only the fields the reserve formula
+ * reads are populated. The non-native balance line is always present so a regression that picks
+ * the wrong line (or the first line) instead of `asset_type === 'native'` surfaces here.
+ */
+const makeHorizonAccount = (opts: {
+  balance?: string;
+  sellingLiabilities?: string;
+  subentryCount?: number;
+  numSponsoring?: number;
+  numSponsored?: number;
+  withNativeLine?: boolean;
+}): never =>
+  ({
+    account_id: SRC_ADDR,
+    sequence: ACCOUNT_SEQUENCE,
+    subentry_count: opts.subentryCount ?? 0,
+    num_sponsoring: opts.numSponsoring ?? 0,
+    num_sponsored: opts.numSponsored ?? 0,
+    balances: [
+      { asset_type: 'credit_alphanum4', asset_code: 'USDC', balance: '5.0000000' },
+      ...(opts.withNativeLine === false
+        ? []
+        : [
+            {
+              asset_type: 'native',
+              balance: opts.balance ?? '0.0000000',
+              buying_liabilities: '0.0000000',
+              selling_liabilities: opts.sellingLiabilities ?? '0.0000000',
+            },
+          ]),
+    ],
+  }) as never;
+
+const asTransaction = (tx: Transaction | FeeBumpTransaction | undefined): Transaction => {
+  // `'operations' in tx` is a runtime guard only: FeeBumpTransaction declares the property too, so
+  // TypeScript cannot narrow the union from it.
+  if (!tx || !('operations' in tx)) throw new Error('test setup: expected a simulated Transaction');
+  return tx as Transaction;
+};
+
+const decodeContractCall = (tx: Transaction): stellarXdr.InvokeContractArgs => {
+  const [operation] = tx.operations;
+  if (!operation || operation.type !== 'invokeHostFunction') {
+    throw new Error('test setup: expected an invokeHostFunction operation');
+  }
+  return operation.func.invokeContract();
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   (mockStellarProvider.signTransaction as ReturnType<typeof vi.fn>).mockReset();
@@ -235,7 +308,7 @@ describe('StellarSpokeService — constructor', () => {
     // because the SDK normalises trailing slashes etc.
     expect(stellarSpoke.sorobanServer.serverURL.toString()).toContain(new URL(STELLAR_SOROBAN_URL).host);
     // `Horizon.Server` exposes the URL via `serverURL` too (also a URL object).
-    const horizonUrl = (stellarSpoke.server as unknown as { serverURL: URL }).serverURL;
+    const horizonUrl = stellarSpoke.server.serverURL;
     expect(horizonUrl.toString()).toContain(new URL(STELLAR_HORIZON_URL).host);
   });
 });
@@ -306,7 +379,7 @@ describe('StellarSpokeService.getBalance', () => {
 
   it('returns the decoded bigint as a Number on a successful simulation with retval', async () => {
     vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValueOnce(NETWORK_RESPONSE);
-    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValueOnce(stubAccount() as never);
+    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValueOnce(stubAccount());
     const retval = nativeToScVal(7_500n, { type: 'u128' });
     vi.spyOn(stellarSpoke.sorobanServer, 'simulateTransaction').mockResolvedValueOnce(makeSimSuccess(retval));
 
@@ -322,7 +395,7 @@ describe('StellarSpokeService.getBalance', () => {
 
   it('throws "Failed to simulate transaction" when the simulation is not a success', async () => {
     vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValueOnce(NETWORK_RESPONSE);
-    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValueOnce(stubAccount() as never);
+    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValueOnce(stubAccount());
     vi.spyOn(stellarSpoke.sorobanServer, 'simulateTransaction').mockResolvedValueOnce(makeSimError('boom'));
 
     await expect(
@@ -332,7 +405,7 @@ describe('StellarSpokeService.getBalance', () => {
 
   it('throws "result undefined" when the simulation succeeds but carries no retval', async () => {
     vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValueOnce(NETWORK_RESPONSE);
-    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValueOnce(stubAccount() as never);
+    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValueOnce(stubAccount());
     // Success shape without `result` — the SUT's `if (resultValue)` falls through to the throw.
     vi.spyOn(stellarSpoke.sorobanServer, 'simulateTransaction').mockResolvedValueOnce(makeSimSuccess(undefined));
 
@@ -763,7 +836,7 @@ describe('StellarSpokeService.requestTrustline', () => {
     vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValueOnce(NETWORK_RESPONSE);
     vi.spyOn(stellarSpoke.server, 'loadAccount').mockResolvedValueOnce(makeAccountResponse(SRC_ADDR));
 
-    const result = await stellarSpoke.requestTrustline({
+    const result = await stellarSpoke.requestTrustline<true>({
       srcAddress: SRC_ADDR,
       srcChainKey: STELLAR,
       token: STELLAR_USDC,
@@ -1083,5 +1156,358 @@ describe('StellarSpokeService.waitForTransactionReceipt', () => {
 
     // 50 / 10 = 5 attempts.
     expect(getSpy).toHaveBeenCalledTimes(5);
+  });
+});
+
+// =========================================================================
+// 17. getWalletBalance — the USER's own holdings
+//
+// Contrast with sections 3/10: `getBalance`/`getDeposit` read the asset manager's holding, this
+// reads `srcAddress`'s. Native XLM goes through Horizon and reports the SPENDABLE amount — the
+// raw balance minus the minimum reserve `(2 + subentry_count + num_sponsoring - num_sponsored)
+// * 0.5 XLM` and minus selling liabilities — because the network refuses to release the rest.
+// Every other token is a Soroban `balance` simulation.
+// =========================================================================
+
+describe('StellarSpokeService.getWalletBalance', () => {
+  it('treats the config XLM token as native (the whole native branch hangs off this identity)', () => {
+    expect(XLM_TOKEN.address).toBe(STELLAR_NATIVE);
+    expect(USDC_TOKEN.address).not.toBe(STELLAR_NATIVE);
+  });
+
+  it('native XLM: parses the decimal Horizon balance to stroops and subtracts the 2-slot base reserve', async () => {
+    const loadSpy = vi
+      .spyOn(stellarSpoke.server, 'loadAccount')
+      .mockResolvedValueOnce(makeHorizonAccount({ balance: '198.8944970' }));
+    const networkSpy = vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork');
+    const accountSpy = vi.spyOn(stellarSpoke.sorobanServer, 'getAccount');
+
+    const result = await stellarSpoke.getWalletBalance({
+      srcChainKey: STELLAR,
+      srcAddress: SRC_ADDR,
+      token: XLM_TOKEN,
+    });
+
+    // 198.8944970 XLM = 1_988_944_970 stroops, less the 2 * 0.5 XLM account reserve.
+    expect(result).toBe(1_978_944_970n);
+    // The user's account, not the asset manager's — the difference from getBalance/getDeposit.
+    expect(loadSpy).toHaveBeenCalledWith(SRC_ADDR);
+    // Native resolves entirely on Horizon; a Soroban round-trip here would be pure latency.
+    expect(networkSpy).not.toHaveBeenCalled();
+    expect(accountSpy).not.toHaveBeenCalled();
+  });
+
+  it('subtracts selling liabilities on top of the reserve (offers already commit those stroops)', async () => {
+    vi.spyOn(stellarSpoke.server, 'loadAccount').mockResolvedValueOnce(
+      makeHorizonAccount({ balance: '198.8944970', sellingLiabilities: '1.5000000' }),
+    );
+
+    const result = await stellarSpoke.getWalletBalance({
+      srcChainKey: STELLAR,
+      srcAddress: SRC_ADDR,
+      token: XLM_TOKEN,
+    });
+
+    // 1_988_944_970 - 10_000_000 (reserve) - 15_000_000 (liabilities)
+    expect(result).toBe(1_963_944_970n);
+  });
+
+  it('counts subentries and sponsorships in the reserve, but not sponsored reserves', async () => {
+    const load = vi.spyOn(stellarSpoke.server, 'loadAccount');
+    const read = () =>
+      stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN });
+
+    load.mockResolvedValueOnce(
+      makeHorizonAccount({ balance: '198.8944970', subentryCount: 3, numSponsoring: 1, numSponsored: 0 }),
+    );
+    // (2 + 3 + 1) slots * 0.5 XLM = 30_000_000 stroops
+    expect(await read()).toBe(1_958_944_970n);
+
+    load.mockResolvedValueOnce(
+      makeHorizonAccount({ balance: '198.8944970', subentryCount: 3, numSponsoring: 1, numSponsored: 2 }),
+    );
+    // The two sponsored reserves are funded by the sponsor, so they free 2 * 0.5 XLM for the user.
+    expect(await read()).toBe(1_968_944_970n);
+  });
+
+  it('floors the reserve at zero when more reserves are sponsored than the account owes', async () => {
+    vi.spyOn(stellarSpoke.server, 'loadAccount').mockResolvedValueOnce(
+      makeHorizonAccount({ balance: '1.0000000', numSponsored: 5 }),
+    );
+
+    // 2 + 0 + 0 - 5 is negative; a signed reserve would inflate the balance above what exists.
+    expect(
+      await stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN }),
+    ).toBe(10_000_000n);
+  });
+
+  it('clamps to 0n when the reserve meets or exceeds the balance', async () => {
+    const load = vi.spyOn(stellarSpoke.server, 'loadAccount');
+    const read = () =>
+      stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN });
+
+    load.mockResolvedValueOnce(makeHorizonAccount({ balance: '0.5000000' }));
+    expect(await read()).toBe(0n);
+
+    // Exactly at the reserve: nothing is spendable, and the amount must not go negative.
+    load.mockResolvedValueOnce(makeHorizonAccount({ balance: '1.0000000' }));
+    expect(await read()).toBe(0n);
+  });
+
+  it('returns 0n when the account carries no native balance line', async () => {
+    vi.spyOn(stellarSpoke.server, 'loadAccount').mockResolvedValueOnce(
+      makeHorizonAccount({ withNativeLine: false }),
+    );
+
+    expect(
+      await stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN }),
+    ).toBe(0n);
+  });
+
+  it('rejects instead of reporting a zero when Horizon fails on the native path', async () => {
+    vi.spyOn(stellarSpoke.server, 'loadAccount').mockRejectedValueOnce(new Error('Horizon 503'));
+
+    await expect(
+      stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN }),
+    ).rejects.toThrow('Horizon 503');
+  });
+
+  it('non-native token: simulates the token contract `balance` with the user as the holder', async () => {
+    vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValueOnce(NETWORK_RESPONSE);
+    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValueOnce(makeSorobanAccount());
+    const simSpy = vi
+      .spyOn(stellarSpoke.sorobanServer, 'simulateTransaction')
+      .mockResolvedValueOnce(makeSimSuccess(nativeToScVal(4_200n, { type: 'i128' })));
+    const loadSpy = vi.spyOn(stellarSpoke.server, 'loadAccount');
+
+    const result = await stellarSpoke.getWalletBalance({
+      srcChainKey: STELLAR,
+      srcAddress: SRC_ADDR,
+      token: USDC_TOKEN,
+    });
+
+    expect(result).toBe(4_200n);
+    expect(loadSpy).not.toHaveBeenCalled();
+
+    const call = decodeContractCall(asTransaction(simSpy.mock.calls[0]?.[0]));
+    expect(call.functionName().toString()).toBe('balance');
+    // The token contract itself is the callee, not the asset manager.
+    expect(StellarAddress.fromScAddress(call.contractAddress()).toString()).toBe(USDC_TOKEN.address);
+    const [holder] = call.args();
+    if (!holder) throw new Error('expected a holder argument');
+    // The holder is the user; getBalance passes the same argument for the asset manager instead.
+    expect(StellarAddress.fromScAddress(holder.address()).toString()).toBe(SRC_ADDR);
+  });
+
+  it('rejects when the Soroban simulation is not a success (a failed read is never a zero)', async () => {
+    vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValueOnce(NETWORK_RESPONSE);
+    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValueOnce(makeSorobanAccount());
+    vi.spyOn(stellarSpoke.sorobanServer, 'simulateTransaction').mockResolvedValueOnce(makeSimError('boom'));
+
+    await expect(
+      stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: USDC_TOKEN }),
+    ).rejects.toThrow('Failed to simulate transaction');
+  });
+
+  it('rejects when a successful simulation carries no retval, rather than fabricating 0n', async () => {
+    vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValueOnce(NETWORK_RESPONSE);
+    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValueOnce(makeSorobanAccount());
+    vi.spyOn(stellarSpoke.sorobanServer, 'simulateTransaction').mockResolvedValueOnce(makeSimSuccess(undefined));
+
+    // `0n` means a confirmed on-chain zero, so a malformed read must not produce one.
+    await expect(
+      stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: USDC_TOKEN }),
+    ).rejects.toThrow('simulation returned no result');
+  });
+});
+
+// =========================================================================
+// 18. getWalletBalances — plain balances keyed by token address
+//
+// The network passphrase and the source account are identical for every token in a batch, so the
+// batch fetches them once; an all-native request must not fetch them at all.
+//
+// A token that cannot be read collapses into the same `0n` an empty wallet produces, so the SDK
+// logger is the only surviving signal for a failure — every failure case below asserts the warn
+// line too. The one distinction the flat map cannot express safely is "nothing was read at all",
+// which throws instead.
+// =========================================================================
+
+describe('StellarSpokeService.getWalletBalances', () => {
+  const SOROBAN_TOKENS = [USDC_TOKEN, BNUSD_TOKEN, SODA_TOKEN];
+
+  it('fetches the network and the source account exactly once for a 3-token Soroban batch', async () => {
+    const networkSpy = vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValue(NETWORK_RESPONSE);
+    const accountSpy = vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValue(makeSorobanAccount());
+    const simSpy = vi
+      .spyOn(stellarSpoke.sorobanServer, 'simulateTransaction')
+      .mockResolvedValue(makeSimSuccess(nativeToScVal(11n, { type: 'i128' })));
+
+    const result = await stellarSpoke.getWalletBalances({
+      srcChainKey: STELLAR,
+      srcAddress: SRC_ADDR,
+      tokens: SOROBAN_TOKENS,
+    });
+
+    expect(Object.keys(result)).toHaveLength(3);
+    // One simulation per token, but only one passphrase + account round-trip for the whole batch.
+    expect(simSpy).toHaveBeenCalledTimes(3);
+    expect(networkSpy).toHaveBeenCalledTimes(1);
+    expect(accountSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('issues no Soroban calls at all when every requested token is native', async () => {
+    const loadSpy = vi
+      .spyOn(stellarSpoke.server, 'loadAccount')
+      .mockResolvedValueOnce(makeHorizonAccount({ balance: '3.0000000' }));
+    const networkSpy = vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork');
+    const accountSpy = vi.spyOn(stellarSpoke.sorobanServer, 'getAccount');
+
+    const result = await stellarSpoke.getWalletBalances({
+      srcChainKey: STELLAR,
+      srcAddress: SRC_ADDR,
+      tokens: [XLM_TOKEN],
+    });
+
+    expect(result).toEqual({ [XLM_TOKEN.address]: 20_000_000n });
+    expect(loadSpy).toHaveBeenCalledTimes(1);
+    expect(networkSpy).not.toHaveBeenCalled();
+    expect(accountSpy).not.toHaveBeenCalled();
+  });
+
+  it('gives every per-token builder its own Account clone, so all three transactions share one sequence', async () => {
+    vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValue(NETWORK_RESPONSE);
+    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValue(makeSorobanAccount());
+    const simSpy = vi
+      .spyOn(stellarSpoke.sorobanServer, 'simulateTransaction')
+      .mockResolvedValue(makeSimSuccess(nativeToScVal(1n, { type: 'i128' })));
+
+    await stellarSpoke.getWalletBalances({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, tokens: SOROBAN_TOKENS });
+
+    // `build()` bumps its source account, so a shared Account would hand the concurrent builders
+    // interleaved sequences; each clone starts from the fetched sequence instead.
+    const expectedSequence = (BigInt(ACCOUNT_SEQUENCE) + 1n).toString();
+    const sequences = simSpy.mock.calls.map(([tx]) => asTransaction(tx).sequence);
+    expect(sequences).toEqual([expectedSequence, expectedSequence, expectedSequence]);
+    // ...and each simulation still targets its own token contract.
+    const callees = simSpy.mock.calls.map(([tx]) =>
+      StellarAddress.fromScAddress(decodeContractCall(asTransaction(tx)).contractAddress()).toString(),
+    );
+    expect(callees).toEqual(SOROBAN_TOKENS.map(token => token.address));
+  });
+
+  it('keys results by token address and isolates a failing token as a logged 0n', async () => {
+    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
+    vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValue(NETWORK_RESPONSE);
+    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValue(makeSorobanAccount());
+    const rpcError = new Error('HTTP 429');
+    vi.spyOn(stellarSpoke.sorobanServer, 'simulateTransaction')
+      .mockResolvedValueOnce(makeSimSuccess(nativeToScVal(1_000n, { type: 'i128' })))
+      .mockRejectedValueOnce(rpcError)
+      .mockResolvedValueOnce(makeSimSuccess(nativeToScVal(0n, { type: 'i128' })));
+
+    const result = await stellarSpoke.getWalletBalances({
+      srcChainKey: STELLAR,
+      srcAddress: SRC_ADDR,
+      tokens: SOROBAN_TOKENS,
+    });
+
+    expect(result).toEqual({
+      [USDC_TOKEN.address]: 1_000n,
+      // The unread token renders as 0n, indistinguishable from the SODA entry below — which IS a
+      // balance confirmed empty on chain. Only the warn line tells them apart.
+      [BNUSD_TOKEN.address]: 0n,
+      [SODA_TOKEN.address]: 0n,
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('balance read failed'),
+      expect.objectContaining({ chainKey: STELLAR, token: BNUSD_TOKEN.address, error: rpcError.message }),
+    );
+    // Exactly one line: the confirmed-empty SODA read must not log, or the signal is worthless.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('merges the shared Horizon native read with the Soroban results in one map', async () => {
+    const loadSpy = vi
+      .spyOn(stellarSpoke.server, 'loadAccount')
+      .mockResolvedValueOnce(makeHorizonAccount({ balance: '198.8944970' }));
+    vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValue(NETWORK_RESPONSE);
+    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValue(makeSorobanAccount());
+    const simSpy = vi
+      .spyOn(stellarSpoke.sorobanServer, 'simulateTransaction')
+      .mockResolvedValue(makeSimSuccess(nativeToScVal(77n, { type: 'i128' })));
+
+    const result = await stellarSpoke.getWalletBalances({
+      srcChainKey: STELLAR,
+      srcAddress: SRC_ADDR,
+      tokens: [XLM_TOKEN, USDC_TOKEN],
+    });
+
+    expect(result).toEqual({
+      [XLM_TOKEN.address]: 1_978_944_970n,
+      [USDC_TOKEN.address]: 77n,
+    });
+    expect(loadSpy).toHaveBeenCalledTimes(1);
+    expect(simSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports a Horizon failure as a logged native 0n while the Soroban tokens resolve', async () => {
+    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
+    const horizonError = new Error('Horizon 503');
+    vi.spyOn(stellarSpoke.server, 'loadAccount').mockRejectedValueOnce(horizonError);
+    vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValue(NETWORK_RESPONSE);
+    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValue(makeSorobanAccount());
+    vi.spyOn(stellarSpoke.sorobanServer, 'simulateTransaction').mockResolvedValue(
+      makeSimSuccess(nativeToScVal(88n, { type: 'i128' })),
+    );
+
+    const result = await stellarSpoke.getWalletBalances({
+      srcChainKey: STELLAR,
+      srcAddress: SRC_ADDR,
+      tokens: [XLM_TOKEN, USDC_TOKEN],
+    });
+
+    expect(result).toEqual({
+      [XLM_TOKEN.address]: 0n,
+      [USDC_TOKEN.address]: 88n,
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('balance read failed'),
+      expect.objectContaining({ chainKey: STELLAR, token: XLM_TOKEN.address, error: horizonError.message }),
+    );
+  });
+
+  it('rejects when every token in the batch failed to read', async () => {
+    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
+    vi.spyOn(stellarSpoke.server, 'loadAccount').mockRejectedValueOnce(new Error('Horizon 503'));
+    vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValue(NETWORK_RESPONSE);
+    vi.spyOn(stellarSpoke.sorobanServer, 'getAccount').mockResolvedValue(makeSorobanAccount());
+    vi.spyOn(stellarSpoke.sorobanServer, 'simulateTransaction').mockRejectedValue(new Error('HTTP 429'));
+
+    // An all-zero map from a dead RPC would be indistinguishable from a genuinely empty wallet,
+    // which is the one case the flat map cannot express — so the whole call throws instead.
+    await expect(
+      stellarSpoke.getWalletBalances({
+        srcChainKey: STELLAR,
+        srcAddress: SRC_ADDR,
+        tokens: [XLM_TOKEN, USDC_TOKEN],
+      }),
+    ).rejects.toThrow(`every balance read failed on ${STELLAR}`);
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns an empty map without touching either RPC surface when no tokens are requested', async () => {
+    const loadSpy = vi.spyOn(stellarSpoke.server, 'loadAccount');
+    const networkSpy = vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork');
+
+    const result = await stellarSpoke.getWalletBalances({
+      srcChainKey: STELLAR,
+      srcAddress: SRC_ADDR,
+      tokens: [],
+    });
+
+    expect(result).toEqual({});
+    expect(loadSpy).not.toHaveBeenCalled();
+    expect(networkSpy).not.toHaveBeenCalled();
   });
 });

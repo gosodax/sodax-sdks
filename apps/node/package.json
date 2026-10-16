@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "btc": "pnpm run build && node dist/btc.js",
@@ -19,6 +19,7 @@
     "stacks-raw-intent": "tsx src/stacks-raw-intent.ts",
     "injective-raw-intent": "tsx src/injective-raw-intent.ts",
     "tron": "tsx src/tron.ts",
+    "sui-raw-intent": "tsx src/sui-raw-intent.ts",
     "bridge-raw": "tsx src/bridge-raw.ts",
     "test-libs": "tsx src/test-libs.ts",
     "stellar": "pnpm run build && node dist/stellar.js",
@@ -37,7 +38,9 @@
     "bridge-limits-test": "pnpm run build && node dist/tests/bridge-limits.test.js",
     "approve-guard-check": "tsx src/approve-guard-check.ts",
     "leverage-yield": "tsx src/leverage-yield.ts",
+    "logging": "tsx src/logging.ts",
     "stellar-sponsor": "tsx src/stellar-sponsor.ts",
+    "flint-deposit": "tsx src/flint-deposit.ts",
     "build": "tsc",
     "checkTs": "tsc --noEmit",
     "pretty": "biome format . --write",
@@ -72,8 +75,7 @@
     "@types/node": "catalog:",
     "@types/secp256k1": "^4.0.7",
     "tsx": "^4.19.4",
-    "typescript": "catalog:",
-    "vite": "^5.1.4"
+    "typescript": "catalog:"
   },
   "type": "module"
 }
