@@ -34,10 +34,10 @@ jobs:
           script: |
             const STICKY = '<!-- sodax:plan-check -->';
             const PLAN = '<!-- sodax:plan -->';
-            // The repo is public: a plan counts only from a collaborator or from this repo's own workflows.
+            // The repo is public: a plan counts only from an org member, a collaborator, or an agent app installed here.
             const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
-            const ACTIONS_BOT = 'github-actions';
-            const isTrusted = (c) => TRUSTED.has(c.authorAssociation) || (c.author?.__typename === 'Bot' && c.author.login === ACTIONS_BOT);
+            const AGENT_BOTS = new Set(['claude', 'chatgpt-codex-connector']);
+            const isTrusted = (c) => TRUSTED.has(c.authorAssociation) || (c.author?.__typename === 'Bot' && AGENT_BOTS.has(c.author.login));
             const pr = context.payload.pull_request;
             const { owner, repo } = context.repo;
             const labels = pr.labels.map((l) => l.name);
@@ -61,7 +61,8 @@ jobs:
                   );
                   issue = repository.issueOrPullRequest;
                 } catch (error) {
-                  findings.push(`${ref}: could not load the issue; does it exist in this repository?`);
+                  core.info(`${ref}: ${error.message}`);
+                  findings.push(`${ref}: could not load the issue; see the job log.`);
                   continue;
                 }
                 if (!issue || issue.body === undefined) continue;
@@ -70,7 +71,7 @@ jobs:
                 }
                 const plan = issue.comments.nodes.find((c) => isTrusted(c) && c.body.includes(PLAN));
                 if (!plan) {
-                  findings.push(`${ref}: no plan comment (\`${PLAN}\`) from a collaborator.`);
+                  findings.push(`${ref}: no plan comment (\`${PLAN}\`) from an org member, collaborator or agent app.`);
                 } else {
                   const revision = plan.body.match(/\*\*Spec revision:\*\*\s*(\S+)/)?.[1];
                   const specEditedAt = Date.parse(issue.lastEditedAt ?? issue.createdAt);
@@ -87,7 +88,7 @@ jobs:
             }
 
             const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number });
-            const sticky = comments.find((c) => c.user?.login === `${ACTIONS_BOT}[bot]` && c.body?.includes(STICKY));
+            const sticky = comments.find((c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(STICKY));
             if (findings.length === 0) {
               if (sticky) await github.rest.issues.deleteComment({ owner, repo, comment_id: sticky.id });
               core.info('Spec and plan in order.');
