@@ -143,11 +143,22 @@ describe('useSwapsApiBroadcastWithApproval', () => {
     expect(calls).toEqual(['batch:0x01,0x02,0x03']);
   });
 
-  it('approves separately, then sends the intent, when the wallet cannot batch', async () => {
+  it('rejects a wallet that cannot batch by default, sending nothing', async () => {
     const calls: string[] = [];
     const walletProvider = plainWallet(calls);
 
-    const result = await run({ walletProvider });
+    await expect(run({ walletProvider })).rejects.toMatchObject({
+      code: 'INTENT_CREATION_FAILED',
+      context: { reason: ATOMIC_BATCH_REFUSED, approvalStrategy: 'sequential' },
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it('approves separately, then sends the intent, when the wallet cannot batch and fallbackOnRefusal is true', async () => {
+    const calls: string[] = [];
+    const walletProvider = plainWallet(calls);
+
+    const result = await run({ walletProvider, fallbackOnRefusal: true });
 
     expect(result).toEqual({
       txHash: '0xhash03',
@@ -164,12 +175,12 @@ describe('useSwapsApiBroadcastWithApproval', () => {
     expect(onBatchSent).toHaveBeenCalledWith('batch-1', 2);
   });
 
-  it('rejects a refused batch instead of approving when fallbackOnRefusal is false', async () => {
+  it('rejects a refused batch instead of approving by default', async () => {
     const calls: string[] = [];
     const walletProvider = batchWallet(calls, 'supported');
     walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
 
-    await expect(run({ walletProvider, fallbackOnRefusal: false })).rejects.toMatchObject({
+    await expect(run({ walletProvider })).rejects.toMatchObject({
       code: 'INTENT_CREATION_FAILED',
       context: { reason: ATOMIC_BATCH_REFUSED },
     });
@@ -178,12 +189,12 @@ describe('useSwapsApiBroadcastWithApproval', () => {
 
   // The caller chose the batch on an earlier capability read; a later read that fails must not approve
   // and send its pre-approval intent behind the caller's back.
-  it('hands back a wallet that can no longer batch when fallbackOnRefusal is false', async () => {
+  it('hands back a wallet that can no longer batch by default', async () => {
     const calls: string[] = [];
     const walletProvider = batchWallet(calls, 'supported');
     walletProvider.getAtomicBatchSupport.mockRejectedValueOnce(new Error('capabilities unavailable'));
 
-    await expect(run({ walletProvider, fallbackOnRefusal: false })).rejects.toMatchObject({
+    await expect(run({ walletProvider })).rejects.toMatchObject({
       code: 'INTENT_CREATION_FAILED',
       context: { reason: ATOMIC_BATCH_REFUSED, approvalStrategy: 'sequential' },
     });
@@ -199,17 +210,17 @@ describe('useSwapsApiBroadcastWithApproval', () => {
       return `0xhash${tx.data.slice(2)}` as const;
     });
 
-    await expect(run({ walletProvider })).rejects.toThrow('User rejected');
+    await expect(run({ walletProvider, fallbackOnRefusal: true })).rejects.toThrow('User rejected');
     expect(calls).toEqual(['send:0x02', 'wait:0xhash02', 'send:0x03']);
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['swapsApi', 'allowance'] });
   });
 
-  it('falls back to approving separately when the wallet refuses the batch before signing', async () => {
+  it('falls back to approving separately when the wallet refuses the batch and fallbackOnRefusal is true', async () => {
     const calls: string[] = [];
     const walletProvider = batchWallet(calls, 'supported');
     walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
 
-    const result = await run({ walletProvider });
+    const result = await run({ walletProvider, fallbackOnRefusal: true });
 
     expect(result.approvalStrategy).toBe('sequential');
     expect(calls).toEqual(['send:0x02', 'wait:0xhash02', 'send:0x03']);
@@ -220,7 +231,7 @@ describe('useSwapsApiBroadcastWithApproval', () => {
     const calls: string[] = [];
     const walletProvider = batchWallet(calls, 'ready');
 
-    const result = await run({ walletProvider, allowAccountUpgrade: false });
+    const result = await run({ walletProvider, allowAccountUpgrade: false, fallbackOnRefusal: true });
 
     expect(result.approvalStrategy).toBe('sequential');
     expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
@@ -252,11 +263,22 @@ describe('useSwapsApiBroadcastWithApproval', () => {
     expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
   });
 
+  it('hands back a Sonic hub source by default, without asking the wallet', async () => {
+    const calls: string[] = [];
+    const walletProvider = batchWallet(calls, 'supported');
+
+    await expect(run({ body: body(ChainKeys.SONIC_MAINNET), walletProvider })).rejects.toMatchObject({
+      context: { reason: ATOMIC_BATCH_REFUSED },
+    });
+    expect(walletProvider.getAtomicBatchSupport).not.toHaveBeenCalled();
+    expect(calls).toEqual([]);
+  });
+
   it('keeps the Sonic hub sequential without asking the wallet', async () => {
     const calls: string[] = [];
     const walletProvider = batchWallet(calls, 'supported');
 
-    const result = await run({ body: body(ChainKeys.SONIC_MAINNET), walletProvider });
+    const result = await run({ body: body(ChainKeys.SONIC_MAINNET), walletProvider, fallbackOnRefusal: true });
 
     expect(result.approvalStrategy).toBe('sequential');
     expect(walletProvider.getAtomicBatchSupport).not.toHaveBeenCalled();

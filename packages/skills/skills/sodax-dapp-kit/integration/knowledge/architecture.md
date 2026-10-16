@@ -233,14 +233,15 @@ hub wallet and never approves.
 For a swap from an EVM source whose allowance is short (`/swaps/allowance/check` says so — the hook
 always approves), **`useSwapsApiBroadcastWithApproval`** goes one step further: given the
 create-intent `body` and the unsigned `intentTx`, it sends the approval and `intentTx` as one EIP-5792
-atomic batch — one signature — when the wallet supports it, and otherwise approves (as above) and then
-sends `intentTx`. It resolves with `{ txHash, approvalStrategy, approval? }` and stops there: persist
-`txHash`, then call `useSwapsApiSubmitTx`. Persist the `batchId` its `onBatchSent` reports too: a
-`TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` means the batch may still
-land, so never let the user sign that swap again — resume it with `confirmApprovalBatch` instead. Pass
-`fallbackOnRefusal: false` to run your own two-step path: the hook then never approves separately, and a
-refused batch, or a wallet that no longer reports batch support, rejects with an `isAtomicBatchRefusal`
-error instead.
+atomic batch — one signature — when the wallet supports it. It resolves with `{ txHash, approvalStrategy,
+approval? }` and stops there: persist `txHash`, then call `useSwapsApiSubmitTx`. Persist the `batchId` its
+`onBatchSent` reports too: a `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED`
+means the batch may still land, so never let the user sign that swap again — resume it with
+`confirmApprovalBatch` instead. A wallet that cannot batch (the Sonic hub never does), or refuses the batch
+before signing, rejects with an `isAtomicBatchRefusal` error and nothing sent: approve with
+`useSwapsApiApproveAndBroadcast`, create the intent again — a fresh deadline — and sign that. Pass
+`fallbackOnRefusal: true` to have the hook approve and then send the `intentTx` it was given; that intent was
+built before the approval, so its deadline has to outlast the approval's wait.
 
 All three, and `useSwapsApiBroadcastWithApproval` for its separate approval, accept an optional **`onProgress`** in their mutation vars. It reports each transaction as
 `{ step, phase, index, total, hash?, error? }` — `step` is `'allowance-reset'` or `'approve'`, `phase`

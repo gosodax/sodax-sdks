@@ -51,9 +51,6 @@ import type { TokenChoice } from '../lib/chains';
 import { postEmbedEvent } from '../lib/embedMessages';
 import { resolveDestinationGate } from '../lib/destinationGate';
 import { type ReviewSnapshot, reviewFromActivity } from '../lib/review';
-
-/** How long one "check my wallet again" waits for a held batch before saying it is still pending. */
-const BATCH_RECHECK_TIMEOUT_MS = 15_000;
 import {
   broadcast,
   canExecute,
@@ -67,6 +64,9 @@ import {
   sourceExtras,
   type ExecutionPhase,
 } from '../lib/execution';
+
+/** How long one "check my wallet again" waits for a held batch before saying it is still pending. */
+const BATCH_RECHECK_TIMEOUT_MS = 15_000;
 
 function spokeKey(chain: ChainKey | undefined): SpokeChainKey | undefined {
   return chain && isSpoke(chain) ? chain : undefined;
@@ -497,6 +497,9 @@ export function useExecution(input: ExecutionInput) {
       if (check.status === 'failed') {
         storePendingBatch(undefined);
         setError('This swap did not go through, and nothing was deposited. You can review it again.');
+        // Reported as `confirm` would have, had the batch failed there: at signing.
+        postEmbedEvent({ type: 'sodax:swap', status: 'failed' });
+        if (pendingBatch.pair) trackSwapFailed(pendingBatch.pair, 'signing');
         return;
       }
       const recovered = activityFromBatch(pendingBatch, check.txHash);

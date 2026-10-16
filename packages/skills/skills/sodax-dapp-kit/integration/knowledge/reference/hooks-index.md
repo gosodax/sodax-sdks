@@ -215,7 +215,7 @@ Typed React Query wrappers over the backend Swaps API (`sodax.api.swaps.*`), one
 |---|---|
 | `useSwapsApiApprove` | Mutation; builds unsigned approval tx(s) — `{ tx, resetTx? }`, caller signs |
 | `useSwapsApiApproveAndBroadcast` | Mutation; builds **and** signs/broadcasts/waits — preferred; `{ approveTxHash, resetTxHash? }`; optional `onProgress` per step |
-| `useSwapsApiBroadcastWithApproval` | Mutation; EVM source with a short allowance — approval + `intentTx` in one EIP-5792 batch (one signature), else approve then send; `{ txHash, approvalStrategy, approval? }`; stops before submit-tx; `onBatchSent` (persist the batch id), `fallbackOnRefusal` |
+| `useSwapsApiBroadcastWithApproval` | Mutation; EVM source with a short allowance — approval + `intentTx` in one EIP-5792 batch (one signature), else rejects with a refusal (`fallbackOnRefusal: true` approves, then sends the pre-approval `intentTx`); `{ txHash, approvalStrategy, approval? }`; stops before submit-tx; `onBatchSent` (persist the batch id) |
 | `useSwapsApiCreateIntent` | Mutation; builds `{ tx, intent, relayData }` |
 | `useSwapsApiSubmitIntent` | Mutation; submits broadcast intent to the relay |
 | `useSwapsApiCancelIntent` | Mutation; builds unsigned cancel tx |
