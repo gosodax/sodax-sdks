@@ -239,6 +239,23 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     expect(intent.srcAddress).toBe(SRC_USER);
   });
 
+  it('encodes an EVM MPC-relay (Monad) dstAddress as the plain 20-byte address', () => {
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(hubOutputXToken);
+    const monadAddress = '0x6be3a4afbd5983604385bcba71aaa3645918e2e2';
+
+    const [, intent] = EvmSolverService.constructCreateIntentData(
+      { ...baseParams(), dstChainKey: ChainKeys.MONAD_MAINNET, dstAddress: monadAddress },
+      HUB_WALLET,
+      mockConfig,
+      undefined,
+    );
+
+    // A padded word here was released to the zero address on Monad.
+    expect(intent.dstAddress).toBe(monadAddress);
+  });
+
   it('treats the input token as already-on-hub when srcChainKey is the hub chain (skips lookup)', () => {
     // Only the *output* lookup runs; the input is the hub asset directly.
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress).mockReturnValueOnce(hubOutputXToken);
