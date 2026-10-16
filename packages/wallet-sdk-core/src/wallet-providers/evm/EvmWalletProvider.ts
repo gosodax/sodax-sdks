@@ -5,7 +5,17 @@ import {
   type EvmRawTransactionReceipt,
   type IEvmWalletProvider,
 } from '@sodax/types';
-import type { Account, Address, Chain, Hash, PublicClient, TransactionReceipt, Transport, WalletClient } from 'viem';
+import type {
+  Account,
+  Address,
+  Chain,
+  Hash,
+  Hex,
+  PublicClient,
+  TransactionReceipt,
+  Transport,
+  WalletClient,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { createWalletClient, createPublicClient, http, defineChain } from 'viem';
 import { BaseWalletProvider } from '../BaseWalletProvider.js';
@@ -48,6 +58,16 @@ export const hyper = /*#__PURE__*/ defineChain({
   contracts: { multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11', blockCreated: 13051 } },
 });
 
+/** Monad mainnet — absent from the pinned `viem/chains`, which only carries its testnet. */
+export const monad = /*#__PURE__*/ defineChain({
+  id: 143,
+  name: 'Monad',
+  nativeCurrency: { decimals: 18, name: 'Monad', symbol: 'MON' },
+  rpcUrls: { default: { http: ['https://rpc.monad.xyz'] } },
+  blockExplorers: { default: { name: 'MonadScan', url: 'https://monadscan.com/' } },
+  contracts: { multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11' } },
+});
+
 /**
  * Returns the viem `Chain` config for the given EVM chain key.
  *
@@ -83,6 +103,8 @@ export function getEvmViemChain(key: EvmChainKey): Chain {
       return kaia;
     case ChainKeys.HEDERA_MAINNET:
       return hedera;
+    case ChainKeys.MONAD_MAINNET:
+      return monad;
     default: {
       const exhaustiveCheck: never = key; // The never type is used to ensure that the default case is exhaustive
       console.log(exhaustiveCheck);
@@ -159,6 +181,11 @@ export class EvmWalletProvider extends BaseWalletProvider<EvmWalletDefaults> imp
     const policy = this.mergePolicy('sendTransaction', options);
     const tx = { ...policy, ...txData } as Parameters<typeof this.walletClient.sendTransaction>[0];
     return this.walletClient.sendTransaction(tx);
+  }
+
+  /** EIP-191 `personal_sign` over the raw bytes of `hash`, for withdraw-auth on MPC-relay EVM spokes. */
+  async signMessage(hash: Hex): Promise<Hex> {
+    return this.walletClient.signMessage({ account: this.walletClient.account, message: { raw: hash } });
   }
 
   /**

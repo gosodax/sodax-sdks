@@ -230,6 +230,7 @@ describe('SpokeService.settle — Tron MPC relay', () => {
     const services: Record<MpcRelayChainKey, { waitForDeposit: (tx: string, timeout?: number) => unknown }> = {
       tron: spoke.tron,
       xrp: spoke.xrp,
+      monad: spoke.monad,
     };
     const relay = stubRelay();
     for (const service of Object.values(services)) {

@@ -1,7 +1,7 @@
 import 'dotenv/config';
 
 import { createPublicClient, http, type Hex } from 'viem';
-import { Sodax, encodeContractCalls, tronIdentityBytes } from '@sodax/sdk';
+import { Sodax, encodeContractCalls, encodeRecipient } from '@sodax/sdk';
 import { TronWalletProvider } from '@sodax/wallet-sdk-core';
 
 /**
@@ -119,8 +119,8 @@ async function main() {
       const recipient = TO ?? SENDER;
       const payload: Hex =
         endpoint === 'borrow'
-          ? sodax.moneyMarket.buildBorrowData(hubWallet, tronIdentityBytes(recipient), TOKEN, amountUnits, TRON)
-          : sodax.moneyMarket.buildWithdrawData(hubWallet, tronIdentityBytes(recipient), TOKEN, amountUnits, TRON);
+          ? sodax.moneyMarket.buildBorrowData(hubWallet, encodeRecipient(TRON, recipient), TOKEN, amountUnits, TRON)
+          : sodax.moneyMarket.buildWithdrawData(hubWallet, encodeRecipient(TRON, recipient), TOKEN, amountUnits, TRON);
       log(`${endpoint} ${AMOUNT_TRX} → ${recipient}  payload=${payload.slice(0, 42)}…`);
 
       const trackingId = await tron.sendMessage({

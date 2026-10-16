@@ -162,7 +162,7 @@ ChainKeys.INJECTIVE_MAINNET;   // 'injective-1'
 ChainKeys.NEAR_MAINNET;        // 'near'
 ChainKeys.STACKS_MAINNET;      // 'stacks'
 ChainKeys.BITCOIN_MAINNET;     // 'bitcoin'
-// HyperEVM, Lightlink, Redbelly, Kaia, Hedera also available.
+// HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Monad also available.
 ```
 
 **v1 → v2:** the legacy `*_MAINNET_CHAIN_ID` constants (e.g. `BSC_MAINNET_CHAIN_ID`) are gone. Use `ChainKeys.X_MAINNET` namespace access.

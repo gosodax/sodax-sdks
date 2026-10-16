@@ -15,7 +15,6 @@ import {
   isStellarChainKeyType,
   type SpokeIsAllowanceValidParamsStellar,
   isHubChainKeyType,
-  isEvmChainKeyType,
   isOptionalStellarWalletProviderType,
   isEvmSpokeOnlyChainKeyType,
   isOptionalEvmWalletProviderType,
@@ -152,7 +151,7 @@ export class AssetService {
         return result;
       }
 
-      if (isEvmChainKeyType(params.srcChainKey) || isHubChainKeyType(params.srcChainKey)) {
+      if (isEvmSpokeOnlyChainKeyType(params.srcChainKey) || isHubChainKeyType(params.srcChainKey)) {
         const spender = isHubChainKeyType(params.srcChainKey)
           ? await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey)
           : this.config.sodaxConfig.chains[params.srcChainKey].addresses.assetManager;

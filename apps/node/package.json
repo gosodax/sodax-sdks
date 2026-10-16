@@ -20,6 +20,7 @@
     "injective-raw-intent": "tsx src/injective-raw-intent.ts",
     "tron": "tsx src/tron.ts",
     "xrp": "tsx src/xrp.ts",
+    "monad": "tsx src/monad.ts",
     "bridge-raw": "tsx src/bridge-raw.ts",
     "test-libs": "tsx src/test-libs.ts",
     "stellar": "pnpm run build && node dist/stellar.js",

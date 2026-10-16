@@ -6,10 +6,7 @@ export type TronWalletDefaults = {
   rpcUrl?: string;
 };
 
-/**
- * Minimal TronWeb surface the provider needs (the object `window.tronWeb` / TronLink injects).
- * Kept structural so this package needs no `tronweb` dependency.
- */
+/** Minimal TronWeb surface the provider needs, structural so this package needs no `tronweb` dep. */
 export interface TronWebLike {
   defaultAddress?: { base58?: string | false };
   fullNode?: { host?: string };
@@ -31,10 +28,7 @@ export type PrivateKeyTronWalletConfig = {
   defaults?: TronWalletDefaults;
 };
 
-/**
- * The wallet's EIP-1193-style provider — the object TIP-6963 announces. Its `tronWeb` is the
- * connected instance; the global `window.tronWeb` is a separate, unconnected one that cannot sign.
- */
+/** The provider TIP-6963 announces. Its `tronWeb` is connected; the global one cannot sign. */
 export interface TronProviderLike {
   request: (args: { method: string; params?: unknown }) => Promise<unknown>;
   /** The wallet's connected TronWeb, used for signing. */
@@ -47,10 +41,7 @@ export type BrowserExtensionTronWalletConfig = {
   tronWeb: TronWebLike;
   /** The announced provider, used for signing. */
   provider?: TronProviderLike;
-  /**
-   * Resolves the connected provider at call time. Prefer it over `provider`: on a page reload the
-   * config is built before TIP-6963 discovery resolves, so a captured `provider` can be stale.
-   */
+  /** Resolves the connected provider at call time; prefer it, since a captured one can be stale. */
   getProvider?: () => TronProviderLike | undefined;
   /** Connected base58 address; falls back to `tronWeb.defaultAddress.base58`. */
   address?: string;

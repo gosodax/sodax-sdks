@@ -39,6 +39,7 @@ export const ChainKeys = {
   HEDERA_MAINNET: 'hedera',
   TRON_MAINNET: 'tron',
   XRP_MAINNET: 'xrp',
+  MONAD_MAINNET: 'monad',
 } as const;
 
 export type ChainKey = (typeof ChainKeys)[keyof typeof ChainKeys];

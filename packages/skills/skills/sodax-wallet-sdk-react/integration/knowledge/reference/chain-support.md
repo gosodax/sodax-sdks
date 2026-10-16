@@ -10,7 +10,7 @@ Chains supported by `@sodax/wallet-sdk-react` v2 — their `ChainType` family an
 
 | ChainType | Networks (examples) | React adapter mounted |
 |---|---|---|
-| `EVM` | Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera | wagmi |
+| `EVM` | Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Monad | wagmi |
 | `SOLANA` | Solana mainnet | `@solana/wallet-adapter-react` |
 | `SUI` | Sui mainnet/testnet | `@mysten/dapp-kit` |
 | `BITCOIN` | Bitcoin mainnet | (none — direct extension probes) |
@@ -56,7 +56,7 @@ ChainKeys.BITCOIN_MAINNET;     // BITCOIN
 // …etc
 ```
 
-Naming pattern: `<NETWORK>_MAINNET`. EVM has 13 entries (Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera); the other 8 families each have one. Inspect `@sodax/types` for the authoritative list.
+Naming pattern: `<NETWORK>_MAINNET`. EVM has 14 entries (Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Monad); the other 8 families each have one. Inspect `@sodax/types` for the authoritative list.
 
 ---
 

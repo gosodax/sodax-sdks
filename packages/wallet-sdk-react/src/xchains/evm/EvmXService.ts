@@ -71,6 +71,16 @@ export const hyper = /*#__PURE__*/ defineChain({
   },
 });
 
+// Monad mainnet is absent from the pinned `wagmi/chains`, which only carries its testnet.
+export const monad = /*#__PURE__*/ defineChain({
+  id: 143,
+  name: 'Monad',
+  nativeCurrency: { decimals: 18, name: 'Monad', symbol: 'MON' },
+  rpcUrls: { default: { http: ['https://rpc.monad.xyz'] } },
+  blockExplorers: { default: { name: 'MonadScan', url: 'https://monadscan.com/' } },
+  contracts: { multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11' } },
+});
+
 export const createWagmiConfig = (
   evmChains?: EvmTypeConfig['chains'],
   options?: WagmiOptions & { connectors?: CreateConnectorFn[] },
@@ -90,6 +100,7 @@ export const createWagmiConfig = (
       kaia,
       redbellyMainnet,
       hedera,
+      monad,
     ],
     connectors: options?.connectors ?? [],
     // NOTE: wagmi's `ssr` is a hydration-timing flag, not an "is host app SSR"
@@ -113,6 +124,7 @@ export const createWagmiConfig = (
       [redbellyMainnet.id]: http(getRpcUrl(evmChains?.[ChainKeys.REDBELLY_MAINNET])),
       [kaia.id]: http(getRpcUrl(evmChains?.[ChainKeys.KAIA_MAINNET])),
       [hedera.id]: http(getRpcUrl(evmChains?.[ChainKeys.HEDERA_MAINNET])),
+      [monad.id]: http(getRpcUrl(evmChains?.[ChainKeys.MONAD_MAINNET])),
     },
     storage: createStorage({
       storage: cookieStorage,

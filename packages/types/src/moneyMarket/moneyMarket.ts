@@ -201,6 +201,10 @@ export const moneyMarketSupportedTokens = {
     spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.XRP,
     spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.USDC,
   ] as const satisfies XToken[],
+  // USDC only: MON has no vault, so it cannot be a lending-pool reserve.
+  [ChainKeys.MONAD_MAINNET]: [
+    spokeChainConfig[ChainKeys.MONAD_MAINNET].supportedTokens.USDC,
+  ] as const satisfies XToken[],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 export const moneyMarketReserveAssets = [

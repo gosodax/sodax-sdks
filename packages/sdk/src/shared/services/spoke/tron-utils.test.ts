@@ -29,6 +29,27 @@ describe('tronBase58ToHex', () => {
   it('rejects invalid base58', () => {
     expect(() => tronBase58ToHex('0OIl-not-base58')).toThrow(/invalid base58/);
   });
+
+  it('rejects a one-character typo that is still valid base58 (checksum mismatch)', () => {
+    const typo = `${RESERVE.slice(0, -1)}3`;
+    expect(() => tronBase58ToHex(typo)).toThrow(/checksum/);
+  });
+
+  it('rejects base58 strings of the wrong length', () => {
+    expect(() => tronBase58ToHex(RESERVE.slice(0, -1))).toThrow(/25 bytes/);
+    expect(() => tronBase58ToHex(`${RESERVE}1`)).toThrow(/25 bytes/);
+  });
+
+  it('rejects a valid base58check address with a non-Tron version byte', () => {
+    // Bitcoin P2PKH: 25 bytes with a valid checksum, but version 0x00.
+    expect(() => tronBase58ToHex('1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2')).toThrow(/0x41 version/);
+  });
+
+  it('rejects malformed hex forms', () => {
+    expect(() => tronBase58ToHex(`0x${RESERVE_HEX.slice(2)}`)).toThrow(/0x41 \+ 20 bytes/); // bare 20-byte hash
+    expect(() => tronBase58ToHex(`0x${RESERVE_HEX.slice(0, -2)}`)).toThrow(/0x41 \+ 20 bytes/);
+    expect(() => tronBase58ToHex(`0x42${RESERVE_HEX.slice(2)}`)).toThrow(/0x41 \+ 20 bytes/);
+  });
 });
 
 describe('tronAddressToWord', () => {

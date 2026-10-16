@@ -78,9 +78,9 @@ const SAMPLE_EVM_TOKEN = '0x2170Ed0880ac9A755fd29B2688956BD959F933F8' as Address
 const SAMPLE_USER_ADDRESS = '0x4444444444444444444444444444444444444444' as Address;
 const SAMPLE_DST_ADDRESS = '0x5555555555555555555555555555555555555555' as Address;
 
-// MPC-relay accounts and the recipient word each becomes on the hub. `encodeAddress` yields the bare
-// 20-byte identity (what derives the hub wallet); `encodeRecipient` left-pads it to the 32-byte word
-// AssetManager.transfer expects as the delivery address.
+// MPC-relay accounts and the recipient each becomes on the hub. `encodeAddress` yields the bare 20-byte
+// identity (what derives the hub wallet); `encodeRecipient` left-pads it to the 32-byte word a non-EVM
+// release expects, and leaves an EVM (Monad) recipient as a plain address, which is what its release pays.
 const MPC_RECIPIENTS = [
   {
     chainKey: ChainKeys.TRON_MAINNET,
@@ -91,6 +91,11 @@ const MPC_RECIPIENTS = [
     chainKey: ChainKeys.XRP_MAINNET,
     address: 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah',
     word: `0x${'00'.repeat(12)}72a3de6b0973062d5f2fe77383ef02f0c17901ab` as Address,
+  },
+  {
+    chainKey: ChainKeys.MONAD_MAINNET,
+    address: '0x6be3a4afbd5983604385bcba71aaa3645918e2e2',
+    word: '0x6be3a4afbd5983604385bcba71aaa3645918e2e2' as Address,
   },
 ] as const;
 
@@ -1508,7 +1513,7 @@ describe('MoneyMarketService.createBorrowIntent', () => {
 
     it.each(
       MPC_RECIPIENTS,
-    )('on a $chainKey destination: pads the recipient to 32 bytes for the asset-manager transfer', async ({
+    )('on a $chainKey destination: encodes the recipient the asset-manager release expects', async ({
       chainKey,
       address,
       word,
@@ -2003,7 +2008,7 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
 
     it.each(
       MPC_RECIPIENTS,
-    )('on a $chainKey destination: pads the recipient to 32 bytes for the asset-manager transfer', async ({
+    )('on a $chainKey destination: encodes the recipient the asset-manager release expects', async ({
       chainKey,
       address,
       word,
@@ -3446,5 +3451,57 @@ describe('buildBorrowData / buildWithdrawData — remaining branch coverage', ()
     );
 
     expect(data.startsWith('0x')).toBe(true);
+  });
+});
+
+// =========================================================================
+// hub-only actions still verify the source tx (they return before `settle`, which verifies spokes)
+// =========================================================================
+
+describe('MoneyMarketService — hub-only actions verify the source tx', () => {
+  const HUB = ChainKeys.SONIC_MAINNET;
+  const intent = {
+    ok: true as const,
+    value: { tx: '0xhub-tx', relayData: { address: HUB_WALLET, payload: '0x' as const } },
+  };
+
+  const cases = [
+    {
+      action: 'supply',
+      stub: () => vi.spyOn(sodax.moneyMarket, 'createSupplyIntent').mockResolvedValueOnce(intent),
+      run: () => sodax.moneyMarket.supply({ raw: false, params: supplyParams(HUB), walletProvider: mockEvmProvider }),
+    },
+    {
+      action: 'borrow',
+      stub: () => vi.spyOn(sodax.moneyMarket, 'createBorrowIntent').mockResolvedValueOnce(intent),
+      run: () => sodax.moneyMarket.borrow({ raw: false, params: borrowParams(HUB), walletProvider: mockEvmProvider }),
+    },
+    {
+      action: 'withdraw',
+      stub: () => vi.spyOn(sodax.moneyMarket, 'createWithdrawIntent').mockResolvedValueOnce(intent),
+      run: () =>
+        sodax.moneyMarket.withdraw({ raw: false, params: withdrawParams(HUB), walletProvider: mockEvmProvider }),
+    },
+    {
+      action: 'repay',
+      stub: () => vi.spyOn(sodax.moneyMarket, 'createRepayIntent').mockResolvedValueOnce(intent),
+      run: () => sodax.moneyMarket.repay({ raw: false, params: repayParams(HUB), walletProvider: mockEvmProvider }),
+    },
+  ];
+
+  it.each(cases)('$action: verifies the hub tx and surfaces a verification failure', async ({ action, stub, run }) => {
+    stub();
+    const verifyError = new Error('VERIFY_FAILED');
+    const verifySpy = vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValueOnce({ ok: false, error: verifyError });
+
+    const result = await run();
+
+    expect(verifySpy).toHaveBeenCalledWith({ txHash: '0xhub-tx', chainKey: HUB });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('TX_VERIFICATION_FAILED');
+    expect(result.error.cause).toBe(verifyError);
+    expect(result.error.context?.action).toBe(action);
+    expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
   });
 });

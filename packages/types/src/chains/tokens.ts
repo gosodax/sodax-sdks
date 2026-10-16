@@ -1840,6 +1840,28 @@ export const xrpSupportedTokens = {
   },
 } as const satisfies Record<string, XToken>;
 
+export const monadSupportedTokens = {
+  // Native MON. There is no MON vault, so `vault` is the wrapped hub asset itself (the no-vault convention).
+  MON: {
+    symbol: 'MON',
+    name: 'Monad',
+    decimals: 18,
+    address: '0x0000000000000000000000000000000000000000',
+    chainKey: ChainKeys.MONAD_MAINNET,
+    hubAsset: '0xcCFAcabC823dc7fbFB60c26B23c120Fa1C1A5CA4',
+    vault: '0xcCFAcabC823dc7fbFB60c26B23c120Fa1C1A5CA4',
+  },
+  USDC: {
+    symbol: 'USDC',
+    name: 'USD Coin',
+    decimals: 6,
+    address: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603',
+    chainKey: ChainKeys.MONAD_MAINNET,
+    hubAsset: '0xc2C1a0D7814194545020cfef6cE6BE1Eb741ee38',
+    vault: SodaTokens.sodaUSDC.address,
+  },
+} as const satisfies Record<string, XToken>;
+
 export const tronSupportedTokens = {
   // Native TRX. The spoke-side "address" uses the EVM-zero sentinel (Tron native has no
   // contract); the hub wraps it as wTRX, minted into the sodaTRX vault via the MPC relay.
@@ -2582,4 +2604,5 @@ export const supportedTokensByChain = {
   [ChainKeys.HEDERA_MAINNET]: hederaSupportedTokens,
   [ChainKeys.TRON_MAINNET]: tronSupportedTokens,
   [ChainKeys.XRP_MAINNET]: xrpSupportedTokens,
+  [ChainKeys.MONAD_MAINNET]: monadSupportedTokens,
 } as const satisfies Record<ChainKey, Record<string, XToken>>;

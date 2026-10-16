@@ -488,9 +488,8 @@ export class BridgeService {
       // The caller's full `timeout`, starting HERE — after verification, and whether this runs as the only
       // path or as the backend's fallback. Neither a stalled backend attempt nor a slow source-chain
       // confirmation (Stacks polls for up to its full 120s `maxTimeoutMs`) may shorten the relay wait. The
-      // floor covers a sub-floor caller `timeout`: settlement SUBMITS the tx to the relay before `timeout`
-      // bounds anything, so a zero budget would strand an already-landed deposit unrelayed. Re-relay is
-      // idempotent, so always spending the floor is safe.
+      // Settlement submits before `timeout` bounds anything, so a zero budget would strand a landed
+      // deposit unrelayed. Re-relaying is idempotent.
       timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
     });
 

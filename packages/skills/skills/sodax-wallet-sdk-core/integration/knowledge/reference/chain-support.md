@@ -23,6 +23,7 @@ Chain families and spoke chain keys this package can sign for. Keys live in `@so
 | `ChainKeys.REDBELLY_MAINNET` | `redbellyMainnet` |
 | `ChainKeys.KAIA_MAINNET` | `kaia` |
 | `ChainKeys.HEDERA_MAINNET` | `hedera` |
+| `ChainKeys.MONAD_MAINNET` | `monad` (defined inside this package) |
 
 ---
 

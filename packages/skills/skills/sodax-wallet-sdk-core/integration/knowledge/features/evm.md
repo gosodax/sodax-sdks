@@ -8,7 +8,7 @@ Backed by [viem](https://viem.sh). One class covers **every** SODAX EVM spoke ch
 | Interface | `IEvmWalletProvider` (from `@sodax/types`) |
 | Discriminant style | **Field presence** (no `type` field) |
 | Underlying SDK | `viem` |
-| Supported chains | Sonic (hub), Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera |
+| Supported chains | Sonic (hub), Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Monad |
 
 ---
 

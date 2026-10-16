@@ -258,6 +258,8 @@ export const swapSupportedTokens = {
     spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.RLUSD,
     spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.USDC,
   ] as const satisfies XToken[],
+  // Staging-only for now.
+  [ChainKeys.MONAD_MAINNET]: [],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 // Tokens supported ONLY in the staging solver environment.
@@ -310,6 +312,10 @@ export const stagingSwapSupportedTokens = {
   ] as const satisfies XToken[],
   // Production-only: the three XRPL assets are on the production solver oracle.
   [ChainKeys.XRP_MAINNET]: [],
+  [ChainKeys.MONAD_MAINNET]: [
+    spokeChainConfig[ChainKeys.MONAD_MAINNET].supportedTokens.MON,
+    spokeChainConfig[ChainKeys.MONAD_MAINNET].supportedTokens.USDC,
+  ] as const satisfies XToken[],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 export type SwapsOptions = {

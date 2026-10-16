@@ -16,15 +16,10 @@ import type {
   TronProviderLike,
 } from './types.js';
 
-const DEFAULT_RPC = 'https://api.trongrid.io';
-const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-// TronLink `signMessageV2` prefix for scheme-1 withdrawal-auth signatures.
-//
-// The length is 66, not 32: `signMessageV2` follows ethers' `hashMessage` semantics, where a
-// STRING argument is UTF-8 encoded rather than hex-decoded. Passing the 0x-prefixed hash therefore
-// signs its 66-ASCII-character hex representation, not the 32 raw bytes. The NEAR bridge's
-// `tron_signmessagev2_digest` computes the identical digest; a mismatch here recovers a valid but
-// wrong address and fails `submit_withdraw_message` with "Recovered address does not match sender".
+const TRON_DEFAULT_RPC_URL = 'https://api.trongrid.io';
+const TRON_BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+// Scheme-1 withdraw-auth prefix. 66, not 32: `signMessageV2` UTF-8 encodes a string argument, so it
+// signs the hash's hex text. The bridge's `tron_signmessagev2_digest` matches this.
 const TRON_MESSAGE_PREFIX = '\x19TRON Signed Message:\n66';
 
 export function isPrivateKeyTronWalletConfig(config: TronWalletConfig): config is PrivateKeyTronWalletConfig {
@@ -46,7 +41,7 @@ function toBase58Check(payload: Uint8Array): string {
   let n = BigInt(`0x${bufHex(full)}`);
   let s = '';
   while (n > 0n) {
-    s = B58[Number(n % 58n)] + s;
+    s = TRON_BASE58_ALPHABET[Number(n % 58n)] + s;
     n /= 58n;
   }
   for (const b of full) {
@@ -63,14 +58,8 @@ function privateKeyToTronAddress(privateKey: `0x${string}`): string {
 }
 
 /**
- * Tron wallet provider. Two modes:
- *   - browser extension: wraps the injected `window.tronWeb` (TronLink) — `trx.sign` /
- *     `trx.signMessageV2` prompt the user.
- *   - private key: signs locally via secp256k1 (raw txID for transactions, TRON-prefixed digest for
- *     scheme-1 messages), used for headless flows/tests.
- *
- * Implements {@link ITronWalletProvider}: the sdk's `TronSpokeService` builds the memo transfer +
- * withdraw messages and delegates only the signing here.
+ * Tron wallet provider, signing only — `TronSpokeService` builds the transfers and messages. Two modes:
+ * a browser extension (TronLink prompts the user) or a private key signing locally.
  */
 export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> implements ITronWalletProvider {
   public readonly chainType = 'TRON' as const;
@@ -85,7 +74,7 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
 
   constructor(config: TronWalletConfig) {
     super(config.defaults);
-    this.rpcUrl = config.endpoint ?? this.defaults.rpcUrl ?? DEFAULT_RPC;
+    this.rpcUrl = config.endpoint ?? this.defaults.rpcUrl ?? TRON_DEFAULT_RPC_URL;
 
     if (isPrivateKeyTronWalletConfig(config)) {
       this.privateKey = `0x${config.privateKey.replace(/^0x/, '')}`;
@@ -108,10 +97,7 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
     return address;
   }
 
-  /**
-   * The connected TronWeb to sign through. A wallet injects several instances and only the one with
-   * an account can sign, so refuse rather than sign with an unconnected one.
-   */
+  /** The connected TronWeb. A wallet injects several; only the one with an account can sign. */
   private signer(): TronWebLike {
     const connected = [this.getProvider?.()?.tronWeb, this.provider?.tronWeb, this.tronWeb].find(
       tw => typeof tw?.defaultAddress?.base58 === 'string' && tw.defaultAddress.base58.length > 0,
@@ -136,12 +122,8 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
 
   public async signMessage(hash: `0x${string}`): Promise<`0x${string}`> {
     if (this.privateKey) {
-      // Scheme 1: keccak256("\x19TRON Signed Message:\n66" ‖ "0x<64 lowercase hex>") — the same
-      // digest TronLink's signMessageV2 produces for the browser branch below, so both paths
-      // verify against the bridge's `tron_signmessagev2_digest`.
-      //
-      // `stringToBytes`, NOT `toBytes`: viem's `toBytes` hex-decodes a 0x-prefixed value back to
-      // the 32 raw bytes, which is exactly the digest this is fixing.
+      // Scheme 1, matching TronLink's signMessageV2. `stringToBytes`, not `toBytes`: the latter
+      // hex-decodes back to 32 raw bytes, which is the wrong digest.
       const digest = keccak256(concat([toBytes(TRON_MESSAGE_PREFIX), stringToBytes(hash.toLowerCase())]));
       const s = await sign({ hash: digest, privateKey: this.privateKey });
       return `0x${s.r.slice(2)}${s.s.slice(2)}${Number(s.yParity).toString(16).padStart(2, '0')}`;
@@ -150,10 +132,7 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
     return (sig.startsWith('0x') ? sig : `0x${sig}`) as Hex;
   }
 
-  /**
-   * Must be `trx.signMessageV2`, not the provider's `request` API: only this prefix matches the
-   * bridge's `tron_signmessagev2_digest`, and a mismatch is rejected only after the nonce is spent.
-   */
+  /** Must be `trx.signMessageV2`: other APIs use a prefix the bridge's digest does not match. */
   private async signMessageViaWallet(hash: `0x${string}`): Promise<string> {
     return this.signer().trx.signMessageV2(hash);
   }

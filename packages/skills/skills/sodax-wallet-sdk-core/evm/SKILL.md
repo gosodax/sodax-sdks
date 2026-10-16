@@ -1,6 +1,6 @@
 ---
 name: sodax-wallet-sdk-core-evm
-description: 'Granular skill for the @sodax/wallet-sdk-core v2 EVM wallet provider only — `EvmWalletProvider` (backed by viem), one class covering all 13 SODAX EVM chains — the Sonic hub plus 12 EVM spoke chains (Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera). Use when a backend / Node script / CI / bot / non-React browser flow needs to instantiate an EVM provider directly and sign + broadcast — e.g. "instantiate EvmWalletProvider", "private-key EVM signing in Node", "EVM wallet provider for a bot", "sendTransaction from a script". Covers BOTH integration (write new v2 code) and migration (port v1 — almost a no-op at this surface: deep-import → barrel). Picks via Step 1. Links into the parent sodax-wallet-sdk-core knowledge tree. For React dapps use the sodax-wallet-sdk-react skill instead (get the typed provider via useWalletProvider).'
+description: 'Granular skill for the @sodax/wallet-sdk-core v2 EVM wallet provider only — `EvmWalletProvider` (backed by viem), one class covering all 14 SODAX EVM chains — the Sonic hub plus 13 EVM spoke chains (Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera). Use when a backend / Node script / CI / bot / non-React browser flow needs to instantiate an EVM provider directly and sign + broadcast — e.g. "instantiate EvmWalletProvider", "private-key EVM signing in Node", "EVM wallet provider for a bot", "sendTransaction from a script". Covers BOTH integration (write new v2 code) and migration (port v1 — almost a no-op at this surface: deep-import → barrel). Picks via Step 1. Links into the parent sodax-wallet-sdk-core knowledge tree. For React dapps use the sodax-wallet-sdk-react skill instead (get the typed provider via useWalletProvider).'
 license: MIT
 metadata:
   version: '0.0.1'
@@ -9,13 +9,13 @@ metadata:
 
 # EVM (`wallet-sdk-core` granular skill)
 
-Granular skill for `EvmWalletProvider` — the low-level EVM wallet for backend / Node / non-React flows. One class covers all 13 SODAX EVM chains — the Sonic hub plus 12 EVM spoke chains — via `getEvmViemChain()`. Source-of-truth reference lives in the parent broad skill's knowledge tree; this file is the focused workflow only.
+Granular skill for `EvmWalletProvider` — the low-level EVM wallet for backend / Node / non-React flows. One class covers all 14 SODAX EVM chains — the Sonic hub plus 13 EVM spoke chains — via `getEvmViemChain()`. Source-of-truth reference lives in the parent broad skill's knowledge tree; this file is the focused workflow only.
 
 ## Step 1 — Clarify with user before coding
 
 1. **New code or v1 → v2 port?** New → § Integration. Port v1 → § Migration (almost always a no-op here).
 2. **Private-key or browser-extension config?** EVM discriminates by **field presence** (no `type`): PK = `{ privateKey, chainId, rpcUrl? }` (Node / CI / bots); browser-extension = `{ walletClient, publicClient }` (pre-built by wagmi / the consumer). Mutually exclusive — pick one.
-3. **Which chain?** One `EvmWalletProvider` covers all 13 EVM chains (the Sonic hub plus 12 EVM spokes) via `chainId: EvmChainKey` (`ChainKeys.SONIC_MAINNET`, …).
+3. **Which chain?** One `EvmWalletProvider` covers all 14 EVM chains (the Sonic hub plus 13 EVM spokes) via `chainId: EvmChainKey` (`ChainKeys.SONIC_MAINNET`, …).
 
 ## Integration workflow (new v2 code)
 

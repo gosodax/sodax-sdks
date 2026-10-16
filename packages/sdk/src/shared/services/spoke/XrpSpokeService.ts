@@ -1,4 +1,4 @@
-import { bytesToBigInt, type Hex } from 'viem';
+import type { Hex } from 'viem';
 import {
   ChainKeys,
   getMpcRelayChainInfo,
@@ -31,7 +31,7 @@ import {
   type DepositRecord,
   type WithdrawalRecord,
 } from '../mpcRelay/MpcRelayApiService.js';
-import { computeSignedMessageHash } from './mpc-message.js';
+import { computeSignedMessageHash, randomWithdrawNonce } from './mpc-message.js';
 import { xrpCurrencyCode, xrpIdentityBytes } from './xrp-utils.js';
 
 /** Per-request budget for a rippled call, mirroring the Tron service's own request cap. */
@@ -47,19 +47,6 @@ const XRP_SETTLEMENT_FLOOR_MS = 300_000;
 
 /** How often to re-notify the relay while waiting for a deposit — a couple of ledger closes. */
 const RENOTIFY_INTERVAL_MS = 6_000;
-
-/**
- * Withdraw-auth nonce: any value the sender has not used before — NEAR rejects a repeat, it does not
- * require an increasing value, so a random draw avoids same-millisecond and clock-skew collisions.
- *
- * Capped at 53 bits: the relay passes the nonce through a JavaScript `number` before the NEAR call,
- * so a larger value arrives rounded and the contract verifies a message that was never signed.
- */
-const MAX_SAFE_NONCE = (1n << 53n) - 1n;
-
-function randomNonce(): bigint {
-  return bytesToBigInt(crypto.getRandomValues(new Uint8Array(8))) & MAX_SAFE_NONCE;
-}
 
 /**
  * Whether an XRPL account can receive a release, and if not, why. The relay treats a destination it
@@ -161,6 +148,11 @@ export class XrpSpokeService {
     // Register the hub-side calls and get the shared reserve + the memo to tag the Payment with.
     const addr = await getDepositAddress(this.relayApiUrl, srcAddress, this.chainId, data);
     if (!addr.ok) throw addr.error;
+    if (addr.value.depositMethod !== 'memo') {
+      throw new Error(
+        `[XrpSpokeService.deposit] relay returned a ${addr.value.depositMethod}-mode deposit, expected memo`,
+      );
+    }
     const { reserveAddress, memo, hubWallet } = addr.value;
     this.warnOnUnknownReserve(reserveAddress);
 
@@ -235,13 +227,23 @@ export class XrpSpokeService {
       return signed.hash;
     }
 
-    const submitted = await this.rpc<{ engine_result?: string; tx_json?: { hash?: string } }>('submit', {
-      tx_blob: signed.tx_blob,
-    });
+    // The blob is signed, so a lost or provisional submit response does not prove it missed the
+    // ledger (a ter* result can still apply later); keep the hash in the error so it can be looked up.
+    let submitted: { engine_result?: string; tx_json?: { hash?: string } };
+    try {
+      submitted = await this.rpc<{ engine_result?: string; tx_json?: { hash?: string } }>('submit', {
+        tx_blob: signed.tx_blob,
+      });
+    } catch (error) {
+      throw new Error(`[XrpSpokeService.deposit] submit of ${signed.hash ?? 'unknown tx'} failed or timed out`, {
+        cause: error,
+      });
+    }
     // tesSUCCESS is the only unambiguous accept; tec* codes are applied-but-failed and ter*/tem* are
     // rejections, so anything else would notify the relay about a tx that never moved funds.
     if (submitted.engine_result !== 'tesSUCCESS') {
-      throw new Error(`[XrpSpokeService.deposit] submit failed: ${submitted.engine_result ?? 'unknown'}`);
+      const txHash = signed.hash ?? submitted.tx_json?.hash ?? 'unknown tx';
+      throw new Error(`[XrpSpokeService.deposit] submit of ${txHash} failed: ${submitted.engine_result ?? 'unknown'}`);
     }
     const hash = signed.hash ?? submitted.tx_json?.hash;
     if (!hash) throw new Error('[XrpSpokeService.deposit] submitted but no transaction hash returned');
@@ -413,7 +415,7 @@ export class XrpSpokeService {
     const message = {
       to: params.dstAddress as Hex, // hub wallet that executes the calls
       data: params.payload,
-      nonce: randomNonce(),
+      nonce: randomWithdrawNonce(),
       chainId: BigInt(this.chainId), // the relay's source-chain id, not the hub's
       sender,
     };
