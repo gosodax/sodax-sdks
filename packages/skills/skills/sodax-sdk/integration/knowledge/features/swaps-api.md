@@ -113,7 +113,7 @@ if (
   if (sent.ok) {
     // sent.value.txHash is the source tx: persist it, then submitTx({ txHash: sent.value.txHash, ... })
   } else if (isAtomicBatchRefusal(sent.error)) {
-    // Refused before signing, nothing sent: approve separately (reset first), then send the intent tx.
+    // Refused before signing, nothing sent: approve separately (reset first), then create the intent again and send it.
   } else {
     // USER_REJECTED, 'atomic-batch-failed' (nothing landed) or ATOMIC_BATCH_UNCONFIRMED (may still land).
     throw sent.error;

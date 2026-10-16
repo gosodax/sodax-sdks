@@ -87,9 +87,10 @@ useSwapsApiSubmitTxStatus({ params, queryOptions });    // query    → sodax.ap
 **Approving and sending with a wallet.** `useSwapsApiApproveAndBroadcast` builds, signs and confirms the
 `/swaps/approve` plan, reset first when there is one. For an EVM source whose allowance is short,
 `useSwapsApiBroadcastWithApproval` sends the approval and the `/swaps/intents` tx as one EIP-5792 batch
-(one signature) when the wallet can, and otherwise approves, then sends. It always approves, so check
-`useSwapsApiAllowance` first, and it stops at the broadcast: persist `txHash`, then submit it. Its
-errors, the unconfirmed-batch rule and `fallbackOnRefusal` are in
+(one signature) when the wallet can. When it cannot, the hook rejects with an `isAtomicBatchRefusal` error
+and sends nothing: approve with `useSwapsApiApproveAndBroadcast`, create the intent again and sign that. It
+always approves, so check `useSwapsApiAllowance` first, and it stops at the broadcast: persist `txHash`,
+then submit it. Its errors, the unconfirmed-batch rule and `fallbackOnRefusal` are in
 [architecture.md](../architecture.md#approve-hooks-can-prompt-the-wallet-twice).
 
 ```ts

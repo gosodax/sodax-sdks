@@ -733,10 +733,12 @@ same policy is exported for your own flow. `resolveApprovalStrategy({ srcChainKe
 allowAccountUpgrade })` says whether a short allowance can ride in the deposit's batch. `sendApprovalBatch({
 walletProvider, srcChainKey, txs, timeoutMs, feature })` sends `[resetTx?, approve tx, intent tx]` and returns the
 deposit's `txHash` for `/swaps/submit-tx`, with the failures above. A refusal (`isAtomicBatchRefusal(error)`) means
-nothing was sent: approve separately, then send the intent tx. Its `onBatchSent` reports the batch id before the
-wait — persist it with `txs.length`, because `confirmApprovalBatch` with that id and `callCount` is how to resume a
-batch that came back `ATOMIC_BATCH_UNCONFIRMED` instead of sending a second deposit. In React,
-`useSwapsApiBroadcastWithApproval` from `@sodax/dapp-kit` does all of this.
+nothing was sent: approve separately, then create the intent again and send that one — the intent tx built before
+the approval would spend the approval's wait out of its deadline. Its `onBatchSent` reports the batch id
+before the wait — persist it with `txs.length`, because `confirmApprovalBatch` with that id and `callCount` is how to
+resume a batch that came back `ATOMIC_BATCH_UNCONFIRMED` instead of sending a second deposit. In React,
+`useSwapsApiBroadcastWithApproval` from `@sodax/dapp-kit` does all of this, and hands a refusal back the same way
+unless you pass `fallbackOnRefusal: true`.
 
 ---
 
