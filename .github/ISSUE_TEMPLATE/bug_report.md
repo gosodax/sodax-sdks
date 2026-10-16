@@ -1,24 +1,33 @@
 ---
 name: Bug report
-about: Create a report to help us improve
+about: Something behaves differently from what it should
 title: ''
-labels: ''
+labels: bug
 assignees: ''
 
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+<!-- Workflow: .github/issue-workflow.md. A bug report is a spec: the plan comment says how it gets fixed. -->
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+## Observed
+<!-- What happens today. Paste the error or wrong output. -->
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+## Expected
+<!-- What should happen instead. -->
 
-**Additional context**
-Add any other context about the problem here.
+## Reproduction
+<!-- The smallest SDK call, apps/node script, or input that triggers it. -->
+
+## Environment
+<!-- @sodax/* package versions, chain(s), runtime (browser / Node version). -->
+
+## Non-goals
+<!-- What the fix explicitly does not change. "None" if none. -->
+-
+
+## Acceptance criteria
+<!-- Each one checkable by a test, a command, or an observable result. -->
+- [ ] AC1: A regression test reproduces the bug and passes after the fix.
+
+## Context
+<!-- Related issues/PRs, when it started, workaround if any. Optional. -->

@@ -96,7 +96,7 @@ pnpm pack:local --version 2.0.0-local.1 --packages @sodax/sdk
 
 ## Working Rules (planning + code quality)
 
-These guide every change. Where a rule maps to tooling (types, lint, tests, `check:ai-*`), CI is the backstop; the rest are review-enforced. Before reporting a change done, run the relevant check and trust its real output over assumption.
+These guide every change. Where a rule maps to tooling (types, lint, tests, `check:ai-*`), CI is the backstop; the rest are review-enforced. Before reporting a change done, run the relevant check and trust its real output over assumption. Work starts from an issue: its body is the spec, one `<!-- sodax:plan -->` comment is the plan, and the `plan-approved` label is the go signal — read [`.github/issue-workflow.md`](.github/issue-workflow.md) before planning or implementing.
 
 - **Verify against current source.** Confirm every claim against `src/` before writing; do not rely on memory or older commits/PRs (the codebase refactors). If a fact is unverified, mark it so or ask.
 - **Don't assume — ask when ambiguous.** If a required input or the scope is missing or unclear, stop and ask the requester or the source of truth rather than guessing.
