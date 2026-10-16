@@ -34,7 +34,6 @@ import {
   useLeverageYieldPreviewRedeem,
   useLeverageYieldShareBalances,
   ACCOUNT_UPGRADE_DECLINED,
-  ATOMIC_BATCH_UNCONFIRMED,
   ChainKeys,
   isSodaxError,
   type ApprovalStrategy,
@@ -62,6 +61,7 @@ import {
   orderId,
 } from '@/components/swaps/OrderStatus';
 import OrderStatusPanel from '@/components/swaps/OrderStatusPanel';
+import { type UnconfirmedBatch, unconfirmedBatchOf } from '@/lib/heldBatch';
 import { LEVERAGE_YIELD_ORDERS_KEY, appendOrder, loadOrders, saveOrders } from '@/lib/orderHistory';
 import { LEVERAGE_YIELD_PANEL_KEY } from '@/lib/panelPrefs';
 import BigNumber from 'bignumber.js';
@@ -85,7 +85,7 @@ const DEPOSIT_PARTNER_FEE = {
 } as const satisfies PartnerFee;
 
 /** A deposit batch the wallet took but never confirmed, kept with what is needed to finish it. */
-type HeldBatch = { batchId: string; callCount?: number; payload: LeverageYieldSwapPayload; summary: OrderSummary };
+type HeldBatch = UnconfirmedBatch & { payload: LeverageYieldSwapPayload; summary: OrderSummary };
 
 function fmtUnits(value: bigint | undefined, decimals: number, digits = 6): string {
   if (value === undefined || value === null) return '—';
@@ -421,6 +421,8 @@ export default function LeverageYieldPage() {
    */
   const handleSwap = async (upgrade = allowAccountUpgrade) => {
     if (!intentOrderPayload || !sourceWalletProvider) return;
+    // A held deposit batch may still land, so a second deposit could duplicate it.
+    if (heldBatch && !intentOrderPayload.hubWalletSwap) return;
     setActionError(null);
     setUpgradeDeclined(false);
 
@@ -438,15 +440,10 @@ export default function LeverageYieldPage() {
       });
       recordOrder(response, summary);
     } catch (e) {
+      const batch = unconfirmedBatchOf(e);
       const context = isSodaxError(e) ? e.context : undefined;
-      if (context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
-        setHeldBatch({
-          batchId: String(context.batchId ?? ''),
-          callCount: typeof context.callCount === 'number' ? context.callCount : undefined,
-          payload: intentOrderPayload,
-          summary,
-        });
-      } else if (context?.reason === ACCOUNT_UPGRADE_DECLINED) setUpgradeDeclined(true);
+      if (batch) setHeldBatch({ ...batch, payload: intentOrderPayload, summary });
+      else if (context?.reason === ACCOUNT_UPGRADE_DECLINED) setUpgradeDeclined(true);
       else setActionError(`Swap failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
@@ -470,7 +467,7 @@ export default function LeverageYieldPage() {
       recordOrder(response, heldBatch.summary);
     } catch (e) {
       const context = isSodaxError(e) ? e.context : undefined;
-      if (context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
+      if (unconfirmedBatchOf(e)) {
         setActionError('The batch is still not confirmed. Check again in a moment.');
       } else if (context?.reason === 'atomic-batch-failed') {
         setHeldBatch(null);
@@ -866,7 +863,8 @@ export default function LeverageYieldPage() {
               ) : (
                 <Button
                   onClick={() => void handleSwap()}
-                  disabled={isSwapping || heldBatch !== null}
+                  // A withdraw (a hub-wallet swap) never batches, so a held deposit does not block it.
+                  disabled={isSwapping || (heldBatch !== null && !intentOrderPayload.hubWalletSwap)}
                   className="w-full"
                 >
                   {isSwapping ? 'Swapping…' : tab === 'deposit' ? depositLabel(approvalStrategy) : 'Withdraw'}

@@ -213,7 +213,8 @@ type RelayAndWaitParams = {
   srcTxHash: string;
   // `RelayExtraData` ({ address, payload }) for split-tx chains. Bitcoin on-demand
   // borrow/withdraw instead passes the signed payload as an `OnDemandRelayData` JSON object.
-  data: RelayExtraData | OnDemandRelayData;
+  // Required for Solana and Bitcoin (checked at runtime); any other tx is relayed by its hash.
+  data?: RelayExtraData | OnDemandRelayData;
   chainKey: SpokeChainKey;      // e.g. ChainKeys.ETHEREUM_MAINNET
   relayerApiEndpoint: HttpUrl;  // relay base URL
   timeout: number | undefined;  // ms; defaults to DEFAULT_RELAY_TX_TIMEOUT (120 000 ms)

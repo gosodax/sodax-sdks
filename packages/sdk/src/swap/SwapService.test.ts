@@ -4701,8 +4701,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
 
   describe('swapWithApproval — resuming an unconfirmed batch', () => {
     const stubResumeRelay = () => {
-      mocks.submitTransaction.mockResolvedValueOnce({ ok: true, value: { success: true, message: 'submitted' } });
-      mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xdstTx' } });
+      mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xdstTx' } });
       mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK', intent_hash: '0xhash' } });
     };
     const resume = (wallet: ReturnType<typeof makeBatchProvider>, resumeBatchCallCount?: number) =>
@@ -4753,11 +4752,13 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(approveSpy).not.toHaveBeenCalled();
       expect(wallet.waitForBatch).toHaveBeenLastCalledWith('batch-1', { timeout: DEFAULT_RELAY_TX_TIMEOUT });
       // The relay takes an EVM tx by hash; the intent comes back from the hub tx it delivered.
-      expect(mocks.submitTransaction.mock.calls[0]?.[0]).toEqual({
-        action: 'submit',
-        params: { chain_id: getIntentRelayChainId(ChainKeys.BSC_MAINNET).toString(), tx_hash: '0xbatchTx' },
+      expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledOnce();
+      expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0]).toEqual({
+        srcTxHash: '0xbatchTx',
+        chainKey: ChainKeys.BSC_MAINNET,
+        relayerApiEndpoint: sodax.swaps.relayerApiEndpoint,
+        timeout: DEFAULT_RELAY_TX_TIMEOUT,
       });
-      expect(mocks.waitUntilIntentExecuted.mock.calls[0]?.[0]).toMatchObject({ srcTxHash: '0xbatchTx' });
       expect(mocks.getIntent.mock.calls[0]?.[0]).toBe('0xdstTx');
       expect(mocks.solverPostExecution).toHaveBeenCalledOnce();
     });
@@ -4798,7 +4799,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         });
       }
       expect(wallet.sendAtomicBatch).not.toHaveBeenCalled();
-      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
 
     it('relays the deposit of a late batch confirmed as one tx per call, given the call count', async () => {
@@ -4810,7 +4811,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       const result = await resume(wallet, 2);
 
       expect(result.ok).toBe(true);
-      expect(mocks.submitTransaction.mock.calls[0]?.[0]).toMatchObject({ params: { tx_hash: '0xdepositTx' } });
+      expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0]).toMatchObject({ srcTxHash: '0xdepositTx' });
     });
 
     it('keeps a batch confirmed as one tx per call unconfirmed without the call count', async () => {
@@ -4821,7 +4822,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.context?.reason).toBe(ATOMIC_BATCH_UNCONFIRMED);
-      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
 
     it('never waits less than the default for the batch, even on a zero timeout', async () => {
@@ -4849,13 +4850,12 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         expect(result.error.code).toBe('INTENT_CREATION_FAILED');
         expect(result.error.context).toMatchObject({ reason: 'atomic-batch-failed', batchId: 'batch-1' });
       }
-      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
 
     it('keeps the deposit tx on a relay failure, so its status can still be read', async () => {
       const wallet = makeBatchProvider();
-      mocks.submitTransaction.mockResolvedValueOnce({ ok: true, value: { success: true, message: 'submitted' } });
-      mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: false, error: new Error('RELAY_TIMEOUT') });
+      mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: new Error('RELAY_TIMEOUT') });
 
       const result = await resume(wallet);
 
@@ -4876,7 +4876,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.code).toBe('VALIDATION_FAILED');
-      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
   });
 

@@ -1911,8 +1911,7 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
   });
   describe('bridgeWithApproval — resuming an unconfirmed batch', () => {
     const stubResumeRelay = () => {
-      mocks.submitTransaction.mockResolvedValueOnce({ ok: true, value: { success: true, message: 'submitted' } });
-      mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xDST' } });
+      mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xDST' } });
     };
     const resume = (wallet: ReturnType<typeof makeBatchProvider>, resumeBatchCallCount?: number) =>
       sodax.bridge.bridgeWithApproval({ ...input(wallet), resumeBatchId: 'batch-1', resumeBatchCallCount });
@@ -1949,12 +1948,13 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
       expect(approveSpy).not.toHaveBeenCalled();
       expect(wallet.waitForBatch).toHaveBeenLastCalledWith('batch-1', { timeout: DEFAULT_RELAY_TX_TIMEOUT });
       // The relay takes an EVM tx by hash, so the relayData lost with the first call is not needed.
-      expect(mocks.submitTransaction.mock.calls[0]?.[0]).toEqual({
-        action: 'submit',
-        params: { chain_id: getIntentRelayChainId(BSC).toString(), tx_hash: '0xbatchTx' },
+      expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledOnce();
+      expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0]).toEqual({
+        srcTxHash: '0xbatchTx',
+        chainKey: BSC,
+        relayerApiEndpoint: sodax.config.relay.relayerApiEndpoint,
+        timeout: DEFAULT_RELAY_TX_TIMEOUT,
       });
-      expect(mocks.waitUntilIntentExecuted.mock.calls[0]?.[0]).toMatchObject({ srcTxHash: '0xbatchTx' });
-      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
 
     it('skips the approval strategy and the submit-tx backend', async () => {
@@ -1989,7 +1989,7 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
         action: 'bridgeWithApproval',
       });
       expect(wallet.sendAtomicBatch).not.toHaveBeenCalled();
-      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
 
     it('relays the deposit of a late batch confirmed as one tx per call, given the call count', async () => {
@@ -2000,7 +2000,7 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
       const result = await resume(wallet, 2);
 
       expect(result.ok && result.value.srcChainTxHash).toBe('0xdepositTx');
-      expect(mocks.submitTransaction.mock.calls[0]?.[0]).toMatchObject({ params: { tx_hash: '0xdepositTx' } });
+      expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0]).toMatchObject({ srcTxHash: '0xdepositTx' });
     });
 
     it('keeps a batch confirmed as one tx per call unconfirmed without the call count', async () => {
@@ -2010,7 +2010,7 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
       const result = await resume(wallet);
 
       expect(!result.ok && result.error.context?.reason).toBe(ATOMIC_BATCH_UNCONFIRMED);
-      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
 
     it('never waits less than the default for the batch, even on a zero timeout', async () => {
@@ -2030,13 +2030,12 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
 
       expect(!result.ok && result.error.code).toBe('INTENT_CREATION_FAILED');
       expect(!result.ok && result.error.context).toMatchObject({ reason: 'atomic-batch-failed', batchId: 'batch-1' });
-      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
 
     it('keeps the deposit tx on a relay failure, so the bridge can be resumed or tracked', async () => {
       const wallet = makeBatchProvider();
-      mocks.submitTransaction.mockResolvedValueOnce({ ok: true, value: { success: true, message: 'submitted' } });
-      mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: false, error: new Error('RELAY_TIMEOUT') });
+      mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: new Error('RELAY_TIMEOUT') });
 
       const result = await resume(wallet);
 
@@ -2049,20 +2048,19 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
 
     it('keeps the deposit tx when the relay rejects the submission', async () => {
       const wallet = makeBatchProvider();
-      mocks.submitTransaction.mockResolvedValueOnce({ ok: false, error: new Error('SUBMIT_TX_FAILED') });
+      mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: new Error('SUBMIT_TX_FAILED') });
 
       const result = await resume(wallet);
 
       expect(!result.ok && result.error.code).toBe('TX_SUBMIT_FAILED');
       expect(!result.ok && result.error.context?.srcTxHash).toBe('0xbatchTx');
-      expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
     });
 
     it('rejects resuming with a wallet that cannot batch', async () => {
       const result = await sodax.bridge.bridgeWithApproval({ ...input(mockEvmProvider), resumeBatchId: 'batch-1' });
 
       expect(!result.ok && result.error.code).toBe('VALIDATION_FAILED');
-      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
   });
 });

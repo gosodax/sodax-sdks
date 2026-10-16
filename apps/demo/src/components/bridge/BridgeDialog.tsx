@@ -10,7 +10,6 @@ import {
 import { Button } from '@/components/ui/button';
 import {
   ACCOUNT_UPGRADE_DECLINED,
-  ATOMIC_BATCH_UNCONFIRMED,
   isSodaxError,
   useBridgeApprovalStrategy,
   useBridgeWithApproval,
@@ -28,11 +27,12 @@ import {
 import { useEvmSwitchChain, useWalletProvider, useXAccount } from '@sodax/wallet-sdk-react';
 import { BitcoinSetupPanel } from '@/components/bitcoin/BitcoinSetupPanel';
 import { formatMutationFailureMessage, rescaleTokenAmount } from '@/lib/utils';
+import { type UnconfirmedBatch, unconfirmedBatchOf } from '@/lib/heldBatch';
 import { ArrowLeftRight, Loader2 } from 'lucide-react';
 import { formatUnits } from 'viem';
 
 /** A bridge batch the wallet took but never confirmed, kept with the order it was sent for. */
-export type HeldBridgeBatch = { batchId: string; callCount?: number; order: CreateBridgeIntentParams };
+export type HeldBridgeBatch = UnconfirmedBatch & { order: CreateBridgeIntentParams };
 
 interface BridgeDialogProps {
   open: boolean;
@@ -131,13 +131,10 @@ export function BridgeDialog({
     const result = await bridgeWithApproval({ params: order, walletProvider, allowAccountUpgrade: upgrade });
     if (!result.ok) {
       const { error } = result;
+      const batch = unconfirmedBatchOf(error);
       const context = isSodaxError(error) ? error.context : undefined;
-      if (context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
-        onBatchHeld({
-          batchId: String(context.batchId ?? ''),
-          callCount: typeof context.callCount === 'number' ? context.callCount : undefined,
-          order,
-        });
+      if (batch) {
+        onBatchHeld({ ...batch, order });
       } else if (context?.reason === ACCOUNT_UPGRADE_DECLINED) {
         setUpgradeDeclined(true);
       } else {
@@ -168,7 +165,7 @@ export function BridgeDialog({
       return;
     }
     const context = isSodaxError(result.error) ? result.error.context : undefined;
-    if (context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
+    if (unconfirmedBatchOf(result.error)) {
       setBridgeError('The batch is still not confirmed. Check again in a moment.');
     } else if (context?.reason === 'atomic-batch-failed') {
       onBatchHeld(null);

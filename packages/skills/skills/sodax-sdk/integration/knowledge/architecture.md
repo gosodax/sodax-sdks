@@ -474,7 +474,7 @@ Use these in cross-bundle code (apps with mixed ESM/CJS resolution, monorepos wi
 Cross-chain coordination is exposed as two top-level functions (re-exported from `@sodax/sdk`'s barrel):
 
 - `submitTransaction(payload, apiUrl)` — TWO positional args: `payload: IntentRelayRequest<'submit'>` and `apiUrl: HttpUrl` (not an options object). POSTs the spoke transaction to the relay submit endpoint and resolves the relay's first-stage acknowledgement.
-- `relayTxAndWaitPacket({ srcTxHash, data, chainKey, relayerApiEndpoint, timeout, pollTxHash? })` — `RelayAndWaitParams`: `data` is the whole `RelayExtraData` / `OnDemandRelayData` object and `chainKey` is the source `SpokeChainKey`. Runs `submitTransaction` and then polls until the destination packet reaches `executed`.
+- `relayTxAndWaitPacket({ srcTxHash, data?, chainKey, relayerApiEndpoint, timeout, pollTxHash? })` — `RelayAndWaitParams`: `data` is the whole `RelayExtraData` / `OnDemandRelayData` object, required for Solana and Bitcoin (any other chain's tx is relayed by its hash), and `chainKey` is the source `SpokeChainKey`. Runs `submitTransaction` and then polls until the destination packet reaches `executed`.
 
 These functions are **not** exposed on the `Sodax` instance. Consumers don't call them directly — every feature service (`swaps.swap`, `bridge.bridge`, `staking.stake`, …) wraps the spoke→hub leg internally. If you genuinely need custom relay orchestration (rare), import `relayTxAndWaitPacket` / `submitTransaction` from `@sodax/sdk` and pass the same `relayerApiEndpoint` your `Sodax` instance uses.
 

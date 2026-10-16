@@ -134,9 +134,10 @@ export type IntentRelayRequestParams = SubmitTxParams | GetTransactionPacketsPar
 
 export type RelayAndWaitParams = {
   srcTxHash: string;
+  // Required for the split-tx chains (Solana, Bitcoin), checked at runtime; any other tx is relayed by its hash.
   // Usually `RelayExtraData` ({ address, payload }) for split-tx chains. Bitcoin on-demand
   // borrow/withdraw instead pass the signed payload as an `OnDemandRelayData` JSON object.
-  data: RelayExtraData | OnDemandRelayData;
+  data?: RelayExtraData | OnDemandRelayData;
   chainKey: SpokeChainKey;
   relayerApiEndpoint: HttpUrl;
   timeout: number | undefined;

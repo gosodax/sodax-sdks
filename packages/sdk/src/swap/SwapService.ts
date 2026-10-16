@@ -983,17 +983,11 @@ export class SwapService {
     const txCtx = { ...ctx, srcTxHash };
 
     // An EVM spoke tx is relayed by its hash alone, so the lost `relayData` is not needed.
-    const intentRelayChainId = getIntentRelayChainId(srcChainKey).toString();
-    const submitted = await submitTransaction(
-      { action: 'submit', params: { chain_id: intentRelayChainId, tx_hash: srcTxHash } },
-      this.relayerApiEndpoint,
-    );
-    if (!submitted.ok) return { ok: false, error: mapRelayFailure(submitted.error, { feature: 'swap', ...txCtx }) };
-    const packet = await waitUntilIntentExecuted({
-      intentRelayChainId,
+    const packet = await relayTxAndWaitPacket({
       srcTxHash,
+      chainKey: srcChainKey,
+      relayerApiEndpoint: this.relayerApiEndpoint,
       timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
-      apiUrl: this.relayerApiEndpoint,
     });
     if (!packet.ok) return { ok: false, error: mapRelayFailure(packet.error, { feature: 'swap', ...txCtx }) };
     const dstTxHash = packet.value.dst_tx_hash as Hash;
