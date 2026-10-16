@@ -104,8 +104,7 @@ async function main() {
     case 'borrow':
     case 'withdraw': {
       const recipient = TO ?? SENDER;
-      // The release recipient is the 32-byte word the asset manager expects — the same encoding the
-      // SDK's own money-market flows apply.
+      // Monad releases to a plain 20-byte address; `encodeRecipient` returns that for EVM MPC chains.
       const dstAddress = encodeRecipient(MONAD, recipient);
       const payload: Hex =
         endpoint === 'borrow'
