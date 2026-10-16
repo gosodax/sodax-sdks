@@ -14,7 +14,7 @@ High-level React hooks library for dApp developers. Wraps `@sodax/sdk` with Reac
 - **Staking** — `useStake`, `useUnstake`, `useInstantUnstake`, `useClaim`, `useCancelUnstake`, approval hooks, info/config/ratio queries
 - **DEX** — `useDexDeposit`, `useDexWithdraw`, `useSupplyLiquidity`, `useDecreaseLiquidity`, `useClaimRewards`, pool/position queries, param builders
 - **Leverage Yield** — `useLeverageYieldDeposit`, `useLeverageYieldWithdraw`, `useLeverageYieldVaultSwap`, `useLeverageYieldDetailedStatus`, `useLeverageYieldNotifySolver`, plus vault position/APR/TVL/share queries
-- **Migration** — `useMigrateIcxToSoda`, `useRevertMigrateSodaToIcx`, `useMigratebnUSD`, `useMigrateBaln`, `useMigrationApprove`, `useMigrationAllowance`
+- **Migration** — `useMigrateIcxToSoda`, `useRevertMigrateSodaToIcx`, `useIcxReverseMigrationEnabled`, `useMigratebnUSD`, `useMigrateBaln`, `useMigrationApprove`, `useMigrationAllowance`
 - **Bitcoin (Bound Exchange)** — `useRadfiAuth`, `useEnsureRadfiAccessToken`, `useRadfiSession`, `useTradingWallet`, `useTradingWalletBalance`, `useBitcoinBalance`, `useBitcoinTradingSetup`, `useFundTradingWallet`, `useRadfiWithdraw`, `useExpiredUtxos`, `useRenewUtxos`
 - **Partner** — `useFetchAssetsBalances`, `useGetAutoSwapPreferences`, `useIsTokenApproved`, `useApproveToken`, `useSetSwapPreference`, `useFeeClaimSwap`, `useFeeClaimWithdraw`, `usePartnerCancelIntent`, `useGetUserIntent`, `useGetIntentDetails`
 - **Recovery** — `useHubAssetBalances`, `useWithdrawHubAsset`
@@ -261,6 +261,7 @@ expires unfilled, so those go through `useSubmitLeveragePositionIntent()`, which
 
 - [`useMigrateIcxToSoda()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/migrate/useMigrateIcxToSoda.ts) — ICX/wICX (ICON) → SODA (Sonic)
 - [`useRevertMigrateSodaToIcx()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/migrate/useRevertMigrateSodaToIcx.ts) — SODA (Sonic) → wICX (ICON)
+- [`useIcxReverseMigrationEnabled()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/migrate/useIcxReverseMigrationEnabled.ts) — Whether SODA → wICX reverse migration is currently enabled on the migration contract
 - [`useMigratebnUSD()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/migrate/useMigratebnUSD.ts) — Legacy bnUSD ↔ new bnUSD (bidirectional)
 - [`useMigrateBaln()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/migrate/useMigrateBaln.ts) — BALN (ICON) → SODA with optional lock period
 - [`useMigrationApprove()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/migrate/useMigrationApprove.ts) — Approve token spending before migration

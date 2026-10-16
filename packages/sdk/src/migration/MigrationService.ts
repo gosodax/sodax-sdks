@@ -451,6 +451,7 @@ export class MigrationService {
           'Invalid wallet provider. Expected Evm wallet provider.',
           { ...baseCtx, field: 'walletProvider' },
         );
+        await this.assertIcxReverseMigrationEnabled(baseCtx);
         const userRouter = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
 
         const coreParams = {
@@ -1223,6 +1224,9 @@ export class MigrationService {
    * Note: A SODA approval from the caller to their hub wallet must be set before calling this
    * method. Use `isAllowanceValid` to check and `approve` to set it.
    *
+   * Fails with `VALIDATION_FAILED` before building the transaction when the migration contract's
+   * reverse-swap switch is off (`icxMigration.isReverseMigrationEnabled()`).
+   *
    * @param _params - Action params including `IcxCreateRevertMigrationParams` (Sonic source
    *   address, SODA amount, and ICON EOA destination address), optional wallet provider
    *   (`raw: false` only), `raw` flag, and optional `skipSimulation`.
@@ -1236,6 +1240,7 @@ export class MigrationService {
     const { params, skipSimulation } = _params;
     const baseCtx = { srcChainKey: ChainKeys.SONIC_MAINNET, action: 'revertMigrateSodaToIcx' as const };
     try {
+      await this.assertIcxReverseMigrationEnabled(baseCtx);
       const userRouter = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, ChainKeys.SONIC_MAINNET);
       const wICX = this.config.sodaxConfig.chains[ChainKeys.ICON_MAINNET].addresses.wICX;
       migrationInvariant(wICX, 'wICX token not found', { ...baseCtx, field: 'wICX' });
@@ -1291,5 +1296,18 @@ export class MigrationService {
         error: intentCreationFailed('migration', error, baseCtx),
       };
     }
+  }
+
+  /**
+   * Throws `VALIDATION_FAILED` when the ICX migration contract has reverse swaps switched off,
+   * or the underlying `LOOKUP_FAILED` error when the switch cannot be read.
+   */
+  private async assertIcxReverseMigrationEnabled(context: { srcChainKey: string; action?: string }): Promise<void> {
+    const enabled = await this.icxMigration.isReverseMigrationEnabled();
+    if (!enabled.ok) throw enabled.error;
+    migrationInvariant(enabled.value, 'ICX reverse migration is disabled', {
+      ...context,
+      reason: 'reverse migration disabled',
+    });
   }
 }

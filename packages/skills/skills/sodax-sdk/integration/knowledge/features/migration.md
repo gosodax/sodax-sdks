@@ -22,6 +22,8 @@ The `MigrationService` facade exposes 10 async public methods:
 
 One more read-only method, `getAvailableAmount`, lives on the `icxMigration` sub-service (not the facade). It reads the migration contract's **total available SODA liquidity** on the hub chain and takes **no arguments** — it is not a per-user "claimable from a partial migration" amount.
 
+`isReverseMigrationEnabled` (also on `icxMigration`, no arguments) reads the contract's reverse-swap switch. The owner can turn SODA → ICX off; while it is off, the ICX revert `approve`, `createRevertSodaToIcxMigrationIntent` and `revertMigrateSodaToIcx` return `VALIDATION_FAILED` with `context.reason: 'reverse migration disabled'` and send nothing. Check it before prompting for the revert approval.
+
 `BalnSwapService` has additional lock-management methods that **still throw** (do not return `Result<T>`): `claim`, `claimUnstaked`, `stake`, `unstake`, `cancelUnstake`, `getDetailedUserLocks`. This is deliberate tech debt; future cleanup. Wrap them in `try/catch` until then.
 
 ## Public methods
@@ -39,6 +41,7 @@ sodax.migration.approve<K, Raw>(actionParams, action): Promise<Result<TxReturnTy
 sodax.migration.isAllowanceValid<K>(params, action): Promise<Result<boolean, SodaxError>>;
 
 sodax.migration.icxMigration.getAvailableAmount(): Promise<Result<bigint, SodaxError>>;
+sodax.migration.icxMigration.isReverseMigrationEnabled(): Promise<Result<boolean, SodaxError>>;
 
 // BalnSwapService — STILL THROW (tech debt; not Result-wrapped):
 sodax.migration.balnSwapService.claim(...): Promise<TxReturnType<K, false>>;
@@ -203,6 +206,7 @@ try {
 | `approve` | `TxReturnType<K, Raw>` |
 | `isAllowanceValid` | `boolean` |
 | `getAvailableAmount` | `bigint` |
+| `isReverseMigrationEnabled` | `boolean` |
 | `BalnSwapService.claim` etc. | `TxReturnType<K, false>` (raw, not `Result`-wrapped) |
 
 `approve` can send **two** transactions on a token that rejects a non-zero to non-zero allowance
@@ -219,12 +223,13 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 |---|---|---|---|
 | `migratebnUSD` | full exec set incl. `TX_VERIFICATION_FAILED` | `'migratebnUSD'` | `error.context.direction: 'forward' \| 'reverse'`. Has secondary `phase: 'destinationExecution'` for the bnUSD `waitUntilIntentExecuted` watcher. |
 | `migrateIcxToSoda` | full exec set | `'migrateIcxToSoda'` | |
-| `revertMigrateSodaToIcx` | full exec set | `'revertMigrateSodaToIcx'` | |
+| `revertMigrateSodaToIcx` | full exec set | `'revertMigrateSodaToIcx'` | `VALIDATION_FAILED` with `reason: 'reverse migration disabled'` when the contract switch is off. |
 | `migrateBaln` | full exec set | `'migrateBaln'` | |
 | `create*Intent` | `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` | matches | |
 | `approve` | `VALIDATION_FAILED`, `APPROVE_FAILED`, `UNKNOWN` | matches | |
 | `isAllowanceValid` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` | n/a | |
 | `getAvailableAmount` | `VALIDATION_FAILED`, `LOOKUP_FAILED`, `UNKNOWN` | n/a | `method: 'getAvailableAmount'` |
+| `isReverseMigrationEnabled` | `VALIDATION_FAILED`, `LOOKUP_FAILED`, `UNKNOWN` | n/a | `method: 'isReverseMigrationEnabled'` |
 
 ## Cross-references
 

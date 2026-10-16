@@ -211,6 +211,17 @@ if (result.ok) {
 
 Revert SODA tokens back to wICX tokens on ICON. A SODA approval from the caller to their hub wallet must be set before calling this method (use `isAllowanceValid` to check and `approve` to set it).
 
+The ICX migration contract owner can switch reverse swaps off. While it is off, the ICX revert `approve` and `revertMigrateSodaToIcx` / `createRevertSodaToIcxMigrationIntent` return `VALIDATION_FAILED` (`context.reason: 'reverse migration disabled'`) without sending a transaction. Check the switch first so users are not asked for an approval that cannot be used:
+
+```typescript
+const enabled = await sodax.migration.icxMigration.isReverseMigrationEnabled();
+if (!enabled.ok) {
+  console.error('Failed to read the reverse-migration switch:', enabled.error);
+} else if (!enabled.value) {
+  console.log('SODA → ICX reverse migration is currently disabled');
+}
+```
+
 ```typescript
 const sodax = new Sodax();
 

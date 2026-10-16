@@ -72,7 +72,11 @@ vi.mock('../shared/utils/shared-utils.js', async () => {
 });
 
 import { Sodax } from '../shared/entities/Sodax.js';
-import type { IcxMigrateParams, IcxCreateRevertMigrationParams } from './IcxMigrationService.js';
+import {
+  IcxMigrationService,
+  type IcxMigrateParams,
+  type IcxCreateRevertMigrationParams,
+} from './IcxMigrationService.js';
 import type { UnifiedBnUSDMigrateParams } from './BnUSDMigrationService.js';
 import { LockupPeriod, type BalnMigrateParams } from './BalnSwapService.js';
 
@@ -225,6 +229,9 @@ beforeEach(() => {
   // verifyTxHash is invoked by migratebnUSD; default to ok so each happy-path test
   // doesn't need to re-stub it.
   vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
+
+  // ICX reverse paths read the contract's reverse-swap switch; default it on so no test hits RPC.
+  vi.spyOn(sodax.migration.icxMigration, 'isReverseMigrationEnabled').mockResolvedValue({ ok: true, value: true });
 });
 
 afterEach(() => {
@@ -649,6 +656,25 @@ describe('MigrationService.approve — revert', () => {
     });
   });
 
+  it('rejects ICX revert approval with VALIDATION_FAILED when reverse migration is disabled', async () => {
+    vi.spyOn(sodax.migration.icxMigration, 'isReverseMigrationEnabled').mockResolvedValueOnce({
+      ok: true,
+      value: false,
+    });
+    const approveSpy = vi.spyOn(sodax.spoke, 'approve');
+
+    const result = await sodax.migration.approve(
+      { params: icxRevertParams(), raw: false, walletProvider: mockEvmProvider },
+      'revert',
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.message).toMatch(/ICX reverse migration is disabled/);
+    expect(approveSpy).not.toHaveBeenCalled();
+  });
+
   it('approves ICX revert on Sonic with raw=true — no walletProvider in the spoke call', async () => {
     const params = icxRevertParams();
     const rawTx = { from: '0x1', to: '0x2', value: 0n, data: '0x' };
@@ -1010,6 +1036,24 @@ describe('MigrationService.revertMigrateSodaToIcx', () => {
     if (result.ok) expect(result.value).toEqual({ srcChainTxHash: spokeTxHash, dstChainTxHash: hubTxHash });
     // Revert always runs from the hub (Sonic) — relay must use SONIC_MAINNET.
     expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0]?.chainKey).toBe(ChainKeys.SONIC_MAINNET);
+  });
+
+  it('returns VALIDATION_FAILED and never relays when reverse migration is disabled', async () => {
+    vi.spyOn(sodax.migration.icxMigration, 'isReverseMigrationEnabled').mockResolvedValueOnce({
+      ok: true,
+      value: false,
+    });
+
+    const result = await sodax.migration.revertMigrateSodaToIcx({
+      params: icxRevertParams(),
+      raw: false,
+      walletProvider: mockEvmProvider,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
   });
 
   it('forwards a createRevertSodaToIcxMigrationIntent failure as Result.error', async () => {
@@ -1718,6 +1762,48 @@ describe('MigrationService.createRevertSodaToIcxMigrationIntent', () => {
     expect(depositCall).not.toHaveProperty('walletProvider');
   });
 
+  it('returns VALIDATION_FAILED without depositing when reverse migration is disabled', async () => {
+    vi.spyOn(sodax.migration.icxMigration, 'isReverseMigrationEnabled').mockResolvedValueOnce({
+      ok: true,
+      value: false,
+    });
+    const depositSpy = vi.spyOn(sodax.spoke, 'deposit');
+
+    const result = await sodax.migration.createRevertSodaToIcxMigrationIntent({
+      params: icxRevertParams(),
+      raw: false,
+      walletProvider: mockEvmProvider,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.action).toBe('revertMigrateSodaToIcx');
+    expect(result.error.context?.reason).toBe('reverse migration disabled');
+    expect(depositSpy).not.toHaveBeenCalled();
+  });
+
+  it('wraps a reverse-switch lookup failure as INTENT_CREATION_FAILED with cause', async () => {
+    const lookupError = new SodaxError('LOOKUP_FAILED', 'reverseSwapEnabled read failed', { feature: 'migration' });
+    vi.spyOn(sodax.migration.icxMigration, 'isReverseMigrationEnabled').mockResolvedValueOnce({
+      ok: false,
+      error: lookupError,
+    });
+    const depositSpy = vi.spyOn(sodax.spoke, 'deposit');
+
+    const result = await sodax.migration.createRevertSodaToIcxMigrationIntent({
+      params: icxRevertParams(),
+      raw: false,
+      walletProvider: mockEvmProvider,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('INTENT_CREATION_FAILED');
+    expect(result.error.cause).toBe(lookupError);
+    expect(depositSpy).not.toHaveBeenCalled();
+  });
+
   it('returns ok:false when getUserHubWalletAddress rejects', async () => {
     const hubError = new Error('HUB_LOOKUP_FAILED');
     mocks.getUserHubWalletAddress.mockRejectedValueOnce(hubError);
@@ -1911,5 +1997,38 @@ describe('MigrationService — out-of-union wrap-path smoke for non-bnUSD orches
     expect(result.error.code).toBe('EXECUTION_FAILED');
     expect(result.error.cause).toBe(outOfUnion);
     expect(result.error.context?.action).toBe('migrateBaln');
+  });
+});
+
+// =========================================================================
+// IcxMigrationService.isReverseMigrationEnabled — contract read
+// =========================================================================
+
+describe('IcxMigrationService.isReverseMigrationEnabled', () => {
+  it('reads reverseSwapEnabled from the ICX migration contract', async () => {
+    const icxMigration = new IcxMigrationService({ hubProvider: sodax.hubProvider, config: sodax.config });
+    const readSpy = vi.spyOn(sodax.hubProvider.publicClient, 'readContract').mockResolvedValueOnce(false);
+
+    const result = await icxMigration.isReverseMigrationEnabled();
+
+    expect(result).toEqual({ ok: true, value: false });
+    expect(readSpy.mock.calls[0]?.[0]).toMatchObject({
+      address: sodax.hubProvider.chainConfig.addresses.icxMigration,
+      functionName: 'reverseSwapEnabled',
+    });
+  });
+
+  it('returns LOOKUP_FAILED when the read rejects', async () => {
+    const icxMigration = new IcxMigrationService({ hubProvider: sodax.hubProvider, config: sodax.config });
+    const rpcError = new Error('RPC_DOWN');
+    vi.spyOn(sodax.hubProvider.publicClient, 'readContract').mockRejectedValueOnce(rpcError);
+
+    const result = await icxMigration.isReverseMigrationEnabled();
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('LOOKUP_FAILED');
+    expect(result.error.cause).toBe(rpcError);
+    expect(result.error.context?.method).toBe('isReverseMigrationEnabled');
   });
 });

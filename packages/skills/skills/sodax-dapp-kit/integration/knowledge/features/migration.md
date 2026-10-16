@@ -18,6 +18,9 @@ useMigrateBaln({ mutationOptions });
 useMigrationApprove({ mutationOptions });
 // useMigrationAllowance — params nest `{ params: <inner-migration-params>, action }` under the outer `params`
 useMigrationAllowance({ params: { params: <inner>, action: 'migrate' | 'revert' }, queryOptions });
+
+// ICX reverse-migration switch (global, no params)
+useIcxReverseMigrationEnabled({ queryOptions });
 ```
 
 `use*Approve` is unchanged and still resolves to one transaction hash, but the SDK may send **two**
@@ -107,13 +110,14 @@ await approve({ params: bnUSDParams, walletProvider, action: 'migrate' });
 | `useMigrateIcxToSoda` / `useRevertMigrateSodaToIcx` / `useMigratebnUSD` / `useMigrateBaln` | `SafeUseMutationResult<TxHashPair, Error, ...>` |
 | `useMigrationApprove` | `SafeUseMutationResult<TxReturnType<K, false>, Error, ...>` — chain-keyed receipt union (EVM/Stellar differ) |
 | `useMigrationAllowance` | `UseQueryResult<boolean, Error>` (already unwrapped) |
+| `useIcxReverseMigrationEnabled` | `UseQueryResult<boolean, Error>` — errors on a failed read rather than reporting `false` |
 
 ## Gotchas
 
 1. **`useMigratebnUSD` is bidirectional.** v2 detects direction from `(srcbnUSD, dstbnUSD)` token addresses. To go the other direction, swap the params; no separate hook.
 2. **BALN `lockupPeriod` is the `LockupPeriod` enum, NOT a literal number union.** Use `LockupPeriod.NO_LOCKUP`, `LockupPeriod.SIX_MONTHS`, `LockupPeriod.TWELVE_MONTHS`, `LockupPeriod.EIGHTEEN_MONTHS`, or `LockupPeriod.TWENTY_FOUR_MONTHS`. Enum values are in **seconds** (e.g. `TWELVE_MONTHS = 12 * 30 * 24 * 60 * 60`), not months. Reward multiplier ranges 0.5x (no lockup) → 1.5x (24 months). Also note: `BalnMigrateParams` requires `stake: boolean` — set `true` to auto-stake migrated SODA into the xSODA vault.
 3. **ICON-side migrations don't need approval.** ICON has no ERC-20 allowance mechanism.
-4. **`useRevertMigrateSodaToIcx` requires SODA approval on Sonic.** Use `useMigrationAllowance` + `useMigrationApprove` with `action: 'revert'`.
+4. **`useRevertMigrateSodaToIcx` requires SODA approval on Sonic.** Use `useMigrationAllowance` + `useMigrationApprove` with `action: 'revert'`. Gate both on `useIcxReverseMigrationEnabled()`: the contract owner can switch reverse migration off, and then the approve and the revert both fail with `VALIDATION_FAILED`.
 5. **`useMigratebnUSD` errors include `direction: 'forward' | 'reverse'` on context.** When surfacing errors, distinguish forward vs reverse for clearer messaging.
 
 ## Cross-references

@@ -62,7 +62,8 @@ export type IcxMigrationServiceConstructorParams = {
  * - Swap SODA → wICX and bridge back to ICON (`revertMigration`)
  *
  * It also exposes `getAvailableAmount` to check SODA liquidity in the migration contract
- * before initiating a forward migration.
+ * before initiating a forward migration, and `isReverseMigrationEnabled` to check the
+ * contract's reverse-swap switch before a reverse migration.
  */
 export class IcxMigrationService {
   private readonly hubProvider: HubProvider;
@@ -97,6 +98,33 @@ export class IcxMigrationService {
       return {
         ok: false,
         error: lookupFailed('migration', 'getAvailableAmount', error),
+      };
+    }
+  }
+
+  /**
+   * Reads whether the ICX migration contract currently accepts reverse swaps (SODA → wICX).
+   *
+   * The contract owner can switch reverse swaps off; while off, `reverseSwap` reverts and so
+   * does the whole hub transaction built by `revertMigration`.
+   * `MigrationService.createRevertSodaToIcxMigrationIntent` and the ICX `approve` path call this
+   * to fail fast instead of sending a transaction that cannot succeed.
+   *
+   * @returns `true` when reverse migration is enabled, or an error result if the on-chain read fails.
+   */
+  public async isReverseMigrationEnabled(): Promise<Result<boolean, MigrationLookupError>> {
+    try {
+      const value = await this.hubProvider.publicClient.readContract({
+        address: this.hubProvider.chainConfig.addresses.icxMigration,
+        abi: icxSwapAbi,
+        functionName: 'reverseSwapEnabled',
+      });
+      return { ok: true, value };
+    } catch (error) {
+      if (isMigrationLookupError(error)) return { ok: false, error };
+      return {
+        ok: false,
+        error: lookupFailed('migration', 'isReverseMigrationEnabled', error),
       };
     }
   }
