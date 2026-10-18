@@ -27,7 +27,7 @@ A spec states outcomes; the plan states mechanics. Keep the spec at the level a 
 ## Flow
 
 1. **Backlog: spec drafted.** A human or an agent writes the spec. Open questions go in comments, not in the spec.
-2. **Ready: spec complete.** Anyone may move the issue to Ready once it passes the readiness check below. If it fails, the issue stays in Backlog and a comment lists what is missing. An agent without project-board access says so in a comment and a human moves it.
+2. **Ready: spec complete.** On creation, the board puts an issue whose body fills its template's required sections in Ready, and an empty or free-form one in Backlog; an issue that already has a status keeps it. Anyone may move the issue to Ready once it passes the readiness check below, and should move an auto-placed issue back to Backlog when it fails it. If it fails, the issue stays in Backlog and a comment lists what is missing. An agent without project-board access says so in a comment and a human moves it.
 3. **Planning.** An agent (or a human) writes the plan comment from [`plan-template.md`](plan-template.md). If the spec is ambiguous or contradicts the code, ask in a comment and stop instead of guessing.
 4. **Approval.** A human reviews the spec **and** the plan together and applies `plan-approved`. Agents never apply it.
 5. **Implementation.** The agent implements to the approved plan, not to the issue alone. Without `plan-approved` (or `no-plan`), do not implement: draft or update the plan and stop.
