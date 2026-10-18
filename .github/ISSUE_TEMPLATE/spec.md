@@ -13,7 +13,7 @@ assignees: ''
 <!-- 1–3 sentences: the outcome and who benefits. No implementation. -->
 
 ## Requirements
-<!-- Numbered, each one observable. "SDK exposes X", not "add a function". -->
+<!-- Numbered, each one observable. "SDK exposes X", not "add a function". Outcomes only: no internal class, file or mechanism names; those go in the plan. -->
 1.
 
 ## Non-goals
@@ -25,7 +25,7 @@ assignees: ''
 -
 
 ## Acceptance criteria
-<!-- Each one checkable by a test, a command, or an observable result. The plan and PR Evidence reference AC1, AC2… -->
+<!-- Each one checkable by a test, a command, or an observable result; name the behaviour proven, not the test file. The plan and PR Evidence reference AC1, AC2… -->
 - [ ] AC1:
 
 ## Context

@@ -96,7 +96,7 @@ pnpm pack:local --version 2.0.0-local.1 --packages @sodax/sdk
 
 ## Issue Workflow
 
-Work starts from an issue: its body is the spec, one `<!-- sodax:plan -->` comment is the plan, and the `plan-approved` label is the go signal. Read [`.github/issue-workflow.md`](.github/issue-workflow.md) before planning or implementing. These rules bind every agent, however it was started:
+Work starts from an issue: its body is the spec, one `<!-- sodax:plan -->` comment is the plan, and the `plan-approved` label is the go signal. Read [`.github/issue-workflow.md`](.github/issue-workflow.md) before writing a spec, planning or implementing. These rules bind every agent, however it was started:
 
 - Implement only when the issue carries `plan-approved` or `no-plan`. Otherwise draft or update the plan comment and stop.
 - Never apply `plan-approved` or `no-plan`, and never edit the spec; propose changes in a comment.

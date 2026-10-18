@@ -14,6 +14,16 @@ Every change starts from a GitHub issue. The issue body is the **spec**: what to
 
 Issues created through the API (`gh issue create`) must use the matching template's sections too.
 
+## Writing a spec
+
+A spec states outcomes; the plan states mechanics. Keep the spec at the level a reviewer can judge without reading code:
+
+- Describe what users, partners or callers can do, in their terms. Leave internal class, function, type, file and test names out, and do not explain how a mechanism works.
+- Name a public API only when its exact shape is the requirement (for example, a method partners already call must keep its signature).
+- Test each requirement by asking whether it would still hold if the work were built another way. If it would not, it belongs in the plan.
+- Acceptance criteria name the observable proof (behaviour a test suite covers, a smoke run, a demo flow, a command), not the test file that will hold it.
+- When the spec is written after the work exists (from a branch or pull request), describe what the work delivers; do not transcribe the diff or the changeset.
+
 ## Flow
 
 1. **Backlog: spec drafted.** A human or an agent writes the spec. Open questions go in comments, not in the spec.
@@ -27,6 +37,7 @@ Issues created through the API (`gh issue create`) must use the matching templat
 
 - Every template section is filled; Non-goals and Constraints may say "None".
 - Every acceptance criterion names how it is checked: a test, a command, or an observable result.
+- No requirement or criterion depends on implementation detail (see [Writing a spec](#writing-a-spec)).
 - No question asked in the issue's comments is left unanswered.
 
 ### Spec revision
