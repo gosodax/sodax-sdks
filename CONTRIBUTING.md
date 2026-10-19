@@ -1,26 +1,88 @@
-# Contributing to the SODAX ecosystem
+# Contributing to the SODAX SDKs
 
-Thanks for taking the time to contribute !
+Thanks for taking the time to contribute!
 
-- Before opening a pull request, please read the [contributing guidelines](https://github.com/icon-project/sodax-sdks/blob/master/CONTRIBUTING.md) first
-- If your PR is work in progress, open it as `draft`
-- Before requesting a review, all the CI checks need to pass
-- Explain what your PR does
+This repository is the `@sodax/*` SDK monorepo (pnpm + Turborepo): the packages under `packages/`,
+the example and regression apps under `apps/`, and the docs.sodax.com site under `docs/`. Start
+with [`AGENTS.md`](./AGENTS.md) for the package map and dependency direction, then read the
+`AGENTS.md` of the package or app you are changing — it holds that subtree's patterns and pitfalls.
+
+Found a security vulnerability? Do not open an issue — follow [`SECURITY.md`](./SECURITY.md).
 
 ## Setup
 
-Install the dependencies
+Requirements: Node.js `>=22.12.0` (CI runs 24.x) and pnpm `10.32.1` — the version pinned in
+`package.json` under `packageManager`, so `corepack enable` picks it up.
 
 ```shell
-pnpm i
-pnpm dev
+pnpm i                # install, and install the husky git hooks
+pnpm build:packages   # apps resolve the packages from their built dist/, so build them first
+pnpm dev:demo         # run the demo app (or `pnpm dev` for every package and app in watch mode)
 ```
 
-Don't forget to setup your IDE with `biome.js`.
+Biome is the only formatter and linter — there is no ESLint or Prettier config. The repo's
+`.vscode/` settings recommend the Biome extension and format on save; set up the equivalent in
+other editors.
 
-## Tests
+To try unreleased packages in a project outside this repo, use `pnpm pack:local` rather than
+`pnpm pack` — see [`docs/local-package-testing.md`](./docs/local-package-testing.md).
 
-Run tests with `pnpm test`.
+## Checks
+
+Run these before you push:
+
+```shell
+pnpm lint             # Biome lint (auto-fixes)
+pnpm pretty           # Biome format — local only, CI does not check formatting
+pnpm checkTs          # typecheck
+pnpm test             # unit tests, plus the release and CI script tests
+pnpm check:ai         # when you change packages/skills
+```
+
+CI runs more than this: `check:circular-deps`, `check:knip`, `check-exports`, the package and app
+builds, and the docs gates (`check:doc-links`, `check:docs-nav`, `check:docs-pages`,
+`check:ai-dev-files`, plus `pnpm docs:validate`). See
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) for the full list, and run the ones that
+cover what you changed.
+
+For one package: `cd packages/<pkg> && pnpm test` (or `npx vitest run path/to/file.test.ts`).
+`pnpm test:e2e` hits live mainnet services; in CI it runs on pull requests only and is advisory, so
+run it locally when you touch a flow it covers.
+
+The git hooks run on every commit:
+
+- **pre-commit** scans the staged changes for secrets with `gitleaks` (skipped with a warning if
+  it is not installed — install it, CI's `Security` workflow is the hard gate), then runs
+  `pnpm checkTs`, `pnpm build` and `pnpm test`.
+- **commit-msg** runs commitlint against the
+  [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) config.
+
+Do not bypass them with `--no-verify`. If a check fails, fix the cause.
+
+## Pull requests
+
+- Branch from `main` and open the pull request against `main`. If it is work in progress, open it
+  as a draft.
+- Fill in the [pull request template](./.github/PULL_REQUEST_TEMPLATE.md): what the change does,
+  which issue it closes, and which docs it updated (see [Documentation](#documentation)).
+- Every pull request links an issue: the **Issue linked** check (`.github/workflows/issue-link.yml`)
+  fails unless the PR body contains `Closes #N`, `Fixes #N` or `Resolves #N`, or the PR carries the
+  `no-issue` label. Use the label only for work with no issue to point at (typo, dependency bump,
+  release chore, Mintlify `sodax/draft-*` publish) and give the reason in the PR Summary. The check
+  re-runs when the body or labels change, so fix it by editing the PR, not by pushing.
+- The PR title must be a conventional commit (`feat(sdk): …`, `fix(wallet-sdk-react): …`,
+  `docs: …`). `Lint PR` checks it, and while the PR has a single commit, checks that the commit
+  message matches the title.
+- Keep the change scoped to the task — no drive-by refactors or renames.
+- Cover new code with tests beside the changed code.
+- Every required check is green before you request a review. Changes to `.github/workflows/`,
+  `.github/scripts/`, the docs gates and release scripts in `scripts/`, and `docs/` need a
+  code-owner review — [`CODEOWNERS`](./.github/CODEOWNERS) lists the exact paths.
+- Pull requests are **squash merged** into `main`, so the PR title becomes the commit subject on
+  `main` — and the input to the next release's notes.
+
+Releases are cut from the `release` branch by maintainers; see
+[`packages/RELEASE_INSTRUCTIONS.md`](./packages/RELEASE_INSTRUCTIONS.md).
 
 ## Documentation
 
@@ -34,17 +96,17 @@ Two lanes write to the site, and they are not equivalent:
   generated from a source file. Reviewed, and every check below runs against
   it. This is the lane the rest of this section describes.
 - **In the Mintlify dashboard** — the docs and marketing team, on hand-written
-  pages. Publishing there **commits straight to whichever branch the dashboard
-  is pointed at, with no pull request and none of the checks below** — they are
-  all `pull_request`-triggered, so nothing runs. Whether an edit is allowed is
-  decided entirely by the dashboard's own settings, not by this repo.
+  pages. Publishing there pushes a `sodax/draft-*` branch and opens a pull
+  request against `main`, which is reviewed and merged by hand like any other —
+  never by automation. `Lint PR` skips these branches, because the dashboard's
+  commit message is always "Updated mintlify pages"; whoever merges sets a
+  conventional squash subject.
 
-Dashboard commits arrive authored as `usr-icon-foundation` ("Updated mintlify
-pages") — one shared account for everyone, so a page's history does not say who
-changed it. An editor who authorizes GitHub at
-`app.mintlify.com/settings/account` publishes under their own identity from then
-on, which is also what a rule requiring commits attributed to a GitHub user
-needs.
+Dashboard commits arrive authored as `usr-icon-foundation` — one shared account
+for everyone, so a page's history does not say who changed it. An editor who
+authorizes GitHub at `app.mintlify.com/settings/account` publishes under their
+own identity from then on, which is also what a rule requiring commits
+attributed to a GitHub user needs.
 
 Site settings publish into this repo too. Navigation, Analytics, canonical URL
 and SEO, Redirects and Branding all write to `docs/docs.json`, so changing any
@@ -111,8 +173,7 @@ docs.sodax.com. It is the copy list, and both Docs Drift and
   fails Docs Drift.
 
 The map's **`unpublished`** array holds the `packages/sdk/docs/` pages that
-deliberately do not publish yet (`DEX.md`, `SPONSORING.md`, `SWAPS_API.md`,
-`BRIDGE_API.md`, `ARCHITECTURE_REFACTOR_SUMMARY.md`). Editing one
+deliberately do not publish yet — read the map for the current list. Editing one
 does not satisfy Docs Drift, and renaming one needs no map entry. A new page
 there goes on one of the two lists: `mirrored` to publish it now, `unpublished`
 to hold it back and publish it as its own change. On neither list, it fails
@@ -193,35 +254,20 @@ and stays quiet:
 
 ## Issue reports
 
-A bug is a _demonstrable problem_ that is caused by the code in the repository.
-Good bug reports are extremely helpful - thank you!
+Use the [issue templates](https://github.com/icon-project/sodax-sdks/issues/new/choose) (bug
+report, feature request, task, epic). A bug is a _demonstrable problem_ caused by the code in this
+repository. Good bug reports are extremely helpful — thank you!
 
-Guidelines for bug reports:
+1. **Search the issues** — check whether it has already been reported.
+2. **Check it still happens on `main`** — or on the latest published `@sodax/*` release.
+3. **Isolate the problem** — reduce it to the smallest snippet or script that reproduces it.
 
-1. **Use the GitHub issue search** &mdash; check if the issue has already been
-   reported.
-
-2. **Check if the issue has been fixed** &mdash; try to reproduce it using the
-   latest `master` or development branch in the repository.
-
-3. **Isolate the problem** &mdash; create a [reduced test
-   case](http://css-tricks.com/reduced-test-cases/) and a live example (optional).
-
-4. **Add attachments** &mdash; add photos or videos
-
-A good bug report shouldn't leave others needing to chase you up for more
-information. Please try to be as detailed as possible in your report. What is
-your environment? What steps will reproduce the issue? What browser(s) and OS
-experience the problem? What would you expect to be the outcome? All these
-details will help people to fix any potential bugs.
-
-Template:
+A good report doesn't leave anyone chasing you for details:
 
 ```
-**Environment:**
-Device and OS:
-Browser:
-Reproducibility rate:
+**Packages and versions:** e.g. @sodax/sdk 2.x.y, @sodax/dapp-kit 2.x.y
+**Runtime:** Node.js version, or browser + bundler (Vite, Next.js, …)
+**Chains involved:** source and destination chain, plus any tx hashes or intent hashes
 
 **Steps to reproduce:**
 1.
@@ -229,20 +275,7 @@ Reproducibility rate:
 3.
 
 **Expected result:**
+**Actual result:** (include the full error and stack trace)
 ```
 
-A good bug report shouldn't leave others needing to chase you up for more.
-
-## Git workflow
-
-Merge strategy:
-
-1. Feature branches → `main`: **squash merge**
-2. `main` → `staging`: **normal merge**
-3. `staging` → `production`: **normal merge**
-
-Every pull request links an issue: the **Issue linked** check (`.github/workflows/issue-link.yml`)
-fails unless the PR body contains `Closes #N`, `Fixes #N` or `Resolves #N`, or the PR carries the
-`no-issue` label. Use the label only for work with no issue to point at (typo, dependency bump,
-release chore, Mintlify `sodax/draft-*` publish) and give the reason in the PR Summary. The check
-re-runs when the body or labels change, so fix it by editing the PR, not by pushing.
+Never paste private keys, mnemonics or RPC credentials into an issue.
