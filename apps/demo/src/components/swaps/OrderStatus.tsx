@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useSodaxContext, useSwapsApiSubmitTxStatus } from '@sodax/dapp-kit';
+import {
+  isAuthFailure,
+  useDetailedStatus,
+  useSodaxContext,
+  useSwapsApiSubmitTxStatus,
+  type SpokeChainKey,
+  type UseDetailedStatusResult,
+} from '@sodax/dapp-kit';
 import { formatUnits } from 'viem';
 import { ArrowRight, Check, Copy, ExternalLink, X } from 'lucide-react';
 import { Card } from '@/components/ui/card';
@@ -423,6 +430,74 @@ function SubmitTxLiveCard({
   );
 }
 
+/**
+ * Derives the card fields from a `getDetailedStatus` read. The two arms speak different vocabularies
+ * — the backend record's string statuses and the solver's numeric codes — and both are terminal
+ * labels this panel already knows. A failed read stays `pending`: the hook keeps polling it, and the
+ * ones that never resolve are stopped by its own NOT_FOUND budget, not by this card. A rejected API
+ * key also stops the hook, so it carries an error — otherwise the card would sit on `pending` silently.
+ */
+function deriveDetailed(read: UseDetailedStatusResult): {
+  label: string;
+  error?: string;
+  extraRows: DetailRowData[];
+} {
+  if (!read?.ok) {
+    return read && isAuthFailure(read.error)
+      ? { label: 'pending', error: 'Status read rejected the API key — fix it in Settings and reload.', extraRows: [] }
+      : { label: 'pending', extraRows: [] };
+  }
+  if (read.value.source === 'backend') {
+    return deriveSubmitTx(read.value.data);
+  }
+  const { status, fill_tx_hash } = read.value.data;
+  return {
+    label: statusCodeToMessage(status),
+    extraRows: fill_tx_hash ? [{ label: 'Fill Tx', value: fill_tx_hash }] : [],
+  };
+}
+
+/**
+ * The SDK swap card. `useDetailedStatus` keys on the SOURCE tx and routes to whichever source can
+ * answer, so it covers whichever path completed the swap: backend submit-tx or the client-side relay.
+ */
+function SwapLiveCard({
+  order,
+  title,
+  onDismiss,
+  onSettle,
+}: {
+  order: SolverOrder & { srcChainKey: string; srcTxHash: string };
+  title: string;
+  onDismiss?: () => void;
+  onSettle: SettleFn;
+}) {
+  const { data: read } = useDetailedStatus({
+    // Orders persist as JSON scalars, so the chain key is widened to `string` on the way in.
+    params: { srcChainKey: order.srcChainKey as SpokeChainKey, srcTxHash: order.srcTxHash },
+  });
+
+  const derived = useMemo(() => deriveDetailed(read), [read]);
+  const { label, error, extraRows } = derived;
+  useEffect(() => {
+    if (TERMINAL_LABELS.has(derived.label)) {
+      onSettle(order.intentHash, { label: derived.label, error: derived.error, extraRows: derived.extraRows });
+    }
+  }, [derived, order.intentHash, onSettle]);
+
+  return (
+    <OrderCard
+      title={title}
+      label={label}
+      summary={order.summary}
+      rows={[...baseRows(order), ...extraRows]}
+      error={error}
+      createdAt={order.createdAt}
+      onDismiss={onDismiss}
+    />
+  );
+}
+
 export default function OrderStatus({
   order,
   onDismiss,
@@ -432,6 +507,7 @@ export default function OrderStatus({
   onDismiss?: () => void;
   onSettle?: SettleFn;
 }) {
+  const { sodax } = useSodaxContext();
   const title = order.mode === 'solver' ? 'Swap' : 'Submit Tx';
 
   // Only short-circuit to the static card for a genuinely terminal cache; a non-terminal `final`
@@ -441,6 +517,13 @@ export default function OrderStatus({
   }
   const settle: SettleFn = onSettle ?? (() => {});
   if (order.mode === 'solver') {
+    // `statusEndpoint` pins an order to the env it was created on; the router only knows the current
+    // one. So an order from another env — or one saved before the source tx was — stays on the poll.
+    const pinnedElsewhere = !!order.statusEndpoint && order.statusEndpoint !== sodax.config.solver.solverApiEndpoint;
+    if (order.srcChainKey && order.srcTxHash && !pinnedElsewhere) {
+      const sourced = { ...order, srcChainKey: order.srcChainKey, srcTxHash: order.srcTxHash };
+      return <SwapLiveCard order={sourced} title={title} onDismiss={onDismiss} onSettle={settle} />;
+    }
     return <SolverLiveCard order={order} title={title} onDismiss={onDismiss} onSettle={settle} />;
   }
   return <SubmitTxLiveCard order={order} title={title} onDismiss={onDismiss} onSettle={settle} />;

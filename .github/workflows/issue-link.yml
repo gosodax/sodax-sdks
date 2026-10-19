@@ -1,0 +1,45 @@
+name: Issue Link
+
+on:
+  # No path filter on purpose: a path-filtered workflow never reports, so a required check
+  # would sit pending forever. `pull_request_target` lets fork PRs report too; nothing is checked out.
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+      - labeled
+      - unlabeled
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  main:
+    name: Issue linked
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a closing keyword or the no-issue label
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          HAS_NO_ISSUE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'no-issue') }}
+        run: |
+          set -euo pipefail
+          if [ "$HAS_NO_ISSUE_LABEL" = 'true' ]; then
+            echo 'no-issue label set: skipping the issue-link check.'
+            exit 0
+          fi
+          # Template comments are stripped first, so an example inside <!-- --> cannot satisfy the check.
+          if printf '%s' "${PR_BODY:-}" \
+            | perl -0pe 's/<!--.*?-->//gs' \
+            | grep -Eiq '(^|[^[:alnum:]_])(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]*:?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+'; then
+            echo 'Closing issue reference found.'
+            exit 0
+          fi
+          echo '::error::Add a "Closes #N" (or Fixes/Resolves #N) line to the PR body, or apply the no-issue label and give the reason in the Summary.'
+          exit 1

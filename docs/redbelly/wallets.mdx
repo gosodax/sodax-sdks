@@ -1,0 +1,84 @@
+---
+title: "Redbelly Wallets"
+description: "EVM wallets on Redbelly, and every other network's wallets through one interface, with @sodax/wallet-sdk-react or a direct provider."
+icon: wallet
+---
+
+Welcoming cross-network users means supporting the wallets they already use. On Redbelly, SODAX works through the EVM: any wallet that can sign EVM transactions on Redbelly mainnet (chain ID 151), such as MetaMask. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
+
+## Account requirements
+
+- **Network access.** Redbelly is a permissioned-access network. Each user claims a Redbelly Network Access Credential from an accredited issuer, which checks a passport with biometric verification, and then enables their account with write access. Until then the account cannot send transactions, including SODAX intents and approvals. Users connect the same EVM wallet to Redbelly's [access dApp](https://access.redbelly.network/) to do this; see [User access](https://vine.redbelly.network/identity/user-access/).
+- **Gas previews may be off.** Redbelly fixes the unit gas price in US dollar terms. Redbelly notes that most wallets are not configured for this, so a wallet's gas information for a Redbelly transaction may be inaccurate. See [Network fees](https://vine.redbelly.network/network-fees/).
+
+## React apps: `@sodax/wallet-sdk-react`
+
+The React package wraps each chain family's native wallet SDK (wagmi for EVM networks, including Redbelly) behind a uniform connector interface with a single persisted store.
+
+```bash
+pnpm add @sodax/wallet-sdk-react
+```
+
+Mount the provider with the chains you serve. Redbelly is an entry under `EVM`, alongside any other EVM network you support:
+
+```tsx
+import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
+import { ChainKeys } from '@sodax/types';
+
+const config: SodaxWalletConfig = {
+  EVM: {
+    chains: {
+      [ChainKeys.REDBELLY_MAINNET]: { rpcUrl: 'https://governors.mainnet.redbelly.network' },
+      [ChainKeys.SONIC_MAINNET]: { rpcUrl: 'https://rpc.soniclabs.com' },
+    },
+  },
+};
+```
+
+Then connect and read accounts with the same three hooks for every chain family:
+
+```tsx
+import { useXConnectors, useXConnect, useXAccount } from '@sodax/wallet-sdk-react';
+
+function EvmConnect() {
+  const connectors = useXConnectors({ xChainType: 'EVM' }); // MetaMask, Rabby, ...
+  const { mutateAsync: connect } = useXConnect();
+  const account = useXAccount({ xChainType: 'EVM' });
+
+  if (account.address) return <p>Connected: {account.address}</p>;
+
+  return connectors.map(c => (
+    <button key={c.id} onClick={() => connect(c)}>{c.name}</button>
+  ));
+}
+```
+
+One EVM connection covers every EVM network, so the wallet may be on a different network than Redbelly when your user acts. `useEvmSwitchChain({ xChainId: ChainKeys.REDBELLY_MAINNET })` returns `isWrongChain` and a `handleSwitchChain` callback to prompt the switch.
+
+### Bridging to SDK calls
+
+`useWalletProvider({ xChainId: ChainKeys.REDBELLY_MAINNET })` returns a typed `IEvmWalletProvider` ready to pass into any `@sodax/sdk` method. The [swap](/redbelly/swaps) and [money market](/redbelly/money-market) calls take it directly.
+
+## Scripts and backends: `EvmWalletProvider`
+
+Outside React, construct the provider from `@sodax/wallet-sdk-core` directly:
+
+```typescript
+import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+import { ChainKeys } from '@sodax/sdk';
+
+const walletProvider = new EvmWalletProvider({
+  privateKey: '0x…', // private key of an account with Redbelly network access
+  chainId: ChainKeys.REDBELLY_MAINNET,
+  rpcUrl: 'https://governors.mainnet.redbelly.network',
+});
+```
+
+A bot or backend account needs network access too. For accounts run by a company, Redbelly documents a [business verification](https://vine.redbelly.network/business-verification/) path.
+
+`EvmWalletDefaults` lets you tune behavior per provider: `sendTransaction`, `waitForTransactionReceipt`, `publicClient`, `walletClient`, and `transport`.
+
+---
+
+- Full React reference: [@sodax/wallet-sdk-react](/developers/packages/connection/wallet-sdk-react)
+- Every chain family's providers: [Setup Wallet Providers](/developers/how-to/wallet_providers)

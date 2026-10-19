@@ -12,7 +12,11 @@ Cross-chain token swaps via the intent-based solver.
 | `useSwap` | Mutation | Execute a complete cross-chain swap |
 | `useSwapAllowance` | Query | Check if token approval is needed |
 | `useSwapApprove` | Mutation | Approve tokens for the swap contract |
-| `useStatus` | Query | Track intent execution status |
+| `useSwapLifecycle` | Composite | The whole swap form as one `state` + `next()`: approval strategy, destination gates, chain switch, swap, status |
+| `useSwapWithApproval` | Mutation | `useSwap` with the approval folded in (one EIP-5792 signature where the wallet can batch) |
+| `useSwapApprovalStrategy` | Query | Which approval path `useSwapWithApproval` takes |
+| `useDetailedStatus` | Query | Track a swap by its source tx, whichever completion path ran (default status read) |
+| `useStatus` | Query | Track the solver's status by hub tx hash |
 | `useCancelSwap` | Mutation | Cancel an active swap intent |
 | `useCreateLimitOrder` | Mutation | Create a limit order (no deadline) |
 | `useCancelLimitOrder` | Mutation | Cancel an active limit order |
@@ -109,6 +113,142 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
   );
 }
 ```
+
+## Track Status
+
+Read status from the **source** tx you already hold after `swap()` — `useDetailedStatus` works whichever completion
+path ran (backend submit-tx or the client-side relay fallback). `summarizeSwapStatus` collapses its two sources into
+one vocabulary:
+
+```tsx
+import { useDetailedStatus } from '@sodax/dapp-kit';
+import { summarizeSwapStatus, type SpokeChainKey } from '@sodax/sdk';
+
+function SwapStatus({ srcChainKey, srcTxHash }: { srcChainKey: SpokeChainKey; srcTxHash: string }) {
+  const { data } = useDetailedStatus({ params: { srcChainKey, srcTxHash } });
+  if (!data?.ok) return <span>Checking status…</span>;
+  const { state, fillTxHash } = summarizeSwapStatus(data.value);
+  return <span>{state === 'solved' ? `Filled ${fillTxHash ?? ''}` : state}</span>;
+}
+```
+
+Feed it `intentDeliveryInfo.srcChainKey` / `srcTxHash` on success. A `swap()` that fails **after** broadcast
+(verification, relay or postExecution failure) still carries them on `error.context.srcChainKey` /
+`error.context.srcTxHash` — keep polling, since the backend may still complete the swap.
+
+## One Hook for the Whole Form
+
+`useSwapLifecycle` composes the approval strategy, the destination gates (Stellar account + trustline, NEAR
+storage), source-chain switching, `useSwapWithApproval` and `useDetailedStatus` into one discriminated `state` and
+one `next()` action. Render from `state.kind`; wire the button to `next()`. Chain switching and app-owned setup
+(e.g. a Bitcoin trading wallet) are passed in — dapp-kit does not depend on the wallet packages.
+
+```tsx
+import { useSwapLifecycle, type CreateIntentParams, type SwapLifecycleState } from '@sodax/dapp-kit';
+import { useEvmSwitchChain, useWalletProvider } from '@sodax/wallet-sdk-react';
+
+function buttonLabel(state: SwapLifecycleState): string {
+  switch (state.kind) {
+    case 'ready':
+      if (state.approvalStrategy === 'atomic-batch') return 'Approve & Swap';
+      return state.approvalStrategy === 'sequential' ? 'Approve, then Swap' : 'Swap';
+    case 'needsChainSwitch':
+      return 'Switch network';
+    case 'needsSetup':
+      if (state.reason === 'stellarActivation') return 'Activate account';
+      if (state.reason === 'stellarTrustline') return 'Add trustline';
+      if (state.reason === 'stellarCheckFailed') return 'Retry check';
+      if (state.reason === 'nearStorage') return 'Register storage';
+      if (state.reason === 'nearStorageCheckFailed') return 'Retry check';
+      return 'Waiting on setup';
+    case 'submitting':
+    case 'pending':
+      return 'Swapping…';
+    case 'unconfirmed':
+      return 'Check the batch again';
+    case 'settled':
+      return 'Swap again';
+    case 'failed':
+      return 'Try again';
+    default:
+      return 'Swap';
+  }
+}
+
+// Nothing to click: waiting, or a prerequisite only the user or the app can resolve.
+function isPassive(state: SwapLifecycleState): boolean {
+  if (state.kind === 'needsSetup') return state.reason === 'stellarFunding' || state.reason === 'external';
+  return ['idle', 'checking', 'submitting', 'pending'].includes(state.kind);
+}
+
+function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
+  const srcWalletProvider = useWalletProvider({ xChainId: intentParams.srcChainKey });
+  const dstWalletProvider = useWalletProvider({ xChainId: intentParams.dstChainKey });
+  const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: intentParams.srcChainKey });
+
+  const { state, error, next, reset, stellar } = useSwapLifecycle({
+    intentParams,
+    srcWalletProvider,
+    dstWalletProvider,
+    chainSwitch: { isWrongChain, switchChain: handleSwitchChain },
+  });
+
+  return (
+    <>
+      <button type="button" onClick={() => void next()} disabled={isPassive(state)}>
+        {buttonLabel(state)}
+      </button>
+      {state.kind === 'needsSetup' && state.reason === 'stellarFunding' && (
+        <p>The destination Stellar account needs some XLM before it can add a trustline.</p>
+      )}
+      {state.kind === 'needsSetup' && state.reason === 'stellarCheckFailed' && <p>{stellar.error?.message}</p>}
+      {state.kind === 'pending' && (
+        <button type="button" onClick={reset}>
+          Stop tracking
+        </button>
+      )}
+      {state.kind === 'unconfirmed' && (
+        <p>
+          Your wallet sent the swap but it is not confirmed yet. Check the batch again to finish it once it lands.{' '}
+          <button type="button" onClick={reset}>
+            Start over
+          </button>
+        </p>
+      )}
+      {error && state.kind !== 'unconfirmed' && <p>{error.message}</p>}
+    </>
+  );
+}
+```
+
+`next()` resolves to the action's `Result` (a setup step or the swap); show a failed setup action from there. A failed
+swap lands in `state`:
+
+- before anything was sent → `failed`, and `next()` starts over;
+- after the source tx was sent → `pending` with `error` set, because the backend may still complete it. It stays
+  `pending` until the status read answers `solved` or `failed`. The read can stop polling without an error (after its
+  budget of ambiguous reads), so keep a "stop tracking" `reset()` reachable throughout `pending`; it cancels nothing
+  on-chain;
+- an approve + swap batch the wallet accepted but that was not confirmed in time → `unconfirmed`. It may still land,
+  so `next()` never sends it again: it waits for that batch (`swapWithApproval` with `resumeBatchId`) and finishes
+  the swap once it lands, staying `unconfirmed` while the batch is pending. `reset()` stops tracking it.
+
+Those last two hold even when `intentParams` changes (a refreshed quote rebuilds them), so a param edit cannot
+re-enable the swap while the first one may still land. `next()` also ignores a call while the previous one is still
+running, so a double click swaps once. A setup step reads `checking`, not `needsSetup`, while its tx is in flight and
+until the check it invalidated has refreshed, so a second click cannot resend it.
+
+A user who declines the smart-account upgrade a `'ready'` wallet asks for lands in `failed` with a `USER_REJECTED`
+whose `context.reason` is `ACCOUNT_UPGRADE_DECLINED`. They refused the upgrade, not the swap: keep an
+`allowAccountUpgrade` flag in your own state, pass it to `useSwapLifecycle`, and offer "swap without upgrading" by
+setting it to `false` and calling `reset()`. The strategy then reads `'sequential'` and the next swap approves
+separately. Whether to remember that choice across sessions is up to the app.
+
+`submitting` covers the whole swap call: signing, and on the default backend path settlement too, so label it as
+swapping, not as waiting for the wallet. Build `intentParams` once per confirmation (a rebuilt `deadline` is fine):
+changing any other field starts a new lifecycle once the current swap is done (one that may still land holds until
+`reset()`). `stellarFunding` and
+`external` setup reasons are for the app to resolve; `next()` does nothing for them.
 
 ## Full Example
 

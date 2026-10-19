@@ -1,0 +1,94 @@
+---
+title: "Money Market on Ethereum"
+description: "Cross-network lending and borrowing from Ethereum: supply, borrow, repay, and withdraw against collateral sourced on any SODAX network."
+icon: sack-dollar
+---
+
+Fragmented money markets mean lower capital efficiency and worse rates. The SODAX money market pools lending liquidity on the hub while letting users act from any supported network, including Ethereum. A user can supply tokens from Ethereum and borrow on another network, or borrow into their Ethereum account against collateral held elsewhere, without your product running its own lending infrastructure.
+
+Four actions, all through `sodax.moneyMarket`: `supply`, `borrow`, `withdraw`, `repay`. Each has a complete one-call form (handles the relay end-to-end) and a `create*Intent` form when you want the transaction only.
+
+The money market list on Ethereum is its own list, separate from the swap list: some tokens appear in one and not the other. Native ETH is in the money market list today. Read the list at runtime, as below, or see [Networks & Assets](/ethereum/networks-and-assets).
+
+## Supply from Ethereum
+
+Supplying an ERC-20 needs an allowance first, the same as any EVM network:
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// find() returns XToken | undefined, so narrow before using the address
+const ethereumTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.ETHEREUM_MAINNET);
+const usdc = ethereumTokens.find(t => t.symbol === 'USDC');
+if (!usdc) throw new Error('USDC is not a supported money-market token on Ethereum');
+
+const params = {
+  srcChainKey: ChainKeys.ETHEREUM_MAINNET,
+  srcAddress: await walletProvider.getWalletAddress(),
+  token: usdc.address,
+  amount: 100n * 10n ** BigInt(usdc.decimals), // 100 USDC
+  action: 'supply',
+} as const;
+
+const allowance = await sodax.moneyMarket.isAllowanceValid({ params });
+if (!allowance.ok) throw allowance.error;
+if (!allowance.value) {
+  const approval = await sodax.moneyMarket.approve({ params, walletProvider });
+  if (!approval.ok) throw approval.error;
+  // wait for the approval to be mined before supplying
+}
+
+const result = await sodax.moneyMarket.supply({
+  params,
+  walletProvider, // IEvmWalletProvider, narrowed by srcChainKey
+  timeout: 120_000, // optional relay timeout (default 120 s)
+});
+```
+
+Supplying or repaying with USDT can take two approval transactions when the wallet holds a stale USDT allowance: `approve` resets it to zero first, so the user signs twice. See [USDT approvals](/ethereum/swaps#usdt-approvals). Supplying native ETH needs no approval.
+
+## Borrow from Ethereum
+
+`dstChainKey` and `dstAddress` default to the source, but any supported network can be the destination. That is the cross-network story in one parameter: collateral supplied from one network, borrowed liquidity delivered to another. Here the user acts from Ethereum and receives USDC on Arbitrum:
+
+```typescript
+// For borrow and withdraw, `token` is the token on the destination network
+const arbitrumTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.ARBITRUM_MAINNET);
+const usdcArbitrum = arbitrumTokens.find(t => t.symbol === 'USDC');
+if (!usdcArbitrum) throw new Error('USDC is not a supported money-market token on Arbitrum');
+
+const result = await sodax.moneyMarket.borrow({
+  params: {
+    srcChainKey: ChainKeys.ETHEREUM_MAINNET,  // where the caller acts from
+    srcAddress: userEthereumAddress,
+    token: usdcArbitrum.address,              // token on the destination network
+    amount: 50n * 10n ** BigInt(usdcArbitrum.decimals), // 50 USDC
+    action: 'borrow',
+    dstChainKey: ChainKeys.ARBITRUM_MAINNET,  // deliver on Arbitrum
+    dstAddress: userArbitrumAddress,
+  },
+  walletProvider,
+});
+```
+
+Leave out `dstChainKey` and `dstAddress` to deliver on Ethereum. Build every amount from the token's own `decimals`.
+
+`withdraw` and `repay` follow the same shape. Withdraw and borrow need no approval on any network; repaying with an ERC-20 needs an allowance, like supply.
+
+## Building a lending UI
+
+`sodax.moneyMarket.data` exposes what you need for rates, positions, and health factors without extra indexing:
+
+- `getReservesHumanized()`: all reserves, human-readable.
+- `getUserReservesHumanized(spokeChainKey, userAddress)`: a user's positions.
+- `formatReservesUSD(request)` / `formatUserSummary(request)`: USD-converted reserves and portfolio summaries.
+
+## Error handling
+
+The module returns typed results. Discriminate on `result.error.code` (`'RELAY_TIMEOUT'`, `'EXECUTION_FAILED'`, …) with structured context on `result.error.context`.
+
+---
+
+Full reference, including intent-only methods, gas estimation, and the per-method error-code table: [Lend / Borrow (Money Market)](/developers/packages/foundation/sdk/functional-modules/money_market).

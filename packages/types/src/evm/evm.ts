@@ -56,9 +56,48 @@ export type EvmSendTransactionOptions = {
   expectedChainId?: number;
 };
 
+/**
+ * EIP-5792 `atomic` capability of a wallet on one chain. `'ready'` means the wallet can execute
+ * atomically once the user approves an account upgrade (e.g. MetaMask's EIP-7702 smart account).
+ */
+export type EvmAtomicBatchSupport = 'supported' | 'ready' | 'unsupported';
+
+export type EvmSendBatchOptions = {
+  // Refuse to send unless the wallet's active chain id matches, as for `sendTransaction`.
+  expectedChainId: number;
+};
+
+export type EvmWaitForBatchOptions = {
+  /** How long to wait for the batch to reach a terminal status, in ms. */
+  timeout?: number;
+};
+
+export type EvmBatchReceipt = {
+  transactionHash: Hash;
+  status: 'success' | 'reverted';
+};
+
+/** Terminal state of an EIP-5792 call batch. One receipt when the wallet executed it as one transaction. */
+export type EvmBatchResult = {
+  status: 'success' | 'failure';
+  /** EIP-5792 status code: 200 confirmed, 400 offchain failure, 500 reverted, 600 partially reverted. */
+  statusCode: number;
+  atomic: boolean;
+  receipts: readonly EvmBatchReceipt[];
+};
+
 export interface IEvmWalletProvider extends ICoreWallet {
   readonly chainType: 'EVM';
   getWalletAddress: () => Promise<Address>;
   sendTransaction: (evmRawTx: EvmRawTransaction, options?: EvmSendTransactionOptions) => Promise<Hash>;
   waitForTransactionReceipt: (txHash: Hash) => Promise<EvmRawTransactionReceipt>;
+  /** EIP-5792 atomic-batch support for `chainId`. Optional — callers guard before use. */
+  getAtomicBatchSupport?: (chainId: number) => Promise<EvmAtomicBatchSupport>;
+  /**
+   * Send `txs` as one EIP-5792 batch that must execute atomically (`atomicRequired`), in order.
+   * Resolves to the wallet's batch id, not a transaction hash — read it from {@link waitForBatch}.
+   */
+  sendAtomicBatch?: (txs: readonly EvmRawTransaction[], options: EvmSendBatchOptions) => Promise<string>;
+  /** Wait for a batch sent with {@link sendAtomicBatch} to reach a terminal state. Throws on timeout. */
+  waitForBatch?: (batchId: string, options?: EvmWaitForBatchOptions) => Promise<EvmBatchResult>;
 }

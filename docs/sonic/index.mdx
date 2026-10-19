@@ -1,0 +1,82 @@
+---
+title: "SODAX for Sonic"
+sidebarTitle: "Overview"
+description: "Build on the SODAX hub. Sonic is where SODAX execution settles, so users acting on Sonic reach every SODAX network without a relay hop. No contracts to deploy, your entire integration is TypeScript."
+icon: s
+---
+
+<Note>
+  **No new contracts.** Sonic is the SODAX hub: the intents contract, the money market, and the hub wallets all live there already. Your entire integration is TypeScript. Your users sign ordinary EVM transactions on Sonic, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+Every SODAX network is a spoke connected to one hub, and the hub is Sonic. Swap intents are registered on Sonic and their fills are recorded there, and the money market's reserves sit on Sonic. When a user acts from any other network, the SODAX relayer carries their transaction to Sonic first. When a user acts on Sonic, the transaction they sign is already the hub transaction.
+
+That makes Sonic the shortest path into SODAX: your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, from one EVM network. Integration happens in TypeScript, at the SDK or React layer. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue, and it accrues on Sonic. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## What is different on Sonic
+
+Sonic is a standard EVM network, and SODAX uses the same `EvmWalletProvider` and the same SDK calls there as everywhere else. What changes is that Sonic is the hub, not a spoke:
+
+- **No relay hop.** A swap, a cancel, a supply, or a repay sourced on Sonic needs no relay: the SDK skips that step, and the source transaction hash is the hub transaction hash. A borrow or withdraw is also relay-free when it is delivered on Sonic; delivering it to another network still goes through the relayer.
+- **Approvals go to different contracts.** On a spoke, every ERC-20 approval targets that network's asset manager. On Sonic, swaps approve the SODAX intents contract, and money market supply and repay approve the user's own hub wallet. `isAllowanceValid` and `approve` pick the right spender for you; an allowance granted for one module does not cover the other. See [Approvals](/sonic/swaps#approvals).
+- **Positions live in the user's hub wallet.** Every user has a deterministic wallet on the hub, derived from their address and the network they act from. For a Sonic user it is derived from their Sonic address through the SODAX wallet router. Money market positions opened from Sonic belong to that wallet, not to the user's address directly; the SDK resolves it whenever you pass `ChainKeys.SONIC_MAINNET` and the user's address. See [Hub wallets](/sonic/money-market#hub-wallets).
+
+## What you can build
+
+Two SODAX modules are relevant to Sonic builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/sonic/swaps">
+    Intent-based cross-network swaps. Users swap between S or Sonic tokens and assets on any supported network with one signed transaction on Sonic, registered directly on the hub. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/sonic/money-market">
+    Cross-network lending and borrowing against the reserves on the hub. Supply from Sonic, borrow to Sonic or any other supported network, and manage positions without running lending infrastructure.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/sonic/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/sonic/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/sonic/quickstart): install the SDK, connect a Sonic account, make your first cross-network swap.
+- [Swaps on Sonic](/sonic/swaps): approvals against the intents contract, quoting, fees, and status tracking without a relay hop.
+- [Money Market on Sonic](/sonic/money-market): supply, borrow, repay, and withdraw on the hub, and how hub wallets hold positions.
+- [Wallets](/sonic/wallets): EVM wallets on Sonic, and every other network's wallets through one interface.
+- [Networks & Assets](/sonic/networks-and-assets): what is live on Sonic today and what your users can reach.
+- [Sonic FAQ](/sonic/faq): the questions Sonic engineers actually ask.
+
+## Sonic references
+
+- [**Sonic documentation**](https://docs.soniclabs.com/): network details, tooling, and building on Sonic.
+- [**Network details**](https://docs.soniclabs.com/sonic/build-on-sonic/getting-started): chain ID, public RPC, and explorer for Sonic mainnet.
+- [**SonicScan**](https://sonicscan.org/): the Sonic mainnet explorer, for checking intent, approval, and money market transactions.
+- [**Hub Wallet Abstraction**](/developers/technical-overview/hub-wallet-abstraction): how SODAX derives a wallet on the hub for every user.
+
+---
+
+Building something? Start with the [Quickstart](/sonic/quickstart).

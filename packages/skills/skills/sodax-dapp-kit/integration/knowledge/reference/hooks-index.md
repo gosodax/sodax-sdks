@@ -19,6 +19,9 @@ Comprehensive hook table across 12 feature domains. Use this when you know the f
 | `useSwap` | Mutation | Execute a complete cross-chain swap |
 | `useSwapAllowance` | Query | Check token approval status |
 | `useSwapApprove` | Mutation | Approve tokens for the swap contract |
+| `useSwapApprovalStrategy` | Query | Which path `useSwapWithApproval` takes — `'not-required'` / `'atomic-batch'` (one EIP-5792 signature) / `'sequential'`; `allowAccountUpgrade: false` keeps a `'ready'` wallet sequential; no polling |
+| `useSwapLifecycle` | Composite | One swap form: `state` (`idle` … `ready` … `pending` / `unconfirmed` / `settled` / `failed`, discriminated on `kind`) + `next()`; composes the strategy, Stellar/NEAR gates, injected chain switch, `useSwapWithApproval` and `useDetailedStatus`, and returns each as an escape hatch; `allowAccountUpgrade` is passed to both |
+| `useSwapWithApproval` | Mutation | `useSwap` with the approval folded in: one atomic batch on an EIP-5792 wallet, else approve → swap; `data.approvalStrategy` |
 | `useStatus` | Query | Track intent execution status (polls 3s once `intentTxHash` supplied; stops on `3`/`4` and after 40 consecutive NOT_FOUND fetches; Result-wrapped data) |
 | `useDetailedStatus` | Query | Track a swap from its source tx (`{ srcChainKey, srcTxHash }`; polls 3s; Result-wrapped; stops on the answering source's terminal state and after 40 consecutive ambiguous reads — solver NOT_FOUND, or a relay with no packet for the tx; outages keep polling). Returns a tagged union — backend submit-tx record or solver answer — narrow on `source`. Unlike `useSwapsApiSubmitTxStatus`, answers for both `swap()` completion paths |
 | `useCancelSwap` | Mutation | Cancel an active swap intent |

@@ -1,0 +1,63 @@
+---
+title: "Hedera FAQ"
+description: "The questions Hedera engineers actually ask about integrating SODAX."
+icon: comment-question
+---
+
+#### Do I need to write or deploy a contract?
+
+No. SODAX's Hedera spoke contracts are already deployed; your integration is TypeScript against `@sodax/sdk` (or the React packages on top of it). You write no on-chain code and hold no admin key for any part of the flow.
+
+#### How does a swap from Hedera actually settle?
+
+Your user signs one EVM transaction on Hedera that creates an intent. The SODAX relayer carries proof of that transaction to the hub network (Sonic), a solver fills the intent on the destination network, and the output lands at the recipient address there. Swaps into Hedera settle as HTS balances at the recipient's EVM address. If an intent is never filled, it can be cancelled and the funds recovered.
+
+#### Which assets are supported on Hedera?
+
+Two answers, and the difference matters. On Hedera itself, <span data-sodax-config="count" data-metric="chain-swap-tokens" data-chain="hedera">40</span> assets are live: HBAR plus HTS tokens, including bnUSD, SODA, USDC, and tokenized equities. <span data-sodax-config="count" data-metric="chain-money-market-tokens" data-chain="hedera">15</span> of these also work in the money market; HBAR is not one of them today.
+
+But your users are not limited to the Hedera-side list. Every swap is cross-network, so from Hedera they can reach all <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets across every SODAX-supported network. Both lists grow as the backend config adds them; read them from `sodax.config` at runtime, or see the live tables in [Networks & Assets](/hedera/networks-and-assets).
+
+#### Can users with an ED25519 account use SODAX?
+
+Not from that account. Hedera's EVM tooling only signs with ECDSA (secp256k1) keys, and SODAX on Hedera runs through the EVM. An ED25519 account can still hold HBAR and HTS tokens, but it cannot sign the transactions that create an intent. Users need an ECDSA account, which MetaMask and other EVM wallets create by default.
+
+#### Why do HBAR amounts look off by 10^10?
+
+Because Hedera counts native value in two units. The SDK and the token config use HBAR's canonical 8 decimals (tinybars); Hedera's EVM layer reports `msg.value` and `eth_getBalance` in 18-decimal weibars. The SDK converts in both directions on Hedera, so build amounts from `token.decimals` and read balances through SODAX. Mixing an SDK amount with a raw `eth_getBalance` value is the usual cause of an HBAR figure that is 10^10 too large.
+
+#### Why did a delivery to a Hedera account fail?
+
+Most likely the recipient could not receive the token. A Hedera account receives an HTS token only if it is associated with it or has a free automatic association slot. Accounts auto-created at an EVM address have unlimited slots, but accounts created other ways may have few or none. Check the recipient with the mirror node before you submit, and have the user call `associate()` on the token if needed: [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera).
+
+#### Is there an approve step before swapping or supplying?
+
+For HTS tokens, yes. SODAX's asset manager pulls them through their ERC-20 interface, so `isAllowanceValid` checks the allowance and `approve` sets it, the same as on any EVM network. Native HBAR needs no approval.
+
+#### Which RPC endpoint should I use?
+
+Any Hedera JSON-RPC relay for mainnet. The SODAX config uses Hashio, `https://mainnet.hashio.io/api`; pass your own through `rpcUrl` on `EvmWalletProvider`, or per chain in the `@sodax/wallet-sdk-react` config.
+
+#### Is there a testnet?
+
+No. SODAX is mainnet-only on every network, Hedera included.
+
+#### What does it cost?
+
+Using SODAX is free: no license, no integration fee, no SDK cost. Trades carry a fixed 0.1% base fee taken by the protocol; on top of that you set your own platform fee and keep it. Your users also pay Hedera's network fees in HBAR. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+#### How do I know if something went wrong?
+
+SDK operations return `Result<T>` rather than throwing. Core swap and money market methods return typed error codes (for example `'RELAY_TIMEOUT'`, `'EXECUTION_FAILED'`) you can branch on, with structured context attached.
+
+#### Where are the audits?
+
+Audits for the SODAX protocol are collected on the [Audits](/developers/audits) page.
+
+#### Can my AI coding assistant do the integration?
+
+Largely, yes. Add the [SODAX Builders MCP](/builders-mcp) to Claude, Cursor, VS Code, Windsurf, or any MCP-capable client (`https://builders.sodax.com/mcp`) and it gets live access to the SODAX System: chains, tokens, swap quotes, money market rates, intent history, and auto-synced SDK docs. Use it to scope the integration against your own codebase first, then to write and verify the code. Setup per client is at [builders.sodax.com](https://builders.sodax.com/).
+
+#### I want a plan specific to my protocol. Who do I talk to?
+
+Reach the SODAX team through any platform listed at [linktr.ee/go.sodax](https://linktr.ee/go.sodax).

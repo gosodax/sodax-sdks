@@ -24,6 +24,7 @@ pnpm --filter @sodax/wallet-modal-example dev
 | `components/ConnectedChains.tsx` | `useConnectedChains` — aggregate view + `status` hydration |
 | `components/BatchActions.tsx` | `useBatchConnect` + `useBatchDisconnect` (Hana scope + universal disconnect) |
 | `components/ConnectionFlowDemo.tsx` | `useConnectionFlow` — standalone (no modal) |
+| `components/PrivyPanel.tsx` | `EVM.privy` from `@sodax/wallet-sdk-react/privy` — only with `VITE_PRIVY_APP_ID` set (`src/privy.ts`) |
 
 See the app's [README.md](README.md) for full primitive ↔ component mapping and patterns.
 

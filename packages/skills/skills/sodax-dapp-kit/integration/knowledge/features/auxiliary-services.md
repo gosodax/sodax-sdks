@@ -357,7 +357,7 @@ if (isRegistered === false) {
 }
 ```
 
-For the common UI path, `useNearStorageGate` returns `{ isNear, needsRegistration, blocksAction, isChecking, isRegistering, registerStorage }`.
+For the common UI path, `useNearStorageGate` returns `{ isNear, needsRegistration, blocksAction, isChecking, checkFailed, retry, isRegistering, registerStorage }`. `blocksAction` stays `false` when the check errors, so read `checkFailed` too and offer `retry` rather than letting the action through: whether the recipient can receive is unknown until the check succeeds. `useSwapLifecycle` does this as the `nearStorageCheckFailed` setup reason.
 
 Derive UI gate flags with the unwrapped `resolveNearStorageGate` util (no hook) when you need custom check/register composition:
 
@@ -450,6 +450,7 @@ and origin gating are the real controls. Proxy through your own backend if that 
 | `useBackendOracleCandles` | none | `staleTime: 10s` — matches the ~10s server-side cache |
 | `useExpiredUtxos` (bitcoin) | 60s | refetchInterval |
 | `useQuote` (swap) | 3s | refetchInterval |
+| `useDetailedStatus` (swap) | 3s | stops on the answering source's terminal state, on a rejected API key, and after 40 consecutive ambiguous reads |
 | `useStatus` (swap) | 3s | stops on status `3`/`4`, and after 40 consecutive NOT_FOUND fetches |
 | `useSwapAllowance` (swap) | 2s | refetchInterval |
 | `useMMAllowance` (mm) | 5s | refetchInterval; `enabled: false` for borrow/withdraw actions |

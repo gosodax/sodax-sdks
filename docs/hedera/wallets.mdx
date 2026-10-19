@@ -1,0 +1,86 @@
+---
+title: "Hedera Wallets"
+description: "EVM wallets on Hedera, and every other network's wallets through one interface, with @sodax/wallet-sdk-react or a direct provider."
+icon: wallet
+---
+
+Welcoming cross-network users means supporting the wallets they already use. On Hedera, SODAX works through the EVM: any wallet that can sign EVM transactions for an ECDSA account on Hedera mainnet (chain ID 295), such as MetaMask. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
+
+## Account requirements
+
+- **ECDSA key.** The account must have an ECDSA (secp256k1) key. Accounts with an ED25519 key can hold HBAR and HTS tokens but cannot sign EVM transactions, so they cannot act through SODAX. Accounts created by MetaMask or through the JSON-RPC relay use ECDSA by default.
+- **Hollow accounts send after their first signature.** An account auto-created by receiving funds at an EVM address starts hollow: it can receive, but cannot send until its key signs a transaction. The user's first SODAX transaction from that account completes it.
+
+## React apps: `@sodax/wallet-sdk-react`
+
+The React package wraps each chain family's native wallet SDK (wagmi for EVM networks, including Hedera) behind a uniform connector interface with a single persisted store.
+
+```bash
+pnpm add @sodax/wallet-sdk-react
+```
+
+Mount the provider with the chains you serve. Hedera is an entry under `EVM`, alongside any other EVM network you support:
+
+```tsx
+import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
+import { ChainKeys } from '@sodax/types';
+
+const config: SodaxWalletConfig = {
+  EVM: {
+    chains: {
+      [ChainKeys.HEDERA_MAINNET]: { rpcUrl: 'https://mainnet.hashio.io/api' },
+      [ChainKeys.SONIC_MAINNET]: { rpcUrl: 'https://rpc.soniclabs.com' },
+    },
+  },
+};
+```
+
+Then connect and read accounts with the same three hooks for every chain family:
+
+```tsx
+import { useXConnectors, useXConnect, useXAccount } from '@sodax/wallet-sdk-react';
+
+function EvmConnect() {
+  const connectors = useXConnectors({ xChainType: 'EVM' }); // MetaMask, Rabby, ...
+  const { mutateAsync: connect } = useXConnect();
+  const account = useXAccount({ xChainType: 'EVM' });
+
+  if (account.address) return <p>Connected: {account.address}</p>;
+
+  return connectors.map(c => (
+    <button key={c.id} onClick={() => connect(c)}>{c.name}</button>
+  ));
+}
+```
+
+One EVM connection covers every EVM network, so the wallet may be on a different network than Hedera when your user acts. `useEvmSwitchChain({ xChainId: ChainKeys.HEDERA_MAINNET })` returns `isWrongChain` and a `handleSwitchChain` callback to prompt the switch.
+
+### Bridging to SDK calls
+
+`useWalletProvider({ xChainId: ChainKeys.HEDERA_MAINNET })` returns a typed `IEvmWalletProvider` ready to pass into any `@sodax/sdk` method. The [swap](/hedera/swaps) and [money market](/hedera/money-market) calls take it directly.
+
+### Showing HBAR balances
+
+Hedera's JSON-RPC relay reports native HBAR from `eth_getBalance` in 18-decimal weibars, while the SDK and token config use HBAR's canonical 8 decimals. Read balances through SODAX (for example `useXBalances` from [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit)), which scales Hedera's native balance down to 8 decimals. A balance read straight from `eth_getBalance` is 10^10 times larger than the matching SDK amount.
+
+## Scripts and backends: `EvmWalletProvider`
+
+Outside React, construct the provider from `@sodax/wallet-sdk-core` directly:
+
+```typescript
+import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+import { ChainKeys } from '@sodax/sdk';
+
+const walletProvider = new EvmWalletProvider({
+  privateKey: '0x…', // ECDSA private key of the Hedera account
+  chainId: ChainKeys.HEDERA_MAINNET,
+  rpcUrl: 'https://mainnet.hashio.io/api',
+});
+```
+
+`EvmWalletDefaults` lets you tune behavior per provider: `sendTransaction`, `waitForTransactionReceipt`, `publicClient`, `walletClient`, and `transport`.
+
+---
+
+- Full React reference: [@sodax/wallet-sdk-react](/developers/packages/connection/wallet-sdk-react)
+- Every chain family's providers: [Setup Wallet Providers](/developers/how-to/wallet_providers)

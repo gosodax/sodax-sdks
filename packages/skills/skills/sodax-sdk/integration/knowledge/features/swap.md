@@ -47,6 +47,18 @@ sodax.swaps.getCancelIntentRelayData(intent: Intent): Result<RelayExtraData>;   
 sodax.swaps.approve<K, Raw>(/* … */): Promise<Result<TxReturnType<K, Raw>, SodaxError>>;
 sodax.swaps.isAllowanceValid<K, Raw>(/* … */): Promise<Result<boolean, SodaxError>>;
 
+sodax.swaps.swapWithApproval<K extends SpokeChainKey>(
+  action: SwapActionParams<K, false>,
+): Promise<Result<SwapResponse & { approvalStrategy: SwapApprovalStrategy }, SodaxError>>;
+//   `swap` with the approval folded in: no approval when the allowance suffices; approve + deposit as ONE
+//   EIP-5792 atomic batch (one signature) on a batch-capable wallet + EVM spoke source; otherwise approve,
+//   wait for it to confirm, then swap. Same completion as `swap`. Adds APPROVE_FAILED / ALLOWANCE_CHECK_FAILED.
+
+sodax.swaps.getApprovalStrategy<K extends SpokeChainKey>(
+  action: SwapActionParams<K, false>,
+): Promise<Result<SwapApprovalStrategy, SodaxError<'ALLOWANCE_CHECK_FAILED'>>>;
+//   SwapApprovalStrategy = 'not-required' | 'atomic-batch' | 'sequential' — read-only; use it to label the button.
+
 sodax.swaps.getSwapSpeedTier(params: { srcToken: XToken; dstToken: XToken }): SwapSpeedTierResult;
 //   Synchronous, offline, no Result wrapper — estimates settlement speed from SDK config alone
 //   (no network / on-chain / backend call). SwapSpeedTierResult = { tier: 'fast'|'normal'|'slow', estimatedSeconds }.
@@ -62,6 +74,34 @@ sodax.swaps.getDetailedStatus(
 ): Promise<Result<DetailedSwapStatus, SodaxError<'LOOKUP_FAILED'>>>;
 //   Routes to the backend submit-tx record or the solver. Does NOT define a new status vocabulary.
 ```
+
+## Approve and swap in one signature
+
+`swapWithApproval` replaces the `isAllowanceValid` → `approve` → `swap` sequence with one call. It batches only
+when the source is an EVM spoke (not the Sonic hub) and the wallet provider implements the optional EIP-5792 methods
+(`EvmWalletProvider` does for a connected browser wallet, never for a private-key account) and reports
+`'supported'` or `'ready'` for that chain — `'ready'` means the wallet asks the user to upgrade the account (MetaMask:
+EIP-7702 smart account) on the first batch. Everything else takes the two-step path (three signatures for a token
+that must reset a stale allowance), so the call is safe on any chain. Pass `allowAccountUpgrade: false` (to both
+`getApprovalStrategy` and `swapWithApproval`) to keep a `'ready'` wallet on the two-step path and never show the
+upgrade prompt; whether to do so is the app's call.
+
+If the wallet refuses the batch before signing (e.g. EIP-5792 `5760`), the method approves separately on its own and
+reports `approvalStrategy: 'sequential'`. Once the user has seen the batch it is never retried as separate
+transactions:
+
+- rejected batch → `USER_REJECTED`; a declined upgrade is `USER_REJECTED` with
+  `context.reason === ACCOUNT_UPGRADE_DECLINED` — the user refused the smart account, not the swap, so it is fine to
+  offer the same swap again with `allowAccountUpgrade: false`;
+- batch never included or fully reverted (EIP-5792 `400` / `500`) → `INTENT_CREATION_FAILED` with
+  `context.reason: 'atomic-batch-failed'` (nothing deposited);
+- anything else short of a confirmed deposit receipt (not confirmed within `timeout`, a partial revert, unclear
+  receipts) → `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED`, `context.batchId` and
+  `context.callCount`. It may have landed — **never send it again**; call `swapWithApproval` with the same `params`
+  and wallet plus `resumeBatchId: context.batchId` and `resumeBatchCallCount: context.callCount`, which only waits
+  for that batch and finishes the swap once it lands (the same unconfirmed error while it is still pending).
+
+Do not chain your own `approve` after any of these; that is exactly the double prompt this method avoids.
 
 ## Reading swap status
 
@@ -82,6 +122,16 @@ if (status.source === 'backend') status.data.processingAttempts;
 ```
 
 Routing: backend record while it is in play (`success: true` and not abandoned) → `source: 'backend'`. **Any** unusable backend response — 404, `success: false`, transport/server error, or a record the backend gave up on (`failed` or `abandonedAt`) — resolves the hub tx hash and asks the solver → `source: 'solver'`. On the default path the abandoned-record branch is the common one, not the 404: the record usually exists, and abandonment is what signals the client-side fallback ran.
+
+To render it without switching on `source`, collapse it with the pure `summarizeSwapStatus` (exported from `@sodax/sdk`):
+
+```ts
+const { state, hubTxHash, fillTxHash } = summarizeSwapStatus(status); // state: 'pending' | 'solved' | 'failed'
+```
+
+`fillTxHash` may be absent even when solved (the backend can confirm a fill from the on-chain journal without one).
+
+**A `swap()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED`, the relay codes and postExecution failures set `error.context.srcTxHash` (plus `srcChainKey`). The swap may still complete — the backend keeps working after `swap()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the swap as lost.
 
 The only error is `LOOKUP_FAILED`, meaning no source could answer — usually the relay has not delivered the packet, so there is no hub tx hash. When polling, branch on `error.context.reason`: `DETAILED_STATUS_NOT_DELIVERED` is the ambiguous miss (indistinguishable from "still in flight" — bound it with a retry budget), set only when the backend also answered. Anything else, including a relay miss behind a backend outage, is a dependency failing right now and should be retried until it recovers. A 401/403 from the backend does not route on at all — it surfaces directly with `context.status` lifted, so `isAuthFailure(error)` is true and polling should stop; only a corrected key changes the answer. Point-in-time — poll it yourself, or use dapp-kit's `useDetailedStatus`.
 

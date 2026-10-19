@@ -39,7 +39,8 @@ const WalletItem = ({ name, xChainType, onConnectionSuccess }: WalletItemProps) 
         await xConnect(xConnector);
         // Address will be updated via useXAccount hook, useEffect will handle closing
       } catch (error) {
-        console.error(error);
+        // Closing a wallet's own dialog (Privy, WalletConnect) rejects the connect; that is not an error.
+        if (!(error instanceof Error && error.name === 'UserRejectedRequestError')) console.error(error);
         setWasConnecting(false);
       } finally {
         setConnectingXConnector(null);

@@ -1,0 +1,170 @@
+---
+title: "VibeCode Saga: Crypto → Wall Street for macOS: a native menu-bar client for the SODAX oracle"
+sidebarTitle: "Crypto → Wall Street for macOS"
+icon: desktop
+description: "421 lines of SwiftUI, no SDK, one public endpoint. Live xStock prices and a coin to stock converter in the macOS menu bar, powered by the same oracle that prices SODAX swaps."
+---
+
+## What it is
+
+Crypto → Wall Street for macOS is a menu-bar widget for tokenized stocks, written in 421 lines of SwiftUI with zero dependencies. The whole SODAX integration is one public HTTP endpoint. The menu bar shows the live price of the xStock you picked (for example `TSLA $…`). Click it and a small panel opens with three things:
+
+- **Live prices** for the 8 xStocks: TSLA, NVDA, SPY, QQQ, MSTR, COIN, GOOGL, CRCL.
+- **A two-way converter.** Type an amount of a coin and see how many shares it buys, or hit **⇄** to flip to shares → coin. It shows both unit rates and each leg's USD price.
+- **SWAPPER ↗**, which opens the [Crypto → Wall Street web app](https://crypto-to-wallstreet.vercel.app) where the actual swap happens.
+
+The widget is read-only on purpose. It never touches a wallet or a key. xStocks are tokenized equities that settle on Solana, and all swapping happens in the web app, where the user signs an intent with their own wallet and a SODAX solver fills it. The desktop app answers one question, fast: "what is my ETH worth in Tesla right now?"
+
+It runs as a menu-bar-only app (no Dock icon, no app-switcher entry) and targets macOS 13 and up.
+
+## The design idea: the price feed is the product
+
+The web swapper does the heavy lifting: wallets, quotes, intents, settlement. A desktop companion needs one trustworthy number per asset and a cheap way to keep it fresh.
+
+SODAX already publishes that number. The solver oracle at `api.sodax.com/v1/intent/oracle` is the same price feed that drives the swap engine, it is public, and it needs no API key. So the whole app reduces to: fetch one JSON array every 60 seconds, build a `symbol → priceUsd` map, and do division in the UI.
+
+That is why there is no SDK in this repo. SODAX's SDKs are TypeScript, and this is a Swift Package with a single executable target. For a read-only consumer, plain HTTP was the whole integration, which shows how open SODAX's data is to any language.
+
+## The SODAX pieces that carried this
+
+### 1. One public endpoint, no key
+
+All of the configuration lives in `Catalog.swift`:
+
+```swift
+/// Public SODAX solver oracle: same prices that drive the swap engine. No key.
+let ORACLE_URL = URL(string: "https://api.sodax.com/v1/intent/oracle")!
+
+/// Refresh cadence for the price feed.
+let REFRESH_SECONDS: TimeInterval = 60
+```
+
+The response is a flat array of rows. Each row carries `address`, `chainId`, `symbol`, `priceUsd`, `decimals`, and `updatedAt`. The app decodes only the two fields it needs:
+
+```swift
+private struct OraclePrice: Decodable {
+  let symbol: String
+  let priceUsd: Double
+}
+```
+
+`JSONDecoder` ignores the rest, so the model stays two lines long.
+
+### 2. One price per asset
+
+The oracle lists each asset once for every network it lives on. ETH shows up under multiple `chainId` values, for example, which is useful for a swap engine and easy to collapse for a price widget. `PriceStore` keeps the first positive price it sees per symbol:
+
+```swift
+let rows = try JSONDecoder().decode([OraclePrice].self, from: data)
+// First occurrence per symbol wins (prices are consistent across chains).
+var map: [String: Double] = [:]
+for r in rows where map[r.symbol] == nil && r.priceUsd > 0 {
+  map[r.symbol] = r.priceUsd
+}
+prices = map
+```
+
+The `priceUsd > 0` guard keeps the converter's division clean.
+
+### 3. xStocks are just symbols with an `x`
+
+On the oracle, tokenized stocks look like any other asset. Tesla is `TSLAx`, Nvidia is `NVDAx`, and so on. The catalog maps oracle symbols to display tickers:
+
+```swift
+let STOCKS: [Asset] = [
+  Asset(symbol: "TSLAx",  ticker: "TSLA",  name: "Tesla"),
+  Asset(symbol: "NVDAx",  ticker: "NVDA",  name: "NVIDIA"),
+  Asset(symbol: "SPYx",   ticker: "SPY",   name: "S&P 500"),
+  // QQQx, MSTRx, COINx, GOOGLx, CRCLx
+]
+```
+
+Adding a stock is one line, as long as the `symbol` matches what the oracle returns.
+
+### 4. The coin list builds itself from the feed
+
+The coin picker lists every coin the oracle prices: the curated majors first (ETH, SOL, BTC, BNB, AVAX, USDC, USDT, bnUSD), then the long tail alphabetically.
+
+```swift
+let stockSyms = Set(STOCKS.map(\.symbol))
+var out = COINS.filter { priced[$0.symbol] != nil }
+let have = Set(out.map(\.symbol))
+let tail = priced.keys
+  .filter { !stockSyms.contains($0) && !have.contains($0) }
+  .sorted()
+  .map { Asset(symbol: $0, ticker: $0, name: $0) }
+out.append(contentsOf: tail)
+```
+
+The picker shows only real coins and xStocks: xStocks get their own selector, and hub-side `_ASSET` entries from the feed are filtered out, so every option is something a user can actually hold. Before the first fetch lands, it falls back to the curated list. When SODAX prices a new token, it shows up in the widget without a rebuild.
+
+### 5. The converter is two prices and a division
+
+Since both legs are priced in USD by the same feed, conversion in either direction is one line:
+
+```swift
+return coinToStock ? a * cp / sp : a * sp / cp
+```
+
+The widget is for orientation, and the README says so: oracle prices tell you where the market is, and the swapper gives you the exact quote, including fees and slippage, at swap time.
+
+## The look
+
+The panel uses a NieR:Automata terminal style: bone and khaki background, sepia ink, hairline boxes, monospaced labels, and SODAX Orange Sonic (`#FF9048`) as the accent. It forces `.environment(\.colorScheme, .light)` so the palette holds in both macOS appearances, and the selectors are built from a fully styleable SwiftUI `Menu`:
+
+```swift
+Menu {
+  ForEach(options) { a in
+    Button(a.ticker) { selection.wrappedValue = a.symbol }
+  }
+} label: {
+  HStack(spacing: 6) {
+    Text(current).mono(13, .bold).foregroundStyle(Color.nierInk)
+    // ...
+  }
+}
+.menuStyle(.borderlessButton)
+.menuIndicator(.hidden)
+```
+
+`@AppStorage` remembers the selected coin, stock, amount, and direction between launches.
+
+## What made it easy
+
+- **A public, keyless oracle.** One `GET` returns a flat JSON array that maps straight onto a `Decodable` struct.
+- **One source of truth.** The widget reads the same feed the solvers price against, so it and the swapper always agree about where the market is.
+- **xStocks as ordinary symbols.** Tokenized equities need no special handling, just a ticker map.
+- **Any language works.** Because the data is plain HTTP and JSON, a native Swift client was a one-file integration (`PriceStore.swift` is 52 lines).
+
+## Tips for builders
+
+- Collapse the oracle's per-network rows to one price per symbol for display, and filter hub-side `_ASSET` symbols out of user-facing pickers.
+- Use oracle prices for display and orientation, and request a real quote at swap time for anything that moves money.
+- For read-only clients in any language, the oracle endpoint is all you need. Reach for the TypeScript SDK when you want to create and sign intents.
+
+## Build and distribution
+
+It builds with the Swift command line toolchain only (`xcode-select --install`, no full Xcode). `bundle.sh` runs `swift build -c release`, writes an `Info.plist` with `LSUIElement` set so there is no Dock icon, and ad-hoc signs the `.app`. First launch is right-click, then **Open**.
+
+## Stack
+
+Swift 5.9 · SwiftUI `MenuBarExtra` (`.window` style) · `URLSession` + `JSONDecoder` · `@AppStorage` · SODAX solver oracle (`GET https://api.sodax.com/v1/intent/oracle`) · no third-party dependencies
+
+## Try it
+
+Download: [v0.1.0 release](https://github.com/hazy2go/crypto-to-wallstreet-mac/releases/tag/v0.1.0) (`CryptoWallStreet-macOS.zip`). Unzip, drag to `/Applications`, right-click → **Open** the first time.
+
+Build from source:
+
+```bash
+git clone https://github.com/hazy2go/crypto-to-wallstreet-mac.git
+cd crypto-to-wallstreet-mac
+./bundle.sh
+open "dist/Crypto → Wall Street.app"
+```
+
+Or `swift run` during development.
+
+Repo: [github.com/hazy2go/crypto-to-wallstreet-mac](https://github.com/hazy2go/crypto-to-wallstreet-mac)
+
+The full swapper: [crypto-to-wallstreet.vercel.app](https://crypto-to-wallstreet.vercel.app)

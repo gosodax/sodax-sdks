@@ -1,0 +1,163 @@
+---
+title: "Let your AI agent build your SODAX integration"
+sidebarTitle: "Build with your AI agent"
+icon: plug
+description: "Paste one URL into your coding agent and it works from live SODAX data: networks, tokens, quotes, money market reserves, intent lookups and docs search. Add the SODAX skills and it writes v2-correct SDK code too. Here is the setup, client by client."
+---
+
+In May, SODAX [announced SDK V2](https://sodax.com/news/sodax-sdk-v2-brings-smoother-cross-network-execution-with-agentic-support) with built-in support for agentic workflows. This page is the hands-on part: how to point Claude Code, Cursor, VS Code, Windsurf or ChatGPT at SODAX so your agent stops guessing and starts building from real values.
+
+The short version: add one URL to your agent's MCP config.
+
+```
+https://builders.sodax.com/mcp
+```
+
+From that point the agent can read the live list of supported networks and swap tokens, pull a swap quote, inspect money market reserves and user positions, look up an intent by hash, and search the SODAX developer docs while it writes your code. No API key is required.
+
+<Note>
+  The Builders MCP never holds a key and never signs. The one tool that touches a transaction, `sodax_relay_submit_tx`, takes a transaction that is already signed and finalized and hands it to the intent relay. Your code builds the transaction and your wallet signs it.
+</Note>
+
+## Add it to your agent
+
+Most MCP clients accept the same JSON block:
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+<Tabs>
+  <Tab title="Claude Code">
+    One command from your project root:
+
+    ```bash
+    claude mcp add --transport http sodax-builders https://builders.sodax.com/mcp
+    ```
+  </Tab>
+  <Tab title="Cursor">
+    Put the JSON block above in `.cursor/mcp.json` for a single project, or add it under Settings → MCP to make it global.
+  </Tab>
+  <Tab title="VS Code / Copilot">
+    VS Code uses its own schema. Servers live under `servers` and the transport is named. Save this as `.vscode/mcp.json`:
+
+    ```json
+    {
+      "servers": {
+        "sodax-builders": {
+          "type": "http",
+          "url": "https://builders.sodax.com/mcp"
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Windsurf, ChatGPT and others">
+    Windsurf, ChatGPT, Claude Desktop, Cline, Goose and Roo Code are all listed as compatible on [builders.sodax.com](https://builders.sodax.com). Add `https://builders.sodax.com/mcp` using your client's own MCP config format. For clients that do not speak streamable HTTP, such as Gemini CLI, use the SSE endpoint instead: `https://builders.sodax.com/sse`.
+  </Tab>
+</Tabs>
+
+## What the agent can reach
+
+The live tools cover the same public data as the [SODAX HTTP API](/developers/http-api), so answers reflect today's configuration rather than whatever the model saw in training. A few of the ones you will lean on while building:
+
+| You want to know | Tool |
+| --- | --- |
+| Which networks SODAX supports | `sodax_get_supported_chains` |
+| Which tokens can be swapped, optionally per network | `sodax_get_swap_tokens` |
+| Chains, tokens and protocol settings in one call | `sodax_get_all_config` |
+| Spoke chain configs with contract addresses and RPCs | `sodax_get_all_chains_configs` |
+| Hub (Sonic) assets that represent spoke tokens | `sodax_get_hub_assets` |
+| A swap quote | `sodax_get_solver_quote` |
+| Money market assets, rates and reserves | `sodax_get_money_market_assets`, `sodax_get_money_market_reserve_assets` |
+| A wallet's lending and borrowing position | `sodax_get_user_position` |
+| The status of an intent or transaction | `sodax_get_intent`, `sodax_get_transaction`, `sodax_get_user_transactions` |
+| Whether a cross-network message has landed | `sodax_relay_get_transaction_packets` |
+
+Alongside the live data sit the documentation tools. They proxy search and full-page fetch over [docs.sodax.com](https://docs.sodax.com) and stay in sync as the docs change, so the agent can pull the current integration guide instead of recalling an old one. If docs ever look unavailable, `docs_health` checks the connection and `docs_refresh` reconnects.
+
+## Three layers, one workflow
+
+The MCP is one of three pieces SODAX ships for agents. Each covers a different gap.
+
+**1. Builders MCP: live data and docs.** A hosted server the agent calls at runtime. It answers "which tokens can be swapped from Base today?" or "why did this intent fail?" with current values.
+
+**2. `@sodax/skills`: version-locked SDK knowledge.** Skill files installed into your repo that teach the agent the right v2 API shapes, patterns and anti-patterns for `@sodax/sdk`, `@sodax/dapp-kit`, `@sodax/wallet-sdk-core` and `@sodax/wallet-sdk-react`. Training data drifts; these files match the SDK version you ship. Install them with the [skills CLI](https://github.com/vercel-labs/skills) from your repo root:
+
+```bash
+npx skills@latest add icon-project/sodax-sdks/packages/skills
+```
+
+That lands five skills: `sodax-build`, a front-door skill that interviews you and turns an idea into a product brief, plus one mode-gated skill per SDK package (`sodax-sdk`, `sodax-dapp-kit`, `sodax-wallet-sdk-core`, `sodax-wallet-sdk-react`). Each package skill switches between integration mode for new v2 code and migration mode for porting v1. To preview the skills before installing, add `--list`. To confirm what landed:
+
+```bash
+npx skills list
+```
+
+Prefer a devDependency, or working in a web chat? Use npm and point your agent at the router file:
+
+```bash
+pnpm add -D @sodax/skills
+```
+
+Then add a line to your project rules telling the agent to read `node_modules/@sodax/skills/AGENTS.md` before writing any `@sodax/*` code. When you bump the SDK, re-run the `npx skills` command or bump `@sodax/skills` so the knowledge moves with it.
+
+**3. `skill.md` and `llms.txt`: discoverability.** Any agent that can fetch a URL can start from [sodax.com/skill.md](https://sodax.com/skill.md), a hosted umbrella skill that routes to the granular `sodax-*` skills and lists the gotchas that cause silent failures, such as calling `sodax.config.initialize()` before config lookups and checking `result.ok` instead of using `try/catch`. [sodax.com/llms.txt](https://sodax.com/llms.txt) and [docs.sodax.com/llms.txt](https://docs.sodax.com/llms.txt) give agents a clean index of canonical pages.
+
+Skills keep the generated code correct. The MCP keeps the values inside it real. Install both.
+
+## A realistic first prompt
+
+With the MCP connected and skills installed in a fresh Next.js app, try something like:
+
+> "Add a swap page that lets a user swap USDC on Base into SOL on Solana using `@sodax/dapp-kit`. Before writing code, confirm both tokens are live on SODAX and show me a current quote for 100 USDC."
+
+Here is how the agent can work through it with the tools above:
+
+<Steps>
+  <Step title="Pick the right skills">
+    For a React dapp, the skills route the agent to `sodax-wallet-sdk-react` for wallet connection and `sodax-dapp-kit` (or its narrower `swap` child) for the swap flow, both in integration mode.
+  </Step>
+  <Step title="Check live support">
+    It calls `sodax_get_supported_chains` and `sodax_get_swap_tokens` filtered to Base and Solana, so the token list in your UI comes from current SODAX config.
+  </Step>
+  <Step title="Read the current guide">
+    It searches the docs through the MCP for the dapp-kit swap guide and follows today's version of it.
+  </Step>
+  <Step title="Get a real quote">
+    It resolves the pair to hub (Sonic) assets, as the [Builders MCP docs](/builders-mcp) describe, and calls `sodax_get_solver_quote`, giving you a real number to sanity-check before any code ships.
+  </Step>
+  <Step title="Write the code">
+    It writes the page with the patterns the skill enforces, such as reading `result.ok` on Result-returning calls and discriminating on `error.code`.
+  </Step>
+  <Step title="Confirm the swap you sign">
+    After you sign a small mainnet swap in your own wallet, it uses `sodax_get_user_transactions`, `sodax_get_intent` and `sodax_relay_get_transaction_packets` to confirm the intent and track delivery to Solana.
+  </Step>
+</Steps>
+
+SODAX is mainnet-only, so that last step is a real swap. Start small.
+
+This workflow is already proven in the wild: the community app [Swaps without Borders](/resources/blog/vibecode-saga-swaps-without-borders) went from an empty Next.js app to a mainnet swap in an afternoon using the Builders MCP.
+
+## Reference
+
+<CardGroup cols={2}>
+  <Card title="Builders MCP docs" icon="plug" href="/builders-mcp">
+    Client setup, tool overview and how the MCP pairs with skills.
+  </Card>
+  <Card title="AI Integration Guide" icon="robot" href="/ai-integration-guide">
+    Every way to install and wire `@sodax/skills`.
+  </Card>
+  <Card title="MCP server source" icon="github" href="https://github.com/gosodax/builders-sodax-mcp-server">
+    The open-source Builders MCP server.
+  </Card>
+  <Card title="SDK V2 announcement" icon="newspaper" href="https://sodax.com/news/sodax-sdk-v2-brings-smoother-cross-network-execution-with-agentic-support">
+    The May 2026 launch post.
+  </Card>
+</CardGroup>

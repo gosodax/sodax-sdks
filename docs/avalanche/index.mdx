@@ -1,0 +1,78 @@
+---
+title: "SODAX for Avalanche"
+sidebarTitle: "Overview"
+description: "Reach the users and liquidity of every SODAX network from your Avalanche product through the C-Chain. No contracts to deploy, your entire integration is TypeScript."
+icon: mountain
+---
+
+<Note>
+  **No new contracts.** SODAX's Avalanche spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary EVM transactions on the C-Chain, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+You keep shipping on Avalanche. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer, against the C-Chain. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## What to know on Avalanche
+
+To the SDK, Avalanche is a standard EVM network. SODAX has no Avalanche-specific code path: the same wallet provider, approvals, and intent flow apply as on any other EVM network. Two scoping notes:
+
+- **C-Chain only.** SODAX runs on the C-Chain (chain ID 43114), the EVM chain of Avalanche's Primary Network. AVAX held on the X-Chain or P-Chain is outside SODAX's reach until the user moves it to the C-Chain.
+- **AVAX is the native token.** It pays gas, uses 18 decimals, and needs no approval. Every other Avalanche token in the SODAX list is an ERC-20 and needs an allowance before it is swapped or supplied.
+
+## What you can build
+
+Two SODAX modules are relevant to Avalanche builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/avalanche/swaps">
+    Intent-based cross-network swaps. Users swap between AVAX or C-Chain tokens and assets on any supported network with one signed transaction on Avalanche. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/avalanche/money-market">
+    Cross-network lending and borrowing. Supply from Avalanche, borrow to Avalanche or any other supported network, and manage positions without running lending infrastructure.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/avalanche/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/avalanche/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/avalanche/quickstart): install the SDK, connect an Avalanche wallet, make your first cross-network swap.
+- [Swaps on Avalanche](/avalanche/swaps): approvals, quoting, fees, and execution.
+- [Money Market on Avalanche](/avalanche/money-market): supply, borrow, repay, and withdraw with cross-network collateral.
+- [Wallets](/avalanche/wallets): EVM wallets on Avalanche, and every other network's wallets through one interface.
+- [Networks & Assets](/avalanche/networks-and-assets): what is live on Avalanche today and what your users can reach.
+- [Avalanche FAQ](/avalanche/faq): the questions Avalanche engineers actually ask.
+
+## Avalanche references
+
+- [**Primary Network**](https://build.avax.network/docs/primary-network): the C-Chain, P-Chain, and X-Chain, with C-Chain chain ID and RPC details.
+- [**C-Chain RPC**](https://build.avax.network/docs/rpcs/c-chain): the C-Chain JSON-RPC API.
+- [**Avalanche Explorer**](https://explorer.avax.network/c-chain): the C-Chain explorer, for checking transactions and token balances.
+
+---
+
+Building something? Start with the [Quickstart](/avalanche/quickstart).

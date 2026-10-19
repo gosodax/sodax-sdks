@@ -88,6 +88,7 @@ All swap methods are accessible through `sodax.swaps`:
 ### Intent Creation & Execution
 
 - `swap(params)` — Full end-to-end swap (recommended — handles all steps automatically); signed execution only
+- `swapWithApproval(params)` — `swap` with the source-token approval folded in; one signature on an EIP-5792 wallet (see [Approve and Swap in One Signature](#approve-and-swap-in-one-signature)); signed execution only
 - `createIntent(params)` — Create an intent on the source spoke chain; supports both signed (`raw: false`) and raw (`raw: true`) modes
 - `createLimitOrder(params)` — Full end-to-end limit order (no deadline, must be cancelled manually); signed execution only
 - `createLimitOrderIntent(params)` — Create a limit order intent only (no relay/solver notify); supports raw and signed modes
@@ -148,6 +149,7 @@ Only the two `timeout` terms are yours to tune. Opting out with `useBackendSubmi
 
 - `isAllowanceValid(params)` — Check if the spender contract has sufficient token allowance
 - `approve(params)` — Approve token spend (EVM/Sonic/Stellar); supports raw and signed modes
+- `getApprovalStrategy(params)` — Which path `swapWithApproval` would take: `'not-required'`, `'atomic-batch'` (one signature) or `'sequential'`
 
 ### Utility Methods
 
@@ -255,6 +257,8 @@ function isSodaxError(e: unknown): e is SodaxError;
 | `createIntent` / `createLimitOrderIntent` | `SwapCreateIntentError` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` |
 | `postExecution` | `PostExecutionError` | `EXECUTION_FAILED`, `EXTERNAL_API_ERROR`, `UNKNOWN` |
 | `createLimitOrder` | `SwapError` | (same as `swap`) |
+| `swapWithApproval` | `SwapWithApprovalError` (guard `isSwapWithApprovalError`) | `swap`'s codes, plus `APPROVE_FAILED` and `ALLOWANCE_CHECK_FAILED` |
+| `getApprovalStrategy` | `ApprovalStrategyError` | `ALLOWANCE_CHECK_FAILED` |
 
 **Important:** `postExecution` alone never emits relay/verify codes — those appear only on `swap` because only `swap` orchestrates verify + relay. Don't write a unified switch that handles both with the same union. Note that `swap` orchestrates verify + relay only on the **client-side path** (the fallback, or `useBackendSubmitTx: false`), so `TX_VERIFICATION_FAILED` and `phase: 'verify'` never surface on a swap the backend completes.
 
@@ -274,8 +278,21 @@ function isSodaxError(e: unknown): e is SodaxError;
   // Only on VALIDATION_FAILED:
   field?: string;
   reason?: string;
+  // On `swap` failures after the source tx was broadcast (TX_VERIFICATION_FAILED, the relay codes,
+  // and postExecution failures) — the tx to keep reading status for with `getDetailedStatus`:
+  srcTxHash?: string;
+  // swapWithApproval only:
+  action?: 'swapWithApproval';
+  approvalStrategy?: 'atomic-batch' | 'sequential';
+  batchId?: string;            // the wallet's EIP-5792 batch id, once it accepted the batch
+  statusCode?: number;         // EIP-5792 status code of a failed batch
+  approveTxHash?: string;      // an approval that did not confirm
 }
 ```
+
+A post-broadcast failure does not mean the swap failed: with backend submit-tx on, the backend keeps working on
+it after `swap()` gives up. Read `error.context.srcTxHash` (with `srcChainKey`) and keep polling
+[`getDetailedStatus`](#get-detailed-status) rather than reporting the swap as lost.
 
 #### Discrimination example
 
@@ -522,7 +539,7 @@ console.log(estimatedSeconds); // e.g. 15
 
 ## Token Approval Flow
 
-`swap()` and `createIntent()` do not approve the input token for you. Before executing, call `isAllowanceValid()` and `approve()` when it returns `false`. On EVM chains this is an ERC-20 allowance; on Stellar it is a trustline; on other chains it returns `true` and no approval is needed. Native gas tokens on EVM need no approval.
+`swap()` and `createIntent()` do not approve the input token for you. Before executing, call `isAllowanceValid()` and `approve()` when it returns `false` — or call [`swapWithApproval()`](#approve-and-swap-in-one-signature), which does both. On EVM chains this is an ERC-20 allowance; on Stellar it is a trustline; on other chains it returns `true` and no approval is needed. Native gas tokens on EVM need no approval.
 
 - **Hub (Sonic)**: checks allowance against the intents contract
 - **EVM spoke chains**: checks allowance against the spoke's asset manager
@@ -614,6 +631,101 @@ map and no way to broadcast them the wrong way round.
 ### Stellar Trustline
 
 For Stellar as the source chain, `isAllowanceValid` checks trustline balance sufficiency and `approve` adds/increases the trustline. For Stellar as the **destination** chain, frontends must manually establish trustlines before executing swaps. See `packages/sdk/docs/STELLAR_TRUSTLINE.md` for details.
+
+## Approve and Swap in One Signature
+
+`swapWithApproval()` is `swap()` with the approval folded in. On a wallet that supports
+[EIP-5792](https://eips.ethereum.org/EIPS/eip-5792) atomic batches it sends the approval and the swap transaction as
+**one batch — one signature, all or nothing** — and otherwise falls back to approving first. Completion afterwards is
+exactly `swap()`'s (backend submit-tx with the client-side relay fallback). `swap()`, `approve()` and `createIntent()`
+are unchanged.
+
+```typescript
+const strategy = await sodax.swaps.getApprovalStrategy({ params: createIntentParams, walletProvider });
+// 'not-required' | 'atomic-batch' | 'sequential' — label the button before the user clicks
+
+const result = await sodax.swaps.swapWithApproval({ params: createIntentParams, walletProvider });
+if (result.ok) {
+  console.log(result.value.approvalStrategy, result.value.intentDeliveryInfo.srcTxHash);
+}
+```
+
+| Strategy | When | Signatures |
+| --- | --- | --- |
+| `'not-required'` | The allowance already covers `inputAmount`, or the token needs none (native token, chains without allowances) | 1 |
+| `'atomic-batch'` | EVM spoke source, and the wallet reports EIP-5792 atomic support for that chain | 1 |
+| `'sequential'` | Anything else: the Sonic hub, Stellar trustlines, wallets without EIP-5792 | 2 (approve, wait for it to confirm, then swap), or 3 when the token must reset a stale allowance first |
+
+**Which wallets batch.** The wallet provider must implement the optional `getAtomicBatchSupport` / `sendAtomicBatch`
+/ `waitForBatch` methods — `EvmWalletProvider` from `@sodax/wallet-sdk-core` does for a connected browser wallet, never
+for a private-key account. The wallet then decides per chain: a status of `'supported'` batches immediately, and
+`'ready'` means the wallet first asks the user to upgrade the account (MetaMask: an EIP-7702 smart account, same
+address, once per chain). Wallets support EIP-5792 on a subset of networks, so expect `'sequential'` on chains your
+users' wallets do not cover.
+
+**Not asking for the upgrade.** Pass `allowAccountUpgrade: false` to `getApprovalStrategy` and `swapWithApproval` to
+treat a `'ready'` wallet as unable to batch: it approves separately and never sees the upgrade prompt. An account that
+is already `'supported'` still batches. The default is `true`. Whether to set it, and whether to remember a user's
+answer, is up to your app:
+
+```typescript
+import { ACCOUNT_UPGRADE_DECLINED } from '@sodax/sdk';
+
+const result = await sodax.swaps.swapWithApproval({ params, walletProvider });
+if (!result.ok && result.error.code === 'USER_REJECTED' && result.error.context?.reason === ACCOUNT_UPGRADE_DECLINED) {
+  // The user said no to the smart account, not to the swap: offer the two-signature path.
+  await sodax.swaps.swapWithApproval({ params, walletProvider, allowAccountUpgrade: false });
+}
+```
+
+**The batch.** `[approve(0)?, approve(amount), deposit]`, in that order — the reset leg appears only for a token that
+rejects changing a non-zero allowance (see [Raw Approval Transaction](#raw-approval-transaction)). The batch's
+transaction hash becomes `intentDeliveryInfo.srcTxHash`, the hash the relay and backend submit-tx track.
+
+**Failures.** If the wallet turns the batch down before signing anything (for example EIP-5792 `5760`, atomicity
+not supported), `swapWithApproval` approves separately instead and reports `approvalStrategy: 'sequential'`. Once the
+user has seen the batch it is never retried as separate transactions, since that would mean a second round of
+prompts or a duplicate of a batch that may still land:
+
+- the user rejects the batch → `USER_REJECTED`; declining the account upgrade (EIP-5792 `5750`) is also
+  `USER_REJECTED`, with `context.reason: ACCOUNT_UPGRADE_DECLINED` (`'account-upgrade-declined'`);
+- the wallet reports the batch never included or fully reverted (EIP-5792 `400` / `500`) →
+  `INTENT_CREATION_FAILED` with `context.reason: 'atomic-batch-failed'`, `context.batchId` and
+  `context.statusCode`. Nothing was deposited;
+- anything else short of a confirmed deposit receipt (not confirmed within `timeout`, a partial revert, receipts
+  that do not identify the deposit) → `TX_VERIFICATION_FAILED` with `context.reason: ATOMIC_BATCH_UNCONFIRMED`
+  (`'atomic-batch-unconfirmed'`), `context.batchId` and `context.callCount`. It may have landed, so do not send it
+  again — resume it (below);
+- on the sequential path, an approval that does not confirm → `APPROVE_FAILED` with `context.reason:
+  'approve-not-confirmed'` and `context.approveTxHash`;
+- a failed allowance read → `ALLOWANCE_CHECK_FAILED`.
+
+Every other code is `swap()`'s, including `context.srcTxHash` on post-broadcast failures. Errors from the approval
+step carry `context.action: 'swapWithApproval'`; once the path is chosen they also carry `context.approvalStrategy`.
+
+**Resuming an unconfirmed batch.** Call `swapWithApproval` again with the same `params` and wallet, plus
+`resumeBatchId: error.context.batchId` and `resumeBatchCallCount: error.context.callCount` (without the count, a
+batch the wallet confirmed as one transaction per call stays unconfirmed). It sends nothing: it waits for that batch
+again and, once its deposit confirms, relays it client-side and notifies the solver — the original intent is read
+back from the hub transaction, so nothing from the first call is needed. While the batch is still pending it returns
+the same unconfirmed error, so you can keep calling it; a batch the wallet reports as never included comes back as
+`atomic-batch-failed`.
+
+```typescript
+import { ATOMIC_BATCH_UNCONFIRMED } from '@sodax/sdk';
+
+const result = await sodax.swaps.swapWithApproval({ params, walletProvider });
+if (!result.ok && result.error.context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
+  const { batchId, callCount } = result.error.context;
+  // Later, e.g. from a "Check again" button — this sends nothing new:
+  const resumed = await sodax.swaps.swapWithApproval({
+    params,
+    walletProvider,
+    resumeBatchId: String(batchId),
+    resumeBatchCallCount: Number(callCount),
+  });
+}
+```
 
 ---
 
@@ -1066,6 +1178,19 @@ type DetailedSwapStatus =
 ```
 
 A point-in-time read — poll it yourself, or use `@sodax/dapp-kit`'s `useDetailedStatus`.
+
+To show a status without switching on `source`, collapse it with `summarizeSwapStatus` — pure, so it works on any
+`DetailedSwapStatus` you hold:
+
+```typescript
+import { summarizeSwapStatus } from '@sodax/sdk';
+
+if (result.ok) {
+  const { state, hubTxHash, fillTxHash } = summarizeSwapStatus(result.value);
+  // state: 'pending' | 'solved' | 'failed'. fillTxHash may be absent even when solved — the backend can
+  // confirm a fill from the on-chain journal without one.
+}
+```
 
 ### Why it exists
 

@@ -74,6 +74,7 @@ const HOOKS: Array<{ path: string; nativeThrow?: true }> = [
   { path: 'swap/useCreateLimitOrder.ts' },
   { path: 'swap/useSwap.ts' },
   { path: 'swap/useSwapApprove.ts' },
+  { path: 'swap/useSwapWithApproval.ts' },
   { path: 'swapsApi/useSwapsApiApprove.ts' },
   { path: 'swapsApi/useSwapsApiApproveAndBroadcast.ts' },
   { path: 'swapsApi/useSwapsApiCancelIntent.ts' },

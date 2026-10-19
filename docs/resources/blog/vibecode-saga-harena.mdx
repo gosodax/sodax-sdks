@@ -1,0 +1,174 @@
+---
+title: "VibeCode Saga: HARENA: a cross-network swap staged as a gladiator duel"
+sidebarTitle: "HARENA"
+icon: trophy
+description: "A token swap on the SODAX SDK where the finishing blow of the duel is the solver fill. Twenty champions across five networks, each one a real swappable token, with the animation held open until the intent settles on mainnet."
+---
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.youtube.com/embed/m7EIo-rJ60Y"
+  title="HARENA demo video"
+  frameBorder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  referrerPolicy="strict-origin-when-cross-origin"
+  allowFullScreen
+></iframe>
+
+## The finishing blow is the fill
+
+In [HARENA](https://harena-fawn.vercel.app), you send a champion onto the sand and the trade settles by single combat. The duel is choreographed, but its last beat is real: the timeline pauses right before the finishing blow and only plays it once the SODAX solver reports the intent as `SOLVED`. What the crowd sees is the truth about where the money went.
+
+Everything around that moment is theatre. The swap itself is a real cross-network intent, signed in your own wallet, routed through the hub on Sonic and filled by solvers. The app never holds funds.
+
+## What it is
+
+HARENA is a token swap dressed as an arena fight bill. The flow reads like a card at the Colosseum:
+
+`fight bill → connect a seal → house → champion → opposing house → opposition → wager → versus → duel → record`
+
+Each house is one real network, and each champion is a token SODAX swaps:
+
+| Solana | Base | BNB Chain | Arbitrum | Sonic |
+| --- | --- | --- | --- | --- |
+| SOL, BONK, JUP, PYTH | ETH, cbBTC, AERO, VIRTUAL | BNB, CAKE, ASTER, XRP | ARB, LINK, UNI, PENDLE | S, SODA, USDC, WETH |
+
+That is 20 champions across 5 houses. The epithets, stat lines and finishers are arena fiction; the tokens, quotes and settlement are not.
+
+You connect a wallet (the "seal"), pick a champion from your house and an opponent from another, and name the stake on the wager screen. That screen is the only place anything is signed. Once your signature lands, the duel begins and plays while the intent settles. The record at the end links your source transaction and the fill transaction on the right explorer.
+
+There is also a `?showcase=1` mode that runs the whole flow with a simulated quote and an instantly settling duel, so the piece can be shown or recorded without a funded wallet. Nothing in that mode touches a network. Any stage can be deep linked too, for example `/?stage=wager&a=sol&b=soda`.
+
+## The design idea: the duel is the loading state
+
+Cross-network swaps take a few seconds to settle, and most apps fill that gap with a spinner. I wanted the wait to be the show.
+
+So the signature is the hinge of the whole experience. Everything before the wager is choosing. Everything after it is watching your intent travel through the hub to a solver, told as a fight. The animation runs its exchanges, reaches the finisher, and holds there with a pulsing vignette and the line "The crowd holds its breath. The ledger is still counting." When the solver reports the fill, the blow lands and the record shows the fill hash.
+
+That only works because SODAX gives a clean status signal for every intent. One hook tells the arena exactly when to release the timeline.
+
+## The SDK pieces that carried this
+
+### 1. The roster resolves against the SDK's own token tables
+
+No champion has a hardcoded address. Each fighter is resolved by network and symbol against `swapSupportedTokens` from `@sodax/sdk`:
+
+```ts
+import { swapSupportedTokens } from "@sodax/sdk";
+
+export function tokensOn(network: NetworkId): readonly XToken[] {
+  return swapSupportedTokens[CHAIN_KEY[network]] ?? [];
+}
+
+export function tokenFor(fighter: Fighter): XToken | undefined {
+  return tokensOn(fighter.network).find((t) => t.symbol === fighter.symbol);
+}
+```
+
+`CHAIN_KEY` maps each house to a `ChainKeys` value (`SOLANA_MAINNET`, `BASE_MAINNET`, `BSC_MAINNET`, `ARBITRUM_MAINNET`, `SONIC_MAINNET`). The SDK stays the source of truth for contract addresses, so the arena follows SODAX automatically.
+
+### 2. One provider tree, two wallet families
+
+`app/providers.tsx` wraps the app in `SodaxProvider` and `SodaxWalletProvider`. Solana and the four EVM networks sit behind one config:
+
+```ts
+const walletConfig: SodaxWalletConfig = {
+  SOLANA: {
+    autoConnect: true,
+    chains: { [ChainKeys.SOLANA_MAINNET]: {} },
+  },
+  EVM: {
+    ssr: true,
+    reconnectOnMount: true,
+    chains: {
+      [ChainKeys.SONIC_MAINNET]: {},
+      [ChainKeys.BASE_MAINNET]: {},
+      [ChainKeys.BSC_MAINNET]: {},
+      [ChainKeys.ARBITRUM_MAINNET]: {},
+    },
+  },
+};
+```
+
+The seal screen is built from `useXConnectors`, `useXConnect`, `useXAccount` and `useXDisconnect`, so every installed wallet shows up as a connectable seal with its own icon.
+
+### 3. The wager is four dapp-kit hooks
+
+The wager screen reads the balance with `useXBalances`, prices the stake with `useQuote`, and signs with `useSwapAllowance`, `useSwapApprove` and `useSwap`. The quote feeds straight into the intent:
+
+```ts
+const minOut: bigint | null =
+  quotedOut !== null ? (quotedOut * (10000n - SLIPPAGE_BPS)) / 10000n : null;
+```
+
+`SLIPPAGE_BPS` is `50n`, so 0.5%. At submit, the deadline comes from the hub's own clock:
+
+```ts
+const dl = await sodax.swaps.getSwapDeadline();
+const deadline = dl.ok
+  ? dl.value
+  : BigInt(Math.floor(Date.now() / 1000)) + 300n;
+
+const r = await swap({ params: { ...intentParams, deadline }, walletProvider });
+```
+
+The result carries `intentDeliveryInfo`, which gives the app both handles it needs: `srcTxHash` for the receipt link on the champion's network, and the hub transaction hash that the solver answers status questions about.
+
+### 4. `useStatus` releases the finisher
+
+`lib/duel.ts` turns solver status into something the arena can act on:
+
+```ts
+const { data } = useStatus({
+  params: {
+    intentTxHash: sub && !sub.showcase ? sub.hubTxHash : undefined,
+  },
+});
+
+if (data?.ok) {
+  const { status, fill_tx_hash } = data.value;
+  if (status === SolverIntentStatusCode.SOLVED) {
+    return { phase: "settled", fillTxHash: fill_tx_hash };
+  }
+}
+```
+
+`useStatus` polls every three seconds and stops on a terminal code. On the animation side, the GSAP master timeline places `master.addPause()` just before the finisher, and an effect calls `tl.play()` the moment the phase flips to `settled`. That is the whole bridge between a solver and a sword.
+
+### 5. A partner fee in one config field
+
+HARENA takes a 15 bps house cut through the SDK's partner fee:
+
+```ts
+export const PARTNER_FEE: PartnerFee | undefined = /^0x[0-9a-fA-F]{40}$/.test(
+  PARTNER_ADDRESS,
+)
+  ? { address: PARTNER_ADDRESS as `0x${string}`, percentage: 15 }
+  : undefined;
+```
+
+It is passed once as `{ swaps: { partnerFee: PARTNER_FEE } }` to `SodaxProvider`. Fees accrue on the Sonic hub as wrapped ERC-20 and are claimed through `sodax.partners.feeClaim`.
+
+## What made it easy
+
+- **The token tables ship with the SDK.** Building a roster of 20 real assets across 5 networks was a list of symbols, with `swapSupportedTokens` supplying every address and decimal.
+- **Every swap step is a hook.** Quote, allowance, approve, swap and status each come from `@sodax/dapp-kit`, so the wager screen is mostly UI.
+- **A single status signal.** `SolverIntentStatusCode.SOLVED` plus `fill_tx_hash` was everything the animation needed to know when to land the blow and what to show on the record.
+- **Solana and EVM in one place.** `@sodax/wallet-sdk-react` handled both wallet families with the same hooks, keyed by `xChainType`.
+- **Monetization is one field.** The partner fee is a config value, not a contract.
+
+## Tips for builders
+
+- Treat intent status as a creative input. Any long animation, progress story or reveal can be gated on `useStatus`, which turns settlement time into part of the experience.
+- Resolve tokens by `(chainKey, symbol)` against `swapSupportedTokens` rather than copying addresses into your app.
+- Define your `SodaxProvider` config at module level so it keeps a stable reference across renders.
+
+## Stack
+
+Next.js 16 · React 19 · TypeScript · `@sodax/sdk` ^2.1.0 · `@sodax/dapp-kit` ^2.1.0 · `@sodax/wallet-sdk-react` ^2.1.0 · `@sodax/types` ^2.1.0 · TanStack Query · wagmi · viem · GSAP · Tailwind CSS 4 · Vercel
+
+The fighter plates were generated with `gpt_image_2` through the Higgsfield CLI. The look is ink on cream with one oxblood accent.
+
+## Try it
+
+Live: [harena-fawn.vercel.app](https://harena-fawn.vercel.app) (add `?showcase=1` to walk the full duel without a wallet)

@@ -76,6 +76,21 @@ const evmBrowser = new EvmWalletProvider({
 });
 ```
 
+A connected wallet can also send several transactions as one atomic [EIP-5792](https://eips.ethereum.org/EIPS/eip-5792)
+batch — one signature, all or nothing. A private-key account always reports `'unsupported'`.
+
+```ts
+const support = await evmBrowser.getAtomicBatchSupport(8453); // 'supported' | 'ready' | 'unsupported'
+if (support !== 'unsupported') {
+  const batchId = await evmBrowser.sendAtomicBatch([approveTx, transferTx], { expectedChainId: 8453 });
+  const { status, receipts } = await evmBrowser.waitForBatch(batchId);
+}
+```
+
+`'ready'` means the wallet asks the user to upgrade the account (MetaMask: an EIP-7702 smart account) when the
+first batch is sent.
+`waitForBatch` reads the batch status again after a failed read, within its timeout and up to three reads.
+
 ### Solana
 
 ```ts

@@ -103,6 +103,15 @@ import {
   type INearWalletProvider,
   type IBitcoinWalletProvider,
 
+  // Approve + swap in one signature (see features/swap.md)
+  type SwapApprovalStrategy,     // 'not-required' | 'atomic-batch' | 'sequential'
+  type SwapWithApprovalParams,
+  type SwapWithApprovalResponse,
+  type SwapWithApprovalErrorCode,
+  type ApprovalStrategyErrorCode,
+  ATOMIC_BATCH_UNCONFIRMED,      // context.reason: the batch may still land, do not retry
+  ACCOUNT_UPGRADE_DECLINED,      // context.reason: retry with allowAccountUpgrade: false
+
   // Param types (per feature)
   type CreateIntentParams,
   type CreateLimitOrderParams,

@@ -7,6 +7,7 @@ import type {
   PublicClientConfig,
   SendTransactionParameters,
   Transport,
+  WaitForCallsStatusParameters,
   WaitForTransactionReceiptParameters,
   WalletClient,
   WalletClientConfig,
@@ -19,6 +20,12 @@ export type EvmSendTransactionPolicy = Omit<Partial<SendTransactionParameters>, 
 export type EvmWaitForTransactionReceiptPolicy = Partial<Omit<WaitForTransactionReceiptParameters, 'hash'>>;
 
 /**
+ * Wait-for-batch params (polling/timeout). `id` is positional; viem's `status` predicate is left out so a
+ * batch is only ever reported once it is terminal.
+ */
+export type EvmWaitForCallsStatusPolicy = Partial<Omit<WaitForCallsStatusParameters, 'id' | 'status'>>;
+
+/**
  * Defaults applied to every call. Per-call options shallow-merge over these.
  * `publicClient`/`walletClient`/`transport` only apply in private-key mode
  * (consumer brings clients in browser-extension mode).
@@ -29,6 +36,7 @@ export type EvmWalletDefaults = {
   transport?: HttpTransportConfig;
   sendTransaction?: EvmSendTransactionPolicy;
   waitForTransactionReceipt?: EvmWaitForTransactionReceiptPolicy;
+  waitForCallsStatus?: EvmWaitForCallsStatusPolicy;
 };
 
 /** Configuration for constructing an `EvmWalletProvider` backed by a raw private key. */

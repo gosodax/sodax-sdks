@@ -12,6 +12,7 @@ import {
   DEFAULT_BRIDGE_API_BASE_URL,
   envBridgeApiBaseUrl,
   envLeverageYieldApiBaseUrl,
+  envPrivyAppId,
   envSodaxApiKey,
   envSwapsApiBaseUrl,
   bpsToPercentText,
@@ -37,7 +38,14 @@ const URL_FIELDS = [
 const ADDRESS_FIELDS = ['intentsContract', 'protocolIntentsContract', 'partnerFeeAddress'] as const;
 /** Fields whose unset default is the effective gateway — see `defaultsFor`. */
 const GATEWAY_INHERITED_FIELDS = ['swapsApiBaseUrl', 'leverageYieldApiBaseUrl'] as const;
-const TEXT_FIELDS = [...URL_FIELDS, ...ADDRESS_FIELDS, 'partnerFeePercent', 'apiKey', 'leverageYieldApiKey'] as const;
+const TEXT_FIELDS = [
+  ...URL_FIELDS,
+  ...ADDRESS_FIELDS,
+  'partnerFeePercent',
+  'apiKey',
+  'leverageYieldApiKey',
+  'privyAppId',
+] as const;
 
 type TextField = (typeof TEXT_FIELDS)[number];
 
@@ -71,6 +79,8 @@ function defaultsFor(env: SolverEnv, gatewayUrl: string = DEFAULT_API_BASE_URL):
     // modal, a tooltip and the clipboard. Empty means "inherit it", which the hint says out loud.
     apiKey: '',
     relayerApiEndpoint: DEFAULT_RELAYER_API_ENDPOINT,
+    // A Privy app id is public (it ships in the bundle), so unlike the API key it is prefilled.
+    privyAppId: envPrivyAppId ?? '',
   };
 }
 
@@ -100,6 +110,7 @@ function seedDraft(env: SolverEnv, s: SodaxSettings): Draft {
     partnerFeePercent: s.partnerFeeBps === null ? defaults.partnerFeePercent : bpsToPercentText(s.partnerFeeBps),
     apiKey: s.apiKey ?? defaults.apiKey,
     relayerApiEndpoint: s.relayerApiEndpoint ?? defaults.relayerApiEndpoint,
+    privyAppId: s.privyAppId ?? defaults.privyAppId,
   };
 }
 
@@ -166,6 +177,7 @@ function draftToSettings(draft: Draft): SodaxSettings {
     relayerApiEndpoint: url('relayerApiEndpoint'),
     partnerFeeAddress: address('partnerFeeAddress'),
     partnerFeeBps: percentTextToBps(draft.partnerFeePercent),
+    privyAppId: norm('privyAppId'),
   };
 }
 
@@ -208,6 +220,7 @@ function draftToDebugJson(draft: Draft): string {
       partnerFeeBps: percentTextToBps(draft.partnerFeePercent) ?? '(unset)',
       apiKey: draft.apiKey.trim() ? '(set)' : '(unset)',
       relayerApiEndpoint: draft.relayerApiEndpoint.trim(),
+      privyAppId: draft.privyAppId.trim() || '(unset)',
     },
     null,
     2,
@@ -437,7 +450,13 @@ export function SodaxSettingsModal({ open, onOpenChange }: { open: boolean; onOp
 
   const handleSave = () => {
     if (hasErrors) return;
-    applySodaxSettings(draft.env, draftToSettings(draft));
+    const next = draftToSettings(draft);
+    applySodaxSettings(draft.env, next);
+    // The wallet config is read once at start-up (`index.tsx`), so a new Privy app id needs a fresh page.
+    if (next.privyAppId !== sodaxSettings.privyAppId) {
+      window.location.reload();
+      return;
+    }
     onOpenChange(false);
   };
 
@@ -648,6 +667,17 @@ export function SodaxSettingsModal({ open, onOpenChange }: { open: boolean; onOp
             error={errors.relayerApiEndpoint}
             hint="Used by Swap SDK / Bridge SDK client-side relay when submit-tx is Off."
             onChange={value => set('relayerApiEndpoint', value)}
+          />
+
+          <SectionTitle>Wallet</SectionTitle>
+
+          <TextRow
+            label="Privy app id"
+            value={draft.privyAppId}
+            defaultValue={defaults.privyAppId}
+            placeholder={envPrivyAppId ? 'Empty uses VITE_PRIVY_APP_ID' : 'Not set — no Email (Privy)'}
+            hint={`Adds "Email (Privy)" to the EVM wallet list. Allow ${window.location.origin} in the Privy dashboard. Saving a change reloads the page.`}
+            onChange={value => set('privyAppId', value)}
           />
         </div>
 
