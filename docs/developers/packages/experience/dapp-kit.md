@@ -19,7 +19,7 @@ High-level React hooks library for dApp developers. Wraps `@sodax/sdk` with Reac
 - **Partner** — `useFetchAssetsBalances`, `useGetAutoSwapPreferences`, `useIsTokenApproved`, `useApproveToken`, `useSetSwapPreference`, `useFeeClaimSwap`, `useFeeClaimWithdraw`, `usePartnerCancelIntent`, `useGetUserIntent`, `useGetIntentDetails`
 - **Recovery** — `useHubAssetBalances`, `useWithdrawHubAsset`
 - **Backend Queries** — Intent tracking, swap-tx submission + status, orderbook, money market position queries
-- **Shared** — `useXBalances`, `useDeriveUserWalletAddress`, `useGetUserHubWalletAddress`, `useStellarTrustlineCheck`, `useEstablishTrustline`, `useStellarGate`, `useNearStorageCheck`, `useRegisterNearStorage`, `useNearStorageGate`, `useEstimateGas`
+- **Shared** — `useBalances`, `useXBalances`, `useDeriveUserWalletAddress`, `useGetUserHubWalletAddress`, `useStellarTrustlineCheck`, `useEstablishTrustline`, `useStellarGate`, `useNearStorageCheck`, `useRegisterNearStorage`, `useNearStorageGate`, `useEstimateGas`
 - **Sponsoring** — `useStellarAccountActive`, `useStellarAccountStatus`, `useSponsorConfig`, `useActivateStellarAccount`
 
 ## Installation
@@ -302,6 +302,7 @@ expires unfilled, so those go through `useSubmitLeveragePositionIntent()`, which
 
 - [`useSodaxContext()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useSodaxContext.ts) — Access the `Sodax` SDK instance
 - [`useHubProvider()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/provider/useHubProvider.ts) — Access the hub chain (Sonic) provider
+- [`useBalances()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useBalances.ts) — A user's own wallet balances for a list of tokens on one chain, read through the core SDK (`sodax.spoke.getWalletBalances`); see [Read wallet balances](https://docs.sodax.com/developers/how-to/wallet-balances)
 - [`useXBalances()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useXBalances.ts) — Cross-chain token balances for an address
 - [`useDeriveUserWalletAddress()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useDeriveUserWalletAddress.ts) — Derive hub wallet address (CREATE3)
 - [`useGetUserHubWalletAddress()`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useGetUserHubWalletAddress.ts) — Derive hub wallet address (wallet router)
