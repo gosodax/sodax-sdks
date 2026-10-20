@@ -3,7 +3,7 @@
  * Forbidden to import types from other packages in this file (exception for shared types)!
  */
 
-import type { Address, Hex, RpcFailoverConfig, TxPollingConfig } from '../shared/shared.js';
+import type { Address, Hex, HttpUrl, RpcFailoverConfig, TxPollingConfig } from '../shared/shared.js';
 import {
   sonicSupportedTokens,
   redbellySupportedTokens,
@@ -26,6 +26,7 @@ import {
   kaiaSupportedTokens,
   stacksSupportedTokens,
   hederaSupportedTokens,
+  tronSupportedTokens,
   robinhoodSupportedTokens,
 } from './tokens.js';
 
@@ -56,11 +57,45 @@ export const RelayChainIdMap = {
   [ChainKeys.KAIA_MAINNET]: 27489n,
   [ChainKeys.STACKS_MAINNET]: 60n,
   [ChainKeys.HEDERA_MAINNET]: 18501n,
+  // Tron settles through the MPC relay, not the intent relay (see MpcRelayChainMap below). This
+  // entry exists only to keep the map total (Record<ChainKey, bigint>) and mirrors Tron's native
+  // chain id; `SpokeService.settle` routes MPC chains away before an intent-relay path is reached.
+  [ChainKeys.TRON_MAINNET]: 728126428n,
   [ChainKeys.ROBINHOOD_MAINNET]: 21071n,
 } as const satisfies Record<ChainKey, bigint>;
 
 export type IntentChainId = (typeof RelayChainIdMap)[keyof typeof RelayChainIdMap];
 export const INTENT_CHAIN_IDS = Object.values(RelayChainIdMap);
+
+/**
+ * Withdraw-auth scheme byte for the MPC relay. It pins curve + signature wrapping + identity
+ * derivation together, so a client cannot mix them to forge an identity:
+ * `0` EVM, `1` Tron, `2` generic ed25519, `3` XRP, `4` Aptos.
+ */
+export type MpcWithdrawScheme = 0 | 1 | 2 | 3 | 4;
+
+export type MpcRelayChainInfo = {
+  /** The relay's `srcChain` / `chain_id` for this chain; sent to the relay as a decimal string. */
+  chainId: bigint;
+  /** Scheme the relay expects a withdraw-auth signature from this chain to use. */
+  withdrawScheme: MpcWithdrawScheme;
+};
+
+/**
+ * Per-chain identity for the **MPC relay** (NEAR chain signatures) — the counterpart of
+ * {@link RelayChainIdMap} for the other relay.
+ *
+ * Unlike that map this one is deliberately PARTIAL: membership is the definition. A chain in here
+ * settles through the MPC relay (deposit paid to a shared reserve with a payload-hash memo, tracked
+ * over the relay's REST API); every other chain rides the intent relay. Tron is the only member
+ * today — XRP (`3`) and Aptos (`4`) settle the same way and join by being added here, which is also
+ * why the scheme lives in the map rather than in a chain's spoke service.
+ */
+export const MpcRelayChainMap = {
+  [ChainKeys.TRON_MAINNET]: { chainId: 728126428n, withdrawScheme: 1 },
+} as const satisfies Partial<Record<ChainKey, MpcRelayChainInfo>>;
+
+export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
 
 export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey>(
   Object.entries(RelayChainIdMap).map(([chainKey, chainId]) => [chainId, chainKey as ChainKey]),
@@ -371,6 +406,20 @@ export const baseChainInfo = {
       contractUrl: 'https://hashscan.io/mainnet/contract/',
     },
   },
+  [ChainKeys.TRON_MAINNET]: {
+    name: 'Tron',
+    key: ChainKeys.TRON_MAINNET,
+    type: 'TRON',
+    chainId: 728126428,
+    mainnet: true,
+    logo: chainLogo(ChainKeys.TRON_MAINNET),
+    explorer: {
+      baseUrl: 'https://tronscan.org/#/',
+      txUrl: 'https://tronscan.org/#/transaction/',
+      addressUrl: 'https://tronscan.org/#/address/',
+      contractUrl: 'https://tronscan.org/#/contract/',
+    },
+  },
   [ChainKeys.ROBINHOOD_MAINNET]: {
     name: 'Robinhood Chain',
     key: ChainKeys.ROBINHOOD_MAINNET,
@@ -407,6 +456,7 @@ export type SuiChainKey = ChainKeysByType<'SUI'>;
 export type StacksChainKey = ChainKeysByType<'STACKS'>;
 export type NearChainKey = ChainKeysByType<'NEAR'> & keyof typeof spokeChainConfig;
 export type BitcoinChainKey = ChainKeysByType<'BITCOIN'>;
+export type TronChainKey = ChainKeysByType<'TRON'>;
 
 const filterChainKeysByType = <T extends ChainType>(type: T) =>
   CHAIN_KEYS.filter((key): key is ChainKeysByType<T> => baseChainInfo[key].type === type);
@@ -436,6 +486,9 @@ export const NEAR_CHAIN_KEYS = filterChainKeysByType('NEAR');
 export const NEAR_CHAIN_KEYS_SET = new Set(NEAR_CHAIN_KEYS);
 export const BITCOIN_CHAIN_KEYS = filterChainKeysByType('BITCOIN');
 export const BITCOIN_CHAIN_KEYS_SET = new Set(BITCOIN_CHAIN_KEYS);
+export const TRON_CHAIN_KEYS = filterChainKeysByType('TRON');
+export const TRON_CHAIN_KEYS_SET = new Set(TRON_CHAIN_KEYS);
+
 export type HubChainKey = typeof HUB_CHAIN_KEY;
 export type HubChainType = 'EVM';
 export type SpokeChainKey = (typeof CHAIN_KEYS)[number];
@@ -624,6 +677,29 @@ export type NearSpokeChainConfig = BaseSpokeChainConfig<'NEAR'> & {
   rpcUrl: string;
 };
 
+/**
+ * Config carried by a chain that settles through the **MPC relay** (NEAR chain signatures) instead
+ * of the intent relay: deposits are paid to a shared reserve and tracked over the relay's REST API,
+ * rather than submitted as a packet.
+ *
+ * The presence of `mpcRelayApiEndpoint` IS the marker the SDK routes on (see `isMpcRelayChainConfig`)
+ * — there is no hardcoded list of MPC chains. Tron is the only one today; XRP and Aptos are the same
+ * shape, so adding them is a config change plus a spoke service, not a new branch in feature code.
+ */
+export type MpcRelayChainConfig = {
+  /** MPC relay REST endpoint (notify + deposit-address), distinct from the intent relay. */
+  mpcRelayApiEndpoint: HttpUrl;
+  addresses: {
+    /** MPC-relay reserve; deposits land here tagged with the keccak256 payload-hash memo. */
+    reserve: string;
+  };
+};
+
+export type TronSpokeChainConfig = BaseSpokeChainConfig<'TRON'> &
+  MpcRelayChainConfig & {
+    rpcUrl: string;
+  };
+
 export type SpokeChainConfig =
   | EvmSpokeChainConfig
   | SonicSpokeChainConfig
@@ -634,7 +710,8 @@ export type SpokeChainConfig =
   | BitcoinSpokeChainConfig
   | SolanaChainConfig
   | StacksSpokeChainConfig
-  | NearSpokeChainConfig;
+  | NearSpokeChainConfig
+  | TronSpokeChainConfig;
 
 export type GetSpokeChainConfigType<T extends SpokeChainKey> = T extends SonicChainKey
   ? SonicSpokeChainConfig
@@ -656,7 +733,9 @@ export type GetSpokeChainConfigType<T extends SpokeChainKey> = T extends SonicCh
                   ? StacksSpokeChainConfig
                   : GetChainType<T> extends 'BITCOIN'
                     ? BitcoinSpokeChainConfig
-                    : SpokeChainConfig;
+                    : GetChainType<T> extends 'TRON'
+                      ? TronSpokeChainConfig
+                      : SpokeChainConfig;
 
 export type IconAddress = `hx${string}` | `cx${string}`;
 export type IconSpokeChainConfig = BaseSpokeChainConfig<'ICON'> & {
@@ -1258,6 +1337,22 @@ export const spokeChainConfig = {
       maxTimeoutMs: 60_000,
     },
   } as const satisfies EvmSpokeChainConfig,
+  [ChainKeys.TRON_MAINNET]: {
+    chain: baseChainInfo[ChainKeys.TRON_MAINNET] satisfies BaseChainInfo<'TRON'>,
+    rpcUrl: 'https://api.trongrid.io',
+    // MPC-relay REST endpoint (notify + deposit-address). Not the intent relay.
+    mpcRelayApiEndpoint: 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com',
+    addresses: {
+      reserve: 'TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92',
+    },
+    nativeToken: '0x0000000000000000000000000000000000000000',
+    bnUSD: '',
+    supportedTokens: tronSupportedTokens,
+    pollingConfig: {
+      pollingIntervalMs: 3000,
+      maxTimeoutMs: 90_000,
+    },
+  } as const satisfies TronSpokeChainConfig,
   [ChainKeys.ROBINHOOD_MAINNET]: {
     chain: baseChainInfo[ChainKeys.ROBINHOOD_MAINNET] satisfies BaseChainInfo<'EVM'>,
     rpcUrl: 'https://rpc.mainnet.chain.robinhood.com',

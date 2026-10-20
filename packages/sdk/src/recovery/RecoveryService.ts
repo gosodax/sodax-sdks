@@ -5,7 +5,7 @@ import type { HubProvider } from '../shared/types/types.js';
 import type { SpokeService } from '../shared/services/spoke/SpokeService.js';
 import { EvmAssetManagerService } from '../shared/services/hub/EvmAssetManagerService.js';
 import type { SendMessageParams } from '../shared/types/spoke-types.js';
-import { encodeAddress } from '../shared/index.js';
+import { encodeRecipient } from '../shared/index.js';
 import { SodaxError, isSodaxError } from '../errors/SodaxError.js';
 import { lookupFailed } from '../errors/wrappers.js';
 import { recoveryInvariant } from './errors.js';
@@ -165,7 +165,7 @@ export class RecoveryService {
    * Derives the user's hub wallet abstraction address from `params.srcAddress` +
    * `params.srcChainKey`, encodes a `transfer` call on the asset manager contract via
    * `EvmAssetManagerService.withdrawAssetData` (encoding the spoke destination address in
-   * chain-specific format via `encodeAddress`), then relays the payload through the spoke chain
+   * chain-specific format via `encodeRecipient`), then relays the payload through the spoke chain
    * via `SpokeService.sendMessage` so the hub wallet executes the asset transfer on Sonic.
    *
    * When `raw: true` the method returns the unsigned spoke transaction (no `walletProvider`
@@ -197,7 +197,7 @@ export class RecoveryService {
           const payload = EvmAssetManagerService.withdrawAssetData(
             {
               token: params.token,
-              to: encodeAddress(params.srcChainKey, params.srcAddress),
+              to: encodeRecipient(params.srcChainKey, params.srcAddress),
               amount: params.amount,
             },
             this.hubProvider,

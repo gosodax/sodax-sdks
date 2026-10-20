@@ -1115,34 +1115,36 @@ export class SwapService {
     // Every failure from here on is post-broadcast: carry the tx so the caller can keep reading its status.
     const txCtx = { srcChainKey, dstChainKey: params.dstChainKey, action: 'swap', srcTxHash: spokeTxHash };
 
-    const verifyTxHashResult = await this.spoke.verifyTxHash({
-      txHash: created.tx,
-      chainKey: srcChainKey,
-    });
-    if (!verifyTxHashResult.ok) {
-      return { ok: false, error: verifyFailed('swap', verifyTxHashResult.error, txCtx) };
-    }
-
     let dstIntentTxHash: string;
     if (isHubChainKeyType(srcChainKey)) {
+      const verifyTxHashResult = await this.spoke.verifyTxHash({ txHash: created.tx, chainKey: srcChainKey });
+      if (!verifyTxHashResult.ok) {
+        return { ok: false, error: verifyFailed('swap', verifyTxHashResult.error, txCtx) };
+      }
       dstIntentTxHash = spokeTxHash;
     } else {
-      const packet = await relayTxAndWaitPacket({
-        srcTxHash: spokeTxHash,
-        data: relayData,
+      const settled = await this.spoke.settle({
         chainKey: srcChainKey,
-        relayerApiEndpoint: this.relayerApiEndpoint,
+        tx: spokeTxHash,
+        direction: 'inbound',
+        relayData,
         // The caller's full `timeout`, starting HERE — after verification, and whether this runs as the
         // only path or as the backend's fallback. Neither a stalled backend attempt nor a slow source-chain
         // confirmation may shorten the relay wait. The floor covers a sub-floor caller `timeout`:
-        // `relayTxAndWaitPacket` SUBMITS before `timeout` bounds anything, so a zero budget would strand an
+        // settlement SUBMITS before `timeout` bounds anything, so a zero budget would strand an
         // already-landed tx unrelayed. Re-relay is idempotent, so spending it is safe.
         timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
       });
-      if (!packet.ok) {
-        return { ok: false, error: mapRelayFailure(packet.error, { feature: 'swap', ...txCtx }) };
+      if (!settled.ok) {
+        return {
+          ok: false,
+          error:
+            settled.error.phase === 'verification'
+              ? verifyFailed('swap', settled.error.cause, txCtx)
+              : mapRelayFailure(settled.error.cause, { feature: 'swap', ...txCtx }),
+        };
       }
-      dstIntentTxHash = packet.value.dst_tx_hash;
+      dstIntentTxHash = settled.value.dstChainTxHash;
     }
 
     const postExecResult = await this.postExecution({

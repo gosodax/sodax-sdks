@@ -2259,6 +2259,29 @@ export const bitcoinSupportedTokens = {
   },
 } as const satisfies Record<string, XToken>;
 
+export const tronSupportedTokens = {
+  // Native TRX. The spoke-side "address" uses the EVM-zero sentinel (Tron native has no
+  // contract); the hub wraps it as wTRX, minted into the sodaTRX vault via the MPC relay.
+  TRX: {
+    symbol: 'TRX',
+    name: 'Tron',
+    decimals: 6,
+    address: '0x0000000000000000000000000000000000000000',
+    chainKey: ChainKeys.TRON_MAINNET,
+    hubAsset: '0x61cd7FFcf33E3F5EB8280b94bc5180bc617b1da9',
+    vault: '0x40931EA2e572bd298c371ea4312cA58DB2C3b646',
+  },
+  USDT: {
+    symbol: 'USDT',
+    name: 'Tether USD',
+    decimals: 6,
+    address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    chainKey: ChainKeys.TRON_MAINNET,
+    hubAsset: '0xA71E3e927BAf32eb5f1678a3b13c2fFfeE3973D7',
+    vault: '0xbDf1F453FCB61424011BBDDCB96cFDB30f3Fe876',
+  },
+} as const satisfies Record<string, XToken>;
+
 export const stellarSupportedTokens = {
   bnUSD: {
     symbol: 'bnUSD',
@@ -4039,6 +4062,7 @@ export const supportedTokensByChain = {
   [ChainKeys.KAIA_MAINNET]: kaiaSupportedTokens,
   [ChainKeys.STACKS_MAINNET]: stacksSupportedTokens,
   [ChainKeys.HEDERA_MAINNET]: hederaSupportedTokens,
+  [ChainKeys.TRON_MAINNET]: tronSupportedTokens,
   [ChainKeys.ROBINHOOD_MAINNET]: robinhoodSupportedTokens,
 } as const satisfies Record<ChainKey, Record<string, XToken>>;
 

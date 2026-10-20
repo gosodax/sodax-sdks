@@ -11,6 +11,7 @@ import type { SolanaBase58PublicKey, SolanaRawTransaction, SolanaReturnType } fr
 import type { StacksRawTransaction, StacksReturnType } from '../stacks/stacks.js';
 import type { StellarRawTransaction, StellarReturnType } from '../stellar/stellar.js';
 import type { SuiRawTransaction, SuiReturnType } from '../sui/sui.js';
+import type { TronRawTransaction, TronReturnType } from '../tron/tron.js';
 import type { GetWalletProviderType } from '../wallet/providers.js';
 
 export type Default = {
@@ -181,7 +182,8 @@ export type HashTxReturnType =
   | InjectiveReturnType<false>
   | StellarReturnType<false>
   | StacksReturnType<false>
-  | NearReturnType<false>;
+  | NearReturnType<false>
+  | TronReturnType<false>;
 
 /**
  * Fallback raw-tx union for {@link TxReturnType} (which prefers a chain-keyed branch), and the declared
@@ -203,7 +205,8 @@ export type RawTxReturnType =
   | StellarRawTransaction
   | StacksRawTransaction
   | NearRawTransaction
-  | BitcoinRawTransaction;
+  | BitcoinRawTransaction
+  | TronRawTransaction;
 
 export type GetDefaultTxReturnType<Raw extends boolean> = Raw extends true ? RawTxReturnType : HashTxReturnType;
 
@@ -230,7 +233,9 @@ export type TxReturnType<C extends SpokeChainKey | ChainType, Raw extends boolea
                   ? NearReturnType<Raw>
                   : GetChainType<C> extends 'BITCOIN'
                     ? BitcoinReturnType<Raw>
-                    : GetDefaultTxReturnType<Raw>;
+                    : GetChainType<C> extends 'TRON'
+                      ? TronReturnType<Raw>
+                      : GetDefaultTxReturnType<Raw>;
 
 export type Prettify<T> = {
   [K in keyof T]: T[K];
@@ -275,13 +280,22 @@ export type FeeEstimateTransaction = {
 
 export type NearGasEstimate = bigint;
 
+/** Tron prices a transaction in two staked resources rather than one gas number. */
+export type TronGasEstimate = {
+  /** Energy the contract call consumes. `0n` for a native TRX transfer, which uses none. */
+  energy: bigint;
+  /** Bandwidth points consumed: the byte length of the signed transaction. */
+  bandwidth: bigint;
+};
+
 export type GasEstimateType =
   | EvmGasEstimate
   | SolanaGasEstimate
   | StellarGasEstimate
   | IconGasEstimate
   | SuiGasEstimate
-  | InjectiveGasEstimate;
+  | InjectiveGasEstimate
+  | TronGasEstimate;
 
 export type GetEstimateGasReturnTypeForSpokeChainId<C extends SpokeChainKey | ChainType> =
   GetChainType<C> extends 'EVM'
@@ -302,7 +316,9 @@ export type GetEstimateGasReturnTypeForSpokeChainId<C extends SpokeChainKey | Ch
                   ? BitcoinGasEstimate
                   : GetChainType<C> extends 'STACKS'
                     ? FeeEstimateTransaction
-                    : GasEstimateType;
+                    : GetChainType<C> extends 'TRON'
+                      ? TronGasEstimate
+                      : GasEstimateType;
 
 export type GetEstimateGasReturnTypeForChainType<C extends ChainType> = C extends 'EVM'
   ? EvmGasEstimate
@@ -322,7 +338,9 @@ export type GetEstimateGasReturnTypeForChainType<C extends ChainType> = C extend
                 ? FeeEstimateTransaction
                 : C extends 'NEAR'
                   ? NearGasEstimate
-                  : GasEstimateType;
+                  : C extends 'TRON'
+                    ? TronGasEstimate
+                    : GasEstimateType;
 
 export type GetEstimateGasReturnType<C extends SpokeChainKey | ChainType> = C extends SpokeChainKey
   ? GetEstimateGasReturnTypeForSpokeChainId<C>

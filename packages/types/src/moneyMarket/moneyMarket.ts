@@ -261,6 +261,10 @@ export const moneyMarketSupportedTokens = {
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.SODA,
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.USDG,
   ] as const satisfies XToken[],
+  [ChainKeys.TRON_MAINNET]: [
+    spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.TRX,
+    spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.USDT,
+  ] as const satisfies XToken[],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 export const moneyMarketReserveAssets = [

@@ -29,6 +29,7 @@ export const availableChains: ChainUI[] = [
   { id: ChainKeys.SONIC_MAINNET, name: 'Sonic', icon: '/chain/sonic.png' },
   { id: ChainKeys.ETHEREUM_MAINNET, name: 'Ethereum', icon: '/chain/ethereum.png' },
   { id: ChainKeys.SOLANA_MAINNET, name: 'Solana', icon: '/chain/solana.png' },
+  { id: ChainKeys.TRON_MAINNET, name: 'Tron', icon: '/chain/tron.png' },
   { id: ChainKeys.BASE_MAINNET, name: 'Base', icon: '/chain/0x2105.base.png' },
   { id: ChainKeys.ARBITRUM_MAINNET, name: 'Arbitrum', icon: '/chain/0xa4b1.arbitrum.png' },
   { id: ChainKeys.SUI_MAINNET, name: 'Sui', icon: '/chain/sui.png' },

@@ -25,7 +25,7 @@ import {
   type HubConfig,
 } from '@sodax/types';
 import { invariant } from '../../utils/tiny-invariant.js';
-import { encodeAddress, randomUint256 } from '../../utils/shared-utils.js';
+import { encodeAddress, encodeRecipient, randomUint256 } from '../../utils/shared-utils.js';
 import { getEvmViemChain } from '../../utils/constant-utils.js';
 import { buildEvmRpcTransport } from '../../utils/transport-utils.js';
 import { Erc20Service, type Erc20IsAllowanceParams } from '../erc-20/Erc20Service.js';
@@ -323,7 +323,7 @@ export class SonicSpokeService {
       srcChain: getIntentRelayChainId(createIntentParams.srcChainKey),
       dstChain: getIntentRelayChainId(createIntentParams.dstChainKey),
       srcAddress: encodeAddress(createIntentParams.srcChainKey, createIntentParams.srcAddress),
-      dstAddress: encodeAddress(createIntentParams.dstChainKey, dstAddress),
+      dstAddress: encodeRecipient(createIntentParams.dstChainKey, dstAddress),
       solver: createIntentParams.solver ?? '0x0000000000000000000000000000000000000000',
       data: intentData, // fee amount will be deducted from the input amount; may also carry delivery data
     } satisfies Intent;
