@@ -325,6 +325,16 @@
   --color-clay-light: var(--clay-light);
   --color-negative: var(--negative);
 
+  /* Leverage Yield pages (.leverage-yield-theme) */
+  --color-primary-hover: var(--primary-hover);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-destructive-muted: var(--destructive-muted);
+  --color-success: var(--success);
+  --color-success-muted: var(--success-muted);
+  --color-notice: var(--notice);
+  --font-display: "Inria Serif", Georgia, serif;
+  --font-accent: "Shrikhand", cursive;
+
   /* Typography Sizes */
   --text-app-title: var(--app-title-mobile);
   --text-body-comfortable: var(--body-comfortable-mobile);
@@ -341,6 +351,40 @@
   --layout-space-small: var(--layout-space-small-mobile);
   --layout-container-radius: var(--layout-container-radius-mobile);
   --layout-linear-boder: var(--layout-linear-boder-mobile);
+}
+
+/* ============================================
+   LEVERAGE YIELD THEME
+   SODAX brand palette for the Leverage Yield pages. Scoped: apply to the page root AND to portaled content
+   (dialog, select, tooltip), which renders outside it. Variables only, so utilities still win.
+   ============================================ */
+.leverage-yield-theme {
+  --background: #f9f7f5;
+  --foreground: #483434;
+  --card: #ffffff;
+  --card-foreground: #483434;
+  --popover: #ffffff;
+  --popover-foreground: #483434;
+  --primary: #a55c55;
+  --primary-hover: #964d48;
+  --primary-foreground: #ffffff;
+  --secondary: #f8f3f3;
+  --secondary-foreground: #a55c55;
+  --accent: #f8f3f3;
+  --accent-foreground: #964d48;
+  --muted: #f0eaeb;
+  --muted-foreground: #6b5c5b;
+  --subtle-foreground: #8e7e7d;
+  --border: #e5d5d4;
+  --input: #e5d5d4;
+  --ring: #cc9e9a;
+  --destructive: #ce4446;
+  --destructive-foreground: #ffffff;
+  --destructive-muted: #faecec;
+  --success: #089541;
+  --success-muted: #e6f8ec;
+  --notice: #ede6e6;
+  --radius: 16px;
 }
 
 /* ============================================

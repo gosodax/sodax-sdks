@@ -5,10 +5,9 @@ import { readJson, writeJson } from '@/lib/storage';
 // status from the stored hash (and caches the terminal result), so a swap that settles while the
 // app is closed still shows complete. Orders are JSON-safe scalars.
 //
-// Keyed per feature so the solver, leverage-yield, and swaps-api pages keep separate histories.
+// Keyed per feature so the solver and swaps-api pages keep separate histories.
 /** Value intentionally still says `solver`: renaming it would orphan already-saved demo orders. */
 export const SWAPS_SDK_ORDERS_KEY = 'sodax-demo:solver:orders';
-export const LEVERAGE_YIELD_ORDERS_KEY = 'sodax-demo:leverage-yield:orders';
 export const SWAPS_API_ORDERS_KEY = 'sodax-demo:swaps-api:orders';
 
 /** Keep at most the newest N swaps; a 16th evicts the oldest. */

@@ -2,12 +2,10 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   isAuthFailure,
   useDetailedStatus,
-  useLeverageYieldDetailedStatus,
   useSodaxContext,
   useSwapsApiSubmitTxStatus,
   type SpokeChainKey,
   type UseDetailedStatusResult,
-  type UseLeverageYieldDetailedStatusResult,
 } from '@sodax/dapp-kit';
 import { formatUnits } from 'viem';
 import { ArrowRight, Check, Copy, ExternalLink, X } from 'lucide-react';
@@ -16,7 +14,6 @@ import { cn, getChainExplorerTxUrl, statusCodeToMessage } from '@/lib/utils';
 import { getChainIcon, getChainName } from '@/constants';
 import { sodaxScanSearchUrl } from '@/lib/sodaxScan';
 import { useSolverStatus } from '@/hooks/useSolverStatus';
-import { useAppStore } from '@/zustand/useAppStore';
 
 /** One side of a swap, for the "AMOUNT TOKEN (NETWORK)" summary. `chain` is a chain key. */
 export type OrderLeg = { amount: string; symbol: string; chain: string };
@@ -440,7 +437,7 @@ function SubmitTxLiveCard({
  * ones that never resolve are stopped by its own NOT_FOUND budget, not by this card. A rejected API
  * key also stops the hook, so it carries an error — otherwise the card would sit on `pending` silently.
  */
-function deriveDetailed(read: UseDetailedStatusResult | UseLeverageYieldDetailedStatusResult): {
+function deriveDetailed(read: UseDetailedStatusResult): {
   label: string;
   error?: string;
   extraRows: DetailRowData[];
@@ -461,57 +458,8 @@ function deriveDetailed(read: UseDetailedStatusResult | UseLeverageYieldDetailed
 }
 
 /**
- * The vault-swap card. `useLeverageYieldDetailedStatus` keys on the SOURCE tx and routes to whichever
- * source can answer — the backend submit-tx record while it is in play, the solver once it is not —
- * so one card covers both transports, including a vault swap the client-side fallback completed.
- * `SolverLiveCard` cannot: it polls one hub tx hash and knows nothing about a backend record.
- */
-function LeverageYieldLiveCard({
-  order,
-  title,
-  onDismiss,
-  onSettle,
-}: {
-  order: SolverOrder & { srcChainKey: string; srcTxHash: string };
-  title: string;
-  onDismiss?: () => void;
-  onSettle: SettleFn;
-}) {
-  // The same per-action key the vault swap submitted with; never persisted on the order itself.
-  const apiKey = useAppStore(state => state.sodaxSettings.leverageYieldApiKey);
-  const { data: read } = useLeverageYieldDetailedStatus({
-    params: {
-      // Orders persist as JSON scalars, so the chain key is widened to `string` on the way in.
-      srcChainKey: order.srcChainKey as SpokeChainKey,
-      srcTxHash: order.srcTxHash,
-      ...(apiKey ? { apiConfig: { apiKey } } : {}),
-    },
-  });
-
-  const derived = useMemo(() => deriveDetailed(read), [read]);
-  const { label, error, extraRows } = derived;
-  useEffect(() => {
-    if (TERMINAL_LABELS.has(derived.label)) {
-      onSettle(order.intentHash, { label: derived.label, error: derived.error, extraRows: derived.extraRows });
-    }
-  }, [derived, order.intentHash, onSettle]);
-
-  return (
-    <OrderCard
-      title={title}
-      label={label}
-      summary={order.summary}
-      rows={[...baseRows(order), ...extraRows]}
-      error={error}
-      createdAt={order.createdAt}
-      onDismiss={onDismiss}
-    />
-  );
-}
-
-/**
- * The SDK swap card. `useDetailedStatus` keys on the SOURCE tx and routes like the vault-swap card
- * above, so it answers whichever path completed the swap: backend submit-tx or the client-side relay.
+ * The SDK swap card. `useDetailedStatus` keys on the SOURCE tx and routes to whichever source can
+ * answer, so it covers whichever path completed the swap: backend submit-tx or the client-side relay.
  */
 function SwapLiveCard({
   order,
@@ -554,16 +502,13 @@ export default function OrderStatus({
   order,
   onDismiss,
   onSettle,
-  feature = 'swap',
 }: {
   order: Order;
   onDismiss?: () => void;
   onSettle?: SettleFn;
-  /** Whose history this card belongs to: a vault swap reads the leverage-yield status router. */
-  feature?: 'swap' | 'leverage-yield';
 }) {
   const { sodax } = useSodaxContext();
-  const title = feature === 'leverage-yield' ? 'Vault Swap' : order.mode === 'solver' ? 'Swap' : 'Submit Tx';
+  const title = order.mode === 'solver' ? 'Swap' : 'Submit Tx';
 
   // Only short-circuit to the static card for a genuinely terminal cache; a non-terminal `final`
   // (e.g. a stale NOT_FOUND from an older build) falls through to the live card and re-polls.
@@ -577,11 +522,7 @@ export default function OrderStatus({
     const pinnedElsewhere = !!order.statusEndpoint && order.statusEndpoint !== sodax.config.solver.solverApiEndpoint;
     if (order.srcChainKey && order.srcTxHash && !pinnedElsewhere) {
       const sourced = { ...order, srcChainKey: order.srcChainKey, srcTxHash: order.srcTxHash };
-      return feature === 'leverage-yield' ? (
-        <LeverageYieldLiveCard order={sourced} title={title} onDismiss={onDismiss} onSettle={settle} />
-      ) : (
-        <SwapLiveCard order={sourced} title={title} onDismiss={onDismiss} onSettle={settle} />
-      );
+      return <SwapLiveCard order={sourced} title={title} onDismiss={onDismiss} onSettle={settle} />;
     }
     return <SolverLiveCard order={order} title={title} onDismiss={onDismiss} onSettle={settle} />;
   }

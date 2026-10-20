@@ -116,3 +116,15 @@ sponsoring requires its own key.
 sponsoring call), not what the backend *accepts*. When two docs contradict each other on an
 acceptance rule, ask for the source of truth, then correct the losing side in the same change instead
 of writing prose that hedges between both.
+
+## L13 — A signed transaction is never retryable: record its hash at broadcast
+
+**Correction:** review found two paths in the leverage-yield dialog that offered "Try again" after the
+user had already signed: the API flow saved the hash only after `/submit-tx` succeeded, and the SDK
+flow only learned it from EVM wallets.
+
+**Rule:** in any sign → broadcast → submit flow, store the source tx hash the moment the wallet returns
+it, before any later network step can fail. Where the hash can't be observed (a wallet whose broadcast
+the UI doesn't see), classify the failure by error code: anything past intent creation counts as
+"may have been sent", and the UI must not offer a retry. Likewise, never call a flow "done" because a
+call resolved; check what the call actually waits for (accepted ≠ filled).
