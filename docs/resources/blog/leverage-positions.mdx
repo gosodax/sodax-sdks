@@ -37,6 +37,10 @@ import { parseUnits } from 'viem';
 
 const sodax = new Sodax();
 
+// The partner fee a new position carries is borrowed on top of the trade, so it belongs in the sizing.
+const fee = sodax.leverageYield.getEffectivePositionFee();
+if (!fee.ok) throw fee.error;
+
 const request: LeverageLegRequest = {
   side: 'collateral',
   deposit: parseUnits('1', 18),
@@ -45,6 +49,7 @@ const request: LeverageLegRequest = {
   borrowPriceUsd: Number(borrowReserve.priceInUSD),
   borrowDecimals: borrowReserve.decimals,
   leverage: 3,
+  feeBps: fee.value.feeBps,
 };
 
 // 1. Oracle sizing: what to borrow, and what the solver will be asked to trade.
@@ -77,6 +82,8 @@ The projection gives you everything a confirmation screen needs:
 - **`usableMaxLeverage`** is the real ceiling at this price. It is slightly below the textbook `1 / (1 - ltv)`, because the trade costs something. Use it to cap your leverage slider.
 - **`exposureLeverage`** is what the open position will report, which is a little above the leverage the user asked for. Show this number, not the input.
 - **`minCollateralOut`** is the floor to post with the intent. Everything in the projection is computed at that floor, so if the floor is safe, every possible fill is.
+
+Leave out `feeBps` and the projection understates LTV whenever a partner fee is configured, so a position near the limit can pass `exceedsMaxLtv` and still fail at fill. If you pass a `partnerFee` override to the open call, pass the same override to `getEffectivePositionFee`.
 
 The collateral and borrow reserves, with their prices and risk parameters, come from the money market data you already read for lending (`collateralReserve` and `borrowReserve` above). If the user picks an eMode category, use that category's LTV and liquidation threshold instead of the reserve's base values.
 
@@ -135,13 +142,15 @@ for (const position of list.value) {
   const pending = await sodax.leverageYield.getPositionPendingState(position);
   if (!account.ok || !pending.ok) continue;
 
-  const hf = Number(account.value.healthFactor) / 1e18;  // WAD
-  const ltv = Number(account.value.ltv) / 100;           // basis points -> %
-  console.log(position, { hf, ltv, inFlight: pending.value.isLive, needsSettle: pending.value.needsSettle });
+  const { healthFactor, totalCollateralBase, totalDebtBase, ltv } = account.value;
+  const hf = Number(healthFactor) / 1e18; // WAD
+  const currentLtv = totalCollateralBase > 0n ? (Number(totalDebtBase) / Number(totalCollateralBase)) * 100 : 0;
+  const maxLtv = Number(ltv) / 100; // basis points -> %, the borrowing ceiling, not the position's own LTV
+  console.log(position, { hf, currentLtv, maxLtv, inFlight: pending.value.isLive, needsSettle: pending.value.needsSettle });
 }
 ```
 
-- **`getPositionAccount`** is the live snapshot: collateral, debt, LTV and health factor. A health factor below 1 means the position can be liquidated, so this is the number to warn users about.
+- **`getPositionAccount`** is the live snapshot: collateral, debt, maximum LTV and health factor. Its `ltv` is the most the account may borrow against, so compute the position's current LTV from `totalDebtBase / totalCollateralBase`. A health factor below 1 means the position can be liquidated, so this is the number to warn users about.
 - **`getPositionPendingState`** tells you whether an operation is in flight (`isLive`) or finished and waiting to be cleaned up (`needsSettle`). A position accepts one operation at a time.
 - **`getPositionCollateralBalance`** gives the exact collateral amount. Use it, not the USD figures, whenever an amount goes into a transaction such as a full close.
 
@@ -190,8 +199,8 @@ if (!settled.ok) throw settled.error;
 
 There are two ways out of a position:
 
-- **Into the collateral.** Decrease leverage by just enough collateral to cover the debt, wait for the fill, then withdraw the rest to any address.
-- **Into the debt token.** Decrease leverage with the whole collateral balance in one operation. The debt is repaid and the remaining equity, now in the debt token, is swept to the owner by `buildSettlePosition`.
+- **Into the collateral.** Decrease leverage by enough collateral to cover the debt plus a small margin, since interest keeps accruing until the fill and any dust debt left behind blocks a full withdrawal. Wait for the fill, check that `totalDebtBase` is zero, then withdraw the rest to any address.
+- **Into the debt token.** Decrease leverage with the collateral balance in one operation, net of the position's fee: read `feeBps` from `getPositionInfo` and sell `balance * 10_000 / (10_000 + feeBps)`, because the fee is given up on top of the input and the whole balance cannot settle when it is nonzero. The debt is repaid and the remaining equity, now in the debt token, is swept to the owner by `buildSettlePosition`.
 
 A full exit cannot half-happen: if the fill would not cover the debt, the whole operation reverts and the position stays as it was.
 

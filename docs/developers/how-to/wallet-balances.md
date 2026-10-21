@@ -77,7 +77,7 @@ async function readPortfolio(wallets: { chainKey: SpokeChainKey; address: string
 }
 ```
 
-A failed network comes back as `null` here, so one slow RPC does not hide the other networks.
+A failed network comes back as `null` here, so one broken RPC does not hide the other networks. `Promise.all` still waits for every call, so the slowest network sets when the portfolio appears; to show each network as it arrives, render each one from its own promise (or one `useBalances` per network in React).
 
 ## In React: useBalances
 
@@ -120,7 +120,7 @@ The hook stays idle until `chainKey` and `address` are set and `tokens` is not e
 
 ## Things to know
 
-- **The chain comes from `srcChainKey`.** A token that does not live on that chain reads as `0n`, not as an error. Keep the chain key and the token list in step.
+- **The chain comes from `srcChainKey`.** Every read uses `token.address` on that chain and ignores the token's own `chainKey`. A foreign token is not reliably `0n`: EVM networks share the native-token address, so another network's native token reads as this network's native balance. In a batch, a token that cannot be read reports `0n`; with `getWalletBalance` the same failure is an `ok: false` result. Keep the chain key and the token list in step, for example with `getSupportedSwapTokensByChainId(chainKey)`.
 - **Stellar XLM** returns the spendable amount: the total minus the minimum reserve and selling liabilities.
 - **Bitcoin Runes** return `0n`; their amounts are not exposed by the UTXO endpoint.
 - **Hedera native HBAR** is returned in HBAR's 8 decimals, not the 18-decimal weibars that `eth_getBalance` reports. See the [Hedera wallets guide](/hedera/wallets).
