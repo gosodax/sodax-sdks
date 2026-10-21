@@ -4,7 +4,7 @@ icon: bridge-suspension
 generatedFrom: packages/sdk/docs/BRIDGE.md
 ---
 
-> **Error handling conventions:** This module uses the canonical `SodaxError<BridgeErrorCode>` shape (same family as the swap and money market modules). Discriminate on `result.error.code` (e.g. `'RELAY_TIMEOUT'`, `'INTENT_CREATION_FAILED'`); structured details live on `result.error.context` (`srcChainKey`, `dstChainKey`, `phase`, `relayCode`, `field`). See the **Error Handling** section below for the full per-method code table and migration notes from the legacy `error.message`-based pattern.
+> **Error handling conventions:** This module uses the canonical `SodaxError<BridgeErrorCode>` shape (same family as the swap and money market modules). Discriminate on `result.error.code` (e.g. `'RELAY_TIMEOUT'`, `'INTENT_CREATION_FAILED'`); structured details live on `result.error.context` (`srcChainKey`, `dstChainKey`, `phase`, `relayCode`, `field`, and `srcTxHash` once the deposit is broadcast). See the **Error Handling** section below for the full per-method code table and migration notes from the legacy `error.message`-based pattern.
 
 The `BridgeService` class, reachable via `sodax.bridge`, orchestrates cross-chain token transfers within the SODAX hub-and-spoke architecture.
 
@@ -228,6 +228,69 @@ On-chain verification (`verifyTxHash`) runs on the **client-side path only** —
 So a stalled backend cannot shorten the fallback's relay wait, and raising `timeout` grows both attempts. Worst-case wall-clock is `createBridgeIntent + timeout + verification + max(timeout, RELAY_FALLBACK_FLOOR_MS)` — reached only when the backend accepts the submission and then never finishes. Bridge has no solver post-execution, so unlike swaps there is no `'posting_execution'` step and no post-execution term.
 
 Read the constants from source rather than memorising them: `DEFAULT_RELAY_TX_TIMEOUT`, `DEFAULT_BACKEND_API_TIMEOUT` and per-chain `pollingConfig` live in [`@sodax/types`](https://github.com/icon-project/sodax-sdks/tree/main/packages/types/src), and `RELAY_FALLBACK_FLOOR_MS` in [`IntentRelayApiService.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/src/shared/services/intentRelay/IntentRelayApiService.ts). Verification timeouts differ widely by chain, so derive them per chain from `chains.ts`. The swaps side documents the identical model in more depth — see [How `timeout` bounds each attempt](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt) — and [BRIDGE_API.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md) covers the API client itself.
+
+### bridgeWithApproval
+
+`bridge()` with the source-token approval folded in. On a wallet that supports
+[EIP-5792](https://eips.ethereum.org/EIPS/eip-5792) atomic batches, the approval and the deposit go out as **one
+batch, so the user signs once**. Otherwise it approves, waits for the approval to confirm, then bridges. Completion is
+exactly `bridge()`'s. `getApprovalStrategy()` returns the path it would take, so you can label the button first.
+
+```typescript
+const strategy = await sodax.bridge.getApprovalStrategy({ params, walletProvider });
+// 'not-required' | 'atomic-batch' | 'sequential'
+
+const result = await sodax.bridge.bridgeWithApproval({ params, walletProvider });
+if (result.ok) {
+  console.log(result.value.approvalStrategy, result.value.srcChainTxHash);
+}
+```
+
+| Strategy | When | Signatures |
+| --- | --- | --- |
+| `'not-required'` | The allowance already covers `amount`, or the source chain has no allowances | 1 |
+| `'atomic-batch'` | EVM spoke source, and the wallet reports EIP-5792 atomic support for that chain | 1 |
+| `'sequential'` | The Sonic hub, Stellar, and wallets without EIP-5792 | 2, or 3 when a stale allowance must be reset first |
+
+The batch is `[approve(0)?, approve(amount), deposit]`, and its transaction hash becomes `srcChainTxHash`. Wallet
+support, `allowAccountUpgrade` and the failure rules are the same as for swaps (see
+[Approve and Swap in One Signature](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#approve-and-swap-in-one-signature)):
+
+- the wallet refuses the batch before signing → it approves separately and reports `approvalStrategy: 'sequential'`;
+- the user rejects the batch → `USER_REJECTED`, with `context.reason: ACCOUNT_UPGRADE_DECLINED` when they declined the
+  account upgrade (retry with `allowAccountUpgrade: false`);
+- never included or fully reverted → `INTENT_CREATION_FAILED`, `context.reason: 'atomic-batch-failed'`. Nothing was
+  deposited;
+- sent but not confirmed → `TX_VERIFICATION_FAILED`, `context.reason: ATOMIC_BATCH_UNCONFIRMED`, `context.batchId`
+  and `context.callCount`. It may still land, so do not bridge it again — resume it (below);
+- on the sequential path, the deposit is built unsigned before anything is approved, so params that can never bridge
+  fail with `bridge()`'s validation codes and cost the user nothing. An approval that then does not confirm →
+  `APPROVE_FAILED`, `context.reason: 'approve-not-confirmed'`.
+
+**Resuming an unconfirmed batch.** Call `bridgeWithApproval` again with the same `params` and wallet, plus
+`resumeBatchId: error.context.batchId` and `resumeBatchCallCount: error.context.callCount` (without the count, a
+batch the wallet confirmed as one transaction per call stays unconfirmed). It sends nothing: it waits for that batch
+again and, once its deposit confirms, relays it client-side by its hash and returns the usual `TxHashPair` with
+`approvalStrategy: 'atomic-batch'`. It skips the backend submit-tx, which needs the `relayData` the first call held.
+While the batch is still pending it returns the same unconfirmed error, so you can keep calling it; a batch the wallet
+reports as never included comes back as `atomic-batch-failed`, and a relay failure after the deposit landed carries
+`context.srcTxHash`, so calling it again only re-relays.
+
+```typescript
+import { ATOMIC_BATCH_UNCONFIRMED } from '@sodax/sdk';
+
+const result = await sodax.bridge.bridgeWithApproval({ params, walletProvider });
+if (!result.ok && result.error.context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
+  const { batchId, callCount } = result.error.context;
+  // Later, e.g. from a "Check again" button — this sends nothing new:
+  const resumed = await sodax.bridge.bridgeWithApproval({
+    params,
+    walletProvider,
+    resumeBatchId: String(batchId),
+    resumeBatchCallCount: Number(callCount),
+  });
+}
+```
 
 ### createBridgeIntent
 
@@ -605,13 +668,15 @@ class SodaxError<C extends string = string> extends Error {
 - `error.cause` walks the underlying error chain (loggers like Sentry/Pino/Datadog walk this automatically).
 - `error.context` carries structured metadata: `srcChainKey`, `dstChainKey`, `phase`, plus per-code extras (`relayCode`, `field`).
 - `error.toJSON()` is the canonical logger surface; `JSON.stringify(error)` invokes it automatically and produces a logger-safe payload (bigints in `context` are coerced to strings, cause walked depth-3, no circular hazards).
-- Use `isBridgeError(e)` (broad) or one of the narrow guards `isBridgeOrchestrationError(e)` / `isBridgeCreateIntentError(e)` / `isBridgeApproveError(e)` / `isBridgeAllowanceCheckError(e)` / `isBridgeLookupError(e)` from `@sodax/sdk` instead of `instanceof SodaxError` in dapp/app code (bundle-safe).
+- Use `isBridgeError(e)` (broad) or one of the narrow guards `isBridgeOrchestrationError(e)` / `isBridgeWithApprovalError(e)` / `isBridgeCreateIntentError(e)` / `isBridgeApproveError(e)` / `isBridgeAllowanceCheckError(e)` / `isBridgeLookupError(e)` from `@sodax/sdk` instead of `instanceof SodaxError` in dapp/app code (bundle-safe).
 
 ### Per-method error code unions
 
 | Method | Codes |
 |---|---|
 | `bridge` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `TX_VERIFICATION_FAILED`, `TX_SUBMIT_FAILED`, `RELAY_TIMEOUT`, `RELAY_FAILED`, `EXECUTION_FAILED`, `UNKNOWN` |
+| `bridgeWithApproval` | every `bridge` code, plus `APPROVE_FAILED` and `ALLOWANCE_CHECK_FAILED` |
+| `getApprovalStrategy` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` (`isAllowanceValid`'s) |
 | `createBridgeIntent` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` |
 | `approve` | `USER_REJECTED`, `VALIDATION_FAILED`, `APPROVE_FAILED`, `UNKNOWN` |
 | `isAllowanceValid` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` |
@@ -620,7 +685,7 @@ class SodaxError<C extends string = string> extends Error {
 
 **Important:** `bridge` orchestrates verify + relay only on the **client-side path** (the fallback, or `useBackendSubmitTx: false`), so `TX_VERIFICATION_FAILED`, `TX_SUBMIT_FAILED`, `RELAY_TIMEOUT` and `RELAY_FAILED` never surface on a bridge the backend completes. When the backend attempt does not complete, its own error is logged and discarded — the fallback runs and its outcome is what you receive, so the code you see always describes the client-side attempt, never the backend one. Check the logs, not the `Result`, to tell why the backend path was abandoned. See [Completion paths and `timeout`](#completion-paths-and-timeout).
 
-The exported narrow types are `BridgeOrchestrationError` (for `bridge`), `BridgeCreateIntentError` (for `createBridgeIntent`), `BridgeApproveError`, `BridgeAllowanceCheckError`, and a single `BridgeLookupError` shared by `getBridgeableAmount` and `getBridgeableTokens` (discriminate them at runtime via `error.context.method`). Each has a matching narrow guard listed above.
+The exported narrow types are `BridgeOrchestrationError` (for `bridge`), `BridgeWithApprovalError` (for `bridgeWithApproval`), `BridgeCreateIntentError` (for `createBridgeIntent`), `BridgeApproveError`, `BridgeAllowanceCheckError`, and a single `BridgeLookupError` shared by `getBridgeableAmount` and `getBridgeableTokens` (discriminate them at runtime via `error.context.method`). Each has a matching narrow guard listed above.
 
 ### Standard `context` fields
 
@@ -633,8 +698,17 @@ The exported narrow types are `BridgeOrchestrationError` (for `bridge`), `Bridge
   relayCode?: 'SUBMIT_TX_FAILED' | 'RELAY_TIMEOUT' | 'RELAY_POLLING_FAILED' | 'UNKNOWN';
   field?: string;     // on VALIDATION_FAILED
   reason?: string;
+  // On `bridge` failures after the deposit was broadcast (TX_VERIFICATION_FAILED and the relay codes) —
+  // the tx to keep reading status for with `getDetailedStatus`:
+  srcTxHash?: string;
 }
 ```
+
+A post-broadcast failure does not mean the bridge failed: the deposit is on-chain, a slow relay may still deliver,
+and with backend submit-tx on the backend keeps working on it after `bridge()` gives up. Read `error.context.srcTxHash` (with `srcChainKey`)
+and keep polling [`getDetailedStatus`](#get-detailed-status) rather than reporting the bridge as lost. Failures
+before the broadcast (`VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `USER_REJECTED`) carry no `srcTxHash` — the
+SDK has no tx hash to give for them.
 
 ### Discrimination example
 
@@ -666,11 +740,13 @@ if (!result.ok) {
 
     case 'TX_SUBMIT_FAILED':
       // CRITICAL: spoke tx landed but the relay submission failed. Funds may be in flight.
-      // Persist the input params and retry submission.
+      // Don't call bridge() again — that is a second deposit. Poll getDetailedStatus with
+      // error.context.srcTxHash; if no packet ever shows up, resubmit that same tx to the relay.
       break;
 
     case 'RELAY_TIMEOUT':
-      // Relay packet didn't confirm in time. Check intent status and retry with longer timeout.
+      // Relay packet didn't confirm in time. Don't call bridge() again — that is a second deposit.
+      // Keep polling getDetailedStatus with error.context.srcTxHash.
       break;
 
     case 'RELAY_FAILED':
@@ -707,8 +783,18 @@ If you were on the previous CODE-on-`error.message` pattern (or the older `Bridg
 
 ### Best practices
 
-1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Funds may be in flight; persist the user's input and retry.
-2. **Handle `RELAY_TIMEOUT` gracefully**. The spoke tx succeeded; the relay just didn't deliver in time. Check on-chain status before retrying.
+1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Never start a new bridge for the same transfer: that is a second deposit. Poll `getDetailedStatus` with `error.context.srcTxHash` — if the backend took the deposit, it still relays it. If no packet ever shows up (backend submit-tx off, or the backend rejected the submit), nothing else will submit it: resubmit **the same tx** to the relay, which ignores a tx it already has. An EVM source needs only the hash; a Solana or Bitcoin source also needs the original `relayData`, which `bridge()` does not return.
+
+   ```typescript
+   import { getIntentRelayChainId, submitTransaction } from '@sodax/sdk';
+
+   // srcChainKey: the bridge's source chain; srcTxHash: error.context.srcTxHash
+   await submitTransaction(
+     { action: 'submit', params: { chain_id: getIntentRelayChainId(srcChainKey).toString(), tx_hash: srcTxHash } },
+     sodax.config.relay.relayerApiEndpoint,
+   );
+   ```
+2. **Handle `RELAY_TIMEOUT` gracefully**. The spoke tx succeeded; the relay just didn't deliver in time. Poll `getDetailedStatus` with `error.context.srcTxHash` instead of starting a new bridge.
 3. **Discriminate `RELAY_FAILED` via `context.relayCode`**. `'RELAY_POLLING_FAILED'` (polling outage — packet status unknown) needs different UX from generic `'UNKNOWN'`.
 4. **Use `error.cause` for forensics**. Every wrapped error preserves the original on `cause`. Loggers walk it automatically.
 5. **Use `JSON.stringify(error)` for logging**. The `toJSON()` method handles bigint coercion + cause-chain truncation safely.

@@ -103,6 +103,35 @@ import {
   type INearWalletProvider,
   type IBitcoinWalletProvider,
 
+  // Approve + swap in one signature (see features/swap.md)
+  type SwapApprovalStrategy,     // 'not-required' | 'atomic-batch' | 'sequential'
+  type SwapWithApprovalParams,
+  type SwapWithApprovalResponse,
+  type SwapWithApprovalErrorCode,
+  type ApprovalStrategyErrorCode,
+  ATOMIC_BATCH_UNCONFIRMED,      // context.reason: the batch may still land; resume it with resumeBatchId, never resend
+  ACCOUNT_UPGRADE_DECLINED,      // context.reason: retry with allowAccountUpgrade: false
+
+  // Approval batch helpers, for flows that build their own deposit (see features/swaps-api.md)
+  type ApprovalStrategy,
+  type ApprovalOptions,
+  type ApprovalBatchErrorCode,
+  type ApprovalBatchResult,
+  resolveApprovalStrategy,       // 'atomic-batch' | 'sequential'; never fails
+  sendApprovalBatch,             // [reset?, approve, deposit] as one EIP-5792 batch
+  confirmApprovalBatch,          // resume a batch that came back unconfirmed
+  isAtomicBatchRefusal,          // the one batch failure that may fall back to separate txs
+  ATOMIC_BATCH_REFUSED,          // context.reason of that refusal
+  type ApprovalStrategyError,
+
+  // Approve + bridge / vault deposit in one signature (see features/bridge.md, features/leverage-yield.md)
+  type BridgeWithApprovalParams,
+  type BridgeWithApprovalResponse,
+  type BridgeWithApprovalErrorCode,
+  type VaultSwapWithApprovalParams,
+  type VaultSwapWithApprovalResponse,
+  type VaultSwapWithApprovalErrorCode,
+
   // Param types (per feature)
   type CreateIntentParams,
   type CreateLimitOrderParams,

@@ -31,6 +31,7 @@ import {
   isOptionalEvmWalletProviderType,
   isOptionalStellarWalletProviderType,
   isBitcoinWalletProviderType,
+  isEvmWalletProviderType,
   type RelayExtraData,
   type TxHashPair,
   isStacksChainKeyType,
@@ -44,8 +45,21 @@ import type { BackendApiService } from '../backendApi/index.js';
 import { runBackendSubmitTx } from '../backendApi/runBackendSubmitTx.js';
 import { createSubmitTxAttempt, type SubmitTxAttempt } from '../backendApi/submitTxAttempt.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
+import { canSendAtomicBatch } from '../shared/utils/evmAtomicBatch.js';
+import {
+  approvalBatchWaitMs,
+  confirmApproval,
+  confirmApprovalBatch,
+  resolveApprovalStrategy,
+  runWithApproval,
+  sendApprovalBatch,
+  type ApprovalOptions,
+  type ApprovalStrategy,
+  type ApprovalStrategyError,
+} from '../shared/utils/approvalBatch.js';
 import type { ApprovalTxs } from '../shared/types/spoke-types.js';
 import { selectSolvedIntentPacket } from './selectSolvedIntentPacket.js';
+import { intentDepositSpender } from './intentDepositSpender.js';
 import { estimateSwapSpeedTier, type SwapSpeedTierParams, type SwapSpeedTierResult } from './speed-tier.js';
 import { isSodaxError, SodaxError } from '../errors/SodaxError.js';
 import { isAuthFailure } from '../errors/guards.js';
@@ -56,7 +70,9 @@ import {
   executionFailed,
   unknownFailed,
   approveFailed,
+  allowanceCheckFailed,
   lookupFailed,
+  withErrorContext,
 } from '../errors/wrappers.js';
 import {
   DETAILED_STATUS_NOT_DELIVERED,
@@ -69,9 +85,11 @@ import {
   type PostExecutionError,
   type SwapError,
   type DetailedStatusError,
+  type SwapWithApprovalError,
   isSwapCreateIntentError,
   isPostExecutionError,
   isSwapError,
+  isSwapWithApprovalError,
   swapInvariant,
 } from './errors.js';
 export type {
@@ -126,6 +144,7 @@ import {
   type StellarChainKey,
   type SpokeExecActionParams,
   type SonicChainKey,
+  type EvmRawTransaction,
   BITCOIN_DUST_SATS,
 } from '@sodax/types';
 
@@ -136,6 +155,27 @@ export type SwapResponse = {
   intent: Intent;
   intentDeliveryInfo: IntentDeliveryInfo;
 };
+
+/** How {@link SwapService.swapWithApproval} gets the source token approved — see {@link ApprovalStrategy}. */
+export type SwapApprovalStrategy = ApprovalStrategy;
+
+export type SwapWithApprovalResponse = SwapResponse & { approvalStrategy: SwapApprovalStrategy };
+
+/** Params for `swapWithApproval` / `getApprovalStrategy`: `swap()`'s, plus the account-upgrade choice. */
+export type SwapWithApprovalParams<K extends SpokeChainKey> = SwapActionParams<K, false> &
+  ApprovalOptions & {
+    /**
+     * `swapWithApproval` only: the `context.batchId` of an {@link ATOMIC_BATCH_UNCONFIRMED} error from an
+     * earlier call with the same `params` and wallet. Waits for that batch again instead of sending
+     * anything and, once its deposit confirms, completes the swap through the client-side relay.
+     */
+    resumeBatchId?: string;
+    /**
+     * With `resumeBatchId`: that error's `context.callCount`. Without it, a batch the wallet confirmed as one
+     * transaction per call cannot be matched to its deposit and stays unconfirmed.
+     */
+    resumeBatchCallCount?: number;
+  };
 
 export type CreateIntentResult<K extends SpokeChainKey, Raw extends boolean> = {
   tx: TxReturnType<K, Raw>;
@@ -713,30 +753,7 @@ export class SwapService {
             return { ok: false, error: createIntentResult.error };
           }
 
-          const created = createIntentResult.value;
-
-          // `timeout` is a PER-ATTEMPT budget, not an end-to-end one: the backend attempt gets it, and if
-          // that attempt fails the client-side relay fallback gets a fresh one. Sharing a single deadline
-          // would leave the fallback whatever the backend had not spent, which is how a relay that needs
-          // longer than the leftovers ends in RELAY_TIMEOUT. Resolved (not just defaulted) so a non-finite
-          // caller value cannot reach either budget — see `resolveTimeoutMs`.
-          const timeoutMs = resolveTimeoutMs(_params.timeout, DEFAULT_RELAY_TX_TIMEOUT);
-
-          // Backend 2-step flow (default on): hand the broadcast intent tx to the swaps API, which relays +
-          // post-executes server-side. On ANY non-success we fall back to the client-side relay so the
-          // swap still completes — safe because re-relay / re-post are idempotent (see `submitTx`).
-          if (this.useBackendSubmitTx) {
-            const submitted = await this.submitTx(_params, created, createSubmitTxAttempt(timeoutMs));
-            if (submitted.ok) return submitted;
-            this.config.logger.warn(
-              '[swap] backend submit-tx did not complete; falling back to the client-side relay',
-              {
-                error: submitted.error,
-              },
-            );
-          }
-
-          return this.fallbackSwapSteps(_params, created, timeoutMs);
+          return await this.completeSwap(_params, createIntentResult.value);
         } catch (error) {
           // Narrow guard: preserve SodaxErrors whose code is in the swap union; wrap unknown
           // codes (e.g. an accidental cross-feature code) as UNKNOWN.
@@ -766,6 +783,320 @@ export class SwapService {
   }
 
   /**
+   * Which approval path {@link swapWithApproval} would take for these params, so a UI can say up front
+   * whether the swap costs one signature or two. Read-only; sends nothing.
+   *
+   * `'atomic-batch'` needs an EVM spoke source and a wallet that reports EIP-5792 atomic support for
+   * that chain — `'supported'`, or `'ready'` (the wallet asks the user to upgrade the account on the
+   * first batch; pass `allowAccountUpgrade: false` to treat such a wallet as unable to batch). The Sonic
+   * hub, a Stellar source that needs a trustline, and wallets without batch support get `'sequential'`;
+   * other non-EVM sources have no allowance and get `'not-required'`.
+   *
+   * @returns `ALLOWANCE_CHECK_FAILED` when the allowance read fails; otherwise the strategy.
+   */
+  public async getApprovalStrategy<K extends SpokeChainKey>(
+    _params: SwapWithApprovalParams<K>,
+  ): Promise<Result<SwapApprovalStrategy, ApprovalStrategyError>> {
+    const { params, walletProvider, allowAccountUpgrade = true } = _params;
+    const srcChainKey = params.srcChainKey;
+
+    const allowance = await this.isAllowanceValid(_params);
+    if (!allowance.ok) {
+      return {
+        ok: false,
+        error: allowanceCheckFailed('swap', allowance.error, {
+          srcChainKey,
+          dstChainKey: params.dstChainKey,
+          action: 'swapWithApproval',
+        }),
+      };
+    }
+    if (allowance.value) return { ok: true, value: 'not-required' };
+    return { ok: true, value: await resolveApprovalStrategy({ srcChainKey, walletProvider, allowAccountUpgrade }) };
+  }
+
+  /**
+   * {@link swap} with the source-token approval folded in. Picks a path with
+   * {@link getApprovalStrategy}: no approval when the allowance already suffices; on an EIP-5792
+   * wallet, approve and the swap transaction as **one atomic batch — one signature**; otherwise
+   * approve, wait for it to confirm, then the swap transaction. Completion (backend submit-tx with
+   * the client-side relay fallback) is exactly `swap()`'s.
+   *
+   * A wallet that refuses the batch before signing anything (e.g. EIP-5792 5760, atomicity not
+   * supported) falls back to the two-step path. A batch the user saw is never retried as separate
+   * transactions:
+   * - rejected → `USER_REJECTED`; a declined account upgrade (5750) adds `context.reason:`
+   *   {@link ACCOUNT_UPGRADE_DECLINED}, after which `allowAccountUpgrade: false` swaps without one;
+   * - never included or fully reverted (EIP-5792 400 / 500) → `INTENT_CREATION_FAILED` with
+   *   `context.reason: 'atomic-batch-failed'`;
+   * - anything else short of a confirmed deposit receipt (not confirmed within `timeout`, a partial
+   *   revert, receipts that do not identify the deposit) → `TX_VERIFICATION_FAILED` with
+   *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED}, `context.batchId` and `context.callCount`. It may
+   *   have landed — do not send it again; call again with `resumeBatchId` and `resumeBatchCallCount` to
+   *   finish it once it does.
+   *
+   * @returns A `Result<SwapWithApprovalResponse, SwapWithApprovalError>` — `swap()`'s response plus the
+   *   `approvalStrategy` that ran. Errors are `swap()`'s codes plus `APPROVE_FAILED` and
+   *   `ALLOWANCE_CHECK_FAILED`.
+   */
+  public async swapWithApproval<K extends SpokeChainKey>(
+    _params: SwapWithApprovalParams<K>,
+  ): Promise<Result<SwapWithApprovalResponse, SwapWithApprovalError>> {
+    const { params } = _params;
+    const srcChainKey = params.srcChainKey;
+    const baseCtx = { srcChainKey, dstChainKey: params.dstChainKey, action: 'swapWithApproval' };
+    return this.config.analytics.trackResult(
+      'swap',
+      'swapWithApproval',
+      async () => {
+        try {
+          if (_params.resumeBatchId !== undefined) return await this.resumeAtomicBatch(_params, _params.resumeBatchId);
+
+          const strategy = await this.getApprovalStrategy(_params);
+          if (!strategy.ok) return strategy;
+
+          const { result: created, approvalStrategy } = await runWithApproval<
+            CreateIntentResult<K, false>,
+            SwapWithApprovalError
+          >({
+            strategy: strategy.value,
+            notRequired: () => this.createIntent(_params),
+            atomicBatch: () => this.createIntentInAtomicBatch(_params),
+            sequential: afterRefusedBatch => this.approveThenCreateIntent(_params, afterRefusedBatch),
+            onBatchRefused: error =>
+              this.config.logger.warn('[swapWithApproval] wallet refused the atomic batch; approving separately', {
+                error,
+              }),
+          });
+          if (!created.ok) return created;
+
+          const completed = await this.completeSwap(_params, created.value);
+          if (!completed.ok) return completed;
+          return { ok: true, value: { ...completed.value, approvalStrategy } };
+        } catch (error) {
+          if (isSwapWithApprovalError(error)) return { ok: false, error };
+          return { ok: false, error: unknownFailed('swap', error, baseCtx) };
+        }
+      },
+      {
+        start: () => ({
+          srcChainKey,
+          dstChainKey: params.dstChainKey,
+          srcAddress: params.srcAddress,
+          dstAddress: params.dstAddress,
+        }),
+        success: value => ({
+          srcChainKey,
+          dstChainKey: params.dstChainKey,
+          srcTxHash: value.intentDeliveryInfo.srcTxHash,
+          dstTxHash: value.intentDeliveryInfo.dstTxHash,
+          approvalStrategy: value.approvalStrategy,
+        }),
+        failure: error => ({ code: error.code }),
+      },
+    );
+  }
+
+  /**
+   * Approve + deposit as one EIP-5792 atomic batch, in broadcast order (`[reset?, approve, deposit]`),
+   * then hand back the batch's transaction hash as the intent tx, for {@link completeSwap}.
+   */
+  private async createIntentInAtomicBatch<K extends SpokeChainKey>(
+    _params: SwapActionParams<K, false>,
+  ): Promise<Result<CreateIntentResult<K, false>, SwapWithApprovalError>> {
+    const { params, walletProvider, extras, skipSimulation } = _params;
+    const srcChainKey = params.srcChainKey;
+    swapInvariant(
+      isEvmSpokeOnlyChainKeyType(srcChainKey) && isEvmWalletProviderType(walletProvider),
+      'Atomic batches need an EVM spoke source and an EVM wallet provider',
+    );
+    swapInvariant(canSendAtomicBatch(walletProvider), 'Wallet provider does not implement EIP-5792 batches');
+    const ctx = {
+      srcChainKey,
+      dstChainKey: params.dstChainKey,
+      action: 'swapWithApproval',
+      approvalStrategy: 'atomic-batch',
+    };
+
+    const [approval, created] = await Promise.all([
+      this.buildApproveTxs<K>({ params, raw: true }),
+      this.createIntent<K, true>({ params, extras, skipSimulation, raw: true }),
+    ]);
+    if (!approval.ok) {
+      return {
+        ok: false,
+        error: isSwapWithApprovalError(approval.error)
+          ? withErrorContext(approval.error, ctx)
+          : approveFailed('swap', approval.error, ctx),
+      };
+    }
+    if (!created.ok) return created;
+
+    // An EVM spoke source makes every unsigned leg an EvmRawTransaction.
+    const { resetTx, approveTx } = approval.value as ApprovalTxs<EvmSpokeOnlyChainKey>;
+    const depositTx = created.value.tx as EvmRawTransaction;
+    const txs = resetTx ? [resetTx, approveTx, depositTx] : [approveTx, depositTx];
+    const sent = await sendApprovalBatch({
+      walletProvider,
+      srcChainKey,
+      txs,
+      timeoutMs: approvalBatchWaitMs(_params.timeout),
+      feature: 'swap',
+      context: ctx,
+    });
+    if (!sent.ok) return sent;
+    return {
+      ok: true,
+      value: {
+        tx: sent.value.txHash satisfies TxReturnType<EvmSpokeOnlyChainKey, false> as TxReturnType<K, false>,
+        intent: created.value.intent,
+        relayData: created.value.relayData,
+      },
+    };
+  }
+
+  /**
+   * Finishes a batch an earlier call left {@link ATOMIC_BATCH_UNCONFIRMED}, without sending anything to
+   * the wallet: waits for it again, relays its deposit client-side and notifies the solver. The
+   * original intent went with that call, so it is read back from the hub tx the relay delivers.
+   */
+  private async resumeAtomicBatch<K extends SpokeChainKey>(
+    _params: SwapWithApprovalParams<K>,
+    batchId: string,
+  ): Promise<Result<SwapWithApprovalResponse, SwapWithApprovalError>> {
+    const { params, walletProvider } = _params;
+    const srcChainKey = params.srcChainKey;
+    swapInvariant(
+      isEvmSpokeOnlyChainKeyType(srcChainKey) &&
+        isEvmWalletProviderType(walletProvider) &&
+        canSendAtomicBatch(walletProvider),
+      'Resuming an atomic batch needs an EVM spoke source and an EIP-5792 wallet provider',
+    );
+    const ctx = {
+      srcChainKey,
+      dstChainKey: params.dstChainKey,
+      action: 'swapWithApproval',
+      approvalStrategy: 'atomic-batch',
+    };
+    const timeoutMs = approvalBatchWaitMs(_params.timeout);
+
+    const deposit = await confirmApprovalBatch({
+      walletProvider,
+      batchId,
+      callCount: _params.resumeBatchCallCount,
+      timeoutMs,
+      feature: 'swap',
+      context: ctx,
+    });
+    if (!deposit.ok) return deposit;
+    const srcTxHash = deposit.value.txHash;
+    const txCtx = { ...ctx, srcTxHash };
+
+    // An EVM spoke tx is relayed by its hash alone, so the lost `relayData` is not needed.
+    const packet = await relayTxAndWaitPacket({
+      srcTxHash,
+      chainKey: srcChainKey,
+      relayerApiEndpoint: this.relayerApiEndpoint,
+      timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
+    });
+    if (!packet.ok) return { ok: false, error: mapRelayFailure(packet.error, { feature: 'swap', ...txCtx }) };
+    const dstTxHash = packet.value.dst_tx_hash as Hash;
+
+    const intent = await this.getIntent(dstTxHash);
+    if (!intent.ok) return { ok: false, error: unknownFailed('swap', intent.error, txCtx) };
+    const solved = await this.postExecution({ intent_tx_hash: dstTxHash });
+    if (!solved.ok) return { ok: false, error: withErrorContext(solved.error, { srcChainKey, srcTxHash, dstTxHash }) };
+
+    return {
+      ok: true,
+      value: {
+        solverExecutionResponse: solved.value,
+        intent: intent.value,
+        intentDeliveryInfo: {
+          srcChainKey,
+          srcTxHash,
+          srcAddress: params.srcAddress,
+          dstChainKey: params.dstChainKey,
+          dstTxHash,
+          dstAddress: params.dstAddress,
+        } satisfies IntentDeliveryInfo,
+        approvalStrategy: 'atomic-batch',
+      },
+    };
+  }
+
+  /** Approve, wait for the approval to confirm, then create the intent — two or more signatures. */
+  private async approveThenCreateIntent<K extends SpokeChainKey>(
+    _params: SwapActionParams<K, false>,
+    validated = false,
+  ): Promise<Result<CreateIntentResult<K, false>, SwapWithApprovalError>> {
+    const { params, extras, skipSimulation } = _params;
+    const ctx = {
+      srcChainKey: params.srcChainKey,
+      dstChainKey: params.dstChainKey,
+      action: 'swapWithApproval',
+      approvalStrategy: 'sequential',
+    };
+
+    // Build the intent unsigned first, so params that can never become a swap fail before the user pays for an approval.
+    if (!validated) {
+      const preflight = await this.createIntent<K, true>({ params, extras, skipSimulation, raw: true });
+      if (!preflight.ok) return preflight;
+    }
+
+    const approved = await this.approve(_params);
+    if (!approved.ok) {
+      return {
+        ok: false,
+        error: isSwapWithApprovalError(approved.error)
+          ? withErrorContext(approved.error, ctx)
+          : approveFailed('swap', approved.error, ctx),
+      };
+    }
+
+    const confirmed = await confirmApproval({
+      waitForTxReceipt: receiptParams => this.spoke.waitForTxReceipt(receiptParams),
+      txHash: approved.value,
+      chainKey: params.srcChainKey,
+      feature: 'swap',
+      context: ctx,
+    });
+    if (!confirmed.ok) return confirmed;
+
+    return this.createIntent(_params);
+  }
+
+  /**
+   * Completes a swap whose intent tx is already broadcast: the backend 2-step attempt when
+   * `useBackendSubmitTx` is on, falling back to {@link fallbackSwapSteps} on any non-success.
+   * Shared by `swap()` and `swapWithApproval()`, which differ only in how the intent tx is created.
+   */
+  private async completeSwap<K extends SpokeChainKey>(
+    _params: SwapActionParams<K, false>,
+    created: CreateIntentResult<K, false>,
+  ): Promise<Result<SwapResponse, SwapError>> {
+    // `timeout` is a PER-ATTEMPT budget, not an end-to-end one: the backend attempt gets it, and if
+    // that attempt fails the client-side relay fallback gets a fresh one. Sharing a single deadline
+    // would leave the fallback whatever the backend had not spent, which is how a relay that needs
+    // longer than the leftovers ends in RELAY_TIMEOUT. Resolved (not just defaulted) so a non-finite
+    // caller value cannot reach either budget — see `resolveTimeoutMs`.
+    const timeoutMs = resolveTimeoutMs(_params.timeout, DEFAULT_RELAY_TX_TIMEOUT);
+
+    // Backend 2-step flow (default on): hand the broadcast intent tx to the swaps API, which relays +
+    // post-executes server-side. On ANY non-success we fall back to the client-side relay so the
+    // swap still completes — safe because re-relay / re-post are idempotent (see `submitTx`).
+    if (this.useBackendSubmitTx) {
+      const submitted = await this.submitTx(_params, created, createSubmitTxAttempt(timeoutMs));
+      if (submitted.ok) return submitted;
+      this.config.logger.warn('[swap] backend submit-tx did not complete; falling back to the client-side relay', {
+        error: submitted.error,
+      });
+    }
+
+    return this.fallbackSwapSteps(_params, created, timeoutMs);
+  }
+
+  /**
    * Client-side swap completion (opt-out via `swaps.useBackendSubmitTx: false`): verify the broadcast intent
    * tx landed, then relay it to the hub — or use it directly when the source IS the hub — then notify the
    * solver via post-execution and build the {@link SwapResponse}. Extracted verbatim from `swap()` so the
@@ -782,15 +1113,16 @@ export class SwapService {
   ): Promise<Result<SwapResponse, SwapError>> {
     const { params } = _params;
     const srcChainKey = params.srcChainKey;
-    const baseCtx = { srcChainKey, dstChainKey: params.dstChainKey };
     const { tx: spokeTxHash, intent, relayData } = created;
+    // Every failure from here on is post-broadcast: carry the tx so the caller can keep reading its status.
+    const txCtx = { srcChainKey, dstChainKey: params.dstChainKey, action: 'swap', srcTxHash: spokeTxHash };
 
     const verifyTxHashResult = await this.spoke.verifyTxHash({
       txHash: created.tx,
       chainKey: srcChainKey,
     });
     if (!verifyTxHashResult.ok) {
-      return { ok: false, error: verifyFailed('swap', verifyTxHashResult.error, { ...baseCtx, action: 'swap' }) };
+      return { ok: false, error: verifyFailed('swap', verifyTxHashResult.error, txCtx) };
     }
 
     let dstIntentTxHash: string;
@@ -810,7 +1142,7 @@ export class SwapService {
         timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
       });
       if (!packet.ok) {
-        return { ok: false, error: mapRelayFailure(packet.error, { feature: 'swap', action: 'swap', ...baseCtx }) };
+        return { ok: false, error: mapRelayFailure(packet.error, { feature: 'swap', ...txCtx }) };
       }
       dstIntentTxHash = packet.value.dst_tx_hash;
     }
@@ -819,8 +1151,15 @@ export class SwapService {
       intent_tx_hash: dstIntentTxHash as `0x${string}`,
     });
     if (!postExecResult.ok) {
-      // PostExecutionErrorCode ⊂ SwapErrorCode by definition.
-      return { ok: false, error: postExecResult.error };
+      // PostExecutionErrorCode ⊂ SwapErrorCode by definition. The hub tx is what a retried `postExecution` needs.
+      return {
+        ok: false,
+        error: withErrorContext(postExecResult.error, {
+          srcChainKey,
+          srcTxHash: spokeTxHash,
+          dstTxHash: dstIntentTxHash,
+        }),
+      };
     }
 
     return {
@@ -943,7 +1282,7 @@ export class SwapService {
           token: params.inputToken,
           amount: params.inputAmount,
           owner: params.srcAddress,
-          spender: this.solver.intentsContract,
+          spender: intentDepositSpender(this.config, srcChainKey),
         } satisfies SpokeIsAllowanceValidParamsHub);
       }
 
@@ -953,7 +1292,7 @@ export class SwapService {
           token: params.inputToken,
           amount: params.inputAmount,
           owner: params.srcAddress,
-          spender: this.config.getChainConfig(srcChainKey).addresses.assetManager,
+          spender: intentDepositSpender(this.config, srcChainKey),
         } satisfies SpokeIsAllowanceValidParamsEvmSpoke);
       }
 
@@ -1003,9 +1342,7 @@ export class SwapService {
           isOptionalEvmWalletProviderType(_params.walletProvider),
           'Invalid wallet provider. Expected Evm wallet provider.',
         );
-        const spender = isHubChainKeyType(params.srcChainKey)
-          ? this.solver.intentsContract
-          : this.config.getChainConfig(params.srcChainKey).addresses.assetManager;
+        const spender = intentDepositSpender(this.config, params.srcChainKey);
         const coreParams = {
           srcChainKey: params.srcChainKey,
           owner: params.srcAddress as GetAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
@@ -1090,9 +1427,7 @@ export class SwapService {
 
     try {
       if (isHubChainKeyType(params.srcChainKey) || isEvmSpokeOnlyChainKeyType(params.srcChainKey)) {
-        const spender = isHubChainKeyType(params.srcChainKey)
-          ? this.solver.intentsContract
-          : this.config.getChainConfig(params.srcChainKey).addresses.assetManager;
+        const spender = intentDepositSpender(this.config, params.srcChainKey);
 
         const result = await this.spoke.buildApproveTxs<HubChainKey | EvmSpokeOnlyChainKey>({
           srcChainKey: params.srcChainKey,

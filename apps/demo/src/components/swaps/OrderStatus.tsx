@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   isAuthFailure,
+  useDetailedStatus,
   useLeverageYieldDetailedStatus,
   useSodaxContext,
   useSwapsApiSubmitTxStatus,
   type SpokeChainKey,
+  type UseDetailedStatusResult,
   type UseLeverageYieldDetailedStatusResult,
 } from '@sodax/dapp-kit';
 import { formatUnits } from 'viem';
@@ -438,7 +440,7 @@ function SubmitTxLiveCard({
  * ones that never resolve are stopped by its own NOT_FOUND budget, not by this card. A rejected API
  * key also stops the hook, so it carries an error — otherwise the card would sit on `pending` silently.
  */
-function deriveDetailed(read: UseLeverageYieldDetailedStatusResult): {
+function deriveDetailed(read: UseDetailedStatusResult | UseLeverageYieldDetailedStatusResult): {
   label: string;
   error?: string;
   extraRows: DetailRowData[];
@@ -507,6 +509,47 @@ function LeverageYieldLiveCard({
   );
 }
 
+/**
+ * The SDK swap card. `useDetailedStatus` keys on the SOURCE tx and routes like the vault-swap card
+ * above, so it answers whichever path completed the swap: backend submit-tx or the client-side relay.
+ */
+function SwapLiveCard({
+  order,
+  title,
+  onDismiss,
+  onSettle,
+}: {
+  order: SolverOrder & { srcChainKey: string; srcTxHash: string };
+  title: string;
+  onDismiss?: () => void;
+  onSettle: SettleFn;
+}) {
+  const { data: read } = useDetailedStatus({
+    // Orders persist as JSON scalars, so the chain key is widened to `string` on the way in.
+    params: { srcChainKey: order.srcChainKey as SpokeChainKey, srcTxHash: order.srcTxHash },
+  });
+
+  const derived = useMemo(() => deriveDetailed(read), [read]);
+  const { label, error, extraRows } = derived;
+  useEffect(() => {
+    if (TERMINAL_LABELS.has(derived.label)) {
+      onSettle(order.intentHash, { label: derived.label, error: derived.error, extraRows: derived.extraRows });
+    }
+  }, [derived, order.intentHash, onSettle]);
+
+  return (
+    <OrderCard
+      title={title}
+      label={label}
+      summary={order.summary}
+      rows={[...baseRows(order), ...extraRows]}
+      error={error}
+      createdAt={order.createdAt}
+      onDismiss={onDismiss}
+    />
+  );
+}
+
 export default function OrderStatus({
   order,
   onDismiss,
@@ -532,14 +575,12 @@ export default function OrderStatus({
     // `statusEndpoint` pins an order to the env it was created on; the router only knows the current
     // one. So an order from another env — or one saved before the source tx was — stays on the poll.
     const pinnedElsewhere = !!order.statusEndpoint && order.statusEndpoint !== sodax.config.solver.solverApiEndpoint;
-    if (feature === 'leverage-yield' && order.srcChainKey && order.srcTxHash && !pinnedElsewhere) {
-      return (
-        <LeverageYieldLiveCard
-          order={{ ...order, srcChainKey: order.srcChainKey, srcTxHash: order.srcTxHash }}
-          title={title}
-          onDismiss={onDismiss}
-          onSettle={settle}
-        />
+    if (order.srcChainKey && order.srcTxHash && !pinnedElsewhere) {
+      const sourced = { ...order, srcChainKey: order.srcChainKey, srcTxHash: order.srcTxHash };
+      return feature === 'leverage-yield' ? (
+        <LeverageYieldLiveCard order={sourced} title={title} onDismiss={onDismiss} onSettle={settle} />
+      ) : (
+        <SwapLiveCard order={sourced} title={title} onDismiss={onDismiss} onSettle={settle} />
       );
     }
     return <SolverLiveCard order={order} title={title} onDismiss={onDismiss} onSettle={settle} />;

@@ -98,7 +98,7 @@ overrides:
   "ws@8": "8.21.3"
   # Pin patched protobufjs 7.6.5 (7.6.0 was still in 3 advisory ranges); only via @trezor/protobuf.
   protobufjs: "7.6.5"
-  # Clears the postcss GHSA-r28c-9q8g-f849 parser advisory; also floors next@16.3.4's copy.
+  # Clears the postcss GHSA-r28c-9q8g-f849 parser advisory; also floors next's copy.
   postcss: "^8.5.18"
   # Clears nanoid GHSA-28wg-ghj8-5hjv and GHSA-2v37-7h3g-55p8; reached only via postcss.
   "nanoid@3": "^3.3.18"
@@ -122,6 +122,8 @@ overrides:
   # @stellar/stellar-sdk's stellartoml, which parses a TOML file fetched from a
   # remote domain. Held on 4.x: 5.0.0 throws on integers outside the safe range.
   toml: "^4.1.2"
+  # Clears shell-quote GHSA-pqg4-j6r4-53mv (quote() command injection); via react-native > react-devtools-core (^1.6.1).
+  shell-quote: "^1.11.0"
   # Force every transitive `@tanstack/react-query` to the catalog version.
   # Without this, @mysten/dapp-kit's peer `^5.50.1` can resolve to 5.100.x
   # while demo / wagmi keep 5.87.4 — two React Query contexts in the same

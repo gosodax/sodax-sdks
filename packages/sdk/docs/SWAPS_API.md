@@ -113,7 +113,9 @@ Ethereum USDT is the one in the SODAX token list today — and the wallet alread
 allowance. A wallet in that state cannot approve at all until the allowance is zeroed.
 
 When `resetTx` is present, broadcast it **first** and wait for it to be mined, then broadcast `tx`.
-The second approval is only valid once the reset has landed on-chain, so the two cannot be batched.
+The second approval is only valid once the reset has landed on-chain, so the two cannot go out as
+separate transactions at once. An EIP-5792 atomic batch runs its calls in order, so it can carry both —
+see `sendApprovalBatch`.
 
 ```typescript
 const { tx, resetTx } = approveResponse;

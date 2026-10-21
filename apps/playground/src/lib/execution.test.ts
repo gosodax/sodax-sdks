@@ -1,8 +1,14 @@
 import {
+  ACCOUNT_UPGRADE_DECLINED,
+  ATOMIC_BATCH_REFUSED,
+  ATOMIC_BATCH_UNCONFIRMED,
   ChainKeys,
+  SodaxError,
+  type confirmApprovalBatch,
   type CreateIntentParamsV2,
   type IntentResponseV2,
   type EvmRawTransaction,
+  type IEvmWalletProvider,
   type ISuiWalletProvider,
 } from '@sodax/dapp-kit';
 import { describe, expect, it, vi } from 'vitest';
@@ -12,11 +18,17 @@ import {
   toIntentRequest,
   broadcast,
   isUserRejection,
+  isUnconfirmedBatch,
+  isUpgradeDeclined,
+  checkHeldBatch,
+  evmDeposit,
   executionError,
+  heldBatchMessage,
   sourceExtras,
+  UNCONFIRMED_BATCH_MESSAGE,
   type ExecutionDependencies,
 } from './execution';
-import { readActivity, submissionFor, type Activity } from './activity';
+import { activityFromBatch, readActivity, readPendingBatch, submissionFor, type Activity } from './activity';
 
 const address = '0x1234567890abcdef1234567890abcdef12345678';
 const tx: EvmRawTransaction = { from: address, to: address, value: 0n, data: '0x' };
@@ -50,7 +62,7 @@ const intent: IntentResponseV2 = {
   data: '0x',
 };
 
-function setup(allowed = true) {
+function setup(allowed = true, strategy: 'atomic-batch' | 'sequential' = 'sequential') {
   const calls: string[] = [];
   const deps: ExecutionDependencies = {
     api: {
@@ -69,6 +81,15 @@ function setup(allowed = true) {
     approve: vi.fn(async () => {
       calls.push('approve');
     }),
+    approvalStrategy: vi.fn(async () => strategy),
+    approveAndSign: vi.fn(
+      async (_body: CreateIntentParamsV2, _tx: unknown, onBatchSent: (batchId: string, callCount: number) => void) => {
+        onBatchSent('batch-1', 2);
+        calls.push('approveAndSign');
+        return '0xbatch';
+      },
+    ),
+    onBatchSent: vi.fn(() => calls.push('batchSent')),
     sign: vi.fn(async () => {
       calls.push('sign');
       return '0x1234';
@@ -117,6 +138,60 @@ describe('swap execution', () => {
     await executeSwap(body, deps);
     expect(calls).toEqual(['approve', 'sign', 'save', 'submit', 'accepted']);
     expect(deps.api.getQuote).toHaveBeenCalledTimes(2);
+  });
+  it('approves and signs in one prompt on a batch-capable wallet', async () => {
+    const { deps, calls } = setup(false, 'atomic-batch');
+    await executeSwap(body, deps);
+    // The batch is persisted the moment the wallet takes it, before its hash is known.
+    expect(calls).toEqual(['batchSent', 'approveAndSign', 'save', 'submit', 'accepted']);
+    expect(deps.approve).not.toHaveBeenCalled();
+    expect(deps.sign).not.toHaveBeenCalled();
+    expect(deps.onPhase).not.toHaveBeenCalledWith('approving');
+    expect(deps.approveAndSign).toHaveBeenCalledWith(body, tx, expect.any(Function));
+    expect(deps.onBatchSent).toHaveBeenCalledWith(
+      { batchId: 'batch-1', callCount: 2 },
+      {
+        srcChainKey: body.srcChainKey,
+        walletAddress: body.srcAddress,
+        intent: toIntentRequest(intent),
+        relayData: '0x00',
+      },
+      intent,
+    );
+    expect(deps.api.submitTx).toHaveBeenCalledWith(expect.objectContaining({ txHash: '0xbatch' }));
+  });
+  it('takes the two-step path, re-quote included, when the wallet refuses the batch', async () => {
+    const { deps, calls } = setup(false, 'atomic-batch');
+    vi.mocked(deps.approveAndSign).mockRejectedValueOnce(
+      new SodaxError('INTENT_CREATION_FAILED', 'refused', {
+        feature: 'swap',
+        context: { reason: ATOMIC_BATCH_REFUSED },
+      }),
+    );
+    await executeSwap(body, deps);
+    expect(calls).toEqual(['approve', 'sign', 'save', 'submit', 'accepted']);
+    expect(deps.onPhase).toHaveBeenCalledWith('approving');
+    // Quoted before the batch and again after the separate approval; the intent is rebuilt after it too.
+    expect(deps.api.getQuote).toHaveBeenCalledTimes(2);
+    expect(deps.api.createIntent).toHaveBeenCalledTimes(2);
+    expect(deps.onBatchSent).not.toHaveBeenCalled();
+  });
+  it('asks for a strategy only when the allowance is short', async () => {
+    const { deps } = setup(true, 'atomic-batch');
+    await executeSwap(body, deps);
+    expect(deps.approvalStrategy).not.toHaveBeenCalled();
+    expect(deps.approveAndSign).not.toHaveBeenCalled();
+  });
+  it('neither saves nor submits a batch the wallet did not confirm', async () => {
+    const { deps } = setup(false, 'atomic-batch');
+    const unconfirmed = new SodaxError('TX_VERIFICATION_FAILED', 'not confirmed', {
+      feature: 'swap',
+      context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' },
+    });
+    vi.mocked(deps.approveAndSign).mockRejectedValue(unconfirmed);
+    await expect(executeSwap(body, deps)).rejects.toBe(unconfirmed);
+    expect(deps.onBroadcast).not.toHaveBeenCalled();
+    expect(deps.api.submitTx).not.toHaveBeenCalled();
   });
   it('stops before approval when the reviewed minimum is no longer available', async () => {
     const { deps } = setup(false);
@@ -316,6 +391,44 @@ describe('swap execution', () => {
   });
 });
 
+describe('pending batch', () => {
+  const pending = {
+    batchId: '0xabc123',
+    callCount: 2,
+    srcChainKey: ChainKeys.BASE_MAINNET,
+    dstChainKey: ChainKeys.SOLANA_MAINNET,
+    srcTokenAddress: address,
+    dstTokenAddress: 'mint',
+    inputAmount: '1000',
+    walletAddress: address,
+    recipient: 'recipient',
+    summary: '1 ETH → USDC',
+    createdAt: 1000,
+    intent,
+    relayData: '0x00',
+  };
+  it('restores what it takes to resume the batch and to submit its deposit later', () => {
+    expect(readPendingBatch(JSON.stringify(pending))).toEqual(pending);
+    const activity = activityFromBatch(pending, '0xdeposit');
+    expect(activity).toEqual({ ...pending, batchId: undefined, callCount: undefined, txHash: '0xdeposit' });
+    expect(submissionFor(activity).txHash).toBe('0xdeposit');
+  });
+  // A wallet's id that this check turns away is a held batch lost on reload.
+  it('keeps a long or base64 batch id, as EIP-5792 allows', () => {
+    const base64 = 'YmF0Y2gtaWQ+/=';
+    expect(readPendingBatch(JSON.stringify({ ...pending, batchId: base64 }))?.batchId).toBe(base64);
+    expect(readPendingBatch(JSON.stringify({ ...pending, batchId: 'a'.repeat(4096) }))?.batchId).toHaveLength(4096);
+  });
+  it('rejects a record that cannot identify its batch', () => {
+    expect(readPendingBatch(JSON.stringify({ ...pending, batchId: '' }))).toBeUndefined();
+    expect(readPendingBatch(JSON.stringify({ ...pending, batchId: '<script>' }))).toBeUndefined();
+    expect(readPendingBatch(JSON.stringify({ ...pending, batchId: 'x'.repeat(4097) }))).toBeUndefined();
+    expect(readPendingBatch(JSON.stringify({ ...pending, callCount: 0 }))).toBeUndefined();
+    expect(readPendingBatch(JSON.stringify({ ...pending, callCount: 1.5 }))).toBeUndefined();
+    expect(readPendingBatch(JSON.stringify({ ...pending, intent: { ...intent, deadline: 'soon' } }))).toBeUndefined();
+  });
+});
+
 describe('activity recovery', () => {
   const activity: Activity = {
     txHash: '0x1234',
@@ -369,6 +482,114 @@ describe('activity recovery', () => {
     expect(readActivity(JSON.stringify(noSource))).toBeUndefined();
     expect(readActivity(JSON.stringify(noDestination))).toBeUndefined();
     expect(readActivity(JSON.stringify({ ...activity, dstTokenAddress: '' }))).toBeUndefined();
+  });
+});
+
+describe('evmDeposit', () => {
+  const evmWallet: IEvmWalletProvider = {
+    chainType: 'EVM',
+    getWalletAddress: async () => address,
+    sendTransaction: vi.fn(),
+    waitForTransactionReceipt: vi.fn(),
+  };
+  it('hands back the payload and wallet a batch needs', async () => {
+    await expect(evmDeposit(ChainKeys.BASE_MAINNET, tx, evmWallet)).resolves.toEqual({ tx, wallet: evmWallet });
+  });
+  it('refuses a deposit built for another account', async () => {
+    const other = { ...tx, from: '0x00000000000000000000000000000000000000ff' };
+    await expect(evmDeposit(ChainKeys.BASE_MAINNET, other, evmWallet)).rejects.toThrow('signing account changed');
+  });
+  it('refuses a malformed payload', async () => {
+    const malformed = { ...tx, data: 'not-hex' } as unknown as EvmRawTransaction; // a payload that fails the hex check
+    await expect(evmDeposit(ChainKeys.BASE_MAINNET, malformed, evmWallet)).rejects.toThrow('cannot sign');
+  });
+});
+
+describe('batch outcomes', () => {
+  const unconfirmed = new SodaxError('TX_VERIFICATION_FAILED', 'not confirmed', {
+    feature: 'swap',
+    context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' },
+  });
+  const declined = new SodaxError('USER_REJECTED', 'User rejected the request', {
+    feature: 'swap',
+    context: { reason: ACCOUNT_UPGRADE_DECLINED },
+  });
+  it('tells an unconfirmed batch apart, and asks the visitor to check the wallet before swapping again', () => {
+    expect(isUnconfirmedBatch(unconfirmed)).toBe(true);
+    expect(isUnconfirmedBatch(declined)).toBe(false);
+    expect(executionError(unconfirmed)).toMatch(/check your wallet activity before swapping again/i);
+  });
+  it('tells a declined upgrade apart from a declined swap', () => {
+    expect(isUpgradeDeclined(declined)).toBe(true);
+    expect(isUpgradeDeclined(new SodaxError('USER_REJECTED', 'User rejected the request', { feature: 'swap' }))).toBe(
+      false,
+    );
+    expect(isUserRejection(declined)).toBe(true);
+  });
+  // Confirm reports the held batch as its own error, so a warning that only filled an empty slot never showed.
+  it('tells the visitor to stay on the page while a batch the browser could not save is held', () => {
+    const recheck = 'Your wallet still has not confirmed this swap. Check its activity, then try again.';
+    expect(heldBatchMessage(undefined, true)).toBe(UNCONFIRMED_BATCH_MESSAGE);
+    expect(heldBatchMessage(recheck, true)).toBe(recheck);
+    for (const error of [executionError(unconfirmed), recheck, undefined])
+      expect(heldBatchMessage(error, false)).toMatch(/blocked saving it\. Keep this page open/);
+  });
+});
+
+describe('checkHeldBatch', () => {
+  const held = { batchId: 'batch-1', callCount: 2, walletAddress: address };
+  const evmWallet = (account: `0x${string}` = address): IEvmWalletProvider => ({
+    chainType: 'EVM',
+    getWalletAddress: async () => account,
+    sendTransaction: vi.fn(),
+    waitForTransactionReceipt: vi.fn(),
+  });
+  const confirmWith = (result: Awaited<ReturnType<typeof confirmApprovalBatch>>) =>
+    vi.fn<typeof confirmApprovalBatch>(async () => result);
+
+  // After a reload the EVM wallet is not reconnected, and the form's source may be another family.
+  it('asks for the wallet when no EVM account is connected', async () => {
+    const confirm = confirmWith({ ok: true, value: { txHash: '0xdeposit', batchId: 'batch-1' } });
+    await expect(checkHeldBatch(held, undefined, 1000, confirm)).resolves.toEqual({ status: 'connect' });
+    const sui = { chainType: 'SUI' } as unknown as ISuiWalletProvider; // only the family is read
+    await expect(checkHeldBatch(held, sui, 1000, confirm)).resolves.toEqual({ status: 'connect' });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+  it('does not ask another account about the batch', async () => {
+    const confirm = confirmWith({ ok: true, value: { txHash: '0xdeposit', batchId: 'batch-1' } });
+    const other = evmWallet('0x00000000000000000000000000000000000000ff');
+    await expect(checkHeldBatch(held, other, 1000, confirm)).resolves.toEqual({ status: 'wrong-account' });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+  it('finds the deposit of a batch that landed', async () => {
+    const confirm = confirmWith({ ok: true, value: { txHash: '0xdeposit', batchId: 'batch-1' } });
+    await expect(
+      checkHeldBatch(held, evmWallet('0x1234567890ABCDEF1234567890ABCDEF12345678'), 1000, confirm),
+    ).resolves.toEqual({
+      status: 'confirmed',
+      txHash: '0xdeposit',
+    });
+    expect(confirm).toHaveBeenCalledWith(
+      expect.objectContaining({ batchId: 'batch-1', callCount: 2, timeoutMs: 1000 }),
+    );
+  });
+  it('keeps holding a batch that is still unconfirmed, and releases one that never landed', async () => {
+    const unconfirmed = new SodaxError('TX_VERIFICATION_FAILED', 'not confirmed', {
+      feature: 'swap',
+      context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' },
+    });
+    const failed = new SodaxError('INTENT_CREATION_FAILED', 'reverted', {
+      feature: 'swap',
+      context: { reason: 'atomic-batch-failed', batchId: 'batch-1' },
+    });
+    await expect(
+      checkHeldBatch(held, evmWallet(), 1000, confirmWith({ ok: false, error: unconfirmed })),
+    ).resolves.toEqual({
+      status: 'pending',
+    });
+    await expect(checkHeldBatch(held, evmWallet(), 1000, confirmWith({ ok: false, error: failed }))).resolves.toEqual({
+      status: 'failed',
+    });
   });
 });
 

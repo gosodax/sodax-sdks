@@ -52,8 +52,8 @@ import { relayTxAndWaitPacket } from '@sodax/sdk';
 import { ChainKeys } from '@sodax/sdk';
 
 // relayData ({ address, payload }) comes from the preceding spoke operation,
-// e.g. createIntent() or createBridgeIntent() returns { tx, relayData }.
-// It is always required — pass it through even for non-Solana/Bitcoin chains.
+// e.g. createIntent() or createBridgeIntent() returns { tx, relayData }. Pass it through when you
+// have it: Solana and Bitcoin require it, and any other chain's tx is relayed by its hash alone.
 const result = await relayTxAndWaitPacket({
   srcTxHash: '0x123...',
   data: relayData,          // RelayExtraData from the preceding spoke operation
@@ -242,7 +242,7 @@ export type GetPacketResponse =
 
 export type RelayAndWaitParams = {
   srcTxHash: string;
-  data: RelayExtraData | OnDemandRelayData;  // used in submit payload for Solana/Bitcoin
+  data?: RelayExtraData | OnDemandRelayData;  // required for Solana/Bitcoin (checked at runtime); others relay by hash
   chainKey: SpokeChainKey;
   relayerApiEndpoint: HttpUrl;
   timeout: number | undefined;

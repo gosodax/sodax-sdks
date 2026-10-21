@@ -21,7 +21,7 @@ Granular skill for `EvmWalletProvider` — the low-level EVM wallet for backend 
 
 1. [`../integration/knowledge/ai-rules.md`](../integration/knowledge/ai-rules.md) — DO / DON'T (read first).
 2. [`../integration/knowledge/architecture.md`](../integration/knowledge/architecture.md) — `BaseWalletProvider`, dual-config discriminants, shallow `defaults` merge, library-exports.
-3. [`../integration/knowledge/features/evm.md`](../integration/knowledge/features/evm.md) — full config union, `EvmWalletDefaults`, methods (`getWalletAddress` / `sendTransaction` / `waitForTransactionReceipt`), gotchas.
+3. [`../integration/knowledge/features/evm.md`](../integration/knowledge/features/evm.md) — full config union, `EvmWalletDefaults`, methods (`getWalletAddress` / `sendTransaction` / `waitForTransactionReceipt`, plus the EIP-5792 batch trio `getAtomicBatchSupport` / `sendAtomicBatch` / `waitForBatch`), gotchas.
 4. Setup recipe → [`../integration/knowledge/recipes/setup-private-key.md`](../integration/knowledge/recipes/setup-private-key.md) (Node) or [`../integration/knowledge/recipes/setup-browser-extension.md`](../integration/knowledge/recipes/setup-browser-extension.md); then [`../integration/knowledge/recipes/sign-and-broadcast.md`](../integration/knowledge/recipes/sign-and-broadcast.md), [`../integration/knowledge/recipes/defaults-and-overrides.md`](../integration/knowledge/recipes/defaults-and-overrides.md), [`../integration/knowledge/recipes/library-exports.md`](../integration/knowledge/recipes/library-exports.md).
 5. Lookups → [`../integration/knowledge/reference/provider-classes.md`](../integration/knowledge/reference/provider-classes.md), [`interfaces.md`](../integration/knowledge/reference/interfaces.md), [`chain-support.md`](../integration/knowledge/reference/chain-support.md).
 
@@ -32,6 +32,7 @@ Granular skill for `EvmWalletProvider` — the low-level EVM wallet for backend 
 - **Passing `publicClient` / `walletClient` / `transport` defaults in browser-extension mode.** They're ignored (provider logs a one-time warn); supply them only in PK mode.
 - **Adding `viem` as a direct dep** when `WalletClient` / `PublicClient` etc. re-export from `@sodax/wallet-sdk-core`.
 - **Assuming nonce management.** There is none — fire parallel sends and you collide; set `defaults.sendTransaction.nonce` or per-call `nonce`.
+- **Expecting EIP-5792 batches from a private-key provider.** `getAtomicBatchSupport` is always `'unsupported'` there and `sendAtomicBatch` throws — batching needs a connected wallet (browser-extension mode).
 - **Skipping `expectedChainId` on chain-specific sends.** Without it the tx goes to whatever chain the wallet is on; with it a mismatch throws and nothing is sent.
 
 ## Migration workflow (port v1 → v2)

@@ -1,18 +1,32 @@
 import {
   ChainKeys,
+  type EvmAtomicBatchSupport,
+  type EvmBatchResult,
   type EvmChainKey,
   type EvmRawTransaction,
   type EvmRawTransactionReceipt,
+  type EvmSendBatchOptions,
   type EvmSendTransactionOptions,
   type IEvmWalletProvider,
 } from '@sodax/types';
-import type { Account, Address, Chain, Hash, PublicClient, TransactionReceipt, Transport, WalletClient } from 'viem';
+import type {
+  Account,
+  Address,
+  Chain,
+  GetCapabilitiesReturnType,
+  Hash,
+  PublicClient,
+  TransactionReceipt,
+  Transport,
+  WalletClient,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { createWalletClient, createPublicClient, http, defineChain } from 'viem';
+import { createWalletClient, createPublicClient, http, defineChain, WaitForCallsStatusTimeoutError } from 'viem';
 import { BaseWalletProvider } from '../BaseWalletProvider.js';
 import type {
   BrowserExtensionEvmWalletConfig,
   EvmSendTransactionPolicy,
+  EvmWaitForCallsStatusPolicy,
   EvmWaitForTransactionReceiptPolicy,
   EvmWalletConfig,
   EvmWalletDefaults,
@@ -32,6 +46,9 @@ import {
   lightlinkPhoenix,
   hedera,
 } from 'viem/chains';
+
+/** Status reads one {@link EvmWalletProvider.waitForBatch} makes before a read error ends the wait. */
+const BATCH_STATUS_ATTEMPTS = 3;
 
 /**
  * Manually defined viem chain config for HyperEVM.
@@ -180,13 +197,7 @@ export class EvmWalletProvider extends BaseWalletProvider<EvmWalletDefaults> imp
   ): Promise<Hash> {
     const { expectedChainId, ...policyOverrides } = options ?? {};
     if (expectedChainId !== undefined) {
-      // The wallet broadcasts on its ACTUAL active chain, not the chain the calldata targets.
-      const actualChainId = await this.walletClient.getChainId();
-      if (actualChainId !== expectedChainId) {
-        throw new Error(
-          `[EvmWalletProvider] wallet is connected to chain ${actualChainId} but the transaction targets chain ${expectedChainId}; switch the wallet network and retry`,
-        );
-      }
+      await this.assertActiveChain(expectedChainId);
     }
     const policy = this.mergePolicy('sendTransaction', policyOverrides);
     const tx = { ...policy, ...txData } as Parameters<typeof this.walletClient.sendTransaction>[0];
@@ -204,6 +215,95 @@ export class EvmWalletProvider extends BaseWalletProvider<EvmWalletDefaults> imp
     const policy = this.mergePolicy('waitForTransactionReceipt', options);
     const receipt = await this.publicClient.waitForTransactionReceipt({ hash: txHash, ...policy });
     return EvmWalletProvider.serializeReceipt(receipt);
+  }
+
+  /**
+   * EIP-5792 `atomic` capability of the connected wallet on `chainId`. A private-key account has no
+   * wallet to batch for it, so it is always `'unsupported'`. RPC errors propagate to the caller.
+   */
+  async getAtomicBatchSupport(chainId: number): Promise<EvmAtomicBatchSupport> {
+    if (!this.hasWalletAccount()) return 'unsupported';
+    // viem types the per-chain entry as present, but a wallet omits the chains it cannot serve.
+    const capabilities: GetCapabilitiesReturnType<number> | undefined = await this.walletClient.getCapabilities({
+      chainId,
+    });
+    const status = capabilities?.atomic?.status;
+    return status === 'supported' || status === 'ready' ? status : 'unsupported';
+  }
+
+  /**
+   * Sends `txs` as one EIP-5792 batch the wallet must execute atomically and in order. Resolves to
+   * the wallet's batch id; read the transaction hash from {@link waitForBatch}.
+   */
+  async sendAtomicBatch(txs: readonly EvmRawTransaction[], options: EvmSendBatchOptions): Promise<string> {
+    if (!this.hasWalletAccount()) {
+      throw new Error(
+        '[EvmWalletProvider] atomic batches need a connected wallet; a private-key account cannot send them',
+      );
+    }
+    await this.assertActiveChain(options.expectedChainId);
+    // Unlike sendTransaction, viem's sendCalls takes the batch's chainId from the client without checking it.
+    if (this.walletClient.chain.id !== options.expectedChainId) {
+      throw new Error(
+        `[EvmWalletProvider] wallet client is bound to chain ${this.walletClient.chain.id} but the batch targets chain ${options.expectedChainId}; rebuild the client for that chain`,
+      );
+    }
+    const { id } = await this.walletClient.sendCalls({
+      calls: txs.map(({ to, value, data }) => ({ to, value, data })),
+      forceAtomic: true,
+    });
+    return id;
+  }
+
+  /**
+   * Polls until the batch reaches a terminal EIP-5792 status and returns its receipts. Throws on timeout.
+   * A failed status read is retried within the timeout, up to {@link BATCH_STATUS_ATTEMPTS} reads in all:
+   * viem's own wait ends on the first one, which would report a batch that is still landing as lost.
+   */
+  async waitForBatch(batchId: string, options?: EvmWaitForCallsStatusPolicy): Promise<EvmBatchResult> {
+    const { timeout, ...policy } = this.mergePolicy('waitForCallsStatus', options);
+    // viem reads a zero timeout as "no timeout"; give up at once instead.
+    const budget = timeout === undefined ? undefined : Math.max(1, timeout);
+    const deadline = budget === undefined ? undefined : Date.now() + budget;
+    const retryDelay = policy.pollingInterval ?? this.walletClient.pollingInterval;
+    let remaining = budget;
+    let result: Awaited<ReturnType<WalletClient['waitForCallsStatus']>>;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        result = await this.walletClient.waitForCallsStatus({ ...policy, timeout: remaining, id: batchId });
+        break;
+      } catch (error) {
+        const timeLeft = deadline === undefined ? retryDelay : deadline - Date.now() - retryDelay;
+        if (error instanceof WaitForCallsStatusTimeoutError || attempt >= BATCH_STATUS_ATTEMPTS || timeLeft <= 0) {
+          throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        remaining = deadline === undefined ? undefined : Math.max(1, deadline - Date.now());
+      }
+    }
+    return {
+      status: result.status === 'success' ? 'success' : 'failure',
+      statusCode: result.statusCode,
+      atomic: result.atomic,
+      receipts: (result.receipts ?? []).map(receipt => ({
+        transactionHash: receipt.transactionHash,
+        status: receipt.status,
+      })),
+    };
+  }
+
+  private hasWalletAccount(): boolean {
+    return this.walletClient.account.type === 'json-rpc';
+  }
+
+  private async assertActiveChain(expectedChainId: number): Promise<void> {
+    // The wallet broadcasts on its ACTUAL active chain, not the chain the calldata targets.
+    const actualChainId = await this.walletClient.getChainId();
+    if (actualChainId !== expectedChainId) {
+      throw new Error(
+        `[EvmWalletProvider] wallet is connected to chain ${actualChainId} but the transaction targets chain ${expectedChainId}; switch the wallet network and retry`,
+      );
+    }
   }
 
   private static serializeReceipt(receipt: TransactionReceipt): EvmRawTransactionReceipt {

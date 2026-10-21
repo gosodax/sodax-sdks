@@ -31,6 +31,10 @@ sodax.leverageYield.withdraw(params: LeverageYieldSwapWithdrawParams): Promise<R
 // Intent create + end-to-end execute (leverage-yield copies of swap's createIntent / swap)
 sodax.leverageYield.createVaultIntent<K, Raw>(params: VaultSwapActionParams<K, Raw>): Promise<Result<CreateVaultIntentResult<K, Raw>, SodaxError>>;
 sodax.leverageYield.vaultSwap<K>(params: VaultSwapActionParams<K, false>): Promise<Result<VaultSwapResponse, SodaxError>>;
+// vaultSwap() with a deposit's spoke-side approval folded in: one EIP-5792 batch (one signature) when the wallet can.
+// A withdraw (hubWalletSwap) needs no approval and runs as vaultSwap does.
+sodax.leverageYield.vaultSwapWithApproval<K>(params: VaultSwapWithApprovalParams<K>): Promise<Result<VaultSwapWithApprovalResponse, SodaxError>>;
+sodax.leverageYield.getApprovalStrategy<K>(params: VaultSwapWithApprovalParams<K>): Promise<Result<ApprovalStrategy, SodaxError>>;
 sodax.leverageYield.notifySolver(request: { intent_tx_hash: string }): Promise<Result<SolverExecutionResponse, SodaxError>>;
 //   notifySolver is PUBLIC — call it to finish a manual createVaultIntent → relay → notify flow
 
@@ -110,6 +114,8 @@ type DetailedLeverageYieldStatus =
 // On failure: LOOKUP_FAILED. A rejected key stops there with context.status set (isAuthFailure) —
 // never routed on. Otherwise branch on error.context.reason: DETAILED_STATUS_NOT_DELIVERED is the one
 // ambiguous miss a caller should bound with a retry budget; anything else is a live dependency failure.
+// Same shape as DetailedSwapStatus, so swap's pure summarizeSwapStatus(status) collapses it to
+// { state: 'pending' | 'solved' | 'failed', hubTxHash?, fillTxHash? }.
 ```
 
 ## Common call shapes
@@ -163,6 +169,19 @@ const result = await sodax.leverageYield.vaultSwap({ ...built.value, walletProvi
 if (!result.ok) return;
 const { solverExecutionResponse, intent, intentDeliveryInfo } = result.value;
 ```
+
+Or replace the allowance check, the approval and `vaultSwap` with one call. On an EIP-5792 wallet the approval and the
+deposit go out as one batch, so the user signs once; it approves the same spender and keeps the leverage-yield fee and
+the backend `operation`:
+
+```ts
+const result = await sodax.leverageYield.vaultSwapWithApproval({ ...built.value, walletProvider });
+// result.value.approvalStrategy: 'not-required' | 'atomic-batch' | 'sequential'
+```
+
+A `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` means the batch may still land — do not
+deposit again. Call it again with `resumeBatchId: context.batchId` and `resumeBatchCallCount: context.callCount`: that
+sends nothing, and once the batch lands it relays the deposit and notifies the solver.
 
 ### Withdraw (`lsoda*` → any token)
 
@@ -233,7 +252,7 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 
 ## Error codes
 
-`feature: 'leverageYield'`. Action discriminator on `context.action`: `'deposit' | 'withdraw' | 'approve' | 'allowanceCheck' | 'vaultSwap' | 'openPosition' | 'openPositionFromDebtToken' | 'operatePosition' | 'openLeveragePosition' | 'submitLeveragePositionIntent' | 'runLeveragePositionOperation' | 'getPositionLegQuote'`. Read methods partition on `context.method`.
+`feature: 'leverageYield'`. Action discriminator on `context.action`: `'deposit' | 'withdraw' | 'approve' | 'allowanceCheck' | 'vaultSwap' | 'vaultSwapWithApproval' | 'openPosition' | 'openPositionFromDebtToken' | 'operatePosition' | 'openLeveragePosition' | 'submitLeveragePositionIntent' | 'runLeveragePositionOperation' | 'getPositionLegQuote'`. Read methods partition on `context.method`.
 
 | Method | Narrow code union |
 |---|---|
@@ -241,6 +260,8 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 | `deposit`, `withdraw` | `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| LOOKUP_FAILED \| UNKNOWN` (create-intent subset + `LOOKUP_FAILED` with `method: 'resolveDeadline'` when the default-deadline hub-block read fails) |
 | `createVaultIntent` | `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| UNKNOWN` (create-intent subset) |
 | `vaultSwap` | `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| TX_VERIFICATION_FAILED \| TX_SUBMIT_FAILED \| RELAY_TIMEOUT \| RELAY_FAILED \| EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` |
+| `vaultSwapWithApproval` | `vaultSwap`'s codes + `APPROVE_FAILED \| ALLOWANCE_CHECK_FAILED` (approval-step errors carry action `'vaultSwapWithApproval'`; after the broadcast, `vaultSwap`'s own context) |
+| `getApprovalStrategy` | `ALLOWANCE_CHECK_FAILED` |
 | `notifySolver` | `EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` (with `phase: 'postExecution'`) |
 | `approve` | `VALIDATION_FAILED \| APPROVE_FAILED \| UNKNOWN` |
 | `isAllowanceValid` | `VALIDATION_FAILED \| ALLOWANCE_CHECK_FAILED \| UNKNOWN` (action `'allowanceCheck'`) |
@@ -252,6 +273,8 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 | Position reads + `getEffectivePositionFee` | `VALIDATION_FAILED \| LOOKUP_FAILED \| UNKNOWN`. A blanked `positionFactory` fails closed here |
 
 Relay/tx-verification codes appear **only** on `vaultSwap` — `createVaultIntent` alone stays within the create-intent subset. `notifySolver` (public, for manual orchestration) emits the post-execution subset, which `vaultSwap` also surfaces.
+
+**A `vaultSwap()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED`, the relay codes and post-execution failures set `error.context.srcTxHash` (plus `srcChainKey`). The vault swap may still complete — on the default backend path the backend keeps working after `vaultSwap()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the vault swap as lost. Failures before the broadcast carry no `srcTxHash`. A failed solver notification (`EXECUTION_FAILED` / `EXTERNAL_API_ERROR`, `phase: 'postExecution'`) also sets `error.context.dstTxHash`, the hub tx: unless the backend took the vault swap nothing else notifies the solver and the intent expires, so call `notifySolver({ intent_tx_hash: dstTxHash })` again, then poll.
 
 ## Leverage positions
 

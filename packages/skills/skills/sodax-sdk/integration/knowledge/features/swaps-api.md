@@ -63,8 +63,9 @@ applies per-call overrides that take precedence over the service config (see "Pe
 allowance change from one non-zero value to another (the 2017 TetherToken lineage) **and** the wallet
 already holds a stale allowance — a wallet in that state cannot approve at all until it is zeroed.
 
-Broadcast `resetTx` first and wait for it to be mined, then broadcast `tx`. The two cannot be
-batched: the approval is only valid once the reset has landed on-chain.
+Broadcast `resetTx` first and wait for it to be mined, then broadcast `tx`. As separate transactions
+they cannot go out together: the approval is only valid once the reset has landed on-chain. An
+EIP-5792 atomic batch is different — it runs its calls in order, so it can carry both (next section).
 
 ```ts
 const { tx, resetTx } = approveResponse;
@@ -79,6 +80,59 @@ await sendTransaction(tx);
 
 The field is optional and absent for every other token, so ignoring it keeps existing behaviour —
 it just cannot rescue a wallet stuck on a guarded token.
+
+## Approve and send the intent in one signature
+
+When `checkAllowance` says the allowance is short and the source is an EVM spoke, the approval can go
+out in the same EIP-5792 atomic batch as the intent tx — one wallet prompt instead of two or three.
+`/swaps/intents` only simulates on the hub, so the intent tx can be built before the approval lands.
+
+```ts
+import {
+  isAtomicBatchRefusal,
+  isEvmSpokeOnlyChainKeyType,
+  isEvmWalletProviderType,
+  resolveApprovalStrategy,
+  sendApprovalBatch,
+} from '@sodax/sdk';
+
+if (
+  isEvmSpokeOnlyChainKeyType(srcChainKey) &&
+  isEvmWalletProviderType(walletProvider) &&
+  (await resolveApprovalStrategy({ srcChainKey, walletProvider, allowAccountUpgrade })) === 'atomic-batch'
+) {
+  // EVM source: approve.tx, approve.resetTx and createIntent's tx are all EvmRawTransaction.
+  const sent = await sendApprovalBatch({
+    walletProvider,
+    srcChainKey,
+    txs: [...(resetTx ? [resetTx] : []), tx, intentTx], // the intent tx last
+    timeoutMs: 120_000,
+    feature: 'swap',
+    onBatchSent: batchId => saveBatchId(batchId), // persist before the wait: the way back to an unconfirmed batch
+  });
+  if (sent.ok) {
+    // sent.value.txHash is the source tx: persist it, then submitTx({ txHash: sent.value.txHash, ... })
+  } else if (isAtomicBatchRefusal(sent.error)) {
+    // Refused before signing, nothing sent: approve separately (reset first), then create the intent again and send it.
+  } else {
+    // USER_REJECTED, 'atomic-batch-failed' (nothing landed) or ATOMIC_BATCH_UNCONFIRMED (may still land).
+    throw sent.error;
+  }
+}
+```
+
+The rules match `sodax.swaps.swapWithApproval`:
+
+- `'sequential'` for the Sonic hub and any wallet without EIP-5792 support — approve, wait, then sign.
+- Only `ATOMIC_BATCH_REFUSED` may fall back to separate transactions; the wallet signed nothing.
+- `USER_REJECTED` — with `context.reason === ACCOUNT_UPGRADE_DECLINED` when the user declined the
+  smart-account upgrade; offer the swap again with `allowAccountUpgrade: false`.
+- `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` — the batch may still
+  land. Do not resend it, as a batch or as separate transactions: resume it later with
+  `confirmApprovalBatch({ walletProvider, batchId, callCount, timeoutMs, feature })`, which reads the
+  deposit's `txHash` once the wallet confirms it.
+
+In React, the `sodax-dapp-kit` skill's `useSwapsApiBroadcastWithApproval` hook wraps this whole flow.
 
 ## Wire shapes — `bigint` vs decimal strings
 

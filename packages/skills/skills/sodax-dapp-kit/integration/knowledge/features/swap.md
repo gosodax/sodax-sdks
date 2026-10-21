@@ -15,10 +15,19 @@ useSwapAllowance({ params: { payload, srcChainKey, walletProvider }, queryOption
 useStatus({ params: { intentTxHash }, queryOptions });                            // Intent execution status (3s)
 // Polls 3s; stops on a terminal source, a rejected API key, or 40 consecutive ambiguous reads.
 useDetailedStatus({ params: { srcChainKey, srcTxHash }, queryOptions });          // Swap status by source tx (3s)
+useSwapApprovalStrategy({ params: { payload, walletProvider }, queryOptions });    // 'not-required' | 'atomic-batch' | 'sequential' (no polling)
 
 // Mutations — domain inputs flow through mutate(vars), see Mutation params below
 useSwap({ mutationOptions });
 useSwapApprove({ mutationOptions });
+useSwapWithApproval({ mutationOptions });           // useSwap + approval; one EIP-5792 signature when the wallet can batch
+
+// Composite — the whole form as one state machine; see recipes/swap.md § One Hook for the Whole Form
+useSwapLifecycle({ intentParams, srcWalletProvider, dstWalletProvider, chainSwitch?, externalBlocked?, extras?, timeout?, mutationOptions? });
+//   → { state, error, next, reset, approvalStrategy, swap, status, stellar, nearStorage }
+//   the Stellar and NEAR gates check intentParams.dstAddress; dstWalletProvider must control it for the setup actions
+//   state.kind: idle | checking | needsChainSwitch | needsSetup(reason) | ready(approvalStrategy) | submitting
+//               | pending (error? after a post-broadcast failure) | unconfirmed (batch may still land — next() re-checks it, never re-sends) | settled | failed
 useCancelSwap({ mutationOptions });                  // TVars are FLAT: { srcChainKey, intent, walletProvider }
 useCreateLimitOrder({ mutationOptions });           // No deadline; cancel manually
 useCancelLimitOrder({ mutationOptions });           // TVars are FLAT: { srcChainKey, intent, walletProvider }
@@ -126,7 +135,22 @@ if (data?.ok) {
 }
 ```
 
+To render it without switching on `source`, collapse it with `summarizeSwapStatus` (from `@sodax/sdk`, re-exported here) — `{ state: 'pending' | 'solved' | 'failed'; hubTxHash?; fillTxHash? }`. `fillTxHash` may be absent even when solved.
+
+**Default to `useDetailedStatus`.** It is the only swap status read that answers for every completion path, and it takes the identifiers `swap()` hands back on success (`intentDeliveryInfo.srcChainKey` / `srcTxHash`) and on a post-broadcast failure (`error.context.srcChainKey` / `srcTxHash`).
+
 That is what distinguishes it from `useSwapsApiSubmitTxStatus`, which reads the backend record directly — 404 when none exists, and a stale or abandoned record for a swap the client-side fallback completed. A swap whose relay packet has not landed has no hub tx hash and reads as `LOOKUP_FAILED`; that spends the same 40-read budget as a solver `NOT_FOUND`, so a swap nothing can resolve stops instead of polling forever. A dependency outage does **not** spend the budget — it keeps polling so the read recovers on its own.
+
+### `useSwapWithApproval` — approve and swap in one signature
+
+Same vars as `useSwap`. It calls `sodax.swaps.swapWithApproval`: no approval when the allowance suffices; on an EVM
+spoke whose wallet reports EIP-5792 atomic support, approve + swap as **one batch, one signature**; otherwise approve,
+wait for it to confirm, then swap. `data.approvalStrategy` says which ran. Pair it with `useSwapApprovalStrategy` to
+label the button up front (e.g. "Approve & Swap" vs "Approve, then Swap"), instead of the
+`useSwapAllowance` + `useSwapApprove` + `useSwap` trio. A rejected batch — or a declined account upgrade on a
+`'ready'` wallet — is `USER_REJECTED` and is **not** retried as two transactions. A declined upgrade carries
+`context.reason === ACCOUNT_UPGRADE_DECLINED`; pass `allowAccountUpgrade: false` (in the mutation vars and to
+`useSwapApprovalStrategy`) to swap without the upgrade. dapp-kit never stores that choice — the app decides.
 
 ## Gotchas
 
