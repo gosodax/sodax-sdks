@@ -211,7 +211,7 @@ const result = await sodax.leverageYield.vaultSwapWithApproval({ ...intentResult
 if (result.ok) console.log(result.value.approvalStrategy, result.value.intentDeliveryInfo.srcTxHash);
 ```
 
-It approves the same spender as above, keeps the leverage-yield partner fee and the backend `operation`, and follows the swap rules for wallet support, `allowAccountUpgrade` and failures (see [Approve and Swap in One Signature](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#approve-and-swap-in-one-signature)). On the two-step path it builds the deposit unsigned before approving, so params that can never deposit fail before the user pays for an approval. A batch that was sent but not confirmed (`TX_VERIFICATION_FAILED`, `context.reason: ATOMIC_BATCH_UNCONFIRMED`) may still land, so do not deposit it again. Resume it instead: call `vaultSwapWithApproval` again with the same payload and wallet, plus `resumeBatchId: error.context.batchId` and `resumeBatchCallCount: error.context.callCount`. That sends nothing. It waits for the batch and, once the deposit confirms, relays it client-side, reads the intent back from the hub transaction and notifies the solver, skipping the backend submit-tx. While the batch is pending it returns the same unconfirmed error; one the wallet reports as never included comes back as `atomic-batch-failed`.
+It approves the same spender as above, keeps the leverage-yield partner fee and the backend `operation`, and follows the swap rules for wallet support, `allowAccountUpgrade` and failures (see [Approve and Swap in One Signature](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#approve-and-swap-in-one-signature)). On the two-step path it builds the deposit unsigned before approving, so params that can never deposit fail before the user pays for an approval. A batch that was sent but not confirmed (`TX_VERIFICATION_FAILED`, `context.reason: ATOMIC_BATCH_UNCONFIRMED`) may still land, so do not deposit it again. Resume it instead: call `vaultSwapWithApproval` again with the same payload and wallet, plus `resumeBatchId: error.context.batchId` and `resumeBatchCallCount: error.context.callCount`. That sends nothing. It waits for the batch and, once the deposit confirms, relays it client-side, reads the intent back from the hub transaction and notifies the solver, skipping the backend submit-tx. While the batch is pending it returns the same unconfirmed error; one the wallet reports as never included comes back as `atomic-batch-failed`.
 
 ### Withdraw (`lsoda*` → any token)
 
@@ -274,7 +274,7 @@ runs its own, so verifying first would delay every backend success). Worst-case 
 `createVaultIntent + timeout + verification + max(timeout, RELAY_FALLBACK_FLOOR_MS) + notifySolver`, where
 verification is bounded by the source chain's `pollingConfig.maxTimeoutMs` and the first and last terms
 are not bounded by `timeout` at all — the same model
-[SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt)
+[SWAPS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt)
 documents for swaps.
 
 ```typescript
@@ -297,7 +297,7 @@ A key in a browser bundle is public — see [API key good practices](https://doc
 When the backend attempt does not complete, its own error is logged and discarded — the fallback runs and
 its outcome is what you receive, so the code on the `Result` always describes the client-side attempt.
 Check the logs, not the `Result`, to tell why the backend path was abandoned. For the HTTP client itself
-see [LEVERAGE_YIELD_API.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/LEVERAGE_YIELD_API.md).
+see [LEVERAGE_YIELD_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/LEVERAGE_YIELD_API.md).
 
 ### Direct allowance management (hub-side)
 
@@ -708,7 +708,7 @@ The two create builders return a `Result` because they need the factory address;
 
 **The factory never moves anyone's tokens.** It holds no allowance and pulls from nobody: fund a position by transferring to the address it will be created at — `predictPosition(creator, owner, nextPositionIdFor(owner))` — and the clone supplies whatever it finds. So no approval to a shared contract exists anywhere in the flow. Do the transfer and the create in one batch; if the prediction is stale the create reverts on the missing balance and takes the transfer with it rather than stranding the tokens. `openPosition` / `openPositionFromDebtToken` build that batch for you.
 
-**Do not open two positions for one owner concurrently.** The id is per-owner, so the owner's own second open is the only thing that can advance it between building a payload and executing it. The stale batch's create lands on a fresh, unfunded address and reverts on the factory's `balanceOf(position) < initialAssets` check; on the hub that takes the transfer with it and nothing is lost. Funded from a spoke, the deposit has already landed in the user's hub wallet by the time the relayed batch reverts, and it stays there — recover it with `sodax.recovery` ([RECOVERY.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/RECOVERY.md)).
+**Do not open two positions for one owner concurrently.** The id is per-owner, so the owner's own second open is the only thing that can advance it between building a payload and executing it. The stale batch's create lands on a fresh, unfunded address and reverts on the factory's `balanceOf(position) < initialAssets` check; on the hub that takes the transfer with it and nothing is lost. Funded from a spoke, the deposit has already landed in the user's hub wallet by the time the relayed batch reverts, and it stays there — recover it with `sodax.recovery` ([RECOVERY.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/RECOVERY.md)).
 
 **You can only create a position you own.** The factory requires `cfg.owner == msg.sender`, and the caller there is always the funder's own hub wallet, so there is nothing to choose — which is why `openPosition` takes no `owner`. The binding is what makes the refund address safe: `originAddress` decides where a cancelled operation's funds go and past a deadline anyone may trigger that cancel, so a third-party creator picking it was a standing claim on whatever the owner later contributed. It also means nobody else can advance the id your funding address is predicted from. To fund someone else, supply into a position they already own — `pool.supply(collateral, amount, position, 0)` — which sets no origin and takes nothing away.
 

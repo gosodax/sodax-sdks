@@ -4,7 +4,7 @@ Default EVM wallet discovery uses [EIP-6963](https://eips.ethereum.org/EIPS/eip-
 
 `@sodax/wallet-sdk-react` enables WalletConnect via the `walletConnect` field on the `EVM` chain-type slot. The field extends wagmi's [`WalletConnectParameters`](https://wagmi.sh/core/api/connectors/walletConnect) directly — every wagmi option is available.
 
-The integration point is [`EvmProvider.tsx`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/providers/evm/EvmProvider.tsx).
+The integration point is [`EvmProvider.tsx`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/providers/evm/EvmProvider.tsx).
 
 ## Table of contents
 

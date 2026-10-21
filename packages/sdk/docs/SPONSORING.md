@@ -248,7 +248,7 @@ Two deliberate differences from `swapsApiConfig`:
 `baseURL` is the service base URL **including any version or gateway prefix** — the SDK appends only
 `SPONSORING_API_STELLAR_BASE_PATH` (`/sponsorships/stellar`), because where the service is mounted is
 the deployment's business. This is the same rule every backend service now follows; see
-[CONFIGURE_SDK.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md)
+[CONFIGURE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md)
 for the shared URL model. The packaged default is `https://api.sodax.com/v1`; point `baseURL` at
 `http://localhost:3011` to run against a local `sponsoring-api`, which serves the routes at the bare
 origin.
@@ -274,7 +274,7 @@ offline without a sponsoring service and without spending XLM.
 
 ## Related Documentation
 
-- [Stellar Trustlines](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md) - The step after activation
-- [Backend API](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BACKEND_API.md) - The raw `sodax.api.sponsoring` wire client
-- [Wallet Providers](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) - Constructing a Stellar wallet provider
-- [Configure SDK](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md) - Full `ApiConfig` reference
+- [Stellar Trustlines](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md) - The step after activation
+- [Backend API](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BACKEND_API.md) - The raw `sodax.api.sponsoring` wire client
+- [Wallet Providers](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) - Constructing a Stellar wallet provider
+- [Configure SDK](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md) - Full `ApiConfig` reference

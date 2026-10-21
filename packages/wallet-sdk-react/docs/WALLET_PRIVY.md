@@ -7,8 +7,8 @@ like any other wallet — `useXAccount`, `useWalletProvider` and the wallet-moda
 It is opt-in and lives behind its own import, `@sodax/wallet-sdk-react/privy`. Partners who do not use
 it load no Privy code. EVM only.
 
-The integration points are [`src/privy/`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/privy)
-and [`EvmProvider.tsx`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/providers/evm/EvmProvider.tsx).
+The integration points are [`src/privy/`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/privy)
+and [`EvmProvider.tsx`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/providers/evm/EvmProvider.tsx).
 
 ## Table of contents
 

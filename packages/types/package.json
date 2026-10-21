@@ -7,13 +7,13 @@
   "version": "2.0.0-rc.17",
   "description": "Sodax Common Types",
   "main": "dist/index.js",
-  "homepage": "https://github.com/icon-project/sodax-sdks/tree/main/packages/types",
+  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/types",
   "bugs": {
-    "url": "https://github.com/icon-project/sodax-sdks/issues"
+    "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/icon-project/sodax-sdks"
+    "url": "https://github.com/gosodax/sodax-sdks"
   },
   "engines": {
     "node": ">=22.12.0"

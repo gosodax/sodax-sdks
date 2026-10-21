@@ -125,7 +125,7 @@ Useful validation:
 pnpm --filter @sodax/skills check:ai
 ```
 
-`README.md` is generated into the docs.sodax.com Mintlify site, so its hook-reference links must be absolute `https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/…` URLs — a relative `src/…` link 404s on the published page. Gate: `pnpm check:doc-links`.
+`README.md` is generated into the docs.sodax.com Mintlify site, so its hook-reference links must be absolute `https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/…` URLs — a relative `src/…` link 404s on the published page. Gate: `pnpm check:doc-links`.
 
 ## Build And Tests
 

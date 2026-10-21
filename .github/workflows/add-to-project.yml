@@ -13,13 +13,13 @@ concurrency:
 permissions: {}
 
 env:
-  PROJECT_URL: https://github.com/orgs/icon-project/projects/12
-  PROJECT_ID: PVT_kwDOAikF3s4AvJ_D
-  STREAM_FIELD_ID: PVTSSF_lADOAikF3s4AvJ_Dzgn3ZhA
-  STREAM_SDK_OPTION_ID: 76c54170
-  STATUS_FIELD_ID: PVTSSF_lADOAikF3s4AvJ_DzgloYYM
+  PROJECT_URL: https://github.com/orgs/gosodax/projects/1
+  PROJECT_ID: PVT_kwDODGRGe84Bn5mT
+  STREAM_FIELD_ID: PVTSSF_lADODGRGe84Bn5mTzhmcM5w
+  STREAM_SDK_OPTION_ID: b9294b93
+  STATUS_FIELD_ID: PVTSSF_lADODGRGe84Bn5mTzhmcGMg
   STATUS_BACKLOG_OPTION_ID: f75ad846
-  STATUS_READY_OPTION_ID: 08afe404
+  STATUS_READY_OPTION_ID: 61e4505c
 
 jobs:
   main:
@@ -42,7 +42,7 @@ jobs:
           esac
 
       # PROJECT_TOKEN needs the org `project` scope; GITHUB_TOKEN cannot write org projects.
-      - name: Add to project 12
+      - name: Add to project
         id: add
         if: steps.gate.outputs.allowed == 'true'
         uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
@@ -50,7 +50,7 @@ jobs:
           project-url: ${{ env.PROJECT_URL }}
           github-token: ${{ secrets.PROJECT_TOKEN }}
 
-      - name: Set Stream = SDK
+      - name: Set Stream = Sodax SDK
         if: steps.gate.outputs.allowed == 'true'
         env:
           GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}

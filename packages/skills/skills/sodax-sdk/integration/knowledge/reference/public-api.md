@@ -247,7 +247,7 @@ This is a partial list — see `src/index.ts` of the published tarball for the a
 - **Import only from `@sodax/sdk` root.** No deep imports from `dist/...`.
 - **Do not depend on `@sodax/types` separately.** It's a transitive of `@sodax/sdk` (force-bundled via tsup `noExternal`); declaring it as a direct dependency invites version skew.
 - **Stable contract:** every export above is part of the public API. Anything not exported from the root barrel is internal — don't reach for it via `dist` paths.
-- **Tarball contents:** `dist/` (compiled JS + types). Nothing else ships. Consumer-facing AI docs (this tree) are shipped separately via [`@sodax/skills`](https://github.com/icon-project/sodax-sdks/tree/main/packages/skills).
+- **Tarball contents:** `dist/` (compiled JS + types). Nothing else ships. Consumer-facing AI docs (this tree) are shipped separately via [`@sodax/skills`](https://github.com/gosodax/sodax-sdks/tree/main/packages/skills).
 
 ---
 

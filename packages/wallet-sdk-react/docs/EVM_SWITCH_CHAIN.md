@@ -4,7 +4,7 @@ A single wagmi connection covers **every configured EVM network** (Sonic, Ethere
 
 The hook also covers Injective's MetaMask wallet path — when the user connected Injective via MetaMask, the underlying ethereum chain id must be Ethereum mainnet (chain id `1`). `useEvmSwitchChain` detects the mismatch and exposes a switch action.
 
-Source: [`useEvmSwitchChain.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useEvmSwitchChain.ts), [`useEthereumChainId.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useEthereumChainId.ts).
+Source: [`useEvmSwitchChain.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useEvmSwitchChain.ts), [`useEthereumChainId.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useEthereumChainId.ts).
 
 ## Table of contents
 

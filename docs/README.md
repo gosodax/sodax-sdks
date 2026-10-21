@@ -163,7 +163,7 @@ only warning an editor gets. Everything else on the site
 Resources — is written here and safe to edit.
 
 **To get one of the generated pages changed**, open an issue on
-[icon-project/sodax-sdks](https://github.com/icon-project/sodax-sdks/issues) with the page
+[gosodax/sodax-sdks](https://github.com/gosodax/sodax-sdks/issues) with the page
 URL and the wording you want, or ask an SDK engineer directly. They edit the source file and
 the page follows on the next sync. Rewording, reordering and new sections are all fine — the
 edit just cannot start on the page.
@@ -184,7 +184,7 @@ networks land on the same page in each one.
    404 once deployed.
 2. **Links to repo files are absolute GitHub URLs.** Source files, `RELEASE_INSTRUCTIONS`,
    anything outside `docs/` is not part of the site: use
-   `https://github.com/icon-project/sodax-sdks/blob/main/<path>`.
+   `https://github.com/gosodax/sodax-sdks/blob/main/<path>`.
 3. **A nav entry needs its file.** An entry for a page that does not exist is a 404 in the
    sidebar. `mint validate` warns; `pnpm check:docs-nav` fails.
 4. **Anchors follow the rendered heading.** Changing a heading changes its anchor and

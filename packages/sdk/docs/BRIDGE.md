@@ -12,11 +12,11 @@ Three transfer directions are supported:
 - **Spoke → Spoke** — deposit on source + withdraw on destination
 
 > **Backend Bridge API.** For the typed HTTP client over the backend `/bridge/*` routes (`sodax.api.bridge`
-> — allowance/approve/create-intent, submit-tx + status, tokens), see [`BRIDGE_API.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md). The
+> — allowance/approve/create-intent, submit-tx + status, tokens), see [`BRIDGE_API.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md). The
 > `bridge()` orchestrator routes the spoke-deposit through that API by default (`bridge.useBackendSubmitTx`,
 > default ON) with a client-side fallback; set `new Sodax({ bridge: { useBackendSubmitTx: false } })` to
 > force the client-side relay — see
-> [`CONFIGURE_SDK.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-submit-tx-bridgeusebackendsubmittx).
+> [`CONFIGURE_SDK.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-submit-tx-bridgeusebackendsubmittx).
 
 ## Methods
 
@@ -164,7 +164,7 @@ runs the reset internally, so a signed caller gets the two-step behaviour withou
 
 ### Stellar Trustline Requirements
 
-For Stellar-based bridge operations, trustlines must be handled depending on whether Stellar is the source or destination chain. See the [Stellar Trustline Requirements](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md#bridge) doc for detailed information and code examples.
+For Stellar-based bridge operations, trustlines must be handled depending on whether Stellar is the source or destination chain. See the [Stellar Trustline Requirements](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md#bridge) doc for detailed information and code examples.
 
 ### bridge
 
@@ -223,7 +223,7 @@ On-chain verification (`verifyTxHash`) runs on the **client-side path only** —
 
 So a stalled backend cannot shorten the fallback's relay wait, and raising `timeout` grows both attempts. Worst-case wall-clock is `createBridgeIntent + timeout + verification + max(timeout, RELAY_FALLBACK_FLOOR_MS)` — reached only when the backend accepts the submission and then never finishes. Bridge has no solver post-execution, so unlike swaps there is no `'posting_execution'` step and no post-execution term.
 
-Read the constants from source rather than memorising them: `DEFAULT_RELAY_TX_TIMEOUT`, `DEFAULT_BACKEND_API_TIMEOUT` and per-chain `pollingConfig` live in [`@sodax/types`](https://github.com/icon-project/sodax-sdks/tree/main/packages/types/src), and `RELAY_FALLBACK_FLOOR_MS` in [`IntentRelayApiService.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/src/shared/services/intentRelay/IntentRelayApiService.ts). Verification timeouts differ widely by chain, so derive them per chain from `chains.ts`. The swaps side documents the identical model in more depth — see [How `timeout` bounds each attempt](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt) — and [BRIDGE_API.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md) covers the API client itself.
+Read the constants from source rather than memorising them: `DEFAULT_RELAY_TX_TIMEOUT`, `DEFAULT_BACKEND_API_TIMEOUT` and per-chain `pollingConfig` live in [`@sodax/types`](https://github.com/gosodax/sodax-sdks/tree/main/packages/types/src), and `RELAY_FALLBACK_FLOOR_MS` in [`IntentRelayApiService.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/intentRelay/IntentRelayApiService.ts). Verification timeouts differ widely by chain, so derive them per chain from `chains.ts`. The swaps side documents the identical model in more depth — see [How `timeout` bounds each attempt](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt) — and [BRIDGE_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md) covers the API client itself.
 
 ### bridgeWithApproval
 
@@ -250,7 +250,7 @@ if (result.ok) {
 
 The batch is `[approve(0)?, approve(amount), deposit]`, and its transaction hash becomes `srcChainTxHash`. Wallet
 support, `allowAccountUpgrade` and the failure rules are the same as for swaps (see
-[Approve and Swap in One Signature](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#approve-and-swap-in-one-signature)):
+[Approve and Swap in One Signature](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#approve-and-swap-in-one-signature)):
 
 - the wallet refuses the batch before signing → it approves separately and reports `approvalStrategy: 'sequential'`;
 - the user rejects the batch → `USER_REJECTED`, with `context.reason: ACCOUNT_UPGRADE_DECLINED` when they declined the
@@ -528,7 +528,7 @@ A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 
 
 **What the relay arm proves, and what it does not.** The packet is returned whole rather than reduced to a hash, because `dst_tx_hash` means different things by route: for a spoke-source bridge it is the **hub settlement** tx, and for a hub-source bridge it is the destination spoke's tx. The spoke→spoke hop from the hub onwards is not covered by this read. So a `source: 'relay'` answer means *the deposit reached the packet's destination*, not always *the funds landed with the recipient*. The arm is terminal either way: the router only ever returns an `executed` packet with a non-empty `dst_tx_hash`.
 
-Both payloads are already documented — the submit-tx record in [BRIDGE_API.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md), the relay packet as `PacketData`. Nothing is translated between them, so no field is dropped and no status is reinterpreted.
+Both payloads are already documented — the submit-tx record in [BRIDGE_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md), the relay packet as `PacketData`. Nothing is translated between them, so no field is dropped and no status is reinterpreted.
 
 #### When it fails
 
@@ -588,7 +588,7 @@ export type BridgeExtras<K extends SpokeChainKey = SpokeChainKey> = (GetChainTyp
 ```
 
 - `partnerFee` — chain-agnostic per-action fee override. When present it takes precedence over the config-level `bridge.partnerFee` for that call, letting an integrator charge and route its own fee per bridge. Omit to use the configured fee. Preview the amount with `getFee(inputAmount, partnerFee)`.
-- `apiKey` — chain-agnostic per-action override of the configured backend API key (`x-api-key`) for this action's backend submit-tx leg. Omit to use the configured key — see [CONFIGURE_SDK.md § API key](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#api-key). Pass it only from server-side code — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
+- `apiKey` — chain-agnostic per-action override of the configured backend API key (`x-api-key`) for this action's backend submit-tx leg. Omit to use the configured key — see [CONFIGURE_SDK.md § API key](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#api-key). Pass it only from server-side code — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
 - `srcPublicKey` — **required** for Stacks sources with `raw: true`. A Stacks address cannot yield the signer public key at raw-tx build time, so the unsigned tx needs it up front; omitting it fails with `VALIDATION_FAILED` (`context.field: 'srcPublicKey'`).
 - `bound` — Bound Exchange (Radfi) inputs for raw Bitcoin TRADING-mode sources: `{ accessToken?: string }`, falling back to the `RadfiProvider` instance token when omitted.
 
@@ -802,7 +802,7 @@ The typical bridge operation follows this sequence:
 
 1. **Check allowance** using `isAllowanceValid()`
 2. **Approve tokens** using `approve()` if needed
-3. **For Stellar destination chains**: check and establish trustlines (see [Stellar Trustline Requirements](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md#bridge))
+3. **For Stellar destination chains**: check and establish trustlines (see [Stellar Trustline Requirements](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md#bridge))
 4. **Execute bridge** using `bridge()` for the full lifecycle, or `createBridgeIntent()` for manual relay control
 5. **Monitor progress** using the returned transaction hashes
 

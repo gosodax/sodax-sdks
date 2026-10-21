@@ -5,7 +5,7 @@ icon: comment-question
 
 #### 1. Which chains does SODAX support?
 
-SODAX runs on a hub-and-spoke network of **mainnet** chains. Sonic is the hub; spokes span EVM chains (<span data-sodax-config="chain-names" data-type="EVM" data-exclude="sonic">Arbitrum, Avalanche, Base, BNB Chain, Ethereum, Hedera, Hyper, Kaia, LightLink, Optimism, Polygon, Redbelly, Robinhood Chain</span>) and non-EVM chains (<span data-sodax-config="chain-names" data-type="non-EVM">Bitcoin, ICON, Injective, Near, Solana, Stacks, Stellar, SUI</span>) — both lists read live from the backend config API. Reference any chain via `ChainKeys.*`, which — together with the backend config — is the source of truth. The legacy `*_CHAIN_ID` constants were **removed in v2**; see [Chain ID migration](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/CHAIN_ID_MIGRATION.md) for the mapping.
+SODAX runs on a hub-and-spoke network of **mainnet** chains. Sonic is the hub; spokes span EVM chains (<span data-sodax-config="chain-names" data-type="EVM" data-exclude="sonic">Arbitrum, Avalanche, Base, BNB Chain, Ethereum, Hedera, Hyper, Kaia, LightLink, Optimism, Polygon, Redbelly, Robinhood Chain</span>) and non-EVM chains (<span data-sodax-config="chain-names" data-type="non-EVM">Bitcoin, ICON, Injective, Near, Solana, Stacks, Stellar, SUI</span>) — both lists read live from the backend config API. Reference any chain via `ChainKeys.*`, which — together with the backend config — is the source of truth. The legacy `*_CHAIN_ID` constants were **removed in v2**; see [Chain ID migration](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/CHAIN_ID_MIGRATION.md) for the mapping.
 
 Full list with relay IDs: [Relayer API endpoints](/developers/deployments/relayer-api-endpoints).
 
@@ -147,7 +147,7 @@ Full mapping: [Relayer API endpoints](/developers/deployments/relayer-api-endpoi
 
 #### 20. How do I wire SODAX into my AI coding agent (Claude Code, Cursor, Codex)?
 
-From your project root run `npx skills@latest add icon-project/sodax-sdks/packages/skills`. The CLI detects your tool (Claude Code, Cursor, Codex, Copilot) and installs five skill directories, each with its own `SKILL.md`, into the conventional discovery path (e.g. `.claude/skills/sodax-<pkg>/`). The CLI does **not** copy the package-level `AGENTS.md` — agents auto-discover the skills from `SKILL.md` frontmatter, so there is nothing to point your agent rules at. If you install via npm or a `file:` path instead, `node_modules/@sodax/skills/AGENTS.md` is the router.
+From your project root run `npx skills@latest add gosodax/sodax-sdks/packages/skills`. The CLI detects your tool (Claude Code, Cursor, Codex, Copilot) and installs five skill directories, each with its own `SKILL.md`, into the conventional discovery path (e.g. `.claude/skills/sodax-<pkg>/`). The CLI does **not** copy the package-level `AGENTS.md` — agents auto-discover the skills from `SKILL.md` frontmatter, so there is nothing to point your agent rules at. If you install via npm or a `file:` path instead, `node_modules/@sodax/skills/AGENTS.md` is the router.
 
 See [AI Integration](/ai-integration-guide).
 

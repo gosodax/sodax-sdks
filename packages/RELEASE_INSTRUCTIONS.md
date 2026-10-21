@@ -49,7 +49,7 @@ Every publishable `@sodax/*` package shares one version, cut as a single `@sdks@
      --prerelease # omit for a stable release
    ```
 
-   [`sdks-publish.yml`](https://github.com/icon-project/sodax-sdks/blob/main/.github/workflows/sdks-publish.yml)
+   [`sdks-publish.yml`](https://github.com/gosodax/sodax-sdks/blob/main/.github/workflows/sdks-publish.yml)
    validates every manifest against the tag, then publishes in dependency order. The dist-tag comes
    from the version: `X.Y.Z-rc.N` under `rc`, `X.Y.Z` under `latest`.
 

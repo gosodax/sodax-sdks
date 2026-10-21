@@ -117,7 +117,7 @@ await sodax.config.initialize(); // fetch dynamic config from backend; falls bac
 
 ### The discriminated union: `WalletProviderSlot<K, Raw>`
 
-The discriminated union lives in [`packages/types/src/common/common.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/common/common.ts):
+The discriminated union lives in [`packages/types/src/common/common.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/common/common.ts):
 
 ```ts
 export type WalletProviderSlot<K extends SpokeChainKey | ChainType, Raw extends boolean> =
@@ -259,7 +259,7 @@ Attach `cause` whenever a lower-level error exists. Omit it only when the failur
 
 `error.toJSON()` is the canonical logger surface, and `JSON.stringify(error)` invokes it automatically — `bigint` values inside `context` are coerced to strings. See [Logging](./LOGGING.md).
 
-See [Errors And Results](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/AGENTS.md#errors-and-results) for the full convention with worked examples.
+See [Errors And Results](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/AGENTS.md#errors-and-results) for the full convention with worked examples.
 
 ---
 

@@ -91,7 +91,7 @@ The MCP is one of three pieces SODAX ships for agents. Each covers a different g
 **2. `@sodax/skills`: version-locked SDK knowledge.** Skill files installed into your repo that teach the agent the right v2 API shapes, patterns and anti-patterns for `@sodax/sdk`, `@sodax/dapp-kit`, `@sodax/wallet-sdk-core` and `@sodax/wallet-sdk-react`. Training data drifts; these files match the SDK version you ship. Install them with the [skills CLI](https://github.com/vercel-labs/skills) from your repo root:
 
 ```bash
-npx skills@latest add icon-project/sodax-sdks/packages/skills
+npx skills@latest add gosodax/sodax-sdks/packages/skills
 ```
 
 That lands five skills: `sodax-build`, a front-door skill that interviews you and turns an idea into a product brief, plus one mode-gated skill per SDK package (`sodax-sdk`, `sodax-dapp-kit`, `sodax-wallet-sdk-core`, `sodax-wallet-sdk-react`). Each package skill switches between integration mode for new v2 code and migration mode for porting v1. To preview the skills before installing, add `--list`. To confirm what landed:

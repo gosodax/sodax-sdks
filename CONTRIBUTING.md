@@ -175,7 +175,7 @@ docs.sodax.com. It is the copy list, and both Docs Drift and
 - **Links follow the published-doc rule** enforced by `pnpm check:doc-links`:
   relative links are only allowed to targets that publish into the same
   destination directory; everything else needs an absolute
-  `https://github.com/icon-project/sodax-sdks/blob/main/…` URL.
+  `https://github.com/gosodax/sodax-sdks/blob/main/…` URL.
 - **Adding, renaming, or removing a published doc?** Add, rename, or remove the
   entry in `scripts/docs-pages-map.json` — that is what gets the page
   published. **A page under `docs/` also needs its own entry in navigation**

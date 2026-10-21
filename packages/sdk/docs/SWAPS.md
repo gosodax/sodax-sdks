@@ -13,7 +13,7 @@ const sodax = new Sodax();
 const quote = await sodax.swaps.getQuote(quoteRequest);
 ```
 
-> **`sodax.swaps` vs `sodax.api.swaps`.** This page documents `sodax.swaps` (`SwapService`) — the end-to-end intent orchestrator that creates, relays, and finalizes swaps on-chain. The lower-level typed HTTP client for the backend Swaps API (quote, create-intent, submit-tx, status, fees — 21 endpoints) is `sodax.api.swaps` (`SwapsApiService`); see [`SWAPS_API.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md).
+> **`sodax.swaps` vs `sodax.api.swaps`.** This page documents `sodax.swaps` (`SwapService`) — the end-to-end intent orchestrator that creates, relays, and finalizes swaps on-chain. The lower-level typed HTTP client for the backend Swaps API (quote, create-intent, submit-tx, status, fees — 21 endpoints) is `sodax.api.swaps` (`SwapsApiService`); see [`SWAPS_API.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md).
 
 ## Using SDK Config and Constants
 
@@ -95,13 +95,13 @@ All swap methods are accessible through `sodax.swaps`:
 - `submitIntent(payload)` — Submit a spoke tx to the relay API (low-level, called automatically by `swap` on its fallback path)
 - `postExecution(request)` — Notify the solver that an intent is live on the hub chain (low-level, called automatically by `swap` on its fallback path)
 
-Driving these steps yourself instead of calling `swap`? See [Migrate a manual swap to the backend submit-tx flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md).
+Driving these steps yourself instead of calling `swap`? See [Migrate a manual swap to the backend submit-tx flow](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md).
 
 #### Backend 2-step submit
 
 By default `swap()` uses a backend-driven 2-step flow (`swaps.useBackendSubmitTx`, default `true`): after `createIntent` broadcasts the intent tx, `swap()` hands the tx hash to the backend (`sodax.api.swaps.submitTx`), which relays + post-executes server-side; the SDK polls submit-tx status and returns the same `SwapResponse`. The SDK does **not** verify the tx on-chain first — the backend runs its own verification, so waiting for a client-side confirmation would delay every backend success by the source chain's confirmation wait and could fail a swap the backend would have completed. `verifyTxHash` therefore runs only on the client-side path. Set `new Sodax({ swaps: { useBackendSubmitTx: false } })` to force the fully client-side relay path.
 
-On **any** non-success (submission rejected, terminal `failed`/abandoned, or poll timeout) `swap()` **falls back** to the client-side relay so the swap still completes — identical `SwapResponse` either way. This is **safe**: re-relaying / re-posting an already-processed swap is idempotent — the relay dedups and returns the existing `executed` packet, and the solver re-affirms the intent (no double-fill), verified live by `e2e-tests/e2e-relay.test.ts`. It also matters in practice: the backend keeps processing at its own pace after the SDK gives up, so the two relays can race. Each attempt gets its own `timeout` — see [How `timeout` bounds each attempt](#how-timeout-bounds-each-attempt). `useBackendSubmitTx` lives on `swaps` alongside `partnerFee` (not part of the backend `SodaxDefaultConfig`). See [CONFIGURE_SDK.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-submit-tx-2-step-swapsusebackendsubmittx).
+On **any** non-success (submission rejected, terminal `failed`/abandoned, or poll timeout) `swap()` **falls back** to the client-side relay so the swap still completes — identical `SwapResponse` either way. This is **safe**: re-relaying / re-posting an already-processed swap is idempotent — the relay dedups and returns the existing `executed` packet, and the solver re-affirms the intent (no double-fill), verified live by `e2e-tests/e2e-relay.test.ts`. It also matters in practice: the backend keeps processing at its own pace after the SDK gives up, so the two relays can race. Each attempt gets its own `timeout` — see [How `timeout` bounds each attempt](#how-timeout-bounds-each-attempt). `useBackendSubmitTx` lives on `swaps` alongside `partnerFee` (not part of the backend `SodaxDefaultConfig`). See [CONFIGURE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-submit-tx-2-step-swapsusebackendsubmittx).
 
 #### How `timeout` bounds each attempt
 
@@ -118,9 +118,9 @@ Each phase is bounded by a different thing:
 | Relay wait — client-side path only, starts after verification | `max(timeout, RELAY_FALLBACK_FLOOR_MS)` |
 | `postExecution` — solver notify, client-side path only | **not** bounded by `timeout` |
 
-Read the constants from source rather than memorising them: `DEFAULT_RELAY_TX_TIMEOUT`, `DEFAULT_BACKEND_API_TIMEOUT` and per-chain `pollingConfig` live in [`@sodax/types`](https://github.com/icon-project/sodax-sdks/tree/main/packages/types/src), and `RELAY_FALLBACK_FLOOR_MS` in [`IntentRelayApiService.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/src/shared/services/intentRelay/IntentRelayApiService.ts). Verification timeouts differ widely by chain — Stacks alone is several times Sui's — so derive them per chain from `chains.ts`.
+Read the constants from source rather than memorising them: `DEFAULT_RELAY_TX_TIMEOUT`, `DEFAULT_BACKEND_API_TIMEOUT` and per-chain `pollingConfig` live in [`@sodax/types`](https://github.com/gosodax/sodax-sdks/tree/main/packages/types/src), and `RELAY_FALLBACK_FLOOR_MS` in [`IntentRelayApiService.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/intentRelay/IntentRelayApiService.ts). Verification timeouts differ widely by chain — Stacks alone is several times Sui's — so derive them per chain from `chains.ts`.
 
-**On the per-request bound.** `api.timeout` is configurable — `new Sodax({ api: { timeout } })` moves every backend service, and an `api.swapsApiConfig` slice moves swaps alone (there is no `bridgeApiConfig` slice; see [CONFIGURE_SDK.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-api-api)). The packaged default is `DEFAULT_BACKEND_API_TIMEOUT`, and a non-positive value disables the backend submit-tx path outright. Which side of the `min` binds decides whether a stalled request retries: while `api.timeout` is the smaller bound the poll retries within the attempt, but once the attempt's remaining budget drops below it, **a single stalled request can consume the rest of the attempt**. The clamp guarantees a request can never be configured to outlive the attempt — not that the attempt survives a slow request.
+**On the per-request bound.** `api.timeout` is configurable — `new Sodax({ api: { timeout } })` moves every backend service, and an `api.swapsApiConfig` slice moves swaps alone (there is no `bridgeApiConfig` slice; see [CONFIGURE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-api-api)). The packaged default is `DEFAULT_BACKEND_API_TIMEOUT`, and a non-positive value disables the backend submit-tx path outright. Which side of the `min` binds decides whether a stalled request retries: while `api.timeout` is the smaller bound the poll retries within the attempt, but once the attempt's remaining budget drops below it, **a single stalled request can consume the rest of the attempt**. The clamp guarantees a request can never be configured to outlive the attempt — not that the attempt survives a slow request.
 
 **Worst-case wall-clock**, when the backend accepts the submission and then never finishes:
 
@@ -793,7 +793,7 @@ The `swap` method is the recommended way to perform a complete cross-chain swap.
 
 Both paths return an identical `SwapResponse`. See [Backend 2-step submit](#backend-2-step-submit) for the flag, the fallback conditions and why re-relaying is safe.
 
-`swap` is signed-only (no `raw: true` mode) — use `createIntent` if you need raw transaction data. If you orchestrate the steps yourself instead of calling `swap`, see [Migrate a manual swap to the backend submit-tx flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md) — the backend attempt and the fallback are not automatic on that path.
+`swap` is signed-only (no `raw: true` mode) — use `createIntent` if you need raw transaction data. If you orchestrate the steps yourself instead of calling `swap`, see [Migrate a manual swap to the backend submit-tx flow](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md) — the backend attempt and the fallback are not automatic on that path.
 
 ```typescript
 import { Sodax, ChainKeys } from '@sodax/sdk';
@@ -840,7 +840,7 @@ The optional `extras` slot carries per-action overrides: `extras.partnerFee` rep
 swap partner fee for this action, and `extras.apiKey` replaces the configured backend API key
 (`x-api-key`) for this action's backend submit-tx leg. Both fall back to the `Sodax` config when
 omitted — see
-[CONFIGURE_SDK.md § API key](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#api-key).
+[CONFIGURE_SDK.md § API key](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#api-key).
 Pass `extras.apiKey` only from server-side code: a key in a browser bundle is public — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
 
 ---
@@ -1018,7 +1018,7 @@ if (cancelRelayData.ok) {
 
 ## Submit Intent to Relay API
 
-Called automatically by `swap` — but only on its **fallback** path; the backend attempt relays server-side instead. Use this manually if you called `createIntent` separately. If you are orchestrating the steps yourself, try `sodax.api.swaps.submitTx` first and keep this as your fallback — see [Migrate a manual swap to the backend submit-tx flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md).
+Called automatically by `swap` — but only on its **fallback** path; the backend attempt relays server-side instead. Use this manually if you called `createIntent` separately. If you are orchestrating the steps yourself, try `sodax.api.swaps.submitTx` first and keep this as your fallback — see [Migrate a manual swap to the backend submit-tx flow](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md).
 
 ```typescript
 import type { IntentRelayRequest } from '@sodax/sdk';
@@ -1082,7 +1082,7 @@ if (intentResult.ok) {
 
 ## Post Execution to Solver API
 
-Called automatically by `swap` after the relay packet lands on the hub — on its **fallback** path only; the backend attempt post-executes server-side. Use this manually when orchestrating the swap steps yourself; [Migrate a manual swap to the backend submit-tx flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md) shows where it belongs in the two-path model.
+Called automatically by `swap` after the relay packet lands on the hub — on its **fallback** path only; the backend attempt post-executes server-side. Use this manually when orchestrating the swap steps yourself; [Migrate a manual swap to the backend submit-tx flow](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md) shows where it belongs in the two-path model.
 
 ```typescript
 import type { SolverExecutionRequest } from '@sodax/sdk';
@@ -1151,7 +1151,7 @@ if (filledIntentResult.ok) {
 
 ## Get Intent Status
 
-Poll the solver API for the current execution status of an intent. The `intent_tx_hash` must be the hub-chain tx hash where the intent was registered. If the solver returns `NOT_FOUND` or the request fails, the backend's durable intent record is checked for a recorded fill — see [SOLVER_API_ENDPOINTS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SOLVER_API_ENDPOINTS.md).
+Poll the solver API for the current execution status of an intent. The `intent_tx_hash` must be the hub-chain tx hash where the intent was registered. If the solver returns `NOT_FOUND` or the request fails, the backend's durable intent record is checked for a recorded fill — see [SOLVER_API_ENDPOINTS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SOLVER_API_ENDPOINTS.md).
 
 ```typescript
 import { SolverIntentStatusCode } from '@sodax/sdk';
@@ -1232,7 +1232,7 @@ A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 
 
 **One failure does not route on: a rejected API key.** The swaps apiguard covers `POST /swaps/*`, so this `GET` does not normally see a 401/403 — unlike the bridge sibling, where the apiguard reads every `/bridge/*` route. Wherever one does arrive, it is a terminal configuration problem rather than a source that had nothing to say. Degrading to the solver would bury it behind a relay or solver error and leave a poller retrying a request only a corrected key can satisfy, so it surfaces directly, with `context.status` set for `isAuthFailure`. The transient key-verification `503` is not this case: it routes on like any other outage.
 
-Both payloads are already documented — the submit-tx record in [SWAPS_API.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md), the solver response under [Get Intent Status](#get-intent-status). Nothing is translated between them, so no field is dropped.
+Both payloads are already documented — the submit-tx record in [SWAPS_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md), the solver response under [Get Intent Status](#get-intent-status). Nothing is translated between them, so no field is dropped.
 
 ### The solver answer is reconciled
 

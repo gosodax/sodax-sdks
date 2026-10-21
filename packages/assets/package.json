@@ -5,13 +5,13 @@
   "license": "MIT",
   "description": "Static brand assets (chain and token logos) for @sodax/* SDKs, served via raw.githubusercontent.com — never bundled into the SDK packages",
   "keywords": ["sodax", "assets", "logos", "chains", "tokens"],
-  "homepage": "https://github.com/icon-project/sodax-sdks/tree/main/packages/assets",
+  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/assets",
   "bugs": {
-    "url": "https://github.com/icon-project/sodax-sdks/issues"
+    "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/icon-project/sodax-sdks"
+    "url": "https://github.com/gosodax/sodax-sdks"
   },
   "type": "module",
   "engines": {

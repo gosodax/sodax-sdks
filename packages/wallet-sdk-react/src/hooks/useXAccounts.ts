@@ -15,7 +15,7 @@ import { useXConnections } from './useXConnections.js';
  * enriched view with connector metadata (name, icon), use `useConnectedChains` —
  * which also exposes a hydration `status` flag to gate first-paint UI.
  *
- * @see {@link https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md#read-connected-account-state | Connect Flow — Read state}
+ * @see {@link https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md#read-connected-account-state | Connect Flow — Read state}
  */
 export function useXAccounts() {
   const enabledChains = useEnabledChains();

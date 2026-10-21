@@ -1,6 +1,6 @@
 # Solver API endpoints
 
-> **Error handling conventions:** Direct callers of `SolverApiService` (used by lower-level scripts and tests) still receive `SolverErrorResponse` with `detail.code` / `detail.message`. The **swap module's** `postExecution` wraps these into `SodaxError` with code `EXTERNAL_API_ERROR`; the original `SolverIntentErrorCode` is on `result.error.context.solverCode` and the full `detail` is on `result.error.context.solverDetail` — see [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) Error Handling.
+> **Error handling conventions:** Direct callers of `SolverApiService` (used by lower-level scripts and tests) still receive `SolverErrorResponse` with `detail.code` / `detail.message`. The **swap module's** `postExecution` wraps these into `SodaxError` with code `EXTERNAL_API_ERROR`; the original `SolverIntentErrorCode` is on `result.error.context.solverCode` and the full `detail` is on `result.error.context.solverDetail` — see [SWAPS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) Error Handling.
 
 ## Mainnet production
 
@@ -23,7 +23,7 @@ Three endpoints are exposed:
 | `/execute` | `POST` | Notify the solver that an intent is live on the hub chain |
 | `/status` | `POST` | Poll the execution status of a submitted intent |
 
-All three carry the configured backend API key as the `x-api-key` header when `new Sodax({ apiKey })` is set — the same instance-wide key every other backend service uses. This is a config-level tier only: these requests take no per-call override. Solver auth failures come back through the `SolverErrorResponse` contract below rather than as an `EXTERNAL_API_ERROR`. See [CONFIGURE_SDK.md § API key](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#api-key). `solverApiEndpoint` is not derived from `api.baseURL`, so a browser app that proxies its backend traffic must repoint it too — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
+All three carry the configured backend API key as the `x-api-key` header when `new Sodax({ apiKey })` is set — the same instance-wide key every other backend service uses. This is a config-level tier only: these requests take no per-call override. Solver auth failures come back through the `SolverErrorResponse` contract below rather than as an `EXTERNAL_API_ERROR`. See [CONFIGURE_SDK.md § API key](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#api-key). `solverApiEndpoint` is not derived from `api.baseURL`, so a browser app that proxies its backend traffic must repoint it too — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
 
 ---
 

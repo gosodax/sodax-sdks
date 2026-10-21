@@ -1,6 +1,6 @@
 # Relayer API Endpoints
 
-> **Error handling conventions:** Relay-layer failures emit one of these stable strings on `error.message`: `'SUBMIT_TX_FAILED'`, `'RELAY_TIMEOUT'`, or `'RELAY_POLLING_FAILED'`, also exported as `RELAY_ERROR_CODES` from `@sodax/sdk`. Only `dex` propagates these errors raw; every other feature module (moneyMarket, bridge, staking, migration, leverageYield, swap) routes them through `mapRelayFailure` into a typed `SodaxError` with `context.relayCode`. The **swap module** wraps them into `SodaxError<SwapErrorCode>` with `context.relayCode` (see [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) Error Handling).
+> **Error handling conventions:** Relay-layer failures emit one of these stable strings on `error.message`: `'SUBMIT_TX_FAILED'`, `'RELAY_TIMEOUT'`, or `'RELAY_POLLING_FAILED'`, also exported as `RELAY_ERROR_CODES` from `@sodax/sdk`. Only `dex` propagates these errors raw; every other feature module (moneyMarket, bridge, staking, migration, leverageYield, swap) routes them through `mapRelayFailure` into a typed `SodaxError` with `context.relayCode`. The **swap module** wraps them into `SodaxError<SwapErrorCode>` with `context.relayCode` (see [SWAPS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) Error Handling).
 
 The intent relay service bridges spoke-chain transactions to the SODAX hub (Sonic). All cross-chain operations — swaps, bridges, money market deposits/withdrawals, staking — submit a spoke-chain transaction hash to the relay, then poll until the hub confirms execution.
 
@@ -14,7 +14,7 @@ This is the default value of `DEFAULT_RELAYER_API_ENDPOINT` (exported from `@sod
 
 There is no testnet relayer endpoint for integrators. SODAX is mainnet-only: `ChainKeys` contains
 only `*_MAINNET` entries, and there are no testnet chain configs or RPC endpoints in the SDK. Build
-and test against mainnet with small amounts — see [Testing without a testnet](https://github.com/icon-project/sodax-sdks/blob/main/docs/developers/how-to/testnet.md).
+and test against mainnet with small amounts — see [Testing without a testnet](https://github.com/gosodax/sodax-sdks/blob/main/docs/developers/how-to/testnet.md).
 
 ---
 

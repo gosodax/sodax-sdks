@@ -39,7 +39,7 @@ export type XToken = {
  * token's slugified symbol, so the full URL is `${TOKEN_LOGO_BASE_URL}/<slug>.png`.
  */
 export const TOKEN_LOGO_BASE_URL =
-  'https://raw.githubusercontent.com/icon-project/sodax-sdks/main/packages/assets/token';
+  'https://raw.githubusercontent.com/gosodax/sodax-sdks/main/packages/assets/token';
 
 /**
  * Filename slug for a token logo: the symbol lowercased with every run of

@@ -86,7 +86,7 @@ const atLeast = (min: keyof typeof ORDER, sink: SodaxLogger): SodaxLogger => ({
 ## Errors reaching the sink
 
 The `error` argument is whatever the service caught: usually the raw transport, viem or wallet error,
-occasionally a [`SodaxError`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/src/errors/SodaxError.ts),
+occasionally a [`SodaxError`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/errors/SodaxError.ts),
 and sometimes `undefined` when a site logs a message alone. The `SodaxError` a caller receives in the
 failed `Result` is built after the log call, so do not expect it in the sink. Use `isSodaxError(error)`
 before tagging on `error.feature`, `error.code` and `error.context.action`, and never parse
@@ -97,7 +97,7 @@ automatically — including the `bigint` values inside `context`, which it coerc
 `Error` has no `toJSON()` and serializes as `{}`, so an adapter still has to copy `name`, `message`
 and `stack` itself, and `bigint` values in `data` still need a replacer (see the constraints below).
 
-See [Errors And Results](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/AGENTS.md#errors-and-results)
+See [Errors And Results](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/AGENTS.md#errors-and-results)
 for the error contract.
 
 ## Built-in loggers
@@ -168,7 +168,7 @@ const sodax = new Sodax({ logger: ndjsonLogger });
 ```
 
 A runnable version lives at
-[`apps/node/src/logging.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/logging.ts)
+[`apps/node/src/logging.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/node/src/logging.ts)
 (`pnpm --filter node logging`). It requires no private key, RPC or network access: the backend base
 URL points at a closed local port, so a real internal SDK failure reaches the sink immediately.
 
@@ -182,7 +182,7 @@ URL points at a closed local port, so a real internal SDK failure reaches the si
 ## Example: HTTP intake without a vendor SDK
 
 The demo app ships two adapters at
-[`apps/demo/src/lib/loggers`](https://github.com/icon-project/sodax-sdks/tree/main/apps/demo/src/lib/loggers):
+[`apps/demo/src/lib/loggers`](https://github.com/gosodax/sodax-sdks/tree/main/apps/demo/src/lib/loggers):
 `createDatadogLogger()` uses the plain HTTP logs intake with no Datadog SDK and no agent, and
 `createSentryLogger()` uses a lazily imported `@sentry/react` behind a tunnel.
 
@@ -246,6 +246,6 @@ A single mutation opts out of the global hook with `meta: { silent: true }`.
 
 ## See also
 
-- [Configure SDK](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md) — the full `SodaxOptions` shape.
+- [Configure SDK](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md) — the full `SodaxOptions` shape.
 - `analytics`, the adjacent option on `SodaxOptions`, carries structured product events and is off by
   default, where `logger` carries free-form diagnostics and is on.
