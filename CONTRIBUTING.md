@@ -61,6 +61,19 @@ Do not bypass them with `--no-verify`. If a check fails, fix the cause.
 
 ## Pull requests
 
+Who pushes where:
+
+- **People with write access** — including people working through a coding agent they direct —
+  branch in this repository.
+- **Autonomous agents and bots** (standalone agents with no human directing the session) work
+  through a fork: push to the fork and open the pull request from it. They do not get write access
+  to this repository, and must not push here or push tags even if their credentials allow it.
+  Workflows on a fork pull request wait for a maintainer's approval, and the
+  [AI drift audit](#ai-files-drift-check) is skipped (a maintainer runs it on a branch here).
+- Everyone else (external contributors) forks too.
+
+Then:
+
 - Branch from `main` and open the pull request against `main`. If it is work in progress, open it
   as a draft.
 - Fill in the [pull request template](./.github/PULL_REQUEST_TEMPLATE.md): what the change does,
@@ -254,7 +267,7 @@ and stays quiet:
 
 ## Issue reports
 
-Use the [issue templates](https://github.com/icon-project/sodax-sdks/issues/new/choose) (bug
+Use the [issue templates](https://github.com/gosodax/sodax-sdks/issues/new/choose) (bug
 report, feature request, task, epic). A bug is a _demonstrable problem_ caused by the code in this
 repository. Good bug reports are extremely helpful — thank you!
 

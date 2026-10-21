@@ -8,6 +8,11 @@ SODAX is a cross-chain DeFi SDK monorepo built around a hub-and-spoke architectu
 
 Do not hardcode supported chain counts or chain lists in agent guidance. When exact support matters, inspect the source of truth in `@sodax/types`, package source, or generated docs.
 
+## Contribution Access
+
+- **Directed by a human** (a personal coding agent working for a maintainer with write access): branch in this repository and open the pull request against `main`, as `CONTRIBUTING.md` describes.
+- **Running autonomously** (a standalone agent or bot, with no human directing the session): never push to this repository, even if your credentials allow it. Fork it, push to a branch on your fork, and open the pull request from the fork against `main`. Never push tags; releases are cut by maintainers. If unsure which case applies, treat yourself as autonomous.
+
 ## Navigation
 
 ### Packages
