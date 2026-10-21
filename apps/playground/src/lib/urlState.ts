@@ -7,7 +7,8 @@ import { type Brand, readBrand, writeBrand } from './brand';
  * a specific pair instead of always the default one.
  *
  * The partner fee is deliberately **not** in here. It is the one field that redirects money, and a
- * crafted link would set it on a page a reader may never scroll to the form of.
+ * crafted link would set it on a page a reader may never scroll to the form of. A partner API key
+ * is: the fee stays on the key server-side, so the link carries no recipient or rate.
  */
 export type UrlState = {
   widget?: WidgetSettings;
@@ -22,6 +23,8 @@ export type UrlState = {
   embed: boolean;
   /** How the widget should look. Validated to a closed shape by `readBrand`, never a raw string. */
   brand: Brand;
+  /** Partner key sent as `x-api-key`; it overrides the deployment's key. */
+  apiKey: string | undefined;
 };
 
 export type UrlStateSource = {
@@ -36,7 +39,14 @@ export type UrlStateSource = {
   embed?: boolean;
   /** Kept for the same reason, and it is what makes the copied embed snippet carry the styling. */
   brand?: Brand;
+  /** Kept on every rewrite, or a reload inside the frame drops the partner's key. */
+  apiKey?: string;
 };
+
+const API_KEY = /^[A-Za-z0-9._~-]{8,256}$/;
+export function readApiKey(value: string): string | undefined {
+  return matching(API_KEY, value.trim());
+}
 
 const DECIMAL = /^\d{1,30}(\.\d{0,30})?$/;
 const SYMBOL = /^[A-Za-z0-9 ._()-]{1,64}$/;
@@ -63,6 +73,7 @@ export function readUrlState(search: string): UrlState {
     slippage: matching(DECIMAL, params.get('slippage')),
     embed: params.get('embed') === '1',
     brand: readBrand(search),
+    apiKey: readApiKey(params.get('apiKey') ?? ''),
   };
 }
 
@@ -76,6 +87,7 @@ export function toSearch(state: UrlStateSource): string {
   if (state.slippage !== undefined) params.set('slippage', state.slippage);
   if (state.embed) params.set('embed', '1');
   if (state.brand) writeBrand(params, state.brand);
+  if (state.apiKey) params.set('apiKey', state.apiKey);
   if (state.widget?.sourceNetworks.length) params.set('allowedSrc', state.widget.sourceNetworks.join(','));
   if (state.widget?.destinationNetworks.length) params.set('allowedDst', state.widget.destinationNetworks.join(','));
   if (state.widget?.sourceTokens) params.set('allowedSrcTokens', state.widget.sourceTokens.join(','));

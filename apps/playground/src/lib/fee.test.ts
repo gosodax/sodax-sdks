@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FEE_BPS_MAX, NO_PARTNER_FEE, feeAmountOf, readPartnerFee } from './fee';
+import { FEE_BPS_MAX, NO_PARTNER_FEE, effectiveFeeState, feeAmountOf, readPartnerFee } from './fee';
 
 const RECIPIENT = '0x1234567890abcdef1234567890abcdef12345678';
 
@@ -61,5 +61,20 @@ describe('feeAmountOf', () => {
 
   it('truncates rather than rounding, so the fee never exceeds the rate', () => {
     expect(feeAmountOf(999n, { address: RECIPIENT, percentage: 1 })).toBe(0n);
+  });
+});
+
+describe('effectiveFeeState', () => {
+  const set = readPartnerFee({ address: '0x1234567890abcdef1234567890abcdef12345678', bps: '50' });
+  const invalid = readPartnerFee({ address: '', bps: '50' });
+
+  it('sends no fee when the URL carries a key, even over a set or invalid deployment fee', () => {
+    expect(effectiveFeeState('test_key-0123456789', set)).toEqual({ kind: 'none' });
+    expect(effectiveFeeState('test_key-0123456789', invalid)).toEqual({ kind: 'none' });
+  });
+
+  it('keeps the deployment fee when the URL has no key', () => {
+    expect(effectiveFeeState(undefined, set)).toBe(set);
+    expect(effectiveFeeState(undefined, invalid)).toBe(invalid);
   });
 });
