@@ -6,7 +6,7 @@
 
 Report privately, via either:
 
-1. **GitHub private vulnerability reporting** — [open a draft security advisory](https://github.com/icon-project/sodax-sdks/security/advisories/new) (preferred; keeps the report attached to the repo), or
+1. **GitHub private vulnerability reporting** — [open a draft security advisory](https://github.com/gosodax/sodax-sdks/security/advisories/new) (preferred; keeps the report attached to the repo), or
 2. **Email** — `tech-alerts@sodax.com` (mark the subject **SECURITY**) with a clear description and reproduction steps.
 
 Please include: the affected package and version, impact, reproduction steps, and any relevant chain/tx references. Do **not** include secrets or live keys in the report.

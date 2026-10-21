@@ -81,4 +81,4 @@ That filtered output is your work list. In a typical project the list is empty.
 
 ## Getting help
 
-If you do hit a v1 pattern that doesn't compile against v2, [open an issue](https://github.com/icon-project/sodax-sdks/issues) with the source snippet — that means we missed a backwards-compat case and the migration scope needs to grow.
+If you do hit a v1 pattern that doesn't compile against v2, [open an issue](https://github.com/gosodax/sodax-sdks/issues) with the source snippet — that means we missed a backwards-compat case and the migration scope needs to grow.

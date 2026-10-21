@@ -127,6 +127,6 @@ The hook stays idle until `chainKey` and `address` are set and `tokens` is not e
 
 ## Reference
 
-- [`SpokeService.getWalletBalance` and `getWalletBalances`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/SpokeService.ts)
-- [`useBalances`](https://github.com/icon-project/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useBalances.ts)
+- [`SpokeService.getWalletBalance` and `getWalletBalances`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/SpokeService.ts)
+- [`useBalances`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useBalances.ts)
 - [dapp-kit package](/developers/packages/experience/dapp-kit)

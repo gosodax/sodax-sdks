@@ -2,7 +2,7 @@
 
 `useXSignMessage` is a single React Query mutation that delegates message signing to the connected wallet's `ChainActions.signMessage` implementation. The signature shape and encoding rules differ per chain — Bitcoin in particular auto-selects between BIP-322 and ECDSA based on the connected address type.
 
-The hook source is [`useXSignMessage.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useXSignMessage.ts); the per-chain wiring lives in [`chainRegistry.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/chainRegistry.ts) and the provider-managed `<Chain>Actions.tsx` files.
+The hook source is [`useXSignMessage.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useXSignMessage.ts); the per-chain wiring lives in [`chainRegistry.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/chainRegistry.ts) and the provider-managed `<Chain>Actions.tsx` files.
 
 ## Table of contents
 
@@ -70,7 +70,7 @@ Bitcoin's signing flow inspects the connected address and picks the right method
 | P2SH (legacy multi-sig, `3…`) | ECDSA | Unisat, Xverse, OKX, Hana |
 | P2PKH (legacy, `1…`) | ECDSA | Unisat, Xverse, OKX, Hana |
 
-The dispatch happens inside [`chainRegistry.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/chainRegistry.ts) using `detectBitcoinAddressType(address)` + the `hasSignBip322` / `hasSignEcdsa` guards from [`bitcoinSignGuards.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/xchains/bitcoin/bitcoinSignGuards.ts). Signing lives on the wallet provider, not on the connector, so the action resolves the provider first — the live one from `connect()`, falling back to `recreateWalletProvider` after a page reload:
+The dispatch happens inside [`chainRegistry.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/chainRegistry.ts) using `detectBitcoinAddressType(address)` + the `hasSignBip322` / `hasSignEcdsa` guards from [`bitcoinSignGuards.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/xchains/bitcoin/bitcoinSignGuards.ts). Signing lives on the wallet provider, not on the connector, so the action resolves the provider first — the live one from `connect()`, falling back to `recreateWalletProvider` after a page reload:
 
 ```typescript
 const walletProvider = connector.getWalletProvider() ?? connector.recreateWalletProvider(connection.xAccount);
@@ -213,5 +213,5 @@ Common error messages by chain:
 - [Connect Flow](./CONNECT_FLOW.md) — must connect a wallet before signing
 - [Configure SodaxWalletProvider](./CONFIGURE_PROVIDER.md) — chain must be enabled in config to dispatch
 - [Connectors](./CONNECTORS.md) — Bitcoin connector classes for `instanceof` checks
-- [SDK Wallet Providers Reference](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) — Bitcoin's lower-level `signTransaction` / `signEcdsaMessage` / `signBip322Message` interface
+- [SDK Wallet Providers Reference](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) — Bitcoin's lower-level `signTransaction` / `signEcdsaMessage` / `signBip322Message` interface
 - [BIP-322 specification](https://github.com/bitcoin/bips/blob/master/bip-0322.mediawiki) — generic signed-message format for all Bitcoin address types

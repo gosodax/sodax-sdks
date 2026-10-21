@@ -50,7 +50,7 @@ test('rejects a relative link to a doc whose page lands elsewhere', t => {
   assert.match(failures[0], /its page moves to developers\/packages\/foundation\/sdk\/functional-modules\/swaps\.md/);
   assert.match(
     failures[0],
-    /https:\/\/github\.com\/icon-project\/sodax-sdks\/blob\/main\/packages\/sdk\/docs\/SWAPS\.md#error-handling/,
+    /https:\/\/github\.com\/gosodax\/sodax-sdks\/blob\/main\/packages\/sdk\/docs\/SWAPS\.md#error-handling/,
   );
 });
 
@@ -86,11 +86,20 @@ test('rejects links into the sodax-document and sodax-frontend repos', t => {
   assert.match(failures[1], /the repo was renamed to sodax-sdks/);
 });
 
+test('rejects links to sodax-sdks under its former icon-project org', t => {
+  // Built in parts so `git grep` for the former slug stays a clean migration check.
+  const formerOrgUrl = `https://github.com/${'icon-project'}/sodax-sdks/blob/main/packages/sdk/src/index.ts`;
+  const failures = run(t, { 'packages/sdk/docs/CONFIGURE_SDK.md': `[old home](${formerOrgUrl})\n` });
+
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /the repo moved to github\.com\/gosodax\/sodax-sdks/);
+});
+
 test('rejects an absolute source URL whose path no longer exists', t => {
   const failures = run(t, {
     'packages/sdk/docs/CONFIGURE_SDK.md': [
-      '[gone](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/constants/index.ts)',
-      '[here](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/src/index.ts)',
+      '[gone](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/constants/index.ts)',
+      '[here](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/index.ts)',
     ].join('\n'),
   });
 

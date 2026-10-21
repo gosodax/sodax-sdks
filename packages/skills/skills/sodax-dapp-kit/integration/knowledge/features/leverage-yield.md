@@ -14,10 +14,12 @@ Leveraged-yield ERC-4626 vaults on the Sonic hub. Deposit any token → `lsoda*`
 useLeverageYieldDeposit({ mutationOptions });   // build a deposit payload (any token → lsoda*)
 useLeverageYieldWithdraw({ mutationOptions });  // build a withdraw payload (lsoda* → any token; hubWalletSwap)
 useLeverageYieldVaultSwap({ mutationOptions });  // EXECUTE the built payload end-to-end
+useLeverageYieldVaultSwapWithApproval({ mutationOptions }); // same, with a deposit's approval folded in (one EIP-5792 signature)
 useLeverageYieldNotifySolver({ mutationOptions }); // manual-flow: notify the solver after a self-driven relay
 
 // Reads
 useLeverageYieldDetailedStatus({ params, queryOptions }); // track a vault swap from its SOURCE tx (3s)
+useLeverageYieldApprovalStrategy({ params: { payload, walletProvider, allowAccountUpgrade? }, queryOptions }); // label the deposit button
 useLeverageYieldQuote({ params, queryOptions });          // vault deposit/withdraw quote (3s) — NOT useQuote
 useLeverageYieldEffectiveApr({ params, queryOptions });  // AAVE + LSD effective net APR (60s)
 useLeverageYieldPosition({ params, queryOptions });      // collateral/debt/ltv/healthFactor/idle (30s)
@@ -32,7 +34,7 @@ const vaults = useMemo(() => sodax.leverageYield.listVaults(), [sodax]); // { na
 
 Every read and builder takes the vault's `vault` field (the `lsoda*` proxy address). `useLeverageYieldApiVaults` is the backend REST equivalent of `listVaults()`. For symbols, logos, USD prices and a single units table, see [`../recipes/leverage-yield-product-anatomy.md`](../recipes/leverage-yield-product-anatomy.md).
 
-`deposit` / `withdraw` are **builders** — they assemble a `LeverageYieldSwapPayload`, they do NOT broadcast. Spread the built payload into `useLeverageYieldVaultSwap`'s `mutate`, adding the `walletProvider`. `vaultSwap` takes the **backend submit-tx** path by default and falls back to the client-side relay on any non-success, so track the result with `useLeverageYieldDetailedStatus` — it keys on the source tx and answers for whichever path completed. Pass `extras.apiKey` in `mutate` to key the backend leg per action. There is no dedicated leverage-yield approve hook: the swap-style deposit approves the spoke-side asset manager, so reuse `useSwapApprove` / `useSwapAllowance` (see Approval pattern).
+`deposit` / `withdraw` are **builders** — they assemble a `LeverageYieldSwapPayload`, they do NOT broadcast. Spread the built payload into `useLeverageYieldVaultSwap`'s `mutate`, adding the `walletProvider`. `vaultSwap` takes the **backend submit-tx** path by default and falls back to the client-side relay on any non-success, so track the result with `useLeverageYieldDetailedStatus` — it keys on the source tx and answers for whichever path completed. A post-broadcast failure (verify, relay or post-execution codes) still hands you that tx as `error.context.srcTxHash` / `srcChainKey`, so keep tracking it rather than reporting the vault swap as lost. Pass `extras.apiKey` in `mutate` to key the backend leg per action. There is no dedicated leverage-yield approve hook: the swap-style deposit approves the spoke-side asset manager, so reuse `useSwapApprove` / `useSwapAllowance` (see Approval pattern).
 
 `use*Approve` is unchanged and still resolves to one transaction hash, but the SDK may send **two**
 transactions on a token that rejects a non-zero to non-zero allowance change (Ethereum USDT today) —
@@ -94,7 +96,7 @@ useLeverageYieldShareBalances({ params: { vault, holders } })
 
 ## Approval pattern
 
-Leverage-yield has **no dedicated approve hook**. A deposit is a swap-style intent that bridges `inputToken` from the spoke chain, so it approves the spoke-side asset manager exactly like a swap — reuse the swap hooks. A withdraw needs no spoke-side approval: the payload carries `hubWalletSwap: true` and `vaultSwap` authorises the hub wallet to spend the `lsoda*` shares via a `Connection.sendMessage` the user signs on `srcChainKey`.
+`useLeverageYieldVaultSwapWithApproval` approves and deposits in one call — one signature on an EIP-5792 wallet — and needs none of the hooks below. A `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` may still land: never deposit it again — mutate again with `resumeBatchId` / `resumeBatchCallCount` from its `context`, which sends nothing. For the two-step flow, leverage-yield has **no dedicated approve hook**. A deposit is a swap-style intent that bridges `inputToken` from the spoke chain, so it approves the spoke-side asset manager exactly like a swap — reuse the swap hooks. A withdraw needs no spoke-side approval: the payload carries `hubWalletSwap: true` and `vaultSwap` authorises the hub wallet to spend the `lsoda*` shares via a `Connection.sendMessage` the user signs on `srcChainKey`.
 
 | Flow | Token approved | Hook |
 |---|---|---|

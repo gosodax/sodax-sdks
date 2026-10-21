@@ -4,7 +4,7 @@
 
 Sequential by design — many extensions share popup singletons, so parallel attempts would race a single popup. Errors are collected, not thrown — `run()` always resolves.
 
-The pure helpers ([`resolveBatchTargets`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useBatchConnect.ts), [`runBatchConnect`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useBatchConnect.ts), [`resolveDisconnectTargets`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useBatchDisconnect.ts), [`runBatchDisconnect`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useBatchDisconnect.ts)) are exported for testability outside React.
+The pure helpers ([`resolveBatchTargets`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useBatchConnect.ts), [`runBatchConnect`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useBatchConnect.ts), [`resolveDisconnectTargets`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useBatchDisconnect.ts), [`runBatchDisconnect`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useBatchDisconnect.ts)) are exported for testability outside React.
 
 ## Table of contents
 
@@ -41,7 +41,7 @@ Earlier identifiers are higher priority **per chain**, with fallback on failure:
 const { run } = useBatchConnect({ connectors: ['hana', 'phantom'] });
 ```
 
-The matcher is implemented by [`matchesConnectorIdentifier`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/utils/matchConnectorIdentifier.ts) — pure, case-insensitive `includes`.
+The matcher is implemented by [`matchesConnectorIdentifier`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/utils/matchConnectorIdentifier.ts) — pure, case-insensitive `includes`.
 
 To target a specific connector (not a brand), bypass this API and use `useXConnectors({ xChainType }).find(c => c.id === '...')` + `useXConnect` directly.
 
@@ -280,6 +280,6 @@ Reach for `useXConnect` / `useXDisconnect` directly when:
 ## Related docs
 
 - [Connect Flow](./CONNECT_FLOW.md) — `useXConnect` / `useXDisconnect` underlying primitives
-- [Wallet Modal](./WALLET_MODAL.md) — headless modal lifecycle for a single picked connector (`useWalletModal` drives `useXConnect`); pair it with the batch hooks at the app level for "connect all" affordances, as [`apps/wallet-modal-example`](https://github.com/icon-project/sodax-sdks/tree/main/apps/wallet-modal-example) does with `BatchActions` rendered beside the modal
+- [Wallet Modal](./WALLET_MODAL.md) — headless modal lifecycle for a single picked connector (`useWalletModal` drives `useXConnect`); pair it with the batch hooks at the app level for "connect all" affordances, as [`apps/wallet-modal-example`](https://github.com/gosodax/sodax-sdks/tree/main/apps/wallet-modal-example) does with `BatchActions` rendered beside the modal
 - [Chain Detection](./CHAIN_DETECTION.md) — `useChainGroups`, `useConnectedChains` for surfacing batch results
 - [Connectors](./CONNECTORS.md) — `IXConnector` shape, exact `id` matching for fine-grained control

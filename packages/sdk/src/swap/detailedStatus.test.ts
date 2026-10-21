@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SolverIntentStatusCode, type SubmitTxStatusDataV2 } from '@sodax/types';
+import type { DetailedLeverageYieldStatus } from '../leverageYield/detailedStatus.js';
 import { isBackendSubmitTxAbandoned, summarizeSwapStatus } from './detailedStatus.js';
 
 const baseRecord: SubmitTxStatusDataV2 = {
@@ -81,5 +82,14 @@ describe('summarizeSwapStatus', () => {
       data: { status: SolverIntentStatusCode.SOLVED, fill_tx_hash: 'not-a-hash' },
     });
     expect(summary.fillTxHash).toBeUndefined();
+  });
+
+  it('accepts a DetailedLeverageYieldStatus, which docs/LEVERAGE_YIELD.md relies on', () => {
+    const status: DetailedLeverageYieldStatus = {
+      source: 'solver',
+      dstTxHash: HUB,
+      data: { status: SolverIntentStatusCode.SOLVED, fill_tx_hash: FILL },
+    };
+    expect(summarizeSwapStatus(status)).toEqual({ state: 'solved', hubTxHash: HUB, fillTxHash: FILL });
   });
 });

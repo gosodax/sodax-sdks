@@ -141,7 +141,7 @@ const gitStub = ({
     if (key.startsWith('merge-base origin/main @sdks@')) return `${'b'.repeat(40)}\n`;
     if (key === `rev-list --count ${MAIN}..origin/main`) return '0\n';
     if (key === 'rev-list --max-parents=0 origin/main') return `${ROOT_COMMIT}\n`;
-    if (key === 'remote get-url origin') return 'git@github.com:icon-project/sodax-sdks.git\n';
+    if (key === 'remote get-url origin') return 'git@github.com:gosodax/sodax-sdks.git\n';
     if (key.startsWith('log --first-parent')) return log;
     if (key.startsWith('log --no-merges')) return releaseOnlyLog;
     throw new Error(`unexpected git call: ${key}`);
@@ -258,7 +258,7 @@ test('release notes rebuild PR links from the subject and fall back to a short s
   ];
   const notes = renderNotes({
     version: '2.2.0',
-    repo: 'icon-project/sodax-sdks',
+    repo: 'gosodax/sodax-sdks',
     baseTag: '@sdks@2.1.0',
     commits,
     releaseOnly: [{ sha: '3'.repeat(40), subject: 'fix(sdk): hotfix', author: 'dev', commitBody: '' }],
@@ -267,7 +267,7 @@ test('release notes rebuild PR links from the subject and fall back to a short s
   assert.match(notes, /npm dist-tag: latest/);
   assert.match(
     notes,
-    /- feat\(sdk\): add a helper \(\[#403\]\(https:\/\/github\.com\/icon-project\/sodax-sdks\/pull\/403\)\) — gcranju/,
+    /- feat\(sdk\): add a helper \(\[#403\]\(https:\/\/github\.com\/gosodax\/sodax-sdks\/pull\/403\)\) — gcranju/,
   );
   assert.match(notes, /- fix: repair a thing \(`22222222`\)/);
   assert.match(notes, /### Release-branch changes/);
@@ -299,8 +299,9 @@ test('porcelain paths keep their first character and the remote parser handles b
     porcelainEntries(' M release-notes.md\n?? packages/sdk/CHANGELOG.md\n').map(entry => entry.path),
     ['release-notes.md', 'packages/sdk/CHANGELOG.md'],
   );
-  assert.equal(parseRemoteRepo('git@github.com:icon-project/sodax-sdks.git'), 'icon-project/sodax-sdks');
-  assert.equal(parseRemoteRepo('https://github.com/icon-project/sodax-sdks.git'), 'icon-project/sodax-sdks');
+  assert.equal(parseRemoteRepo('git@github.com:gosodax/sodax-sdks.git'), 'gosodax/sodax-sdks');
+  assert.equal(parseRemoteRepo('https://github.com/gosodax/sodax-sdks.git'), 'gosodax/sodax-sdks');
+  assert.equal(parseRemoteRepo('/srv/mirrors/sodax-sdks.git'), 'gosodax/sodax-sdks');
 });
 
 test('the real bump script and publish workflow package lists match the real workspace', () => {
@@ -624,7 +625,7 @@ const gitFixture = root => {
   const { git, sha, commit } = repoCommands(root);
   git('init', '-q', '-b', 'main');
   git('config', 'commit.gpgsign', 'false');
-  git('remote', 'add', 'origin', 'git@github.com:icon-project/sodax-sdks.git');
+  git('remote', 'add', 'origin', 'git@github.com:gosodax/sodax-sdks.git');
   commit('chore: scaffold');
   git('tag', '@sdks@2.1.0');
 
@@ -702,7 +703,7 @@ const anchorFixture = root => {
   const { git, sha, commit, src } = repoCommands(root);
   git('init', '-q', '-b', 'main');
   git('config', 'commit.gpgsign', 'false');
-  git('remote', 'add', 'origin', 'git@github.com:icon-project/sodax-sdks.git');
+  git('remote', 'add', 'origin', 'git@github.com:gosodax/sodax-sdks.git');
   commit('chore: scaffold');
 
   git('checkout', '-q', '-b', 'release');

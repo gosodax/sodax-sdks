@@ -10,7 +10,7 @@ You write the code. The user owns the Privy app and receives the email code, so 
 
 ## 0. Ask the user before coding
 
-1. **Trade-offs.** Tell them (full text in the [package guide](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PRIVY.md)): Privy custodies access, so no signing is possible while Privy is unreachable; addresses belong to their Privy app; a user who loses their email loses the wallet; their Privy app is billed per signature.
+1. **Trade-offs.** Tell them (full text in the [package guide](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PRIVY.md)): Privy custodies access, so no signing is possible while Privy is unreachable; addresses belong to their Privy app; a user who loses their email loses the wallet; their Privy app is billed per signature.
 2. **Their Privy App ID.** If they have none, give them this checklist for dashboard.privy.io:
    - Create an app and copy its App ID.
    - Enable **Email** login and **Ethereum embedded wallets**. The SDK shows email login only.

@@ -5,7 +5,7 @@ generatedFrom: packages/sdk/docs/HOW_TO_MAKE_A_SWAP.md
 ---
 
 Use this guide to understand each step of an SDK swap, including allowance, settlement, and failure handling.
-For a shorter complete ESM example, start with [Your first swap](https://github.com/icon-project/sodax-sdks/blob/main/docs/quickstart.mdx).
+For a shorter complete ESM example, start with [Your first swap](https://github.com/gosodax/sodax-sdks/blob/main/docs/quickstart.mdx).
 
 | Find an answer | Section |
 | --- | --- |
@@ -14,18 +14,18 @@ For a shorter complete ESM example, start with [Your first swap](https://github.
 | Submit a swap | [Execution](#step-7-execute-the-swap) |
 | Track settlement | [Intent status](#step-8-check-intent-status) |
 | Handle execution failures | [Errors](#step-9-handle-errors) |
-| Orchestrate the steps yourself | [Migrate a manual swap to submit-tx](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md) |
-| Look up fields and error codes | [Swap reference](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) |
+| Orchestrate the steps yourself | [Migrate a manual swap to submit-tx](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md) |
+| Look up fields and error codes | [Swap reference](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) |
 
 ## Prerequisites
 
 Before you begin, ensure you have:
 
-- A wallet provider implementation (e.g., `IEvmWalletProvider` for EVM chains). You can use existing wallet provider implementations from the [`@sodax/wallet-sdk-core`](https://www.npmjs.com/package/@sodax/wallet-sdk-core) npm package, or use the local package [@wallet-sdk-core](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-core/README.md) if working within the SODAX monorepo.
+- A wallet provider implementation (e.g., `IEvmWalletProvider` for EVM chains). You can use existing wallet provider implementations from the [`@sodax/wallet-sdk-core`](https://www.npmjs.com/package/@sodax/wallet-sdk-core) npm package, or use the local package [@wallet-sdk-core](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/README.md) if working within the SODAX monorepo.
 - The `@sodax/sdk` package installed
 - Sufficient token balance to cover the swap amount and fees
 - RPC URLs for the chains you're interacting with (we recommend having a dedicated node provider like Alchemy, Quicknode, etc.)
-- Private key or wallet (browser) connection for signing transactions. For React applications, you can use the [`@sodax/wallet-sdk-react`](https://www.npmjs.com/package/@sodax/wallet-sdk-react) npm package, or use the local package [@wallet-sdk-react](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/README.md) if working within the SODAX monorepo.
+- Private key or wallet (browser) connection for signing transactions. For React applications, you can use the [`@sodax/wallet-sdk-react`](https://www.npmjs.com/package/@sodax/wallet-sdk-react) npm package, or use the local package [@wallet-sdk-react](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/README.md) if working within the SODAX monorepo.
 
 ## Step 1: Initialize Sodax Instance
 
@@ -48,7 +48,7 @@ if (!initResult.ok) {
 **Note**:
 
 - The `new Sodax()` constructor defaults to mainnet configuration automatically. No configuration is required for basic usage.
-- Read effective configuration from `sodax.config` to include constructor overrides. For initialization behavior and configuration options, see [Configure SDK](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#default-configuration).
+- Read effective configuration from `sodax.config` to include constructor overrides. For initialization behavior and configuration options, see [Configure SDK](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#default-configuration).
 
 ### Optional: Custom Configuration
 
@@ -70,7 +70,7 @@ if (!initResult.ok) {
 }
 ```
 
-See [CONFIGURE_SDK.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md) for the full `SodaxConfig` shape and canonical override patterns.
+See [CONFIGURE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md) for the full `SodaxConfig` shape and canonical override patterns.
 
 ## Step 2: Obtain a Wallet Provider
 
@@ -124,7 +124,7 @@ supportedTokens.forEach(token => {
 
 Before executing a swap, it is good practice to get a quote to show users the expected output amount. This helps set proper expectations and allows you to calculate slippage tolerance.
 
-**Example**: See how quotes are obtained in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts).
+**Example**: See how quotes are obtained in the example file: [`apps/node/src/swap.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/node/src/swap.ts).
 
 ```typescript
 import {
@@ -165,7 +165,7 @@ if (!quoteResult.ok) {
 
 Before creating a swap intent, check whether the Asset Manager contract already has permission to spend your tokens. If not, you will need to approve it first.
 
-**Example**: See how allowance checking is implemented in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts).
+**Example**: See how allowance checking is implemented in the example file: [`apps/node/src/swap.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/node/src/swap.ts).
 
 ```typescript
 import type { CreateIntentParams } from "@sodax/sdk";
@@ -218,7 +218,7 @@ another. When the wallet already holds a stale allowance on such a token, `appro
 The returned value is still a single hash — the **last** transaction's — so the code below is
 unchanged. If you show an "Approving…" state, expect a second wallet prompt on those tokens.
 
-**Example**: See how token approval is handled in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts).
+**Example**: See how token approval is handled in the example file: [`apps/node/src/swap.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/node/src/swap.ts).
 
 ```typescript
 if (!allowanceResult.value) {
@@ -299,7 +299,7 @@ Now you're ready to execute the swap. The `swap` method orchestrates the complet
 3. Submits the transaction to the relayer and waits for the relay packet to land on the hub (Sonic). This step is skipped when `srcChainKey` is the hub itself.
 4. Calls `postExecution` to notify the solver, triggering it to fill the intent
 
-**Example**: See how the swap is executed in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts).
+**Example**: See how the swap is executed in the example file: [`apps/node/src/swap.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/node/src/swap.ts).
 
 ```typescript
 const swapResult = await sodax.swaps.swap({
@@ -330,7 +330,7 @@ if (!swapResult.ok) {
 
 After a successful swap submission, continuously monitor the intent status until it reaches a terminal state. Poll every 5 seconds until the swap is completed, failed, or not found.
 
-**Example**: See the complete status polling implementation in the example file: [`apps/node/src/swap.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts).
+**Example**: See the complete status polling implementation in the example file: [`apps/node/src/swap.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/node/src/swap.ts).
 
 ```typescript
 import type { SolverIntentStatusRequest, SolverIntentStatusCode } from "@sodax/sdk";
@@ -439,7 +439,7 @@ await checkIntentStatus(sodax, intentDeliveryInfo.dstTxHash);
 
 `swap()` returns `Result<SwapResponse, SodaxError<SwapErrorCode>>`. Lower-level methods such as `getQuote()` and `getStatus()` use their own error types; consult the per-method reference. Discriminate on **`result.error.code`** (a closed reason-only union), never on `error.message` (human-readable, may change). The original lower-level failure is preserved on `error.cause`; structured metadata is on `error.context`.
 
-See [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#error-handling) for the full per-method code unions and `context` schema.
+See [SWAPS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#error-handling) for the full per-method code unions and `context` schema.
 
 ```typescript
 if (!swapResult.ok) {
@@ -484,23 +484,23 @@ if (!swapResult.ok) {
 }
 ```
 
-**Note**: The swap module exports narrow guards `isSwapError`, `isSwapCreateIntentError`, `isPostExecutionError` from `@sodax/sdk`. Use them in `catch` blocks for cross-bundle type safety; see [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#error-handling).
+**Note**: The swap module exports narrow guards `isSwapError`, `isSwapCreateIntentError`, `isPostExecutionError` from `@sodax/sdk`. Use them in `catch` blocks for cross-bundle type safety; see [SWAPS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#error-handling).
 
 ## Complete Example
 
-[Your first swap](https://github.com/icon-project/sodax-sdks/blob/main/docs/quickstart.mdx) is the complete ESM example: follow its snippets
+[Your first swap](https://github.com/gosodax/sodax-sdks/blob/main/docs/quickstart.mdx) is the complete ESM example: follow its snippets
 in order for installation, configuration, quoting, execution, and settlement polling. It uses native
 gas tokens; for other inputs, also follow [Check Token Allowance](#step-4-check-token-allowance)
 and [Approve Tokens](#step-5-approve-tokens-if-needed) above. On EVM chains this grants an ERC-20
 allowance, on Stellar it sets up a trustline, and on other chains the check returns `true`.
 
-The [Node smoke script](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/swap.ts)
+The [Node smoke script](https://github.com/gosodax/sodax-sdks/blob/main/apps/node/src/swap.ts)
 is an additional repository example. It executes on mainnet and reads its private key from the environment.
 
 ## Next Steps
 
-- **Recovery**: Follow the [failed-swap recovery guidance](https://github.com/icon-project/sodax-sdks/blob/main/docs/developers/faq.md) before retrying a transaction that may have already been submitted
-- Learn more about swap configuration and advanced features in [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md)
-- Explore other SDK features like [Money Market](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MONEY_MARKET.md), [Bridge](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE.md), and [Staking](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STAKING.md)
-- Check the [README.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/README.md) for general SDK usage and configuration
-- Read [ARCHITECTURE_REFACTOR_SUMMARY.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/ARCHITECTURE_REFACTOR_SUMMARY.md) for the full architecture reference
+- **Recovery**: Follow the [failed-swap recovery guidance](https://github.com/gosodax/sodax-sdks/blob/main/docs/developers/faq.md) before retrying a transaction that may have already been submitted
+- Learn more about swap configuration and advanced features in [SWAPS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md)
+- Explore other SDK features like [Money Market](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MONEY_MARKET.md), [Bridge](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE.md), and [Staking](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STAKING.md)
+- Check the [README.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/README.md) for general SDK usage and configuration
+- Read [ARCHITECTURE_REFACTOR_SUMMARY.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/ARCHITECTURE_REFACTOR_SUMMARY.md) for the full architecture reference

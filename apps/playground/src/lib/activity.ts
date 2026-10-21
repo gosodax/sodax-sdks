@@ -86,46 +86,56 @@ function readPair(value: unknown): PairDimensions | undefined {
   };
 }
 
+/** Everything a record holds besides its hash, validated: shared by a broadcast swap and a pending batch. */
+type RecordFields = Omit<Activity, 'txHash' | 'relaySubmitted' | 'settlementReported'>;
+
+function readFields(data: Record<string, unknown>): RecordFields | undefined {
+  if (
+    typeof data.srcChainKey !== 'string' ||
+    !isChainKey(data.srcChainKey) ||
+    typeof data.dstChainKey !== 'string' ||
+    !isChainKey(data.dstChainKey) ||
+    !isAddressText(data.srcTokenAddress) ||
+    !isAddressText(data.dstTokenAddress) ||
+    !isAmountText(data.inputAmount) ||
+    typeof data.walletAddress !== 'string' ||
+    typeof data.recipient !== 'string' ||
+    typeof data.summary !== 'string' ||
+    data.summary.length > 300 ||
+    typeof data.createdAt !== 'number' ||
+    !Number.isFinite(data.createdAt) ||
+    typeof data.relayData !== 'string' ||
+    !/^0x[\da-f]*$/i.test(data.relayData) ||
+    !isIntent(data.intent)
+  )
+    return undefined;
+  return {
+    srcChainKey: data.srcChainKey,
+    dstChainKey: data.dstChainKey,
+    srcTokenAddress: data.srcTokenAddress,
+    dstTokenAddress: data.dstTokenAddress,
+    inputAmount: data.inputAmount,
+    walletAddress: data.walletAddress,
+    recipient: data.recipient,
+    summary: data.summary,
+    createdAt: data.createdAt,
+    relayData: data.relayData,
+    intent: data.intent,
+    ...(readPair(data.pair) ? { pair: readPair(data.pair) } : {}),
+  };
+}
+
 export function readActivity(value: string | null): Activity | undefined {
   if (!value || value.length > 50000) return undefined;
   try {
     const data: unknown = JSON.parse(value);
-    if (
-      !record(data) ||
-      typeof data.txHash !== 'string' ||
-      !/^[a-zA-Z0-9_-]{1,127}$/.test(data.txHash) ||
-      typeof data.srcChainKey !== 'string' ||
-      !isChainKey(data.srcChainKey) ||
-      typeof data.dstChainKey !== 'string' ||
-      !isChainKey(data.dstChainKey) ||
-      !isAddressText(data.srcTokenAddress) ||
-      !isAddressText(data.dstTokenAddress) ||
-      !isAmountText(data.inputAmount) ||
-      typeof data.walletAddress !== 'string' ||
-      typeof data.recipient !== 'string' ||
-      typeof data.summary !== 'string' ||
-      data.summary.length > 300 ||
-      typeof data.createdAt !== 'number' ||
-      !Number.isFinite(data.createdAt) ||
-      typeof data.relayData !== 'string' ||
-      !/^0x[\da-f]*$/i.test(data.relayData) ||
-      !isIntent(data.intent)
-    )
+    if (!record(data) || typeof data.txHash !== 'string' || !/^[a-zA-Z0-9_-]{1,127}$/.test(data.txHash))
       return undefined;
+    const fields = readFields(data);
+    if (!fields) return undefined;
     return {
       txHash: data.txHash,
-      srcChainKey: data.srcChainKey,
-      dstChainKey: data.dstChainKey,
-      srcTokenAddress: data.srcTokenAddress,
-      dstTokenAddress: data.dstTokenAddress,
-      inputAmount: data.inputAmount,
-      walletAddress: data.walletAddress,
-      recipient: data.recipient,
-      summary: data.summary,
-      createdAt: data.createdAt,
-      relayData: data.relayData,
-      intent: data.intent,
-      ...(readPair(data.pair) ? { pair: readPair(data.pair) } : {}),
+      ...fields,
       ...(data.relaySubmitted === true ? { relaySubmitted: true } : {}),
       ...(data.settlementReported === true ? { settlementReported: true } : {}),
     };
@@ -160,4 +170,73 @@ export function submissionFor(activity: Activity): SubmitTxRequestV2 {
     intent: toIntentRequest(activity.intent),
     relayData: activity.relayData,
   };
+}
+
+/**
+ * A one-signature batch the wallet took but never confirmed. It may still land, so it holds the widget
+ * until it resolves: `confirmApprovalBatch` with `batchId` finds the deposit's hash, which turns the
+ * record into an ordinary activity. It has no hash of its own, which is why it is not an `Activity`.
+ */
+export const PENDING_BATCH_KEY = 'sodax-widget-pending-batch-v1';
+
+export type PendingBatch = RecordFields & {
+  batchId: string;
+  /** How many calls the batch carried, deposit last — what reading its receipts depends on. */
+  callCount: number;
+};
+
+export function readPendingBatch(value: string | null): PendingBatch | undefined {
+  if (!value || value.length > 50000) return undefined;
+  try {
+    const data: unknown = JSON.parse(value);
+    if (
+      !record(data) ||
+      typeof data.batchId !== 'string' ||
+      // EIP-5792 ids run to 4096 bytes, and some wallets return base64; markup characters stay out.
+      !/^[\w:.+/=-]{1,4096}$/.test(data.batchId) ||
+      typeof data.callCount !== 'number' ||
+      !Number.isInteger(data.callCount) ||
+      data.callCount < 1 ||
+      data.callCount > 10
+    )
+      return undefined;
+    const fields = readFields(data);
+    return fields && { ...fields, batchId: data.batchId, callCount: data.callCount };
+  } catch {
+    return undefined;
+  }
+}
+
+export function loadPendingBatch(): PendingBatch | undefined {
+  try {
+    return readPendingBatch(localStorage.getItem(PENDING_BATCH_KEY));
+  } catch {
+    return undefined;
+  }
+}
+
+export function savePendingBatch(batch: PendingBatch | undefined): boolean {
+  try {
+    if (batch) localStorage.setItem(PENDING_BATCH_KEY, JSON.stringify(batch));
+    else localStorage.removeItem(PENDING_BATCH_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Stores the activity a confirmed batch became, then drops the batch. The batch stays stored if the
+ * activity cannot be, so a reload still finds the deposit through it. False when either write failed.
+ */
+export function saveBatchActivity(activity: Activity): boolean {
+  return saveActivity(activity) && savePendingBatch(undefined);
+}
+
+/** The activity a pending batch becomes once its deposit's hash is known. */
+export function activityFromBatch(
+  { batchId: _batchId, callCount: _callCount, ...fields }: PendingBatch,
+  txHash: string,
+): Activity {
+  return { txHash, ...fields };
 }

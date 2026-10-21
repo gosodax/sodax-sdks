@@ -18,7 +18,7 @@ Concrete connector and service classes are **not** exported from the package bar
 
 ## `IXConnector` interface
 
-Defined in [`src/types/interfaces.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/types/interfaces.ts):
+Defined in [`src/types/interfaces.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/types/interfaces.ts):
 
 ```typescript
 export interface IXConnector {
@@ -46,7 +46,7 @@ Code that reads connectors — hook results, component props — should type aga
 
 ## `XConnector` abstract base
 
-The default class subclasses extend ([`src/core/XConnector.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/core/XConnector.ts)):
+The default class subclasses extend ([`src/core/XConnector.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/core/XConnector.ts)):
 
 ```typescript
 export abstract class XConnector implements IXConnector {
@@ -226,4 +226,4 @@ Bitcoin adds a second class gate: `useBitcoinXConnectors`, the registry's `signM
 - [Sign Message](./SIGN_MESSAGE.md) — Bitcoin connector subclass dispatch (BIP-322 vs ECDSA)
 - [Batch Operations](./BATCH_OPERATIONS.md) — identifier-based connector matching
 - [Wallet Modal](./WALLET_MODAL.md) — `selectWallet(connector)` consumes `XConnector`
-- [SDK Wallet Providers Reference](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) — the `IXxxWalletProvider` interfaces these connectors back into
+- [SDK Wallet Providers Reference](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) — the `IXxxWalletProvider` interfaces these connectors back into

@@ -11,6 +11,8 @@ Cross-chain token transfers via the hub-and-spoke vault architecture.
 | `useBridge` | Mutation | Execute a cross-chain bridge transfer |
 | `useBridgeAllowance` | Query | Check if token approval is needed |
 | `useBridgeApprove` | Mutation | Approve tokens for bridge |
+| `useBridgeWithApproval` | Mutation | Bridge with the approval folded in — one signature on an EIP-5792 wallet |
+| `useBridgeApprovalStrategy` | Query | Which approval path `useBridgeWithApproval` would take, for the button label |
 | `useGetBridgeableAmount` | Query | Available bridgeable amount between two tokens |
 | `useGetBridgeableTokens` | Query | Tokens bridgeable to a destination chain |
 

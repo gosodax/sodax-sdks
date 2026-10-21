@@ -26,7 +26,7 @@ For how settlement works, see [Intents](/developers/technical-overview/intents) 
 No — integrate against mainnet. To build and test safely:
 
 * **Use small amounts on mainnet.** Every flow is real, so start with minimal values while you wire things up.
-* **Drive flows headlessly** with the private-key wallet providers — see the mainnet smoke scripts in [`apps/node`](https://github.com/icon-project/sodax-sdks/tree/main/apps/node) to exercise integrations without a browser wallet.
+* **Drive flows headlessly** with the private-key wallet providers — see the mainnet smoke scripts in [`apps/node`](https://github.com/gosodax/sodax-sdks/tree/main/apps/node) to exercise integrations without a browser wallet.
 * **Point your AI coding agent at the SODAX skills** for per-chain, v2-correct integration guidance — see [AI Integration](/ai-integration-guide).
 
 ## Keep exploring

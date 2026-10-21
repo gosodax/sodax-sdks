@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ChainKeys } from '@sodax/types';
 import { DETAILED_STATUS_NOT_DELIVERED, isSodaxError, Sodax } from '../index.js';
+import { readIntentJournalOutcome } from '../backendApi/detailedStatusRouting.js';
 
 /**
  * E2e contract pin for `SwapService.getDetailedStatus`, against live APIs.
@@ -46,5 +47,15 @@ describe('SwapService.getDetailedStatus (e2e, live backend + relay + solver)', (
     expect(!result.ok && isSodaxError(result.error) && result.error.context?.reason).toBe(
       DETAILED_STATUS_NOT_DELIVERED,
     );
+  });
+
+  // A keeper-cancelled intent the solver may still report in flight: only this journal shape lets
+  // `getDetailedStatus` read it as FAILED and stop the poll.
+  it('reports a cancelled intent closed, with its cancel event, in the durable intent record', async () => {
+    const CANCELLED_INTENT_HUB_TX = '0xb723dd7b2b8c1849d51e2f4164be5ac371efa1704da754773b633faa7625d988';
+
+    const intent = await sodax.api.getIntentByTxHash(CANCELLED_INTENT_HUB_TX);
+
+    expect(intent.ok && readIntentJournalOutcome(intent.value)).toEqual({ kind: 'cancelled' });
   });
 });

@@ -26,7 +26,7 @@ This skill is **self-contained** — it needs no network to run the interview. B
 - Chains, tokens, and config → the **`@sodax/types`** package source.
 - Fees, and which feature services exist → the **`@sodax/sdk`** package source.
 
-Repo: `https://github.com/icon-project/sodax-sdks` (the `@sodax/*` packages live under `packages/`). Other files here point back to this policy rather than repeating paths.
+Repo: `https://github.com/gosodax/sodax-sdks` (the `@sodax/*` packages live under `packages/`). Other files here point back to this policy rather than repeating paths.
 
 ## Honesty rules
 

@@ -1,10 +1,14 @@
 import { getIntentRelayChainId, type HttpUrl, type SpokeChainKey } from '@sodax/types';
+import * as v from 'valibot';
 import {
   getTransactionPackets,
   HttpRelayError,
   RELAY_REQUEST_TIMEOUT_MS,
 } from '../shared/services/intentRelay/IntentRelayApiService.js';
 import type { PacketData } from '../shared/types/relay-types.js';
+import { IntentEventTypeSchema } from './backendApiSchemas.js';
+import type { IntentResponse } from './BackendApiService.js';
+import { isFillEvent } from './guards.js';
 import type { BackendSubmitTxStatusEnvelope } from './pollBackendSubmitTx.js';
 
 /**
@@ -14,7 +18,8 @@ import type { BackendSubmitTxStatusEnvelope } from './pollBackendSubmitTx.js';
  * opted out there is no record at all, and on the default path the client-side fallback leaves
  * behind whatever state the backend last reached. The relay packet is the second source, and
  * reading it is identical for every feature — so the read, its failure classification and the
- * budget vocabulary live here rather than once per feature.
+ * budget vocabulary live here rather than once per feature. So does reading the intent journal,
+ * which settles a solver answer for every solver-backed feature.
  *
  * Deliberately NOT exported from `./index.js`: `DETAILED_STATUS_NOT_DELIVERED` is already public
  * through the swap barrel, and the SDK's root barrel re-exports both with a flat `export *`, so a
@@ -48,6 +53,31 @@ export const DETAILED_STATUS_NOT_DELIVERED = 'relay_not_delivered';
  */
 export function isBackendSubmitTxAbandoned(data: BackendSubmitTxStatusEnvelope<unknown>): boolean {
   return data.status === 'failed' || Boolean(data.abandonedAt);
+}
+
+/** How an intent ended, as far as the backend's durable intent journal proves it. */
+export type IntentJournalOutcome = { kind: 'solved'; fillTxHash: string } | { kind: 'cancelled' };
+
+/**
+ * The terminal outcome the intent journal proves, or `undefined` while it proves none.
+ *
+ * `solved` needs the fill that consumed the remainder: an intent created with `allowPartialFill` emits
+ * a fill event per fill while input remains. `cancelled` needs an explicit cancel on a closed intent
+ * that never filled at all — a cancel after a partial fill is neither, so it proves nothing here, and
+ * any `intent-filled` entry rules it out, even one too malformed for `isFillEvent`.
+ *
+ * The journal, not the hub's `intentStates`: the hub deletes that entry on a full fill as well as on
+ * a cancel, so it cannot tell the two apart.
+ */
+export function readIntentJournalOutcome(intent: IntentResponse): IntentJournalOutcome | undefined {
+  const settled = intent.events.filter(isFillEvent).find(fill => fill.intentState.remainingInput === '0');
+  if (settled) return { kind: 'solved', fillTxHash: settled.txHash };
+
+  const eventTypes = intent.events.flatMap(event => (v.is(IntentEventTypeSchema, event) ? [event.eventType] : []));
+  if (!intent.open && eventTypes.includes('intent-cancelled') && !eventTypes.includes('intent-filled')) {
+    return { kind: 'cancelled' };
+  }
+  return undefined;
 }
 
 /**

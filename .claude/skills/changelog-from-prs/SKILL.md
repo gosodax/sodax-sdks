@@ -7,7 +7,7 @@ description: 'Use when drafting curated release notes for a STABLE `@sdks@X.Y.Z`
 
 > Turns the squash-merged pull requests between two **stable** `@sdks@` tags into reader-facing
 > release notes for `@sodax/*` consumers. `pnpm release` already writes a raw, commit-grouped
-> `release-notes.md` (see [`packages/RELEASE_INSTRUCTIONS.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/RELEASE_INSTRUCTIONS.md));
+> `release-notes.md` (see [`packages/RELEASE_INSTRUCTIONS.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/RELEASE_INSTRUCTIONS.md));
 > this skill is the curated version a human pastes over it before `gh release create`.
 
 ## Output contract
@@ -50,7 +50,7 @@ If `TO` is a tag, replace `origin/main` in the first command with `$(git merge-b
 Every PR is squash-merged with a validated conventional title, so each subject reads `type(scope)!: summary (#<n>)`. The number in the trailing `(#<n>)` is the PR. Fetch details only where the subject is not enough to classify or describe the change:
 
 ```bash
-gh pr view <n> --repo icon-project/sodax-sdks --json title,body,labels,files,url,author
+gh pr view <n> --repo gosodax/sodax-sdks --json title,body,labels,files,url,author
 ```
 
 (Without `gh`, use the GitHub MCP `pull_request_read` tool.) Read the body for `BREAKING CHANGE`, migration notes, and the actual user impact. Read `files` when the scope is missing or vague.
@@ -112,7 +112,7 @@ Ask one question: **would a consumer's unchanged code still pass `tsc` and their
 - Prefix with the package(s) in bold when it is not obvious: `**@sodax/dapp-kit** — …`. Derive the package from the scope or the changed files, not the title alone.
 - Name public symbols in backticks exactly as exported; verify against `src/` when you mention one.
 - 🚨 entries state the **code migration**: the compile error a consumer will hit and what to change, from → to. ⚠️ entries state **what now happens differently** and how to keep the old behavior if an opt-out exists. Take both from the PR body or diff; if the PR does not support a concrete step, say "see PR" rather than inventing one.
-- End each bullet with the PR link and its human authors: `([#<n>](https://github.com/icon-project/sodax-sdks/pull/<n>)) by @<login>`, joining co-authors with `and`. Fold several PRs that ship one feature into a single bullet with all links and every distinct author.
+- End each bullet with the PR link and its human authors: `([#<n>](https://github.com/gosodax/sodax-sdks/pull/<n>)) by @<login>`, joining co-authors with `and`. Fold several PRs that ship one feature into a single bullet with all links and every distinct author.
 - Do not list exact chain or token counts unless you counted them from the diff.
 
 ## 6. Order and assemble
@@ -124,7 +124,7 @@ Sections in the table order above: 🚨, ⚠️, 🚀, ⚡, 🐞, 🔒, 🗑️,
 
 @<login>, @<login>, <Plain Name>
 
-**Full changelog:** https://github.com/icon-project/sodax-sdks/compare/@sdks@<from>...@sdks@<target>
+**Full changelog:** https://github.com/gosodax/sodax-sdks/compare/@sdks@<from>...@sdks@<target>
 ```
 
 ## 7. Check the version bump
@@ -153,22 +153,22 @@ ci(docs): remove the marketing docs auto-merge lane (#<e>)   dependabot[bot] -> 
 ## @sdks@2.2.0 — 2026-10-12
 
 ### 🚨 Breaking Changes
-- **@sodax/sdk** — Leverage-yield actions now require a per-action API key; calls without it no longer typecheck. Pass the key on each action call. ([#<b>](https://github.com/icon-project/sodax-sdks/pull/<b>)) by @alice
+- **@sodax/sdk** — Leverage-yield actions now require a per-action API key; calls without it no longer typecheck. Pass the key on each action call. ([#<b>](https://github.com/gosodax/sodax-sdks/pull/<b>)) by @alice
 
 ### ⚠️ Behavior Changes
-- **@sodax/sdk** — Leverage-yield actions now submit through the backend by default instead of broadcasting from the client. Opt out with the flag described in the PR. ([#<b>](https://github.com/icon-project/sodax-sdks/pull/<b>)) by @alice
+- **@sodax/sdk** — Leverage-yield actions now submit through the backend by default instead of broadcasting from the client. Opt out with the flag described in the PR. ([#<b>](https://github.com/gosodax/sodax-sdks/pull/<b>)) by @alice
 
 ### 🚀 Features
-- **@sodax/sdk, @sodax/dapp-kit** — Added the leverage-yield service and matching React hooks. ([#<a>](https://github.com/icon-project/sodax-sdks/pull/<a>)) by @alice and @bob
+- **@sodax/sdk, @sodax/dapp-kit** — Added the leverage-yield service and matching React hooks. ([#<a>](https://github.com/gosodax/sodax-sdks/pull/<a>)) by @alice and @bob
 
 ### 🐞 Bug Fixes
-- **@sodax/sdk** — Relay status polling now retries when rate-limited instead of failing. ([#<c>](https://github.com/icon-project/sodax-sdks/pull/<c>)) by @carol
+- **@sodax/sdk** — Relay status polling now retries when rate-limited instead of failing. ([#<c>](https://github.com/gosodax/sodax-sdks/pull/<c>)) by @carol
 
 ### ❤️ Contributors
 
 @alice, @bob, @carol, @dave
 
-**Full changelog:** https://github.com/icon-project/sodax-sdks/compare/@sdks@2.1.0...@sdks@2.2.0
+**Full changelog:** https://github.com/gosodax/sodax-sdks/compare/@sdks@2.1.0...@sdks@2.2.0
 
 > Recommended bump: major — the per-action API key breaks existing calls at type level. Requested 2.2.0 is a minor; confirm before release.
 ```

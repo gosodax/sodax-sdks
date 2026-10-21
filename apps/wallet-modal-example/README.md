@@ -1,7 +1,7 @@
 # wallet-modal-example
 
 Reference app exercising every headless primitive shipped under issue
-[#1123](https://github.com/icon-project/sodax-sdks/issues/1123) in
+[#1123](https://github.com/gosodax/sodax-sdks/issues/1123) in
 `@sodax/wallet-sdk-react`. No design system, no DeFi business logic — only
 the wallet modal flow.
 

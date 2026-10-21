@@ -95,7 +95,7 @@ If the user is doing **DeFi work but explicitly NOT with SODAX** (e.g. "use Unis
 
 ## Feedback
 
-If an agent generates wrong code despite following a skill, that's a doc bug — file an issue at https://github.com/icon-project/sodax-sdks/issues with the prompt and the incorrect output. The package is structurally CI-guarded (frontmatter + link resolution); prose-level claims benefit from real-world feedback.
+If an agent generates wrong code despite following a skill, that's a doc bug — file an issue at https://github.com/gosodax/sodax-sdks/issues with the prompt and the incorrect output. The package is structurally CI-guarded (frontmatter + link resolution); prose-level claims benefit from real-world feedback.
 
 ## Maintaining this package
 
@@ -182,7 +182,7 @@ Run individually for faster feedback: `pnpm run check:ai-imports`, `pnpm run che
 
 Two paths:
 
-1. **GitHub-based via the [`skills` CLI](https://github.com/vercel-labs/skills)** (primary): `npx skills@latest add icon-project/sodax-sdks/packages/skills`. Drops skills into the consumer's repo through the CLI-supported agent targets.
+1. **GitHub-based via the [`skills` CLI](https://github.com/vercel-labs/skills)** (primary): `npx skills@latest add gosodax/sodax-sdks/packages/skills`. Drops skills into the consumer's repo through the CLI-supported agent targets.
 2. **npm** (fallback for web chats / unsupported tools): `pnpm add -D @sodax/skills`. Consumers point their agent at `node_modules/@sodax/skills/AGENTS.md`.
 
 The `files` field in `package.json` controls the npm-shipped surface (`.claude-plugin`, `skills`, `AGENTS.md`, `README.md`). Knowledge ships inside each skill, so it travels with `skills/`.

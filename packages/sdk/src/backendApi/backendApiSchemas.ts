@@ -69,6 +69,9 @@ export const FillEventSchema = v.object({
   }),
 });
 
+/** Any `IntentResponse.events` entry, read for its type alone. */
+export const IntentEventTypeSchema = v.object({ eventType: v.string() });
+
 /** GET /intent/tx/:txHash · GET /intent/:intentHash (`IntentResponse`). */
 export const IntentResponseSchema = v.object({
   intentHash: v.string(),

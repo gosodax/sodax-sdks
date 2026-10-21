@@ -44,6 +44,6 @@ If you are letting a coding agent drive the migration, point it at [`ai-rules.md
 
 ## Getting help
 
-If you hit a v1 pattern not covered in `reference/` or `recipes/`, please [open an issue](https://github.com/icon-project/sodax-sdks/issues) with the v1 code snippet — we'll add it to the docs.
+If you hit a v1 pattern not covered in `reference/` or `recipes/`, please [open an issue](https://github.com/gosodax/sodax-sdks/issues) with the v1 code snippet — we'll add it to the docs.
 
 For internal SODAX maintainers: see `../CLAUDE.md` for architecture context.

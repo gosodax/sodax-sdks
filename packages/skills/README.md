@@ -2,7 +2,7 @@
 
 AI-agent skills and knowledge for building on the **SODAX** cross-chain DeFi platform. Drop this into your repo and your AI coding agent writes v2-correct `@sodax/*` SDK code on the first try.
 
-**Full setup** (skills CLI, npm, monorepo/local install, wiring agents to `AGENTS.md`): [docs/ai-integration-guide.md](https://github.com/icon-project/sodax-sdks/blob/main/docs/ai-integration-guide.md).
+**Full setup** (skills CLI, npm, monorepo/local install, wiring agents to `AGENTS.md`): [docs/ai-integration-guide.md](https://github.com/gosodax/sodax-sdks/blob/main/docs/ai-integration-guide.md).
 
 ## Install
 
@@ -10,12 +10,12 @@ Using the [`skills` CLI](https://github.com/vercel-labs/skills) from Vercel Labs
 
 ```bash
 # From the root of your consumer repo
-npx skills@latest add icon-project/sodax-sdks/packages/skills
+npx skills@latest add gosodax/sodax-sdks/packages/skills
 ```
 
 The five installable skills listed in `.claude-plugin/plugin.json` land in your repo — the `sodax-build` front-door / ideation skill plus the four mode-gated per-SDK-package skills (each with two knowledge subtrees: `integration/` for new v2 code, `migration-v1-to-v2/` for v1→v2 porting). The CLI does **not** copy the package-level `AGENTS.md`; agents auto-discover each skill from its `SKILL.md` frontmatter. Re-running the command picks up the latest content.
 
-> **npm fallback** (web chats or when you prefer a devDependency): `pnpm add -D @sodax/skills`, then point your agent at `node_modules/@sodax/skills/AGENTS.md`. See the [integration guide](https://github.com/icon-project/sodax-sdks/blob/main/docs/ai-integration-guide.md#wire-your-agent).
+> **npm fallback** (web chats or when you prefer a devDependency): `pnpm add -D @sodax/skills`, then point your agent at `node_modules/@sodax/skills/AGENTS.md`. See the [integration guide](https://github.com/gosodax/sodax-sdks/blob/main/docs/ai-integration-guide.md#wire-your-agent).
 
 ## What you get
 
@@ -49,4 +49,4 @@ LLM training data drifts: snippets from chat often use stale method names, resha
 
 ## Feedback
 
-If your agent generates wrong code despite reading the docs, that's a doc bug — please open an issue on the [SODAX SDKs repo](https://github.com/icon-project/sodax-sdks/issues) with the prompt and the incorrect output. The per-skill `knowledge/` subtrees are structurally CI-guarded (frontmatter, link resolution); prose claims benefit from real-world feedback.
+If your agent generates wrong code despite reading the docs, that's a doc bug — please open an issue on the [SODAX SDKs repo](https://github.com/gosodax/sodax-sdks/issues) with the prompt and the incorrect output. The per-skill `knowledge/` subtrees are structurally CI-guarded (frontmatter, link resolution); prose claims benefit from real-world feedback.

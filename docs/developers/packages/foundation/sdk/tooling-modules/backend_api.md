@@ -105,7 +105,7 @@ its own path below it — `/be` here, `/swaps` for the swaps client, `/bridge` f
 `/leverage-yield` for the leverage-yield client, `/sponsorships/stellar` for sponsoring. A `baseURL` ending in `/be` is trimmed with a warning: that was
 the previous packaged default, and inheriting it nested the sibling services a level too deep
 (`/v1/be/swaps/submit-tx`). See
-[CONFIGURE_SDK.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md)
+[CONFIGURE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md)
 for the full URL model.
 
 `basePath` is read only by `sodax.backendApi`. Set it to `''` when addressing a backend directly at its
@@ -136,7 +136,7 @@ gateway clients too —
 including a plaintext local target — so point one only at a trusted SODAX-related deployment.
 Sponsoring is the exception — its slice key wins there, and the instance-wide
 key reaches it only when the call targets a SODAX gateway root. See
-[CONFIGURE_SDK.md § API key](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#api-key)
+[CONFIGURE_SDK.md § API key](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#api-key)
 for the full precedence order. The key belongs server-side; when this client runs in a browser, point
 `baseURL` at your own proxy instead — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
 
@@ -329,7 +329,7 @@ Swap-tx submission and the rest of the typed Swaps API moved off `BackendApiServ
 client — `sodax.api.swaps` (`SwapsApiService`). Submit a signed spoke-chain swap transaction with
 `sodax.api.swaps.submitTx(...)` and poll it with
 `sodax.api.swaps.getSubmitTxStatus({ txHash, srcChainKey })` (both fields required). See
-[`SWAPS_API.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md) for the full 21-endpoint reference (quote, create-intent, submit-tx,
+[`SWAPS_API.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md) for the full 21-endpoint reference (quote, create-intent, submit-tx,
 status, fees, …).
 
 ## Bridge Endpoints
@@ -339,10 +339,10 @@ The Bridge API is a sibling typed client — `sodax.api.bridge` (`BridgeApiServi
 minus the solver/intent surface: allowance/approve/create-bridge-intent, submit-tx + status, tokens, and
 the fee/bridgeable-amount/bridgeable discovery quotes. Submit a signed spoke-deposit with
 `sodax.api.bridge.submitTx(...)` (passing the FULL `relayData { address, payload }` envelope, not just the
-payload). See [`BRIDGE_API.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md) for the full reference.
+payload). See [`BRIDGE_API.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md) for the full reference.
 
 `BridgeApiService` is a thin adapter over the standalone
-[`@sodax/bridge-api`](https://github.com/icon-project/sodax-sdks/tree/main/packages/bridge-api) client —
+[`@sodax/bridge-api`](https://github.com/gosodax/sodax-sdks/tree/main/packages/bridge-api) client —
 the same split as `sodax.api.swaps` over `@sodax/swaps-api` — so the wire behaviour below is shared by both:
 
 - **Errors.** Every method returns `Result<T>` and never throws. A failure carries
@@ -377,7 +377,7 @@ quote + create-intent routes. `sodax.api.leverageYield.submitTx(...)` additional
 `operation: 'deposit' | 'withdraw'` discriminator — echoed back by `getSubmitTxStatus` as
 `data.operation: 'leverage_deposit' | 'leverage_withdraw'` — and its terminal submit-tx status is
 `'solved'` (the solver filled), not the bridge's `'executed'`. See
-[`LEVERAGE_YIELD_API.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/LEVERAGE_YIELD_API.md) for the full reference.
+[`LEVERAGE_YIELD_API.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/LEVERAGE_YIELD_API.md) for the full reference.
 
 ## Solver Endpoints
 

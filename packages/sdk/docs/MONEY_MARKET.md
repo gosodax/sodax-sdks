@@ -242,7 +242,7 @@ The allowance and approval system supports different actions depending on the sp
 
 ### Stellar Trustline Requirements
 
-For Stellar-based money market operations, you need to handle trustlines differently depending on whether Stellar is the source or destination chain. See [Stellar Trustline Requirements](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md#money-market) for detailed information and code examples.
+For Stellar-based money market operations, you need to handle trustlines differently depending on whether Stellar is the source or destination chain. See [Stellar Trustline Requirements](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md#money-market) for detailed information and code examples.
 
 ### Complete Example
 
@@ -773,7 +773,7 @@ The Money Market SDK provides comprehensive data retrieval and formatting capabi
 #### Formatting User Data
 - `formatUserSummary(request)` - Format user portfolio summary with USD conversions
 
-**NOTE**: If you need more customized formatting, see [math-utils](https://github.com/icon-project/sodax-sdks/tree/main/packages/sdk/src/moneyMarket/math-utils).
+**NOTE**: If you need more customized formatting, see [math-utils](https://github.com/gosodax/sodax-sdks/tree/main/packages/sdk/src/moneyMarket/math-utils).
 
 ### Complete Example: Fetching and Formatting Data
 

@@ -1,6 +1,6 @@
 /**
  * CommonJS reproduction for issue #939
- * https://github.com/icon-project/sodax-sdks/issues/939
+ * https://github.com/gosodax/sodax-sdks/issues/939
  *
  * When @sodax/sdk is consumed from a CommonJS application,
  * Node.js throws ERR_PACKAGE_PATH_NOT_EXPORTED because near-api-js

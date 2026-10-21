@@ -32,30 +32,34 @@ import {
   isOptionalStellarWalletProviderType,
   isBitcoinWalletProviderType,
   isEvmWalletProviderType,
-  getEvmViemChain,
   type RelayExtraData,
   type TxHashPair,
   isStacksChainKeyType,
   isNativeBitcoinTransfer,
   RELAY_FALLBACK_FLOOR_MS,
 } from '../shared/index.js';
-import { resolveDeliveredPacket } from '../backendApi/detailedStatusRouting.js';
+import { readIntentJournalOutcome, resolveDeliveredPacket } from '../backendApi/detailedStatusRouting.js';
 import { SolverApiService } from './SolverApiService.js';
 import { EvmSolverService } from './EvmSolverService.js';
 import type { BackendApiService } from '../backendApi/index.js';
 import { runBackendSubmitTx } from '../backendApi/runBackendSubmitTx.js';
 import { createSubmitTxAttempt, type SubmitTxAttempt } from '../backendApi/submitTxAttempt.js';
-import { isFillEvent } from '../backendApi/guards.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
+import { canSendAtomicBatch } from '../shared/utils/evmAtomicBatch.js';
 import {
-  canSendAtomicBatch,
-  isAccountUpgradeDeclined,
-  isAtomicBatchRefused,
-  readAtomicBatchSupport,
-  type AtomicBatchEvmWalletProvider,
-} from '../shared/utils/evmAtomicBatch.js';
+  approvalBatchWaitMs,
+  confirmApproval,
+  confirmApprovalBatch,
+  resolveApprovalStrategy,
+  runWithApproval,
+  sendApprovalBatch,
+  type ApprovalOptions,
+  type ApprovalStrategy,
+  type ApprovalStrategyError,
+} from '../shared/utils/approvalBatch.js';
 import type { ApprovalTxs } from '../shared/types/spoke-types.js';
 import { selectSolvedIntentPacket } from './selectSolvedIntentPacket.js';
+import { intentDepositSpender } from './intentDepositSpender.js';
 import { estimateSwapSpeedTier, type SwapSpeedTierParams, type SwapSpeedTierResult } from './speed-tier.js';
 import { isSodaxError, SodaxError } from '../errors/SodaxError.js';
 import { isAuthFailure } from '../errors/guards.js';
@@ -82,14 +86,11 @@ import {
   type SwapError,
   type DetailedStatusError,
   type SwapWithApprovalError,
-  type ApprovalStrategyError,
   isSwapCreateIntentError,
   isPostExecutionError,
   isSwapError,
   isSwapWithApprovalError,
   swapInvariant,
-  ACCOUNT_UPGRADE_DECLINED,
-  ATOMIC_BATCH_UNCONFIRMED,
 } from './errors.js';
 export type {
   CreateIntentParams,
@@ -155,36 +156,26 @@ export type SwapResponse = {
   intentDeliveryInfo: IntentDeliveryInfo;
 };
 
-/**
- * How {@link SwapService.swapWithApproval} gets the source token approved:
- * - `'not-required'` — allowance already sufficient (or none needed, e.g. a native token): one transaction.
- * - `'atomic-batch'` — approve and the swap transaction go out as one EIP-5792 batch: one signature.
- * - `'sequential'` — approve first, wait for it to confirm, then the swap transaction: two signatures, or
- *   three when the token must reset a stale allowance first.
- */
-export type SwapApprovalStrategy = 'not-required' | 'atomic-batch' | 'sequential';
+/** How {@link SwapService.swapWithApproval} gets the source token approved — see {@link ApprovalStrategy}. */
+export type SwapApprovalStrategy = ApprovalStrategy;
 
 export type SwapWithApprovalResponse = SwapResponse & { approvalStrategy: SwapApprovalStrategy };
 
 /** Params for `swapWithApproval` / `getApprovalStrategy`: `swap()`'s, plus the account-upgrade choice. */
-export type SwapWithApprovalParams<K extends SpokeChainKey> = SwapActionParams<K, false> & {
-  /**
-   * Whether a wallet that must first upgrade the account to batch (EIP-5792 `'ready'`, e.g. a MetaMask
-   * EOA becoming a smart account) may be asked to. `false` approves separately instead. Defaults to `true`.
-   */
-  allowAccountUpgrade?: boolean;
-  /**
-   * `swapWithApproval` only: the `context.batchId` of an {@link ATOMIC_BATCH_UNCONFIRMED} error from an
-   * earlier call with the same `params` and wallet. Waits for that batch again instead of sending
-   * anything and, once its deposit confirms, completes the swap through the client-side relay.
-   */
-  resumeBatchId?: string;
-  /**
-   * With `resumeBatchId`: that error's `context.callCount`. Without it, a batch the wallet confirmed as one
-   * transaction per call cannot be matched to its deposit and stays unconfirmed.
-   */
-  resumeBatchCallCount?: number;
-};
+export type SwapWithApprovalParams<K extends SpokeChainKey> = SwapActionParams<K, false> &
+  ApprovalOptions & {
+    /**
+     * `swapWithApproval` only: the `context.batchId` of an {@link ATOMIC_BATCH_UNCONFIRMED} error from an
+     * earlier call with the same `params` and wallet. Waits for that batch again instead of sending
+     * anything and, once its deposit confirms, completes the swap through the client-side relay.
+     */
+    resumeBatchId?: string;
+    /**
+     * With `resumeBatchId`: that error's `context.callCount`. Without it, a batch the wallet confirmed as one
+     * transaction per call cannot be matched to its deposit and stays unconfirmed.
+     */
+    resumeBatchCallCount?: number;
+  };
 
 export type CreateIntentResult<K extends SpokeChainKey, Raw extends boolean> = {
   tx: TxReturnType<K, Raw>;
@@ -272,22 +263,12 @@ const RECONCILE_TIMEOUT_MS = 5_000;
  *
  * Worst case for one `getDetailedStatus` call is the sum of its legs, not this number: the backend
  * record's own request budget, then 15s for the relay, then 5s here, plus a further
- * {@link RECONCILE_TIMEOUT_MS} for the durable-record reconcile a failed solver read falls through
- * to. That first leg is not a fixed 30s — `DEFAULT_BACKEND_API_TIMEOUT` is only its fallback, and a
- * consumer configuring `api.timeout` higher raises it, and the whole tick with it. So a poll-count
+ * {@link RECONCILE_TIMEOUT_MS} for the durable-record reconcile any non-final solver read falls
+ * through to. That first leg is not a fixed 30s — `DEFAULT_BACKEND_API_TIMEOUT` is only its
+ * fallback, and a consumer configuring `api.timeout` higher raises it, and the whole tick with it. So a poll-count
  * cutoff like dapp-kit's bounds attempts, not wall clock, and by a factor the consumer controls.
  */
 const DETAILED_STATUS_SOLVER_TIMEOUT_MS = 5_000;
-
-/** `context.reason` for a batch the wallet refused before anything was signed: safe to approve separately. */
-const ATOMIC_BATCH_REFUSED = 'atomic-batch-refused';
-
-/** EIP-5792 status codes that say nothing landed: 400 never included, 500 fully reverted. 600 may have partly landed. */
-const BATCH_NOTHING_LANDED_CODES: ReadonlySet<number> = new Set([400, 500]);
-
-/** Never below the default: a batch given up on early is one the user can only wait out. */
-const batchWaitMs = (timeout: number | undefined): number =>
-  Math.max(resolveTimeoutMs(timeout, DEFAULT_RELAY_TX_TIMEOUT), DEFAULT_RELAY_TX_TIMEOUT);
 
 /**
  * Main entry point for the SODAX swap feature.
@@ -444,12 +425,16 @@ export class SwapService {
    * polled and passes {@link DETAILED_STATUS_SOLVER_TIMEOUT_MS}. Both go through here so the
    * durable-intent reconcile below is written once.
    *
-   * `timeoutMs` bounds the solver request alone. The reconcile that a failed or NOT_FOUND solver read
-   * falls through to carries its own {@link RECONCILE_TIMEOUT_MS}, so a bounded call can cost both.
+   * `timeoutMs` bounds the solver request alone. The reconcile that a non-final solver read falls
+   * through to carries its own {@link RECONCILE_TIMEOUT_MS}, so a bounded call can cost both.
+   *
+   * `reconcileNonFinal` is for `getDetailedStatus` alone: it reconciles an in-flight answer as well as
+   * a `NOT_FOUND`, and reads a journal cancel as `FAILED`. The solver can keep reporting a cancelled
+   * intent in flight, and nothing else ends that poll. `getStatus` leaves it off and keeps its answers.
    */
   private async resolveSolverStatus(
     request: SolverIntentStatusRequest,
-    timeoutMs?: number,
+    { timeoutMs, reconcileNonFinal = false }: { timeoutMs?: number; reconcileNonFinal?: boolean } = {},
   ): Promise<Result<SolverIntentStatusResponse, SolverErrorResponse>> {
     const solverResult = await SolverApiService.getStatus(
       request,
@@ -458,27 +443,29 @@ export class SwapService {
       timeoutMs,
       this.config.apiKey,
     );
-    const forgotten = !solverResult.ok || solverResult.value.status === SolverIntentStatusCode.NOT_FOUND;
-    if (!forgotten) return solverResult;
+    const status = solverResult.ok ? solverResult.value.status : undefined;
+    if (status === SolverIntentStatusCode.SOLVED || status === SolverIntentStatusCode.FAILED) return solverResult;
+    const forgotten = !solverResult.ok || status === SolverIntentStatusCode.NOT_FOUND;
+    if (!forgotten && !reconcileNonFinal) return solverResult;
 
     // The solver keeps intent state in memory, so a restart makes it answer NOT_FOUND for intents it
-    // already filled. The backend's record is durable; a read that *completes* without terminal fill
+    // already filled. The backend's record is durable; a read that *completes* without terminal
     // evidence leaves the solver's answer standing. A read that could not complete proves nothing —
     // see below.
-    //
-    // A fill event is not by itself proof of completion: an intent created with `allowPartialFill`
-    // emits one per fill while input remains. Only a fill that consumed the remainder settles the
-    // whole intent, so `SOLVED` is claimed for that one alone — otherwise a partially filled swap
-    // would be reported complete, and `useStatus` would stop polling it for good.
     // Bound the reconcile so a status poll cannot hang on it — but clamp rather than override, since
     // a per-call timeout *replaces* the configured one and would otherwise lengthen the request for
     // a consumer who configured something stricter than this ceiling.
     const timeout = Math.min(RECONCILE_TIMEOUT_MS, this.backendApi.requestTimeoutMs);
     const intent = await this.backendApi.getIntentByTxHash(request.intent_tx_hash, { timeout });
-    const settled = intent.ok
-      ? intent.value.events.filter(isFillEvent).find(fill => fill.intentState.remainingInput === '0')
-      : undefined;
-    if (settled) return { ok: true, value: { status: SolverIntentStatusCode.SOLVED, fill_tx_hash: settled.txHash } };
+    const outcome = intent.ok ? readIntentJournalOutcome(intent.value) : undefined;
+    if (outcome?.kind === 'solved') {
+      return { ok: true, value: { status: SolverIntentStatusCode.SOLVED, fill_tx_hash: outcome.fillTxHash } };
+    }
+    if (outcome?.kind === 'cancelled' && reconcileNonFinal) {
+      return { ok: true, value: { status: SolverIntentStatusCode.FAILED } };
+    }
+    // Without terminal evidence an in-flight answer stands, even behind an unreadable record.
+    if (!forgotten) return solverResult;
 
     // Same reading as `getDetailedStatus`: a record — or a 404, which is the backend saying it has
     // none — answers the question, so the solver's NOT_FOUND stands and a caller may budget it. A
@@ -505,9 +492,14 @@ export class SwapService {
   /**
    * Reads a swap's status from its source-chain transaction — the identifier a caller always holds.
    *
-   * **Routes; does not translate.** Returns the backend submit-tx record while it is in play,
-   * otherwise the solver's answer via the hub tx hash resolved from the relay packet. The result is
-   * tagged with `source` (discriminate on it) and carries that source's payload unmodified.
+   * **Routes; defines no status of its own.** Returns the backend submit-tx record while it is in
+   * play, otherwise the solver's answer via the hub tx hash resolved from the relay packet. The result
+   * is tagged with `source` (discriminate on it).
+   *
+   * The solver arm is reconciled against the backend's durable intent record: a settling fill reads
+   * `SOLVED`, and a cancel with nothing filled reads `FAILED` even while the solver still reports the
+   * intent in flight. A cancelled intent is already refunded, so do not offer to cancel it again.
+   * Otherwise it carries the solver's answer unmodified, and the backend arm its record unmodified.
    *
    * **Any** unusable backend response routes to the solver — a 404, a transport or server error, or
    * a record the backend gave up on. See `docs/SWAPS.md` § Get Detailed Status for why.
@@ -558,10 +550,10 @@ export class SwapService {
       if (!dstTxHash.ok) return dstTxHash;
 
       // `this.resolveSolverStatus`, not `SolverApiService.getStatus` — the durable-intent reconcile
-      // on solver NOT_FOUND stays in one place. Bounded, because this read is polled.
+      // stays in one place. Bounded, because this read is polled.
       const solver = await this.resolveSolverStatus(
         { intent_tx_hash: dstTxHash.value },
-        DETAILED_STATUS_SOLVER_TIMEOUT_MS,
+        { timeoutMs: DETAILED_STATUS_SOLVER_TIMEOUT_MS, reconcileNonFinal: true },
       );
       if (!solver.ok) {
         return { ok: false, error: this.detailedStatusLookupFailed(solver.error, params.srcChainKey) };
@@ -820,18 +812,7 @@ export class SwapService {
       };
     }
     if (allowance.value) return { ok: true, value: 'not-required' };
-
-    if (
-      isEvmSpokeOnlyChainKeyType(srcChainKey) &&
-      isEvmWalletProviderType(walletProvider) &&
-      canSendAtomicBatch(walletProvider)
-    ) {
-      const support = await readAtomicBatchSupport(walletProvider, getEvmViemChain(srcChainKey).id);
-      if (support === 'supported' || (support === 'ready' && allowAccountUpgrade)) {
-        return { ok: true, value: 'atomic-batch' };
-      }
-    }
-    return { ok: true, value: 'sequential' };
+    return { ok: true, value: await resolveApprovalStrategy({ srcChainKey, walletProvider, allowAccountUpgrade }) };
   }
 
   /**
@@ -874,24 +855,19 @@ export class SwapService {
           const strategy = await this.getApprovalStrategy(_params);
           if (!strategy.ok) return strategy;
 
-          let approvalStrategy = strategy.value;
-          let created: Result<CreateIntentResult<K, false>, SwapWithApprovalError> = approvalStrategy === 'atomic-batch'
-            ? await this.createIntentInAtomicBatch(_params)
-            : approvalStrategy === 'sequential'
-              ? await this.approveThenCreateIntent(_params)
-              : await this.createIntent(_params);
-          if (
-            !created.ok &&
-            created.error.code === 'INTENT_CREATION_FAILED' &&
-            created.error.context?.reason === ATOMIC_BATCH_REFUSED
-          ) {
-            // Nothing was signed or sent yet, so approving separately cannot duplicate anything.
-            this.config.logger.warn('[swapWithApproval] wallet refused the atomic batch; approving separately', {
-              error: created.error,
-            });
-            approvalStrategy = 'sequential';
-            created = await this.approveThenCreateIntent(_params);
-          }
+          const { result: created, approvalStrategy } = await runWithApproval<
+            CreateIntentResult<K, false>,
+            SwapWithApprovalError
+          >({
+            strategy: strategy.value,
+            notRequired: () => this.createIntent(_params),
+            atomicBatch: () => this.createIntentInAtomicBatch(_params),
+            sequential: afterRefusedBatch => this.approveThenCreateIntent(_params, afterRefusedBatch),
+            onBatchRefused: error =>
+              this.config.logger.warn('[swapWithApproval] wallet refused the atomic batch; approving separately', {
+                error,
+              }),
+          });
           if (!created.ok) return created;
 
           const completed = await this.completeSwap(_params, created.value);
@@ -942,7 +918,10 @@ export class SwapService {
       approvalStrategy: 'atomic-batch',
     };
 
-    const approval = await this.buildApproveTxs<K>({ params, raw: true });
+    const [approval, created] = await Promise.all([
+      this.buildApproveTxs<K>({ params, raw: true }),
+      this.createIntent<K, true>({ params, extras, skipSimulation, raw: true }),
+    ]);
     if (!approval.ok) {
       return {
         ok: false,
@@ -951,100 +930,29 @@ export class SwapService {
           : approveFailed('swap', approval.error, ctx),
       };
     }
-    const created = await this.createIntent<K, true>({ params, extras, skipSimulation, raw: true });
     if (!created.ok) return created;
 
     // An EVM spoke source makes every unsigned leg an EvmRawTransaction.
     const { resetTx, approveTx } = approval.value as ApprovalTxs<EvmSpokeOnlyChainKey>;
     const depositTx = created.value.tx as EvmRawTransaction;
     const txs = resetTx ? [resetTx, approveTx, depositTx] : [approveTx, depositTx];
-    const timeoutMs = batchWaitMs(_params.timeout);
-    return this.sendAtomicBatch(walletProvider, txs, getEvmViemChain(srcChainKey).id, timeoutMs, ctx, created.value);
-  }
-
-  private async sendAtomicBatch<K extends SpokeChainKey>(
-    walletProvider: AtomicBatchEvmWalletProvider,
-    txs: readonly EvmRawTransaction[],
-    expectedChainId: number,
-    timeoutMs: number,
-    ctx: Record<string, string>,
-    created: CreateIntentResult<K, true>,
-  ): Promise<Result<CreateIntentResult<K, false>, SwapWithApprovalError>> {
-    let batchId: string;
-    try {
-      batchId = await walletProvider.sendAtomicBatch(txs, { expectedChainId });
-    } catch (error) {
-      const reason = isAtomicBatchRefused(error)
-        ? ATOMIC_BATCH_REFUSED
-        : isAccountUpgradeDeclined(error)
-          ? ACCOUNT_UPGRADE_DECLINED
-          : undefined;
-      return { ok: false, error: intentCreationFailed('swap', error, { ...ctx, ...(reason && { reason }) }) };
-    }
-
-    const deposit = await this.waitForBatchDeposit(walletProvider, batchId, timeoutMs, ctx, txs.length);
-    if (!deposit.ok) return deposit;
+    const sent = await sendApprovalBatch({
+      walletProvider,
+      srcChainKey,
+      txs,
+      timeoutMs: approvalBatchWaitMs(_params.timeout),
+      feature: 'swap',
+      context: ctx,
+    });
+    if (!sent.ok) return sent;
     return {
       ok: true,
-      value: { tx: deposit.value as TxReturnType<K, false>, intent: created.intent, relayData: created.relayData },
+      value: {
+        tx: sent.value.txHash satisfies TxReturnType<EvmSpokeOnlyChainKey, false> as TxReturnType<K, false>,
+        intent: created.value.intent,
+        relayData: created.value.relayData,
+      },
     };
-  }
-
-  /**
-   * Waits for a batch the wallet accepted and returns the hash of the transaction that carries its
-   * deposit. `callCount` (the calls sent) also accepts one receipt per call in separate transactions.
-   */
-  private async waitForBatchDeposit(
-    walletProvider: AtomicBatchEvmWalletProvider,
-    batchId: string,
-    timeoutMs: number,
-    ctx: Record<string, string>,
-    callCount?: number,
-  ): Promise<Result<string, SwapWithApprovalError>> {
-    // The wallet holds the batch: a failure to confirm it must not read as "nothing sent".
-    const unconfirmed = (cause?: unknown): Result<never, SwapWithApprovalError> => ({
-      ok: false,
-      error: new SodaxError('TX_VERIFICATION_FAILED', 'Atomic approve + swap batch was sent but not confirmed', {
-        feature: 'swap',
-        cause,
-        context: {
-          ...ctx,
-          phase: 'verify',
-          reason: ATOMIC_BATCH_UNCONFIRMED,
-          batchId,
-          ...(callCount !== undefined && { callCount }),
-        },
-      }),
-    });
-    try {
-      // viem reads a zero timeout as "no timeout"; give up at once instead.
-      const batch = await walletProvider.waitForBatch(batchId, { timeout: Math.max(1, timeoutMs) });
-      if (batch.status !== 'success' && !BATCH_NOTHING_LANDED_CODES.has(batch.statusCode)) return unconfirmed();
-      if (batch.status !== 'success') {
-        return {
-          ok: false,
-          error: new SodaxError('INTENT_CREATION_FAILED', 'Atomic approve + swap batch did not succeed', {
-            feature: 'swap',
-            context: {
-              ...ctx,
-              phase: 'intentCreation',
-              reason: 'atomic-batch-failed',
-              batchId,
-              statusCode: batch.statusCode,
-            },
-          }),
-        };
-      }
-      // The deposit is the last call: either every receipt is the same tx (a wallet may add its own
-      // fee call to it), or there is one receipt per call.
-      const { receipts } = batch;
-      const oneTx = new Set(receipts.map(receipt => receipt.transactionHash)).size === 1;
-      const deposit = oneTx || receipts.length === callCount ? receipts.at(-1) : undefined;
-      if (deposit?.status !== 'success') return unconfirmed();
-      return { ok: true, value: deposit.transactionHash };
-    } catch (error) {
-      return unconfirmed(error);
-    }
   }
 
   /**
@@ -1070,31 +978,26 @@ export class SwapService {
       action: 'swapWithApproval',
       approvalStrategy: 'atomic-batch',
     };
-    const timeoutMs = batchWaitMs(_params.timeout);
+    const timeoutMs = approvalBatchWaitMs(_params.timeout);
 
-    const deposit = await this.waitForBatchDeposit(
+    const deposit = await confirmApprovalBatch({
       walletProvider,
       batchId,
+      callCount: _params.resumeBatchCallCount,
       timeoutMs,
-      ctx,
-      _params.resumeBatchCallCount,
-    );
+      feature: 'swap',
+      context: ctx,
+    });
     if (!deposit.ok) return deposit;
-    const srcTxHash = deposit.value;
+    const srcTxHash = deposit.value.txHash;
     const txCtx = { ...ctx, srcTxHash };
 
     // An EVM spoke tx is relayed by its hash alone, so the lost `relayData` is not needed.
-    const intentRelayChainId = getIntentRelayChainId(srcChainKey).toString();
-    const submitted = await submitTransaction(
-      { action: 'submit', params: { chain_id: intentRelayChainId, tx_hash: srcTxHash } },
-      this.relayerApiEndpoint,
-    );
-    if (!submitted.ok) return { ok: false, error: mapRelayFailure(submitted.error, { feature: 'swap', ...txCtx }) };
-    const packet = await waitUntilIntentExecuted({
-      intentRelayChainId,
+    const packet = await relayTxAndWaitPacket({
       srcTxHash,
+      chainKey: srcChainKey,
+      relayerApiEndpoint: this.relayerApiEndpoint,
       timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
-      apiUrl: this.relayerApiEndpoint,
     });
     if (!packet.ok) return { ok: false, error: mapRelayFailure(packet.error, { feature: 'swap', ...txCtx }) };
     const dstTxHash = packet.value.dst_tx_hash as Hash;
@@ -1102,7 +1005,7 @@ export class SwapService {
     const intent = await this.getIntent(dstTxHash);
     if (!intent.ok) return { ok: false, error: unknownFailed('swap', intent.error, txCtx) };
     const solved = await this.postExecution({ intent_tx_hash: dstTxHash });
-    if (!solved.ok) return { ok: false, error: withErrorContext(solved.error, { srcChainKey, srcTxHash }) };
+    if (!solved.ok) return { ok: false, error: withErrorContext(solved.error, { srcChainKey, srcTxHash, dstTxHash }) };
 
     return {
       ok: true,
@@ -1125,14 +1028,21 @@ export class SwapService {
   /** Approve, wait for the approval to confirm, then create the intent — two or more signatures. */
   private async approveThenCreateIntent<K extends SpokeChainKey>(
     _params: SwapActionParams<K, false>,
+    validated = false,
   ): Promise<Result<CreateIntentResult<K, false>, SwapWithApprovalError>> {
-    const { params } = _params;
+    const { params, extras, skipSimulation } = _params;
     const ctx = {
       srcChainKey: params.srcChainKey,
       dstChainKey: params.dstChainKey,
       action: 'swapWithApproval',
       approvalStrategy: 'sequential',
     };
+
+    // Build the intent unsigned first, so params that can never become a swap fail before the user pays for an approval.
+    if (!validated) {
+      const preflight = await this.createIntent<K, true>({ params, extras, skipSimulation, raw: true });
+      if (!preflight.ok) return preflight;
+    }
 
     const approved = await this.approve(_params);
     if (!approved.ok) {
@@ -1144,18 +1054,14 @@ export class SwapService {
       };
     }
 
-    // The intent tx is only valid once the allowance is on-chain; `approve` returns at broadcast.
-    const receipt = await this.spoke.waitForTxReceipt({ txHash: approved.value, chainKey: params.srcChainKey });
-    if (!receipt.ok || receipt.value.status !== 'success') {
-      return {
-        ok: false,
-        error: new SodaxError('APPROVE_FAILED', `Approval transaction ${approved.value} did not confirm`, {
-          feature: 'swap',
-          cause: receipt.ok ? receipt.value : receipt.error,
-          context: { ...ctx, phase: 'approve', reason: 'approve-not-confirmed', approveTxHash: approved.value },
-        }),
-      };
-    }
+    const confirmed = await confirmApproval({
+      waitForTxReceipt: receiptParams => this.spoke.waitForTxReceipt(receiptParams),
+      txHash: approved.value,
+      chainKey: params.srcChainKey,
+      feature: 'swap',
+      context: ctx,
+    });
+    if (!confirmed.ok) return confirmed;
 
     return this.createIntent(_params);
   }
@@ -1245,8 +1151,15 @@ export class SwapService {
       intent_tx_hash: dstIntentTxHash as `0x${string}`,
     });
     if (!postExecResult.ok) {
-      // PostExecutionErrorCode ⊂ SwapErrorCode by definition.
-      return { ok: false, error: withErrorContext(postExecResult.error, { srcChainKey, srcTxHash: spokeTxHash }) };
+      // PostExecutionErrorCode ⊂ SwapErrorCode by definition. The hub tx is what a retried `postExecution` needs.
+      return {
+        ok: false,
+        error: withErrorContext(postExecResult.error, {
+          srcChainKey,
+          srcTxHash: spokeTxHash,
+          dstTxHash: dstIntentTxHash,
+        }),
+      };
     }
 
     return {
@@ -1369,7 +1282,7 @@ export class SwapService {
           token: params.inputToken,
           amount: params.inputAmount,
           owner: params.srcAddress,
-          spender: this.solver.intentsContract,
+          spender: intentDepositSpender(this.config, srcChainKey),
         } satisfies SpokeIsAllowanceValidParamsHub);
       }
 
@@ -1379,7 +1292,7 @@ export class SwapService {
           token: params.inputToken,
           amount: params.inputAmount,
           owner: params.srcAddress,
-          spender: this.config.getChainConfig(srcChainKey).addresses.assetManager,
+          spender: intentDepositSpender(this.config, srcChainKey),
         } satisfies SpokeIsAllowanceValidParamsEvmSpoke);
       }
 
@@ -1429,9 +1342,7 @@ export class SwapService {
           isOptionalEvmWalletProviderType(_params.walletProvider),
           'Invalid wallet provider. Expected Evm wallet provider.',
         );
-        const spender = isHubChainKeyType(params.srcChainKey)
-          ? this.solver.intentsContract
-          : this.config.getChainConfig(params.srcChainKey).addresses.assetManager;
+        const spender = intentDepositSpender(this.config, params.srcChainKey);
         const coreParams = {
           srcChainKey: params.srcChainKey,
           owner: params.srcAddress as GetAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
@@ -1516,9 +1427,7 @@ export class SwapService {
 
     try {
       if (isHubChainKeyType(params.srcChainKey) || isEvmSpokeOnlyChainKeyType(params.srcChainKey)) {
-        const spender = isHubChainKeyType(params.srcChainKey)
-          ? this.solver.intentsContract
-          : this.config.getChainConfig(params.srcChainKey).addresses.assetManager;
+        const spender = intentDepositSpender(this.config, params.srcChainKey);
 
         const result = await this.spoke.buildApproveTxs<HubChainKey | EvmSpokeOnlyChainKey>({
           srcChainKey: params.srcChainKey,

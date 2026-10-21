@@ -104,12 +104,12 @@ How to setup local development
 
 ## AI agent docs
 
-AI-readable docs for `@sodax/sdk` (and the other `@sodax/*` packages) are shipped via [`@sodax/skills`](https://github.com/icon-project/sodax-sdks/tree/main/packages/skills) — a separate npm package bundling Claude-Code SKILL.md files and a long-form knowledge tree.
+AI-readable docs for `@sodax/sdk` (and the other `@sodax/*` packages) are shipped via [`@sodax/skills`](https://github.com/gosodax/sodax-sdks/tree/main/packages/skills) — a separate npm package bundling Claude-Code SKILL.md files and a long-form knowledge tree.
 
 **Recommended: [`skills` CLI](https://github.com/vercel-labs/skills)** — from your project root:
 
 ```bash
-npx skills@latest add icon-project/sodax-sdks/packages/skills
+npx skills@latest add gosodax/sodax-sdks/packages/skills
 ```
 
 **npm + `AGENTS.md` pointer** (fallback for web chats, or when you prefer a devDependency over the CLI):
@@ -118,13 +118,13 @@ npx skills@latest add icon-project/sodax-sdks/packages/skills
 pnpm add -D @sodax/skills
 ```
 
-Then point your agent at `node_modules/@sodax/skills/AGENTS.md`. See [docs/ai-integration-guide.md](https://github.com/icon-project/sodax-sdks/blob/main/docs/ai-integration-guide.md) for all install modes and per-tool wiring.
+Then point your agent at `node_modules/@sodax/skills/AGENTS.md`. See [docs/ai-integration-guide.md](https://github.com/gosodax/sodax-sdks/blob/main/docs/ai-integration-guide.md) for all install modes and per-tool wiring.
 
 ***
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](https://github.com/icon-project/sodax-sdks/blob/main/CONTRIBUTING.md) for details.
+We welcome contributions! Please see our [Contributing Guide](https://github.com/gosodax/sodax-sdks/blob/main/CONTRIBUTING.md) for details.
 
 ***
 
@@ -154,11 +154,11 @@ pnpm lint
 
 ## License
 
-* [MIT](https://github.com/icon-project/sodax-sdks/blob/main/LICENSE)
+* [MIT](https://github.com/gosodax/sodax-sdks/blob/main/LICENSE)
 
 ***
 
 ## Support
 
-* [GitHub Issues](https://github.com/icon-project/sodax-sdks/issues)
+* [GitHub Issues](https://github.com/gosodax/sodax-sdks/issues)
 * [Discord Community](https://discord.gg/xM2Nh4S6vN)

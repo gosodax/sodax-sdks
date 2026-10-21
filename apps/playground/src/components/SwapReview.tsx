@@ -5,6 +5,7 @@ import type { SwapFlow } from '../hooks/useSwapFlow';
 import type { Activity } from '../lib/activity';
 import { chainName, txExplorerUrl } from '../lib/chains';
 import { formatTokenAmount } from '../lib/format';
+import { heldBatchMessage } from '../lib/execution';
 import { STATUS_LABELS, failureMessage, progressLabel, refundAccounted } from '../lib/progress';
 import { AssetLogo } from './AssetLogo';
 import { CheckGlyph } from './CopyLabel';
@@ -87,6 +88,7 @@ function Leg({
 
 /** One slot, one line: the failure first, then whatever makes tracking less than it looks. */
 function reviewMessage(e: Execution): string | undefined {
+  if (e.held) return heldBatchMessage(e.error, e.storageAvailable);
   if (e.failed) return failureMessage(e.status);
   if (e.error) return e.error;
   if (!e.activity) return undefined;
@@ -132,6 +134,28 @@ function ConfirmAction({ flow, token, chain }: { flow: SwapFlow; token?: XToken;
       </button>
     );
 
+  // The wallet took this batch without confirming it: it may still land, so it is asked again or released
+  // by the visitor after checking the wallet — never by a close, a reload or a new quote.
+  if (e.held)
+    return (
+      <>
+        <button type="button" className="btn btn-primary" onClick={e.recheckBatch}>
+          Check my wallet again
+        </button>
+        <button type="button" className="btn" onClick={e.releaseHeld}>
+          I checked my wallet — start over
+        </button>
+      </>
+    );
+
+  // Rebuilt from storage, it has no partner fee: a batch that never landed is retried from a fresh review.
+  if (e.review?.restored)
+    return (
+      <button type="button" className="btn btn-primary" onClick={e.reviewAgain}>
+        Review again
+      </button>
+    );
+
   if (!token || !chain) return null;
   return (
     <button type="button" className="btn btn-primary" onClick={e.confirm}>
@@ -168,7 +192,7 @@ function TransactionLinks({ e }: { e: Execution }) {
  * because it has not loaded, or no longer carries the token — still has its summary, its status, its
  * resubmission and its hashes, and those are the parts a visitor needs when something has gone wrong.
  */
-function RestoredSwap({ flow, activity }: { flow: SwapFlow; activity: Activity }) {
+function RestoredSwap({ flow, activity }: { flow: SwapFlow; activity: Pick<Activity, 'summary' | 'recipient'> }) {
   const e = flow.execution;
   return (
     <div className="review">
@@ -202,7 +226,7 @@ export function SwapReview({ flow }: { flow: SwapFlow }) {
   const problem = reviewMessage(e);
   // A sent swap the full snapshot cannot state is still shown, from the record's own summary: the
   // dialog is the only place a swap lives, so it degrading is the difference between that and none.
-  const restored = !review && e.activity && !e.dismissed ? e.activity : undefined;
+  const restored = !review && !e.dismissed ? (e.activity ?? e.pendingBatch) : undefined;
 
   return (
     <Modal title="Confirm swap" open={!!review || !!restored} onClose={e.closeReview} busy={!!e.phase} bare>

@@ -1,7 +1,7 @@
 {
   "note": "src is the file authored in this repo; dest is its page path under docs/ (the docs.sodax.com site root). pnpm docs:sync-pages generates docs/<dest> from each src whose home is a package; title overrides the source H1 as the sidebar label. A src already under docs/ is the page itself, so it is listed for link checking only and needs no title or icon. pkgs: [\"<package-dir>\", …] declares which packages a page documents.",
   "unpublishedNote": "packages/sdk/docs/ pages that deliberately do not publish yet. Docs Drift requires every new page there to be on one of the two lists, so this is where a page waits until publishing it is ready to be its own change. Editing one is not a Docs Drift signal.",
-  "sourceRepo": "icon-project/sodax-sdks",
+  "sourceRepo": "gosodax/sodax-sdks",
   "unpublished": [
     "packages/sdk/docs/DEX.md",
     "packages/sdk/docs/SPONSORING.md",

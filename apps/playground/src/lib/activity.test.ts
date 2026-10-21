@@ -1,6 +1,16 @@
 import { ChainKeys, type IntentResponseV2 } from '@sodax/dapp-kit';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ACTIVITY_KEY, type Activity, loadActivity, readActivity } from './activity';
+import {
+  ACTIVITY_KEY,
+  PENDING_BATCH_KEY,
+  type Activity,
+  loadActivity,
+  loadPendingBatch,
+  readActivity,
+  saveBatchActivity,
+  savePendingBatch,
+} from './activity';
+import { heldBatchMessage, UNCONFIRMED_BATCH_MESSAGE } from './execution';
 
 const evmAddress = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 
@@ -86,5 +96,50 @@ describe('loadActivity', () => {
     const entries = withStore({ 'sodax-widget-activity-v1': stored(), [ACTIVITY_KEY]: stored() });
     expect(loadActivity()?.inputAmount).toBe('100000');
     expect(entries['sodax-widget-activity-v1']).toBeDefined();
+  });
+});
+
+describe('saveBatchActivity', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(globalThis, 'localStorage');
+  });
+
+  const withStore = (entries: Record<string, string>, full: string[] = []) => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => entries[key] ?? null,
+        setItem: (key: string, value: string) => {
+          if (full.includes(key)) throw new Error('QuotaExceededError');
+          entries[key] = value;
+        },
+        removeItem: (key: string) => Reflect.deleteProperty(entries, key),
+      },
+    });
+    return entries;
+  };
+
+  it('replaces the stored batch with its activity', () => {
+    const entries = withStore({ [PENDING_BATCH_KEY]: 'batch' });
+    expect(saveBatchActivity(activity)).toBe(true);
+    expect(entries[ACTIVITY_KEY]).toBeDefined();
+    expect(entries[PENDING_BATCH_KEY]).toBeUndefined();
+  });
+
+  // Dropping the batch first would leave a reload with neither the batch id nor the deposit's hash.
+  it('keeps the batch and reports storage as unavailable when the activity cannot be saved', () => {
+    const entries = withStore({ [PENDING_BATCH_KEY]: 'batch' }, [ACTIVITY_KEY]);
+    expect(saveBatchActivity(activity)).toBe(false);
+    expect(entries[PENDING_BATCH_KEY]).toBe('batch');
+  });
+
+  // The batch then holds only in memory, so the held dialog must say so even over confirm's own error.
+  it('reports a batch it could not save, which a reload cannot find and the held dialog warns about', () => {
+    withStore({}, [PENDING_BATCH_KEY]);
+    const { txHash: _txHash, ...fields } = activity;
+    const saved = savePendingBatch({ ...fields, batchId: 'batch-1', callCount: 2 });
+    expect(saved).toBe(false);
+    expect(loadPendingBatch()).toBeUndefined();
+    expect(heldBatchMessage(UNCONFIRMED_BATCH_MESSAGE, saved)).toMatch(/blocked saving it\. Keep this page open/);
   });
 });
