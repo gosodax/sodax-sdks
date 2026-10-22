@@ -1,6 +1,6 @@
 name: Publish SODAX SDK Packages to npmjs
 
-# `@sdks@X.Y.Z` publishes every package at one version; `@sodax/<pkg>@X.Y.Z` publishes one package (backports).
+# `@sdks@X.Y.Z` publishes every package at one version; `@sodax/<pkg>@X.Y.Z` publishes one package.
 on:
   push:
     tags:
@@ -119,7 +119,10 @@ jobs:
               cat "$RUNNER_TEMP/npm-view.err"
               exit 1
             fi
-            dist_tag=$(node scripts/publish-dist-tag.mjs "$VERSION" "$latest")
+            if ! dist_tag=$(node scripts/publish-dist-tag.mjs "@sodax/$pkg" "$VERSION" "$latest" 2> "$RUNNER_TEMP/dist-tag.err"); then
+              echo "::error::$(cat "$RUNNER_TEMP/dist-tag.err")"
+              exit 1
+            fi
             sha=$(sha256sum "$DEST/$tarball" | cut -d' ' -f1)
             echo "$pkg $tarball $sha $dist_tag" >> "$RUNNER_TEMP/release.txt"
             echo "@sodax/$pkg@$VERSION → $dist_tag (current latest: ${latest:-none})"
