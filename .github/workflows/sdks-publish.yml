@@ -7,8 +7,9 @@ on:
       - '@sdks@*.*.*'
       - '@sodax/*@*.*.*'
 
+# Per tag: a shared group keeps only one pending run, so a third queued tag would cancel the second.
 concurrency:
-  group: sdks-publish
+  group: sdks-publish-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions: {}
@@ -92,11 +93,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build, typecheck, test and check exports
+      # Separate, ordered invocations: checkTs does not depend on build and some typechecks emit into dist,
+      # so nothing that writes dist runs after check-exports reads what gets packed.
+      - name: Build, typecheck, check exports and test
         run: |
           FILTERS=()
           for pkg in $PACKAGES; do FILTERS+=("--filter=@sodax/$pkg"); done
-          pnpm turbo run build checkTs test check-exports check:ai "${FILTERS[@]}"
+          pnpm turbo run build "${FILTERS[@]}"
+          pnpm turbo run checkTs "${FILTERS[@]}"
+          pnpm turbo run check-exports "${FILTERS[@]}"
+          pnpm turbo run check:ai test "${FILTERS[@]}"
         env:
           PACKAGES: ${{ steps.resolve.outputs.packages }}
 
