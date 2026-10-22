@@ -153,7 +153,10 @@ Machine-readable OpenAPI for the backend API is available at:
 - `https://api.sodax.com/v1/be/docs` (interactive)
 - `https://api.sodax.com/v1/be/docs-json`
 
-Swaps / leverage share the swaps-api app OpenAPI when that service is enabled (`/docs` on the service origin; edge pathing is under `/v1/swaps` and `/v1/leverage-yield`).
+Swaps and leverage yield each publish their own spec:
+
+- Swaps: `https://api.sodax.com/v1/swaps/docs` (interactive) and `/v1/swaps/docs-json`
+- Leverage yield: `https://api.sodax.com/v1/leverage-yield/docs` (interactive) and `/v1/leverage-yield/docs-json`
 
 The Stateful API — the partner-portal surface behind [API keys](/developers/how-to/api-keys) — publishes
 its own spec at `https://api.sodax.com/v1/bes/docs` (interactive) and `/v1/bes/docs-json`. Read it as a
