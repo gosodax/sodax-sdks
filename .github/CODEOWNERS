@@ -8,6 +8,7 @@
 /scripts/release.mjs @gosodax/sodax-sdks-admin
 /scripts/bump-versions.sh @gosodax/sodax-sdks-admin
 /scripts/config-version.mjs @gosodax/sodax-sdks-admin
+/scripts/publish-dist-tag.mjs @gosodax/sodax-sdks-admin
 
 # The docs gates run from the PR head, so a PR can edit them to pass itself — including
 # trimming the frozen must-not-break URL list, or the map Docs Drift reads.

@@ -307,7 +307,7 @@ test('porcelain paths keep their first character and the remote parser handles b
 test('the real bump script and publish workflow package lists match the real workspace', () => {
   const packages = discoverPublishablePackages(REPO_ROOT);
   assert.deepEqual(packageListErrors(REPO_ROOT, packages), []);
-  assert.equal(packageListsIn(REPO_ROOT, '.github/workflows/sdks-publish.yml').length, 2);
+  assert.equal(packageListsIn(REPO_ROOT, '.github/workflows/sdks-publish.yml').length, 1);
   assert.equal(packageListsIn(REPO_ROOT, 'scripts/nope.sh'), null);
 });
 

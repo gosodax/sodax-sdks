@@ -189,4 +189,4 @@ The `files` field in `package.json` controls the npm-shipped surface (`.claude-p
 
 ### Release
 
-Published via `.github/workflows/sodax-skills-publish.yml`, triggered by `@sodax/skills@x.y.z` git tag (same convention as the other `@sodax/*` packages).
+Published by `.github/workflows/sdks-publish.yml`, with every other `@sodax/*` package on an `@sdks@x.y.z` tag, or alone on an `@sodax/skills@x.y.z` tag.

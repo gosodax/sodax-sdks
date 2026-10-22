@@ -50,8 +50,12 @@ Every publishable `@sodax/*` package shares one version, cut as a single `@sdks@
    ```
 
    [`sdks-publish.yml`](https://github.com/gosodax/sodax-sdks/blob/main/.github/workflows/sdks-publish.yml)
-   validates every manifest against the tag, then publishes in dependency order. The dist-tag comes
-   from the version: `X.Y.Z-rc.N` under `rc`, `X.Y.Z` under `latest`.
+   runs in two jobs. **Verify** has no secrets: it checks every manifest against the tag, refuses an
+   `@sdks@` tag whose commit is not on `release`, then builds, typechecks, tests and export-checks the
+   packages and packs them. **Publish** waits for approval in the `npm-publish` environment, checks
+   each tarball against the checksum Verify recorded, and publishes those exact files in dependency
+   order. It never checks out or runs repository code. The dist-tag comes from the version:
+   `X.Y.Z-rc.N` under `rc`, `X.Y.Z` under `latest`.
 
 7. **Deprecate the new `@sodax/libs` version.** It ships for transitive installs only:
 
@@ -63,8 +67,12 @@ Every publishable `@sodax/*` package shares one version, cut as a single `@sdks@
    [Venture 23 #sodax-sdk](https://discord.com/channels/688963201101987847/1385504703672094760) and
    [Sodax #sodax_sdk](https://discord.com/channels/880651922682560582/1425075360550223994).
 
-**If publishing fails after a version reached npm, cut a new version.** npm never allows
-republishing the same package version.
+**If publishing fails partway, re-run the workflow.** Publish skips any package whose version is
+already on npm, so a re-run ships only what is missing. npm never allows republishing a version, so
+if a version that reached npm is itself wrong, cut a new version.
+
+Publish authenticates with npm trusted publishing (OIDC) for any package that has it configured on
+npmjs.com, and otherwise falls back to the `SODAX_SDKS_NPM_PUBLISH_TOKEN` secret.
 
 ## What `pnpm release` refuses to do
 
@@ -81,8 +89,8 @@ It stops before changing anything if:
 `version` or `CONFIG_VERSION` — the latter is a pure function of the former
 (`major * 1e6 + minor * 1e4 + patch * 100 + (rc ?? 99)`, see
 [`packages/types/README.md`](types/README.md#config-version)), and three checks enforce it: `pnpm
-release` asserts the landed value, `node scripts/config-version.mjs --check` runs in the unified
-publish workflow and in every per-package workflow that ships the constant, and
+release` asserts the landed value, `node scripts/config-version.mjs --check` runs in the publish
+workflow before every release, and
 `scripts/config-version.test.mjs` asserts it on every pull request.
 
 One consequence worth knowing before you pick a number: the encoding caps minor and patch at 99 and
@@ -91,6 +99,10 @@ number that would collide with another release.
 
 ## Republishing a single package
 
-The per-package `sodax-<pkg>-publish.yml` workflows publish one package, and are the way to ship a
-backport since the unified flow only moves forward. Push the tag `@sodax/<pkg>@<version>`. Prefer
-the unified `@sdks@*` flow for normal releases so packages stay version-aligned.
+Pushing the tag `@sodax/<pkg>@<version>` runs the same workflow for that one package, with the same
+checks. It is the way to ship a backport, since the unified flow only moves forward. Prefer the
+unified `@sdks@*` flow for normal releases so packages stay version-aligned.
+
+A stable backport behind the package's current `latest` is published under `backport-X.Y` (for
+example `2.1.1` under `backport-2.1` while `latest` is `2.2.0`), so it never becomes the default
+install. Consumers on that line install it with `npm i @sodax/<pkg>@backport-2.1`.

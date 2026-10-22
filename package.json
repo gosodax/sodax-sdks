@@ -19,7 +19,7 @@
     "checkTs": "turbo run checkTs --filter=!./apps/node",
     "checkTs:packages": "turbo run checkTs:packages",
     "test": "pnpm test:release-scripts && pnpm test:ci-scripts && turbo run test --filter=!./apps/node",
-    "test:release-scripts": "node --test scripts/config-version.test.mjs scripts/release.test.mjs scripts/check-doc-links.test.mjs scripts/check-docs-nav.test.mjs scripts/sync-docs-pages.test.mjs scripts/pack-local.test.mjs",
+    "test:release-scripts": "node --test scripts/config-version.test.mjs scripts/publish-dist-tag.test.mjs scripts/release.test.mjs scripts/check-doc-links.test.mjs scripts/check-docs-nav.test.mjs scripts/sync-docs-pages.test.mjs scripts/pack-local.test.mjs",
     "test:ci-scripts": "node --test scripts/ai-drift-scope.test.mjs scripts/ai-drift-report.test.mjs scripts/check-docs-drift.test.mjs scripts/check-tests-typechecked.test.mjs scripts/check-swap-tokens-oracle.test.mjs",
     "test:e2e": "turbo run test:e2e --filter=!./apps/node",
     "test:packages": "turbo run test:packages",
