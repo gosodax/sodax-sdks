@@ -1,13 +1,16 @@
 import { ChainKeys, SodaxProvider, type SodaxOptions, createSodaxQueryClient } from '@sodax/dapp-kit';
 import { QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
+import { initialUrl } from './lib/initialUrl';
 import { solanaRpcUrl, swapsApiKey, walletConnectProjectId } from './config';
 import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
 
 const queryClient = createSodaxQueryClient();
 
+const apiKey = initialUrl.apiKey ?? swapsApiKey;
+
 const sodaxConfig: SodaxOptions = {
-  ...(swapsApiKey ? { apiKey: swapsApiKey } : {}),
+  ...(apiKey ? { apiKey } : {}),
   chains: { [ChainKeys.SOLANA_MAINNET]: { rpcUrl: solanaRpcUrl } },
 };
 

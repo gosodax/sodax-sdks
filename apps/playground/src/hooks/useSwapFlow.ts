@@ -21,7 +21,7 @@ import {
 } from '../lib/analytics';
 import { pickChain, pickToken, readSwapAssets, tokensOn } from '../lib/assets';
 import type { Brand } from '../lib/brand';
-import { feeAmountOf } from '../lib/fee';
+import { effectiveFeeState, feeAmountOf } from '../lib/fee';
 import { parseAmount } from '../lib/format';
 import { initialUrl } from '../lib/initialUrl';
 import { assetGroups } from '../lib/pickerOptions';
@@ -130,6 +130,7 @@ export function useSwapFlow({ brand }: SwapFlowOptions) {
       embed: initialUrl.embed,
       brand,
       widget,
+      apiKey: initialUrl.apiKey,
     };
     const search = initialUrl.embed ? toSearch(state) : toBrowserSearch(state, URL_DEFAULTS);
     const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
@@ -165,7 +166,7 @@ export function useSwapFlow({ brand }: SwapFlowOptions) {
     [amount, srcToken],
   );
 
-  const feeState = deploymentFee;
+  const feeState = effectiveFeeState(seed.apiKey, deploymentFee);
   const partnerFee = feeState.kind === 'set' ? feeState.fee : undefined;
 
   // Display only. The API applies the fee itself, once, before quoting — subtracting it from

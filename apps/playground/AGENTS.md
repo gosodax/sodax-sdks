@@ -78,8 +78,10 @@ pnpm check:ai-dev-files
   out (`failedAtStep`, `failureReason`) is support's detail and the widget does not show it.
 - Treat local storage as untrusted and optional. Do not store credentials or private keys. The
   activity record contains public transaction details; do not send those through analytics.
-- Integrator fees come from deployment configuration, not the URL or a visitor-editable input.
-  The same fee must reach the quote and intent exactly once. Invalid configuration blocks execution.
+- Integrator fees come from deployment configuration, never a recipient or rate in the URL. A partner
+  `apiKey` in the URL overrides `VITE_SWAPS_API_KEY` and moves the fee onto the key: the widget then
+  sends no `partnerFee`, and `apiKey` stays out of analytics. Without a URL key, the same fee must
+  reach the quote and intent exactly once, and invalid configuration blocks execution.
 - Adding a wallet family requires its signing path, destination preparation, balance behavior and
   recovery tests. Bitcoin trading wallets and destination account preparation are distinct flows.
 - Dispatch signing on the wallet's chain type, never on the payload shape: EVM, Solana, Sui, Stellar

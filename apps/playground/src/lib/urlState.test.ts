@@ -30,6 +30,7 @@ const BLANK = {
   slippage: undefined,
   embed: false,
   brand: NO_BRAND,
+  apiKey: undefined,
 };
 
 describe('readUrlState', () => {
@@ -81,6 +82,43 @@ describe('readUrlState', () => {
   it('carries no partner fee', () => {
     const state = readUrlState('?feeAddress=0x1234567890abcdef1234567890abcdef12345678&feeBps=100');
     expect(state).toEqual(BLANK);
+  });
+});
+
+describe('apiKey', () => {
+  const KEY = 'test_key-0123456789';
+  const form = { srcChain: SRC_CHAIN, dstChain: DST_CHAIN, srcToken: USDC, dstToken: WETH, amount: '1.5' };
+  const defaults = {
+    srcChain: SRC_CHAIN,
+    dstChain: DST_CHAIN,
+    srcSymbol: 'USDC',
+    dstSymbol: 'WETH',
+    amount: '1.5',
+    slippage: '0.5',
+  };
+
+  it('reads a well-formed key off the URL', () => {
+    expect(readUrlState(`?embed=1&apiKey=${KEY}`).apiKey).toBe(KEY);
+  });
+
+  it.each(['', 'short', 'has space in it', 'a'.repeat(257), 'key%0d%0aX-Evil:1'])('rejects %j', value => {
+    expect(readUrlState(`?apiKey=${encodeURIComponent(value)}`).apiKey).toBeUndefined();
+  });
+
+  it('survives both rewrites, so a reload in the frame keeps it', () => {
+    const state = { ...form, embed: true, apiKey: KEY };
+    expect(readUrlState(`?${toSearch(state)}`).apiKey).toBe(KEY);
+    expect(readUrlState(`?${toBrowserSearch(state, defaults)}`).apiKey).toBe(KEY);
+  });
+
+  it('writes nothing when there is no key', () => {
+    expect(toSearch(form)).not.toContain('apiKey');
+  });
+
+  it('puts the key in the embed address and no fee', () => {
+    const url = embedUrl('https://widget.sodax.com', { ...form, apiKey: KEY });
+    expect(url).toContain(`apiKey=${KEY}`);
+    expect(url).not.toMatch(/fee/i);
   });
 });
 

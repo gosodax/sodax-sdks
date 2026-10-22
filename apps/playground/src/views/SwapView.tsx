@@ -10,7 +10,7 @@ import type { BrandControls } from '../hooks/useBrand';
 import { useContentHeight } from '../hooks/useContentHeight';
 import type { SwapFlow } from '../hooks/useSwapFlow';
 import { buildSnippets } from '../lib/snippet';
-import { embedUrl, toSearch } from '../lib/urlState';
+import { embedUrl, readApiKey, toSearch } from '../lib/urlState';
 import { trackSnippetCopied } from '../lib/analytics';
 
 export function SwapWidget({ flow }: { flow: SwapFlow }) {
@@ -35,6 +35,8 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
   const [notice, setNotice] = useState('');
   const [shareFallback, setShareFallback] = useState('');
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [partnerKey, setPartnerKey] = useState('');
+  const apiKey = readApiKey(partnerKey);
   // Setup's height, held across every tab: the preview ends level with it so the pair reads as one
   // row. Only the side-by-side layout uses it; stacked, the widget's own height decides.
   const [builderCard, builderHeight] = useContentHeight<HTMLDivElement>();
@@ -48,10 +50,10 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
       return undefined;
     const state = { srcChain, dstChain, srcToken, dstToken, amount, slippagePercent, partnerFee };
     const settings = { ...state, slippage: slippagePercent, widget };
-    const url = embedUrl(embedOrigin, { ...settings, brand });
+    const url = embedUrl(embedOrigin, { ...settings, brand, apiKey });
     return {
       snippets: buildSnippets(state, url),
-      preview: embedUrl(window.location.origin, settings),
+      preview: embedUrl(window.location.origin, { ...settings, apiKey }),
       share: `${window.location.origin}${window.location.pathname}?${toSearch({ ...settings, brand })}`,
     };
   }, [
@@ -64,6 +66,7 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
     partnerFee,
     brand,
     widget,
+    apiKey,
     flow.isAmountValid,
     flow.isSlippageValid,
   ]);
@@ -216,6 +219,21 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
                 Take the HTML or React embed, or hand the prompt to your coding agent — each installs the hosted widget
                 with its own wallet connection, and no SODAX package.
               </p>
+              <label className="field">
+                <span className="muted small">Partner API key (optional)</span>
+                <input
+                  className="input"
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={partnerKey}
+                  onChange={event => setPartnerKey(event.target.value)}
+                  aria-invalid={partnerKey.trim() !== '' && !apiKey}
+                />
+              </label>
+              {partnerKey.trim() !== '' && !apiKey && (
+                <p className="alert">That does not look like an API key, so it is left out of the embed.</p>
+              )}
               {configured ? (
                 <CodePanel snippets={configured.snippets} initialId="embed" />
               ) : (
@@ -226,9 +244,9 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
                 <p className="muted small">
                   {partnerFee
                     ? `This deployment charges a ${partnerFee.percentage / 100}% partner fee, included in every quote.`
-                    : 'This deployment has no partner fee.'}{' '}
-                  Fees belong to the deployment. To earn fees, the operator must configure your recipient and rate on a
-                  dedicated deployment.
+                    : 'This deployment has no partner fee of its own.'}{' '}
+                  To earn fees on the hosted widget, paste a partner API key above: the fee stays on the key and the
+                  embed carries no recipient or rate.
                 </p>
                 <a
                   className="link"

@@ -212,6 +212,7 @@ opens on. Unknown values are discarded rather than guessed at.
 | `theme` | `light`, `dark` or `auto` |
 | `accent`, `cta`, `surface`, `text` | Six-digit hex, without `#` |
 | `radius`, `font`, `density` | Named scales offered in **Appearance** |
+| `apiKey` | Partner API key from the portal. Sent as `x-api-key`. It selects the fee stored on the key. It is not a recipient or a rate, and a value that is not a key is left off the link |
 
 A lock filters the side down to exactly the chain and token it was given, so it only does something
 next to `embed=1` and a pair. On its own it matches nothing and the side lists no assets at all:
@@ -255,9 +256,41 @@ Your page can send `{ type: 'sodax:theme', theme: 'light' | 'dark' | 'auto' }` b
 
 ## Earning on swaps
 
-The widget can carry a partner fee, but it is deployment configuration rather than a URL parameter:
-the one field that redirects money is not something a page can set. That means your own deployment of
-the widget — [get in touch](/contact) and we will set it up with you.
+The fee is not a query parameter. Colours, locks and the pair stay on the link. You charge it in one
+of two ways. Both pay a Sonic `0x` address you control, in basis points: `50` is 0.5%.
+
+### Shared widget
+
+[widget.sodax.com](https://widget.sodax.com) is one hosted widget. You do not get a separate deployment.
+
+1. In the partner portal, register that Sonic address as the **PartnerFee address** under **Monitored
+   Wallets**. Fees collect on Sonic, and you claim them out to USDC from the portal. A Hedera account
+   is not a fee address. [Payout wallet](/developers/how-to/payout-wallet) is the claim flow.
+2. Create an API key with that same address and the rate. Copy the full key when it is shown. The
+   list keeps only the prefix.
+3. Add `apiKey` to the embed you already have.
+
+The widget sends the key as `x-api-key` and does not send `partnerFee`. The API applies the address
+and rate stored on the key to the quote and to the intent, and ignores a `partnerFee` on the request.
+The quote comes back already reduced by that rate, and the form shows the rate and the amount.
+
+The key is visible in the iframe URL. It cannot move funds. Create one for the widget, and do not
+reuse the key on your server. A link with no `apiKey` charges no partner fee.
+
+### Your own copy
+
+Set these when you build the playground, then host that page and iframe it:
+
+| Variable | Value |
+| --- | --- |
+| `VITE_PARTNER_FEE_RECIPIENT` | The Sonic `0x` address |
+| `VITE_PARTNER_FEE_BPS` | A whole number of basis points, from 1 to 100. `50` is 0.5%. A rate with no address, or an address that is not a Sonic `0x` address, blocks the swap |
+
+Leave `apiKey` off that link. Those two variables are the fee on the quote and on the intent. Register
+the same address under **Monitored Wallets**, or Fees and Volume in the portal stay empty.
+
+A link that also carries `apiKey` does not use those variables. The fee stored on the key is the one
+applied.
 
 ## Troubleshooting
 

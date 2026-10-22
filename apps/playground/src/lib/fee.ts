@@ -52,3 +52,8 @@ export function readPartnerFee({ address, bps }: PartnerFeeInput): FeeState {
 export function feeAmountOf(inputAmount: bigint, fee: PartnerFee | undefined): bigint {
   return calculateFeeAmount(inputAmount, fee);
 }
+
+/** A key on the URL carries the fee server-side, so the widget sends none of its own. */
+export function effectiveFeeState(urlApiKey: string | undefined, deployment: FeeState): FeeState {
+  return urlApiKey ? { kind: 'none' } : deployment;
+}
