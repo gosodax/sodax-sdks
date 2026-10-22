@@ -28,6 +28,8 @@ https://api.sodax.com/v1/leverage-yield
 
 Canary: `https://canary-api.sodax.com/v1/leverage-yield`.
 
+OpenAPI: [interactive](https://api.sodax.com/v1/leverage-yield/docs) · [JSON](https://api.sodax.com/v1/leverage-yield/docs-json).
+
 Same conventions as Swaps: **decimal strings**, unauthenticated reads, rate-limited writes on `submit-tx`.
 
 ```bash
@@ -61,7 +63,7 @@ curl -s 'https://api.sodax.com/v1/leverage-yield/vaults'
 | `GET` | `/share-balance` | Share balance for owner |
 | `GET` | `/max-withdraw` | Max withdrawable for owner |
 
-Query params typically include vault address/name and owner where relevant (see OpenAPI / SDK mapping for exact names).
+Query params typically include vault address/name and owner where relevant (see [OpenAPI](https://api.sodax.com/v1/leverage-yield/docs) / SDK mapping for exact names).
 
 ### Quote · deadline
 

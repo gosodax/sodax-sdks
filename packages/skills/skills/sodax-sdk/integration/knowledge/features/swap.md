@@ -4,6 +4,19 @@ Intent-based swaps via a solver. Cross-chain by default.
 
 Access: `sodax.swaps`. Service class: `SwapService`. Feature tag for errors: `'swap'`.
 
+## Token environment
+
+Use `getSupportedSolverTokens(chainKey)` for the packaged production list and
+`getStagingSolverTokens(chainKey)` for production plus staging-only tokens.
+`stagingSwapSupportedTokens` contains only the staging additions. These helpers do
+not select a solver endpoint. `isSwapSupportedToken` accepts both tiers, so do not
+use it to establish production readiness. Query the list for the environment the
+integration targets instead of hardcoding symbols.
+
+Staging membership does not imply money-market support. When a token has no
+separate vault, its registry entry uses `vault === hubAsset` for the direct hub
+asset. Canonical hub vault registration alone does not enable swaps or lending.
+
 ## How it works
 
 1. **Build an intent** — `createIntent` signs a spoke transaction encoding the swap declaration.
