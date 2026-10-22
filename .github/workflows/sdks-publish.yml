@@ -74,15 +74,15 @@ jobs:
             exit 1
           fi
 
-      # CI never runs on the release branch, where every bump happens, so this is the only automation
-      # that sees the constant before it ships. Node builtins only — before the install, so it fails fast.
-      - name: Validate CONFIG_VERSION matches the released version
-        run: node scripts/config-version.mjs --check
-
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24.x'
+
+      # CI never runs on the release branch, where every bump happens, so this is the only automation
+      # that sees the constant before it ships. Node builtins only — before the install, so it fails fast.
+      - name: Validate CONFIG_VERSION matches the released version
+        run: node scripts/config-version.mjs --check
 
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
