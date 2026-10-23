@@ -94,7 +94,6 @@ export function SodaxSwapWidget({ src = '${embedUrl}', height = ${EMBED_MIN_HEIG
 
 // The defaults configured in Setup are query parameters, so the host page decides what it opens on:
 // ?srcChain= &srcToken= &dstChain= &dstToken= &amount= &slippage= &embed=1
-// The partner fee is deliberately not one of them — it is the one field that redirects money.
 ${themeParamsComment()}`;
 }
 
