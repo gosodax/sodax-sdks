@@ -2,7 +2,7 @@
 
 Learn how to configure the SODAX SDK for your application. The SDK supports Swaps (intent-based solver swaps), Money Market (cross-chain lending and borrowing), and many other cross-chain DeFi services. All feature configurations are optional—you can use just the features you need.
 
-`new Sodax(...)` accepts [`SodaxOptions`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/sodax-config/sodax-config.ts) — a deep-partial override of the static [`SodaxDefaultConfig`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/sodax-config/sodax-config.ts) data shape plus client-side options (`logger`, global `fee`, and per-feature `partnerFee` options). The merged result is [`SodaxConfig`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/sodax-config/sodax-config.ts) (exposed as `sodax.instanceConfig`). All three live in `@sodax/types` and are re-exported from `@sodax/sdk`.
+`new Sodax(...)` accepts [`SodaxOptions`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/sodax-config/sodax-config.ts) — a deep-partial override of the static [`SodaxDefaultConfig`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/sodax-config/sodax-config.ts) data shape plus client-side options (`logger`, global `fee`, and per-feature `partnerFee` options). The merged result is [`SodaxConfig`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/sodax-config/sodax-config.ts) (exposed as `sodax.instanceConfig`). All three live in `@sodax/types` and are re-exported from `@sodax/sdk`.
 
 ## Basic Configuration
 
@@ -16,7 +16,7 @@ import { Sodax } from '@sodax/sdk';
 const sodax = new Sodax();
 ```
 
-The constructor signature is `new Sodax(config?: SodaxOptions)`, where `SodaxOptions = DeepPartial<SodaxDefaultConfig> & SodaxOptionalConfig` — a deep-partial override of the `SodaxDefaultConfig` data contract plus the client-side options: the `logger` sink (see [LOGGING.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/LOGGING.md)), the opt-in `analytics` tracker (see [Analytics](#analytics)), the global partner `fee`, per-feature options on `swaps` / `bridge` / `moneyMarket` / `leverageYield` (including `partnerFee` and `useBackendSubmitTx` — see [Backend submit-tx 2-step](#backend-submit-tx-2-step-swapsusebackendsubmittx)), and `radfi` (see [RadFi/Bound request signer](#radfibound-request-signer-radfisignrequest)). The `logger`, `analytics`, global `fee`, and `radfi` are kept off the data contract: they are resolved once and never fetched from or overwritten by the backend config. `useBackendSubmitTx` lives on the feature option slots (`swaps` / `bridge` / `leverageYield`) alongside `partnerFee`; the effective value is resolved on `ConfigService` — `sodax.config.swapUseBackendSubmitTx` / `sodax.config.bridgeUseBackendSubmitTx` / `sodax.config.leverageYieldUseBackendSubmitTx` (all default `true`). When called with no arguments the SDK merges your overrides with the packaged static defaults ([`sodaxConfig`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/sodax-config/sodax-config.ts)) using a recursive `deepMerge`. Omitted keys keep their default values.
+The constructor signature is `new Sodax(config?: SodaxOptions)`, where `SodaxOptions = DeepPartial<SodaxDefaultConfig> & SodaxOptionalConfig` — a deep-partial override of the `SodaxDefaultConfig` data contract plus the client-side options: the `logger` sink (see [LOGGING.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/LOGGING.md)), the opt-in `analytics` tracker (see [Analytics](#analytics)), the global partner `fee`, per-feature options on `swaps` / `bridge` / `moneyMarket` / `leverageYield` (including `partnerFee` and `useBackendSubmitTx` — see [Backend submit-tx 2-step](#backend-submit-tx-2-step-swapsusebackendsubmittx)), and `radfi` (see [RadFi/Bound request signer](#radfibound-request-signer-radfisignrequest)). The `logger`, `analytics`, global `fee`, and `radfi` are kept off the data contract: they are resolved once and never fetched from or overwritten by the backend config. `useBackendSubmitTx` lives on the feature option slots (`swaps` / `bridge` / `leverageYield`) alongside `partnerFee`; the effective value is resolved on `ConfigService` — `sodax.config.swapUseBackendSubmitTx` / `sodax.config.bridgeUseBackendSubmitTx` / `sodax.config.leverageYieldUseBackendSubmitTx` (all default `true`). When called with no arguments the SDK merges your overrides with the packaged static defaults ([`sodaxConfig`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/sodax-config/sodax-config.ts)) using a recursive `deepMerge`. Omitted keys keep their default values.
 
 ### Dynamic Configuration
 
@@ -52,7 +52,7 @@ The global partner `fee` is **not** a data key — it is a `SodaxOptions` client
 
 ### Partner Fees
 
-Set a global `fee` once, override it per feature, or both. The effective fee for a feature is `featureFee ?? fee` — a feature's own `partnerFee` wins, otherwise the global `fee` applies. Services read the resolved value through `ConfigService` getters: `SwapService` reads `config.swapPartnerFee`, `MoneyMarketService` reads `config.moneyMarketPartnerFee`, `BridgeService` reads `config.bridgePartnerFee`, and `LeverageYieldService` reads `config.leverageYieldPartnerFee`. See [Monetize SDK](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MONETIZE_SDK.md) for usage details and per-request overrides.
+Set a global `fee` once, override it per feature, or both. The effective fee for a feature is `featureFee ?? fee` — a feature's own `partnerFee` wins, otherwise the global `fee` applies. Services read the resolved value through `ConfigService` getters: `SwapService` reads `config.swapPartnerFee`, `MoneyMarketService` reads `config.moneyMarketPartnerFee`, `BridgeService` reads `config.bridgePartnerFee`, and `LeverageYieldService` reads `config.leverageYieldPartnerFee`. See [Monetize SDK](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MONETIZE_SDK.md) for usage details and per-request overrides.
 
 ```typescript
 import { Sodax, PartnerFee } from '@sodax/sdk';
@@ -184,13 +184,13 @@ const sodax = new Sodax({
 });
 ```
 
-Each event carries `feature` + `action` + `phase` (`'start' | 'success' | 'failure'`) + `level` + an optional `data` payload — the same `(feature, action)` taxonomy the error layer uses, so events line up with `SodaxError`s downstream. The `tracker` is treated as fire-and-forget: it is not awaited, and any **synchronous** exception it throws is swallowed, so a throwing tracker cannot break a feature flow. The `AnalyticsTracker` contract requires the tracker to be cheap and non-throwing — if your adapter is `async`, handle rejections inside it, because the SDK does not observe the returned promise. Types (`AnalyticsConfig`, `AnalyticsTracker`, `AnalyticsEvent`, `AnalyticsFeatures`, `AnalyticsOption`) live in [`@sodax/types`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/shared/analytics.ts).
+Each event carries `feature` + `action` + `phase` (`'start' | 'success' | 'failure'`) + `level` + an optional `data` payload — the same `(feature, action)` taxonomy the error layer uses, so events line up with `SodaxError`s downstream. The `tracker` is treated as fire-and-forget: it is not awaited, and any **synchronous** exception it throws is swallowed, so a throwing tracker cannot break a feature flow. The `AnalyticsTracker` contract requires the tracker to be cheap and non-throwing — if your adapter is `async`, handle rejections inside it, because the SDK does not observe the returned promise. Types (`AnalyticsConfig`, `AnalyticsTracker`, `AnalyticsEvent`, `AnalyticsFeatures`, `AnalyticsOption`) live in [`@sodax/types`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/shared/analytics.ts).
 
 ## Custom configuration
 
 ### Solver (`solver`)
 
-Intent-based swaps use the top-level **`solver`** block (not nested under `swaps`). Defaults match [`solverConfig`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/common/constants.ts) in `@sodax/types`.
+Intent-based swaps use the top-level **`solver`** block (not nested under `swaps`). Defaults match [`solverConfig`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/common/constants.ts) in `@sodax/types`.
 
 ```typescript
 import { Sodax, getSolverConfig, type SolverConfig } from '@sodax/sdk';
@@ -227,9 +227,19 @@ const sodax = new Sodax();
 const sodaxClientSide = new Sodax({ swaps: { useBackendSubmitTx: false } });
 ```
 
-The earlier `swapsOptions` / `bridgeOptions` keys are **deprecated but still honoured**, so an existing explicit opt-out keeps working; they apply only when the matching `swaps` / `bridge` flag is omitted. Move to `swaps` / `bridge`.
+The earlier `swapsOptions` / `bridgeOptions` keys (`SwapsClientOptions` / `BridgeClientOptions`) are **deprecated but still honoured** in v2, so an existing explicit opt-out keeps working; they apply only when the matching `swaps` / `bridge` flag is omitted. **v3 removes them**: from v3 the flag lives only in the feature slot, next to `partnerFee`. Move now:
 
-If the backend path does not reach `solved` for **any** reason (submission rejected, terminal `failed`/abandoned status, or poll timeout), `swap()` automatically falls back to the fully client-side relay + post-execution so the swap still completes — **safely**, because re-relaying / re-posting an already-processed swap is idempotent (no double-fill; verified by `e2e-tests/e2e-relay.test.ts`). `timeout` is a **per-attempt** budget: the backend attempt gets it, and the fallback relay then gets a fresh one that starts after on-chain verification, so neither a stalled backend nor a slow source-chain confirmation shortens the client-side wait, and raising `timeout` grows both. It does not bound intent creation, verification (the source chain's `pollingConfig.maxTimeoutMs`) or post-execution. See [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#backend-2-step-submit) for the flow and [How `timeout` bounds each attempt](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt) for the full breakdown.
+```diff
+- new Sodax({ swaps: { partnerFee }, swapsOptions: { useBackendSubmitTx: false } });
++ new Sodax({ swaps: { partnerFee, useBackendSubmitTx: false } });
+
+- new Sodax({ bridge: { partnerFee }, bridgeOptions: { useBackendSubmitTx: false } });
++ new Sodax({ bridge: { partnerFee, useBackendSubmitTx: false } });
+```
+
+Read the effective value back from `sodax.config.swapUseBackendSubmitTx` (or `sodax.swaps.useBackendSubmitTx`), never from the raw `swaps` slot, which stays `undefined` when the flag is omitted. A `SwapService` constructed directly (rather than through `new Sodax`) still accepts the deprecated `useBackendSubmitTx` constructor field in v2, which wins over the configured value; v3 removes it too.
+
+If the backend path does not reach `solved` for **any** reason (submission rejected, terminal `failed`/abandoned status, or poll timeout), `swap()` automatically falls back to the fully client-side relay + post-execution so the swap still completes — **safely**, because re-relaying / re-posting an already-processed swap is idempotent (no double-fill; verified by `e2e-tests/e2e-relay.test.ts`). `timeout` is a **per-attempt** budget: the backend attempt gets it, and the fallback relay then gets a fresh one that starts after on-chain verification, so neither a stalled backend nor a slow source-chain confirmation shortens the client-side wait, and raising `timeout` grows both. It does not bound intent creation, verification (the source chain's `pollingConfig.maxTimeoutMs`) or post-execution. See [SWAPS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#backend-2-step-submit) for the flow and [How `timeout` bounds each attempt](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt) for the full breakdown.
 
 ### Backend submit-tx (`bridge.useBackendSubmitTx`)
 
@@ -243,7 +253,7 @@ const sodax = new Sodax();
 const sodaxClientSide = new Sodax({ bridge: { useBackendSubmitTx: false } });
 ```
 
-On any non-success (submission rejected, terminal `failed`/abandoned, or poll timeout) `bridge()` falls back to the client-side `relayTxAndWaitPacket` flow so the bridge still completes — safe because re-relaying an already-relayed bridge tx is idempotent. `timeout` is per-attempt on the [same terms as swaps](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt): the backend attempt gets it and the fallback relay gets a fresh one. Bridge has no solver post-execution, so unlike swaps there is no `'posting_execution'` step. See [BRIDGE_API.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md) for the API client.
+On any non-success (submission rejected, terminal `failed`/abandoned, or poll timeout) `bridge()` falls back to the client-side `relayTxAndWaitPacket` flow so the bridge still completes — safe because re-relaying an already-relayed bridge tx is idempotent. `timeout` is per-attempt on the [same terms as swaps](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt): the backend attempt gets it and the fallback relay gets a fresh one. Bridge has no solver post-execution, so unlike swaps there is no `'posting_execution'` step. See [BRIDGE_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md) for the API client.
 
 ### Backend submit-tx (`leverageYield.useBackendSubmitTx`)
 
@@ -259,7 +269,7 @@ const sodaxClientSide = new Sodax({ leverageYield: { useBackendSubmitTx: false }
 
 `POST /leverage-yield/submit-tx` declares an API-key scope (`swaps:write`) where `GET /leverage-yield/submit-tx/status` declares none. Key enforcement is a per-deployment setting, so whether a keyless submit is actually rejected depends on the deployment you point at; where it is enforced, a keyless caller spends one rejected attempt per vault swap before the client-side fallback completes it. Configure `apiKey`, pass `extras.apiKey` per call, or set `useBackendSubmitTx: false` to skip the attempt. `swaps.useBackendSubmitTx` declares the same scope and has defaulted on since it shipped, so this is not specific to leverage yield.
 
-On any non-success (submission rejected, a 200 the backend did not accept, terminal `failed`/abandoned, a rejected API key, or poll timeout) `vaultSwap()` falls back to the client-side verify → relay → notify-solver flow so the vault swap still completes — safe because re-relaying / re-posting an already-processed vault swap is idempotent. `timeout` is per-attempt on the [same terms as swaps](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt): the backend attempt gets it and the fallback relay gets a fresh one. A vault swap IS a solver swap, so unlike bridge the terminal status is `'solved'` and the `'posting_execution'` step applies. See [LEVERAGE_YIELD.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/LEVERAGE_YIELD.md#completion-paths-and-timeout) for the flow and [LEVERAGE_YIELD_API.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/LEVERAGE_YIELD_API.md) for the API client.
+On any non-success (submission rejected, a 200 the backend did not accept, terminal `failed`/abandoned, a rejected API key, or poll timeout) `vaultSwap()` falls back to the client-side verify → relay → notify-solver flow so the vault swap still completes — safe because re-relaying / re-posting an already-processed vault swap is idempotent. `timeout` is per-attempt on the [same terms as swaps](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt): the backend attempt gets it and the fallback relay gets a fresh one. A vault swap IS a solver swap, so unlike bridge the terminal status is `'solved'` and the `'posting_execution'` step applies. See [LEVERAGE_YIELD.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/LEVERAGE_YIELD.md#completion-paths-and-timeout) for the flow and [LEVERAGE_YIELD_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/LEVERAGE_YIELD_API.md) for the API client.
 
 ### RadFi/Bound request signer (`radfi.signRequest`)
 
@@ -285,7 +295,7 @@ The signer receives `{ method, path, baseUrl }` — `baseUrl` is the resolved Bo
 
 ### Money market (`moneyMarket`)
 
-`MoneyMarketConfig` includes `lendingPool`, `uiPoolDataProvider`, `poolAddressesProvider`, `bnUSD`, `bnUSDVault`, `bnUSDAToken`, `supportedTokens`, `supportedReserveAssets`, and `partnerFee`. The packaged default is [`moneyMarketConfig`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/moneyMarket/moneyMarket.ts).
+`MoneyMarketConfig` includes `lendingPool`, `uiPoolDataProvider`, `poolAddressesProvider`, `bnUSD`, `bnUSDVault`, `bnUSDAToken`, `supportedTokens`, `supportedReserveAssets`, and `partnerFee`. The packaged default is [`moneyMarketConfig`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/moneyMarket/moneyMarket.ts).
 
 ```typescript
 import { Sodax, moneyMarketConfig, type MoneyMarketConfig } from '@sodax/sdk';
@@ -340,7 +350,7 @@ EVM spokes use `rpcUrl` on their spoke config; Stellar uses `horizonRpcUrl` and 
 
 ### Backend API (`api`)
 
-[`ApiConfig`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/common/constants.ts) controls `baseURL`, `timeout`, and `headers` for `BackendApiService` (the configuration service currently does not fetch through `initialize()`). It is either a flat `BackendApiConfig` (shown below — shared by `sodax.backendApi`, the swaps client `sodax.api.swaps`, and the bridge client `sodax.api.bridge`) or a nested `CustomApiConfig` (`{ baseApiConfig?, swapsApiConfig?, sponsoringApiConfig? }`) to point an individual client at its own endpoint.
+[`ApiConfig`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/common/constants.ts) controls `baseURL`, `timeout`, and `headers` for `BackendApiService` (the configuration service currently does not fetch through `initialize()`). It is either a flat `BackendApiConfig` (shown below — shared by `sodax.backendApi`, the swaps client `sodax.api.swaps`, and the bridge client `sodax.api.bridge`) or a nested `CustomApiConfig` (`{ baseApiConfig?, swapsApiConfig?, sponsoringApiConfig? }`) to point an individual client at its own endpoint.
 
 #### How a request URL is composed
 
@@ -406,11 +416,11 @@ Every client method also takes a per-call `RequestOverrideConfig` (`{ baseURL?, 
 
 ### Relayer (`relay`)
 
-[`RelayConfig`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/common/constants.ts) sets `relayerApiEndpoint` and **`relayChainIdMap`** (mapping each `SpokeChainKey` to the hub intent-relay bigint ID). Override only when pointing at a different relayer or custom map.
+[`RelayConfig`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/common/constants.ts) sets `relayerApiEndpoint` and **`relayChainIdMap`** (mapping each `SpokeChainKey` to the hub intent-relay bigint ID). Override only when pointing at a different relayer or custom map.
 
 ### DEX (`dex`)
 
-[`DexConfig`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/dex/dex.ts) holds concentrated-liquidity addresses and pool keys for Sonic. Most integrations keep the packaged [`dexConfig`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/dex/dex.ts) default.
+[`DexConfig`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/dex/dex.ts) holds concentrated-liquidity addresses and pool keys for Sonic. Most integrations keep the packaged [`dexConfig`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/dex/dex.ts) default.
 
 ### Complete custom configuration
 
@@ -485,9 +495,9 @@ ChainKeys.SOLANA_MAINNET;
 // … and so on for all supported chains
 ```
 
-The full set of chain constants is defined by [`ChainKeys`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/chains/chain-keys.ts) in `@sodax/types` — treat it as the source of truth rather than any fixed count here. `SpokeChainKey` is the union type of all `ChainKeys` values. Use it to type any parameter that accepts a chain identifier.
+The full set of chain constants is defined by [`ChainKeys`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chain-keys.ts) in `@sodax/types` — treat it as the source of truth rather than any fixed count here. `SpokeChainKey` is the union type of all `ChainKeys` values. Use it to type any parameter that accepts a chain identifier.
 
 ## Additional Resources
 
-- [Monetize SDK](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MONETIZE_SDK.md) - Detailed fee configuration guide
-- [Architecture Reference](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/ARCHITECTURE_REFACTOR_SUMMARY.md) - Spoke services, raw tx handling, `Result<T>`, error conventions
+- [Monetize SDK](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MONETIZE_SDK.md) - Detailed fee configuration guide
+- [Architecture Reference](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/ARCHITECTURE_REFACTOR_SUMMARY.md) - Spoke services, raw tx handling, `Result<T>`, error conventions

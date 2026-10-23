@@ -1,7 +1,7 @@
 # wallet-modal-example
 
 Reference app exercising every headless primitive shipped under issue
-[#1123](https://github.com/icon-project/sodax-sdks/issues/1123) in
+[#1123](https://github.com/gosodax/sodax-sdks/issues/1123) in
 `@sodax/wallet-sdk-react`. No design system, no DeFi business logic — only
 the wallet modal flow.
 
@@ -12,6 +12,9 @@ pnpm install
 pnpm --filter @sodax/wallet-modal-example dev
 # → http://localhost:3002
 ```
+
+Optional: set `VITE_PRIVY_APP_ID` in `.env` (see `example.env`) to add "Email (Privy)" to the EVM
+wallet list and show the Privy panel. Without it the build carries no Privy code.
 
 ## What it covers
 
@@ -25,6 +28,7 @@ pnpm --filter @sodax/wallet-modal-example dev
 | `components/ConnectedChains.tsx`     | `useConnectedChains` — aggregate view + `status` hydration   | 2     |
 | `components/BatchActions.tsx`        | `useBatchConnect` + `useBatchDisconnect` (Hana scope + universal disconnect) | 4 |
 | `components/ConnectionFlowDemo.tsx`  | `useConnectionFlow` — standalone (no modal)                  | 3     |
+| `components/PrivyPanel.tsx`          | `EVM.privy` — Privy user, key export and signing through `useXSignMessage` | — |
 
 Together these cover the full §A-G primitive surface from the spec, with
 no fallback to internal SDK helpers.

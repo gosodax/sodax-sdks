@@ -99,9 +99,31 @@ type LookupErrorCode = 'VALIDATION_FAILED' | 'LOOKUP_FAILED' | 'UNKNOWN';
 |---|---|
 | `createIntent` | `CreateIntentErrorCode` |
 | `swap` | All of {`USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `EXECUTION_FAILED`, `TX_VERIFICATION_FAILED`, `TX_SUBMIT_FAILED`, `RELAY_TIMEOUT`, `RELAY_FAILED`, `EXTERNAL_API_ERROR`, `UNKNOWN`} |
+| `swapWithApproval` | `SwapWithApprovalErrorCode`: the `swap` codes plus `APPROVE_FAILED \| ALLOWANCE_CHECK_FAILED`. See [Atomic approval batches](#atomic-approval-batches-contextreason) for the batch reasons |
+| `getApprovalStrategy` | `ApprovalStrategyErrorCode` (`ALLOWANCE_CHECK_FAILED` only) |
 | `postExecution` | `EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` (with `phase: 'postExecution'`) |
 | `createLimitOrder`, `createLimitOrderIntent` | `CreateIntentErrorCode` |
 | `cancelIntent`, `cancelLimitOrder` | `EXECUTION_FAILED \| VALIDATION_FAILED \| UNKNOWN` |
+
+#### Atomic approval batches (`context.reason`)
+
+When the approval and the deposit go out as one EIP-5792 batch (`swapWithApproval`,
+`bridgeWithApproval`, `vaultSwapWithApproval`, or the shared `sendApprovalBatch` / `confirmApprovalBatch`
+helpers), these codes carry a `context.reason` that changes
+what the caller should do. Check it before the generic retry advice above.
+
+| Code | `context.reason` | Meaning | Retry? |
+|---|---|---|---|
+| `USER_REJECTED` | `ACCOUNT_UPGRADE_DECLINED` | The user declined the smart-account upgrade, not the swap. | Offer it again with `allowAccountUpgrade: false` (two signatures). |
+| `INTENT_CREATION_FAILED` | `ATOMIC_BATCH_REFUSED` | The wallet refused the batch before signing, or cannot batch. Nothing was sent. | Yes, approve separately. `swapWithApproval` does this itself; a caller of `sendApprovalBatch` does it. Test with `isAtomicBatchRefusal(error)`. |
+| `INTENT_CREATION_FAILED` | `'atomic-batch-failed'` (with `batchId`, `statusCode`) | The batch was never included or fully reverted. Nothing was deposited. | Yes. |
+| `TX_VERIFICATION_FAILED` | `ATOMIC_BATCH_UNCONFIRMED` (with `batchId`, `callCount`) | The wallet took the batch but it did not confirm in time. **It may still land.** | **No.** Do not let the user send it again. Resume it: call `swapWithApproval` / `bridgeWithApproval` / `vaultSwapWithApproval` again with `resumeBatchId` and `resumeBatchCallCount`, which sends nothing and finishes the flow once the batch lands; a `sendApprovalBatch` caller uses `confirmApprovalBatch`. |
+
+`sendApprovalBatch` and `confirmApprovalBatch` return `ApprovalBatchErrorCode`
+(`USER_REJECTED | INTENT_CREATION_FAILED | TX_VERIFICATION_FAILED`) on the `feature` the caller passes.
+`confirmApprovalBatch` resumes a batch that came back unconfirmed, from the `batchId` that
+`sendApprovalBatch` reported through `onBatchSent`. `resolveApprovalStrategy` does not fail: a wallet
+whose capabilities cannot be read resolves to `'sequential'`.
 
 ### Money Market (`feature: 'moneyMarket'`)
 
@@ -129,6 +151,8 @@ type LookupErrorCode = 'VALIDATION_FAILED' | 'LOOKUP_FAILED' | 'UNKNOWN';
 | Method | Narrow code union |
 |---|---|
 | `bridge` | All exec codes. |
+| `bridgeWithApproval` | `BridgeWithApprovalErrorCode`: the `bridge` codes plus `APPROVE_FAILED \| ALLOWANCE_CHECK_FAILED`, with `context.action: 'bridgeWithApproval'` on the approval step. See [Atomic approval batches](#atomic-approval-batches-contextreason) for the batch reasons |
+| `getApprovalStrategy` | `AllowanceCheckErrorCode` (the `isAllowanceValid` error, so invalid params stay `VALIDATION_FAILED`) |
 | `createBridgeIntent` | `CreateIntentErrorCode` |
 | `approve` | `ApproveErrorCode` |
 | `isAllowanceValid` | `AllowanceCheckErrorCode` |
@@ -166,12 +190,14 @@ Both follow the same shape: action methods get the full exec union (`'EXECUTION_
 
 ### Leverage Yield (`feature: 'leverageYield'`)
 
-Action discriminator on `context.action`: `'deposit' \| 'withdraw' \| 'approve' \| 'allowanceCheck' \| 'vaultSwap'`.
+Action discriminator on `context.action`: `'deposit' \| 'withdraw' \| 'approve' \| 'allowanceCheck' \| 'vaultSwap' \| 'vaultSwapWithApproval'` (the last on the approval step of `vaultSwapWithApproval`).
 
 | Method | Narrow code union |
 |---|---|
 | `deposit`, `withdraw`, `createVaultIntent` | `CreateIntentErrorCode` (create-intent subset) |
 | `vaultSwap` | All exec codes: `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| TX_VERIFICATION_FAILED \| TX_SUBMIT_FAILED \| RELAY_TIMEOUT \| RELAY_FAILED \| EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` |
+| `vaultSwapWithApproval` | `VaultSwapWithApprovalErrorCode`: the `vaultSwap` codes plus `APPROVE_FAILED \| ALLOWANCE_CHECK_FAILED`. Errors after the broadcast are `vaultSwap`'s own. See [Atomic approval batches](#atomic-approval-batches-contextreason) for the batch reasons |
+| `getApprovalStrategy` | `ApprovalStrategyErrorCode` (`ALLOWANCE_CHECK_FAILED` only); a hub-wallet swap resolves `'not-required'` |
 | `notifySolver` | `EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` (with `phase: 'postExecution'`) |
 | `approve` | `ApproveErrorCode` |
 | `isAllowanceValid` | `AllowanceCheckErrorCode` (action `'allowanceCheck'`) |

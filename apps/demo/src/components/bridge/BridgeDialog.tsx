@@ -9,9 +9,10 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import {
-  useBridge,
-  useBridgeAllowance,
-  useBridgeApprove,
+  ACCOUNT_UPGRADE_DECLINED,
+  isSodaxError,
+  useBridgeApprovalStrategy,
+  useBridgeWithApproval,
   useStellarGate,
   useBitcoinBalance,
   useNearStorageGate,
@@ -26,8 +27,12 @@ import {
 import { useEvmSwitchChain, useWalletProvider, useXAccount } from '@sodax/wallet-sdk-react';
 import { BitcoinSetupPanel } from '@/components/bitcoin/BitcoinSetupPanel';
 import { formatMutationFailureMessage, rescaleTokenAmount } from '@/lib/utils';
+import { type UnconfirmedBatch, unconfirmedBatchOf } from '@/lib/heldBatch';
 import { ArrowLeftRight, Loader2 } from 'lucide-react';
 import { formatUnits } from 'viem';
+
+/** A bridge batch the wallet took but never confirmed, kept with the order it was sent for. */
+export type HeldBridgeBatch = UnconfirmedBatch & { order: CreateBridgeIntentParams };
 
 interface BridgeDialogProps {
   open: boolean;
@@ -38,6 +43,9 @@ interface BridgeDialogProps {
   walletProvider: GetWalletProviderType<SpokeChainKey>;
   fromChainType: ChainType | undefined;
   toChainKey: SpokeChainKey;
+  /** A batch the wallet took but never confirmed. Owned by the manager, which outlives this dialog. */
+  heldBatch: HeldBridgeBatch | null;
+  onBatchHeld: (batch: HeldBridgeBatch | null) => void;
 }
 
 export function BridgeDialog({
@@ -49,33 +57,38 @@ export function BridgeDialog({
   walletProvider,
   fromChainType,
   toChainKey,
+  heldBatch,
+  onBatchHeld,
 }: BridgeDialogProps) {
   const [isFromBtcReady, setIsFromBtcReady] = useState(false);
   const [isToBtcReady, setIsToBtcReady] = useState(false);
-  const [approveError, setApproveError] = useState<string | null>(null);
   const [bridgeError, setBridgeError] = useState<string | null>(null);
+  const [allowAccountUpgrade, setAllowAccountUpgrade] = useState(true);
+  const [upgradeDeclined, setUpgradeDeclined] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    setApproveError(null);
     setBridgeError(null);
+    setUpgradeDeclined(false);
   }, [open]);
 
   const toAccount = useXAccount({ xChainId: toChainKey });
 
-  const { data: hasAllowance, isLoading: isAllowanceLoading } = useBridgeAllowance({
+  const { data: approvalStrategy } = useBridgeApprovalStrategy({
     params: {
       payload: order,
       walletProvider: walletProvider as GetWalletProviderType<typeof order.srcChainKey>,
+      allowAccountUpgrade,
     },
   });
 
-  const { mutateAsyncSafe: approve, isPending: isApproving } = useBridgeApprove();
-  const { mutateAsyncSafe: bridge, isPending: isBridging } = useBridge();
+  const { mutateAsyncSafe: bridgeWithApproval, isPending: isBridging } = useBridgeWithApproval();
 
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: order.srcChainKey });
 
   const toWalletProvider = useWalletProvider({ xChainId: toChainKey });
+  // Batches are EVM-only; the source chain may have changed since the held one was sent.
+  const evmWalletProvider = useWalletProvider({ xChainType: 'EVM' });
 
   const fromBtcWalletProvider =
     walletProvider.chainType === 'BITCOIN' ? (walletProvider as IBitcoinWalletProvider) : undefined;
@@ -112,23 +125,59 @@ export function BridgeDialog({
   const toBtcAddress = toChainKey === ChainKeys.BITCOIN_MAINNET ? toAccount.address : undefined;
   const { data: toBtcBalance } = useBitcoinBalance({ params: { address: toBtcAddress } });
 
-  const handleApprove = async (): Promise<void> => {
-    const result = await approve({ params: order, walletProvider });
+  const handleBridge = async (upgrade = allowAccountUpgrade): Promise<void> => {
+    setBridgeError(null);
+    setUpgradeDeclined(false);
+    const result = await bridgeWithApproval({ params: order, walletProvider, allowAccountUpgrade: upgrade });
     if (!result.ok) {
-      setApproveError(formatMutationFailureMessage(result.error, 'Approve failed'));
+      const { error } = result;
+      const batch = unconfirmedBatchOf(error);
+      const context = isSodaxError(error) ? error.context : undefined;
+      if (batch) {
+        onBatchHeld({ ...batch, order });
+      } else if (context?.reason === ACCOUNT_UPGRADE_DECLINED) {
+        setUpgradeDeclined(true);
+      } else {
+        setBridgeError(formatMutationFailureMessage(error, 'Bridge failed'));
+      }
       return;
     }
-    setApproveError(null);
+    onClose();
   };
 
-  const handleBridge = async (): Promise<void> => {
-    const result = await bridge({ params: order, walletProvider });
-    if (!result.ok) {
-      setBridgeError(formatMutationFailureMessage(result.error, 'Bridge failed'));
+  // Sends nothing: waits for the held batch again and finishes the bridge once it lands.
+  const recheckHeldBatch = async (): Promise<void> => {
+    if (!heldBatch) return;
+    if (!evmWalletProvider) {
+      setBridgeError('Connect the EVM wallet that sent the batch to check it.');
       return;
     }
     setBridgeError(null);
-    onClose();
+    const result = await bridgeWithApproval({
+      params: heldBatch.order,
+      walletProvider: evmWalletProvider,
+      resumeBatchId: heldBatch.batchId,
+      resumeBatchCallCount: heldBatch.callCount,
+    });
+    if (result.ok) {
+      onBatchHeld(null);
+      onClose();
+      return;
+    }
+    const context = isSodaxError(result.error) ? result.error.context : undefined;
+    if (unconfirmedBatchOf(result.error)) {
+      setBridgeError('The batch is still not confirmed. Check again in a moment.');
+    } else if (context?.reason === 'atomic-batch-failed') {
+      onBatchHeld(null);
+      setBridgeError('The batch never landed, so nothing was bridged.');
+    } else {
+      setBridgeError(formatMutationFailureMessage(result.error, 'Recheck failed'));
+    }
+  };
+
+  const bridgeWithoutUpgrade = async (): Promise<void> => {
+    setAllowAccountUpgrade(false);
+    await handleBridge(false);
   };
 
   const handleActivateStellarAccount = async () => {
@@ -154,8 +203,8 @@ export function BridgeDialog({
 
   const isBridgeDisabled =
     isBridging ||
+    heldBatch !== null ||
     isBelowDestinationUnit ||
-    (fromChainType === 'EVM' && !hasAllowance) ||
     (order.srcChainKey === ChainKeys.BITCOIN_MAINNET && !isFromBtcReady) ||
     (toChainKey === ChainKeys.BITCOIN_MAINNET && !isToBtcReady) ||
     stellar.blocksAction ||
@@ -232,24 +281,32 @@ export function BridgeDialog({
           />
         )}
 
-        {(approveError ?? bridgeError) && (
-          <div className="text-red-500 text-sm space-y-1 wrap-anywhere">
-            {approveError ? <div>{approveError}</div> : null}
-            {bridgeError ? <div>{bridgeError}</div> : null}
+        {bridgeError && <div className="text-red-500 text-sm wrap-anywhere">{bridgeError}</div>}
+
+        {heldBatch !== null && (
+          <div className="text-amber-600 text-sm wrap-anywhere">
+            Your wallet sent the bridge (batch {heldBatch.batchId}) but it was not confirmed in time. It may still land,
+            so check it again instead of bridging again.{' '}
+            <button type="button" className="underline" disabled={isBridging} onClick={() => void recheckHeldBatch()}>
+              {isBridging ? 'Checking…' : 'Check the batch again'}
+            </button>
+            {' · '}
+            <button type="button" className="underline" onClick={() => onBatchHeld(null)}>
+              I checked — start over
+            </button>
+          </div>
+        )}
+
+        {upgradeDeclined && (
+          <div className="text-amber-600 text-sm">
+            You declined the smart account upgrade, so nothing was sent.{' '}
+            <button type="button" className="underline" onClick={() => void bridgeWithoutUpgrade()}>
+              Bridge without upgrading (2 signatures)
+            </button>
           </div>
         )}
 
         <DialogFooter className="flex flex-col gap-2 sm:flex-col">
-          {fromChainType === 'EVM' && (
-            <Button
-              className="w-full"
-              onClick={handleApprove}
-              disabled={isAllowanceLoading || hasAllowance === true || isApproving}
-            >
-              {isApproving ? 'Approving…' : hasAllowance ? 'Approved' : 'Approve'}
-            </Button>
-          )}
-
           {stellar.isStellar && stellar.isChecking && <span className="text-sm">Checking Stellar account…</span>}
 
           {stellar.needsActivation && (
@@ -303,12 +360,17 @@ export function BridgeDialog({
           )}
 
           {!isWrongChain && (
-            <Button className="w-full" onClick={handleBridge} disabled={isBridgeDisabled}>
+            <Button className="w-full" onClick={() => void handleBridge()} disabled={isBridgeDisabled}>
               {isBridging ? (
                 'Bridging…'
               ) : (
                 <>
-                  <ArrowLeftRight className="mr-2 h-4 w-4" /> Bridge
+                  <ArrowLeftRight className="mr-2 h-4 w-4" />{' '}
+                  {approvalStrategy === 'atomic-batch'
+                    ? 'Approve & Bridge (1 signature)'
+                    : approvalStrategy === 'sequential'
+                      ? 'Approve, then Bridge'
+                      : 'Bridge'}
                 </>
               )}
             </Button>

@@ -35,7 +35,7 @@ export type SodaxWalletProviderProps = {
  * Must be wrapped by `<QueryClientProvider>` from `@tanstack/react-query` (or, if also
  * using `@sodax/dapp-kit`, see Setup skill for the full provider-stack ordering).
  *
- * @see {@link https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md | Configure SodaxWalletProvider}
+ * @see {@link https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md | Configure SodaxWalletProvider}
  */
 export const SodaxWalletProvider = ({ children, config }: SodaxWalletProviderProps) => {
   // Freeze config on first render so context, store, and wagmi all share one snapshot

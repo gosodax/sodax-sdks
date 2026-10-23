@@ -11,39 +11,51 @@ import {
 
 describe('RWA metadata', () => {
   const equities = [
-    'SPCX',
-    'NVDA',
-    'GME',
-    'MSTR',
-    'AAPL',
-    'TSLA',
-    'MU',
-    'SNDK',
-    'SPY',
-    'QQQ',
-    'SGOV',
-    'USO',
-    'SLV',
-    'GOOGL',
-    'AMZN',
-    'MSFT',
-    'META',
-    'CRCL',
-    'COIN',
-    'PLTR',
-    'TSM',
-    'AMD',
-    'INTC',
-    'BABA',
+    robinhoodSupportedTokens.SPCX.symbol,
+    robinhoodSupportedTokens.NVDA.symbol,
+    robinhoodSupportedTokens.GME.symbol,
+    robinhoodSupportedTokens.MSTR.symbol,
+    robinhoodSupportedTokens.AAPL.symbol,
+    robinhoodSupportedTokens.TSLA.symbol,
+    robinhoodSupportedTokens.MU.symbol,
+    robinhoodSupportedTokens.SNDK.symbol,
+    robinhoodSupportedTokens.SPY.symbol,
+    robinhoodSupportedTokens.QQQ.symbol,
+    robinhoodSupportedTokens.SGOV.symbol,
+    robinhoodSupportedTokens.USO.symbol,
+    robinhoodSupportedTokens.SLV.symbol,
+    robinhoodSupportedTokens.GOOGL.symbol,
+    robinhoodSupportedTokens.AMZN.symbol,
+    robinhoodSupportedTokens.MSFT.symbol,
+    robinhoodSupportedTokens.META.symbol,
+    robinhoodSupportedTokens.CRCL.symbol,
+    robinhoodSupportedTokens.COIN.symbol,
+    robinhoodSupportedTokens.PLTR.symbol,
+    robinhoodSupportedTokens.TSM.symbol,
+    robinhoodSupportedTokens.AMD.symbol,
+    robinhoodSupportedTokens.INTC.symbol,
+    robinhoodSupportedTokens.BABA.symbol,
   ];
-  const xstocks = ['CRCLx', 'TSLAx', 'SPYx', 'NVDAx', 'QQQx', 'MSTRx', 'COINx', 'GOOGLx'];
+  const xstocks = [
+    solanaSupportedTokens.CRCLx.symbol,
+    solanaSupportedTokens.TSLAx.symbol,
+    solanaSupportedTokens.SPYx.symbol,
+    solanaSupportedTokens.NVDAx.symbol,
+    solanaSupportedTokens.QQQx.symbol,
+    solanaSupportedTokens.MSTRx.symbol,
+    solanaSupportedTokens.COINx.symbol,
+    solanaSupportedTokens.GOOGLx.symbol,
+    solanaSupportedTokens.GLDx.symbol,
+    solanaSupportedTokens.HOODx.symbol,
+    solanaSupportedTokens.SPCXx.symbol,
+  ];
   const expectedByChain: Partial<Record<string, readonly string[]>> = {
     [ChainKeys.ROBINHOOD_MAINNET]: equities,
     [ChainKeys.SONIC_MAINNET]: equities,
     [ChainKeys.STELLAR_MAINNET]: equities,
     [ChainKeys.HEDERA_MAINNET]: equities,
     [ChainKeys.SOLANA_MAINNET]: xstocks,
-    [ChainKeys.ETHEREUM_MAINNET]: ['PAXG', 'XAUt'],
+    [ChainKeys.ETHEREUM_MAINNET]: [ethereumSupportedTokens.PAXG.symbol, ethereumSupportedTokens.XAUt.symbol],
   };
 
   for (const [chainKey, entries] of Object.entries(supportedTokensByChain)) {
@@ -67,7 +79,7 @@ describe('RWA metadata', () => {
 
   it('does not infer RWA status from the chain, ticker or caller-provided flag', () => {
     for (const token of [robinhoodSupportedTokens.ETH, robinhoodSupportedTokens.SODA, robinhoodSupportedTokens.USDG]) {
-      const misleadingToken = { ...token, symbol: 'AAPL', isRwa: true };
+      const misleadingToken = { ...token, symbol: robinhoodSupportedTokens.AAPL.symbol, isRwa: true };
       expect(isRealWorldAsset(misleadingToken)).toBe(false);
     }
     expect(
@@ -79,11 +91,12 @@ describe('RWA metadata', () => {
 
   it('ignores symbol casing and accepts EVM address casing', () => {
     const token = ethereumSupportedTokens.PAXG;
-    const lowerCaseToken = { ...token, address: token.address.toLowerCase(), symbol: 'paxg' };
+    const lowerCaseToken = { ...token, address: token.address.toLowerCase(), symbol: token.symbol.toLowerCase() };
     expect(isRealWorldAsset(lowerCaseToken)).toBe(true);
     expect(isRealWorldAsset({ ...token, address: token.address.toUpperCase() })).toBe(true);
     expect(isRealWorldAsset({ ...token, address: `0x${token.address.slice(2).toUpperCase()}` })).toBe(true);
-    const upperCaseTicker = { ...solanaSupportedTokens.TSLAx, symbol: 'TSLAX' };
+    const xstock = solanaSupportedTokens.TSLAx;
+    const upperCaseTicker = { ...xstock, symbol: xstock.symbol.toUpperCase() };
     expect(isRealWorldAsset(upperCaseTicker)).toBe(true);
   });
 

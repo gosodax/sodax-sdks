@@ -10,14 +10,15 @@ import { fileURLToPath } from 'node:url';
 // extensionless, because relative and extension-bearing targets 404 in production.
 // See scripts/docs-pages-map.json for the manifest and docs/AGENTS.md for the site rules.
 
-const BLOB_BASE = 'https://github.com/icon-project/sodax-sdks/blob/main/';
-const TREE_BASE = 'https://github.com/icon-project/sodax-sdks/tree/main/';
+const BLOB_BASE = 'https://github.com/gosodax/sodax-sdks/blob/main/';
+const TREE_BASE = 'https://github.com/gosodax/sodax-sdks/tree/main/';
 const PAGE_EXTENSIONS = ['.md', '.mdx'];
-const SOURCE_URL = /^https:\/\/github\.com\/icon-project\/sodax-sdks\/(?:blob|tree)\/main\/([^?#]+)/;
+const SOURCE_URL = /^https:\/\/github\.com\/gosodax\/sodax-sdks\/(?:blob|tree)\/main\/([^?#]+)/;
 const WRONG_REPO_URLS = [
-  { pattern: 'github.com/icon-project/sodax-document/', hint: 'link to the sodax-sdks source file instead' },
-  { pattern: 'github.com/icon-project/sodax-frontend/', hint: 'the repo was renamed to sodax-sdks' },
-];
+  { repo: 'sodax-document', hint: 'link to the sodax-sdks source file instead' },
+  { repo: 'sodax-frontend', hint: 'the repo was renamed to sodax-sdks' },
+  { repo: 'sodax-sdks', hint: 'the repo moved to github.com/gosodax/sodax-sdks' },
+].map(({ repo, hint }) => ({ pattern: `github.com/icon-project/${repo}/`, hint }));
 
 const stripCode = content => {
   let fenced = false;

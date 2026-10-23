@@ -261,7 +261,7 @@ test('opens the diff fence wider than any backtick run inside the quotes', t => 
 
 test('links every citation to the exact line when running in Actions', t => {
   const verdict = verify(t, [finding()]);
-  const base = 'https://github.com/icon-project/sodax-sdks/blob/abc123';
+  const base = 'https://github.com/gosodax/sodax-sdks/blob/abc123';
 
   const linked = renderReport({ scope: SCOPE, result: { findings: [] }, verdict, blobBase: base });
   assert.match(linked, new RegExp(`\\[\`${SOURCE_FILE}:4\`\\]\\(${base}/${SOURCE_FILE}#L4\\)`));

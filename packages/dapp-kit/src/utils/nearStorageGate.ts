@@ -27,7 +27,10 @@ export interface NearStorageGateState {
  * triggered before registration status is known; `needsRegistration` only flips once the check has
  * resolved (so the "register" button isn't shown speculatively while still checking).
  */
-export function resolveNearStorageGate(chainKey: SpokeChainKey, check: NearStorageCheckResult): NearStorageGateState {
+export function resolveNearStorageGate(
+  chainKey: SpokeChainKey | undefined,
+  check: NearStorageCheckResult,
+): NearStorageGateState {
   const isNear = chainKey === ChainKeys.NEAR_MAINNET;
   const isChecking = check.isLoading;
   const isRegistered = check.data;

@@ -49,6 +49,7 @@ type EvmWalletDefaults = {
   transport?: HttpTransportConfig;
   sendTransaction?: EvmSendTransactionPolicy;      // Omit<Partial<SendTransactionParameters>, keyof EvmRawTransaction>
   waitForTransactionReceipt?: EvmWaitForTransactionReceiptPolicy; // Partial<Omit<WaitForTransactionReceiptParameters, 'hash'>>
+  waitForCallsStatus?: EvmWaitForCallsStatusPolicy; // Partial<Omit<WaitForCallsStatusParameters, 'id' | 'status'>>
 };
 ```
 
@@ -57,6 +58,7 @@ type EvmWalletDefaults = {
 | `publicClient`, `walletClient`, `transport` | constructor | Private-key mode |
 | `sendTransaction` | `sendTransaction()` | Both modes |
 | `waitForTransactionReceipt` | `waitForTransactionReceipt()` | Both modes |
+| `waitForCallsStatus` | `waitForBatch()` | Browser-extension mode (batches need a connected wallet) |
 
 > In browser-extension mode, `publicClient` / `walletClient` / `transport` defaults are **ignored** — the provider logs a one-time `console.warn`. Pass them only in private-key mode.
 
@@ -69,6 +71,9 @@ type EvmWalletDefaults = {
 | `getWalletAddress` | `() => Promise<Address>` | viem `Address` (`` `0x${string}` ``) | — |
 | `sendTransaction` | `(txData: EvmRawTransaction, options?: EvmSendTransactionPolicy & EvmSendTransactionOptions) => Promise<Hash>` | viem `Hash` | `defaults.sendTransaction` |
 | `waitForTransactionReceipt` | `(txHash: Hash, options?: EvmWaitForTransactionReceiptPolicy) => Promise<EvmRawTransactionReceipt>` | bigint-stringified receipt | `defaults.waitForTransactionReceipt` |
+| `getAtomicBatchSupport` | `(chainId: number) => Promise<EvmAtomicBatchSupport>` | `'supported' \| 'ready' \| 'unsupported'` (EIP-5792 `atomic` capability) | — |
+| `sendAtomicBatch` | `(txs: readonly EvmRawTransaction[], options: EvmSendBatchOptions) => Promise<string>` | EIP-5792 batch id (not a tx hash) | — |
+| `waitForBatch` | `(batchId: string, options?: EvmWaitForCallsStatusPolicy) => Promise<EvmBatchResult>` | terminal status + receipts; a failed status read is retried within the timeout (three reads at most) | `defaults.waitForCallsStatus` |
 
 The serialised receipt converts all `bigint` fields to `string` so it can be `JSON.stringify`'d safely. This is enforced at the type level — `EvmRawTransactionReceipt` (from `@sodax/types`) is the stringified shape.
 
@@ -92,6 +97,7 @@ The serialised receipt converts all `bigint` fields to `string` so it can be `JS
 - **`rpcUrl` falls back to the viem chain's first public RPC.** Fine for testing — replace with a private RPC for production.
 - **Chain binding is opt-in.** Pass `options.expectedChainId` (`getEvmViemChain(chainKey).id`) and the provider refuses to send when the wallet's active chain differs. The SDK passes it on every signed send it owns: spoke/hub deposits and messages, signed ERC-20 approvals (reset leg included), and the hub-scoped vault, partner, BALN, `Permit2Service` and `Erc4626Service` sends — the last two are bound to Sonic, so calling them with a wallet on another EVM network now throws instead of broadcasting there.
 - **The chain check fails closed.** `eth_chainId` is normalised to a plain `number` before a strict compare; a mismatch or malformed wallet response throws and nothing is sent.
+- **EIP-5792 batches need a connected wallet.** `getAtomicBatchSupport` reports `'unsupported'` for a private-key account, and `sendAtomicBatch` throws for one — a plain RPC endpoint has no `wallet_sendCalls`. `'ready'` means the wallet asks the user to upgrade the account (MetaMask: EIP-7702 smart account) on the first batch. `sendAtomicBatch` always requests atomic execution and refuses unless both the wallet's active chain and the wallet client's chain equal `expectedChainId`; read the tx hash from `waitForBatch(...).receipts` (it throws on timeout — the batch may still land). Most apps never call these directly — `swapWithApproval`, `bridgeWithApproval` and `vaultSwapWithApproval` do.
 - **No nonce management.** The provider does not auto-increment / serialise sends. If you fire multiple txs in parallel from the same account, manage nonces yourself via `defaults.sendTransaction.nonce` or per-call `options.nonce`.
 
 ---

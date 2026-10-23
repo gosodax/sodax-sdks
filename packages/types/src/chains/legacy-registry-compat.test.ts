@@ -341,12 +341,18 @@ const equityIds = (registry: Record<(typeof EQUITY_SYMBOLS)[number], XToken>): s
   EQUITY_SYMBOLS.map(symbol => `${symbol}:${registry[symbol].address}`);
 
 describe('legacy hub vault registries are unchanged prefixes', () => {
-  it('HubVaultSymbols appends the equity symbols after the legacy order', () => {
-    expect([...HubVaultSymbols]).toEqual([...LEGACY_HUB_VAULT_SYMBOLS, ...EQUITY_SYMBOLS]);
+  it('HubVaultSymbols contains exactly the canonical vault keys', () => {
+    expect([...HubVaultSymbols].sort()).toEqual(Object.keys(SodaTokens).sort());
   });
 
-  it('SodaTokens keys append the equity symbols after the legacy order', () => {
-    expect(Object.keys(SodaTokens)).toEqual([...LEGACY_SODA_TOKEN_KEYS, ...EQUITY_SYMBOLS]);
+  it('HubVaultSymbols preserves the legacy order before the appended vaults', () => {
+    const prefix = [...LEGACY_HUB_VAULT_SYMBOLS, ...EQUITY_SYMBOLS];
+    expect(HubVaultSymbols.slice(0, prefix.length)).toEqual(prefix);
+  });
+
+  it('SodaTokens keys preserve the legacy order before the appended vaults', () => {
+    const prefix = [...LEGACY_SODA_TOKEN_KEYS, ...EQUITY_SYMBOLS];
+    expect(Object.keys(SodaTokens).slice(0, prefix.length)).toEqual(prefix);
   });
 });
 
@@ -364,11 +370,8 @@ describe('legacy spoke registries are unchanged prefixes', () => {
   });
 
   it('robinhoodSupportedTokens', () => {
-    expect(Object.keys(robinhoodSupportedTokens)).toEqual([
-      ...LEGACY_ROBINHOOD_TOKEN_KEYS,
-      ...EQUITY_SYMBOLS,
-      ...keysOf(ROBINHOOD_APPENDED),
-    ]);
+    const prefix = [...LEGACY_ROBINHOOD_TOKEN_KEYS, ...EQUITY_SYMBOLS, ...keysOf(ROBINHOOD_APPENDED)];
+    expect(Object.keys(robinhoodSupportedTokens).slice(0, prefix.length)).toEqual(prefix);
   });
 
   it('Stellar trustline configs', () => {

@@ -6,7 +6,7 @@ generatedFrom: packages/wallet-sdk-core/README.md
 
 The SODAX wallet-sdk-core is a core wallet SDK package containing implementations of wallet providers that enable multi-chain wallet connectivity. This package provides TypeScript implementations of wallet providers for various blockchain networks, making them compatible with the Core SODAX SDK (@sodax/sdk).
 
-> **AI-friendly docs:** shipped via [`@sodax/skills`](https://github.com/icon-project/sodax-sdks/tree/main/packages/skills) — [`skills` CLI](https://github.com/vercel-labs/skills) recommended; npm + `AGENTS.md` pointer as fallback. See [docs/ai-integration-guide.md](https://github.com/icon-project/sodax-sdks/blob/main/docs/ai-integration-guide.md) for all install modes and per-tool wiring.
+> **AI-friendly docs:** shipped via [`@sodax/skills`](https://github.com/gosodax/sodax-sdks/tree/main/packages/skills) — [`skills` CLI](https://github.com/vercel-labs/skills) recommended; npm + `AGENTS.md` pointer as fallback. See [docs/ai-integration-guide.md](https://github.com/gosodax/sodax-sdks/blob/main/docs/ai-integration-guide.md) for all install modes and per-tool wiring.
 
 ## Installation
 
@@ -79,6 +79,21 @@ const evmBrowser = new EvmWalletProvider({
   publicClient: myViemPublicClient,
 });
 ```
+
+A connected wallet can also send several transactions as one atomic [EIP-5792](https://eips.ethereum.org/EIPS/eip-5792)
+batch — one signature, all or nothing. A private-key account always reports `'unsupported'`.
+
+```ts
+const support = await evmBrowser.getAtomicBatchSupport(8453); // 'supported' | 'ready' | 'unsupported'
+if (support !== 'unsupported') {
+  const batchId = await evmBrowser.sendAtomicBatch([approveTx, transferTx], { expectedChainId: 8453 });
+  const { status, receipts } = await evmBrowser.waitForBatch(batchId);
+}
+```
+
+`'ready'` means the wallet asks the user to upgrade the account (MetaMask: an EIP-7702 smart account) when the
+first batch is sent.
+`waitForBatch` reads the batch status again after a failed read, within its timeout and up to three reads.
 
 ### Solana
 

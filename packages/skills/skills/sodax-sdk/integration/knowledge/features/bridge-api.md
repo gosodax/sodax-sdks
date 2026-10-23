@@ -76,9 +76,11 @@ an allowance change from one non-zero value to another (the 2017 TetherToken lin
 wallet already holds a stale allowance — a wallet in that state cannot approve at all until it is
 zeroed.
 
-Broadcast `resetTx` first and wait for it to be mined, then broadcast `tx`. The two cannot be
-batched: the approval is only valid once the reset has landed on-chain. Submitting `tx` while a
-non-zero stale allowance remains is a guaranteed revert.
+Broadcast `resetTx` first and wait for it to be mined, then broadcast `tx`. As separate transactions
+they cannot go out together: the approval is only valid once the reset has landed on-chain. An
+EIP-5792 atomic batch is different — it runs its calls in order, so it can carry both (the SDK's
+`bridgeWithApproval` does, see `bridge.md`). Submitting `tx` while a non-zero stale allowance
+remains is a guaranteed revert.
 
 ```ts
 const { tx, resetTx } = approveResponse;

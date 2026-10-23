@@ -1,11 +1,12 @@
 import { type ReactNode, useMemo, useRef } from 'react';
-import { type State, WagmiProvider } from 'wagmi';
+import { type Config, type CreateConnectorFn, type State, WagmiProvider } from 'wagmi';
 import { walletConnect } from 'wagmi/connectors';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { createWagmiConfig } from '@/xchains/evm/EvmXService.js';
+import { createWagmiConfig, resolveEvmRpcUrls } from '@/xchains/evm/EvmXService.js';
 import type { EvmTypeConfig } from '@/types/config.js';
 import { EvmHydrator } from './EvmHydrator.js';
 import { EvmActions } from './EvmActions.js';
+import { setupPrivySource } from './privySource.js';
 import { EVM_DEFAULT_RECONNECT_ON_MOUNT, EVM_DEFAULT_SSR } from '@/constants.js';
 
 // Top-level object guard only — confirms a non-array object, NOT that it is a valid wagmi state.
@@ -29,9 +30,10 @@ export const EvmProvider = ({ children, config }: EvmProviderProps) => {
   }
 
   const walletConnectConfig = config.walletConnect;
+  const privySource = config.privy;
 
-  const wagmiConfig = useMemo(() => {
-    const connectors = [];
+  const { wagmiConfig, PrivyHost, privyDisconnect } = useMemo(() => {
+    const connectors: CreateConnectorFn[] = [];
     if (walletConnectConfig) {
       if (walletConnectConfig.projectId) {
         connectors.push(walletConnect({ showQrModal: true, ...walletConnectConfig }));
@@ -39,8 +41,23 @@ export const EvmProvider = ({ children, config }: EvmProviderProps) => {
         console.warn('[wallet-sdk-react] walletConnect.projectId is required — WalletConnect connector skipped.');
       }
     }
-    return createWagmiConfig(config.chains, { reconnectOnMount, ssr, connectors, persistKey: config.persistKey });
-  }, [config.chains, reconnectOnMount, ssr, walletConnectConfig, config.persistKey]);
+
+    let built: Config | undefined;
+    const source =
+      privySource === undefined
+        ? undefined
+        : setupPrivySource(privySource, {
+            rpcUrls: resolveEvmRpcUrls(config.chains),
+            getState: () => {
+              if (!built) throw new Error('[wallet-sdk-react] wagmi config read before it was created');
+              return built.state;
+            },
+          });
+    if (source) connectors.push(source.connector);
+
+    built = createWagmiConfig(config.chains, { reconnectOnMount, ssr, connectors, persistKey: config.persistKey });
+    return { wagmiConfig: built, PrivyHost: source?.Host, privyDisconnect: source?.disconnect };
+  }, [config.chains, reconnectOnMount, ssr, walletConnectConfig, config.persistKey, privySource]);
 
   // Drop a non-object `initialState` so wagmi does not receive an invalid runtime value.
   let initialState = config.initialState;
@@ -54,8 +71,8 @@ export const EvmProvider = ({ children, config }: EvmProviderProps) => {
     <QueryClientProvider client={queryClientRef.current}>
       <WagmiProvider reconnectOnMount={reconnectOnMount} config={wagmiConfig} initialState={initialState}>
         <EvmHydrator />
-        <EvmActions />
-        {children}
+        <EvmActions onDisconnect={privyDisconnect} />
+        {PrivyHost ? <PrivyHost>{children}</PrivyHost> : children}
       </WagmiProvider>
     </QueryClientProvider>
   );

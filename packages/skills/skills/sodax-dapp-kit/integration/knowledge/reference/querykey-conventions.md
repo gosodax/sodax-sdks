@@ -70,6 +70,7 @@ queryClient.invalidateQueries({ queryKey: ['swap', 'allowance'] }); // wipe all 
 queryKey: ['mm', 'allowance', srcChainKey, token, action]
 queryKey: ['swap', 'allowance', srcChainKey, srcAddress, inputToken, inputAmount.toString()]
 queryKey: ['bridge', 'allowance', srcChainKey, srcAddress, srcToken, amount.toString()]
+queryKey: ['bridge', 'approvalStrategy', srcChainKey, srcAddress, srcToken, amount.toString(), allowAccountUpgrade] // useBridgeApprovalStrategy
 queryKey: ['bridge', 'detailedStatus', srcChainKey, srcTxHash]        // useBridgeDetailedStatus — apiConfig excluded
 queryKey: ['leverageYield', 'detailedStatus', srcChainKey, srcTxHash] // useLeverageYieldDetailedStatus — apiConfig excluded
 queryKey: ['dex', 'allowance', srcChainKey, asset, amount.toString()]
@@ -93,6 +94,7 @@ mutationKey: ['mm', 'supply']
 mutationKey: ['staking', 'stake']
 mutationKey: ['staking', 'approve', 'stake']                         // useStakeApprove (action discriminator inside the key)
 mutationKey: ['bridge']                                              // useBridge — single segment (no 'execute' suffix)
+mutationKey: ['bridge', 'bridgeWithApproval']                        // useBridgeWithApproval
 mutationKey: ['migrate', 'icxToSoda']
 mutationKey: ['dex', 'supplyLiquidity']
 mutationKey: ['shared', 'registerNearStorage']                       // useRegisterNearStorage
@@ -109,8 +111,11 @@ Skip if you're writing a feature hook for the first time and want to align with 
 | `['swap', 'quote', { ...payload, amount: payload.amount.toString() }]` | `useQuote` (object segment with bigint stringified) |
 | `['swap', 'allowance', srcChainKey, srcAddress, inputToken, inputAmount.toString()]` | `useSwapAllowance` |
 | `['swap', 'status', intentTxHash]` | `useStatus` |
+| `['swap', 'detailedStatus', srcChainKey, srcTxHash]` | `useDetailedStatus` |
+| `['swap', 'approvalStrategy', srcChainKey, srcAddress, inputToken, inputAmount.toString(), allowAccountUpgrade]` | `useSwapApprovalStrategy` |
 | `['swap']` | `useSwap` mutation key |
 | `['swap', 'approve']` | `useSwapApprove` |
+| `['swap', 'swapWithApproval']` | `useSwapWithApproval` |
 | `['swap', 'cancel']` | `useCancelSwap` |
 | `['swap', 'limitOrder', 'create']` | `useCreateLimitOrder` |
 | `['swap', 'limitOrder', 'cancel']` | `useCancelLimitOrder` |
@@ -180,6 +185,7 @@ Typed wrappers over `sodax.api.swaps.*` (one per Swaps API endpoint), all keyed 
 | `['swapsApi', 'submitTx', 'status', txHash, srcChainKey]` | `useSwapsApiSubmitTxStatus` — both identifiers required |
 | `['swapsApi', 'approve']` | `useSwapsApiApprove` mutation |
 | `['swapsApi', 'approveAndBroadcast']` | `useSwapsApiApproveAndBroadcast` mutation |
+| `['swapsApi', 'broadcastWithApproval']` | `useSwapsApiBroadcastWithApproval` mutation |
 | `['swapsApi', 'createIntent']` | `useSwapsApiCreateIntent` mutation |
 | `['swapsApi', 'submitIntent']` | `useSwapsApiSubmitIntent` mutation |
 | `['swapsApi', 'cancelIntent']` | `useSwapsApiCancelIntent` mutation |
@@ -258,6 +264,8 @@ Typed wrappers over `sodax.api.leverageYield.*` (one per Leverage Yield API endp
 | `['leverageYield', 'deposit']` | `useLeverageYieldDeposit` mutation |
 | `['leverageYield', 'withdraw']` | `useLeverageYieldWithdraw` mutation |
 | `['leverageYield', 'vaultSwap']` | `useLeverageYieldVaultSwap` mutation |
+| `['leverageYield', 'vaultSwapWithApproval']` | `useLeverageYieldVaultSwapWithApproval` mutation |
+| `['leverageYield', 'approvalStrategy', srcChainKey, srcAddress, inputToken, amount, hubWalletSwap, allowAccountUpgrade]` | `useLeverageYieldApprovalStrategy` |
 | `['leverageYield', 'notifySolver']` | `useLeverageYieldNotifySolver` mutation |
 
 ### Bridge / DEX / Migration / Bitcoin / etc.

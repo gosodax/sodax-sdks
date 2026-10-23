@@ -84,6 +84,27 @@ useSwapsApiSubmitTx({ mutationOptions });               // mutation → sodax.ap
 useSwapsApiSubmitTxStatus({ params, queryOptions });    // query    → sodax.api.swaps.getSubmitTxStatus
 ```
 
+**Approving and sending with a wallet.** `useSwapsApiApproveAndBroadcast` builds, signs and confirms the
+`/swaps/approve` plan, reset first when there is one. For an EVM source whose allowance is short,
+`useSwapsApiBroadcastWithApproval` sends the approval and the `/swaps/intents` tx as one EIP-5792 batch
+(one signature) when the wallet can. When it cannot, the hook rejects with an `isAtomicBatchRefusal` error
+and sends nothing: approve with `useSwapsApiApproveAndBroadcast`, create the intent again and sign that. It
+always approves, so check `useSwapsApiAllowance` first, and it stops at the broadcast: persist `txHash`,
+then submit it. Its errors, the unconfirmed-batch rule and `fallbackOnRefusal` are in
+[architecture.md](../architecture.md#approve-hooks-can-prompt-the-wallet-twice).
+
+```ts
+// @ai-snippets-skip
+const { mutateAsync: broadcastWithApproval } = useSwapsApiBroadcastWithApproval();
+const { txHash } = await broadcastWithApproval({
+  body,                    // the create-intent body
+  intentTx: created.tx,    // the unsigned tx /swaps/intents returned for it
+  walletProvider,          // the source chain's IEvmWalletProvider
+  onBatchSent: (batchId, callCount) => saveBatch(batchId, callCount), // persist before the wait
+});
+await submitSwapTx({ request: { txHash, ...submission } });
+```
+
 These hooks forward the body verbatim, so `partnerFee` has no default (SDK fee config does not
 apply). Put the same value on quote and create-intent:
 
@@ -357,7 +378,7 @@ if (isRegistered === false) {
 }
 ```
 
-For the common UI path, `useNearStorageGate` returns `{ isNear, needsRegistration, blocksAction, isChecking, isRegistering, registerStorage }`.
+For the common UI path, `useNearStorageGate` returns `{ isNear, needsRegistration, blocksAction, isChecking, checkFailed, retry, isRegistering, registerStorage }`. `blocksAction` stays `false` when the check errors, so read `checkFailed` too and offer `retry` rather than letting the action through: whether the recipient can receive is unknown until the check succeeds. `useSwapLifecycle` does this as the `nearStorageCheckFailed` setup reason.
 
 Derive UI gate flags with the unwrapped `resolveNearStorageGate` util (no hook) when you need custom check/register composition:
 
@@ -450,6 +471,7 @@ and origin gating are the real controls. Proxy through your own backend if that 
 | `useBackendOracleCandles` | none | `staleTime: 10s` — matches the ~10s server-side cache |
 | `useExpiredUtxos` (bitcoin) | 60s | refetchInterval |
 | `useQuote` (swap) | 3s | refetchInterval |
+| `useDetailedStatus` (swap) | 3s | stops on the answering source's terminal state, on a rejected API key, and after 40 consecutive ambiguous reads |
 | `useStatus` (swap) | 3s | stops on status `3`/`4`, and after 40 consecutive NOT_FOUND fetches |
 | `useSwapAllowance` (swap) | 2s | refetchInterval |
 | `useMMAllowance` (mm) | 5s | refetchInterval; `enabled: false` for borrow/withdraw actions |

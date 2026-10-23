@@ -25,7 +25,7 @@ export type XSignMessageVariables = {
  * ICON (Hana wallet exposes no signing API), NEAR and Stacks. A `console.warn`
  * accompanies each such call; there is no dedupe.
  *
- * @see {@link https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SIGN_MESSAGE.md | Sign Message}
+ * @see {@link https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SIGN_MESSAGE.md | Sign Message}
  */
 export function useXSignMessage(): UseMutationResult<SignMessageReturnType, Error, XSignMessageVariables, unknown> {
   const actionsRegistry = useXWalletStore(state => state.chainActions);

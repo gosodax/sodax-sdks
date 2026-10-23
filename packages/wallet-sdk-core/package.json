@@ -14,13 +14,13 @@
     "frontend",
     "interface"
   ],
-  "homepage": "https://github.com/icon-project/sodax-sdks/tree/main/packages/wallet-sdk-core",
+  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/wallet-sdk-core",
   "bugs": {
-    "url": "https://github.com/icon-project/sodax-sdks/issues"
+    "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/icon-project/sodax-sdks"
+    "url": "https://github.com/gosodax/sodax-sdks"
   },
   "type": "module",
   "main": "./dist/index.cjs",

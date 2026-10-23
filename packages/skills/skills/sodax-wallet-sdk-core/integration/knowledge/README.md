@@ -105,4 +105,4 @@ In a React dApp you usually consume this package **indirectly** — `useWalletPr
 ## Getting help
 
 - API surface lookup: [`reference/`](./reference/).
-- Bug or missing feature: [open an issue](https://github.com/icon-project/sodax-sdks/issues).
+- Bug or missing feature: [open an issue](https://github.com/gosodax/sodax-sdks/issues).

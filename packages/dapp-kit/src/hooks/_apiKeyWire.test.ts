@@ -381,6 +381,16 @@ const ROWS: Row[] = [
       return captured.mutationFn({ body: CREATE_INTENT_BODY, walletProvider: {}, apiConfig });
     },
   },
+  {
+    // Same shape: the approve request goes out before any wallet work, and its failed unwrap rejects.
+    hook: 'useSwapsApiBroadcastWithApproval',
+    path: '/swaps/approve',
+    method: 'POST',
+    run: apiConfig => {
+      swapsApi.useSwapsApiBroadcastWithApproval();
+      return captured.mutationFn({ body: CREATE_INTENT_BODY, intentTx: {}, walletProvider: {}, apiConfig });
+    },
+  },
   // bridgeApi read hooks
   {
     hook: 'useBridgeApiTokens',

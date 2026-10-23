@@ -245,8 +245,8 @@ const created = await sodax.api.swaps.createIntent({
 `checkAllowance` / `approve` accept the field via the shared body but ignore it. Use `amount`
 (decimal string) instead of `percentage` for a flat fee; if both are set the backend uses `amount`.
 
-Reference: [SWAPS_API.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md),
-[`@sodax/swaps-api` README](https://github.com/icon-project/sodax-sdks/blob/main/packages/swaps-api/README.md).
+Reference: [SWAPS_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS_API.md),
+[`@sodax/swaps-api` README](https://github.com/gosodax/sodax-sdks/blob/main/packages/swaps-api/README.md).
 
 ## Partner Fee Claiming
 

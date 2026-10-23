@@ -2,7 +2,7 @@
 
 The connect flow covers the full wallet lifecycle in `@sodax/wallet-sdk-react`: discover available connectors → connect to a wallet → read connected account state → disconnect. Every hook reads from the central Zustand store — no direct chain-SDK hook usage in user code.
 
-The canonical hook surface is exported from [`src/hooks/index.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/index.ts).
+The canonical hook surface is exported from [`src/hooks/index.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/index.ts).
 
 ## Table of contents
 
@@ -190,7 +190,7 @@ function DisconnectButton() {
 
 The callback delegates to `ChainActions.disconnect()`. If no actions are registered (chain not enabled in config), it logs a warning and resolves silently — no throw.
 
-Which layer clears the store differs by chain family. Non-provider chains clear it inside the action implementation: the default `disconnect` calls `unsetXConnection(xChainType)` in a `finally`, so the store clears even when the wallet's native disconnect throws (NEAR overrides `disconnect` with the same pattern). Solana and Sui actions only trigger the native adapter's disconnect and leave the write to their Hydrator. EVM is the exception to that single-writer rule — `EvmActions.disconnect` calls `unsetXConnection('EVM')` and `markUserDisconnected('EVM')` synchronously before awaiting wagmi's disconnect, so the UI stays consistent whether wagmi throws or hangs.
+Which layer clears the store differs by chain family. Non-provider chains clear it inside the action implementation: the default `disconnect` calls `unsetXConnection(xChainType)` in a `finally`, so the store clears even when the wallet's native disconnect throws (NEAR overrides `disconnect` with the same pattern). Solana and Sui actions only trigger the native adapter's disconnect and leave the write to their Hydrator. EVM is the exception to that single-writer rule — `EvmActions.disconnect` calls `unsetXConnection('EVM')` and `markUserDisconnected('EVM')` synchronously before awaiting wagmi's disconnect, so the UI stays consistent whether wagmi throws or hangs. It disconnects **every** wagmi connection, not only the current one: the SDK treats EVM as a single connection, so a wallet connected earlier in the session must not come back through a later connect without its own sign-in. Each wallet gets 10 s to confirm; one that stalls is logged and no longer awaited, so the returned promise always settles. wagmi drops a connection only once its disconnect finishes, though, so a wallet that stalls stays connected in wagmi and can come back on its next connect. With `EVM.privy` set, it also ends Privy when wagmi does not list it yet — a page-load restore still waiting on Privy — so that sign-out is never skipped.
 
 ---
 

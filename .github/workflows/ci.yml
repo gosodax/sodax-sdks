@@ -206,7 +206,7 @@ jobs:
         # Refresh the baseline from a known-good build (`pnpm --filter @sodax/sdk size:check`)
         # whenever a deliberate size increase lands; the tolerance is noise, not a growth budget.
         env:
-          SODAX_SDK_TARBALL_BASELINE_BYTES: '1000000' # measured 999087 B on the merge of main into this branch
+          SODAX_SDK_TARBALL_BASELINE_BYTES: '1050218' # measured 1050218 B on main at 0687be06
           SODAX_SDK_TARBALL_TOLERANCE_PCT: '5'
         run: pnpm --filter @sodax/sdk size:check
 
@@ -220,7 +220,7 @@ jobs:
 
       - name: Build Apps
         timeout-minutes: 10
-        run: pnpm turbo run build --filter='./apps/demo' --filter='./apps/example-next-js-16'
+        run: pnpm turbo run build --filter='./apps/demo' --filter='./apps/example-next-js-16' --filter='./apps/wallet-modal-example'
 
       - name: SDK features powered by @sodax/libs (Node smoke)
         run: pnpm --filter node test-libs

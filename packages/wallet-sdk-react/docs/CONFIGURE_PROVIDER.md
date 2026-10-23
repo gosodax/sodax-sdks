@@ -2,7 +2,7 @@
 
 Learn how to configure `<SodaxWalletProvider>` for your dApp. The provider is the root component for wallet connectivity — it mounts only the chain-type adapters you opt into, holds per-chain RPC + wallet defaults, and bridges to `@sodax/wallet-sdk-core` so SDK calls receive a typed wallet provider.
 
-The canonical TypeScript shape is [`SodaxWalletConfig`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/types/config.ts) in `@sodax/wallet-sdk-react`.
+The canonical TypeScript shape is [`SodaxWalletConfig`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/types/config.ts) in `@sodax/wallet-sdk-react`.
 
 ## Table of contents
 
@@ -12,9 +12,10 @@ The canonical TypeScript shape is [`SodaxWalletConfig`](https://github.com/icon-
 4. [Per-chain entries (`chains[ChainKey]`)](#per-chain-entries-chainschainkey)
 5. [Per-chain wallet defaults](#per-chain-wallet-defaults)
 6. [WalletConnect (EVM only)](#walletconnect-evm-only)
-7. [Config is captured once on mount](#config-is-captured-once-on-mount)
-8. [Single source of truth — `ChainMeta`](#single-source-of-truth--chainmeta)
-9. [Breaking changes from v1](#breaking-changes-from-v1)
+7. [Email login with Privy (EVM only)](#email-login-with-privy-evm-only)
+8. [Config is captured once on mount](#config-is-captured-once-on-mount)
+9. [Single source of truth — `ChainMeta`](#single-source-of-truth--chainmeta)
+10. [Breaking changes from v1](#breaking-changes-from-v1)
 
 ---
 
@@ -62,7 +63,7 @@ Top-level keys are `ChainType` strings — one slot per chain family. **Every sl
 
 | Key | Mounts | Adapter fields | Per-chain entries |
 |-----|--------|----------------|-------------------|
-| `EVM` | wagmi (13 EVM chains) | `ssr`, `reconnectOnMount`, `initialState`, `persistKey`, `walletConnect` | `{ rpcUrl?, defaults? }` per `EvmChainKey` |
+| `EVM` | wagmi (13 EVM chains) | `ssr`, `reconnectOnMount`, `initialState`, `persistKey`, `walletConnect`, `privy` | `{ rpcUrl?, defaults? }` per `EvmChainKey` |
 | `SOLANA` | `@solana/wallet-adapter-react` | `autoConnect` | `{ rpcUrl?, defaults? }` per `SolanaChainKey` |
 | `SUI` | `@mysten/dapp-kit-react` | `autoConnect`, `network` | `{ grpcUrl?, defaults? }` per `SuiChainKey` (`rpcUrl` is a deprecated alias) |
 | `ICON` | (no React adapter) | — | `{ rpcUrl?, defaults? }` per `IconChainKey` |
@@ -210,7 +211,7 @@ The `defaults` field on each chain entry forwards directly to `wallet-sdk-core`'
 | `BITCOIN` | `BitcoinWalletDefaults` — `defaultFinalize` |
 | `NEAR` | `NearWalletDefaults` — `throwOnFailure`, `waitUntil`, `gasDefault`, `depositDefault` |
 
-Defaults merge **shallowly** — top-level keys only. Nested objects (e.g. `sendTransaction: { gas, maxFeePerGas }`) are replaced wholesale, not deep-merged. See [`packages/sdk/docs/WALLET_PROVIDERS.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) for full per-chain config reference.
+Defaults merge **shallowly** — top-level keys only. Nested objects (e.g. `sendTransaction: { gas, maxFeePerGas }`) are replaced wholesale, not deep-merged. See [`packages/sdk/docs/WALLET_PROVIDERS.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) for full per-chain config reference.
 
 ---
 
@@ -251,6 +252,24 @@ If `projectId` is missing, the WalletConnect connector is silently skipped and a
 
 ---
 
+## Email login with Privy (EVM only)
+
+The `privy` field adds an "Email (Privy)" wallet: email one-time-code login and a Privy embedded wallet. Build its value with `privy()` from the `@sodax/wallet-sdk-react/privy` sub-path and install `@privy-io/react-auth` (an optional peer):
+
+```typescript
+import { privy } from '@sodax/wallet-sdk-react/privy';
+
+const config: SodaxWalletConfig = {
+  EVM: {
+    privy: privy({ appId: process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? '' }),
+  },
+};
+```
+
+The connector (id `privy`) joins the same EVM list as injected wallets and WalletConnect, and the SDK mounts `PrivyProvider` around your app. Without the field no Privy code is loaded. See [`WALLET_PRIVY.md`](./WALLET_PRIVY.md) — it covers custody, recovery and availability trade-offs to read before enabling it.
+
+---
+
 ## Config is captured once on mount
 
 `SodaxWalletProvider` freezes the `config` prop on the **first render** via `useRef`. Subsequent re-renders with a new reference have **no effect** on the underlying providers, store, or wagmi config:
@@ -280,7 +299,7 @@ This avoids subtle bugs where Zustand persistence, wagmi reconnect, and Hydrator
 
 ## Single source of truth — `ChainMeta`
 
-When adding a new chain type to the package, the only file you edit is [`ChainMeta`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/types/config.ts):
+When adding a new chain type to the package, the only file you edit is [`ChainMeta`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/types/config.ts):
 
 ```typescript
 export type ChainMeta = {
@@ -289,7 +308,7 @@ export type ChainMeta = {
 };
 ```
 
-`SodaxWalletConfig`, `ChainTypeConfig<T>`, `ChainEntry<K>`, `WalletDefaultsByKey<K>` all derive automatically from `ChainMeta`. See [`ADDING_A_NEW_CHAIN.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ADDING_A_NEW_CHAIN.md) for the full chain-onboarding workflow.
+`SodaxWalletConfig`, `ChainTypeConfig<T>`, `ChainEntry<K>`, `WalletDefaultsByKey<K>` all derive automatically from `ChainMeta`. See [`ADDING_A_NEW_CHAIN.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ADDING_A_NEW_CHAIN.md) for the full chain-onboarding workflow.
 
 ---
 
@@ -361,5 +380,5 @@ If a previous session connected a chain that is no longer in `config`, the persi
 - [Connect Flow](./CONNECT_FLOW.md) — discover connectors, connect, read account, disconnect
 - [Wallet Provider Bridge](./WALLET_PROVIDER_BRIDGE.md) — `useWalletProvider` → typed `IXxxWalletProvider` for SDK calls
 - [WalletConnect](./WALLETCONNECT.md) — enterprise/custody wallet setup (Fireblocks, etc.)
-- [Adding a New Chain](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ADDING_A_NEW_CHAIN.md) — `ChainMeta` extension and chain registry
-- [SDK Wallet Providers Reference](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) — per-chain `defaults` shape reference
+- [Adding a New Chain](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ADDING_A_NEW_CHAIN.md) — `ChainMeta` extension and chain registry
+- [SDK Wallet Providers Reference](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) — per-chain `defaults` shape reference

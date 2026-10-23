@@ -14,6 +14,8 @@ export type ReviewSnapshot = {
   srcToken: XToken;
   dstToken: XToken;
   estimatedSeconds: number | undefined;
+  /** Rebuilt from a stored record, which keeps no partner fee: it states a swap already sent and never signs one. */
+  restored?: true;
 };
 
 /**
@@ -65,5 +67,6 @@ export function reviewFromActivity(
     srcToken,
     dstToken,
     estimatedSeconds: estimate(srcToken, dstToken),
+    restored: true,
   };
 }

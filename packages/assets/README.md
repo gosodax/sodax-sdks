@@ -19,7 +19,7 @@ built from `CHAIN_LOGO_BASE_URL`, which points at this directory on the `main`
 branch via `raw.githubusercontent.com`:
 
 ```
-https://raw.githubusercontent.com/icon-project/sodax-sdks/main/packages/assets/chain/<chainKey>.png
+https://raw.githubusercontent.com/gosodax/sodax-sdks/main/packages/assets/chain/<chainKey>.png
 ```
 
 So adding a chain logo is two steps: drop `<chainKey>.png` here, and add the
@@ -46,7 +46,7 @@ lowercased with every run of non-alphanumeric characters collapsed to a single
 which points at this directory on the `main` branch via `raw.githubusercontent.com`:
 
 ```
-https://raw.githubusercontent.com/icon-project/sodax-sdks/main/packages/assets/token/<slug>.png
+https://raw.githubusercontent.com/gosodax/sodax-sdks/main/packages/assets/token/<slug>.png
 ```
 
 The `<slug>` is `tokenLogoSlug(symbol)` from `@sodax/types`. So adding a token

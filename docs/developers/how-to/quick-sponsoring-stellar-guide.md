@@ -27,13 +27,13 @@ Mainnet only. In swaps when destination is XLM account is has to be activated to
 - Never hardcode the sponsor account; read it from config.
 - A key in a browser bundle is public; see [API key good practices](/developers/how-to/api-key-good-practices).
 
-**Docs** — [SPONSORING.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SPONSORING.md) ·
-[STELLAR_TRUSTLINE.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md) ·
-[CONFIGURE_SDK.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md)
+**Docs** — [SPONSORING.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SPONSORING.md) ·
+[STELLAR_TRUSTLINE.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md) ·
+[CONFIGURE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md)
 
 **Examples**
-- [apps/demo/src/providers.tsx](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/src/providers.tsx) — sponsoring API URL + key setup: the `sponsoringApiConfig` object reads `VITE_SPONSORING_API_BASE_URL` / `VITE_SPONSORING_API_KEY`, omits each when unset (falls back to the packaged endpoint), and is passed as `api.sponsoringApiConfig` on the `Sodax` config below. Env placeholders in [apps/demo/example.env](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/example.env).
-- [apps/stellar-sponsor-example](https://github.com/icon-project/sodax-sdks/tree/main/apps/stellar-sponsor-example) — full journey + offline mock (`cp example.env .env`, `pnpm mock-sponsoring`, `pnpm dev`, Test lab → Run all)
-- [swaps/SwapCard.tsx](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/src/components/swaps/SwapCard.tsx) — swap gated on a Stellar destination; also [swaps-api/SwapCard.tsx](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/src/components/swaps-api/SwapCard.tsx), [LimitOrderCard.tsx](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/src/components/swaps/LimitOrderCard.tsx), [BridgeDialog.tsx](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/src/components/bridge/BridgeDialog.tsx)
-- [apps/node/src/stellar-sponsor.ts](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/stellar-sponsor.ts) — headless
+- [apps/demo/src/providers.tsx](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/providers.tsx) — sponsoring API URL + key setup: the `sponsoringApiConfig` object reads `VITE_SPONSORING_API_BASE_URL` / `VITE_SPONSORING_API_KEY`, omits each when unset (falls back to the packaged endpoint), and is passed as `api.sponsoringApiConfig` on the `Sodax` config below. Env placeholders in [apps/demo/example.env](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/example.env).
+- [apps/stellar-sponsor-example](https://github.com/gosodax/sodax-sdks/tree/main/apps/stellar-sponsor-example) — full journey + offline mock (`cp example.env .env`, `pnpm mock-sponsoring`, `pnpm dev`, Test lab → Run all)
+- [swaps/SwapCard.tsx](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/components/swaps/SwapCard.tsx) — swap gated on a Stellar destination; also [swaps-api/SwapCard.tsx](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/components/swaps-api/SwapCard.tsx), [LimitOrderCard.tsx](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/components/swaps/LimitOrderCard.tsx), [BridgeDialog.tsx](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/components/bridge/BridgeDialog.tsx)
+- [apps/node/src/stellar-sponsor.ts](https://github.com/gosodax/sodax-sdks/blob/main/apps/node/src/stellar-sponsor.ts) — headless
 - AI skill: `packages/skills/skills/sodax-sdk/sponsoring/SKILL.md`

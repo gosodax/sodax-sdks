@@ -340,10 +340,10 @@ export class SpokeService {
           plan.resetAmount === undefined
             ? undefined
             : ((await encode(plan.resetAmount)) satisfies TxReturnType<EvmChainKey, true> as TxReturnType<K, true>);
-        const approveTx = (await encode(plan.approveAmount)) satisfies TxReturnType<
-          EvmChainKey,
+        const approveTx = (await encode(plan.approveAmount)) satisfies TxReturnType<EvmChainKey, true> as TxReturnType<
+          K,
           true
-        > as TxReturnType<K, true>;
+        >;
 
         return { ok: true, value: resetTx === undefined ? { approveTx } : { resetTx, approveTx } };
       }
@@ -374,9 +374,9 @@ export class SpokeService {
    * Sign and broadcast the approval plan for an ERC-20 on the hub or an EVM spoke.
    *
    * A token of the TetherToken lineage rejects an allowance change from one non-zero value to
-   * another, so a wallet holding a stale allowance needs `approve(0)` first. The transactions cannot
-   * be batched: each one is only valid once its predecessor has been mined. The hash of the last is
-   * returned, so the contract callers see is unchanged.
+   * another, so a wallet holding a stale allowance needs `approve(0)` first. Sent as separate
+   * transactions, each is only valid once its predecessor has been mined, so this waits between them
+   * (an EIP-5792 atomic batch can carry both, in order). The hash of the last is returned.
    */
   private async executeErc20ApprovalPlan<Raw extends boolean>(
     params: SpokeApproveParamsHub<HubChainKey, Raw> | SpokeApproveParamsEvmSpoke<EvmSpokeOnlyChainKey, Raw>,
@@ -472,9 +472,7 @@ export class SpokeService {
     plan: Erc20ApprovalPlan,
   ): void {
     const isNoteworthy =
-      plan.resetAmount !== undefined ||
-      plan.reason === 'reset-not-viable' ||
-      plan.reason === 'allowance-read-failed';
+      plan.resetAmount !== undefined || plan.reason === 'reset-not-viable' || plan.reason === 'allowance-read-failed';
     if (!isNoteworthy) {
       return;
     }

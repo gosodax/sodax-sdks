@@ -10,7 +10,7 @@ The trade-off is the one-time setup (sign in + fund) and a custody disclosure to
 
 The transaction-signing partner is [**Bound Exchange**](https://bound.exchange) (formerly Radfi). SDK hook and config names still use the `Radfi*` prefix for API-compatibility (`useRadfiSession`, `useRadfiWithdraw`, `radfi.apiUrl`, etc.), but the live endpoints now resolve to Bound's own hosts. For the rest of this guide, "the partner" refers to Bound Exchange.
 
-For the generic intent flow, see [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) and [BRIDGE.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE.md). This guide only covers Bitcoin-specific differences.
+For the generic intent flow, see [SWAPS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) and [BRIDGE.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE.md). This guide only covers Bitcoin-specific differences.
 
 > **IMPORTANT — Before you start**
 >
@@ -375,7 +375,7 @@ if (expiredUtxos?.length) {
 
 ### Reference Implementation
 
-A complete working example is in [`apps/demo/src/components/swaps/SwapCard.tsx`](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/src/components/swaps/SwapCard.tsx) — it composes the readiness gate, applies the three intent-param overrides, and gates the swap button. The demo's default dev script binds port 3000 (`pnpm dev:demo`); for end-to-end Bitcoin testing against the partner API, start it on the whitelisted port instead — e.g. `pnpm --filter sodax-demo-v2 exec vite --port 1993 --host` (see the IMPORTANT note at the top of this guide).
+A complete working example is in [`apps/demo/src/components/swaps/SwapCard.tsx`](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/components/swaps/SwapCard.tsx) — it composes the readiness gate, applies the three intent-param overrides, and gates the swap button. The demo's default dev script binds port 3000 (`pnpm dev:demo`); for end-to-end Bitcoin testing against the partner API, start it on the whitelisted port instead — e.g. `pnpm --filter sodax-demo-v2 exec vite --port 1993 --host` (see the IMPORTANT note at the top of this guide).
 
 
 ---

@@ -15,13 +15,13 @@
     "valibot",
     "multichain"
   ],
-  "homepage": "https://github.com/icon-project/sodax-sdks/tree/main/packages/swaps-api",
+  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/swaps-api",
   "bugs": {
-    "url": "https://github.com/icon-project/sodax-sdks/issues"
+    "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/icon-project/sodax-sdks"
+    "url": "https://github.com/gosodax/sodax-sdks"
   },
   "type": "module",
   "main": "./dist/index.cjs",

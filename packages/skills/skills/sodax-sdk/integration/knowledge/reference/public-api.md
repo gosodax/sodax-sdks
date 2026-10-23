@@ -103,6 +103,35 @@ import {
   type INearWalletProvider,
   type IBitcoinWalletProvider,
 
+  // Approve + swap in one signature (see features/swap.md)
+  type SwapApprovalStrategy,     // 'not-required' | 'atomic-batch' | 'sequential'
+  type SwapWithApprovalParams,
+  type SwapWithApprovalResponse,
+  type SwapWithApprovalErrorCode,
+  type ApprovalStrategyErrorCode,
+  ATOMIC_BATCH_UNCONFIRMED,      // context.reason: the batch may still land; resume it with resumeBatchId, never resend
+  ACCOUNT_UPGRADE_DECLINED,      // context.reason: retry with allowAccountUpgrade: false
+
+  // Approval batch helpers, for flows that build their own deposit (see features/swaps-api.md)
+  type ApprovalStrategy,
+  type ApprovalOptions,
+  type ApprovalBatchErrorCode,
+  type ApprovalBatchResult,
+  resolveApprovalStrategy,       // 'atomic-batch' | 'sequential'; never fails
+  sendApprovalBatch,             // [reset?, approve, deposit] as one EIP-5792 batch
+  confirmApprovalBatch,          // resume a batch that came back unconfirmed
+  isAtomicBatchRefusal,          // the one batch failure that may fall back to separate txs
+  ATOMIC_BATCH_REFUSED,          // context.reason of that refusal
+  type ApprovalStrategyError,
+
+  // Approve + bridge / vault deposit in one signature (see features/bridge.md, features/leverage-yield.md)
+  type BridgeWithApprovalParams,
+  type BridgeWithApprovalResponse,
+  type BridgeWithApprovalErrorCode,
+  type VaultSwapWithApprovalParams,
+  type VaultSwapWithApprovalResponse,
+  type VaultSwapWithApprovalErrorCode,
+
   // Param types (per feature)
   type CreateIntentParams,
   type CreateLimitOrderParams,
@@ -218,7 +247,7 @@ This is a partial list — see `src/index.ts` of the published tarball for the a
 - **Import only from `@sodax/sdk` root.** No deep imports from `dist/...`.
 - **Do not depend on `@sodax/types` separately.** It's a transitive of `@sodax/sdk` (force-bundled via tsup `noExternal`); declaring it as a direct dependency invites version skew.
 - **Stable contract:** every export above is part of the public API. Anything not exported from the root barrel is internal — don't reach for it via `dist` paths.
-- **Tarball contents:** `dist/` (compiled JS + types). Nothing else ships. Consumer-facing AI docs (this tree) are shipped separately via [`@sodax/skills`](https://github.com/icon-project/sodax-sdks/tree/main/packages/skills).
+- **Tarball contents:** `dist/` (compiled JS + types). Nothing else ships. Consumer-facing AI docs (this tree) are shipped separately via [`@sodax/skills`](https://github.com/gosodax/sodax-sdks/tree/main/packages/skills).
 
 ---
 

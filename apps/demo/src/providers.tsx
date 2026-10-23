@@ -1,7 +1,7 @@
 import React, { useMemo, type ReactNode } from 'react';
 
 import { QueryClientProvider } from '@tanstack/react-query';
-import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
+import { type PrivySource, SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
 import {
   SodaxProvider,
   createSodaxQueryClient,
@@ -52,7 +52,7 @@ const configMap: Record<SolverEnv, SolverConfig> = {
   [SolverEnv.Staging]: stagingSolverConfig,
 };
 
-export default function Providers({ children }: { children: ReactNode }) {
+export default function Providers({ children, privy }: { children: ReactNode; privy?: PrivySource }) {
   const { solverEnvironment, sodaxSettings } = useAppStore();
 
   const walletConfig = useMemo((): SodaxWalletConfig => {
@@ -67,6 +67,7 @@ export default function Providers({ children }: { children: ReactNode }) {
         ssr: true,
         reconnectOnMount: true,
         walletConnect,
+        privy,
         chains: {
           [ChainKeys.SONIC_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.SONIC_MAINNET] },
           [ChainKeys.AVALANCHE_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.AVALANCHE_MAINNET] },
@@ -117,7 +118,7 @@ export default function Providers({ children }: { children: ReactNode }) {
       },
       STACKS: { chains: { [ChainKeys.STACKS_MAINNET]: 'mainnet' } },
     };
-  }, []);
+  }, [privy]);
 
   // Effective config = "Sodax Settings" override > VITE_ env default > env solver config /
   // SDK packaged default. Overrides come from the header modal (lib/sodaxSettings).

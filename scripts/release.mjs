@@ -141,7 +141,7 @@ export const parseRemoteRepo = remote => {
   const trimmed = String(remote)
     .trim()
     .replace(/\.git$/, '');
-  return trimmed.match(/(?:github\.com[/:])([^/]+\/[^/]+)$/)?.[1] ?? 'icon-project/sodax-sdks';
+  return trimmed.match(/(?:github\.com[/:])([^/]+\/[^/]+)$/)?.[1] ?? 'gosodax/sodax-sdks';
 };
 
 export const parseLog = output =>
