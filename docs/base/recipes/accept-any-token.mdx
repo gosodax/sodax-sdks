@@ -123,7 +123,7 @@ SODAX is mainnet only, so test with small amounts. See [Is SODAX on Testnet?](/d
   </Step>
 
   <Step title="Confirm settlement on Base">
-    A successful `swap()` means the intent was created, relayed, and handed to a solver, not that it filled. Poll `getStatus` until `SolverIntentStatusCode.SOLVED`, which is the only signal the Base asset has landed at `dstAddress`.
+    A successful `swap()` means the intent was created, relayed, and handed to a solver, not that it filled. Poll `getStatus` until `SolverIntentStatusCode.SOLVED`, which is the only signal the Base asset has landed at `dstAddress`. `getStatus` is a one-shot read, so bound the poll yourself and stop on `FAILED`.
 
     ```typescript
     import { SolverIntentStatusCode } from '@sodax/sdk';
@@ -132,12 +132,18 @@ SODAX is mainnet only, so test with small amounts. See [Is SODAX on Testnet?](/d
     const isHex = (v: string): v is `0x${string}` => v.startsWith('0x');
     if (!isHex(hubTxHash)) throw new Error('Unexpected hub transaction hash');
 
-    for (;;) {
+    const pollUntil = Date.now() + 10 * 60_000; // your settlement budget
+    let settled = false;
+    while (!settled && Date.now() < pollUntil) {
       const status = await sodax.swaps.getStatus({ intent_tx_hash: hubTxHash });
-      if (status.ok && status.value.status === SolverIntentStatusCode.SOLVED) break;
-      await new Promise((r) => setTimeout(r, 2_000));
+      if (status.ok && status.value.status === SolverIntentStatusCode.FAILED) break;
+      settled = status.ok && status.value.status === SolverIntentStatusCode.SOLVED;
+      if (!settled) await new Promise((r) => setTimeout(r, 2_000));
     }
+    if (!settled) throw new Error('Intent did not settle; offer the payer a cancel to recover funds');
     ```
+
+    An intent that fails or never fills keeps the payer's input locked until it is cancelled. Surface that to the payer and recover the funds with `sodax.swaps.cancelIntent`; see [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps).
   </Step>
 </Steps>
 

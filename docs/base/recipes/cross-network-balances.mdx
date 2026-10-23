@@ -25,7 +25,7 @@ A portfolio view that reads balances across every network a user has connected, 
 
 <Steps>
   <Step title="Read balances across every connected network">
-    Each call reads one network, and the SDK batches the token reads where the chain allows it (EVM multicall3, and the equivalents on other chains). Run one call per network in parallel so one slow or broken RPC does not hide the rest.
+    Each call reads one network, and the SDK batches the token reads where the chain allows it (EVM multicall3, and the equivalents on other chains). Run one call per network in parallel so one broken RPC does not hide the rest. The token list is each network's swap-supported tokens, the holdings a user can route onto Base.
 
     ```typescript
     import { Sodax, ChainKeys } from '@sodax/sdk';
@@ -34,7 +34,6 @@ A portfolio view that reads balances across every network a user has connected, 
     const sodax = new Sodax();
 
     async function readPortfolio(wallets: { chainKey: SpokeChainKey; address: string }[]) {
-      await sodax.initialize();
       return Promise.all(
         wallets.map(async ({ chainKey, address }) => {
           const tokens = sodax.swaps.getSupportedSwapTokensByChainId(chainKey);
@@ -46,6 +45,8 @@ A portfolio view that reads balances across every network a user has connected, 
     ```
 
     Each result is a map keyed by `token.address`; a failed network comes back as `null`. Balances are `bigint` in the token's smallest unit, so divide by `10 ** token.decimals` to display them. Look tokens up by address, not symbol, because two tokens can share a symbol.
+
+    `Promise.all` resolves only once every network has answered, so a stalled RPC delays the whole view. To show healthy networks first, render each result as it settles, as the React hook below does.
   </Step>
 
   <Step title="Or read them in React with useBalances">
@@ -54,6 +55,14 @@ A portfolio view that reads balances across every network a user has connected, 
     ```tsx
     import { useBalances } from '@sodax/dapp-kit';
     import type { SpokeChainKey, XToken } from '@sodax/sdk';
+
+    // Scale a smallest-unit bigint by the token's decimals without losing precision.
+    const formatAmount = (value: bigint, decimals: number): string => {
+      const digits = value.toString().padStart(decimals + 1, '0');
+      const whole = digits.slice(0, digits.length - decimals);
+      const fraction = digits.slice(digits.length - decimals).replace(/0+$/, '');
+      return fraction ? `${whole}.${fraction}` : whole;
+    };
 
     function NetworkBalances({ chainKey, address, tokens }: {
       chainKey: SpokeChainKey | undefined;
@@ -69,7 +78,7 @@ A portfolio view that reads balances across every network a user has connected, 
         <ul>
           {tokens.map((token) => (
             <li key={token.address}>
-              {token.symbol}: {(balances?.[token.address] ?? 0n).toString()}
+              {token.symbol}: {formatAmount(balances?.[token.address] ?? 0n, token.decimals)}
             </li>
           ))}
         </ul>

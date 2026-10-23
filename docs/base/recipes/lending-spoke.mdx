@@ -99,13 +99,17 @@ SODAX is mainnet only, so test with small amounts. See [Is SODAX on Testnet?](/d
     `sodax.moneyMarket.data` gives you rates, positions, and health without extra indexing.
 
     ```typescript
-    const reserves = await sodax.moneyMarket.data.getUserReservesHumanized(
-      ChainKeys.BASE_MAINNET,
-      userBaseAddress,
+    const { data } = sodax.moneyMarket;
+    const reserves = await data.getReservesHumanized();
+    const userReserves = await data.getUserReservesHumanized(ChainKeys.BASE_MAINNET, userBaseAddress);
+
+    const formattedReserves = data.formatReservesUSD(data.buildReserveDataWithPrice(reserves));
+    const summary = data.formatUserSummary(
+      data.buildUserSummaryRequest(reserves, formattedReserves, userReserves),
     );
     ```
 
-    Pair it with `getReservesHumanized()` for all reserves, and `formatReservesUSD(request)` or `formatUserSummary(request)` for USD-converted reserves and portfolio summaries.
+    `formattedReserves` carries USD-converted rates per reserve, and `summary` the user's totals and health factor.
   </Step>
 </Steps>
 
