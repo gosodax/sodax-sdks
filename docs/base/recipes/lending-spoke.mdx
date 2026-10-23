@@ -1,0 +1,120 @@
+---
+title: "Use Base as a lending spoke"
+sidebarTitle: "Lending spoke"
+description: "Supply collateral from Base and borrow liquidity delivered to another network, or into Base against collateral held elsewhere, through the SODAX money market. No lending infrastructure to run."
+icon: sack-dollar
+---
+
+Use this recipe when your Base app wants to offer lending and borrowing without running its own money market. SODAX pools lending liquidity on the hub and lets a user act from any supported network. A user can supply collateral from Base and borrow liquidity delivered to another network, or borrow into their Base account against collateral they hold elsewhere. Your app stays pure TypeScript on Base; the hub holds the pool and solvers settle each leg.
+
+## What you will build
+
+A position flow that supplies USDC collateral from Base, then borrows against it with the borrowed asset delivered to another network, and finally reads the user's position back so you can render a health factor. The source network stays Base throughout; only the delivery target changes.
+
+<Info>
+  The money market list on Base is its own list, separate from the swap list: a token can appear in one and not the other. Read it with `sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.BASE_MAINNET)` and see [Networks & Assets](/base/networks-and-assets).
+</Info>
+
+## Prerequisites
+
+- `@sodax/sdk` installed, plus a wallet provider from `@sodax/wallet-sdk-core` or `@sodax/wallet-sdk-react`.
+- A Base wallet funded with ETH for gas.
+- A SODAX API key kept on your server. See [API keys](/developers/how-to/api-keys).
+
+SODAX is mainnet only, so test with small amounts. See [Is SODAX on Testnet?](/developers/how-to/testnet).
+
+## Steps
+
+<Steps>
+  <Step title="Supply collateral from Base">
+    Supplying an ERC-20 needs an allowance first, the same as any EVM network. Native ETH needs none. The action is keyed by `srcChainKey: ChainKeys.BASE_MAINNET`.
+
+    ```typescript
+    import { Sodax, ChainKeys } from '@sodax/sdk';
+    import type { XToken } from '@sodax/sdk';
+    import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+
+    const sodax = new Sodax();
+
+    const bySymbol = (tokens: readonly XToken[], symbol: string): XToken => {
+      const token = tokens.find((t) => t.symbol === symbol);
+      if (!token) throw new Error(`${symbol} is not a supported money-market token on this network`);
+      return token;
+    };
+
+    const baseTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.BASE_MAINNET);
+    const usdc = bySymbol(baseTokens, 'USDC');
+
+    const supplyParams = {
+      srcChainKey: ChainKeys.BASE_MAINNET,
+      srcAddress: userBaseAddress,
+      token: usdc.address,
+      amount: 100n * 10n ** BigInt(usdc.decimals), // 100 USDC
+      action: 'supply',
+    } as const;
+
+    const allowance = await sodax.moneyMarket.isAllowanceValid({ params: supplyParams });
+    if (!allowance.ok) throw allowance.error;
+    if (!allowance.value) {
+      const approval = await sodax.moneyMarket.approve({ params: supplyParams, walletProvider });
+      if (!approval.ok) throw approval.error;
+      // wait for the approval to be mined before supplying
+    }
+
+    const supplied = await sodax.moneyMarket.supply({
+      params: supplyParams,
+      walletProvider, // IEvmWalletProvider, narrowed by srcChainKey
+      timeout: 120_000,
+    });
+    if (!supplied.ok) throw supplied.error;
+    ```
+  </Step>
+
+  <Step title="Borrow against it, delivered to another network">
+    This is the cross-network story in one parameter. The caller still acts from Base (`srcChainKey`), but `dstChainKey` and `dstAddress` decide where the borrowed liquidity lands. Take `token` from the destination network's money market list and build the amount from that token's own `decimals`.
+
+    ```typescript
+    const arbTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.ARBITRUM_MAINNET);
+    const bnUSD = bySymbol(arbTokens, 'bnUSD');
+
+    const borrowed = await sodax.moneyMarket.borrow({
+      params: {
+        srcChainKey: ChainKeys.BASE_MAINNET,   // the caller acts from Base
+        srcAddress: userBaseAddress,
+        token: bnUSD.address,                   // token on the destination network
+        amount: 50n * 10n ** BigInt(bnUSD.decimals), // 50 bnUSD
+        action: 'borrow',
+        dstChainKey: ChainKeys.ARBITRUM_MAINNET, // deliver on Arbitrum
+        dstAddress: userBaseAddress,
+      },
+      walletProvider,
+    });
+    if (!borrowed.ok) throw borrowed.error;
+    ```
+
+    To borrow into Base instead, against collateral held elsewhere, swap the roles: set `dstChainKey` to `ChainKeys.BASE_MAINNET` and take `token` from the Base list. `withdraw` and `repay` follow the same shape; withdraw and borrow need no approval, while repaying an ERC-20 needs an allowance like supply.
+  </Step>
+
+  <Step title="Read the position to drive a health-factor UI">
+    `sodax.moneyMarket.data` gives you rates, positions, and health without extra indexing.
+
+    ```typescript
+    const reserves = await sodax.moneyMarket.data.getUserReservesHumanized(
+      ChainKeys.BASE_MAINNET,
+      userBaseAddress,
+    );
+    ```
+
+    Pair it with `getReservesHumanized()` for all reserves, and `formatReservesUSD(request)` or `formatUserSummary(request)` for USD-converted reserves and portfolio summaries.
+  </Step>
+</Steps>
+
+## Error handling
+
+Each money-market method returns a typed result. Discriminate on `result.error.code` (`'RELAY_TIMEOUT'`, `'EXECUTION_FAILED'`, and the rest), with structured context on `result.error.context`. A borrow that fails validation usually means the collateral does not support the requested amount; read the position back before retrying.
+
+## Next steps
+
+- [Money Market on Base](/base/money-market): supply, borrow, repay, and withdraw in depth.
+- [Networks & Assets](/base/networks-and-assets): the live money-market list on Base.
+- Full API reference: [Lend / Borrow (Money Market)](/developers/packages/foundation/sdk/functional-modules/money_market).

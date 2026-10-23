@@ -1,0 +1,99 @@
+---
+title: "Show balances across networks in a Base app"
+sidebarTitle: "Cross-network balances"
+description: "Read a user's own token balances across every network they hold, present them in a Base app, and route a chosen holding into a Base asset. One chain-agnostic call per network, batched where the chain allows it."
+icon: wallet
+---
+
+Use this recipe when your app lives on Base but your users hold assets spread across networks. Before they can act, they need to see what they have everywhere, not just on Base. SODAX reads a user's own wallet with the same call on every network it supports, so a Base app can show a full cross-network portfolio and then route any holding into a Base asset without leaving your stack.
+
+## What you will build
+
+A portfolio view that reads balances across every network a user has connected, then offers to move a chosen holding into USDC on Base. The read side works from `@sodax/sdk` directly or from the `useBalances` hook in `@sodax/dapp-kit`; the move reuses the cross-network swap from [Accept any token](/base/recipes/accept-any-token).
+
+<Info>
+  `getWalletBalances` reads the user's own wallet, not the protocol. It is available from `@sodax/sdk` and `@sodax/dapp-kit` 2.2.0.
+</Info>
+
+## Prerequisites
+
+- `@sodax/sdk` installed, plus `@sodax/dapp-kit` and a `SodaxProvider` if you use the React hook.
+- The networks and addresses the user has connected.
+- A SODAX API key kept on your server. See [API keys](/developers/how-to/api-keys).
+
+## Steps
+
+<Steps>
+  <Step title="Read balances across every connected network">
+    Each call reads one network, and the SDK batches the token reads where the chain allows it (EVM multicall3, and the equivalents on other chains). Run one call per network in parallel so one slow or broken RPC does not hide the rest.
+
+    ```typescript
+    import { Sodax, ChainKeys } from '@sodax/sdk';
+    import type { SpokeChainKey } from '@sodax/sdk';
+
+    const sodax = new Sodax();
+
+    async function readPortfolio(wallets: { chainKey: SpokeChainKey; address: string }[]) {
+      await sodax.initialize();
+      return Promise.all(
+        wallets.map(async ({ chainKey, address }) => {
+          const tokens = sodax.swaps.getSupportedSwapTokensByChainId(chainKey);
+          const result = await sodax.spoke.getWalletBalances({ srcChainKey: chainKey, srcAddress: address, tokens });
+          return { chainKey, balances: result.ok ? result.value : null };
+        }),
+      );
+    }
+    ```
+
+    Each result is a map keyed by `token.address`; a failed network comes back as `null`. Balances are `bigint` in the token's smallest unit, so divide by `10 ** token.decimals` to display them. Look tokens up by address, not symbol, because two tokens can share a symbol.
+  </Step>
+
+  <Step title="Or read them in React with useBalances">
+    `useBalances` wraps `getWalletBalances` in a React Query hook that only needs a `SodaxProvider`. Mount one per network and render each as it arrives.
+
+    ```tsx
+    import { useBalances } from '@sodax/dapp-kit';
+    import type { SpokeChainKey, XToken } from '@sodax/sdk';
+
+    function NetworkBalances({ chainKey, address, tokens }: {
+      chainKey: SpokeChainKey | undefined;
+      address: string | undefined;
+      tokens: readonly XToken[];
+    }) {
+      const { data: balances, isLoading, error } = useBalances({ params: { chainKey, address, tokens } });
+
+      if (isLoading) return <p>Loading balances…</p>;
+      if (error) return <p>Could not read balances.</p>;
+
+      return (
+        <ul>
+          {tokens.map((token) => (
+            <li key={token.address}>
+              {token.symbol}: {(balances?.[token.address] ?? 0n).toString()}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    ```
+
+    The hook stays idle until `chainKey` and `address` are set and `tokens` is not empty, so you can mount it before the user picks a network.
+  </Step>
+
+  <Step title="Route a chosen holding into Base">
+    Once the user picks a holding to bring onto Base, hand it to a cross-network swap: the source is the network and token they chose, the destination is Base. The full quote, approve, execute, and status-poll flow is in [Accept any token, settle on Base](/base/recipes/accept-any-token); set `srcChainKey` and `inputToken` from the selected balance and `dstChainKey` to `ChainKeys.BASE_MAINNET`.
+  </Step>
+</Steps>
+
+## How failures are reported
+
+- **One token fails:** it is logged and reported as `0n`, so the other balances still come back. A failed read and an empty wallet look the same on purpose: showing too little blocks a spend, never allows one.
+- **The whole batch fails:** the `Result` is `ok: false` (the hook's `error` is set), for an invalid chain key or a dead RPC, so a broken network never shows as an empty wallet.
+
+Keep the chain key and the token list in step: every read uses `token.address` on `srcChainKey` and ignores the token's own chain, so a token list from another network reads wrong. `getSupportedSwapTokensByChainId(chainKey)` keeps them aligned.
+
+## Next steps
+
+- [Read wallet balances](/developers/how-to/wallet-balances): the full balances guide, including per-chain notes.
+- [Accept any token, settle on Base](/base/recipes/accept-any-token): the swap that moves a holding onto Base.
+- [dapp-kit package](/developers/packages/experience/dapp-kit): the React hook layer.
