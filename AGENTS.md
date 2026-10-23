@@ -133,7 +133,7 @@ These guide every change. Where a rule maps to tooling (types, lint, tests, `che
 
 To review a change against these rules, use the `review-core-sdk` skill (`.claude/skills/review-core-sdk/`).
 
-To cut a release, follow [`packages/RELEASE_INSTRUCTIONS.md`](packages/RELEASE_INSTRUCTIONS.md). `pnpm release` prompts for the version and applies it; committing, tagging, and publishing stay human steps. For curated stable-release notes, use the `changelog-from-prs` skill (`.claude/skills/changelog-from-prs/`).
+To cut a release, follow [`packages/RELEASE_INSTRUCTIONS.md`](packages/RELEASE_INSTRUCTIONS.md). `pnpm release` prompts for the version and applies it; committing, tagging, and publishing stay human steps. Publishing is npm OIDC-only: a package newly added to `sdks-publish.yml` needs a maintainer to configure its npm trusted publisher (`gosodax/sodax-sdks`, `sdks-publish.yml`, environment `npm-publish`) on npmjs.com before its first release, or publish fails. For curated stable-release notes, use the `changelog-from-prs` skill (`.claude/skills/changelog-from-prs/`).
 
 ## AI File Maintenance
 

@@ -175,8 +175,8 @@ jobs:
         env:
           RELEASE: ${{ needs.verify.outputs.release }}
 
-      # npm >= 11.5.1 uses trusted publishing (OIDC) when it is configured for the package and falls
-      # back to NODE_AUTH_TOKEN otherwise. Already-published versions are skipped so a re-run resumes.
+      # Trusted publishing (OIDC, npm >= 11.5.1) only: each package's npm trusted publisher must name this
+      # repo, this workflow file and the npm-publish environment. Already-published versions are skipped.
       - name: Publish packages in topological order
         working-directory: tarballs
         run: |
@@ -193,4 +193,3 @@ jobs:
         env:
           RELEASE: ${{ needs.verify.outputs.release }}
           VERSION: ${{ needs.verify.outputs.version }}
-          NODE_AUTH_TOKEN: ${{ secrets.SODAX_SDKS_NPM_PUBLISH_TOKEN }}
