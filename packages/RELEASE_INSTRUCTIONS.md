@@ -100,9 +100,9 @@ number that would collide with another release.
 ## Republishing a single package
 
 Pushing the tag `@sodax/<pkg>@<version>` runs the same workflow for that one package, with the same
-checks. It is the way to ship a backport, since the unified flow only moves forward. Prefer the
-unified `@sdks@*` flow for normal releases so packages stay version-aligned.
+checks. Prefer the unified `@sdks@*` flow for normal releases so packages stay version-aligned.
 
-A stable backport behind the package's current `latest` is published under `backport-X.Y` (for
-example `2.1.1` under `backport-2.1` while `latest` is `2.2.0`), so it never becomes the default
-install. Consumers on that line install it with `npm i @sodax/<pkg>@backport-2.1`.
+**A release never moves `latest` backwards.** The workflow refuses a stable version lower than the
+package's current `latest` on npm (for example `@sodax/sdk@2.1.1` while `latest` is `2.2.0`) before
+anything is published, naming the package, the version and the current `latest`. A stable backport to
+an older line therefore cannot be published through CI; ship the fix forward on the current line.
