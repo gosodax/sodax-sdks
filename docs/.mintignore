@@ -7,6 +7,3 @@ AGENTS.md
 
 # Contributor workflow, not product documentation.
 local-package-testing.md
-
-# Internal skeleton for producing per-ecosystem recipes, not a site page.
-base/recipes/_recipe-template.mdx

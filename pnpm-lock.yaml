@@ -503,6 +503,37 @@ importers:
         specifier: 'catalog:'
         version: 4.1.11(@types/node@22.18.1)(@vitest/coverage-v8@4.1.11)(happy-dom@20.9.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@7.3.6(@types/node@22.18.1)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.50.0)(tsx@4.22.3)(yaml@2.9.0))
 
+  apps/recipes:
+    dependencies:
+      '@sodax/dapp-kit':
+        specifier: workspace:*
+        version: link:../../packages/dapp-kit
+      '@sodax/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      '@sodax/wallet-sdk-core':
+        specifier: workspace:*
+        version: link:../../packages/wallet-sdk-core
+      '@tanstack/react-query':
+        specifier: 5.87.4
+        version: 5.87.4(react@19.1.1)
+      react:
+        specifier: 'catalog:'
+        version: 19.1.1
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 22.18.1
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.0.8
+      typescript:
+        specifier: 'catalog:'
+        version: 5.5.4
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@types/node@22.18.1)(@vitest/coverage-v8@4.1.11)(happy-dom@20.9.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))(vite@7.3.6(@types/node@22.18.1)(jiti@2.7.0)(lightningcss@1.32.0)(terser@5.50.0)(tsx@4.22.3)(yaml@2.9.0))
+
   apps/stellar-sponsor-example:
     dependencies:
       '@sodax/dapp-kit':
@@ -10207,6 +10238,7 @@ packages:
   starknet@8.9.2:
     resolution: {integrity: sha512-+dp+o2w67fV6JyVOVkYeM1Ec71aORHc/JrF4VHLlfeGee0nLilooCQLE2u6hUcSGQG2x2/fvzkxYpIN+k1JBvA==}
     engines: {node: '>=22'}
+    deprecated: starknet <10 is end-of-life and no longer receives security fixes. Upgrade to starknet@10 (10.8.0 or later).
 
   statuses@1.5.0:
     resolution: {integrity: sha512-OpZ3zP+jT1PI7I8nemJX4AKmAX070ZkYPVWV/AaKTJl+tXCTGyVdC1a4SL8RUQYEwk/f34ZX8UTykN68FwrqAA==}
@@ -27012,8 +27044,8 @@ snapshots:
 
   tinyglobby@0.2.17:
     dependencies:
-      fdir: 6.5.0(picomatch@4.0.5)
-      picomatch: 4.0.5
+      fdir: 6.5.0(picomatch@4.0.7)
+      picomatch: 4.0.7
 
   tinyrainbow@3.1.1: {}
 
@@ -27628,7 +27660,7 @@ snapshots:
       magic-string: 0.30.21
       obug: 2.1.4
       pathe: 2.0.3
-      picomatch: 4.0.5
+      picomatch: 4.0.7
       std-env: 4.2.0
       tinybench: 2.9.0
       tinyexec: 1.1.2
@@ -27657,7 +27689,7 @@ snapshots:
       magic-string: 0.30.21
       obug: 2.1.4
       pathe: 2.0.3
-      picomatch: 4.0.5
+      picomatch: 4.0.7
       std-env: 4.2.0
       tinybench: 2.9.0
       tinyexec: 1.1.2
@@ -27686,7 +27718,7 @@ snapshots:
       magic-string: 0.30.21
       obug: 2.1.4
       pathe: 2.0.3
-      picomatch: 4.0.5
+      picomatch: 4.0.7
       std-env: 4.2.0
       tinybench: 2.9.0
       tinyexec: 1.1.2
@@ -27715,7 +27747,7 @@ snapshots:
       magic-string: 0.30.21
       obug: 2.1.4
       pathe: 2.0.3
-      picomatch: 4.0.5
+      picomatch: 4.0.7
       std-env: 4.2.0
       tinybench: 2.9.0
       tinyexec: 1.1.2

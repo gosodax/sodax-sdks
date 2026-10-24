@@ -9,150 +9,43 @@ Use this recipe when your app runs on Base and you want to be paid in a Base ass
 
 ## What you will build
 
-A checkout step that takes a payer's token on any supported network, quotes it against USDC on Base, and settles the output at your app's Base address. The example pays 25 USDC from Arbitrum and settles USDC on Base, but the source network and token are interchangeable: read them from the SDK config and pass them straight through.
+A checkout step that takes a payer's token on any supported network, quotes it against a Base asset, and settles the output at your app's Base address.
+
+The working code is [`accept-any-token.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/recipes/src/base/accept-any-token.ts), and [`accept-any-token.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/recipes/src/base/accept-any-token.test.ts) checks every claim on this page against the SDK in CI.
 
 ## Prerequisites
 
-- `@sodax/sdk` installed, plus `@sodax/wallet-sdk-core` (or `@sodax/wallet-sdk-react` in a React app) for the wallet provider.
-- A wallet on the network the payer starts from, funded with that network's native token for gas (ETH on Arbitrum in the example).
-- Your app's receiving address on Base.
-- A SODAX API key kept on your server. See [API keys](/developers/how-to/api-keys).
+- `@sodax/sdk`, plus `@sodax/wallet-sdk-core` (or `@sodax/wallet-sdk-react` in a React app) for the wallet provider.
+- A wallet on the network the payer starts from, funded with that network's native token for gas.
+- Your app's receiving address on Base, and a SODAX API key kept on your server. See [API keys](/developers/how-to/api-keys).
 
 SODAX is mainnet only, so test with small amounts. See [Is SODAX on Testnet?](/developers/how-to/testnet).
 
-## Steps
+## How it works
 
 <Steps>
-  <Step title="Create a wallet provider for the payer's network">
-    The payer signs on the network they are paying from, so the provider is keyed to that network, not to Base. Base is only the destination.
-
-    ```typescript
-    import { Sodax, ChainKeys } from '@sodax/sdk';
-    import type { XToken } from '@sodax/sdk';
-    import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
-
-    const sodax = new Sodax();
-
-    const bySymbol = (tokens: readonly XToken[], symbol: string): XToken => {
-      const token = tokens.find((t) => t.symbol === symbol);
-      if (!token) throw new Error(`${symbol} is not a supported token on this network`);
-      return token;
-    };
-
-    const walletProvider = new EvmWalletProvider({
-      privateKey: payerPrivateKey, // `0x${string}`
-      chainId: ChainKeys.ARBITRUM_MAINNET,
-      rpcUrl: 'https://arb1.arbitrum.io/rpc',
-    });
-    ```
+  <Step title="Key the wallet provider to the payer's network">
+    The payer signs where they are paying from, so the provider belongs to that network, not to Base. Base is only the destination.
   </Step>
 
   <Step title="Resolve both tokens from config">
-    Never hard-code addresses or decimals. Read the payer's token from the source network and your settlement token from Base.
-
-    ```typescript
-    const payToken = bySymbol(
-      sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.ARBITRUM_MAINNET),
-      'USDC',
-    );
-    const settleToken = bySymbol(
-      sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.BASE_MAINNET),
-      'USDC',
-    );
-
-    const inputAmount = 25n * 10n ** BigInt(payToken.decimals); // 25 USDC
-    ```
+    Read the payer's token from the source network's swap list and the settlement token from the Base list. Never hard-code addresses or decimals; the recipe throws if a network does not list the symbol.
   </Step>
 
-  <Step title="Quote the swap">
-    `getQuote` prices the exact input and deducts any configured fee, so `quoted_amount` is the net output that lands on Base.
-
-    ```typescript
-    import type { SolverIntentQuoteRequest } from '@sodax/sdk';
-
-    const quoteResult = await sodax.swaps.getQuote({
-      token_src: payToken.address,
-      token_dst: settleToken.address,
-      token_src_blockchain_id: ChainKeys.ARBITRUM_MAINNET,
-      token_dst_blockchain_id: ChainKeys.BASE_MAINNET,
-      amount: inputAmount,
-      quote_type: 'exact_input',
-    } satisfies SolverIntentQuoteRequest);
-    if (!quoteResult.ok) throw new Error('Quote failed');
-    const { quoted_amount } = quoteResult.value;
-    ```
-  </Step>
-
-  <Step title="Build the intent, approve the input, and execute">
-    The destination is Base: set `dstChainKey` to `ChainKeys.BASE_MAINNET` and `dstAddress` to your receiving address. Every ERC-20 input needs an allowance first; native ETH does not. `swap()` runs the whole lifecycle: it creates the intent on the source network, relays it to the hub, and notifies a solver to fill on Base.
-
-    ```typescript
-    const swapParams = {
-      inputToken: payToken.address,
-      outputToken: settleToken.address,
-      inputAmount,
-      minOutputAmount: (quoted_amount * 99n) / 100n, // your slippage policy
-      deadline: 0n, // replaced below with an absolute timestamp
-      allowPartialFill: false,
-      srcChainKey: ChainKeys.ARBITRUM_MAINNET,
-      dstChainKey: ChainKeys.BASE_MAINNET,
-      srcAddress: await walletProvider.getWalletAddress(),
-      dstAddress: appBaseAddress, // your app's receiving address on Base
-      solver: '0x0000000000000000000000000000000000000000',
-      data: '0x',
-    } as const;
-
-    const allowance = await sodax.swaps.isAllowanceValid({ params: swapParams, walletProvider });
-    if (!allowance.ok) throw allowance.error;
-    if (!allowance.value) {
-      const approval = await sodax.swaps.approve({ params: swapParams, walletProvider });
-      if (!approval.ok) throw approval.error;
-      // wait for the approval to be mined before calling swap()
-    }
-
-    const deadlineResult = await sodax.swaps.getSwapDeadline(300n); // 5 minutes from now
-    if (!deadlineResult.ok) throw new Error('Deadline lookup failed');
-
-    const swapResult = await sodax.swaps.swap({
-      params: { ...swapParams, deadline: deadlineResult.value },
-      walletProvider,
-      timeout: 120_000,
-    });
-    if (!swapResult.ok) throw swapResult.error;
-    ```
+  <Step title="Quote, approve, swap">
+    The quote is the net output that lands on Base, so set your slippage floor from it. The intent's destination is Base: `dstChainKey` is `ChainKeys.BASE_MAINNET` and `dstAddress` is your address. An ERC-20 input needs an allowance first, so approve only when `isAllowanceValid` says it is short. `swap()` then creates the intent, relays it to the hub, and hands it to a solver.
   </Step>
 
   <Step title="Confirm settlement on Base">
-    A successful `swap()` means the intent was created, relayed, and handed to a solver, not that it filled. Poll `getStatus` until `SolverIntentStatusCode.SOLVED`, which is the only signal the Base asset has landed at `dstAddress`. `getStatus` is a one-shot read, so bound the poll yourself and stop on `FAILED`.
-
-    ```typescript
-    import { SolverIntentStatusCode } from '@sodax/sdk';
-
-    const hubTxHash = swapResult.value.intentDeliveryInfo.dstTxHash;
-    const isHex = (v: string): v is `0x${string}` => v.startsWith('0x');
-    if (!isHex(hubTxHash)) throw new Error('Unexpected hub transaction hash');
-
-    const pollUntil = Date.now() + 10 * 60_000; // your settlement budget
-    let settled = false;
-    while (!settled && Date.now() < pollUntil) {
-      const status = await sodax.swaps.getStatus({ intent_tx_hash: hubTxHash });
-      if (status.ok && status.value.status === SolverIntentStatusCode.FAILED) break;
-      settled = status.ok && status.value.status === SolverIntentStatusCode.SOLVED;
-      if (!settled) await new Promise((r) => setTimeout(r, 2_000));
-    }
-    if (!settled) throw new Error('Intent did not settle; offer the payer a cancel to recover funds');
-    ```
-
-    An intent that fails or never fills keeps the payer's input locked until it is cancelled. Surface that to the payer and recover the funds with `sodax.swaps.cancelIntent`; see [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps).
+    A successful `swap()` is not a fill. Only `SolverIntentStatusCode.SOLVED` means the asset reached your Base address. `getStatus` is a one-shot read, so the recipe bounds its own poll and stops on `FAILED`. A failed or unfilled intent keeps the payer's input locked until it is cancelled with `sodax.swaps.cancelIntent`, so offer the payer that recovery.
   </Step>
 </Steps>
 
-## Error handling
+## Fees and failures
 
-Swap operations return `Result<T>` rather than throwing. Check `ok` on every call and discriminate failures on `error.code`: `getQuote` can fail when no route exists, `swap` returns a typed `SodaxError` union covering creation, relay, and execution, and a quote that looks too small usually means the input does not clear the fees. The base fee is a fixed 0.1% of the input taken by the protocol; any platform fee you add is yours. See [Fees](/base/swaps#fees).
+The protocol fee is a fixed 0.1% of the input; see [Fees](/base/swaps#fees). Every call returns a `Result`; the failure codes are in [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps).
 
 ## Next steps
 
 - [Swaps on Base](/base/swaps): approvals, quoting, and fees in depth.
 - [Quickstart on Base](/base/quickstart): the minimal first swap.
-- Full API reference: [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps).

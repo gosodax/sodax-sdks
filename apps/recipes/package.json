@@ -1,0 +1,26 @@
+{
+  "name": "recipes",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "checkTs": "tsc --noEmit && node ../../scripts/check-tests-typechecked.mjs",
+    "test": "vitest run",
+    "pretty": "biome format . --write",
+    "lint": "biome lint . --write",
+    "clean": "rm -rf node_modules .turbo"
+  },
+  "dependencies": {
+    "@sodax/dapp-kit": "workspace:*",
+    "@sodax/sdk": "workspace:*",
+    "@sodax/wallet-sdk-core": "workspace:*",
+    "@tanstack/react-query": "catalog:",
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
