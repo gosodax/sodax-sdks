@@ -1,0 +1,44 @@
+---
+title: "Show balances across networks in a Base app"
+sidebarTitle: "Cross-network balances"
+description: "Read a user's own token balances across every network they hold, present them in a Base app, and route a chosen holding into a Base asset. One chain-agnostic call per network, batched where the chain allows it."
+icon: wallet
+---
+
+Use this recipe when your app lives on Base but your users hold assets spread across networks. Before they act, they need to see what they hold everywhere. SODAX reads a user's own wallet with the same call on every network it supports, so a Base app can show a cross-network portfolio and route any holding onto Base.
+
+## What you will build
+
+A portfolio view that reads balances on every network a user has connected, then moves a chosen holding into a Base asset.
+
+The working code is [`cross-network-balances.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/recipes/src/base/cross-network-balances.ts) for `@sodax/sdk` and [`NetworkBalances.tsx`](https://github.com/gosodax/sodax-sdks/blob/main/apps/recipes/src/base/NetworkBalances.tsx) for the `useBalances` hook in `@sodax/dapp-kit`. [`cross-network-balances.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/recipes/src/base/cross-network-balances.test.ts) checks them against the SDK in CI.
+
+## Prerequisites
+
+- `@sodax/sdk`, plus `@sodax/dapp-kit` and a `SodaxProvider` for the React hook.
+- The networks and addresses the user has connected.
+
+## How it works
+
+<Steps>
+  <Step title="Read one network at a time">
+    Each read covers one network, and the SDK batches the token reads where the chain allows it. The recipe returns one promise per network, so a slow or broken network never hides the others: render each as it settles. A failed network comes back as `null`, never as an empty wallet.
+  </Step>
+
+  <Step title="Keep the chain key and token list together">
+    Every read uses `token.address` on the network you pass, so a token list from another network reads wrong. The recipe takes each network's swap-supported list, which is also the set of holdings a user can route onto Base. Look tokens up by address, not symbol.
+  </Step>
+
+  <Step title="Display amounts">
+    Balances are `bigint` in the token's smallest unit. Scale them by `token.decimals` with integer math, as `formatAmount` does, so large balances keep their precision.
+  </Step>
+
+  <Step title="Route a holding onto Base">
+    Hand the chosen holding to [Accept any token, settle on Base](/base/recipes/accept-any-token): the source is the network and token the user picked, the destination is Base.
+  </Step>
+</Steps>
+
+## Next steps
+
+- [Read wallet balances](/developers/how-to/wallet-balances): per-chain notes and failure behavior.
+- [dapp-kit package](/developers/packages/experience/dapp-kit): the React hook layer.
