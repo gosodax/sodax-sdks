@@ -17,6 +17,9 @@ A leverage-yield deposit/withdraw **is** an intent-based swap (the vault's `lsod
 solver-tradeable token), so the intent-relay / gas / fee / submit-tx endpoints share the same wire shapes
 as the Swaps API — this client is the leverage-yield sibling of [`swaps-api.md`](swaps-api.md).
 
+**Bitcoin is not supported yet** as a deposit source or a withdraw destination. Keep it out of the networks you offer
+rather than relying on the API to refuse it.
+
 ## Methods
 
 ```ts

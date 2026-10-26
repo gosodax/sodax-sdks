@@ -137,6 +137,7 @@ Branch on `data?.ok` for those two hooks only.
 8. **Never send `minOutputAmount: 0n`.** Size it from `useLeverageYieldQuote`'s `quoted_amount` minus a slippage tolerance in basis points, and keep the deposit disabled until the quote is `ok`. A zero minimum accepts any fill.
 9. **Show "Leverage" as `1 + leverageMultiplierWad`.** The multiplier is the borrowed multiple (4.56× at an 82% target LTV); the exposure a depositor holds is 5.56×.
 10. **Don't shorten the vault-stat intervals.** One `useLeverageYieldEffectiveApr` refresh is six Sonic `eth_call`s plus a DefiLlama fetch per vault, with no multicall. A grid of vault cards on the defaults is already the heavy part of the page.
+11. **Leave Bitcoin out of the network list.** Vaults don't support it yet, and the hooks do not refuse a Bitcoin `srcChainKey` or `dstChainKey`.
 
 ## Leverage positions (separate from vaults)
 

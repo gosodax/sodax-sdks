@@ -113,6 +113,7 @@ In TypeScript, `sodax.api.leverageYield` and the `useLeverageYieldApi*` hooks wr
 12. **Keep API keys on the server.** A key in a browser bundle is public. See [API key good practices](/developers/how-to/api-key-good-practices).
 13. **Show leverage as `1 + leverageMultiplierWad`.** The multiplier is the borrowed multiple, `targetLTV / (1 − targetLTV)`: 4.56× at an 82% target, while the depositor's exposure is 5.56×. `targetLtvBps` and the position `ltv` are basis points (`8200` = 82%).
 14. **A vault is not a leverage position.** Leverage positions (`openLeveragePosition`, `useLeveragePosition*`) share the service but are a separate product. See [Leverage Positions](/developers/packages/foundation/sdk/functional-modules/leverage_yield#leverage-positions).
+15. **Bitcoin is not supported yet.** Don't let users deposit from Bitcoin or withdraw to it. The SDK does not refuse a Bitcoin vault swap, so leave Bitcoin out of the networks you offer.
 
 ## Build it with an AI agent {#ai-agents}
 

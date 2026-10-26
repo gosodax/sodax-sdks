@@ -25,6 +25,8 @@ A second flow — **direct deposit** from the user's personal wallet without an 
 
 **For builders evaluating Bitcoin today:** only the trading-wallet flow is production-ready. Plan against it; the direct-deposit path will be additive when released and will not break existing integrations.
 
+Leverage yield (vaults and leverage positions) does not support Bitcoin yet, so don't offer Bitcoin there.
+
 ### Prerequisites
 
 * An app already using `@sodax/sdk`, `@sodax/dapp-kit`, and `@sodax/wallet-sdk-react`

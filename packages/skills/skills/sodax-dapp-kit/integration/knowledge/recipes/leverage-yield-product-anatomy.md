@@ -18,6 +18,8 @@ Call shapes for every hook here are in [`leverage-yield.md`](leverage-yield.md).
 | **Hold** | How many shares do I have, on which network, and what are they worth in the asset and in USD? What might they earn? | `useLeverageYieldShareBalances`, `useLeverageYieldPreviewRedeem`, [derived values](#derived-values) |
 | **Withdraw** | How much can I take out, to which token and network, and what is the least I accept? | share balance, `useLeverageYieldQuote` (vault as `token_src`), `useLeverageYieldWithdraw` |
 
+Leave Bitcoin out of the network choices for both deposit and withdraw: vaults don't support it yet, and the hooks do not refuse it.
+
 ## Concepts users get wrong
 
 - **Shares are not in the wallet extension.** They live in the user's SODAX hub wallet on Sonic, and there is one hub wallet per source network **and** address. Depositing from Base and from Arbitrum makes two separate share balances. A withdraw spends the shares of the hub wallet it is signed for, so it must be signed on the network, from the address, that deposited. Show balances per network (`useLeverageYieldShareBalances` takes one holder per network).
