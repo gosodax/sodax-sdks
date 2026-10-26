@@ -49,7 +49,7 @@ On Hedera, the supply of each stock token is created in advance and held by the 
 | Stellar | Spoke, Stellar asset contracts | 7 | `stellarSupportedTokens` |
 | Sonic | Hub, one vault token per ticker | — | `SodaTokens` |
 
-Every address is in [Mainnet deployments: Robinhood Tokenized Equities](/developers/deployments/mainnet#robinhood-tokenized-equities) and in `@sodax/types`, which `@sodax/sdk` re-exports. Read addresses from the package in code rather than copying them from a page. Only tickers with a Chainlink price feed on Robinhood Chain are listed, so some Robinhood tokens (for example DJT, RDDT and GLD) are not available.
+Every address is in [Mainnet deployments: Robinhood Tokenized Equities](/developers/deployments/mainnet#robinhood-tokenized-equities) and in `@sodax/types`, which `@sodax/sdk` re-exports. Read addresses from the package in code rather than copying them from a page. Each ticker is priced by its Robinhood Chain Chainlink feed where one exists, otherwise by Robinhood's own price API.
 
 Stocks are swap assets only. They are not money-market reserves, so users cannot supply them, borrow against them or use them as collateral.
 
