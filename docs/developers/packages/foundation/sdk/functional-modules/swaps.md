@@ -1249,7 +1249,7 @@ Sometimes there is **no record**, and it reads 404 — you opted out with `useBa
 `sodax.swaps.getStatus` can answer for it, but needs the **hub** tx hash, which the caller may not have. So the caller had to know which path ran and pick an API. This method makes that choice instead:
 
 1. Read the backend record; return it while it is still in play.
-2. Otherwise resolve the hub tx hash — the source tx itself for hub-source swaps, else the delivered relay packet's `dst_tx_hash` — and return the solver's answer, reconciled as described below.
+2. Otherwise resolve the hub tx hash — the source tx itself for hub-source swaps, the MPC relay deposit record's hub mint for an MPC-relay source (such as Tron), else the delivered relay packet's `dst_tx_hash` — and return the solver's answer, reconciled as described below.
 
 A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 2, and on the default path this is the *common* branch rather than an edge case: the record almost always exists, so abandonment — not a 404 — is what usually signals the fallback ran. It never self-heals, so keeping it would report `failed` for a swap the fallback went on to complete. A `success: false` envelope takes step 2 as well — that is the wire contract's "no record found", whatever `data` carries. A transport or server error routes on too, so a transient backend outage does not fail a swap the solver can still report on.
 

@@ -407,8 +407,8 @@ swap leaves behind whatever state the backend last reached, including a record i
 So the method routes:
 
 1. Read the backend record; return it while it is still in play.
-2. Otherwise resolve the hub tx hash — the source tx itself for hub-source vault swaps, else the
-   delivered relay packet's `dst_tx_hash` — and return the solver's answer for it. Any answer short of
+2. Otherwise resolve the hub tx hash — the source tx itself for hub-source vault swaps, the MPC relay
+   deposit record's hub mint for an MPC-relay source, else the delivered relay packet's `dst_tx_hash` — and return the solver's answer for it. Any answer short of
    `SOLVED` or `FAILED` is checked against the backend's durable intent record first: a fill that
    consumed the remainder reads `SOLVED` (a restarted solver answers `NOT_FOUND` for intents it already
    filled), and a cancel with nothing filled reads `FAILED` (expired intents are cancelled on the hub and
