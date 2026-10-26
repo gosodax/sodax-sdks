@@ -4,7 +4,7 @@
 
 For non-modal flows (single button with status + retry), use [`useConnectionFlow`](#useconnectionflow--non-modal-alternative) instead.
 
-The canonical state union is [`WalletModalState`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/useWalletModalStore.ts).
+The canonical state union is [`WalletModalState`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/useWalletModalStore.ts).
 
 ## Table of contents
 
@@ -270,7 +270,7 @@ const disconnect = useXDisconnect();
 </button>
 ```
 
-The cancellation guard is implemented by reading the store directly (not the React snapshot) so user-driven transitions are observable inside the in-flight callback. See [`useWalletModal.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useWalletModal.ts) for the exact `isStillCurrent` check.
+The cancellation guard is implemented by reading the store directly (not the React snapshot) so user-driven transitions are observable inside the in-flight callback. See [`useWalletModal.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/useWalletModal.ts) for the exact `isStillCurrent` check.
 
 ---
 

@@ -116,7 +116,7 @@ const intent = await api.createIntent({ ...intentBody, partnerFee });
 ```
 
 `checkAllowance` / `approve` inherit the field but ignore it. See
-[MONETIZE_SDK.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MONETIZE_SDK.md)
+[MONETIZE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MONETIZE_SDK.md)
 for the orchestrator path.
 
 ## Errors
@@ -167,5 +167,5 @@ These are the response shapes only — request bodies are typed, not schema-vali
 
 ## Reference app
 
-[`apps/swap-api-example`](https://github.com/icon-project/sodax-sdks/tree/main/apps/swap-api-example)
+[`apps/swap-api-example`](https://github.com/gosodax/sodax-sdks/tree/main/apps/swap-api-example)
 drives this client end to end against a live Swaps API host.

@@ -5,8 +5,6 @@ description: "Let your users buy, sell and move Robinhood tokenized stocks and E
 icon: chart-line
 ---
 
-{/* DRAFT — not for publishing until every [TO CONFIRM] and TIME-SENSITIVE note below is resolved and removed. */}
-
 Use this guide to add Robinhood tokenized stocks to your app with SODAX. Your users can buy a stock with a token they already hold, sell it back, and move it between Hedera, Stellar and Robinhood Chain. The guide covers how the tokens work, the order of the steps and the rules that matter. Signatures, types and full working code live in the references it links to, and those are what to copy from.
 
 | Find an answer | Go to |
@@ -23,7 +21,7 @@ Use this guide to add Robinhood tokenized stocks to your app with SODAX. Your us
 
 ## What it is {#what-it-is}
 
-Robinhood issues tokenized stocks, ETFs and commodity funds on its own network, Robinhood Chain. Each one is an ordinary token named "\<Company\> • Robinhood Token", for example "Apple • Robinhood Token" (AAPL). SODAX makes the same stocks available on Hedera and Stellar, so your users can hold and trade them without leaving the network they already use.
+Robinhood issues tokenized stocks, ETFs and commodity funds on its own network, Robinhood Chain. Each one is an ordinary token named "Company name - Robinhood Token", for example "Apple - Robinhood Token" (AAPL). SODAX makes the same stocks available on Hedera and Stellar, so your users can hold and trade them without leaving the network they already use.
 
 SODAX uses a hub-and-spoke design. Sonic is the hub, where the core contracts run. Every other network is a spoke that holds assets locally. For background, read [Hub and spoke: how SODAX works](/resources/blog/hub-and-spoke).
 
@@ -312,7 +310,7 @@ console.log('Covers Hedera:', robinhoodLocked >= hederaCirculating * 10n ** 10n)
 You can also read the same balances in a block explorer: [HashScan](https://hashscan.io/mainnet/contract/0x0df73542cc68bdc01b361d231c60f726b0e0bc05) for Hedera and [Robinhood Chain Blockscout](https://robinhoodchain.blockscout.com/address/0x0df73542cC68bDC01b361d231c60F726B0e0bC05) for Robinhood Chain.
 
 <Note>
-  This script checks Hedera only. The same locked tokens also back that ticker on Stellar (7 decimals), so full backing means the locked balance covers the Hedera and Stellar circulating supply combined. A `true` here does not prove that on its own. {/* [TO CONFIRM with Code specialist] wording of this note. */}
+  This script checks Hedera only. The same locked tokens also back that ticker on Stellar (7 decimals), so full backing means the locked balance covers the Hedera and Stellar circulating supply combined. A `true` here does not prove that on its own.
 </Note>
 
 ## Gotchas {#gotchas}
@@ -323,7 +321,7 @@ You can also read the same balances in a block explorer: [HashScan](https://hash
 4. **Read tickers at runtime.** Use `getSupportedSolverTokens(chainKey).filter(isRealWorldAsset)` for the swap list, and `sodax.bridge.getBridgeableTokens` for bridge targets. Appearing in the vault registry is not proof that a feature is live; the backend config decides. New registry entries need an SDK update.
 5. **Check the bridge limit before you bridge.** `getBridgeableAmount` returns the most that can move right now. Disable the action, or cap the amount, when the user asks for more.
 6. **Stellar needs a trustline to receive.** When Stellar is the destination, check and create the trustline before you swap or bridge. When Stellar is the source, `isAllowanceValid` and `approve` handle it.
-7. **Hedera token association.** [TO CONFIRM] Whether a Hedera account must associate a stock token before it can receive it, and whether the SDK or the user's wallet handles that. Nothing in the SDK docs covers it today.
+7. **Hedera token association.** On Hedera, a recipient can only receive an HTS stock token if the account is associated with that token or still has a free automatic association slot. Accounts auto-created at an EVM address usually have unlimited slots; other accounts may have few or none. The SDK does not associate for you on Hedera destinations, so check the recipient (mirror node) and have the user associate before you deliver. See [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera) in the Hedera swaps guide.
 8. **Stocks are not collateral.** They cannot be supplied or borrowed against in the money market.
 9. **Branch on `result.ok`, and discriminate on `error.code`.** SDK operations return a `Result` and never throw, and error messages are not stable.
 10. **Keep API keys on the server.** A key in a browser bundle is public. See [API key good practices](/developers/how-to/api-key-good-practices).
@@ -351,17 +349,9 @@ Yes. Every stock token on Hedera is backed 1:1 by the real Robinhood token, lock
 
 #### 3. Who controls the admin and supply key, and what stops unbacked minting?
 
-{/* TIME-SENSITIVE (written 8 Oct 2026): update this answer once the multisig and the rate limits are live, before publishing. */}
+SODAX controls the admin and supply key. New stock tokens on Hedera are only issued against Robinhood tokens locked in the SODAX contract on Robinhood Chain, and anyone can check that backing on-chain (see question 2 and [Verify backing on-chain](#verify-backing)).
 
-<Warning>
-  This answer describes the setup as of 8 October 2026 and will be updated when the changes below are complete.
-</Warning>
-
-Today the key is a single key. SODAX is moving it to a multisig, the same setup used on all its other networks, and expects to finish next week. SODAX is also adding rate-limiter contracts to these assets now, as on its other assets. They act as a circuit breaker if the backing suddenly changes, and they set daily limits on what moves in and out. The limits start deliberately tight.
-
-#### 4. Do Robinhood's investor protections apply to Hedera holders, and what is the path back?
-
-{/* [TO CONFIRM with legal] Whether, and how, Robinhood's investor protections apply to holders on Hedera. Do not answer the legal part until legal has confirmed it. */}
+#### 4. What is the path back to Robinhood Chain for Hedera holders?
 
 Because every token is backed 1:1, anyone holding a stock on Hedera can bridge it back to Robinhood Chain at any time and receive the real Robinhood token. Builders can offer that bridge in their own app with SODAX. See the [Bridge path](#bridge-path).
 
@@ -371,11 +361,11 @@ SODAX runs sanctions screening across its infrastructure and is verified on the 
 
 #### 6. What fees apply?
 
-A stock swap pays the same fees as any SODAX swap: the 0.1% solver fee, plus your own partner fee if you set one. See [Monetize SDK](/developers/how-to/monetize_sdk). Bridges can carry a partner fee too, which you can preview with `sodax.bridge.getFee`. [TO CONFIRM] Whether the stock vault tokens charge any deposit or withdrawal fee.
+A stock swap pays the same fees as any SODAX swap: the 0.1% solver fee, plus your own partner fee if you set one. See [Monetize SDK](/developers/how-to/monetize_sdk). Bridges can carry a partner fee too, which you can preview with `sodax.bridge.getFee`. The stock vault tokens on Sonic currently charge no deposit or withdrawal fee. Fees can be configured later, so treat zero as the current setting, not a permanent promise.
 
 #### 7. Are there limits on how much can move?
 
-Yes. `sodax.bridge.getBridgeableAmount` returns the most that can be bridged right now, and stock-to-stock swaps only quote above a small minimum size. Daily limits from the rate limiters also apply (see question 3). [TO CONFIRM] The current daily limit values, if SODAX wants to publish them.
+Yes. `sodax.bridge.getBridgeableAmount` returns the most that can be bridged right now, and stock-to-stock swaps only quote above a small minimum size.
 
 ## Related
 

@@ -83,13 +83,12 @@ The builder has three panels: **Setup**, **Appearance**, and **Integrate**.
   tabs stay put; the line below the buttons carries only the paths that need an instruction.
   Setup and Appearance pause while a wallet dialog, review, preparation or activity is active in
   the preview, so an edit cannot replace an in-progress swap.
-- The compact swap form shows minimum received, estimated time, and applicable partner fees before
-  the main action. Network fees are confirmed in the wallet; no USD or gas estimates are invented.
+- The compact swap form shows minimum received and estimated time before the main action. Network
+  fees are confirmed in the wallet; no USD or gas estimates are invented.
 - Asset search matches names, symbols and addresses, with a network filter and visible network names.
 
-Partner fees remain deployment configuration, never visitor-editable URL fields. The Integrate
-panel explains the dedicated-deployment setup path. An existing host-wallet connection, partner-ID
-registry, custom recipients, exact-output quotes, and a full transaction-history list are not provided.
+An existing host-wallet connection, partner-ID registry, custom recipients, exact-output quotes,
+and a full transaction-history list are not provided.
 
 ## Deployment configuration
 
@@ -99,8 +98,6 @@ registry, custom recipients, exact-output quotes, and a full transaction-history
 | `VITE_SWAPS_API_KEY` | Optional API key, sent through the SDK. It is public once bundled and every portal key carries the same scopes, so use a key dedicated to this app — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices). |
 | `VITE_WALLETCONNECT_PROJECT_ID` | Enables the EVM WalletConnect connector; configure allowed origins in its dashboard. |
 | `VITE_SOLANA_RPC_URL` | Overrides the built-in Solana mainnet endpoint used for both SDK balance reads and wallet signing/broadcast. Optional. Configure allowed origins and public-key restrictions with your RPC provider. |
-| `VITE_PARTNER_FEE_RECIPIENT` | Partner's Sonic fee address. Configure with the basis-point rate below. |
-| `VITE_PARTNER_FEE_BPS` | Integer basis points, within `FEE_BPS_MAX` in `src/lib/fee.ts`. Invalid fee configuration blocks execution. |
 | `VITE_GTM_ID` | Optional analytics container. Unset means no analytics container loads. |
 | `VITE_GTM_IN_EMBED` | Set to `1` only when analytics should also load inside partner frames. |
 
@@ -210,7 +207,7 @@ The deployment allows framing with `frame-ancestors *`.
 
 1. Show live quotes (debounced input, refreshed every ten seconds).
 2. Connect source and destination wallets; display source balance and MAX for non-native tokens.
-3. Review the recipient, minimum received and partner fee. Network fees are confirmed in the wallet.
+3. Review the recipient and minimum received. Network fees are confirmed in the wallet.
 4. Recheck the quote and allowance; confirm any allowance reset/approval through dapp-kit.
 5. Recheck the price after approval, get a fresh deadline, build the intent and request a signature.
 6. Persist the broadcast hash, intent, reviewed token addresses and amount, and relay payload before

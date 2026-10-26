@@ -16,7 +16,7 @@ you get neither the backend path nor the fallback. This guide shows how to adopt
 | How long each phase may take | [Two budgets, never one](#two-budgets-never-one) |
 | Is retrying safe? | [Why falling back is safe](#why-falling-back-is-safe) |
 | What to do on each outcome | [Outcome → action](#outcome--action) |
-| Reference for every method | [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) |
+| Reference for every method | [SWAPS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) |
 
 ---
 
@@ -98,7 +98,7 @@ const sodaxClientSideOnly = new Sodax({ swaps: { useBackendSubmitTx: false } });
 ```
 
 That flag is a client-side runtime option, not part of the backend-fetched config. See
-[CONFIGURE_SDK.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-submit-tx-2-step-swapsusebackendsubmittx).
+[CONFIGURE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-submit-tx-2-step-swapsusebackendsubmittx).
 
 ---
 
@@ -336,11 +336,11 @@ Phases bounded by different things:
 
 Read the constants from source rather than memorising them:
 `DEFAULT_RELAY_TX_TIMEOUT`, `DEFAULT_BACKEND_API_TIMEOUT` and per-chain `pollingConfig` live in
-[`@sodax/types`](https://github.com/icon-project/sodax-sdks/tree/main/packages/types/src);
+[`@sodax/types`](https://github.com/gosodax/sodax-sdks/tree/main/packages/types/src);
 `RELAY_FALLBACK_FLOOR_MS` lives in
-[`IntentRelayApiService.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/src/shared/services/intentRelay/IntentRelayApiService.ts).
+[`IntentRelayApiService.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/intentRelay/IntentRelayApiService.ts).
 The full breakdown is in
-[SWAPS.md § How `timeout` bounds each attempt](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt).
+[SWAPS.md § How `timeout` bounds each attempt](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md#how-timeout-bounds-each-attempt).
 
 ---
 
@@ -383,7 +383,7 @@ same reason.
 - **Sonic as the source chain** has no relay leg — the spoke transaction already is the hub transaction.
   The fallback must skip the relay and go straight to `postExecution`.
 - **Stellar destinations** still need a trustline before the swap; see
-  [STELLAR_TRUSTLINE.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md).
+  [STELLAR_TRUSTLINE.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md).
 
 ---
 
@@ -427,7 +427,7 @@ unchanged.
 
 ## See also
 
-- [SWAPS.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) — full `SwapService` reference, including § Backend 2-step submit and § Error Handling
-- [HOW_TO_MAKE_A_SWAP.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/HOW_TO_MAKE_A_SWAP.md) — end-to-end walkthrough of a first swap
-- [CONFIGURE_SDK.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-submit-tx-2-step-swapsusebackendsubmittx) — `useBackendSubmitTx`, API keys and timeouts
-- [INTENT_RELAY_API.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/INTENT_RELAY_API.md) — the relay layer the fallback uses
+- [SWAPS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) — full `SwapService` reference, including § Backend 2-step submit and § Error Handling
+- [HOW_TO_MAKE_A_SWAP.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/HOW_TO_MAKE_A_SWAP.md) — end-to-end walkthrough of a first swap
+- [CONFIGURE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-submit-tx-2-step-swapsusebackendsubmittx) — `useBackendSubmitTx`, API keys and timeouts
+- [INTENT_RELAY_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/INTENT_RELAY_API.md) — the relay layer the fallback uses

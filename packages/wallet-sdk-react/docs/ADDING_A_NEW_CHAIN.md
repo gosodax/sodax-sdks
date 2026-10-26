@@ -2,7 +2,7 @@
 
 This document is the contributor workflow for onboarding a new chain family (e.g. Aptos, Cosmos, …) into `@sodax/wallet-sdk-react`. Most steps are mechanical because the central abstractions (`ChainMeta`, `chainRegistry`, sub-path exports) auto-derive downstream types — adding a chain is mostly **filling in entries**, not rewriting hooks.
 
-Prerequisite: read [`ARCHITECTURE.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ARCHITECTURE.md) first, especially the [Provider-managed vs non-provider](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ARCHITECTURE.md#provider-managed-vs-non-provider-chains) split — that decision drives the rest of this guide.
+Prerequisite: read [`ARCHITECTURE.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ARCHITECTURE.md) first, especially the [Provider-managed vs non-provider](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ARCHITECTURE.md#provider-managed-vs-non-provider-chains) split — that decision drives the rest of this guide.
 
 ## Table of contents
 
@@ -42,7 +42,7 @@ Set `providerManaged: false` if:
 
 Add the chain's identity and types to `packages/types/src/`:
 
-1. **Chain key** in [`packages/types/src/chains/chain-keys.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/chains/chain-keys.ts):
+1. **Chain key** in [`packages/types/src/chains/chain-keys.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chain-keys.ts):
    ```typescript
    export const ChainKeys = {
      ...
@@ -57,7 +57,7 @@ Add the chain's identity and types to `packages/types/src/`:
    ```typescript
    export type AptosChainKey = typeof ChainKeys.APTOS_MAINNET;
    ```
-4. **Chain info entry** in [`packages/types/src/chains/chains.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/chains/chains.ts) (`baseChainInfo`):
+4. **Chain info entry** in [`packages/types/src/chains/chains.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chains.ts) (`baseChainInfo`):
    ```typescript
    [ChainKeys.APTOS_MAINNET]: { type: 'APTOS', chainId: '0x1' /* or numeric */, displayName: 'Aptos' }
    ```
@@ -68,7 +68,7 @@ Add the chain's identity and types to `packages/types/src/`:
      // chain-specific methods: signAndSubmitTransaction, signMessage, ...
    }
    ```
-6. **Add to root barrel** if you want it re-exported from `@sodax/types`, or leave as a sub-package export per [`packages/types/CLAUDE.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/CLAUDE.md).
+6. **Add to root barrel** if you want it re-exported from `@sodax/types`, or leave as a sub-package export per [`packages/types/CLAUDE.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/CLAUDE.md).
 
 The `ChainKey` and `ChainType` unions auto-derive — once these entries land, downstream code in `@sodax/sdk` and `@sodax/wallet-sdk-react` sees the new chain at the type level.
 
@@ -91,7 +91,7 @@ aptos/
 - **Field presence** (no `type` field): `privateKey` field present vs. absent. Most chains use this.
 - **Explicit `type`**: `'PRIVATE_KEY'` | `'BROWSER_EXTENSION'`. Use when both modes share fields that would clash without a discriminant (Bitcoin, Stellar).
 
-See [`packages/wallet-sdk-core/CLAUDE.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-core/CLAUDE.md#config-variants-discriminants) for the canonical patterns.
+See [`packages/wallet-sdk-core/CLAUDE.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/CLAUDE.md#config-variants-discriminants) for the canonical patterns.
 
 Re-export from `packages/wallet-sdk-core/src/wallet-providers/index.ts`:
 
@@ -185,13 +185,13 @@ export { AptosWalletXConnector } from './AptosXConnector.js';
 
 `tsup.config.ts` already picks up `src/xchains/*/index.ts` via glob — **no config edit needed**. The sub-path export will resolve as `@sodax/wallet-sdk-react/xchains/aptos`.
 
-See [`SUB_PATH_EXPORTS.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SUB_PATH_EXPORTS.md) for the export plumbing.
+See [`SUB_PATH_EXPORTS.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SUB_PATH_EXPORTS.md) for the export plumbing.
 
 ---
 
 ## Step 5 — `ChainMeta` entry in `types/config.ts`
 
-[`ChainMeta`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/types/config.ts) is the **single source of truth** for per-chain-type metadata. `SodaxWalletConfig`, `ChainTypeConfig<T>`, `ChainEntry<K>`, `WalletDefaultsByKey<K>` all derive from it automatically.
+[`ChainMeta`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/types/config.ts) is the **single source of truth** for per-chain-type metadata. `SodaxWalletConfig`, `ChainTypeConfig<T>`, `ChainEntry<K>`, `WalletDefaultsByKey<K>` all derive from it automatically.
 
 Add **one entry**:
 
@@ -235,7 +235,7 @@ export type AptosTypeConfig = ChainTypeConfig<'APTOS'>;
 
 ## Step 6 — register in `chainRegistry`
 
-Add an entry to [`chainRegistry`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/chainRegistry.ts):
+Add an entry to [`chainRegistry`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/chainRegistry.ts):
 
 ### Non-provider chain
 
@@ -396,7 +396,7 @@ export type { AptosWalletAddressType } from './xchains/aptos/index.js';
 
 This keeps runtime classes off the barrel but lets consumers `import type { AptosWalletAddressType } from '@sodax/wallet-sdk-react'` without going through the deep import for a type-only reference.
 
-See [`SUB_PATH_EXPORTS.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SUB_PATH_EXPORTS.md) for why concrete classes are deep-imported.
+See [`SUB_PATH_EXPORTS.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SUB_PATH_EXPORTS.md) for why concrete classes are deep-imported.
 
 ---
 
@@ -409,7 +409,7 @@ Required test surface per `vitest.config.ts`:
 - `AptosWalletProvider.test.ts` (in wallet-sdk-core) — config variants, defaults merge, core method dispatch
 - `AptosHydrator.test.tsx` (provider-managed only) — fake adapter state → assert store writes
 
-Pattern reference: [`EvmHydrator.test.tsx`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/providers/evm/EvmHydrator.test.tsx).
+Pattern reference: [`EvmHydrator.test.tsx`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/providers/evm/EvmHydrator.test.tsx).
 
 ---
 
@@ -426,15 +426,15 @@ Before opening a PR, walk through each item:
 - [ ] `useEnabledChains()` includes `'APTOS'` only when the slot is present.
 - [ ] Connect → disconnect cycle updates `xConnections.APTOS` correctly; `localStorage` persists.
 - [ ] On reload, `cleanupDisabledConnections` removes `xConnections.APTOS` if the slot is later removed.
-- [ ] Documentation: add an entry to the connector reference in [`CONNECTORS.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECTORS.md) and the chain-type tables in [`CONFIGURE_PROVIDER.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md).
+- [ ] Documentation: add an entry to the connector reference in [`CONNECTORS.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECTORS.md) and the chain-type tables in [`CONFIGURE_PROVIDER.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md).
 
 ---
 
 ## Related docs
 
-- [Architecture](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ARCHITECTURE.md) — store + registry + Hydrator pattern
-- [Sub-path Exports](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SUB_PATH_EXPORTS.md) — barrel vs deep-import boundary
-- [Configure SodaxWalletProvider](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md) — config schema (auto-extends from `ChainMeta`)
-- [Connectors](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECTORS.md) — IXConnector contract + sub-path map
-- [`packages/wallet-sdk-core/CLAUDE.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-core/CLAUDE.md) — wallet provider class patterns
-- [`packages/types/CLAUDE.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/CLAUDE.md) — interface conventions
+- [Architecture](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ARCHITECTURE.md) — store + registry + Hydrator pattern
+- [Sub-path Exports](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SUB_PATH_EXPORTS.md) — barrel vs deep-import boundary
+- [Configure SodaxWalletProvider](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md) — config schema (auto-extends from `ChainMeta`)
+- [Connectors](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECTORS.md) — IXConnector contract + sub-path map
+- [`packages/wallet-sdk-core/CLAUDE.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/CLAUDE.md) — wallet provider class patterns
+- [`packages/types/CLAUDE.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/CLAUDE.md) — interface conventions

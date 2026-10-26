@@ -219,14 +219,14 @@ fresh Next 16 app, no SODAX code involved), `@stacks/connect`, and
 `@injectivelabs/wallet-ledger`.
 
 No workaround is needed on the consumer side. Those dependencies are isolated inside
-[`@sodax/libs`](https://github.com/icon-project/sodax-sdks/blob/main/packages/libs/README.md), which
+[`@sodax/libs`](https://github.com/gosodax/sodax-sdks/blob/main/packages/libs/README.md), which
 sits at the bottom of the dependency chain and re-exports each one through its own pre-bundled
 subpath. `@sodax/sdk`, `@sodax/wallet-sdk-core` and `@sodax/wallet-sdk-react` consume those subpaths,
 so the published `dist` contains no top-level import that triggers the cycle.
 
 If you hit this error, upgrade the `@sodax/*` packages first. A runnable regression app for the
 fix — server component, client component and an automated build check — lives at
-[`apps/example-next-js-16`](https://github.com/icon-project/sodax-sdks/tree/main/apps/example-next-js-16).
+[`apps/example-next-js-16`](https://github.com/gosodax/sodax-sdks/tree/main/apps/example-next-js-16).
 
 One consumer-side requirement remains: the Injective wallet path declares
 `libsodium-wrappers-sumo` as an **optional peer dependency**, so install it in your app if you enable
@@ -239,5 +239,5 @@ If you encounter any issues:
 - Check the [main SDK documentation](https://docs.sodax.com/developers/packages/foundation/sdk)
 - Review the [Swaps documentation](https://docs.sodax.com/developers/packages/foundation/sdk/functional-modules/swaps) for swap-related features
 - Review the [Money Market documentation](https://docs.sodax.com/developers/packages/foundation/sdk/functional-modules/money_market) for lending/borrowing features
-- Open an issue on the [GitHub repository](https://github.com/icon-project/sodax-sdks/issues)
+- Open an issue on the [GitHub repository](https://github.com/gosodax/sodax-sdks/issues)
 - Join the [Discord community](https://discord.gg/xM2Nh4S6vN) for support

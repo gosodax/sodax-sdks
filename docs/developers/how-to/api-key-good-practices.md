@@ -149,7 +149,7 @@ The SDK is not a single-route client, and one `api.baseURL` does not move all of
 | Stellar sponsoring | `/v1/sponsorships/*` | `api.sponsoringApiConfig.baseURL` — never inherits `api.baseURL` | Its own sponsoring key | Separately — see [Sponsoring keys](#sponsoring-keys) |
 | Hub and spoke chain RPCs | — | `hub.rpcUrl` and each chain's `rpcUrl` | No SODAX key | No |
 
-Sources: the packaged defaults are in [`packages/types/src/common/constants.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/common/constants.ts), and how each service resolves its base URL is in [`packages/sdk/src/backendApi/apiConfig.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/src/backendApi/apiConfig.ts). See [Configure SDK](/developers/how-to/configure_sdk) for the full layering.
+Sources: the packaged defaults are in [`packages/types/src/common/constants.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/common/constants.ts), and how each service resolves its base URL is in [`packages/sdk/src/backendApi/apiConfig.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/backendApi/apiConfig.ts). See [Configure SDK](/developers/how-to/configure_sdk) for the full layering.
 
 Two details that decide the proxy's shape:
 

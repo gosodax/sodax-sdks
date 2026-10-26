@@ -1,58 +1,87 @@
-name: Publish All SODAX SDK Packages to npmjs
+name: Publish SODAX SDK Packages to npmjs
 
+# `@sdks@X.Y.Z` publishes every package at one version; `@sodax/<pkg>@X.Y.Z` publishes one package (backports).
 on:
   push:
     tags:
       - '@sdks@*.*.*'
+      - '@sodax/*@*.*.*'
 
+# Per tag: a shared group keeps only one pending run, so a third queued tag would cancel the second.
 concurrency:
-  group: sdks-publish
+  group: sdks-publish-${{ github.ref_name }}
   cancel-in-progress: false
 
+permissions: {}
+
 jobs:
-  publish-npm:
+  # Everything that runs repository or dependency code happens here, with no secrets and no environment.
+  verify:
+    name: Verify and pack
     runs-on: ubuntu-latest
-    environment: npm-publish
+    timeout-minutes: 30
     permissions:
       contents: read
-      packages: write
-      id-token: write
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      release: ${{ steps.pack.outputs.release }}
     steps:
       - name: Check out code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Validate tag matches all package.json versions and determine dist-tag
-        id: dist_tag
+      - name: Resolve packages and validate manifests
+        id: resolve
         run: |
-          EXPECTED_VERSION="${GITHUB_REF_NAME#@sdks@}"
+          # Topological order: each package publishes after the packages it depends on.
           PACKAGES=(types libs swaps-api bridge-api wallet-sdk-core sdk wallet-sdk-react dapp-kit skills)
-          for pkg in "${PACKAGES[@]}"; do
+          case "$GITHUB_REF_NAME" in
+            @sdks@*)
+              VERSION="${GITHUB_REF_NAME#@sdks@}"
+              SELECTED=("${PACKAGES[@]}")
+              ;;
+            @sodax/*@*)
+              rest="${GITHUB_REF_NAME#@sodax/}"
+              PKG="${rest%%@*}"
+              VERSION="${rest#*@}"
+              if [[ " ${PACKAGES[*]} " != *" $PKG "* ]]; then
+                echo "::error::@sodax/$PKG is not a publishable package (${PACKAGES[*]})"
+                exit 1
+              fi
+              SELECTED=("$PKG")
+              ;;
+            *)
+              echo "::error::Unrecognised release tag $GITHUB_REF_NAME"
+              exit 1
+              ;;
+          esac
+          for pkg in "${SELECTED[@]}"; do
             actual=$(jq -er .version "packages/$pkg/package.json")
-            if [[ "$actual" != "$EXPECTED_VERSION" ]]; then
-              echo "::error::packages/$pkg/package.json version ($actual) does not match git tag ($EXPECTED_VERSION)"
+            if [[ "$actual" != "$VERSION" ]]; then
+              echo "::error::packages/$pkg/package.json version ($actual) does not match git tag ($VERSION)"
               exit 1
             fi
           done
-          if [[ "$EXPECTED_VERSION" == *-* ]]; then
-            PRERELEASE_ID="${EXPECTED_VERSION#*-}"
-            TAG="${PRERELEASE_ID%%.*}"
-          else
-            TAG="latest"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "packages=${SELECTED[*]}" >> "$GITHUB_OUTPUT"
+
+      - name: Require unified releases to come from the release branch
+        if: startsWith(github.ref_name, '@sdks@')
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/release; then
+            echo "::error::$GITHUB_REF_NAME points at $GITHUB_SHA, which is not on the release branch"
+            exit 1
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24.x'
-          registry-url: 'https://registry.npmjs.org'
 
       # CI never runs on the release branch, where every bump happens, so this is the only automation
-      # that sees the constant before it ships. The step above already pins the manifest to the tag,
-      # so checking the constant against the manifest pins it to the tag too. Node builtins only —
-      # deliberately before the install, so a bad constant fails fast.
+      # that sees the constant before it ships. Node builtins only — before the install, so it fails fast.
       - name: Validate CONFIG_VERSION matches the released version
         run: node scripts/config-version.mjs --check
 
@@ -64,17 +93,103 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build packages
-        run: pnpm build:packages
-
-      - name: Publish packages in topological order
+      # Separate, ordered invocations: checkTs does not depend on build and some typechecks emit into dist,
+      # so nothing that writes dist runs after check-exports reads what gets packed.
+      - name: Build, typecheck, check exports and test
         run: |
-          PACKAGES=(types libs swaps-api bridge-api wallet-sdk-core sdk wallet-sdk-react dapp-kit skills)
-          for pkg in "${PACKAGES[@]}"; do
-            echo "::group::Publishing @sodax/$pkg"
-            (cd "packages/$pkg" && pnpm publish --no-git-checks --provenance --access public --tag "$DIST_TAG")
-            echo "::endgroup::"
-          done
+          FILTERS=()
+          for pkg in $PACKAGES; do FILTERS+=("--filter=@sodax/$pkg"); done
+          pnpm turbo run build "${FILTERS[@]}"
+          pnpm turbo run checkTs "${FILTERS[@]}"
+          pnpm turbo run check-exports "${FILTERS[@]}"
+          pnpm turbo run check:ai test "${FILTERS[@]}"
         env:
-          DIST_TAG: ${{ steps.dist_tag.outputs.tag }}
-          NODE_AUTH_TOKEN: ${{ secrets.SODAX_SDKS_NPM_PUBLISH_TOKEN }}
+          PACKAGES: ${{ steps.resolve.outputs.packages }}
+
+      # pnpm pack rewrites workspace: and catalog: specifiers; the publish job ships these exact files.
+      - name: Pack tarballs and choose dist-tags
+        id: pack
+        run: |
+          DEST="$RUNNER_TEMP/tarballs"
+          mkdir -p "$DEST"
+          : > "$RUNNER_TEMP/release.txt"
+          for pkg in $PACKAGES; do
+            (cd "packages/$pkg" && pnpm pack --pack-destination "$DEST")
+            tarball="sodax-$pkg-$VERSION.tgz"
+            test -f "$DEST/$tarball" || { echo "::error::pnpm pack did not produce $tarball"; exit 1; }
+            if latest=$(npm view "@sodax/$pkg" dist-tags.latest 2> "$RUNNER_TEMP/npm-view.err"); then
+              :
+            elif grep -q E404 "$RUNNER_TEMP/npm-view.err"; then
+              latest=""
+            else
+              cat "$RUNNER_TEMP/npm-view.err"
+              exit 1
+            fi
+            dist_tag=$(node scripts/publish-dist-tag.mjs "$VERSION" "$latest")
+            sha=$(sha256sum "$DEST/$tarball" | cut -d' ' -f1)
+            echo "$pkg $tarball $sha $dist_tag" >> "$RUNNER_TEMP/release.txt"
+            echo "@sodax/$pkg@$VERSION → $dist_tag (current latest: ${latest:-none})"
+          done
+          { echo 'release<<RELEASE_EOF'; cat "$RUNNER_TEMP/release.txt"; echo 'RELEASE_EOF'; } >> "$GITHUB_OUTPUT"
+        env:
+          PACKAGES: ${{ steps.resolve.outputs.packages }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+
+      - name: Upload tarballs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-tarballs
+          path: ${{ runner.temp }}/tarballs/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  # Runs no repository or dependency code: no checkout, no install, prebuilt tarballs only.
+  publish:
+    name: Publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm-publish
+    permissions:
+      id-token: write
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download tarballs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-tarballs
+          path: tarballs
+
+      - name: Verify tarballs match what was checked
+        working-directory: tarballs
+        run: |
+          while read -r pkg tarball sha dist_tag; do
+            [[ -n "$pkg" ]] || continue
+            echo "$sha  $tarball" | sha256sum -c -
+          done <<< "$RELEASE"
+        env:
+          RELEASE: ${{ needs.verify.outputs.release }}
+
+      # Trusted publishing (OIDC, npm >= 11.5.1) only: each package's npm trusted publisher must name this
+      # repo, this workflow file and the npm-publish environment. Already-published versions are skipped.
+      - name: Publish packages in topological order
+        working-directory: tarballs
+        run: |
+          while read -r pkg tarball sha dist_tag; do
+            [[ -n "$pkg" ]] || continue
+            if [[ -n "$(npm view "@sodax/$pkg@$VERSION" version 2> /dev/null)" ]]; then
+              echo "::notice::@sodax/$pkg@$VERSION is already on npm; skipping"
+              continue
+            fi
+            echo "::group::Publishing @sodax/$pkg@$VERSION under $dist_tag"
+            npm publish "./$tarball" --provenance --access public --tag "$dist_tag"
+            echo "::endgroup::"
+          done <<< "$RELEASE"
+        env:
+          RELEASE: ${{ needs.verify.outputs.release }}
+          VERSION: ${{ needs.verify.outputs.version }}

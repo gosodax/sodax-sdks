@@ -31,6 +31,7 @@ import {
   SolverIntentErrorCode,
   SolverIntentStatusCode,
   type Result,
+  type SolverIntentStatusResponse,
   type SpokeChainKey,
   type SubmitTxStatusDataV2,
 } from '@sodax/types';
@@ -1816,6 +1817,7 @@ const intentResponse = (events: unknown[], allowPartialFill = false): IntentResp
   },
   events,
 });
+const cancelEvent = { eventType: 'intent-cancelled', txHash: '0xcancel' };
 
 describe('SwapService.getStatus', () => {
   const request = { intent_tx_hash: '0xsome' } as const;
@@ -1968,6 +1970,24 @@ describe('SwapService.getStatus', () => {
         context: { api: 'backend', status: 404 },
       }),
     });
+
+    expect(await sodax.swaps.getStatus(request)).toBe(notFound);
+  });
+
+  // Reading a journal cancel as FAILED is `getDetailedStatus`'s; this one keeps the solver's answers.
+  it('leaves an in-flight answer unreconciled', async () => {
+    const inFlight = { ok: true as const, value: { status: SolverIntentStatusCode.STARTED_NOT_FINISHED } };
+    mocks.solverGetStatus.mockResolvedValueOnce(inFlight);
+    const backendSpy = vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash');
+
+    expect(await sodax.swaps.getStatus(request)).toBe(inFlight);
+    expect(backendSpy).not.toHaveBeenCalled();
+  });
+
+  it('keeps the solver NOT_FOUND for an intent the journal shows cancelled', async () => {
+    const notFound = { ok: true as const, value: { status: SolverIntentStatusCode.NOT_FOUND } };
+    mocks.solverGetStatus.mockResolvedValueOnce(notFound);
+    backendReturns([cancelEvent]);
 
     expect(await sodax.swaps.getStatus(request)).toBe(notFound);
   });
@@ -2165,6 +2185,126 @@ describe('SwapService.getDetailedStatus', () => {
 
     expect(!result.ok && isSodaxError(result.error) && result.error.code).toBe('LOOKUP_FAILED');
     expect(!result.ok && isSodaxError(result.error) && result.error.context?.reason).toBeUndefined();
+  });
+
+  // ── reconciling a non-final solver answer ────────────────────────────────
+
+  const journalReturns = (intent: IntentResponse) =>
+    vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({ ok: true, value: intent });
+  const solverArm = (data: SolverIntentStatusResponse) => ({
+    ok: true,
+    value: { source: 'solver', dstTxHash: HUB_TX, data },
+  });
+
+  // The solver can keep reporting a keeper-cancelled intent in flight, which polls forever.
+  it.each<[string, () => void]>([
+    [
+      'a failed record',
+      () =>
+        record({ status: 'failed', failureReason: 'Intent deadline expired', abandonedAt: '2026-10-14T07:48:07.869Z' }),
+    ],
+    ['a record abandoned mid-flight', () => record({ status: 'relaying', abandonedAt: '2026-10-14T07:48:07.869Z' })],
+    ['no record', () => noRecord()],
+  ])('reads a cancelled intent as FAILED past %s while the solver reports it in flight', async (_label, arrange) => {
+    arrange();
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    journalReturns(intentResponse([cancelEvent]));
+
+    expect(await sodax.swaps.getDetailedStatus(key)).toEqual(solverArm({ status: SolverIntentStatusCode.FAILED }));
+  });
+
+  it.each<[string, () => void]>([
+    ['not started', () => solverSays(SolverIntentStatusCode.NOT_STARTED_YET)],
+    ['NOT_FOUND', () => solverSays(SolverIntentStatusCode.NOT_FOUND)],
+    [
+      'a failed request',
+      () =>
+        mocks.solverGetStatus.mockResolvedValueOnce({
+          ok: false,
+          error: { detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'solver down' } },
+        }),
+    ],
+  ])('reads a cancelled intent as FAILED when the solver answers %s', async (_label, arrange) => {
+    noRecord();
+    packets(delivered);
+    arrange();
+    journalReturns(intentResponse([cancelEvent]));
+
+    expect(await sodax.swaps.getDetailedStatus(key)).toEqual(solverArm({ status: SolverIntentStatusCode.FAILED }));
+  });
+
+  it('reads a settling fill as SOLVED while the solver still reports the intent in flight', async () => {
+    noRecord();
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    journalReturns(
+      intentResponse([{ eventType: 'intent-filled', txHash: '0xfill', intentState: { remainingInput: '0' } }]),
+    );
+
+    expect(await sodax.swaps.getDetailedStatus(key)).toEqual(
+      solverArm({ status: SolverIntentStatusCode.SOLVED, fill_tx_hash: '0xfill' }),
+    );
+  });
+
+  // A cancel after a partial fill delivered some output, so it is neither SOLVED nor FAILED.
+  it('leaves the solver answer standing for a cancel after a partial fill', async () => {
+    noRecord();
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    const partial = { eventType: 'intent-filled', txHash: '0xpartial', intentState: { remainingInput: '500' } };
+    journalReturns({ ...intentResponse([partial, cancelEvent], true), open: false });
+
+    expect(await sodax.swaps.getDetailedStatus(key)).toEqual(
+      solverArm({ status: SolverIntentStatusCode.STARTED_NOT_FINISHED }),
+    );
+  });
+
+  it('leaves an in-flight answer standing while the intent is open', async () => {
+    noRecord();
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    journalReturns(intentResponse([], true));
+
+    expect(await sodax.swaps.getDetailedStatus(key)).toEqual(
+      solverArm({ status: SolverIntentStatusCode.STARTED_NOT_FINISHED }),
+    );
+  });
+
+  // Unlike an unverified NOT_FOUND, an in-flight answer spends no budget, so it stays a plain read.
+  it.each<[string, Error]>([
+    [
+      '404',
+      new SodaxError('EXTERNAL_API_ERROR', 'not found', {
+        feature: 'backend',
+        context: { api: 'backend', status: 404 },
+      }),
+    ],
+    ['outage', new Error('down')],
+  ])('leaves an in-flight answer standing when the journal read fails with %s', async (_label, error) => {
+    noRecord();
+    packets(delivered);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
+    vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({ ok: false, error });
+
+    expect(await sodax.swaps.getDetailedStatus(key)).toEqual(
+      solverArm({ status: SolverIntentStatusCode.STARTED_NOT_FINISHED }),
+    );
+  });
+
+  it.each([
+    SolverIntentStatusCode.SOLVED,
+    SolverIntentStatusCode.FAILED,
+  ])('does not read the journal behind a final solver answer (%s)', async status => {
+    noRecord();
+    packets(delivered);
+    solverSays(status);
+    const backendSpy = vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash');
+
+    const result = await sodax.swaps.getDetailedStatus(key);
+
+    expect(result.ok && result.value.source === 'solver' && result.value.data.status).toBe(status);
+    expect(backendSpy).not.toHaveBeenCalled();
   });
 
   it('uses the source tx as the hub tx for a hub-source swap', async () => {
@@ -3068,7 +3208,7 @@ describe('SwapService.swap', () => {
       }
     });
 
-    it('on a postExecution failure, keeping the solver code', async () => {
+    it('on a postExecution failure, keeping the solver code and the hub tx to notify again', async () => {
       stubCreateIntentOk(ChainKeys.BSC_MAINNET, '0xbscTx');
       mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xdstTx' } });
       mocks.solverPostExecution.mockResolvedValueOnce({
@@ -3085,6 +3225,7 @@ describe('SwapService.swap', () => {
           solverCode: -7,
           srcChainKey: ChainKeys.BSC_MAINNET,
           srcTxHash: '0xbscTx',
+          dstTxHash: '0xdstTx',
         });
       }
     });
@@ -4692,6 +4833,8 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.value.approvalStrategy).toBe('sequential');
       expect(approveSpy).toHaveBeenCalledOnce();
+      // The batch path already built (and so validated) the intent: no second unsigned build.
+      expect(createSpy).toHaveBeenCalledTimes(2);
       expect(createSpy).toHaveBeenLastCalledWith(expect.objectContaining({ walletProvider: wallet }));
       expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0].srcTxHash).toBe('0xspokeTx');
     });
@@ -4699,8 +4842,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
 
   describe('swapWithApproval — resuming an unconfirmed batch', () => {
     const stubResumeRelay = () => {
-      mocks.submitTransaction.mockResolvedValueOnce({ ok: true, value: { success: true, message: 'submitted' } });
-      mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xdstTx' } });
+      mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xdstTx' } });
       mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK', intent_hash: '0xhash' } });
     };
     const resume = (wallet: ReturnType<typeof makeBatchProvider>, resumeBatchCallCount?: number) =>
@@ -4751,11 +4893,13 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(approveSpy).not.toHaveBeenCalled();
       expect(wallet.waitForBatch).toHaveBeenLastCalledWith('batch-1', { timeout: DEFAULT_RELAY_TX_TIMEOUT });
       // The relay takes an EVM tx by hash; the intent comes back from the hub tx it delivered.
-      expect(mocks.submitTransaction.mock.calls[0]?.[0]).toEqual({
-        action: 'submit',
-        params: { chain_id: getIntentRelayChainId(ChainKeys.BSC_MAINNET).toString(), tx_hash: '0xbatchTx' },
+      expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledOnce();
+      expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0]).toEqual({
+        srcTxHash: '0xbatchTx',
+        chainKey: ChainKeys.BSC_MAINNET,
+        relayerApiEndpoint: sodax.swaps.relayerApiEndpoint,
+        timeout: DEFAULT_RELAY_TX_TIMEOUT,
       });
-      expect(mocks.waitUntilIntentExecuted.mock.calls[0]?.[0]).toMatchObject({ srcTxHash: '0xbatchTx' });
       expect(mocks.getIntent.mock.calls[0]?.[0]).toBe('0xdstTx');
       expect(mocks.solverPostExecution).toHaveBeenCalledOnce();
     });
@@ -4796,7 +4940,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         });
       }
       expect(wallet.sendAtomicBatch).not.toHaveBeenCalled();
-      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
 
     it('relays the deposit of a late batch confirmed as one tx per call, given the call count', async () => {
@@ -4808,7 +4952,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       const result = await resume(wallet, 2);
 
       expect(result.ok).toBe(true);
-      expect(mocks.submitTransaction.mock.calls[0]?.[0]).toMatchObject({ params: { tx_hash: '0xdepositTx' } });
+      expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0]).toMatchObject({ srcTxHash: '0xdepositTx' });
     });
 
     it('keeps a batch confirmed as one tx per call unconfirmed without the call count', async () => {
@@ -4819,7 +4963,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.context?.reason).toBe(ATOMIC_BATCH_UNCONFIRMED);
-      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
 
     it('never waits less than the default for the batch, even on a zero timeout', async () => {
@@ -4847,13 +4991,12 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         expect(result.error.code).toBe('INTENT_CREATION_FAILED');
         expect(result.error.context).toMatchObject({ reason: 'atomic-batch-failed', batchId: 'batch-1' });
       }
-      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
 
     it('keeps the deposit tx on a relay failure, so its status can still be read', async () => {
       const wallet = makeBatchProvider();
-      mocks.submitTransaction.mockResolvedValueOnce({ ok: true, value: { success: true, message: 'submitted' } });
-      mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: false, error: new Error('RELAY_TIMEOUT') });
+      mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: new Error('RELAY_TIMEOUT') });
 
       const result = await resume(wallet);
 
@@ -4865,6 +5008,17 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(mocks.solverPostExecution).not.toHaveBeenCalled();
     });
 
+    it('keeps the hub tx on a postExecution failure, so the solver can be notified again', async () => {
+      const wallet = makeBatchProvider();
+      mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xdstTx' } });
+      mocks.solverPostExecution.mockResolvedValueOnce({ ok: false, error: { detail: { code: -7, message: 'down' } } });
+
+      const result = await resume(wallet);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.context).toMatchObject({ srcTxHash: '0xbatchTx', dstTxHash: '0xdstTx' });
+    });
+
     it('rejects resuming with a wallet that cannot batch', async () => {
       const result = await sodax.swaps.swapWithApproval({
         params: intentInput(ChainKeys.BSC_MAINNET),
@@ -4874,7 +5028,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) expect(result.error.code).toBe('VALIDATION_FAILED');
-      expect(mocks.submitTransaction).not.toHaveBeenCalled();
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
   });
 
@@ -4887,7 +5041,9 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         ok: true,
         value: { status: 'success', receipt: {} as never },
       });
-      vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce(intentResult('0xspokeTx'));
+      vi.spyOn(sodax.swaps, 'createIntent')
+        .mockResolvedValueOnce(intentResult(RAW_DEPOSIT))
+        .mockResolvedValueOnce(intentResult('0xspokeTx'));
       stubRelayAndSolver();
 
       const result = await sodax.swaps.swapWithApproval({
@@ -4901,13 +5057,16 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(wallet.sendAtomicBatch).not.toHaveBeenCalled();
     });
 
-    it('waits for the approval to confirm before creating the intent', async () => {
+    it('builds the intent, then approves and waits for it, then sends the intent', async () => {
       allowance(false);
       const approveSpy = vi.spyOn(sodax.swaps, 'approve').mockResolvedValueOnce({ ok: true, value: '0xapproveTx' });
       const receiptSpy = vi
         .spyOn(sodax.spoke, 'waitForTxReceipt')
         .mockResolvedValueOnce({ ok: true, value: { status: 'success', receipt: {} as never } });
-      const createSpy = vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce(intentResult('0xspokeTx'));
+      const createSpy = vi
+        .spyOn(sodax.swaps, 'createIntent')
+        .mockResolvedValueOnce(intentResult(RAW_DEPOSIT))
+        .mockResolvedValueOnce(intentResult('0xspokeTx'));
       stubRelayAndSolver();
 
       const result = await sodax.swaps.swapWithApproval({
@@ -4918,11 +5077,29 @@ describe('SwapService approval strategy and swapWithApproval', () => {
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.value.approvalStrategy).toBe('sequential');
       expect(receiptSpy).toHaveBeenCalledWith({ txHash: '0xapproveTx', chainKey: ChainKeys.BSC_MAINNET });
+      expect(createSpy.mock.calls[0]?.[0]).toMatchObject({ raw: true });
+      expect(createSpy.mock.calls[1]?.[0]).toMatchObject({ walletProvider: mockEvmProvider });
+      const [preflightOrder, createOrder] = createSpy.mock.invocationCallOrder;
       const [approveOrder] = approveSpy.mock.invocationCallOrder;
       const [receiptOrder] = receiptSpy.mock.invocationCallOrder;
-      const [createOrder] = createSpy.mock.invocationCallOrder;
+      expect(preflightOrder).toBeLessThan(approveOrder ?? 0);
       expect(approveOrder).toBeLessThan(receiptOrder ?? 0);
       expect(receiptOrder).toBeLessThan(createOrder ?? 0);
+    });
+
+    it('asks for no approval when the intent cannot be built', async () => {
+      allowance(false);
+      const invalid = new SodaxError('VALIDATION_FAILED', 'Unsupported spoke chain token', { feature: 'swap' });
+      vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce({ ok: false, error: invalid });
+      const approveSpy = vi.spyOn(sodax.swaps, 'approve');
+
+      const result = await sodax.swaps.swapWithApproval({
+        params: intentInput(ChainKeys.BSC_MAINNET),
+        walletProvider: mockEvmProvider,
+      });
+
+      expect(!result.ok && result.error).toBe(invalid);
+      expect(approveSpy).not.toHaveBeenCalled();
     });
 
     it('stops at a rejected approval', async () => {
@@ -4931,7 +5108,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         ok: false,
         error: new SodaxError('USER_REJECTED', 'User rejected the request', { feature: 'swap' }),
       });
-      const createSpy = vi.spyOn(sodax.swaps, 'createIntent');
+      const createSpy = vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce(intentResult(RAW_DEPOSIT));
 
       const result = await sodax.swaps.swapWithApproval({
         params: intentInput(ChainKeys.BSC_MAINNET),
@@ -4943,7 +5120,9 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         expect(result.error.code).toBe('USER_REJECTED');
         expect(result.error.context).toMatchObject({ action: 'swapWithApproval', approvalStrategy: 'sequential' });
       }
-      expect(createSpy).not.toHaveBeenCalled();
+      // Only the unsigned preflight build ran; nothing was sent after the rejected approval.
+      expect(createSpy).toHaveBeenCalledOnce();
+      expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ raw: true }));
     });
 
     it('stops at an approval that did not confirm', async () => {
@@ -4953,7 +5132,7 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         ok: true,
         value: { status: 'failure', error: new Error('reverted') },
       });
-      const createSpy = vi.spyOn(sodax.swaps, 'createIntent');
+      const createSpy = vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce(intentResult(RAW_DEPOSIT));
 
       const result = await sodax.swaps.swapWithApproval({
         params: intentInput(ChainKeys.BSC_MAINNET),
@@ -4965,7 +5144,8 @@ describe('SwapService approval strategy and swapWithApproval', () => {
         expect(result.error.code).toBe('APPROVE_FAILED');
         expect(result.error.context).toMatchObject({ reason: 'approve-not-confirmed', approveTxHash: '0xapproveTx' });
       }
-      expect(createSpy).not.toHaveBeenCalled();
+      expect(createSpy).toHaveBeenCalledOnce();
+      expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ raw: true }));
     });
 
     it('creates the intent directly when no approval is needed', async () => {

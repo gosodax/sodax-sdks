@@ -43,7 +43,7 @@ Read in order. Skipping `ai-rules.md` is the most common cause of agents reverti
 
 - **`try { await sodax.swaps.swap(...) } catch` for SDK-level failures.** v2 returns `Result<T>` — branch on `result.ok`. `catch` only fires for thrown exceptions (e.g. missing `walletProvider`), not for `RELAY_TIMEOUT` or `EXECUTION_FAILED`.
 - **Forgetting the discriminator.** `raw: false` is required on signed swaps; without it TypeScript rejects `walletProvider`.
-- **Reporting a swap as lost on a post-broadcast failure.** `TX_VERIFICATION_FAILED`, the relay codes and postExecution failures carry `error.context.srcTxHash` — the backend may still complete the swap, so keep polling `getDetailedStatus` with it.
+- **Reporting a swap as lost on a post-broadcast failure.** `TX_VERIFICATION_FAILED`, the relay codes and postExecution failures carry `error.context.srcTxHash` — the backend may still complete the swap, so keep polling `getDetailedStatus` with it. A failed solver notification also carries `error.context.dstTxHash`: call `postExecution({ intent_tx_hash })` with it again first, since polling never notifies.
 - **Calling `sodax.api.swaps.submitTx` with the full `relayData` object.** The backend expects the `payload: string` field, not the wrapper.
 
 ## Migration workflow (port v1 swap to v2)

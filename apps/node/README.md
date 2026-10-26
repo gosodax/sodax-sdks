@@ -2,7 +2,7 @@
 
 Runnable `@sodax/sdk` scripts for a backend or server-side integration — no React, no wallet
 extension. Each script is one file under
-[`src/`](https://github.com/icon-project/sodax-sdks/tree/main/apps/node/src) driven by its own
+[`src/`](https://github.com/gosodax/sodax-sdks/tree/main/apps/node/src) driven by its own
 `pnpm` script.
 
 Most of these sign with a real key and broadcast to **mainnet**. A handful do not — they need no
@@ -33,10 +33,10 @@ pnpm logging
 pnpm test-libs
 ```
 
-[`src/logging.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/logging.ts)
+[`src/logging.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/node/src/logging.ts)
 points the backend base URL at a closed local port, so a real internal SDK failure travels through a
 custom `SodaxLogger` immediately. See [Logging](https://docs.sodax.com/developers/how-to/logging).
-[`src/test-libs.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/test-libs.ts)
+[`src/test-libs.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/node/src/test-libs.ts)
 encodes addresses and payloads locally to catch a broken `@sodax/libs` dist before a consumer hits it.
 
 These also run without a key, but do read from mainnet:
@@ -130,7 +130,7 @@ EVM_PRIVATE_KEY=0x… pnpm flint-deposit --execute     # submit
 ## Regression scripts — currently inert
 
 Files under
-[`src/tests/`](https://github.com/icon-project/sodax-sdks/tree/main/apps/node/src/tests) are named
+[`src/tests/`](https://github.com/gosodax/sodax-sdks/tree/main/apps/node/src/tests) are named
 `*.test.ts` but are **not** Vitest — they are standalone scripts meant to run against live chains,
 which is why `pnpm test` in this app is a no-op.
 
@@ -143,5 +143,5 @@ uncomment the one you need before relying on it.
 ## Related
 
 - [Configure SDK](https://docs.sodax.com/developers/how-to/configure_sdk) — the full `SodaxOptions` shape.
-- [SDK Architecture](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/ARCHITECTURE_REFACTOR_SUMMARY.md) — `Result<T>` and the error convention.
-- [`apps/demo`](https://github.com/icon-project/sodax-sdks/tree/main/apps/demo) — the browser counterpart, same flows with a React UI.
+- [SDK Architecture](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/ARCHITECTURE_REFACTOR_SUMMARY.md) — `Result<T>` and the error convention.
+- [`apps/demo`](https://github.com/gosodax/sodax-sdks/tree/main/apps/demo) — the browser counterpart, same flows with a React UI.

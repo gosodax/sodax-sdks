@@ -167,7 +167,7 @@ for the shared conventions.
 
 ## Runnable example
 
-[`apps/demo/src/pages/recovery`](https://github.com/icon-project/sodax-sdks/tree/main/apps/demo/src/pages/recovery)
+[`apps/demo/src/pages/recovery`](https://github.com/gosodax/sodax-sdks/tree/main/apps/demo/src/pages/recovery)
 is the worked example — chain picker, stranded-balance list and a per-asset withdraw button built on
 the two hooks above.
 
@@ -179,5 +179,5 @@ pnpm dev:demo   # → http://localhost:3000/recovery
 ## See also
 
 - [Configure SDK](https://docs.sodax.com/developers/how-to/configure_sdk) — `sodax.recovery` in the service table.
-- [SDK Architecture](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/ARCHITECTURE_REFACTOR_SUMMARY.md) — `Result<T>` and the error convention.
+- [SDK Architecture](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/ARCHITECTURE_REFACTOR_SUMMARY.md) — `Result<T>` and the error convention.
 - [Monetize SDK](https://docs.sodax.com/developers/how-to/monetize_sdk) — partner fee claiming has its own recovery path for stuck conversion intents, which is unrelated to this service.

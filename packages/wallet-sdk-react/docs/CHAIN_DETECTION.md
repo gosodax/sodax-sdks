@@ -194,7 +194,7 @@ Both `useChainGroups` and `useConnectedChains` accept an `order?: readonly Chain
 2. Chains **not** in the array fall to the bottom, **sorted alphabetically among themselves**.
 3. Without `order`, both hooks follow the canonical `ChainTypeArr` order from `@sodax/types` — `useChainGroups` because `enabledChains` is itself built by walking `ChainTypeArr`, `useConnectedChains` because it walks `ChainTypeArr` directly. Both defaults are stable across reloads.
 
-The compare function lives in [`utils/chainOrder.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/utils/chainOrder.ts).
+The compare function lives in [`utils/chainOrder.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/utils/chainOrder.ts).
 
 ```typescript
 const groups = useChainGroups({ order: ['EVM', 'ICON'] });

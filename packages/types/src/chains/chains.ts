@@ -107,7 +107,7 @@ export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey
  * `ChainKeys` value, so the full URL is `${CHAIN_LOGO_BASE_URL}/<chainKey>.png`.
  */
 export const CHAIN_LOGO_BASE_URL =
-  'https://raw.githubusercontent.com/icon-project/sodax-sdks/main/packages/assets/chain';
+  'https://raw.githubusercontent.com/gosodax/sodax-sdks/main/packages/assets/chain';
 
 const chainLogo = (key: ChainKey): string => `${CHAIN_LOGO_BASE_URL}/${key}.png`;
 

@@ -100,5 +100,5 @@ If you are using all three, mount providers in this order at the app root:
 ## Getting help
 
 - API surface lookup: [`reference/`](./reference/).
-- Bug or missing feature: [open an issue](https://github.com/icon-project/sodax-sdks/issues).
+- Bug or missing feature: [open an issue](https://github.com/gosodax/sodax-sdks/issues).
 - Internal architecture (only relevant for SODAX maintainers): `../CLAUDE.md` in the package root.

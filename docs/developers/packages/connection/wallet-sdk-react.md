@@ -4,7 +4,7 @@ icon: atom
 generatedFrom: packages/wallet-sdk-react/README.md
 ---
 
-React layer over [`@sodax/wallet-sdk-core`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-core/README.md) — wallet connection, signing, and account management for the SODAX cross-chain ecosystem. Hooks read from a single Zustand store; per-chain native SDKs (wagmi, `@solana/wallet-adapter`, `@mysten/dapp-kit-react`, …) are wrapped behind a uniform `IXService` / `IXConnector` interface.
+React layer over [`@sodax/wallet-sdk-core`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/README.md) — wallet connection, signing, and account management for the SODAX cross-chain ecosystem. Hooks read from a single Zustand store; per-chain native SDKs (wagmi, `@solana/wallet-adapter`, `@mysten/dapp-kit-react`, …) are wrapped behind a uniform `IXService` / `IXConnector` interface.
 
 ## Features
 
@@ -16,7 +16,7 @@ React layer over [`@sodax/wallet-sdk-core`](https://github.com/icon-project/soda
 - **Headless wallet modal** — `useWalletModal` state machine (chainSelect → walletSelect → connecting → success | error), render-agnostic
 - **Batch operations** — connect/disconnect every chain a wallet identifier covers, in sequence
 - **WalletConnect** — opt-in for enterprise custody (Fireblocks, etc.) via `config.EVM.walletConnect`
-- **Email login (Privy)** — opt-in "Email (Privy)" EVM wallet via `config.EVM.privy` and `@sodax/wallet-sdk-react/privy`; needs `@privy-io/react-auth` 3.40+ (an optional peer — partners who skip it install nothing). The wallet is custodied by Privy: no signing while Privy is unreachable, addresses belong to your Privy app, a user who loses their email loses the wallet, and your Privy app is billed per signature. Read the [Privy guide](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PRIVY.md) before enabling it.
+- **Email login (Privy)** — opt-in "Email (Privy)" EVM wallet via `config.EVM.privy` and `@sodax/wallet-sdk-react/privy`; needs `@privy-io/react-auth` 3.40+ (an optional peer — partners who skip it install nothing). The wallet is custodied by Privy: no signing while Privy is unreachable, addresses belong to your Privy app, a user who loses their email loses the wallet, and your Privy app is billed per signature. Read the [Privy guide](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PRIVY.md) before enabling it.
 
 ## Installation
 
@@ -105,24 +105,24 @@ function WalletConnect() {
 
 ## Documentation
 
-The full guide lives in [`docs/`](https://github.com/icon-project/sodax-sdks/tree/main/packages/wallet-sdk-react/docs). Start with the topic that matches what you're building.
+The full guide lives in [`docs/`](https://github.com/gosodax/sodax-sdks/tree/main/packages/wallet-sdk-react/docs). Start with the topic that matches what you're building.
 
 | Topic | What it covers |
 |-------|----------------|
-| [Configure SodaxWalletProvider](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md) | `SodaxWalletConfig` shape, opt-in chain mounting, per-chain RPC + wallet defaults, breaking changes from v1 |
-| [Connect Flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md) | Discover connectors, connect, read account, disconnect; provider-managed vs non-provider chains; persisted reconnect |
-| [Wallet Provider Bridge](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PROVIDER_BRIDGE.md) | `useWalletProvider` → typed `IXxxWalletProvider` for `@sodax/sdk` calls; `useXService` / `useXServices` |
-| [Wallet Modal](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_MODAL.md) | Headless state machine for multi-chain modal UIs; `useConnectionFlow` non-modal alternative |
-| [WalletConnect](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLETCONNECT.md) | Enterprise custody integration (Fireblocks, Ledger); `qrModalOptions` filtering |
-| [Email login (Privy)](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PRIVY.md) | `EVM.privy` setup, the Privy user in your app, sessions, custody and recovery, availability, chains, cost |
-| [Batch Operations](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/BATCH_OPERATIONS.md) | Sequential multi-chain connect/disconnect by wallet identifier |
-| [Chain Detection](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CHAIN_DETECTION.md) | `useChainGroups`, `useConnectedChains`, `useIsWalletInstalled`, `useEnabledChains`; hydration status |
-| [Sign Message](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SIGN_MESSAGE.md) | `useXSignMessage` cross-chain; Bitcoin BIP-322 vs ECDSA auto-detect |
-| [EVM Switch Chain](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/EVM_SWITCH_CHAIN.md) | Single wagmi connection across all configured EVM networks |
-| [Connectors](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECTORS.md) | `IXConnector` contract, deep-import concrete classes, custom connectors |
-| [Sub-path Exports](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SUB_PATH_EXPORTS.md) | The `.` / `./xchains/*` export map, deep-import paths, and what is deliberately not exported |
-| [Architecture](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ARCHITECTURE.md) | Zustand store, Provider/Hydrator/Actions trio, persist hydration caveat |
-| [Adding a New Chain](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ADDING_A_NEW_CHAIN.md) | `ChainMeta` extension, chain registry, sub-path export wiring |
+| [Configure SodaxWalletProvider](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md) | `SodaxWalletConfig` shape, opt-in chain mounting, per-chain RPC + wallet defaults, breaking changes from v1 |
+| [Connect Flow](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md) | Discover connectors, connect, read account, disconnect; provider-managed vs non-provider chains; persisted reconnect |
+| [Wallet Provider Bridge](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PROVIDER_BRIDGE.md) | `useWalletProvider` → typed `IXxxWalletProvider` for `@sodax/sdk` calls; `useXService` / `useXServices` |
+| [Wallet Modal](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_MODAL.md) | Headless state machine for multi-chain modal UIs; `useConnectionFlow` non-modal alternative |
+| [WalletConnect](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLETCONNECT.md) | Enterprise custody integration (Fireblocks, Ledger); `qrModalOptions` filtering |
+| [Email login (Privy)](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PRIVY.md) | `EVM.privy` setup, the Privy user in your app, sessions, custody and recovery, availability, chains, cost |
+| [Batch Operations](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/BATCH_OPERATIONS.md) | Sequential multi-chain connect/disconnect by wallet identifier |
+| [Chain Detection](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CHAIN_DETECTION.md) | `useChainGroups`, `useConnectedChains`, `useIsWalletInstalled`, `useEnabledChains`; hydration status |
+| [Sign Message](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SIGN_MESSAGE.md) | `useXSignMessage` cross-chain; Bitcoin BIP-322 vs ECDSA auto-detect |
+| [EVM Switch Chain](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/EVM_SWITCH_CHAIN.md) | Single wagmi connection across all configured EVM networks |
+| [Connectors](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECTORS.md) | `IXConnector` contract, deep-import concrete classes, custom connectors |
+| [Sub-path Exports](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/SUB_PATH_EXPORTS.md) | The `.` / `./xchains/*` export map, deep-import paths, and what is deliberately not exported |
+| [Architecture](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ARCHITECTURE.md) | Zustand store, Provider/Hydrator/Actions trio, persist hydration caveat |
+| [Adding a New Chain](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ADDING_A_NEW_CHAIN.md) | `ChainMeta` extension, chain registry, sub-path export wiring |
 
 ### Chain-not-enabled warnings
 
@@ -134,12 +134,12 @@ Multi-token Solana balance reads batch the legacy SPL Token and Token-2022 assoc
 
 ## AI agent docs
 
-AI-readable docs for `@sodax/wallet-sdk-react` (and the other `@sodax/*` packages) are shipped via [`@sodax/skills`](https://github.com/icon-project/sodax-sdks/tree/main/packages/skills) — a separate npm package bundling Claude-Code SKILL.md files and a long-form knowledge tree.
+AI-readable docs for `@sodax/wallet-sdk-react` (and the other `@sodax/*` packages) are shipped via [`@sodax/skills`](https://github.com/gosodax/sodax-sdks/tree/main/packages/skills) — a separate npm package bundling Claude-Code SKILL.md files and a long-form knowledge tree.
 
 **Recommended: [`skills` CLI](https://github.com/vercel-labs/skills)** — from your project root:
 
 ```bash
-npx skills@latest add icon-project/sodax-sdks/packages/skills
+npx skills@latest add gosodax/sodax-sdks/packages/skills
 ```
 
 **npm + `AGENTS.md` pointer** (fallback for web chats, or when you prefer a devDependency over the CLI):
@@ -148,7 +148,7 @@ npx skills@latest add icon-project/sodax-sdks/packages/skills
 pnpm add -D @sodax/skills
 ```
 
-Then point your agent at `node_modules/@sodax/skills/AGENTS.md`. See [docs/ai-integration-guide.md](https://github.com/icon-project/sodax-sdks/blob/main/docs/ai-integration-guide.md) for all install modes and per-tool wiring.
+Then point your agent at `node_modules/@sodax/skills/AGENTS.md`. See [docs/ai-integration-guide.md](https://github.com/gosodax/sodax-sdks/blob/main/docs/ai-integration-guide.md) for all install modes and per-tool wiring.
 
 ---
 
@@ -169,7 +169,7 @@ if (connector instanceof XverseXConnector) {
 
 `@sodax/wallet-sdk-react/privy` is the one sub-path that is a feature, not a deep import: it exports `privy()` for `EVM.privy` and is the only entry that loads `@privy-io/react-auth`.
 
-See [Connectors](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECTORS.md) for the full list of deep-import sub-paths.
+See [Connectors](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECTORS.md) for the full list of deep-import sub-paths.
 
 ## Requirements
 
@@ -191,13 +191,13 @@ pnpm lint        # Lint code
 
 ## Contributing
 
-Contributions welcome — see the repo [Contributing Guide](https://github.com/icon-project/sodax-sdks/blob/main/CONTRIBUTING.md). For onboarding a new chain family, follow [`docs/ADDING_A_NEW_CHAIN.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ADDING_A_NEW_CHAIN.md).
+Contributions welcome — see the repo [Contributing Guide](https://github.com/gosodax/sodax-sdks/blob/main/CONTRIBUTING.md). For onboarding a new chain family, follow [`docs/ADDING_A_NEW_CHAIN.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/ADDING_A_NEW_CHAIN.md).
 
 ## License
 
-[MIT](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/LICENSE)
+[MIT](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/LICENSE)
 
 ## Support
 
-- [GitHub Issues](https://github.com/icon-project/sodax-sdks/issues)
+- [GitHub Issues](https://github.com/gosodax/sodax-sdks/issues)
 - [Discord Community](https://discord.gg/sodax-formerly-icon-880651922682560582)

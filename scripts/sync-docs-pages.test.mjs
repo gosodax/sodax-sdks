@@ -203,7 +203,7 @@ test('a page edited in the dashboard reports drift, not a collision', t => {
 test('a page carrying only the legacy comment or body notice still counts as generated', t => {
   const legacy = [
     '---\ntitle: "Swaps"\nicon: rotate\n# Generated from packages/sdk/docs/SWAPS.md by pnpm docs:sync-pages.\n---\n\nStale.\n',
-    '---\ntitle: "Swaps"\nicon: rotate\n---\n\n> **Generated page.** Source: [`packages/sdk/docs/SWAPS.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md).\n\nStale.\n',
+    '---\ntitle: "Swaps"\nicon: rotate\n---\n\n> **Generated page.** Source: [`packages/sdk/docs/SWAPS.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md).\n\nStale.\n',
   ];
 
   for (const page of legacy) {

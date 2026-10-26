@@ -29,7 +29,6 @@ import {
   type GetPacketResponse,
   type GetTransactionPacketsResponse,
   type PacketData,
-  type RelayExtraData,
   relayTxAndWaitPacket,
   submitTransaction,
   type SubmitTxResponse,
@@ -52,13 +51,6 @@ const API_URL = 'https://relay.example.com/v1' as HttpUrl;
 const SPOKE_TX_HASH = '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
 const CHAIN_ID = '4'; // BSC_MAINNET relay id — matches getIntentRelayChainId(BSC) and packet src_chain_id
 const CONN_SN = '42';
-
-// `RelayAndWaitParams.data` is statically typed as required `RelayExtraData`,
-// but `relayTxAndWaitPacket`'s invariant only requires it for Solana/Bitcoin
-// source chains and the EVM branch never reads it. Tests for non-Solana/Bitcoin
-// chains pass `undefined` and rely on this cast — same intent-defeating mock
-// pattern the rest of the SDK test suite uses for misaligned param types.
-const NO_DATA = undefined as unknown as RelayExtraData;
 
 // Build a `fetch` response stub matching the subset of `Response` that `postRequest` reads:
 // `ok`/`status`/`statusText` for the HTTP-level success check, and `json()` for the body.
@@ -1043,7 +1035,6 @@ describe('relayTxAndWaitPacket', () => {
 
       const result = await relayTxAndWaitPacket({
         srcTxHash: SPOKE_TX_HASH,
-        data: NO_DATA,
         chainKey: ChainKeys.BSC_MAINNET,
         relayerApiEndpoint: API_URL,
         timeout: undefined,
@@ -1063,7 +1054,6 @@ describe('relayTxAndWaitPacket', () => {
 
       await relayTxAndWaitPacket({
         srcTxHash: SPOKE_TX_HASH,
-        data: NO_DATA,
         chainKey: ChainKeys.BSC_MAINNET,
         relayerApiEndpoint: API_URL,
         timeout: undefined,
@@ -1072,7 +1062,7 @@ describe('relayTxAndWaitPacket', () => {
       const submitBody = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
       expect(submitBody.action).toBe('submit');
       expect(submitBody.params).toEqual({ chain_id: '4', tx_hash: SPOKE_TX_HASH });
-      // No `data` field when undefined was passed.
+      // No `data` field when none was passed.
       expect(submitBody.params.data).toBeUndefined();
     });
 
@@ -1135,7 +1125,6 @@ describe('relayTxAndWaitPacket', () => {
 
       const promise = relayTxAndWaitPacket({
         srcTxHash: SPOKE_TX_HASH,
-        data: NO_DATA,
         chainKey: ChainKeys.BSC_MAINNET,
         relayerApiEndpoint: API_URL,
         timeout: 1_000,
@@ -1157,7 +1146,6 @@ describe('relayTxAndWaitPacket', () => {
 
       const result = await relayTxAndWaitPacket({
         srcTxHash: SPOKE_TX_HASH,
-        data: NO_DATA,
         chainKey: ChainKeys.BSC_MAINNET,
         relayerApiEndpoint: API_URL,
         timeout: undefined,
@@ -1180,7 +1168,6 @@ describe('relayTxAndWaitPacket', () => {
       // captures this and returns ok:false with the raw error.
       const result = await relayTxAndWaitPacket({
         srcTxHash: SPOKE_TX_HASH,
-        data: NO_DATA,
         chainKey: 'unknown_chain' as never,
         relayerApiEndpoint: API_URL,
         timeout: undefined,
@@ -1203,7 +1190,6 @@ describe('relayTxAndWaitPacket', () => {
       // try/catch turns it into ok:false with the raw Error.
       const result = await relayTxAndWaitPacket({
         srcTxHash: SPOKE_TX_HASH,
-        data: NO_DATA,
         chainKey: ChainKeys.SOLANA_MAINNET,
         relayerApiEndpoint: API_URL,
         timeout: undefined,

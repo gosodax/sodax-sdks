@@ -24,6 +24,8 @@ https://api.sodax.com/v1/swaps
 
 Canary: `https://canary-api.sodax.com/v1/swaps`.
 
+OpenAPI: [interactive](https://api.sodax.com/v1/swaps/docs) · [JSON](https://api.sodax.com/v1/swaps/docs-json).
+
 All amounts on the wire are **decimal strings**. Unauthenticated; write endpoints such as `submit-tx` are **rate-limited** — the exact limit is not published, so treat `429` as the signal.
 
 ---
@@ -244,7 +246,7 @@ curl -s -X POST 'https://api.sodax.com/v1/swaps/quote' \
   }'
 ```
 
-Exact field names follow the OpenAPI / `@sodax/types` `QuoteRequestV2` shapes — prefer generating clients from the live schema if you are not on TypeScript.
+Exact field names follow the [OpenAPI](https://api.sodax.com/v1/swaps/docs) / `@sodax/types` `QuoteRequestV2` shapes — prefer generating clients from the live schema if you are not on TypeScript.
 
 ---
 

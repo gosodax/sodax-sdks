@@ -20,7 +20,7 @@ correct. The commands below are the gate.
   from the backend config API through a `data-sodax-config` placeholder — the backend, not
   the SDK, decides what is live. See [`README.md`](README.md#live-config-tables).
 - **Anything outside `docs/` is not a page.** Link source files and repo docs as
-  `https://github.com/icon-project/sodax-sdks/blob/main/<path>`.
+  `https://github.com/gosodax/sodax-sdks/blob/main/<path>`.
 - **A new page is not done until it is in `docs.json` `navigation`.** Unregistered pages
   are still published and reachable by URL, but drop out of the sidebar, search, the
   sitemap and `llms.txt`.

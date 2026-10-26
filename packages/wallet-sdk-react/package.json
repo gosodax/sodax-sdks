@@ -15,9 +15,9 @@
     "multichain",
     "web3"
   ],
-  "homepage": "https://github.com/icon-project/sodax-sdks/tree/main/packages/wallet-sdk-react",
+  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/wallet-sdk-react",
   "bugs": {
-    "url": "https://github.com/icon-project/sodax-sdks/issues"
+    "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "type": "module",
   "main": "./dist/index.mjs",
@@ -58,7 +58,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/icon-project/sodax-sdks"
+    "url": "https://github.com/gosodax/sodax-sdks"
   },
   "scripts": {
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsup && tsup --config tsup.privy-dts.config.ts && node ../../scripts/verify-dist-exports.mjs && node scripts/check-privy-isolation.mjs",

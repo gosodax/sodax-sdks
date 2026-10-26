@@ -1,5 +1,5 @@
-[![CI](https://github.com/icon-project/sodax-sdks/actions/workflows/ci.yml/badge.svg)](https://github.com/icon-project/sodax-sdks/actions/workflows/ci.yml)
-[![Security](https://github.com/icon-project/sodax-sdks/actions/workflows/security.yml/badge.svg)](https://github.com/icon-project/sodax-sdks/actions/workflows/security.yml)
+[![CI](https://github.com/gosodax/sodax-sdks/actions/workflows/ci.yml/badge.svg)](https://github.com/gosodax/sodax-sdks/actions/workflows/ci.yml)
+[![Security](https://github.com/gosodax/sodax-sdks/actions/workflows/security.yml/badge.svg)](https://github.com/gosodax/sodax-sdks/actions/workflows/security.yml)
 
 # SODAX SDKs
 
@@ -21,10 +21,10 @@ See the [SODAX SDK README](./packages/sdk/README.md) for a deeper architectural 
 Building with the `@sodax/*` SDKs in an AI coding agent (Claude Code, Cursor, Codex, Copilot, and 50+ others)? Install the official SODAX skills — agent-native guides covering integration and v1→v2 migration for every package:
 
 ```bash
-npx skills@latest add icon-project/sodax-sdks/packages/skills
+npx skills@latest add gosodax/sodax-sdks/packages/skills
 ```
 
-Browse them on [skills.sh](https://www.skills.sh/icon-project/sodax-sdks). See the [Skills Documentation](./packages/skills/README.md) for what ships and how to use it.
+Browse them on [skills.sh](https://www.skills.sh/gosodax/sodax-sdks). See the [Skills Documentation](./packages/skills/README.md) for what ships and how to use it.
 
 ## Repository Structure
 

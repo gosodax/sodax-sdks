@@ -296,9 +296,9 @@ async function swapWithStellarDestination(
 
 ## Related Documentation
 
-- [Swaps](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) - Cross-chain intent-based swaps
-- [Money Market](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MONEY_MARKET.md) - Cross-chain lending and borrowing
-- [Bridge](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE.md) - Cross-chain token bridging
-- [Migration](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/MIGRATION.md) - Token migration
-- [Staking](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STAKING.md) - SODA token staking
-- [Architecture Reference](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/ARCHITECTURE_REFACTOR_SUMMARY.md) - Full v2 architecture reference
+- [Swaps](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md) - Cross-chain intent-based swaps
+- [Money Market](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MONEY_MARKET.md) - Cross-chain lending and borrowing
+- [Bridge](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE.md) - Cross-chain token bridging
+- [Migration](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MIGRATION.md) - Token migration
+- [Staking](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STAKING.md) - SODA token staking
+- [Architecture Reference](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/ARCHITECTURE_REFACTOR_SUMMARY.md) - Full v2 architecture reference

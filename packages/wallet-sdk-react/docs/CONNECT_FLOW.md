@@ -2,7 +2,7 @@
 
 The connect flow covers the full wallet lifecycle in `@sodax/wallet-sdk-react`: discover available connectors → connect to a wallet → read connected account state → disconnect. Every hook reads from the central Zustand store — no direct chain-SDK hook usage in user code.
 
-The canonical hook surface is exported from [`src/hooks/index.ts`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/index.ts).
+The canonical hook surface is exported from [`src/hooks/index.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/hooks/index.ts).
 
 ## Table of contents
 

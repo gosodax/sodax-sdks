@@ -22,7 +22,7 @@ import type { SodaxError } from '../errors/SodaxError.js';
 
 export const bridgeInvariant: FeatureInvariant = createInvariant('bridge');
 
-export type BridgeAction = 'bridge';
+export type BridgeAction = 'bridge' | 'bridgeWithApproval';
 
 export type BridgeOrchestrationErrorCode = Extract<
   SodaxErrorCode,
@@ -64,7 +64,13 @@ export type BridgeErrorCode = Extract<
   | 'UNKNOWN'
 >;
 
+/** Codes returnable by `bridgeWithApproval`: every `bridge` code plus the approval leg's. */
+export type BridgeWithApprovalErrorCode =
+  | BridgeOrchestrationErrorCode
+  | Extract<SodaxErrorCode, 'APPROVE_FAILED' | 'ALLOWANCE_CHECK_FAILED'>;
+
 export type BridgeOrchestrationError = SodaxError<BridgeOrchestrationErrorCode>;
+export type BridgeWithApprovalError = SodaxError<BridgeWithApprovalErrorCode>;
 export type BridgeCreateIntentError = SodaxError<BridgeCreateIntentErrorCode>;
 export type BridgeApproveError = SodaxError<BridgeApproveErrorCode>;
 export type BridgeAllowanceCheckError = SodaxError<BridgeAllowanceCheckErrorCode>;
@@ -100,6 +106,9 @@ const BRIDGE_CODES: ReadonlySet<BridgeErrorCode> = new Set<BridgeErrorCode>([
 ]);
 
 export const isBridgeOrchestrationError = isCodeMember<BridgeOrchestrationErrorCode>(ORCHESTRATION_CODES);
+export const isBridgeWithApprovalError = isCodeMember<BridgeWithApprovalErrorCode>(
+  new Set<BridgeWithApprovalErrorCode>([...ORCHESTRATION_CODES, 'APPROVE_FAILED', 'ALLOWANCE_CHECK_FAILED']),
+);
 export const isBridgeCreateIntentError = isCodeMember<BridgeCreateIntentErrorCode>(CREATE_INTENT_CODES);
 export const isBridgeApproveError = isCodeMember<BridgeApproveErrorCode>(APPROVE_CODES);
 export const isBridgeAllowanceCheckError = isCodeMember<BridgeAllowanceCheckErrorCode>(ALLOWANCE_CHECK_CODES);

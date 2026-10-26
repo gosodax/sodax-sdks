@@ -8,6 +8,8 @@ export * from './useLeverageYieldDeposit.js';
 export * from './useLeverageYieldNotifySolver.js';
 export * from './useLeverageYieldDetailedStatus.js';
 export * from './useLeverageYieldVaultSwap.js';
+export * from './useLeverageYieldVaultSwapWithApproval.js';
+export * from './useLeverageYieldApprovalStrategy.js';
 export * from './useLeverageYieldWithdraw.js';
 export * from './useLeveragePositions.js';
 export * from './useLeveragePositionAccount.js';

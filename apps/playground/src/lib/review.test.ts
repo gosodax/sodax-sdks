@@ -1,6 +1,6 @@
 import { type ChainKey, ChainKeys, type IntentResponseV2, type XToken } from '@sodax/dapp-kit';
 import { describe, expect, it } from 'vitest';
-import type { Activity } from './activity';
+import { type Activity, activityFromBatch, readPendingBatch } from './activity';
 import type { TokenChoice } from './chains';
 import { reviewFromActivity, tokenAt } from './review';
 
@@ -134,5 +134,17 @@ describe('reviewFromActivity', () => {
   it('recovers the recipient the swap was signed for, not the form’s', () => {
     const elsewhere = { ...activity, recipient: 'someone-else' };
     expect(reviewFromActivity(elsewhere, choices, seconds)?.intent.dstAddress).toBe('someone-else');
+  });
+
+  // The record keeps no partner fee. Once a failed check releases a reloaded batch, confirming this
+  // snapshot would sign a new swap without the fee the dialog shows, so it is marked and never signed.
+  it('marks a reloaded batch’s snapshot as restored, since it carries no partner fee', () => {
+    const { txHash: _txHash, ...fields } = activity;
+    const batch = readPendingBatch(JSON.stringify({ ...fields, batchId: 'batch-1', callCount: 2 }));
+    if (!batch) throw new Error('Batch did not restore');
+    const restored = reviewFromActivity(activityFromBatch(batch, ''), choices, seconds);
+    expect(restored?.restored).toBe(true);
+    expect(restored?.intent.partnerFee).toBeUndefined();
+    expect(reviewFromActivity(activity, choices, seconds)?.restored).toBe(true);
   });
 });

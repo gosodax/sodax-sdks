@@ -4,6 +4,19 @@ Intent-based swaps via a solver. Cross-chain by default.
 
 Access: `sodax.swaps`. Service class: `SwapService`. Feature tag for errors: `'swap'`.
 
+## Token environment
+
+Use `getSupportedSolverTokens(chainKey)` for the packaged production list and
+`getStagingSolverTokens(chainKey)` for production plus staging-only tokens.
+`stagingSwapSupportedTokens` contains only the staging additions. These helpers do
+not select a solver endpoint. `isSwapSupportedToken` accepts both tiers, so do not
+use it to establish production readiness. Query the list for the environment the
+integration targets instead of hardcoding symbols.
+
+Staging membership does not imply money-market support. When a token has no
+separate vault, its registry entry uses `vault === hubAsset` for the direct hub
+asset. Canonical hub vault registration alone does not enable swaps or lending.
+
 ## How it works
 
 1. **Build an intent** — `createIntent` signs a spoke transaction encoding the swap declaration.
@@ -101,6 +114,9 @@ transactions:
   and wallet plus `resumeBatchId: context.batchId` and `resumeBatchCallCount: context.callCount`, which only waits
   for that batch and finishes the swap once it lands (the same unconfirmed error while it is still pending).
 
+On the two-step path the intent is built unsigned before the approval, so invalid params fail before the user pays
+for an approval.
+
 Do not chain your own `approve` after any of these; that is exactly the double prompt this method avoids.
 
 ## Reading swap status
@@ -111,12 +127,12 @@ Three readers. Pick by which transaction hash you hold:
 - **`sodax.swaps.getStatus({ intent_tx_hash })`** — the solver's view of one intent, keyed on the **hub** tx hash (`intentDeliveryInfo.dstTxHash`). Returns the legacy `SolverErrorResponse` error shape, so do not `switch (error.code)` on it.
 - **`sodax.swaps.getDetailedStatus({ srcChainKey, srcTxHash })`** — routes between the two, keyed on the **source** tx. Use this when you only have the source hash and do not know which path the swap took.
 
-`getDetailedStatus` defines no status of its own. It returns whichever source can answer, tagged, with that source's payload unmodified. The union is discriminated on `source` — no type guards are exported, narrow on the field:
+`getDetailedStatus` defines no status of its own. It returns whichever source can answer, tagged. The backend record is unmodified; a solver answer short of `SOLVED`/`FAILED` is first checked against the backend's durable intent record, so a fill that consumed the remainder reads `SOLVED` and a cancelled intent with nothing filled reads `FAILED` (already refunded — do not offer a cancel). The union is discriminated on `source` — no type guards are exported, narrow on the field:
 
 ```ts
 type DetailedSwapStatus =
   | { source: 'backend'; data: SubmitTxStatusDataV2 }         // same as getSubmitTxStatus
-  | { source: 'solver'; dstTxHash: Hex; data: SolverIntentStatusResponse }; // same as getStatus
+  | { source: 'solver'; dstTxHash: Hex; data: SolverIntentStatusResponse }; // getStatus, reconciled
 
 if (status.source === 'backend') status.data.processingAttempts;
 ```
@@ -131,7 +147,7 @@ const { state, hubTxHash, fillTxHash } = summarizeSwapStatus(status); // state: 
 
 `fillTxHash` may be absent even when solved (the backend can confirm a fill from the on-chain journal without one).
 
-**A `swap()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED`, the relay codes and postExecution failures set `error.context.srcTxHash` (plus `srcChainKey`). The swap may still complete — the backend keeps working after `swap()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the swap as lost.
+**A `swap()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED`, the relay codes and postExecution failures set `error.context.srcTxHash` (plus `srcChainKey`). The swap may still complete — the backend keeps working after `swap()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the swap as lost. One case polling cannot fix: a failed solver notification (`EXECUTION_FAILED` / `EXTERNAL_API_ERROR`, `phase: 'postExecution'`) also sets `error.context.dstTxHash`, the hub tx. Unless the backend took the swap nothing else notifies the solver and the intent expires, so call `postExecution({ intent_tx_hash: dstTxHash })` again (the solver only re-affirms an intent it already has), then poll.
 
 The only error is `LOOKUP_FAILED`, meaning no source could answer — usually the relay has not delivered the packet, so there is no hub tx hash. When polling, branch on `error.context.reason`: `DETAILED_STATUS_NOT_DELIVERED` is the ambiguous miss (indistinguishable from "still in flight" — bound it with a retry budget), set only when the backend also answered. Anything else, including a relay miss behind a backend outage, is a dependency failing right now and should be retried until it recovers. A 401/403 from the backend does not route on at all — it surfaces directly with `context.status` lifted, so `isAuthFailure(error)` is true and polling should stop; only a corrected key changes the answer. Point-in-time — poll it yourself, or use dapp-kit's `useDetailedStatus`.
 

@@ -162,6 +162,7 @@
           "developers/how-to/how_to_make_a_swap",
           "developers/how-to/integrate_leverage_yield",
           "developers/how-to/robinhood-stocks",
+          "developers/how-to/wallet-balances",
           "developers/how-to/migrate_swap_to_submit_tx",
           "developers/how-to/api-keys",
           "developers/how-to/api-key-good-practices",
@@ -450,7 +451,8 @@
                   "resources/blog/builders-mcp-agent",
                   "resources/blog/swaps-api-any-language",
                   "resources/blog/swap-widget",
-                  "resources/blog/limit-orders"
+                  "resources/blog/limit-orders",
+                  "resources/blog/leverage-positions"
                 ]
               },
               {
@@ -885,7 +887,7 @@
       "x": "https://x.com/gosodax",
       "discord": "https://www.sodax.com/discord",
       "linkedin": "https://www.linkedin.com/company/gosodax",
-      "github": "https://github.com/icon-project/sodax-sdks"
+      "github": "https://github.com/gosodax/sodax-sdks"
     },
     "links": [
       {

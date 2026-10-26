@@ -113,7 +113,9 @@ Ethereum USDT is the one in the SODAX token list today — and the wallet alread
 allowance. A wallet in that state cannot approve at all until the allowance is zeroed.
 
 When `resetTx` is present, broadcast it **first** and wait for it to be mined, then broadcast `tx`.
-The second approval is only valid once the reset has landed on-chain, so the two cannot be batched.
+The second approval is only valid once the reset has landed on-chain, so the two cannot go out as
+separate transactions at once. An EIP-5792 atomic batch runs its calls in order, so it can carry both —
+see `sendApprovalBatch`.
 
 ```typescript
 const { tx, resetTx } = approveResponse;
@@ -208,7 +210,7 @@ This record tracks the backend submit path only. It answers **404** when no reco
 swap `sodax.swaps.swap()` finished via its client-side relay fallback — that path submits first and falls
 back afterwards, so the record survives without reflecting the outcome. To cover every case from a source tx
 hash, use `sodax.swaps.getDetailedStatus` —
-[SWAPS.md § Get Detailed Status](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md).
+[SWAPS.md § Get Detailed Status](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md).
 
 ## Configuration
 
@@ -220,7 +222,7 @@ The SDK trims that suffix — with a deprecation warning when it appears on the 
 `baseApiConfig` slice, silently on a `swapsApiConfig` slice (that combination never worked, so there is
 nothing to deprecate). For the `ApiConfig` type itself — including the `basePath` knob on the flat
 variant — see
-[BACKEND_API.md § `ApiConfig` Type](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BACKEND_API.md).
+[BACKEND_API.md § `ApiConfig` Type](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BACKEND_API.md).
 
 ```typescript
 const sodax = new Sodax({
@@ -248,7 +250,7 @@ await sodax.api.swaps.createIntent(params, { apiKey: 'per-request-key' });
 Auth failures surface as `EXTERNAL_API_ERROR` with `context.status` `401` (missing/invalid key) or `403`
 (suspended organisation / missing scope) — terminal config problems — while the transient verification
 `503` is retried by the wire client. See
-[CONFIGURE_SDK.md § API key](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#api-key)
+[CONFIGURE_SDK.md § API key](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#api-key)
 for the full precedence order, and [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices) for keeping the key off the client.
 
 ## Result\<T\> and Error Handling

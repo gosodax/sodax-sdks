@@ -18,7 +18,7 @@ A brand-new Stellar account holds 0 XLM, and Stellar accounts must exist on-chai
 
 The Sponsoring API is gated by an `x-api-key` header — there's no self-serve signup. **Reach out to the SODAX team through any platform listed at [linktr.ee/go.sodax](https://linktr.ee/go.sodax) to request one** before integrating against the real backend. Without a valid key every call gets a `401`.
 
-While you wait for a key, [`apps/stellar-sponsor-example`](https://github.com/icon-project/sodax-sdks/tree/main/apps/stellar-sponsor-example) ships an offline mock backend with a non-secret `mock-dev-key`, so you can build and test the whole flow before a real key arrives.
+While you wait for a key, [`apps/stellar-sponsor-example`](https://github.com/gosodax/sodax-sdks/tree/main/apps/stellar-sponsor-example) ships an offline mock backend with a non-secret `mock-dev-key`, so you can build and test the whole flow before a real key arrives.
 
 ## Configure access
 
@@ -131,7 +131,7 @@ The `accounts` response is one of two shapes — `{ hash: string, alreadyActive:
 
 ## Examples
 
-Config wiring lives in the `sponsoringApiConfig` object in [`apps/demo/src/providers.tsx`](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/src/providers.tsx) (built from `VITE_SPONSORING_API_BASE_URL` / `VITE_SPONSORING_API_KEY`, then passed to `Sodax` as `api.sponsoringApiConfig`; env placeholders at [`example.env`](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/example.env#L8)). Start it from the repo root and open a route below:
+Config wiring lives in the `sponsoringApiConfig` object in [`apps/demo/src/providers.tsx`](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/providers.tsx) (built from `VITE_SPONSORING_API_BASE_URL` / `VITE_SPONSORING_API_KEY`, then passed to `Sodax` as `api.sponsoringApiConfig`; env placeholders at [`example.env`](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/example.env#L8)). Start it from the repo root and open a route below:
 
 ```bash
 pnpm build:packages   # first time only, if the SDK packages aren't built yet
@@ -140,9 +140,9 @@ pnpm dev:demo         # http://localhost:3000
 
 | Route | What to inspect | Source |
 | --- | --- | --- |
-| [`/bridge`](http://localhost:3000/bridge) | The shortest `useStellarGate` call site — gate at L85, activate/trustline handlers at L122-134, gated UI states at L170-257 | [`BridgeDialog.tsx`](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/src/components/bridge/BridgeDialog.tsx#L85) |
-| [`/swaps-sdk`](http://localhost:3000/swaps-sdk) | Same gate pattern on a swap/limit-order destination | [`SwapCard.tsx`](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/src/components/swaps/SwapCard.tsx#L109), [`LimitOrderCard.tsx`](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/src/components/swaps/LimitOrderCard.tsx#L74) |
-| [`/swaps-api`](http://localhost:3000/swaps-api) | The same gate driving an API-submitted swap instead of the SDK path | [`SwapCard.tsx`](https://github.com/icon-project/sodax-sdks/blob/main/apps/demo/src/components/swaps-api/SwapCard.tsx#L302) |
+| [`/bridge`](http://localhost:3000/bridge) | The shortest `useStellarGate` call site — gate at L85, activate/trustline handlers at L122-134, gated UI states at L170-257 | [`BridgeDialog.tsx`](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/components/bridge/BridgeDialog.tsx#L85) |
+| [`/swaps-sdk`](http://localhost:3000/swaps-sdk) | Same gate pattern on a swap/limit-order destination | [`SwapCard.tsx`](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/components/swaps/SwapCard.tsx#L109), [`LimitOrderCard.tsx`](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/components/swaps/LimitOrderCard.tsx#L74) |
+| [`/swaps-api`](http://localhost:3000/swaps-api) | The same gate driving an API-submitted swap instead of the SDK path | [`SwapCard.tsx`](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/components/swaps-api/SwapCard.tsx#L302) |
 
 For a focused, standalone walkthrough with its own offline mock backend:
 
@@ -157,15 +157,15 @@ pnpm --filter stellar-sponsor-example dev               # terminal B — http://
 | [`#/showcase`](http://localhost:3003/#/showcase) | The three-step integrator journey (activate → fund → trustline) to copy end-to-end |
 | [`#/lab`](http://localhost:3003/#/lab) | A scenario runner exercising the full failure taxonomy offline — press **Run all** |
 
-`#/lab` is enabled by default in dev; a production build only includes it with `VITE_ENABLE_LAB=true`. See the app's [`README.md`](https://github.com/icon-project/sodax-sdks/blob/main/apps/stellar-sponsor-example/README.md) for the full walkthrough and its API-key security notes.
+`#/lab` is enabled by default in dev; a production build only includes it with `VITE_ENABLE_LAB=true`. See the app's [`README.md`](https://github.com/gosodax/sodax-sdks/blob/main/apps/stellar-sponsor-example/README.md) for the full walkthrough and its API-key security notes.
 
 Two more references:
 
-- **Headless (no React)** — [`apps/node/src/stellar-sponsor.ts`](https://github.com/icon-project/sodax-sdks/blob/main/apps/node/src/stellar-sponsor.ts) calls `sodax.sponsoring` directly from a plain Node script.
-- **Terser reference card** — [`docs/quick-sponsoring-stellar-guide.md`](https://github.com/icon-project/sodax-sdks/blob/main/docs/developers/how-to/quick-sponsoring-stellar-guide.md), a denser bullet-point version of this same feature.
+- **Headless (no React)** — [`apps/node/src/stellar-sponsor.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/node/src/stellar-sponsor.ts) calls `sodax.sponsoring` directly from a plain Node script.
+- **Terser reference card** — [`docs/quick-sponsoring-stellar-guide.md`](https://github.com/gosodax/sodax-sdks/blob/main/docs/developers/how-to/quick-sponsoring-stellar-guide.md), a denser bullet-point version of this same feature.
 
 ## Learn more
 
-- [`packages/sdk/docs/SPONSORING.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/SPONSORING.md) — full method reference, error-handling table, retry semantics.
-- [`packages/sdk/docs/STELLAR_TRUSTLINE.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md) — trustline mechanics for non-native tokens.
-- [`packages/sdk/docs/CONFIGURE_SDK.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md) — full `ApiConfig` reference.
+- [`packages/sdk/docs/SPONSORING.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SPONSORING.md) — full method reference, error-handling table, retry semantics.
+- [`packages/sdk/docs/STELLAR_TRUSTLINE.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md) — trustline mechanics for non-native tokens.
+- [`packages/sdk/docs/CONFIGURE_SDK.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md) — full `ApiConfig` reference.

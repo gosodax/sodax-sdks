@@ -729,10 +729,10 @@ that field only exists on modules whose relay failures go through `mapRelayFailu
 
 ## Runnable example
 
-[`apps/demo`](https://github.com/icon-project/sodax-sdks/tree/main/apps/demo/src/pages/dex) —
+[`apps/demo`](https://github.com/gosodax/sodax-sdks/tree/main/apps/demo/src/pages/dex) —
 `pnpm dev:demo`, then `/dex`. It walks the eight steps above in order, so it is the fastest way to
 see which of them need an approval and which return a position `tokenId`.
 
 There is no backend counterpart in
-[`apps/node`](https://github.com/icon-project/sodax-sdks/tree/main/apps/node) for the DEX module
+[`apps/node`](https://github.com/gosodax/sodax-sdks/tree/main/apps/node) for the DEX module
 yet.
