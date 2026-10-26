@@ -325,8 +325,8 @@ export type PositionOperationParams<K extends SpokeChainKey, C extends EvmRawTra
 /**
  * Why positions refuse a Bitcoin source. Every other spoke resolves its own address, but Bitcoin in
  * TRADING mode pulls from the Bound trading wallet, so the hub wallet must be derived from
- * `getEffectiveWalletAddress` and gated on `ensureRadfiAccessToken` — as `createVaultIntent` does.
- * The position paths do neither, so a deposit would fund a hub wallet the batch does not name.
+ * `getEffectiveWalletAddress` and gated on `ensureRadfiAccessToken`. The position paths do neither,
+ * so a deposit would fund a hub wallet the batch does not name. Vault swaps refuse Bitcoin as well.
  */
 const BITCOIN_UNSUPPORTED_MESSAGE =
   'Bitcoin is not a supported source chain for leverage positions; use a supported spoke or the hub';
