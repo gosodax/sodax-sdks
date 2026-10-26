@@ -131,7 +131,6 @@ Withdraw: lsoda* shares        →  (solver)  →  any supported token
 - Shares are ERC-4626-style on the hub; cross-network entry uses the same intent rails as swaps.  
 - **Spoke deposit approval** goes through the swap-domain allowance/approve endpoints above (not hub-vault approve).  
 - Hub-side vault allowance helpers exist on the SDK (`sodax.leverageYield.approve` / `isAllowanceValid`) for direct hub flows.
-- **Bitcoin is not supported yet**, as the network a deposit comes from or a withdraw pays out to. Don't count on the API to refuse it; leave Bitcoin out of the networks you offer.
 
 ### Partner fees
 

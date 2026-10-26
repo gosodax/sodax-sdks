@@ -30,7 +30,6 @@ this is the leverage-yield sibling of the [`swaps-api`](../swaps-api/SKILL.md) s
    own flow.
 3. **Deposit vs withdraw?** Create-intent is split: `createDepositIntent` (any token → `lsoda*`, needs a
    spoke allowance) vs `createWithdrawIntent` (`lsoda*` → any token, hub-wallet swap, no spoke allowance).
-   Bitcoin is not supported yet on either side; keep it out of the networks you offer.
 
 ## Integration workflow
 
