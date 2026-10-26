@@ -222,24 +222,6 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
                 <p className="alert">Choose available assets and valid amounts in Setup to generate code.</p>
               )}
               <details className="disclosure">
-                <summary>Partner fees</summary>
-                <p className="muted small">
-                  {partnerFee
-                    ? `This deployment charges a ${partnerFee.percentage / 100}% partner fee, included in every quote.`
-                    : 'This deployment has no partner fee.'}{' '}
-                  Fees belong to the deployment. To earn fees, the operator must configure your recipient and rate on a
-                  dedicated deployment.
-                </p>
-                <a
-                  className="link"
-                  href="https://docs.sodax.com/developers/how-to/monetize_sdk#swaps-api-monetization"
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Partner fee guide ↗
-                </a>
-              </details>
-              <details className="disclosure">
                 <summary>Wallet connection &amp; compatibility</summary>
                 <p className="muted small">
                   The React export is an iframe wrapper and does not reuse your app’s wallet. WalletConnect needs a

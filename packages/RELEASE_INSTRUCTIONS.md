@@ -71,8 +71,9 @@ Every publishable `@sodax/*` package shares one version, cut as a single `@sdks@
 already on npm, so a re-run ships only what is missing. npm never allows republishing a version, so
 if a version that reached npm is itself wrong, cut a new version.
 
-Publish authenticates with npm trusted publishing (OIDC) for any package that has it configured on
-npmjs.com, and otherwise falls back to the `SODAX_SDKS_NPM_PUBLISH_TOKEN` secret.
+Publish authenticates only with npm trusted publishing (OIDC). Each package's trusted publisher on
+npmjs.com names repository `gosodax/sodax-sdks`, workflow `sdks-publish.yml` and environment
+`npm-publish`; a package without one cannot publish.
 
 ## What `pnpm release` refuses to do
 
