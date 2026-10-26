@@ -407,11 +407,8 @@ describe('legacy production swap sequences are unchanged prefixes', () => {
   });
 
   it('Robinhood', () => {
-    expect(identify(swapSupportedTokens[ChainKeys.ROBINHOOD_MAINNET])).toEqual([
-      ...LEGACY_SWAP_ROBINHOOD,
-      ...equityIds(robinhoodSupportedTokens),
-      ...ROBINHOOD_APPENDED,
-    ]);
+    const prefix = [...LEGACY_SWAP_ROBINHOOD, ...equityIds(robinhoodSupportedTokens), ...ROBINHOOD_APPENDED];
+    expect(identify(swapSupportedTokens[ChainKeys.ROBINHOOD_MAINNET]).slice(0, prefix.length)).toEqual(prefix);
   });
 });
 

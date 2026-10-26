@@ -51,6 +51,10 @@ const allTokens: Record<SpokeChainKey, readonly XToken[]> = sodax.swaps.getSuppo
 one of these lists does not configure the solver endpoint; use the matching solver
 environment. `isSwapSupportedToken` accepts the union, so it is not a production-readiness check.
 
+A token promoted to production remains available in the complete staging set.
+Use `getStagingSolverTokens` to check staging availability; absence from the
+staging-only list does not mean the token is unavailable in staging.
+
 Swap membership and money-market support are configured independently of the
 canonical hub vault registry. Registering a vault does not enable either feature.
 For tokens without a separate vault, `vault === hubAsset` represents the direct
