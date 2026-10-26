@@ -38,7 +38,7 @@ import {
   isNativeBitcoinTransfer,
   RELAY_FALLBACK_FLOOR_MS,
 } from '../shared/index.js';
-import { readIntentJournalOutcome, resolveDeliveredPacket } from '../backendApi/detailedStatusRouting.js';
+import { readIntentJournalOutcome, resolveDeliveredHubTxHash } from '../backendApi/detailedStatusRouting.js';
 import { SolverApiService } from './SolverApiService.js';
 import { EvmSolverService } from './EvmSolverService.js';
 import type { BackendApiService } from '../backendApi/index.js';
@@ -567,8 +567,8 @@ export class SwapService {
 
   /**
    * The hub-chain tx hash the solver is keyed on. A hub-source swap has no relay leg — the source
-   * tx *is* the hub tx. Otherwise the delivered relay packet carries it, so an undelivered packet
-   * is simply "no hash yet".
+   * tx *is* the hub tx. Otherwise the delivered relay packet — or, for an MPC-relay chain, the
+   * minted deposit record — carries it, so an undelivered one is simply "no hash yet".
    */
   private async resolveHubTxHash(
     key: DetailedSwapStatusKey,
@@ -577,11 +577,12 @@ export class SwapService {
     let hubTxHash = key.srcTxHash;
 
     if (!isHubChainKeyType(key.srcChainKey)) {
-      const delivered = await resolveDeliveredPacket({
+      const delivered = await resolveDeliveredHubTxHash({
         srcChainKey: key.srcChainKey,
         srcTxHash: key.srcTxHash,
         relayerApiEndpoint: this.relayerApiEndpoint,
         backendAnswered,
+        spoke: this.spoke,
       });
       if (!delivered.ok) {
         return {
@@ -591,7 +592,7 @@ export class SwapService {
           }),
         };
       }
-      hubTxHash = delivered.packet.dst_tx_hash;
+      hubTxHash = delivered.hubTxHash;
     }
 
     // Validate rather than cast — this hash reaches the solver next.

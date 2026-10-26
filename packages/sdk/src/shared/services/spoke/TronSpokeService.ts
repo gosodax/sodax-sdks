@@ -25,6 +25,7 @@ import type {
   WaitForTxReceiptReturnType,
 } from '../../types/spoke-types.js';
 import {
+  getDeposit,
   getDepositAddress,
   notify,
   submitWithdraw,
@@ -328,6 +329,11 @@ export class TronSpokeService {
     }
   }
 
+  /** The MPC relay's current record for a Tron deposit, read once. `txHash` is as for {@link waitForDeposit}. */
+  public async getDepositRecord(txHash: string): Promise<Result<DepositRecord>> {
+    return getDeposit(this.relayApiUrl, toDepositId(this.chainId, txHash));
+  }
+
   /** On-chain balance of `token` for the owner — memo mode has no asset manager to read instead. */
   public async getDeposit(params: GetDepositParams<TronChainKey>): Promise<bigint> {
     if (params.token !== this.chainConfig.nativeToken) {
@@ -351,7 +357,11 @@ export class TronSpokeService {
 
   /** The user's own wallet balance of `token`, in smallest units — the same read as {@link getDeposit}. */
   public async getWalletBalance(params: GetBalanceParams<TronChainKey>): Promise<bigint> {
-    return this.getDeposit({ srcChainKey: params.srcChainKey, srcAddress: params.srcAddress, token: params.token.address });
+    return this.getDeposit({
+      srcChainKey: params.srcChainKey,
+      srcAddress: params.srcAddress,
+      token: params.token.address,
+    });
   }
 
   /** The user's own wallet balances of multiple tokens, keyed by `token.address`. */

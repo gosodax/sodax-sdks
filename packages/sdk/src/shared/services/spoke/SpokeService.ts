@@ -82,7 +82,7 @@ import type {
 } from '../../types/spoke-types.js';
 import type { TxHashPair } from '../../types/types.js';
 import { relayTxAndWaitPacket } from '../intentRelay/IntentRelayApiService.js';
-import type { MpcRelaySettlement } from '../mpcRelay/MpcRelayApiService.js';
+import type { DepositRecord, MpcRelaySettlement } from '../mpcRelay/MpcRelayApiService.js';
 import { Erc20Service, type Erc20ApprovalPlan, type Erc20ApproveParams } from '../erc-20/Erc20Service.js';
 import type { RequestTrustlineParams } from './StellarSpokeService.js';
 import type { WalletMode } from './BitcoinSpokeService.js';
@@ -1331,6 +1331,14 @@ export class SpokeService {
         // Falling through to the intent relay would submit a packet nothing is waiting for.
         throw new Error(`[SpokeService.settle] no MPC relay settlement service for chain ${chainKey}`);
     }
+  }
+
+  /**
+   * One read of an inbound MPC-relay deposit's record, or `undefined` when the chain rides the intent
+   * relay. The non-blocking counterpart of {@link settle}'s deposit wait, for status readers.
+   */
+  public async getMpcRelayDeposit(chainKey: SpokeChainKey, tx: string): Promise<Result<DepositRecord> | undefined> {
+    return this.getMpcRelayService(chainKey)?.getDepositRecord(tx);
   }
 
   public async settle(params: SettleParams): Promise<Result<TxHashPair, SettlementFailure>> {

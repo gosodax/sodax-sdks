@@ -80,7 +80,7 @@ import {
   DETAILED_STATUS_NOT_DELIVERED,
   isBackendSubmitTxAbandoned,
   readIntentJournalOutcome,
-  resolveDeliveredPacket,
+  resolveDeliveredHubTxHash,
 } from '../backendApi/detailedStatusRouting.js';
 import { isAuthFailure, isSodaxError } from '../errors/guards.js';
 import type { DetailedLeverageYieldStatus, DetailedLeverageYieldStatusKey } from './detailedStatus.js';
@@ -2211,8 +2211,8 @@ export class LeverageYieldService {
 
   /**
    * The hub-chain tx hash the solver is keyed on. A hub-source vault swap has no relay leg — the
-   * source tx *is* the hub tx. Otherwise the delivered relay packet carries it, so an undelivered
-   * packet is simply "no hash yet".
+   * source tx *is* the hub tx. Otherwise the delivered relay packet — or, for an MPC-relay chain,
+   * the minted deposit record — carries it, so an undelivered one is simply "no hash yet".
    */
   private async resolveHubTxHash(
     key: DetailedLeverageYieldStatusKey,
@@ -2221,11 +2221,12 @@ export class LeverageYieldService {
     let hubTxHash: string = key.srcTxHash;
 
     if (!isHubChainKeyType(key.srcChainKey)) {
-      const delivered = await resolveDeliveredPacket({
+      const delivered = await resolveDeliveredHubTxHash({
         srcChainKey: key.srcChainKey,
         srcTxHash: key.srcTxHash,
         relayerApiEndpoint: this.config.relay.relayerApiEndpoint,
         backendAnswered,
+        spoke: this.spoke,
       });
       if (!delivered.ok) {
         return {
@@ -2235,7 +2236,7 @@ export class LeverageYieldService {
           }),
         };
       }
-      hubTxHash = delivered.packet.dst_tx_hash;
+      hubTxHash = delivered.hubTxHash;
     }
 
     // Validate rather than cast — this hash reaches the solver next.

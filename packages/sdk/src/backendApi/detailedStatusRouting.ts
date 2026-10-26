@@ -5,6 +5,7 @@ import {
   HttpRelayError,
   RELAY_REQUEST_TIMEOUT_MS,
 } from '../shared/services/intentRelay/IntentRelayApiService.js';
+import type { SpokeService } from '../shared/services/spoke/SpokeService.js';
 import type { PacketData } from '../shared/types/relay-types.js';
 import { IntentEventTypeSchema } from './backendApiSchemas.js';
 import type { IntentResponse } from './BackendApiService.js';
@@ -145,4 +146,39 @@ export async function resolveDeliveredPacket(params: {
   }
 
   return { ok: true, packet: delivered };
+}
+
+/** The hub tx a source tx delivered, or why it could not be read — shaped like {@link DeliveredPacketResult}. */
+export type DeliveredHubTxResult = { ok: true; hubTxHash: string } | { ok: false; cause: unknown; budgetable: boolean };
+
+/**
+ * The hub tx a non-hub source tx delivered. An MPC-relay chain never produces an intent-relay packet,
+ * so it reads its deposit record instead; every other chain reads {@link resolveDeliveredPacket}.
+ *
+ * An unminted deposit is the same ambiguous miss as an undelivered packet: the relay answers an
+ * unknown deposit as `pending` rather than a 404, so a stuck and an in-flight deposit look alike.
+ */
+export async function resolveDeliveredHubTxHash(params: {
+  srcChainKey: SpokeChainKey;
+  srcTxHash: string;
+  relayerApiEndpoint: HttpUrl;
+  backendAnswered: boolean;
+  spoke: SpokeService;
+}): Promise<DeliveredHubTxResult> {
+  const { spoke, ...packetParams } = params;
+  const deposit = await spoke.getMpcRelayDeposit(params.srcChainKey, params.srcTxHash);
+  if (!deposit) {
+    const delivered = await resolveDeliveredPacket(packetParams);
+    return delivered.ok ? { ok: true, hubTxHash: delivered.packet.dst_tx_hash } : delivered;
+  }
+  if (!deposit.ok) return { ok: false, cause: deposit.error, budgetable: false };
+
+  const { status, txs } = deposit.value;
+  const hubMint = txs?.hubMint?.hash;
+  if ((status === 'minted' || status === 'swept') && hubMint) return { ok: true, hubTxHash: hubMint };
+  return {
+    ok: false,
+    cause: new Error(`mpc relay has not minted this deposit on the hub yet (status: ${status})`),
+    budgetable: params.backendAnswered,
+  };
 }

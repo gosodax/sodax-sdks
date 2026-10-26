@@ -14,6 +14,8 @@ import { invariant } from '../../utils/tiny-invariant.js';
  */
 export interface MpcRelaySettlement {
   waitForDeposit(tx: string, timeout?: number): Promise<Result<DepositRecord>>;
+  /** One unpolled read of a deposit's record, for callers that poll on their own schedule. */
+  getDepositRecord(tx: string): Promise<Result<DepositRecord>>;
   waitForWithdrawal(trackingId: string, timeout?: number): Promise<Result<WithdrawalRecord>>;
 }
 
