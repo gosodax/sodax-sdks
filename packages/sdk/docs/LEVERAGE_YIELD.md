@@ -93,7 +93,7 @@ The service does **not** expose bespoke "deposit into vault" / "redeem from vaul
 
 `LeverageYieldService`'s job is to build the correct swap payload (the `CreateIntentParams` plus any execution flags) via `deposit()` / `withdraw()`, then execute it via `vaultSwap()` (or `createVaultIntent()` for manual relay control); the solver (plus the vault's ERC-4626 mechanics) does the rest. This is why deposits and withdrawals are cross-chain by default and need no vault-specific approval: a deposit approves its input token the same way a swap does, with `sodax.swaps.isAllowanceValid` / `sodax.swaps.approve`, and a withdraw needs no approval at all.
 
-> Vault swaps do not support Bitcoin yet. `createVaultIntent`, and so `vaultSwap`, returns `VALIDATION_FAILED` for a Bitcoin `srcChainKey` or `dstChainKey` before anything is signed.
+> Vault swaps do not support Bitcoin yet. `deposit()`, `withdraw()` and `createVaultIntent` (and so `vaultSwap`) return `VALIDATION_FAILED` for a Bitcoin `srcChainKey` or `dstChainKey`, before anything is built or signed.
 
 `createVaultIntent` / `vaultSwap` are leverage-yield copies of the swap domain's `createIntent` / `swap()` — duplicated **deliberately** so the vault-specific execution modifiers (`hubWalletSwap`, per-intent `partnerFee`) live on the leverage-yield action wrapper (`VaultSwapActionParams`) and never leak into the generic swap surface.
 

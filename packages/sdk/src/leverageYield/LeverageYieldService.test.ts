@@ -421,6 +421,25 @@ describe('LeverageYieldService.deposit — intent builder', () => {
     expect(result.error.context?.field).toBe('inputAmount');
   });
 
+  it('refuses a Bitcoin source before deriving the hub wallet', async () => {
+    const getUserHubWalletAddress = vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress');
+
+    const result = await sodax.leverageYield.deposit({
+      vault: VAULT,
+      srcChainKey: ChainKeys.BITCOIN_MAINNET,
+      srcAddress: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      inputToken: '0:0',
+      inputAmount: 1_000n,
+      minOutputAmount: 900n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe('srcChainKey');
+    expect(getUserHubWalletAddress).not.toHaveBeenCalled();
+  });
+
   it('surfaces a getBlock RPC failure during default-deadline resolution as LOOKUP_FAILED (method=resolveDeadline), not INTENT_CREATION_FAILED', async () => {
     vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress').mockResolvedValueOnce(HUB_WALLET);
     vi.spyOn(sodax.hubProvider.publicClient, 'getBlock').mockRejectedValueOnce(new Error('rpc down'));
@@ -561,6 +580,47 @@ describe('LeverageYieldService.withdraw — intent builder', () => {
     if (result.ok) return;
     expect(result.error.code).toBe('VALIDATION_FAILED');
     expect(result.error.context?.field).toBe('vault');
+  });
+
+  it('refuses a Bitcoin source before reading the hub block', async () => {
+    const getBlock = vi.spyOn(sodax.hubProvider.publicClient, 'getBlock');
+
+    const result = await sodax.leverageYield.withdraw({
+      vault: VAULT,
+      srcChainKey: ChainKeys.BITCOIN_MAINNET,
+      srcAddress: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      dstChainKey: ARBITRUM,
+      outputToken: SPOKE_TOKEN,
+      inputAmount: 1_000n,
+      minOutputAmount: 900n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe('srcChainKey');
+    expect(getBlock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a Bitcoin destination before reading the hub block', async () => {
+    const getBlock = vi.spyOn(sodax.hubProvider.publicClient, 'getBlock');
+
+    const result = await sodax.leverageYield.withdraw({
+      vault: VAULT,
+      srcChainKey: ARBITRUM,
+      srcAddress: SAMPLE_USER,
+      dstChainKey: ChainKeys.BITCOIN_MAINNET,
+      outputToken: '0:0',
+      inputAmount: 1_000n,
+      minOutputAmount: 900n,
+      recipient: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe('dstChainKey');
+    expect(getBlock).not.toHaveBeenCalled();
   });
 
   it('surfaces a getBlock RPC failure during default-deadline resolution as LOOKUP_FAILED (method=resolveDeadline)', async () => {
