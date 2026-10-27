@@ -4,7 +4,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "2.3.0-rc.1",
+  "version": "2.3.0-rc.2",
   "license": "MIT",
   "description": "Internal package — do not depend on directly. Consumed transitively by @sodax/sdk, @sodax/wallet-sdk-core, @sodax/wallet-sdk-react.",
   "keywords": [

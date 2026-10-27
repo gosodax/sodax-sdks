@@ -5,7 +5,7 @@
     "access": "public"
   },
   "license": "MIT",
-  "version": "2.3.0-rc.1",
+  "version": "2.3.0-rc.2",
   "description": "React hooks for building dApps on the SODAX cross-chain DeFi platform",
   "keywords": [
     "sodax",
