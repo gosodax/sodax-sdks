@@ -14,6 +14,7 @@ import {
   baseChainInfo,
   confirmApprovalBatch,
   isAtomicBatchRefusal,
+  isEvmChainKeyType,
   isEvmSpokeOnlyChainKeyType,
   isEvmWalletProviderType,
   resolveApprovalStrategy,
@@ -39,7 +40,7 @@ const SPENDER = '0x00000000000000000000000000000000000000bb';
 const DEPOSIT_HASH = '0xdeposit';
 const RELAY_DATA = { address: '0x00000000000000000000000000000000000000cc', payload: '0xpayload' };
 
-const BRIDGE_PARAMS: CreateBridgeIntentParamsV2 = {
+const BRIDGE_PARAMS: CreateBridgeIntentParamsV2 & { srcChainKey: SpokeChainKey } = {
   srcChainKey: ChainKeys.BASE_MAINNET,
   dstChainKey: ChainKeys.ARBITRUM_MAINNET,
   inputToken: TOKEN,
@@ -94,11 +95,11 @@ const requested = (path: string) => mockFetch.mock.calls.filter(([url]) => url =
 /** Approves and bridges; one signature when the source is an EVM spoke and the wallet can batch. */
 async function approveAndBridge(
   walletProvider: IWalletProvider,
-  params: CreateBridgeIntentParamsV2,
+  params: CreateBridgeIntentParamsV2 & { srcChainKey: SpokeChainKey },
   onBatchSent?: (id: string) => void,
 ) {
-  const srcChainKey = params.srcChainKey as SpokeChainKey;
-  if (!isEvmWalletProviderType(walletProvider) || !isEvmSpokeOnlyChainKeyType(srcChainKey)) {
+  const { srcChainKey } = params;
+  if (!isEvmWalletProviderType(walletProvider) || !isEvmChainKeyType(srcChainKey)) {
     throw new Error('Only EVM sources are handled here; approve and sign other chains separately.');
   }
   const unwrap = <T>(result: { ok: true; value: T } | { ok: false; error: unknown }): T => {
@@ -114,7 +115,7 @@ async function approveAndBridge(
   const strategy = approval ? await resolveApprovalStrategy({ srcChainKey, walletProvider }) : 'not-required';
 
   let txHash: string | undefined;
-  if (strategy === 'atomic-batch') {
+  if (strategy === 'atomic-batch' && isEvmSpokeOnlyChainKeyType(srcChainKey)) {
     const sent = await sendApprovalBatch({
       walletProvider,
       srcChainKey,
@@ -202,6 +203,22 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     ]);
     expect(requested('/bridge/intents')).toHaveLength(2);
     expect(submitted().txHash).toBe('0xseparate-deposit');
+  });
+
+  it('keeps a Sonic hub source sequential: no batch, the approval and the deposit go out separately', async () => {
+    stubBackend({ withReset: false });
+    const walletProvider = batchWallet();
+    walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xhub-deposit');
+    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // receipt shape is not read here
+
+    const result = await approveAndBridge(walletProvider, { ...BRIDGE_PARAMS, srcChainKey: ChainKeys.SONIC_MAINNET });
+
+    expect(result).toEqual({ txHash: '0xhub-deposit', strategy: 'sequential' });
+    expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
+    expect(walletProvider.sendTransaction.mock.calls.map(([tx]) => tx.data)).toEqual([
+      APPROVE_WIRE.data,
+      DEPOSIT_WIRE.data,
+    ]);
   });
 
   it('never resends an unconfirmed batch; confirmApprovalBatch resumes it by id and call count', async () => {
