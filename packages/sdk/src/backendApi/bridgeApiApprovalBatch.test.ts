@@ -1,0 +1,234 @@
+/**
+ * Partner flow: approve and bridge with one wallet signature through `sodax.api.bridge`.
+ *
+ * `approveAndBridge` is the example the Bridge API skill links to. It uses only public exports
+ * (`../index.js`) and a stubbed backend, so the flow is compiled and run, not described.
+ * The batch rules themselves (strategy, refusal, unconfirmed) live in `shared/utils/approvalBatch.test.ts`.
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  ChainKeys,
+  DEFAULT_API_BASE_URL,
+  type CreateBridgeIntentParamsV2,
+  type EvmAtomicBatchSupport,
+  type EvmBatchResult,
+  type EvmRawTransaction,
+  type IEvmWalletProvider,
+} from '@sodax/types';
+import {
+  ATOMIC_BATCH_REFUSED,
+  ATOMIC_BATCH_UNCONFIRMED,
+  Sodax,
+  confirmApprovalBatch,
+  isAtomicBatchRefusal,
+  resolveApprovalStrategy,
+  sendApprovalBatch,
+} from '../index.js';
+import { AtomicityNotSupportedError } from 'viem';
+
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
+
+const sodax = new Sodax();
+const BASE = DEFAULT_API_BASE_URL;
+const ACCOUNT = '0x0000000000000000000000000000000000000001';
+const TOKEN = '0x00000000000000000000000000000000000000aa';
+const SPENDER = '0x00000000000000000000000000000000000000bb';
+const DEPOSIT_HASH = '0xdeposit';
+const RELAY_DATA = { address: '0x00000000000000000000000000000000000000cc', payload: '0xpayload' };
+
+const BRIDGE_PARAMS: CreateBridgeIntentParamsV2 = {
+  srcChainKey: ChainKeys.BASE_MAINNET,
+  dstChainKey: ChainKeys.ARBITRUM_MAINNET,
+  inputToken: TOKEN,
+  outputToken: '0x00000000000000000000000000000000000000dd',
+  inputAmount: '1000000',
+  srcAddress: ACCOUNT,
+  dstAddress: ACCOUNT,
+};
+
+const wireTx = (to: string, data: string) => ({ from: ACCOUNT, to, value: '0', data });
+const APPROVE_WIRE = wireTx(TOKEN, '0x095ea7b3');
+const RESET_WIRE = wireTx(TOKEN, '0x095ea7b300');
+const DEPOSIT_WIRE = wireTx(SPENDER, '0xdeadbeef');
+
+const confirmed: EvmBatchResult = {
+  status: 'success',
+  statusCode: 200,
+  atomic: true,
+  receipts: [{ transactionHash: DEPOSIT_HASH, status: 'success' }],
+};
+
+const batchWallet = (support: EvmAtomicBatchSupport = 'supported') => ({
+  chainType: 'EVM' as const,
+  getWalletAddress: vi.fn<IEvmWalletProvider['getWalletAddress']>(),
+  sendTransaction: vi.fn<IEvmWalletProvider['sendTransaction']>(),
+  waitForTransactionReceipt: vi.fn<IEvmWalletProvider['waitForTransactionReceipt']>(),
+  getAtomicBatchSupport: vi.fn(async (_chainId: number) => support),
+  sendAtomicBatch: vi.fn(
+    async (_txs: readonly EvmRawTransaction[], _options: { expectedChainId: number }) => 'batch-1',
+  ),
+  waitForBatch: vi.fn(async (_batchId: string, _options?: { timeout?: number }) => confirmed),
+});
+
+type BackendOptions = { withReset: boolean };
+
+const stubBackend = ({ withReset }: BackendOptions) => {
+  mockFetch.mockImplementation(async (url: string) => {
+    const body = (() => {
+      if (url === `${BASE}/bridge/allowance/check`) return { valid: false };
+      if (url === `${BASE}/bridge/approve`)
+        return withReset ? { tx: APPROVE_WIRE, resetTx: RESET_WIRE } : { tx: APPROVE_WIRE };
+      if (url === `${BASE}/bridge/intents`) return { tx: DEPOSIT_WIRE, relayData: RELAY_DATA };
+      if (url === `${BASE}/bridge/submit-tx`) return { success: true, data: { status: 'inserted', message: 'ok' } };
+      throw new Error(`unexpected request ${url}`);
+    })();
+    return { ok: true, status: 200, json: vi.fn().mockResolvedValue(body) };
+  });
+};
+
+const requested = (path: string) => mockFetch.mock.calls.filter(([url]) => url === `${BASE}${path}`);
+
+/** Approves and bridges from an EVM spoke; one signature when the wallet can batch. */
+async function approveAndBridge(walletProvider: ReturnType<typeof batchWallet>, onBatchSent?: (id: string) => void) {
+  const unwrap = <T>(result: { ok: true; value: T } | { ok: false; error: unknown }): T => {
+    if (!result.ok) throw result.error;
+    return result.value;
+  };
+  const allowance = unwrap(await sodax.api.bridge.checkAllowance(BRIDGE_PARAMS));
+  const approval = allowance.valid ? undefined : unwrap(await sodax.api.bridge.approve(BRIDGE_PARAMS));
+  const bridge = unwrap(await sodax.api.bridge.createBridgeIntent(BRIDGE_PARAMS));
+
+  // The API types its txs as `RawTxReturnType`; an EVM source returns EVM transactions.
+  const approvalTxs = approval ? ([approval.resetTx, approval.tx].filter(Boolean) as EvmRawTransaction[]) : [];
+  const depositTx = bridge.tx as EvmRawTransaction;
+  const srcChainKey = ChainKeys.BASE_MAINNET;
+  const strategy = await resolveApprovalStrategy({ srcChainKey, walletProvider });
+
+  let txHash: string | undefined;
+  if (strategy === 'atomic-batch') {
+    const sent = await sendApprovalBatch({
+      walletProvider,
+      srcChainKey,
+      txs: [...approvalTxs, depositTx],
+      timeoutMs: 60_000,
+      feature: 'bridge',
+      onBatchSent,
+    });
+    if (sent.ok) txHash = sent.value.txHash;
+    else if (!isAtomicBatchRefusal(sent.error)) throw sent.error;
+  }
+  if (txHash === undefined) {
+    const chainId = 8453;
+    for (const tx of approvalTxs) {
+      await walletProvider.waitForTransactionReceipt(
+        await walletProvider.sendTransaction(tx, { expectedChainId: chainId }),
+      );
+    }
+    txHash = await walletProvider.sendTransaction(depositTx, { expectedChainId: chainId });
+  }
+
+  unwrap(
+    await sodax.api.bridge.submitTx({
+      txHash,
+      srcChainKey,
+      walletAddress: ACCOUNT,
+      relayData: bridge.relayData,
+    }),
+  );
+  return { txHash, strategy };
+}
+
+const submitted = () => JSON.parse(requested('/bridge/submit-tx')[0]?.[1]?.body as string);
+
+beforeEach(() => {
+  mockFetch.mockReset();
+});
+
+describe('approve and bridge in one signature (Bridge API)', () => {
+  it('sends [resetTx, approve, deposit] as one batch, deposit last, and submits the batch tx with the full relayData', async () => {
+    stubBackend({ withReset: true });
+    const walletProvider = batchWallet();
+
+    const result = await approveAndBridge(walletProvider);
+
+    expect(result).toEqual({ txHash: DEPOSIT_HASH, strategy: 'atomic-batch' });
+    expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
+    const [txs, options] = walletProvider.sendAtomicBatch.mock.calls[0] ?? [];
+    expect(txs?.map(tx => tx.data)).toEqual([RESET_WIRE.data, APPROVE_WIRE.data, DEPOSIT_WIRE.data]);
+    expect(options).toEqual({ expectedChainId: 8453 });
+    expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
+    expect(submitted()).toMatchObject({
+      txHash: DEPOSIT_HASH,
+      srcChainKey: ChainKeys.BASE_MAINNET,
+      relayData: RELAY_DATA,
+    });
+  });
+
+  it('sends [approve, deposit] when the token needs no reset', async () => {
+    stubBackend({ withReset: false });
+    const walletProvider = batchWallet();
+
+    await approveAndBridge(walletProvider);
+
+    const [txs] = walletProvider.sendAtomicBatch.mock.calls[0] ?? [];
+    expect(txs?.map(tx => tx.data)).toEqual([APPROVE_WIRE.data, DEPOSIT_WIRE.data]);
+  });
+
+  it('approves separately, then deposits, when the wallet refuses the batch; no second batch', async () => {
+    stubBackend({ withReset: false });
+    const walletProvider = batchWallet();
+    walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
+    walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xseparate-deposit');
+    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // receipt shape is not read here
+
+    const result = await approveAndBridge(walletProvider);
+
+    expect(result.txHash).toBe('0xseparate-deposit');
+    expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
+    expect(walletProvider.sendTransaction.mock.calls.map(([tx]) => tx.data)).toEqual([
+      APPROVE_WIRE.data,
+      DEPOSIT_WIRE.data,
+    ]);
+    expect(submitted().txHash).toBe('0xseparate-deposit');
+  });
+
+  it('flags a refusal with ATOMIC_BATCH_REFUSED, the only failure that may be retried separately', async () => {
+    const walletProvider = batchWallet();
+    walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
+    const sent = await sendApprovalBatch({
+      walletProvider,
+      srcChainKey: ChainKeys.BASE_MAINNET,
+      txs: [],
+      timeoutMs: 1,
+      feature: 'bridge',
+    });
+    expect(!sent.ok && isAtomicBatchRefusal(sent.error)).toBe(true);
+    expect(!sent.ok && sent.error.context?.reason).toBe(ATOMIC_BATCH_REFUSED);
+  });
+
+  it('never resends an unconfirmed batch; confirmApprovalBatch resumes it by id and call count', async () => {
+    stubBackend({ withReset: true });
+    const walletProvider = batchWallet();
+    walletProvider.waitForBatch.mockRejectedValueOnce(new Error('timed out'));
+    const onBatchSent = vi.fn();
+
+    await expect(approveAndBridge(walletProvider, onBatchSent)).rejects.toMatchObject({
+      code: 'TX_VERIFICATION_FAILED',
+      context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1', callCount: 3 },
+    });
+    expect(onBatchSent).toHaveBeenCalledWith('batch-1');
+    expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
+    expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
+    expect(requested('/bridge/submit-tx')).toHaveLength(0);
+
+    const resumed = await confirmApprovalBatch({
+      walletProvider,
+      batchId: 'batch-1',
+      callCount: 3,
+      timeoutMs: 60_000,
+      feature: 'bridge',
+    });
+    expect(resumed).toEqual({ ok: true, value: { txHash: DEPOSIT_HASH, batchId: 'batch-1' } });
+  });
+});
