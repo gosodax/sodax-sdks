@@ -1,5 +1,5 @@
 import type { HttpUrl, MpcWithdrawScheme, Result } from '@sodax/types';
-import type { Hex } from 'viem';
+import { encodeAbiParameters, keccak256, type Hex } from 'viem';
 import { invariant } from '../../utils/tiny-invariant.js';
 
 /**
@@ -146,6 +146,11 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<Result<T>> {
  * @param data  Hub-side calls, from `encodeContractCalls`. Pass `encodeContractCalls([])` rather than
  *   `'0x'` for a plain mint: only non-empty bytes make the hub deploy the user's wallet.
  */
+/** The payload hash the relay derives for a deposit: `keccak256(abi.encode(hubWallet, data))`. */
+export function computePayloadHash(hubWallet: Hex, data: Hex): Hex {
+  return keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'bytes' }], [hubWallet, data]));
+}
+
 export async function getDepositAddress(
   apiUrl: HttpUrl,
   owner: string,

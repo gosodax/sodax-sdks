@@ -25,6 +25,7 @@ import type {
   WaitForTxReceiptReturnType,
 } from '../../types/spoke-types.js';
 import {
+  computePayloadHash,
   getDeposit,
   getDepositAddress,
   notify,
@@ -167,6 +168,14 @@ export class TronSpokeService {
     if (to.toLowerCase() !== hubWallet.toLowerCase()) {
       throw new Error(
         `[TronSpokeService.deposit] relay derives hub wallet ${hubWallet} for ${srcAddress}, but the deposit targets ${to}`,
+      );
+    }
+
+    // Verifiers attest whatever payload the relay stored under the memo, so the memo must commit to our `data`.
+    const expectedMemo = computePayloadHash(hubWallet, data);
+    if (memo.toLowerCase() !== expectedMemo) {
+      throw new Error(
+        `[TronSpokeService.deposit] relay memo ${memo} does not commit to this deposit's payload (expected ${expectedMemo})`,
       );
     }
 

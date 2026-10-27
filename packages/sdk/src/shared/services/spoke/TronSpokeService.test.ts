@@ -10,6 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChainKeys, spokeChainConfig, type Hex } from '@sodax/types';
+import { encodeAbiParameters, keccak256 } from 'viem';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import { assembleBroadcastHex, encodeTrc20TransferParams, spliceMemo, tronBase58ToHex } from './tron-utils.js';
@@ -23,7 +24,8 @@ const USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
 const SENDER = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
 const RESERVE = 'TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92';
 const HUB_WALLET = '0x1111111111111111111111111111111111111111' as Hex;
-const MEMO = '0xb07ec4b9c2d410c84fb75cb2cf00122f6316cf191ae1fe7bec45ac203c5e13fd' as Hex;
+// Derived independently of the SDK helper, matching the relay's computePayloadHash for `data: '0x'`.
+const MEMO = keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'bytes' }], [HUB_WALLET, '0x']));
 const AMOUNT = 20_000_000n;
 const SIGNATURE = 'ab'.repeat(65);
 
@@ -63,7 +65,10 @@ function stubTronGrid(overrides: Record<string, unknown> = {}) {
 }
 
 // Held apart from `walletProvider`, whose `as never` would erase the mock's type for assertions.
-const signTransaction = vi.fn(async (tx: { txID: string; raw_data_hex: string }) => ({ ...tx, signature: [SIGNATURE] }));
+const signTransaction = vi.fn(async (tx: { txID: string; raw_data_hex: string }) => ({
+  ...tx,
+  signature: [SIGNATURE],
+}));
 
 const walletProvider = {
   chainType: 'TRON',
@@ -258,6 +263,41 @@ describe('TronSpokeService.deposit — hub wallet assertion', () => {
 
     await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(/relay derives hub wallet/);
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('TronSpokeService.deposit — memo commitment', () => {
+  // A relay that registered other calls under the memo would have the verifiers attest those instead.
+  const foreignMemo = keccak256(
+    encodeAbiParameters([{ type: 'address' }, { type: 'bytes' }], [HUB_WALLET, '0xdeadbeef']),
+  );
+
+  beforeEach(() => {
+    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue({
+      ok: true,
+      value: {
+        reserveAddress: RESERVE,
+        memo: foreignMemo,
+        payloadHash: foreignMemo,
+        path: 'm/0',
+        hubWallet: HUB_WALLET,
+        depositMethod: 'memo',
+      },
+    });
+  });
+
+  it('refuses to sign a transfer whose memo commits to another payload', async () => {
+    stubTronGrid();
+
+    await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(/does not commit to this deposit's payload/);
+    expect(calls).toHaveLength(0);
+    expect(signTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses to hand out a raw descriptor carrying that memo', async () => {
+    await expect(tron.deposit({ ...(depositParams(NATIVE_TRX) as object), raw: true } as never)).rejects.toThrow(
+      /does not commit to this deposit's payload/,
+    );
   });
 });
 
