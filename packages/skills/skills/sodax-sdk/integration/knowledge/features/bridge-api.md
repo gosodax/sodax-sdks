@@ -102,13 +102,18 @@ it just cannot rescue a wallet stuck on a guarded token.
 From an EVM spoke with an EIP-5792 wallet, send `[resetTx?, approve tx, deposit tx]` from `approve` and
 `createBridgeIntent` as one atomic batch: one wallet prompt instead of two or three. This works because the
 API builds the deposit with the same SDK builder that `bridgeWithApproval` batches, without reading the
-allowance, and `/bridge/approve` targets the spender that deposit pulls from. Finish with `submitTx` as above,
-passing the batch's deposit `txHash` and the full `relayData`.
+allowance, and `/bridge/approve` targets the spender that deposit pulls from. Finish with `submitTx`
+(see [Submit tx + poll status](#submit-tx--poll-status)), passing the batch's deposit `txHash` and the full
+`relayData`.
 
 The batch, refusal and unconfirmed-batch rules are the ones in
 [Approve and send the intent in one signature](./swaps-api.md#approve-and-send-the-intent-in-one-signature).
-The runnable flow, with each rule asserted, is
-[`bridgeApiApprovalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/backendApi/bridgeApiApprovalBatch.test.ts).
+After a refused batch, call `createBridgeIntent` again once the separate approval confirms, and submit the new
+`relayData`. The runnable flow is
+[`bridgeApiApprovalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/backendApi/bridgeApiApprovalBatch.test.ts): it asserts the
+batch order, the refusal fallback and the resume of an unconfirmed batch. That a hub source or a wallet
+that cannot batch stays sequential is asserted in
+[`approvalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/utils/approvalBatch.test.ts).
 
 ## Common call shapes
 

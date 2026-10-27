@@ -153,9 +153,11 @@ From an EVM spoke with an EIP-5792 wallet, send `[resetTx?, approve tx, deposit 
 The batch, refusal and unconfirmed-batch rules are the ones in
 [Approve and send the intent in one signature](./swaps-api.md#approve-and-send-the-intent-in-one-signature).
 One difference: after a refused batch, call `createDepositIntent` again once the separate approval confirms,
-because the first intent's `deadline` also covered the wait for the approval. The runnable flow, with each rule
-asserted, is
-[`leverageYieldApiApprovalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/backendApi/leverageYieldApiApprovalBatch.test.ts).
+because the first intent's `deadline` also covered the wait for the approval. The runnable flow is
+[`leverageYieldApiApprovalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/backendApi/leverageYieldApiApprovalBatch.test.ts): it asserts the
+batch order, the new intent after a refusal, and the resume of an unconfirmed batch. That a hub source or a
+wallet that cannot batch stays sequential is asserted in
+[`approvalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/utils/approvalBatch.test.ts).
 
 ### Submit tx + poll status
 
