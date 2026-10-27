@@ -144,6 +144,19 @@ if (allowance.ok && !allowance.value.valid) {
 }
 ```
 
+### Approve and deposit in one signature
+
+From an EVM spoke with an EIP-5792 wallet, send `[resetTx?, approve tx, deposit tx]` from `approve` and
+`createDepositIntent` as one atomic batch: one wallet prompt instead of two or three. Finish with `submitTx`
+(`operation: 'deposit'`), passing the batch's deposit `txHash`. A withdraw needs no approval, so it has no batch.
+
+The batch, refusal and unconfirmed-batch rules are the ones in
+[Approve and send the intent in one signature](./swaps-api.md#approve-and-send-the-intent-in-one-signature).
+One difference: after a refused batch, call `createDepositIntent` again once the separate approval confirms,
+because the first intent's `deadline` also covered the wait for the approval. The runnable flow, with each rule
+asserted, is
+[`leverageYieldApiApprovalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/backendApi/leverageYieldApiApprovalBatch.test.ts).
+
 ### Submit tx + poll status
 
 ```ts
