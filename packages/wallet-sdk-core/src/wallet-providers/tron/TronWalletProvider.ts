@@ -66,7 +66,7 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
   private readonly rpcUrl: string;
   private readonly privateKey?: `0x${string}`;
   private readonly tronWeb?: TronWebLike;
-  /** The announced provider — signing goes here, never through the injected `tronWeb`. */
+  /** The announced provider; signing tries its TronWeb before the injected `tronWeb`. */
   private readonly provider?: TronProviderLike;
   /** Re-resolves the connected provider at call time; see `getProvider` on the config. */
   private readonly getProvider?: () => TronProviderLike | undefined;
@@ -156,15 +156,16 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
     return signedTx.txID;
   }
 
-  /** TRX balance in sun. Errors are swallowed → `0n` (cannot distinguish zero from fetch failure). */
+  /** TRX balance in sun, `0n` when the node reports none (unactivated or empty account). Throws if the read fails. */
   public async getBalance(address?: string): Promise<bigint> {
-    try {
-      const addr = address ?? (await this.getWalletAddress());
-      const acct = (await this.rpc('/wallet/getaccount', { address: addr, visible: true })) as { balance?: number };
-      return BigInt(acct?.balance ?? 0);
-    } catch {
-      return 0n;
-    }
+    const addr = address ?? (await this.getWalletAddress());
+    const acct = (await this.rpc('/wallet/getaccount', { address: addr, visible: true })) as {
+      balance?: number;
+      Error?: string;
+    };
+    // TronGrid answers a malformed address with HTTP 200 and an `Error` field.
+    if (acct?.Error) throw new Error(`Tron getaccount failed: ${acct.Error}`);
+    return BigInt(acct?.balance ?? 0);
   }
 
   private async rpc(path: string, body: unknown): Promise<unknown> {

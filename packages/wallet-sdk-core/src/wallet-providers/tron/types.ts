@@ -37,7 +37,7 @@ export interface TronProviderLike {
 
 /** Configuration for constructing a `TronWalletProvider` backed by a browser extension (TronLink). */
 export type BrowserExtensionTronWalletConfig = {
-  /** The injected `window.tronWeb` object — used for READS only. */
+  /** The injected TronWeb: the address fallback, and the signer when no announced provider's TronWeb has an account. */
   tronWeb: TronWebLike;
   /** The announced provider, used for signing. */
   provider?: TronProviderLike;

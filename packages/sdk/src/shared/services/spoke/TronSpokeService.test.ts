@@ -10,6 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChainKeys, spokeChainConfig, type Hex } from '@sodax/types';
+import { getAddress } from 'viem';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import { assembleBroadcastHex, encodeTrc20TransferParams, spliceMemo, tronBase58ToHex } from './tron-utils.js';
@@ -51,6 +52,7 @@ function stubTronGrid(overrides: Record<string, unknown> = {}) {
         '/wallet/broadcasthex': { result: true },
         '/wallet/getaccount': { balance: 42 },
         '/wallet/triggerconstantcontract': {
+          result: { result: true },
           constant_result: ['0000000000000000000000000000000000000000000000000000000000000539'],
         },
         ...overrides,
@@ -65,10 +67,12 @@ function stubTronGrid(overrides: Record<string, unknown> = {}) {
 // Held apart from `walletProvider`, whose `as never` would erase the mock's type for assertions.
 const signTransaction = vi.fn(async (tx: { txID: string; raw_data_hex: string }) => ({ ...tx, signature: [SIGNATURE] }));
 
+const signMessage = vi.fn(async () => `0x${SIGNATURE}`);
+
 const walletProvider = {
   chainType: 'TRON',
   signTransaction,
-  signMessage: vi.fn(async () => `0x${SIGNATURE}`),
+  signMessage,
 } as never;
 
 const depositParams = (token: string) =>
@@ -88,6 +92,7 @@ beforeEach(() => {
   calls = [];
   // `restoreAllMocks` leaves a plain `vi.fn`'s calls in place, so each test would read an earlier one's.
   signTransaction.mockClear();
+  signMessage.mockClear();
   vi.spyOn(MpcRelayApiService, 'getDepositAddress').mockResolvedValue({
     ok: true,
     value: {
@@ -346,12 +351,41 @@ describe('TronSpokeService.estimateGas', () => {
   const rawTx = (token: string) => ({ from: SENDER, to: RESERVE, value: AMOUNT, data: MEMO, token });
 
   it('reports energy from a constant call and bandwidth from the signed transaction size', async () => {
-    stubTronGrid({ '/wallet/triggerconstantcontract': { energy_used: 31_895 } });
+    stubTronGrid({ '/wallet/triggerconstantcontract': { result: { result: true }, energy_used: 31_895 } });
 
     const estimate = await tron.estimateGas({ chainKey: TRON, tx: rawTx(USDT) } as never);
 
     const signed = assembleBroadcastHex(spliceMemo(TRC20_RAW, MEMO), '00'.repeat(65));
     expect(estimate).toEqual({ energy: 31_895n, bandwidth: BigInt(signed.length / 2) });
+  });
+
+  it('issues the energy call and the transaction build together', async () => {
+    stubTronGrid({ '/wallet/triggerconstantcontract': { result: { result: true }, energy_used: 31_895 } });
+    const node = globalThis.fetch;
+    let inFlight = 0;
+    let peak = 0;
+    vi.stubGlobal('fetch', async (...args: Parameters<typeof fetch>) => {
+      peak = Math.max(peak, ++inFlight);
+      await new Promise(r => setTimeout(r, 0));
+      inFlight--;
+      return node(...args);
+    });
+
+    await tron.estimateGas({ chainKey: TRON, tx: rawTx(USDT) } as never);
+
+    expect(peak).toBe(2);
+  });
+
+  // Shapes TronGrid returns for a transfer that cannot run: a missing contract, and a revert.
+  it.each([
+    [{ result: { code: 'CONTRACT_VALIDATE_ERROR', message: 'Smart contract is not exist.' } }],
+    [{ result: { result: true, message: 'REVERT opcode executed' }, energy_used: 8_624, constant_result: [''] }],
+  ])('rejects a failed transfer simulation instead of reporting its energy (%o)', async response => {
+    stubTronGrid({ '/wallet/triggerconstantcontract': response });
+
+    await expect(tron.estimateGas({ chainKey: TRON, tx: rawTx(USDT) } as never)).rejects.toThrow(
+      /transfer simulation on .* failed/,
+    );
   });
 
   it('reports zero energy for a native TRX transfer, which consumes none', async () => {
@@ -377,6 +411,50 @@ describe('TronSpokeService.sendMessage', () => {
 
   const nonceOf = (call: number) =>
     BigInt(vi.mocked(MpcRelayApiService.submitWithdraw).mock.calls[call]?.[1].message.nonce ?? '0');
+
+  it.each([
+    ['too short', '0x1234'],
+    ['too long', `${HUB_WALLET}00`],
+    ['not hex', `0x${'zz'.repeat(20)}`],
+  ] as const)('refuses a hub wallet that is %s before anything is signed', async (_, dstAddress) => {
+    stubTronGrid();
+    const submit = vi.spyOn(MpcRelayApiService, 'submitWithdraw');
+
+    const params = {
+      srcChainKey: TRON,
+      srcAddress: SENDER,
+      dstChainKey: 'sonic',
+      dstAddress,
+      payload: '0x',
+      walletProvider,
+    };
+
+    await expect(tron.sendMessage(params as never)).rejects.toThrow(`invalid hub wallet address: ${dstAddress}`);
+    expect(signMessage).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('accepts a checksummed hub wallet, the form a contract read returns', async () => {
+    stubTronGrid();
+    const submit = vi.spyOn(MpcRelayApiService, 'submitWithdraw').mockResolvedValue({
+      ok: true,
+      value: { accepted: true, trackingId: MEMO },
+    });
+    const hubWallet = getAddress(`0x${'ab'.repeat(20)}`);
+    const params = {
+      srcChainKey: TRON,
+      srcAddress: SENDER,
+      dstChainKey: 'sonic',
+      dstAddress: hubWallet,
+      payload: '0x',
+      walletProvider,
+    };
+
+    await tron.sendMessage(params as never);
+
+    expect(hubWallet).not.toBe(hubWallet.toLowerCase());
+    expect(submit.mock.calls[0]?.[1].message.to).toBe(hubWallet);
+  });
 
   it('draws a fresh random nonce per withdrawal rather than reading the clock', async () => {
     stubTronGrid();
@@ -441,6 +519,23 @@ describe('TronSpokeService.getDeposit', () => {
       function_selector: 'balanceOf(address)',
     });
     expect(balance).toBe(0x539n);
+  });
+
+  // A failed read still answers 200; parsing its word would show a garbage or zero balance.
+  it.each([
+    ['is not a contract', { result: { code: 'CONTRACT_VALIDATE_ERROR', message: 'Smart contract is not exist.' } }],
+    ['reverted', { result: { result: true, message: 'REVERT opcode executed' }, constant_result: [''] }],
+    [
+      'reverted with one word of data',
+      { result: { result: true, message: 'REVERT opcode executed' }, constant_result: [`${'0'.repeat(63)}1`] },
+    ],
+    ['answered with no word', { result: { result: true }, constant_result: [] }],
+  ])('rejects a TRC-20 read that %s', async (_, response) => {
+    stubTronGrid({ '/wallet/triggerconstantcontract': response });
+
+    await expect(tron.getDeposit({ srcChainKey: TRON, srcAddress: SENDER, token: USDT } as never)).rejects.toThrow(
+      `balanceOf on ${USDT} failed`,
+    );
   });
 
   it('reads the account balance for native TRX', async () => {

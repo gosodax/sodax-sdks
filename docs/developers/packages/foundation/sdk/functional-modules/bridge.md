@@ -211,7 +211,7 @@ if (result.ok) {
 
 #### Completion paths and `timeout`
 
-`bridge()` completes through the **backend submit-tx path by default** (`bridge.useBackendSubmitTx`, default `true`): it hands the broadcast deposit to the bridge API (`sodax.api.bridge.submitTx`), which relays server-side, and polls submit-tx status. On **any** non-success — submission rejected, terminal `failed`/abandoned, or the poll running out — it falls back to the client-side `relayTxAndWaitPacket` flow so the bridge still completes, returning the same `TxHashPair` either way. That is safe because re-relaying an already-relayed deposit is idempotent, and it matters in practice: the backend keeps processing at its own pace after the SDK gives up, so the two relays can race. Set `new Sodax({ bridge: { useBackendSubmitTx: false } })` to force the client-side path.
+`bridge()` completes through the **backend submit-tx path by default** (`bridge.useBackendSubmitTx`, default `true`): it hands the broadcast deposit to the bridge API (`sodax.api.bridge.submitTx`), which relays server-side, and polls submit-tx status. On **any** non-success — submission rejected, terminal `failed`/abandoned, or the poll running out — it falls back to the client-side `relayTxAndWaitPacket` flow so the bridge still completes, returning the same `TxHashPair` either way. That is safe because re-relaying an already-relayed deposit is idempotent, and it matters in practice: the backend keeps processing at its own pace after the SDK gives up, so the two relays can race. Set `new Sodax({ bridge: { useBackendSubmitTx: false } })` to force the client-side path. An MPC-relay source skips the backend and settles client-side, since the backend relays only through the intent relay.
 
 On-chain verification (`verifyTxHash`) runs on the **client-side path only** — the backend runs its own, so verifying before handing the deposit over would delay every backend success by the source chain's confirmation wait and could fail a bridge the backend would have completed. `TX_VERIFICATION_FAILED` therefore never surfaces on a bridge the backend completes.
 
@@ -496,9 +496,12 @@ if (result.ok) {
   if (result.value.source === 'backend') {
     // `data` is the BridgeSubmitTxStatusDataV2 from sodax.api.bridge.getSubmitTxStatus
     console.log(result.value.data.status, result.value.data.userMessage);
-  } else {
+  } else if (result.value.source === 'relay') {
     // `data` is the delivered relay PacketData
     console.log(result.value.data.status, result.value.data.dst_tx_hash);
+  } else {
+    // `data` is an MPC-relay source's DepositRecord; `txs.hubMint` is the hub settlement tx
+    console.log(result.value.data.status, result.value.data.txs.hubMint?.hash);
   }
 }
 ```
@@ -508,7 +511,8 @@ if (result.ok) {
 ```typescript
 type DetailedBridgeStatus =
   | { source: 'backend'; data: BridgeSubmitTxStatusDataV2 }
-  | { source: 'relay'; data: PacketData };
+  | { source: 'relay'; data: PacketData }
+  | { source: 'mpcRelay'; data: DepositRecord };
 ```
 
 A point-in-time read — poll it yourself, or use `@sodax/dapp-kit`'s `useBridgeDetailedStatus`.
@@ -524,7 +528,7 @@ Sometimes there is **no record**, and it reads 404 — you opted out with `useBa
 The relay can answer for it, but only if you know to ask it, and with what. So the caller had to know which path ran and pick a source. This method makes that choice instead:
 
 1. Read the backend record; return it while it is still in play.
-2. Otherwise return the delivered relay packet for the source tx.
+2. Otherwise return the delivered relay packet for the source tx — or, for an MPC-relay source, its relay deposit record.
 
 A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 2, and on the default path this is the *common* branch rather than an edge case: the record almost always exists, so abandonment — not a 404 — is what usually signals the fallback ran. It never self-heals, so keeping it would report `failed` for a bridge the fallback went on to complete. A `success: false` envelope takes step 2 as well — that is the wire contract's "no record found", whatever `data` carries. A transport or server error routes on too, so a transient backend outage does not fail a bridge the relay can still report on.
 
@@ -532,7 +536,9 @@ A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 
 
 **What the relay arm proves, and what it does not.** The packet is returned whole rather than reduced to a hash, because `dst_tx_hash` means different things by route: for a spoke-source bridge it is the **hub settlement** tx, and for a hub-source bridge it is the destination spoke's tx. The spoke→spoke hop from the hub onwards is not covered by this read. So a `source: 'relay'` answer means *the deposit reached the packet's destination*, not always *the funds landed with the recipient*. The arm is terminal either way: the router only ever returns an `executed` packet with a non-empty `dst_tx_hash`.
 
-Both payloads are already documented — the submit-tx record in [BRIDGE_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md), the relay packet as `PacketData`. Nothing is translated between them, so no field is dropped and no status is reinterpreted.
+**The MPC-relay arm.** An MPC-relay source never produces an intent-relay packet, so step 2 reads the relay's deposit record instead and returns it whole once `txs.hubMint` holds the hub settlement tx. Until then it is the same budgetable "not delivered" miss as an undelivered packet: the relay answers an unknown deposit as `pending`, so a stuck deposit and one in flight look alike.
+
+Every payload is already documented — the submit-tx record in [BRIDGE_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md), the relay packet as `PacketData`, the MPC relay's record as `DepositRecord`. Nothing is translated between them, so no field is dropped and no status is reinterpreted.
 
 #### When it fails
 

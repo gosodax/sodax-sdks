@@ -35,6 +35,7 @@ import {
   FEE_PERCENTAGE_SCALE,
   getIntentRelayChainId,
   HUB_CHAIN_KEY,
+  isMpcRelayChainKey,
   SolverIntentErrorCode,
   SolverIntentStatusCode,
 } from '@sodax/types';
@@ -334,6 +335,13 @@ const BITCOIN_UNSUPPORTED_MESSAGE =
 /** Vault swaps do not support Bitcoin yet, as a source or a destination. */
 const VAULT_BITCOIN_UNSUPPORTED_MESSAGE =
   'Bitcoin is not a supported chain for leverage-yield vault swaps; use a supported spoke or the hub';
+
+/**
+ * The SDK confirms a hub-wallet message from an MPC-relay source (Tron) only by the release back to it,
+ * and a vault withdraw or position operation releases nothing. With no way out, the way in is refused too.
+ */
+const MPC_RELAY_UNSUPPORTED_MESSAGE =
+  'MPC-relay source chains are not supported for leverage yield yet; use a supported spoke or the hub';
 
 /** Sentinel `solver` address meaning "any solver may fill this intent". */
 const ANY_SOLVER_ADDRESS: Address = '0x0000000000000000000000000000000000000000';
@@ -907,6 +915,10 @@ export class LeverageYieldService {
         ...baseCtx,
         field: 'srcChainKey',
       });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
       leverageYieldInvariant(params.inputAmount > 0n, 'inputAmount must be greater than 0', {
         ...baseCtx,
         field: 'inputAmount',
@@ -973,6 +985,10 @@ export class LeverageYieldService {
     const baseCtx = { srcChainKey: params.srcChainKey, action: 'withdraw' satisfies LeverageYieldAction };
     try {
       leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
         ...baseCtx,
         field: 'srcChainKey',
       });
@@ -1058,6 +1074,10 @@ export class LeverageYieldService {
 
     try {
       leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
         ...baseCtx,
         field: 'srcChainKey',
       });
@@ -3783,6 +3803,10 @@ export class LeverageYieldService {
         ...baseCtx,
         field: 'srcChainKey',
       });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
       leverageYieldInvariant(params.amount > 0n, 'amount must be greater than 0', { ...baseCtx, field: 'amount' });
       leverageYieldInvariant(params.minCollateralOut > 0n, 'minCollateralOut must be greater than 0', {
         ...baseCtx,
@@ -4042,6 +4066,10 @@ export class LeverageYieldService {
       // Bitcoin is not supported: the position paths derive the hub wallet from the personal address,
       // where TRADING mode requires the effective (trading) one — so fail before any funds move.
       leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
         ...baseCtx,
         field: 'srcChainKey',
       });

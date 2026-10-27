@@ -1,6 +1,7 @@
 import type { HttpUrl, MpcWithdrawScheme, Result } from '@sodax/types';
 import type { Hex } from 'viem';
 import { invariant } from '../../utils/tiny-invariant.js';
+import { RELAY_ERROR_CODES } from '../intentRelay/IntentRelayApiService.js';
 
 /**
  * Client for the SODAX MPC relay (NEAR chain signatures), used by every chain in `MpcRelayChainMap`.
@@ -194,12 +195,20 @@ export async function getDeposit(apiUrl: HttpUrl, depositId: string): Promise<Re
   return getJson<DepositRecord>(`${apiUrl}/deposit/${encodeURIComponent(depositId)}`);
 }
 
+/** A wait that ran out, in the intent relay's vocabulary so `mapRelayFailure` reports `RELAY_TIMEOUT`. */
+function relayTimeout(detail: string): Error {
+  return new Error(RELAY_ERROR_CODES.RELAY_TIMEOUT, { cause: new Error(detail) });
+}
+
 export interface WaitForDepositOptions {
   timeout?: number;
   pollIntervalMs?: number;
 }
 
-/** Poll until the deposit reaches `minted` (resolve) or `failed` (reject). */
+/**
+ * Poll until the deposit is `minted` (or `swept` past it) with its hub mint tx recorded. Ends in
+ * `RELAY_TIMEOUT`, as the intent relay does, when that does not happen within `timeout`.
+ */
 export async function waitForDeposit(
   apiUrl: HttpUrl,
   depositId: string,
@@ -213,9 +222,10 @@ export async function waitForDeposit(
     // This loop is the retry: `getDeposit` reports failure in its Result, so `retry` would never fire.
     const res = await getDeposit(apiUrl, depositId);
     // `swept` is past `minted`; waiting only for `minted` would miss a deposit a sweep already passed.
-    if (res.ok && (res.value.status === 'minted' || res.value.status === 'swept')) return res;
+    const minted = res.ok && (res.value.status === 'minted' || res.value.status === 'swept');
+    if (minted && res.value.txs?.hubMint?.hash) return res;
     if (Date.now() >= deadline) {
-      return { ok: false, error: new Error(`mpc-relay: timed out waiting for deposit ${depositId}`) };
+      return { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for deposit ${depositId}`) };
     }
     await new Promise(r => setTimeout(r, interval));
   }
@@ -246,7 +256,10 @@ export async function getWithdrawal(apiUrl: HttpUrl, trackingId: string): Promis
   return getJson<WithdrawalRecord>(`${apiUrl}/withdrawal/${encodeURIComponent(trackingId)}`);
 }
 
-/** Poll until the withdrawal reaches `released` (resolve) or `failed` (reject). */
+/**
+ * Poll until the withdrawal is `released` with its release tx recorded, or `failed` (reject). Ends in
+ * `RELAY_TIMEOUT` when neither happens within `timeout`.
+ */
 export async function waitForWithdrawal(
   apiUrl: HttpUrl,
   trackingId: string,
@@ -260,7 +273,7 @@ export async function waitForWithdrawal(
     // The loop is the retry, as in `waitForDeposit`.
     const res = await getWithdrawal(apiUrl, trackingId);
     if (res.ok) {
-      if (res.value.status === 'released') return res;
+      if (res.value.status === 'released' && res.value.txs?.release?.hash) return res;
       if (res.value.status === 'failed') {
         return {
           ok: false,
@@ -269,7 +282,7 @@ export async function waitForWithdrawal(
       }
     }
     if (Date.now() >= deadline) {
-      return { ok: false, error: new Error(`mpc-relay: timed out waiting for withdrawal ${trackingId}`) };
+      return { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for withdrawal ${trackingId}`) };
     }
     await new Promise(r => setTimeout(r, interval));
   }

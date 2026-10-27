@@ -211,24 +211,44 @@ describe('SpokeService.settle — Tron MPC relay', () => {
     expect(result).toEqual({ ok: true, value: { srcChainTxHash: TRACKING_ID, dstChainTxHash: RELEASE } });
   });
 
-  it('falls back to the source id when the settled record carries no far-leg hash', async () => {
+  // Callers hand `dstChainTxHash` on as the hub (or release) tx, so the source id must never stand in for it.
+  it('reports a deposit record without its hub mint tx as a relay failure', async () => {
     vi.spyOn(spoke.tron, 'waitForDeposit').mockResolvedValue(depositRecord({}));
+
+    const result = await spoke.settle({ chainKey: TRON, tx: SRC_TX, direction: 'inbound', relayData: RELAY_DATA });
+
+    expect(result).toEqual({
+      ok: false,
+      error: { phase: 'relay', cause: new Error(`mpc-relay: deposit ${SRC_TX} settled without a hub mint tx`) },
+    });
+  });
+
+  it('reports a withdrawal record without its release tx as a relay failure', async () => {
+    vi.spyOn(spoke.tron, 'waitForWithdrawal').mockResolvedValue(withdrawalRecord({}));
 
     const result = await spoke.settle({
       chainKey: TRON,
-      tx: SRC_TX,
-      direction: 'inbound',
+      tx: TRACKING_ID,
+      direction: 'outbound',
       relayData: RELAY_DATA,
     });
 
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: SRC_TX, dstChainTxHash: SRC_TX } });
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        phase: 'relay',
+        cause: new Error(`mpc-relay: withdrawal ${TRACKING_ID} settled without a release tx`),
+      },
+    });
   });
 
   it('routes every chain listed as MPC-relay away from the intent relay', async () => {
     // The dispatch is driven by MpcRelayChainMap membership, not by naming Tron — so a chain added
     // to that map (XRP, Aptos) settles through its relay service with no feature-code change.
     const relay = stubRelay();
-    vi.spyOn(spoke.tron, 'waitForDeposit').mockResolvedValue(depositRecord({}));
+    vi.spyOn(spoke.tron, 'waitForDeposit').mockResolvedValue(
+      depositRecord({ hubMint: { chain: 'sonic', hash: HUB_MINT, ts: 0 } }),
+    );
 
     for (const chainKey of Object.keys(MpcRelayChainMap) as MpcRelayChainKey[]) {
       const result = await spoke.settle({ chainKey, tx: SRC_TX, direction: 'inbound', relayData: RELAY_DATA });

@@ -307,7 +307,7 @@ const setResult = await sodax.partners.feeClaim.setSwapPreference({
   params: {
     srcChainKey: ChainKeys.SONIC_MAINNET, // must be the hub chain key
     srcAddress: '0xYourSonicAddress',
-    outputToken: '0xDesiredOutputTokenAddress', // spoke-chain or hub-chain address
+    outputToken: '0xDesiredOutputTokenAddress', // hub-chain address, or a spoke token in its own format (base58 on Tron)
     dstChainKey: ChainKeys.ARBITRUM_MAINNET,   // chain to receive proceeds
     dstAddress: '0xYourArbitrumAddress',
   },

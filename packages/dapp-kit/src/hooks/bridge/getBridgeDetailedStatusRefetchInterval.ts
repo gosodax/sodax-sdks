@@ -27,9 +27,9 @@ export function isBridgeNotDelivered(data: DetailedBridgeStatusRead): boolean {
  * Polling interval for `useBridgeDetailedStatus`.
  *
  * Unlike the swap analog there is no in-flight second arm to wait on: the relay arm only ever
- * carries a matched `executed` packet, so it is terminal on arrival. That leaves three stops — a
- * terminal or abandoned backend record, a rejected API key, and the ambiguous relay miss once it has
- * run `MAX_NOT_FOUND_POLLS` times in a row.
+ * carries a matched `executed` packet, and the MPC-relay arm a minted deposit record, so both are
+ * terminal on arrival. That leaves three stops — a terminal or abandoned backend record, a rejected
+ * API key, and the ambiguous relay miss once it has run `MAX_NOT_FOUND_POLLS` times in a row.
  *
  * Kept in its own pure module (no React/context imports) so it is unit-testable in dapp-kit's `node`
  * test environment — importing the hook itself pulls in `useSodaxContext`.
@@ -39,7 +39,7 @@ export function getBridgeDetailedStatusRefetchInterval(
   consecutiveNotFound: number,
 ): number | false {
   if (data?.ok) {
-    if (data.value.source === 'relay') return false;
+    if (data.value.source !== 'backend') return false;
     // The two terminal states of the bridge wire contract, plus a record the backend abandoned
     // while its status was still non-terminal.
     const { status, abandonedAt } = data.value.data;

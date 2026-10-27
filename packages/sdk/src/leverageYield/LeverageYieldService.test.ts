@@ -440,6 +440,26 @@ describe('LeverageYieldService.deposit — intent builder', () => {
     expect(getUserHubWalletAddress).not.toHaveBeenCalled();
   });
 
+  // Its vault exit could never settle, so the MPC-relay way in is refused too.
+  it('refuses an MPC-relay source before deriving the hub wallet', async () => {
+    const getUserHubWalletAddress = vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress');
+
+    const result = await sodax.leverageYield.deposit({
+      vault: VAULT,
+      srcChainKey: ChainKeys.TRON_MAINNET,
+      srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+      inputToken: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+      inputAmount: 1_000n,
+      minOutputAmount: 900n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.message).toContain('MPC-relay');
+    expect(getUserHubWalletAddress).not.toHaveBeenCalled();
+  });
+
   it('surfaces a getBlock RPC failure during default-deadline resolution as LOOKUP_FAILED (method=resolveDeadline), not INTENT_CREATION_FAILED', async () => {
     vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress').mockResolvedValueOnce(HUB_WALLET);
     vi.spyOn(sodax.hubProvider.publicClient, 'getBlock').mockRejectedValueOnce(new Error('rpc down'));
@@ -599,6 +619,26 @@ describe('LeverageYieldService.withdraw — intent builder', () => {
     if (result.ok) return;
     expect(result.error.code).toBe('VALIDATION_FAILED');
     expect(result.error.context?.field).toBe('srcChainKey');
+    expect(getBlock).not.toHaveBeenCalled();
+  });
+
+  it('refuses an MPC-relay source before reading the hub block', async () => {
+    const getBlock = vi.spyOn(sodax.hubProvider.publicClient, 'getBlock');
+
+    const result = await sodax.leverageYield.withdraw({
+      vault: VAULT,
+      srcChainKey: ChainKeys.TRON_MAINNET,
+      srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+      dstChainKey: ARBITRUM,
+      outputToken: SPOKE_TOKEN,
+      inputAmount: 1_000n,
+      minOutputAmount: 900n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.message).toContain('MPC-relay');
     expect(getBlock).not.toHaveBeenCalled();
   });
 
@@ -875,6 +915,27 @@ describe('LeverageYieldService.createVaultIntent', () => {
     if (result.ok) return;
     expect(result.error.code).toBe('VALIDATION_FAILED');
     expect(result.error.context?.field).toBe('srcChainKey');
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('refuses an MPC-relay source before signing (hubWalletSwap: %s)', async hubWalletSwap => {
+    const deposit = vi.spyOn(sodax.spoke, 'deposit');
+    const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
+
+    const result = await sodax.leverageYield.createVaultIntent({
+      params: vaultIntentParams(ChainKeys.TRON_MAINNET, {
+        srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+        inputToken: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+      }),
+      raw: true,
+      hubWalletSwap,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.message).toContain('MPC-relay');
+    expect(deposit).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
@@ -3759,6 +3820,29 @@ describe('LeverageYieldService — opening a position from any chain', () => {
     expect(result.error.context?.field).toBe('srcChainKey');
     expect(deposit).not.toHaveBeenCalled();
   });
+
+  it('refuses an MPC-relay source before any funds move', async () => {
+    const configured = sodaxWithFactory();
+    const deposit = vi.spyOn(configured.spoke, 'deposit');
+
+    const result = await configured.leverageYield.openPosition({
+      params: {
+        srcChainKey: 'tron',
+        srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+        token: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        amount: 10n ** 6n,
+        borrowToken: POS_BORROW_TOKEN,
+        borrowAmount: 1n,
+        minCollateralOut: 1n,
+      },
+    } as never);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.message).toContain('MPC-relay');
+    expect(deposit).not.toHaveBeenCalled();
+  });
 });
 
 describe('LeverageYieldService.operatePosition', () => {
@@ -3818,6 +3902,25 @@ describe('LeverageYieldService.operatePosition', () => {
     if (result.ok) return;
     expect(result.error.code).toBe('VALIDATION_FAILED');
     expect(result.error.context?.field).toBe('srcChainKey');
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('refuses an MPC-relay source before signing anything', async () => {
+    const configured = sodaxWithFactory();
+    const sendMessage = vi.spyOn(configured.spoke, 'sendMessage');
+
+    const result = await configured.leverageYield.operatePosition({
+      params: {
+        srcChainKey: 'tron',
+        srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+        calls: [{ from: HUB_WALLET, to: POSITION, value: 0n, data: '0x' }],
+      },
+    } as never);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.message).toContain('MPC-relay');
     expect(sendMessage).not.toHaveBeenCalled();
   });
 

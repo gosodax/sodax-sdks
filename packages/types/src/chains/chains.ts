@@ -57,9 +57,8 @@ export const RelayChainIdMap = {
   [ChainKeys.KAIA_MAINNET]: 27489n,
   [ChainKeys.STACKS_MAINNET]: 60n,
   [ChainKeys.HEDERA_MAINNET]: 18501n,
-  // Tron settles through the MPC relay, not the intent relay (see MpcRelayChainMap below). This
-  // entry exists only to keep the map total (Record<ChainKey, bigint>) and mirrors Tron's native
-  // chain id; `SpokeService.settle` routes MPC chains away before an intent-relay path is reached.
+  // Tron settles through the MPC relay (MpcRelayChainMap), but this id still derives its hub wallets
+  // and fills intent srcChain/dstChain.
   [ChainKeys.TRON_MAINNET]: 728126428n,
   [ChainKeys.ROBINHOOD_MAINNET]: 21071n,
 } as const satisfies Record<ChainKey, bigint>;
@@ -680,11 +679,8 @@ export type NearSpokeChainConfig = BaseSpokeChainConfig<'NEAR'> & {
 /**
  * Config carried by a chain that settles through the **MPC relay** (NEAR chain signatures) instead
  * of the intent relay: deposits are paid to a shared reserve and tracked over the relay's REST API,
- * rather than submitted as a packet.
- *
- * The presence of `mpcRelayApiEndpoint` IS the marker the SDK routes on (see `isMpcRelayChainConfig`)
- * — there is no hardcoded list of MPC chains. Tron is the only one today; XRP and Aptos are the same
- * shape, so adding them is a config change plus a spoke service, not a new branch in feature code.
+ * rather than submitted as a packet. Which chains settle this way is `MpcRelayChainMap`
+ * (`isMpcRelayChainKey`).
  */
 export type MpcRelayChainConfig = {
   /** MPC relay REST endpoint (notify + deposit-address), distinct from the intent relay. */
