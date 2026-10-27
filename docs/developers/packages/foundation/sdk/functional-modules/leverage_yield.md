@@ -97,6 +97,8 @@ The service does **not** expose bespoke "deposit into vault" / "redeem from vaul
 
 `LeverageYieldService`'s job is to build the correct swap payload (the `CreateIntentParams` plus any execution flags) via `deposit()` / `withdraw()`, then execute it via `vaultSwap()` (or `createVaultIntent()` for manual relay control); the solver (plus the vault's ERC-4626 mechanics) does the rest. This is why deposits and withdrawals are cross-chain by default and need no vault-specific approval: a deposit approves its input token the same way a swap does, with `sodax.swaps.isAllowanceValid` / `sodax.swaps.approve`, and a withdraw needs no approval at all.
 
+> Vault swaps do not support Bitcoin yet. `deposit()`, `withdraw()` and `createVaultIntent` (and so `vaultSwap`) return `VALIDATION_FAILED` for a Bitcoin `srcChainKey` or `dstChainKey`, before anything is built or signed.
+
 `createVaultIntent` / `vaultSwap` are leverage-yield copies of the swap domain's `createIntent` / `swap()` — duplicated **deliberately** so the vault-specific execution modifiers (`hubWalletSwap`, per-intent `partnerFee`) live on the leverage-yield action wrapper (`VaultSwapActionParams`) and never leak into the generic swap surface.
 
 ### Partner fee
@@ -219,7 +221,7 @@ It approves the same spender as above, keeps the leverage-yield partner fee and 
 
 ### Withdraw (`lsoda*` → any token)
 
-`withdraw()` builds the `LeverageYieldSwapPayload` for swapping the vault's `lsoda*` shares — which sit in the user's hub wallet — back into any solver-supported token on any chain. The payload carries **`hubWalletSwap: true`**: `vaultSwap()` then authorises the hub wallet to spend the shares via a `Connection.sendMessage` the user signs on `srcChainKey`, instead of a spoke-side asset-manager deposit. `withdraw()` is `async` (it reads the hub block timestamp for the default `deadline`) and returns a `Result` for a call shape uniform with `deposit()`. Size `minOutputAmount` the same way as a deposit — `sodax.leverageYield.getQuote` with the vault address as the **source** token (`token_src`) — then subtract slippage. `withdraw()` also accepts an optional `partnerFee`; withdrawals are charged, and that fee is taken in `lsoda*` shares.
+`withdraw()` builds the `LeverageYieldSwapPayload` for swapping the vault's `lsoda*` shares — which sit in the user's hub wallet — back into any solver-supported token on any chain but Bitcoin. The payload carries **`hubWalletSwap: true`**: `vaultSwap()` then authorises the hub wallet to spend the shares via a `Connection.sendMessage` the user signs on `srcChainKey`, instead of a spoke-side asset-manager deposit. `withdraw()` is `async` (it reads the hub block timestamp for the default `deadline`) and returns a `Result` for a call shape uniform with `deposit()`. Size `minOutputAmount` the same way as a deposit — `sodax.leverageYield.getQuote` with the vault address as the **source** token (`token_src`) — then subtract slippage. `withdraw()` also accepts an optional `partnerFee`; withdrawals are charged, and that fee is taken in `lsoda*` shares.
 
 ```typescript
 const intentResult = await sodax.leverageYield.withdraw({

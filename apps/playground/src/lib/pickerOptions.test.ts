@@ -67,12 +67,13 @@ describe('filterGroups', () => {
   });
 
   it('matches a symbol case-insensitively', () => {
-    const matched = filterGroups(groups, 'usd', undefined);
+    const query = 'usd';
+    const matched = filterGroups(groups, query, undefined);
+    const symbolMatches = groups.filter(group => group.symbol.toLowerCase().includes(query));
 
-    expect(matched.length).toBeGreaterThan(0);
-    for (const group of matched) {
-      expect(group.symbol.toLowerCase()).toContain('usd');
-    }
+    expect(symbolMatches.length).toBeGreaterThan(0);
+    expect(matched).toEqual(expect.arrayContaining(symbolMatches));
+    expect(filterGroups(groups, query.toUpperCase(), undefined)).toEqual(matched);
   });
 
   // A tile is one symbol, but a partner pasting an address or typing a full name still has to land

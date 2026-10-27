@@ -13,6 +13,10 @@ not select a solver endpoint. `isSwapSupportedToken` accepts both tiers, so do n
 use it to establish production readiness. Query the list for the environment the
 integration targets instead of hardcoding symbols.
 
+A production promotion retains staging availability through `getStagingSolverTokens`.
+Do not treat absence from `stagingSwapSupportedTokens` as absence from staging;
+production tokens are supplied by the union accessor.
+
 Staging membership does not imply money-market support. When a token has no
 separate vault, its registry entry uses `vault === hubAsset` for the direct hub
 asset. Canonical hub vault registration alone does not enable swaps or lending.
