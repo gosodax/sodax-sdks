@@ -41,7 +41,6 @@ describe('e2e', () => {
     `${ChainKeys.SONIC_MAINNET}|0x9d4b663eb075d2a1c7b8eaefb9eccc0510388b51`, // IbnUSD
     `${ChainKeys.SONIC_MAINNET}|0x4b207114f9118deac56436e1ae3c45648783c7ac`, // sodaRBNT
     `${ChainKeys.NEAR_MAINNET}|bnusd.sodax.near`, // bnUSD (IbnUSD migration vault)
-    `${ChainKeys.SONIC_MAINNET}|0x3bb956cc8922e1ba4148dc10ed1b4fa19aa599c4`, // sodaHBAR (HBAR reserve not yet live on-chain)
   ]);
 
   const isMmTokenSyncExcludedFromTypes = (chain: SpokeChainKey, address: string): boolean =>
