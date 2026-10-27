@@ -29,6 +29,7 @@ import {
   type IWalletProvider,
   type IntentRequestV2,
   type IntentResponseV2,
+  type LeverageYieldSubmitTxRequestV2,
   type SpokeChainKey,
 } from '../index.js';
 
@@ -133,11 +134,14 @@ const unwrap = <T>(result: { ok: true; value: T } | { ok: false; error: unknown 
   return result.value;
 };
 
+/** What `submitTx` still needs once a batch is sent; persist it with the batch id. */
+type PendingDeposit = Pick<LeverageYieldSubmitTxRequestV2, 'intent' | 'relayData'>;
+
 /** Approves and deposits; one signature when the source is an EVM spoke and the wallet can batch. */
 async function approveAndDeposit(
   walletProvider: IWalletProvider,
   params: CreateDepositIntentParamsV2 & { srcChainKey: SpokeChainKey },
-  onBatchSent?: (id: string) => void,
+  onBatchSent?: (batchId: string, pending: PendingDeposit) => void,
 ) {
   const { srcChainKey } = params;
   if (!isEvmWalletProviderType(walletProvider) || !isEvmChainKeyType(srcChainKey)) {
@@ -159,7 +163,10 @@ async function approveAndDeposit(
       txs: [...approvalTxs, deposit.tx as EvmRawTransaction],
       timeoutMs: 60_000,
       feature: 'leverageYield',
-      onBatchSent,
+      onBatchSent:
+        onBatchSent &&
+        (batchId =>
+          onBatchSent(batchId, { intent: toIntentRequest(deposit.intent), relayData: deposit.relayData.payload })),
     });
     if (sent.ok) txHash = sent.value.txHash;
     else if (!isAtomicBatchRefusal(sent.error)) throw sent.error;
@@ -283,13 +290,13 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     stubBackend({ withReset: true });
     const walletProvider = batchWallet();
     walletProvider.waitForBatch.mockRejectedValueOnce(new Error('timed out'));
-    const onBatchSent = vi.fn();
+    const onBatchSent = vi.fn<(batchId: string, pending: PendingDeposit) => void>();
 
     await expect(approveAndDeposit(walletProvider, DEPOSIT_PARAMS, onBatchSent)).rejects.toMatchObject({
       code: 'TX_VERIFICATION_FAILED',
       context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1', callCount: 3 },
     });
-    expect(onBatchSent).toHaveBeenCalledWith('batch-1');
+    expect(onBatchSent).toHaveBeenCalledWith('batch-1', expect.anything());
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
     expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
     expect(requested('/leverage-yield/submit-tx')).toHaveLength(0);
@@ -302,5 +309,24 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
       feature: 'leverageYield',
     });
     expect(resumed).toEqual({ ok: true, value: { txHash: DEPOSIT_HASH, batchId: 'batch-1' } });
+    if (!resumed.ok) throw resumed.error;
+
+    // The persisted `pending` is all `submitTx` still needs to finish the resumed batch.
+    const pending = onBatchSent.mock.calls[0]?.[1];
+    if (!pending) throw new Error('onBatchSent was not called');
+    const finished = await sodax.api.leverageYield.submitTx({
+      txHash: resumed.value.txHash,
+      srcChainKey: DEPOSIT_PARAMS.srcChainKey,
+      walletAddress: DEPOSIT_PARAMS.srcAddress,
+      ...pending,
+      operation: 'deposit',
+    });
+    expect(finished.ok).toBe(true);
+    expect(submitted()).toMatchObject({
+      txHash: DEPOSIT_HASH,
+      relayData: RELAY_DATA.payload,
+      intent: wireIntent('1000'),
+      operation: 'deposit',
+    });
   });
 });

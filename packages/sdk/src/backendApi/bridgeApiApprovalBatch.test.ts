@@ -19,6 +19,7 @@ import {
   isEvmWalletProviderType,
   resolveApprovalStrategy,
   sendApprovalBatch,
+  type BridgeSubmitTxRequestV2,
   type CreateBridgeIntentParamsV2,
   type EvmAtomicBatchSupport,
   type EvmBatchResult,
@@ -99,11 +100,14 @@ const stubBackend = ({ withReset }: BackendOptions) => {
 
 const requested = (path: string) => mockFetch.mock.calls.filter(([url]) => url === `${BASE}${path}`);
 
+/** What `submitTx` still needs once a batch is sent; persist it with the batch id. */
+type PendingBridge = Pick<BridgeSubmitTxRequestV2, 'relayData'>;
+
 /** Approves and bridges; one signature when the source is an EVM spoke and the wallet can batch. */
 async function approveAndBridge(
   walletProvider: IWalletProvider,
   params: CreateBridgeIntentParamsV2 & { srcChainKey: SpokeChainKey },
-  onBatchSent?: (id: string) => void,
+  onBatchSent?: (batchId: string, pending: PendingBridge) => void,
 ) {
   const { srcChainKey } = params;
   if (!isEvmWalletProviderType(walletProvider) || !isEvmChainKeyType(srcChainKey)) {
@@ -129,7 +133,7 @@ async function approveAndBridge(
       txs: [...approvalTxs, bridge.tx as EvmRawTransaction],
       timeoutMs: 60_000,
       feature: 'bridge',
-      onBatchSent,
+      onBatchSent: onBatchSent && (batchId => onBatchSent(batchId, { relayData: bridge.relayData })),
     });
     if (sent.ok) txHash = sent.value.txHash;
     else if (!isAtomicBatchRefusal(sent.error)) throw sent.error;
@@ -248,13 +252,13 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     stubBackend({ withReset: true });
     const walletProvider = batchWallet();
     walletProvider.waitForBatch.mockRejectedValueOnce(new Error('timed out'));
-    const onBatchSent = vi.fn();
+    const onBatchSent = vi.fn<(batchId: string, pending: PendingBridge) => void>();
 
     await expect(approveAndBridge(walletProvider, BRIDGE_PARAMS, onBatchSent)).rejects.toMatchObject({
       code: 'TX_VERIFICATION_FAILED',
       context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1', callCount: 3 },
     });
-    expect(onBatchSent).toHaveBeenCalledWith('batch-1');
+    expect(onBatchSent).toHaveBeenCalledWith('batch-1', expect.anything());
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
     expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
     expect(requested('/bridge/submit-tx')).toHaveLength(0);
@@ -267,5 +271,18 @@ describe('approve and bridge in one signature (Bridge API)', () => {
       feature: 'bridge',
     });
     expect(resumed).toEqual({ ok: true, value: { txHash: DEPOSIT_HASH, batchId: 'batch-1' } });
+    if (!resumed.ok) throw resumed.error;
+
+    // The persisted `pending` is all `submitTx` still needs to finish the resumed batch.
+    const pending = onBatchSent.mock.calls[0]?.[1];
+    if (!pending) throw new Error('onBatchSent was not called');
+    const finished = await sodax.api.bridge.submitTx({
+      txHash: resumed.value.txHash,
+      srcChainKey: BRIDGE_PARAMS.srcChainKey,
+      walletAddress: BRIDGE_PARAMS.srcAddress,
+      ...pending,
+    });
+    expect(finished.ok).toBe(true);
+    expect(submitted()).toMatchObject({ txHash: DEPOSIT_HASH, relayData: relayDataFor(1) });
   });
 });
