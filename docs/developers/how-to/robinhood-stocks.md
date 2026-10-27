@@ -35,12 +35,12 @@ On Hedera, the supply of each stock token is created in advance and held by the 
 
 ## Live tickers and networks {#live-tickers}
 
-24 tickers are live. Read the list at runtime rather than hard-coding it, because tickers are added over time (see [Gotchas](#gotchas)).
+46 tickers are live. Read the list at runtime rather than hard-coding it, because tickers are added over time (see [Gotchas](#gotchas)).
 
 | Type | Tickers |
 | --- | --- |
-| Stocks | AAPL, AMD, AMZN, BABA, COIN, CRCL, GME, GOOGL, INTC, META, MSFT, MSTR, MU, NVDA, PLTR, SNDK, SPCX, TSLA, TSM |
-| ETFs and funds | QQQ, SGOV, SLV, SPY, USO |
+| Stocks | AAPL, AMC, AMD, AMZN, BABA, BULL, COIN, COST, CRCL, DJT, GME, GOOGL, HIMS, IBM, INTC, JNJ, LLY, LULU, META, MRNA, MSFT, MSTR, MU, NET, NFLX, NVDA, PLTR, QUBT, RBLX, RDDT, RIVN, SKHY, SNAP, SNDK, SPCX, TSLA, TSM, TTWO, UPS, WYFI |
+| ETFs and funds | GLD, QQQ, SGOV, SLV, SPY, USO |
 
 | Network | Role | Token decimals | Where the addresses live |
 | --- | --- | --- | --- |
@@ -49,7 +49,7 @@ On Hedera, the supply of each stock token is created in advance and held by the 
 | Stellar | Spoke, Stellar asset contracts | 7 | `stellarSupportedTokens` |
 | Sonic | Hub, one vault token per ticker | — | `SodaTokens` |
 
-Every address is in [Mainnet deployments: Robinhood Tokenized Equities](/developers/deployments/mainnet#robinhood-tokenized-equities) and in `@sodax/types`, which `@sodax/sdk` re-exports. Read addresses from the package in code rather than copying them from a page. Only tickers with a Chainlink price feed on Robinhood Chain are listed, so some Robinhood tokens (for example DJT, RDDT and GLD) are not available.
+Every address is in [Mainnet deployments: Robinhood Tokenized Equities](/developers/deployments/mainnet#robinhood-tokenized-equities) and in `@sodax/types`, which `@sodax/sdk` re-exports. Read addresses from the package in code rather than copying them from a page. Each ticker is priced by its Robinhood Chain Chainlink feed where one exists, otherwise by Robinhood's own price API.
 
 Stocks are swap assets only. They are not money-market reserves, so users cannot supply them, borrow against them or use them as collateral.
 
@@ -341,7 +341,7 @@ Install the [`@sodax/skills`](/ai-integration-guide) bundle before you start the
 
 #### 1. Which stocks are live, and on which networks?
 
-24 tickers are live on Robinhood Chain, Hedera and Stellar, with one vault token per ticker on Sonic. The full list is in [Live tickers and networks](#live-tickers), and every address is in [Mainnet deployments](/developers/deployments/mainnet#robinhood-tokenized-equities).
+46 tickers are live on Robinhood Chain, Hedera and Stellar, with one vault token per ticker on Sonic. The full list is in [Live tickers and networks](#live-tickers), and every address is in [Mainnet deployments](/developers/deployments/mainnet#robinhood-tokenized-equities).
 
 #### 2. Is every Hedera stock token backed 1:1?
 
