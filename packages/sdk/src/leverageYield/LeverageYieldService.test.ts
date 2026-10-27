@@ -35,6 +35,7 @@ import {
   ChainKeys,
   DEFAULT_BACKEND_API_TIMEOUT,
   DEFAULT_RELAY_TX_TIMEOUT,
+  encodeRecipient,
   getIntentRelayChainId,
   type IBitcoinWalletProvider,
   type IEvmWalletProvider,
@@ -3437,6 +3438,34 @@ describe('LeverageYieldService — MAX_POSITION_FEE_BPS on every create path', (
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(feeBpsOf(result.value)).toBe(MAX_POSITION_FEE_BPS);
+  });
+});
+
+describe('LeverageYieldService — MPC-relay origin address', () => {
+  it('stores a Tron origin as the recipient word, since surpluses and cancel refunds pay it', () => {
+    const tronAddress = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
+    const ORIGIN_ABI = parseAbi([
+      'function createPositionAndLeverage((address owner, address collateral, address borrowToken, uint8 eModeCategory, uint256 originChainId, bytes originAddress, address originAsset, address feeReceiver, uint16 feeBps) cfg, uint256 initialAssets, uint256 borrowAmount, uint256 minCollateralOut) returns (address)',
+    ]);
+
+    const result = sodaxWithFactory().leverageYield.buildCreatePositionAndLeverage({
+      from: POSITION_OWNER,
+      owner: POSITION_OWNER,
+      collateral: POS_COLLATERAL,
+      borrowToken: POS_BORROW_TOKEN,
+      eModeCategory: 0,
+      origin: { chainKey: ChainKeys.TRON_MAINNET, address: tronAddress, asset: POS_COLLATERAL },
+      initialAssets: 10n ** 18n,
+      borrowAmount: 1_000n,
+      minCollateralOut: 1n,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const { args } = decodeFunctionData({ abi: ORIGIN_ABI, data: result.value.data });
+    expect((args[0] as { originAddress: Hex }).originAddress).toBe(
+      encodeRecipient(ChainKeys.TRON_MAINNET, tronAddress),
+    );
   });
 });
 

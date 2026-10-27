@@ -6,7 +6,7 @@ import {
   Erc4626Service,
   EvmVaultTokenService,
   encodeContractCalls,
-  encodeAddress,
+  encodeRecipient,
   poolAbi,
   SonicSpokeService,
   isSonicChainKeyType,
@@ -2955,8 +2955,9 @@ export class LeverageYieldService {
         // The chain's own encoding, not a 0x-prefixed string. `originAddress` is `bytes` on-chain and
         // is handed to the AssetManager as the refund destination, so a Solana or Stellar address has
         // to arrive in the form that chain's spoke expects — prefixing `0x` would produce a refund
-        // address that is merely well-formed hex. EVM addresses pass through unchanged.
-        address: encodeAddress(origin.chainKey, origin.address),
+        // address that is merely well-formed hex. EVM addresses pass through unchanged; an MPC-relay
+        // origin gets the padded recipient word its release decodes.
+        address: encodeRecipient(origin.chainKey, origin.address),
         // Named on the hub as well, not just off it. The asset decides what a cancellation pays back,
         // and zeroing it here is why someone who funded with USSD was refunded `sodaUSSD`. Callers pass
         // the asset only when a wrap actually happened — when the reserve IS what was deposited there is

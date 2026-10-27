@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ChainKeys } from '@sodax/types';
-import { encodeAddress, encodeRecipient } from './shared-utils.js';
+import { encodeAddress, encodeRecipient, reverseEncodeAddress } from './shared-utils.js';
 import { tronBase58ToHex } from '../services/spoke/tron-utils.js';
 
 /**
@@ -29,6 +29,23 @@ describe('encodeRecipient — MPC relay chains', () => {
     expect(encodeRecipient(ChainKeys.TRON_MAINNET, TRON_ADDRESS)).not.toBe(identity);
     // The identity is the tail of the padded word.
     expect(encodeRecipient(ChainKeys.TRON_MAINNET, TRON_ADDRESS).endsWith(identity.slice(2))).toBe(true);
+  });
+});
+
+describe('reverseEncodeAddress — Tron', () => {
+  it('decodes both the identity and the padded recipient word back to the base58 address', () => {
+    expect(reverseEncodeAddress(ChainKeys.TRON_MAINNET, encodeAddress(ChainKeys.TRON_MAINNET, TRON_ADDRESS))).toBe(
+      TRON_ADDRESS,
+    );
+    expect(reverseEncodeAddress(ChainKeys.TRON_MAINNET, encodeRecipient(ChainKeys.TRON_MAINNET, TRON_ADDRESS))).toBe(
+      TRON_ADDRESS,
+    );
+  });
+
+  it('rejects a 32-byte word whose padding is not zero', () => {
+    const word = encodeRecipient(ChainKeys.TRON_MAINNET, TRON_ADDRESS);
+    const dirty = `0x01${word.slice(4)}` as const;
+    expect(() => reverseEncodeAddress(ChainKeys.TRON_MAINNET, dirty)).toThrow(/Invalid Tron recipient word/);
   });
 });
 

@@ -273,9 +273,15 @@ export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex):
     case 'NEAR':
     case 'INJECTIVE':
       return Buffer.from(hexToBytes(encoded)).toString('utf8');
-    case 'TRON':
-      // Inverse of the identity encoding: 20-byte hash → base58check Tron address.
-      return tronHashToBase58(encoded);
+    case 'TRON': {
+      // Accepts the 20-byte identity and the padded `encodeRecipient` word intents store as srcAddress.
+      const hash = encoded.replace(/^0x/, '').toLowerCase();
+      if (hash.length === 64) {
+        invariant(hash.startsWith('0'.repeat(24)), `Invalid Tron recipient word: ${encoded}`);
+        return tronHashToBase58(hash.slice(24));
+      }
+      return tronHashToBase58(hash);
+    }
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);
