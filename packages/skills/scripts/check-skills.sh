@@ -358,7 +358,7 @@ done < <(find . -maxdepth 1 -type f -name '*.md' -print0 2>/dev/null; \
          find skills -type f -name '*.md' -print0 2>/dev/null)
 
 # -----------------------------------------------------------------------------
-# 7b. A `https://github.com/gosodax/sodax-sdks/blob/main/<path>` URL under skills/
+# 7b. A `https://github.com/gosodax/sodax-sdks/blob/main/<path>` URL under skills/ or in ./*.md
 #     must name a file that exists in the repo (the checkout is two levels up).
 #     (Regex quotes and parens are \x escapes: bash 3.2 miscounts them inside $(...).)
 #     This is how a skill points at the test that holds its example code.
@@ -367,19 +367,18 @@ while IFS= read -r line; do
   [[ -n "$line" ]] && err "$line"
 done < <(python3 - << 'PY'
 import os, re
-REPO_URL = re.compile(r'https://github\.com/gosodax/sodax-sdks/blob/main/(?P<path>[^\s\x29#>\x22\x27\]]+)')
+REPO_URL = re.compile(r'https://github\.com/gosodax/sodax-sdks/blob/main/(?P<path>[^\s\x29#>\x22\x27\x60\x3c\]]+)')
 repo_root = os.path.abspath(os.path.join(os.getcwd(), '..', '..'))
+md_files = [fn for fn in os.listdir('.') if fn.endswith('.md') and os.path.isfile(fn)]
 for root, _, files in os.walk('skills'):
-    for fn in files:
-        if not fn.endswith('.md'):
-            continue
-        fp = os.path.join(root, fn)
-        with open(fp, encoding='utf-8') as f:
-            for ln, raw in enumerate(f, 1):
-                for m in REPO_URL.finditer(raw):
-                    path = m.group('path').rstrip('.,;:')
-                    if not os.path.isfile(os.path.join(repo_root, path)):
-                        print(f'BROKEN_REPO_URL in {fp}:{ln} -> {path} (no such file in the repo)')
+    md_files += [os.path.join(root, fn) for fn in files if fn.endswith('.md')]
+for fp in md_files:
+    with open(fp, encoding='utf-8') as f:
+        for ln, raw in enumerate(f, 1):
+            for m in REPO_URL.finditer(raw):
+                path = m.group('path').rstrip('.,;:')
+                if not os.path.isfile(os.path.join(repo_root, path)):
+                    print(f'BROKEN_REPO_URL in {fp}:{ln} -> {path} (no such file in the repo)')
 PY
 )
 
