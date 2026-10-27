@@ -13,10 +13,10 @@ The short version: add one URL to your agent's MCP config.
 https://builders.sodax.com/mcp
 ```
 
-From that point the agent can read the live list of supported networks and swap tokens, pull a swap quote, inspect money market reserves and user positions, look up an intent by hash, and search the SODAX developer docs while it writes your code. No API key is required.
+From that point the agent can read the live list of supported networks and swap tokens, pull a swap quote, inspect money market reserves and user positions, look up an intent by hash, and search the SODAX developer docs while it writes your code. None of that needs an API key; the [swap tools](/builders-mcp#swaps) do.
 
 <Note>
-  The Builders MCP never holds a key and never signs. The one tool that touches a transaction, `sodax_relay_submit_tx`, takes a transaction that is already signed and finalized and hands it to the intent relay. Your code builds the transaction and your wallet signs it.
+  The Builders MCP never holds a wallet key and never signs. `sodax_relay_submit_tx` takes a transaction that is already signed and finalized and hands it to the intent relay, and the [swap tools](/builders-mcp#swaps) return unsigned transactions for the user's wallet. Your code or your wallet signs every transaction.
 </Note>
 
 ## Add it to your agent
