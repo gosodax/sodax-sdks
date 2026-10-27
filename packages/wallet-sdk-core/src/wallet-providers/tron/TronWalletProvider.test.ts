@@ -174,14 +174,31 @@ describe('TronWalletProvider — node calls', () => {
     await expect(provider.sendTransaction(signed)).rejects.toThrow(/Tron broadcast failed: SIGERROR/);
   });
 
-  it('getBalance reads sun from getaccount and swallows failures as 0n', async () => {
+  it('getBalance reads sun from getaccount, and 0n when the account has no balance field', async () => {
     const provider = new TronWalletProvider({ privateKey: PRIVATE_KEY });
 
     stubFetch({ '/wallet/getaccount': { balance: 1_500_000 } });
     await expect(provider.getBalance(TRON_ADDRESS)).resolves.toBe(1_500_000n);
 
-    stubFetch({}, false);
+    // What TronGrid answers for an unactivated account.
+    stubFetch({ '/wallet/getaccount': {} });
     await expect(provider.getBalance(TRON_ADDRESS)).resolves.toBe(0n);
+  });
+
+  it('getBalance rejects a failed read instead of reporting 0n', async () => {
+    const provider = new TronWalletProvider({ privateKey: PRIVATE_KEY });
+
+    stubFetch({}, false);
+    await expect(provider.getBalance(TRON_ADDRESS)).rejects.toThrow('tron rpc /wallet/getaccount: 500');
+
+    // TronGrid's HTTP 200 answer to a malformed address.
+    stubFetch({
+      '/wallet/getaccount': {
+        Error:
+          'class org.tron.core.services.http.JsonFormat$ParseException : 1:12: invalid address for field: protocol.Account.address',
+      },
+    });
+    await expect(provider.getBalance('TYBNgWfhGuNzdLtjKtxXTfskAhTbMcqbaH')).rejects.toThrow(/invalid address/);
   });
 
   it('waitForTransactionReceipt strips 0x and returns once the tx has a block number', async () => {

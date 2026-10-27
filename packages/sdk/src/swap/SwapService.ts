@@ -116,6 +116,7 @@ import {
   type Hash,
   type HttpUrl,
   getIntentRelayChainId,
+  isMpcRelayChainKey,
   type FeeAmount,
   type GetWalletProviderType,
   type PartnerFee,
@@ -1086,7 +1087,8 @@ export class SwapService {
     // Backend 2-step flow (default on): hand the broadcast intent tx to the swaps API, which relays +
     // post-executes server-side. On ANY non-success we fall back to the client-side relay so the
     // swap still completes — safe because re-relay / re-post are idempotent (see `submitTx`).
-    if (this.useBackendSubmitTx) {
+    // The backend only relays through the intent relay, so an MPC-relay source settles client-side.
+    if (this.useBackendSubmitTx && !isMpcRelayChainKey(_params.params.srcChainKey)) {
       const submitted = await this.submitTx(_params, created, createSubmitTxAttempt(timeoutMs));
       if (submitted.ok) return submitted;
       this.config.logger.warn('[swap] backend submit-tx did not complete; falling back to the client-side relay', {
@@ -1801,6 +1803,12 @@ export class SwapService {
       invariant(
         getIntentRelayChainId(params.srcChainKey) === params.intent.srcChain,
         `srcChainKey (${params.srcChainKey}) does not match intent.srcChain (${params.intent.srcChain}). Expected relay chain id ${getIntentRelayChainId(params.srcChainKey)}.`,
+      );
+      // The refund pays `intent.srcAddress`, which holds an MPC-relay chain's identity, not a payout word.
+      swapInvariant(
+        !isMpcRelayChainKey(params.srcChainKey),
+        `Cancelling an intent from an MPC-relay source chain (${params.srcChainKey}) is not supported yet`,
+        { srcChainKey: params.srcChainKey, field: 'srcChainKey' },
       );
 
       const relayData = this.buildCancelRelayData(params.intent);

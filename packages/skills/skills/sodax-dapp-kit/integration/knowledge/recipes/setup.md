@@ -150,7 +150,7 @@ ChainKeys.SONIC_MAINNET;       // 'sonic'           (hub)
 ChainKeys.ARBITRUM_MAINNET;    // '0xa4b1.arbitrum'
 ChainKeys.BASE_MAINNET;        // '0x2105.base'
 ChainKeys.BSC_MAINNET;         // '0x38.bsc'
-ChainKeys.ETHEREUM_MAINNET;    // '0x1.ethereum'
+ChainKeys.ETHEREUM_MAINNET;    // 'ethereum'
 ChainKeys.POLYGON_MAINNET;     // '0x89.polygon'
 ChainKeys.OPTIMISM_MAINNET;    // '0xa.optimism'
 ChainKeys.AVALANCHE_MAINNET;   // '0xa86a.avax'
@@ -162,6 +162,7 @@ ChainKeys.INJECTIVE_MAINNET;   // 'injective-1'
 ChainKeys.NEAR_MAINNET;        // 'near'
 ChainKeys.STACKS_MAINNET;      // 'stacks'
 ChainKeys.BITCOIN_MAINNET;     // 'bitcoin'
+ChainKeys.TRON_MAINNET;        // 'tron'
 // HyperEVM, Lightlink, Redbelly, Kaia, Hedera also available.
 ```
 

@@ -10,7 +10,7 @@ If you are migrating from v1 instead, see [`sodax-wallet-sdk-react` (migration m
 
 `@sodax/wallet-sdk-react` is the React layer over `@sodax/wallet-sdk-core`. It gives you:
 
-- **Multi-chain wallet connect** across 9 chain types (EVM, Solana, Sui, Bitcoin, Stellar, ICON, Injective, NEAR, Stacks).
+- **Multi-chain wallet connect** across chain types (EVM, Solana, Sui, Bitcoin, Stellar, ICON, Injective, NEAR, Stacks, Tron).
 - **Hooks** (`useXConnect`, `useXAccount`, `useXDisconnect`, `useXSignMessage`, etc.) backed by a Zustand store — composable and SSR-safe.
 - **Headless modal primitives** (`useWalletModal`, `useChainGroups`, `useBatchConnect`) — bring your own UI.
 - **Typed wallet providers** for hand-off to `@sodax/sdk` calls (`useWalletProvider`).

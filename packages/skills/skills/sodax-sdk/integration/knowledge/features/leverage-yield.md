@@ -12,7 +12,7 @@ Access: `sodax.leverageYield`. Service class: `LeverageYieldService`. Feature ta
 
 - A vault holds `asset` (a Sodax vault token like the weETH vault, `SodaTokens.sodaWEETH`) as collateral, borrows `borrowToken` (e.g. sodaETH) from the Sodax-forked AAVE pool, swaps it back into the asset, and re-supplies — to a `targetLTV`.
 - The ERC-4626 **share token is the vault proxy address itself** (`lsoda*`). Holding shares = holding the leveraged position.
-- **Deposit** = swap any spoke token → `lsoda*`, delivered to the user's **hub wallet** on Sonic. **Withdraw** = swap `lsoda*` (held in the hub wallet) → any token on any chain.
+- **Deposit** = swap any spoke token → `lsoda*`, delivered to the user's **hub wallet** on Sonic. **Withdraw** = swap `lsoda*` (held in the hub wallet) → any token on any chain. Bitcoin is refused on either side with `VALIDATION_FAILED`.
 - **Steady-state APR**: `netAprRay = supplyAprRay + leverageMultiplier × (supplyAprRay − borrowAprRay)`, where `leverageMultiplier = targetLTV / (1 − targetLTV)` — the **borrowed** multiple of equity (debt ÷ equity), not total exposure. Exposure (collateral ÷ equity) is `1 + leverageMultiplier` = `1 / (1 − targetLTV)`: at `targetLtvBps` 8200 that is 4.56× borrowed, 5.56× exposure, so a UI label reading "Leverage" shows `1 + multiplier`. Rates are RAY (`1e27`); the multiplier and `healthFactor` are WAD (`1e18`); `targetLtvBps` and the position `ltv` are basis points (`10_000` = 100%). `netAprRay` goes **negative** when the borrow rate exceeds supply — for LSD-backed vaults the LSD's native staking yield (folded in by `getEffectiveApr`) is the real alpha.
 
 ## Public methods

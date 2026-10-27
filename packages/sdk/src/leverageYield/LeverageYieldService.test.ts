@@ -422,6 +422,45 @@ describe('LeverageYieldService.deposit — intent builder', () => {
     expect(result.error.context?.field).toBe('inputAmount');
   });
 
+  it('refuses a Bitcoin source before deriving the hub wallet', async () => {
+    const getUserHubWalletAddress = vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress');
+
+    const result = await sodax.leverageYield.deposit({
+      vault: VAULT,
+      srcChainKey: ChainKeys.BITCOIN_MAINNET,
+      srcAddress: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      inputToken: '0:0',
+      inputAmount: 1_000n,
+      minOutputAmount: 900n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe('srcChainKey');
+    expect(getUserHubWalletAddress).not.toHaveBeenCalled();
+  });
+
+  // Its vault exit could never settle, so the MPC-relay way in is refused too.
+  it('refuses an MPC-relay source before deriving the hub wallet', async () => {
+    const getUserHubWalletAddress = vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress');
+
+    const result = await sodax.leverageYield.deposit({
+      vault: VAULT,
+      srcChainKey: ChainKeys.TRON_MAINNET,
+      srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+      inputToken: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+      inputAmount: 1_000n,
+      minOutputAmount: 900n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.message).toContain('MPC-relay');
+    expect(getUserHubWalletAddress).not.toHaveBeenCalled();
+  });
+
   it('surfaces a getBlock RPC failure during default-deadline resolution as LOOKUP_FAILED (method=resolveDeadline), not INTENT_CREATION_FAILED', async () => {
     vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress').mockResolvedValueOnce(HUB_WALLET);
     vi.spyOn(sodax.hubProvider.publicClient, 'getBlock').mockRejectedValueOnce(new Error('rpc down'));
@@ -562,6 +601,67 @@ describe('LeverageYieldService.withdraw — intent builder', () => {
     if (result.ok) return;
     expect(result.error.code).toBe('VALIDATION_FAILED');
     expect(result.error.context?.field).toBe('vault');
+  });
+
+  it('refuses a Bitcoin source before reading the hub block', async () => {
+    const getBlock = vi.spyOn(sodax.hubProvider.publicClient, 'getBlock');
+
+    const result = await sodax.leverageYield.withdraw({
+      vault: VAULT,
+      srcChainKey: ChainKeys.BITCOIN_MAINNET,
+      srcAddress: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      dstChainKey: ARBITRUM,
+      outputToken: SPOKE_TOKEN,
+      inputAmount: 1_000n,
+      minOutputAmount: 900n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe('srcChainKey');
+    expect(getBlock).not.toHaveBeenCalled();
+  });
+
+  it('refuses an MPC-relay source before reading the hub block', async () => {
+    const getBlock = vi.spyOn(sodax.hubProvider.publicClient, 'getBlock');
+
+    const result = await sodax.leverageYield.withdraw({
+      vault: VAULT,
+      srcChainKey: ChainKeys.TRON_MAINNET,
+      srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+      dstChainKey: ARBITRUM,
+      outputToken: SPOKE_TOKEN,
+      inputAmount: 1_000n,
+      minOutputAmount: 900n,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.message).toContain('MPC-relay');
+    expect(getBlock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a Bitcoin destination before reading the hub block', async () => {
+    const getBlock = vi.spyOn(sodax.hubProvider.publicClient, 'getBlock');
+
+    const result = await sodax.leverageYield.withdraw({
+      vault: VAULT,
+      srcChainKey: ARBITRUM,
+      srcAddress: SAMPLE_USER,
+      dstChainKey: ChainKeys.BITCOIN_MAINNET,
+      outputToken: '0:0',
+      inputAmount: 1_000n,
+      minOutputAmount: 900n,
+      recipient: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe('dstChainKey');
+    expect(getBlock).not.toHaveBeenCalled();
   });
 
   it('surfaces a getBlock RPC failure during default-deadline resolution as LOOKUP_FAILED (method=resolveDeadline)', async () => {
@@ -797,20 +897,12 @@ describe('LeverageYieldService.createVaultIntent', () => {
     expect(sodax.config.isValidOriginalAssetAddress).toHaveBeenNthCalledWith(1, HUB, VAULT);
   });
 
-  it('on a Bitcoin hub-wallet swap (withdraw), derives the hub wallet from the trading address but passes the personal srcAddress to sendMessage', async () => {
-    // Regression: passing the already-resolved trading address into sendMessage would double-resolve
-    // it (SpokeService.sendMessage re-resolves personal→trading internally), so the personal address
-    // must flow into sendMessage while only the hub-wallet derivation uses the trading address.
-    const TRADING_ADDRESS = 'bc1p-trading-wallet';
-    const intent = makeIntent(ChainKeys.BITCOIN_MAINNET);
-    const getEffSpy = vi.spyOn(sodax.spoke.bitcoin, 'getEffectiveWalletAddress').mockResolvedValueOnce(TRADING_ADDRESS);
-    const ensureSpy = vi.spyOn(sodax.spoke.bitcoin.radfi, 'ensureRadfiAccessToken').mockResolvedValueOnce(undefined);
-    mocks.constructCreateIntentData.mockReturnValueOnce(['0xhubdata', intent, 0n]);
-    const sendSpy = vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xmsgTx' });
+  it('refuses a Bitcoin source before signing anything', async () => {
+    const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
 
     const result = await sodax.leverageYield.createVaultIntent({
       params: vaultIntentParams(ChainKeys.BITCOIN_MAINNET, {
-        inputToken: VAULT, // lsoda* shares are the swap input
+        inputToken: VAULT,
         outputToken: SPOKE_TOKEN,
         dstChainKey: ARBITRUM as SpokeChainKey,
         dstAddress: SAMPLE_USER,
@@ -820,17 +912,53 @@ describe('LeverageYieldService.createVaultIntent', () => {
       hubWalletSwap: true,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    // Personal address is resolved to the trading wallet, and the radfi session is ensured.
-    expect(getEffSpy).toHaveBeenCalledWith(SAMPLE_USER);
-    expect(ensureSpy).toHaveBeenCalledWith(mockBitcoinProvider);
-    // Hub wallet is derived from the trading address (matches what the relay credits).
-    expect(mocks.getUserHubWalletAddress).toHaveBeenCalledWith(TRADING_ADDRESS, ChainKeys.BITCOIN_MAINNET);
-    // srcAddress stays personal: sendMessage re-resolves the trading address itself, so pre-resolving
-    // here would double-resolve (getTradingWallet(tradingAddress) → "Trading wallet not found").
-    expect(sendSpy.mock.calls[0]?.[0]?.srcAddress).toBe(SAMPLE_USER);
-    expect(result.value.relayData).toEqual({ address: HUB_WALLET, payload: '0xhubdata' });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe('srcChainKey');
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('refuses an MPC-relay source before signing (hubWalletSwap: %s)', async hubWalletSwap => {
+    const deposit = vi.spyOn(sodax.spoke, 'deposit');
+    const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
+
+    const result = await sodax.leverageYield.createVaultIntent({
+      params: vaultIntentParams(ChainKeys.TRON_MAINNET, {
+        srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+        inputToken: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+      }),
+      raw: true,
+      hubWalletSwap,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.message).toContain('MPC-relay');
+    expect(deposit).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('refuses a Bitcoin destination before signing anything', async () => {
+    const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
+
+    const result = await sodax.leverageYield.createVaultIntent({
+      params: vaultIntentParams(ARBITRUM, {
+        inputToken: VAULT,
+        outputToken: '0:0',
+        dstChainKey: ChainKeys.BITCOIN_MAINNET as SpokeChainKey,
+        dstAddress: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      }),
+      raw: true,
+      hubWalletSwap: true,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe('dstChainKey');
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it('returns raw tx data without a wallet provider when raw=true', async () => {
@@ -3721,6 +3849,29 @@ describe('LeverageYieldService — opening a position from any chain', () => {
     expect(result.error.context?.field).toBe('srcChainKey');
     expect(deposit).not.toHaveBeenCalled();
   });
+
+  it('refuses an MPC-relay source before any funds move', async () => {
+    const configured = sodaxWithFactory();
+    const deposit = vi.spyOn(configured.spoke, 'deposit');
+
+    const result = await configured.leverageYield.openPosition({
+      params: {
+        srcChainKey: 'tron',
+        srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+        token: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        amount: 10n ** 6n,
+        borrowToken: POS_BORROW_TOKEN,
+        borrowAmount: 1n,
+        minCollateralOut: 1n,
+      },
+    } as never);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.message).toContain('MPC-relay');
+    expect(deposit).not.toHaveBeenCalled();
+  });
 });
 
 describe('LeverageYieldService.operatePosition', () => {
@@ -3780,6 +3931,25 @@ describe('LeverageYieldService.operatePosition', () => {
     if (result.ok) return;
     expect(result.error.code).toBe('VALIDATION_FAILED');
     expect(result.error.context?.field).toBe('srcChainKey');
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('refuses an MPC-relay source before signing anything', async () => {
+    const configured = sodaxWithFactory();
+    const sendMessage = vi.spyOn(configured.spoke, 'sendMessage');
+
+    const result = await configured.leverageYield.operatePosition({
+      params: {
+        srcChainKey: 'tron',
+        srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+        calls: [{ from: HUB_WALLET, to: POSITION, value: 0n, data: '0x' }],
+      },
+    } as never);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.message).toContain('MPC-relay');
     expect(sendMessage).not.toHaveBeenCalled();
   });
 

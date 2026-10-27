@@ -47,6 +47,10 @@ const allTokens: Record<SpokeChainKey, readonly XToken[]> = sodax.swaps.getSuppo
 one of these lists does not configure the solver endpoint; use the matching solver
 environment. `isSwapSupportedToken` accepts the union, so it is not a production-readiness check.
 
+A token promoted to production remains available in the complete staging set.
+Use `getStagingSolverTokens` to check staging availability; absence from the
+staging-only list does not mean the token is unavailable in staging.
+
 Swap membership and money-market support are configured independently of the
 canonical hub vault registry. Registering a vault does not enable either feature.
 For tokens without a separate vault, `vault === hubAsset` represents the direct
@@ -118,7 +122,7 @@ Driving these steps yourself instead of calling `swap`? See [Migrate a manual sw
 
 #### Backend 2-step submit
 
-By default `swap()` uses a backend-driven 2-step flow (`swaps.useBackendSubmitTx`, default `true`): after `createIntent` broadcasts the intent tx, `swap()` hands the tx hash to the backend (`sodax.api.swaps.submitTx`), which relays + post-executes server-side; the SDK polls submit-tx status and returns the same `SwapResponse`. The SDK does **not** verify the tx on-chain first — the backend runs its own verification, so waiting for a client-side confirmation would delay every backend success by the source chain's confirmation wait and could fail a swap the backend would have completed. `verifyTxHash` therefore runs only on the client-side path. Set `new Sodax({ swaps: { useBackendSubmitTx: false } })` to force the fully client-side relay path.
+By default `swap()` uses a backend-driven 2-step flow (`swaps.useBackendSubmitTx`, default `true`): after `createIntent` broadcasts the intent tx, `swap()` hands the tx hash to the backend (`sodax.api.swaps.submitTx`), which relays + post-executes server-side; the SDK polls submit-tx status and returns the same `SwapResponse`. The SDK does **not** verify the tx on-chain first — the backend runs its own verification, so waiting for a client-side confirmation would delay every backend success by the source chain's confirmation wait and could fail a swap the backend would have completed. `verifyTxHash` therefore runs only on the client-side path. Set `new Sodax({ swaps: { useBackendSubmitTx: false } })` to force the fully client-side relay path. An MPC-relay source (such as Tron) skips the backend and settles client-side, since the backend relays only through the intent relay.
 
 On **any** non-success (submission rejected, terminal `failed`/abandoned, or poll timeout) `swap()` **falls back** to the client-side relay so the swap still completes — identical `SwapResponse` either way. This is **safe**: re-relaying / re-posting an already-processed swap is idempotent — the relay dedups and returns the existing `executed` packet, and the solver re-affirms the intent (no double-fill), verified live by `e2e-tests/e2e-relay.test.ts`. It also matters in practice: the backend keeps processing at its own pace after the SDK gives up, so the two relays can race. Each attempt gets its own `timeout` — see [How `timeout` bounds each attempt](#how-timeout-bounds-each-attempt). `useBackendSubmitTx` lives on `swaps` alongside `partnerFee` (not part of the backend `SodaxDefaultConfig`). See [CONFIGURE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-submit-tx-2-step-swapsusebackendsubmittx).
 
@@ -959,6 +963,8 @@ const rawResult = await sodax.swaps.createLimitOrderIntent({
 `cancelLimitOrder` is a domain-specific alias for `cancelIntent`. Both take an object with `srcChainKey` and `intent`.
 
 **Important:** `cancelIntent` takes `{ params: CancelIntentParams<K>, walletProvider }` — not positional arguments. You must supply `srcChainKey` explicitly because `Intent.srcChain` is a bigint relay ID that cannot narrow to a `SpokeChainKey` at the type level.
+
+An intent from an MPC-relay source chain cannot be cancelled yet: the refund pays the intent's `srcAddress`, which holds that chain's identity encoding rather than a payout address, so `createCancelIntent` refuses it before signing.
 
 ```typescript
 import type { Intent, TxHashPair } from '@sodax/sdk';

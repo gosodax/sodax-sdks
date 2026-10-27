@@ -121,9 +121,7 @@ See [Bridge](/developers/packages/foundation/sdk/functional-modules/bridge) and 
 
 Build a raw tx with `raw: true` from any `createIntent`, `createSupplyIntent`, `approve`, etc. Then call the matching module's `estimateGas({ tx, chainKey })`. The return shape depends on the chain family.
 
-EVM, ICON, Stellar, Bitcoin, NEAR return a `bigint`. Sui returns `{ computationCost, storageCost, storageRebate, nonRefundableStorageFee }`. Injective returns `{ gasWanted, gasUsed }`. Stacks returns `{ low, medium, high }` fee tiers. Solana returns `number | undefined` compute units.
-
-Examples per chain: [Estimate Gas](/developers/how-to/estimate_gas).
+Return shape and examples per chain: [Estimate Gas](/developers/how-to/estimate_gas).
 
 #### 17. Can I stake SODA from a non-EVM chain like Sui or Stellar?
 

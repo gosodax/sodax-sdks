@@ -20,7 +20,6 @@ import {
   type SpokeIsAllowanceValidParamsHub,
   type SpokeIsAllowanceValidParamsStellar,
   isBitcoinChainKeyType,
-  isBitcoinWalletProviderType,
   isPartnerFeeAmount,
   isPartnerFeePercentage,
   isUndefinedOrValidWalletProviderForChainKey,
@@ -36,7 +35,7 @@ import {
   FEE_PERCENTAGE_SCALE,
   getIntentRelayChainId,
   HUB_CHAIN_KEY,
-  isBitcoinChainKey,
+  isMpcRelayChainKey,
   SolverIntentErrorCode,
   SolverIntentStatusCode,
 } from '@sodax/types';
@@ -327,11 +326,22 @@ export type PositionOperationParams<K extends SpokeChainKey, C extends EvmRawTra
 /**
  * Why positions refuse a Bitcoin source. Every other spoke resolves its own address, but Bitcoin in
  * TRADING mode pulls from the Bound trading wallet, so the hub wallet must be derived from
- * `getEffectiveWalletAddress` and gated on `ensureRadfiAccessToken` — as `createVaultIntent` does.
- * The position paths do neither, so a deposit would fund a hub wallet the batch does not name.
+ * `getEffectiveWalletAddress` and gated on `ensureRadfiAccessToken`. The position paths do neither,
+ * so a deposit would fund a hub wallet the batch does not name. Vault swaps refuse Bitcoin as well.
  */
 const BITCOIN_UNSUPPORTED_MESSAGE =
   'Bitcoin is not a supported source chain for leverage positions; use a supported spoke or the hub';
+
+/** Vault swaps do not support Bitcoin yet, as a source or a destination. */
+const VAULT_BITCOIN_UNSUPPORTED_MESSAGE =
+  'Bitcoin is not a supported chain for leverage-yield vault swaps; use a supported spoke or the hub';
+
+/**
+ * The SDK confirms a hub-wallet message from an MPC-relay source (Tron) only by the release back to it,
+ * and a vault withdraw or position operation releases nothing. With no way out, the way in is refused too.
+ */
+const MPC_RELAY_UNSUPPORTED_MESSAGE =
+  'MPC-relay source chains are not supported for leverage yield yet; use a supported spoke or the hub';
 
 /** Sentinel `solver` address meaning "any solver may fill this intent". */
 const ANY_SOLVER_ADDRESS: Address = '0x0000000000000000000000000000000000000000';
@@ -901,6 +911,14 @@ export class LeverageYieldService {
   ): Promise<Result<LeverageYieldSwapPayload, LeverageYieldCreateIntentError | LeverageYieldLookupError>> {
     const baseCtx = { srcChainKey: params.srcChainKey, action: 'deposit' satisfies LeverageYieldAction };
     try {
+      leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
       leverageYieldInvariant(params.inputAmount > 0n, 'inputAmount must be greater than 0', {
         ...baseCtx,
         field: 'inputAmount',
@@ -966,6 +984,19 @@ export class LeverageYieldService {
   ): Promise<Result<LeverageYieldSwapPayload, LeverageYieldCreateIntentError | LeverageYieldLookupError>> {
     const baseCtx = { srcChainKey: params.srcChainKey, action: 'withdraw' satisfies LeverageYieldAction };
     try {
+      leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isBitcoinChainKeyType(params.dstChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        dstChainKey: params.dstChainKey,
+        field: 'dstChainKey',
+      });
       leverageYieldInvariant(params.inputAmount > 0n, 'inputAmount must be greater than 0', {
         ...baseCtx,
         field: 'inputAmount',
@@ -1042,6 +1073,18 @@ export class LeverageYieldService {
     const baseCtx = { srcChainKey: params.srcChainKey, dstChainKey: params.dstChainKey };
 
     try {
+      leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isBitcoinChainKeyType(params.dstChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'dstChainKey',
+      });
       leverageYieldInvariant(
         isUndefinedOrValidWalletProviderForChainKey(params.srcChainKey, _params.walletProvider),
         `Invalid wallet provider for chain key: ${params.srcChainKey}`,
@@ -1071,32 +1114,11 @@ export class LeverageYieldService {
         `Invalid spoke chain (params.dstChain): ${params.dstChainKey}`,
         { ...baseCtx, field: 'dstChainKey' },
       );
-      // A withdraw can deliver BTC: if dstChain is Bitcoin and token is BTC, minOutputAmount
-      // must stay above the 546-sat dust limit.
-      if (isBitcoinChainKey(params.dstChainKey) && params.outputToken === 'BTC') {
-        leverageYieldInvariant(
-          params.minOutputAmount >= 546n,
-          `Invalid minOutputAmount (params.minOutputAmount): ${params.minOutputAmount}`,
-          { ...baseCtx, field: 'minOutputAmount' },
-        );
-      }
-      const personalAddress = params.srcAddress;
-
-      // Bitcoin TRADING mode: use trading wallet for hub wallet derivation (see getEffectiveWalletAddress)
-      // NOTE: bitcoin is only enabled in non-raw execution mode == walletProvider is required
-      let walletAddress: string = personalAddress;
-      if (isBitcoinChainKeyType(params.srcChainKey) && _params.raw === false) {
-        leverageYieldInvariant(
-          isBitcoinWalletProviderType(_params.walletProvider),
-          `Invalid wallet provider for chain key: ${params.srcChainKey}`,
-          baseCtx,
-        );
-        walletAddress = await this.spoke.bitcoin.getEffectiveWalletAddress(personalAddress);
-        await this.spoke.bitcoin.radfi.ensureRadfiAccessToken(_params.walletProvider);
-      }
-
       // derive users hub wallet address
-      const creatorHubWalletAddress = await this.hubProvider.getUserHubWalletAddress(walletAddress, params.srcChainKey);
+      const creatorHubWalletAddress = await this.hubProvider.getUserHubWalletAddress(
+        params.srcAddress,
+        params.srcChainKey,
+      );
 
       // Hub-wallet swap (withdraw): the lsoda* input already sits in the user's hub wallet.
       // The user signs a `Connection.sendMessage` on their spoke chain (`srcChainKey`)
@@ -1113,12 +1135,7 @@ export class LeverageYieldService {
 
         const coreSendMessageParams = {
           srcChainKey: params.srcChainKey,
-          // Personal address — NOT the resolved trading `walletAddress`. SpokeService.sendMessage
-          // re-resolves the effective (Bitcoin trading) address itself; passing the already-resolved
-          // trading address here would double-resolve it (getTradingWallet(tradingAddress) →
-          // "Trading wallet not found"). The trading address is used only for the hub-wallet
-          // derivation above (creatorHubWalletAddress). Mirrors MoneyMarketService borrow/withdraw.
-          srcAddress: personalAddress as GetAddressType<K>,
+          srcAddress: params.srcAddress as GetAddressType<K>,
           dstChainKey: hubChainKey,
           dstAddress: creatorHubWalletAddress,
           payload: data,
@@ -1184,10 +1201,7 @@ export class LeverageYieldService {
 
       // construct the intent data
       const [data, intent, feeAmount] = EvmSolverService.constructCreateIntentData(
-        {
-          ...params,
-          srcAddress: walletAddress,
-        },
+        params,
         creatorHubWalletAddress,
         this.config,
         partnerFee,
@@ -1195,7 +1209,7 @@ export class LeverageYieldService {
 
       const coreDepositParams = {
         srcChainKey: params.srcChainKey,
-        srcAddress: walletAddress as GetAddressType<K>,
+        srcAddress: params.srcAddress as GetAddressType<K>,
         to: creatorHubWalletAddress,
         token: params.inputToken as GetTokenAddressType<K>,
         amount: params.inputAmount,
@@ -3790,6 +3804,10 @@ export class LeverageYieldService {
         ...baseCtx,
         field: 'srcChainKey',
       });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
       leverageYieldInvariant(params.amount > 0n, 'amount must be greater than 0', { ...baseCtx, field: 'amount' });
       leverageYieldInvariant(params.minCollateralOut > 0n, 'minCollateralOut must be greater than 0', {
         ...baseCtx,
@@ -4049,6 +4067,10 @@ export class LeverageYieldService {
       // Bitcoin is not supported: the position paths derive the hub wallet from the personal address,
       // where TRADING mode requires the effective (trading) one — so fail before any funds move.
       leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
         ...baseCtx,
         field: 'srcChainKey',
       });

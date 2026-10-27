@@ -412,7 +412,7 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
       const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
       const tronWeb = connector instanceof TronXConnector ? connector.getTronWeb() : undefined;
       if (!tronWeb) return undefined;
-      // Signing goes through the announced provider; `tronWeb` alone can only read.
+      // Signing prefers the announced provider's TronWeb; the injected one is the fallback.
       const provider = connector instanceof TronXConnector ? connector.getProvider() : undefined;
       const entry = store.walletConfig?.TRON?.chains?.[ChainKeys.TRON_MAINNET];
       const defaults = getEntryDefaults<typeof ChainKeys.TRON_MAINNET>(entry);

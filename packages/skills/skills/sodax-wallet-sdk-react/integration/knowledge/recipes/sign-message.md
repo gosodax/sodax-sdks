@@ -27,7 +27,7 @@ const signature = await sign.mutateAsync({
 
 Return type is the discriminated union `` `0x${string}` | Uint8Array | string | undefined `` because each chain returns its native signature shape (hex for EVM, base64 for Stellar and Solana, etc.). Cast or branch on `xChainType` when consuming.
 
-`undefined` is returned (not thrown) when the chain doesn't implement `signMessage` — ICON, NEAR, and Stacks. A one-time `console.warn` accompanies the `undefined`.
+`undefined` is returned (not thrown) when the chain doesn't implement `signMessage` (see the matrix below). A one-time `console.warn` accompanies the `undefined`.
 
 ---
 
@@ -43,6 +43,7 @@ Return type is the discriminated union `` `0x${string}` | Uint8Array | string | 
 | Injective | `walletStrategy.signArbitrary` from `@injectivelabs/wallet-base` | `string` |
 | **NEAR** | **Not supported** — registers no `signMessage` action | `undefined` |
 | **Stacks** | **Not supported** — registers no `signMessage` action | `undefined` |
+| **Tron** | **Not supported** — registers no `signMessage` action | `undefined` |
 | **ICON** | **Not supported** — Hana wallet does not expose a signing API | `undefined` |
 
 ---

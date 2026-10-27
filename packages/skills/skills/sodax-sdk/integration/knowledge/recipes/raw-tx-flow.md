@@ -63,6 +63,8 @@ const relayResult = await relayTxAndWaitPacket({
 });
 ```
 
+> **Note (Tron):** Tron settles through the MPC relay, so there is no intent-relay packet. The raw `tx` is a `TronRawTransaction`: send `value` of `token` to `to`, the reserve the relay returned for this call (never a cached address), with `data` as the transaction memo (`raw_data.data`). After broadcasting, call `sodax.spoke.settle({ chainKey: ChainKeys.TRON_MAINNET, tx: txId, direction: 'inbound', relayData })` instead of `relayTxAndWaitPacket`, with `txId` as 64 hex characters without `0x`. It notifies the relay, re-notifies until the deposit lands, and returns the hub mint hash as `dstChainTxHash`.
+
 This pattern is rare. Prefer signed flow unless you have a specific reason to defer signing.
 
 ### Type narrowing

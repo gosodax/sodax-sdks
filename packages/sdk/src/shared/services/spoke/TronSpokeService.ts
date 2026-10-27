@@ -1,4 +1,4 @@
-import { bytesToBigInt, isHex, sha256, type Hex } from 'viem';
+import { bytesToBigInt, isAddress, isHex, sha256, type Hex } from 'viem';
 import {
   ChainKeys,
   getMpcRelayChainInfo,
@@ -77,6 +77,12 @@ const SIGNATURE_PLACEHOLDER = '00'.repeat(65);
 
 /** Placeholder memo for sizing: a deposit memo is always exactly 32 bytes. */
 const MEMO_PLACEHOLDER = `0x${'00'.repeat(32)}` as Hex;
+
+/** A TronGrid constant call's outcome. It answers 200 for a failed call too, and marks a revert with a `message`. */
+type ConstantCallResult = { result?: { result?: boolean; message?: string } };
+
+const constantCallFailed = (res: ConstantCallResult): boolean =>
+  res.result?.result !== true || res.result.message !== undefined;
 
 /**
  * Withdraw-auth nonce: random, since NEAR only rejects a repeat (a clock reading collides or goes
@@ -354,15 +360,23 @@ export class TronSpokeService {
   /** On-chain balance of `token` for the owner — memo mode has no asset manager to read instead. */
   public async getDeposit(params: GetDepositParams<TronChainKey>): Promise<bigint> {
     if (params.token !== this.chainConfig.nativeToken) {
-      const res = await this.rpc<{ constant_result?: string[] }>('/wallet/triggerconstantcontract', {
-        owner_address: params.srcAddress,
-        contract_address: params.token,
-        function_selector: 'balanceOf(address)',
-        parameter: tronAddressToWord(params.srcAddress),
-        visible: true,
-      });
+      const res = await this.rpc<ConstantCallResult & { constant_result?: string[] }>(
+        '/wallet/triggerconstantcontract',
+        {
+          owner_address: params.srcAddress,
+          contract_address: params.token,
+          function_selector: 'balanceOf(address)',
+          parameter: tronAddressToWord(params.srcAddress),
+          visible: true,
+        },
+      );
       const word = res.constant_result?.[0];
-      return word ? BigInt(`0x${word}`) : 0n;
+      if (constantCallFailed(res) || !word || !/^[0-9a-fA-F]{64}$/.test(word)) {
+        throw new Error(
+          `[TronSpokeService.getDeposit] balanceOf on ${params.token} failed: ${res.result?.message ?? 'no result'}`,
+        );
+      }
+      return BigInt(`0x${word}`);
     }
 
     const acct = await this.rpc<{ balance?: number }>('/wallet/getaccount', {
@@ -397,12 +411,11 @@ export class TronSpokeService {
     const { from, to, value, token, data } = params.tx;
     const isNative = token === this.chainConfig.nativeToken;
 
-    const energy = isNative ? 0n : await this.estimateTrc20Energy(from, to, token, value);
-
     // Bandwidth is charged on the serialized signed transaction, so size the real one.
-    const built = isNative
-      ? await this.buildNativeTransfer(from, to, value)
-      : await this.buildTrc20Transfer(from, to, token, value);
+    const [energy, built] = await Promise.all([
+      isNative ? 0n : this.estimateTrc20Energy(from, to, token, value),
+      isNative ? this.buildNativeTransfer(from, to, value) : this.buildTrc20Transfer(from, to, token, value),
+    ]);
     const memo = isHex(data) && data.length === MEMO_PLACEHOLDER.length ? data : MEMO_PLACEHOLDER;
     const signed = assembleBroadcastHex(spliceMemo(built.rawDataHex, memo), SIGNATURE_PLACEHOLDER);
 
@@ -411,14 +424,20 @@ export class TronSpokeService {
 
   /** Energy a TRC-20 `transfer` would consume, from a constant (non-broadcasting) call. */
   private async estimateTrc20Energy(from: string, to: string, token: string, amount: bigint): Promise<bigint> {
-    const res = await this.rpc<{ energy_used?: number }>('/wallet/triggerconstantcontract', {
+    const res = await this.rpc<ConstantCallResult & { energy_used?: number }>('/wallet/triggerconstantcontract', {
       owner_address: from,
       contract_address: token,
       function_selector: 'transfer(address,uint256)',
       parameter: encodeTrc20TransferParams(to, amount),
       visible: true,
     });
-    return BigInt(res.energy_used ?? 0);
+    // A revert reports only the energy burned up to it, so its `energy_used` is no estimate.
+    if (constantCallFailed(res) || typeof res.energy_used !== 'number') {
+      throw new Error(
+        `[TronSpokeService.estimateGas] transfer simulation on ${token} failed: ${res.result?.message ?? 'no result'}`,
+      );
+    }
+    return BigInt(res.energy_used);
   }
 
   /**
@@ -433,9 +452,14 @@ export class TronSpokeService {
       throw new Error('[TronSpokeService.sendMessage] raw mode is not supported for Tron withdrawals');
     }
 
+    // `data` is variable-length inside the signed digest's unframed concat, so `to` must be exactly 20 bytes.
+    if (!isAddress(params.dstAddress)) {
+      throw new Error(`[TronSpokeService.sendMessage] invalid hub wallet address: ${params.dstAddress}`);
+    }
+
     const sender = tronIdentityBytes(params.srcAddress);
     const message = {
-      to: params.dstAddress as Hex, // hub wallet that executes the calls
+      to: params.dstAddress, // hub wallet that executes the calls
       data: params.payload,
       nonce: randomNonce(),
       chainId: BigInt(this.chainId), // the relay's source-chain id, not the hub's

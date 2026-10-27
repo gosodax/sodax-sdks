@@ -35,6 +35,7 @@ import {
   DETAILED_STATUS_NOT_DELIVERED,
   isBackendSubmitTxAbandoned,
   resolveDeliveredPacket,
+  resolveMintedMpcDeposit,
 } from '../backendApi/detailedStatusRouting.js';
 import { isAuthFailure, isSodaxError } from '../errors/guards.js';
 import type { DetailedBridgeStatus, DetailedBridgeStatusKey } from './detailedStatus.js';
@@ -65,6 +66,7 @@ import {
   type VaultReserves,
   type StellarChainKey,
   isHubChainKey,
+  isMpcRelayChainKey,
   type GetWalletProviderType,
   type EvmSpokeOnlyChainKey,
   type GetTokenAddressType,
@@ -835,7 +837,8 @@ export class BridgeService {
     // Backend submit-tx flow (default on): hand the broadcast spoke-deposit tx to the bridge API, which
     // relays server-side. On ANY non-success we fall back to the client-side relay so the bridge
     // still completes — safe because re-relay is idempotent.
-    if (this.useBackendSubmitTx) {
+    // The backend only relays through the intent relay, so an MPC-relay source settles client-side.
+    if (this.useBackendSubmitTx && !isMpcRelayChainKey(_params.params.srcChainKey)) {
       const submitted = await this.submitTx(_params, created, createSubmitTxAttempt(timeoutMs));
       if (submitted.ok) return submitted;
       this.config.logger.warn('[bridge] backend submit-tx did not complete; falling back to the client-side relay', {
@@ -1323,6 +1326,24 @@ export class BridgeService {
       // both definitive "nothing usable here". A 5xx or a transport failure is not: behind one we
       // cannot tell a bridge that will never resolve from a live one whose record we could not read.
       const backendAnswered = record.ok || (isSodaxError(record.error) && record.error.context?.status === 404);
+
+      const minted = await resolveMintedMpcDeposit({
+        srcChainKey: params.srcChainKey,
+        srcTxHash: params.srcTxHash,
+        backendAnswered,
+        spoke: this.spoke,
+      });
+      if (minted) {
+        if (!minted.ok) {
+          return {
+            ok: false,
+            error: this.detailedStatusLookupFailed(minted.cause, params.srcChainKey, {
+              reason: minted.budgetable ? DETAILED_STATUS_NOT_DELIVERED : undefined,
+            }),
+          };
+        }
+        return { ok: true, value: { source: 'mpcRelay', data: minted.deposit } };
+      }
 
       const delivered = await resolveDeliveredPacket({
         srcChainKey: params.srcChainKey,

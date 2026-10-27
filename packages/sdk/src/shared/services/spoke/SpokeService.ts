@@ -130,6 +130,11 @@ export type SpokeServiceConstructorParams = {
   hubProvider: EvmHubProvider;
 };
 
+/** An MPC record settled without its far-side tx: a relay failure, never a success keyed on the source id. */
+function missingFarSideHash(detail: string): { ok: false; error: SettlementFailure } {
+  return { ok: false, error: { phase: 'relay', cause: new Error(`mpc-relay: ${detail}`) } };
+}
+
 /**
  * SpokeService is a main class that provides functionalities for dealing with spoke chains (including hub chain).
  * It uses command pattern to execute different spoke (including hub) chain operations.
@@ -1313,13 +1318,6 @@ export class SpokeService {
     }
   }
 
-  /**
-   * Wait for a spoke action to settle and return both hashes — the single settlement seam for feature
-   * services, keeping the per-chain-family mechanics here. Whether settlement is needed stays with the
-   * caller.
-   *
-   * @returns both tx hashes, or a {@link SettlementFailure} naming the phase that failed.
-   */
   /** The MPC-relay settlement service for a chain, or `undefined` when it rides the intent relay. */
   private getMpcRelayService(chainKey: SpokeChainKey): MpcRelaySettlement | undefined {
     if (!isMpcRelayChainKeyType(chainKey)) return undefined;
@@ -1341,28 +1339,32 @@ export class SpokeService {
     return this.getMpcRelayService(chainKey)?.getDepositRecord(tx);
   }
 
+  /**
+   * Wait for a spoke action to settle and return both hashes — the single settlement seam for feature
+   * services, keeping the per-chain-family mechanics here. Whether settlement is needed stays with the
+   * caller.
+   *
+   * @returns both tx hashes, or a {@link SettlementFailure} naming the phase that failed.
+   */
   public async settle(params: SettleParams): Promise<Result<TxHashPair, SettlementFailure>> {
     const { chainKey, tx, direction, relayData, timeout } = params;
 
     try {
       const mpcRelay = this.getMpcRelayService(chainKey);
       if (mpcRelay) {
-        // The relay reports the far leg only once it lands; fall back to the source id until then.
         if (direction === 'inbound') {
           const settled = await mpcRelay.waitForDeposit(tx, timeout);
           if (!settled.ok) return { ok: false, error: { phase: 'relay', cause: settled.error } };
-          return {
-            ok: true,
-            value: { srcChainTxHash: tx, dstChainTxHash: settled.value.txs?.hubMint?.hash ?? tx },
-          };
+          const hubMint = settled.value.txs?.hubMint?.hash;
+          if (!hubMint) return missingFarSideHash(`deposit ${tx} settled without a hub mint tx`);
+          return { ok: true, value: { srcChainTxHash: tx, dstChainTxHash: hubMint } };
         }
 
         const settled = await mpcRelay.waitForWithdrawal(tx, timeout);
         if (!settled.ok) return { ok: false, error: { phase: 'relay', cause: settled.error } };
-        return {
-          ok: true,
-          value: { srcChainTxHash: tx, dstChainTxHash: settled.value.txs?.release?.hash ?? tx },
-        };
+        const release = settled.value.txs?.release?.hash;
+        if (!release) return missingFarSideHash(`withdrawal ${tx} settled without a release tx`);
+        return { ok: true, value: { srcChainTxHash: tx, dstChainTxHash: release } };
       }
 
       const verify = await this.verifyTxHash({ txHash: tx, chainKey });
