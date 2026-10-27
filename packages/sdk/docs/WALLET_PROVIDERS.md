@@ -512,7 +512,7 @@ Requirements for a valid custom implementation:
    `YourOptions & EvmSendTransactionOptions` to keep satisfying the interface.
 5. **EIP-5792 batch methods are optional** — `getAtomicBatchSupport`, `sendAtomicBatch` and
    `waitForBatch` let `swapWithApproval`, `bridgeWithApproval`, `vaultSwapWithApproval` and
-   `sendApprovalBatch` (the swaps API lane) send approve + deposit as one atomic batch. Omit all three and the SDK falls back to separate transactions. Implement them only together:
+   `sendApprovalBatch` (the backend API lanes) send approve + deposit as one atomic batch. Omit all three and the SDK falls back to separate transactions. Implement them only together:
    `getAtomicBatchSupport(chainId)` reports the wallet's `atomic` capability (`'supported'`, `'ready'`
    or `'unsupported'`), `sendAtomicBatch` must request atomic execution and send the batch for
    `options.expectedChainId` only, and `waitForBatch(batchId, { timeout })` resolves to the batch's receipts once
