@@ -130,9 +130,12 @@ async function approveAndBridge(
   if (txHash === undefined) {
     const { chainId } = baseChainInfo[srcChainKey];
     for (const tx of approvalTxs) {
-      await walletProvider.waitForTransactionReceipt(
+      const receipt = await walletProvider.waitForTransactionReceipt(
         await walletProvider.sendTransaction(tx, { expectedChainId: chainId }),
       );
+      // The deposit is only valid once the allowance is on-chain, so a reverted reset or approve ends the flow.
+      if (receipt.status === 'reverted' || receipt.status === '0x0')
+        throw new Error('The approval transaction reverted');
     }
     // Once the approval is mined, build the deposit again, as the SDK's `bridgeWithApproval` does.
     if (approval) bridge = unwrap(await sodax.api.bridge.createBridgeIntent(params));
@@ -191,7 +194,7 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     const walletProvider = batchWallet();
     walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
     walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xseparate-deposit');
-    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // receipt shape is not read here
+    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // only `status` is read
 
     const result = await approveAndBridge(walletProvider, BRIDGE_PARAMS);
 
@@ -205,11 +208,24 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     expect(submitted().txHash).toBe('0xseparate-deposit');
   });
 
+  it('stops when the separate approval reverts: no deposit is sent and nothing is submitted', async () => {
+    stubBackend({ withReset: false });
+    const walletProvider = batchWallet();
+    walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
+    walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove');
+    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'reverted' } as never); // only `status` is read
+
+    await expect(approveAndBridge(walletProvider, BRIDGE_PARAMS)).rejects.toThrow('The approval transaction reverted');
+
+    expect(walletProvider.sendTransaction).toHaveBeenCalledTimes(1);
+    expect(requested('/bridge/submit-tx')).toHaveLength(0);
+  });
+
   it('keeps a Sonic hub source sequential: no batch, the approval and the deposit go out separately', async () => {
     stubBackend({ withReset: false });
     const walletProvider = batchWallet();
     walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xhub-deposit');
-    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // receipt shape is not read here
+    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // only `status` is read
 
     const result = await approveAndBridge(walletProvider, { ...BRIDGE_PARAMS, srcChainKey: ChainKeys.SONIC_MAINNET });
 

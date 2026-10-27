@@ -167,9 +167,12 @@ async function approveAndDeposit(
   if (txHash === undefined) {
     const { chainId } = baseChainInfo[srcChainKey];
     for (const tx of approvalTxs) {
-      await walletProvider.waitForTransactionReceipt(
+      const receipt = await walletProvider.waitForTransactionReceipt(
         await walletProvider.sendTransaction(tx, { expectedChainId: chainId }),
       );
+      // The deposit is only valid once the allowance is on-chain, so a reverted reset or approve ends the flow.
+      if (receipt.status === 'reverted' || receipt.status === '0x0')
+        throw new Error('The approval transaction reverted');
     }
     // The first intent's `deadline` also covered the wait for the approval, so build the deposit again.
     if (approval) deposit = unwrap(await sodax.api.leverageYield.createDepositIntent(params));
@@ -231,7 +234,7 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     const walletProvider = batchWallet();
     walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
     walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xseparate-deposit');
-    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // receipt shape is not read here
+    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // only `status` is read
 
     const result = await approveAndDeposit(walletProvider, DEPOSIT_PARAMS);
 
@@ -245,11 +248,26 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     expect(submitted()).toMatchObject({ txHash: '0xseparate-deposit', intent: wireIntent('2000') });
   });
 
+  it('stops when the separate approval reverts: no deposit is sent and nothing is submitted', async () => {
+    stubBackend({ withReset: false });
+    const walletProvider = batchWallet();
+    walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
+    walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove');
+    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'reverted' } as never); // only `status` is read
+
+    await expect(approveAndDeposit(walletProvider, DEPOSIT_PARAMS)).rejects.toThrow(
+      'The approval transaction reverted',
+    );
+
+    expect(walletProvider.sendTransaction).toHaveBeenCalledTimes(1);
+    expect(requested('/leverage-yield/submit-tx')).toHaveLength(0);
+  });
+
   it('keeps a Sonic hub source sequential: no batch, the approval and the deposit go out separately', async () => {
     stubBackend({ withReset: false });
     const walletProvider = batchWallet();
     walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xhub-deposit');
-    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // receipt shape is not read here
+    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // only `status` is read
 
     const result = await approveAndDeposit(walletProvider, { ...DEPOSIT_PARAMS, srcChainKey: ChainKeys.SONIC_MAINNET });
 
