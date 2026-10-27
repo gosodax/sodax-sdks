@@ -9,23 +9,26 @@
 import { AtomicityNotSupportedError } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  ATOMIC_BATCH_UNCONFIRMED,
   ChainKeys,
   DEFAULT_API_BASE_URL,
+  Sodax,
+  baseChainInfo,
+  confirmApprovalBatch,
+  isAtomicBatchRefusal,
+  isEvmSpokeOnlyChainKeyType,
+  isEvmWalletProviderType,
+  resolveApprovalStrategy,
+  sendApprovalBatch,
   type CreateDepositIntentParamsV2,
   type EvmAtomicBatchSupport,
   type EvmBatchResult,
   type EvmRawTransaction,
   type IEvmWalletProvider,
+  type IWalletProvider,
   type IntentRequestV2,
   type IntentResponseV2,
-} from '@sodax/types';
-import {
-  ATOMIC_BATCH_UNCONFIRMED,
-  Sodax,
-  confirmApprovalBatch,
-  isAtomicBatchRefusal,
-  resolveApprovalStrategy,
-  sendApprovalBatch,
+  type SpokeChainKey,
 } from '../index.js';
 
 const mockFetch = vi.fn();
@@ -33,7 +36,7 @@ vi.stubGlobal('fetch', mockFetch);
 
 const sodax = new Sodax();
 const BASE = DEFAULT_API_BASE_URL;
-const BASE_CHAIN_ID = 8453;
+const BASE_CHAIN_ID = baseChainInfo[ChainKeys.BASE_MAINNET].chainId;
 const ACCOUNT = '0x0000000000000000000000000000000000000001';
 const TOKEN = '0x00000000000000000000000000000000000000aa';
 const SPENDER = '0x00000000000000000000000000000000000000bb';
@@ -129,16 +132,23 @@ const unwrap = <T>(result: { ok: true; value: T } | { ok: false; error: unknown 
   return result.value;
 };
 
-/** Approves and deposits from an EVM spoke; one signature when the wallet can batch. */
-async function approveAndDeposit(walletProvider: ReturnType<typeof batchWallet>, onBatchSent?: (id: string) => void) {
-  const srcChainKey = ChainKeys.BASE_MAINNET;
-  const allowance = unwrap(await sodax.api.leverageYield.checkAllowance(DEPOSIT_PARAMS));
-  const approval = allowance.valid ? undefined : unwrap(await sodax.api.leverageYield.approve(DEPOSIT_PARAMS));
-  let deposit = unwrap(await sodax.api.leverageYield.createDepositIntent(DEPOSIT_PARAMS));
+/** Approves and deposits; one signature when the source is an EVM spoke and the wallet can batch. */
+async function approveAndDeposit(
+  walletProvider: IWalletProvider,
+  params: CreateDepositIntentParamsV2,
+  onBatchSent?: (id: string) => void,
+) {
+  const srcChainKey = params.srcChainKey as SpokeChainKey;
+  if (!isEvmWalletProviderType(walletProvider) || !isEvmSpokeOnlyChainKeyType(srcChainKey)) {
+    throw new Error('Only EVM sources are handled here; approve and sign other chains separately.');
+  }
+  const allowance = unwrap(await sodax.api.leverageYield.checkAllowance(params));
+  const approval = allowance.valid ? undefined : unwrap(await sodax.api.leverageYield.approve(params));
+  let deposit = unwrap(await sodax.api.leverageYield.createDepositIntent(params));
 
   // The API types its txs as `RawTxReturnType`; an EVM source returns EVM transactions.
   const approvalTxs = approval ? ([approval.resetTx, approval.tx].filter(Boolean) as EvmRawTransaction[]) : [];
-  const strategy = await resolveApprovalStrategy({ srcChainKey, walletProvider });
+  const strategy = approval ? await resolveApprovalStrategy({ srcChainKey, walletProvider }) : 'not-required';
 
   let txHash: string | undefined;
   if (strategy === 'atomic-batch') {
@@ -154,21 +164,22 @@ async function approveAndDeposit(walletProvider: ReturnType<typeof batchWallet>,
     else if (!isAtomicBatchRefusal(sent.error)) throw sent.error;
   }
   if (txHash === undefined) {
+    const { chainId } = baseChainInfo[srcChainKey];
     for (const tx of approvalTxs) {
       await walletProvider.waitForTransactionReceipt(
-        await walletProvider.sendTransaction(tx, { expectedChainId: BASE_CHAIN_ID }),
+        await walletProvider.sendTransaction(tx, { expectedChainId: chainId }),
       );
     }
     // The first intent's `deadline` also covered the wait for the approval, so build the deposit again.
-    deposit = unwrap(await sodax.api.leverageYield.createDepositIntent(DEPOSIT_PARAMS));
-    txHash = await walletProvider.sendTransaction(deposit.tx as EvmRawTransaction, { expectedChainId: BASE_CHAIN_ID });
+    if (approval) deposit = unwrap(await sodax.api.leverageYield.createDepositIntent(params));
+    txHash = await walletProvider.sendTransaction(deposit.tx as EvmRawTransaction, { expectedChainId: chainId });
   }
 
   unwrap(
     await sodax.api.leverageYield.submitTx({
       txHash,
       srcChainKey,
-      walletAddress: ACCOUNT,
+      walletAddress: params.srcAddress,
       intent: toIntentRequest(deposit.intent),
       relayData: deposit.relayData.payload,
       operation: 'deposit',
@@ -186,7 +197,7 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     stubBackend({ withReset: true });
     const walletProvider = batchWallet();
 
-    const result = await approveAndDeposit(walletProvider);
+    const result = await approveAndDeposit(walletProvider, DEPOSIT_PARAMS);
 
     expect(result).toEqual({ txHash: DEPOSIT_HASH, strategy: 'atomic-batch' });
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
@@ -208,7 +219,7 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     stubBackend({ withReset: false });
     const walletProvider = batchWallet();
 
-    await approveAndDeposit(walletProvider);
+    await approveAndDeposit(walletProvider, DEPOSIT_PARAMS);
 
     const [txs] = walletProvider.sendAtomicBatch.mock.calls[0] ?? [];
     expect(txs?.map(tx => tx.data)).toEqual([APPROVE_WIRE.data, DEPOSIT_WIRE.data]);
@@ -221,7 +232,7 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xseparate-deposit');
     walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // receipt shape is not read here
 
-    const result = await approveAndDeposit(walletProvider);
+    const result = await approveAndDeposit(walletProvider, DEPOSIT_PARAMS);
 
     expect(result.txHash).toBe('0xseparate-deposit');
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
@@ -239,7 +250,7 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     walletProvider.waitForBatch.mockRejectedValueOnce(new Error('timed out'));
     const onBatchSent = vi.fn();
 
-    await expect(approveAndDeposit(walletProvider, onBatchSent)).rejects.toMatchObject({
+    await expect(approveAndDeposit(walletProvider, DEPOSIT_PARAMS, onBatchSent)).rejects.toMatchObject({
       code: 'TX_VERIFICATION_FAILED',
       context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1', callCount: 3 },
     });
