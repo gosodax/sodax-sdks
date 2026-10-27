@@ -169,6 +169,12 @@ const clarityValue = await provider.readContract(params);
 
 ---
 
+## Tron
+
+The provider does not build transactions: get an unsigned one from your node (TronGrid `createtransaction` / `triggersmartcontract`), then call `signTransaction`, `sendTransaction` (returns the tx id) and `waitForTransactionReceipt`. The receipt comes back once the tx is in a block, reverted or not, so check its `receipt?.result`. `signMessage` takes a 32-byte hash, not free text — see [`../features/tron.md`](../features/tron.md). [`TronWalletProvider.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/TronWalletProvider.test.ts) covers each call, with the node stubbed.
+
+---
+
 ## Verification (any chain)
 
 ```bash

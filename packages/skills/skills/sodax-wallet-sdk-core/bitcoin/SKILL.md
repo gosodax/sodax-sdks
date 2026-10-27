@@ -47,7 +47,7 @@ Granular skill for `BitcoinWalletProvider` — the low-level Bitcoin wallet for 
 
 ## Related skills (same family)
 
-Sibling chain skills follow the same shape — evm, solana, sui, stellar, icon, injective, near, stacks. For multi-chain or undecided work, load the broad [`sodax-wallet-sdk-core` skill](../SKILL.md).
+Sibling chain skills follow the same shape — evm, solana, sui, stellar, icon, injective, near, stacks, tron. For multi-chain or undecided work, load the broad [`sodax-wallet-sdk-core` skill](../SKILL.md).
 
 ## Passing the provider into the SDK (different package family)
 

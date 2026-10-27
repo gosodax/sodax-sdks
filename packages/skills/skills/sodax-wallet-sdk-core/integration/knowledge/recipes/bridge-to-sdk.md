@@ -21,6 +21,7 @@ import type {
   IInjectiveWalletProvider,
   INearWalletProvider,
   IStacksWalletProvider,
+  ITronWalletProvider,
 } from '@sodax/types';
 ```
 

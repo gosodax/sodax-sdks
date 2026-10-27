@@ -826,9 +826,7 @@ The chain key in the request payload (e.g. `srcChainKey`) drives both TypeScript
 
 ## Supported Chains
 
-The service supports every chain in the SODAX network (see `ChainKeys` in `@sodax/types` for the authoritative list):
-- **EVM:** Sonic (hub), Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood
-- **Non-EVM:** Solana, Sui, Stellar, ICON, Injective, NEAR, Stacks, Bitcoin
+The service supports every chain in the SODAX network (see `ChainKeys` in `@sodax/types` for the authoritative list).
 
 ## Partner Fees
 

@@ -39,8 +39,7 @@ Chain families and spoke chain keys this package can sign for. Keys live in `@so
 | Injective | `InjectiveWalletProvider` | `ChainKeys.INJECTIVE_MAINNET` |
 | NEAR      | `NearWalletProvider`      | `ChainKeys.NEAR_MAINNET` |
 | Stacks    | `StacksWalletProvider`    | `ChainKeys.STACKS_MAINNET` |
-
-> 22 spoke chains total = 14 EVM + 8 non-EVM. The hub chain (Sonic) is counted with EVM.
+| Tron      | `TronWalletProvider`      | `ChainKeys.TRON_MAINNET` |
 
 ---
 
@@ -59,6 +58,7 @@ Run-time deps each provider pulls in. See [`../recipes/library-exports.md`](../r
 | `InjectiveWalletProvider` | `@injectivelabs/sdk-ts`, `@injectivelabs/wallet-core`, `@injectivelabs/networks`, `@injectivelabs/ts-types` |
 | `NearWalletProvider`      | `near-api-js`, `@hot-labs/near-connect` |
 | `StacksWalletProvider`    | `@stacks/transactions`, `@stacks/connect`, `@stacks/network` |
+| `TronWalletProvider`      | `viem` (no Tron SDK: TronWeb is typed structurally) |
 
 ---
 

@@ -30,7 +30,8 @@ src/
     ├── stellar/                      # Stellar (@stellar/stellar-sdk)
     ├── stacks/                       # Stacks (@stacks/transactions)
     ├── bitcoin/                      # Bitcoin (bitcoinjs-lib, PSBT signing)
-    └── near/                         # NEAR (near-api-js)
+    ├── near/                         # NEAR (near-api-js)
+    └── tron/                         # Tron (no chain SDK: TronWeb typed structurally, viem signs)
 ```
 
 ### Provider Pattern
