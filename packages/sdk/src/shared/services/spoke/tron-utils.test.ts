@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { sha256 } from 'viem';
 import {
   assembleBroadcastHex,
+  assertDepositTransfer,
   computeSignedMessageHash,
   encodeTrc20TransferParams,
   spliceMemo,
@@ -11,6 +12,7 @@ import {
   tronIdentityBytes,
   tronRecipientBytes,
 } from './tron-utils.js';
+import { nativeTransferRaw, pbBytes, pbVarint, trc20TransferRaw, tronRawData } from './tron-test-fixtures.js';
 
 // Verified mainnet deposit fixtures (20 TRX → sodaTRX).
 const RESERVE = 'TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92';
@@ -167,5 +169,59 @@ describe('assembleBroadcastHex', () => {
     const raw = 'ff';
     const sig = '11'.repeat(65);
     expect(assembleBroadcastHex(raw, `0x${sig}`)).toBe(`0a01${raw}1241${sig}`);
+  });
+});
+
+describe('assertDepositTransfer', () => {
+  const OWNER = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
+  const OTHER = 'TYBNgWfhGuNzdLtjKtxXTfskAhTbMcqbaG';
+  const USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+  const AMOUNT = 5_000_000_000n; // above 2^31 sun, so a 32-bit varint read would misjudge it
+  const native = { owner: OWNER, reserve: RESERVE, amount: AMOUNT, maxFeeLimitSun: 100_000_000 };
+  const trc20 = { ...native, token: USDT };
+  const transferValue = (to: string, amount: bigint) =>
+    pbBytes(1, tronBase58ToHex(OWNER)) + pbBytes(2, tronBase58ToHex(to)) + pbVarint(3, amount);
+
+  it('accepts the exact native and TRC-20 transfers the SDK requested', () => {
+    expect(() => assertDepositTransfer(nativeTransferRaw(OWNER, RESERVE, AMOUNT), native)).not.toThrow();
+    expect(() => assertDepositTransfer(trc20TransferRaw(OWNER, USDT, RESERVE, AMOUNT), trc20)).not.toThrow();
+  });
+
+  it.each([
+    ['another owner', nativeTransferRaw(OTHER, RESERVE, AMOUNT), /owner/],
+    ['another recipient', nativeTransferRaw(OWNER, OTHER, AMOUNT), /recipient/],
+    ['another amount', nativeTransferRaw(OWNER, RESERVE, AMOUNT + 1n), /amount/],
+    ['a smart-contract call', trc20TransferRaw(OWNER, USDT, RESERVE, AMOUNT), /TransferContract/],
+    ['a pre-set data field', `${pbBytes(10, 'ff')}${nativeTransferRaw(OWNER, RESERVE, AMOUNT)}`, /data field/],
+    ['a second contract', nativeTransferRaw(OWNER, RESERVE, AMOUNT) + pbBytes(11, pbVarint(1, 1n)), /one contract/],
+    // Protobuf keeps the last value of a repeated scalar, so a trailing duplicate could redirect silently.
+    [
+      'a duplicated recipient',
+      tronRawData(1n, 'TransferContract', transferValue(RESERVE, AMOUNT) + pbBytes(2, tronBase58ToHex(OTHER))),
+      /appears 2 times/,
+    ],
+  ])('rejects a native deposit with %s', (_label, raw, reason) => {
+    expect(() => assertDepositTransfer(raw, native)).toThrow(reason);
+  });
+
+  it.each([
+    ['another token', trc20TransferRaw(OWNER, OTHER, RESERVE, AMOUNT), /deposit token/],
+    ['another recipient', trc20TransferRaw(OWNER, USDT, OTHER, AMOUNT), /calldata/],
+    ['another amount', trc20TransferRaw(OWNER, USDT, RESERVE, 1n), /calldata/],
+    ['a fee limit above budget', trc20TransferRaw(OWNER, USDT, RESERVE, AMOUNT, 100_000_001n), /fee_limit/],
+    [
+      'attached TRX',
+      tronRawData(
+        31n,
+        'TriggerSmartContract',
+        pbBytes(1, tronBase58ToHex(OWNER)) +
+          pbBytes(2, tronBase58ToHex(USDT)) +
+          pbVarint(3, 1n) +
+          pbBytes(4, `a9059cbb${encodeTrc20TransferParams(RESERVE, AMOUNT)}`),
+      ),
+      /call_value/,
+    ],
+  ])('rejects a TRC-20 deposit with %s', (_label, raw, reason) => {
+    expect(() => assertDepositTransfer(raw, trc20)).toThrow(reason);
   });
 });

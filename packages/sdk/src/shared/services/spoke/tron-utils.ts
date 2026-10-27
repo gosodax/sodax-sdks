@@ -78,6 +78,99 @@ export function spliceMemo(rawHex: string, memoHex: string): string {
   return `${buf.subarray(0, at).toString('hex')}5220${clean}${buf.subarray(at).toString('hex')}`;
 }
 
+type ProtoField = { field: number; varint?: bigint; bytes?: Uint8Array };
+
+/** Top-level fields of a protobuf message; bigint varints, since a sun amount can exceed 2^31. */
+function readProtoFields(buf: Uint8Array): ProtoField[] {
+  const fields: ProtoField[] = [];
+  let pos = 0;
+  const readVarint = (): bigint => {
+    let value = 0n;
+    for (let shift = 0n; shift < 70n; shift += 7n) {
+      const b = buf[pos++];
+      if (b === undefined) break;
+      value |= BigInt(b & 0x7f) << shift;
+      if (!(b & 0x80)) return value;
+    }
+    throw new Error('malformed protobuf varint');
+  };
+  while (pos < buf.length) {
+    const tag = readVarint();
+    const field = Number(tag >> 3n);
+    const wire = Number(tag & 7n);
+    if (wire === 0) fields.push({ field, varint: readVarint() });
+    else if (wire === 2) {
+      const len = Number(readVarint());
+      if (pos + len > buf.length) throw new Error('truncated protobuf field');
+      fields.push({ field, bytes: buf.subarray(pos, pos + len) });
+      pos += len;
+    } else throw new Error(`unexpected protobuf wire type ${wire}`);
+  }
+  return fields;
+}
+
+/** The field's single occurrence; a repeat is refused because protobuf's last-wins would hide it. */
+function singleField(fields: ProtoField[], field: number): ProtoField | undefined {
+  const found = fields.filter(f => f.field === field);
+  if (found.length > 1) throw new Error(`field ${field} appears ${found.length} times`);
+  return found[0];
+}
+
+const bytesHex = (f: ProtoField | undefined): string => (f?.bytes ? Buffer.from(f.bytes).toString('hex') : '');
+const varintOf = (f: ProtoField | undefined): bigint => f?.varint ?? 0n;
+
+const TRANSFER_CONTRACT = 1n;
+const TRIGGER_SMART_CONTRACT = 31n;
+const TRC20_TRANSFER_SELECTOR = 'a9059cbb';
+
+export type ExpectedDepositTransfer = {
+  owner: string;
+  reserve: string;
+  amount: bigint;
+  /** TRC-20 token address; omitted for native TRX. */
+  token?: string;
+  maxFeeLimitSun: number;
+};
+
+/**
+ * Throws unless a node-built deposit `raw_data_hex` is exactly the transfer the SDK requested: one
+ * contract from `owner` paying `amount` to `reserve` (or `token.transfer(reserve, amount)`), with no
+ * memo yet and a fee limit within budget. The SDK signs these bytes, so the node is not trusted for them.
+ */
+export function assertDepositTransfer(rawHex: string, expected: ExpectedDepositTransfer): void {
+  const reject = (reason: string): never => {
+    throw new Error(`[tron] node-built deposit transfer rejected: ${reason}`);
+  };
+  const lower = (addr: string): string => tronBase58ToHex(addr).toLowerCase();
+
+  const raw = readProtoFields(Buffer.from(rawHex.replace(/^0x/, ''), 'hex'));
+  if (raw.some(f => f.field === 10)) reject('it already carries a data field');
+  const contracts = raw.filter(f => f.field === 11);
+  if (contracts.length !== 1) reject(`expected one contract, got ${contracts.length}`);
+  if (varintOf(singleField(raw, 18)) > BigInt(expected.maxFeeLimitSun)) reject('fee_limit above the deposit budget');
+
+  const contract = readProtoFields(contracts[0]?.bytes ?? new Uint8Array());
+  const any = readProtoFields(singleField(contract, 2)?.bytes ?? new Uint8Array());
+  const value = readProtoFields(singleField(any, 2)?.bytes ?? new Uint8Array());
+  const type = varintOf(singleField(contract, 1));
+
+  if (bytesHex(singleField(value, 1)) !== lower(expected.owner)) reject('owner is not the depositor');
+
+  if (expected.token === undefined) {
+    if (type !== TRANSFER_CONTRACT) reject(`expected a TransferContract, got type ${type}`);
+    if (bytesHex(singleField(value, 2)) !== lower(expected.reserve)) reject('recipient is not the reserve');
+    if (varintOf(singleField(value, 3)) !== expected.amount) reject('amount differs from the requested amount');
+    return;
+  }
+
+  if (type !== TRIGGER_SMART_CONTRACT) reject(`expected a TriggerSmartContract, got type ${type}`);
+  if (bytesHex(singleField(value, 2)) !== lower(expected.token)) reject('contract is not the deposit token');
+  if (varintOf(singleField(value, 3)) !== 0n) reject('call_value must be zero');
+  if (varintOf(singleField(value, 5)) !== 0n || singleField(value, 6)) reject('it attaches a TRC-10 token');
+  const calldata = `${TRC20_TRANSFER_SELECTOR}${encodeTrc20TransferParams(expected.reserve, expected.amount)}`;
+  if (bytesHex(singleField(value, 4)) !== calldata) reject('calldata is not transfer(reserve, amount)');
+}
+
 /**
  * Assemble the `broadcasthex` envelope: field 1 (raw_data) + field 2 (signature). The `41` before
  * the signature is its protobuf length — 65 bytes of `r‖s‖v` — not a Tron address version byte.

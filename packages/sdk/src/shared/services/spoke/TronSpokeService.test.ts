@@ -14,6 +14,7 @@ import { encodeAbiParameters, keccak256 } from 'viem';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import { assembleBroadcastHex, encodeTrc20TransferParams, spliceMemo, tronBase58ToHex } from './tron-utils.js';
+import { nativeTransferRaw, trc20TransferRaw } from './tron-test-fixtures.js';
 
 const sodax = new Sodax();
 const tron = sodax.spoke.tron;
@@ -29,10 +30,9 @@ const MEMO = keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'bytes'
 const AMOUNT = 20_000_000n;
 const SIGNATURE = 'ab'.repeat(65);
 
-// Minimal well-formed raw_data bodies: low-numbered fields plus the contract field (11) the memo
-// has to be spliced ahead of.
-const NATIVE_RAW = '0a02abcd40015a020102';
-const TRC20_RAW = '0a02beef40025a020304';
+// The bodies an honest node returns for this deposit; the SDK decodes and checks them before signing.
+const NATIVE_RAW = nativeTransferRaw(SENDER, RESERVE, AMOUNT);
+const TRC20_RAW = trc20TransferRaw(SENDER, USDT, RESERVE, AMOUNT);
 
 type Call = { path: string; body: Record<string, unknown> };
 
@@ -225,7 +225,7 @@ describe('TronSpokeService.deposit — rotated reserve', () => {
   // address from the CURRENT response. Refusing a rotation would strand deposits, so this warns.
   it('pays the reserve the relay returned even when the chain config names another, and warns', async () => {
     const rotated = 'TYBNgWfhGuNzdLtjKtxXTfskAhTbMcqbaG';
-    stubTronGrid();
+    stubTronGrid({ '/wallet/createtransaction': { raw_data_hex: nativeTransferRaw(SENDER, rotated, AMOUNT) } });
     vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue({
       ok: true,
       value: {
@@ -243,6 +243,39 @@ describe('TronSpokeService.deposit — rotated reserve', () => {
 
     expect(callTo('/wallet/createtransaction')?.body.to_address).toBe(tronBase58ToHex(rotated));
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(rotated));
+  });
+});
+
+describe('TronSpokeService.deposit — node-built transfer check', () => {
+  const OTHER = 'TYBNgWfhGuNzdLtjKtxXTfskAhTbMcqbaG';
+
+  it.each([
+    [
+      'a redirected TRX recipient',
+      { '/wallet/createtransaction': { raw_data_hex: nativeTransferRaw(SENDER, OTHER, AMOUNT) } },
+      NATIVE_TRX,
+    ],
+    [
+      'an altered TRX amount',
+      { '/wallet/createtransaction': { raw_data_hex: nativeTransferRaw(SENDER, RESERVE, AMOUNT * 10n) } },
+      NATIVE_TRX,
+    ],
+    [
+      'a redirected TRC-20 recipient',
+      {
+        '/wallet/triggersmartcontract': {
+          result: { result: true },
+          transaction: { raw_data_hex: trc20TransferRaw(SENDER, USDT, OTHER, AMOUNT) },
+        },
+      },
+      USDT,
+    ],
+  ])('refuses to sign %s', async (_label, overrides, token) => {
+    stubTronGrid(overrides);
+
+    await expect(tron.deposit(depositParams(token))).rejects.toThrow(/node-built deposit transfer rejected/);
+    expect(signTransaction).not.toHaveBeenCalled();
+    expect(callTo('/wallet/broadcasthex')).toBeUndefined();
   });
 });
 

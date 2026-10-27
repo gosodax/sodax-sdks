@@ -39,6 +39,7 @@ import {
 import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 import {
   assembleBroadcastHex,
+  assertDepositTransfer,
   computeSignedMessageHash,
   encodeTrc20TransferParams,
   spliceMemo,
@@ -233,6 +234,13 @@ export class TronSpokeService {
     const built = isNative
       ? await this.buildNativeTransfer(srcAddress, reserveAddress, amount)
       : await this.buildTrc20Transfer(srcAddress, reserveAddress, token, amount);
+    assertDepositTransfer(built.rawDataHex, {
+      owner: srcAddress,
+      reserve: reserveAddress,
+      amount,
+      token: isNative ? undefined : token,
+      maxFeeLimitSun: TRC20_DEPOSIT_FEE_LIMIT_SUN,
+    });
 
     const rawWithMemo = spliceMemo(built.rawDataHex, memo);
     const txID = sha256(`0x${rawWithMemo}`).slice(2);
