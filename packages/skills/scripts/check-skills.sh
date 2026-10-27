@@ -358,6 +358,32 @@ done < <(find . -maxdepth 1 -type f -name '*.md' -print0 2>/dev/null; \
          find skills -type f -name '*.md' -print0 2>/dev/null)
 
 # -----------------------------------------------------------------------------
+# 7b. A `https://github.com/gosodax/sodax-sdks/blob/main/<path>` URL under skills/
+#     must name a file that exists in the repo (the checkout is two levels up).
+#     (Regex quotes and parens are \x escapes: bash 3.2 miscounts them inside $(...).)
+#     This is how a skill points at the test that holds its example code.
+# -----------------------------------------------------------------------------
+while IFS= read -r line; do
+  [[ -n "$line" ]] && err "$line"
+done < <(python3 - << 'PY'
+import os, re
+REPO_URL = re.compile(r'https://github\.com/gosodax/sodax-sdks/blob/main/(?P<path>[^\s\x29#>\x22\x27\]]+)')
+repo_root = os.path.abspath(os.path.join(os.getcwd(), '..', '..'))
+for root, _, files in os.walk('skills'):
+    for fn in files:
+        if not fn.endswith('.md'):
+            continue
+        fp = os.path.join(root, fn)
+        with open(fp, encoding='utf-8') as f:
+            for ln, raw in enumerate(f, 1):
+                for m in REPO_URL.finditer(raw):
+                    path = m.group('path').rstrip('.,;:')
+                    if not os.path.isfile(os.path.join(repo_root, path)):
+                        print(f'BROKEN_REPO_URL in {fp}:{ln} -> {path} (no such file in the repo)')
+PY
+)
+
+# -----------------------------------------------------------------------------
 # 8. Routing from each broad skill. Only top-level skills are auto-discovered by
 #    agents (Claude Code registers `.claude/skills/<name>/SKILL.md` only), so a
 #    granular skill or feature doc its parent never names is reachable by grep
