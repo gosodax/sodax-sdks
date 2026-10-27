@@ -1,0 +1,51 @@
+---
+title: "Accept any token, settle on Base"
+sidebarTitle: "Accept any token"
+description: "Let a user pay from the token and network they already hold, and have your Base app receive a Base asset such as USDC. One cross-network swap, settled at your Base address."
+icon: rotate
+---
+
+Use this recipe when your app runs on Base and you want to be paid in a Base asset, but your users hold something else: USDC on Arbitrum, SOL on Solana, ETH on Ethereum, or any other listed asset. SODAX turns the payment into a single cross-network swap that settles at an address you control on Base. There are no new contracts and nothing for you to run; the payer signs one transaction on the network they are paying from.
+
+## What you will build
+
+A checkout step that takes a payer's token on any supported network, quotes it against a Base asset, and settles the output at your app's Base address.
+
+The working code is [`accept-any-token.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/recipes/src/base/accept-any-token.ts), and [`accept-any-token.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/recipes/src/base/accept-any-token.test.ts) checks every claim on this page against the SDK in CI.
+
+## Prerequisites
+
+- `@sodax/sdk`, plus `@sodax/wallet-sdk-core` (or `@sodax/wallet-sdk-react` in a React app) for the wallet provider.
+- A wallet on the network the payer starts from, funded with that network's native token for gas.
+- Your app's receiving address on Base, and a SODAX API key kept on your server. See [API keys](/developers/how-to/api-keys).
+
+SODAX is mainnet only, so test with small amounts. See [Is SODAX on Testnet?](/developers/how-to/testnet).
+
+## How it works
+
+<Steps>
+  <Step title="Key the wallet provider to the payer's network">
+    The payer signs where they are paying from, so the provider belongs to that network, not to Base. Base is only the destination.
+  </Step>
+
+  <Step title="Resolve both tokens from config">
+    Read the payer's token from the source network's swap list and the settlement token from the Base list. Never hard-code addresses or decimals; the recipe throws if a network does not list the symbol.
+  </Step>
+
+  <Step title="Quote, approve, swap">
+    The quote is the net output that lands on Base, so set your slippage floor from it. The intent's destination is Base: `dstChainKey` is `ChainKeys.BASE_MAINNET` and `dstAddress` is your address. An ERC-20 input needs an allowance first, so approve only when `isAllowanceValid` says it is short. `swap()` then creates the intent, relays it to the hub, and hands it to a solver.
+  </Step>
+
+  <Step title="Confirm settlement on Base">
+    A successful `swap()` is not a fill. Only `SolverIntentStatusCode.SOLVED` means the asset reached your Base address. `getStatus` is a one-shot read, so the recipe bounds its own poll and stops on `FAILED`. A failed or unfilled intent keeps the payer's input locked until it is cancelled with `sodax.swaps.cancelIntent`, so offer the payer that recovery.
+  </Step>
+</Steps>
+
+## Fees and failures
+
+The protocol fee is a fixed 0.1% of the input; see [Fees](/base/swaps#fees). Every call returns a `Result`; the failure codes are in [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps).
+
+## Next steps
+
+- [Swaps on Base](/base/swaps): approvals, quoting, and fees in depth.
+- [Quickstart on Base](/base/quickstart): the minimal first swap.

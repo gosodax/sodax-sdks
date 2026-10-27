@@ -19,6 +19,9 @@ correct. The commands below are the gate.
 - **Never hand-write a chain, token or count.** Networks, tokens and their addresses come
   from the backend config API through a `data-sodax-config` placeholder — the backend, not
   the SDK, decides what is live. See [`README.md`](README.md#live-config-tables).
+- **No code blocks in recipe pages.** Recipe code and its test live in `apps/recipes/src/<network>/`,
+  where CI typechecks and runs them; the page explains the goal and links the files. See
+  [`apps/recipes/README.md`](https://github.com/gosodax/sodax-sdks/blob/main/apps/recipes/README.md).
 - **Anything outside `docs/` is not a page.** Link source files and repo docs as
   `https://github.com/gosodax/sodax-sdks/blob/main/<path>`.
 - **A new page is not done until it is in `docs.json` `navigation`.** Unregistered pages
