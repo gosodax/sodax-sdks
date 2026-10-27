@@ -38,7 +38,10 @@ const ACCOUNT = '0x0000000000000000000000000000000000000001';
 const TOKEN = '0x00000000000000000000000000000000000000aa';
 const SPENDER = '0x00000000000000000000000000000000000000bb';
 const DEPOSIT_HASH = '0xdeposit';
-const RELAY_DATA = { address: '0x00000000000000000000000000000000000000cc', payload: '0xpayload' };
+const relayDataFor = (call: number) => ({
+  address: '0x00000000000000000000000000000000000000cc',
+  payload: `0xpayload${call}`,
+});
 
 const BRIDGE_PARAMS: CreateBridgeIntentParamsV2 & { srcChainKey: SpokeChainKey } = {
   srcChainKey: ChainKeys.BASE_MAINNET,
@@ -77,12 +80,16 @@ const batchWallet = (support: EvmAtomicBatchSupport = 'supported') => ({
 type BackendOptions = { withReset: boolean };
 
 const stubBackend = ({ withReset }: BackendOptions) => {
+  let intentsCreated = 0;
   mockFetch.mockImplementation(async (url: string) => {
     const body = (() => {
       if (url === `${BASE}/bridge/allowance/check`) return { valid: false };
       if (url === `${BASE}/bridge/approve`)
         return withReset ? { tx: APPROVE_WIRE, resetTx: RESET_WIRE } : { tx: APPROVE_WIRE };
-      if (url === `${BASE}/bridge/intents`) return { tx: DEPOSIT_WIRE, relayData: RELAY_DATA };
+      if (url === `${BASE}/bridge/intents`) {
+        intentsCreated += 1;
+        return { tx: DEPOSIT_WIRE, relayData: relayDataFor(intentsCreated) };
+      }
       if (url === `${BASE}/bridge/submit-tx`) return { success: true, data: { status: 'inserted', message: 'ok' } };
       throw new Error(`unexpected request ${url}`);
     })();
@@ -175,7 +182,7 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     expect(submitted()).toMatchObject({
       txHash: DEPOSIT_HASH,
       srcChainKey: ChainKeys.BASE_MAINNET,
-      relayData: RELAY_DATA,
+      relayData: relayDataFor(1),
     });
   });
 
@@ -205,7 +212,7 @@ describe('approve and bridge in one signature (Bridge API)', () => {
       DEPOSIT_WIRE.data,
     ]);
     expect(requested('/bridge/intents')).toHaveLength(2);
-    expect(submitted().txHash).toBe('0xseparate-deposit');
+    expect(submitted()).toMatchObject({ txHash: '0xseparate-deposit', relayData: relayDataFor(2) });
   });
 
   it('stops when the separate approval reverts: no deposit is sent and nothing is submitted', async () => {
