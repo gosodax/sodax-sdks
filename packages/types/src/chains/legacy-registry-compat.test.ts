@@ -279,6 +279,7 @@ const LEGACY_SWAP_ROBINHOOD: readonly string[] = [
   'USDG:0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168',
 ];
 
+// HBAR left the money market (#574): the lending pool has no HBAR reserve.
 const LEGACY_MONEY_MARKET_SONIC: readonly string[] = [
   'S:0x0000000000000000000000000000000000000000',
   'WETH:0x50c42dEAcD8Fc9773493ED674b675bE577f2634b',
@@ -312,7 +313,6 @@ const LEGACY_MONEY_MARKET_SONIC: readonly string[] = [
   'KAIA:0xD7d41b5f803b6A40F8A6eAa34E459A4564e39891',
   'STX:0x1Fbe5229e9d189F26bEE77E5bFa24309FdA90483',
   'sUSDS:0x243b0c26c8b38793908d7C64e8510f21B19B4613',
-  'HBAR:0x3BB956cc8922E1Ba4148dc10eD1b4Fa19aa599c4',
   'JitoSOL:0xe1bad4400d947Bc4fa66f9c0A143D800002083a0',
   'USDS:0xA3AeFa2BAfEAB479c4Aca6024A16906bbC75566e',
   'sodaUSSD:0xb780e09576C2667ba9F5B80FbAb2e6b8A0a21e37',
@@ -344,7 +344,6 @@ const LEGACY_MONEY_MARKET_RESERVE_ASSETS: readonly string[] = [
   '0xD7d41b5f803b6A40F8A6eAa34E459A4564e39891',
   '0x1Fbe5229e9d189F26bEE77E5bFa24309FdA90483',
   '0x243b0c26c8b38793908d7C64e8510f21B19B4613',
-  '0x3BB956cc8922E1Ba4148dc10eD1b4Fa19aa599c4',
   '0xe1bad4400d947Bc4fa66f9c0A143D800002083a0',
   '0xA3AeFa2BAfEAB479c4Aca6024A16906bbC75566e',
   '0xb780e09576C2667ba9F5B80FbAb2e6b8A0a21e37',
@@ -435,7 +434,7 @@ describe('legacy production swap sequences are unchanged prefixes', () => {
 });
 
 describe('Sonic money market is untouched by the equity vaults', () => {
-  it('supported tokens match the merge base exactly, all 29 legacy vaults included', () => {
+  it('supported tokens match the merge base exactly, all 28 legacy vaults included', () => {
     expect(identify(moneyMarketSupportedTokens[ChainKeys.SONIC_MAINNET])).toEqual(LEGACY_MONEY_MARKET_SONIC);
   });
 
