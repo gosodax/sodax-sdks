@@ -108,8 +108,7 @@ allowance, and `/bridge/approve` targets the spender that deposit pulls from. Fi
 
 The batch, refusal and unconfirmed-batch rules are the ones in
 [Approve and send the intent in one signature](./swaps-api.md#approve-and-send-the-intent-in-one-signature).
-After a refused batch, call `createBridgeIntent` again once the separate approval confirms, and submit the new
-`relayData`. The runnable flow is
+After a refused batch, submit the `relayData` of the re-created intent. The runnable flow is
 [`bridgeApiApprovalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/backendApi/bridgeApiApprovalBatch.test.ts): it asserts the
 batch order, the refusal fallback and the resume of an unconfirmed batch. That a hub source or a wallet
 that cannot batch stays sequential is asserted in
