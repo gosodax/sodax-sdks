@@ -124,7 +124,13 @@ export function resolveAnalytics(option: AnalyticsOption | undefined): ResolvedA
   const emit: ResolvedAnalytics['emit'] = (feature, action, phase, build, level = 'basic') => {
     if (!isEnabled(feature, action, level)) return;
     try {
-      tracker({ feature, action, phase, level, data: build?.() });
+      // `AnalyticsTracker` returns `void`, but TypeScript lets an `async` function satisfy that, so the
+      // tracker may hand back a promise. Its rejection lands after `emit` returns, outside this `catch`,
+      // and an unhandled rejection terminates a Node process — so absorb it here too.
+      const returned: unknown = tracker({ feature, action, phase, level, data: build?.() });
+      if (typeof (returned as PromiseLike<unknown> | undefined)?.then === 'function') {
+        Promise.resolve(returned).catch(() => {});
+      }
     } catch {
       // Analytics is fire-and-forget — a throwing consumer tracker must never break a feature flow.
     }
