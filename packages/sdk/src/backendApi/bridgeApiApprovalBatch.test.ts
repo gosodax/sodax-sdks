@@ -78,13 +78,13 @@ const batchWallet = (support: EvmAtomicBatchSupport = 'supported') => ({
   waitForBatch: vi.fn(async (_batchId: string, _options?: { timeout?: number }) => confirmed),
 });
 
-type BackendOptions = { withReset: boolean };
+type BackendOptions = { withReset: boolean; allowanceValid?: boolean };
 
-const stubBackend = ({ withReset }: BackendOptions) => {
+const stubBackend = ({ withReset, allowanceValid = false }: BackendOptions) => {
   let intentsCreated = 0;
   mockFetch.mockImplementation(async (url: string) => {
     const body = (() => {
-      if (url === `${BASE}/bridge/allowance/check`) return { valid: false };
+      if (url === `${BASE}/bridge/allowance/check`) return { valid: allowanceValid };
       if (url === `${BASE}/bridge/approve`)
         return withReset ? { tx: APPROVE_WIRE, resetTx: RESET_WIRE } : { tx: APPROVE_WIRE };
       if (url === `${BASE}/bridge/intents`) {
@@ -107,7 +107,10 @@ type PendingBridge = Pick<BridgeSubmitTxRequestV2, 'relayData'>;
 async function approveAndBridge(
   walletProvider: IWalletProvider,
   params: CreateBridgeIntentParamsV2 & { srcChainKey: SpokeChainKey },
-  onBatchSent?: (batchId: string, pending: PendingBridge) => void,
+  {
+    onBatchSent,
+    allowAccountUpgrade,
+  }: { onBatchSent?: (batchId: string, pending: PendingBridge) => void; allowAccountUpgrade?: boolean } = {},
 ) {
   const { srcChainKey } = params;
   if (!isEvmWalletProviderType(walletProvider) || !isEvmChainKeyType(srcChainKey)) {
@@ -123,7 +126,9 @@ async function approveAndBridge(
 
   // The API types its txs as `RawTxReturnType`; an EVM source returns EVM transactions.
   const approvalTxs = approval ? ([approval.resetTx, approval.tx].filter(Boolean) as EvmRawTransaction[]) : [];
-  const strategy = approval ? await resolveApprovalStrategy({ srcChainKey, walletProvider }) : 'not-required';
+  const strategy = approval
+    ? await resolveApprovalStrategy({ srcChainKey, walletProvider, allowAccountUpgrade })
+    : 'not-required';
 
   let txHash: string | undefined;
   if (strategy === 'atomic-batch' && isEvmSpokeOnlyChainKeyType(srcChainKey)) {
@@ -232,6 +237,31 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     expect(requested('/bridge/submit-tx')).toHaveLength(0);
   });
 
+  it('sends only the deposit when the allowance is already valid', async () => {
+    stubBackend({ withReset: false, allowanceValid: true });
+    const walletProvider = batchWallet();
+    walletProvider.sendTransaction.mockResolvedValueOnce('0xdirect-deposit');
+
+    const result = await approveAndBridge(walletProvider, BRIDGE_PARAMS);
+
+    expect(result).toEqual({ txHash: '0xdirect-deposit', strategy: 'not-required' });
+    expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
+    expect(walletProvider.sendTransaction.mock.calls.map(([tx]) => tx.data)).toEqual([DEPOSIT_WIRE.data]);
+    expect(requested('/bridge/approve')).toHaveLength(0);
+  });
+
+  it('approves separately for a wallet that must upgrade its account when allowAccountUpgrade is false', async () => {
+    stubBackend({ withReset: false });
+    const walletProvider = batchWallet('ready');
+    walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xno-upgrade-deposit');
+    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // only `status` is read
+
+    const result = await approveAndBridge(walletProvider, BRIDGE_PARAMS, { allowAccountUpgrade: false });
+
+    expect(result).toEqual({ txHash: '0xno-upgrade-deposit', strategy: 'sequential' });
+    expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
+  });
+
   it('keeps a Sonic hub source sequential: no batch, the approval and the deposit go out separately', async () => {
     stubBackend({ withReset: false });
     const walletProvider = batchWallet();
@@ -254,7 +284,7 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     walletProvider.waitForBatch.mockRejectedValueOnce(new Error('timed out'));
     const onBatchSent = vi.fn<(batchId: string, pending: PendingBridge) => void>();
 
-    await expect(approveAndBridge(walletProvider, BRIDGE_PARAMS, onBatchSent)).rejects.toMatchObject({
+    await expect(approveAndBridge(walletProvider, BRIDGE_PARAMS, { onBatchSent })).rejects.toMatchObject({
       code: 'TX_VERIFICATION_FAILED',
       context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1', callCount: 3 },
     });
