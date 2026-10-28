@@ -98,6 +98,8 @@ The service does **not** expose bespoke "deposit into vault" / "redeem from vaul
 `LeverageYieldService`'s job is to build the correct swap payload (the `CreateIntentParams` plus any execution flags) via `deposit()` / `withdraw()`, then execute it via `vaultSwap()` (or `createVaultIntent()` for manual relay control); the solver (plus the vault's ERC-4626 mechanics) does the rest. This is why deposits and withdrawals are cross-chain by default and need no vault-specific approval: a deposit approves its input token the same way a swap does, with `sodax.swaps.isAllowanceValid` / `sodax.swaps.approve`, and a withdraw needs no approval at all.
 
 > Vault swaps do not support Bitcoin yet. `deposit()`, `withdraw()` and `createVaultIntent` (and so `vaultSwap`) return `VALIDATION_FAILED` for a Bitcoin `srcChainKey` or `dstChainKey`, before anything is built or signed.
+>
+> They refuse an MPC-relay `srcChainKey` (such as Tron) the same way. The SDK confirms a hub-wallet message from such a chain only by the release back to it, and a vault withdraw's message releases nothing itself, so a deposit from there would have no way out.
 
 `createVaultIntent` / `vaultSwap` are leverage-yield copies of the swap domain's `createIntent` / `swap()` — duplicated **deliberately** so the vault-specific execution modifiers (`hubWalletSwap`, per-intent `partnerFee`) live on the leverage-yield action wrapper (`VaultSwapActionParams`) and never leak into the generic swap surface.
 
@@ -409,8 +411,8 @@ swap leaves behind whatever state the backend last reached, including a record i
 So the method routes:
 
 1. Read the backend record; return it while it is still in play.
-2. Otherwise resolve the hub tx hash — the source tx itself for hub-source vault swaps, else the
-   delivered relay packet's `dst_tx_hash` — and return the solver's answer for it. Any answer short of
+2. Otherwise resolve the hub tx hash — the source tx itself for hub-source vault swaps, the MPC relay
+   deposit record's hub mint for an MPC-relay source, else the delivered relay packet's `dst_tx_hash` — and return the solver's answer for it. Any answer short of
    `SOLVED` or `FAILED` is checked against the backend's durable intent record first: a fill that
    consumed the remainder reads `SOLVED` (a restarted solver answers `NOT_FOUND` for intents it already
    filled), and a cancel with nothing filled reads `FAILED` (expired intents are cancelled on the hub and
@@ -793,6 +795,9 @@ Four things worth knowing about what comes back:
 > wallet, so the hub wallet has to be derived from that address rather than the personal one — which
 > these paths do not do. `openPosition`, `openPositionFromDebtToken` and `operatePosition` return
 > `VALIDATION_FAILED` (`field: 'srcChainKey'`) for a Bitcoin source rather than funding the wrong wallet.
+>
+> **An MPC-relay source is refused too.** A position operation from such a chain could not be confirmed
+> (see the vault-swap note above), so the same three calls return `VALIDATION_FAILED` before any funds move.
 
 
 Positions live on the hub, but nothing requires the user to. These carry the work there. They post the

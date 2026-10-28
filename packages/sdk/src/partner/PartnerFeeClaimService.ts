@@ -25,7 +25,7 @@ import {
   type SpokeExecActionParams,
 } from '@sodax/types';
 import {
-  encodeAddress,
+  encodeRecipient,
   isEvmWalletProviderType,
   isHubChainKeyType,
   isOptionalEvmWalletProviderType,
@@ -53,7 +53,8 @@ export type AutoSwapPreferences = {
 export type SetSwapPreferenceParams = {
   srcChainKey: HubChainKey;
   srcAddress: Address;
-  outputToken: Address;
+  /** In `dstChainKey`'s own format (e.g. base58 on Tron); resolved to the hub asset before it is stored. */
+  outputToken: OriginalAssetAddress;
   dstChainKey: SpokeChainKey;
   dstAddress: string;
 };
@@ -359,7 +360,9 @@ export class PartnerFeeClaimService {
             params.dstChainKey !== this.hubProvider.chainConfig.chain.key
               ? this.hubProvider.config.getSpokeTokenFromOriginalAssetAddress(params.dstChainKey, params.outputToken)
                   ?.hubAsset
-              : params.outputToken;
+              : isAddress(params.outputToken)
+                ? params.outputToken
+                : undefined;
 
           invariant(
             outputToken,
@@ -376,7 +379,7 @@ export class PartnerFeeClaimService {
               args: [
                 outputToken,
                 BigInt(getIntentRelayChainId(params.dstChainKey)),
-                encodeAddress(params.dstChainKey, params.dstAddress),
+                encodeRecipient(params.dstChainKey, params.dstAddress),
               ],
             }),
           } satisfies TxReturnType<HubChainKey, true>;

@@ -28,6 +28,7 @@ const rpcConfig: RpcConfig = {
   [ChainKeys.SOLANA_MAINNET]: process.env.SOLANA_RPC_URL ?? 'https://solana-rpc.publicnode.com',
   [ChainKeys.SUI_MAINNET]: process.env.SUI_GRPC_URL ?? 'https://fullnode.mainnet.sui.io',
   [ChainKeys.NEAR_MAINNET]: process.env.NEAR_RPC_URL ?? 'https://free.rpc.fastnear.com',
+  [ChainKeys.TRON_MAINNET]: process.env.TRON_RPC_URL ?? 'https://api.trongrid.io',
   [ChainKeys.STELLAR_MAINNET]: {
     horizonRpcUrl: process.env.STELLAR_HORIZON_RPC_URL ?? 'https://horizon.stellar.org',
     sorobanRpcUrl: process.env.STELLAR_SOROBAN_RPC_URL ?? 'https://rpc.ankr.com/stellar_soroban',
@@ -117,6 +118,11 @@ export default function Providers({ children, privy }: { children: ReactNode; pr
         },
       },
       STACKS: { chains: { [ChainKeys.STACKS_MAINNET]: 'mainnet' } },
+      TRON: {
+        chains: {
+          [ChainKeys.TRON_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.TRON_MAINNET] },
+        },
+      },
     };
   }, [privy]);
 
@@ -184,6 +190,7 @@ export default function Providers({ children, privy }: { children: ReactNode; pr
         [ChainKeys.NEAR_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.NEAR_MAINNET] },
         [ChainKeys.STELLAR_MAINNET]: rpcConfig[ChainKeys.STELLAR_MAINNET],
         [ChainKeys.BITCOIN_MAINNET]: rpcConfig[ChainKeys.BITCOIN_MAINNET],
+        [ChainKeys.TRON_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.TRON_MAINNET] },
       },
     };
   }, [solverEnvironment, sodaxSettings]);

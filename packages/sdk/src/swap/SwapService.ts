@@ -38,7 +38,7 @@ import {
   isNativeBitcoinTransfer,
   RELAY_FALLBACK_FLOOR_MS,
 } from '../shared/index.js';
-import { readIntentJournalOutcome, resolveDeliveredPacket } from '../backendApi/detailedStatusRouting.js';
+import { readIntentJournalOutcome, resolveDeliveredHubTxHash } from '../backendApi/detailedStatusRouting.js';
 import { SolverApiService } from './SolverApiService.js';
 import { EvmSolverService } from './EvmSolverService.js';
 import type { BackendApiService } from '../backendApi/index.js';
@@ -116,6 +116,7 @@ import {
   type Hash,
   type HttpUrl,
   getIntentRelayChainId,
+  isMpcRelayChainKey,
   type FeeAmount,
   type GetWalletProviderType,
   type PartnerFee,
@@ -567,8 +568,8 @@ export class SwapService {
 
   /**
    * The hub-chain tx hash the solver is keyed on. A hub-source swap has no relay leg — the source
-   * tx *is* the hub tx. Otherwise the delivered relay packet carries it, so an undelivered packet
-   * is simply "no hash yet".
+   * tx *is* the hub tx. Otherwise the delivered relay packet — or, for an MPC-relay chain, the
+   * minted deposit record — carries it, so an undelivered one is simply "no hash yet".
    */
   private async resolveHubTxHash(
     key: DetailedSwapStatusKey,
@@ -577,11 +578,12 @@ export class SwapService {
     let hubTxHash = key.srcTxHash;
 
     if (!isHubChainKeyType(key.srcChainKey)) {
-      const delivered = await resolveDeliveredPacket({
+      const delivered = await resolveDeliveredHubTxHash({
         srcChainKey: key.srcChainKey,
         srcTxHash: key.srcTxHash,
         relayerApiEndpoint: this.relayerApiEndpoint,
         backendAnswered,
+        spoke: this.spoke,
       });
       if (!delivered.ok) {
         return {
@@ -591,7 +593,7 @@ export class SwapService {
           }),
         };
       }
-      hubTxHash = delivered.packet.dst_tx_hash;
+      hubTxHash = delivered.hubTxHash;
     }
 
     // Validate rather than cast — this hash reaches the solver next.
@@ -1085,7 +1087,8 @@ export class SwapService {
     // Backend 2-step flow (default on): hand the broadcast intent tx to the swaps API, which relays +
     // post-executes server-side. On ANY non-success we fall back to the client-side relay so the
     // swap still completes — safe because re-relay / re-post are idempotent (see `submitTx`).
-    if (this.useBackendSubmitTx) {
+    // The backend only relays through the intent relay, so an MPC-relay source settles client-side.
+    if (this.useBackendSubmitTx && !isMpcRelayChainKey(_params.params.srcChainKey)) {
       const submitted = await this.submitTx(_params, created, createSubmitTxAttempt(timeoutMs));
       if (submitted.ok) return submitted;
       this.config.logger.warn('[swap] backend submit-tx did not complete; falling back to the client-side relay', {
@@ -1117,34 +1120,36 @@ export class SwapService {
     // Every failure from here on is post-broadcast: carry the tx so the caller can keep reading its status.
     const txCtx = { srcChainKey, dstChainKey: params.dstChainKey, action: 'swap', srcTxHash: spokeTxHash };
 
-    const verifyTxHashResult = await this.spoke.verifyTxHash({
-      txHash: created.tx,
-      chainKey: srcChainKey,
-    });
-    if (!verifyTxHashResult.ok) {
-      return { ok: false, error: verifyFailed('swap', verifyTxHashResult.error, txCtx) };
-    }
-
     let dstIntentTxHash: string;
     if (isHubChainKeyType(srcChainKey)) {
+      const verifyTxHashResult = await this.spoke.verifyTxHash({ txHash: created.tx, chainKey: srcChainKey });
+      if (!verifyTxHashResult.ok) {
+        return { ok: false, error: verifyFailed('swap', verifyTxHashResult.error, txCtx) };
+      }
       dstIntentTxHash = spokeTxHash;
     } else {
-      const packet = await relayTxAndWaitPacket({
-        srcTxHash: spokeTxHash,
-        data: relayData,
+      const settled = await this.spoke.settle({
         chainKey: srcChainKey,
-        relayerApiEndpoint: this.relayerApiEndpoint,
+        tx: spokeTxHash,
+        direction: 'inbound',
+        relayData,
         // The caller's full `timeout`, starting HERE — after verification, and whether this runs as the
         // only path or as the backend's fallback. Neither a stalled backend attempt nor a slow source-chain
         // confirmation may shorten the relay wait. The floor covers a sub-floor caller `timeout`:
-        // `relayTxAndWaitPacket` SUBMITS before `timeout` bounds anything, so a zero budget would strand an
+        // settlement SUBMITS before `timeout` bounds anything, so a zero budget would strand an
         // already-landed tx unrelayed. Re-relay is idempotent, so spending it is safe.
         timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
       });
-      if (!packet.ok) {
-        return { ok: false, error: mapRelayFailure(packet.error, { feature: 'swap', ...txCtx }) };
+      if (!settled.ok) {
+        return {
+          ok: false,
+          error:
+            settled.error.phase === 'verification'
+              ? verifyFailed('swap', settled.error.cause, txCtx)
+              : mapRelayFailure(settled.error.cause, { feature: 'swap', ...txCtx }),
+        };
       }
-      dstIntentTxHash = packet.value.dst_tx_hash;
+      dstIntentTxHash = settled.value.dstChainTxHash;
     }
 
     const postExecResult = await this.postExecution({
@@ -1798,6 +1803,12 @@ export class SwapService {
       invariant(
         getIntentRelayChainId(params.srcChainKey) === params.intent.srcChain,
         `srcChainKey (${params.srcChainKey}) does not match intent.srcChain (${params.intent.srcChain}). Expected relay chain id ${getIntentRelayChainId(params.srcChainKey)}.`,
+      );
+      // `cancelIntent` confirms the cancel through the intent relay, which an MPC-relay chain does not use.
+      swapInvariant(
+        !isMpcRelayChainKey(params.srcChainKey),
+        `Cancelling an intent from an MPC-relay source chain (${params.srcChainKey}) is not supported yet`,
+        { srcChainKey: params.srcChainKey, field: 'srcChainKey' },
       );
 
       const relayData = this.buildCancelRelayData(params.intent);

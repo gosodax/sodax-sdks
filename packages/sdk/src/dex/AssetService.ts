@@ -3,7 +3,7 @@ import type { Address, Hex } from 'viem';
 import {
   EvmAssetManagerService,
   type SpokeService,
-  encodeAddress,
+  encodeRecipient,
   Erc20Service,
   Erc4626Service,
   EvmVaultTokenService,
@@ -19,9 +19,12 @@ import {
   isOptionalStellarWalletProviderType,
   isEvmSpokeOnlyChainKeyType,
   isOptionalEvmWalletProviderType,
+  type RelayExtraData,
   type SendMessageParams,
+  type SettlementDirection,
 } from '../shared/index.js';
 import {
+  isMpcRelayChainKey,
   SodaTokens,
   type ConcentratedLiquidityConfig,
   type EvmChainKey,
@@ -402,7 +405,7 @@ export class AssetService {
         params.asset,
         params.amount,
         fromHubWallet,
-        encodeAddress(dstChainKey, recipient),
+        encodeRecipient(dstChainKey, recipient),
       );
 
       const data = encodeContractCalls(calls);
@@ -496,6 +499,9 @@ export class AssetService {
     try {
       const txResult = await this.executeDeposit(_params);
       if (!txResult.ok) return txResult;
+      if (isMpcRelayChainKey(params.srcChainKey)) {
+        return await this.settleOnMpcRelay(params.srcChainKey, txResult.value, 'inbound', timeout);
+      }
 
       let hubTxHash: string;
       if (!isHubChainKeyType(params.srcChainKey)) {
@@ -537,6 +543,9 @@ export class AssetService {
     try {
       const txResult = await this.executeWithdraw(_params);
       if (!txResult.ok) return txResult;
+      if (isMpcRelayChainKey(params.srcChainKey)) {
+        return await this.settleOnMpcRelay(params.srcChainKey, txResult.value, 'outbound', timeout);
+      }
 
       let hubTxHash: string;
       if (!isHubChainKeyType(params.srcChainKey)) {
@@ -559,6 +568,20 @@ export class AssetService {
       if (isDexCreateIntentError(error)) return { ok: false, error };
       return { ok: false, error: intentCreationFailed('dex', error) };
     }
+  }
+
+  /**
+   * An MPC-relay source has no intent-relay packet, so it settles on its own relay: a deposit waits
+   * for the hub mint, a withdraw for the release on the source chain it pays back to.
+   */
+  private async settleOnMpcRelay(
+    chainKey: SpokeChainKey,
+    { tx, relayData }: { tx: string; relayData: RelayExtraData },
+    direction: SettlementDirection,
+    timeout: number | undefined,
+  ): Promise<Result<TxHashPair>> {
+    const settled = await this.spoke.settle({ chainKey, tx, direction, relayData, timeout });
+    return settled.ok ? settled : { ok: false, error: settled.error.cause };
   }
 
   /**

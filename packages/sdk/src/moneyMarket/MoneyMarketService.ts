@@ -35,7 +35,7 @@ import {
   EvmAssetManagerService,
   EvmVaultTokenService,
   encodeContractCalls,
-  encodeAddress,
+  encodeRecipient,
   calculateFeeAmount,
   wrappedSonicAbi,
   isHubChainKeyType,
@@ -47,7 +47,8 @@ import {
   isBitcoinChainKeyType,
   isBitcoinWalletProviderType,
 } from '../shared/index.js';
-import type { HubProvider, IntentTxResult, TxHashPair, RelayExtraData } from '../shared/types/types.js';
+import type { HubProvider, IntentTxResult, TxHashPair } from '../shared/types/types.js';
+import type { SettlementFailure } from '../shared/types/spoke-types.js';
 import {
   type SpokeChainKey,
   type XToken,
@@ -544,42 +545,26 @@ export class MoneyMarketService {
           // CreateSupplyIntentErrorCode ⊂ SupplyErrorCode, so the SodaxError narrows correctly.
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
-          const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
-          if (!verify.ok) {
-            return {
-              ok: false,
-              error: verifyFailed('moneyMarket', verify.error, baseCtx),
-            };
-          }
-
-          // Relay skipped only when source chain is the hub.
+          // Settlement is skipped only when the source chain is the hub.
           if (isHubChainKeyType(srcChainKey)) {
+            const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
+            if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
             return {
               ok: true,
               value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx },
             };
           }
 
-          const packet = await relayTxAndWaitPacket({
-            srcTxHash: txResult.value.tx,
-            data: txResult.value.relayData,
+          const settled = await this.spoke.settle({
             chainKey: srcChainKey,
-            relayerApiEndpoint: this.relayerApiEndpoint,
+            tx: txResult.value.tx,
+            direction: 'inbound',
+            relayData: txResult.value.relayData,
             timeout,
           });
+          if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
 
-          if (!packet.ok)
-            return {
-              ok: false,
-              error: mapRelayFailure(packet.error, {
-                feature: 'moneyMarket',
-                action: baseCtx.action,
-                srcChainKey: baseCtx.srcChainKey,
-                dstChainKey: baseCtx.dstChainKey,
-              }),
-            };
-
-          return { ok: true, value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: packet.value.dst_tx_hash } };
+          return settled;
         } catch (error) {
           if (isMoneyMarketOrchestrationError(error)) return { ok: false, error };
           return {
@@ -725,17 +710,16 @@ export class MoneyMarketService {
   // ==== borrow ==========================================================================
 
   /**
-   * Build the relay submit/poll identity for a money-market borrow/withdraw.
-   *
-   * Bitcoin borrow/withdraw are on-demand: the spoke result is a signed payload JSON that the relay
-   * submits under the literal "withdraw" tx_hash and tracks under a derived `od:<hash>` poll id
-   * (see {@link BitcoinSpokeService.getOnDemandRelayIdentity}). Every other chain relays and polls by
-   * its real spoke tx hash, so `pollTxHash` is undefined and `srcChainTxHash` stays the spoke tx.
+   * Map a {@link SpokeService.settle} failure onto the money-market errors: a source tx that never
+   * landed is a verification failure, anything later a relay failure.
    */
-  private buildRelayIdentity(srcChainKey: SpokeChainKey, tx: string, relayData: RelayExtraData) {
-    return isBitcoinChainKeyType(srcChainKey)
-      ? this.spoke.bitcoin.getOnDemandRelayIdentity(tx)
-      : { srcTxHash: tx, data: relayData, pollTxHash: undefined };
+  private mapSettlementFailure(
+    failure: SettlementFailure,
+    ctx: { action: string; srcChainKey: SpokeChainKey; dstChainKey?: SpokeChainKey },
+  ): MoneyMarketOrchestrationError {
+    return failure.phase === 'verification'
+      ? verifyFailed('moneyMarket', failure.cause, ctx)
+      : mapRelayFailure(failure.cause, { feature: 'moneyMarket', ...ctx });
   }
 
   /**
@@ -767,56 +751,31 @@ export class MoneyMarketService {
           const txResult = await this.createBorrowIntent(_params);
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
-          const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
-          if (!verify.ok) {
-            return {
-              ok: false,
-              error: verifyFailed('moneyMarket', verify.error, baseCtx),
-            };
-          }
-
-          // Relay is not required when the borrow is executed on hub AND the target is also hub.
+          // Settlement is not required when the borrow is executed on hub AND the target is also hub.
           // (Borrow from hub to a different target chain still needs the relay to deliver tokens.)
-          const needsRelay =
+          const needsSettlement =
             srcChainKey !== hubChainId ||
             (params.dstChainKey != null && params.dstAddress != null && params.dstChainKey !== hubChainId);
 
-          if (!needsRelay) {
+          if (!needsSettlement) {
+            const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
+            if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
             return {
               ok: true,
               value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx },
             };
           }
 
-          const relayIdentity = this.buildRelayIdentity(srcChainKey, txResult.value.tx, txResult.value.relayData);
-          const packet = await relayTxAndWaitPacket({
-            ...relayIdentity,
+          const settled = await this.spoke.settle({
             chainKey: srcChainKey,
-            relayerApiEndpoint: this.relayerApiEndpoint,
+            tx: txResult.value.tx,
+            direction: 'outbound',
+            relayData: txResult.value.relayData,
             timeout,
           });
+          if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
 
-          if (!packet.ok)
-            return {
-              ok: false,
-              error: mapRelayFailure(packet.error, {
-                feature: 'moneyMarket',
-                action: baseCtx.action,
-                srcChainKey: baseCtx.srcChainKey,
-                dstChainKey: baseCtx.dstChainKey,
-              }),
-            };
-
-          // On-demand relays expose the derived poll id (od:<hash>) as the source identifier — what the
-          // relay/SodaxScan track — not the opaque signed payload; other chains keep the spoke tx (see
-          // buildRelayIdentity).
-          return {
-            ok: true,
-            value: {
-              srcChainTxHash: relayIdentity.pollTxHash ?? txResult.value.tx,
-              dstChainTxHash: packet.value.dst_tx_hash,
-            },
-          };
+          return settled;
         } catch (error) {
           if (isMoneyMarketOrchestrationError(error)) return { ok: false, error };
           return {
@@ -878,7 +837,7 @@ export class MoneyMarketService {
         field: 'token',
       });
 
-      const encodedDstAddress = encodeAddress(dstChainKey, dstAddress);
+      const encodedDstAddress = encodeRecipient(dstChainKey, dstAddress);
       // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the
       // collateral/debt lives. srcAddress stays the personal address because `SpokeService.sendMessage`
       // resolves the effective address itself (unlike the deposit path used by supply/repay, which
@@ -975,58 +934,33 @@ export class MoneyMarketService {
           const txResult = await this.createWithdrawIntent(_params);
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
-          const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
-          if (!verify.ok) {
-            return {
-              ok: false,
-              error: verifyFailed('moneyMarket', verify.error, baseCtx),
-            };
-          }
-
-          // Relay is not required only when: source is hub AND target is hub AND target is not the walletRouter.
-          const needsRelay =
+          // Settlement is not required only when: source is hub AND target is hub AND target is not the walletRouter.
+          const needsSettlement =
             srcChainKey !== hubChainId ||
             (params.dstChainKey != null &&
               params.dstAddress != null &&
               params.dstChainKey !== hubChainId &&
               params.dstAddress !== walletRouter);
 
-          if (!needsRelay) {
+          if (!needsSettlement) {
+            const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
+            if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
             return {
               ok: true,
               value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx },
             };
           }
 
-          const relayIdentity = this.buildRelayIdentity(srcChainKey, txResult.value.tx, txResult.value.relayData);
-          const packet = await relayTxAndWaitPacket({
-            ...relayIdentity,
+          const settled = await this.spoke.settle({
             chainKey: srcChainKey,
-            relayerApiEndpoint: this.relayerApiEndpoint,
+            tx: txResult.value.tx,
+            direction: 'outbound',
+            relayData: txResult.value.relayData,
             timeout,
           });
+          if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
 
-          if (!packet.ok)
-            return {
-              ok: false,
-              error: mapRelayFailure(packet.error, {
-                feature: 'moneyMarket',
-                action: baseCtx.action,
-                srcChainKey: baseCtx.srcChainKey,
-                dstChainKey: baseCtx.dstChainKey,
-              }),
-            };
-
-          // On-demand relays expose the derived poll id (od:<hash>) as the source identifier — what the
-          // relay/SodaxScan track — not the opaque signed payload; other chains keep the spoke tx (see
-          // buildRelayIdentity).
-          return {
-            ok: true,
-            value: {
-              srcChainTxHash: relayIdentity.pollTxHash ?? txResult.value.tx,
-              dstChainTxHash: packet.value.dst_tx_hash,
-            },
-          };
+          return settled;
         } catch (error) {
           if (isMoneyMarketOrchestrationError(error)) return { ok: false, error };
           return {
@@ -1088,7 +1022,7 @@ export class MoneyMarketService {
         { ...baseCtx, field: 'token' },
       );
 
-      const encodedDstAddress = encodeAddress(dstChainKey, dstAddress);
+      const encodedDstAddress = encodeRecipient(dstChainKey, dstAddress);
       // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the
       // collateral/debt lives. srcAddress stays the personal address because `SpokeService.sendMessage`
       // resolves the effective address itself (unlike the deposit path used by supply/repay, which
@@ -1181,42 +1115,26 @@ export class MoneyMarketService {
           const txResult = await this.createRepayIntent(_params);
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
-          const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
-          if (!verify.ok) {
-            return {
-              ok: false,
-              error: verifyFailed('moneyMarket', verify.error, baseCtx),
-            };
-          }
-
-          // Relay skipped only when source chain is the hub.
+          // Settlement is skipped only when the source chain is the hub.
           if (isHubChainKeyType(srcChainKey)) {
+            const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
+            if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
             return {
               ok: true,
               value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx },
             };
           }
 
-          const packet = await relayTxAndWaitPacket({
-            srcTxHash: txResult.value.tx,
-            data: txResult.value.relayData,
+          const settled = await this.spoke.settle({
             chainKey: srcChainKey,
-            relayerApiEndpoint: this.relayerApiEndpoint,
+            tx: txResult.value.tx,
+            direction: 'inbound',
+            relayData: txResult.value.relayData,
             timeout,
           });
+          if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
 
-          if (!packet.ok)
-            return {
-              ok: false,
-              error: mapRelayFailure(packet.error, {
-                feature: 'moneyMarket',
-                action: baseCtx.action,
-                srcChainKey: baseCtx.srcChainKey,
-                dstChainKey: baseCtx.dstChainKey,
-              }),
-            };
-
-          return { ok: true, value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: packet.value.dst_tx_hash } };
+          return settled;
         } catch (error) {
           if (isMoneyMarketOrchestrationError(error)) return { ok: false, error };
           return {

@@ -1,6 +1,6 @@
 // packages/sdk/src/partner/PartnerFeeClaimService.test.ts
 import { decodeFunctionData, type Address, type Hex } from 'viem';
-import { ChainKeys, type IEvmWalletProvider } from '@sodax/types';
+import { ChainKeys, spokeChainConfig, type IEvmWalletProvider } from '@sodax/types';
 import { describe, expect, it, vi } from 'vitest';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import type { HubProvider } from '../shared/types/types.js';
@@ -26,6 +26,7 @@ function makeService(overrides: {
   waitForTransactionReceipt?: ReturnType<typeof vi.fn>;
   isValidIntentRelayChainId?: (chainId: bigint) => boolean;
   apiKey?: string;
+  hubConfig?: Pick<ConfigService, 'getSpokeTokenFromOriginalAssetAddress'>;
 }): PartnerFeeClaimService {
   const config = {
     solver: { protocolIntentsContract: PROTOCOL_INTENTS },
@@ -40,6 +41,7 @@ function makeService(overrides: {
       waitForTransactionReceipt: overrides.waitForTransactionReceipt ?? vi.fn(),
     },
     chainConfig: { chain: { key: ChainKeys.SONIC_MAINNET } },
+    config: overrides.hubConfig,
   } as unknown as HubProvider;
   const spoke = {} as unknown as SpokeService;
   return new PartnerFeeClaimService({ config, hubProvider, spoke });
@@ -182,5 +184,52 @@ describe('PartnerFeeClaimService.getIntentDetails', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect((result.error as { code?: string }).code).toBe('LOOKUP_FAILED');
+  });
+});
+
+describe('PartnerFeeClaimService.setSwapPreference', () => {
+  it('takes a base58 Tron output token and stores the recipient as the 32-byte word the auto-swap intent delivers to', async () => {
+    const tronUsdt = spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.USDT;
+    const service = makeService({
+      hubConfig: {
+        getSpokeTokenFromOriginalAssetAddress: (chainKey, token) =>
+          chainKey === ChainKeys.TRON_MAINNET && token === tronUsdt.address ? tronUsdt : undefined,
+      },
+    });
+
+    const result = await service.setSwapPreference<typeof ChainKeys.SONIC_MAINNET, true>({
+      params: {
+        srcChainKey: ChainKeys.SONIC_MAINNET,
+        srcAddress: SRC,
+        outputToken: tronUsdt.address,
+        dstChainKey: ChainKeys.TRON_MAINNET,
+        dstAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+      },
+      raw: true,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // ProtocolIntents copies the stored preference into each auto-swap intent's dstAddress unchanged.
+    const { args } = decodeFunctionData({ abi: ProtocolIntentsAbi, data: result.value.data });
+    expect(args?.[0]).toBe(tronUsdt.hubAsset);
+    expect(args?.[2]).toBe(`0x${'00'.repeat(12)}45df1d9f0d472080e5272946e4444f885473245d`);
+  });
+
+  it('rejects a hub-chain output token that is not an EVM address', async () => {
+    const service = makeService({});
+
+    const result = await service.setSwapPreference<typeof ChainKeys.SONIC_MAINNET, true>({
+      params: {
+        srcChainKey: ChainKeys.SONIC_MAINNET,
+        srcAddress: SRC,
+        outputToken: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        dstChainKey: ChainKeys.SONIC_MAINNET,
+        dstAddress: SRC,
+      },
+      raw: true,
+    });
+
+    expect(result.ok).toBe(false);
   });
 });

@@ -18,6 +18,7 @@
     "bitcoin-raw-intent-check": "tsx src/bitcoin-raw-intent-check.ts",
     "stacks-raw-intent": "tsx src/stacks-raw-intent.ts",
     "injective-raw-intent": "tsx src/injective-raw-intent.ts",
+    "tron": "tsx src/tron.ts",
     "sui-raw-intent": "tsx src/sui-raw-intent.ts",
     "bridge-raw": "tsx src/bridge-raw.ts",
     "test-libs": "tsx src/test-libs.ts",

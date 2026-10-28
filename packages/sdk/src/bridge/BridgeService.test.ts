@@ -44,6 +44,7 @@ import { Sodax } from '../shared/entities/Sodax.js';
 import { SodaxError } from '../errors/SodaxError.js';
 import { isAuthFailure } from '../errors/guards.js';
 import { DETAILED_STATUS_NOT_DELIVERED } from '../backendApi/detailedStatusRouting.js';
+import type { DepositRecord } from '../shared/services/mpcRelay/MpcRelayApiService.js';
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import type { BridgeParams, BridgeWithApprovalParams } from './BridgeService.js';
 import { ACCOUNT_UPGRADE_DECLINED, ATOMIC_BATCH_UNCONFIRMED } from '../shared/utils/approvalBatch.js';
@@ -845,6 +846,24 @@ describe('BridgeService.bridge — backend submit-tx (useBackendSubmitTx)', () =
     return vi.spyOn(sodaxBE.spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
   };
 
+  it('settles an MPC-relay source client-side without trying the backend, which only uses the intent relay', async () => {
+    vi.spyOn(sodaxBE.bridge, 'createBridgeIntent').mockResolvedValueOnce({
+      ok: true,
+      value: { tx: '0xspokeTx', relayData: { address: HUB_WALLET, payload: '0x' } },
+    });
+    const submitSpy = vi.spyOn(sodaxBE.api.bridge, 'submitTx');
+    const settleSpy = vi
+      .spyOn(sodaxBE.spoke, 'settle')
+      .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: '0xHUBMINT' } });
+
+    const result = await sodaxBE.bridge.bridge(bridgeInput(ChainKeys.TRON_MAINNET, ARBITRUM));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.dstChainTxHash).toBe('0xHUBMINT');
+    expect(submitSpy).not.toHaveBeenCalled();
+    expect(settleSpy).toHaveBeenCalledWith(expect.objectContaining({ chainKey: ChainKeys.TRON_MAINNET }));
+  });
+
   it('on backend "executed", returns the TxHashPair from the backend (no client-side relay)', async () => {
     stubCreatedAndVerified();
     const submitSpy = vi.spyOn(sodaxBE.api.bridge, 'submitTx').mockResolvedValueOnce({
@@ -1600,6 +1619,41 @@ describe('BridgeService.getDetailedStatus', () => {
     expect(isAuthFailure(result.error)).toBe(true);
     expect(result.error.context?.reason).toBeUndefined();
     expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
+  });
+
+  // An MPC-relay source never produces an intent-relay packet: the relay's deposit record answers instead.
+  describe('from an MPC-relay source', () => {
+    const tronKey = { srcChainKey: ChainKeys.TRON_MAINNET, srcTxHash: 'ab'.repeat(32) } as const;
+    const deposit = (status: DepositRecord['status'], txs: DepositRecord['txs']) =>
+      vi
+        .spyOn(sodaxBE.spoke, 'getMpcRelayDeposit')
+        .mockResolvedValueOnce({ ok: true, value: { depositId: 'id', status, createdAt: 0, txs } });
+
+    it('returns the minted deposit record whole, without asking the intent relay', async () => {
+      recordNotFound();
+      const hubMint = { chain: 'sonic', hash: DST_TX, ts: 0 };
+      deposit('minted', { hubMint });
+
+      const result = await sodaxBE.bridge.getDetailedStatus(tronKey);
+
+      expect(result).toEqual({
+        ok: true,
+        value: { source: 'mpcRelay', data: { depositId: 'id', status: 'minted', createdAt: 0, txs: { hubMint } } },
+      });
+      expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
+    });
+
+    it('tags a deposit the relay has not minted as the budgetable not-delivered miss', async () => {
+      recordNotFound();
+      deposit('attested', {});
+
+      const result = await sodaxBE.bridge.getDetailedStatus(tronKey);
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.code).toBe('LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
+    });
   });
 
   it('returns a Result rather than rejecting when a dependency throws', async () => {

@@ -19,6 +19,7 @@ The identifiers are **open**: any string works. The table below lists every bran
 | `'leather'` | Stacks | id `LeatherProvider` |
 | `'asigna'` | Stacks | id `AsignaProvider` |
 | `'fordefi'` | Stacks | id `FordefiProviders.UtxoProvider` |
+| `'tronlink'` | Tron | id `TronLink` |
 | `'solflare'`, `'backpack'`, `'coinbase'`, `'trust'`, `'ledger'`, … | Solana | Adapter names from `@solana/wallet-adapter-wallets` |
 | `'freighter'`, `'albedo'`, `'lobstr'`, `'xbull'`, … | Stellar | Names from `@creit.tech/stellar-wallets-kit` |
 
@@ -44,9 +45,9 @@ The table above is a guide, not authoritative. Browser extensions evolve and RDN
 'use client';
 
 import { useXConnectors } from '@sodax/wallet-sdk-react';
-import type { ChainType } from '@sodax/types';
+import { ChainTypeArr, type ChainType } from '@sodax/types';
 
-const CHAINS: ChainType[] = ['EVM', 'SOLANA', 'SUI', 'BITCOIN', 'STELLAR', 'ICON', 'INJECTIVE', 'NEAR', 'STACKS'];
+const CHAINS: readonly ChainType[] = ChainTypeArr;
 
 export function DevConnectorLister() {
   return (

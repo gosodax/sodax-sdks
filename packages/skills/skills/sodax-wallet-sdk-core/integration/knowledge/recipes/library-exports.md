@@ -27,6 +27,8 @@ Source file: `src/types/library-exports.ts`. The export name is the same as upst
 | `@hot-labs/near-connect` | `NearConnector` |
 | `bitcoinjs-lib/src/networks.js` | `Network as BitcoinJsNetwork` |
 
+Tron has no upstream SDK to re-export from: its browser-extension config types TronWeb structurally as `TronWebLike` / `TronProviderLike`, exported from the package root, so don't add `tronweb` for them.
+
 ### Runtime values (also re-exported)
 
 | Source | Value | Why include the runtime |

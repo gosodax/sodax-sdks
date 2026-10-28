@@ -12,7 +12,8 @@ Every chain family has an `I*WalletProvider` interface. Each declares a `readonl
 | Injective | `IInjectiveWalletProvider` | `'INJECTIVE'` | `InjectiveWalletProvider` |
 | Stacks | `IStacksWalletProvider` | `'STACKS'` | `StacksWalletProvider` |
 | NEAR | `INearWalletProvider` | `'NEAR'` | `NearWalletProvider` |
-| Bitcoin | `IBitcoinWalletProvider` | `'BITCOIN'` | `BTCWalletProvider` (PSBT) |
+| Bitcoin | `IBitcoinWalletProvider` | `'BITCOIN'` | `BitcoinWalletProvider` (PSBT) |
+| Tron | `ITronWalletProvider` | `'TRON'` | `TronWalletProvider` |
 
 ### Common methods
 
@@ -24,7 +25,7 @@ getWalletAddress(): Promise<string>;
 readonly chainType: '<FAMILY>';
 ```
 
-Plus chain-specific signing/broadcasting methods. Each interface declares the methods consumers must implement to satisfy it; consumers usually don't call these methods directly — they pass the provider object to SDK methods. **Implementations are not part of `@sodax/sdk`** — write your own to satisfy the interface, or use `@sodax/wallet-sdk-core` (a separate SODAX package, install separately) which ships ready-made implementations for all 9 chain families with both private-key (Node) and browser-extension (dApp) modes.
+Plus chain-specific signing/broadcasting methods. Each interface declares the methods consumers must implement to satisfy it; consumers usually don't call these methods directly — they pass the provider object to SDK methods. **Implementations are not part of `@sodax/sdk`** — write your own to satisfy the interface, or use `@sodax/wallet-sdk-core` (a separate SODAX package, install separately) which ships ready-made implementations for every chain family with both private-key (Node) and browser-extension (dApp) modes.
 
 ### `GetWalletProviderType<K>`
 
@@ -39,7 +40,7 @@ GetWalletProviderType<SpokeChainKey>                      // IWalletProvider (br
 
 ### `IWalletProvider` (broad union)
 
-The discriminated union of all 9 `I*WalletProvider` interfaces. Useful when a function accepts any chain's wallet provider:
+The discriminated union of every `I*WalletProvider` interface. Useful when a function accepts any chain's wallet provider:
 
 ```ts
 import type { IWalletProvider } from '@sodax/sdk';

@@ -1,6 +1,6 @@
 ---
 name: add-chain
-description: 'Use when integrating a NEW spoke chain into the SODAX SDK. The footprint branches HARD by chain family: an EVM chain is smaller (reuses the shared EvmSpokeService) but still must update hardcoded viem/wagmi maps across sdk + wallet-sdk-core + wallet-sdk-react; a new non-EVM family (Solana / Sui / Stacks / Near / Stellar / Icon / Injective-like) is a full cross-package integration with its own SpokeService; Bitcoin is a special trading-wallet model. Triggers on "add a chain", "integrate <chain>", "support <chain> spoke", "new spoke service", "wallet connect for a new chain". The chain token list is handled by the add-token skill.'
+description: 'Use when integrating a NEW spoke chain into the SODAX SDK. The footprint branches HARD by chain family: an EVM chain is smaller (reuses the shared EvmSpokeService) but still must update hardcoded viem/wagmi maps across sdk + wallet-sdk-core + wallet-sdk-react; a new non-EVM family (Solana / Sui / Stacks / Near / Stellar / Icon / Injective-like) is a full cross-package integration with its own SpokeService; an MPC-relay chain (Tron-like) is that plus settlement through the MPC relay instead of the intent relay; Bitcoin is a special trading-wallet model. Triggers on "add a chain", "integrate <chain>", "support <chain> spoke", "new spoke service", "wallet connect for a new chain". The chain token list is handled by the add-token skill.'
 ---
 
 # Adding a Chain to the SODAX SDK
@@ -28,6 +28,7 @@ Each ✓ feature then drives its own touch points (e.g. money-market token wirin
 | **EVM** | reuses the single shared **`EvmSpokeService`** (`EvmChainKey = ChainKeysByType<'EVM'>`) | **small but NOT config-only** — no new spoke service, yet still the hardcoded viem/wagmi maps across sdk + both wallet packages (see the EVM example) |
 | **New non-EVM** (Solana/Sui/Stacks/Near/Stellar/Icon/Injective-like) | a **new `<Chain>SpokeService`** | **large** — full cross-package integration |
 | **Bitcoin-like** | `BitcoinSpokeService` + `entities/btc/` trading-wallet (RadFi/Bound) model | **special** — different shape, do not generalize |
+| **MPC-relay** (Tron-like: no intent-relay lane) | a **new `<Chain>SpokeService`** that also implements `MpcRelaySettlement` | **large** — all of §2, plus §2b |
 
 ## Complete coverage — CHECK every package; edit only when required (don't skip, don't over-edit)
 A chain *can* reach **every package** — but edit each **only when the family + feature matrix requires it** (`libs` only for a build workaround; `dapp-kit` only for a special gate). Checklist:
@@ -76,6 +77,12 @@ Template: read a recent same-shape chain end-to-end (`Stacks`, `Near`, `Sui`, �
   **When to add:** by default **nothing** — a chain that uses the same deposit/swap/MM flow as existing chains works automatically. Add a hook **only** for a step the generic hooks don't cover: an extra on-chain pre-step (NEAR storage `useRegisterNearStorage`; Stellar trustline `useEstablishTrustline`), a custodial/exchange flow (Bitcoin Bound: auth/session/trading-wallet/UTXO hooks), or chain-type-specific balance logic (`useXBalances`). (`useSpokeProvider` was removed in a refactor — don't reference it; confirm provider hooks in current `src/`.)
 - **libs:** a subpath only if the chain SDK needs a build workaround.
 - **Tokens:** run the **`add-token`** skill.
+
+## 2b. MPC-relay chain (Tron-like) — §2 plus a different settlement
+The hub reaches the chain through the MPC relay, not the intent relay. Template: Tron (`TronSpokeService`, `shared/services/mpcRelay/`). On top of §2:
+- **types:** an entry in `MpcRelayChainMap` (`chains/chains.ts`: relay chain id + withdraw scheme). Keep the `RelayChainIdMap` entry as well: hub wallet derivation and the intent `srcChain` / `dstChain` still read it.
+- **sdk:** the spoke service implements `MpcRelaySettlement` and is routed in `SpokeService.getMpcRelayService`. Feature services settle through `SpokeService.settle`, never `relayTxAndWaitPacket`; a path `settle` cannot serve must refuse the chain before signing. Status readers use `SpokeService.getMpcRelayDeposit` where intent-relay chains read the delivered packet.
+- **Addresses:** encode an address that receives funds with `encodeRecipient`; `encodeAddress` is the identity form (hub wallet derivation, signing). They differ only on MPC-relay chains.
 
 ## 3. Bitcoin — the exception (don't generalize it)
 Bitcoin doesn't follow the non-EVM pattern: it uses a **custodial trading-wallet model (RadFi / Bound Exchange)** instead of direct spoke deposits, and has the heaviest dapp-kit footprint. **Don't apply §2** — read the existing Bitcoin integration directly if you ever touch it.

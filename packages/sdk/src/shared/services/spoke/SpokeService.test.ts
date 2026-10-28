@@ -103,24 +103,24 @@ describe('SpokeService.approve — sequential plan execution', () => {
     expect(wait).toHaveBeenCalledWith({ txHash: RESET_HASH, chainKey: ARBITRUM });
   });
 
-  it.each(['failure', 'timeout'] as const)(
-    'does not send the second approve when the reset ends in %s',
-    async status => {
-      stubPlan({ resetAmount: 0n, approveAmount: AMOUNT });
-      const approve = vi.spyOn(Erc20Service, 'approve').mockResolvedValueOnce(RESET_HASH);
-      vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValue(receipt(status));
+  it.each([
+    'failure',
+    'timeout',
+  ] as const)('does not send the second approve when the reset ends in %s', async status => {
+    stubPlan({ resetAmount: 0n, approveAmount: AMOUNT });
+    const approve = vi.spyOn(Erc20Service, 'approve').mockResolvedValueOnce(RESET_HASH);
+    vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValue(receipt(status));
 
-      const result = await sodax.spoke.approve({ ...approveInput, raw: false, walletProvider });
+    const result = await sodax.spoke.approve({ ...approveInput, raw: false, walletProvider });
 
-      expect(result.ok).toBe(false);
-      expect(approve).toHaveBeenCalledTimes(1);
-      if (!result.ok) {
-        // The message has to name the hash and say a retry is cheap: once the reset lands the next
-        // plan is a single transaction, so the flow self-heals.
-        expect(String((result.error as Error).message)).toContain(RESET_HASH);
-      }
-    },
-  );
+    expect(result.ok).toBe(false);
+    expect(approve).toHaveBeenCalledTimes(1);
+    if (!result.ok) {
+      // The message has to name the hash and say a retry is cheap: once the reset lands the next
+      // plan is a single transaction, so the flow self-heals.
+      expect(String((result.error as Error).message)).toContain(RESET_HASH);
+    }
+  });
 
   it('sends one transaction and never waits when no reset is needed', async () => {
     stubPlan({ approveAmount: AMOUNT }, 'zero-allowance');
@@ -171,9 +171,7 @@ describe('SpokeService.buildApproveTxs', () => {
   it('returns the Stellar trustline as the approve, with no reset', async () => {
     const plan = vi.spyOn(Erc20Service, 'planApproval');
     const trustlineTx = { unsignedTx: 'AAAA...' };
-    const requestTrustline = vi
-      .spyOn(sodax.spoke.stellar, 'requestTrustline')
-      .mockResolvedValue(trustlineTx as never);
+    const requestTrustline = vi.spyOn(sodax.spoke.stellar, 'requestTrustline').mockResolvedValue(trustlineTx as never);
 
     const result = await sodax.spoke.buildApproveTxs({
       srcChainKey: 'stellar' satisfies SpokeChainKey,

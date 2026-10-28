@@ -107,6 +107,7 @@ vi.mock('../../utils/shared-utils.js', async () => {
 
 import { Sodax } from '../../entities/Sodax.js';
 import { SonicSpokeService } from './SonicSpokeService.js';
+import { encodeAddress } from '../../utils/shared-utils.js';
 import type { CreateIntentParams } from '../../types/intent-types.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
 
@@ -915,6 +916,32 @@ describe('SonicSpokeService.createSwapIntent (static)', () => {
       });
 
       expect(intent.outputToken).toBe(hubAsset);
+    });
+
+    it('MPC-relay (Tron) dst: dstAddress is the 32-byte recipient word (12 zero bytes ‖ 20-byte hash)', async () => {
+      vi.spyOn(sodax.config, 'getSpokeTokenFromOriginalAssetAddress').mockReturnValueOnce({
+        symbol: 'X',
+        decimals: 18,
+        address: '0xb' as Address,
+        hubAsset: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Address,
+        // Only `hubAsset` is read, so a partial XToken stands in for the full config entry.
+      } as unknown as ReturnType<typeof sodax.config.getSpokeTokenFromOriginalAssetAddress>);
+      const tronAddress = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
+
+      const [, intent] = await SonicSpokeService.createSwapIntent({
+        createIntentParams: baseCreateIntentParams(SONIC, {
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstAddress: tronAddress,
+        }),
+        creatorHubWalletAddress: HUB_WALLET,
+        solverConfig,
+        fee: undefined,
+        hubProvider: baseHubProvider,
+        raw: true,
+      });
+
+      const identity = encodeAddress(ChainKeys.TRON_MAINNET, tronAddress);
+      expect(intent.dstAddress).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
     });
 
     it('returns `inputAmount - feeAmount` as the intent inputAmount when a partner fee is configured', async () => {

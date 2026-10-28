@@ -126,7 +126,7 @@ Driving these steps yourself instead of calling `swap`? See [Migrate a manual sw
 
 #### Backend 2-step submit
 
-By default `swap()` uses a backend-driven 2-step flow (`swaps.useBackendSubmitTx`, default `true`): after `createIntent` broadcasts the intent tx, `swap()` hands the tx hash to the backend (`sodax.api.swaps.submitTx`), which relays + post-executes server-side; the SDK polls submit-tx status and returns the same `SwapResponse`. The SDK does **not** verify the tx on-chain first — the backend runs its own verification, so waiting for a client-side confirmation would delay every backend success by the source chain's confirmation wait and could fail a swap the backend would have completed. `verifyTxHash` therefore runs only on the client-side path. Set `new Sodax({ swaps: { useBackendSubmitTx: false } })` to force the fully client-side relay path.
+By default `swap()` uses a backend-driven 2-step flow (`swaps.useBackendSubmitTx`, default `true`): after `createIntent` broadcasts the intent tx, `swap()` hands the tx hash to the backend (`sodax.api.swaps.submitTx`), which relays + post-executes server-side; the SDK polls submit-tx status and returns the same `SwapResponse`. The SDK does **not** verify the tx on-chain first — the backend runs its own verification, so waiting for a client-side confirmation would delay every backend success by the source chain's confirmation wait and could fail a swap the backend would have completed. `verifyTxHash` therefore runs only on the client-side path. Set `new Sodax({ swaps: { useBackendSubmitTx: false } })` to force the fully client-side relay path. An MPC-relay source (such as Tron) skips the backend and settles client-side, since the backend relays only through the intent relay.
 
 On **any** non-success (submission rejected, terminal `failed`/abandoned, or poll timeout) `swap()` **falls back** to the client-side relay so the swap still completes — identical `SwapResponse` either way. This is **safe**: re-relaying / re-posting an already-processed swap is idempotent — the relay dedups and returns the existing `executed` packet, and the solver re-affirms the intent (no double-fill), verified live by `e2e-tests/e2e-relay.test.ts`. It also matters in practice: the backend keeps processing at its own pace after the SDK gives up, so the two relays can race. Each attempt gets its own `timeout` — see [How `timeout` bounds each attempt](#how-timeout-bounds-each-attempt). `useBackendSubmitTx` lives on `swaps` alongside `partnerFee` (not part of the backend `SodaxDefaultConfig`). See [CONFIGURE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-submit-tx-2-step-swapsusebackendsubmittx).
 
@@ -968,6 +968,8 @@ const rawResult = await sodax.swaps.createLimitOrderIntent({
 
 **Important:** `cancelIntent` takes `{ params: CancelIntentParams<K>, walletProvider }` — not positional arguments. You must supply `srcChainKey` explicitly because `Intent.srcChain` is a bigint relay ID that cannot narrow to a `SpokeChainKey` at the type level.
 
+An intent from an MPC-relay source chain cannot be cancelled yet: `cancelIntent` confirms the cancel through the intent relay, which an MPC-relay chain does not use, so `createCancelIntent` refuses it before signing.
+
 ```typescript
 import type { Intent, TxHashPair } from '@sodax/sdk';
 
@@ -1253,7 +1255,7 @@ Sometimes there is **no record**, and it reads 404 — you opted out with `useBa
 `sodax.swaps.getStatus` can answer for it, but needs the **hub** tx hash, which the caller may not have. So the caller had to know which path ran and pick an API. This method makes that choice instead:
 
 1. Read the backend record; return it while it is still in play.
-2. Otherwise resolve the hub tx hash — the source tx itself for hub-source swaps, else the delivered relay packet's `dst_tx_hash` — and return the solver's answer, reconciled as described below.
+2. Otherwise resolve the hub tx hash — the source tx itself for hub-source swaps, the MPC relay deposit record's hub mint for an MPC-relay source (such as Tron), else the delivered relay packet's `dst_tx_hash` — and return the solver's answer, reconciled as described below.
 
 A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 2, and on the default path this is the *common* branch rather than an edge case: the record almost always exists, so abandonment — not a 404 — is what usually signals the fallback ran. It never self-heals, so keeping it would report `failed` for a swap the fallback went on to complete. A `success: false` envelope takes step 2 as well — that is the wire contract's "no record found", whatever `data` carries. A transport or server error routes on too, so a transient backend outage does not fail a swap the solver can still report on.
 

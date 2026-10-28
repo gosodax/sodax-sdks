@@ -6,7 +6,7 @@ import {
   Erc4626Service,
   EvmVaultTokenService,
   encodeContractCalls,
-  encodeAddress,
+  encodeRecipient,
   poolAbi,
   SonicSpokeService,
   isSonicChainKeyType,
@@ -35,6 +35,7 @@ import {
   FEE_PERCENTAGE_SCALE,
   getIntentRelayChainId,
   HUB_CHAIN_KEY,
+  isMpcRelayChainKey,
   SolverIntentErrorCode,
   SolverIntentStatusCode,
 } from '@sodax/types';
@@ -78,7 +79,7 @@ import {
   DETAILED_STATUS_NOT_DELIVERED,
   isBackendSubmitTxAbandoned,
   readIntentJournalOutcome,
-  resolveDeliveredPacket,
+  resolveDeliveredHubTxHash,
 } from '../backendApi/detailedStatusRouting.js';
 import { isAuthFailure, isSodaxError } from '../errors/guards.js';
 import type { DetailedLeverageYieldStatus, DetailedLeverageYieldStatusKey } from './detailedStatus.js';
@@ -334,6 +335,13 @@ const BITCOIN_UNSUPPORTED_MESSAGE =
 /** Vault swaps do not support Bitcoin yet, as a source or a destination. */
 const VAULT_BITCOIN_UNSUPPORTED_MESSAGE =
   'Bitcoin is not a supported chain for leverage-yield vault swaps; use a supported spoke or the hub';
+
+/**
+ * The SDK confirms a hub-wallet message from an MPC-relay source (Tron) only by the release back to it,
+ * and a vault withdraw or position operation releases nothing. With no way out, the way in is refused too.
+ */
+const MPC_RELAY_UNSUPPORTED_MESSAGE =
+  'MPC-relay source chains are not supported for leverage yield yet; use a supported spoke or the hub';
 
 /** Sentinel `solver` address meaning "any solver may fill this intent". */
 const ANY_SOLVER_ADDRESS: Address = '0x0000000000000000000000000000000000000000';
@@ -907,6 +915,10 @@ export class LeverageYieldService {
         ...baseCtx,
         field: 'srcChainKey',
       });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
       leverageYieldInvariant(params.inputAmount > 0n, 'inputAmount must be greater than 0', {
         ...baseCtx,
         field: 'inputAmount',
@@ -973,6 +985,10 @@ export class LeverageYieldService {
     const baseCtx = { srcChainKey: params.srcChainKey, action: 'withdraw' satisfies LeverageYieldAction };
     try {
       leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
         ...baseCtx,
         field: 'srcChainKey',
       });
@@ -1058,6 +1074,10 @@ export class LeverageYieldService {
 
     try {
       leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
         ...baseCtx,
         field: 'srcChainKey',
       });
@@ -2205,8 +2225,8 @@ export class LeverageYieldService {
 
   /**
    * The hub-chain tx hash the solver is keyed on. A hub-source vault swap has no relay leg — the
-   * source tx *is* the hub tx. Otherwise the delivered relay packet carries it, so an undelivered
-   * packet is simply "no hash yet".
+   * source tx *is* the hub tx. Otherwise the delivered relay packet — or, for an MPC-relay chain,
+   * the minted deposit record — carries it, so an undelivered one is simply "no hash yet".
    */
   private async resolveHubTxHash(
     key: DetailedLeverageYieldStatusKey,
@@ -2215,11 +2235,12 @@ export class LeverageYieldService {
     let hubTxHash: string = key.srcTxHash;
 
     if (!isHubChainKeyType(key.srcChainKey)) {
-      const delivered = await resolveDeliveredPacket({
+      const delivered = await resolveDeliveredHubTxHash({
         srcChainKey: key.srcChainKey,
         srcTxHash: key.srcTxHash,
         relayerApiEndpoint: this.config.relay.relayerApiEndpoint,
         backendAnswered,
+        spoke: this.spoke,
       });
       if (!delivered.ok) {
         return {
@@ -2229,7 +2250,7 @@ export class LeverageYieldService {
           }),
         };
       }
-      hubTxHash = delivered.packet.dst_tx_hash;
+      hubTxHash = delivered.hubTxHash;
     }
 
     // Validate rather than cast — this hash reaches the solver next.
@@ -2948,8 +2969,9 @@ export class LeverageYieldService {
         // The chain's own encoding, not a 0x-prefixed string. `originAddress` is `bytes` on-chain and
         // is handed to the AssetManager as the refund destination, so a Solana or Stellar address has
         // to arrive in the form that chain's spoke expects — prefixing `0x` would produce a refund
-        // address that is merely well-formed hex. EVM addresses pass through unchanged.
-        address: encodeAddress(origin.chainKey, origin.address),
+        // address that is merely well-formed hex. EVM addresses pass through unchanged; an MPC-relay
+        // origin gets the padded recipient word its release decodes.
+        address: encodeRecipient(origin.chainKey, origin.address),
         // Named on the hub as well, not just off it. The asset decides what a cancellation pays back,
         // and zeroing it here is why someone who funded with USSD was refunded `sodaUSSD`. Callers pass
         // the asset only when a wrap actually happened — when the reserve IS what was deposited there is
@@ -3782,6 +3804,10 @@ export class LeverageYieldService {
         ...baseCtx,
         field: 'srcChainKey',
       });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
       leverageYieldInvariant(params.amount > 0n, 'amount must be greater than 0', { ...baseCtx, field: 'amount' });
       leverageYieldInvariant(params.minCollateralOut > 0n, 'minCollateralOut must be greater than 0', {
         ...baseCtx,
@@ -4041,6 +4067,10 @@ export class LeverageYieldService {
       // Bitcoin is not supported: the position paths derive the hub wallet from the personal address,
       // where TRADING mode requires the effective (trading) one — so fail before any funds move.
       leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
         ...baseCtx,
         field: 'srcChainKey',
       });

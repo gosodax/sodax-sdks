@@ -139,6 +139,7 @@ export const HubVaultSymbols = [
   'GLD',
   'sodaADA',
   'sodaZEC',
+  'sodaTRX',
 ] as const;
 
 export type HubVaultSymbol = (typeof HubVaultSymbols)[number];
@@ -882,6 +883,15 @@ export const SodaTokens = {
     chainKey: ChainKeys.SONIC_MAINNET,
     hubAsset: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
     vault: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
+  },
+  sodaTRX: {
+    symbol: 'sodaTRX',
+    name: 'SODA TRX',
+    decimals: 18,
+    address: '0x40931ea2e572bd298c371ea4312ca58db2c3b646',
+    chainKey: ChainKeys.SONIC_MAINNET,
+    hubAsset: '0x40931ea2e572bd298c371ea4312ca58db2c3b646',
+    vault: '0x40931ea2e572bd298c371ea4312ca58db2c3b646',
   },
 } as const satisfies Record<HubVaultSymbol, XToken>;
 
@@ -2836,6 +2846,29 @@ export const bitcoinSupportedTokens = {
     chainKey: ChainKeys.BITCOIN_MAINNET,
     hubAsset: '0xdb41c7d09406026d4582bc2fc6d6319c323fe1bb',
     vault: '0xE801CA34E19aBCbFeA12025378D19c4FBE250131',
+  },
+} as const satisfies Record<string, XToken>;
+
+export const tronSupportedTokens = {
+  // Native TRX. The spoke-side "address" uses the EVM-zero sentinel (Tron native has no
+  // contract); the hub wraps it as wTRX, minted into the sodaTRX vault via the MPC relay.
+  TRX: {
+    symbol: 'TRX',
+    name: 'Tron',
+    decimals: 6,
+    address: '0x0000000000000000000000000000000000000000',
+    chainKey: ChainKeys.TRON_MAINNET,
+    hubAsset: '0x61cd7FFcf33E3F5EB8280b94bc5180bc617b1da9',
+    vault: '0x40931ea2e572bd298c371ea4312ca58db2c3b646',
+  },
+  USDT: {
+    symbol: 'USDT',
+    name: 'Tether USD',
+    decimals: 6,
+    address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    chainKey: ChainKeys.TRON_MAINNET,
+    hubAsset: '0xA71E3e927BAf32eb5f1678a3b13c2fFfeE3973D7',
+    vault: '0xbDf1F453FCB61424011BBDDCB96cFDB30f3Fe876',
   },
 } as const satisfies Record<string, XToken>;
 
@@ -5432,6 +5465,7 @@ export const supportedTokensByChain = {
   [ChainKeys.KAIA_MAINNET]: kaiaSupportedTokens,
   [ChainKeys.STACKS_MAINNET]: stacksSupportedTokens,
   [ChainKeys.HEDERA_MAINNET]: hederaSupportedTokens,
+  [ChainKeys.TRON_MAINNET]: tronSupportedTokens,
   [ChainKeys.ROBINHOOD_MAINNET]: robinhoodSupportedTokens,
 } as const satisfies Record<ChainKey, Record<string, XToken>>;
 
