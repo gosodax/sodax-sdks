@@ -99,19 +99,22 @@ it just cannot rescue a wallet stuck on a guarded token.
 
 ## Approve and bridge in one signature
 
-From an EVM spoke with an EIP-5792 wallet, send `[resetTx?, approve tx, deposit tx]` from `approve` and
-`createBridgeIntent` as one atomic batch: one wallet prompt instead of two or three. This works because the
-API builds the deposit with the same SDK builder that `bridgeWithApproval` batches, without reading the
+When `checkAllowance` reports the allowance short, an EVM spoke source with an EIP-5792 wallet can send
+`[resetTx?, approve tx, deposit tx]` from `approve` and `createBridgeIntent` as one atomic batch: one wallet
+prompt instead of two or three. This works because `/bridge/intents` builds the deposit without reading the
 allowance, and `/bridge/approve` targets the spender that deposit pulls from. Finish with `submitTx`
 (see [Submit tx + poll status](#submit-tx--poll-status)), passing the batch's deposit `txHash` and the full
 `relayData`.
 
 The batch, refusal and unconfirmed-batch rules are the ones in
 [Approve and send the intent in one signature](./swaps-api.md#approve-and-send-the-intent-in-one-signature).
-After a refused batch, submit the `relayData` of the re-created intent. The runnable flow is
+Before waiting on the batch, persist from `onBatchSent` what a resume after a reload needs: the batch id,
+the batch's call count and the `relayData`. Resume an unconfirmed batch with `confirmApprovalBatch` and
+finish it with that `relayData`; never create the intent again or rerun the flow for it. After a refused
+batch, submit the `relayData` of the re-created intent. The runnable flow is
 [`bridgeApiApprovalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/backendApi/bridgeApiApprovalBatch.test.ts): it asserts the
-batch order, the refusal fallback and the resume of an unconfirmed batch. That a hub source or a wallet
-that cannot batch stays sequential is asserted in
+batch order, the refusal fallback and the resume of an unconfirmed batch from the persisted state. That a hub
+source or a wallet that cannot batch stays sequential is asserted in
 [`approvalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/utils/approvalBatch.test.ts).
 
 ## Common call shapes

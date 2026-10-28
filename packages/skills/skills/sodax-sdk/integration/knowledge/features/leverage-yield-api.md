@@ -146,24 +146,30 @@ if (allowance.ok && !allowance.value.valid) {
 
 ### Approve and deposit in one signature
 
-From an EVM spoke with an EIP-5792 wallet, send `[resetTx?, approve tx, deposit tx]` from `approve` and
-`createDepositIntent` as one atomic batch: one wallet prompt instead of two or three. This works because
-`createDepositIntent` builds the deposit without reading the allowance, and `approve` targets the spender that
-deposit pulls from. Finish with `submitTx` (see [Submit tx + poll status](#submit-tx--poll-status)),
-`operation: 'deposit'`, passing the batch's deposit `txHash`.
+When `checkAllowance` reports the allowance short, an EVM spoke source with an EIP-5792 wallet can send
+`[resetTx?, approve tx, deposit tx]` from `approve` and `createDepositIntent` as one atomic batch: one wallet
+prompt instead of two or three. This works because `createDepositIntent` builds the deposit without reading
+the allowance, and `approve` targets the spender that deposit pulls from. Finish with `submitTx` (see
+[Submit tx + poll status](#submit-tx--poll-status)), `operation: 'deposit'`, passing the batch's deposit
+`txHash`, the `intent` converted to `IntentRequestV2` (bigint fields, as `toIntentRequest` in the test does)
+and `relayData.payload`.
 
 The batch, refusal and unconfirmed-batch rules are the ones in
 [Approve and send the intent in one signature](./swaps-api.md#approve-and-send-the-intent-in-one-signature).
-The runnable flow is
+Before waiting on the batch, persist from `onBatchSent` what a resume after a reload needs: the batch id,
+the batch's call count, the wire `intent` (decimal strings, so it survives `JSON.stringify`) and
+`relayData.payload`. Resume an unconfirmed batch with `confirmApprovalBatch` and finish it with that state;
+never create the intent again or rerun the flow for it. After a refused batch, submit the `intent` and
+`relayData` of the deposit intent you created again. The runnable flow is
 [`leverageYieldApiApprovalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/backendApi/leverageYieldApiApprovalBatch.test.ts): it asserts the
-batch order, the new intent after a refusal, and the resume of an unconfirmed batch. That a hub source or a
-wallet that cannot batch stays sequential is asserted in
+batch order, the new intent after a refusal, and the resume of an unconfirmed batch from the persisted state.
+That a hub source or a wallet that cannot batch stays sequential is asserted in
 [`approvalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/utils/approvalBatch.test.ts).
 
 ### Submit tx + poll status
 
 ```ts
-// `intent` here is the IntentRequestV2 (bigint fields) you hold from createDepositIntent/createWithdrawIntent.
+// `intent` is the IntentResponseV2 (decimal strings) from createDepositIntent/createWithdrawIntent, converted to IntentRequestV2 (bigint fields).
 // `LeverageYieldSubmitTxRequestV2` is the swaps body PLUS a required `operation` discriminator, which the
 // backend needs to record the queued row as a vault deposit or withdrawal.
 const submit = await sodax.api.leverageYield.submitTx({

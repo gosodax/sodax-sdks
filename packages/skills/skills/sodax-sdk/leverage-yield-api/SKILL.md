@@ -34,7 +34,7 @@ this is the leverage-yield sibling of the [`swaps-api`](../swaps-api/SKILL.md) s
 ## Integration workflow
 
 1. [`../integration/knowledge/ai-rules.md`](../integration/knowledge/ai-rules.md) — DO / DO NOT (read first).
-2. [`../integration/knowledge/features/leverage-yield-api.md`](../integration/knowledge/features/leverage-yield-api.md) — the full 33-endpoint client: signatures, wire shapes (bigint vs decimal string), common call shapes (vault reads, deposit quote, create-intent, submit-tx + status), per-call overrides, custom endpoint, the `useBackendSubmitTx` service option.
+2. [`../integration/knowledge/features/leverage-yield-api.md`](../integration/knowledge/features/leverage-yield-api.md) — the full 33-endpoint client: signatures, wire shapes (bigint vs decimal string), common call shapes (vault reads, deposit quote, create-intent, submit-tx + status), per-call overrides, custom endpoint, the `useBackendSubmitTx` service option, and approving and depositing in one EIP-5792 signature.
 3. For the end-to-end vault-swap flow that wraps these calls → [`../integration/knowledge/features/leverage-yield.md`](../integration/knowledge/features/leverage-yield.md); for the intent-sibling swaps client → [`../integration/knowledge/features/swaps-api.md`](../integration/knowledge/features/swaps-api.md).
 4. Errors are `Result<T, SodaxError<'EXTERNAL_API_ERROR'>>` → [`../integration/knowledge/recipes/result-and-errors.md`](../integration/knowledge/recipes/result-and-errors.md) and [`../integration/knowledge/reference/error-codes.md`](../integration/knowledge/reference/error-codes.md).
 
@@ -45,7 +45,7 @@ this is the leverage-yield sibling of the [`swaps-api`](../swaps-api/SKILL.md) s
 - **Omitting `operation` on `submitTx`.** `LeverageYieldSubmitTxRequestV2` is the swaps body PLUS a required `operation: 'deposit' | 'withdraw'` — the backend records the queued row from it.
 - **Polling for `'executed'`.** A vault swap IS a solver swap, so terminal success is `'solved'` (`'executed'` is the *bridge* API's terminal state). A set `abandonedAt` is terminal too.
 - **Broadcasting `approve`'s `tx` without its `resetTx`.** `ApproveResponseV2` is `{ tx, resetTx? }`; a guarded input token needs `resetTx` MINED first or the approve reverts. In `@sodax/dapp-kit`, prefer `useLeverageYieldApiApproveAndBroadcast`, which owns that ordering.
-- **Stringifying `intent` numerics yourself.** `IntentRequestV2` fields are `bigint`; the client serializes them to decimal strings — pass the bigint intent through as-is.
+- **Passing `createDepositIntent`'s `intent` straight into `submitTx`.** The client returns `IntentResponseV2` (decimal strings); `submitTx` takes `IntentRequestV2` (`bigint` fields) and serializes it itself — convert the six numeric fields first, as `toIntentRequest` does in the linked test.
 - **Sending the approve and the deposit as separate prompts on an EVM spoke.** An EIP-5792 wallet can sign `[resetTx?, approve, deposit]` once — see "Approve and deposit in one signature" in the leverage-yield-api feature doc.
 - **Checking allowance for a withdraw.** `createWithdrawIntent` is a hub-wallet swap (spends `lsoda*` from the hub wallet) — there is no spoke allowance step. `checkAllowance`/`approve` take the **deposit** params only.
 - **Calling `getSubmitTxStatus` with only `txHash`.** Both `txHash` AND `srcChainKey` are required.

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -65,6 +65,43 @@ const checkAbsolute = ({ target, inRepo }) => {
 
   const path = decode(sourceUrl[1]).replace(/\/$/, '');
   return inRepo(path) ? null : `links to ${path}, which does not exist in this repo: ${url}`;
+};
+
+// A sodax-sdks source URL written bare in prose, as the skills tree does; it ends at whitespace or a
+// markdown delimiter, and trailing sentence punctuation or emphasis is not part of it.
+const BARE_SOURCE_URL = /https:\/\/github\.com\/gosodax\/sodax-sdks\/(?:blob|tree)\/main\/[^\s<>()[\]"'`]+/g;
+const TRAILING_PUNCTUATION = /[.,;:!?*_]+$/;
+
+// GitHub paths are case-sensitive and a macOS checkout is not, so compare each segment to a listing.
+const existsExact = (root, path) => {
+  let dir = root;
+  for (const segment of path.split('/').filter(Boolean)) {
+    if (!existsSync(dir) || !statSync(dir).isDirectory() || !readdirSync(dir).includes(segment)) return false;
+    dir = join(dir, segment);
+  }
+  return existsSync(dir);
+};
+
+// Checks every bare source URL in `files` (repo-relative paths) against the checkout at `root`.
+export const checkRepoUrls = ({ root, files }) => {
+  const failures = [];
+  const inRepo = path => {
+    const normalized = posix.normalize(path);
+    return !posix.isAbsolute(normalized) && !normalized.startsWith('..') && existsExact(root, normalized);
+  };
+  let links = 0;
+
+  for (const file of files) {
+    stripCode(readFileSync(join(root, file), 'utf8')).forEach((line, index) => {
+      for (const match of line.matchAll(BARE_SOURCE_URL)) {
+        links += 1;
+        const problem = checkAbsolute({ target: match[0].replace(TRAILING_PUNCTUATION, ''), inRepo });
+        if (problem) failures.push(`${file}:${index + 1} ${problem}`);
+      }
+    });
+  }
+
+  return { failures, checked: files.length, links };
 };
 
 // Resolves a root-relative site target to what Mintlify serves: a page file, a directory index,

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { checkDocLinks } from './check-doc-links.mjs';
+import { checkDocLinks, checkRepoUrls } from './check-doc-links.mjs';
 
 // The two shapes that matter: a doc the mirror keeps in place, and one it moves elsewhere.
 const MIRRORED = [
@@ -178,4 +178,67 @@ test('reports a missing manifest instead of silently passing', t => {
   const failures = checkDocLinks({ root, manifestPath: 'scripts/missing.json' }).failures;
 
   assert.deepEqual(failures, ['Missing docs page manifest scripts/missing.json']);
+});
+
+const runRepoUrls = (t, files) =>
+  checkRepoUrls({ root: createWorkspace(t, { files }), files: Object.keys(files) }).failures;
+
+test('checkRepoUrls flags a bare source URL to a missing file and nothing else', t => {
+  const failures = runRepoUrls(t, {
+    'packages/skills/skills/x/doc.md': [
+      'See https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/index.ts?plain=1#L3 and',
+      '**https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/index.ts**!',
+      'Dir: https://github.com/gosodax/sodax-sdks/tree/main/packages/sdk/docs/',
+      'Gone: https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/missing.ts.',
+      'Code: `https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/also-missing.ts`',
+      '',
+    ].join('\n'),
+  });
+
+  assert.equal(failures.length, 1);
+  assert.match(
+    failures[0],
+    /^packages\/skills\/skills\/x\/doc\.md:4 links to packages\/sdk\/src\/missing\.ts, which does not exist/,
+  );
+});
+
+test('checkRepoUrls rejects a path whose case differs from the checkout, as GitHub does', t => {
+  const failures = runRepoUrls(t, {
+    'packages/skills/README.md': 'https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/INDEX.ts\n',
+  });
+
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /packages\/sdk\/src\/INDEX\.ts/);
+});
+
+test('checkRepoUrls keeps the path inside the checkout and collapses dot segments like a browser', t => {
+  const failures = runRepoUrls(t, {
+    'package.json': '{}',
+    'packages/skills/README.md': [
+      'https://github.com/gosodax/sodax-sdks/blob/main//etc/hosts',
+      'https://github.com/gosodax/sodax-sdks/blob/main/packages/../package.json',
+      '',
+    ].join('\n'),
+  });
+
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /^packages\/skills\/README\.md:1 /);
+});
+
+test('checkRepoUrls does not crash on a file that is not valid UTF-8', t => {
+  const root = createWorkspace(t, {});
+  const path = 'packages/skills/README.md';
+  mkdirSync(join(root, dirname(path)), { recursive: true });
+  writeFileSync(
+    join(root, path),
+    Buffer.from([
+      0xff,
+      0x20,
+      ...Buffer.from('https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/missing.ts\n'),
+    ]),
+  );
+
+  const { failures } = checkRepoUrls({ root, files: [path] });
+
+  assert.equal(failures.length, 1);
 });

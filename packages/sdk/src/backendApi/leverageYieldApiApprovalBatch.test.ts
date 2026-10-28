@@ -12,6 +12,7 @@ import {
   ATOMIC_BATCH_UNCONFIRMED,
   ChainKeys,
   DEFAULT_API_BASE_URL,
+  DEFAULT_RELAY_TX_TIMEOUT,
   Sodax,
   baseChainInfo,
   confirmApprovalBatch,
@@ -21,6 +22,7 @@ import {
   isEvmWalletProviderType,
   resolveApprovalStrategy,
   sendApprovalBatch,
+  type ApprovalStrategy,
   type CreateDepositIntentParamsV2,
   type EvmAtomicBatchSupport,
   type EvmBatchResult,
@@ -84,6 +86,16 @@ const confirmed: EvmBatchResult = {
   receipts: [{ transactionHash: DEPOSIT_HASH, status: 'success' }],
 };
 
+/** A wallet may answer with one receipt per call instead of one for the batch; the deposit is the last one. */
+const oneReceiptPerCall: EvmBatchResult = {
+  ...confirmed,
+  receipts: [
+    { transactionHash: '0xreset', status: 'success' },
+    { transactionHash: '0xapprove', status: 'success' },
+    { transactionHash: DEPOSIT_HASH, status: 'success' },
+  ],
+};
+
 const batchWallet = (support: EvmAtomicBatchSupport = 'supported') => ({
   chainType: 'EVM' as const,
   getWalletAddress: vi.fn<IEvmWalletProvider['getWalletAddress']>(),
@@ -116,7 +128,7 @@ const stubBackend = ({ withReset, allowanceValid = false }: { withReset: boolean
 };
 
 const requested = (path: string) => mockFetch.mock.calls.filter(([url]) => url === `${BASE}${path}`);
-const submitted = () => JSON.parse(requested('/leverage-yield/submit-tx')[0]?.[1]?.body as string);
+const submitted = () => JSON.parse(requested('/leverage-yield/submit-tx')[0]?.[1]?.body);
 
 /** The wire intent comes back with decimal strings; `submitTx` takes the bigint variant. */
 const toIntentRequest = (intent: IntentResponseV2): IntentRequestV2 => ({
@@ -134,8 +146,16 @@ const unwrap = <T>(result: { ok: true; value: T } | { ok: false; error: unknown 
   return result.value;
 };
 
-/** What `submitTx` still needs once a batch is sent; persist it with the batch id. */
-type PendingDeposit = Pick<LeverageYieldSubmitTxRequestV2, 'intent' | 'relayData'>;
+/**
+ * Persist this with the batch id before waiting on the batch: a resume after a reload needs `callCount`
+ * for `confirmApprovalBatch` and the `submitTx` inputs. Keep the wire `intent` (decimal strings): it
+ * survives `JSON.stringify`, unlike the bigint `IntentRequestV2` that `submitTx` takes; convert at submit time.
+ */
+type PendingDeposit = {
+  intent: IntentResponseV2;
+  relayData: LeverageYieldSubmitTxRequestV2['relayData'];
+  callCount: number;
+};
 
 /** Approves and deposits; one signature when the source is an EVM spoke and the wallet can batch. */
 async function approveAndDeposit(
@@ -156,25 +176,31 @@ async function approveAndDeposit(
 
   // The API types its txs as `RawTxReturnType`; an EVM source returns EVM transactions.
   const approvalTxs = approval ? ([approval.resetTx, approval.tx].filter(Boolean) as EvmRawTransaction[]) : [];
-  const strategy = approval
+  let strategy: ApprovalStrategy = approval
     ? await resolveApprovalStrategy({ srcChainKey, walletProvider, allowAccountUpgrade })
     : 'not-required';
 
   let txHash: string | undefined;
   if (strategy === 'atomic-batch' && isEvmSpokeOnlyChainKeyType(srcChainKey)) {
+    const txs = [...approvalTxs, deposit.tx as EvmRawTransaction];
     const sent = await sendApprovalBatch({
       walletProvider,
       srcChainKey,
-      txs: [...approvalTxs, deposit.tx as EvmRawTransaction],
-      timeoutMs: 60_000,
+      txs,
+      timeoutMs: DEFAULT_RELAY_TX_TIMEOUT,
       feature: 'leverageYield',
       onBatchSent:
         onBatchSent &&
         (batchId =>
-          onBatchSent(batchId, { intent: toIntentRequest(deposit.intent), relayData: deposit.relayData.payload })),
+          onBatchSent(batchId, {
+            intent: deposit.intent,
+            relayData: deposit.relayData.payload,
+            callCount: txs.length,
+          })),
     });
     if (sent.ok) txHash = sent.value.txHash;
-    else if (!isAtomicBatchRefusal(sent.error)) throw sent.error;
+    else if (isAtomicBatchRefusal(sent.error)) strategy = 'sequential';
+    else throw sent.error;
   }
   if (txHash === undefined) {
     const { chainId } = baseChainInfo[srcChainKey];
@@ -250,7 +276,7 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
 
     const result = await approveAndDeposit(walletProvider, DEPOSIT_PARAMS);
 
-    expect(result.txHash).toBe('0xseparate-deposit');
+    expect(result).toEqual({ txHash: '0xseparate-deposit', strategy: 'sequential' });
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
     expect(walletProvider.sendTransaction.mock.calls.map(([tx]) => tx.data)).toEqual([
       APPROVE_WIRE.data,
@@ -319,7 +345,7 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
   it('never resends an unconfirmed batch; confirmApprovalBatch resumes it by id and call count', async () => {
     stubBackend({ withReset: true });
     const walletProvider = batchWallet();
-    walletProvider.waitForBatch.mockRejectedValueOnce(new Error('timed out'));
+    walletProvider.waitForBatch.mockRejectedValueOnce(new Error('timed out')).mockResolvedValueOnce(oneReceiptPerCall);
     const onBatchSent = vi.fn<(batchId: string, pending: PendingDeposit) => void>();
 
     await expect(approveAndDeposit(walletProvider, DEPOSIT_PARAMS, { onBatchSent })).rejects.toMatchObject({
@@ -331,24 +357,28 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
     expect(requested('/leverage-yield/submit-tx')).toHaveLength(0);
 
+    // What was persisted survives a JSON round trip and is all a resume needs: the call count, then the submit inputs.
+    const pending = onBatchSent.mock.calls[0]?.[1];
+    if (!pending) throw new Error('onBatchSent was not called');
+    expect(JSON.parse(JSON.stringify(pending))).toEqual(pending);
+    expect(pending.callCount).toBe(3);
+
     const resumed = await confirmApprovalBatch({
       walletProvider,
       batchId: 'batch-1',
-      callCount: 3,
-      timeoutMs: 60_000,
+      callCount: pending.callCount,
+      timeoutMs: DEFAULT_RELAY_TX_TIMEOUT,
       feature: 'leverageYield',
     });
     expect(resumed).toEqual({ ok: true, value: { txHash: DEPOSIT_HASH, batchId: 'batch-1' } });
     if (!resumed.ok) throw resumed.error;
 
-    // The persisted `pending` is all `submitTx` still needs to finish the resumed batch.
-    const pending = onBatchSent.mock.calls[0]?.[1];
-    if (!pending) throw new Error('onBatchSent was not called');
     const finished = await sodax.api.leverageYield.submitTx({
       txHash: resumed.value.txHash,
       srcChainKey: DEPOSIT_PARAMS.srcChainKey,
       walletAddress: DEPOSIT_PARAMS.srcAddress,
-      ...pending,
+      intent: toIntentRequest(pending.intent),
+      relayData: pending.relayData,
       operation: 'deposit',
     });
     expect(finished.ok).toBe(true);

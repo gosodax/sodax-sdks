@@ -25,7 +25,7 @@ validates the response. Errors carry `feature: 'backend'`, `context.api: 'bridge
 ## Integration workflow
 
 1. [`../integration/knowledge/ai-rules.md`](../integration/knowledge/ai-rules.md) — DO / DO NOT (read first).
-2. [`../integration/knowledge/features/bridge-api.md`](../integration/knowledge/features/bridge-api.md) — the full client: signatures, deltas vs swaps (no intent, FULL relayData envelope, 5-state tolerant status), common call shapes (create-intent, submit-tx + status), the read-only fee/bridgeable-amount/bridgeable discovery quotes, per-call overrides, `bridge.useBackendSubmitTx`.
+2. [`../integration/knowledge/features/bridge-api.md`](../integration/knowledge/features/bridge-api.md) — the full client: signatures, deltas vs swaps (no intent, FULL relayData envelope, 5-state tolerant status), common call shapes (create-intent, submit-tx + status), the read-only fee/bridgeable-amount/bridgeable discovery quotes, per-call overrides, `bridge.useBackendSubmitTx`, and approving and bridging in one EIP-5792 signature.
 3. For the end-to-end bridge flow that wraps these calls → [`../integration/knowledge/features/bridge.md`](../integration/knowledge/features/bridge.md); for the sibling swaps client → [`../integration/knowledge/features/swaps-api.md`](../integration/knowledge/features/swaps-api.md); for the read client (`sodax.backendApi`) → [`../integration/knowledge/features/backend-api.md`](../integration/knowledge/features/backend-api.md).
 4. Errors are `Result<T, SodaxError<'EXTERNAL_API_ERROR'>>` → [`../integration/knowledge/recipes/result-and-errors.md`](../integration/knowledge/recipes/result-and-errors.md) and [`../integration/knowledge/reference/error-codes.md`](../integration/knowledge/reference/error-codes.md).
 
