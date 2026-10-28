@@ -1804,7 +1804,7 @@ export class SwapService {
         getIntentRelayChainId(params.srcChainKey) === params.intent.srcChain,
         `srcChainKey (${params.srcChainKey}) does not match intent.srcChain (${params.intent.srcChain}). Expected relay chain id ${getIntentRelayChainId(params.srcChainKey)}.`,
       );
-      // The refund pays `intent.srcAddress`, which holds an MPC-relay chain's identity, not a payout word.
+      // `cancelIntent` confirms the cancel through the intent relay, which an MPC-relay chain does not use.
       swapInvariant(
         !isMpcRelayChainKey(params.srcChainKey),
         `Cancelling an intent from an MPC-relay source chain (${params.srcChainKey}) is not supported yet`,

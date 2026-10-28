@@ -140,6 +140,11 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<Result<T>> {
   }
 }
 
+/** The payload hash the relay derives for a deposit: `keccak256(abi.encode(hubWallet, data))`. */
+export function computePayloadHash(hubWallet: Hex, data: Hex): Hex {
+  return keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'bytes' }], [hubWallet, data]));
+}
+
 /**
  * Register a deposit's hub payload and get back where to send the funds.
  * @param owner  Spoke-chain address; its hub wallet is derived from this.
@@ -147,11 +152,6 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<Result<T>> {
  * @param data  Hub-side calls, from `encodeContractCalls`. Pass `encodeContractCalls([])` rather than
  *   `'0x'` for a plain mint: only non-empty bytes make the hub deploy the user's wallet.
  */
-/** The payload hash the relay derives for a deposit: `keccak256(abi.encode(hubWallet, data))`. */
-export function computePayloadHash(hubWallet: Hex, data: Hex): Hex {
-  return keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'bytes' }], [hubWallet, data]));
-}
-
 export async function getDepositAddress(
   apiUrl: HttpUrl,
   owner: string,
