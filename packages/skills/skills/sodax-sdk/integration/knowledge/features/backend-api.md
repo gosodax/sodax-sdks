@@ -87,7 +87,7 @@ You rarely build this DTO yourself: `sodax.swaps.createIntent` takes the token v
      // `basePath: ''` because a local mock serves `/config/*` at its origin, with no `/be` mount.
      api: { baseApiConfig: { baseURL: 'http://localhost:4000', basePath: '' } },
    });
-   await sodax.config.initialize();
+   await sodax.backendApi.getAllConfig();
    // → http://localhost:4000/config/all
    ```
 

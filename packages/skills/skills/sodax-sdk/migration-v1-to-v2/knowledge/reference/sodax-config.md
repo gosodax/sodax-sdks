@@ -141,7 +141,7 @@ const HUB_WALLET = hubConfig.addresses.hubWallet;     // module-scope OK
 const DEFAULT_RELAY = sodaxConfig.relay;              // module-scope OK
 ```
 
-`hubConfig` / `sodaxConfig` are the **packaged defaults** — the same values `ConfigService` falls back to if the backend is unreachable. Once you have a `Sodax` instance, prefer `sodax.config.getHubChainConfig()` / `sodax.config.*` so backend-driven updates take effect.
+`hubConfig` / `sodaxConfig` are the **packaged defaults** — the values `ConfigService` serves (`initialize()` fetches nothing today). Once you have a `Sodax` instance, prefer `sodax.config.getHubChainConfig()` / `sodax.config.*` so your `new Sodax(config)` overrides take effect.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: sodax-sdk-bridge-api
-description: 'Granular skill for the @sodax/sdk v2 Bridge API client — `sodax.api.bridge` (class BridgeApiService), a typed HTTP client for the backend Bridge API (`/bridge/*`: tokens, allowance/approve, create-bridge-intent, submit-tx + status, fee/bridgeable-amount/bridgeable discovery). Every method returns Promise<Result<T>>, never throws, and validates the response. Use when the task calls the bridge backend directly (e.g. "sodax.api.bridge", "createBridgeIntent via the backend API", "submit bridge tx", "poll bridge submit-tx status", "bridge API v2", "point bridge at a custom endpoint", "bridge.useBackendSubmitTx"). For the higher-level end-to-end bridge orchestrator use the `bridge` skill instead. Skill links into the parent sodax-sdk knowledge tree.'
+description: 'Granular skill for the @sodax/sdk v2 Bridge API client — `sodax.api.bridge` (class BridgeApiService), a typed HTTP client for the backend Bridge API (`/bridge/*`: tokens, allowance/approve, create-bridge-intent, submit-tx + status, fee/bridgeable-amount/bridgeable discovery). Every method returns Promise<Result<T>>, never throws, and validates the response. Use when the task calls the bridge backend directly (e.g. "sodax.api.bridge", "createBridgeIntent via the backend API", "submit bridge tx", "poll bridge submit-tx status", "bridge API v2", "point bridge at a custom endpoint", "bridge.useBackendSubmitTx"), or must bridge tokens the installed SDK does not bundle ("Unsupported spoke chain (…) token", "backend token list without upgrading the SDK"). For the higher-level bridge orchestrator, which accepts only bundled tokens, use the `bridge` skill instead. Skill links into the parent sodax-sdk knowledge tree.'
 ---
 
 # Bridge API (Core SDK granular skill)
@@ -17,8 +17,10 @@ validates the response. Errors carry `feature: 'backend'`, `context.api: 'bridge
 ## Step 1 — Clarify with user before coding
 
 1. **Which endpoint(s)?** Tokens · allowance/approve/create-bridge-intent · submit-tx/status · fee/bridgeable-amount/bridgeable discovery.
-2. **Orchestrator or raw API?** If the user just wants "do a bridge", prefer `sodax.bridge` (the `bridge`
-   skill). Use `sodax.api.bridge` when they need a single backend call or are building their own flow.
+2. **Orchestrator or raw API?** `sodax.bridge` (the `bridge` skill), its reads included, accepts only
+   tokens bundled with the installed `@sodax/sdk`. Use `sodax.api.bridge` end to end for tokens newer than
+   the installed SDK, where the backend validates, or for a single backend call. Otherwise prefer
+   `sodax.bridge` for "do a bridge".
 3. **Backend availability.** The `/bridge/*` routes are the newest backend surface; confirm the target host
    actually serves them (the on-chain `sodax.bridge` flow needs no backend).
 
@@ -26,7 +28,7 @@ validates the response. Errors carry `feature: 'backend'`, `context.api: 'bridge
 
 1. [`../integration/knowledge/ai-rules.md`](../integration/knowledge/ai-rules.md) — DO / DO NOT (read first).
 2. [`../integration/knowledge/features/bridge-api.md`](../integration/knowledge/features/bridge-api.md) — the full client: signatures, deltas vs swaps (no intent, FULL relayData envelope, 5-state tolerant status), common call shapes (create-intent, submit-tx + status), the read-only fee/bridgeable-amount/bridgeable discovery quotes, per-call overrides, `bridge.useBackendSubmitTx`.
-3. For the end-to-end bridge flow that wraps these calls → [`../integration/knowledge/features/bridge.md`](../integration/knowledge/features/bridge.md); for the sibling swaps client → [`../integration/knowledge/features/swaps-api.md`](../integration/knowledge/features/swaps-api.md); for the read client (`sodax.backendApi`) → [`../integration/knowledge/features/backend-api.md`](../integration/knowledge/features/backend-api.md).
+3. For the SDK bridge flow (local token checks; only its submit-tx leg calls this API) → [`../integration/knowledge/features/bridge.md`](../integration/knowledge/features/bridge.md); for the sibling swaps client → [`../integration/knowledge/features/swaps-api.md`](../integration/knowledge/features/swaps-api.md); for the read client (`sodax.backendApi`) → [`../integration/knowledge/features/backend-api.md`](../integration/knowledge/features/backend-api.md).
 4. Errors are `Result<T, SodaxError<'EXTERNAL_API_ERROR'>>` → [`../integration/knowledge/recipes/result-and-errors.md`](../integration/knowledge/recipes/result-and-errors.md) and [`../integration/knowledge/reference/error-codes.md`](../integration/knowledge/reference/error-codes.md).
 
 ### Bridge-API-specific anti-patterns
@@ -36,14 +38,14 @@ validates the response. Errors carry `feature: 'backend'`, `context.api: 'bridge
 - **Expecting an `intent` / `intent_hash`.** `createBridgeIntent` returns `{ tx, relayData }` only; submit-tx status terminal success is `status === 'executed' && result.dstIntentTxHash` (no solver `intent_hash`, no `'posting_execution'` state).
 - **Calling `getSubmitTxStatus` with only `txHash`.** Both `txHash` AND `srcChainKey` are required.
 - **Using SDK-domain param names in the body.** The wire DTO uses swaps naming (`inputToken`/`outputToken`/`inputAmount`/`srcAddress`/`dstAddress`); map SDK-domain `srcToken`/`dstToken`/`amount`/`recipient` via `toCreateBridgeIntentParamsV2`.
-- **Round-tripping the discovery quotes when a local read suffices.** `getFee` / `getBridgeableAmount` / `isBridgeable` are computable client-side — prefer `sodax.bridge.getFee` / `getBridgeableAmount` / `isBridgeable` (no network hop). Their backend endpoints exist (mirrored on this client) mainly for non-SDK HTTP callers / parity; the token *list*, by contrast, is only backend-served.
+- **Gating the API path with the local reads.** `sodax.bridge.getBridgeableAmount` / `isBridgeable` read the bundled config and fail for tokens newer than the installed SDK. On the API path gate on `sodax.api.bridge.getBridgeableAmount` (limit above zero); see [`features/bridge-api.md`](../integration/knowledge/features/bridge-api.md) § "Deltas vs the Swaps API".
 - **Confusing `sodax.api.bridge` with `sodax.bridge`.** The former is the backend HTTP client; the latter is the on-chain vault orchestrator.
 
 ## Migration workflow (on-chain → API)
 
 There is **no v1 Bridge API** — the typed `sodax.api.bridge` client is v2-new. The relevant move is from the
 on-chain `sodax.bridge.bridge()` orchestrator to the API client (or to the orchestrator's default-on backend
-path via `bridge.useBackendSubmitTx`):
+path via `bridge.useBackendSubmitTx`, which still checks tokens locally before handing the deposit to this API):
 
 1. [`../integration/knowledge/features/bridge.md`](../integration/knowledge/features/bridge.md) — the on-chain `BridgeService` orchestrator and the `bridge.useBackendSubmitTx` toggle that routes its spoke-deposit through this API with a client-side fallback.
 2. For the v1 → v2 reshape of the on-chain bridge itself (chain-key routing, `Result<T>`, error unions) → [`../migration-v1-to-v2/knowledge/features/bridge.md`](../migration-v1-to-v2/knowledge/features/bridge.md).
@@ -54,10 +56,12 @@ path via `bridge.useBackendSubmitTx`):
 2. Every `await sodax.api.bridge.<method>(...)` call site has `if (!result.ok)`.
 3. `submitTx.relayData` is the full `relayData` object (not `relayData.payload`); `getSubmitTxStatus` passes both `txHash` and `srcChainKey`.
 4. Bodies use the wire DTO names (`inputToken`/`outputToken`/`inputAmount`/`dstAddress`), mapped from SDK-domain params.
+5. Submit-tx status polling stops on `'executed'` (with `result.dstIntentTxHash`), `'failed'`, or a set `abandonedAt`.
+6. Tokens offered to users come from `getTokens()`, and the action is gated on the API bridgeable amount, when the flow must accept tokens newer than the installed SDK.
 
 ## Related granular skills (same family)
 
-- [`../bridge/SKILL.md`](../bridge/SKILL.md) — the end-to-end bridge orchestrator (`sodax.bridge`) that wraps these backend calls.
+- [`../bridge/SKILL.md`](../bridge/SKILL.md) — the bridge orchestrator (`sodax.bridge`): it validates tokens locally and uses this API only for submit-tx.
 - [`../swaps-api/SKILL.md`](../swaps-api/SKILL.md) — the sibling swaps HTTP client this mirrors.
 - [`../backend-api/SKILL.md`](../backend-api/SKILL.md) — the `sodax.backendApi` read client (intent / orderbook / money-market reads + config).
 

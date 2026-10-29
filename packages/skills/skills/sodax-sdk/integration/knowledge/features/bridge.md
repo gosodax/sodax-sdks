@@ -13,6 +13,7 @@ A bridge call deposits the source token into its vault on the hub, then triggers
 ## Public methods
 
 ```ts
+// New in 2.3.0 (not in 2.2.0): bridgeWithApproval, getApprovalStrategy
 sodax.bridge.bridge<K>(action: BridgeParams<K, false>): Promise<Result<TxHashPair, SodaxError>>;
 // bridge() with the approval folded in: one EIP-5792 batch (one signature) when the wallet can, else approve → wait → bridge.
 sodax.bridge.bridgeWithApproval<K>(action: BridgeWithApprovalParams<K>): Promise<Result<BridgeWithApprovalResponse, SodaxError>>;
@@ -232,8 +233,8 @@ different contract on the hub.
 | Method | Codes | `error.context` |
 |---|---|---|
 | `bridge` | full exec set | `action: 'bridge'` |
-| `bridgeWithApproval` | `bridge`'s codes + `APPROVE_FAILED`, `ALLOWANCE_CHECK_FAILED` | approval-step errors: `action: 'bridgeWithApproval'`, `approvalStrategy` (after the broadcast, `bridge()`'s own context); a batch that may still land is `TX_VERIFICATION_FAILED` with `reason: ATOMIC_BATCH_UNCONFIRMED` — never bridge it again; call again with `resumeBatchId: context.batchId, resumeBatchCallCount: context.callCount`, which sends nothing and relays the deposit once the batch lands |
-| `getApprovalStrategy` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` (`isAllowanceValid`'s) | `action: 'bridgeWithApproval'` |
+| `bridgeWithApproval` (new in 2.3.0) | `bridge`'s codes + `APPROVE_FAILED`, `ALLOWANCE_CHECK_FAILED` | approval-step errors: `action: 'bridgeWithApproval'`, `approvalStrategy` (after the broadcast, `bridge()`'s own context); a batch that may still land is `TX_VERIFICATION_FAILED` with `reason: ATOMIC_BATCH_UNCONFIRMED` — never bridge it again; call again with `resumeBatchId: context.batchId, resumeBatchCallCount: context.callCount`, which sends nothing and relays the deposit once the batch lands |
+| `getApprovalStrategy` (new in 2.3.0) | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` (`isAllowanceValid`'s) | `action: 'bridgeWithApproval'` |
 | `createBridgeIntent` | `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` | `action: 'bridge'` |
 | `approve` | `VALIDATION_FAILED`, `APPROVE_FAILED`, `UNKNOWN` | n/a |
 | `isAllowanceValid` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` | n/a |

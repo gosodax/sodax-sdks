@@ -13,8 +13,8 @@ Cross-chain token swaps via the intent-based solver.
 | `useSwapAllowance` | Query | Check if token approval is needed |
 | `useSwapApprove` | Mutation | Approve tokens for the swap contract |
 | `useSwapLifecycle` | Composite | The whole swap form as one `state` + `next()`: approval strategy, destination gates, chain switch, swap, status |
-| `useSwapWithApproval` | Mutation | `useSwap` with the approval folded in (one EIP-5792 signature where the wallet can batch) |
-| `useSwapApprovalStrategy` | Query | Which approval path `useSwapWithApproval` takes |
+| `useSwapWithApproval` (new in 2.3.0) | Mutation | `useSwap` with the approval folded in (one EIP-5792 signature where the wallet can batch) |
+| `useSwapApprovalStrategy` (new in 2.3.0) | Query | Which approval path `useSwapWithApproval` takes |
 | `useDetailedStatus` | Query | Track a swap by its source tx, whichever completion path ran (default status read) |
 | `useStatus` | Query | Track the solver's status by hub tx hash |
 | `useCancelSwap` | Mutation | Cancel an active swap intent |
@@ -139,7 +139,7 @@ Feed it `intentDeliveryInfo.srcChainKey` / `srcTxHash` on success. A `swap()` th
 ## One Hook for the Whole Form
 
 `useSwapLifecycle` composes the approval strategy, the destination gates (Stellar account + trustline, NEAR
-storage), source-chain switching, `useSwapWithApproval` and `useDetailedStatus` into one discriminated `state` and
+storage), source-chain switching, `useSwapWithApproval` (new in 2.3.0) and `useDetailedStatus` into one discriminated `state` and
 one `next()` action. Render from `state.kind`; wire the button to `next()`. Chain switching and app-owned setup
 (e.g. a Bitcoin trading wallet) are passed in — dapp-kit does not depend on the wallet packages.
 
@@ -230,7 +230,7 @@ swap lands in `state`:
   budget of ambiguous reads), so keep a "stop tracking" `reset()` reachable throughout `pending`; it cancels nothing
   on-chain;
 - an approve + swap batch the wallet accepted but that was not confirmed in time → `unconfirmed`. It may still land,
-  so `next()` never sends it again: it waits for that batch (`swapWithApproval` with `resumeBatchId`) and finishes
+  so `next()` never sends it again: it waits for that batch (`swapWithApproval` (new in 2.3.0) with `resumeBatchId`) and finishes
   the swap once it lands, staying `unconfirmed` while the batch is pending. `reset()` stops tracking it.
 
 Those last two hold even when `intentParams` changes (a refreshed quote rebuilds them), so a param edit cannot
@@ -239,7 +239,7 @@ running, so a double click swaps once. A setup step reads `checking`, not `needs
 until the check it invalidated has refreshed, so a second click cannot resend it.
 
 A user who declines the smart-account upgrade a `'ready'` wallet asks for lands in `failed` with a `USER_REJECTED`
-whose `context.reason` is `ACCOUNT_UPGRADE_DECLINED`. They refused the upgrade, not the swap: keep an
+whose `context.reason` is `ACCOUNT_UPGRADE_DECLINED` (new in 2.3.0). They refused the upgrade, not the swap: keep an
 `allowAccountUpgrade` flag in your own state, pass it to `useSwapLifecycle`, and offer "swap without upgrading" by
 setting it to `false` and calling `reset()`. The strategy then reads `'sequential'` and the next swap approves
 separately. Whether to remember that choice across sessions is up to the app.

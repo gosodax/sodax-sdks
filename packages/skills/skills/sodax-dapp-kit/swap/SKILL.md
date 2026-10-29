@@ -16,9 +16,10 @@ Granular skill for the swap hooks of `@sodax/dapp-kit` v2. React-only — backen
 1. **New code or v1 → v2 port?**
    - New → § Integration workflow.
    - Port v1 → § Migration workflow.
-2. **Which hooks?** A whole swap form → `useSwapLifecycle` (one `state` + `next()`; the hooks below are its parts and stay available). Otherwise: quote/preview (`useQuote`), execute (`useSwap`, or `useSwapWithApproval` to fold the approval in — one EIP-5792 signature where the wallet can batch; `useSwapApprovalStrategy` labels it; `allowAccountUpgrade: false` keeps a wallet that would ask for a smart-account upgrade on the two-step path), allowance gate (`useSwapAllowance` + `useSwapApprove`), status polling (`useDetailedStatus` from the source tx — the default; `useStatus` only when you hold the hub tx hash), or limit orders (`useCreateLimitOrder` / `useCancelLimitOrder`).
+2. **Which hooks?** A whole swap form → `useSwapLifecycle` (one `state` + `next()`; the hooks below are its parts and stay available). Otherwise: quote/preview (`useQuote`), execute (`useSwap`, or `useSwapWithApproval` (new in 2.3.0) to fold the approval in — one EIP-5792 signature where the wallet can batch; `useSwapApprovalStrategy` labels it; `allowAccountUpgrade: false` keeps a wallet that would ask for a smart-account upgrade on the two-step path), allowance gate (`useSwapAllowance` + `useSwapApprove`), status polling (`useDetailedStatus` from the source tx — the default; `useStatus` only when you hold the hub tx hash), or limit orders (`useCreateLimitOrder` / `useCancelLimitOrder`).
 3. **Market order or limit order?** Limit orders use `useCreateLimitOrder` (no `deadline`; cancel manually via `useCancelLimitOrder`).
 4. **Imperative flow or render-driven?** Sequenced flows → `mutateAsyncSafe` (returns `Result<T>`, never rejects). Fire-and-forget → `mutate`.
+5. **Tokens newer than the installed SDK?** These hooks validate against the tokens bundled with `@sodax/sdk`. For tokens the backend lists after that release, use the `useSwapsApi*` hooks (the [`auxiliary-services`](../auxiliary-services/SKILL.md) skill) with tokens from `useSwapsApiTokens`.
 
 ## Integration workflow (new v2 code)
 

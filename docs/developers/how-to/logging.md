@@ -34,9 +34,8 @@ const sodax = new Sodax({
 });
 ```
 
-The logger is resolved once at construction and held on `ConfigService` independently of the
-swappable dynamic config, so `sodax.config.initialize()` cannot replace it and the backend can
-neither set nor overwrite it. Read the resolved sink back as `sodax.config.logger`. Note that
+The logger is resolved once at construction and held on `ConfigService` outside the config object,
+so nothing the backend sends can set or overwrite it. Read the resolved sink back as `sodax.config.logger`. Note that
 `sodax.instanceConfig` is the merged options object and carries the `logger` key too; the sink the
 services use is `sodax.config.logger`.
 

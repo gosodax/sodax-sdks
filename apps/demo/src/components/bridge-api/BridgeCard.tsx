@@ -21,11 +21,11 @@ import {
   useBitcoinTradingSetup,
   useBridgeApiAllowance,
   useBridgeApiApproveAndBroadcast,
+  useBridgeApiBridgeableAmount,
   useBridgeApiCreateBridgeIntent,
   useBridgeApiFee,
   useBridgeApiSubmitTx,
-  useGetBridgeableAmount,
-  useGetBridgeableTokens,
+  useBridgeApiTokens,
   useNearStorageGate,
   useRequestTrustline,
   useSodaxContext,
@@ -59,6 +59,7 @@ import { formatMutationFailureMessage, rescaleTokenAmount } from '@/lib/utils';
 import type { BridgeApiOrder } from '@/components/bridge-api/OrderStatus';
 import { BRIDGE_API_MAX_PARTNER_FEE_BPS, DEFAULT_BRIDGE_API_BASE_URL, envBridgeApiBaseUrl } from '@/lib/sodaxSettings';
 import { isSignableBridgeApiChain, signAndBroadcastBridgeApiTx } from '@/components/bridge-api/lib/signAndBroadcast';
+import { toXToken } from '@/components/bridge-api/lib/mappers';
 
 /** Short button label for the step the wallet is on, or `null` once that step has landed. */
 function approvalStepLabel({ step, phase, index, total }: ApprovalProgress): string | null {
@@ -70,12 +71,21 @@ function approvalStepLabel({ step, phase, index, total }: ApprovalProgress): str
   return `${phase === 'signing' ? action : pending}${counter}`;
 }
 
+/** The API types the limit as a string, so parse it defensively: a malformed one must not throw in render. */
+function parseLimitAmount(amount: string | undefined): bigint | undefined {
+  if (amount === undefined) return undefined;
+  try {
+    return BigInt(amount);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Bridge-api demo card — the existing on-chain bridge UI (chain/token selection, max-bridgeable,
  * route-availability gate) wired to the HTTP Bridge API (`sodax.api.bridge.*`) via the `bridgeApi/`
- * hooks, mirroring how the swaps-api demo wires swaps. Token discovery (no HTTP hook) + bridgeable
- * math stay client-side (prefer no round-trip; bridgeable math also has an HTTP mirror now); only
- * allowance/approve/create/submit go through the API.
+ * hooks, mirroring how the swaps-api demo wires swaps. Tokens and the bridgeable limit come from the API
+ * too, so the page offers every token the backend lists, including ones the installed SDK does not bundle.
  */
 export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateAction<BridgeApiOrder[]>) => void }) {
   const { sodax } = useSodaxContext();
@@ -83,7 +93,16 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   const bridgeApiBaseURL = sodaxSettings.bridgeApiBaseUrl ?? envBridgeApiBaseUrl ?? DEFAULT_BRIDGE_API_BASE_URL;
   const bridgeApiConfig = useMemo((): RequestOverrideConfig => ({ baseURL: bridgeApiBaseURL }), [bridgeApiBaseURL]);
 
-  const supportedTokensPerChain = useMemo(() => sodax.config.getSupportedTokensPerChain(), [sodax]);
+  const { data: apiTokens, isLoading: isLoadingBridgeableTokens } = useBridgeApiTokens({
+    params: { apiConfig: bridgeApiConfig },
+  });
+  const supportedTokensPerChain = useMemo(
+    () =>
+      new Map(
+        Object.entries(apiTokens ?? {}).map(([chainKey, tokens]) => [chainKey as SpokeChainKey, tokens.map(toXToken)]),
+      ),
+    [apiTokens],
+  );
 
   const [fromChainKey, setFromChainKey] = useState<SpokeChainKey>(ChainKeys.BASE_MAINNET);
   const [toChainKey, setToChainKey] = useState<SpokeChainKey>(ChainKeys.POLYGON_MAINNET);
@@ -114,14 +133,15 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   const fromChainType = getXChainType(fromChainKey);
   const toChainType = getXChainType(toChainKey);
 
-  // Client-side token discovery (no HTTP hook) + bridgeable math (kept client-side, prefer no round-trip;
-  // also mirrored by useBridgeApiBridgeableAmount) — same as the on-chain page.
-  const { data: bridgeableTokens, isLoading: isLoadingBridgeableTokens } = useGetBridgeableTokens({
-    params: { from: fromToken?.chainKey, to: toChainKey, token: fromToken?.address },
-  });
+  // Destination tokens that share the source token's hub vault, the same rule as `sodax.bridge.getBridgeableTokens`.
+  const bridgeableTokens = useMemo(() => {
+    if (!fromToken) return [];
+    const vault = fromToken.vault.toLowerCase();
+    return (supportedTokensPerChain.get(toChainKey) ?? []).filter(t => t.vault.toLowerCase() === vault);
+  }, [fromToken, toChainKey, supportedTokensPerChain]);
 
   useEffect(() => {
-    if (bridgeableTokens && bridgeableTokens.length > 0) {
+    if (bridgeableTokens.length > 0) {
       setToToken(prev => (prev && bridgeableTokens.some(t => t.address === prev.address) ? prev : bridgeableTokens[0]));
     } else {
       setToToken(undefined);
@@ -133,14 +153,36 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
     setFromToken(tokens[0]);
   }, [fromChainKey, supportedTokensPerChain]);
 
-  const { data: bridgeableAmount, isLoading: isLoadingBridgeableAmount } = useGetBridgeableAmount({
-    params: { from: fromToken, to: toToken },
+  // A listed pair can still have a zero limit, and then create-intent fails, so gate on the live limit.
+  // Query only once both selections have caught up with the chain pickers, or a stale pair is fetched.
+  const isPairSettled =
+    !!fromToken &&
+    !!toToken &&
+    fromToken.chainKey === fromChainKey &&
+    bridgeableTokens.some(t => t.address === toToken.address);
+  const {
+    data: bridgeable,
+    error: bridgeableError,
+    isLoading: isLoadingBridgeableAmount,
+  } = useBridgeApiBridgeableAmount({
+    params: {
+      body:
+        isPairSettled && fromToken && toToken
+          ? {
+              srcChainKey: fromChainKey,
+              dstChainKey: toChainKey,
+              inputToken: fromToken.address,
+              outputToken: toToken.address,
+            }
+          : undefined,
+      apiConfig: bridgeApiConfig,
+    },
+    // A rejected pair (400) is deterministic, so retrying only delays the answer.
+    queryOptions: { retry: false },
   });
-
-  const isBridgeable = useMemo(() => {
-    if (!fromToken || !toToken) return false;
-    return sodax.bridge.isBridgeable({ from: fromToken, to: toToken });
-  }, [fromToken, toToken, sodax]);
+  const bridgeableAmount = bridgeable?.limit;
+  const limitAmount = parseLimitAmount(bridgeableAmount?.amount);
+  const isBridgeable = limitAmount !== undefined && limitAmount > 0n;
 
   const parsedAmount = useMemo(() => {
     if (!fromToken || !fromAmount) return undefined;
@@ -537,7 +579,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
               <Select
                 value={toToken?.symbol}
                 onValueChange={symbol => {
-                  const selected = bridgeableTokens?.find(t => t.symbol === symbol);
+                  const selected = bridgeableTokens.find(t => t.symbol === symbol);
                   if (selected) setToToken(selected);
                 }}
               >
@@ -545,7 +587,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
                   <SelectValue placeholder="Token" />
                 </SelectTrigger>
                 <SelectContent>
-                  {bridgeableTokens?.map(t => (
+                  {bridgeableTokens.map(t => (
                     <SelectItem key={`${t.address}-${t.symbol}`} value={t.symbol}>
                       {t.symbol}
                     </SelectItem>
@@ -578,17 +620,17 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
         </CardContent>
 
         <CardFooter className="flex flex-col space-y-4">
-          {isBridgeable ? (
+          {isLoadingBridgeableAmount ? (
+            <Skeleton className="w-48 h-5" />
+          ) : isBridgeable && bridgeableAmount && limitAmount !== undefined ? (
             <div className="flex items-center gap-2 text-sm">
               Maximum bridgeable:{' '}
-              {isLoadingBridgeableAmount ? (
-                <Skeleton className="w-16 h-5 inline-block" />
-              ) : (
-                Number.parseFloat(
-                  formatUnits(bridgeableAmount?.amount ?? 0n, bridgeableAmount?.decimals ?? 0),
-                ).toLocaleString('en-US')
-              )}{' '}
-              {toToken?.symbol} ({bridgeableAmount?.type === 'DEPOSIT_LIMIT' ? 'deposit' : 'withdraw'} limit)
+              {Number.parseFloat(formatUnits(limitAmount, bridgeableAmount.decimals)).toLocaleString('en-US')}{' '}
+              {toToken?.symbol} ({bridgeableAmount.type === 'DEPOSIT_LIMIT' ? 'deposit' : 'withdraw'} limit)
+            </div>
+          ) : bridgeableError ? (
+            <div className="text-sm text-destructive">
+              {formatMutationFailureMessage(bridgeableError, 'Could not load the bridge limit')}
             </div>
           ) : (
             <div className="text-sm text-muted-foreground">Route not available</div>

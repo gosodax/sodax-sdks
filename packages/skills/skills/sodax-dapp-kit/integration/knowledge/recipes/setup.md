@@ -123,7 +123,7 @@ const swap = useSwap({
 
 ## Initialize SDK (Optional)
 
-For dynamic config (latest tokens/chains from backend API):
+`sodax.initialize()` currently returns success without fetching backend config; tokens and chains come from the installed SDK version. The call is optional:
 
 ```tsx
 import { useEffect } from 'react';

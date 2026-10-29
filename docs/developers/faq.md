@@ -23,9 +23,11 @@ Deep dives: [Technical Overview](/developers/technical-overview), [Asset Manager
 
 #### 4. Do I need to call `sodax.initialize()` before using the SDK?
 
-Not strictly. The constructor uses defaults packaged with the SDK version you installed. `await sodax.initialize()` fetches the latest tokens and chains from the backend API. Recommended for production, optional for prototypes. If it fails, the SDK falls back to packaged defaults rather than throwing.
+No. The constructor uses the config packaged with the SDK version you installed, and `initialize()` currently returns success without fetching anything, so it does not add tokens or chains listed after your release. Calling it is harmless.
 
-See [Configure SDK](/developers/how-to/configure_sdk).
+To use a token listed after your release, upgrade `@sodax/sdk`, or use the backend API clients (`sodax.api.swaps`, `sodax.api.bridge`, `sodax.api.leverageYield`), which leave token validation to the backend.
+
+See [Where supported tokens come from](/developers/how-to/configure_sdk#where-supported-tokens-come-from).
 
 #### 5. How do I override the hub RPC or contract addresses?
 

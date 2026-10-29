@@ -49,7 +49,7 @@ After install, your agent picks based on what you're building. Quick guide:
 
 ## Why this exists
 
-LLM training data drifts: snippets from chat often use stale method names, reshaped types, or outdated error codes. Public docs help humans, not agents — an agent only reads what's in its context window. This package ships the right material in agent-native form so the agent reads it before generating code. The content is version-locked to the SDK — upgrade `@sodax/skills`, the docs upgrade with it.
+LLM training data drifts: snippets from chat often use stale method names, reshaped types, or outdated error codes. Public docs help humans, not agents — an agent only reads what's in its context window. This package ships the right material in agent-native form so the agent reads it before generating code. An npm install of `@sodax/skills` at your SDK's version matches that SDK. The skills CLI installs from `main`, which can describe APIs newer than your installed SDK. The approval helpers are marked "new in X"; confirm any other import resolves against your installed version.
 
 ## Feedback
 

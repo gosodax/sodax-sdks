@@ -13,9 +13,9 @@ The tables below summarise the methods each provider exposes. For full type-leve
 | `getWalletAddress` | `() => Promise<Address>` |
 | `sendTransaction` | `(tx: EvmRawTransaction, opts?: EvmSendTransactionPolicy) => Promise<Hash>` |
 | `waitForTransactionReceipt` | `(hash: Hash, opts?: EvmWaitForTransactionReceiptPolicy) => Promise<EvmRawTransactionReceipt>` |
-| `getAtomicBatchSupport?` | `(chainId: number) => Promise<EvmAtomicBatchSupport>` — optional (EIP-5792) |
-| `sendAtomicBatch?` | `(txs: readonly EvmRawTransaction[], opts: EvmSendBatchOptions) => Promise<string>` — optional, returns a batch id |
-| `waitForBatch?` | `(batchId: string, opts?: EvmWaitForBatchOptions) => Promise<EvmBatchResult>` — optional; throws on timeout |
+| `getAtomicBatchSupport?` (new in 2.3.0) | `(chainId: number) => Promise<EvmAtomicBatchSupport>` — optional (EIP-5792) |
+| `sendAtomicBatch?` (new in 2.3.0) | `(txs: readonly EvmRawTransaction[], opts: EvmSendBatchOptions) => Promise<string>` — optional, returns a batch id |
+| `waitForBatch?` (new in 2.3.0) | `(batchId: string, opts?: EvmWaitForBatchOptions) => Promise<EvmBatchResult>` — optional; throws on timeout |
 
 Plus public field: `publicClient: PublicClient`. The three EIP-5792 methods are optional on the interface; a custom provider that omits them still works — the SDK falls back to separate transactions.
 
@@ -34,6 +34,7 @@ Plus public field: `publicClient: PublicClient`. The three EIP-5792 methods are 
 | `getAssociatedTokenAddress` | `(mint) => Promise<SolanaBase58PublicKey>` |
 | `getBalance` | `(publicKey) => Promise<number>` |
 | `getTokenAccountBalance` | `(publicKey) => Promise<RpcResponseAndContext<TokenAmount>>` |
+| `signAndSendTransaction?` | `(tx: SolanaRawTransaction) => Promise<TransactionSignature>` — signs and sends a transaction the Swaps / Bridge / Leverage Yield API built |
 
 Plus public field: `connection: Connection`.
 
@@ -72,6 +73,7 @@ Plus public field: `connection: Connection`.
 | `getWalletAddress` | `() => Promise<string>` |
 | `signTransaction` | `(tx: XDR) => Promise<XDR>` |
 | `waitForTransactionReceipt` | `(hash: string, opts?: Pick<StellarWalletDefaults, 'pollInterval' | 'pollTimeout'>) => Promise<…>` |
+| `signAndSendTransaction?` | `(tx: StellarRawTransaction) => Promise<string>` — signs and sends a transaction the Swaps / Bridge / Leverage Yield API built |
 
 ---
 
@@ -123,6 +125,7 @@ Plus public fields (PK mode only): `account?: Account`, `rpcProvider?: JsonRpcPr
 | `sendTransaction` | `(params: StacksTransactionParams) => Promise<…>` |
 | `readContract` | `(params: StacksTransactionParams) => Promise<ClarityValue>` |
 | `getBalance` | `(address: string) => Promise<bigint>` |
+| `signAndSendTransaction?` | `(tx: StacksRawTransaction) => Promise<string>` — signs and sends a transaction the Swaps / Bridge / Leverage Yield API built |
 
 ---
 

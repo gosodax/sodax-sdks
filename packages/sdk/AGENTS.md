@@ -10,7 +10,7 @@ Consumer-facing AI material lives in `packages/skills`; keep this file focused o
 
 - `Sodax` is the facade. It constructs feature services and shared services from one config object.
 - Sonic is the hub chain. Cross-chain operations route through hub contracts and per-chain-family spoke services.
-- `ConfigService` loads dynamic config from the backend and falls back to packaged defaults from `@sodax/types`.
+- `ConfigService` holds the packaged defaults from `@sodax/types` merged with constructor overrides, and feature services validate tokens against them. The backend fetch in `initialize()` is disabled under `TODO(config-v2)`.
 - `SpokeService` is the runtime router for chain-family services. Feature code should call `this.spoke.getSpokeService(chainKey)` instead of constructing chain-specific providers directly.
 - Wallet-provider interfaces come from `@sodax/types` via the SDK public barrel. Implementations live outside this package.
 

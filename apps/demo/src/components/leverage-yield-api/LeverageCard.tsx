@@ -22,8 +22,8 @@ import { Loader2 } from 'lucide-react';
 import React, { type SetStateAction, useMemo, useState } from 'react';
 import {
   ChainKeys,
-  getSupportedSolverTokens,
   useSodaxContext,
+  useSwapsApiTokens,
   useXBalances,
   useGetUserHubWalletAddress,
   useLeverageYieldApiAllowance,
@@ -43,7 +43,7 @@ import {
 import { getXChainType, useEvmSwitchChain, useWalletProvider, useXAccount, useXService } from '@sodax/wallet-sdk-react';
 import type { LeverageYieldApiOrder } from '@/components/leverage-yield-api/OrderStatus';
 import { effectiveLeverageYieldApiBaseUrl } from '@/lib/sodaxSettings';
-import { toIntentRequest } from '@/components/swaps-api/lib/mappers';
+import { toIntentRequest, toXToken } from '@/components/swaps-api/lib/mappers';
 import { isSignableSwapsApiChain, signAndBroadcastSwapsApiTx } from '@/components/swaps-api/lib/signAndBroadcast';
 import { useDebouncedValue } from '@/components/swaps-api/lib/useDebouncedValue';
 import { useAppStore } from '@/zustand/useAppStore';
@@ -163,12 +163,17 @@ export default function LeverageCard({
 
   const { data: deadlineData, refetch: refetchDeadline } = useLeverageYieldApiDeadline({ params: { apiConfig } });
 
+  // The backend's token list, not the installed SDK's: this API accepts tokens the SDK does not bundle.
+  const { data: apiSwapTokens } = useSwapsApiTokens({ params: { apiConfig } });
+  const tokensByChain = useMemo(
+    () =>
+      Object.fromEntries(Object.entries(apiSwapTokens ?? {}).map(([chain, tokens]) => [chain, tokens.map(toXToken)])),
+    [apiSwapTokens],
+  );
+
   // ══════════════════════════════ DEPOSIT ══════════════════════════════
   const [depositChain, setDepositChain] = useState<string>(ChainKeys.ARBITRUM_MAINNET);
-  const depositTokens = useMemo(
-    () => (depositChain ? getSupportedSolverTokens(depositChain as SpokeChainKey) : []),
-    [depositChain],
-  );
+  const depositTokens = tokensByChain[depositChain] ?? [];
   const [depositToken, setDepositToken] = useState<XToken | undefined>(undefined);
   const [depositAmount, setDepositAmount] = useState<string>('');
   const debouncedDepositAmount = useDebouncedValue(depositAmount);
@@ -330,10 +335,7 @@ export default function LeverageCard({
   // swapped-out token there. It must be the chain the position was deposited from — that's where the
   // lsoda*-holding hub wallet is derived.
   const [withdrawChain, setWithdrawChain] = useState<string>(ChainKeys.ARBITRUM_MAINNET);
-  const withdrawTokens = useMemo(
-    () => (withdrawChain ? getSupportedSolverTokens(withdrawChain as SpokeChainKey) : []),
-    [withdrawChain],
-  );
+  const withdrawTokens = tokensByChain[withdrawChain] ?? [];
   const [withdrawToken, setWithdrawToken] = useState<XToken | undefined>(undefined);
   const [withdrawShares, setWithdrawShares] = useState<string>('');
   const debouncedWithdrawShares = useDebouncedValue(withdrawShares);

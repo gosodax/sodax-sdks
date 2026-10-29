@@ -18,6 +18,9 @@ DO / DO NOT / workflow / stop conditions for AI agents writing v2 dapp-kit code.
 
 ## DO
 
+- **DO** check the installed `@sodax/dapp-kit` version before using a hook marked "new in 2.3.0"; it is absent from older releases. On 2.2.0, replace a `use*WithApproval` hook with the allowance hook, the approve hook, then the plain action hook (a vault deposit approves through `useSwapAllowance` / `useSwapApprove`). Only the approval hooks carry that marker, so confirm any other import (for example `useSwapLifecycle`) resolves against your installed version.
+- **DO** take the token list for a `useSwapsApi*` / `useBridgeApi*` / `useLeverageYieldApi*` flow from `useSwapsApiTokens` / `useBridgeApiTokens`. The feature hooks accept only tokens bundled with the installed `@sodax/sdk`, and `initialize()` adds none (the `sodax-sdk` skill, "Where supported tokens come from").
+
 - **DO** call dapp-kit's exported hooks (which wrap `useSafeMutation`). Never call React Query's `useMutation` directly inside a wrapper around a dapp-kit hook — consumers depend on `mutateAsyncSafe`.
 - **DO** branch on `mutateAsyncSafe`'s `Result.ok` for sequenced flows (`if (!hasAllowance) await approve(...); await action(...);`). User-rejects are modal, not exceptional.
 - **DO** use `ChainKeys.X_MAINNET` constants for chain identifiers. Never hard-code chain key strings (`'sonic'`, `'0xa4b1.arbitrum'`).

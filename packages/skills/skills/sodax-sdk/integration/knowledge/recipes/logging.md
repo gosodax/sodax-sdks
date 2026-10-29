@@ -18,10 +18,8 @@ new Sodax({ logger: 'console' });  // mirror console.* output
 new Sodax({ logger: 'silent' });   // drop all SDK logs
 ```
 
-The logger is resolved **once** at construction and held on `ConfigService` outside the swappable
-dynamic config (read it back as `sodax.config.logger`). `await sodax.config.initialize()` fetches fresh
-chain config from the backend but **never** replaces the logger — the backend cannot set or overwrite
-it.
+The logger is resolved **once** at construction and held on `ConfigService` outside the config
+object (read it back as `sodax.config.logger`), so nothing the backend sends can set or overwrite it.
 
 > Combine with the other constructor options freely — pass `logger` alongside `chains` / `api` /
 > `solver` overrides in the same object. The merged options land on `sodax.instanceConfig` (including the
