@@ -35,6 +35,15 @@ if (!initResult.ok) {
 
 `initialize()` returns `Promise<Result<void>>`. The current implementation returns success without fetching backend configuration; it preserves the constructor-merged configuration. Do not use it as a token-support refresh. A direct import of `spokeChainConfig` is only the packaged snapshot and does not include your overrides.
 
+### Where supported tokens come from
+
+The SDK knows the tokens and chains bundled with the installed `@sodax/sdk` version, and nothing newer. This decides what happens to a token the backend lists after your release:
+
+- The feature services (`sodax.swaps`, `sodax.bridge`, `sodax.leverageYield`) check every token against the bundled list and reject an unknown one before sending a request.
+- The backend API clients (`sodax.api.swaps`, `sodax.api.bridge`, `sodax.api.leverageYield`) and the dapp-kit `useSwapsApi*`, `useBridgeApi*` and `useLeverageYieldApi*` hooks send tokens as given. The backend validates them against its own list, which `sodax.api.swaps.getTokens()` and `sodax.api.bridge.getTokens()` return. On this path your app signs and broadcasts the unsigned transaction the API returns.
+
+To use a token listed after your SDK release, upgrade `@sodax/sdk`, or build the flow on the API clients. The [Swaps HTTP API](https://docs.sodax.com/developers/http-api/swaps) page lists the steps, and the demo's [Swaps API page](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/components/swaps-api/SwapCard.tsx) is a working client, including per-chain signing in [`signAndBroadcast.ts`](https://github.com/gosodax/sodax-sdks/blob/main/apps/demo/src/components/swaps-api/lib/signAndBroadcast.ts).
+
 ## SodaxConfig overview
 
 Top-level keys of the consolidated `SodaxConfig` — the `SodaxDefaultConfig` data contract plus the per-feature client-side options merged over it. The feature rows are typed `SwapsConfig` / `BridgeConfig` / … (`<Feature>DefaultConfig & <Feature>Options`), so `partnerFee` and `useBackendSubmitTx` appear there even though neither is part of `SodaxDefaultConfig` and neither is ever fetched from the backend:

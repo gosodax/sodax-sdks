@@ -39,7 +39,7 @@ sodax.api.bridge.createBridgeIntent(body: CreateBridgeIntentParamsV2, config?): 
 sodax.api.bridge.submitTx(body: BridgeSubmitTxRequestV2, config?): Promise<Result<BridgeSubmitTxResponseV2>>;
 sodax.api.bridge.getSubmitTxStatus(query: BridgeSubmitTxStatusQueryV2, config?): Promise<Result<BridgeSubmitTxStatusResponseV2>>;
 
-// Discovery / quote — read-only (computable client-side via sodax.bridge.*; mirrored here for HTTP parity)
+// Discovery / quote — read-only. The local sodax.bridge.* reads accept only bundled tokens; these accept any listed one.
 sodax.api.bridge.getFee(body: BridgeFeeRequestV2, config?): Promise<Result<BridgeFeeResponseV2>>;
 sodax.api.bridge.getBridgeableAmount(body: BridgeQuoteRequestV2, config?): Promise<Result<BridgeableAmountResponseV2>>;
 sodax.api.bridge.isBridgeable(body: BridgeQuoteRequestV2, config?): Promise<Result<BridgeableCheckResponseV2>>;
@@ -64,10 +64,12 @@ Bridge is **vault-backed, not solver-based**, so the surface is smaller and a fe
   `dstAddress`), NOT the SDK-domain `srcToken`/`dstToken`/`amount`/`recipient`. The mapper
   `toCreateBridgeIntentParamsV2(params, extras?)` converts SDK-domain params (and serializes the `bigint`
   amount) to this wire DTO.
-- **Discovery quotes (`getFee` / `getBridgeableAmount` / `isBridgeable`) are computable client-side** — prefer
-  `sodax.bridge.getFee(...)` / `getBridgeableAmount(...)` / `isBridgeable({ from, to })` (no round-trip). They
-  *also* have backend endpoints (listed above), mirrored on this client for non-SDK HTTP callers / parity.
-  The token *list* is backend-served via `getTokens` / `getTokensByChain`.
+- **Discovery quotes (`getFee` / `getBridgeableAmount` / `isBridgeable`) also exist client-side** as
+  `sodax.bridge.getFee(...)` / `getBridgeableAmount(...)` / `isBridgeable({ from, to })`. The last two read the
+  config bundled with the installed SDK, so they fail or return `false` for tokens newer than that release; use
+  this client's versions for such tokens. `getFee` takes no token and works for any. Gate the action on `getBridgeableAmount`'s `limit.amount` being above
+  zero: the backend `isBridgeable` checks config only, and a zero-limit pair fails `createBridgeIntent` with
+  422. The token *list* is backend-served via `getTokens` / `getTokensByChain`.
 
 ## `approve` can return two transactions
 
@@ -109,6 +111,11 @@ const body = {
   srcAddress, dstAddress,     // dstAddress is the SDK domain `recipient`
 };
 
+// Gate on live capacity before any approval: a listed pair can have a zero (or negative) limit, and an
+// amount above the limit fails createBridgeIntent (422). `limit.decimals` is the limit's own unit.
+const bridgeable = await sodax.api.bridge.getBridgeableAmount({ srcChainKey, dstChainKey, inputToken, outputToken });
+if (!bridgeable.ok || BigInt(bridgeable.value.limit.amount) <= 0n) return;
+
 const allowance = await sodax.api.bridge.checkAllowance(body);
 if (allowance.ok && !allowance.value.valid) {
   const approved = await sodax.api.bridge.approve(body);
@@ -128,7 +135,8 @@ const { tx, relayData } = created.value;                   // no `intent`
 ### Submit tx + poll status
 
 ```ts
-// Sign + broadcast `tx` yourself, then hand the spoke tx hash back with the FULL relayData envelope.
+// Sign + broadcast `tx` per chain type (swaps-api.md § "Sign and broadcast `tx`"), then hand the spoke
+// tx hash back with the FULL relayData envelope.
 const submit = await sodax.api.bridge.submitTx({
   txHash, srcChainKey, walletAddress,
   relayData,                       // the whole { address, payload } object, NOT relayData.payload
@@ -141,6 +149,7 @@ if (status.ok && status.value.data.status === 'executed') {
   status.value.data.result?.dstIntentTxHash;   // destination tx hash (no intent_hash)
 }
 // Lifecycle: 'pending' → 'relaying' → 'relayed' → 'executed' | 'failed'.
+// Stop polling on 'executed', 'failed', or a set `data.abandonedAt` (processing budget exhausted).
 ```
 
 ## Per-call overrides & custom endpoint
@@ -161,6 +170,8 @@ move the whole backend (including bridge) to a custom host, use the `CustomApiCo
 
 `bridge.useBackendSubmitTx` (default `true`) routes the end-to-end `sodax.bridge.bridge()` through this
 API (`submit-tx` + status poll) with an automatic fall back to the client-side relay on any non-success.
+It still validates tokens against the installed SDK's bundled config before that, so it does not accept
+tokens newer than the release; for those, call this client end to end.
 Set `new Sodax({ bridge: { useBackendSubmitTx: false } })` to force the client-side path. Independent of
 `swaps.useBackendSubmitTx`. See [`bridge.md`](bridge.md) and the `CONFIGURE_SDK` doc.
 

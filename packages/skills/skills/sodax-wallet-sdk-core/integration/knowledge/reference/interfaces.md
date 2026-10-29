@@ -34,6 +34,7 @@ Plus public field: `publicClient: PublicClient`. The three EIP-5792 methods are 
 | `getAssociatedTokenAddress` | `(mint) => Promise<SolanaBase58PublicKey>` |
 | `getBalance` | `(publicKey) => Promise<number>` |
 | `getTokenAccountBalance` | `(publicKey) => Promise<RpcResponseAndContext<TokenAmount>>` |
+| `signAndSendTransaction?` | `(tx: SolanaRawTransaction) => Promise<TransactionSignature>` — signs and sends a transaction the Swaps / Bridge / Leverage Yield API built |
 
 Plus public field: `connection: Connection`.
 
@@ -72,6 +73,7 @@ Plus public field: `connection: Connection`.
 | `getWalletAddress` | `() => Promise<string>` |
 | `signTransaction` | `(tx: XDR) => Promise<XDR>` |
 | `waitForTransactionReceipt` | `(hash: string, opts?: Pick<StellarWalletDefaults, 'pollInterval' | 'pollTimeout'>) => Promise<…>` |
+| `signAndSendTransaction?` | `(tx: StellarRawTransaction) => Promise<string>` — signs and sends a transaction the Swaps / Bridge / Leverage Yield API built |
 
 ---
 
@@ -123,6 +125,7 @@ Plus public fields (PK mode only): `account?: Account`, `rpcProvider?: JsonRpcPr
 | `sendTransaction` | `(params: StacksTransactionParams) => Promise<…>` |
 | `readContract` | `(params: StacksTransactionParams) => Promise<ClarityValue>` |
 | `getBalance` | `(address: string) => Promise<bigint>` |
+| `signAndSendTransaction?` | `(tx: StacksRawTransaction) => Promise<string>` — signs and sends a transaction the Swaps / Bridge / Leverage Yield API built |
 
 ---
 

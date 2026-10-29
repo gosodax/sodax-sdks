@@ -45,6 +45,7 @@ if (!initResult.ok) {
 
 - The `new Sodax()` constructor defaults to mainnet configuration automatically. No configuration is required for basic usage.
 - Read effective configuration from `sodax.config` to include constructor overrides. For initialization behavior and configuration options, see [Configure SDK](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#default-configuration).
+- `sodax.swaps` accepts only the tokens bundled with your `@sodax/sdk` version. For a token listed after your release, see [Where supported tokens come from](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#where-supported-tokens-come-from).
 
 ### Optional: Custom Configuration
 

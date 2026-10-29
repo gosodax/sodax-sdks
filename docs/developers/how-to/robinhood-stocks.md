@@ -123,7 +123,7 @@ This example buys AAPL on Hedera with USDC on Hedera. Amounts are always in the 
 import { Sodax, ChainKeys, hederaSupportedTokens, type SolverIntentQuoteRequest } from '@sodax/sdk';
 
 const sodax = new Sodax();
-await sodax.initialize(); // non-fatal on failure; the SDK falls back to packaged defaults
+await sodax.initialize(); // optional; adds no tokens
 
 const usdc = hederaSupportedTokens.USDC; // 6 decimals
 const aapl = hederaSupportedTokens.AAPL; // 8 decimals
@@ -318,7 +318,7 @@ You can also read the same balances in a block explorer: [HashScan](https://hash
 1. **Route through a stablecoin or native token.** Each stock trades only against USDG on Robinhood Chain, so every route passes through USDG. The best-supported swaps are a stablecoin or native token into a stock (for example `USDC`, `USDT`, `ETH` or `S`), and a stock back out to `USDC` or `S`.
 2. **Stock-to-stock swaps may fail.** They route stock → USDG → stock and only quote above a small minimum size. A stock on one spoke into another stock on a spoke (for example Hedera AAPL into Hedera NVDA) can need more hops than the router allows and return "no path". Sell into a stablecoin first, then buy.
 3. **Mind the decimals.** The same stock has 18 decimals on Robinhood Chain, 8 on Hedera and 7 on Stellar. Amounts are always in the source token's smallest unit, so read `decimals` from the token object.
-4. **Read tickers at runtime.** Use `getSupportedSolverTokens(chainKey).filter(isRealWorldAsset)` for the swap list, and `sodax.bridge.getBridgeableTokens` for bridge targets. Appearing in the vault registry is not proof that a feature is live; the backend config decides. New registry entries need an SDK update.
+4. **Tickers are added over time.** `getSupportedSolverTokens(chainKey).filter(isRealWorldAsset)` (swap list) and `sodax.bridge.getBridgeableTokens` (bridge targets) return the tokens bundled with your `@sodax/sdk` version, and `sodax.swaps` and `sodax.bridge` accept only those. A stock listed after your release needs an SDK update, or the backend API path: list tokens with `sodax.api.swaps.getTokens()` or `sodax.api.bridge.getTokens()` and run the flow through `sodax.api.swaps` or `sodax.api.bridge` (see [Where supported tokens come from](/developers/how-to/configure_sdk#where-supported-tokens-come-from)). Appearing in the vault registry is not proof that a feature is live; the backend config decides.
 5. **Check the bridge limit before you bridge.** `getBridgeableAmount` returns the most that can move right now. Disable the action, or cap the amount, when the user asks for more.
 6. **Stellar needs a trustline to receive.** When Stellar is the destination, check and create the trustline before you swap or bridge. When Stellar is the source, `isAllowanceValid` and `approve` handle it.
 7. **Hedera token association.** On Hedera, a recipient can only receive an HTS stock token if the account is associated with that token or still has a free automatic association slot. Accounts auto-created at an EVM address usually have unlimited slots; other accounts may have few or none. The SDK does not associate for you on Hedera destinations, so check the recipient (mirror node) and have the user associate before you deliver. See [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera) in the Hedera swaps guide.

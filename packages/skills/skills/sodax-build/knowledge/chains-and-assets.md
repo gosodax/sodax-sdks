@@ -22,5 +22,5 @@ These names are **illustrative anchors only** — do not bake the actual chain l
 
 ## Assets
 
-- Bridgeability and per-feature token support are **runtime facts**, not a fixed table. "Can I bridge token X from chain A to B" is answered at runtime by the SDK, not by a baked list — note it as a dev-time check in the brief.
+- Bridgeability and per-feature token support are **runtime facts**, not a fixed table. The live list comes from the backend (`sodax.api.swaps.getTokens()`, `sodax.api.bridge.getTokens()`, the bridgeable amount); the SDK's feature services accept only the tokens bundled with the installed version. Note it as a dev-time check in the brief.
 - Never promise a specific token is supported without confirming live source.

@@ -7,7 +7,7 @@ Every v2 design concept the SDK rests on, in a single TOC-navigable file. Read e
 1. [Hub-and-spoke model](#1-hub-and-spoke-model) — Sonic is the hub; 20 spoke chains route through it.
 2. [`SpokeService` router](#2-spokeservice-router) — single internal dispatcher; no per-chain provider classes.
 3. [`Sodax` facade and service graph](#3-sodax-facade-and-service-graph) — one instance owns every feature service.
-4. [`ConfigService`](#4-configservice) — dynamic config from backend with packaged-defaults fallback.
+4. [`ConfigService`](#4-configservice) — packaged config plus constructor overrides, and the lookups built from it.
 5. [`ChainKeys` and chain-key narrowing](#5-chainkeys-and-chain-key-narrowing) — `GetChainType<K>`, `GetWalletProviderType<K>`.
 6. [`WalletProviderSlot<K, Raw>`](#6-walletproviderslotk-raw) — discriminated union for signed vs raw flows.
 7. [`Result<T, SodaxError<C>>`](#7-resultt-sodaxerrorc) — every async public method returns this.
@@ -117,7 +117,7 @@ The `Sodax` class is the public entry point. It constructs and wires every servi
 
 ```ts
 const sodax = new Sodax(/* optional SodaxOptions */);
-await sodax.config.initialize();   // fetch dynamic config; fall back to packaged defaults
+await sodax.config.initialize();   // optional; adds no tokens
 
 // All feature services accessed off the instance:
 await sodax.swaps.createIntent({ params, raw: false, walletProvider });
@@ -139,7 +139,7 @@ Sodax
  ├── recovery        — RecoveryService        (withdraw stuck hub-wallet assets)
  ├── backendApi      — BackendApiService      (intent lookup, orderbook, money-market reads, config fetching)
  ├── api             — alias for backendApi; `api.swaps` is SwapsApiService (typed Swaps API client)
- ├── config          — ConfigService          (dynamic config; see § 4)
+ ├── config          — ConfigService          (packaged config + overrides; see § 4)
  ├── hubProvider     — HubProvider            (hub contract interactions; concrete impl `EvmHubProvider`)
  └── spoke           — SpokeService           (per-chain-family router; see § 2)
 ```
@@ -171,19 +171,19 @@ new Sodax(config?: SodaxOptions): Sodax;
 
 > **Not config slots** — `staking`, `migration`, `partner`/`partners`, `recovery` are services on the `Sodax` instance (`sodax.staking`, etc.) but they are **not** configurable via `SodaxConfig`. They run on packaged defaults; per-call params handle customization.
 
-In production, the packaged defaults are sufficient — pass nothing and call `await sodax.config.initialize()` to load fresh data from the backend.
+In production, the packaged defaults are sufficient — pass nothing. They are fixed per SDK release; see § 4 for tokens listed after it.
 
 ---
 
 ## 4. `ConfigService`
 
-Replaces every static lookup table that v1 exported as a global (`hubAssets`, `moneyMarketSupportedTokens`, `solverSupportedTokens`, `SodaTokens`, etc.). Loads from the backend API on `initialize()`; falls back to packaged defaults from `@sodax/types` if the backend is unreachable.
+Replaces every static lookup table that v1 exported as a global (`hubAssets`, `moneyMarketSupportedTokens`, `solverSupportedTokens`, `SodaTokens`, etc.). Serves the packaged defaults from `@sodax/types` merged with constructor overrides; `initialize()` does not fetch backend config today.
 
 ### Lifecycle
 
 ```ts
 const sodax = new Sodax();
-await sodax.config.initialize();   // network call + cache; fall back on failure
+await sodax.config.initialize();   // optional; adds no tokens
 
 // After init:
 sodax.config.isValidSpokeChainKey(chainKey);
@@ -198,9 +198,9 @@ sodax.config.getSpokeChainKeyFromIntentRelayChainId(BigInt(...));
 
 Every feature service consumes `ConfigService` internally. The data flows through `XToken` (which now carries `vault` and `hubAsset` directly per token) and through service-method wrappers like `sodax.moneyMarket.getSupportedTokens()`.
 
-### Why dynamic
+### Tokens newer than the installed SDK
 
-Chain configs (vault addresses, supported tokens, fee parameters) change between SDK releases. Dynamic loading means the SDK can pick up new chains and tokens without a version bump. The packaged defaults are a fallback for offline / sandbox / pre-release conditions.
+`ConfigService` knows only the chains and tokens of the release it shipped with; `initialize()` does not fetch backend config yet. See [`recipes/initialize-sodax.md`](recipes/initialize-sodax.md) § "Where supported tokens come from".
 
 ### Custom backend
 

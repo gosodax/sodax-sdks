@@ -11,12 +11,14 @@ DO / DO NOT / workflow / stop conditions for AI agents writing `@sodax/sdk` v2 c
    grep -rE '@sodax/(sdk|types)' --include='*.ts' --include='*.tsx' src/   # see what's already imported
    ```
 
-2. **Always initialize first.** `new Sodax()` constructs the facade; `await sodax.config.initialize()` loads chain/token config from the backend (with packaged-defaults fallback). Skipping `initialize()` works but means stale defaults — `findSupportedTokenBySymbol` may return `undefined` for tokens added after the SDK release.
+2. **Tokens come from the installed SDK version.** `initialize()` fetches nothing, so `sodax.config` and the feature services know only the tokens bundled with that `@sodax/sdk` release and reject newer ones. For those, use the `sodax.api.*` clients; see [`recipes/initialize-sodax.md`](recipes/initialize-sodax.md) § "Where supported tokens come from".
 3. **Pick `raw: true` vs `raw: false` explicitly.** Reads and unsigned-tx-building flows take `raw: true` and don't need a wallet. Signed flows take `raw: false` + a chain-narrowed `walletProvider`. The discriminator is mandatory — without it the type system rejects the call. See [`architecture.md`](architecture.md) § 6.
 4. **Branch on `result.ok` before reading `.value` or `.error`.** Every async public method returns `Promise<Result<T, SodaxError>>`. `try/catch` does **not** catch SDK-level failures — see DO NOT § below.
 5. **Discriminate errors by `(error.feature, error.code)`.** Use `isSodaxError(e)` first, then switch on the pair. Don't string-match `error.message`.
 
 ## DO
+
+- **DO** confirm an API resolves against the installed `@sodax/sdk` before building on it: these skills track `main`, which can be ahead of your release. If your SDK has no `*WithApproval` helper, use the allowance check, `approve`, then the plain call (`swap` / `bridge` / `vaultSwap`; a vault deposit approves its spoke input token with `sodax.swaps.isAllowanceValid` / `approve`).
 
 - **DO** branch on `result.ok` for every SDK call. Forward sub-`Result`s without re-wrapping (`if (!sub.ok) return sub`).
 - **DO** use `isSodaxError(e)` over bare `instanceof SodaxError`. Bundle-safe in cross-realm code (mixed ESM/CJS, monorepos with multiple package copies).
@@ -46,7 +48,7 @@ DO / DO NOT / workflow / stop conditions for AI agents writing `@sodax/sdk` v2 c
 | Signal | Why stop |
 |---|---|
 | User wants a chain not in `ChainKeys.*` | Adding a new chain requires SDK-level changes to `@sodax/types`/`@sodax/sdk` — out of scope for consumer code. |
-| User wants to skip `await sodax.config.initialize()` | Explain consequences: stale defaults, no awareness of new tokens / fee parameters. Don't silently skip. |
+| User expects `await sodax.config.initialize()` to load new tokens | Explain that it fetches nothing today; tokens come from the installed SDK. Offer an SDK upgrade or the `sodax.api.*` path. |
 | User code expects sibling-package imports (e.g. `@sodax/wallet-sdk-core` instances) | Out of scope here — consumer owns the wallet-provider implementation. Document the `I*WalletProvider` shape they need to satisfy or instruct them to install `@sodax/wallet-sdk-core` separately and refer to that package's docs. |
 | User wants browser-extension wallet wiring inside SDK code | Not the SDK's concern. Consumer owns the wallet layer. |
 
@@ -70,7 +72,7 @@ grep -rE 'await sodax\.\w+\.\w+\([^)]*\)' src/ | grep -v '\.ok\|\.value\|\.error
 
 ## Done criteria
 
-- [ ] `await sodax.config.initialize()` runs at app startup (or before first feature call).
+- [ ] The tokens offered to users come from the list the flow validates against: the installed SDK's lists for `sodax.<feature>.*`, the backend's `getTokens()` for `sodax.api.*`.
 - [ ] Every `await sodax.<feature>.<method>(...)` is followed by `if (!result.ok)` branching.
 - [ ] No `try/catch` wraps SDK calls expecting to catch `RELAY_TIMEOUT` / `EXECUTION_FAILED`.
 - [ ] No `import` from `@sodax/sdk/dist/...`.

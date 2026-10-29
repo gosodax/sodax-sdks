@@ -235,12 +235,43 @@ When you need hook support independent of the deployment, build with `sodax.swap
 the hook client-side into `dstAddress`/`data`, and under the default `useBackendSubmitTx` still hands the
 broadcast tx to this API's `submitTx`. See [`swap.md`](swap.md) § "Delivery hooks".
 
+### Sign and broadcast `tx`
+
+The API returns an unsigned transaction for `srcChainKey`; the SDK and dapp-kit have no helper that signs
+it. Sign and broadcast it with that chain's wallet provider, dispatching on the chain type:
+
+| Chain type | Wallet-provider call | Notes |
+|---|---|---|
+| EVM | `sendTransaction(tx, { expectedChainId: getEvmViemChain(srcChainKey).id })` | binds the send to the source network |
+| Solana, Stellar, Stacks, Injective | `signAndSendTransaction(tx)` | optional on these interfaces: check it exists first |
+| Sui | `signAndExecuteTxn({ toJSON: async () => tx.data })` | `tx.data` is the base64 transaction |
+| ICON | `sendTransaction(tx as unknown as IcxCallTransaction)` | the runtime value is an `IcxCallTransaction`, but `RawTxReturnType`'s ICON variant is typed differently |
+| NEAR | `signAndSubmitTxn(tx)` | |
+| Bitcoin | `sodax.spoke.getSpokeService(ChainKeys.BITCOIN_MAINNET).signAndSubmitRawTransaction({ rawTx: tx, walletProvider, relayData, accessToken })` | needs a Bound Exchange session; put its token in the request body's `bound.accessToken` too. `relayData` fields are typed `Hex` here, plain strings on the API response |
+
+Each call returns the source-chain hash, which is the `txHash` for `submitTx`. Stacks request bodies also
+need `srcPublicKey`. An `approve` plan (`{ tx, resetTx? }`) is broadcast the same way, `resetTx` first and
+mined before `tx`. The Bridge and Leverage Yield API clients return the same `tx` shapes, so this table
+applies to them too.
+
 ### Submit tx + poll status
 
 ```ts
-// `intent` here is the IntentRequestV2 (bigint fields) you hold from createIntent.
+// createIntent returns IntentResponseV2 (decimal strings); submitTx takes IntentRequestV2 (bigint).
+function toIntentRequest(intent: IntentResponseV2): IntentRequestV2 {
+  return {
+    ...intent,
+    intentId: BigInt(intent.intentId),
+    inputAmount: BigInt(intent.inputAmount),
+    minOutputAmount: BigInt(intent.minOutputAmount),
+    deadline: BigInt(intent.deadline),
+    srcChain: BigInt(intent.srcChain),
+    dstChain: BigInt(intent.dstChain),
+  };
+}
+
 const submit = await sodax.api.swaps.submitTx({
-  txHash, srcChainKey, walletAddress, intent,
+  txHash, srcChainKey, walletAddress, intent: toIntentRequest(intent),
   relayData: relayData.payload,   // string — the payload, not the RelayExtraData object
 });
 if (!submit.ok) return;
@@ -249,6 +280,7 @@ if (!submit.ok) return;
 const status = await sodax.api.swaps.getSubmitTxStatus({ txHash, srcChainKey });
 if (status.ok && status.value.data.status === 'solved') { /* settled */ }
 // Lifecycle: 'pending' → 'relaying' → 'relayed' → 'posting_execution' → 'posted_execution' → 'solved' | 'failed'.
+// Stop polling on 'solved', 'failed', or a set `data.abandonedAt` (processing budget exhausted).
 ```
 
 ## Status fields — three distinct `status` values (don't conflate)
@@ -301,8 +333,8 @@ The swaps slice layers over the base slice over the defaults (per field), so a c
 const r = await sodax.api.swaps.getQuote(body);
 if (!r.ok) {
   // r.error: SodaxError<'EXTERNAL_API_ERROR'> — feature: 'backend', context.api: 'swaps',
-  // context.endpoint: '/swaps/quote'. The transport failure (HTTP_REQUEST_FAILED / REQUEST_TIMEOUT /
-  // a shape-validation issue) is on r.error.cause.
+  // context.endpoint: '/swaps/quote'. The transport failure (NETWORK_ERROR / TIMEOUT_ERROR / HTTP_ERROR /
+  // a shape-validation issue) is on r.error.cause, its code mirrored on r.error.context.code.
   return;
 }
 ```

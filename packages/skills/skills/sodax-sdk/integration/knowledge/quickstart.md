@@ -55,7 +55,7 @@ Examples in this guide use TypeScript `declare const` placeholders so the surfac
 import { Sodax } from '@sodax/sdk';
 
 const sodax = new Sodax();
-await sodax.config.initialize();   // load fresh config from backend; falls back to packaged defaults
+await sodax.config.initialize();   // optional; adds no tokens
 
 // All feature services are wired and ready:
 //   sodax.swaps, sodax.moneyMarket, sodax.bridge, sodax.staking,
@@ -222,7 +222,7 @@ The errors most likely to hit on a fresh install or first port.
 
 ### `sodax.config.findSupportedTokenBySymbol` returns `undefined`
 
-- `await sodax.config.initialize()` wasn't called. Add it after `new Sodax()`.
+- The token is not bundled with your `@sodax/sdk` version; `initialize()` does not add tokens. Upgrade, or take tokens from `sodax.api.swaps.getTokens()` and use the `sodax.api.*` clients. See [`recipes/initialize-sodax.md`](recipes/initialize-sodax.md) § "Where supported tokens come from".
 
 ### "Property 'xChainId' does not exist on type 'XToken'"
 
@@ -236,9 +236,9 @@ The errors most likely to hit on a fresh install or first port.
 
 - For EVM chains, `GetAddressType<K>` is `` `0x${string}` ``. Cast at the boundary: `(await walletProvider.getWalletAddress()) as \`0x${string}\``. See [`recipes/`](recipes/) § "Chain-key narrowing".
 
-### `sodax.config.initialize()` hangs / errors
+### `unsupported token_src` / `Unsupported spoke chain … token` for a token the backend lists
 
-- The backend API is unreachable. The SDK should fall back to packaged defaults silently — check your network, then check that `SodaxConfig.api.baseURL` is correct (or omit it for the default).
+- `sodax.swaps`, `sodax.bridge` and `sodax.leverageYield` validate against the tokens bundled with your SDK version before sending anything. Upgrade `@sodax/sdk`, or run the flow on `sodax.api.swaps` / `sodax.api.bridge` / `sodax.api.leverageYield`, where the backend validates. See [`recipes/initialize-sodax.md`](recipes/initialize-sodax.md) § "Where supported tokens come from".
 
 ### Stellar bridge / swap fails with `'Trustline missing'`
 

@@ -93,6 +93,10 @@ always approves, so check `useSwapsApiAllowance` first, and it stops at the broa
 then submit it. Its errors, the unconfirmed-batch rule and `fallbackOnRefusal` are in
 [architecture.md](../architecture.md#approve-hooks-can-prompt-the-wallet-twice).
 
+On any other source, sign and broadcast `created.tx` with the source wallet provider, per chain type
+(the `sodax-sdk` skill, Swaps API, "Sign and broadcast `tx`"). `created.intent` is an `IntentResponseV2` (decimal strings); convert its numeric
+fields with `BigInt()` into the `IntentRequestV2` that the submit request takes.
+
 ```ts
 // @ai-snippets-skip
 const { mutateAsync: broadcastWithApproval } = useSwapsApiBroadcastWithApproval();
@@ -196,7 +200,7 @@ const { mutateAsync: submitBridgeTx } = useBridgeApiSubmitTx();
 await submitBridgeTx({ request, apiConfig: { baseURL: 'https://...' } });
 ```
 
-`useBridgeApiSubmitTxStatus` polls (1s) and returns `BridgeSubmitTxStatusResponseV2 | undefined`, running only when **both** `txHash` and `srcChainKey` are supplied; terminal states are `executed` / `failed` (no `posting_execution`), and it also stops on a set `abandonedAt` or once the backend rejects the API key. Every retrying `useBridgeApi*` hook defaults `retry` to `retryUnlessAuthFailure`, exactly as the swaps and leverage-yield hooks do. The fee / bridgeable-amount / bridgeable quotes are computable client-side (config + vault math) — prefer the on-chain `useGetBridgeableAmount` / `sodax.bridge.*` for a no-round-trip read; `useBridgeApiFee` / `useBridgeApiBridgeableAmount` / `useBridgeApiIsBridgeable` mirror the backend endpoints for HTTP parity.
+`useBridgeApiSubmitTxStatus` polls (1s) and returns `BridgeSubmitTxStatusResponseV2 | undefined`, running only when **both** `txHash` and `srcChainKey` are supplied; terminal states are `executed` / `failed` (no `posting_execution`), and it also stops on a set `abandonedAt` or once the backend rejects the API key. Every retrying `useBridgeApi*` hook defaults `retry` to `retryUnlessAuthFailure`, exactly as the swaps and leverage-yield hooks do. The bridgeable-amount / bridgeable quotes also exist client-side (`useGetBridgeableAmount`, `sodax.bridge.*`), but those read the config bundled with the installed SDK and fail or return `false` for tokens newer than that release. With tokens from `useBridgeApiTokens`, gate the action on `useBridgeApiBridgeableAmount` (its `limit.amount` above zero); `useBridgeApiIsBridgeable` checks config only, and a zero-limit pair fails create-intent. Sign and broadcast the created `tx` per chain type, as for swaps.
 
 > Full list in [hooks-index.md](../reference/hooks-index.md); key shapes in [querykey-conventions.md](../reference/querykey-conventions.md). For non-React callers, `sodax.api.bridge` is documented in the `sodax-sdk` skill (integration mode).
 
@@ -212,11 +216,12 @@ useLeverageYieldApiCreateDepositIntent({ mutationOptions });  // mutation → so
 useLeverageYieldApiSubmitTxStatus({ params, queryOptions });  // query    → sodax.api.leverageYield.getSubmitTxStatus
 ```
 
-Four deltas worth knowing:
+Deltas worth knowing:
 
 - **Create-intent is split.** `useLeverageYieldApiCreateDepositIntent` (any token → `lsoda*`) vs `useLeverageYieldApiCreateWithdrawIntent` (`lsoda*` → any token), each with its own quote hook. Only the deposit path has an allowance step — a withdraw spends `lsoda*` from the hub wallet — so `useLeverageYieldApiAllowance` / `useLeverageYieldApiApprove` take the **deposit** body.
 - **`useLeverageYieldApiSubmitTx`'s `request` carries `operation`.** `LeverageYieldSubmitTxRequestV2` is the swaps `SubmitTxRequestV2` plus a required `operation: 'deposit' | 'withdraw'`; `relayData` is the payload **string**, as for swaps.
 - **Terminal submit-tx status is `solved`**, not the bridge API's `executed` — a vault swap is filled by the solver, so `posting_execution` applies too. `useLeverageYieldApiSubmitTxStatus` polls (1s) while both `txHash` and `srcChainKey` are supplied and stops on `solved` / `failed`, on a set `abandonedAt`, or once the backend rejects the API key.
+- **You sign the built `tx` and convert the intent**, as for the Swaps API hooks above. Take input and output tokens from `useSwapsApiTokens`, which includes tokens newer than the installed SDK.
 - **`lsoda*` shares live in the derived HUB wallet, not the EOA.** Resolve it with `useGetUserHubWalletAddress` before reading `useLeverageYieldApiShareBalance` / `useLeverageYieldApiMaxWithdraw`, or the balance reads as zero.
 
 ```ts

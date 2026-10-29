@@ -77,7 +77,8 @@ export type ConfigServiceConstructorParams = {
 };
 
 /**
- * ConfigApiService - Service for fetching configuration data from the backend API or fallbacking to default values
+ * ConfigService - Holds the SDK config (packaged defaults merged with constructor overrides) and the lookups built
+ * from it. `initialize()` does not fetch backend config yet, so supported chains and tokens are the packaged ones.
  */
 export class ConfigService {
   private sodax: SodaxConfig;

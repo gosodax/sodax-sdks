@@ -134,10 +134,8 @@ export class Sodax {
   }
 
   /**
-   * Initializes the Sodax instance with dynamic configuration.
-   * You should use this option if you do not want to update package versions when new chains and tokens are added.
-   * NOTE: Default configuration will be used if initialization fails.
-   * @param sodax - The Sodax instance to initialize.
+   * Currently returns success without fetching backend config: chains and tokens stay those packaged with
+   * this release, plus constructor overrides. For tokens listed later, use the `sodax.api.*` clients or upgrade.
    */
   public async initialize(): Promise<Result<void>> {
     return this.config.initialize();

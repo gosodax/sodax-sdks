@@ -35,9 +35,9 @@ Prefer HTTP? Same flow over REST: [Swap API](/developers/http-api/swaps). Prefer
     import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
 
     const sodax = new Sodax(); // mainnet defaults
-    const init = await sodax.initialize();
+    const init = await sodax.initialize(); // optional; adds no tokens
     if (!init.ok) {
-      console.warn('Using packaged config', init.error);
+      console.warn('Initialization failed', init.error);
     }
 
     const privateKey = process.env.EVM_PRIVATE_KEY;
