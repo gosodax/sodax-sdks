@@ -19,9 +19,9 @@ Comprehensive hook table across 12 feature domains. Use this when you know the f
 | `useSwap` | Mutation | Execute a complete cross-chain swap |
 | `useSwapAllowance` | Query | Check token approval status |
 | `useSwapApprove` | Mutation | Approve tokens for the swap contract |
-| `useSwapApprovalStrategy` (new in 2.3.0) | Query | Which path `useSwapWithApproval` takes — `'not-required'` / `'atomic-batch'` (one EIP-5792 signature) / `'sequential'`; `allowAccountUpgrade: false` keeps a `'ready'` wallet sequential; no polling |
-| `useSwapLifecycle` | Composite | One swap form: `state` (`idle` … `ready` … `pending` / `unconfirmed` / `settled` / `failed`, discriminated on `kind`) + `next()`; composes the strategy, Stellar/NEAR gates, injected chain switch, `useSwapWithApproval` (new in 2.3.0) and `useDetailedStatus`, and returns each as an escape hatch; `allowAccountUpgrade` is passed to both |
-| `useSwapWithApproval` (new in 2.3.0) | Mutation | `useSwap` with the approval folded in: one atomic batch on an EIP-5792 wallet, else approve → swap; `data.approvalStrategy` |
+| `useSwapApprovalStrategy` | Query | Which path `useSwapWithApproval` takes — `'not-required'` / `'atomic-batch'` (one EIP-5792 signature) / `'sequential'`; `allowAccountUpgrade: false` keeps a `'ready'` wallet sequential; no polling |
+| `useSwapLifecycle` | Composite | One swap form: `state` (`idle` … `ready` … `pending` / `unconfirmed` / `settled` / `failed`, discriminated on `kind`) + `next()`; composes the strategy, Stellar/NEAR gates, injected chain switch, `useSwapWithApproval` and `useDetailedStatus`, and returns each as an escape hatch; `allowAccountUpgrade` is passed to both |
+| `useSwapWithApproval` | Mutation | `useSwap` with the approval folded in: one atomic batch on an EIP-5792 wallet, else approve → swap; `data.approvalStrategy` |
 | `useStatus` | Query | Track intent execution status (polls 3s once `intentTxHash` supplied; stops on `3`/`4` and after 40 consecutive NOT_FOUND fetches; Result-wrapped data) |
 | `useDetailedStatus` | Query | Track a swap from its source tx (`{ srcChainKey, srcTxHash }`; polls 3s; Result-wrapped; stops on the answering source's terminal state and after 40 consecutive ambiguous reads — solver NOT_FOUND, or a relay with no packet for the tx; outages keep polling). Returns a tagged union — backend submit-tx record or solver answer — narrow on `source`. Unlike `useSwapsApiSubmitTxStatus`, answers for both `swap()` completion paths |
 | `useCancelSwap` | Mutation | Cancel an active swap intent |
@@ -55,8 +55,8 @@ Comprehensive hook table across 12 feature domains. Use this when you know the f
 | `useBridgeDetailedStatus` | Query | Track a bridge from its source tx (`{ srcChainKey, srcTxHash, apiConfig? }`; polls 3s; Result-wrapped; stops on the answering source's terminal state, on a rejected API key, and after 40 consecutive ambiguous reads — a relay with no packet for the tx; outages keep polling). Returns a tagged union — backend submit-tx record or delivered relay packet — narrow on `source`. Unlike `useBridgeApiSubmitTxStatus`, answers for both `bridge()` completion paths |
 | `useBridgeAllowance` | Query | Approval check |
 | `useBridgeApprove` | Mutation | Approve tokens for bridge |
-| `useBridgeWithApproval` (new in 2.3.0) | Mutation | Bridge with the approval folded in — one EIP-5792 signature when the wallet can; `TxHashPair` + `approvalStrategy` |
-| `useBridgeApprovalStrategy` (new in 2.3.0) | Query | `'not-required' \| 'atomic-batch' \| 'sequential'` for `useBridgeWithApproval`; not polled |
+| `useBridgeWithApproval` | Mutation | Bridge with the approval folded in — one EIP-5792 signature when the wallet can; `TxHashPair` + `approvalStrategy` |
+| `useBridgeApprovalStrategy` | Query | `'not-required' \| 'atomic-batch' \| 'sequential'` for `useBridgeWithApproval`; not polled |
 | `useGetBridgeableAmount` | Query | Max bridgeable amount between two `XToken`s |
 | `useGetBridgeableTokens` | Query | Tokens bridgeable to a destination chain |
 
@@ -112,8 +112,8 @@ No hook lists the vaults: read the registry with `useSodaxContext().sodax.levera
 |---|---|---|
 | `useLeverageYieldDeposit` | Mutation | Build a deposit payload (any token → `lsoda*` shares) — spread into `useLeverageYieldVaultSwap` |
 | `useLeverageYieldWithdraw` | Mutation | Build a withdraw payload (`lsoda*` → any token; `hubWalletSwap`) |
-| `useLeverageYieldVaultSwapWithApproval` (new in 2.3.0) | Mutation | `useLeverageYieldVaultSwap` with the deposit's approval folded in — one EIP-5792 signature when the wallet can; adds `approvalStrategy` |
-| `useLeverageYieldApprovalStrategy` (new in 2.3.0) | Query | `'not-required' \| 'atomic-batch' \| 'sequential'` for `useLeverageYieldVaultSwapWithApproval` (withdraw is always `'not-required'`); not polled |
+| `useLeverageYieldVaultSwapWithApproval` | Mutation | `useLeverageYieldVaultSwap` with the deposit's approval folded in — one EIP-5792 signature when the wallet can; adds `approvalStrategy` |
+| `useLeverageYieldApprovalStrategy` | Query | `'not-required' \| 'atomic-batch' \| 'sequential'` for `useLeverageYieldVaultSwapWithApproval` (withdraw is always `'not-required'`); not polled |
 | `useLeverageYieldVaultSwap` | Mutation | Execute a built payload end-to-end; backend submit-tx by default, falling back to the client-side create → verify → relay → notify path. `extras.apiKey` keys the backend leg per action |
 | `useLeverageYieldDetailedStatus` | Query | Track a vault swap from its source tx (`{ srcChainKey, srcTxHash, apiConfig? }`; polls 3s; Result-wrapped; stops on the answering source's terminal state, on a rejected API key, and after 40 consecutive ambiguous reads — solver NOT_FOUND, or a relay with no packet for the tx; outages keep polling). Returns a tagged union — backend submit-tx record or solver answer — narrow on `source`. Unlike `useLeverageYieldApiSubmitTxStatus`, answers for both `vaultSwap()` completion paths |
 | `useLeverageYieldQuote` | Query | Deposit (vault = `token_dst`) or withdraw (vault = `token_src`) quote with the leverage-yield fee (polls 3s; Result-wrapped). Size `minOutputAmount` from `quoted_amount` minus slippage, never `0n` |
@@ -219,7 +219,7 @@ Typed React Query wrappers over the backend Swaps API (`sodax.api.swaps.*`), one
 |---|---|
 | `useSwapsApiApprove` | Mutation; builds unsigned approval tx(s) — `{ tx, resetTx? }`, caller signs |
 | `useSwapsApiApproveAndBroadcast` | Mutation; builds **and** signs/broadcasts/waits — preferred; `{ approveTxHash, resetTxHash? }`; optional `onProgress` per step |
-| `useSwapsApiBroadcastWithApproval` (new in 2.3.0) | Mutation; EVM source with a short allowance — approval + `intentTx` in one EIP-5792 batch (one signature), else rejects with a refusal (`fallbackOnRefusal: true` approves, then sends the pre-approval `intentTx`); `{ txHash, approvalStrategy, approval? }`; stops before submit-tx; `onBatchSent` (persist the batch id) |
+| `useSwapsApiBroadcastWithApproval` | Mutation; EVM source with a short allowance — approval + `intentTx` in one EIP-5792 batch (one signature), else rejects with a refusal (`fallbackOnRefusal: true` approves, then sends the pre-approval `intentTx`); `{ txHash, approvalStrategy, approval? }`; stops before submit-tx; `onBatchSent` (persist the batch id) |
 | `useSwapsApiCreateIntent` | Mutation; builds `{ tx, intent, relayData }` |
 | `useSwapsApiSubmitIntent` | Mutation; submits broadcast intent to the relay |
 | `useSwapsApiCancelIntent` | Mutation; builds unsigned cancel tx |

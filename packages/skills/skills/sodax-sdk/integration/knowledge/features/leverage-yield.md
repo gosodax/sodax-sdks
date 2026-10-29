@@ -18,7 +18,6 @@ Access: `sodax.leverageYield`. Service class: `LeverageYieldService`. Feature ta
 ## Public methods
 
 ```ts
-// New in 2.3.0 (not in 2.2.0): getApprovalStrategy, vaultSwapWithApproval
 // Quote — solver quote sized with the effective leverage-yield fee (NOT sodax.swaps.getQuote)
 sodax.leverageYield.getQuote(payload: LeverageYieldQuoteParams): Promise<Result<SolverIntentQuoteResponse, SolverErrorResponse | LeverageYieldLookupError>>;
 //   token_dst = vault to quote a deposit, token_src = vault to quote a withdraw
@@ -176,12 +175,11 @@ deposit go out as one batch, so the user signs once; it approves the same spende
 the backend `operation`:
 
 ```ts
-// New in 2.3.0 (not in 2.2.0): vaultSwapWithApproval
 const result = await sodax.leverageYield.vaultSwapWithApproval({ ...built.value, walletProvider });
 // result.value.approvalStrategy: 'not-required' | 'atomic-batch' | 'sequential'
 ```
 
-A `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` (new in 2.3.0) means the batch may still land — do not
+A `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` means the batch may still land — do not
 deposit again. Call it again with `resumeBatchId: context.batchId` and `resumeBatchCallCount: context.callCount`: that
 sends nothing, and once the batch lands it relays the deposit and notifies the solver.
 
@@ -254,7 +252,7 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 
 ## Error codes
 
-`feature: 'leverageYield'`. Action discriminator on `context.action`: `'deposit' | 'withdraw' | 'approve' | 'allowanceCheck' | 'vaultSwap' | 'vaultSwapWithApproval' | 'openPosition' | 'openPositionFromDebtToken' | 'operatePosition' | 'openLeveragePosition' | 'submitLeveragePositionIntent' | 'runLeveragePositionOperation' | 'getPositionLegQuote'` (`'vaultSwapWithApproval'` is new in 2.3.0). Read methods partition on `context.method`.
+`feature: 'leverageYield'`. Action discriminator on `context.action`: `'deposit' | 'withdraw' | 'approve' | 'allowanceCheck' | 'vaultSwap' | 'vaultSwapWithApproval' | 'openPosition' | 'openPositionFromDebtToken' | 'operatePosition' | 'openLeveragePosition' | 'submitLeveragePositionIntent' | 'runLeveragePositionOperation' | 'getPositionLegQuote'`. Read methods partition on `context.method`.
 
 | Method | Narrow code union |
 |---|---|
@@ -262,8 +260,8 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 | `deposit`, `withdraw` | `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| LOOKUP_FAILED \| UNKNOWN` (create-intent subset + `LOOKUP_FAILED` with `method: 'resolveDeadline'` when the default-deadline hub-block read fails) |
 | `createVaultIntent` | `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| UNKNOWN` (create-intent subset) |
 | `vaultSwap` | `VALIDATION_FAILED \| INTENT_CREATION_FAILED \| TX_VERIFICATION_FAILED \| TX_SUBMIT_FAILED \| RELAY_TIMEOUT \| RELAY_FAILED \| EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` |
-| `vaultSwapWithApproval` (new in 2.3.0) | `vaultSwap`'s codes + `APPROVE_FAILED \| ALLOWANCE_CHECK_FAILED` (approval-step errors carry action `'vaultSwapWithApproval'`; after the broadcast, `vaultSwap`'s own context) |
-| `getApprovalStrategy` (new in 2.3.0) | `ALLOWANCE_CHECK_FAILED` |
+| `vaultSwapWithApproval` | `vaultSwap`'s codes + `APPROVE_FAILED \| ALLOWANCE_CHECK_FAILED` (approval-step errors carry action `'vaultSwapWithApproval'`; after the broadcast, `vaultSwap`'s own context) |
+| `getApprovalStrategy` | `ALLOWANCE_CHECK_FAILED` |
 | `notifySolver` | `EXECUTION_FAILED \| EXTERNAL_API_ERROR \| UNKNOWN` (with `phase: 'postExecution'`) |
 | `approve` | `VALIDATION_FAILED \| APPROVE_FAILED \| UNKNOWN` |
 | `isAllowanceValid` | `VALIDATION_FAILED \| ALLOWANCE_CHECK_FAILED \| UNKNOWN` (action `'allowanceCheck'`) |

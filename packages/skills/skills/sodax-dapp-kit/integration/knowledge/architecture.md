@@ -231,19 +231,19 @@ satisfy the other. Only a leverage-yield **deposit** needs one; a withdraw spend
 hub wallet and never approves.
 
 For a swap from an EVM source whose allowance is short (`/swaps/allowance/check` says so — the hook
-always approves), **`useSwapsApiBroadcastWithApproval` (new in 2.3.0)** goes one step further: given the
+always approves), **`useSwapsApiBroadcastWithApproval`** goes one step further: given the
 create-intent `body` and the unsigned `intentTx`, it sends the approval and `intentTx` as one EIP-5792
 atomic batch — one signature — when the wallet supports it. It resolves with `{ txHash, approvalStrategy,
 approval? }` and stops there: persist `txHash`, then call `useSwapsApiSubmitTx`. Persist the `batchId` its
-`onBatchSent` reports too: a `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` (new in 2.3.0)
+`onBatchSent` reports too: a `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED`
 means the batch may still land, so never let the user sign that swap again — resume it with
-`confirmApprovalBatch` (new in 2.3.0) instead. A wallet that cannot batch (the Sonic hub never does), or refuses the batch
-before signing, rejects with an `isAtomicBatchRefusal` (new in 2.3.0) error and nothing sent: approve with
+`confirmApprovalBatch` instead. A wallet that cannot batch (the Sonic hub never does), or refuses the batch
+before signing, rejects with an `isAtomicBatchRefusal` error and nothing sent: approve with
 `useSwapsApiApproveAndBroadcast`, create the intent again — a fresh deadline — and sign that. Pass
 `fallbackOnRefusal: true` to have the hook approve and then send the `intentTx` it was given; that intent was
 built before the approval, so its deadline has to outlast the approval's wait.
 
-All three, and `useSwapsApiBroadcastWithApproval` (new in 2.3.0) for its separate approval, accept an optional **`onProgress`** in their mutation vars. It reports each transaction as
+All three, and `useSwapsApiBroadcastWithApproval` for its separate approval, accept an optional **`onProgress`** in their mutation vars. It reports each transaction as
 `{ step, phase, index, total, hash?, error? }` — `step` is `'allowance-reset'` or `'approve'`, `phase`
 walks `signing → broadcast → confirmed` (or `failed`), and `index`/`total` give "1 of 2" without the
 caller tracking anything. Advisory: the listener is never awaited, one that throws is ignored rather
@@ -309,7 +309,7 @@ hooks/
 │               # useBalances, useXBalances, invalidateBalances,
 │               # useStellarTrustlineCheck, useEstablishTrustline (+ deprecated useRequestTrustline)
 ├── provider/   # useHubProvider
-├── swap/       # useSwapLifecycle, useSwapWithApproval and useSwapApprovalStrategy (new in 2.3.0),
+├── swap/       # useSwapLifecycle, useSwapWithApproval, useSwapApprovalStrategy,
 │               # useQuote, useSwap, useDetailedStatus, useStatus, useSwapAllowance, useSwapApprove,
 │               # useCancelSwap, useCreateLimitOrder, useCancelLimitOrder
 ├── mm/         # useSupply, useWithdraw, useBorrow, useRepay, useMMAllowance, useMMApprove,

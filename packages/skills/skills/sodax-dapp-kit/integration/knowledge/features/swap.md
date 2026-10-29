@@ -8,7 +8,6 @@ Pair: [`features/swap.md`](../../../migration-v1-to-v2/knowledge/features/swap.m
 
 ```ts
 // @ai-snippets-skip
-// New in 2.3.0 (not in 2.2.0): useSwapApprovalStrategy, useSwapWithApproval
 // Queries — note the nested `params.payload` shape on useQuote and useSwapAllowance.
 // `payload` is the SDK request value (SolverIntentQuoteRequest, CreateIntentParams, etc.).
 useQuote({ params: { payload }, queryOptions });                                  // Real-time quote (3s)
@@ -144,16 +143,14 @@ That is what distinguishes it from `useSwapsApiSubmitTxStatus`, which reads the 
 
 ### `useSwapWithApproval` — approve and swap in one signature
 
-> New in 2.3.0 (not in 2.2.0): `useSwapWithApproval`.
-
-Same vars as `useSwap`. It calls `sodax.swaps.swapWithApproval` (new in 2.3.0): no approval when the allowance suffices; on an EVM
+Same vars as `useSwap`. It calls `sodax.swaps.swapWithApproval`: no approval when the allowance suffices; on an EVM
 spoke whose wallet reports EIP-5792 atomic support, approve + swap as **one batch, one signature**; otherwise approve,
-wait for it to confirm, then swap. `data.approvalStrategy` says which ran. Pair it with `useSwapApprovalStrategy` (new in 2.3.0) to
+wait for it to confirm, then swap. `data.approvalStrategy` says which ran. Pair it with `useSwapApprovalStrategy` to
 label the button up front (e.g. "Approve & Swap" vs "Approve, then Swap"), instead of the
 `useSwapAllowance` + `useSwapApprove` + `useSwap` trio. A rejected batch — or a declined account upgrade on a
 `'ready'` wallet — is `USER_REJECTED` and is **not** retried as two transactions. A declined upgrade carries
-`context.reason === ACCOUNT_UPGRADE_DECLINED` (new in 2.3.0); pass `allowAccountUpgrade: false` (in the mutation vars and to
-`useSwapApprovalStrategy` (new in 2.3.0)) to swap without the upgrade. dapp-kit never stores that choice — the app decides.
+`context.reason === ACCOUNT_UPGRADE_DECLINED`; pass `allowAccountUpgrade: false` (in the mutation vars and to
+`useSwapApprovalStrategy`) to swap without the upgrade. dapp-kit never stores that choice — the app decides.
 
 ## Gotchas
 

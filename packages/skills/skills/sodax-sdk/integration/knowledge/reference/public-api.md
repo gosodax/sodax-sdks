@@ -7,7 +7,6 @@ Import everything from `@sodax/sdk`. The barrel re-exports the entire `@sodax/ty
 ### Top-level exports
 
 ```ts
-// New in 2.3.0 (not in 2.2.0): ACCOUNT_UPGRADE_DECLINED, ATOMIC_BATCH_REFUSED, ATOMIC_BATCH_UNCONFIRMED, confirmApprovalBatch, isAtomicBatchRefusal, resolveApprovalStrategy, sendApprovalBatch, and every `Approval*` / `*WithApproval*` type below
 import {
   // Main entry
   Sodax,

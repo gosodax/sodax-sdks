@@ -88,7 +88,6 @@ out in the same EIP-5792 atomic batch as the intent tx — one wallet prompt ins
 `/swaps/intents` only simulates on the hub, so the intent tx can be built before the approval lands.
 
 ```ts
-// New in 2.3.0 (not in 2.2.0): ATOMIC_BATCH_UNCONFIRMED, isAtomicBatchRefusal, resolveApprovalStrategy, sendApprovalBatch
 import {
   isAtomicBatchRefusal,
   isEvmSpokeOnlyChainKeyType,
@@ -122,18 +121,18 @@ if (
 }
 ```
 
-The rules match `sodax.swaps.swapWithApproval` (new in 2.3.0):
+The rules match `sodax.swaps.swapWithApproval`:
 
 - `'sequential'` for the Sonic hub and any wallet without EIP-5792 support — approve, wait, then sign.
-- Only `ATOMIC_BATCH_REFUSED` (new in 2.3.0) may fall back to separate transactions; the wallet signed nothing.
-- `USER_REJECTED` — with `context.reason === ACCOUNT_UPGRADE_DECLINED` (new in 2.3.0) when the user declined the
+- Only `ATOMIC_BATCH_REFUSED` may fall back to separate transactions; the wallet signed nothing.
+- `USER_REJECTED` — with `context.reason === ACCOUNT_UPGRADE_DECLINED` when the user declined the
   smart-account upgrade; offer the swap again with `allowAccountUpgrade: false`.
-- `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` (new in 2.3.0) — the batch may still
+- `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` — the batch may still
   land. Do not resend it, as a batch or as separate transactions: resume it later with
-  `confirmApprovalBatch({ walletProvider, batchId, callCount, timeoutMs, feature })` (new in 2.3.0), which reads the
+  `confirmApprovalBatch({ walletProvider, batchId, callCount, timeoutMs, feature })`, which reads the
   deposit's `txHash` once the wallet confirms it.
 
-In React, the `sodax-dapp-kit` skill's `useSwapsApiBroadcastWithApproval` (new in 2.3.0) hook wraps this whole flow.
+In React, the `sodax-dapp-kit` skill's `useSwapsApiBroadcastWithApproval` hook wraps this whole flow.
 
 ## Wire shapes — `bigint` vs decimal strings
 

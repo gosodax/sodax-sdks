@@ -86,8 +86,8 @@ useSwapsApiSubmitTxStatus({ params, queryOptions });    // query    → sodax.ap
 
 **Approving and sending with a wallet.** `useSwapsApiApproveAndBroadcast` builds, signs and confirms the
 `/swaps/approve` plan, reset first when there is one. For an EVM source whose allowance is short,
-`useSwapsApiBroadcastWithApproval` (new in 2.3.0) sends the approval and the `/swaps/intents` tx as one EIP-5792 batch
-(one signature) when the wallet can. When it cannot, the hook rejects with an `isAtomicBatchRefusal` (new in 2.3.0) error
+`useSwapsApiBroadcastWithApproval` sends the approval and the `/swaps/intents` tx as one EIP-5792 batch
+(one signature) when the wallet can. When it cannot, the hook rejects with an `isAtomicBatchRefusal` error
 and sends nothing: approve with `useSwapsApiApproveAndBroadcast`, create the intent again and sign that. It
 always approves, so check `useSwapsApiAllowance` first, and it stops at the broadcast: persist `txHash`,
 then submit it. Its errors, the unconfirmed-batch rule and `fallbackOnRefusal` are in
@@ -99,7 +99,6 @@ fields with `BigInt()` into the `IntentRequestV2` that the submit request takes.
 
 ```ts
 // @ai-snippets-skip
-// New in 2.3.0 (not in 2.2.0): useSwapsApiBroadcastWithApproval
 const { mutateAsync: broadcastWithApproval } = useSwapsApiBroadcastWithApproval();
 const { txHash } = await broadcastWithApproval({
   body,                    // the create-intent body

@@ -64,7 +64,6 @@ queryClient.invalidateQueries({ queryKey: ['swap', 'allowance'] }); // wipe all 
 
 ```ts
 // @ai-snippets-skip
-// New in 2.3.0 (not in 2.2.0): bridgeWithApproval, useBridgeApprovalStrategy, useBridgeWithApproval
 // Cross-feature pattern: allowance reads. Shapes vary per feature (each carries
 // the inputs that actually scope the allowance). Match the read hook's shape exactly
 // from invalidations.
@@ -113,10 +112,10 @@ Skip if you're writing a feature hook for the first time and want to align with 
 | `['swap', 'allowance', srcChainKey, srcAddress, inputToken, inputAmount.toString()]` | `useSwapAllowance` |
 | `['swap', 'status', intentTxHash]` | `useStatus` |
 | `['swap', 'detailedStatus', srcChainKey, srcTxHash]` | `useDetailedStatus` |
-| `['swap', 'approvalStrategy', srcChainKey, srcAddress, inputToken, inputAmount.toString(), allowAccountUpgrade]` | `useSwapApprovalStrategy` (new in 2.3.0) |
+| `['swap', 'approvalStrategy', srcChainKey, srcAddress, inputToken, inputAmount.toString(), allowAccountUpgrade]` | `useSwapApprovalStrategy` |
 | `['swap']` | `useSwap` mutation key |
 | `['swap', 'approve']` | `useSwapApprove` |
-| `['swap', 'swapWithApproval']` (new in 2.3.0) | `useSwapWithApproval` |
+| `['swap', 'swapWithApproval']` | `useSwapWithApproval` |
 | `['swap', 'cancel']` | `useCancelSwap` |
 | `['swap', 'limitOrder', 'create']` | `useCreateLimitOrder` |
 | `['swap', 'limitOrder', 'cancel']` | `useCancelLimitOrder` |
@@ -186,7 +185,7 @@ Typed wrappers over `sodax.api.swaps.*` (one per Swaps API endpoint), all keyed 
 | `['swapsApi', 'submitTx', 'status', txHash, srcChainKey]` | `useSwapsApiSubmitTxStatus` — both identifiers required |
 | `['swapsApi', 'approve']` | `useSwapsApiApprove` mutation |
 | `['swapsApi', 'approveAndBroadcast']` | `useSwapsApiApproveAndBroadcast` mutation |
-| `['swapsApi', 'broadcastWithApproval']` | `useSwapsApiBroadcastWithApproval` (new in 2.3.0) mutation |
+| `['swapsApi', 'broadcastWithApproval']` | `useSwapsApiBroadcastWithApproval` mutation |
 | `['swapsApi', 'createIntent']` | `useSwapsApiCreateIntent` mutation |
 | `['swapsApi', 'submitIntent']` | `useSwapsApiSubmitIntent` mutation |
 | `['swapsApi', 'cancelIntent']` | `useSwapsApiCancelIntent` mutation |
@@ -265,8 +264,8 @@ Typed wrappers over `sodax.api.leverageYield.*` (one per Leverage Yield API endp
 | `['leverageYield', 'deposit']` | `useLeverageYieldDeposit` mutation |
 | `['leverageYield', 'withdraw']` | `useLeverageYieldWithdraw` mutation |
 | `['leverageYield', 'vaultSwap']` | `useLeverageYieldVaultSwap` mutation |
-| `['leverageYield', 'vaultSwapWithApproval']` (new in 2.3.0) | `useLeverageYieldVaultSwapWithApproval` mutation |
-| `['leverageYield', 'approvalStrategy', srcChainKey, srcAddress, inputToken, amount, hubWalletSwap, allowAccountUpgrade]` | `useLeverageYieldApprovalStrategy` (new in 2.3.0) |
+| `['leverageYield', 'vaultSwapWithApproval']` | `useLeverageYieldVaultSwapWithApproval` mutation |
+| `['leverageYield', 'approvalStrategy', srcChainKey, srcAddress, inputToken, amount, hubWalletSwap, allowAccountUpgrade]` | `useLeverageYieldApprovalStrategy` |
 | `['leverageYield', 'notifySolver']` | `useLeverageYieldNotifySolver` mutation |
 
 ### Bridge / DEX / Migration / Bitcoin / etc.

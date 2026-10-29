@@ -18,7 +18,7 @@ DO / DO NOT / workflow / stop conditions for AI agents writing `@sodax/sdk` v2 c
 
 ## DO
 
-- **DO** check the installed `@sodax/sdk` version before using a symbol marked "new in 2.3.0"; it is absent from older releases. On 2.2.0, replace a `*WithApproval` helper with its allowance check, `approve`, then the plain call (`swap` / `bridge` / `vaultSwap`; a vault deposit approves its spoke input token with `sodax.swaps.isAllowanceValid` / `approve`). Only the approval helpers carry that marker, so confirm any other import resolves against your installed version.
+- **DO** confirm an API resolves against the installed `@sodax/sdk` before building on it: these skills track `main`, which can be ahead of your release. If your SDK has no `*WithApproval` helper, use the allowance check, `approve`, then the plain call (`swap` / `bridge` / `vaultSwap`; a vault deposit approves its spoke input token with `sodax.swaps.isAllowanceValid` / `approve`).
 
 - **DO** branch on `result.ok` for every SDK call. Forward sub-`Result`s without re-wrapping (`if (!sub.ok) return sub`).
 - **DO** use `isSodaxError(e)` over bare `instanceof SodaxError`. Bundle-safe in cross-realm code (mixed ESM/CJS, monorepos with multiple package copies).

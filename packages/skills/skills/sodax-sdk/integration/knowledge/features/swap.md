@@ -40,7 +40,6 @@ Two execution paths:
 ## Public methods
 
 ```ts
-// New in 2.3.0 (not in 2.2.0): getApprovalStrategy, swapWithApproval
 sodax.swaps.swap<K extends SpokeChainKey>(action: SwapActionParams<K, false>): Promise<Result<SwapResponse, SodaxError>>;
 
 sodax.swaps.getQuote(payload: GetQuoteParams): Promise<Result<SolverIntentQuoteResponse, SolverErrorResponse>>;
@@ -99,13 +98,13 @@ sodax.swaps.getDetailedStatus(
 
 ## Approve and swap in one signature
 
-`swapWithApproval` (new in 2.3.0) replaces the `isAllowanceValid` → `approve` → `swap` sequence with one call. It batches only
+`swapWithApproval` replaces the `isAllowanceValid` → `approve` → `swap` sequence with one call. It batches only
 when the source is an EVM spoke (not the Sonic hub) and the wallet provider implements the optional EIP-5792 methods
 (`EvmWalletProvider` does for a connected browser wallet, never for a private-key account) and reports
 `'supported'` or `'ready'` for that chain — `'ready'` means the wallet asks the user to upgrade the account (MetaMask:
 EIP-7702 smart account) on the first batch. Everything else takes the two-step path (three signatures for a token
 that must reset a stale allowance), so the call is safe on any chain. Pass `allowAccountUpgrade: false` (to both
-`getApprovalStrategy` (new in 2.3.0) and `swapWithApproval`) to keep a `'ready'` wallet on the two-step path and never show the
+`getApprovalStrategy` and `swapWithApproval`) to keep a `'ready'` wallet on the two-step path and never show the
 upgrade prompt; whether to do so is the app's call.
 
 If the wallet refuses the batch before signing (e.g. EIP-5792 `5760`), the method approves separately on its own and
@@ -113,13 +112,13 @@ reports `approvalStrategy: 'sequential'`. Once the user has seen the batch it is
 transactions:
 
 - rejected batch → `USER_REJECTED`; a declined upgrade is `USER_REJECTED` with
-  `context.reason === ACCOUNT_UPGRADE_DECLINED` (new in 2.3.0) — the user refused the smart account, not the swap, so it is fine to
+  `context.reason === ACCOUNT_UPGRADE_DECLINED` — the user refused the smart account, not the swap, so it is fine to
   offer the same swap again with `allowAccountUpgrade: false`;
 - batch never included or fully reverted (EIP-5792 `400` / `500`) → `INTENT_CREATION_FAILED` with
   `context.reason: 'atomic-batch-failed'` (nothing deposited);
 - anything else short of a confirmed deposit receipt (not confirmed within `timeout`, a partial revert, unclear
-  receipts) → `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` (new in 2.3.0), `context.batchId` and
-  `context.callCount`. It may have landed — **never send it again**; call `swapWithApproval` (new in 2.3.0) with the same `params`
+  receipts) → `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED`, `context.batchId` and
+  `context.callCount`. It may have landed — **never send it again**; call `swapWithApproval` with the same `params`
   and wallet plus `resumeBatchId: context.batchId` and `resumeBatchCallCount: context.callCount`, which only waits
   for that batch and finishes the swap once it lands (the same unconfirmed error while it is still pending).
 

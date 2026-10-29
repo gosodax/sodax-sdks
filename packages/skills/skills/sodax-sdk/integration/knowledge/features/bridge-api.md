@@ -81,7 +81,7 @@ zeroed.
 Broadcast `resetTx` first and wait for it to be mined, then broadcast `tx`. As separate transactions
 they cannot go out together: the approval is only valid once the reset has landed on-chain. An
 EIP-5792 atomic batch is different — it runs its calls in order, so it can carry both (the SDK's
-`bridgeWithApproval` (new in 2.3.0) does, see `bridge.md`). Submitting `tx` while a non-zero stale allowance
+`bridgeWithApproval` does, see `bridge.md`). Submitting `tx` while a non-zero stale allowance
 remains is a guaranteed revert.
 
 ```ts

@@ -10,7 +10,6 @@ Leveraged-yield ERC-4626 vaults on the Sonic hub. Deposit any token → `lsoda*`
 
 ```ts
 // @ai-snippets-skip
-// New in 2.3.0 (not in 2.2.0): useLeverageYieldApprovalStrategy, useLeverageYieldVaultSwapWithApproval
 // Mutations
 useLeverageYieldDeposit({ mutationOptions });   // build a deposit payload (any token → lsoda*)
 useLeverageYieldWithdraw({ mutationOptions });  // build a withdraw payload (lsoda* → any token; hubWalletSwap)
@@ -97,7 +96,7 @@ useLeverageYieldShareBalances({ params: { vault, holders } })
 
 ## Approval pattern
 
-`useLeverageYieldVaultSwapWithApproval` (new in 2.3.0) approves and deposits in one call — one signature on an EIP-5792 wallet — and needs none of the hooks below. A `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` may still land: never deposit it again — mutate again with `resumeBatchId` / `resumeBatchCallCount` from its `context`, which sends nothing. For the two-step flow, leverage-yield has **no dedicated approve hook**. A deposit is a swap-style intent that bridges `inputToken` from the spoke chain, so it approves the spoke-side asset manager exactly like a swap — reuse the swap hooks. A withdraw needs no spoke-side approval: the payload carries `hubWalletSwap: true` and `vaultSwap` authorises the hub wallet to spend the `lsoda*` shares via a `Connection.sendMessage` the user signs on `srcChainKey`.
+`useLeverageYieldVaultSwapWithApproval` approves and deposits in one call — one signature on an EIP-5792 wallet — and needs none of the hooks below. A `TX_VERIFICATION_FAILED` with `context.reason === ATOMIC_BATCH_UNCONFIRMED` may still land: never deposit it again — mutate again with `resumeBatchId` / `resumeBatchCallCount` from its `context`, which sends nothing. For the two-step flow, leverage-yield has **no dedicated approve hook**. A deposit is a swap-style intent that bridges `inputToken` from the spoke chain, so it approves the spoke-side asset manager exactly like a swap — reuse the swap hooks. A withdraw needs no spoke-side approval: the payload carries `hubWalletSwap: true` and `vaultSwap` authorises the hub wallet to spend the `lsoda*` shares via a `Connection.sendMessage` the user signs on `srcChainKey`.
 
 | Flow | Token approved | Hook |
 |---|---|---|

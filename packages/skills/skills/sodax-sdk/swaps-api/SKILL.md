@@ -37,7 +37,7 @@ validates the response. Errors carry `feature: 'backend'`, `context.api: 'swaps'
 - **`try/catch` for failures.** Every method returns `Result<T>` — branch on `result.ok`. `catch` won't fire for HTTP/timeout/validation failures.
 - **Passing the `RelayExtraData` object** to `submitTx`'s `relayData`. The field is a `string` — pass `relayData.payload`.
 - **Passing `createIntent`'s `intent` straight to `submitTx`.** It is `IntentResponseV2` (decimal strings); `submitTx` takes `IntentRequestV2` (bigint). Convert it with `toIntentRequest` ([`features/swaps-api.md`](../integration/knowledge/features/swaps-api.md) § "Submit tx + poll status"); don't stringify bigints yourself.
-- **Approving, waiting, then signing the intent tx on an EVM source.** On 2.2.0 that sequence is the only one. On 2.3.0+, where the wallet supports EIP-5792, `sendApprovalBatch` (new in 2.3.0) sends `[resetTx?, tx, intentTx]` as one batch (one signature): `features/swaps-api.md` § "Approve and send the intent in one signature". Never re-send a batch that returned `ATOMIC_BATCH_UNCONFIRMED`; resume it with `confirmApprovalBatch`.
+- **Approving, waiting, then signing the intent tx on an EVM source.** Where your SDK has `sendApprovalBatch` and the wallet supports EIP-5792, it sends `[resetTx?, tx, intentTx]` as one batch (one signature): `features/swaps-api.md` § "Approve and send the intent in one signature". Never re-send a batch that returned `ATOMIC_BATCH_UNCONFIRMED`; resume it with `confirmApprovalBatch`.
 - **Calling `getSubmitTxStatus` with only `txHash`.** Both `txHash` AND `srcChainKey` are required.
 - **Confusing `sodax.api.swaps` with `sodax.swaps`.** The former is the backend HTTP client; the latter is the on-chain intent orchestrator.
 
