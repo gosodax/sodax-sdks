@@ -2,26 +2,38 @@ import { XService } from '@/core/XService.js';
 import { StellarWalletsKit, WalletNetwork, allowAllModules } from '@creit.tech/stellar-wallets-kit';
 import * as StellarSdk from '@stellar/stellar-sdk';
 import CustomSorobanServer from './CustomSorobanServer.js';
-import { getTokenBalance } from './utils.js';
-import type { XToken } from '@sodax/types';
+import { getTokenBalance, getTrustlineBalances, parseStellarAmount } from './utils.js';
+import { ChainKeys, spokeChainConfig, type XToken } from '@sodax/types';
 import { STELLAR_DEFAULT_HORIZON_RPC_URL, STELLAR_DEFAULT_SOROBAN_RPC_URL } from '@/constants.js';
+import { isNativeToken } from '@/utils/index.js';
 
 /** Base reserve in stroops (0.5 XLM). Each subentry (trustline, signer, data entry, offer) adds one base reserve. */
 const STELLAR_BASE_RESERVE_STROOPS = 5_000_000;
 
-/** Horizon account fields used for minimum balance. Minimum = (2 + subentry_count + num_sponsoring - num_sponsored) * base_reserve + selling_liabilities. */
-interface StellarAccountReserveFields {
-  subentry_count?: number;
-  num_sponsoring?: number;
-  num_sponsored?: number;
-}
+/** Token contracts that wrap a classic asset, so an account holds them only through a trustline. */
+const TRUSTLINE_ASSET_CONTRACTS: ReadonlySet<string> = new Set(
+  spokeChainConfig[ChainKeys.STELLAR_MAINNET].trustlineConfigs.map(trustline => trustline.contractId),
+);
 
-/** Parse XLM balance string (e.g. "198.8944970") to stroops (1 XLM = 10^7 stroops). */
-function parseXlmBalanceToStroops(balanceStr: string): bigint {
-  const parts = balanceStr.split('.');
-  const whole = parts[0] ?? '0';
-  const frac = (parts[1] ?? '').padEnd(7, '0').slice(0, 7);
-  return BigInt(whole + frac);
+/** Spendable XLM in stroops: the native balance minus the account's minimum balance. */
+function getAvailableXlmStroops(stellarAccount: StellarSdk.Horizon.AccountResponse): bigint {
+  const xlmBalance = stellarAccount.balances.find(
+    (balance): balance is StellarSdk.Horizon.HorizonApi.BalanceLineNative => balance.asset_type === 'native',
+  );
+  if (!xlmBalance) return BigInt(0);
+
+  const rawBalanceStroops = parseStellarAmount(xlmBalance.balance);
+  const sellingLiabilitiesStroops = xlmBalance.selling_liabilities
+    ? parseStellarAmount(xlmBalance.selling_liabilities)
+    : BigInt(0);
+  // Minimum balance = (2 + subentry_count + num_sponsoring - num_sponsored) * base_reserve + selling_liabilities.
+  // Reserves another account sponsors (num_sponsored) are not locked in this account's own balance.
+  const reserveCount = Math.max(
+    0,
+    2 + stellarAccount.subentry_count + stellarAccount.num_sponsoring - stellarAccount.num_sponsored,
+  );
+  const minBalanceStroops = BigInt(reserveCount) * BigInt(STELLAR_BASE_RESERVE_STROOPS) + sellingLiabilitiesStroops;
+  return rawBalanceStroops > minBalanceStroops ? rawBalanceStroops - minBalanceStroops : BigInt(0);
 }
 
 export class StellarXService extends XService {
@@ -57,45 +69,46 @@ export class StellarXService extends XService {
     return StellarXService.instance;
   }
 
-  override async getBalance(address: string | undefined, xToken: XToken): Promise<bigint> {
-    if (!address) return BigInt(0);
+  /**
+   * Reads every balance from one Horizon account load: XLM and classic-asset tokens come from the account's
+   * balance lines, and only custom Soroban tokens are simulated. Rejects when a request fails, so a failed
+   * (e.g. rate-limited) request is never reported as a zero balance. An account never funded reads as all zeros.
+   */
+  override async getBalances(address: string | undefined, xTokens: readonly XToken[]): Promise<Record<string, bigint>> {
+    if (!address) return {};
 
-    const stellarAccount = await this.server.loadAccount(address);
-
-    if (xToken.symbol === 'XLM') {
-      const xlmBalance = stellarAccount.balances.find(balance => balance.asset_type === 'native');
-      if (xlmBalance) {
-        const rawBalanceStroops = parseXlmBalanceToStroops(xlmBalance.balance);
-        const sellingLiabilitiesStroops = (xlmBalance as { selling_liabilities?: string }).selling_liabilities
-          ? parseXlmBalanceToStroops((xlmBalance as { selling_liabilities: string }).selling_liabilities)
-          : BigInt(0);
-        const reserveFields = stellarAccount as unknown as StellarAccountReserveFields;
-        const subentryCount = reserveFields.subentry_count ?? 0;
-        const numSponsoring = reserveFields.num_sponsoring ?? 0;
-        const numSponsored = reserveFields.num_sponsored ?? 0;
-        // Minimum balance = (2 + subentry_count + num_sponsoring - num_sponsored) * base_reserve + selling_liabilities.
-        // When account has sponsored reserves (num_sponsored > 0), those reserves are paid by the sponsor, so we don't subtract them.
-        const reserveCount = Math.max(0, 2 + subentryCount + numSponsoring - numSponsored);
-        const minBalanceStroops =
-          BigInt(reserveCount) * BigInt(STELLAR_BASE_RESERVE_STROOPS) + sellingLiabilitiesStroops;
-        const availableStroops =
-          rawBalanceStroops > minBalanceStroops ? rawBalanceStroops - minBalanceStroops : BigInt(0);
-        return availableStroops;
+    let stellarAccount: StellarSdk.Horizon.AccountResponse;
+    try {
+      stellarAccount = await this.server.loadAccount(address);
+    } catch (error) {
+      if (error instanceof StellarSdk.NotFoundError) {
+        return Object.fromEntries(xTokens.map(xToken => [xToken.address, BigInt(0)]));
       }
-    } else {
-      try {
-        const txBuilder = new StellarSdk.TransactionBuilder(stellarAccount, {
-          fee: StellarSdk.BASE_FEE,
-          networkPassphrase: StellarSdk.Networks.PUBLIC,
-        });
-
-        const balance = await getTokenBalance(address, xToken.address, txBuilder, this.sorobanServer);
-        return balance;
-      } catch (e) {
-        console.error(`Error while fetching token on Stellar: ${xToken.symbol}, Error: ${e}`);
-      }
+      throw error;
     }
+    const trustlineBalances = getTrustlineBalances(stellarAccount.balances, StellarSdk.Networks.PUBLIC);
 
-    return BigInt(0);
+    const readBalance = async (xToken: XToken): Promise<bigint> => {
+      if (isNativeToken(xToken)) return getAvailableXlmStroops(stellarAccount);
+
+      const trustlineBalance = trustlineBalances.get(xToken.address);
+      if (trustlineBalance !== undefined) return trustlineBalance;
+      if (TRUSTLINE_ASSET_CONTRACTS.has(xToken.address)) return BigInt(0);
+
+      const txBuilder = new StellarSdk.TransactionBuilder(stellarAccount, {
+        fee: StellarSdk.BASE_FEE,
+        networkPassphrase: StellarSdk.Networks.PUBLIC,
+      });
+      return getTokenBalance(address, xToken.address, txBuilder, this.sorobanServer);
+    };
+
+    return Object.fromEntries(
+      await Promise.all(xTokens.map(async xToken => [xToken.address, await readBalance(xToken)] as const)),
+    );
+  }
+
+  override async getBalance(address: string | undefined, xToken: XToken): Promise<bigint> {
+    const balances = await this.getBalances(address, [xToken]);
+    return balances[xToken.address] ?? BigInt(0);
   }
 }

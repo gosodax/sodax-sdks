@@ -128,6 +128,10 @@ The full guide lives in [`docs/`](https://github.com/gosodax/sodax-sdks/tree/mai
 
 Multi-token Solana balance reads batch the legacy SPL Token and Token-2022 associated-account candidates in requests of at most 100 accounts. Native SOL remains a separate balance request. If any of these RPC requests fails, `getBalances` rejects instead of reporting zero balances, so callers such as `useXBalances` surface an error and keep their last good data.
 
+### Stellar balance batching
+
+Stellar balance reads load the account from Horizon once per `getBalances` call. XLM and every token that wraps a classic asset are read from that response, and a classic asset without a trustline reads as zero without any request. Only custom Soroban tokens are read by simulating `balance()`, one request each. If the account load or a simulation request fails, `getBalances` and `getBalance` reject instead of reporting zero balances. An account that has never been funded reads as zero for every token.
+
 ## AI agent docs
 
 AI-readable docs for `@sodax/wallet-sdk-react` (and the other `@sodax/*` packages) are shipped via [`@sodax/skills`](https://github.com/gosodax/sodax-sdks/tree/main/packages/skills) — a separate npm package bundling Claude-Code SKILL.md files and a long-form knowledge tree.
