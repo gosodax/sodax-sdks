@@ -8,6 +8,7 @@ import type {
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
+import { waitForApiAllowance } from '../shared/waitForApiAllowance.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { runApprovalPlan, type ApprovalHashes, type ApprovalProgressListener } from '../../utils/approvalPlan.js';
@@ -28,7 +29,9 @@ export type UseBridgeApiApproveAndBroadcastVars<K extends SpokeChainKey = SpokeC
  *
  * Prefer this over {@link useBridgeApiApprove}, which hands back the unsigned `{ tx, resetTx? }` and
  * leaves the ordering — reset mined first, then approve — to the caller. Confirmation happens inside
- * the hook, so it invalidates `['bridgeApi','allowance']` itself.
+ * the hook, so it invalidates `['bridgeApi','allowance']` itself — after waiting up to about 15 seconds for
+ * the API to report the allowance as valid, since its RPC can trail the node that confirmed the approve.
+ * It resolves after that wait either way, so read the allowance rather than treating success as `valid`.
  *
  * Supports the chains the bridge API can approve on — the hub (Sonic), EVM spokes, and Stellar.
  * Every other chain reports its allowance as always sufficient, so approval never runs for it.
@@ -58,13 +61,15 @@ export const useBridgeApiApproveAndBroadcast = <K extends SpokeChainKey = SpokeC
     mutationFn: async ({ body, walletProvider, apiConfig, onProgress }): Promise<BridgeApiApprovalHashes> => {
       const plan: BridgeApproveResponseV2 = unwrapResult(await sodax.api.bridge.approve(body, apiConfig));
 
-      return runApprovalPlan({
+      const hashes = await runApprovalPlan({
         plan,
         srcChainKey: body.srcChainKey as SpokeChainKey,
         walletProvider,
         hookName: 'useBridgeApiApproveAndBroadcast',
         onProgress,
       });
+      await waitForApiAllowance(() => sodax.api.bridge.checkAllowance(body, apiConfig));
+      return hashes;
     },
     onSuccess: async (data, vars, ctx) => {
       // Awaited: the mutation must not resolve — re-enabling Approve — before the allowance query

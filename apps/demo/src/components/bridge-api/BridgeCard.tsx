@@ -1,6 +1,6 @@
 'use client';
 
-import React, { type SetStateAction, useEffect, useMemo, useState } from 'react';
+import React, { type SetStateAction, useMemo, useState } from 'react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -13,10 +13,12 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ChainSelector } from '@/components/shared/ChainSelector';
+import { SelectToken } from '@/components/shared/SelectToken';
 import {
   loadRadfiSession,
+  useBalances,
   useBitcoinBalance,
   useBitcoinTradingSetup,
   useBridgeApiAllowance,
@@ -31,6 +33,7 @@ import {
   useSodaxContext,
   useStellarTrustlineCheck,
   ChainKeys,
+  isNativeToken,
   type BitcoinRawTransaction,
   type BridgeSubmitTxRequestV2,
   type CreateBridgeIntentParamsV2,
@@ -55,9 +58,9 @@ import { formatUnits, parseUnits } from 'viem';
 import { PartnerFeeFields, usePartnerFeeDraft } from '@/components/shared/PartnerFeeFields';
 import { useAppStore } from '@/zustand/useAppStore';
 import { BitcoinSetupPanel } from '@/components/bitcoin/BitcoinSetupPanel';
-import { formatMutationFailureMessage, rescaleTokenAmount } from '@/lib/utils';
+import { formatMutationFailureMessage, formatTokenAmount, rescaleTokenAmount } from '@/lib/utils';
 import type { BridgeApiOrder } from '@/components/bridge-api/OrderStatus';
-import { BRIDGE_API_MAX_PARTNER_FEE_BPS, DEFAULT_BRIDGE_API_BASE_URL, envBridgeApiBaseUrl } from '@/lib/sodaxSettings';
+import { BRIDGE_API_MAX_PARTNER_FEE_BPS, effectiveBridgeApiBaseUrl } from '@/lib/sodaxSettings';
 import { isSignableBridgeApiChain, signAndBroadcastBridgeApiTx } from '@/components/bridge-api/lib/signAndBroadcast';
 
 /** Short button label for the step the wallet is on, or `null` once that step has landed. */
@@ -71,6 +74,23 @@ function approvalStepLabel({ step, phase, index, total }: ApprovalProgress): str
 }
 
 /**
+ * The balance a side can move, or `undefined` while unknown. A Bitcoin side spends from (or delivers to) the
+ * Bound trading wallet, whose balance covers native BTC only, so a Rune there has no balance to show.
+ */
+function sideBalance(
+  chainKey: SpokeChainKey,
+  token: XToken | undefined,
+  tradingBalance: { btcSatoshi: bigint } | undefined,
+  balances: Record<string, bigint> | undefined,
+): bigint | undefined {
+  if (!token) return undefined;
+  if (chainKey === ChainKeys.BITCOIN_MAINNET) {
+    return isNativeToken(chainKey, token) ? tradingBalance?.btcSatoshi : undefined;
+  }
+  return balances?.[token.address];
+}
+
+/**
  * Bridge-api demo card — the existing on-chain bridge UI (chain/token selection, max-bridgeable,
  * route-availability gate) wired to the HTTP Bridge API (`sodax.api.bridge.*`) via the `bridgeApi/`
  * hooks, mirroring how the swaps-api demo wires swaps. Token discovery (no HTTP hook) + bridgeable
@@ -80,7 +100,7 @@ function approvalStepLabel({ step, phase, index, total }: ApprovalProgress): str
 export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateAction<BridgeApiOrder[]>) => void }) {
   const { sodax } = useSodaxContext();
   const { openWalletModal, sodaxSettings } = useAppStore();
-  const bridgeApiBaseURL = sodaxSettings.bridgeApiBaseUrl ?? envBridgeApiBaseUrl ?? DEFAULT_BRIDGE_API_BASE_URL;
+  const bridgeApiBaseURL = effectiveBridgeApiBaseUrl(sodaxSettings);
   const bridgeApiConfig = useMemo((): RequestOverrideConfig => ({ baseURL: bridgeApiBaseURL }), [bridgeApiBaseURL]);
 
   const supportedTokensPerChain = useMemo(() => sodax.config.getSupportedTokensPerChain(), [sodax]);
@@ -88,9 +108,11 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   const [fromChainKey, setFromChainKey] = useState<SpokeChainKey>(ChainKeys.BASE_MAINNET);
   const [toChainKey, setToChainKey] = useState<SpokeChainKey>(ChainKeys.POLYGON_MAINNET);
 
+  // Picks are kept by symbol and resolved against the current chain's list, so a token never outlives its chain.
+  const [fromSymbol, setFromSymbol] = useState<string | undefined>(undefined);
+  const [toSymbol, setToSymbol] = useState<string | undefined>(undefined);
   const fromTokens = supportedTokensPerChain.get(fromChainKey) ?? [];
-  const [fromToken, setFromToken] = useState<XToken | undefined>(fromTokens[0]);
-  const [toToken, setToToken] = useState<XToken | undefined>(undefined);
+  const fromToken: XToken | undefined = fromTokens.find(t => t.symbol === fromSymbol) ?? fromTokens[0];
   const [fromAmount, setFromAmount] = useState('');
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -119,19 +141,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   const { data: bridgeableTokens, isLoading: isLoadingBridgeableTokens } = useGetBridgeableTokens({
     params: { from: fromToken?.chainKey, to: toChainKey, token: fromToken?.address },
   });
-
-  useEffect(() => {
-    if (bridgeableTokens && bridgeableTokens.length > 0) {
-      setToToken(prev => (prev && bridgeableTokens.some(t => t.address === prev.address) ? prev : bridgeableTokens[0]));
-    } else {
-      setToToken(undefined);
-    }
-  }, [bridgeableTokens]);
-
-  useEffect(() => {
-    const tokens = supportedTokensPerChain.get(fromChainKey) ?? [];
-    setFromToken(tokens[0]);
-  }, [fromChainKey, supportedTokensPerChain]);
+  const toToken: XToken | undefined = bridgeableTokens?.find(t => t.symbol === toSymbol) ?? bridgeableTokens?.[0];
 
   const { data: bridgeableAmount, isLoading: isLoadingBridgeableAmount } = useGetBridgeableAmount({
     params: { from: fromToken, to: toToken },
@@ -285,6 +295,24 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
     address: toAccount.address,
   });
 
+  // Wallet-layer reads: the Bridge API has no balance route. A Bitcoin side reads the trading wallet instead.
+  const { data: fromBalances } = useBalances({
+    params: {
+      chainKey: fromChainKey,
+      tokens: fromToken && fromChainKey !== ChainKeys.BITCOIN_MAINNET ? [fromToken] : [],
+      address: fromAccount.address,
+    },
+  });
+  const { data: toBalances } = useBalances({
+    params: {
+      chainKey: toChainKey,
+      tokens: toToken && toChainKey !== ChainKeys.BITCOIN_MAINNET ? [toToken] : [],
+      address: toAccount.address,
+    },
+  });
+  const fromBalance = sideBalance(fromChainKey, fromToken, sourceBitcoin.tradingBalance, fromBalances);
+  const toBalance = sideBalance(toChainKey, toToken, destBitcoin.tradingBalance, toBalances);
+
   const isSourceSignable = isSignableBridgeApiChain(fromChainKey) || fromChainType === 'BITCOIN';
 
   const handleOpenDialog = () => {
@@ -294,12 +322,10 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   };
 
   const handleSwitch = () => {
-    const prevFromChainKey = fromChainKey;
-    const prevFromToken = fromToken;
     setFromChainKey(toChainKey);
-    setToChainKey(prevFromChainKey);
-    setFromToken(toToken);
-    setToToken(prevFromToken);
+    setToChainKey(fromChainKey);
+    setFromSymbol(toToken?.symbol);
+    setToSymbol(fromToken?.symbol);
     setFromAmount('');
   };
 
@@ -406,7 +432,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
     }
   };
 
-  const chainList = useMemo(() => sodax.config.getSupportedSpokeChains() as string[], [sodax]);
+  const chainList = useMemo(() => sodax.config.getSupportedSpokeChains(), [sodax]);
   const needsTrustline = toChainType === 'STELLAR' && !isTrustlineLoading && !hasSufficientTrustline;
   const isBridgeDisabled =
     isBridging ||
@@ -427,43 +453,25 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="from-chain">From</Label>
-            <Select value={fromChainKey} onValueChange={value => setFromChainKey(value as SpokeChainKey)}>
-              <SelectTrigger id="from-chain">
-                <SelectValue placeholder="Source chain" />
-              </SelectTrigger>
-              <SelectContent>
-                {chainList.map(chain => (
-                  <SelectItem key={chain} value={chain}>
-                    {chain}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>From</Label>
+            <ChainSelector selectedChainId={fromChainKey} selectChainId={setFromChainKey} allowedChains={chainList} />
           </div>
 
           <div className="flex space-x-2">
             <div className="grow">
               <Input type="number" placeholder="0.0" value={fromAmount} onChange={e => setFromAmount(e.target.value)} />
             </div>
-            <Select
+            <SelectToken
+              tokens={fromTokens}
               value={fromToken?.symbol}
-              onValueChange={symbol => {
-                const selected = fromTokens.find(t => t.symbol === symbol);
-                if (selected) setFromToken(selected);
-              }}
-            >
-              <SelectTrigger className="w-[110px]">
-                <SelectValue placeholder="Token" />
-              </SelectTrigger>
-              <SelectContent>
-                {fromTokens.map(t => (
-                  <SelectItem key={`${t.address}-${t.symbol}`} value={t.symbol}>
-                    {t.symbol}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onSelect={t => setFromSymbol(t.symbol)}
+              className="w-[110px]"
+            />
+          </div>
+
+          <div className="text-sm text-muted-foreground flex gap-1">
+            <span>Balance:</span>
+            <span>{fromBalance === undefined ? '—' : formatTokenAmount(fromBalance, fromToken?.decimals ?? 0, 5)}</span>
           </div>
 
           {isBelowDestinationUnit && toToken && (
@@ -512,19 +520,8 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="to-chain">To</Label>
-            <Select value={toChainKey} onValueChange={value => setToChainKey(value as SpokeChainKey)}>
-              <SelectTrigger id="to-chain">
-                <SelectValue placeholder="Destination chain" />
-              </SelectTrigger>
-              <SelectContent>
-                {chainList.map(chain => (
-                  <SelectItem key={chain} value={chain}>
-                    {chain}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>To</Label>
+            <ChainSelector selectedChainId={toChainKey} selectChainId={setToChainKey} allowedChains={chainList} />
           </div>
 
           <div className="flex space-x-2">
@@ -534,25 +531,18 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
             {isLoadingBridgeableTokens ? (
               <Skeleton className="w-[110px] h-10" />
             ) : (
-              <Select
+              <SelectToken
+                tokens={bridgeableTokens ?? []}
                 value={toToken?.symbol}
-                onValueChange={symbol => {
-                  const selected = bridgeableTokens?.find(t => t.symbol === symbol);
-                  if (selected) setToToken(selected);
-                }}
-              >
-                <SelectTrigger className="w-[110px]">
-                  <SelectValue placeholder="Token" />
-                </SelectTrigger>
-                <SelectContent>
-                  {bridgeableTokens?.map(t => (
-                    <SelectItem key={`${t.address}-${t.symbol}`} value={t.symbol}>
-                      {t.symbol}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onSelect={t => setToSymbol(t.symbol)}
+                className="w-[110px]"
+              />
             )}
+          </div>
+
+          <div className="text-sm text-muted-foreground flex gap-1">
+            <span>Balance:</span>
+            <span>{toBalance === undefined ? '—' : formatTokenAmount(toBalance, toToken?.decimals ?? 0, 5)}</span>
           </div>
 
           <div className="grow">

@@ -225,7 +225,10 @@ each, resolving with `{ approveTxHash, resetTxHash? }` only once the final appro
 transaction that mines but reverts rejects the mutation naming that step, so the approve is never
 sent over a reset that did not take. Each also invalidates its own allowance query
 (`['swapsApi','allowance']` / `['bridgeApi','allowance']` / `['leverageYieldApi','allowance']`),
-because confirmation now happens inside the hook. Pick the one matching the action you are about to
+because confirmation now happens inside the hook. Before invalidating, each re-checks its API's allowance
+for up to about 15 seconds, since the API reads the chain through its own RPC, which can trail the node
+that confirmed the approve; it resolves after that wait either way, so gate the next step on the
+allowance query, not on mutation success. Pick the one matching the action you are about to
 take — each API builds its approval for its own hub spender, so an approval built by one does not
 satisfy the other. Only a leverage-yield **deposit** needs one; a withdraw spends `lsoda*` from the
 hub wallet and never approves.

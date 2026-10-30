@@ -15,13 +15,14 @@ import type { ApprovalProgress } from '../../utils/approvalPlan.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const approve = vi.fn();
+const checkAllowance = vi.fn();
 const invalidateQueries = vi.fn();
 
 // biome-ignore lint/suspicious/noExplicitAny: the captured mutation options are driven directly.
 let captured: any;
 
 vi.mock('../shared/useSodaxContext.js', () => ({
-  useSodaxContext: () => ({ sodax: { api: { leverageYield: { approve } } } }),
+  useSodaxContext: () => ({ sodax: { api: { leverageYield: { approve, checkAllowance } } } }),
 }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries }) }));
 vi.mock('../shared/useSafeMutation.js', () => ({
@@ -73,6 +74,7 @@ const run = (vars: any) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  checkAllowance.mockResolvedValue({ ok: true, value: { valid: true } });
 });
 
 describe('useLeverageYieldApiApproveAndBroadcast', () => {
@@ -83,6 +85,21 @@ describe('useLeverageYieldApiApproveAndBroadcast', () => {
     await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider: evmProvider([]), apiConfig });
 
     expect(approve).toHaveBeenCalledWith(body(ChainKeys.ARBITRUM_MAINNET), apiConfig);
+  });
+
+  it('re-checks the allowance through the same API once the approve confirms', async () => {
+    approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX } });
+    const calls: string[] = [];
+    checkAllowance.mockImplementation(async () => {
+      calls.push('check');
+      return { ok: true, value: { valid: true } };
+    });
+    const apiConfig = { baseURL: 'https://canary-api.example/v1' };
+
+    await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider: evmProvider(calls), apiConfig });
+
+    expect(calls).toEqual(['send:0xapprove', `wait:${APPROVE_HASH}`, 'check']);
+    expect(checkAllowance).toHaveBeenCalledWith(body(ChainKeys.ARBITRUM_MAINNET), apiConfig);
   });
 
   it('broadcasts the reset, waits for it, then approves — and reports both hashes', async () => {

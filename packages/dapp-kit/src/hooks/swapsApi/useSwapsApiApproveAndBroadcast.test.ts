@@ -13,13 +13,14 @@ import type { ApprovalProgress } from '../../utils/approvalPlan.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const approve = vi.fn();
+const checkAllowance = vi.fn();
 const invalidateQueries = vi.fn();
 
 // biome-ignore lint/suspicious/noExplicitAny: the captured mutation options are driven directly.
 let captured: any;
 
 vi.mock('../shared/useSodaxContext.js', () => ({
-  useSodaxContext: () => ({ sodax: { api: { swaps: { approve } } } }),
+  useSodaxContext: () => ({ sodax: { api: { swaps: { approve, checkAllowance } } } }),
 }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries }) }));
 vi.mock('../shared/useSafeMutation.js', () => ({
@@ -65,6 +66,7 @@ const run = (vars: any) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  checkAllowance.mockResolvedValue({ ok: true, value: { valid: true } });
 });
 
 describe('useSwapsApiApproveAndBroadcast', () => {
@@ -78,6 +80,21 @@ describe('useSwapsApiApproveAndBroadcast', () => {
     expect(result).toEqual({ resetTxHash: RESET_HASH, approveTxHash: APPROVE_HASH });
     // The wait has to sit between the two sends; approving over an unconfirmed reset reverts.
     expect(calls).toEqual(['send:0xreset', `wait:${RESET_HASH}`, 'send:0xapprove', `wait:${APPROVE_HASH}`]);
+  });
+
+  it('re-checks the allowance through the same API once the approve confirms', async () => {
+    approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX } });
+    const calls: string[] = [];
+    checkAllowance.mockImplementation(async () => {
+      calls.push('check');
+      return { ok: true, value: { valid: true } };
+    });
+    const apiConfig = { baseURL: 'https://api.example' };
+
+    await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider: evmProvider(calls), apiConfig });
+
+    expect(calls).toEqual(['send:0xapprove', `wait:${APPROVE_HASH}`, 'check']);
+    expect(checkAllowance).toHaveBeenCalledWith(body(ChainKeys.ARBITRUM_MAINNET), apiConfig);
   });
 
   it('never sends the approve when the reset fails to confirm', async () => {
