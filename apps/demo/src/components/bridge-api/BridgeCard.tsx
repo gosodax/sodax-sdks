@@ -29,9 +29,8 @@ import {
   useBridgeApiSubmitTx,
   useBridgeApiTokens,
   useNearStorageGate,
-  useRequestTrustline,
   useSodaxContext,
-  useStellarTrustlineCheck,
+  useStellarGate,
   ChainKeys,
   isNativeToken,
   type BitcoinRawTransaction,
@@ -40,10 +39,8 @@ import {
   type Hex,
   type ApprovalProgress,
   type IBitcoinWalletProvider,
-  type IStellarWalletProvider,
   type RequestOverrideConfig,
   type SpokeChainKey,
-  type StellarChainKey,
   type XToken,
 } from '@sodax/dapp-kit';
 import {
@@ -278,9 +275,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
 
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: fromChainKey });
 
-  // Client-side destination prerequisites the API doesn't cover: Stellar trustline + NEAR storage.
-  const stellarWalletProvider =
-    toChainType === 'STELLAR' ? (toWalletProvider as IStellarWalletProvider | undefined) : undefined;
+  // Client-side destination prerequisites the API doesn't cover: the Stellar account + trustline, NEAR storage.
   // Trustline capacity is denominated in the destination asset (Stellar works in stroops, 7dp), but
   // `parsedAmount` is in the source token's decimals — an 18dp source would overstate it by 1e11.
   const dstAmount = useMemo(
@@ -292,19 +287,17 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   );
 
   // Below the destination asset's smallest unit the rescale floors to `0n`, which the trustline
-  // query reads as "no amount" and skips — leaving `needsTrustline` false and the prerequisite
-  // unchecked. Reject the amount instead of gating on a query that never runs.
+  // query reads as "no amount" and skips — the gate then blocks on an unresolved check with nothing
+  // on screen. Reject the amount instead so the card can say why.
   const isBelowDestinationUnit = dstAmount === 0n && parsedAmount !== undefined && parsedAmount > 0n;
 
-  const { data: hasSufficientTrustline, isPending: isTrustlineLoading } = useStellarTrustlineCheck({
-    params: {
-      token: toToken?.address,
-      amount: isBelowDestinationUnit ? undefined : dstAmount,
-      chainId: toChainKey,
-      walletAddress: toChainType === 'STELLAR' ? toAccount.address : undefined,
-    },
+  const stellar = useStellarGate({
+    dstChainKey: toChainKey,
+    token: toToken?.address,
+    amount: isBelowDestinationUnit ? undefined : dstAmount,
+    address: toAccount.address,
+    walletProvider: toWalletProvider,
   });
-  const { requestTrustline, isLoading: isRequestingTrustline } = useRequestTrustline(toToken?.address);
 
   const nearStorage = useNearStorageGate({
     dstChainKey: toChainKey,
@@ -452,14 +445,18 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
     }
   };
 
+  const handleActivateStellarAccount = async () => {
+    const result = await stellar.activate();
+    if (result && !result.ok) {
+      setBridgeError(formatMutationFailureMessage(result.error, 'Stellar account activation failed'));
+    }
+  };
+
   const handleRequestTrustline = async () => {
-    if (toChainType !== 'STELLAR' || !stellarWalletProvider || !toToken || !dstAmount) return;
-    await requestTrustline({
-      token: toToken.address,
-      amount: dstAmount,
-      srcChainKey: toChainKey as StellarChainKey,
-      walletProvider: stellarWalletProvider,
-    });
+    const result = await stellar.requestTrustline();
+    if (result && !result.ok) {
+      setBridgeError(formatMutationFailureMessage(result.error, 'Trustline request failed'));
+    }
   };
 
   const handleRegisterNearStorage = async () => {
@@ -469,7 +466,6 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
     }
   };
 
-  const needsTrustline = toChainType === 'STELLAR' && !isTrustlineLoading && !hasSufficientTrustline;
   const isBridgeDisabled =
     isBridging ||
     !bridgeBody ||
@@ -478,7 +474,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
     (fromChainType === 'EVM' && !hasAllowance) ||
     (fromChainKey === ChainKeys.BITCOIN_MAINNET && !isFromBtcReady) ||
     (toChainKey === ChainKeys.BITCOIN_MAINNET && !isToBtcReady) ||
-    needsTrustline ||
+    stellar.blocksAction ||
     nearStorage.blocksAction;
 
   return (
@@ -646,8 +642,27 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
             <div>Amount: {fromToken ? formatUnits(parsedAmount ?? 0n, fromToken.decimals) : fromAmount}</div>
             <div className="break-all">Recipient: {recipient}</div>
 
-            {needsTrustline && (
+            {/* Keep activation in-flow; funding has no client-side remedy. */}
+            {stellar.needsActivation && (
+              <div className="text-red-500">
+                Recipient's Stellar account does not exist yet — activate it to proceed. SODAX sponsors the reserve, so
+                this is free.
+              </div>
+            )}
+            {stellar.needsFunding && (
+              <div className="text-red-500">
+                Recipient's Stellar account holds no XLM, so it cannot pay for a trustline. Send it some XLM first —
+                receiving XLM needs no trustline.
+              </div>
+            )}
+            {stellar.needsTrustline && (
               <div className="text-red-500">Insufficient Stellar trustline — request trustline to proceed.</div>
+            )}
+            {stellar.checkFailed && (
+              <div className="text-red-500">
+                Couldn't check the recipient's Stellar account, so the bridge is on hold
+                {stellar.error ? `: ${stellar.error.message}` : ''}
+              </div>
             )}
             {nearStorage.needsRegistration && (
               <div className="text-red-500">
@@ -683,11 +698,29 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
               </Button>
             )}
 
-            {toChainType === 'STELLAR' && isTrustlineLoading && <span className="text-sm">Checking trustline…</span>}
+            {stellar.isStellar && stellar.isChecking && <span className="text-sm">Checking Stellar account…</span>}
 
-            {needsTrustline && (
-              <Button className="w-full" onClick={handleRequestTrustline} disabled={isRequestingTrustline}>
-                {isRequestingTrustline ? 'Requesting…' : 'Request Trustline'}
+            {stellar.needsActivation && (
+              <Button className="w-full" onClick={handleActivateStellarAccount} disabled={stellar.isActivating}>
+                {stellar.isActivating ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Activating…
+                  </>
+                ) : (
+                  'Activate Stellar Account'
+                )}
+              </Button>
+            )}
+
+            {stellar.needsTrustline && (
+              <Button className="w-full" onClick={handleRequestTrustline} disabled={stellar.isRequestingTrustline}>
+                {stellar.isRequestingTrustline ? 'Requesting…' : 'Request Trustline'}
+              </Button>
+            )}
+
+            {stellar.checkFailed && (
+              <Button className="w-full" onClick={stellar.retry} disabled={stellar.isChecking}>
+                {stellar.isChecking ? 'Rechecking…' : 'Retry Stellar Check'}
               </Button>
             )}
 
