@@ -72,11 +72,11 @@ const WalletItem = ({ name, xChainType, onConnectionSuccess }: WalletItemProps) 
     return xConnectors.find(connector => connector.id === xConnection?.xConnectorId);
   }, [xConnectors, xConnection]);
 
-  const sortedXConnectors = useMemo(() => {
-    const hanaWallet = xConnectors.find(connector => connector.name === 'Hana Wallet');
-    const others = xConnectors.filter(connector => connector.name !== 'Hana Wallet');
-    return hanaWallet ? [hanaWallet, ...others] : xConnectors;
-  }, [xConnectors]);
+  // Not memoized: isInstalled probes window on each read, so a late-injected extension appears on the next render.
+  const installedXConnectors = xConnectors.filter(connector => connector.isInstalled);
+  const hanaWallet = installedXConnectors.find(connector => connector.name === 'Hana Wallet');
+  const others = installedXConnectors.filter(connector => connector.name !== 'Hana Wallet');
+  const sortedXConnectors = hanaWallet ? [hanaWallet, ...others] : installedXConnectors;
 
   return (
     <div className="flex items-center gap-3 sm:gap-6 text-[#0d0229]">
@@ -98,6 +98,9 @@ const WalletItem = ({ name, xChainType, onConnectionSuccess }: WalletItemProps) 
           </div>
         ) : (
           <>
+            {sortedXConnectors.length === 0 && (
+              <span className="text-xs text-muted-foreground">No wallet detected</span>
+            )}
             {sortedXConnectors.map(xConnector => {
               return (
                 <Button
