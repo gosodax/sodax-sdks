@@ -8,6 +8,7 @@ import type {
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
+import { waitForApiAllowance } from '../shared/waitForApiAllowance.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { runApprovalPlan, type ApprovalHashes, type ApprovalProgressListener } from '../../utils/approvalPlan.js';
@@ -35,7 +36,10 @@ export type UseSwapsApiApproveAndBroadcastVars<K extends SpokeChainKey = SpokeCh
  * ordering the package should own rather than every integration re-deriving it.
  *
  * Because confirmation now happens inside the hook, it can invalidate `['swapsApi','allowance']`
- * itself; callers of `useSwapsApiApprove` have to refetch by hand.
+ * itself; callers of `useSwapsApiApprove` have to refetch by hand. It first waits up to about 15 seconds
+ * for the API to report the allowance as valid, since its RPC can trail the node that confirmed the
+ * approve. It resolves after that wait either way, so read the allowance rather than treating success as
+ * `valid`.
  *
  * Supports the chains the swaps API can approve on — the hub (Sonic), EVM spokes, and Stellar.
  * Every other chain reports its allowance as always sufficient, so approval never runs for it.
@@ -62,13 +66,15 @@ export const useSwapsApiApproveAndBroadcast = <K extends SpokeChainKey = SpokeCh
     mutationFn: async ({ body, walletProvider, apiConfig, onProgress }): Promise<SwapsApiApprovalHashes> => {
       const plan: ApproveResponseV2 = unwrapResult(await sodax.api.swaps.approve(body, apiConfig));
 
-      return runApprovalPlan({
+      const hashes = await runApprovalPlan({
         plan,
         srcChainKey: body.srcChainKey as SpokeChainKey,
         walletProvider,
         hookName: 'useSwapsApiApproveAndBroadcast',
         onProgress,
       });
+      await waitForApiAllowance(() => sodax.api.swaps.checkAllowance(body, apiConfig));
+      return hashes;
     },
     onSuccess: async (data, vars, ctx) => {
       // Awaited: the mutation must not resolve — re-enabling Approve — before the allowance query

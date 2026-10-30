@@ -1,6 +1,6 @@
 'use client';
 
-import React, { type SetStateAction, useEffect, useMemo, useState } from 'react';
+import React, { type SetStateAction, useMemo, useState } from 'react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -13,34 +13,34 @@ import {
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ChainSelector } from '@/components/shared/ChainSelector';
+import { SelectToken } from '@/components/shared/SelectToken';
 import {
   loadRadfiSession,
+  useBalances,
   useBitcoinBalance,
   useBitcoinTradingSetup,
   useBridgeApiAllowance,
   useBridgeApiApproveAndBroadcast,
+  useBridgeApiBridgeableAmount,
   useBridgeApiCreateBridgeIntent,
   useBridgeApiFee,
   useBridgeApiSubmitTx,
-  useGetBridgeableAmount,
-  useGetBridgeableTokens,
+  useBridgeApiTokens,
   useNearStorageGate,
-  useRequestTrustline,
   useSodaxContext,
-  useStellarTrustlineCheck,
+  useStellarGate,
   ChainKeys,
+  isNativeToken,
   type BitcoinRawTransaction,
   type BridgeSubmitTxRequestV2,
   type CreateBridgeIntentParamsV2,
   type Hex,
   type ApprovalProgress,
   type IBitcoinWalletProvider,
-  type IStellarWalletProvider,
   type RequestOverrideConfig,
   type SpokeChainKey,
-  type StellarChainKey,
   type XToken,
 } from '@sodax/dapp-kit';
 import {
@@ -55,10 +55,11 @@ import { formatUnits, parseUnits } from 'viem';
 import { PartnerFeeFields, usePartnerFeeDraft } from '@/components/shared/PartnerFeeFields';
 import { useAppStore } from '@/zustand/useAppStore';
 import { BitcoinSetupPanel } from '@/components/bitcoin/BitcoinSetupPanel';
-import { formatMutationFailureMessage, rescaleTokenAmount } from '@/lib/utils';
+import { formatMutationFailureMessage, formatTokenAmount, rescaleTokenAmount } from '@/lib/utils';
 import type { BridgeApiOrder } from '@/components/bridge-api/OrderStatus';
-import { BRIDGE_API_MAX_PARTNER_FEE_BPS, DEFAULT_BRIDGE_API_BASE_URL, envBridgeApiBaseUrl } from '@/lib/sodaxSettings';
+import { BRIDGE_API_MAX_PARTNER_FEE_BPS, effectiveBridgeApiBaseUrl } from '@/lib/sodaxSettings';
 import { isSignableBridgeApiChain, signAndBroadcastBridgeApiTx } from '@/components/bridge-api/lib/signAndBroadcast';
+import { toXToken } from '@/components/bridge-api/lib/mappers';
 
 /** Short button label for the step the wallet is on, or `null` once that step has landed. */
 function approvalStepLabel({ step, phase, index, total }: ApprovalProgress): string | null {
@@ -70,27 +71,65 @@ function approvalStepLabel({ step, phase, index, total }: ApprovalProgress): str
   return `${phase === 'signing' ? action : pending}${counter}`;
 }
 
+/** The API types the limit as a string, so parse it defensively: a malformed one must not throw in render. */
+function parseLimitAmount(amount: string | undefined): bigint | undefined {
+  if (amount === undefined) return undefined;
+  try {
+    return BigInt(amount);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The balance a side can move, or `undefined` while unknown. A Bitcoin side spends from (or delivers to) the
+ * Bound trading wallet, whose balance covers native BTC only, so a Rune there has no balance to show.
+ */
+function sideBalance(
+  chainKey: SpokeChainKey,
+  token: XToken | undefined,
+  tradingBalance: { btcSatoshi: bigint } | undefined,
+  balances: Record<string, bigint> | undefined,
+): bigint | undefined {
+  if (!token) return undefined;
+  if (chainKey === ChainKeys.BITCOIN_MAINNET) {
+    return isNativeToken(chainKey, token) ? tradingBalance?.btcSatoshi : undefined;
+  }
+  return balances?.[token.address];
+}
+
 /**
  * Bridge-api demo card — the existing on-chain bridge UI (chain/token selection, max-bridgeable,
  * route-availability gate) wired to the HTTP Bridge API (`sodax.api.bridge.*`) via the `bridgeApi/`
- * hooks, mirroring how the swaps-api demo wires swaps. Token discovery (no HTTP hook) + bridgeable
- * math stay client-side (prefer no round-trip; bridgeable math also has an HTTP mirror now); only
- * allowance/approve/create/submit go through the API.
+ * hooks, mirroring how the swaps-api demo wires swaps. Chains, tokens and the bridgeable limit come from the
+ * API too, so the page offers every token the backend lists, including ones the installed SDK does not bundle.
  */
 export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateAction<BridgeApiOrder[]>) => void }) {
   const { sodax } = useSodaxContext();
   const { openWalletModal, sodaxSettings } = useAppStore();
-  const bridgeApiBaseURL = sodaxSettings.bridgeApiBaseUrl ?? envBridgeApiBaseUrl ?? DEFAULT_BRIDGE_API_BASE_URL;
+  const bridgeApiBaseURL = effectiveBridgeApiBaseUrl(sodaxSettings);
   const bridgeApiConfig = useMemo((): RequestOverrideConfig => ({ baseURL: bridgeApiBaseURL }), [bridgeApiBaseURL]);
 
-  const supportedTokensPerChain = useMemo(() => sodax.config.getSupportedTokensPerChain(), [sodax]);
+  const { data: apiTokens, isLoading: isLoadingBridgeableTokens } = useBridgeApiTokens({
+    params: { apiConfig: bridgeApiConfig },
+  });
+  const supportedTokensPerChain = useMemo(
+    () =>
+      new Map(
+        Object.entries(apiTokens ?? {}).map(([chainKey, tokens]) => [chainKey as SpokeChainKey, tokens.map(toXToken)]),
+      ),
+    [apiTokens],
+  );
+  const chainList = useMemo(() => [...supportedTokensPerChain.keys()], [supportedTokensPerChain]);
 
   const [fromChainKey, setFromChainKey] = useState<SpokeChainKey>(ChainKeys.BASE_MAINNET);
   const [toChainKey, setToChainKey] = useState<SpokeChainKey>(ChainKeys.POLYGON_MAINNET);
 
+  // Picks are kept by symbol and resolved against the current chain's list, so a token never outlives its chain.
+  const [fromSymbol, setFromSymbol] = useState<string | undefined>(undefined);
+  const [toSymbol, setToSymbol] = useState<string | undefined>(undefined);
   const fromTokens = supportedTokensPerChain.get(fromChainKey) ?? [];
-  const [fromToken, setFromToken] = useState<XToken | undefined>(fromTokens[0]);
-  const [toToken, setToToken] = useState<XToken | undefined>(undefined);
+  const fromToken: XToken | undefined = fromTokens.find(t => t.symbol === fromSymbol) ?? fromTokens[0];
   const [fromAmount, setFromAmount] = useState('');
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -114,33 +153,38 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   const fromChainType = getXChainType(fromChainKey);
   const toChainType = getXChainType(toChainKey);
 
-  // Client-side token discovery (no HTTP hook) + bridgeable math (kept client-side, prefer no round-trip;
-  // also mirrored by useBridgeApiBridgeableAmount) — same as the on-chain page.
-  const { data: bridgeableTokens, isLoading: isLoadingBridgeableTokens } = useGetBridgeableTokens({
-    params: { from: fromToken?.chainKey, to: toChainKey, token: fromToken?.address },
+  // Destination tokens that share the source token's hub vault, the same rule as `sodax.bridge.getBridgeableTokens`.
+  const bridgeableTokens = useMemo(() => {
+    if (!fromToken) return [];
+    const vault = fromToken.vault.toLowerCase();
+    return (supportedTokensPerChain.get(toChainKey) ?? []).filter(t => t.vault.toLowerCase() === vault);
+  }, [fromToken, toChainKey, supportedTokensPerChain]);
+  const toToken: XToken | undefined = bridgeableTokens.find(t => t.symbol === toSymbol) ?? bridgeableTokens[0];
+
+  // A listed pair can still have a zero limit, and then create-intent fails, so gate on the live limit.
+  const {
+    data: bridgeable,
+    error: bridgeableError,
+    isLoading: isLoadingBridgeableAmount,
+  } = useBridgeApiBridgeableAmount({
+    params: {
+      body:
+        fromToken && toToken
+          ? {
+              srcChainKey: fromChainKey,
+              dstChainKey: toChainKey,
+              inputToken: fromToken.address,
+              outputToken: toToken.address,
+            }
+          : undefined,
+      apiConfig: bridgeApiConfig,
+    },
+    // A rejected pair (400) is deterministic, so retrying only delays the answer.
+    queryOptions: { retry: false },
   });
-
-  useEffect(() => {
-    if (bridgeableTokens && bridgeableTokens.length > 0) {
-      setToToken(prev => (prev && bridgeableTokens.some(t => t.address === prev.address) ? prev : bridgeableTokens[0]));
-    } else {
-      setToToken(undefined);
-    }
-  }, [bridgeableTokens]);
-
-  useEffect(() => {
-    const tokens = supportedTokensPerChain.get(fromChainKey) ?? [];
-    setFromToken(tokens[0]);
-  }, [fromChainKey, supportedTokensPerChain]);
-
-  const { data: bridgeableAmount, isLoading: isLoadingBridgeableAmount } = useGetBridgeableAmount({
-    params: { from: fromToken, to: toToken },
-  });
-
-  const isBridgeable = useMemo(() => {
-    if (!fromToken || !toToken) return false;
-    return sodax.bridge.isBridgeable({ from: fromToken, to: toToken });
-  }, [fromToken, toToken, sodax]);
+  const bridgeableAmount = bridgeable?.limit;
+  const limitAmount = parseLimitAmount(bridgeableAmount?.amount);
+  const isBridgeable = limitAmount !== undefined && limitAmount > 0n;
 
   const parsedAmount = useMemo(() => {
     if (!fromToken || !fromAmount) return undefined;
@@ -231,9 +275,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
 
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: fromChainKey });
 
-  // Client-side destination prerequisites the API doesn't cover: Stellar trustline + NEAR storage.
-  const stellarWalletProvider =
-    toChainType === 'STELLAR' ? (toWalletProvider as IStellarWalletProvider | undefined) : undefined;
+  // Client-side destination prerequisites the API doesn't cover: the Stellar account + trustline, NEAR storage.
   // Trustline capacity is denominated in the destination asset (Stellar works in stroops, 7dp), but
   // `parsedAmount` is in the source token's decimals — an 18dp source would overstate it by 1e11.
   const dstAmount = useMemo(
@@ -245,19 +287,17 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   );
 
   // Below the destination asset's smallest unit the rescale floors to `0n`, which the trustline
-  // query reads as "no amount" and skips — leaving `needsTrustline` false and the prerequisite
-  // unchecked. Reject the amount instead of gating on a query that never runs.
+  // query reads as "no amount" and skips — the gate then blocks on an unresolved check with nothing
+  // on screen. Reject the amount instead so the card can say why.
   const isBelowDestinationUnit = dstAmount === 0n && parsedAmount !== undefined && parsedAmount > 0n;
 
-  const { data: hasSufficientTrustline, isPending: isTrustlineLoading } = useStellarTrustlineCheck({
-    params: {
-      token: toToken?.address,
-      amount: isBelowDestinationUnit ? undefined : dstAmount,
-      chainId: toChainKey,
-      walletAddress: toChainType === 'STELLAR' ? toAccount.address : undefined,
-    },
+  const stellar = useStellarGate({
+    dstChainKey: toChainKey,
+    token: toToken?.address,
+    amount: isBelowDestinationUnit ? undefined : dstAmount,
+    address: toAccount.address,
+    walletProvider: toWalletProvider,
   });
-  const { requestTrustline, isLoading: isRequestingTrustline } = useRequestTrustline(toToken?.address);
 
   const nearStorage = useNearStorageGate({
     dstChainKey: toChainKey,
@@ -285,6 +325,24 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
     address: toAccount.address,
   });
 
+  // Wallet-layer reads: the Bridge API has no balance route. A Bitcoin side reads the trading wallet instead.
+  const { data: fromBalances } = useBalances({
+    params: {
+      chainKey: fromChainKey,
+      tokens: fromToken && fromChainKey !== ChainKeys.BITCOIN_MAINNET ? [fromToken] : [],
+      address: fromAccount.address,
+    },
+  });
+  const { data: toBalances } = useBalances({
+    params: {
+      chainKey: toChainKey,
+      tokens: toToken && toChainKey !== ChainKeys.BITCOIN_MAINNET ? [toToken] : [],
+      address: toAccount.address,
+    },
+  });
+  const fromBalance = sideBalance(fromChainKey, fromToken, sourceBitcoin.tradingBalance, fromBalances);
+  const toBalance = sideBalance(toChainKey, toToken, destBitcoin.tradingBalance, toBalances);
+
   const isSourceSignable = isSignableBridgeApiChain(fromChainKey) || fromChainType === 'BITCOIN';
 
   const handleOpenDialog = () => {
@@ -294,12 +352,10 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   };
 
   const handleSwitch = () => {
-    const prevFromChainKey = fromChainKey;
-    const prevFromToken = fromToken;
     setFromChainKey(toChainKey);
-    setToChainKey(prevFromChainKey);
-    setFromToken(toToken);
-    setToToken(prevFromToken);
+    setToChainKey(fromChainKey);
+    setFromSymbol(toToken?.symbol);
+    setToSymbol(fromToken?.symbol);
     setFromAmount('');
   };
 
@@ -389,14 +445,18 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
     }
   };
 
+  const handleActivateStellarAccount = async () => {
+    const result = await stellar.activate();
+    if (result && !result.ok) {
+      setBridgeError(formatMutationFailureMessage(result.error, 'Stellar account activation failed'));
+    }
+  };
+
   const handleRequestTrustline = async () => {
-    if (toChainType !== 'STELLAR' || !stellarWalletProvider || !toToken || !dstAmount) return;
-    await requestTrustline({
-      token: toToken.address,
-      amount: dstAmount,
-      srcChainKey: toChainKey as StellarChainKey,
-      walletProvider: stellarWalletProvider,
-    });
+    const result = await stellar.requestTrustline();
+    if (result && !result.ok) {
+      setBridgeError(formatMutationFailureMessage(result.error, 'Trustline request failed'));
+    }
   };
 
   const handleRegisterNearStorage = async () => {
@@ -406,8 +466,6 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
     }
   };
 
-  const chainList = useMemo(() => sodax.config.getSupportedSpokeChains() as string[], [sodax]);
-  const needsTrustline = toChainType === 'STELLAR' && !isTrustlineLoading && !hasSufficientTrustline;
   const isBridgeDisabled =
     isBridging ||
     !bridgeBody ||
@@ -416,7 +474,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
     (fromChainType === 'EVM' && !hasAllowance) ||
     (fromChainKey === ChainKeys.BITCOIN_MAINNET && !isFromBtcReady) ||
     (toChainKey === ChainKeys.BITCOIN_MAINNET && !isToBtcReady) ||
-    needsTrustline ||
+    stellar.blocksAction ||
     nearStorage.blocksAction;
 
   return (
@@ -427,43 +485,25 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="from-chain">From</Label>
-            <Select value={fromChainKey} onValueChange={value => setFromChainKey(value as SpokeChainKey)}>
-              <SelectTrigger id="from-chain">
-                <SelectValue placeholder="Source chain" />
-              </SelectTrigger>
-              <SelectContent>
-                {chainList.map(chain => (
-                  <SelectItem key={chain} value={chain}>
-                    {chain}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>From</Label>
+            <ChainSelector selectedChainId={fromChainKey} selectChainId={setFromChainKey} allowedChains={chainList} />
           </div>
 
           <div className="flex space-x-2">
             <div className="grow">
               <Input type="number" placeholder="0.0" value={fromAmount} onChange={e => setFromAmount(e.target.value)} />
             </div>
-            <Select
+            <SelectToken
+              tokens={fromTokens}
               value={fromToken?.symbol}
-              onValueChange={symbol => {
-                const selected = fromTokens.find(t => t.symbol === symbol);
-                if (selected) setFromToken(selected);
-              }}
-            >
-              <SelectTrigger className="w-[110px]">
-                <SelectValue placeholder="Token" />
-              </SelectTrigger>
-              <SelectContent>
-                {fromTokens.map(t => (
-                  <SelectItem key={`${t.address}-${t.symbol}`} value={t.symbol}>
-                    {t.symbol}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onSelect={t => setFromSymbol(t.symbol)}
+              className="w-[110px]"
+            />
+          </div>
+
+          <div className="text-sm text-muted-foreground flex gap-1">
+            <span>Balance:</span>
+            <span>{fromBalance === undefined ? '—' : formatTokenAmount(fromBalance, fromToken?.decimals ?? 0, 5)}</span>
           </div>
 
           {isBelowDestinationUnit && toToken && (
@@ -512,19 +552,8 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="to-chain">To</Label>
-            <Select value={toChainKey} onValueChange={value => setToChainKey(value as SpokeChainKey)}>
-              <SelectTrigger id="to-chain">
-                <SelectValue placeholder="Destination chain" />
-              </SelectTrigger>
-              <SelectContent>
-                {chainList.map(chain => (
-                  <SelectItem key={chain} value={chain}>
-                    {chain}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label>To</Label>
+            <ChainSelector selectedChainId={toChainKey} selectChainId={setToChainKey} allowedChains={chainList} />
           </div>
 
           <div className="flex space-x-2">
@@ -534,25 +563,18 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
             {isLoadingBridgeableTokens ? (
               <Skeleton className="w-[110px] h-10" />
             ) : (
-              <Select
+              <SelectToken
+                tokens={bridgeableTokens}
                 value={toToken?.symbol}
-                onValueChange={symbol => {
-                  const selected = bridgeableTokens?.find(t => t.symbol === symbol);
-                  if (selected) setToToken(selected);
-                }}
-              >
-                <SelectTrigger className="w-[110px]">
-                  <SelectValue placeholder="Token" />
-                </SelectTrigger>
-                <SelectContent>
-                  {bridgeableTokens?.map(t => (
-                    <SelectItem key={`${t.address}-${t.symbol}`} value={t.symbol}>
-                      {t.symbol}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onSelect={t => setToSymbol(t.symbol)}
+                className="w-[110px]"
+              />
             )}
+          </div>
+
+          <div className="text-sm text-muted-foreground flex gap-1">
+            <span>Balance:</span>
+            <span>{toBalance === undefined ? '—' : formatTokenAmount(toBalance, toToken?.decimals ?? 0, 5)}</span>
           </div>
 
           <div className="grow">
@@ -578,17 +600,17 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
         </CardContent>
 
         <CardFooter className="flex flex-col space-y-4">
-          {isBridgeable ? (
+          {isLoadingBridgeableAmount ? (
+            <Skeleton className="w-48 h-5" />
+          ) : isBridgeable && bridgeableAmount && limitAmount !== undefined ? (
             <div className="flex items-center gap-2 text-sm">
               Maximum bridgeable:{' '}
-              {isLoadingBridgeableAmount ? (
-                <Skeleton className="w-16 h-5 inline-block" />
-              ) : (
-                Number.parseFloat(
-                  formatUnits(bridgeableAmount?.amount ?? 0n, bridgeableAmount?.decimals ?? 0),
-                ).toLocaleString('en-US')
-              )}{' '}
-              {toToken?.symbol} ({bridgeableAmount?.type === 'DEPOSIT_LIMIT' ? 'deposit' : 'withdraw'} limit)
+              {Number.parseFloat(formatUnits(limitAmount, bridgeableAmount.decimals)).toLocaleString('en-US')}{' '}
+              {toToken?.symbol} ({bridgeableAmount.type === 'DEPOSIT_LIMIT' ? 'deposit' : 'withdraw'} limit)
+            </div>
+          ) : bridgeableError ? (
+            <div className="text-sm text-destructive">
+              {formatMutationFailureMessage(bridgeableError, 'Could not load the bridge limit')}
             </div>
           ) : (
             <div className="text-sm text-muted-foreground">Route not available</div>
@@ -620,8 +642,27 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
             <div>Amount: {fromToken ? formatUnits(parsedAmount ?? 0n, fromToken.decimals) : fromAmount}</div>
             <div className="break-all">Recipient: {recipient}</div>
 
-            {needsTrustline && (
+            {/* Keep activation in-flow; funding has no client-side remedy. */}
+            {stellar.needsActivation && (
+              <div className="text-red-500">
+                Recipient's Stellar account does not exist yet — activate it to proceed. SODAX sponsors the reserve, so
+                this is free.
+              </div>
+            )}
+            {stellar.needsFunding && (
+              <div className="text-red-500">
+                Recipient's Stellar account holds no XLM, so it cannot pay for a trustline. Send it some XLM first —
+                receiving XLM needs no trustline.
+              </div>
+            )}
+            {stellar.needsTrustline && (
               <div className="text-red-500">Insufficient Stellar trustline — request trustline to proceed.</div>
+            )}
+            {stellar.checkFailed && (
+              <div className="text-red-500">
+                Couldn't check the recipient's Stellar account, so the bridge is on hold
+                {stellar.error ? `: ${stellar.error.message}` : ''}
+              </div>
             )}
             {nearStorage.needsRegistration && (
               <div className="text-red-500">
@@ -657,11 +698,29 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
               </Button>
             )}
 
-            {toChainType === 'STELLAR' && isTrustlineLoading && <span className="text-sm">Checking trustline…</span>}
+            {stellar.isStellar && stellar.isChecking && <span className="text-sm">Checking Stellar account…</span>}
 
-            {needsTrustline && (
-              <Button className="w-full" onClick={handleRequestTrustline} disabled={isRequestingTrustline}>
-                {isRequestingTrustline ? 'Requesting…' : 'Request Trustline'}
+            {stellar.needsActivation && (
+              <Button className="w-full" onClick={handleActivateStellarAccount} disabled={stellar.isActivating}>
+                {stellar.isActivating ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Activating…
+                  </>
+                ) : (
+                  'Activate Stellar Account'
+                )}
+              </Button>
+            )}
+
+            {stellar.needsTrustline && (
+              <Button className="w-full" onClick={handleRequestTrustline} disabled={stellar.isRequestingTrustline}>
+                {stellar.isRequestingTrustline ? 'Requesting…' : 'Request Trustline'}
+              </Button>
+            )}
+
+            {stellar.checkFailed && (
+              <Button className="w-full" onClick={stellar.retry} disabled={stellar.isChecking}>
+                {stellar.isChecking ? 'Rechecking…' : 'Retry Stellar Check'}
               </Button>
             )}
 

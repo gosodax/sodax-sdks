@@ -8,6 +8,7 @@ import type {
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
+import { waitForApiAllowance } from '../shared/waitForApiAllowance.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { runApprovalPlan, type ApprovalHashes, type ApprovalProgressListener } from '../../utils/approvalPlan.js';
@@ -32,7 +33,9 @@ export type UseLeverageYieldApiApproveAndBroadcastVars<K extends SpokeChainKey =
  * deposit token of the 2017 TetherToken lineage rejects an allowance change from one non-zero value
  * to another, so broadcasting the approve without the reset spends the user's gas on a transaction
  * that is certain to revert. Confirmation happens inside the hook, so it invalidates
- * `['leverageYieldApi','allowance']` itself.
+ * `['leverageYieldApi','allowance']` itself — after waiting up to about 15 seconds for the API to report
+ * the allowance as valid, since its RPC can trail the node that confirmed the approve. It resolves after
+ * that wait either way, so read the allowance rather than treating success as `valid`.
  *
  * Supports the chains the leverage-yield API can approve on — the hub (Sonic), EVM spokes, and
  * Stellar. Every other chain reports its allowance as always sufficient, so approval never runs.
@@ -65,13 +68,15 @@ export const useLeverageYieldApiApproveAndBroadcast = <K extends SpokeChainKey =
     mutationFn: async ({ body, walletProvider, apiConfig, onProgress }): Promise<LeverageYieldApiApprovalHashes> => {
       const plan: ApproveResponseV2 = unwrapResult(await sodax.api.leverageYield.approve(body, apiConfig));
 
-      return runApprovalPlan({
+      const hashes = await runApprovalPlan({
         plan,
         srcChainKey: body.srcChainKey as SpokeChainKey,
         walletProvider,
         hookName: 'useLeverageYieldApiApproveAndBroadcast',
         onProgress,
       });
+      await waitForApiAllowance(() => sodax.api.leverageYield.checkAllowance(body, apiConfig));
+      return hashes;
     },
     onSuccess: async (data, vars, ctx) => {
       // Awaited: the mutation must not resolve — re-enabling Approve — before the allowance query

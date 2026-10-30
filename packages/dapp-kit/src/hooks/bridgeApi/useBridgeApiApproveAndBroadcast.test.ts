@@ -8,16 +8,17 @@
 
 import { ChainKeys } from '@sodax/sdk';
 import type { ApprovalProgress } from '../../utils/approvalPlan.js';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 const approve = vi.fn();
+const checkAllowance = vi.fn();
 const invalidateQueries = vi.fn();
 
 // biome-ignore lint/suspicious/noExplicitAny: the captured mutation options are driven directly.
 let captured: any;
 
 vi.mock('../shared/useSodaxContext.js', () => ({
-  useSodaxContext: () => ({ sodax: { api: { bridge: { approve } } } }),
+  useSodaxContext: () => ({ sodax: { api: { bridge: { approve, checkAllowance } } } }),
 }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries }) }));
 vi.mock('../shared/useSafeMutation.js', () => ({
@@ -70,6 +71,7 @@ const run = (vars: any) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  checkAllowance.mockResolvedValue({ ok: true, value: { valid: true } });
 });
 
 describe('useBridgeApiApproveAndBroadcast', () => {
@@ -162,6 +164,34 @@ describe('useBridgeApiApproveAndBroadcast', () => {
     await expect(run({ body: body(ChainKeys.SOLANA_MAINNET), walletProvider: {} })).rejects.toThrow(
       /\[useBridgeApiApproveAndBroadcast\]/,
     );
+  });
+
+  it('resolves only once the API sees the allowance — its RPC can trail the confirming node', async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX } });
+    const calls: string[] = [];
+    let synced = false;
+    checkAllowance.mockImplementation(async () => {
+      calls.push('check');
+      const response = { ok: true, value: { valid: synced } };
+      synced = true;
+      return response;
+    });
+    const vars = {
+      body: body(ChainKeys.ARBITRUM_MAINNET),
+      walletProvider: evmProvider(calls),
+      apiConfig: { baseURL: 'https://api.example' },
+    };
+
+    const pending = run(vars);
+    await vi.advanceTimersByTimeAsync(1_500);
+
+    await expect(pending).resolves.toEqual({ approveTxHash: APPROVE_HASH });
+    expect(calls).toEqual(['send:0xapprove', `wait:${APPROVE_HASH}`, 'check', 'check']);
+    expect(checkAllowance).toHaveBeenCalledWith(vars.body, vars.apiConfig);
   });
 
   it('invalidates the bridge allowance query once the approval has confirmed', async () => {

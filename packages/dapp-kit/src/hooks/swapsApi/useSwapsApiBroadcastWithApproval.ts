@@ -20,6 +20,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
+import { waitForApiAllowance } from '../shared/waitForApiAllowance.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { runApprovalPlan, type ApprovalHashes, type ApprovalProgressListener } from '../../utils/approvalPlan.js';
@@ -167,6 +168,7 @@ export const useSwapsApiBroadcastWithApproval = ({
       }
 
       const approval = await runApprovalPlan({ plan, srcChainKey, walletProvider, hookName: HOOK_NAME, onProgress });
+      await waitForApiAllowance(() => sodax.api.swaps.checkAllowance(body, apiConfig));
       // The allowance is on-chain whatever happens to the intent next; a stale cached `valid: false` would re-offer it.
       await queryClient.invalidateQueries({ queryKey: ['swapsApi', 'allowance'] });
       const txHash = await walletProvider.sendTransaction(intentTx, {
