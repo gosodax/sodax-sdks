@@ -10,10 +10,16 @@ import { isNativeToken } from '@/utils/index.js';
 /** Base reserve in stroops (0.5 XLM). Each subentry (trustline, signer, data entry, offer) adds one base reserve. */
 const STELLAR_BASE_RESERVE_STROOPS = 5_000_000;
 
-/** Token contracts that wrap a classic asset, so an account holds them only through a trustline. */
-const TRUSTLINE_ASSET_CONTRACTS: ReadonlySet<string> = new Set(
-  spokeChainConfig[ChainKeys.STELLAR_MAINNET].trustlineConfigs.map(trustline => trustline.contractId),
+/** Issuer of each token contract that wraps a classic asset: any other account holds it only through a trustline. */
+const TRUSTLINE_ASSET_ISSUERS: ReadonlyMap<string, string> = new Map(
+  spokeChainConfig[ChainKeys.STELLAR_MAINNET].trustlineConfigs.map(trustline => [
+    trustline.contractId,
+    trustline.assetIssuer,
+  ]),
 );
+
+/** What a Stellar Asset Contract's `balance()` reports for the asset's own issuer, which can always pay it out. */
+const ISSUER_BALANCE = 2n ** 63n - 1n;
 
 /** Spendable XLM in stroops: the native balance minus the account's minimum balance. */
 function getAvailableXlmStroops(stellarAccount: StellarSdk.Horizon.AccountResponse): bigint {
@@ -93,7 +99,8 @@ export class StellarXService extends XService {
 
       const trustlineBalance = trustlineBalances.get(xToken.address);
       if (trustlineBalance !== undefined) return trustlineBalance;
-      if (TRUSTLINE_ASSET_CONTRACTS.has(xToken.address)) return BigInt(0);
+      const assetIssuer = TRUSTLINE_ASSET_ISSUERS.get(xToken.address);
+      if (assetIssuer !== undefined) return assetIssuer === address ? ISSUER_BALANCE : BigInt(0);
 
       const txBuilder = new StellarSdk.TransactionBuilder(stellarAccount, {
         fee: StellarSdk.BASE_FEE,

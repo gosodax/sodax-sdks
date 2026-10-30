@@ -134,7 +134,7 @@ Multi-token Solana balance reads batch the legacy SPL Token and Token-2022 assoc
 
 ### Stellar balance batching
 
-Stellar balance reads load the account from Horizon once per `getBalances` call. XLM and every token that wraps a classic asset are read from that response, and a classic asset without a trustline reads as zero without any request. Only custom Soroban tokens are read by simulating `balance()`, one request each. If the account load or a simulation request fails, `getBalances` and `getBalance` reject instead of reporting zero balances. An account that has never been funded reads as zero for every token.
+Stellar balance reads load the account from Horizon once per `getBalances` call. XLM and every token that wraps a classic asset are read from that response, and a classic asset without a trustline reads as zero without any request (its own issuer reads the maximum, as the asset contract reports). Only custom Soroban tokens are read by simulating `balance()`, one request each. If the account load or a simulation request fails, `getBalances` and `getBalance` reject instead of reporting zero balances. An account that has never been funded reads as zero for every token.
 
 ## AI agent docs
 

@@ -176,6 +176,16 @@ describe('StellarXService.getBalances', () => {
     expect(simulateTransaction).toHaveBeenCalledTimes(1);
   });
 
+  it("reads an asset's own issuer as the i64 maximum the asset contract reports", async () => {
+    const { service, simulateTransaction } = makeService([nativeLine('10.0000000')]);
+
+    expect(await service.getBalances(USDC_CONFIG.assetIssuer, [USDC, MSFT])).toEqual({
+      [USDC.address]: 2n ** 63n - 1n,
+      [MSFT.address]: 0n,
+    });
+    expect(simulateTransaction).not.toHaveBeenCalled();
+  });
+
   it('reads a failed simulation as zero', async () => {
     const { service, simulateTransaction } = makeService([nativeLine('10.0000000')]);
     simulateTransaction.mockResolvedValue(simulationError('HostError: Error(Contract, #13)'));
