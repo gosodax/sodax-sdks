@@ -101,6 +101,8 @@ export class StellarXService extends XService {
       if (trustlineBalance !== undefined) return trustlineBalance;
       const assetIssuer = TRUSTLINE_ASSET_ISSUERS.get(xToken.address);
       if (assetIssuer !== undefined) return assetIssuer === address ? ISSUER_BALANCE : BigInt(0);
+      // No contract can exist at a malformed id, so it holds nothing; rejecting would drop every other balance.
+      if (!StellarSdk.StrKey.isValidContract(xToken.address)) return BigInt(0);
 
       const txBuilder = new StellarSdk.TransactionBuilder(stellarAccount, {
         fee: StellarSdk.BASE_FEE,

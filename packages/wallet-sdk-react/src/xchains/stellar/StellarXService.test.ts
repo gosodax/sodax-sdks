@@ -193,6 +193,20 @@ describe('StellarXService.getBalances', () => {
     expect(await service.getBalances(OWNER, [CUSTOM])).toEqual({ [CUSTOM.address]: 0n });
   });
 
+  it('reads a malformed token address as zero without failing the rest of the batch', async () => {
+    const { service, simulateTransaction } = makeService([
+      nativeLine('10.0000000'),
+      trustline(USDC_CONFIG, '1.0000000'),
+    ]);
+    const malformed = token('MALFORMED', 'not-a-contract-id');
+
+    expect(await service.getBalances(OWNER, [USDC, malformed])).toEqual({
+      [USDC.address]: 10_000_000n,
+      [malformed.address]: 0n,
+    });
+    expect(simulateTransaction).not.toHaveBeenCalled();
+  });
+
   it('rejects the whole batch instead of reporting zero when a Soroban request fails', async () => {
     const { service, simulateTransaction } = makeService([
       nativeLine('10.0000000'),
