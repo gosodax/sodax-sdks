@@ -59,8 +59,9 @@ export interface AnalyticsEvent {
  * event to their product-analytics backend (Segment, Amplitude, PostHog, a custom collector, …),
  * e.g. `tracker: (event) => amplitude.track(event.action, event.data)`.
  *
- * It must be cheap and non-throwing — the SDK treats it as fire-and-forget, does not await it, and
- * swallows any error it throws so analytics can never break a feature flow.
+ * It should be cheap — the SDK treats it as fire-and-forget and does not await it. Any error it throws
+ * is swallowed, and if it returns a promise (an `async` tracker) a rejection of that promise is
+ * absorbed too, so analytics can never break a feature flow or raise an unhandled rejection.
  */
 export type AnalyticsTracker = (event: AnalyticsEvent) => void;
 
