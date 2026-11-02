@@ -968,7 +968,7 @@ const rawResult = await sodax.swaps.createLimitOrderIntent({
 
 **Important:** `cancelIntent` takes `{ params: CancelIntentParams<K>, walletProvider }` — not positional arguments. You must supply `srcChainKey` explicitly because `Intent.srcChain` is a bigint relay ID that cannot narrow to a `SpokeChainKey` at the type level.
 
-An intent from an MPC-relay source chain cannot be cancelled yet: the refund pays the intent's `srcAddress`, which holds that chain's identity encoding rather than a payout address, so `createCancelIntent` refuses it before signing.
+An intent from an MPC-relay source chain cannot be cancelled yet: `cancelIntent` confirms the cancel through the intent relay, which an MPC-relay chain does not use, so `createCancelIntent` refuses it before signing.
 
 ```typescript
 import type { Intent, TxHashPair } from '@sodax/sdk';
