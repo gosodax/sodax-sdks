@@ -27,7 +27,8 @@ export function parseStellarAmount(amount: string): bigint {
 
 /**
  * Maps the Stellar Asset Contract id of each classic trustline to its balance. The contract's `balance()`
- * returns the raw trustline balance, so this matches a simulated read without any RPC call.
+ * returns the raw trustline balance without subtracting selling liabilities, so this matches a simulated
+ * read without any RPC call.
  */
 export const getTrustlineBalances = (
   balanceLines: readonly Horizon.HorizonApi.BalanceLine[],
