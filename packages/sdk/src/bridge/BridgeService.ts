@@ -36,6 +36,7 @@ import {
   isBackendSubmitTxAbandoned,
   resolveDeliveredPacket,
   resolveMintedMpcDeposit,
+  resolvePaidHubRelease,
 } from '../backendApi/detailedStatusRouting.js';
 import { isAuthFailure, isSodaxError } from '../errors/guards.js';
 import type { DetailedBridgeStatus, DetailedBridgeStatusKey } from './detailedStatus.js';
@@ -1283,6 +1284,8 @@ export class BridgeService {
    *
    * 1. Read the backend record; return it while it is still in play.
    * 2. Otherwise return the delivered relay packet, which is terminal by construction.
+   * 3. A bridge paying out on an MPC-relay chain has no packet for that leg, so it answers from the
+   *    relay's release record instead, once the payout tx is recorded.
    *
    * A rejected API key is the one failure that does **not** fall through to step 2: the status route
    * is key-guarded, so degrading would bury a 401/403 behind a relay error and leave a poller
@@ -1353,6 +1356,31 @@ export class BridgeService {
         relayerApiEndpoint: this.config.relay.relayerApiEndpoint,
         backendAnswered,
       });
+
+      // A hub source's packet is the final answer, so only its miss can mean an MPC-relay payout. A
+      // spoke source's packet stops at the hub, whose tx may still have that payout ahead of it.
+      const isHubSource = isHubChainKeyType(params.srcChainKey);
+      const hubTxHash = delivered.ok
+        ? isHubSource
+          ? undefined
+          : delivered.packet.dst_tx_hash
+        : isHubSource
+          ? params.srcTxHash
+          : undefined;
+      const release = hubTxHash
+        ? await resolvePaidHubRelease({ hubTxHash, backendAnswered, spoke: this.spoke })
+        : undefined;
+      if (release?.ok) return { ok: true, value: { source: 'mpcRelay', data: release.release } };
+      // An unreadable hub-source receipt leaves the packet miss as the better answer.
+      if (release && (delivered.ok || release.budgetable)) {
+        return {
+          ok: false,
+          error: this.detailedStatusLookupFailed(release.cause, params.srcChainKey, {
+            reason: release.budgetable ? DETAILED_STATUS_NOT_DELIVERED : undefined,
+          }),
+        };
+      }
+
       if (!delivered.ok) {
         return {
           ok: false,

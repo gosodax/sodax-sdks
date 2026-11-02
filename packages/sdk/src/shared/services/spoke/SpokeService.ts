@@ -1,6 +1,14 @@
 // packages/sdk/src/shared/services/spoke/SpokeService.ts
 import * as rlp from 'rlp';
-import { encodeFunctionData, pad, toEventSelector, toHex, type Address, type PublicClient } from 'viem';
+import {
+  encodeFunctionData,
+  pad,
+  toEventSelector,
+  toHex,
+  type Address,
+  type PublicClient,
+  type TransactionReceipt,
+} from 'viem';
 import {
   type Hex,
   type BitcoinChainKey,
@@ -22,6 +30,8 @@ import {
   type EvmChainKey,
   getIntentRelayChainId,
   getMpcRelayChainInfo,
+  MpcRelayChainMap,
+  type MpcRelayChainKey,
   type TxReturnType,
   isBitcoinChainKey,
   type Result,
@@ -83,7 +93,7 @@ import type {
 } from '../../types/spoke-types.js';
 import type { TxHashPair } from '../../types/types.js';
 import { relayTxAndWaitPacket } from '../intentRelay/IntentRelayApiService.js';
-import type { DepositRecord, MpcRelaySettlement } from '../mpcRelay/MpcRelayApiService.js';
+import type { DepositRecord, HubRelease, MpcRelaySettlement } from '../mpcRelay/MpcRelayApiService.js';
 import { Erc20Service, type Erc20ApprovalPlan, type Erc20ApproveParams } from '../erc-20/Erc20Service.js';
 import type { RequestTrustlineParams } from './StellarSpokeService.js';
 import type { WalletMode } from './BitcoinSpokeService.js';
@@ -1340,23 +1350,13 @@ export class SpokeService {
       if (receipt.status !== 'success') {
         return { ok: false, error: { phase: 'verification', cause: new Error(`hub tx ${hubTxHash} reverted`) } };
       }
-      const assetManager = this.hubProvider.chainConfig.addresses.assetManager.toLowerCase();
-      const dstChainTopic = pad(toHex(getMpcRelayChainInfo(dstChainKey).chainId), { size: 32 });
-      const requests = receipt.logs.filter(
-        log =>
-          log.address.toLowerCase() === assetManager &&
-          log.topics[0] === BRIDGE_REQUEST_TOPIC &&
-          log.topics[1]?.toLowerCase() === dstChainTopic,
-      );
+      const requests = this.hubReleaseLogs(receipt.logs, dstChainKey);
       const [request] = requests;
       if (requests.length !== 1 || !request) {
         return missingFarSideHash(`hub tx ${hubTxHash} has ${requests.length} releases to ${dstChainKey}, expected 1`);
       }
 
-      const released = await relay.waitForHubRelease(
-        { hubChainId: String(this.hubProvider.chainConfig.chain.chainId), hubTxHash, logIndex: request.logIndex },
-        timeout,
-      );
+      const released = await relay.waitForHubRelease(this.toHubRelease(hubTxHash, request.logIndex), timeout);
       if (!released.ok) return { ok: false, error: { phase: 'relay', cause: released.error } };
       const payout = released.value.txs?.release?.hash;
       if (!payout) return missingFarSideHash(`release from hub tx ${hubTxHash} settled without a payout tx`);
@@ -1364,6 +1364,46 @@ export class SpokeService {
     } catch (error) {
       return { ok: false, error: { phase: 'relay', cause: error } };
     }
+  }
+
+  /**
+   * One read of the release a hub tx sends to an MPC-relay chain, or `undefined` when it sends none —
+   * the non-blocking counterpart of {@link settleHubRelease}, for status readers. It notifies nothing,
+   * and the record stays unpaid until `txs.release` is set.
+   */
+  public async getHubRelease(hubTxHash: string): Promise<Result<DepositRecord> | undefined> {
+    try {
+      const receipt = await this.hubProvider.publicClient.getTransactionReceipt({ hash: hubTxHash as Hex });
+      for (const chainKey of Object.keys(MpcRelayChainMap) as MpcRelayChainKey[]) {
+        const requests = this.hubReleaseLogs(receipt.logs, chainKey);
+        const [request] = requests;
+        if (!request) continue;
+        if (requests.length > 1) {
+          return { ok: false, error: new Error(`hub tx ${hubTxHash} has ${requests.length} releases to ${chainKey}`) };
+        }
+        return await this.getMpcRelayService(chainKey)?.getHubReleaseRecord(
+          this.toHubRelease(hubTxHash, request.logIndex),
+        );
+      }
+      return undefined;
+    } catch (error) {
+      return { ok: false, error };
+    }
+  }
+
+  private hubReleaseLogs(logs: TransactionReceipt['logs'], dstChainKey: MpcRelayChainKey): TransactionReceipt['logs'] {
+    const assetManager = this.hubProvider.chainConfig.addresses.assetManager.toLowerCase();
+    const dstChainTopic = pad(toHex(getMpcRelayChainInfo(dstChainKey).chainId), { size: 32 });
+    return logs.filter(
+      log =>
+        log.address.toLowerCase() === assetManager &&
+        log.topics[0] === BRIDGE_REQUEST_TOPIC &&
+        log.topics[1]?.toLowerCase() === dstChainTopic,
+    );
+  }
+
+  private toHubRelease(hubTxHash: string, logIndex: number): HubRelease {
+    return { hubChainId: String(this.hubProvider.chainConfig.chain.chainId), hubTxHash, logIndex };
   }
 
   /** The MPC-relay settlement service for a chain, or `undefined` when it rides the intent relay. */

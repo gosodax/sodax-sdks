@@ -463,6 +463,55 @@ describe('SpokeService.settle — destination legs', () => {
     expect(!result.ok && result.error.phase).toBe('relay');
   });
 
+  describe('getHubRelease', () => {
+    const readReceipt = (logs: ReturnType<typeof bridgeRequest>[]) =>
+      vi
+        .spyOn(sodax.hubProvider.publicClient, 'getTransactionReceipt')
+        // Only `logs` is read; a full receipt carries block data the test has no use for.
+        .mockResolvedValue({ status: 'success', logs } as unknown as TransactionReceipt);
+
+    it('reads the record by the BridgeRequest log, and notifies nothing', async () => {
+      readReceipt([bridgeRequest(1, chainTopic(42161n)), bridgeRequest(4)]);
+      const record = {
+        ok: true as const,
+        value: { depositId: 'id', status: 'pending' as const, createdAt: null, txs: {} },
+      };
+      const read = vi.spyOn(spoke.tron, 'getHubReleaseRecord').mockResolvedValue(record);
+      const wait = stubRelease();
+
+      expect(await spoke.getHubRelease(HUB_TX)).toEqual(record);
+      expect(read).toHaveBeenCalledWith({ hubChainId: '146', hubTxHash: HUB_TX, logIndex: 4 });
+      expect(wait).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['a release to another chain', [bridgeRequest(1, chainTopic(42161n))]],
+      [
+        'a BridgeRequest from another contract',
+        [bridgeRequest(2, TRON_TOPIC, '0x1111111111111111111111111111111111111111')],
+      ],
+      ['no logs', []],
+    ])('is undefined for a hub tx with %s, leaving it to the intent relay', async (_label, logs) => {
+      readReceipt(logs);
+      const read = vi.spyOn(spoke.tron, 'getHubReleaseRecord');
+
+      expect(await spoke.getHubRelease(HUB_TX)).toBeUndefined();
+      expect(read).not.toHaveBeenCalled();
+    });
+
+    it('fails rather than guessing between two releases to the same chain', async () => {
+      readReceipt([bridgeRequest(1), bridgeRequest(2)]);
+
+      expect((await spoke.getHubRelease(HUB_TX))?.ok).toBe(false);
+    });
+
+    it('reports an unreadable receipt as a failure rather than rejecting', async () => {
+      vi.spyOn(sodax.hubProvider.publicClient, 'getTransactionReceipt').mockRejectedValue(new Error('not found'));
+
+      expect((await spoke.getHubRelease(HUB_TX))?.ok).toBe(false);
+    });
+  });
+
   it('reports a reverted hub tx as a verification failure', async () => {
     stubHubReceipt([bridgeRequest(0)], 'reverted');
     const release = stubRelease();

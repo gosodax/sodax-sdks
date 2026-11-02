@@ -24,6 +24,8 @@ export interface MpcRelaySettlement {
   ): Promise<Result<WithdrawalRecord>>;
   /** Notify the relay of a hub tx releasing to this chain and wait until the release is recorded. */
   waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>>;
+  /** One read of a hub release's record, without notifying: a status read must not change anything. */
+  getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>>;
 }
 
 /** A hub tx's `BridgeRequest` to an MPC-relay chain: the relay keys its release on all three. */
@@ -212,6 +214,11 @@ export function toDepositId(chainId: string, txHash: string, logIndex = 0): stri
   return `${chainId}-${txHash}-${logIndex}`;
 }
 
+/** A hub release's withdrawal id. The hub verifier lowercases the hash before deriving it. */
+export function toHubReleaseId({ hubChainId, hubTxHash, logIndex }: HubRelease): string {
+  return toDepositId(hubChainId, hubTxHash.toLowerCase(), logIndex);
+}
+
 export async function getDeposit(apiUrl: HttpUrl, depositId: string): Promise<Result<DepositRecord>> {
   invariant(depositId.length > 0, 'Invalid input parameters. depositId empty');
   return getJson<DepositRecord>(`${apiUrl}/deposit/${encodeURIComponent(depositId)}`);
@@ -260,14 +267,13 @@ export async function waitForDeposit(
  */
 export async function waitForHubRelease(
   apiUrl: HttpUrl,
-  { hubChainId, hubTxHash, logIndex }: HubRelease,
+  release: HubRelease,
   options: WaitForDepositOptions = {},
 ): Promise<Result<DepositRecord>> {
   const timeout = options.timeout ?? DEFAULT_DEPOSIT_TIMEOUT_MS;
   const interval = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const deadline = Date.now() + timeout;
-  // The hub verifier lowercases the hash before deriving the id.
-  const withdrawalId = toDepositId(hubChainId, hubTxHash.toLowerCase(), logIndex);
+  const withdrawalId = toHubReleaseId(release);
 
   for (;;) {
     const res = await getDeposit(apiUrl, withdrawalId);

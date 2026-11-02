@@ -500,8 +500,9 @@ if (result.ok) {
     // `data` is the delivered relay PacketData
     console.log(result.value.data.status, result.value.data.dst_tx_hash);
   } else {
-    // `data` is an MPC-relay source's DepositRecord; `txs.hubMint` is the hub settlement tx
-    console.log(result.value.data.status, result.value.data.txs.hubMint?.hash);
+    // `data` is the MPC relay's record: from an MPC-relay source `txs.hubMint` is the hub settlement tx,
+    // to an MPC-relay destination `txs.release` is the payout tx
+    console.log(result.value.data.txs.hubMint?.hash, result.value.data.txs.release?.hash);
   }
 }
 ```
@@ -537,6 +538,8 @@ A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 
 **What the relay arm proves, and what it does not.** The packet is returned whole rather than reduced to a hash, because `dst_tx_hash` means different things by route: for a spoke-source bridge it is the **hub settlement** tx, and for a hub-source bridge it is the destination spoke's tx. The spoke→spoke hop from the hub onwards is not covered by this read. So a `source: 'relay'` answer means *the deposit reached the packet's destination*, not always *the funds landed with the recipient*. The arm is terminal either way: the router only ever returns an `executed` packet with a non-empty `dst_tx_hash`.
 
 **The MPC-relay arm.** An MPC-relay source never produces an intent-relay packet, so step 2 reads the relay's deposit record instead and returns it whole once `txs.hubMint` holds the hub settlement tx. Until then it is the same budgetable "not delivered" miss as an undelivered packet: the relay answers an unknown deposit as `pending`, so a stuck deposit and one in flight look alike.
+
+A bridge **to** an MPC-relay chain has no packet for that leg either, because the hub emits a `BridgeRequest` for that relay rather than an intent-relay message. So a hub-source bridge with no packet, or a spoke-source bridge whose packet reached the hub, checks that hub tx's receipt. If it carries a release, the arm returns the relay's record once `txs.release` holds the payout tx, and until then it is the same budgetable miss. Read `txs.release`, not `status`, which follows the deposit ladder and never names a release. This read does not notify the relay, so a release nobody notified stays a miss.
 
 Every payload is already documented — the submit-tx record in [BRIDGE_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md), the relay packet as `PacketData`, the MPC relay's record as `DepositRecord`. Nothing is translated between them, so no field is dropped and no status is reinterpreted.
 

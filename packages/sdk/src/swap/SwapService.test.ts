@@ -1791,6 +1791,46 @@ describe('SwapService.getSolvedIntentPacket', () => {
 
     expect(result).toEqual({ ok: false, error: timeoutError });
   });
+
+  // The intent relay never delivers to an MPC-relay chain, so asking it could only time out.
+  describe('to an MPC-relay destination', () => {
+    it('returns the payout from the MPC relay as the packet destination, not asking the intent relay', async () => {
+      const release = vi
+        .spyOn(sodax.spoke, 'settleHubRelease')
+        .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xfill', dstChainTxHash: 'tronPayout' } });
+
+      const result = await sodax.swaps.getSolvedIntentPacket({
+        chainId: ChainKeys.TRON_MAINNET,
+        fillTxHash: '0xfill',
+        timeout: 5_000,
+      });
+
+      expect(release).toHaveBeenCalledWith('0xfill', ChainKeys.TRON_MAINNET, 5_000);
+      expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        ok: true,
+        value: {
+          src_chain_id: 146,
+          src_tx_hash: '0xfill',
+          status: 'executed',
+          dst_chain_id: 728126428,
+          dst_tx_hash: 'tronPayout',
+        },
+      });
+    });
+
+    it('surfaces the relay failure itself, so RELAY_TIMEOUT stays readable on `error.message`', async () => {
+      const timeoutError = new Error('RELAY_TIMEOUT');
+      vi.spyOn(sodax.spoke, 'settleHubRelease').mockResolvedValueOnce({
+        ok: false,
+        error: { phase: 'relay', cause: timeoutError },
+      });
+
+      const result = await sodax.swaps.getSolvedIntentPacket({ chainId: ChainKeys.TRON_MAINNET, fillTxHash: '0xfill' });
+
+      expect(result).toEqual({ ok: false, error: timeoutError });
+    });
+  });
 });
 
 // =========================================================================

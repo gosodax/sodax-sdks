@@ -31,6 +31,7 @@ import {
   notify,
   submitWithdraw,
   toDepositId,
+  toHubReleaseId,
   waitForDeposit,
   waitForHubRelease,
   waitForWithdrawal,
@@ -529,6 +530,11 @@ export class TronSpokeService {
     } finally {
       clearInterval(renotify);
     }
+  }
+
+  /** One read of a hub release's record through the relay, which `txs.release` marks as paid. */
+  public async getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>> {
+    return getDeposit(this.relayApiUrl, toHubReleaseId(release));
   }
 
   /** Poll TronGrid until the transaction is included in a block, mapping the receipt to the SDK shape. */

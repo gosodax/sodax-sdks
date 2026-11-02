@@ -439,6 +439,22 @@ describe('TronSpokeService.waitForHubRelease', () => {
     vi.useRealTimers();
   });
 
+  it('reads a release record once, by its lowercased id, without notifying', async () => {
+    const notifySpy = vi.mocked(MpcRelayApiService.notify);
+    notifySpy.mockClear();
+    const record = {
+      ok: true as const,
+      value: { depositId: 'id', status: 'submitted' as const, createdAt: 0, txs: {} },
+    };
+    const read = vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(record);
+
+    const res = await tron.getHubReleaseRecord({ ...RELEASE, hubTxHash: `0x${'B'.repeat(64)}` });
+
+    expect(res).toEqual(record);
+    expect(read).toHaveBeenCalledWith(expect.anything(), `146-0x${'b'.repeat(64)}-2`);
+    expect(notifySpy).not.toHaveBeenCalled();
+  });
+
   it('returns the hub tx in the error when the relay cannot be notified, without waiting', async () => {
     vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay down') });
     const wait = vi.spyOn(MpcRelayApiService, 'waitForHubRelease');

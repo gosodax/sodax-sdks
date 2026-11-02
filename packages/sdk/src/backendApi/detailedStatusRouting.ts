@@ -186,6 +186,35 @@ export async function resolveMintedMpcDeposit(params: {
   };
 }
 
+/** A release to an MPC-relay chain that was paid out, or why it has not been — shaped like {@link MintedDepositResult}. */
+export type PaidHubReleaseResult =
+  | { ok: true; release: DepositRecord }
+  | { ok: false; cause: unknown; budgetable: boolean };
+
+/**
+ * The record of the release a hub tx sends to an MPC-relay chain once `txs.release` holds the payout tx,
+ * or `undefined` when it sends none. The intent relay has no packet for such a leg, since the hub emits
+ * a `BridgeRequest` rather than a message, so this is the only source that can answer for it.
+ *
+ * An unpaid release is the same ambiguous miss as an undelivered packet: the relay answers an unknown
+ * release as `pending`, and its `status` never names a release at all.
+ */
+export async function resolvePaidHubRelease(params: {
+  hubTxHash: string;
+  backendAnswered: boolean;
+  spoke: SpokeService;
+}): Promise<PaidHubReleaseResult | undefined> {
+  const release = await params.spoke.getHubRelease(params.hubTxHash);
+  if (!release) return undefined;
+  if (!release.ok) return { ok: false, cause: release.error, budgetable: false };
+  if (release.value.txs?.release?.hash) return { ok: true, release: release.value };
+  return {
+    ok: false,
+    cause: new Error(`mpc relay has not paid out the release from hub tx ${params.hubTxHash} yet`),
+    budgetable: params.backendAnswered,
+  };
+}
+
 /**
  * The hub tx a non-hub source tx delivered: the minted deposit record on an MPC-relay chain
  * ({@link resolveMintedMpcDeposit}), the delivered packet ({@link resolveDeliveredPacket}) on any other.

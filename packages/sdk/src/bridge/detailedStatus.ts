@@ -21,8 +21,9 @@ export type DetailedBridgeStatusKey = {
  * semantics. It is always an `executed` packet with a non-empty `dst_tx_hash` — the router does not
  * return any other kind — so this arm is terminal.
  *
- * An MPC-relay source has no packet: its arm carries the relay's deposit record, returned only
- * once `txs.hubMint` holds the hub settlement tx, so it is terminal too.
+ * An MPC-relay leg has no packet, so its arm carries the relay's record, and is terminal too: from an
+ * MPC-relay source it is the deposit, returned once `txs.hubMint` holds the hub settlement tx; to an
+ * MPC-relay destination it is the release, returned once `txs.release` holds the payout tx.
  */
 export type DetailedBridgeStatus =
   | { source: 'backend'; data: BridgeSubmitTxStatusDataV2 }

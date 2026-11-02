@@ -116,6 +116,7 @@ import {
   type Hash,
   type HttpUrl,
   getIntentRelayChainId,
+  getMpcRelayChainInfo,
   isMpcRelayChainKey,
   type FeeAmount,
   type GetWalletProviderType,
@@ -2089,6 +2090,10 @@ export class SwapService {
    * contract; `selectSolvedIntentPacket` disambiguates so the returned `dst_tx_hash` is the
    * destination delivery tx rather than an internal hop.
    *
+   * An MPC-relay destination (Tron) has no relay packet: the fill is a hub tx the MPC relay releases,
+   * so this re-notifies it, waits for the payout, and returns a packet built from the two hashes.
+   * Only the chain ids, `src_tx_hash`, `status` and `dst_tx_hash` are meaningful on that packet.
+   *
    * @param chainId - The destination spoke chain key (where output tokens are delivered).
    * @param fillTxHash - The solver's fill transaction hash, obtained from `getStatus.fill_tx_hash`.
    * @param timeout - Poll timeout in milliseconds. Defaults to `DEFAULT_RELAY_TX_TIMEOUT` (120 s).
@@ -2104,6 +2109,27 @@ export class SwapService {
     fillTxHash: string;
     timeout?: number;
   }): Promise<Result<PacketData>> {
+    // The intent relay never delivers to an MPC-relay chain, so it would only ever time out here.
+    if (isMpcRelayChainKey(chainId)) {
+      const released = await this.spoke.settleHubRelease(fillTxHash, chainId, timeout);
+      if (!released.ok) return { ok: false, error: released.error.cause };
+      return {
+        ok: true,
+        value: {
+          src_chain_id: Number(getIntentRelayChainId(this.hubProvider.chainConfig.chain.key)),
+          src_tx_hash: fillTxHash,
+          src_address: this.hubProvider.chainConfig.addresses.assetManager,
+          status: 'executed',
+          dst_chain_id: Number(getMpcRelayChainInfo(chainId).chainId),
+          conn_sn: 0,
+          dst_address: '',
+          dst_tx_hash: released.value.dstChainTxHash,
+          signatures: [],
+          payload: '',
+        },
+      };
+    }
+
     return waitUntilIntentExecuted({
       intentRelayChainId: getIntentRelayChainId(chainId).toString(),
       srcTxHash: fillTxHash,

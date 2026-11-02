@@ -1560,6 +1560,7 @@ describe('BridgeService.getDetailedStatus', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mocks.getTransactionPackets.mockReset();
+    vi.spyOn(sodaxBE.spoke, 'getHubRelease').mockResolvedValue(undefined);
   });
 
   it('returns the unmodified submit-tx record without touching the relay', async () => {
@@ -1673,6 +1674,97 @@ describe('BridgeService.getDetailedStatus', () => {
       expect(result.error.code).toBe('LOOKUP_FAILED');
       expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
       expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
+    });
+  });
+
+  // The hub emits a `BridgeRequest` for an MPC-relay payout, so the intent relay has no packet for that leg.
+  describe('to an MPC-relay destination', () => {
+    const HUB_SOURCE = ChainKeys.SONIC_MAINNET;
+    const hubKey = { srcChainKey: HUB_SOURCE, srcTxHash: SRC_TX } as const;
+    const release = (txs: DepositRecord['txs']) =>
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({
+        ok: true,
+        value: { depositId: 'id', status: 'submitted', createdAt: 0, txs },
+      });
+    const paid = { release: { chain: 'tron', hash: 'tronPayout', ts: 0 } };
+
+    it('answers a hub-source bridge from the release record once the payout is recorded', async () => {
+      recordNotFound();
+      packets([]);
+      release(paid);
+
+      const result = await sodaxBE.bridge.getDetailedStatus(hubKey);
+
+      expect(sodaxBE.spoke.getHubRelease).toHaveBeenCalledWith(SRC_TX);
+      invariant(result.ok && result.value.source === 'mpcRelay', 'expected the mpcRelay arm');
+      expect(result.value.data.txs.release?.hash).toBe('tronPayout');
+    });
+
+    it('keeps an unpaid release a budgetable miss, since that arm stops pollers', async () => {
+      recordNotFound();
+      packets([]);
+      release({});
+
+      const result = await sodaxBE.bridge.getDetailedStatus(hubKey);
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+    });
+
+    it('does not read the hub receipt when a hub-source packet already answers', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: 146 }]);
+
+      const result = await sodaxBE.bridge.getDetailedStatus(hubKey);
+
+      invariant(result.ok, 'expected the relay arm');
+      expect(result.value.source).toBe('relay');
+      expect(sodaxBE.spoke.getHubRelease).not.toHaveBeenCalled();
+    });
+
+    it('keeps the packet miss when a hub-source receipt cannot be read yet', async () => {
+      recordNotFound();
+      packets([]);
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({ ok: false, error: new Error('no receipt') });
+
+      const result = await sodaxBE.bridge.getDetailedStatus(hubKey);
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+    });
+
+    it('does not report a spoke-source bridge final when its packet only reached the hub', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      release({});
+
+      const result = await sodaxBE.bridge.getDetailedStatus(key);
+
+      expect(sodaxBE.spoke.getHubRelease).toHaveBeenCalledWith(DST_TX);
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+    });
+
+    it('answers a spoke-source bridge from the release record once paid', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      release(paid);
+
+      const result = await sodaxBE.bridge.getDetailedStatus(key);
+
+      invariant(result.ok && result.value.source === 'mpcRelay', 'expected the mpcRelay arm');
+      expect(result.value.data.txs.release?.hash).toBe('tronPayout');
+    });
+
+    it('keeps retrying rather than reporting final when the hub receipt behind a packet is unreadable', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({ ok: false, error: new Error('rpc down') });
+
+      const result = await sodaxBE.bridge.getDetailedStatus(key);
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBeUndefined();
     });
   });
 
