@@ -11,7 +11,12 @@ const EVM_ADDRESS = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 const TRON_ADDRESS = 'TYBNgWfhGuNzdLtjKtxXTfskAhTbMcqbaG';
 const OTHER_ADDRESS = 'TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92';
 
-const TX: TronUnsignedTransaction = { txID: 'ab'.repeat(32), raw_data_hex: '0a02abcd', visible: false };
+// txID is sha256 of the raw_data_hex bytes, computed outside the provider.
+const TX: TronUnsignedTransaction = {
+  txID: '10e3bd490fb65f1b4416c2e861a45dc1ac46ae9b62eca48e2f0c1c14fa0c583e',
+  raw_data_hex: '0a02abcd',
+  visible: false,
+};
 const HASH: Hex = `0x${'cd'.repeat(32)}`;
 
 /** Scheme-1 digest the relay recovers against: the hash's 66-char hex TEXT under the TRON prefix. */
@@ -81,6 +86,26 @@ describe('TronWalletProvider.signTransaction', () => {
     expect(signed.txID).toBe(TX.txID);
     expect(signature).toMatch(/^[0-9a-f]{128}0[01]$/);
     await expect(recoverAddress({ hash: `0x${TX.txID}`, signature: `0x${signature}` })).resolves.toBe(EVM_ADDRESS);
+  });
+
+  it('private key: accepts an uppercase txID that matches the bytes', async () => {
+    const signed = await new TronWalletProvider({ privateKey: PRIVATE_KEY }).signTransaction({
+      ...TX,
+      txID: TX.txID.toUpperCase(),
+    });
+    await expect(recoverAddress({ hash: `0x${TX.txID}`, signature: `0x${signed.signature[0]}` })).resolves.toBe(
+      EVM_ADDRESS,
+    );
+  });
+
+  it('private key: refuses a txID that is not sha256(raw_data_hex)', async () => {
+    const provider = new TronWalletProvider({ privateKey: PRIVATE_KEY });
+    await expect(provider.signTransaction({ ...TX, txID: 'ab'.repeat(32) })).rejects.toThrow(
+      /is not sha256\(raw_data_hex\)/,
+    );
+    await expect(provider.signTransaction({ ...TX, raw_data_hex: '0a02abce' })).rejects.toThrow(
+      /is not sha256\(raw_data_hex\)/,
+    );
   });
 
   it('browser: signs through the provider resolved at call time, not the captured injected TronWeb', async () => {

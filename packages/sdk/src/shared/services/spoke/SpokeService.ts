@@ -141,10 +141,10 @@ export type SpokeServiceConstructorParams = {
   hubProvider: EvmHubProvider;
 };
 
-/** An MPC record settled without its far-side tx: a relay failure, never a success keyed on the source id. */
 /** `BridgeRequest(uint256 indexed dstChainId, bytes dstAddress, bytes payload)`, emitted by the hub AssetManager. */
 const BRIDGE_REQUEST_TOPIC = toEventSelector('BridgeRequest(uint256,bytes,bytes)');
 
+/** An MPC record settled without its far-side tx: a relay failure, never a success keyed on the source id. */
 function missingFarSideHash(detail: string): { ok: false; error: SettlementFailure } {
   return { ok: false, error: { phase: 'relay', cause: new Error(`mpc-relay: ${detail}`) } };
 }

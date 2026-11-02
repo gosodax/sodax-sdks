@@ -2096,7 +2096,8 @@ export class SwapService {
    *
    * @param chainId - The destination spoke chain key (where output tokens are delivered).
    * @param fillTxHash - The solver's fill transaction hash, obtained from `getStatus.fill_tx_hash`.
-   * @param timeout - Poll timeout in milliseconds. Defaults to `DEFAULT_RELAY_TX_TIMEOUT` (120 s).
+   * @param timeout - Poll timeout in milliseconds. Defaults to `DEFAULT_RELAY_TX_TIMEOUT` (120 s); an
+   *   MPC-relay destination waits at least its settlement floor (300 s for Tron), whatever is passed.
    * @returns A `Result` containing `PacketData` with relay details including `dst_tx_hash`,
    *   or an error tagged `'RELAY_TIMEOUT'` if the packet does not arrive within `timeout`.
    */

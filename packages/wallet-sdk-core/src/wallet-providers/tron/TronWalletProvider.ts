@@ -113,7 +113,12 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
 
   public async signTransaction(tx: TronUnsignedTransaction): Promise<TronSignedTransaction> {
     if (this.privateKey) {
-      const s = await sign({ hash: `0x${tx.txID}`, privateKey: this.privateKey });
+      // The txID is only a claim about the bytes: sign their hash, and refuse a tx whose id disagrees.
+      const txID = sha256(`0x${tx.raw_data_hex}`).slice(2);
+      if (txID !== tx.txID.toLowerCase()) {
+        throw new Error(`[TronWalletProvider] txID ${tx.txID} is not sha256(raw_data_hex) ${txID}`);
+      }
+      const s = await sign({ hash: `0x${txID}`, privateKey: this.privateKey });
       const signature = `${s.r.slice(2)}${s.s.slice(2)}${Number(s.yParity).toString(16).padStart(2, '0')}`;
       return { ...tx, signature: [signature] };
     }
