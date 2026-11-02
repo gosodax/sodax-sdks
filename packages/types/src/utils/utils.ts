@@ -32,6 +32,7 @@ import {
   TRON_CHAIN_KEYS_SET,
   type TRON_CHAIN_KEYS,
   MpcRelayChainMap,
+  MpcRelayPayoutMinimums,
   type MpcRelayChainInfo,
   type MpcRelayChainKey,
   baseChainInfo,
@@ -219,6 +220,27 @@ export function getIntentRelayChainId(chainKey: SpokeChainKey): IntentRelayChain
  */
 export function isMpcRelayChainKey(chainId: SpokeChainKey): boolean {
   return chainId in MpcRelayChainMap;
+}
+
+/** A payout too small to safely clear the MPC relay's release fee; `minimum` is in `decimals`. */
+export type MpcPayoutWarning = { symbol: string; decimals: number; minimum: bigint };
+
+/**
+ * The warning for paying `amount` of `token` out through the MPC relay, or `undefined` when it clears
+ * {@link MpcRelayPayoutMinimums}. Advisory: a caller warns or asks, it does not have to refuse. An
+ * amount equal to the minimum still warns, because the relay skips a release once fee >= amount.
+ *
+ * @param amountDecimals - The decimals `amount` is in, when not the payout token's (a bridge's source).
+ */
+export function getMpcPayoutWarning(
+  token: Pick<XToken, 'chainKey' | 'symbol' | 'decimals'>,
+  amount: bigint,
+  amountDecimals: number = token.decimals,
+): MpcPayoutWarning | undefined {
+  const minimum = MpcRelayPayoutMinimums[token.chainKey]?.[token.symbol];
+  if (minimum === undefined) return undefined;
+  const clears = amount * 10n ** BigInt(token.decimals) > minimum * 10n ** BigInt(amountDecimals);
+  return clears ? undefined : { symbol: token.symbol, decimals: token.decimals, minimum };
 }
 
 /**

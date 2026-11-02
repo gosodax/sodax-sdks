@@ -1778,6 +1778,37 @@ describe('BridgeService.getDetailedStatus', () => {
   });
 });
 
+describe('BridgeService.createBridgeIntent — small payout to an MPC-relay chain', () => {
+  const sodaxBE = new Sodax({ logger: 'silent' });
+  const src = { address: SAMPLE_TOKEN, chainKey: ARBITRUM, symbol: 'USDT', decimals: 18 };
+  const dst = {
+    address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    chainKey: ChainKeys.TRON_MAINNET,
+    symbol: 'USDT',
+    decimals: 6,
+  };
+
+  const run = async (amount: bigint) => {
+    // Private, and the only seam that gives the two endpoints decimals that differ.
+    const resolver = sodaxBE.bridge as unknown as { resolveBridgeEndpointToken: (chainKey: string) => unknown };
+    vi.spyOn(resolver, 'resolveBridgeEndpointToken').mockImplementation(chainKey =>
+      chainKey === ChainKeys.TRON_MAINNET ? dst : src,
+    );
+    const warn = vi.spyOn(sodaxBE.config.logger, 'warn').mockImplementation(() => undefined);
+    const input = bridgeInput(ARBITRUM, ChainKeys.TRON_MAINNET);
+    await sodaxBE.bridge.createBridgeIntent({ ...input, params: { ...input.params, amount } });
+    return warn;
+  };
+
+  it('warns on the source amount converted to the payout decimals', async () => {
+    expect(await run(3n * 10n ** 18n)).toHaveBeenCalledWith(expect.stringContaining('advised minimum of 3'));
+  });
+
+  it('stays silent above the minimum, however large the source decimals make it look', async () => {
+    expect(await run(4n * 10n ** 18n)).not.toHaveBeenCalledWith(expect.stringContaining('advised minimum'));
+  });
+});
+
 describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
   const RAW_APPROVE: EvmRawTransaction = { from: SAMPLE_USER, to: HUB_WALLET, value: 0n, data: '0x095ea7b3' };
   const RAW_DEPOSIT: EvmRawTransaction = { from: SAMPLE_USER, to: HUB_WALLET, value: 0n, data: '0xdeadbeef' };

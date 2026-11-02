@@ -21,8 +21,10 @@ import {
   type PartnerFee,
   type QuoteType,
   isMpcRelayChainKey,
+  getMpcPayoutWarning,
+  type SodaxLogger,
 } from '@sodax/types';
-import { hexToBytes, isAddress, toHex } from 'viem';
+import { formatUnits, hexToBytes, isAddress, toHex } from 'viem';
 import { tronHashToBase58, tronIdentityBytes } from '../services/spoke/tron-utils.js';
 import { bcs } from '@mysten/sui/bcs';
 import { PublicKey } from '@solana/web3.js';
@@ -149,6 +151,20 @@ export function adjustAmountByFee(amount: bigint, fee: PartnerFee | undefined, q
 
 export function BigIntToHex(value: bigint): Hex {
   return `0x${value.toString(16)}`;
+}
+
+/** Log, without blocking, a payout small enough that the MPC relay's release fee could consume it. */
+export function warnOnSmallMpcPayout(
+  logger: Pick<SodaxLogger, 'warn'>,
+  token: Pick<XToken, 'chainKey' | 'symbol' | 'decimals'>,
+  amount: bigint,
+  amountDecimals?: number,
+): void {
+  const warning = getMpcPayoutWarning(token, amount, amountDecimals);
+  if (!warning) return;
+  logger.warn(
+    `Paying out ${warning.symbol} on ${token.chainKey} at or below the advised minimum of ${formatUnits(warning.minimum, warning.decimals)}: the relay deducts a release fee, and releases nothing once it reaches the amount`,
+  );
 }
 
 /**

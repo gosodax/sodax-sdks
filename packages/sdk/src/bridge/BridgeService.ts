@@ -7,6 +7,7 @@ import {
   EvmVaultTokenService,
   EvmAssetManagerService,
   encodeContractCalls,
+  warnOnSmallMpcPayout,
   calculateFeeAmount,
   isNativeBitcoinTransfer,
   encodeRecipient,
@@ -1013,6 +1014,7 @@ export class BridgeService {
         ...baseCtx,
         field: 'dstToken',
       });
+      warnOnSmallMpcPayout(this.config.logger, dstToken, params.amount, srcToken.decimals);
       // Reject unregistered chain keys up front (parity with SwapService.createIntent). Redundant with
       // token resolution for most inputs, but gives a VALIDATION_FAILED tagged with the chain-key field
       // for JS/cast consumers instead of a deeper, less specific failure.

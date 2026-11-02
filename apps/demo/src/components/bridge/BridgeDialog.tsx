@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { SmallPayoutConfirm, useSmallPayoutGuard } from '@/components/shared/SmallPayoutConfirm';
 import {
   ACCOUNT_UPGRADE_DECLINED,
   isSodaxError,
@@ -121,6 +122,8 @@ export function BridgeDialog({
     accountId: toAccount.address,
     walletProvider: toWalletProvider,
   });
+
+  const payoutGuard = useSmallPayoutGuard(toToken, order.amount, fromToken?.decimals);
 
   const toBtcAddress = toChainKey === ChainKeys.BITCOIN_MAINNET ? toAccount.address : undefined;
   const { data: toBtcBalance } = useBitcoinBalance({ params: { address: toBtcAddress } });
@@ -306,6 +309,15 @@ export function BridgeDialog({
           </div>
         )}
 
+        {payoutGuard.confirming && payoutGuard.warning && (
+          <SmallPayoutConfirm
+            warning={payoutGuard.warning}
+            chainKey={toChainKey}
+            onContinue={payoutGuard.onContinue}
+            onCancel={payoutGuard.onCancel}
+          />
+        )}
+
         <DialogFooter className="flex flex-col gap-2 sm:flex-col">
           {stellar.isStellar && stellar.isChecking && <span className="text-sm">Checking Stellar account…</span>}
 
@@ -360,7 +372,11 @@ export function BridgeDialog({
           )}
 
           {!isWrongChain && (
-            <Button className="w-full" onClick={() => void handleBridge()} disabled={isBridgeDisabled}>
+            <Button
+              className="w-full"
+              onClick={() => payoutGuard.guard(() => void handleBridge())}
+              disabled={isBridgeDisabled || payoutGuard.confirming}
+            >
               {isBridging ? (
                 'Bridging…'
               ) : (

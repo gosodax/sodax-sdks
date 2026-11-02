@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { TokenIcon } from '@/components/shared/TokenIcon';
+import { SmallPayoutConfirm, useSmallPayoutGuard } from '@/components/shared/SmallPayoutConfirm';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -122,6 +123,8 @@ export function WithdrawModal({
       ...crossChainParams,
     };
   }, [amount, srcAddress, dstAddress, srcChainKey, dstChainKey, destinationToken, isSameChain, deliveryTradingAddress]);
+
+  const payoutGuard = useSmallPayoutGuard(destinationToken, params?.amount);
 
   const isEvmChain = getChainType(srcChainKey) === 'EVM';
 
@@ -358,6 +361,15 @@ export function WithdrawModal({
           </p>
         )}
 
+        {payoutGuard.confirming && payoutGuard.warning && (
+          <SmallPayoutConfirm
+            warning={payoutGuard.warning}
+            chainKey={dstChainKey}
+            onContinue={payoutGuard.onContinue}
+            onCancel={payoutGuard.onCancel}
+          />
+        )}
+
         <DialogFooter className="w-full min-w-0 flex-col gap-2 sm:justify-start">
           {nearStorage.isNear && (nearStorage.isChecking || nearStorage.needsRegistration) && (
             <Button
@@ -408,8 +420,9 @@ export function WithdrawModal({
               className="w-full"
               type="button"
               variant="default"
-              onClick={handleWithdraw}
+              onClick={() => payoutGuard.guard(() => void handleWithdraw())}
               disabled={
+                payoutGuard.confirming ||
                 !params ||
                 !sourceWalletProvider ||
                 amount === '' ||

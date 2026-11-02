@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { SmallPayoutConfirm, useSmallPayoutGuard } from '@/components/shared/SmallPayoutConfirm';
 import { TokenIcon } from '@/components/shared/TokenIcon';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -230,6 +231,8 @@ export function BorrowModal({
     deliveryTradingAddress,
   ]);
 
+  const payoutGuard = useSmallPayoutGuard(destinationToken, params?.amount);
+
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: srcChainKey });
 
   const handleBorrow = async (): Promise<void> => {
@@ -417,6 +420,15 @@ export function BorrowModal({
           </p>
         )}
 
+        {payoutGuard.confirming && payoutGuard.warning && (
+          <SmallPayoutConfirm
+            warning={payoutGuard.warning}
+            chainKey={dstChainKey}
+            onContinue={payoutGuard.onContinue}
+            onCancel={payoutGuard.onCancel}
+          />
+        )}
+
         <DialogFooter className="w-full min-w-0 flex-col gap-2 sm:justify-start">
           {nearStorage.isNear && (nearStorage.isChecking || nearStorage.needsRegistration) && (
             <Button
@@ -452,8 +464,8 @@ export function BorrowModal({
               className="w-full"
               type="button"
               variant="default"
-              onClick={handleBorrow}
-              disabled={!params || !sourceWalletProvider || nearStorage.blocksAction}
+              onClick={() => payoutGuard.guard(() => void handleBorrow())}
+              disabled={payoutGuard.confirming || !params || !sourceWalletProvider || nearStorage.blocksAction}
             >
               Borrow {token.symbol}
             </Button>

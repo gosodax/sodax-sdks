@@ -3441,3 +3441,61 @@ describe('MoneyMarketService — hub-only actions verify the source tx', () => {
     expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
   });
 });
+
+// Advisory by decision: the relay's release fee can consume a small payout, but the caller may still choose it.
+describe('MoneyMarketService — small payout to an MPC-relay chain', () => {
+  const TRON_RECIPIENT = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
+  const usdt = {
+    address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    chainKey: ChainKeys.TRON_MAINNET,
+    symbol: 'USDT',
+    decimals: 6,
+  };
+
+  const setup = () => {
+    vi.spyOn(sodax.config, 'getMoneyMarketToken').mockReturnValue(usdt as never);
+    vi.spyOn(sodax.config, 'isMoneyMarketSupportedToken').mockReturnValue(true);
+    vi.spyOn(sodax.moneyMarket, 'buildBorrowData').mockReturnValue('0xborrow-data');
+    vi.spyOn(sodax.moneyMarket, 'buildWithdrawData').mockReturnValue('0xwithdraw-data');
+    const send = vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValue({ ok: true, value: '0xsend-hash' });
+    return { send, warn: vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => undefined) };
+  };
+  const params = (method: 'createBorrowIntent' | 'createWithdrawIntent', amount: bigint) => ({
+    ...borrowParams(ChainKeys.BSC_MAINNET),
+    action: method === 'createBorrowIntent' ? 'borrow' : 'withdraw',
+    token: usdt.address,
+    amount,
+    dstChainKey: ChainKeys.TRON_MAINNET,
+    dstAddress: TRON_RECIPIENT,
+  });
+
+  it.each([
+    'createBorrowIntent',
+    'createWithdrawIntent',
+  ] as const)('%s warns at the minimum and still sends the message', async method => {
+    const { send, warn } = setup();
+
+    const result = await sodax.moneyMarket[method]({
+      raw: false,
+      params: params(method, 3_000_000n),
+      walletProvider: mockEvmProvider,
+    } as never);
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('advised minimum of 3'));
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(true);
+  });
+
+  it.each(['createBorrowIntent', 'createWithdrawIntent'] as const)('%s stays silent above it', async method => {
+    const { send, warn } = setup();
+
+    await sodax.moneyMarket[method]({
+      raw: false,
+      params: params(method, 3_000_001n),
+      walletProvider: mockEvmProvider,
+    } as never);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('advised minimum'));
+  });
+});

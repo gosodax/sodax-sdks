@@ -35,6 +35,7 @@ import {
   EvmAssetManagerService,
   EvmVaultTokenService,
   encodeContractCalls,
+  warnOnSmallMpcPayout,
   encodeRecipient,
   calculateFeeAmount,
   wrappedSonicAbi,
@@ -837,6 +838,7 @@ export class MoneyMarketService {
         ...baseCtx,
         field: 'token',
       });
+      warnOnSmallMpcPayout(this.config.logger, dstToken, params.amount);
 
       const encodedDstAddress = encodeRecipient(dstChainKey, dstAddress);
       // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the
@@ -1023,6 +1025,8 @@ export class MoneyMarketService {
         `Unsupported spoke chain (${dstChainKey}) token: ${params.token}`,
         { ...baseCtx, field: 'token' },
       );
+      const dstToken = this.config.getMoneyMarketToken(dstChainKey, params.token);
+      if (dstToken) warnOnSmallMpcPayout(this.config.logger, dstToken, params.amount);
 
       const encodedDstAddress = encodeRecipient(dstChainKey, dstAddress);
       // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the

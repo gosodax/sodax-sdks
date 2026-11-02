@@ -96,6 +96,15 @@ export const MpcRelayChainMap = {
 
 export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
 
+/**
+ * Advisory minimum for a payout through the MPC relay, by chain and token symbol, in the payout token's
+ * decimals. The relay deducts a live release fee from the payout, and releases nothing once that fee
+ * reaches the amount, after the hub has already burned it. Sized to the fee cap the solver assumes.
+ */
+export const MpcRelayPayoutMinimums: Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
+  [ChainKeys.TRON_MAINNET]: { USDT: 3_000_000n, TRX: 10_000_000n },
+};
+
 export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey>(
   Object.entries(RelayChainIdMap).map(([chainKey, chainId]) => [chainId, chainKey as ChainKey]),
 );
@@ -105,8 +114,7 @@ export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey
  * Each logo is served from `main` via raw.githubusercontent and named by its
  * `ChainKeys` value, so the full URL is `${CHAIN_LOGO_BASE_URL}/<chainKey>.png`.
  */
-export const CHAIN_LOGO_BASE_URL =
-  'https://raw.githubusercontent.com/gosodax/sodax-sdks/main/packages/assets/chain';
+export const CHAIN_LOGO_BASE_URL = 'https://raw.githubusercontent.com/gosodax/sodax-sdks/main/packages/assets/chain';
 
 const chainLogo = (key: ChainKey): string => `${CHAIN_LOGO_BASE_URL}/${key}.png`;
 

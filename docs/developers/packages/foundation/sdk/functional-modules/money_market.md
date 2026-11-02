@@ -415,7 +415,7 @@ Borrow tokens from the money market pool. Borrowed tokens can be delivered to a 
 1. `borrow`: Executes the spoke-side message, relays to the hub, and waits for the relay to settle.
 2. `createBorrowIntent`: Builds (and optionally broadcasts) only the spoke-side transaction without waiting for the relay.
 
-Each leg settles on the relay of the spoke it touches: a leg to or from an MPC-relay chain (Tron) on the MPC relay, every other leg on the intent relay. The hub-to-Tron leg is driven by the SDK, since that relay does not watch the hub, so `borrow` and `withdraw` to Tron resolve with the Tron payout tx as `dstChainTxHash`. A borrow or withdraw from Tron that pays out elsewhere resolves once the destination leg lands, not on a Tron release. `createBorrowIntent` / `createWithdrawIntent` alone leave that leg undriven.
+Each leg settles on the relay of the spoke it touches: a leg to or from an MPC-relay chain (Tron) on the MPC relay, every other leg on the intent relay. The hub-to-Tron leg is driven by the SDK, since that relay does not watch the hub, so `borrow` and `withdraw` to Tron resolve with the Tron payout tx as `dstChainTxHash`. A borrow or withdraw from Tron that pays out elsewhere resolves once the destination leg lands, not on a Tron release. `createBorrowIntent` / `createWithdrawIntent` alone leave that leg undriven. A payout to Tron at or below the advised minimum (`MpcRelayPayoutMinimums`: 3 USDT, 10 TRX) logs a warning and proceeds; a UI should use `getMpcPayoutWarning` to let the user continue or cancel, because the relay's release fee comes out of the payout and nothing is released once it reaches the amount.
 
 ```typescript
 import { type MoneyMarketBorrowParams, DEFAULT_RELAY_TX_TIMEOUT, ChainKeys } from '@sodax/sdk';
