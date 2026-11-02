@@ -419,6 +419,38 @@ describe('TronSpokeService.waitForDeposit', () => {
   });
 });
 
+describe('TronSpokeService.waitForHubRelease', () => {
+  const RELEASE = { hubChainId: '146', hubTxHash: `0x${'b'.repeat(64)}`, logIndex: 2 };
+
+  it('notifies the hub tx as a withdrawal, and keeps re-notifying while the release is pending', async () => {
+    vi.useFakeTimers();
+    const notifySpy = vi.mocked(MpcRelayApiService.notify);
+    notifySpy.mockClear();
+    // Never resolves — the wait is what we are observing, not its outcome.
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForHubRelease').mockReturnValue(new Promise(() => undefined));
+
+    void tron.waitForHubRelease(RELEASE);
+    await vi.advanceTimersByTimeAsync(46_000);
+
+    // The relay has no hub watcher: without this notify the burned tokens are never released.
+    expect(notifySpy).toHaveBeenCalledWith(expect.anything(), '146', RELEASE.hubTxHash, 'withdrawal');
+    expect(notifySpy.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(wait).toHaveBeenCalledWith(expect.anything(), RELEASE, expect.objectContaining({ timeout: 300_000 }));
+    vi.useRealTimers();
+  });
+
+  it('returns the hub tx in the error when the relay cannot be notified, without waiting', async () => {
+    vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay down') });
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForHubRelease');
+
+    const res = await tron.waitForHubRelease(RELEASE);
+
+    expect(res.ok).toBe(false);
+    expect(!res.ok && String(res.error)).toContain(RELEASE.hubTxHash);
+    expect(wait).not.toHaveBeenCalled();
+  });
+});
+
 describe('TronSpokeService.estimateGas', () => {
   const rawTx = (token: string) => ({ from: SENDER, to: RESERVE, value: AMOUNT, data: MEMO, token });
 

@@ -10,6 +10,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MpcRelayChainMap, type Hex, type MpcRelayChainKey, type SpokeChainKey } from '@sodax/types';
+import { pad, toEventSelector, toHex, type TransactionReceipt } from 'viem';
 import { Sodax } from '../../entities/Sodax.js';
 import * as IntentRelayApiService from '../intentRelay/IntentRelayApiService.js';
 
@@ -206,7 +207,7 @@ describe('SpokeService.settle — Tron MPC relay', () => {
       timeout: 90_000,
     });
 
-    expect(waitForWithdrawal).toHaveBeenCalledWith(TRACKING_ID, 90_000);
+    expect(waitForWithdrawal).toHaveBeenCalledWith(TRACKING_ID, 90_000, 'released');
     expect(relay).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true, value: { srcChainTxHash: TRACKING_ID, dstChainTxHash: RELEASE } });
   });
@@ -271,5 +272,210 @@ describe('SpokeService.settle — Tron MPC relay', () => {
     });
 
     expect(result).toEqual({ ok: false, error: { phase: 'relay', cause } });
+  });
+});
+
+/**
+ * Each leg is driven by the relay of the spoke on it: Tron legs by the MPC relay, every other spoke's by
+ * the intent relay. Neither relay watches the hub, so a hub tx that no relay delivered itself — the
+ * user's own, or one the MPC relay produced — has its outbound leg driven from here.
+ */
+describe('SpokeService.settle — destination legs', () => {
+  const HUB_TX = '0x9999000000000000000000000000000000000000000000000000000000000009' as Hex;
+  const PAYOUT = '0x7777000000000000000000000000000000000000000000000000000000000007';
+  const TRACKING_ID = '0xeeee000000000000000000000000000000000000000000000000000000000005' as Hex;
+  const SONIC = sodax.hubProvider.chainConfig.chain.key;
+  const ASSET_MANAGER = sodax.hubProvider.chainConfig.addresses.assetManager;
+  const BRIDGE_REQUEST = toEventSelector('BridgeRequest(uint256,bytes,bytes)');
+  const chainTopic = (chainId: bigint) => pad(toHex(chainId), { size: 32 });
+  const TRON_TOPIC = chainTopic(MpcRelayChainMap[TRON].chainId);
+
+  const bridgeRequest = (logIndex: number, dstTopic: Hex = TRON_TOPIC, address: string = ASSET_MANAGER) => ({
+    address,
+    logIndex,
+    topics: [BRIDGE_REQUEST, dstTopic],
+  });
+
+  function stubHubReceipt(logs: ReturnType<typeof bridgeRequest>[], status = 'success') {
+    return (
+      vi
+        .spyOn(sodax.hubProvider.publicClient, 'waitForTransactionReceipt')
+        // Only `status` and `logs` are read; a full receipt carries block data the test has no use for.
+        .mockResolvedValue({ status, logs } as unknown as TransactionReceipt)
+    );
+  }
+
+  function stubRelease() {
+    return vi.spyOn(spoke.tron, 'waitForHubRelease').mockResolvedValue({
+      ok: true,
+      value: {
+        depositId: 'id',
+        status: 'pending',
+        createdAt: 0,
+        txs: { release: { chain: 'tron', hash: PAYOUT, ts: 0 } },
+      },
+    });
+  }
+
+  it('releases a hub tx to Tron through the MPC relay, keyed by its BridgeRequest log', async () => {
+    const relay = stubRelay();
+    stubHubReceipt([bridgeRequest(1, chainTopic(42161n)), bridgeRequest(4)]);
+    const release = stubRelease();
+
+    const result = await spoke.settle({
+      chainKey: SONIC,
+      tx: HUB_TX,
+      direction: 'outbound',
+      relayData: RELAY_DATA,
+      timeout: 1_000,
+      dstChainKey: TRON,
+    });
+
+    expect(release).toHaveBeenCalledWith({ hubChainId: '146', hubTxHash: HUB_TX, logIndex: 4 }, 1_000);
+    expect(relay).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, value: { srcChainTxHash: HUB_TX, dstChainTxHash: PAYOUT } });
+  });
+
+  it('releases the intent relay hub delivery to Tron, keeping the spoke tx as the source', async () => {
+    vi.spyOn(spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
+    stubRelay(packet(HUB_TX));
+    const receipt = stubHubReceipt([bridgeRequest(0)]);
+    const release = stubRelease();
+
+    const result = await spoke.settle({
+      chainKey: ARBITRUM,
+      tx: SRC_TX,
+      direction: 'outbound',
+      relayData: RELAY_DATA,
+      dstChainKey: TRON,
+    });
+
+    expect(receipt).toHaveBeenCalledWith({ hash: HUB_TX });
+    expect(release).toHaveBeenCalledWith(expect.objectContaining({ hubTxHash: HUB_TX, logIndex: 0 }), undefined);
+    expect(result).toEqual({ ok: true, value: { srcChainTxHash: SRC_TX, dstChainTxHash: PAYOUT } });
+  });
+
+  it('submits the hub tx of a Tron withdraw-auth to the intent relay when it pays out elsewhere', async () => {
+    const waitForWithdrawal = vi.spyOn(spoke.tron, 'waitForWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: TRACKING_ID, status: 'burned', txs: { burn: { chain: 'sonic', hash: HUB_TX, ts: 0 } } },
+    });
+    const relay = stubRelay(packet(PAYOUT));
+
+    const result = await spoke.settle({
+      chainKey: TRON,
+      tx: TRACKING_ID,
+      direction: 'outbound',
+      relayData: RELAY_DATA,
+      dstChainKey: ARBITRUM,
+    });
+
+    // Nothing is released on Tron, so the wait ends at the hub tx instead of timing out on `released`.
+    expect(waitForWithdrawal).toHaveBeenCalledWith(TRACKING_ID, undefined, 'burned');
+    expect(relay).toHaveBeenCalledWith(expect.objectContaining({ srcTxHash: HUB_TX, chainKey: SONIC }));
+    expect(result).toEqual({ ok: true, value: { srcChainTxHash: TRACKING_ID, dstChainTxHash: PAYOUT } });
+  });
+
+  it('ends a Tron withdraw-auth to the hub at its hub tx, relaying nothing', async () => {
+    vi.spyOn(spoke.tron, 'waitForWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: TRACKING_ID, status: 'burned', txs: { burn: { chain: 'sonic', hash: HUB_TX, ts: 0 } } },
+    });
+    const relay = stubRelay();
+
+    const result = await spoke.settle({
+      chainKey: TRON,
+      tx: TRACKING_ID,
+      direction: 'outbound',
+      relayData: RELAY_DATA,
+      dstChainKey: SONIC,
+    });
+
+    expect(spoke.tron.waitForWithdrawal).toHaveBeenCalledWith(TRACKING_ID, undefined, 'burned');
+    expect(relay).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, value: { srcChainTxHash: TRACKING_ID, dstChainTxHash: HUB_TX } });
+  });
+
+  it('submits the hub mint of a Tron deposit to the intent relay when it pays out elsewhere', async () => {
+    vi.spyOn(spoke.tron, 'waitForDeposit').mockResolvedValue({
+      ok: true,
+      value: {
+        depositId: 'id',
+        status: 'minted',
+        createdAt: 0,
+        txs: { hubMint: { chain: 'sonic', hash: HUB_TX, ts: 0 } },
+      },
+    });
+    const relay = stubRelay(packet(PAYOUT));
+
+    const result = await spoke.settle({
+      chainKey: TRON,
+      tx: SRC_TX,
+      direction: 'inbound',
+      relayData: RELAY_DATA,
+      dstChainKey: ARBITRUM,
+    });
+
+    expect(relay).toHaveBeenCalledWith(expect.objectContaining({ srcTxHash: HUB_TX, chainKey: SONIC }));
+    expect(result).toEqual({ ok: true, value: { srcChainTxHash: SRC_TX, dstChainTxHash: PAYOUT } });
+  });
+
+  it('leaves an intent-relay spoke to intent-relay spoke action to the intent relay alone', async () => {
+    vi.spyOn(spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
+    const relay = stubRelay(packet(HUB_TX));
+    const receipt = stubHubReceipt([]);
+
+    const result = await spoke.settle({
+      chainKey: ARBITRUM,
+      tx: SRC_TX,
+      direction: 'outbound',
+      relayData: RELAY_DATA,
+      dstChainKey: '0x2105.base',
+    });
+
+    // The intent relay carries its own hub delivery on to the next hop.
+    expect(relay).toHaveBeenCalledTimes(1);
+    expect(receipt).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, value: { srcChainTxHash: SRC_TX, dstChainTxHash: HUB_TX } });
+  });
+
+  it.each([
+    ['no BridgeRequest to Tron', [bridgeRequest(2, chainTopic(42161n))]],
+    [
+      'a BridgeRequest from another contract',
+      [bridgeRequest(2, TRON_TOPIC, '0x1111111111111111111111111111111111111111')],
+    ],
+    ['two BridgeRequests to Tron', [bridgeRequest(1), bridgeRequest(2)]],
+  ])('refuses to track a hub tx with %s, notifying nothing', async (_label, logs) => {
+    stubHubReceipt(logs);
+    const release = stubRelease();
+
+    const result = await spoke.settle({
+      chainKey: SONIC,
+      tx: HUB_TX,
+      direction: 'outbound',
+      relayData: RELAY_DATA,
+      dstChainKey: TRON,
+    });
+
+    expect(release).not.toHaveBeenCalled();
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.error.phase).toBe('relay');
+  });
+
+  it('reports a reverted hub tx as a verification failure', async () => {
+    stubHubReceipt([bridgeRequest(0)], 'reverted');
+    const release = stubRelease();
+
+    const result = await spoke.settle({
+      chainKey: SONIC,
+      tx: HUB_TX,
+      direction: 'outbound',
+      relayData: RELAY_DATA,
+      dstChainKey: TRON,
+    });
+
+    expect(release).not.toHaveBeenCalled();
+    expect(!result.ok && result.error.phase).toBe('verification');
   });
 });

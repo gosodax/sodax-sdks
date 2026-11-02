@@ -772,6 +772,7 @@ export class MoneyMarketService {
             direction: 'outbound',
             relayData: txResult.value.relayData,
             timeout,
+            dstChainKey: params.dstChainKey ?? srcChainKey,
           });
           if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
 
@@ -957,6 +958,7 @@ export class MoneyMarketService {
             direction: 'outbound',
             relayData: txResult.value.relayData,
             timeout,
+            dstChainKey: params.dstChainKey ?? srcChainKey,
           });
           if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
 

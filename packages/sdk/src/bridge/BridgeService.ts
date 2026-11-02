@@ -837,8 +837,9 @@ export class BridgeService {
     // Backend submit-tx flow (default on): hand the broadcast spoke-deposit tx to the bridge API, which
     // relays server-side. On ANY non-success we fall back to the client-side relay so the bridge
     // still completes — safe because re-relay is idempotent.
-    // The backend only relays through the intent relay, so an MPC-relay source settles client-side.
-    if (this.useBackendSubmitTx && !isMpcRelayChainKey(_params.params.srcChainKey)) {
+    // The backend only relays through the intent relay, so a bridge to or from an MPC-relay chain settles client-side.
+    const { srcChainKey, dstChainKey } = _params.params;
+    if (this.useBackendSubmitTx && !isMpcRelayChainKey(srcChainKey) && !isMpcRelayChainKey(dstChainKey)) {
       const submitted = await this.submitTx(_params, created, createSubmitTxAttempt(timeoutMs));
       if (submitted.ok) return submitted;
       this.config.logger.warn('[bridge] backend submit-tx did not complete; falling back to the client-side relay', {
@@ -878,6 +879,7 @@ export class BridgeService {
       tx: created.tx,
       direction: 'inbound',
       relayData: created.relayData,
+      dstChainKey: params.dstChainKey,
       // The caller's full `timeout`, starting HERE — after verification, and whether this runs as the only
       // path or as the backend's fallback. Neither a stalled backend attempt nor a slow source-chain
       // confirmation (Stacks polls for up to its full 120s `maxTimeoutMs`) may shorten the relay wait.

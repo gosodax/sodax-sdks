@@ -1,6 +1,6 @@
 // packages/sdk/src/shared/services/spoke/SpokeService.ts
 import * as rlp from 'rlp';
-import { encodeFunctionData, type Address, type PublicClient } from 'viem';
+import { encodeFunctionData, pad, toEventSelector, toHex, type Address, type PublicClient } from 'viem';
 import {
   type Hex,
   type BitcoinChainKey,
@@ -21,6 +21,7 @@ import {
   type GetEstimateGasReturnType,
   type EvmChainKey,
   getIntentRelayChainId,
+  getMpcRelayChainInfo,
   type TxReturnType,
   isBitcoinChainKey,
   type Result,
@@ -131,6 +132,9 @@ export type SpokeServiceConstructorParams = {
 };
 
 /** An MPC record settled without its far-side tx: a relay failure, never a success keyed on the source id. */
+/** `BridgeRequest(uint256 indexed dstChainId, bytes dstAddress, bytes payload)`, emitted by the hub AssetManager. */
+const BRIDGE_REQUEST_TOPIC = toEventSelector('BridgeRequest(uint256,bytes,bytes)');
+
 function missingFarSideHash(detail: string): { ok: false; error: SettlementFailure } {
   return { ok: false, error: { phase: 'relay', cause: new Error(`mpc-relay: ${detail}`) } };
 }
@@ -1318,6 +1322,50 @@ export class SpokeService {
     }
   }
 
+  /**
+   * Trigger and await the release a hub tx sends to an MPC-relay chain, returning both hashes. That
+   * relay does not watch the hub, so nothing is released until the hub tx is notified.
+   */
+  public async settleHubRelease(
+    hubTxHash: string,
+    dstChainKey: SpokeChainKey,
+    timeout?: number,
+  ): Promise<Result<TxHashPair, SettlementFailure>> {
+    const relay = this.getMpcRelayService(dstChainKey);
+    if (!relay || !isMpcRelayChainKeyType(dstChainKey)) {
+      return { ok: false, error: { phase: 'relay', cause: new Error(`${dstChainKey} is not an MPC-relay chain`) } };
+    }
+    try {
+      const receipt = await this.hubProvider.publicClient.waitForTransactionReceipt({ hash: hubTxHash as Hex });
+      if (receipt.status !== 'success') {
+        return { ok: false, error: { phase: 'verification', cause: new Error(`hub tx ${hubTxHash} reverted`) } };
+      }
+      const assetManager = this.hubProvider.chainConfig.addresses.assetManager.toLowerCase();
+      const dstChainTopic = pad(toHex(getMpcRelayChainInfo(dstChainKey).chainId), { size: 32 });
+      const requests = receipt.logs.filter(
+        log =>
+          log.address.toLowerCase() === assetManager &&
+          log.topics[0] === BRIDGE_REQUEST_TOPIC &&
+          log.topics[1]?.toLowerCase() === dstChainTopic,
+      );
+      const [request] = requests;
+      if (requests.length !== 1 || !request) {
+        return missingFarSideHash(`hub tx ${hubTxHash} has ${requests.length} releases to ${dstChainKey}, expected 1`);
+      }
+
+      const released = await relay.waitForHubRelease(
+        { hubChainId: String(this.hubProvider.chainConfig.chain.chainId), hubTxHash, logIndex: request.logIndex },
+        timeout,
+      );
+      if (!released.ok) return { ok: false, error: { phase: 'relay', cause: released.error } };
+      const payout = released.value.txs?.release?.hash;
+      if (!payout) return missingFarSideHash(`release from hub tx ${hubTxHash} settled without a payout tx`);
+      return { ok: true, value: { srcChainTxHash: hubTxHash, dstChainTxHash: payout } };
+    } catch (error) {
+      return { ok: false, error: { phase: 'relay', cause: error } };
+    }
+  }
+
   /** The MPC-relay settlement service for a chain, or `undefined` when it rides the intent relay. */
   private getMpcRelayService(chainKey: SpokeChainKey): MpcRelaySettlement | undefined {
     if (!isMpcRelayChainKeyType(chainKey)) return undefined;
@@ -1344,28 +1392,53 @@ export class SpokeService {
    * services, keeping the per-chain-family mechanics here. Whether settlement is needed stays with the
    * caller.
    *
-   * @returns both tx hashes, or a {@link SettlementFailure} naming the phase that failed.
+   * Settlement runs in up to two legs, each driven by the relay of the spoke on that leg: the source leg
+   * carries `chainKey`'s tx to the hub, and when `dstChainKey` is set, the destination leg carries the
+   * resulting hub tx out to it. An MPC-relay chain (Tron) rides the MPC relay; every other spoke the
+   * intent relay. A leg is only driven here when no relay picks it up on its own.
+   *
+   * @returns the source tx and the far-side hash (the payout tx when a destination leg ran, else the hub
+   * tx), or a {@link SettlementFailure} naming the phase that failed.
    */
   public async settle(params: SettleParams): Promise<Result<TxHashPair, SettlementFailure>> {
     const { chainKey, tx, direction, relayData, timeout } = params;
+    const hubChainKey = this.hubProvider.chainConfig.chain.key;
+    // The hub is not a destination leg, and a withdraw-auth back to its own MPC chain is released by that relay.
+    const dstChainKey =
+      params.dstChainKey === hubChainKey || params.dstChainKey === chainKey ? undefined : params.dstChainKey;
+    const mpcDst = dstChainKey !== undefined && isMpcRelayChainKeyType(dstChainKey) ? dstChainKey : undefined;
 
     try {
       const mpcRelay = this.getMpcRelayService(chainKey);
       if (mpcRelay) {
+        let hubTx: string;
         if (direction === 'inbound') {
           const settled = await mpcRelay.waitForDeposit(tx, timeout);
           if (!settled.ok) return { ok: false, error: { phase: 'relay', cause: settled.error } };
           const hubMint = settled.value.txs?.hubMint?.hash;
           if (!hubMint) return missingFarSideHash(`deposit ${tx} settled without a hub mint tx`);
-          return { ok: true, value: { srcChainTxHash: tx, dstChainTxHash: hubMint } };
+          hubTx = hubMint;
+        } else {
+          // Paying back to this chain, the relay releases it; otherwise the hub tx is the end of its leg.
+          const paysBack = (params.dstChainKey ?? chainKey) === chainKey;
+          const settled = await mpcRelay.waitForWithdrawal(tx, timeout, paysBack ? 'released' : 'burned');
+          if (!settled.ok) return { ok: false, error: { phase: 'relay', cause: settled.error } };
+          if (paysBack) {
+            const release = settled.value.txs?.release?.hash;
+            if (!release) return missingFarSideHash(`withdrawal ${tx} settled without a release tx`);
+            return { ok: true, value: { srcChainTxHash: tx, dstChainTxHash: release } };
+          }
+          const burn = settled.value.txs?.burn?.hash;
+          if (!burn) return missingFarSideHash(`withdrawal ${tx} settled without a hub tx`);
+          hubTx = burn;
         }
-
-        const settled = await mpcRelay.waitForWithdrawal(tx, timeout);
-        if (!settled.ok) return { ok: false, error: { phase: 'relay', cause: settled.error } };
-        const release = settled.value.txs?.release?.hash;
-        if (!release) return missingFarSideHash(`withdrawal ${tx} settled without a release tx`);
-        return { ok: true, value: { srcChainTxHash: tx, dstChainTxHash: release } };
+        if (!dstChainKey) return { ok: true, value: { srcChainTxHash: tx, dstChainTxHash: hubTx } };
+        // The MPC relay produced this hub tx, so no relay knows of its outbound message yet.
+        const out = await this.settleDestinationLeg(hubTx, dstChainKey, timeout);
+        return out.ok ? { ok: true, value: { srcChainTxHash: tx, dstChainTxHash: out.value } } : out;
       }
+
+      if (mpcDst && chainKey === hubChainKey) return await this.settleHubRelease(tx, mpcDst, timeout);
 
       const verify = await this.verifyTxHash({ txHash: tx, chainKey });
       if (!verify.ok) return { ok: false, error: { phase: 'verification', cause: verify.error } };
@@ -1385,13 +1458,40 @@ export class SpokeService {
       if (!packet.ok) return { ok: false, error: { phase: 'relay', cause: packet.error } };
 
       // On-demand relays track the derived poll id, not the opaque payload; others keep the spoke tx.
-      return {
-        ok: true,
-        value: { srcChainTxHash: identity.pollTxHash ?? tx, dstChainTxHash: packet.value.dst_tx_hash },
-      };
+      const srcChainTxHash = identity.pollTxHash ?? tx;
+      // The intent relay carries its own hub delivery on to an intent-relay spoke, but not to an MPC chain.
+      if (mpcDst) {
+        const released = await this.settleHubRelease(packet.value.dst_tx_hash, mpcDst, timeout);
+        if (!released.ok) return released;
+        return { ok: true, value: { srcChainTxHash, dstChainTxHash: released.value.dstChainTxHash } };
+      }
+      return { ok: true, value: { srcChainTxHash, dstChainTxHash: packet.value.dst_tx_hash } };
     } catch (error) {
       return { ok: false, error: { phase: 'relay', cause: error } };
     }
+  }
+
+  /**
+   * Carry a hub tx no relay has seen out to `dstChainKey`: notify the MPC relay for an MPC chain, else
+   * submit it to the intent relay. Resolves to the payout tx on the destination.
+   */
+  private async settleDestinationLeg(
+    hubTx: string,
+    dstChainKey: SpokeChainKey,
+    timeout: number | undefined,
+  ): Promise<Result<string, SettlementFailure>> {
+    if (isMpcRelayChainKeyType(dstChainKey)) {
+      const released = await this.settleHubRelease(hubTx, dstChainKey, timeout);
+      return released.ok ? { ok: true, value: released.value.dstChainTxHash } : released;
+    }
+    const packet = await relayTxAndWaitPacket({
+      srcTxHash: hubTx,
+      chainKey: this.hubProvider.chainConfig.chain.key,
+      relayerApiEndpoint: this.config.relay.relayerApiEndpoint,
+      timeout,
+    });
+    if (!packet.ok) return { ok: false, error: { phase: 'relay', cause: packet.error } };
+    return { ok: true, value: packet.value.dst_tx_hash };
   }
 
   private async verifyReceiptStatus(receiptPromise: Promise<Result<{ status: string }>>): Promise<Result<boolean>> {

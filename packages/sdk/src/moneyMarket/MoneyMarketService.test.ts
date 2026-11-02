@@ -1791,6 +1791,31 @@ describe('MoneyMarketService.borrow', () => {
       expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledTimes(1);
     });
 
+    // The intent relay never delivers to Tron; the MPC relay releases once the hub tx is notified.
+    it('on hub with a Tron target: settles the release on the MPC relay, not the intent relay', async () => {
+      vi.spyOn(sodax.moneyMarket, 'createBorrowIntent').mockResolvedValueOnce({
+        ok: true,
+        value: { tx: '0xhub-tx', relayData: { address: HUB_WALLET, payload: '0x' } },
+      });
+      const release = vi
+        .spyOn(sodax.spoke, 'settleHubRelease')
+        .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xhub-tx', dstChainTxHash: 'TronPayout' } });
+
+      const result = await sodax.moneyMarket.borrow({
+        raw: false,
+        params: {
+          ...borrowParams(ChainKeys.SONIC_MAINNET),
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+        },
+        walletProvider: mockEvmProvider,
+      });
+
+      expect(release).toHaveBeenCalledWith('0xhub-tx', ChainKeys.TRON_MAINNET, expect.anything());
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
+      expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xhub-tx', dstChainTxHash: 'TronPayout' } });
+    });
+
     it('on EVM spoke: relays the packet', async () => {
       vi.spyOn(sodax.moneyMarket, 'createBorrowIntent').mockResolvedValueOnce({
         ok: true,

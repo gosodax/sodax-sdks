@@ -17,8 +17,17 @@ export interface MpcRelaySettlement {
   waitForDeposit(tx: string, timeout?: number): Promise<Result<DepositRecord>>;
   /** One unpolled read of a deposit's record, for callers that poll on their own schedule. */
   getDepositRecord(tx: string): Promise<Result<DepositRecord>>;
-  waitForWithdrawal(trackingId: string, timeout?: number): Promise<Result<WithdrawalRecord>>;
+  waitForWithdrawal(
+    trackingId: string,
+    timeout?: number,
+    until?: WithdrawalSettledOn,
+  ): Promise<Result<WithdrawalRecord>>;
+  /** Notify the relay of a hub tx releasing to this chain and wait until the release is recorded. */
+  waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>>;
 }
+
+/** A hub tx's `BridgeRequest` to an MPC-relay chain: the relay keys its release on all three. */
+export type HubRelease = { hubChainId: string; hubTxHash: string; logIndex: number };
 
 export type MpcDepositMethod = 'memo' | 'address';
 
@@ -50,6 +59,8 @@ export interface DepositRecord {
     source?: { chain: string; hash: string; ts: number };
     nearSubmit?: { chain: string; hash: string; ts: number };
     hubMint?: { chain: string; hash: string; ts: number };
+    /** Set on a hub release's record (read through the same route): the spoke payout tx. */
+    release?: { chain: string; hash: string; ts: number };
   };
 }
 
@@ -92,6 +103,12 @@ export interface SubmitWithdrawResponse {
 
 /** Withdrawal ladder: `submitted` → `burned` → `attested` → `released`, or `failed` with an `error`. */
 export type WithdrawalStatus = 'submitted' | 'burned' | 'attested' | 'released' | 'failed';
+
+/**
+ * When a withdraw-auth counts as settled: `released` once the relay pays this chain back, `burned` once
+ * the hub tx ran — the end of its leg when the action pays out elsewhere, since nothing is released here.
+ */
+export type WithdrawalSettledOn = 'released' | 'burned';
 
 export interface WithdrawalRecord {
   trackingId: Hex;
@@ -237,6 +254,32 @@ export async function waitForDeposit(
 }
 
 /**
+ * Poll a hub-triggered release until its spoke payout tx is recorded. `/withdrawal/` only takes a
+ * withdraw-auth trackingId, so this reads the release's row by its withdrawalId through `/deposit/`,
+ * whose `status` does not track releases; `txs.release` is the signal. Ends in `RELAY_TIMEOUT`.
+ */
+export async function waitForHubRelease(
+  apiUrl: HttpUrl,
+  { hubChainId, hubTxHash, logIndex }: HubRelease,
+  options: WaitForDepositOptions = {},
+): Promise<Result<DepositRecord>> {
+  const timeout = options.timeout ?? DEFAULT_DEPOSIT_TIMEOUT_MS;
+  const interval = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  const deadline = Date.now() + timeout;
+  // The hub verifier lowercases the hash before deriving the id.
+  const withdrawalId = toDepositId(hubChainId, hubTxHash.toLowerCase(), logIndex);
+
+  for (;;) {
+    const res = await getDeposit(apiUrl, withdrawalId);
+    if (res.ok && res.value.txs?.release?.hash) return res;
+    if (Date.now() >= deadline) {
+      return { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for release ${withdrawalId}`) };
+    }
+    await new Promise(r => setTimeout(r, interval));
+  }
+}
+
+/**
  * Submit a signed withdraw-auth message (hub→spoke release).
  * @returns the `trackingId` to poll {@link waitForWithdrawal} with.
  */
@@ -262,13 +305,13 @@ export async function getWithdrawal(apiUrl: HttpUrl, trackingId: string): Promis
 }
 
 /**
- * Poll until the withdrawal is `released` with its release tx recorded, or `failed` (reject). Ends in
- * `RELAY_TIMEOUT` when neither happens within `timeout`.
+ * Poll until the withdrawal reaches `until` (default `released`) with that stage's tx recorded, or
+ * `failed` (reject). Ends in `RELAY_TIMEOUT` when neither happens within `timeout`.
  */
 export async function waitForWithdrawal(
   apiUrl: HttpUrl,
   trackingId: string,
-  options: WaitForDepositOptions = {},
+  options: WaitForDepositOptions & { until?: WithdrawalSettledOn } = {},
 ): Promise<Result<WithdrawalRecord>> {
   const timeout = options.timeout ?? DEFAULT_DEPOSIT_TIMEOUT_MS;
   const interval = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
@@ -279,6 +322,9 @@ export async function waitForWithdrawal(
     const res = await getWithdrawal(apiUrl, trackingId);
     if (res.ok) {
       if (res.value.status === 'released' && res.value.txs?.release?.hash) return res;
+      // `attested` and `released` are past `burned`, so they settle a `burned` wait too.
+      const pastBurn = res.value.status !== 'submitted' && res.value.status !== 'failed';
+      if (options.until === 'burned' && pastBurn && res.value.txs?.burn?.hash) return res;
       if (res.value.status === 'failed') {
         return {
           ok: false,

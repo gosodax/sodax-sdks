@@ -32,9 +32,12 @@ import {
   submitWithdraw,
   toDepositId,
   waitForDeposit,
+  waitForHubRelease,
   waitForWithdrawal,
   type DepositRecord,
+  type HubRelease,
   type WithdrawalRecord,
+  type WithdrawalSettledOn,
 } from '../mpcRelay/MpcRelayApiService.js';
 import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 import {
@@ -69,7 +72,7 @@ const TRON_RPC_TIMEOUT_MS = 15_000;
  */
 const TRON_SETTLEMENT_FLOOR_MS = 300_000;
 
-/** Re-notify interval while waiting for a deposit — about two Tron blocks. `/notify` is idempotent. */
+/** Re-notify interval while waiting on a deposit or hub release — about two Tron blocks. `/notify` is idempotent. */
 const RENOTIFY_INTERVAL_MS = 6_000;
 
 /** A 65-byte `r‖s‖v` placeholder — only its length matters when sizing a transaction. */
@@ -483,12 +486,49 @@ export class TronSpokeService {
    * Wait for a hub→Tron withdrawal to reach `released`, via the MPC relay.
    * `trackingId` is the value returned by {@link sendMessage}.
    */
-  public async waitForWithdrawal(trackingId: string, timeout?: number): Promise<Result<WithdrawalRecord>> {
+  public async waitForWithdrawal(
+    trackingId: string,
+    timeout?: number,
+    until?: WithdrawalSettledOn,
+  ): Promise<Result<WithdrawalRecord>> {
     return waitForWithdrawal(this.relayApiUrl, trackingId, {
+      until,
       // Never below what the chain physically needs — see TRON_SETTLEMENT_FLOOR_MS.
       timeout: Math.max(timeout ?? 0, TRON_SETTLEMENT_FLOOR_MS),
       pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
     });
+  }
+
+  /**
+   * Trigger and await a release the hub sent to Tron. The relay has no hub watcher and learns of the
+   * hub tx only through `/notify`; its verifier also waits on hub confirmations, so keep re-notifying.
+   */
+  public async waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>> {
+    const { hubChainId, hubTxHash } = release;
+    try {
+      await retry(async () => {
+        const res = await notify(this.relayApiUrl, hubChainId, hubTxHash, 'withdrawal');
+        if (!res.ok) throw res.error;
+      });
+    } catch (error) {
+      // The hub has already burned the tokens; the hash is what a retry has to re-notify.
+      return {
+        ok: false,
+        error: new Error(`mpc-relay: hub tx ${hubTxHash} was not notified — re-notify it to release`, { cause: error }),
+      };
+    }
+
+    const renotify = setInterval(() => {
+      void notify(this.relayApiUrl, hubChainId, hubTxHash, 'withdrawal');
+    }, RENOTIFY_INTERVAL_MS);
+    try {
+      return await waitForHubRelease(this.relayApiUrl, release, {
+        timeout: Math.max(timeout ?? 0, TRON_SETTLEMENT_FLOOR_MS),
+        pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
+      });
+    } finally {
+      clearInterval(renotify);
+    }
   }
 
   /** Poll TronGrid until the transaction is included in a block, mapping the receipt to the SDK shape. */

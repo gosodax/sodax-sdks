@@ -305,6 +305,11 @@ export type SettleParams = {
   direction: SettlementDirection;
   relayData: RelayExtraData;
   timeout?: number;
+  /**
+   * Spoke the action pays out to, when it ends in a transfer off the hub; omit when it ends on the hub.
+   * Drives the destination leg, which an MPC-relay chain or an MPC-produced hub tx needs driven here.
+   */
+  dstChainKey?: SpokeChainKey;
 };
 
 /** Why a settlement failed. `phase` lets a feature map it onto its own errors. */

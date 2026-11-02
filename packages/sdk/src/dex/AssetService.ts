@@ -543,8 +543,9 @@ export class AssetService {
     try {
       const txResult = await this.executeWithdraw(_params);
       if (!txResult.ok) return txResult;
+      const dstChainKey: SpokeChainKey = params.dst?.dstChainKey ?? params.srcChainKey;
       if (isMpcRelayChainKey(params.srcChainKey)) {
-        return await this.settleOnMpcRelay(params.srcChainKey, txResult.value, 'outbound', timeout);
+        return await this.settleOnMpcRelay(params.srcChainKey, txResult.value, 'outbound', timeout, dstChainKey);
       }
 
       let hubTxHash: string;
@@ -563,6 +564,15 @@ export class AssetService {
         hubTxHash = txResult.value.tx;
       }
 
+      // No relay watches the hub for an MPC-relay chain, so its release is driven from here.
+      if (isMpcRelayChainKey(dstChainKey)) {
+        const released = await this.spoke.settleHubRelease(hubTxHash, dstChainKey, timeout);
+        if (!released.ok) return { ok: false, error: released.error.cause };
+        return {
+          ok: true,
+          value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: released.value.dstChainTxHash },
+        };
+      }
       return { ok: true, value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: hubTxHash } };
     } catch (error) {
       if (isDexCreateIntentError(error)) return { ok: false, error };
@@ -579,8 +589,9 @@ export class AssetService {
     { tx, relayData }: { tx: string; relayData: RelayExtraData },
     direction: SettlementDirection,
     timeout: number | undefined,
+    dstChainKey?: SpokeChainKey,
   ): Promise<Result<TxHashPair>> {
-    const settled = await this.spoke.settle({ chainKey, tx, direction, relayData, timeout });
+    const settled = await this.spoke.settle({ chainKey, tx, direction, relayData, timeout, dstChainKey });
     return settled.ok ? settled : { ok: false, error: settled.error.cause };
   }
 

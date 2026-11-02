@@ -105,6 +105,8 @@ describe('AssetService deposit/withdraw from an MPC-relay source', () => {
       direction,
       relayData: RELAY_DATA,
       timeout: 90_000,
+      // A withdraw names where it pays out; with no `dst` that is back to the source.
+      ...(method === 'withdraw' ? { dstChainKey: ChainKeys.TRON_MAINNET } : {}),
     });
     expect(relay).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true, value: SETTLED });

@@ -864,6 +864,26 @@ describe('BridgeService.bridge — backend submit-tx (useBackendSubmitTx)', () =
     expect(settleSpy).toHaveBeenCalledWith(expect.objectContaining({ chainKey: ChainKeys.TRON_MAINNET }));
   });
 
+  // The backend never notifies the MPC relay, so a bridge paying out on Tron would burn and never release.
+  it('settles a bridge to an MPC-relay chain client-side, naming it as the destination leg', async () => {
+    vi.spyOn(sodaxBE.bridge, 'createBridgeIntent').mockResolvedValueOnce({
+      ok: true,
+      value: { tx: '0xspokeTx', relayData: { address: HUB_WALLET, payload: '0x' } },
+    });
+    const submitSpy = vi.spyOn(sodaxBE.api.bridge, 'submitTx');
+    const settleSpy = vi
+      .spyOn(sodaxBE.spoke, 'settle')
+      .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: 'TronPayout' } });
+
+    const result = await sodaxBE.bridge.bridge(bridgeInput(ARBITRUM, ChainKeys.TRON_MAINNET));
+
+    expect(result.ok).toBe(true);
+    expect(submitSpy).not.toHaveBeenCalled();
+    expect(settleSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ chainKey: ARBITRUM, dstChainKey: ChainKeys.TRON_MAINNET }),
+    );
+  });
+
   it('on backend "executed", returns the TxHashPair from the backend (no client-side relay)', async () => {
     stubCreatedAndVerified();
     const submitSpy = vi.spyOn(sodaxBE.api.bridge, 'submitTx').mockResolvedValueOnce({
