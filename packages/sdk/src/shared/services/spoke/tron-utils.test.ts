@@ -5,6 +5,8 @@ import {
   assertDepositTransfer,
   computeSignedMessageHash,
   encodeTrc20TransferParams,
+  readTrc20TransferCall,
+  setExpiration,
   spliceMemo,
   tronAddressToWord,
   tronBase58ToHex,
@@ -16,6 +18,8 @@ import { nativeTransferRaw, pbBytes, pbVarint, trc20TransferRaw, tronRawData } f
 
 // Verified mainnet deposit fixtures (20 TRX → sodaTRX).
 const RESERVE = 'TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92';
+const OWNER = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
+const USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
 const RESERVE_HEX = '4165af5fef4974f67c4421ebb70244d8c485ada423';
 const MEMO = 'b07ec4b9c2d410c84fb75cb2cf00122f6316cf191ae1fe7bec45ac203c5e13fd';
 
@@ -160,7 +164,7 @@ describe('assembleBroadcastHex', () => {
   it('wraps raw_data (field 1) and a 0x41-prefixed signature (field 2)', () => {
     const raw = 'ab'.repeat(10); // 10 bytes
     const sig = 'cd'.repeat(65); // 65-byte Tron signature
-    const env = assembleBroadcastHex(raw, sig);
+    const env = assembleBroadcastHex({ rawHex: raw, signatures: [sig] });
     // 0a <varint len=10=0x0a> <raw> 12 41 <sig>
     expect(env).toBe(`0a0a${raw}1241${sig}`);
   });
@@ -168,14 +172,40 @@ describe('assembleBroadcastHex', () => {
   it('tolerates a 0x-prefixed signature', () => {
     const raw = 'ff';
     const sig = '11'.repeat(65);
-    expect(assembleBroadcastHex(raw, `0x${sig}`)).toBe(`0a01${raw}1241${sig}`);
+    expect(assembleBroadcastHex({ rawHex: raw, signatures: [`0x${sig}`] })).toBe(`0a01${raw}1241${sig}`);
+  });
+
+  it('gives each signature of a multi-signature account its own field, and a long body a two-byte length', () => {
+    const raw = 'ab'.repeat(200); // 200 = 0xc8: varint `c8 01`
+    const [a, b] = ['cd'.repeat(65), 'ef'.repeat(65)];
+    expect(assembleBroadcastHex({ rawHex: raw, signatures: [a, b] })).toBe(`0ac801${raw}1241${a}1241${b}`);
+  });
+});
+
+describe('setExpiration', () => {
+  const OTHER = 'TYBNgWfhGuNzdLtjKtxXTfskAhTbMcqbaG';
+  const value = pbBytes(1, tronBase58ToHex(OWNER)) + pbBytes(2, tronBase58ToHex(OTHER)) + pbVarint(3, 7n);
+  const EXPIRATION = 1_800_000_000_000n; // ms; a multi-byte varint
+
+  it('replaces the expiration field and leaves every other field as it was, memo included', () => {
+    const before = spliceMemo(tronRawData(1n, 'TransferContract', value), MEMO);
+    const after = spliceMemo(tronRawData(1n, 'TransferContract', value, undefined, EXPIRATION), MEMO);
+
+    expect(setExpiration({ rawHex: before, expiration: Number(EXPIRATION) })).toBe(after);
+  });
+
+  it.each([
+    ['no expiration field', pbBytes(1, 'abcd') + pbBytes(11, pbVarint(1, 1n))],
+    ['two expiration fields', pbVarint(8, 1n) + tronRawData(1n, 'TransferContract', value)],
+  ])('refuses a body with %s', (_label, raw) => {
+    expect(() => setExpiration({ rawHex: raw, expiration: Number(EXPIRATION) })).toThrow(
+      /expected one expiration field/,
+    );
   });
 });
 
 describe('assertDepositTransfer', () => {
-  const OWNER = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
   const OTHER = 'TYBNgWfhGuNzdLtjKtxXTfskAhTbMcqbaG';
-  const USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
   const AMOUNT = 5_000_000_000n; // above 2^31 sun, so a 32-bit varint read would misjudge it
   const native = { owner: OWNER, reserve: RESERVE, amount: AMOUNT, maxFeeLimitSun: 100_000_000 };
   const trc20 = { ...native, token: USDT };
@@ -223,5 +253,39 @@ describe('assertDepositTransfer', () => {
     ],
   ])('rejects a TRC-20 deposit with %s', (_label, raw, reason) => {
     expect(() => assertDepositTransfer(raw, trc20)).toThrow(reason);
+  });
+});
+
+describe('readTrc20TransferCall', () => {
+  it('reads the owner, token and transfer arguments of a TRC-20 deposit, memo or not', () => {
+    const raw = trc20TransferRaw(OWNER, USDT, RESERVE, 7n);
+    const expected = {
+      owner: OWNER,
+      contract: USDT,
+      parameter: encodeTrc20TransferParams(RESERVE, 7n),
+    };
+
+    expect(readTrc20TransferCall(raw)).toEqual(expected);
+    expect(readTrc20TransferCall(spliceMemo(raw, MEMO))).toEqual(expected);
+  });
+
+  it('returns undefined for a native TRX transfer', () => {
+    expect(readTrc20TransferCall(nativeTransferRaw(OWNER, RESERVE, 7n))).toBeUndefined();
+  });
+
+  it.each([
+    [
+      'a contract call other than transfer',
+      tronRawData(31n, 'TriggerSmartContract', pbBytes(4, 'deadbeef')),
+      /not a TRX or TRC-20 transfer/,
+    ],
+    [
+      'another contract type',
+      tronRawData(2n, 'TransferAssetContract', pbVarint(3, 1n)),
+      /not a TRX or TRC-20 transfer/,
+    ],
+    ['two contracts', nativeTransferRaw(OWNER, RESERVE, 7n) + pbBytes(11, pbVarint(1, 1n)), /one contract/],
+  ])('throws for %s', (_label, raw, reason) => {
+    expect(() => readTrc20TransferCall(raw)).toThrow(reason);
   });
 });

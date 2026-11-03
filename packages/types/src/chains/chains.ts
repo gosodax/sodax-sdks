@@ -73,6 +73,15 @@ export const INTENT_CHAIN_IDS = Object.values(RelayChainIdMap);
  */
 export type MpcWithdrawScheme = 0 | 1 | 2 | 3 | 4;
 
+/** A withdraw-auth message as the MPC relay takes it: numeric fields are u64 decimal strings. */
+export type MpcWithdrawMessage = {
+  to: Hex;
+  data: Hex;
+  nonce: string;
+  chainId: string;
+  sender: Hex;
+};
+
 export type MpcRelayChainInfo = {
   /** The relay's `srcChain` / `chain_id` for this chain; sent to the relay as a decimal string. */
   chainId: bigint;

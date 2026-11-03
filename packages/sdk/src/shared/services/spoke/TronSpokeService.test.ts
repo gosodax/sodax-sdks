@@ -9,11 +9,26 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChainKeys, spokeChainConfig, type Hex } from '@sodax/types';
-import { encodeAbiParameters, getAddress, keccak256 } from 'viem';
+import {
+  ChainKeys,
+  spokeChainConfig,
+  type Hex,
+  type MpcWithdrawMessage,
+  type TronRawTransaction,
+  type TronRawWithdraw,
+} from '@sodax/types';
+import { encodeAbiParameters, getAddress, keccak256, sha256 } from 'viem';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
-import { assembleBroadcastHex, encodeTrc20TransferParams, spliceMemo, tronBase58ToHex } from './tron-utils.js';
+import {
+  assembleBroadcastHex,
+  computeSignedMessageHash,
+  encodeTrc20TransferParams,
+  readTrc20TransferCall,
+  spliceMemo,
+  tronBase58ToHex,
+  tronIdentityBytes,
+} from './tron-utils.js';
 import { nativeTransferRaw, trc20TransferRaw } from './tron-test-fixtures.js';
 
 const sodax = new Sodax();
@@ -29,10 +44,26 @@ const HUB_WALLET = '0x1111111111111111111111111111111111111111' as Hex;
 const MEMO = keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'bytes' }], [HUB_WALLET, '0x']));
 const AMOUNT = 20_000_000n;
 const SIGNATURE = 'ab'.repeat(65);
+const WITHDRAW_MESSAGE: MpcWithdrawMessage = {
+  to: HUB_WALLET,
+  data: '0x',
+  nonce: '7',
+  chainId: '728126428',
+  sender: HUB_WALLET,
+};
+const WITHDRAW: TronRawWithdraw = {
+  message: WITHDRAW_MESSAGE,
+  digest: computeSignedMessageHash({ ...WITHDRAW_MESSAGE, nonce: 7n, chainId: 728126428n }),
+  scheme: 1,
+};
 
 // The bodies an honest node returns for this deposit; the SDK decodes and checks them before signing.
 const NATIVE_RAW = nativeTransferRaw(SENDER, RESERVE, AMOUNT);
 const TRC20_RAW = trc20TransferRaw(SENDER, USDT, RESERVE, AMOUNT);
+// The decoded bodies the node returns beside them, expiring ten minutes after the run starts.
+const EXPIRATION = Date.now() + 600_000;
+const NATIVE_RAW_DATA = { contract: [{ type: 'TransferContract' }], expiration: EXPIRATION };
+const TRC20_RAW_DATA = { contract: [{ type: 'TriggerSmartContract' }], expiration: EXPIRATION };
 
 type Call = { path: string; body: Record<string, unknown> };
 
@@ -48,8 +79,11 @@ function stubTronGrid(overrides: Record<string, unknown> = {}) {
       calls.push({ path, body });
 
       const responses: Record<string, unknown> = {
-        '/wallet/createtransaction': { raw_data_hex: NATIVE_RAW },
-        '/wallet/triggersmartcontract': { result: { result: true }, transaction: { raw_data_hex: TRC20_RAW } },
+        '/wallet/createtransaction': { raw_data_hex: NATIVE_RAW, raw_data: NATIVE_RAW_DATA },
+        '/wallet/triggersmartcontract': {
+          result: { result: true },
+          transaction: { raw_data_hex: TRC20_RAW, raw_data: TRC20_RAW_DATA },
+        },
         '/wallet/broadcasthex': { result: true },
         '/wallet/getaccount': { balance: 42 },
         '/wallet/triggerconstantcontract': {
@@ -91,6 +125,15 @@ const depositParams = (token: string) =>
   }) as never;
 
 const callTo = (path: string) => calls.find(c => c.path === path);
+
+const mockSubmitOk = () =>
+  vi.spyOn(MpcRelayApiService, 'submitWithdraw').mockResolvedValue({
+    ok: true,
+    value: { accepted: true, trackingId: MEMO },
+  });
+
+const digestOf = (m: MpcWithdrawMessage) =>
+  computeSignedMessageHash({ ...m, nonce: BigInt(m.nonce), chainId: BigInt(m.chainId) });
 
 beforeEach(() => {
   calls = [];
@@ -140,12 +183,7 @@ describe('TronSpokeService.deposit — TRC-20', () => {
   it('hands the wallet the decoded raw_data carrying the same memo', async () => {
     // A browser wallet renders the prompt from `raw_data` (TronWeb's `sign` dereferences it), while
     // a raw-key signer only needs `txID` — omitting it throws before the user sees anything.
-    stubTronGrid({
-      '/wallet/triggersmartcontract': {
-        result: { result: true },
-        transaction: { raw_data_hex: TRC20_RAW, raw_data: { contract: [{ type: 'TriggerSmartContract' }] } },
-      },
-    });
+    stubTronGrid();
 
     await tron.deposit(depositParams(USDT));
 
@@ -159,13 +197,13 @@ describe('TronSpokeService.deposit — TRC-20', () => {
     expect(signed.raw_data_hex).toBe(spliceMemo(TRC20_RAW, MEMO));
   });
 
-  it('omits raw_data when the node does not return it, rather than inventing one', async () => {
-    stubTronGrid();
+  it('refuses a node build without raw_data, which a browser wallet signs from', async () => {
+    stubTronGrid({
+      '/wallet/triggersmartcontract': { result: { result: true }, transaction: { raw_data_hex: TRC20_RAW } },
+    });
 
-    await tron.deposit(depositParams(USDT));
-
-    const signed = vi.mocked(signTransaction).mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(signed).not.toHaveProperty('raw_data');
+    await expect(tron.deposit(depositParams(USDT))).rejects.toThrow(/no decoded raw_data/);
+    expect(signTransaction).not.toHaveBeenCalled();
   });
 
   it('carries the memo, signs the spliced raw, broadcasts it and notifies the relay', async () => {
@@ -189,13 +227,22 @@ describe('TronSpokeService.deposit — TRC-20', () => {
     expect(callTo('/wallet/broadcasthex')).toBeUndefined();
   });
 
-  it('returns an unsigned descriptor naming the token in raw mode, touching no node', async () => {
+  it('returns the checked transfer unsigned in raw mode, memo spliced in, without signing or broadcasting', async () => {
     stubTronGrid();
+    const rawWithMemo = spliceMemo(TRC20_RAW, MEMO);
 
     const raw = await tron.deposit({ ...(depositParams(USDT) as object), raw: true } as never);
 
-    expect(raw).toEqual({ from: SENDER, to: RESERVE, value: AMOUNT, data: MEMO, token: USDT });
-    expect(calls).toHaveLength(0);
+    expect(raw).toEqual({
+      txID: sha256(`0x${rawWithMemo}`).slice(2),
+      raw_data_hex: rawWithMemo,
+      raw_data: { ...TRC20_RAW_DATA, data: MEMO.slice(2) },
+      visible: false,
+    });
+    expect(callTo('/wallet/triggersmartcontract')).toBeDefined();
+    expect(signTransaction).not.toHaveBeenCalled();
+    expect(callTo('/wallet/broadcasthex')).toBeUndefined();
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 });
 
@@ -215,12 +262,13 @@ describe('TronSpokeService.deposit — native TRX', () => {
     expect(callTo('/wallet/broadcasthex')?.body.transaction).toContain(spliceMemo(NATIVE_RAW, MEMO));
   });
 
-  it('names the native sentinel in the raw descriptor', async () => {
+  it('returns the value transfer unsigned in raw mode', async () => {
     stubTronGrid();
 
     const raw = await tron.deposit({ ...(depositParams(NATIVE_TRX) as object), raw: true } as never);
 
-    expect(raw).toMatchObject({ token: NATIVE_TRX, to: RESERVE });
+    expect(raw).toMatchObject({ raw_data_hex: spliceMemo(NATIVE_RAW, MEMO) });
+    expect(callTo('/wallet/createtransaction')).toBeDefined();
   });
 });
 
@@ -229,7 +277,12 @@ describe('TronSpokeService.deposit — rotated reserve', () => {
   // address from the CURRENT response. Refusing a rotation would strand deposits, so this warns.
   it('pays the reserve the relay returned even when the chain config names another, and warns', async () => {
     const rotated = 'TYBNgWfhGuNzdLtjKtxXTfskAhTbMcqbaG';
-    stubTronGrid({ '/wallet/createtransaction': { raw_data_hex: nativeTransferRaw(SENDER, rotated, AMOUNT) } });
+    stubTronGrid({
+      '/wallet/createtransaction': {
+        raw_data_hex: nativeTransferRaw(SENDER, rotated, AMOUNT),
+        raw_data: NATIVE_RAW_DATA,
+      },
+    });
     vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue({
       ok: true,
       value: {
@@ -281,6 +334,14 @@ describe('TronSpokeService.deposit — node-built transfer check', () => {
     expect(signTransaction).not.toHaveBeenCalled();
     expect(callTo('/wallet/broadcasthex')).toBeUndefined();
   });
+
+  it('refuses to hand out a redirected transfer in raw mode too', async () => {
+    stubTronGrid({ '/wallet/createtransaction': { raw_data_hex: nativeTransferRaw(SENDER, OTHER, AMOUNT) } });
+
+    await expect(tron.deposit({ ...(depositParams(NATIVE_TRX) as object), raw: true } as never)).rejects.toThrow(
+      /node-built deposit transfer rejected/,
+    );
+  });
 });
 
 describe('TronSpokeService.deposit — hub wallet assertion', () => {
@@ -331,10 +392,13 @@ describe('TronSpokeService.deposit — memo commitment', () => {
     expect(signTransaction).not.toHaveBeenCalled();
   });
 
-  it('refuses to hand out a raw descriptor carrying that memo', async () => {
+  it('refuses to build a raw transfer carrying that memo', async () => {
+    stubTronGrid();
+
     await expect(tron.deposit({ ...(depositParams(NATIVE_TRX) as object), raw: true } as never)).rejects.toThrow(
       /does not commit to this deposit's payload/,
     );
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -467,33 +531,122 @@ describe('TronSpokeService.waitForHubRelease', () => {
   });
 });
 
-describe('TronSpokeService.estimateGas', () => {
-  const rawTx = (token: string) => ({ from: SENDER, to: RESERVE, value: AMOUNT, data: MEMO, token });
+describe('TronSpokeService.deposit — expired or multi-signed', () => {
+  it('surfaces the node refusing an expired transaction, and notifies nothing', async () => {
+    // The node checks `raw_data.expiration` against its own head block, so the SDK leaves that to it.
+    stubTronGrid({ '/wallet/broadcasthex': { result: false, message: 'TRANSACTION_EXPIRATION_ERROR' } });
 
-  it('reports energy from a constant call and bandwidth from the signed transaction size', async () => {
-    stubTronGrid({ '/wallet/triggerconstantcontract': { result: { result: true }, energy_used: 31_895 } });
-
-    const estimate = await tron.estimateGas({ chainKey: TRON, tx: rawTx(USDT) } as never);
-
-    const signed = assembleBroadcastHex(spliceMemo(TRC20_RAW, MEMO), '00'.repeat(65));
-    expect(estimate).toEqual({ energy: 31_895n, bandwidth: BigInt(signed.length / 2) });
+    await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(
+      /broadcast of [0-9a-f]{64} failed: TRANSACTION_EXPIRATION_ERROR/,
+    );
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
-  it('issues the energy call and the transaction build together', async () => {
-    stubTronGrid({ '/wallet/triggerconstantcontract': { result: { result: true }, energy_used: 31_895 } });
-    const node = globalThis.fetch;
-    let inFlight = 0;
-    let peak = 0;
-    vi.stubGlobal('fetch', async (...args: Parameters<typeof fetch>) => {
-      peak = Math.max(peak, ++inFlight);
-      await new Promise(r => setTimeout(r, 0));
-      inFlight--;
-      return node(...args);
+  it('broadcasts every signature the wallet returns, for a multi-signature account', async () => {
+    stubTronGrid();
+    const signatures = [SIGNATURE, 'cd'.repeat(65)];
+    signTransaction.mockImplementationOnce(async tx => ({ ...tx, signature: signatures }));
+
+    await tron.deposit(depositParams(NATIVE_TRX));
+
+    expect(callTo('/wallet/broadcasthex')?.body.transaction).toBe(
+      assembleBroadcastHex({ rawHex: spliceMemo(NATIVE_RAW, MEMO), signatures }),
+    );
+  });
+});
+
+describe('TronSpokeService.deposit — raw mode, typed for the caller', () => {
+  it('types a raw deposit as the unsigned transfer, with its decoded body, without a cast', async () => {
+    stubTronGrid();
+
+    const raw = await tron.deposit<true>({
+      srcChainKey: ChainKeys.TRON_MAINNET,
+      srcAddress: SENDER,
+      to: HUB_WALLET,
+      token: USDT,
+      amount: AMOUNT,
+      data: '0x',
+      raw: true,
     });
 
-    await tron.estimateGas({ chainKey: TRON, tx: rawTx(USDT) } as never);
+    const tx: TronRawTransaction = raw;
+    expect(tx.raw_data.expiration).toBe(EXPIRATION);
+    expect(tx.txID).toBe(sha256(`0x${tx.raw_data_hex}`).slice(2));
+  });
 
-    expect(peak).toBe(2);
+  it('types a raw withdraw-auth so its digest and the message submit without a cast', async () => {
+    mockSubmitOk();
+
+    const withdraw = await tron.sendMessage<true>({
+      srcChainKey: ChainKeys.TRON_MAINNET,
+      srcAddress: SENDER,
+      dstChainKey: ChainKeys.SONIC_MAINNET,
+      dstAddress: HUB_WALLET,
+      payload: '0xdeadbeef',
+      raw: true,
+    });
+    const signature: Hex = `0x${SIGNATURE}`;
+
+    await expect(tron.submitSignedWithdraw({ withdraw, signature })).resolves.toBe(MEMO);
+  });
+});
+
+describe('TronSpokeService.extendExpiration', () => {
+  const tx = (): TronRawTransaction => {
+    const raw_data_hex = spliceMemo(TRC20_RAW, MEMO);
+    return {
+      txID: sha256(`0x${raw_data_hex}`).slice(2),
+      raw_data_hex,
+      raw_data: { ...TRC20_RAW_DATA, data: MEMO.slice(2) },
+      visible: false,
+    };
+  };
+
+  it('rewrites the bytes, the decoded expiration and the txID together, keeping the transfer and memo', () => {
+    const before = tx();
+    const expiration = Date.now() + 3_600_000;
+
+    const after = tron.extendExpiration({ tx: before, expiration });
+
+    expect(after.raw_data).toEqual({ ...before.raw_data, expiration });
+    expect(after.raw_data_hex).not.toBe(before.raw_data_hex);
+    expect(after.txID).toBe(sha256(`0x${after.raw_data_hex}`).slice(2));
+    expect(readTrc20TransferCall(after.raw_data_hex)).toEqual(readTrc20TransferCall(before.raw_data_hex));
+    expect(after.raw_data_hex).toContain(`5220${MEMO.slice(2)}`);
+  });
+
+  it.each([
+    ['not after the current one', () => EXPIRATION],
+    ['more than 24 hours away', () => Date.now() + 25 * 3_600_000],
+  ])('refuses an expiration %s', (_label, expiration) => {
+    expect(() => tron.extendExpiration({ tx: tx(), expiration: expiration() })).toThrow(
+      /must be after the current one and within 24 hours/,
+    );
+  });
+});
+
+describe('TronSpokeService.estimateGas', () => {
+  const rawTx = (raw: string): TronRawTransaction => {
+    const raw_data_hex = spliceMemo(raw, MEMO);
+    return { txID: sha256(`0x${raw_data_hex}`).slice(2), raw_data_hex, raw_data: TRC20_RAW_DATA };
+  };
+  const bandwidthOf = (raw: string) =>
+    BigInt(assembleBroadcastHex({ rawHex: spliceMemo(raw, MEMO), signatures: ['00'.repeat(65)] }).length / 2);
+
+  it('replays the transfer for energy and sizes the given transaction for bandwidth, building nothing', async () => {
+    stubTronGrid({ '/wallet/triggerconstantcontract': { result: { result: true }, energy_used: 31_895 } });
+
+    const estimate = await tron.estimateGas({ chainKey: TRON, tx: rawTx(TRC20_RAW) });
+
+    expect(estimate).toEqual({ energy: 31_895n, bandwidth: bandwidthOf(TRC20_RAW) });
+    expect(calls.map(c => c.path)).toEqual(['/wallet/triggerconstantcontract']);
+    expect(callTo('/wallet/triggerconstantcontract')?.body).toMatchObject({
+      owner_address: SENDER,
+      contract_address: USDT,
+      function_selector: 'transfer(address,uint256)',
+      parameter: encodeTrc20TransferParams(RESERVE, AMOUNT),
+      visible: true,
+    });
   });
 
   // Shapes TronGrid returns for a transfer that cannot run: a missing contract, and a revert.
@@ -503,19 +656,36 @@ describe('TronSpokeService.estimateGas', () => {
   ])('rejects a failed transfer simulation instead of reporting its energy (%o)', async response => {
     stubTronGrid({ '/wallet/triggerconstantcontract': response });
 
-    await expect(tron.estimateGas({ chainKey: TRON, tx: rawTx(USDT) } as never)).rejects.toThrow(
-      /transfer simulation on .* failed/,
+    await expect(tron.estimateGas({ chainKey: TRON, tx: rawTx(TRC20_RAW) })).rejects.toThrow(
+      `transfer simulation on ${USDT} failed`,
     );
   });
 
   it('reports zero energy for a native TRX transfer, which consumes none', async () => {
     stubTronGrid();
 
-    const estimate = await tron.estimateGas({ chainKey: TRON, tx: rawTx(NATIVE_TRX) } as never);
+    const estimate = await tron.estimateGas({ chainKey: TRON, tx: rawTx(NATIVE_RAW) });
 
-    expect(estimate.energy).toBe(0n);
-    expect(estimate.bandwidth).toBeGreaterThan(0n);
-    expect(callTo('/wallet/triggerconstantcontract')).toBeUndefined();
+    expect(estimate).toEqual({ energy: 0n, bandwidth: bandwidthOf(NATIVE_RAW) });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('reads a 0x-prefixed raw_data_hex the same way', async () => {
+    stubTronGrid();
+    const tx = rawTx(NATIVE_RAW);
+
+    const estimate = await tron.estimateGas({ chainKey: TRON, tx: { ...tx, raw_data_hex: `0x${tx.raw_data_hex}` } });
+
+    expect(estimate).toEqual({ energy: 0n, bandwidth: bandwidthOf(NATIVE_RAW) });
+  });
+
+  it('reports no cost for a raw withdraw-auth, which is signed off chain', async () => {
+    stubTronGrid();
+
+    const estimate = await tron.estimateGas({ chainKey: TRON, tx: WITHDRAW });
+
+    expect(estimate).toEqual({ energy: 0n, bandwidth: 0n });
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -556,10 +726,7 @@ describe('TronSpokeService.sendMessage', () => {
 
   it('accepts a checksummed hub wallet, the form a contract read returns', async () => {
     stubTronGrid();
-    const submit = vi.spyOn(MpcRelayApiService, 'submitWithdraw').mockResolvedValue({
-      ok: true,
-      value: { accepted: true, trackingId: MEMO },
-    });
+    const submit = mockSubmitOk();
     const hubWallet = getAddress(`0x${'ab'.repeat(20)}`);
     const params = {
       srcChainKey: TRON,
@@ -578,10 +745,7 @@ describe('TronSpokeService.sendMessage', () => {
 
   it('draws a fresh random nonce per withdrawal rather than reading the clock', async () => {
     stubTronGrid();
-    vi.spyOn(MpcRelayApiService, 'submitWithdraw').mockResolvedValue({
-      ok: true,
-      value: { accepted: true, trackingId: MEMO },
-    });
+    mockSubmitOk();
 
     await tron.sendMessage(sendParams);
     await tron.sendMessage(sendParams);
@@ -596,10 +760,7 @@ describe('TronSpokeService.sendMessage', () => {
 
   it('keeps the nonce inside the safe-integer range the relay round-trips it through', async () => {
     stubTronGrid();
-    vi.spyOn(MpcRelayApiService, 'submitWithdraw').mockResolvedValue({
-      ok: true,
-      value: { accepted: true, trackingId: MEMO },
-    });
+    mockSubmitOk();
 
     // The relay converts the nonce to a JS number before the NEAR call, so a value above
     // MAX_SAFE_INTEGER reaches the contract rounded and the signature recovers a different address.
@@ -609,6 +770,93 @@ describe('TronSpokeService.sendMessage', () => {
       expect(nonce).toBeLessThanOrEqual(BigInt(Number.MAX_SAFE_INTEGER));
       expect(BigInt(Number(nonce))).toBe(nonce);
     }
+  });
+
+  it('returns the unsigned withdraw-auth in raw mode, without signing or submitting it', async () => {
+    const submit = vi.spyOn(MpcRelayApiService, 'submitWithdraw');
+
+    const raw = await tron.sendMessage<true>({
+      srcChainKey: ChainKeys.TRON_MAINNET,
+      srcAddress: SENDER,
+      dstChainKey: ChainKeys.SONIC_MAINNET,
+      dstAddress: HUB_WALLET,
+      payload: '0xdeadbeef',
+      raw: true,
+    });
+
+    expect(raw.message).toMatchObject({
+      to: HUB_WALLET,
+      data: '0xdeadbeef',
+      chainId: '728126428',
+      sender: tronIdentityBytes(SENDER),
+    });
+    // The digest must be the one the relay recomputes from the message, or the signature recovers no one.
+    expect(raw.digest).toBe(digestOf(raw.message));
+    expect(raw.scheme).toBe(1);
+    expect(signMessage).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('refuses an invalid hub wallet in raw mode too', async () => {
+    const params = { ...(sendParams as object), dstAddress: '0x1234', raw: true };
+
+    await expect(tron.sendMessage(params as never)).rejects.toThrow('invalid hub wallet address: 0x1234');
+  });
+
+  it('signs the digest it would hand out raw, and submits it with the message', async () => {
+    const submit = mockSubmitOk();
+
+    const trackingId = await tron.sendMessage(sendParams);
+
+    const request = submit.mock.calls[0]?.[1];
+    expect(trackingId).toBe(MEMO);
+    expect(request).toMatchObject({ signature: `0x${SIGNATURE}`, scheme: 1 });
+    expect(signMessage).toHaveBeenCalledWith(request && digestOf(request.message));
+  });
+});
+
+describe('TronSpokeService.submitSignedWithdraw', () => {
+  it('refuses a digest that no longer matches the message, before submitting', async () => {
+    const submit = mockSubmitOk();
+    const edited = { ...WITHDRAW, message: { ...WITHDRAW.message, nonce: '8' } };
+
+    await expect(tron.submitSignedWithdraw({ withdraw: edited, signature: `0x${SIGNATURE}` })).rejects.toThrow(
+      /digest .* does not match the message/,
+    );
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("refuses a scheme other than Tron's, before submitting", async () => {
+    const submit = mockSubmitOk();
+
+    await expect(
+      tron.submitSignedWithdraw({ withdraw: { ...WITHDRAW, scheme: 0 }, signature: `0x${SIGNATURE}` }),
+    ).rejects.toThrow("scheme 0 is not Tron's (1)");
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('submits a raw withdraw-auth with its signature and resolves to the trackingId', async () => {
+    const submit = mockSubmitOk();
+
+    const trackingId = await tron.submitSignedWithdraw({ withdraw: WITHDRAW, signature: `0x${SIGNATURE}` });
+
+    expect(trackingId).toBe(MEMO);
+    expect(submit).toHaveBeenCalledWith(expect.anything(), {
+      message: WITHDRAW.message,
+      signature: `0x${SIGNATURE}`,
+      scheme: 1,
+    });
+  });
+
+  it('throws the relay rejection', async () => {
+    vi.spyOn(MpcRelayApiService, 'submitWithdraw').mockResolvedValue({
+      ok: false,
+      error: new Error('mpc-relay: withdraw rejected: nonce used'),
+    });
+
+    await expect(tron.submitSignedWithdraw({ withdraw: WITHDRAW, signature: `0x${SIGNATURE}` })).rejects.toThrow(
+      /nonce used/,
+    );
   });
 });
 

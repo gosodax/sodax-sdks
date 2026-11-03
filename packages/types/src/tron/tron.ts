@@ -1,3 +1,5 @@
+import type { MpcWithdrawMessage, MpcWithdrawScheme } from '../chains/chains.js';
+import type { Hex } from '../shared/shared.js';
 import type { ICoreWallet } from '../wallet/wallet.js';
 
 /**
@@ -21,23 +23,59 @@ export interface TronSignedTransaction extends TronUnsignedTransaction {
   signature: string[];
 }
 
+/** The decoded transaction body a node returns beside `raw_data_hex`. A browser wallet signs from it. */
+export type TronRawData = {
+  contract: unknown[];
+  /** Milliseconds since epoch; the node drops the transaction after it. */
+  expiration: number;
+  ref_block_bytes?: string;
+  ref_block_hash?: string;
+  timestamp?: number;
+  fee_limit?: number;
+  data?: string;
+};
+
 /**
- * Structural raw-tx shape shared with the other spoke chains. `to` is the MPC reserve and `data` the
- * memo; `token` distinguishes a TRC-20 `transfer` call from a native value transfer.
+ * Raw deposit: the node-built transfer to the MPC reserve with the memo already spliced in, in the
+ * {@link TronUnsignedTransaction} shape. `raw_data` matches `raw_data_hex`, since a browser wallet checks
+ * one against the other. Sign and broadcast it before `raw_data.expiration`, then settle it.
  */
 export type TronRawTransaction = {
-  from: string;
-  to: string;
-  value: bigint;
-  data: string;
-  token: string;
+  txID: string;
+  raw_data_hex: string;
+  raw_data: TronRawData;
+  visible?: boolean;
+};
+
+/**
+ * Raw withdraw-auth: no Tron transaction exists. Sign `digest` with {@link ITronWalletProvider.signMessage},
+ * then submit `{ message, signature, scheme }` to the MPC relay, which returns the withdrawal's trackingId.
+ */
+export type TronRawWithdraw = {
+  message: MpcWithdrawMessage;
+  digest: Hex;
+  scheme: MpcWithdrawScheme;
 };
 
 export type TronReturnType<Raw extends boolean> = Raw extends true
+  ? TronRawTransaction | TronRawWithdraw
+  : Raw extends false
+    ? string
+    : TronRawTransaction | TronRawWithdraw | string;
+
+/** What a Tron deposit returns: the unsigned transfer in raw mode, else its tx id. */
+export type TronDepositReturnType<Raw extends boolean> = Raw extends true
   ? TronRawTransaction
   : Raw extends false
     ? string
     : TronRawTransaction | string;
+
+/** What a Tron withdraw-auth (`sendMessage`) returns: the unsigned message in raw mode, else its trackingId. */
+export type TronSendMessageReturnType<Raw extends boolean> = Raw extends true
+  ? TronRawWithdraw
+  : Raw extends false
+    ? string
+    : TronRawWithdraw | string;
 
 /** TronGrid `gettransactioninfobyid` response (the fields the relay/sdk actually read). */
 export type TronRawTransactionReceipt = {

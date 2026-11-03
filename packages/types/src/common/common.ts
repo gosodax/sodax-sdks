@@ -11,7 +11,7 @@ import type { SolanaBase58PublicKey, SolanaRawTransaction, SolanaReturnType } fr
 import type { StacksRawTransaction, StacksReturnType } from '../stacks/stacks.js';
 import type { StellarRawTransaction, StellarReturnType } from '../stellar/stellar.js';
 import type { SuiRawTransaction, SuiReturnType } from '../sui/sui.js';
-import type { TronRawTransaction, TronReturnType } from '../tron/tron.js';
+import type { TronRawTransaction, TronRawWithdraw, TronReturnType } from '../tron/tron.js';
 import type { GetWalletProviderType } from '../wallet/providers.js';
 
 export type Default = {
@@ -206,7 +206,8 @@ export type RawTxReturnType =
   | StacksRawTransaction
   | NearRawTransaction
   | BitcoinRawTransaction
-  | TronRawTransaction;
+  | TronRawTransaction
+  | TronRawWithdraw;
 
 export type GetDefaultTxReturnType<Raw extends boolean> = Raw extends true ? RawTxReturnType : HashTxReturnType;
 

@@ -1,15 +1,17 @@
-import { bytesToBigInt, isAddress, isHex, sha256, type Hex } from 'viem';
+import { bytesToBigInt, isAddress, sha256, type Hex } from 'viem';
 import {
   ChainKeys,
   getMpcRelayChainInfo,
   type Result,
   type TronChainKey,
+  type TronDepositReturnType,
   type TronGasEstimate,
+  type TronRawData,
   type TronRawTransaction,
   type TronRawTransactionReceipt,
+  type TronRawWithdraw,
+  type TronSendMessageReturnType,
   type TronSpokeChainConfig,
-  type TronUnsignedTransaction,
-  type TxReturnType,
   type ITronWalletProvider,
 } from '@sodax/types';
 import type { ConfigService } from '../../config/ConfigService.js';
@@ -46,10 +48,13 @@ import {
   assertDepositTransfer,
   computeSignedMessageHash,
   encodeTrc20TransferParams,
+  readTrc20TransferCall,
+  setExpiration,
   spliceMemo,
   tronAddressToWord,
   tronBase58ToHex,
   tronIdentityBytes,
+  type Trc20TransferCall,
 } from './tron-utils.js';
 
 /**
@@ -57,9 +62,6 @@ import {
  * energy; it is a cap, not a spend. 100 TRX covers the expensive case (~65 TRX).
  */
 const TRC20_DEPOSIT_FEE_LIMIT_SUN = 100_000_000;
-
-/** The decoded transaction body TronGrid returns beside `raw_data_hex`. */
-type TronRawData = Record<string, unknown>;
 
 /** A built transfer: the hex body the memo is spliced into, plus the node's decoded form. */
 type BuiltTransfer = { rawDataHex: string; rawData?: TronRawData };
@@ -76,11 +78,11 @@ const TRON_SETTLEMENT_FLOOR_MS = 300_000;
 /** Re-notify interval while waiting on a deposit or hub release — about two Tron blocks. `/notify` is idempotent. */
 const RENOTIFY_INTERVAL_MS = 6_000;
 
+/** Tron accepts an expiration up to 24 hours ahead. */
+const TRON_MAX_EXPIRATION_MS = 24 * 60 * 60 * 1000;
+
 /** A 65-byte `r‖s‖v` placeholder — only its length matters when sizing a transaction. */
 const SIGNATURE_PLACEHOLDER = '00'.repeat(65);
-
-/** Placeholder memo for sizing: a deposit memo is always exactly 32 bytes. */
-const MEMO_PLACEHOLDER = `0x${'00'.repeat(32)}` as Hex;
 
 /** A TronGrid constant call's outcome. It answers 200 for a failed call too, and marks a revert with a `message`. */
 type ConstantCallResult = { result?: { result?: boolean; message?: string } };
@@ -159,15 +161,15 @@ export class TronSpokeService {
   /**
    * Deposit TRX or a TRC-20 token into the hub via the MPC relay.
    *
-   * `Raw: true` returns the unsigned transfer descriptor. `Raw: false` builds, signs and broadcasts the
-   * memo transfer, notifies the relay, and resolves to the source tx hash. The memo is a
-   * transaction-level field, so a TRC-20 transfer carries it like a value transfer, and needs no allowance.
+   * Both modes build the memo transfer over the node and check it. `Raw: true` returns it unsigned
+   * ({@link TronRawTransaction}); `Raw: false` signs and broadcasts it, notifies the relay, and resolves to
+   * the source tx hash. The memo is a transaction-level field, so a TRC-20 transfer carries it like a
+   * value transfer, and needs no allowance.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<TronChainKey, R>,
-  ): Promise<TxReturnType<TronChainKey, R>> {
+  ): Promise<TronDepositReturnType<R>> {
     const { srcAddress, token, amount, data, to } = params;
-    const isNative = token === this.chainConfig.nativeToken;
 
     // Register the hub-side calls and get the shared reserve + the memo to tag the transfer with.
     const addr = await getDepositAddress(this.relayApiUrl, srcAddress, this.chainId, data);
@@ -190,28 +192,13 @@ export class TronSpokeService {
       );
     }
 
+    // Built here, not in the wallet: an injected TronWeb's own node answers 401 for `createTransaction`.
+    const unsigned = await this.buildDepositTransaction({ srcAddress, reserveAddress, token, amount, memo });
     if ('raw' in params && params.raw) {
-      return {
-        from: srcAddress,
-        to: reserveAddress,
-        value: amount,
-        data: memo,
-        token,
-      } satisfies TronRawTransaction as TxReturnType<TronChainKey, R>;
+      return unsigned satisfies TronRawTransaction as TronDepositReturnType<R>;
     }
 
-    const walletProvider = params.walletProvider;
-
-    // Built here, not in the wallet: an injected TronWeb's own node answers 401 for `createTransaction`.
-    const txID = await this.buildSignAndBroadcast(
-      walletProvider,
-      srcAddress,
-      reserveAddress,
-      token,
-      amount,
-      memo,
-      isNative,
-    );
+    const txID = await this.signAndBroadcast({ walletProvider: params.walletProvider, unsigned });
 
     // The funds are already on chain, so retry, and keep the tx hash in the error — it is the only
     // handle left for polling or re-notifying the deposit.
@@ -228,19 +215,24 @@ export class TronSpokeService {
       );
     }
 
-    return txID satisfies string as TxReturnType<TronChainKey, R>;
+    return txID satisfies string as TronDepositReturnType<R>;
   }
 
-  /** Build the transfer over the node, splice the memo in as protobuf field 10, then sign and broadcast. */
-  private async buildSignAndBroadcast(
-    walletProvider: ITronWalletProvider,
-    srcAddress: string,
-    reserveAddress: string,
-    token: string,
-    amount: bigint,
-    memo: Hex,
-    isNative: boolean,
-  ): Promise<string> {
+  /** Build the transfer over the node, check it, and splice the memo in as protobuf field 10. */
+  private async buildDepositTransaction({
+    srcAddress,
+    reserveAddress,
+    token,
+    amount,
+    memo,
+  }: {
+    srcAddress: string;
+    reserveAddress: string;
+    token: string;
+    amount: bigint;
+    memo: Hex;
+  }): Promise<TronRawTransaction> {
+    const isNative = token === this.chainConfig.nativeToken;
     const built = isNative
       ? await this.buildNativeTransfer(srcAddress, reserveAddress, amount)
       : await this.buildTrc20Transfer(srcAddress, reserveAddress, token, amount);
@@ -252,25 +244,59 @@ export class TronSpokeService {
       maxFeeLimitSun: TRC20_DEPOSIT_FEE_LIMIT_SUN,
     });
 
-    const rawWithMemo = spliceMemo(built.rawDataHex, memo);
-    const txID = sha256(`0x${rawWithMemo}`).slice(2);
+    if (!built.rawData) {
+      throw new Error(
+        '[TronSpokeService.deposit] the node returned no decoded raw_data, which a browser wallet signs from',
+      );
+    }
 
-    const unsigned: TronUnsignedTransaction = {
-      txID,
+    const rawWithMemo = spliceMemo(built.rawDataHex, memo);
+    return {
+      txID: sha256(`0x${rawWithMemo}`).slice(2),
       raw_data_hex: rawWithMemo,
+      raw_data: { ...built.rawData, data: memo.replace(/^0x/, '') },
       visible: false,
-      ...(built.rawData ? { raw_data: { ...built.rawData, data: memo.replace(/^0x/, '') } } : {}),
     };
-    const signed = await walletProvider.signTransaction(unsigned);
-    const signature = signed.signature[0];
-    if (!signature) throw new Error('[TronSpokeService.deposit] wallet returned no signature');
+  }
+
+  /**
+   * Move a raw deposit's expiration later, rewriting `raw_data_hex`, `raw_data.expiration` and `txID`
+   * together. Call it before signing when signing can take longer than the node's default window
+   * (about 60 s); Tron accepts up to 24 hours ahead.
+   */
+  public extendExpiration({ tx, expiration }: { tx: TronRawTransaction; expiration: number }): TronRawTransaction {
+    if (expiration <= tx.raw_data.expiration || expiration > Date.now() + TRON_MAX_EXPIRATION_MS) {
+      throw new Error(
+        `[TronSpokeService.extendExpiration] expiration ${expiration} must be after the current one and within 24 hours from now`,
+      );
+    }
+    const raw_data_hex = setExpiration({ rawHex: tx.raw_data_hex, expiration });
+    return {
+      ...tx,
+      txID: sha256(`0x${raw_data_hex}`).slice(2),
+      raw_data_hex,
+      raw_data: { ...tx.raw_data, expiration },
+    };
+  }
+
+  /** Have the wallet sign a built deposit, then broadcast it. Resolves to its txID. */
+  private async signAndBroadcast({
+    walletProvider,
+    unsigned,
+  }: {
+    walletProvider: ITronWalletProvider;
+    unsigned: TronRawTransaction;
+  }): Promise<string> {
+    const { txID } = unsigned;
+    const { signature } = await walletProvider.signTransaction(unsigned);
+    if (signature.length === 0) throw new Error('[TronSpokeService.deposit] wallet returned no signature');
 
     // The tx is signed, so a lost or rejected broadcast response does not prove it missed the chain;
     // keep the deterministic txID in the error so the caller can look it up or re-notify it.
     let broadcast: { result?: boolean; message?: string };
     try {
       broadcast = await this.rpc<{ result?: boolean; message?: string }>('/wallet/broadcasthex', {
-        transaction: assembleBroadcastHex(rawWithMemo, signature),
+        transaction: assembleBroadcastHex({ rawHex: unsigned.raw_data_hex, signatures: signature }),
       });
     } catch (error) {
       throw new Error(`[TronSpokeService.deposit] broadcast of ${txID} failed or timed out`, { cause: error });
@@ -408,37 +434,34 @@ export class TronSpokeService {
   }
 
   /**
-   * Resource cost of a deposit: energy from a constant call, bandwidth from the assembled transaction's
-   * size. Tron charges these to staked resources, so there is no single fee number. TRX uses no energy.
+   * Resource cost of a raw deposit: energy from a constant call replaying its TRC-20 transfer, bandwidth
+   * from its signed size. Tron charges these to staked resources, so there is no single fee number. TRX
+   * uses no energy, and a raw withdraw-auth is signed off chain, so it uses neither.
    */
   public async estimateGas(params: EstimateGasParams<TronChainKey>): Promise<TronGasEstimate> {
-    const { from, to, value, token, data } = params.tx;
-    const isNative = token === this.chainConfig.nativeToken;
+    const { tx } = params;
+    if ('digest' in tx) return { energy: 0n, bandwidth: 0n } satisfies TronGasEstimate;
 
-    // Bandwidth is charged on the serialized signed transaction, so size the real one.
-    const [energy, built] = await Promise.all([
-      isNative ? 0n : this.estimateTrc20Energy(from, to, token, value),
-      isNative ? this.buildNativeTransfer(from, to, value) : this.buildTrc20Transfer(from, to, token, value),
-    ]);
-    const memo = isHex(data) && data.length === MEMO_PLACEHOLDER.length ? data : MEMO_PLACEHOLDER;
-    const signed = assembleBroadcastHex(spliceMemo(built.rawDataHex, memo), SIGNATURE_PLACEHOLDER);
-
+    const rawHex = tx.raw_data_hex.replace(/^0x/, '');
+    const call = readTrc20TransferCall(rawHex);
+    const energy = call ? await this.estimateTrc20Energy(call) : 0n;
+    const signed = assembleBroadcastHex({ rawHex, signatures: [SIGNATURE_PLACEHOLDER] });
     return { energy, bandwidth: BigInt(signed.length / 2) } satisfies TronGasEstimate;
   }
 
   /** Energy a TRC-20 `transfer` would consume, from a constant (non-broadcasting) call. */
-  private async estimateTrc20Energy(from: string, to: string, token: string, amount: bigint): Promise<bigint> {
+  private async estimateTrc20Energy({ owner, contract, parameter }: Trc20TransferCall): Promise<bigint> {
     const res = await this.rpc<ConstantCallResult & { energy_used?: number }>('/wallet/triggerconstantcontract', {
-      owner_address: from,
-      contract_address: token,
+      owner_address: owner,
+      contract_address: contract,
       function_selector: 'transfer(address,uint256)',
-      parameter: encodeTrc20TransferParams(to, amount),
+      parameter,
       visible: true,
     });
     // A revert reports only the energy burned up to it, so its `energy_used` is no estimate.
     if (constantCallFailed(res) || typeof res.energy_used !== 'number') {
       throw new Error(
-        `[TronSpokeService.estimateGas] transfer simulation on ${token} failed: ${res.result?.message ?? 'no result'}`,
+        `[TronSpokeService.estimateGas] transfer simulation on ${contract} failed: ${res.result?.message ?? 'no result'}`,
       );
     }
     return BigInt(res.energy_used);
@@ -446,41 +469,84 @@ export class TronSpokeService {
 
   /**
    * Withdraw / borrow (hub→Tron) via the MPC relay. `payload` is the hub-wallet calls to run and
-   * `dstAddress` the hub wallet that runs them; the account signs the withdraw-auth digest (scheme 1).
-   * Resolves to the `trackingId` for {@link waitForWithdrawal}. Raw mode has no spoke tx to return.
+   * `dstAddress` the hub wallet that runs them. `Raw: true` returns the unsigned withdraw-auth
+   * ({@link TronRawWithdraw}); `Raw: false` has the account sign its digest (scheme 1), submits it, and
+   * resolves to the `trackingId` for {@link waitForWithdrawal}.
    */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<TronChainKey, Raw>,
-  ): Promise<TxReturnType<TronChainKey, Raw>> {
+  ): Promise<TronSendMessageReturnType<Raw>> {
+    const withdraw = this.buildWithdraw({
+      srcAddress: params.srcAddress,
+      hubWallet: params.dstAddress,
+      payload: params.payload,
+    });
     if ('raw' in params && params.raw) {
-      throw new Error('[TronSpokeService.sendMessage] raw mode is not supported for Tron withdrawals');
+      return withdraw satisfies TronRawWithdraw as TronSendMessageReturnType<Raw>;
     }
 
+    const signature = await params.walletProvider.signMessage(withdraw.digest);
+    const trackingId = await this.submitSignedWithdraw({ withdraw, signature });
+    return trackingId satisfies string as TronSendMessageReturnType<Raw>;
+  }
+
+  /** Submit a raw withdraw-auth once signed. Resolves to the `trackingId` for {@link waitForWithdrawal}. */
+  public async submitSignedWithdraw({
+    withdraw,
+    signature,
+  }: {
+    withdraw: TronRawWithdraw;
+    signature: Hex;
+  }): Promise<string> {
+    const { message, digest, scheme } = withdraw;
+    // The relay recovers the signer from the message, so a stale digest or a foreign scheme fails there opaquely.
+    const expectedScheme = getMpcRelayChainInfo(ChainKeys.TRON_MAINNET).withdrawScheme;
+    if (scheme !== expectedScheme) {
+      throw new Error(`[TronSpokeService.submitSignedWithdraw] scheme ${scheme} is not Tron's (${expectedScheme})`);
+    }
+    const expectedDigest = computeSignedMessageHash({
+      ...message,
+      nonce: BigInt(message.nonce),
+      chainId: BigInt(message.chainId),
+    });
+    if (digest.toLowerCase() !== expectedDigest) {
+      throw new Error(
+        `[TronSpokeService.submitSignedWithdraw] digest ${digest} does not match the message (${expectedDigest})`,
+      );
+    }
+
+    const res = await submitWithdraw(this.relayApiUrl, { message, signature, scheme });
+    if (!res.ok) throw res.error;
+    return res.value.trackingId;
+  }
+
+  /** The withdraw-auth for `hubWallet` to run `payload`, and the digest the Tron account signs. */
+  private buildWithdraw({
+    srcAddress,
+    hubWallet,
+    payload,
+  }: {
+    srcAddress: string;
+    hubWallet: string;
+    payload: Hex;
+  }): TronRawWithdraw {
     // `data` is variable-length inside the signed digest's unframed concat, so `to` must be exactly 20 bytes.
-    if (!isAddress(params.dstAddress)) {
-      throw new Error(`[TronSpokeService.sendMessage] invalid hub wallet address: ${params.dstAddress}`);
+    if (!isAddress(hubWallet)) {
+      throw new Error(`[TronSpokeService.sendMessage] invalid hub wallet address: ${hubWallet}`);
     }
 
-    const sender = tronIdentityBytes(params.srcAddress);
     const message = {
-      to: params.dstAddress, // hub wallet that executes the calls
-      data: params.payload,
+      to: hubWallet, // hub wallet that executes the calls
+      data: payload,
       nonce: randomNonce(),
       chainId: BigInt(this.chainId), // the relay's source-chain id, not the hub's
-      sender,
+      sender: tronIdentityBytes(srcAddress),
     };
-
-    const signature = await params.walletProvider.signMessage(computeSignedMessageHash(message));
-
-    const request = {
+    return {
       message: { ...message, nonce: message.nonce.toString(), chainId: message.chainId.toString() },
-      signature,
+      digest: computeSignedMessageHash(message),
       scheme: getMpcRelayChainInfo(ChainKeys.TRON_MAINNET).withdrawScheme,
     };
-    const res = await submitWithdraw(this.relayApiUrl, request);
-    if (!res.ok) throw res.error;
-
-    return res.value.trackingId satisfies string as TxReturnType<TronChainKey, Raw>;
   }
 
   /**

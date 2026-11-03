@@ -18,10 +18,18 @@ export const pbVarint = (field: number, value: bigint): string => varint(BigInt(
 export const pbBytes = (field: number, hex: string): string =>
   varint(BigInt((field << 3) | 2)) + varint(BigInt(hex.length / 2)) + hex;
 
-export function tronRawData(contractType: bigint, typeName: string, valueHex: string, feeLimit?: bigint): string {
+export function tronRawData(
+  contractType: bigint,
+  typeName: string,
+  valueHex: string,
+  feeLimit?: bigint,
+  expiration = 1n,
+): string {
   const typeUrl = Buffer.from(`type.googleapis.com/protocol.${typeName}`).toString('hex');
   const contract = pbVarint(1, contractType) + pbBytes(2, pbBytes(1, typeUrl) + pbBytes(2, valueHex));
-  return pbBytes(1, 'abcd') + pbVarint(8, 1n) + pbBytes(11, contract) + (feeLimit ? pbVarint(18, feeLimit) : '');
+  return (
+    pbBytes(1, 'abcd') + pbVarint(8, expiration) + pbBytes(11, contract) + (feeLimit ? pbVarint(18, feeLimit) : '')
+  );
 }
 
 export const nativeTransferRaw = (owner: string, to: string, amount: bigint): string =>

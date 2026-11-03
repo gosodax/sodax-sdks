@@ -1,4 +1,4 @@
-import type { HttpUrl, MpcWithdrawScheme, Result } from '@sodax/types';
+import type { HttpUrl, MpcWithdrawMessage, MpcWithdrawScheme, Result } from '@sodax/types';
 import { encodeAbiParameters, keccak256, type Hex } from 'viem';
 import { invariant } from '../../utils/tiny-invariant.js';
 import { RELAY_ERROR_CODES } from '../intentRelay/IntentRelayApiService.js';
@@ -76,14 +76,8 @@ export interface NotifyResponse {
 /** Withdraw-auth scheme (per client-api.md §4). Per-chain values live in `MpcRelayChainMap`. */
 export type WithdrawScheme = MpcWithdrawScheme;
 
-/** Signed withdraw message as submitted to the ingest (numeric fields are u64 decimal strings). */
-export interface WithdrawMessagePayload {
-  to: Hex;
-  data: Hex;
-  nonce: string;
-  chainId: string;
-  sender: Hex;
-}
+/** Signed withdraw message as submitted to the ingest. */
+export type WithdrawMessagePayload = MpcWithdrawMessage;
 
 export interface SubmitWithdrawRequest {
   message: WithdrawMessagePayload;
