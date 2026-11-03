@@ -71,6 +71,9 @@ function approvalStepLabel({ step, phase, index, total }: ApprovalProgress): str
   return `${phase === 'signing' ? action : pending}${counter}`;
 }
 
+/** One token on one chain: the same address can be a different token on another chain. */
+const isSameToken = (a: XToken, b: XToken): boolean => a.chainKey === b.chainKey && a.address === b.address;
+
 /** The API types the limit as a string, so parse it defensively: a malformed one must not throw in render. */
 function parseLimitAmount(amount: string | undefined): bigint | undefined {
   if (amount === undefined) return undefined;
@@ -141,17 +144,21 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   }, [fromToken, toChainKey, supportedTokensPerChain]);
 
   useEffect(() => {
-    if (bridgeableTokens.length > 0) {
-      setToToken(prev => (prev && bridgeableTokens.some(t => t.address === prev.address) ? prev : bridgeableTokens[0]));
-    } else {
-      setToToken(undefined);
-    }
+    setToToken(prev => (prev && bridgeableTokens.find(t => isSameToken(t, prev))) ?? bridgeableTokens[0]);
   }, [bridgeableTokens]);
 
+  // The list is refetched from the API, so keep the user's pick while it is still listed.
   useEffect(() => {
     const tokens = supportedTokensPerChain.get(fromChainKey) ?? [];
-    setFromToken(tokens[0]);
+    setFromToken(prev => (prev && tokens.find(t => isSameToken(t, prev))) ?? tokens[0]);
   }, [fromChainKey, supportedTokensPerChain]);
+
+  // A refetch can still drop a reviewed token; close the review rather than bridge a pair nobody reviewed.
+  const pairKey = [fromToken, toToken].map(t => (t ? `${t.chainKey}:${t.address}` : '')).join('>');
+  const [reviewedPairKey, setReviewedPairKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (dialogOpen && pairKey !== reviewedPairKey) setDialogOpen(false);
+  }, [dialogOpen, pairKey, reviewedPairKey]);
 
   // A listed pair can still have a zero limit, and then create-intent fails, so gate on the live limit.
   // Query only once both selections have caught up with the chain pickers, or a stale pair is fetched.
@@ -332,6 +339,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   const handleOpenDialog = () => {
     setApproveError(null);
     setBridgeError(null);
+    setReviewedPairKey(pairKey);
     setDialogOpen(true);
   };
 
