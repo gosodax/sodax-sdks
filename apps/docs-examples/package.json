@@ -1,0 +1,27 @@
+{
+  "name": "docs-examples",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "checkTs": "tsc --noEmit && node ../../scripts/check-tests-typechecked.mjs",
+    "test": "vitest run",
+    "pretty": "biome format . --write",
+    "lint": "biome lint . --write",
+    "clean": "rm -rf node_modules && rm -rf .turbo"
+  },
+  "dependencies": {
+    "@sodax/dapp-kit": "workspace:*",
+    "@sodax/sdk": "workspace:*",
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
