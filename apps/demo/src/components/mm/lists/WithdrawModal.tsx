@@ -21,6 +21,8 @@ import {
   getUnmetMpcPayoutMinimum,
 } from '@sodax/dapp-kit';
 import { buildMmDeliveryParams } from '@/lib/mmBtc';
+import { DeliverableLiquidityNotice } from '@/components/shared/DeliverableLiquidityNotice';
+import { useUnmetDeliverableLiquidity } from '@/hooks/useDeliverableLiquidity';
 import { useBtcTradingBalance } from '@/hooks/useBtcTradingBalance';
 import { useAppStore } from '@/zustand/useAppStore';
 import {
@@ -129,6 +131,7 @@ export function WithdrawModal({
     destinationToken && params?.amount
       ? getUnmetMpcPayoutMinimum({ token: destinationToken, amount: params.amount })
       : undefined;
+  const deliverable = useUnmetDeliverableLiquidity({ token: destinationToken, amount: params?.amount });
 
   const isEvmChain = getChainType(srcChainKey) === 'EVM';
 
@@ -365,6 +368,9 @@ export function WithdrawModal({
         )}
 
         {unmetPayoutMinimum && <PayoutMinimumNotice unmet={unmetPayoutMinimum} chainKey={dstChainKey} />}
+        {deliverable.unmet !== undefined && (
+          <DeliverableLiquidityNotice available={deliverable.unmet} token={destinationToken} />
+        )}
 
         <DialogFooter className="w-full min-w-0 flex-col gap-2 sm:justify-start">
           {nearStorage.isNear && (nearStorage.isChecking || nearStorage.needsRegistration) && (
@@ -419,6 +425,8 @@ export function WithdrawModal({
               onClick={() => void handleWithdraw()}
               disabled={
                 unmetPayoutMinimum !== undefined ||
+                deliverable.unmet !== undefined ||
+                deliverable.pending ||
                 !params ||
                 !sourceWalletProvider ||
                 amount === '' ||

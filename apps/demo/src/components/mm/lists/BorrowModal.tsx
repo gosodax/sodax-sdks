@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { PayoutMinimumNotice } from '@/components/shared/PayoutMinimumNotice';
+import { DeliverableLiquidityNotice } from '@/components/shared/DeliverableLiquidityNotice';
+import { useUnmetDeliverableLiquidity } from '@/hooks/useDeliverableLiquidity';
 import { TokenIcon } from '@/components/shared/TokenIcon';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -20,6 +22,7 @@ import {
   useSodaxContext,
   useNearStorageGate,
   getUnmetMpcPayoutMinimum,
+  calculateFeeAmount,
 } from '@sodax/dapp-kit';
 import { buildMmDeliveryParams } from '@/lib/mmBtc';
 import { useBtcTradingBalance } from '@/hooks/useBtcTradingBalance';
@@ -236,6 +239,14 @@ export function BorrowModal({
     destinationToken && params?.amount
       ? getUnmetMpcPayoutMinimum({ token: destinationToken, amount: params.amount })
       : undefined;
+  // The vault pays out the borrow net of the partner fee.
+  const deliverable = useUnmetDeliverableLiquidity({
+    token: destinationToken,
+    amount:
+      params?.amount !== undefined
+        ? params.amount - calculateFeeAmount(params.amount, sodax.moneyMarket.partnerFee)
+        : undefined,
+  });
 
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: srcChainKey });
 
@@ -425,6 +436,9 @@ export function BorrowModal({
         )}
 
         {unmetPayoutMinimum && <PayoutMinimumNotice unmet={unmetPayoutMinimum} chainKey={dstChainKey} />}
+        {deliverable.unmet !== undefined && destinationToken && (
+          <DeliverableLiquidityNotice available={deliverable.unmet} token={destinationToken} />
+        )}
 
         <DialogFooter className="w-full min-w-0 flex-col gap-2 sm:justify-start">
           {nearStorage.isNear && (nearStorage.isChecking || nearStorage.needsRegistration) && (
@@ -463,7 +477,12 @@ export function BorrowModal({
               variant="default"
               onClick={() => void handleBorrow()}
               disabled={
-                unmetPayoutMinimum !== undefined || !params || !sourceWalletProvider || nearStorage.blocksAction
+                unmetPayoutMinimum !== undefined ||
+                deliverable.unmet !== undefined ||
+                deliverable.pending ||
+                !params ||
+                !sourceWalletProvider ||
+                nearStorage.blocksAction
               }
             >
               Borrow {token.symbol}
