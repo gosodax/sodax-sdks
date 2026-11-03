@@ -738,7 +738,8 @@ export class BridgeService {
 
   /**
    * Finishes a batch an earlier call left {@link ATOMIC_BATCH_UNCONFIRMED}, without sending anything to
-   * the wallet: waits for it again, then relays its deposit client-side and waits for the settlement packet.
+   * the wallet: waits for it again, then relays its deposit client-side and waits for the settlement packet,
+   * and for a payout to an MPC-relay chain (Tron), notifies its release and waits for the payout.
    */
   private async resumeAtomicBatch<K extends SpokeChainKey>(
     _params: BridgeWithApprovalParams<K>,
@@ -773,18 +774,31 @@ export class BridgeService {
     const txCtx = { ...ctx, srcTxHash };
 
     // An EVM spoke tx is relayed by its hash alone, so the lost `relayData` is not needed.
+    const relayTimeout = Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS);
     const packet = await relayTxAndWaitPacket({
       srcTxHash,
       chainKey: srcChainKey,
       relayerApiEndpoint: this.config.relay.relayerApiEndpoint,
-      timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
+      timeout: relayTimeout,
     });
     if (!packet.ok) return { ok: false, error: mapRelayFailure(packet.error, { feature: 'bridge', ...txCtx }) };
 
-    return {
-      ok: true,
-      value: { srcChainTxHash: srcTxHash, dstChainTxHash: packet.value.dst_tx_hash, approvalStrategy: 'atomic-batch' },
-    };
+    // The intent relay stops at the hub; an MPC-relay chain pays out only once the hub tx is notified.
+    let dstChainTxHash = packet.value.dst_tx_hash;
+    if (isMpcRelayChainKey(params.dstChainKey)) {
+      const released = await this.spoke.settleHubRelease(dstChainTxHash, params.dstChainKey, relayTimeout);
+      if (!released.ok) {
+        const { phase, cause } = released.error;
+        const error =
+          phase === 'verification'
+            ? verifyFailed('bridge', cause, txCtx)
+            : mapRelayFailure(cause, { feature: 'bridge', ...txCtx });
+        return { ok: false, error };
+      }
+      dstChainTxHash = released.value.dstChainTxHash;
+    }
+
+    return { ok: true, value: { srcChainTxHash: srcTxHash, dstChainTxHash, approvalStrategy: 'atomic-batch' } };
   }
 
   /** Approve, wait for the approval to confirm, then send the deposit — two or more signatures. */

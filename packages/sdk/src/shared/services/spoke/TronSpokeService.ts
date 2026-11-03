@@ -81,6 +81,9 @@ const TRON_SETTLEMENT_FLOOR_MS = 300_000;
 /** Re-notify interval while waiting on a deposit or hub release — about two Tron blocks. `/notify` is idempotent. */
 const RENOTIFY_INTERVAL_MS = 6_000;
 
+/** A TronGrid call with no definite answer: it timed out, failed in transit, or a gateway returned 5xx. */
+class TronRpcUnanswered extends Error {}
+
 /** Tron accepts an expiration up to 24 hours ahead. */
 const TRON_MAX_EXPIRATION_MS = 24 * 60 * 60 * 1000;
 
@@ -140,21 +143,27 @@ export class TronSpokeService implements MpcRelaySettlement {
    * callers either broadcast, where a silent re-POST is unsafe, or retry at their own call site.
    */
   private async rpc<T>(path: string, body: unknown): Promise<T> {
+    // Parsed before the request, so a bad URL is a definite failure rather than a transport one.
+    const url = new URL(`${this.rpcUrl}${path}`);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TRON_RPC_TIMEOUT_MS);
     try {
-      const res = await fetch(`${this.rpcUrl}${path}`, {
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
+      if (res.status >= 500) throw new TronRpcUnanswered(`tron rpc ${path}: ${res.status}`);
       if (!res.ok) throw new Error(`tron rpc ${path}: ${res.status}`);
       return (await res.json()) as T;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`tron rpc ${path}: timed out after ${TRON_RPC_TIMEOUT_MS}ms`);
+        throw new TronRpcUnanswered(`tron rpc ${path}: timed out after ${TRON_RPC_TIMEOUT_MS}ms`);
       }
+      // fetch rejects with a TypeError when the request fails in transit.
+      if (error instanceof TypeError)
+        throw new TronRpcUnanswered(`tron rpc ${path}: ${error.message}`, { cause: error });
       throw error;
     } finally {
       clearTimeout(timer);
@@ -166,8 +175,10 @@ export class TronSpokeService implements MpcRelaySettlement {
    *
    * Both modes build the memo transfer over the node and check it. `Raw: true` returns it unsigned
    * ({@link TronRawTransaction}); `Raw: false` signs and broadcasts it, notifies the relay, and resolves to
-   * the source tx hash. The memo is a transaction-level field, so a TRC-20 transfer carries it like a
-   * value transfer, and needs no allowance.
+   * the source tx hash. After signing, a definite broadcast failure throws; a broadcast with no definite answer, or
+   * a failed notify, warns and still resolves to the hash. `settle` re-notifies it; a caller that does not settle
+   * notifies it with `spoke.submitMpcDeposit`. The memo is a transaction-level field, so a TRC-20 transfer carries
+   * it like a value transfer, and needs no allowance.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<TronChainKey, R>,
@@ -203,7 +214,15 @@ export class TronSpokeService implements MpcRelaySettlement {
 
     const txID = await this.signAndBroadcast({ walletProvider: params.walletProvider, unsigned });
     const submitted = await this.submitDeposit(txID);
-    if (!submitted.ok) throw submitted.error;
+    if (!submitted.ok) {
+      this.config.logger.warn(
+        '[TronSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it',
+        {
+          txID,
+          error: submitted.error,
+        },
+      );
+    }
     return txID satisfies string as TronDepositReturnType<R>;
   }
 
@@ -306,18 +325,25 @@ export class TronSpokeService implements MpcRelaySettlement {
     const { signature } = await walletProvider.signTransaction(unsigned);
     if (signature.length === 0) throw new Error('[TronSpokeService.deposit] wallet returned no signature');
 
-    // The tx is signed, so a lost or rejected broadcast response does not prove it missed the chain;
-    // keep the deterministic txID in the error so the caller can look it up or re-notify it.
-    let broadcast: { result?: boolean; message?: string };
+    const transaction = assembleBroadcastHex({ rawHex: unsigned.raw_data_hex, signatures: signature });
+    let broadcast: { result?: boolean; code?: string; message?: string };
     try {
-      broadcast = await this.rpc<{ result?: boolean; message?: string }>('/wallet/broadcasthex', {
-        transaction: assembleBroadcastHex({ rawHex: unsigned.raw_data_hex, signatures: signature }),
+      broadcast = await this.rpc<{ result?: boolean; code?: string; message?: string }>('/wallet/broadcasthex', {
+        transaction,
       });
     } catch (error) {
-      throw new Error(`[TronSpokeService.deposit] broadcast of ${txID} failed or timed out`, { cause: error });
+      if (!(error instanceof TronRpcUnanswered)) {
+        throw new Error(`[TronSpokeService.deposit] broadcast of ${txID} failed`, { cause: error });
+      }
+      // No answer does not prove the signed tx missed the chain: hand its txID on for settlement to find.
+      this.config.logger.warn(`[TronSpokeService.deposit] broadcast of ${txID} got no answer`, { error });
+      return txID;
     }
-    if (!broadcast.result) {
-      throw new Error(`[TronSpokeService.deposit] broadcast of ${txID} failed: ${broadcast.message ?? ''}`);
+    // The node already holds this signed tx, so it is on its way like an accepted one.
+    if (!broadcast.result && (broadcast.code ?? broadcast.message) !== 'DUP_TRANSACTION_ERROR') {
+      throw new Error(
+        `[TronSpokeService.deposit] broadcast of ${txID} failed: ${broadcast.code ?? broadcast.message ?? ''}`,
+      );
     }
     return txID;
   }

@@ -405,42 +405,71 @@ describe('TronSpokeService.deposit — memo commitment', () => {
 
 describe('TronSpokeService.deposit — broadcast failure', () => {
   it('keeps the signed txID in the error when the node rejects the broadcast', async () => {
-    stubTronGrid({ '/wallet/broadcasthex': { result: false, message: 'DUP_TRANSACTION_ERROR' } });
+    stubTronGrid({ '/wallet/broadcasthex': { result: false, code: 'SIGERROR', message: '7369676e' } });
 
-    await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(
-      /broadcast of [0-9a-f]{64} failed: DUP_TRANSACTION_ERROR/,
-    );
+    await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(/broadcast of [0-9a-f]{64} failed: SIGERROR/);
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
-  it('keeps the signed txID in the error when the broadcast call itself fails', async () => {
+  it('treats a duplicate as broadcast, since the node already holds the signed tx', async () => {
+    stubTronGrid({ '/wallet/broadcasthex': { result: false, code: 'DUP_TRANSACTION_ERROR' } });
+
+    await expect(tron.deposit(depositParams(NATIVE_TRX))).resolves.toMatch(/^[0-9a-f]{64}$/);
+    expect(MpcRelayApiService.notify).toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a 4xx answer', 429],
+    ['a 401 answer', 401],
+  ])('fails on %s, which the node gave before accepting anything', async (_label, status) => {
     stubTronGrid();
     const fetchMock = vi.mocked(fetch);
     const answer = fetchMock.getMockImplementation();
     fetchMock.mockImplementation(async (url, init) => {
-      if (new URL(String(url)).pathname === '/wallet/broadcasthex') throw new Error('aborted');
+      if (new URL(String(url)).pathname === '/wallet/broadcasthex') return new Response('busy', { status });
       return answer ? answer(url, init) : Promise.reject(new Error('no stub'));
     });
 
-    const failure = await tron.deposit(depositParams(NATIVE_TRX)).catch((error: Error) => error);
+    await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(/broadcast of [0-9a-f]{64} failed/);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
 
-    expect((failure as Error).message).toMatch(/broadcast of [0-9a-f]{64} failed or timed out/);
-    expect(((failure as Error).cause as Error).message).toMatch(/aborted/);
+  it('hands the txID on after a 5xx, which a gateway can return for a request the node took', async () => {
+    stubTronGrid();
+    const fetchMock = vi.mocked(fetch);
+    const answer = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation(async (url, init) => {
+      if (new URL(String(url)).pathname === '/wallet/broadcasthex') return new Response('gateway', { status: 504 });
+      return answer ? answer(url, init) : Promise.reject(new Error('no stub'));
+    });
+
+    await expect(tron.deposit(depositParams(NATIVE_TRX))).resolves.toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('hands the signed txID on when the broadcast reply is lost, since the tx may have landed', async () => {
+    stubTronGrid();
+    const fetchMock = vi.mocked(fetch);
+    const answer = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation(async (url, init) => {
+      if (new URL(String(url)).pathname === '/wallet/broadcasthex') throw new TypeError('fetch failed');
+      return answer ? answer(url, init) : Promise.reject(new Error('no stub'));
+    });
+
+    // Settlement then finds the deposit or times out; failing here would invite a second deposit.
+    await expect(tron.deposit(depositParams(NATIVE_TRX))).resolves.toMatch(/^[0-9a-f]{64}$/);
+    expect(MpcRelayApiService.notify).toHaveBeenCalled();
   });
 });
 
 describe('TronSpokeService.deposit — notify failure', () => {
-  it('keeps the broadcast tx hash in the error so the stranded deposit can be re-notified', async () => {
+  it('still resolves to the broadcast tx hash, leaving the re-notify to settlement', async () => {
     stubTronGrid();
     vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
 
-    const failure = await tron.deposit(depositParams(NATIVE_TRX)).catch((error: Error) => error);
-
-    // The funds are already in the reserve at this point: an error without the hash would lose them.
-    expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toMatch(/deposit [0-9a-f]{64} was not notified/);
+    // The funds are already in the reserve: the hash is what settlement waits on and re-notifies.
+    await expect(tron.deposit(depositParams(NATIVE_TRX))).resolves.toMatch(/^[0-9a-f]{64}$/);
     expect(callTo('/wallet/broadcasthex')).toBeDefined();
-    // Notifying twice is harmless, so the transient failure is retried before giving up.
+    // Notifying twice is harmless, so the transient failure is retried before handing over.
     expect(vi.mocked(MpcRelayApiService.notify).mock.calls.length).toBeGreaterThan(1);
   });
 });

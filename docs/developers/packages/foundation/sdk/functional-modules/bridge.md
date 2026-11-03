@@ -271,7 +271,8 @@ support, `allowAccountUpgrade` and the failure rules are the same as for swaps (
 `resumeBatchId: error.context.batchId` and `resumeBatchCallCount: error.context.callCount` (without the count, a
 batch the wallet confirmed as one transaction per call stays unconfirmed). It sends nothing: it waits for that batch
 again and, once its deposit confirms, relays it client-side by its hash and returns the usual `TxHashPair` with
-`approvalStrategy: 'atomic-batch'`. It skips the backend submit-tx, which needs the `relayData` the first call held.
+`approvalStrategy: 'atomic-batch'`. To an MPC-relay chain (Tron) it then notifies the release and waits for the
+payout, which `dstChainTxHash` names. It skips the backend submit-tx, which needs the `relayData` the first call held.
 While the batch is still pending it returns the same unconfirmed error, so you can keep calling it; a batch the wallet
 reports as never included comes back as `atomic-batch-failed`, and a relay failure after the deposit landed carries
 `context.srcTxHash`, so calling it again only re-relays.

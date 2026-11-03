@@ -2201,6 +2201,12 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
     const stubResumeRelay = () => {
       mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xDST' } });
     };
+    const resumeToTron = (wallet: ReturnType<typeof makeBatchProvider>) =>
+      sodax.bridge.bridgeWithApproval({
+        ...bridgeInput(BSC, ChainKeys.TRON_MAINNET),
+        walletProvider: wallet,
+        resumeBatchId: 'batch-1',
+      });
     const resume = (wallet: ReturnType<typeof makeBatchProvider>, resumeBatchCallCount?: number) =>
       sodax.bridge.bridgeWithApproval({ ...input(wallet), resumeBatchId: 'batch-1', resumeBatchCallCount });
     const perCallReceipts: EvmBatchResult = {
@@ -2341,6 +2347,50 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
       const result = await resume(wallet);
 
       expect(!result.ok && result.error.code).toBe('TX_SUBMIT_FAILED');
+      expect(!result.ok && result.error.context?.srcTxHash).toBe('0xbatchTx');
+    });
+
+    it('releases the payout of a resumed batch to Tron, which no relay watches the hub for', async () => {
+      const wallet = makeBatchProvider();
+      stubResumeRelay();
+      const release = vi
+        .spyOn(sodax.bridge.spoke, 'settleHubRelease')
+        .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xDST', dstChainTxHash: 'tronPayout' } });
+
+      const result = await resumeToTron(wallet);
+
+      expect(release).toHaveBeenCalledWith('0xDST', ChainKeys.TRON_MAINNET, DEFAULT_RELAY_TX_TIMEOUT);
+      expect(result).toEqual({
+        ok: true,
+        value: { srcChainTxHash: '0xbatchTx', dstChainTxHash: 'tronPayout', approvalStrategy: 'atomic-batch' },
+      });
+    });
+
+    it('keeps the deposit tx when the Tron release does not land', async () => {
+      const wallet = makeBatchProvider();
+      stubResumeRelay();
+      vi.spyOn(sodax.bridge.spoke, 'settleHubRelease').mockResolvedValueOnce({
+        ok: false,
+        error: { phase: 'relay', cause: new Error('RELAY_TIMEOUT') },
+      });
+
+      const result = await resumeToTron(wallet);
+
+      expect(!result.ok && result.error.code).toBe('RELAY_TIMEOUT');
+      expect(!result.ok && result.error.context?.srcTxHash).toBe('0xbatchTx');
+    });
+
+    it('reports a hub release that reverted as a verification failure, not a relay one', async () => {
+      const wallet = makeBatchProvider();
+      stubResumeRelay();
+      vi.spyOn(sodax.bridge.spoke, 'settleHubRelease').mockResolvedValueOnce({
+        ok: false,
+        error: { phase: 'verification', cause: new Error('hub tx 0xDST reverted') },
+      });
+
+      const result = await resumeToTron(wallet);
+
+      expect(!result.ok && result.error.code).toBe('TX_VERIFICATION_FAILED');
       expect(!result.ok && result.error.context?.srcTxHash).toBe('0xbatchTx');
     });
 
