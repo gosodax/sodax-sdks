@@ -512,7 +512,8 @@ export class SwapService {
    *
    * The solver arm is reconciled against the backend's durable intent record: a settling fill reads
    * `SOLVED`, and a cancel with nothing filled reads `FAILED` even while the solver still reports the
-   * intent in flight. A cancelled intent is already refunded, so do not offer to cancel it again.
+   * intent in flight. Do not offer a cancel for it: its funds are back, or from an MPC-relay source (Tron) once
+   * the cancel's hub tx is released, as the doc linked below describes.
    * Otherwise it carries the solver's answer unmodified, and the backend arm its record unmodified.
    *
    * **Any** unusable backend response routes to the solver — a 404, a transport or server error, or

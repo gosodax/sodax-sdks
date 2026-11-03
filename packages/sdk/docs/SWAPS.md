@@ -1267,7 +1267,7 @@ Both payloads are already documented — the submit-tx record in [SWAPS_API.md](
 The solver is not the last word on its own intents, so any answer short of `SOLVED` or `FAILED` is checked against the backend's durable intent record (`sodax.api.getIntentByTxHash`):
 
 - **A fill that consumed the remainder reads `SOLVED`**, with that fill's tx as `fill_tx_hash`. The solver keeps intent state in memory, so after a restart it answers `NOT_FOUND` for intents it already filled.
-- **A cancel with nothing filled reads `FAILED`.** Expired intents are cancelled on the hub and refunded, and the solver can keep reporting one as in flight (`1` or `2`) long after — a poller would never stop. Its funds are already back, so do not offer the user a cancel for it.
+- **A cancel with nothing filled reads `FAILED`.** Expired intents are cancelled on the hub and refunded, and the solver can keep reporting one as in flight (`1` or `2`) long after — a poller would never stop. Its funds are already back, so do not offer the user a cancel. From an MPC-relay source (Tron), the relay pays that refund only once the cancel's hub tx is notified: call `sodax.spoke.settleHubRelease(hubTxHash, srcChainKey)` with the `txHash` of the record's `intent-cancelled` event.
 - **Anything else leaves the solver's answer standing**, including a cancel after a partial fill (it is neither solved nor failed) and a record that cannot be read right now; the next poll asks again.
 
 `getStatus` keeps its narrower check: it reads the record only behind a `NOT_FOUND` or a failed request, and only for a fill — never a cancel.
