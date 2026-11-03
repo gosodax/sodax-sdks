@@ -16,6 +16,9 @@ export function sodaxScanSearchUrl(value: string): string {
 /** SodaxScan search API path (used to resolve hash to message id). */
 const SODAX_SCAN_SEARCH_PATH = '/api/search';
 
+/** Per-request cap, so a hung search cannot stretch the caller's retries into minutes. */
+const SODAX_SCAN_SEARCH_TIMEOUT_MS = 5_000;
+
 /** Response shape from SodaxScan /api/search (array of message objects with id). */
 interface SodaxScanSearchResponse {
   data?: Array<{ id?: string | number }>;
@@ -29,7 +32,7 @@ interface SodaxScanSearchResponse {
 export async function getMessageIdBySrcHash(srcHash: string): Promise<string | null> {
   const url = `${SODAX_SCAN_BASE_URL}${SODAX_SCAN_SEARCH_PATH}?value=${encodeURIComponent(srcHash)}`;
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { signal: AbortSignal.timeout(SODAX_SCAN_SEARCH_TIMEOUT_MS) });
     if (!response.ok) {
       if (process.env.NODE_ENV === 'development') {
         console.warn(`[SodaxScan] API error: ${response.status} ${response.statusText}`, url);

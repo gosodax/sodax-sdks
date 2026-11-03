@@ -4,7 +4,7 @@
 import React, { useState, type ReactElement } from 'react';
 import { Button } from '@/components/ui/button';
 import { DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import type { SpokeChainKey, XToken } from '@sodax/dapp-kit';
+import { isMpcRelayChainKey, type SpokeChainKey, type XToken } from '@sodax/dapp-kit';
 import { chainIdToChainName } from '@/constants';
 import { getChainExplorerTxUrl } from '@/lib/utils';
 import { useSodaxScanMessageUrl } from '@/hooks/useSodaxScanMessageUrl';
@@ -32,8 +32,12 @@ interface ActionSuccessContentProps {
 export function ActionSuccessContent({ action, data, onClose }: ActionSuccessContentProps): ReactElement {
   // Tracks whether transaction hash was copied to clipboard (for UI feedback)
   const [copied, setCopied] = useState(false);
-  // Prefer SodaxScan message URL; fall back to chain explorer when not available
-  const { url: sodaxScanUrl, isLoading: sodaxScanLoading } = useSodaxScanMessageUrl({ txHash: data.txHash });
+  // Prefer SodaxScan message URL; fall back to chain explorer when not available. SodaxScan indexes
+  // intent-relay messages only, so a tx on an MPC-relay leg (Tron) is never found there: skip the lookup.
+  const viaMpcRelay = isMpcRelayChainKey(data.sourceChainId) || isMpcRelayChainKey(data.destinationChainId);
+  const { url: sodaxScanUrl, isLoading: sodaxScanLoading } = useSodaxScanMessageUrl({
+    txHash: viaMpcRelay ? undefined : data.txHash,
+  });
   // On-demand relay ids (od:<hash>, e.g. Bitcoin borrow/withdraw) are not a transaction on any chain
   // explorer — only SodaxScan resolves them — so don't build a broken chain-explorer fallback for them.
   const isRelayMessageId = data.txHash?.startsWith('od:') ?? false;
