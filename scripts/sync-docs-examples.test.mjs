@@ -63,6 +63,24 @@ test('processPage fills a marked fence and keeps list indentation', () => {
   assert.deepEqual(errors, []);
 });
 
+test('processPage reports an unclosed marked fence and keeps the rest of the page', () => {
+  const read = () => '// #region r\nnew();\n// #endregion r';
+  const unclosed = '{/* example: f.ts#r */}\n```ts\nold\n\nProse.';
+  const reopened = '{/* example: f.ts#r */}\n```ts\nold\n\nProse.\n```bash\npnpm i';
+
+  for (const text of [unclosed, reopened]) {
+    const { output, errors } = processPage(text, read);
+    assert.equal(output, text);
+    assert.deepEqual(errors, ['line 2: fence is never closed']);
+  }
+});
+
+test('processPage does not treat an opening fence as a closer', () => {
+  const text = '{/* example: f.ts#r */}\n```ts\nold\n```bash\n````\nafter\n```';
+  const { output } = processPage(text, () => '// #region r\nnew();\n// #endregion r');
+  assert.equal(output, '{/* example: f.ts#r */}\n```ts\nnew();\n````\nafter\n```');
+});
+
 test('processPage counts unmarked TypeScript fences only', () => {
   const text = '```typescript\na\n```\n```tsx\nb\n```\n```bash\nc\n```\n```json\n{}\n```';
   assert.equal(processPage(text, () => null).unsourced, 2);

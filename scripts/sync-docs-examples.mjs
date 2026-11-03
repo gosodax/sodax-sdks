@@ -19,6 +19,12 @@ const REGION_END = /^\s*\/\/\s*#endregion(?:\s+(\S+))?\s*$/;
 
 const toPosix = path => path.split(sep).join('/');
 
+// CommonMark: a closer uses the opener's character, at least as many of them, and no info string.
+const isClosingFence = (line, ticks) => {
+  const closer = line.trim().match(/^(`{3,}|~{3,})$/);
+  return closer !== null && closer[1][0] === ticks[0] && closer[1].length >= ticks.length;
+};
+
 /** Lines of every `// #region <name>` segment in `source`, nested markers stripped and dedented. */
 export const extractRegion = (source, name) => {
   const lines = source.split(/\r?\n/);
@@ -80,9 +86,16 @@ export const processPage = (text, readExample) => {
     }
     const [, indent, ticks, language] = fence;
     let close = i + 1;
-    while (close < lines.length && !lines[close].trimStart().startsWith(ticks)) close++;
+    while (close < lines.length && !isClosingFence(lines[close], ticks)) close++;
     const marker = i > 0 ? parseMarker(lines[i - 1]) : null;
     const lineNo = i + 1;
+
+    if (close === lines.length) {
+      if (marker) errors.push(`line ${lineNo}: fence is never closed`);
+      else if (GATED_LANGUAGES.has(language.toLowerCase())) unsourced++;
+      output.push(...lines.slice(i));
+      break;
+    }
 
     let body = lines.slice(i + 1, close);
     if (!marker) {
@@ -106,8 +119,7 @@ export const processPage = (text, readExample) => {
       }
     }
 
-    output.push(lines[i], ...body);
-    if (close < lines.length) output.push(lines[close]);
+    output.push(lines[i], ...body, lines[close]);
     i = close;
   }
 
