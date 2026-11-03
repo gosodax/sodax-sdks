@@ -25,6 +25,7 @@ import {
   type SpokeChainKey,
 } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
+import type { MpcWithdrawalSettlement, TxHashPair } from '../shared/types/types.js';
 import { SodaxError } from '../errors/SodaxError.js';
 import { decodeFunctionData, keccak256, stringToBytes } from 'viem';
 import { poolAbi } from '../shared/abis/pool.abi.js';
@@ -3442,7 +3443,20 @@ describe('MoneyMarketService — hub-only actions verify the source tx', () => {
   });
 });
 
-// Advisory by decision: the relay's release fee can consume a small payout, but the caller may still choose it.
+describe('MoneyMarketService — outbound result by source chain', () => {
+  type Settled<K extends SpokeChainKey> = Extract<
+    Awaited<ReturnType<typeof sodax.moneyMarket.borrow<K>>>,
+    { ok: true }
+  >['value'];
+
+  // A withdraw-auth has no Tron tx, so its tracking id never fills a tx-hash field.
+  it('types a borrow from Tron as a withdraw-auth settlement and any other as a tx pair', () => {
+    expectTypeOf<Settled<typeof ChainKeys.TRON_MAINNET>>().toEqualTypeOf<MpcWithdrawalSettlement>();
+    expectTypeOf<Settled<typeof ChainKeys.ARBITRUM_MAINNET>>().toEqualTypeOf<TxHashPair>();
+    expectTypeOf<Settled<SpokeChainKey>>().toEqualTypeOf<TxHashPair | MpcWithdrawalSettlement>();
+  });
+});
+
 describe('MoneyMarketService — small payout to an MPC-relay chain', () => {
   const TRON_RECIPIENT = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
   const usdt = {
@@ -3455,47 +3469,60 @@ describe('MoneyMarketService — small payout to an MPC-relay chain', () => {
   const setup = () => {
     vi.spyOn(sodax.config, 'getMoneyMarketToken').mockReturnValue(usdt as never);
     vi.spyOn(sodax.config, 'isMoneyMarketSupportedToken').mockReturnValue(true);
-    vi.spyOn(sodax.moneyMarket, 'buildBorrowData').mockReturnValue('0xborrow-data');
     vi.spyOn(sodax.moneyMarket, 'buildWithdrawData').mockReturnValue('0xwithdraw-data');
-    const send = vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValue({ ok: true, value: '0xsend-hash' });
-    return { send, warn: vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => undefined) };
+    return vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValue({ ok: true, value: '0xsend-hash' });
   };
-  const params = (method: 'createBorrowIntent' | 'createWithdrawIntent', amount: bigint) => ({
-    ...borrowParams(ChainKeys.BSC_MAINNET),
-    action: method === 'createBorrowIntent' ? 'borrow' : 'withdraw',
-    token: usdt.address,
-    amount,
-    dstChainKey: ChainKeys.TRON_MAINNET,
-    dstAddress: TRON_RECIPIENT,
+  const run = (method: 'createBorrowIntent' | 'createWithdrawIntent', amount: bigint, raw: boolean) =>
+    sodax.moneyMarket[method]({
+      raw,
+      ...(raw ? {} : { walletProvider: mockEvmProvider }),
+      params: {
+        ...borrowParams(ChainKeys.BSC_MAINNET),
+        action: method === 'createBorrowIntent' ? 'borrow' : 'withdraw',
+        token: usdt.address,
+        amount,
+        dstChainKey: ChainKeys.TRON_MAINNET,
+        dstAddress: TRON_RECIPIENT,
+      },
+    } as never);
+  const cases = [
+    ['createBorrowIntent', false],
+    ['createBorrowIntent', true],
+    ['createWithdrawIntent', false],
+    ['createWithdrawIntent', true],
+  ] as const;
+
+  it.each(cases)('%s (raw: %s) refuses the minimum before signing', async (method, raw) => {
+    const send = setup();
+
+    const result = await run(method, 3_000_000n, raw);
+
+    if (result.ok) throw new Error('expected a refusal');
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.reason).toBe('mpc-payout-below-minimum');
+    expect(result.error.message).toContain('must be greater than 3 USDT');
+    expect(send).not.toHaveBeenCalled();
   });
 
-  it.each([
-    'createBorrowIntent',
-    'createWithdrawIntent',
-  ] as const)('%s warns at the minimum and still sends the message', async method => {
-    const { send, warn } = setup();
+  it.each(cases)('%s (raw: %s) sends above it', async (method, raw) => {
+    const send = setup();
 
-    const result = await sodax.moneyMarket[method]({
-      raw: false,
-      params: params(method, 3_000_000n),
-      walletProvider: mockEvmProvider,
-    } as never);
-
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('advised minimum of 3'));
+    expect((await run(method, 3_000_001n, raw)).ok).toBe(true);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(result.ok).toBe(true);
   });
 
-  it.each(['createBorrowIntent', 'createWithdrawIntent'] as const)('%s stays silent above it', async method => {
-    const { send, warn } = setup();
+  it('checks a borrow on what it pays out after the partner fee', async () => {
+    const send = setup();
+    vi.spyOn(sodax.moneyMarket, 'partnerFee', 'get').mockReturnValue({
+      address: '0x9999999999999999999999999999999999999999',
+      percentage: 1_000,
+    });
 
-    await sodax.moneyMarket[method]({
-      raw: false,
-      params: params(method, 3_000_001n),
-      walletProvider: mockEvmProvider,
-    } as never);
-
+    // 10% off 3.1 USDT leaves 2.79, under the 3 USDT floor; off 3.4 USDT it leaves 3.06.
+    const refused = await run('createBorrowIntent', 3_100_000n, true);
+    if (refused.ok) throw new Error('expected a refusal');
+    expect(refused.error.context?.reason).toBe('mpc-payout-below-minimum');
+    expect((await run('createBorrowIntent', 3_400_000n, true)).ok).toBe(true);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('advised minimum'));
   });
 });

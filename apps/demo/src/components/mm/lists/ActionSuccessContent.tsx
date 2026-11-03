@@ -19,6 +19,8 @@ export type ActionSuccessData = {
   sourceChainId: SpokeChainKey;
   destinationChainId: SpokeChainKey;
   txHash?: string;
+  /** The chain `txHash` is on, when not the source. */
+  txChainId?: SpokeChainKey;
 };
 
 interface ActionSuccessContentProps {
@@ -36,7 +38,9 @@ export function ActionSuccessContent({ action, data, onClose }: ActionSuccessCon
   // explorer — only SodaxScan resolves them — so don't build a broken chain-explorer fallback for them.
   const isRelayMessageId = data.txHash?.startsWith('od:') ?? false;
   const explorerUrl =
-    data.txHash && !isRelayMessageId ? getChainExplorerTxUrl(data.sourceChainId, data.txHash) : undefined;
+    data.txHash && !isRelayMessageId
+      ? getChainExplorerTxUrl(data.txChainId ?? data.sourceChainId, data.txHash)
+      : undefined;
   const txUrl = sodaxScanUrl ?? explorerUrl;
 
   // Copy transaction hash to clipboard and show visual feedback

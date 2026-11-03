@@ -961,6 +961,28 @@ describe('LeverageYieldService.createVaultIntent', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it('refuses a payout to Tron at the relay minimum before signing anything', async () => {
+    const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
+
+    const result = await sodax.leverageYield.createVaultIntent({
+      params: vaultIntentParams(ARBITRUM, {
+        inputToken: VAULT,
+        outputToken: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        minOutputAmount: 3_000_000n,
+        dstChainKey: ChainKeys.TRON_MAINNET as SpokeChainKey,
+        dstAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+      }),
+      raw: true,
+      hubWalletSwap: true,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe('minOutputAmount');
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
   it('returns raw tx data without a wallet provider when raw=true', async () => {
     const intent = makeIntent(ARBITRUM);
     mocks.constructCreateIntentData.mockReturnValueOnce(['0xdata', intent, 0n]);

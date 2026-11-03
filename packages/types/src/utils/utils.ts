@@ -222,21 +222,25 @@ export function isMpcRelayChainKey(chainId: SpokeChainKey): boolean {
   return chainId in MpcRelayChainMap;
 }
 
-/** A payout too small to safely clear the MPC relay's release fee; `minimum` is in `decimals`. */
-export type MpcPayoutWarning = { symbol: string; decimals: number; minimum: bigint };
+/** The {@link MpcRelayPayoutMinimums} entry a payout fails to exceed; `minimum` is in `decimals`. */
+export type MpcPayoutMinimum = { symbol: string; decimals: number; minimum: bigint };
 
 /**
- * The warning for paying `amount` of `token` out through the MPC relay, or `undefined` when it clears
- * {@link MpcRelayPayoutMinimums}. Advisory: a caller warns or asks, it does not have to refuse. An
- * amount equal to the minimum still warns, because the relay skips a release once fee >= amount.
+ * The minimum that paying `amount` of `token` out through the MPC relay fails to exceed, or `undefined` when it
+ * clears {@link MpcRelayPayoutMinimums}. The SDK refuses such a payout before signing. An amount equal to the
+ * minimum fails too, because the relay skips a release once fee >= amount.
  *
  * @param amountDecimals - The decimals `amount` is in, when not the payout token's (a bridge's source).
  */
-export function getMpcPayoutWarning(
-  token: Pick<XToken, 'chainKey' | 'symbol' | 'decimals'>,
-  amount: bigint,
-  amountDecimals: number = token.decimals,
-): MpcPayoutWarning | undefined {
+export function getUnmetMpcPayoutMinimum({
+  token,
+  amount,
+  amountDecimals = token.decimals,
+}: {
+  token: Pick<XToken, 'chainKey' | 'symbol' | 'decimals'>;
+  amount: bigint;
+  amountDecimals?: number;
+}): MpcPayoutMinimum | undefined {
   const minimum = MpcRelayPayoutMinimums[token.chainKey]?.[token.symbol];
   if (minimum === undefined) return undefined;
   const clears = amount * 10n ** BigInt(token.decimals) > minimum * 10n ** BigInt(amountDecimals);

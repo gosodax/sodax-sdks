@@ -30,6 +30,7 @@ import {
   computePayloadHash,
   getDeposit,
   getDepositAddress,
+  getWithdrawal,
   notify,
   submitWithdraw,
   toDepositId,
@@ -39,6 +40,8 @@ import {
   waitForWithdrawal,
   type DepositRecord,
   type HubRelease,
+  type MpcRelaySettlement,
+  type NotifyResponse,
   type WithdrawalRecord,
   type WithdrawalSettledOn,
 } from '../mpcRelay/MpcRelayApiService.js';
@@ -107,7 +110,7 @@ function randomNonce(): bigint {
  *
  * @see MpcRelayApiService for the relay REST flow.
  */
-export class TronSpokeService {
+export class TronSpokeService implements MpcRelaySettlement {
   private readonly config: ConfigService;
 
   constructor(config: ConfigService) {
@@ -199,23 +202,35 @@ export class TronSpokeService {
     }
 
     const txID = await this.signAndBroadcast({ walletProvider: params.walletProvider, unsigned });
-
-    // The funds are already on chain, so retry, and keep the tx hash in the error — it is the only
-    // handle left for polling or re-notifying the deposit.
-    try {
-      // `retry` reacts to a throw, and `notify` reports failure in its Result — so rethrow to arm it.
-      await retry(async () => {
-        const res = await notify(this.relayApiUrl, this.chainId, txID);
-        if (!res.ok) throw res.error;
-      });
-    } catch (error) {
-      throw new Error(
-        `[TronSpokeService.deposit] deposit ${txID} broadcast but the relay was not notified — re-notify this tx hash to settle it`,
-        { cause: error },
-      );
-    }
-
+    const submitted = await this.submitDeposit(txID);
+    if (!submitted.ok) throw submitted.error;
     return txID satisfies string as TronDepositReturnType<R>;
+  }
+
+  /**
+   * Notify the relay of a broadcast deposit, without waiting for it to land. The funds are already on chain,
+   * so it retries, and a failure keeps the tx hash: the only handle left for re-notifying the deposit.
+   */
+  public async submitDeposit(txHash: string): Promise<Result<void>> {
+    try {
+      await this.retryNotify(() => notify(this.relayApiUrl, this.chainId, txHash));
+      return { ok: true, value: undefined };
+    } catch (error) {
+      return {
+        ok: false,
+        error: new Error(`mpc-relay: deposit ${txHash} was not notified — re-notify this tx hash to settle it`, {
+          cause: error,
+        }),
+      };
+    }
+  }
+
+  /** A notify, retried: `retry` reacts to a throw and `notify` reports failure in its Result, so rethrow it. */
+  private async retryNotify(send: () => Promise<Result<NotifyResponse>>): Promise<void> {
+    await retry(async () => {
+      const res = await send();
+      if (!res.ok) throw res.error;
+    });
   }
 
   /** Build the transfer over the node, check it, and splice the memo in as protobuf field 10. */
@@ -549,6 +564,11 @@ export class TronSpokeService {
     };
   }
 
+  /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */
+  public async getWithdrawalRecord(trackingId: string): Promise<Result<WithdrawalRecord>> {
+    return getWithdrawal(this.relayApiUrl, trackingId);
+  }
+
   /**
    * Wait for a hub→Tron withdrawal to reach `released`, via the MPC relay.
    * `trackingId` is the value returned by {@link sendMessage}.
@@ -567,16 +587,14 @@ export class TronSpokeService {
   }
 
   /**
-   * Trigger and await a release the hub sent to Tron. The relay has no hub watcher and learns of the
-   * hub tx only through `/notify`; its verifier also waits on hub confirmations, so keep re-notifying.
+   * Notify the relay of a hub tx releasing to Tron, without waiting for the release. The relay has no hub
+   * watcher and learns of the hub tx only through `/notify`.
    */
-  public async waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>> {
+  public async submitHubRelease(release: HubRelease): Promise<Result<void>> {
     const { hubChainId, hubTxHash } = release;
     try {
-      await retry(async () => {
-        const res = await notify(this.relayApiUrl, hubChainId, hubTxHash, 'withdrawal');
-        if (!res.ok) throw res.error;
-      });
+      await this.retryNotify(() => notify(this.relayApiUrl, hubChainId, hubTxHash, 'withdrawal'));
+      return { ok: true, value: undefined };
     } catch (error) {
       // The hub has already burned the tokens; the hash is what a retry has to re-notify.
       return {
@@ -584,7 +602,14 @@ export class TronSpokeService {
         error: new Error(`mpc-relay: hub tx ${hubTxHash} was not notified — re-notify it to release`, { cause: error }),
       };
     }
+  }
 
+  /**
+   * Wait until a release {@link submitHubRelease} notified is paid. The relay's verifier also waits on hub
+   * confirmations and may have dropped an early notify, so this keeps re-notifying.
+   */
+  public async waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>> {
+    const { hubChainId, hubTxHash } = release;
     const renotify = setInterval(() => {
       void notify(this.relayApiUrl, hubChainId, hubTxHash, 'withdrawal');
     }, RENOTIFY_INTERVAL_MS);

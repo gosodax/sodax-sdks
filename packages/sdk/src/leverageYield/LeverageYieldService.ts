@@ -28,6 +28,7 @@ import {
   retry,
   type RelayExtraData,
   type IntentDeliveryInfo,
+  assertMpcPayoutAboveMinimum,
 } from '../shared/index.js';
 import type { HubProvider, TxHashPair } from '../shared/types/types.js';
 import {
@@ -38,6 +39,8 @@ import {
   isMpcRelayChainKey,
   SolverIntentErrorCode,
   SolverIntentStatusCode,
+  type DepositReturnType,
+  type SendMessageReturnType,
 } from '@sodax/types';
 import type {
   Address,
@@ -1114,6 +1117,15 @@ export class LeverageYieldService {
         `Invalid spoke chain (params.dstChain): ${params.dstChainKey}`,
         { ...baseCtx, field: 'dstChainKey' },
       );
+      const outputTokenInfo = this.config.getSpokeTokenFromOriginalAssetAddress(params.dstChainKey, params.outputToken);
+      if (outputTokenInfo) {
+        assertMpcPayoutAboveMinimum({
+          feature: 'leverageYield',
+          token: outputTokenInfo,
+          amount: params.minOutputAmount,
+          context: { ...baseCtx, field: 'minOutputAmount' },
+        });
+      }
       // derive users hub wallet address
       const creatorHubWalletAddress = await this.hubProvider.getUserHubWalletAddress(
         params.srcAddress,
@@ -1162,7 +1174,7 @@ export class LeverageYieldService {
         return {
           ok: true,
           value: {
-            tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+            tx: txResult.value satisfies SendMessageReturnType<K, Raw> as TxReturnType<K, Raw>,
             intent: { ...intent, feeAmount } as Intent & FeeAmount,
             relayData: { address: creatorHubWalletAddress, payload: data },
           },
@@ -1243,7 +1255,7 @@ export class LeverageYieldService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies DepositReturnType<K, Raw> as TxReturnType<K, Raw>,
           intent: { ...intent, feeAmount } as Intent & FeeAmount,
           relayData: { address: intent.creator, payload: data },
         },
@@ -3826,7 +3838,7 @@ export class LeverageYieldService {
       const data = await buildData(hubWallet, params);
       if (!data.ok) return data;
 
-      const txResult = await this.spoke.deposit({
+      const txResult = await this.spoke.deposit<K, false>({
         srcChainKey: params.srcChainKey,
         srcAddress: params.srcAddress as GetAddressType<K>,
         to: hubWallet,
@@ -4087,7 +4099,7 @@ export class LeverageYieldService {
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
       const payload = this.encodePositionCalls(params.calls);
 
-      const txResult = await this.spoke.sendMessage({
+      const txResult = await this.spoke.sendMessage<K, false>({
         srcChainKey: params.srcChainKey,
         srcAddress: params.srcAddress as GetAddressType<K>,
         dstChainKey: HUB_CHAIN_KEY,
@@ -4117,7 +4129,7 @@ export class LeverageYieldService {
    * is nothing to relay, and both hashes are the same transaction.
    */
   private async settleHubWalletMessage<K extends SpokeChainKey>(
-    srcTxHash: TxReturnType<K, false>,
+    srcTxHash: string,
     relayData: RelayExtraData,
     baseCtx: { srcChainKey: K; action: LeverageYieldAction },
     opts: { timeout: number },

@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { SmallPayoutConfirm, useSmallPayoutGuard } from '@/components/shared/SmallPayoutConfirm';
+import { PayoutMinimumNotice } from '@/components/shared/PayoutMinimumNotice';
 import {
   ACCOUNT_UPGRADE_DECLINED,
   isSodaxError,
@@ -24,6 +24,7 @@ import {
   type GetWalletProviderType,
   type IBitcoinWalletProvider,
   type CreateBridgeIntentParams,
+  getUnmetMpcPayoutMinimum,
 } from '@sodax/dapp-kit';
 import { useEvmSwitchChain, useWalletProvider, useXAccount } from '@sodax/wallet-sdk-react';
 import { BitcoinSetupPanel } from '@/components/bitcoin/BitcoinSetupPanel';
@@ -123,7 +124,10 @@ export function BridgeDialog({
     walletProvider: toWalletProvider,
   });
 
-  const payoutGuard = useSmallPayoutGuard(toToken, order.amount, fromToken?.decimals);
+  const unmetPayoutMinimum =
+    toToken && order.amount
+      ? getUnmetMpcPayoutMinimum({ token: toToken, amount: order.amount, amountDecimals: fromToken?.decimals })
+      : undefined;
 
   const toBtcAddress = toChainKey === ChainKeys.BITCOIN_MAINNET ? toAccount.address : undefined;
   const { data: toBtcBalance } = useBitcoinBalance({ params: { address: toBtcAddress } });
@@ -309,14 +313,7 @@ export function BridgeDialog({
           </div>
         )}
 
-        {payoutGuard.confirming && payoutGuard.warning && (
-          <SmallPayoutConfirm
-            warning={payoutGuard.warning}
-            chainKey={toChainKey}
-            onContinue={payoutGuard.onContinue}
-            onCancel={payoutGuard.onCancel}
-          />
-        )}
+        {unmetPayoutMinimum && <PayoutMinimumNotice unmet={unmetPayoutMinimum} chainKey={toChainKey} />}
 
         <DialogFooter className="flex flex-col gap-2 sm:flex-col">
           {stellar.isStellar && stellar.isChecking && <span className="text-sm">Checking Stellar account…</span>}
@@ -374,8 +371,8 @@ export function BridgeDialog({
           {!isWrongChain && (
             <Button
               className="w-full"
-              onClick={() => payoutGuard.guard(() => void handleBridge())}
-              disabled={isBridgeDisabled || payoutGuard.confirming}
+              onClick={() => void handleBridge()}
+              disabled={isBridgeDisabled || unmetPayoutMinimum !== undefined}
             >
               {isBridging ? (
                 'Bridging…'

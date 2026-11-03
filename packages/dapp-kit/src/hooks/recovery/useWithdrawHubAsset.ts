@@ -1,5 +1,5 @@
 // packages/dapp-kit/src/hooks/recovery/useWithdrawHubAsset.ts
-import type { SpokeChainKey, TxReturnType, WithdrawHubAssetAction } from '@sodax/sdk';
+import type { SpokeChainKey, SendMessageReturnType, WithdrawHubAssetAction } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import { invalidateBalances } from '../shared/invalidateBalances.js';
@@ -25,15 +25,15 @@ export type UseWithdrawHubAssetVars<K extends SpokeChainKey = SpokeChainKey> = O
  */
 export function useWithdrawHubAsset<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
-}: MutationHookParams<TxReturnType<K, false>, UseWithdrawHubAssetVars<K>> = {}): SafeUseMutationResult<
-  TxReturnType<K, false>,
+}: MutationHookParams<SendMessageReturnType<K, false>, UseWithdrawHubAssetVars<K>> = {}): SafeUseMutationResult<
+  SendMessageReturnType<K, false>,
   Error,
   UseWithdrawHubAssetVars<K>
 > {
   const { sodax } = useSodaxContext();
   const queryClient = useQueryClient();
 
-  return useSafeMutation<TxReturnType<K, false>, Error, UseWithdrawHubAssetVars<K>>({
+  return useSafeMutation<SendMessageReturnType<K, false>, Error, UseWithdrawHubAssetVars<K>>({
     mutationKey: ['recovery', 'withdrawHubAsset'],
     ...mutationOptions,
     mutationFn: async vars => unwrapResult(await sodax.recovery.withdrawHubAsset<K, false>({ ...vars, raw: false })),

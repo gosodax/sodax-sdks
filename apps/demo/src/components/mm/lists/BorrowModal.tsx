@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { SmallPayoutConfirm, useSmallPayoutGuard } from '@/components/shared/SmallPayoutConfirm';
+import { PayoutMinimumNotice } from '@/components/shared/PayoutMinimumNotice';
 import { TokenIcon } from '@/components/shared/TokenIcon';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,7 @@ import {
   useUserReservesData,
   useSodaxContext,
   useNearStorageGate,
+  getUnmetMpcPayoutMinimum,
 } from '@sodax/dapp-kit';
 import { buildMmDeliveryParams } from '@/lib/mmBtc';
 import { useBtcTradingBalance } from '@/hooks/useBtcTradingBalance';
@@ -37,7 +38,7 @@ import { logger } from '@/lib/logger';
 import { useReserveMetrics } from '@/hooks/useReserveMetrics';
 import { MAX_BORROW_SAFETY_MARGIN, ZERO_ADDRESS, AMOUNT_DISPLAY_DECIMALS } from '../constants';
 import { isUserReserveDataArray, isValidEvmAddress } from '../typeGuards';
-import { extractTxHash } from '@/lib/extractTxHash';
+import { settledTx } from '@/lib/extractTxHash';
 import { ErrorAlert } from '../ErrorAlert';
 import { getChainName } from '@/constants';
 import { ActionSuccessContent, type ActionSuccessData } from './ActionSuccessContent';
@@ -231,7 +232,10 @@ export function BorrowModal({
     deliveryTradingAddress,
   ]);
 
-  const payoutGuard = useSmallPayoutGuard(destinationToken, params?.amount);
+  const unmetPayoutMinimum =
+    destinationToken && params?.amount
+      ? getUnmetMpcPayoutMinimum({ token: destinationToken, amount: params.amount })
+      : undefined;
 
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: srcChainKey });
 
@@ -247,7 +251,7 @@ export function BorrowModal({
         token,
         sourceChainId: srcChainKey,
         destinationChainId: dstChainKey,
-        txHash: extractTxHash(result),
+        ...settledTx(result, { srcChainKey, dstChainKey }),
       };
 
       if (inlineSuccess) {
@@ -420,14 +424,7 @@ export function BorrowModal({
           </p>
         )}
 
-        {payoutGuard.confirming && payoutGuard.warning && (
-          <SmallPayoutConfirm
-            warning={payoutGuard.warning}
-            chainKey={dstChainKey}
-            onContinue={payoutGuard.onContinue}
-            onCancel={payoutGuard.onCancel}
-          />
-        )}
+        {unmetPayoutMinimum && <PayoutMinimumNotice unmet={unmetPayoutMinimum} chainKey={dstChainKey} />}
 
         <DialogFooter className="w-full min-w-0 flex-col gap-2 sm:justify-start">
           {nearStorage.isNear && (nearStorage.isChecking || nearStorage.needsRegistration) && (
@@ -464,8 +461,10 @@ export function BorrowModal({
               className="w-full"
               type="button"
               variant="default"
-              onClick={() => payoutGuard.guard(() => void handleBorrow())}
-              disabled={payoutGuard.confirming || !params || !sourceWalletProvider || nearStorage.blocksAction}
+              onClick={() => void handleBorrow()}
+              disabled={
+                unmetPayoutMinimum !== undefined || !params || !sourceWalletProvider || nearStorage.blocksAction
+              }
             >
               Borrow {token.symbol}
             </Button>

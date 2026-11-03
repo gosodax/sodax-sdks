@@ -1,11 +1,11 @@
 import { erc20Abi, isAddress, type Address } from 'viem';
-import type { GetAddressType, Result, SpokeChainKey, SpokeExecActionParams, TxReturnType } from '@sodax/types';
+import type { GetAddressType, Result, SpokeChainKey, SpokeExecActionParams, SendMessageReturnType } from '@sodax/types';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import type { HubProvider } from '../shared/types/types.js';
 import type { SpokeService } from '../shared/services/spoke/SpokeService.js';
 import { EvmAssetManagerService } from '../shared/services/hub/EvmAssetManagerService.js';
 import type { SendMessageParams } from '../shared/types/spoke-types.js';
-import { encodeRecipient } from '../shared/index.js';
+import { assertMpcPayoutAboveMinimum, encodeRecipient } from '../shared/index.js';
 import { SodaxError, isSodaxError } from '../errors/SodaxError.js';
 import { lookupFailed } from '../errors/wrappers.js';
 import { recoveryInvariant } from './errors.js';
@@ -186,13 +186,22 @@ export class RecoveryService {
    */
   public async withdrawHubAsset<K extends SpokeChainKey, Raw extends boolean>(
     _params: WithdrawHubAssetAction<K, Raw>,
-  ): Promise<Result<TxReturnType<K, Raw>>> {
+  ): Promise<Result<SendMessageReturnType<K, Raw>>> {
     return this.config.analytics.trackResult(
       'recovery',
       'withdrawHubAsset',
       async () => {
         const { params } = _params;
         try {
+          const token = this.config.getSpokeTokenFromOriginalAssetAddress(params.srcChainKey, params.token);
+          if (token) {
+            assertMpcPayoutAboveMinimum({
+              feature: 'recovery',
+              token,
+              amount: params.amount,
+              context: { action: 'withdrawHubAsset', srcChainKey: params.srcChainKey, field: 'amount' },
+            });
+          }
           const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
           const payload = EvmAssetManagerService.withdrawAssetData(
             {
@@ -225,9 +234,10 @@ export class RecoveryService {
 
           return {
             ok: true,
-            value: txResult.value satisfies TxReturnType<K, boolean> as TxReturnType<K, Raw>,
+            value: txResult.value satisfies SendMessageReturnType<K, boolean> as SendMessageReturnType<K, Raw>,
           };
         } catch (error) {
+          if (isSodaxError(error) && error.code === 'VALIDATION_FAILED') return { ok: false, error };
           return {
             ok: false,
             error: new SodaxError(

@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { TokenIcon } from '@/components/shared/TokenIcon';
-import { SmallPayoutConfirm, useSmallPayoutGuard } from '@/components/shared/SmallPayoutConfirm';
+import { PayoutMinimumNotice } from '@/components/shared/PayoutMinimumNotice';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +18,7 @@ import {
   type XToken,
   getChainType,
   type MoneyMarketWithdrawParams,
+  getUnmetMpcPayoutMinimum,
 } from '@sodax/dapp-kit';
 import { buildMmDeliveryParams } from '@/lib/mmBtc';
 import { useBtcTradingBalance } from '@/hooks/useBtcTradingBalance';
@@ -33,7 +34,7 @@ import {
 } from '@/lib/utils';
 import { logger } from '@/lib/logger';
 import { ErrorAlert } from '../ErrorAlert';
-import { extractTxHash } from '@/lib/extractTxHash';
+import { settledTx } from '@/lib/extractTxHash';
 import { getChainName } from '@/constants';
 import { ActionSuccessContent, type ActionSuccessData } from './ActionSuccessContent';
 import { Info, Loader2 } from 'lucide-react';
@@ -124,7 +125,10 @@ export function WithdrawModal({
     };
   }, [amount, srcAddress, dstAddress, srcChainKey, dstChainKey, destinationToken, isSameChain, deliveryTradingAddress]);
 
-  const payoutGuard = useSmallPayoutGuard(destinationToken, params?.amount);
+  const unmetPayoutMinimum =
+    destinationToken && params?.amount
+      ? getUnmetMpcPayoutMinimum({ token: destinationToken, amount: params.amount })
+      : undefined;
 
   const isEvmChain = getChainType(srcChainKey) === 'EVM';
 
@@ -165,14 +169,13 @@ export function WithdrawModal({
       const normalizedAmount = amount.replace(',', '.');
 
       const result = await withdraw({ params, walletProvider: sourceWalletProvider });
-      const txHash = extractTxHash(result);
 
       const nextSuccessData: ActionSuccessData = {
         amount: normalizedAmount,
         token,
         sourceChainId: srcChainKey,
         destinationChainId: dstChainKey,
-        txHash,
+        ...settledTx(result, { srcChainKey, dstChainKey }),
       };
 
       if (inlineSuccess) {
@@ -361,14 +364,7 @@ export function WithdrawModal({
           </p>
         )}
 
-        {payoutGuard.confirming && payoutGuard.warning && (
-          <SmallPayoutConfirm
-            warning={payoutGuard.warning}
-            chainKey={dstChainKey}
-            onContinue={payoutGuard.onContinue}
-            onCancel={payoutGuard.onCancel}
-          />
-        )}
+        {unmetPayoutMinimum && <PayoutMinimumNotice unmet={unmetPayoutMinimum} chainKey={dstChainKey} />}
 
         <DialogFooter className="w-full min-w-0 flex-col gap-2 sm:justify-start">
           {nearStorage.isNear && (nearStorage.isChecking || nearStorage.needsRegistration) && (
@@ -420,9 +416,9 @@ export function WithdrawModal({
               className="w-full"
               type="button"
               variant="default"
-              onClick={() => payoutGuard.guard(() => void handleWithdraw())}
+              onClick={() => void handleWithdraw()}
               disabled={
-                payoutGuard.confirming ||
+                unmetPayoutMinimum !== undefined ||
                 !params ||
                 !sourceWalletProvider ||
                 amount === '' ||

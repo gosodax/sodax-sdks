@@ -1,9 +1,16 @@
-import type { DestinationParamsType, IntentTxResult, TxHashPair } from '../shared/types/types.js';
+import type {
+  DestinationParamsType,
+  IntentTxResult,
+  OutboundSettlement,
+  Settlement,
+  TxHashPair,
+} from '../shared/types/types.js';
 import type { Address, Hex } from 'viem';
 import {
   EvmAssetManagerService,
   type SpokeService,
   encodeRecipient,
+  assertMpcPayoutAboveMinimum,
   Erc20Service,
   Erc4626Service,
   EvmVaultTokenService,
@@ -19,8 +26,8 @@ import {
   isOptionalStellarWalletProviderType,
   isEvmSpokeOnlyChainKeyType,
   isOptionalEvmWalletProviderType,
-  type RelayExtraData,
   type SendMessageParams,
+  type SettleParams,
   type SettlementDirection,
 } from '../shared/index.js';
 import {
@@ -41,6 +48,8 @@ import {
   type SpokeExecActionParams,
   type StellarChainKey,
   type TxReturnType,
+  type DepositReturnType,
+  type SendMessageReturnType,
 } from '@sodax/types';
 import { encodeFunctionData, erc20Abi, isAddress } from 'viem';
 import { invariant } from '../shared/utils/tiny-invariant.js';
@@ -301,7 +310,7 @@ export class AssetService {
    */
   public async executeDeposit<K extends SpokeChainKey, Raw extends boolean>(
     _params: AssetDepositAction<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>>> {
+  ): Promise<Result<IntentTxResult<K, Raw, 'deposit'>>> {
     const { params, skipSimulation } = _params;
     try {
       invariant(params.amount > 0n, 'Amount must be greater than 0');
@@ -354,7 +363,7 @@ export class AssetService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies DepositReturnType<K, Raw> as DepositReturnType<K, Raw>,
           relayData: { address: fromHubWallet, payload: data },
         },
       };
@@ -385,7 +394,7 @@ export class AssetService {
    */
   public async executeWithdraw<K extends SpokeChainKey, Raw extends boolean>(
     _params: AssetWithdrawAction<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>>> {
+  ): Promise<Result<IntentTxResult<K, Raw, 'sendMessage'>>> {
     const { params, skipSimulation } = _params;
     try {
       invariant(params.amount > 0n, 'Amount must be greater than 0');
@@ -436,7 +445,7 @@ export class AssetService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, boolean> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, boolean> as SendMessageReturnType<K, Raw>,
           relayData: { address: fromHubWallet, payload: data },
         },
       };
@@ -500,7 +509,14 @@ export class AssetService {
       const txResult = await this.executeDeposit(_params);
       if (!txResult.ok) return txResult;
       if (isMpcRelayChainKey(params.srcChainKey)) {
-        return await this.settleOnMpcRelay(params.srcChainKey, txResult.value, 'inbound', timeout);
+        const { tx, relayData } = txResult.value;
+        return await this.settleOnMpcRelay({
+          chainKey: params.srcChainKey,
+          tx,
+          relayData,
+          direction: 'inbound',
+          timeout,
+        });
       }
 
       let hubTxHash: string;
@@ -535,18 +551,31 @@ export class AssetService {
    *
    * @param _params - Withdraw action parameters including the asset address, amount
    *   (in StatAToken shares), pool token address, and an optional `timeout` (ms).
-   * @returns `Result<TxHashPair>` — on success, contains `srcChainTxHash` (spoke) and
-   *   `dstChainTxHash` (hub) once the relay packet has been confirmed.
+   * @returns `Result<OutboundSettlement<K>>` — on success, `srcChainTxHash` (spoke) and `dstChainTxHash`
+   *   (hub, or the payout) once settled; from an MPC-relay chain, the relay's `trackingId` in place of a source tx.
    */
-  public async withdraw<K extends SpokeChainKey>(_params: AssetWithdrawAction<K, false>): Promise<Result<TxHashPair>> {
+  public async withdraw<K extends SpokeChainKey>(
+    _params: AssetWithdrawAction<K, false>,
+  ): Promise<Result<OutboundSettlement<K>>> {
     const { params, timeout } = _params;
     try {
       const txResult = await this.executeWithdraw(_params);
       if (!txResult.ok) return txResult;
+      const { tx, relayData } = txResult.value;
       const dstChainKey: SpokeChainKey = params.dst?.dstChainKey ?? params.srcChainKey;
       if (isMpcRelayChainKey(params.srcChainKey)) {
-        return await this.settleOnMpcRelay(params.srcChainKey, txResult.value, 'outbound', timeout, dstChainKey);
+        return await this.settleOnMpcRelay({
+          chainKey: params.srcChainKey,
+          tx,
+          relayData,
+          direction: 'outbound',
+          timeout,
+          dstChainKey,
+        });
       }
+      // Past an MPC-relay source, the source chain has a tx, so the result is a pair.
+      const settled = (dstChainTxHash: string): OutboundSettlement<K> =>
+        ({ srcChainTxHash: tx, dstChainTxHash }) satisfies TxHashPair as OutboundSettlement<K>;
 
       let hubTxHash: string;
       if (!isHubChainKeyType(params.srcChainKey)) {
@@ -568,12 +597,9 @@ export class AssetService {
       if (isMpcRelayChainKey(dstChainKey)) {
         const released = await this.spoke.settleHubRelease(hubTxHash, dstChainKey, timeout);
         if (!released.ok) return { ok: false, error: released.error.cause };
-        return {
-          ok: true,
-          value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: released.value.dstChainTxHash },
-        };
+        return { ok: true, value: settled(released.value.dstChainTxHash) };
       }
-      return { ok: true, value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: hubTxHash } };
+      return { ok: true, value: settled(hubTxHash) };
     } catch (error) {
       if (isDexCreateIntentError(error)) return { ok: false, error };
       return { ok: false, error: intentCreationFailed('dex', error) };
@@ -584,14 +610,10 @@ export class AssetService {
    * An MPC-relay source has no intent-relay packet, so it settles on its own relay: a deposit waits
    * for the hub mint, a withdraw for the release on the source chain it pays back to.
    */
-  private async settleOnMpcRelay(
-    chainKey: SpokeChainKey,
-    { tx, relayData }: { tx: string; relayData: RelayExtraData },
-    direction: SettlementDirection,
-    timeout: number | undefined,
-    dstChainKey?: SpokeChainKey,
-  ): Promise<Result<TxHashPair>> {
-    const settled = await this.spoke.settle({ chainKey, tx, direction, relayData, timeout, dstChainKey });
+  private async settleOnMpcRelay<K extends SpokeChainKey, D extends SettlementDirection>(
+    params: SettleParams<K, D>,
+  ): Promise<Result<Settlement<K, D>>> {
+    const settled = await this.spoke.settle(params);
     return settled.ok ? settled : { ok: false, error: settled.error.cause };
   }
 
@@ -732,6 +754,12 @@ export class AssetService {
         calls.push(Erc20Service.encodeTransfer(assetConfig.hubAsset, recipient, translatedAmount));
       }
     } else {
+      assertMpcPayoutAboveMinimum({
+        feature: 'dex',
+        token: assetConfig,
+        amount: translatedAmount,
+        context: { dstChainKey, field: 'amount' },
+      });
       calls.push(
         EvmAssetManagerService.encodeTransfer(
           assetConfig.hubAsset,

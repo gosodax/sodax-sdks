@@ -298,11 +298,14 @@ export type RawDestinationParams = {
  */
 export type SettlementDirection = 'inbound' | 'outbound';
 
-export type SettleParams = {
-  chainKey: SpokeChainKey;
+export type SettleParams<
+  K extends SpokeChainKey = SpokeChainKey,
+  D extends SettlementDirection = SettlementDirection,
+> = {
+  chainKey: K;
   /** What `create*Intent` returned: the spoke tx hash, or an MPC tracking id for a Tron withdrawal. */
   tx: string;
-  direction: SettlementDirection;
+  direction: D;
   relayData: RelayExtraData;
   timeout?: number;
   /**

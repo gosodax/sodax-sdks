@@ -35,7 +35,7 @@ import {
   EvmAssetManagerService,
   EvmVaultTokenService,
   encodeContractCalls,
-  warnOnSmallMpcPayout,
+  assertMpcPayoutAboveMinimum,
   encodeRecipient,
   calculateFeeAmount,
   wrappedSonicAbi,
@@ -48,7 +48,7 @@ import {
   isBitcoinChainKeyType,
   isBitcoinWalletProviderType,
 } from '../shared/index.js';
-import type { HubProvider, IntentTxResult, TxHashPair } from '../shared/types/types.js';
+import type { HubProvider, IntentTxResult, OutboundSettlement, TxHashPair } from '../shared/types/types.js';
 import type { SettlementFailure } from '../shared/types/spoke-types.js';
 import {
   type SpokeChainKey,
@@ -71,6 +71,8 @@ import {
   DEFAULT_RELAY_TX_TIMEOUT,
   HUB_CHAIN_KEY,
   type SpokeExecActionParams,
+  type DepositReturnType,
+  type SendMessageReturnType,
 } from '@sodax/types';
 import { MoneyMarketDataService } from './MoneyMarketDataService.js';
 
@@ -602,7 +604,7 @@ export class MoneyMarketService {
    */
   public async createSupplyIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: MoneyMarketSupplyActionParams<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>, MoneyMarketCreateIntentError>> {
+  ): Promise<Result<IntentTxResult<K, Raw, 'deposit'>, MoneyMarketCreateIntentError>> {
     const { params, walletProvider } = _params;
     const srcChainKey = params.srcChainKey;
     const skipSimulation = _params.skipSimulation ?? false;
@@ -695,7 +697,7 @@ export class MoneyMarketService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies DepositReturnType<K, Raw> as DepositReturnType<K, Raw>,
           relayData: { address: fromHubWallet, payload: data },
         },
       };
@@ -734,11 +736,12 @@ export class MoneyMarketService {
    * @param _params - Borrow action params: `srcChainKey`, `srcAddress`, `token`, `amount`,
    *   `walletProvider`, and optional `dstChainKey`/`dstAddress`.
    * @returns A pair of transaction hashes — `srcChainTxHash` (spoke/hub trigger) and
-   *   `dstChainTxHash` (hub delivery or relay destination).
+   *   `dstChainTxHash` (hub delivery or relay destination); from an MPC-relay chain, the relay's
+   *   `trackingId` in place of a source tx ({@link OutboundSettlement}).
    */
   public async borrow<K extends SpokeChainKey>(
     _params: MoneyMarketBorrowActionParams<K, false>,
-  ): Promise<Result<TxHashPair, MoneyMarketOrchestrationError>> {
+  ): Promise<Result<OutboundSettlement<K>, MoneyMarketOrchestrationError>> {
     return this.config.analytics.trackResult(
       'moneyMarket',
       'borrow',
@@ -761,10 +764,9 @@ export class MoneyMarketService {
           if (!needsSettlement) {
             const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
             if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
-            return {
-              ok: true,
-              value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx },
-            };
+            // Hub to hub: the source is the hub, never an MPC-relay chain, so this is a pair.
+            const onHub = { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx };
+            return { ok: true, value: onHub satisfies TxHashPair as OutboundSettlement<K> };
           }
 
           const settled = await this.spoke.settle({
@@ -795,7 +797,7 @@ export class MoneyMarketService {
           token: _params.params.token,
           amount: _params.params.amount,
         }),
-        success: value => ({ srcChainTxHash: value.srcChainTxHash, dstChainTxHash: value.dstChainTxHash }),
+        success: value => ({ ...value }),
         failure: error => ({ code: error.code }),
       },
     );
@@ -814,7 +816,7 @@ export class MoneyMarketService {
    */
   public async createBorrowIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: MoneyMarketBorrowActionParams<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>, MoneyMarketCreateIntentError>> {
+  ): Promise<Result<IntentTxResult<K, Raw, 'sendMessage'>, MoneyMarketCreateIntentError>> {
     const { params, walletProvider } = _params;
     const srcChainKey = params.srcChainKey;
     const skipSimulation = _params.skipSimulation ?? false;
@@ -838,7 +840,6 @@ export class MoneyMarketService {
         ...baseCtx,
         field: 'token',
       });
-      warnOnSmallMpcPayout(this.config.logger, dstToken, params.amount);
 
       const encodedDstAddress = encodeRecipient(dstChainKey, dstAddress);
       // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the
@@ -892,7 +893,7 @@ export class MoneyMarketService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, boolean> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, boolean> as SendMessageReturnType<K, Raw>,
           relayData: { address: fromHubWallet, payload },
         },
       };
@@ -918,11 +919,12 @@ export class MoneyMarketService {
    * @param _params - Withdraw action params: `srcChainKey`, `srcAddress`, `token`, `amount`,
    *   `walletProvider`, and optional `dstChainKey`/`dstAddress`.
    * @returns A pair of transaction hashes — `srcChainTxHash` (initiating chain) and
-   *   `dstChainTxHash` (hub or relay destination).
+   *   `dstChainTxHash` (hub or relay destination); from an MPC-relay chain, the relay's `trackingId` in
+   *   place of a source tx ({@link OutboundSettlement}).
    */
   public async withdraw<K extends SpokeChainKey>(
     _params: MoneyMarketWithdrawActionParams<K, false>,
-  ): Promise<Result<TxHashPair, MoneyMarketOrchestrationError>> {
+  ): Promise<Result<OutboundSettlement<K>, MoneyMarketOrchestrationError>> {
     return this.config.analytics.trackResult(
       'moneyMarket',
       'withdraw',
@@ -948,10 +950,9 @@ export class MoneyMarketService {
           if (!needsSettlement) {
             const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
             if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
-            return {
-              ok: true,
-              value: { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx },
-            };
+            // Hub to hub: the source is the hub, never an MPC-relay chain, so this is a pair.
+            const onHub = { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx };
+            return { ok: true, value: onHub satisfies TxHashPair as OutboundSettlement<K> };
           }
 
           const settled = await this.spoke.settle({
@@ -982,7 +983,7 @@ export class MoneyMarketService {
           token: _params.params.token,
           amount: _params.params.amount,
         }),
-        success: value => ({ srcChainTxHash: value.srcChainTxHash, dstChainTxHash: value.dstChainTxHash }),
+        success: value => ({ ...value }),
         failure: error => ({ code: error.code }),
       },
     );
@@ -1001,7 +1002,7 @@ export class MoneyMarketService {
    */
   public async createWithdrawIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: MoneyMarketWithdrawActionParams<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>, MoneyMarketCreateIntentError>> {
+  ): Promise<Result<IntentTxResult<K, Raw, 'sendMessage'>, MoneyMarketCreateIntentError>> {
     const { params, walletProvider } = _params;
     const srcChainKey = params.srcChainKey;
     const skipSimulation = _params.skipSimulation ?? false;
@@ -1026,7 +1027,14 @@ export class MoneyMarketService {
         { ...baseCtx, field: 'token' },
       );
       const dstToken = this.config.getMoneyMarketToken(dstChainKey, params.token);
-      if (dstToken) warnOnSmallMpcPayout(this.config.logger, dstToken, params.amount);
+      if (dstToken) {
+        assertMpcPayoutAboveMinimum({
+          feature: 'moneyMarket',
+          token: dstToken,
+          amount: params.amount,
+          context: { ...baseCtx, field: 'amount' },
+        });
+      }
 
       const encodedDstAddress = encodeRecipient(dstChainKey, dstAddress);
       // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the
@@ -1080,7 +1088,7 @@ export class MoneyMarketService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, boolean> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, boolean> as SendMessageReturnType<K, Raw>,
           relayData: { address: fromHubWallet, payload },
         },
       };
@@ -1177,7 +1185,7 @@ export class MoneyMarketService {
    */
   public async createRepayIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: MoneyMarketRepayActionParams<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>, MoneyMarketCreateIntentError>> {
+  ): Promise<Result<IntentTxResult<K, Raw, 'deposit'>, MoneyMarketCreateIntentError>> {
     const { params, walletProvider } = _params;
     const srcChainKey = params.srcChainKey;
     const skipSimulation = _params.skipSimulation ?? false;
@@ -1270,7 +1278,7 @@ export class MoneyMarketService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies DepositReturnType<K, Raw> as DepositReturnType<K, Raw>,
           relayData: { address: fromHubWallet, payload: data },
         },
       };
@@ -1417,18 +1425,19 @@ export class MoneyMarketService {
       calls.push(EvmVaultTokenService.encodeWithdraw(vaultAddress, assetAddress, translatedInAmount - feeAmount));
     }
 
-    let translatedAmountOut: bigint;
-    if (this.config.isSodaVaultHubAsset(assetAddress)) {
-      translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(
-        toHubAsset.decimals,
-        translatedInAmount - feeAmount,
-      );
-    } else {
-      translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(
-        dstToken.decimals,
-        translatedInAmount - feeAmount,
-      );
-    }
+    const amountOutDecimals = this.config.isSodaVaultHubAsset(assetAddress) ? toHubAsset.decimals : dstToken.decimals;
+    const translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(
+      amountOutDecimals,
+      translatedInAmount - feeAmount,
+    );
+    // Checked on what is paid out, after the partner fee.
+    assertMpcPayoutAboveMinimum({
+      feature: 'moneyMarket',
+      token: dstToken,
+      amount: translatedAmountOut,
+      amountDecimals: amountOutDecimals,
+      context: { dstChainKey, action: 'borrow', field: 'amount' },
+    });
 
     if (dstChainKey === this.hubProvider.chainConfig.chain.key) {
       if (

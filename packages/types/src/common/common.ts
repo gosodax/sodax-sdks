@@ -11,7 +11,13 @@ import type { SolanaBase58PublicKey, SolanaRawTransaction, SolanaReturnType } fr
 import type { StacksRawTransaction, StacksReturnType } from '../stacks/stacks.js';
 import type { StellarRawTransaction, StellarReturnType } from '../stellar/stellar.js';
 import type { SuiRawTransaction, SuiReturnType } from '../sui/sui.js';
-import type { TronRawTransaction, TronRawWithdraw, TronReturnType } from '../tron/tron.js';
+import type {
+  TronDepositReturnType,
+  TronRawTransaction,
+  TronRawWithdraw,
+  TronReturnType,
+  TronSendMessageReturnType,
+} from '../tron/tron.js';
 import type { GetWalletProviderType } from '../wallet/providers.js';
 
 export type Default = {
@@ -237,6 +243,14 @@ export type TxReturnType<C extends SpokeChainKey | ChainType, Raw extends boolea
                     : GetChainType<C> extends 'TRON'
                       ? TronReturnType<Raw>
                       : GetDefaultTxReturnType<Raw>;
+
+/** What a deposit returns on `C`: {@link TxReturnType}, except that a Tron deposit is only ever a transfer. */
+export type DepositReturnType<C extends SpokeChainKey | ChainType, Raw extends boolean> =
+  GetChainType<C> extends 'TRON' ? TronDepositReturnType<Raw> : TxReturnType<C, Raw>;
+
+/** What a message to the hub (borrow, withdraw) returns on `C`: {@link TxReturnType}, but a Tron withdraw-auth. */
+export type SendMessageReturnType<C extends SpokeChainKey | ChainType, Raw extends boolean> =
+  GetChainType<C> extends 'TRON' ? TronSendMessageReturnType<Raw> : TxReturnType<C, Raw>;
 
 export type Prettify<T> = {
   [K in keyof T]: T[K];

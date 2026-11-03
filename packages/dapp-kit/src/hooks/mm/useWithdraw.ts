@@ -1,5 +1,5 @@
 // packages/dapp-kit/src/hooks/mm/useWithdraw.ts
-import type { MoneyMarketWithdrawActionParams, SpokeChainKey, TxHashPair } from '@sodax/sdk';
+import type { MoneyMarketWithdrawActionParams, SpokeChainKey, OutboundSettlement } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import { invalidateBalances } from '../shared/invalidateBalances.js';
@@ -21,19 +21,20 @@ export type UseWithdrawVars<K extends SpokeChainKey = SpokeChainKey> = Omit<
  * React hook for withdrawing supplied tokens from the Sodax money market protocol.
  *
  * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
+ * `onError`, `retry`). Returns the unwrapped {@link OutboundSettlement} on success: a tx pair, or
+ * from Tron the relay's `trackingId` beside the destination tx.
  */
 export function useWithdraw<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
-}: MutationHookParams<TxHashPair, UseWithdrawVars<K>> = {}): SafeUseMutationResult<
-  TxHashPair,
+}: MutationHookParams<OutboundSettlement<K>, UseWithdrawVars<K>> = {}): SafeUseMutationResult<
+  OutboundSettlement<K>,
   Error,
   UseWithdrawVars<K>
 > {
   const { sodax } = useSodaxContext();
   const queryClient = useQueryClient();
 
-  return useSafeMutation<TxHashPair, Error, UseWithdrawVars<K>>({
+  return useSafeMutation<OutboundSettlement<K>, Error, UseWithdrawVars<K>>({
     mutationKey: ['mm', 'withdraw'],
     ...mutationOptions,
     mutationFn: async vars => unwrapResult(await sodax.moneyMarket.withdraw({ ...vars, raw: false })),

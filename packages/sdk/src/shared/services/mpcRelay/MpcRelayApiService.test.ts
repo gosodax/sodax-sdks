@@ -8,7 +8,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { HttpUrl } from '@sodax/types';
+import { ChainKeys, type HttpUrl } from '@sodax/types';
 import { mapRelayFailure } from '../../../errors/relay-error-mapping.js';
 import { waitForDeposit, waitForHubRelease, waitForWithdrawal } from './MpcRelayApiService.js';
 
@@ -148,7 +148,7 @@ describe('waitForWithdrawal — until burned', () => {
 });
 
 describe('waitForHubRelease', () => {
-  const RELEASE = { hubChainId: '146', hubTxHash: '0xABCDEF', logIndex: 3 };
+  const RELEASE = { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: '0xABCDEF', logIndex: 3 };
 
   it('reads the release by its withdrawal id, with the hash lowercased as the relay keys it', async () => {
     stubStatuses([

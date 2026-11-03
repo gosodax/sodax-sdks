@@ -33,6 +33,10 @@ import {
   MpcRelayChainMap,
   type MpcRelayChainKey,
   type TxReturnType,
+  type DepositReturnType,
+  type SendMessageReturnType,
+  type TronDepositReturnType,
+  type TronSendMessageReturnType,
   isBitcoinChainKey,
   type Result,
 } from '@sodax/types';
@@ -89,11 +93,17 @@ import type {
   SpokeApproveParamsStellar,
   SpokeApproveParamsEvmSpoke,
   SettleParams,
+  SettlementDirection,
   SettlementFailure,
 } from '../../types/spoke-types.js';
-import type { TxHashPair } from '../../types/types.js';
+import type { MpcWithdrawalSettlement, Settlement, TxHashPair } from '../../types/types.js';
 import { relayTxAndWaitPacket } from '../intentRelay/IntentRelayApiService.js';
-import type { DepositRecord, HubRelease, MpcRelaySettlement } from '../mpcRelay/MpcRelayApiService.js';
+import type {
+  DepositRecord,
+  HubRelease,
+  MpcRelaySettlement,
+  WithdrawalRecord,
+} from '../mpcRelay/MpcRelayApiService.js';
 import { Erc20Service, type Erc20ApprovalPlan, type Erc20ApproveParams } from '../erc-20/Erc20Service.js';
 import type { RequestTrustlineParams } from './StellarSpokeService.js';
 import type { WalletMode } from './BitcoinSpokeService.js';
@@ -748,13 +758,13 @@ export class SpokeService {
    */
   public async deposit<K extends SpokeChainKey, R extends boolean>(
     params: DepositParams<K, R>,
-  ): Promise<Result<TxReturnType<K, R>>> {
+  ): Promise<Result<DepositReturnType<K, R>>> {
     try {
       if (isHubChainKeyType(params.srcChainKey)) {
         const value = (await this.sonic.deposit(params as DepositParams<SonicChainKey, R>)) satisfies TxReturnType<
           SonicChainKey,
           R
-        > as TxReturnType<K, R>;
+        > as DepositReturnType<K, R>;
         return { ok: true, value };
       }
 
@@ -765,7 +775,7 @@ export class SpokeService {
           if (!verify.ok) return verify;
           const value = (await this.evm.deposit(
             params as DepositParams<EvmSpokeOnlyChainKey, R>,
-          )) satisfies TxReturnType<EvmChainKey, R> as TxReturnType<K, R>;
+          )) satisfies TxReturnType<EvmChainKey, R> as DepositReturnType<K, R>;
           return { ok: true, value };
         }
         case 'INJECTIVE': {
@@ -773,7 +783,7 @@ export class SpokeService {
           if (!verify.ok) return verify;
           const value = (await this.injective.deposit(
             params as DepositParams<InjectiveChainKey, R>,
-          )) satisfies TxReturnType<InjectiveChainKey, R> as TxReturnType<K, R>;
+          )) satisfies TxReturnType<InjectiveChainKey, R> as DepositReturnType<K, R>;
           return { ok: true, value };
         }
         case 'STELLAR': {
@@ -781,7 +791,7 @@ export class SpokeService {
           if (!verify.ok) return verify;
           const value = (await this.stellar.deposit(
             params as DepositParams<StellarChainKey, R>,
-          )) satisfies TxReturnType<StellarChainKey, R> as TxReturnType<K, R>;
+          )) satisfies TxReturnType<StellarChainKey, R> as DepositReturnType<K, R>;
           return { ok: true, value };
         }
         case 'SUI': {
@@ -790,7 +800,7 @@ export class SpokeService {
           const value = (await this.sui.deposit(params as DepositParams<SuiChainKey, R>)) satisfies TxReturnType<
             SuiChainKey,
             R
-          > as TxReturnType<K, R>;
+          > as DepositReturnType<K, R>;
           return { ok: true, value };
         }
         case 'ICON': {
@@ -799,7 +809,7 @@ export class SpokeService {
           const value = (await this.icon.deposit(params as DepositParams<IconChainKey, R>)) satisfies TxReturnType<
             IconChainKey,
             R
-          > as TxReturnType<K, R>;
+          > as DepositReturnType<K, R>;
           return { ok: true, value };
         }
         case 'SOLANA': {
@@ -808,7 +818,7 @@ export class SpokeService {
           const value = (await this.solana.deposit(params as DepositParams<SolanaChainKey, R>)) satisfies TxReturnType<
             SolanaChainKey,
             R
-          > as TxReturnType<K, R>;
+          > as DepositReturnType<K, R>;
           return { ok: true, value };
         }
         case 'STACKS': {
@@ -817,7 +827,7 @@ export class SpokeService {
           const value = (await this.stacks.deposit(params as DepositParams<StacksChainKey, R>)) satisfies TxReturnType<
             StacksChainKey,
             R
-          > as TxReturnType<K, R>;
+          > as DepositReturnType<K, R>;
           return { ok: true, value };
         }
         case 'BITCOIN': {
@@ -825,7 +835,7 @@ export class SpokeService {
           if (!verify.ok) return verify;
           const value = (await this.bitcoin.deposit(
             params as DepositParams<BitcoinChainKey, R>,
-          )) satisfies TxReturnType<BitcoinChainKey, R> as TxReturnType<K, R>;
+          )) satisfies TxReturnType<BitcoinChainKey, R> as DepositReturnType<K, R>;
           return { ok: true, value };
         }
         case 'NEAR': {
@@ -834,15 +844,14 @@ export class SpokeService {
           const value = (await this.near.deposit(params as DepositParams<NearChainKey, R>)) satisfies TxReturnType<
             NearChainKey,
             R
-          > as TxReturnType<K, R>;
+          > as DepositReturnType<K, R>;
           return { ok: true, value };
         }
         case 'TRON': {
           // Tron rides the MPC relay in memo mode — no on-chain asset-manager simulation applies.
-          const value = (await this.tron.deposit(params as DepositParams<TronChainKey, R>)) satisfies TxReturnType<
-            TronChainKey,
-            R
-          > as TxReturnType<K, R>;
+          const value = (await this.tron.deposit(
+            params as DepositParams<TronChainKey, R>,
+          )) satisfies TronDepositReturnType<R> as DepositReturnType<K, R>;
           return { ok: true, value };
         }
         default: {
@@ -1101,13 +1110,12 @@ export class SpokeService {
    */
   public async sendMessage<K extends SpokeChainKey, Raw extends boolean>(
     params: SendMessageParams<K, Raw>,
-  ): Promise<Result<TxReturnType<K, Raw>>> {
+  ): Promise<Result<SendMessageReturnType<K, Raw>>> {
     try {
       if (isHubChainKeyType(params.srcChainKey)) {
-        const value = (await this.sonic.sendMessage(params as SendMessageParams<SonicChainKey, Raw>)) as TxReturnType<
-          K,
-          Raw
-        >;
+        const value = (await this.sonic.sendMessage(
+          params as SendMessageParams<SonicChainKey, Raw>,
+        )) as SendMessageReturnType<K, Raw>;
         return { ok: true, value };
       }
 
@@ -1136,7 +1144,7 @@ export class SpokeService {
           if (!verify.ok) return verify;
           const value = (await this.evm.sendMessage(
             params as SendMessageParams<EvmSpokeOnlyChainKey, Raw>,
-          )) as TxReturnType<EvmSpokeOnlyChainKey, Raw> as TxReturnType<K, Raw>;
+          )) as TxReturnType<EvmSpokeOnlyChainKey, Raw> as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         case 'INJECTIVE': {
@@ -1144,7 +1152,7 @@ export class SpokeService {
           if (!verify.ok) return verify;
           const value = (await this.injective.sendMessage(
             params as SendMessageParams<InjectiveChainKey, Raw>,
-          )) as TxReturnType<InjectiveChainKey, Raw> as TxReturnType<K, Raw>;
+          )) as TxReturnType<InjectiveChainKey, Raw> as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         case 'ICON': {
@@ -1153,7 +1161,7 @@ export class SpokeService {
           const value = (await this.icon.sendMessage(params as SendMessageParams<IconChainKey, Raw>)) as TxReturnType<
             IconChainKey,
             Raw
-          > as TxReturnType<K, Raw>;
+          > as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         case 'SUI': {
@@ -1162,7 +1170,7 @@ export class SpokeService {
           const value = (await this.sui.sendMessage(params as SendMessageParams<SuiChainKey, Raw>)) as TxReturnType<
             SuiChainKey,
             Raw
-          > as TxReturnType<K, Raw>;
+          > as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         case 'SOLANA': {
@@ -1170,7 +1178,7 @@ export class SpokeService {
           if (!verify.ok) return verify;
           const value = (await this.solana.sendMessage(
             params as SendMessageParams<SolanaChainKey, Raw>,
-          )) as TxReturnType<SolanaChainKey, Raw> as TxReturnType<K, Raw>;
+          )) as TxReturnType<SolanaChainKey, Raw> as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         case 'STELLAR': {
@@ -1178,7 +1186,7 @@ export class SpokeService {
           if (!verify.ok) return verify;
           const value = (await this.stellar.sendMessage(
             params as SendMessageParams<StellarChainKey, Raw>,
-          )) as TxReturnType<StellarChainKey, Raw> as TxReturnType<K, Raw>;
+          )) as TxReturnType<StellarChainKey, Raw> as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         case 'STACKS': {
@@ -1186,7 +1194,7 @@ export class SpokeService {
           if (!verify.ok) return verify;
           const value = (await this.stacks.sendMessage(
             params as SendMessageParams<StacksChainKey, Raw>,
-          )) as TxReturnType<StacksChainKey, Raw> as TxReturnType<K, Raw>;
+          )) as TxReturnType<StacksChainKey, Raw> as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         case 'BITCOIN': {
@@ -1194,7 +1202,7 @@ export class SpokeService {
           if (!verify.ok) return verify;
           const value = (await this.bitcoin.sendMessage(
             params as SendMessageParams<BitcoinChainKey, Raw> & { walletMode?: WalletMode },
-          )) as TxReturnType<BitcoinChainKey, Raw> as TxReturnType<K, Raw>;
+          )) as TxReturnType<BitcoinChainKey, Raw> as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         case 'NEAR': {
@@ -1203,14 +1211,13 @@ export class SpokeService {
           const value = (await this.near.sendMessage(params as SendMessageParams<NearChainKey, Raw>)) as TxReturnType<
             NearChainKey,
             Raw
-          > as TxReturnType<K, Raw>;
+          > as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         case 'TRON': {
-          const value = (await this.tron.sendMessage(params as SendMessageParams<TronChainKey, Raw>)) as TxReturnType<
-            TronChainKey,
-            Raw
-          > as TxReturnType<K, Raw>;
+          const value = (await this.tron.sendMessage(
+            params as SendMessageParams<TronChainKey, Raw>,
+          )) satisfies TronSendMessageReturnType<Raw> as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         default: {
@@ -1333,18 +1340,33 @@ export class SpokeService {
   }
 
   /**
-   * Trigger and await the release a hub tx sends to an MPC-relay chain, returning both hashes. That
-   * relay does not watch the hub, so nothing is released until the hub tx is notified.
+   * Trigger and await the release a hub tx sends to an MPC-relay chain, returning both hashes: it
+   * {@link submitHubRelease submits} the release, then {@link waitForHubRelease waits} for the payout.
    */
   public async settleHubRelease(
     hubTxHash: string,
     dstChainKey: SpokeChainKey,
     timeout?: number,
   ): Promise<Result<TxHashPair, SettlementFailure>> {
-    const relay = this.getMpcRelayService(dstChainKey);
-    if (!relay || !isMpcRelayChainKeyType(dstChainKey)) {
+    if (!isMpcRelayChainKeyType(dstChainKey)) {
       return { ok: false, error: { phase: 'relay', cause: new Error(`${dstChainKey} is not an MPC-relay chain`) } };
     }
+    const release = await this.submitHubRelease({ hubTxHash, dstChainKey });
+    if (!release.ok) return release;
+    return this.waitForHubRelease({ release: release.value, timeout });
+  }
+
+  /**
+   * Notify the MPC relay of the release a hub tx sends to `dstChainKey`, which it does not watch the hub
+   * for, and return the release to read or wait on. Waits for the hub tx to confirm, never for the payout.
+   */
+  public async submitHubRelease({
+    hubTxHash,
+    dstChainKey,
+  }: {
+    hubTxHash: string;
+    dstChainKey: MpcRelayChainKey;
+  }): Promise<Result<HubRelease, SettlementFailure>> {
     try {
       const receipt = await this.hubProvider.publicClient.waitForTransactionReceipt({ hash: hubTxHash as Hex });
       if (receipt.status !== 'success') {
@@ -1355,12 +1377,38 @@ export class SpokeService {
       if (requests.length !== 1 || !request) {
         return missingFarSideHash(`hub tx ${hubTxHash} has ${requests.length} releases to ${dstChainKey}, expected 1`);
       }
+      const release = this.toHubRelease({ hubTxHash, logIndex: request.logIndex, dstChainKey });
+      const submitted = await this.getMpcRelaySettlement(dstChainKey).submitHubRelease(release);
+      if (!submitted.ok) return { ok: false, error: { phase: 'relay', cause: submitted.error } };
+      return { ok: true, value: release };
+    } catch (error) {
+      return { ok: false, error: { phase: 'relay', cause: error } };
+    }
+  }
 
-      const released = await relay.waitForHubRelease(this.toHubRelease(hubTxHash, request.logIndex), timeout);
+  /** One read of a release's record. It notifies nothing; the release is paid once `txs.release` is set. */
+  public async getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>> {
+    try {
+      return await this.getMpcRelaySettlement(release.dstChainKey).getHubReleaseRecord(release);
+    } catch (error) {
+      return { ok: false, error };
+    }
+  }
+
+  /** Wait until a {@link submitHubRelease submitted} release is paid, re-notifying it while it is not. */
+  public async waitForHubRelease({
+    release,
+    timeout,
+  }: {
+    release: HubRelease;
+    timeout?: number;
+  }): Promise<Result<TxHashPair, SettlementFailure>> {
+    try {
+      const released = await this.getMpcRelaySettlement(release.dstChainKey).waitForHubRelease(release, timeout);
       if (!released.ok) return { ok: false, error: { phase: 'relay', cause: released.error } };
       const payout = released.value.txs?.release?.hash;
-      if (!payout) return missingFarSideHash(`release from hub tx ${hubTxHash} settled without a payout tx`);
-      return { ok: true, value: { srcChainTxHash: hubTxHash, dstChainTxHash: payout } };
+      if (!payout) return missingFarSideHash(`release from hub tx ${release.hubTxHash} settled without a payout tx`);
+      return { ok: true, value: { srcChainTxHash: release.hubTxHash, dstChainTxHash: payout } };
     } catch (error) {
       return { ok: false, error: { phase: 'relay', cause: error } };
     }
@@ -1381,8 +1429,8 @@ export class SpokeService {
         if (requests.length > 1) {
           return { ok: false, error: new Error(`hub tx ${hubTxHash} has ${requests.length} releases to ${chainKey}`) };
         }
-        return await this.getMpcRelayService(chainKey)?.getHubReleaseRecord(
-          this.toHubRelease(hubTxHash, request.logIndex),
+        return await this.getHubReleaseRecord(
+          this.toHubRelease({ hubTxHash, logIndex: request.logIndex, dstChainKey: chainKey }),
         );
       }
       return undefined;
@@ -1402,20 +1450,22 @@ export class SpokeService {
     );
   }
 
-  private toHubRelease(hubTxHash: string, logIndex: number): HubRelease {
-    return { hubChainId: String(this.hubProvider.chainConfig.chain.chainId), hubTxHash, logIndex };
+  private toHubRelease({ hubTxHash, logIndex, dstChainKey }: Omit<HubRelease, 'hubChainId'>): HubRelease {
+    return { dstChainKey, hubChainId: String(this.hubProvider.chainConfig.chain.chainId), hubTxHash, logIndex };
   }
 
   /** The MPC-relay settlement service for a chain, or `undefined` when it rides the intent relay. */
   private getMpcRelayService(chainKey: SpokeChainKey): MpcRelaySettlement | undefined {
-    if (!isMpcRelayChainKeyType(chainKey)) return undefined;
+    return isMpcRelayChainKeyType(chainKey) ? this.getMpcRelaySettlement(chainKey) : undefined;
+  }
 
+  private getMpcRelaySettlement(chainKey: MpcRelayChainKey): MpcRelaySettlement {
     switch (getChainType(chainKey)) {
       case 'TRON':
         return this.tron;
       default:
         // Falling through to the intent relay would submit a packet nothing is waiting for.
-        throw new Error(`[SpokeService.settle] no MPC relay settlement service for chain ${chainKey}`);
+        throw new Error(`[SpokeService] no MPC relay settlement service for chain ${chainKey}`);
     }
   }
 
@@ -1428,6 +1478,39 @@ export class SpokeService {
   }
 
   /**
+   * Notify the MPC relay of a deposit broadcast on `chainKey`, without waiting for it to land: what a raw
+   * deposit needs once broadcast. Read it with {@link getMpcRelayDeposit}, or wait with {@link settle}.
+   */
+  public async submitMpcDeposit({
+    chainKey,
+    txHash,
+  }: {
+    chainKey: MpcRelayChainKey;
+    txHash: string;
+  }): Promise<Result<void>> {
+    try {
+      return await this.getMpcRelaySettlement(chainKey).submitDeposit(txHash);
+    } catch (error) {
+      return { ok: false, error };
+    }
+  }
+
+  /** One read of an MPC-relay withdraw-auth's record, by the trackingId it was submitted under. */
+  public async getMpcRelayWithdrawal({
+    chainKey,
+    trackingId,
+  }: {
+    chainKey: MpcRelayChainKey;
+    trackingId: string;
+  }): Promise<Result<WithdrawalRecord>> {
+    try {
+      return await this.getMpcRelaySettlement(chainKey).getWithdrawalRecord(trackingId);
+    } catch (error) {
+      return { ok: false, error };
+    }
+  }
+
+  /**
    * Wait for a spoke action to settle and return both hashes — the single settlement seam for feature
    * services, keeping the per-chain-family mechanics here. Whether settlement is needed stays with the
    * caller.
@@ -1437,10 +1520,23 @@ export class SpokeService {
    * resulting hub tx out to it. An MPC-relay chain (Tron) rides the MPC relay; every other spoke the
    * intent relay. A leg is only driven here when no relay picks it up on its own.
    *
-   * @returns the source tx and the far-side hash (the payout tx when a destination leg ran, else the hub
-   * tx), or a {@link SettlementFailure} naming the phase that failed.
+   * @returns the far-side hash (the payout tx when a destination leg ran, else the hub tx) beside the source
+   * tx, or beside the relay's trackingId for an outbound action from an MPC-relay chain, which has no source
+   * tx ({@link Settlement}); or a {@link SettlementFailure} naming the phase that failed.
    */
-  public async settle(params: SettleParams): Promise<Result<TxHashPair, SettlementFailure>> {
+  public async settle<K extends SpokeChainKey, D extends SettlementDirection>(
+    params: SettleParams<K, D>,
+  ): Promise<Result<Settlement<K, D>, SettlementFailure>> {
+    // The outcome's shape follows chainKey and direction, which the union below cannot carry.
+    return (await this.settleAny(params)) satisfies Result<
+      TxHashPair | MpcWithdrawalSettlement,
+      SettlementFailure
+    > as Result<Settlement<K, D>, SettlementFailure>;
+  }
+
+  private async settleAny(
+    params: SettleParams,
+  ): Promise<Result<TxHashPair | MpcWithdrawalSettlement, SettlementFailure>> {
     const { chainKey, tx, direction, relayData, timeout } = params;
     const hubChainKey = this.hubProvider.chainConfig.chain.key;
     // The hub is not a destination leg, and a withdraw-auth back to its own MPC chain is released by that relay.
@@ -1451,6 +1547,9 @@ export class SpokeService {
     try {
       const mpcRelay = this.getMpcRelayService(chainKey);
       if (mpcRelay) {
+        // An outbound `tx` is a withdraw-auth's trackingId: no tx exists on the source chain.
+        const outcome = (dstChainTxHash: string): TxHashPair | MpcWithdrawalSettlement =>
+          direction === 'inbound' ? { srcChainTxHash: tx, dstChainTxHash } : { trackingId: tx, dstChainTxHash };
         let hubTx: string;
         if (direction === 'inbound') {
           const settled = await mpcRelay.waitForDeposit(tx, timeout);
@@ -1466,16 +1565,16 @@ export class SpokeService {
           if (paysBack) {
             const release = settled.value.txs?.release?.hash;
             if (!release) return missingFarSideHash(`withdrawal ${tx} settled without a release tx`);
-            return { ok: true, value: { srcChainTxHash: tx, dstChainTxHash: release } };
+            return { ok: true, value: outcome(release) };
           }
           const burn = settled.value.txs?.burn?.hash;
           if (!burn) return missingFarSideHash(`withdrawal ${tx} settled without a hub tx`);
           hubTx = burn;
         }
-        if (!dstChainKey) return { ok: true, value: { srcChainTxHash: tx, dstChainTxHash: hubTx } };
+        if (!dstChainKey) return { ok: true, value: outcome(hubTx) };
         // The MPC relay produced this hub tx, so no relay knows of its outbound message yet.
         const out = await this.settleDestinationLeg(hubTx, dstChainKey, timeout);
-        return out.ok ? { ok: true, value: { srcChainTxHash: tx, dstChainTxHash: out.value } } : out;
+        return out.ok ? { ok: true, value: outcome(out.value) } : out;
       }
 
       if (mpcDst && chainKey === hubChainKey) return await this.settleHubRelease(tx, mpcDst, timeout);

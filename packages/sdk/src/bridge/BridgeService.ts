@@ -7,7 +7,7 @@ import {
   EvmVaultTokenService,
   EvmAssetManagerService,
   encodeContractCalls,
-  warnOnSmallMpcPayout,
+  assertMpcPayoutAboveMinimum,
   calculateFeeAmount,
   isNativeBitcoinTransfer,
   encodeRecipient,
@@ -77,6 +77,7 @@ import {
   type EvmRawTransaction,
   DEFAULT_RELAY_TX_TIMEOUT,
   BITCOIN_DUST_SATS,
+  type DepositReturnType,
 } from '@sodax/types';
 import { encodeFunctionData } from 'viem';
 import type { ConfigService } from '../shared/config/ConfigService.js';
@@ -988,7 +989,7 @@ export class BridgeService {
    */
   async createBridgeIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: BridgeParams<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>, BridgeCreateIntentError>> {
+  ): Promise<Result<IntentTxResult<K, Raw, 'deposit'>, BridgeCreateIntentError>> {
     const { params, skipSimulation, extras } = _params;
     // Per-action `extras.partnerFee` wins over the config-level `bridgePartnerFee` (undefined = no fee).
     // Resolved once so the dust guard below and `buildBridgeData` price the same fee.
@@ -1014,7 +1015,6 @@ export class BridgeService {
         ...baseCtx,
         field: 'dstToken',
       });
-      warnOnSmallMpcPayout(this.config.logger, dstToken, params.amount, srcToken.decimals);
       // Reject unregistered chain keys up front (parity with SwapService.createIntent). Redundant with
       // token resolution for most inputs, but gives a VALIDATION_FAILED tagged with the chain-key field
       // for JS/cast consumers instead of a deeper, less specific failure.
@@ -1050,6 +1050,16 @@ export class BridgeService {
           `Post-fee BTC delivery (${delivered}) is below the Bitcoin dust limit of ${BITCOIN_DUST_SATS} sats`,
           { ...baseCtx, field: 'amount' },
         );
+      }
+      if (isMpcRelayChainKey(params.dstChainKey)) {
+        // Like the dust guard, the floor applies to what arrives after the partner fee.
+        const { delivered } = this.computeBridgeAmounts(params.amount, srcToken, dstToken, partnerFee);
+        assertMpcPayoutAboveMinimum({
+          feature: 'bridge',
+          token: dstToken,
+          amount: delivered,
+          context: { ...baseCtx, field: 'amount' },
+        });
       }
 
       // Stacks addresses can't yield the signer public key at raw-tx build time, so a raw Stacks
@@ -1125,7 +1135,7 @@ export class BridgeService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies DepositReturnType<K, Raw> as DepositReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };

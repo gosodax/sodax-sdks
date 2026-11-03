@@ -26,7 +26,11 @@ import {
   decodeAbiParameters,
   decodeFunctionData,
   erc20Abi,
+  pad,
   parseAbiParameters,
+  toEventSelector,
+  toHex,
+  type TransactionReceipt,
   UserRejectedRequestError,
 } from 'viem';
 import type {
@@ -35,6 +39,7 @@ import type {
   EvmBatchResult,
   EvmRawTransaction,
   IEvmWalletProvider,
+  PartnerFee,
   SpokeChainKey,
 } from '@sodax/types';
 import { ChainKeys, DEFAULT_BACKEND_API_TIMEOUT, DEFAULT_RELAY_TX_TIMEOUT, getIntentRelayChainId } from '@sodax/types';
@@ -1778,34 +1783,92 @@ describe('BridgeService.getDetailedStatus', () => {
   });
 });
 
+// Below `settle`: only the relay seams are stubbed, so the hub release a bridge to Tron needs is driven for real.
+describe('BridgeService.bridge — to Tron, through the MPC relay seams', () => {
+  it('submits the hub delivery as a Tron release, waits on that release, and returns its payout', async () => {
+    const hubTx = `0x${'9'.repeat(64)}` as const;
+    vi.spyOn(sodax.bridge, 'createBridgeIntent').mockResolvedValueOnce({
+      ok: true,
+      value: { tx: '0xspokeTx', relayData: { address: HUB_WALLET, payload: '0x' } },
+    });
+    vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
+    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: hubTx } });
+    const bridgeRequest = {
+      address: sodax.hubProvider.chainConfig.addresses.assetManager,
+      logIndex: 2,
+      topics: [toEventSelector('BridgeRequest(uint256,bytes,bytes)'), pad(toHex(728126428n), { size: 32 })],
+    };
+    vi.spyOn(sodax.hubProvider.publicClient, 'waitForTransactionReceipt')
+      // Only `status` and `logs` are read; a full receipt carries block data the test has no use for.
+      .mockResolvedValue({ status: 'success', logs: [bridgeRequest] } as unknown as TransactionReceipt);
+    const submit = vi.spyOn(sodax.spoke.tron, 'submitHubRelease').mockResolvedValue({ ok: true, value: undefined });
+    const wait = vi.spyOn(sodax.spoke.tron, 'waitForHubRelease').mockResolvedValue({
+      ok: true,
+      value: {
+        depositId: 'id',
+        status: 'submitted',
+        createdAt: null,
+        txs: { release: { chain: 'tron', hash: 'tronPayout', ts: 0 } },
+      },
+    });
+
+    const result = await sodax.bridge.bridge(bridgeInput(ARBITRUM, ChainKeys.TRON_MAINNET));
+
+    const release = { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: hubTx, logIndex: 2 };
+    expect(submit).toHaveBeenCalledWith(release);
+    expect(wait).toHaveBeenCalledWith(release, expect.any(Number));
+    expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: 'tronPayout' } });
+  });
+});
+
 describe('BridgeService.createBridgeIntent — small payout to an MPC-relay chain', () => {
   const sodaxBE = new Sodax({ logger: 'silent' });
-  const src = { address: SAMPLE_TOKEN, chainKey: ARBITRUM, symbol: 'USDT', decimals: 18 };
+  // Any non-vault hub asset: each endpoint translates through the 18-dp vault units.
+  const hubAsset = '0x2222222222222222222222222222222222222222' as Address;
+  const src = { address: SAMPLE_TOKEN, chainKey: ARBITRUM, symbol: 'USDT', decimals: 18, hubAsset };
   const dst = {
     address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
     chainKey: ChainKeys.TRON_MAINNET,
     symbol: 'USDT',
     decimals: 6,
+    hubAsset,
   };
 
-  const run = async (amount: bigint) => {
+  const run = async (amount: bigint, partnerFee?: PartnerFee) => {
     // Private, and the only seam that gives the two endpoints decimals that differ.
     const resolver = sodaxBE.bridge as unknown as { resolveBridgeEndpointToken: (chainKey: string) => unknown };
     vi.spyOn(resolver, 'resolveBridgeEndpointToken').mockImplementation(chainKey =>
       chainKey === ChainKeys.TRON_MAINNET ? dst : src,
     );
-    const warn = vi.spyOn(sodaxBE.config.logger, 'warn').mockImplementation(() => undefined);
+    const pastValidation = vi
+      .spyOn(sodaxBE.hubProvider, 'getUserHubWalletAddress')
+      .mockRejectedValue(new Error('past validation'));
     const input = bridgeInput(ARBITRUM, ChainKeys.TRON_MAINNET);
-    await sodaxBE.bridge.createBridgeIntent({ ...input, params: { ...input.params, amount } });
-    return warn;
+    const result = await sodaxBE.bridge.createBridgeIntent({
+      ...input,
+      params: { ...input.params, amount, recipient: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow' },
+      extras: partnerFee ? { partnerFee } : undefined,
+    });
+    return { result, pastValidation };
   };
 
-  it('warns on the source amount converted to the payout decimals', async () => {
-    expect(await run(3n * 10n ** 18n)).toHaveBeenCalledWith(expect.stringContaining('advised minimum of 3'));
+  const expectRefused = ({ result, pastValidation }: Awaited<ReturnType<typeof run>>) => {
+    invariant(!result.ok, 'expected a refusal');
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.reason).toBe('mpc-payout-below-minimum');
+    expect(pastValidation).not.toHaveBeenCalled();
+  };
+
+  it('refuses the source amount converted to the payout decimals at the minimum', async () => {
+    expectRefused(await run(3n * 10n ** 18n));
   });
 
-  it('stays silent above the minimum, however large the source decimals make it look', async () => {
-    expect(await run(4n * 10n ** 18n)).not.toHaveBeenCalledWith(expect.stringContaining('advised minimum'));
+  it('refuses on what arrives after the partner fee, not the gross amount', async () => {
+    expectRefused(await run(31n * 10n ** 17n, { address: SAMPLE_USER, percentage: 500 }));
+  });
+
+  it('passes above the minimum, however large the source decimals make it look', async () => {
+    expect((await run(4n * 10n ** 18n)).pastValidation).toHaveBeenCalled();
   });
 });
 

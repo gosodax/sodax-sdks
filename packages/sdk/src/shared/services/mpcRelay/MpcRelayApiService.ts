@@ -1,4 +1,4 @@
-import type { HttpUrl, MpcWithdrawMessage, MpcWithdrawScheme, Result } from '@sodax/types';
+import type { HttpUrl, MpcRelayChainKey, MpcWithdrawMessage, MpcWithdrawScheme, Result } from '@sodax/types';
 import { encodeAbiParameters, keccak256, type Hex } from 'viem';
 import { invariant } from '../../utils/tiny-invariant.js';
 import { RELAY_ERROR_CODES } from '../intentRelay/IntentRelayApiService.js';
@@ -10,26 +10,34 @@ import { RELAY_ERROR_CODES } from '../intentRelay/IntentRelayApiService.js';
  */
 
 /**
- * Settlement surface an MPC-relay spoke service implements, so no feature service learns a chain name.
- * An implementation may raise `timeout` to a chain-specific floor, but should not shorten it.
+ * Settlement surface an MPC-relay spoke service implements, so no feature service learns a chain name. Each
+ * operation has a submit that only notifies, a one-read get, and a wait that polls (and re-notifies, which is
+ * idempotent) until it lands. An implementation may raise a wait's `timeout` to a chain floor, never shorten it.
  */
 export interface MpcRelaySettlement {
-  waitForDeposit(tx: string, timeout?: number): Promise<Result<DepositRecord>>;
-  /** One unpolled read of a deposit's record, for callers that poll on their own schedule. */
+  /** Notify the relay of a broadcast deposit, without waiting for it to land. */
+  submitDeposit(tx: string): Promise<Result<void>>;
   getDepositRecord(tx: string): Promise<Result<DepositRecord>>;
+  waitForDeposit(tx: string, timeout?: number): Promise<Result<DepositRecord>>;
+  /** A withdraw-auth is submitted when signed; this reads its record by the `trackingId` that returned. */
+  getWithdrawalRecord(trackingId: string): Promise<Result<WithdrawalRecord>>;
   waitForWithdrawal(
     trackingId: string,
     timeout?: number,
     until?: WithdrawalSettledOn,
   ): Promise<Result<WithdrawalRecord>>;
-  /** Notify the relay of a hub tx releasing to this chain and wait until the release is recorded. */
-  waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>>;
+  /** Notify the relay of a hub tx releasing to this chain, without waiting: the relay does not watch the hub. */
+  submitHubRelease(release: HubRelease): Promise<Result<void>>;
   /** One read of a hub release's record, without notifying: a status read must not change anything. */
   getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>>;
+  waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>>;
 }
 
-/** A hub tx's `BridgeRequest` to an MPC-relay chain: the relay keys its release on all three. */
-export type HubRelease = { hubChainId: string; hubTxHash: string; logIndex: number };
+/**
+ * A hub tx's `BridgeRequest` to an MPC-relay chain. The relay keys its release on the hub chain, tx and log
+ * index, so re-notifying or reading with the same value always reaches the same release. JSON-safe.
+ */
+export type HubRelease = { dstChainKey: MpcRelayChainKey; hubChainId: string; hubTxHash: string; logIndex: number };
 
 export type MpcDepositMethod = 'memo' | 'address';
 

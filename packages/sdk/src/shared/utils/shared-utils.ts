@@ -9,6 +9,8 @@ import {
 } from '../guards.js';
 import { canonicalizeBitcoinAddress, isValidBitcoinAddress } from '../entities/btc/btc-utils.js';
 import type { ConfigService } from '../config/ConfigService.js';
+import { SodaxError } from '../../errors/SodaxError.js';
+import type { SodaxErrorContext } from '../../errors/codes.js';
 import {
   type SpokeChainKey,
   type Hex,
@@ -20,12 +22,11 @@ import {
   FEE_PERCENTAGE_SCALE,
   type PartnerFee,
   type QuoteType,
-  isMpcRelayChainKey,
-  getMpcPayoutWarning,
-  type SodaxLogger,
+  getUnmetMpcPayoutMinimum,
+  type SodaxFeature,
 } from '@sodax/types';
 import { formatUnits, hexToBytes, isAddress, toHex } from 'viem';
-import { tronHashToBase58, tronIdentityBytes } from '../services/spoke/tron-utils.js';
+import { tronHashToBase58, tronIdentityBytes, tronRecipientBytes } from '../services/spoke/tron-utils.js';
 import { bcs } from '@mysten/sui/bcs';
 import { PublicKey } from '@solana/web3.js';
 import { Address as StellarAddress, xdr } from '@stellar/stellar-sdk';
@@ -153,17 +154,30 @@ export function BigIntToHex(value: bigint): Hex {
   return `0x${value.toString(16)}`;
 }
 
-/** Log, without blocking, a payout small enough that the MPC relay's release fee could consume it. */
-export function warnOnSmallMpcPayout(
-  logger: Pick<SodaxLogger, 'warn'>,
-  token: Pick<XToken, 'chainKey' | 'symbol' | 'decimals'>,
-  amount: bigint,
-  amountDecimals?: number,
-): void {
-  const warning = getMpcPayoutWarning(token, amount, amountDecimals);
-  if (!warning) return;
-  logger.warn(
-    `Paying out ${warning.symbol} on ${token.chainKey} at or below the advised minimum of ${formatUnits(warning.minimum, warning.decimals)}: the relay deducts a release fee, and releases nothing once it reaches the amount`,
+/**
+ * Refuses a payout at or below its {@link MpcRelayPayoutMinimums} entry, before anything is signed: the relay
+ * takes its release fee from the payout and releases nothing once the fee reaches it, after the hub has burned it.
+ */
+export function assertMpcPayoutAboveMinimum({
+  feature,
+  token,
+  amount,
+  amountDecimals,
+  context,
+}: {
+  feature: SodaxFeature;
+  token: Pick<XToken, 'chainKey' | 'symbol' | 'decimals'>;
+  amount: bigint;
+  /** Decimals `amount` is in, when not the token's own. */
+  amountDecimals?: number;
+  context?: Partial<SodaxErrorContext>;
+}): void {
+  const unmet = getUnmetMpcPayoutMinimum({ token, amount, amountDecimals });
+  if (!unmet) return;
+  throw new SodaxError(
+    'VALIDATION_FAILED',
+    `A ${unmet.symbol} payout to ${token.chainKey} must be greater than ${formatUnits(unmet.minimum, unmet.decimals)} ${unmet.symbol}: the relay's release fee comes out of it`,
+    { feature, context: { phase: 'validate', ...context, reason: 'mpc-payout-below-minimum' } },
   );
 }
 
@@ -171,18 +185,13 @@ export function warnOnSmallMpcPayout(
  * Recipient bytes for a hub release — the `to` an `AssetManager.transfer` pays out to.
  *
  * This is NOT {@link encodeAddress}, which produces the withdrawal-auth identity / hub-wallet salt.
- * For an MPC-relay chain the release contract reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`,
- * so the 20-byte identity has to be left-padded into a full word; passing the bare identity
- * mis-decodes the recipient. Intent-relay chains keep their own encoding unchanged.
+ * Tron's release reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so its recipient is the
+ * left-padded word; the bare identity mis-decodes. The chain type picks the encoding, never the relay
+ * a chain settles through; every other type keeps {@link encodeAddress}.
  */
 export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): Hex {
-  const encoded = encodeAddress(spokeChainId, address);
-  if (!isMpcRelayChainKey(spokeChainId)) return encoded;
-  const hash = encoded.replace(/^0x/, '');
-  if (hash.length !== 40) {
-    throw new Error(`[encodeRecipient] expected a 20-byte identity for ${spokeChainId}, got ${hash.length / 2} bytes`);
-  }
-  return `0x${'00'.repeat(12)}${hash}`;
+  if (getChainType(spokeChainId) === 'TRON') return tronRecipientBytes(address);
+  return encodeAddress(spokeChainId, address);
 }
 
 export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex {

@@ -1,18 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ChainKeys } from '@sodax/types';
 import { encodeAddress, encodeRecipient, reverseEncodeAddress } from './shared-utils.js';
 import { tronBase58ToHex } from '../services/spoke/tron-utils.js';
 
+// Every chain counts as MPC-relayed here: relay membership must not choose the recipient encoding.
+vi.mock('@sodax/types', async importOriginal => ({
+  ...(await importOriginal<typeof import('@sodax/types')>()),
+  isMpcRelayChainKey: () => true,
+}));
+
 /**
- * A hub release reads its recipient from `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so an
- * MPC-relay chain's recipient is the LEFT-PADDED word — not the bare identity that authorizes the
- * withdrawal. The two encodings are different values for the same address and are not
- * interchangeable; conflating them mis-decodes the payout target.
+ * A Tron release reads its recipient from `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so the
+ * recipient is the LEFT-PADDED word — not the bare identity that authorizes the withdrawal. The two
+ * encodings are different values for the same address; conflating them mis-decodes the payout target.
  */
 
 const TRON_ADDRESS = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
 
-describe('encodeRecipient — MPC relay chains', () => {
+describe('encodeRecipient — Tron', () => {
   it('left-pads the 20-byte hash into a 32-byte word', () => {
     const recipient = encodeRecipient(ChainKeys.TRON_MAINNET, TRON_ADDRESS);
 
@@ -49,10 +54,9 @@ describe('reverseEncodeAddress — Tron', () => {
   });
 });
 
-describe('encodeRecipient — intent relay chains', () => {
-  it('leaves a non-MPC chain encoding untouched', () => {
+describe('encodeRecipient — other chain types', () => {
+  it('keeps the address encoding even when the chain settles through the MPC relay', () => {
     const evm = '0x1111111111111111111111111111111111111111';
-    // Only the MPC release contract reads the padded word; padding elsewhere would break it.
     expect(encodeRecipient(ChainKeys.ARBITRUM_MAINNET, evm)).toBe(encodeAddress(ChainKeys.ARBITRUM_MAINNET, evm));
   });
 });

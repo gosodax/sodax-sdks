@@ -437,7 +437,7 @@ describe('TronSpokeService.deposit — notify failure', () => {
 
     // The funds are already in the reserve at this point: an error without the hash would lose them.
     expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toMatch(/\b[0-9a-f]{64} broadcast but the relay was not notified/);
+    expect((failure as Error).message).toMatch(/deposit [0-9a-f]{64} was not notified/);
     expect(callTo('/wallet/broadcasthex')).toBeDefined();
     // Notifying twice is harmless, so the transient failure is retried before giving up.
     expect(vi.mocked(MpcRelayApiService.notify).mock.calls.length).toBeGreaterThan(1);
@@ -483,24 +483,29 @@ describe('TronSpokeService.waitForDeposit', () => {
   });
 });
 
-describe('TronSpokeService.waitForHubRelease', () => {
-  const RELEASE = { hubChainId: '146', hubTxHash: `0x${'b'.repeat(64)}`, logIndex: 2 };
+describe('TronSpokeService hub release: submit, read, wait', () => {
+  const RELEASE = { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: `0x${'b'.repeat(64)}`, logIndex: 2 };
 
-  it('notifies the hub tx as a withdrawal, and keeps re-notifying while the release is pending', async () => {
-    vi.useFakeTimers();
+  it('submits by notifying the hub tx as a withdrawal once, without waiting for the release', async () => {
     const notifySpy = vi.mocked(MpcRelayApiService.notify);
     notifySpy.mockClear();
-    // Never resolves — the wait is what we are observing, not its outcome.
-    const wait = vi.spyOn(MpcRelayApiService, 'waitForHubRelease').mockReturnValue(new Promise(() => undefined));
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForHubRelease');
 
-    void tron.waitForHubRelease(RELEASE);
-    await vi.advanceTimersByTimeAsync(46_000);
+    expect(await tron.submitHubRelease(RELEASE)).toEqual({ ok: true, value: undefined });
 
     // The relay has no hub watcher: without this notify the burned tokens are never released.
+    expect(notifySpy).toHaveBeenCalledOnce();
     expect(notifySpy).toHaveBeenCalledWith(expect.anything(), '146', RELEASE.hubTxHash, 'withdrawal');
-    expect(notifySpy.mock.calls.length).toBeGreaterThanOrEqual(3);
-    expect(wait).toHaveBeenCalledWith(expect.anything(), RELEASE, expect.objectContaining({ timeout: 300_000 }));
-    vi.useRealTimers();
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it('keeps the hub tx in the error when the relay cannot be notified', async () => {
+    vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay down') });
+
+    const res = await tron.submitHubRelease(RELEASE);
+
+    expect(res.ok).toBe(false);
+    expect(!res.ok && String(res.error)).toContain(RELEASE.hubTxHash);
   });
 
   it('reads a release record once, by its lowercased id, without notifying', async () => {
@@ -519,14 +524,41 @@ describe('TronSpokeService.waitForHubRelease', () => {
     expect(notifySpy).not.toHaveBeenCalled();
   });
 
-  it('returns the hub tx in the error when the relay cannot be notified, without waiting', async () => {
-    vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay down') });
-    const wait = vi.spyOn(MpcRelayApiService, 'waitForHubRelease');
+  it('keeps re-notifying while it waits, since the verifier may have dropped an early notify', async () => {
+    vi.useFakeTimers();
+    const notifySpy = vi.mocked(MpcRelayApiService.notify);
+    notifySpy.mockClear();
+    // Never resolves — the wait is what we are observing, not its outcome.
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForHubRelease').mockReturnValue(new Promise(() => undefined));
 
-    const res = await tron.waitForHubRelease(RELEASE);
+    void tron.waitForHubRelease(RELEASE);
+    await vi.advanceTimersByTimeAsync(46_000);
 
-    expect(res.ok).toBe(false);
-    expect(!res.ok && String(res.error)).toContain(RELEASE.hubTxHash);
+    expect(notifySpy).toHaveBeenCalledWith(expect.anything(), '146', RELEASE.hubTxHash, 'withdrawal');
+    expect(notifySpy.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(wait).toHaveBeenCalledWith(expect.anything(), RELEASE, expect.objectContaining({ timeout: 300_000 }));
+    vi.useRealTimers();
+  });
+});
+
+describe('TronSpokeService withdraw-auth and deposit: submit and read', () => {
+  it('reads a withdrawal record once, by its trackingId', async () => {
+    const record = { ok: true as const, value: { trackingId: '0xtrack' as const, status: 'burned' as const } };
+    const read = vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue(record);
+
+    expect(await tron.getWithdrawalRecord('0xtrack')).toEqual(record);
+    expect(read).toHaveBeenCalledWith(expect.anything(), '0xtrack');
+  });
+
+  it('submits a broadcast deposit by notifying it once, without waiting for the mint', async () => {
+    const notifySpy = vi.mocked(MpcRelayApiService.notify);
+    notifySpy.mockClear();
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit');
+
+    expect(await tron.submitDeposit('ab'.repeat(32))).toEqual({ ok: true, value: undefined });
+
+    expect(notifySpy).toHaveBeenCalledOnce();
+    expect(notifySpy).toHaveBeenCalledWith(expect.anything(), '728126428', 'ab'.repeat(32));
     expect(wait).not.toHaveBeenCalled();
   });
 });

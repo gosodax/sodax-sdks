@@ -13,6 +13,7 @@ import { MpcRelayChainMap, type Hex, type MpcRelayChainKey, type SpokeChainKey }
 import { pad, toEventSelector, toHex, type TransactionReceipt } from 'viem';
 import { Sodax } from '../../entities/Sodax.js';
 import * as IntentRelayApiService from '../intentRelay/IntentRelayApiService.js';
+import type { HubRelease } from '../mpcRelay/MpcRelayApiService.js';
 
 const sodax = new Sodax();
 const spoke = sodax.spoke;
@@ -209,7 +210,8 @@ describe('SpokeService.settle — Tron MPC relay', () => {
 
     expect(waitForWithdrawal).toHaveBeenCalledWith(TRACKING_ID, 90_000, 'released');
     expect(relay).not.toHaveBeenCalled();
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: TRACKING_ID, dstChainTxHash: RELEASE } });
+    // A withdraw-auth has no Tron tx: the tracking id must not pose as one.
+    expect(result).toEqual({ ok: true, value: { trackingId: TRACKING_ID, dstChainTxHash: RELEASE } });
   });
 
   // Callers hand `dstChainTxHash` on as the hub (or release) tx, so the source id must never stand in for it.
@@ -306,6 +308,7 @@ describe('SpokeService.settle — destination legs', () => {
   }
 
   function stubRelease() {
+    vi.spyOn(spoke.tron, 'submitHubRelease').mockResolvedValue({ ok: true, value: undefined });
     return vi.spyOn(spoke.tron, 'waitForHubRelease').mockResolvedValue({
       ok: true,
       value: {
@@ -331,7 +334,9 @@ describe('SpokeService.settle — destination legs', () => {
       dstChainKey: TRON,
     });
 
-    expect(release).toHaveBeenCalledWith({ hubChainId: '146', hubTxHash: HUB_TX, logIndex: 4 }, 1_000);
+    const ref = { dstChainKey: TRON, hubChainId: '146', hubTxHash: HUB_TX, logIndex: 4 };
+    expect(spoke.tron.submitHubRelease).toHaveBeenCalledWith(ref);
+    expect(release).toHaveBeenCalledWith(ref, 1_000);
     expect(relay).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true, value: { srcChainTxHash: HUB_TX, dstChainTxHash: PAYOUT } });
   });
@@ -373,7 +378,7 @@ describe('SpokeService.settle — destination legs', () => {
     // Nothing is released on Tron, so the wait ends at the hub tx instead of timing out on `released`.
     expect(waitForWithdrawal).toHaveBeenCalledWith(TRACKING_ID, undefined, 'burned');
     expect(relay).toHaveBeenCalledWith(expect.objectContaining({ srcTxHash: HUB_TX, chainKey: SONIC }));
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: TRACKING_ID, dstChainTxHash: PAYOUT } });
+    expect(result).toEqual({ ok: true, value: { trackingId: TRACKING_ID, dstChainTxHash: PAYOUT } });
   });
 
   it('ends a Tron withdraw-auth to the hub at its hub tx, relaying nothing', async () => {
@@ -393,7 +398,7 @@ describe('SpokeService.settle — destination legs', () => {
 
     expect(spoke.tron.waitForWithdrawal).toHaveBeenCalledWith(TRACKING_ID, undefined, 'burned');
     expect(relay).not.toHaveBeenCalled();
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: TRACKING_ID, dstChainTxHash: HUB_TX } });
+    expect(result).toEqual({ ok: true, value: { trackingId: TRACKING_ID, dstChainTxHash: HUB_TX } });
   });
 
   it('submits the hub mint of a Tron deposit to the intent relay when it pays out elsewhere', async () => {
@@ -463,6 +468,40 @@ describe('SpokeService.settle — destination legs', () => {
     expect(!result.ok && result.error.phase).toBe('relay');
   });
 
+  describe('submitHubRelease and waitForHubRelease', () => {
+    it('submits a release once the hub tx confirms, and returns the release without waiting for the payout', async () => {
+      stubHubReceipt([bridgeRequest(4)]);
+      const wait = stubRelease();
+
+      const submitted = await spoke.submitHubRelease({ hubTxHash: HUB_TX, dstChainKey: TRON });
+
+      const ref = { dstChainKey: TRON, hubChainId: '146', hubTxHash: HUB_TX, logIndex: 4 };
+      expect(submitted).toEqual({ ok: true, value: ref });
+      expect(spoke.tron.submitHubRelease).toHaveBeenCalledWith(ref);
+      expect(wait).not.toHaveBeenCalled();
+    });
+
+    it('refuses a reverted hub tx, notifying nothing', async () => {
+      stubHubReceipt([bridgeRequest(4)], 'reverted');
+      stubRelease();
+
+      const submitted = await spoke.submitHubRelease({ hubTxHash: HUB_TX, dstChainKey: TRON });
+
+      expect(!submitted.ok && submitted.error.phase).toBe('verification');
+      expect(spoke.tron.submitHubRelease).not.toHaveBeenCalled();
+    });
+
+    it('waits on a submitted release by the same reference, to its payout', async () => {
+      const wait = stubRelease();
+      const ref = { dstChainKey: TRON, hubChainId: '146', hubTxHash: HUB_TX, logIndex: 4 } satisfies HubRelease;
+
+      const settled = await spoke.waitForHubRelease({ release: ref, timeout: 1_000 });
+
+      expect(wait).toHaveBeenCalledWith(ref, 1_000);
+      expect(settled).toEqual({ ok: true, value: { srcChainTxHash: HUB_TX, dstChainTxHash: PAYOUT } });
+    });
+  });
+
   describe('getHubRelease', () => {
     const readReceipt = (logs: ReturnType<typeof bridgeRequest>[]) =>
       vi
@@ -480,7 +519,7 @@ describe('SpokeService.settle — destination legs', () => {
       const wait = stubRelease();
 
       expect(await spoke.getHubRelease(HUB_TX)).toEqual(record);
-      expect(read).toHaveBeenCalledWith({ hubChainId: '146', hubTxHash: HUB_TX, logIndex: 4 });
+      expect(read).toHaveBeenCalledWith({ dstChainKey: TRON, hubChainId: '146', hubTxHash: HUB_TX, logIndex: 4 });
       expect(wait).not.toHaveBeenCalled();
     });
 
@@ -526,5 +565,25 @@ describe('SpokeService.settle — destination legs', () => {
 
     expect(release).not.toHaveBeenCalled();
     expect(!result.ok && result.error.phase).toBe('verification');
+  });
+});
+
+// The non-blocking primitives a backend drives on its own schedule, persisting only the reference.
+describe('SpokeService — MPC relay submit and read', () => {
+  it('submits a broadcast deposit through its chain service, without waiting for the mint', async () => {
+    const submit = vi.spyOn(spoke.tron, 'submitDeposit').mockResolvedValue({ ok: true, value: undefined });
+    const wait = vi.spyOn(spoke.tron, 'waitForDeposit');
+
+    expect(await spoke.submitMpcDeposit({ chainKey: TRON, txHash: SRC_TX })).toEqual({ ok: true, value: undefined });
+    expect(submit).toHaveBeenCalledWith(SRC_TX);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it('reads a withdraw-auth once, by its tracking id', async () => {
+    const record = { ok: true as const, value: { trackingId: '0xtrack' as const, status: 'submitted' as const } };
+    const read = vi.spyOn(spoke.tron, 'getWithdrawalRecord').mockResolvedValue(record);
+
+    expect(await spoke.getMpcRelayWithdrawal({ chainKey: TRON, trackingId: '0xtrack' })).toEqual(record);
+    expect(read).toHaveBeenCalledWith('0xtrack');
   });
 });

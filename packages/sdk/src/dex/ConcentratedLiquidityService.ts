@@ -27,8 +27,8 @@ import type {
   Result,
   SpokeChainKey,
   SpokeExecActionParams,
-  TxReturnType,
   XToken,
+  SendMessageReturnType,
 } from '@sodax/types';
 import { isMpcRelayChainKey } from '@sodax/types';
 import type { IntentTxResult, TxHashPair } from '../shared/types/types.js';
@@ -451,7 +451,7 @@ export class ClService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, boolean> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, boolean> as SendMessageReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };
@@ -598,7 +598,7 @@ export class ClService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, Raw> as SendMessageReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: encodeContractCalls(calls) },
         },
       };
@@ -686,7 +686,7 @@ export class ClService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, Raw> as SendMessageReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };
@@ -1089,7 +1089,7 @@ export class ClService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, Raw> as SendMessageReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };

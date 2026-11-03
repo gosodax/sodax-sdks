@@ -10,6 +10,7 @@ import { encodeAddress } from '../shared/utils/shared-utils.js';
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import { noopAnalytics } from '../shared/analytics.js';
 import { RecoveryService } from './RecoveryService.js';
+import { isSodaxError } from '../errors/SodaxError.js';
 
 describe('RecoveryService.withdrawHubAsset', () => {
   it('encodes non-EVM spoke addresses before building the asset manager transfer payload', async () => {
@@ -65,5 +66,38 @@ describe('RecoveryService.withdrawHubAsset', () => {
     expect(decodedTransfer.args[1]).toBe(encodeAddress(ChainKeys.ICON_MAINNET, srcAddress));
     expect(decodedTransfer.args[1]).not.toBe(srcAddress);
     expect(decodedTransfer.args[2]).toBe(amount);
+  });
+});
+
+describe('RecoveryService.withdrawHubAsset — payout to an MPC-relay chain', () => {
+  it('refuses a release at the minimum before building the message', async () => {
+    const config = {
+      getSpokeTokenFromOriginalAssetAddress: vi.fn(() => ({
+        chainKey: ChainKeys.TRON_MAINNET,
+        symbol: 'TRX',
+        decimals: 6,
+        hubAsset: '0x0000000000000000000000000000000000002000',
+      })),
+      analytics: noopAnalytics,
+    } as unknown as ConfigService; // only the two members withdrawHubAsset reads
+    const hubProvider = { config, getUserHubWalletAddress: vi.fn() } as unknown as HubProvider; // never reached
+    const spoke = { sendMessage: vi.fn() } as unknown as SpokeService; // never reached
+    const recovery = new RecoveryService({ config, hubProvider, spoke });
+
+    const result = await recovery.withdrawHubAsset({
+      raw: true,
+      params: {
+        srcChainKey: ChainKeys.TRON_MAINNET,
+        srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+        token: '0x0000000000000000000000000000000000000000',
+        amount: 10_000_000n,
+      },
+    });
+
+    invariant(!result.ok && isSodaxError(result.error), 'expected a refusal');
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.reason).toBe('mpc-payout-below-minimum');
+    expect(hubProvider.getUserHubWalletAddress).not.toHaveBeenCalled();
+    expect(spoke.sendMessage).not.toHaveBeenCalled();
   });
 });

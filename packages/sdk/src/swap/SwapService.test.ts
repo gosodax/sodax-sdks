@@ -27,6 +27,7 @@ import {
   type IStellarWalletProvider,
   type ITronWalletProvider,
   type IWalletProvider,
+  type PartnerFee,
   DEFAULT_BACKEND_API_TIMEOUT,
   DEFAULT_RELAY_TX_TIMEOUT,
   SolverIntentErrorCode,
@@ -1793,43 +1794,59 @@ describe('SwapService.getSolvedIntentPacket', () => {
   });
 
   // The intent relay never delivers to an MPC-relay chain, so asking it could only time out.
-  describe('to an MPC-relay destination', () => {
-    it('returns the payout from the MPC relay as the packet destination, not asking the intent relay', async () => {
-      const release = vi
-        .spyOn(sodax.spoke, 'settleHubRelease')
-        .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xfill', dstChainTxHash: 'tronPayout' } });
+  it('fails for an MPC-relay destination without asking the relayer or inventing a packet', async () => {
+    const release = vi.spyOn(sodax.spoke, 'submitHubRelease');
 
-      const result = await sodax.swaps.getSolvedIntentPacket({
-        chainId: ChainKeys.TRON_MAINNET,
-        fillTxHash: '0xfill',
-        timeout: 5_000,
-      });
+    const result = await sodax.swaps.getSolvedIntentPacket({ chainId: ChainKeys.TRON_MAINNET, fillTxHash: '0xfill' });
 
-      expect(release).toHaveBeenCalledWith('0xfill', ChainKeys.TRON_MAINNET, 5_000);
-      expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
-      expect(result).toMatchObject({
-        ok: true,
-        value: {
-          src_chain_id: 146,
-          src_tx_hash: '0xfill',
-          status: 'executed',
-          dst_chain_id: 728126428,
-          dst_tx_hash: 'tronPayout',
-        },
-      });
+    invariant(!result.ok, 'expected a refusal');
+    expect(String(result.error)).toContain('waitForIntentDelivery');
+    expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+  });
+});
+
+describe('SwapService.waitForIntentDelivery', () => {
+  const RELEASE = { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: '0xfill', logIndex: 3 };
+
+  it('returns the relay packet and its destination tx for an intent-relay destination', async () => {
+    const packet = { dst_tx_hash: '0xdstTxHash' };
+    mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: true, value: packet });
+
+    const result = await sodax.swaps.waitForIntentDelivery({ chainId: ChainKeys.BSC_MAINNET, fillTxHash: '0xfill' });
+
+    expect(result).toEqual({ ok: true, value: { source: 'relay', dstTxHash: '0xdstTxHash', packet } });
+  });
+
+  it('submits the fill as a release to an MPC-relay destination and waits on that same release', async () => {
+    const submit = vi.spyOn(sodax.spoke, 'submitHubRelease').mockResolvedValueOnce({ ok: true, value: RELEASE });
+    const wait = vi
+      .spyOn(sodax.spoke, 'waitForHubRelease')
+      .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xfill', dstChainTxHash: 'tronPayout' } });
+
+    const result = await sodax.swaps.waitForIntentDelivery({
+      chainId: ChainKeys.TRON_MAINNET,
+      fillTxHash: '0xfill',
+      timeout: 5_000,
     });
 
-    it('surfaces the relay failure itself, so RELAY_TIMEOUT stays readable on `error.message`', async () => {
-      const timeoutError = new Error('RELAY_TIMEOUT');
-      vi.spyOn(sodax.spoke, 'settleHubRelease').mockResolvedValueOnce({
-        ok: false,
-        error: { phase: 'relay', cause: timeoutError },
-      });
+    expect(submit).toHaveBeenCalledWith({ hubTxHash: '0xfill', dstChainKey: ChainKeys.TRON_MAINNET });
+    expect(wait).toHaveBeenCalledWith({ release: RELEASE, timeout: 5_000 });
+    expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, value: { source: 'mpcRelay', dstTxHash: 'tronPayout', release: RELEASE } });
+  });
 
-      const result = await sodax.swaps.getSolvedIntentPacket({ chainId: ChainKeys.TRON_MAINNET, fillTxHash: '0xfill' });
-
-      expect(result).toEqual({ ok: false, error: timeoutError });
+  it('surfaces the relay failure itself, so RELAY_TIMEOUT stays readable on `error.message`', async () => {
+    const timeoutError = new Error('RELAY_TIMEOUT');
+    vi.spyOn(sodax.spoke, 'submitHubRelease').mockResolvedValueOnce({ ok: true, value: RELEASE });
+    vi.spyOn(sodax.spoke, 'waitForHubRelease').mockResolvedValueOnce({
+      ok: false,
+      error: { phase: 'relay', cause: timeoutError },
     });
+
+    const result = await sodax.swaps.waitForIntentDelivery({ chainId: ChainKeys.TRON_MAINNET, fillTxHash: '0xfill' });
+
+    expect(result).toEqual({ ok: false, error: timeoutError });
   });
 });
 
@@ -2853,6 +2870,89 @@ describe('SwapService.createIntent — extras (partnerFee + srcPublicKey)', () =
     expect(result.ok).toBe(true);
     const depositCall = (svc.spoke.deposit as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0];
     expect(depositCall.accessToken).toBeUndefined();
+  });
+});
+
+// The relay takes its release fee from a payout to Tron and releases nothing once it reaches the amount.
+describe('SwapService.createIntent — payouts through the MPC relay', () => {
+  const TRON_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+  const TRON_ADDRESS = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
+  const fromTron = (
+    inputAmount: bigint,
+    allowPartialFill = false,
+  ): CreateIntentParams<typeof ChainKeys.TRON_MAINNET> => ({
+    ...intentInput(ChainKeys.TRON_MAINNET),
+    inputToken: TRON_USDT,
+    outputToken: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+    inputAmount,
+    allowPartialFill,
+    srcAddress: TRON_ADDRESS,
+    deadline: 1_700_000_000n,
+  });
+  const toTron = (minOutputAmount: bigint): CreateIntentParams<typeof ChainKeys.BSC_MAINNET> => ({
+    ...intentInput(ChainKeys.BSC_MAINNET),
+    dstChainKey: ChainKeys.TRON_MAINNET,
+    outputToken: TRON_USDT,
+    minOutputAmount,
+    dstAddress: TRON_ADDRESS,
+  });
+
+  const run = async (params: CreateIntentParams<SpokeChainKey>, partnerFee?: PartnerFee) => {
+    const s = new Sodax({ logger: 'silent' });
+    const pastValidation = vi
+      .spyOn(s.hubProvider, 'getUserHubWalletAddress')
+      .mockRejectedValue(new Error('past validation'));
+    const result = await s.swaps.createIntent({ params, raw: true, extras: partnerFee ? { partnerFee } : undefined });
+    return { result, pastValidation };
+  };
+  const expectRefused = async (outcome: ReturnType<typeof run>, field: string) => {
+    const { result, pastValidation } = await outcome;
+    invariant(!result.ok, 'expected a refusal');
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe(field);
+    expect(pastValidation).not.toHaveBeenCalled();
+  };
+
+  it('refuses a Tron-source intent whose refund would not clear the minimum', async () => {
+    await expectRefused(run(fromTron(3_000_000n)), 'inputAmount');
+  });
+
+  it('sizes the refund after the partner fee', async () => {
+    await expectRefused(
+      run(fromTron(3_100_000n), { address: '0x00000000000000000000000000000000feec0a01', percentage: 500 }),
+      'inputAmount',
+    );
+  });
+
+  it('refuses a minOutputAmount to Tron at the minimum', async () => {
+    await expectRefused(run(toTron(3_000_000n)), 'minOutputAmount');
+  });
+
+  it.each([
+    ['from', fromTron(10_000_000n, true)],
+    ['to', { ...toTron(10_000_000n), allowPartialFill: true }],
+  ] as const)('refuses a partial fill %s Tron', async (_, params) => {
+    await expectRefused(run(params), 'allowPartialFill');
+  });
+
+  it('refuses a Tron-source intent with no deadline, which nothing could cancel', async () => {
+    await expectRefused(run({ ...fromTron(10_000_000n), deadline: 0n }), 'deadline');
+  });
+
+  it('refuses a limit order from Tron, which never expires', async () => {
+    const s = new Sodax({ logger: 'silent' });
+    const pastValidation = vi.spyOn(s.hubProvider, 'getUserHubWalletAddress');
+    const result = await s.swaps.createLimitOrderIntent({ params: fromTron(10_000_000n), raw: true });
+    invariant(!result.ok, 'expected a refusal');
+    expect(result.error.context?.field).toBe('deadline');
+    expect(pastValidation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['from', fromTron(3_000_001n)],
+    ['to', toTron(3_000_001n)],
+  ] as const)('passes a payout %s Tron above the minimum', async (_, params) => {
+    expect((await run(params)).pastValidation).toHaveBeenCalled();
   });
 });
 
