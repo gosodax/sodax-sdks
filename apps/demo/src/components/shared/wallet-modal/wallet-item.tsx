@@ -20,6 +20,15 @@ export function shortenAddress(address: string, chars = 7): string {
   return `${address.substring(0, chars + 2)}...${address.substring(address.length - chars)}`;
 }
 
+const INSTALL_RECHECK_MS = 1_000;
+const INSTALL_RECHECK_FOR_MS = 10_000;
+
+const installedIds = (xConnectors: IXConnector[]): string =>
+  xConnectors
+    .filter(connector => connector.isInstalled)
+    .map(connector => connector.id)
+    .join(',');
+
 const WalletItem = ({ name, xChainType, onConnectionSuccess }: WalletItemProps) => {
   const xConnection = useXConnection({ xChainType });
   const { address } = useXAccount({ xChainType });
@@ -71,6 +80,18 @@ const WalletItem = ({ name, xChainType, onConnectionSuccess }: WalletItemProps) 
   const activeXConnector = useMemo(() => {
     return xConnectors.find(connector => connector.id === xConnection?.xConnectorId);
   }, [xConnectors, xConnection]);
+
+  // Some connectors probe window with no event when an extension injects, so re-check for a while after the sheet opens.
+  // The state holds the installed ids, so a tick re-renders only when that set changes.
+  const [, setInstalledIds] = useState(() => installedIds(xConnectors));
+  useEffect(() => {
+    const timer = setInterval(() => setInstalledIds(installedIds(xConnectors)), INSTALL_RECHECK_MS);
+    const stop = setTimeout(() => clearInterval(timer), INSTALL_RECHECK_FOR_MS);
+    return () => {
+      clearInterval(timer);
+      clearTimeout(stop);
+    };
+  }, [xConnectors]);
 
   // Not memoized: isInstalled probes window on each read, so a late-injected extension appears on the next render.
   const installedXConnectors = xConnectors.filter(connector => connector.isInstalled);
