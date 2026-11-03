@@ -94,7 +94,10 @@ describe('useSwapsApiApproveAndBroadcast', () => {
     await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider: evmProvider(calls), apiConfig });
 
     expect(calls).toEqual(['send:0xapprove', `wait:${APPROVE_HASH}`, 'check']);
-    expect(checkAllowance).toHaveBeenCalledWith(body(ChainKeys.ARBITRUM_MAINNET), apiConfig);
+    expect(checkAllowance).toHaveBeenCalledWith(body(ChainKeys.ARBITRUM_MAINNET), {
+      ...apiConfig,
+      timeout: expect.any(Number),
+    });
   });
 
   it('never sends the approve when the reset fails to confirm', async () => {

@@ -68,7 +68,7 @@ export const useBridgeApiApproveAndBroadcast = <K extends SpokeChainKey = SpokeC
         hookName: 'useBridgeApiApproveAndBroadcast',
         onProgress,
       });
-      await waitForApiAllowance(() => sodax.api.bridge.checkAllowance(body, apiConfig));
+      await waitForApiAllowance(config => sodax.api.bridge.checkAllowance(body, config), apiConfig);
       return hashes;
     },
     onSuccess: async (data, vars, ctx) => {

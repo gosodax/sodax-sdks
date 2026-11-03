@@ -191,7 +191,7 @@ describe('useBridgeApiApproveAndBroadcast', () => {
 
     await expect(pending).resolves.toEqual({ approveTxHash: APPROVE_HASH });
     expect(calls).toEqual(['send:0xapprove', `wait:${APPROVE_HASH}`, 'check', 'check']);
-    expect(checkAllowance).toHaveBeenCalledWith(vars.body, vars.apiConfig);
+    expect(checkAllowance).toHaveBeenCalledWith(vars.body, { ...vars.apiConfig, timeout: 15_000 });
   });
 
   it('invalidates the bridge allowance query once the approval has confirmed', async () => {

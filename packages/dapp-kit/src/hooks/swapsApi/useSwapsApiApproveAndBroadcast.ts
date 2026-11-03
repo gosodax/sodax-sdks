@@ -73,7 +73,7 @@ export const useSwapsApiApproveAndBroadcast = <K extends SpokeChainKey = SpokeCh
         hookName: 'useSwapsApiApproveAndBroadcast',
         onProgress,
       });
-      await waitForApiAllowance(() => sodax.api.swaps.checkAllowance(body, apiConfig));
+      await waitForApiAllowance(config => sodax.api.swaps.checkAllowance(body, config), apiConfig);
       return hashes;
     },
     onSuccess: async (data, vars, ctx) => {

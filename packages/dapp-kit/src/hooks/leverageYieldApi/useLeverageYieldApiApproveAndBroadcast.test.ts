@@ -99,7 +99,10 @@ describe('useLeverageYieldApiApproveAndBroadcast', () => {
     await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider: evmProvider(calls), apiConfig });
 
     expect(calls).toEqual(['send:0xapprove', `wait:${APPROVE_HASH}`, 'check']);
-    expect(checkAllowance).toHaveBeenCalledWith(body(ChainKeys.ARBITRUM_MAINNET), apiConfig);
+    expect(checkAllowance).toHaveBeenCalledWith(body(ChainKeys.ARBITRUM_MAINNET), {
+      ...apiConfig,
+      timeout: expect.any(Number),
+    });
   });
 
   it('broadcasts the reset, waits for it, then approves — and reports both hashes', async () => {

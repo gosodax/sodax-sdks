@@ -75,7 +75,7 @@ export const useLeverageYieldApiApproveAndBroadcast = <K extends SpokeChainKey =
         hookName: 'useLeverageYieldApiApproveAndBroadcast',
         onProgress,
       });
-      await waitForApiAllowance(() => sodax.api.leverageYield.checkAllowance(body, apiConfig));
+      await waitForApiAllowance(config => sodax.api.leverageYield.checkAllowance(body, config), apiConfig);
       return hashes;
     },
     onSuccess: async (data, vars, ctx) => {

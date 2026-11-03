@@ -168,7 +168,7 @@ export const useSwapsApiBroadcastWithApproval = ({
       }
 
       const approval = await runApprovalPlan({ plan, srcChainKey, walletProvider, hookName: HOOK_NAME, onProgress });
-      await waitForApiAllowance(() => sodax.api.swaps.checkAllowance(body, apiConfig));
+      await waitForApiAllowance(config => sodax.api.swaps.checkAllowance(body, config), apiConfig);
       // The allowance is on-chain whatever happens to the intent next; a stale cached `valid: false` would re-offer it.
       await queryClient.invalidateQueries({ queryKey: ['swapsApi', 'allowance'] });
       const txHash = await walletProvider.sendTransaction(intentTx, {
