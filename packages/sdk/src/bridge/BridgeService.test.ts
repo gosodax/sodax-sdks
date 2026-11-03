@@ -42,7 +42,13 @@ import type {
   PartnerFee,
   SpokeChainKey,
 } from '@sodax/types';
-import { ChainKeys, DEFAULT_BACKEND_API_TIMEOUT, DEFAULT_RELAY_TX_TIMEOUT, getIntentRelayChainId } from '@sodax/types';
+import {
+  ChainKeys,
+  DEFAULT_BACKEND_API_TIMEOUT,
+  DEFAULT_RELAY_TX_TIMEOUT,
+  getIntentRelayChainId,
+  tronSupportedTokens,
+} from '@sodax/types';
 import { RELAY_FALLBACK_FLOOR_MS } from '../shared/services/intentRelay/IntentRelayApiService.js';
 import { EvmVaultTokenService } from '../shared/services/hub/EvmVaultTokenService.js';
 import { Sodax } from '../shared/entities/Sodax.js';
@@ -53,6 +59,7 @@ import type { DepositRecord } from '../shared/services/mpcRelay/MpcRelayApiServi
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import type { BridgeParams, BridgeWithApprovalParams } from './BridgeService.js';
 import { ACCOUNT_UPGRADE_DECLINED, ATOMIC_BATCH_UNCONFIRMED } from '../shared/utils/approvalBatch.js';
+import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
 
 const mocks = vi.hoisted(() => ({
   relayTxAndWaitPacket: vi.fn(),
@@ -1827,7 +1834,7 @@ describe('BridgeService.createBridgeIntent — small payout to an MPC-relay chai
   const hubAsset = '0x2222222222222222222222222222222222222222' as Address;
   const src = { address: SAMPLE_TOKEN, chainKey: ARBITRUM, symbol: 'USDT', decimals: 18, hubAsset };
   const dst = {
-    address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    address: tronSupportedTokens.USDT.address,
     chainKey: ChainKeys.TRON_MAINNET,
     symbol: 'USDT',
     decimals: 6,
@@ -1846,7 +1853,7 @@ describe('BridgeService.createBridgeIntent — small payout to an MPC-relay chai
     const input = bridgeInput(ARBITRUM, ChainKeys.TRON_MAINNET);
     const result = await sodaxBE.bridge.createBridgeIntent({
       ...input,
-      params: { ...input.params, amount, recipient: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow' },
+      params: { ...input.params, amount, recipient: TRON_TEST_ADDRESS },
       extras: partnerFee ? { partnerFee } : undefined,
     });
     return { result, pastValidation };

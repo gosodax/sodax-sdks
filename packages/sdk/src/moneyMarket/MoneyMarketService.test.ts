@@ -23,6 +23,7 @@ import {
   type IStellarWalletProvider,
   type Result,
   type SpokeChainKey,
+  tronSupportedTokens,
 } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
 import type { MpcWithdrawalSettlement, TxHashPair } from '../shared/types/types.js';
@@ -60,6 +61,7 @@ import {
   type MoneyMarketWithdrawActionParams,
   type MoneyMarketWithdrawParams,
 } from './MoneyMarketService.js';
+import { TRON_TEST_ADDRESS, TRON_TEST_RECIPIENT_WORD } from '../shared/services/spoke/tron-test-fixtures.js';
 
 // --- test fixtures --------------------------------------------------------
 //
@@ -82,8 +84,6 @@ const SAMPLE_DST_ADDRESS = '0x5555555555555555555555555555555555555555' as Addre
 // A Tron account and the two encodings it has on the hub. `encodeAddress` yields the bare 20-byte
 // identity (what derives the hub wallet); `encodeRecipient` left-pads it to a 32-byte word, which is
 // what AssetManager.transfer expects as the delivery address.
-const TRON_ADDRESS = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
-const TRON_RECIPIENT_WORD = `0x${'00'.repeat(12)}45df1d9f0d472080e5272946e4444f885473245d` as Address;
 
 // Wallet provider fakes — shape-only; the bodies are never invoked at runtime because
 // every spoke method that would touch them is stubbed.
@@ -1509,7 +1509,7 @@ describe('MoneyMarketService.createBorrowIntent', () => {
         params: {
           ...borrowParams(ChainKeys.BSC_MAINNET),
           dstChainKey: ChainKeys.TRON_MAINNET,
-          dstAddress: TRON_ADDRESS,
+          dstAddress: TRON_TEST_ADDRESS,
         },
         walletProvider: mockEvmProvider,
       });
@@ -1518,7 +1518,7 @@ describe('MoneyMarketService.createBorrowIntent', () => {
       // An MPC-relay recipient reaches AssetManager.transfer as a 32-byte word (12 zero bytes then
       // the 20-byte account), not the bare identity form used to derive the hub wallet. The bare
       // form is still accepted on-chain, so getting this wrong delivers funds to a dead address.
-      expect(buildSpy.mock.calls[0]?.[1]).toBe(TRON_RECIPIENT_WORD);
+      expect(buildSpy.mock.calls[0]?.[1]).toBe(TRON_TEST_RECIPIENT_WORD);
     });
 
     it('on Bitcoin source: derives the hub wallet from the trading address but passes the personal srcAddress', async () => {
@@ -1807,7 +1807,7 @@ describe('MoneyMarketService.borrow', () => {
         params: {
           ...borrowParams(ChainKeys.SONIC_MAINNET),
           dstChainKey: ChainKeys.TRON_MAINNET,
-          dstAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+          dstAddress: TRON_TEST_ADDRESS,
         },
         walletProvider: mockEvmProvider,
       });
@@ -1989,7 +1989,7 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
         params: {
           ...withdrawParams(ChainKeys.BSC_MAINNET),
           dstChainKey: ChainKeys.TRON_MAINNET,
-          dstAddress: TRON_ADDRESS,
+          dstAddress: TRON_TEST_ADDRESS,
         },
         walletProvider: mockEvmProvider,
       });
@@ -1998,7 +1998,7 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
       // An MPC-relay recipient reaches AssetManager.transfer as a 32-byte word (12 zero bytes then
       // the 20-byte account), not the bare identity form used to derive the hub wallet. The bare
       // form is still accepted on-chain, so getting this wrong delivers funds to a dead address.
-      expect(buildSpy.mock.calls[0]?.[1]).toBe(TRON_RECIPIENT_WORD);
+      expect(buildSpy.mock.calls[0]?.[1]).toBe(TRON_TEST_RECIPIENT_WORD);
     });
 
     it('on Bitcoin source: derives the hub wallet from the trading address but passes the personal srcAddress', async () => {
@@ -3458,9 +3458,8 @@ describe('MoneyMarketService — outbound result by source chain', () => {
 });
 
 describe('MoneyMarketService — small payout to an MPC-relay chain', () => {
-  const TRON_RECIPIENT = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
   const usdt = {
-    address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    address: tronSupportedTokens.USDT.address,
     chainKey: ChainKeys.TRON_MAINNET,
     symbol: 'USDT',
     decimals: 6,
@@ -3482,7 +3481,7 @@ describe('MoneyMarketService — small payout to an MPC-relay chain', () => {
         token: usdt.address,
         amount,
         dstChainKey: ChainKeys.TRON_MAINNET,
-        dstAddress: TRON_RECIPIENT,
+        dstAddress: TRON_TEST_ADDRESS,
       },
     } as never);
   const cases = [

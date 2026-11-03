@@ -36,6 +36,7 @@ import {
   type SolverIntentStatusResponse,
   type SpokeChainKey,
   type SubmitTxStatusDataV2,
+  tronSupportedTokens,
 } from '@sodax/types';
 import {
   ACCOUNT_UPGRADE_DECLINED,
@@ -142,6 +143,7 @@ vi.mock('./SolverApiService.js', () => ({
   },
 }));
 import type { CancelIntentActionParams, CreateIntentParams, Intent, SwapActionParams } from './SwapService.js';
+import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
 
 // --- test fixtures --------------------------------------------------------
 //
@@ -2875,8 +2877,7 @@ describe('SwapService.createIntent — extras (partnerFee + srcPublicKey)', () =
 
 // The relay takes its release fee from a payout to Tron and releases nothing once it reaches the amount.
 describe('SwapService.createIntent — payouts through the MPC relay', () => {
-  const TRON_USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
-  const TRON_ADDRESS = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
+  const TRON_USDT = tronSupportedTokens.USDT.address;
   const fromTron = (
     inputAmount: bigint,
     allowPartialFill = false,
@@ -2886,7 +2887,7 @@ describe('SwapService.createIntent — payouts through the MPC relay', () => {
     outputToken: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
     inputAmount,
     allowPartialFill,
-    srcAddress: TRON_ADDRESS,
+    srcAddress: TRON_TEST_ADDRESS,
     deadline: 1_700_000_000n,
   });
   const toTron = (minOutputAmount: bigint): CreateIntentParams<typeof ChainKeys.BSC_MAINNET> => ({
@@ -2894,7 +2895,7 @@ describe('SwapService.createIntent — payouts through the MPC relay', () => {
     dstChainKey: ChainKeys.TRON_MAINNET,
     outputToken: TRON_USDT,
     minOutputAmount,
-    dstAddress: TRON_ADDRESS,
+    dstAddress: TRON_TEST_ADDRESS,
   });
 
   const run = async (params: CreateIntentParams<SpokeChainKey>, partnerFee?: PartnerFee) => {

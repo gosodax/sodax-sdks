@@ -26,7 +26,7 @@ import {
   type Address,
   type Hex,
 } from 'viem';
-import { leverageYieldConfig } from '@sodax/types';
+import { leverageYieldConfig, tronSupportedTokens } from '@sodax/types';
 // Import the barrel by relative path, not as `@sodax/sdk`. A self-referential package import
 // resolves through `package.json#exports` into `dist/`, which makes this unit test depend on a
 // build artifact — it then fails to resolve whenever `dist/` is absent or half-written, and turbo
@@ -144,6 +144,7 @@ vi.mock('../shared/services/Erc4626Service.js', async () => {
   };
 });
 import { Sodax } from '../shared/entities/Sodax.js';
+import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
 
 // Pins the CLIENT-SIDE path for every test below that does not opt in explicitly — the shipped
 // default is the backend one. Same pattern as `SwapService.test.ts`; without it the client-side
@@ -448,8 +449,8 @@ describe('LeverageYieldService.deposit — intent builder', () => {
     const result = await sodax.leverageYield.deposit({
       vault: VAULT,
       srcChainKey: ChainKeys.TRON_MAINNET,
-      srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
-      inputToken: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+      srcAddress: TRON_TEST_ADDRESS,
+      inputToken: tronSupportedTokens.USDT.address,
       inputAmount: 1_000n,
       minOutputAmount: 900n,
     });
@@ -629,7 +630,7 @@ describe('LeverageYieldService.withdraw — intent builder', () => {
     const result = await sodax.leverageYield.withdraw({
       vault: VAULT,
       srcChainKey: ChainKeys.TRON_MAINNET,
-      srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+      srcAddress: TRON_TEST_ADDRESS,
       dstChainKey: ARBITRUM,
       outputToken: SPOKE_TOKEN,
       inputAmount: 1_000n,
@@ -925,8 +926,8 @@ describe('LeverageYieldService.createVaultIntent', () => {
 
     const result = await sodax.leverageYield.createVaultIntent({
       params: vaultIntentParams(ChainKeys.TRON_MAINNET, {
-        srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
-        inputToken: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        srcAddress: TRON_TEST_ADDRESS,
+        inputToken: tronSupportedTokens.USDT.address,
       }),
       raw: true,
       hubWalletSwap,
@@ -967,10 +968,10 @@ describe('LeverageYieldService.createVaultIntent', () => {
     const result = await sodax.leverageYield.createVaultIntent({
       params: vaultIntentParams(ARBITRUM, {
         inputToken: VAULT,
-        outputToken: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        outputToken: tronSupportedTokens.USDT.address,
         minOutputAmount: 3_000_000n,
         dstChainKey: ChainKeys.TRON_MAINNET as SpokeChainKey,
-        dstAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+        dstAddress: TRON_TEST_ADDRESS,
       }),
       raw: true,
       hubWalletSwap: true,
@@ -3593,7 +3594,6 @@ describe('LeverageYieldService — MAX_POSITION_FEE_BPS on every create path', (
 
 describe('LeverageYieldService — MPC-relay origin address', () => {
   it('stores a Tron origin as the recipient word, since surpluses and cancel refunds pay it', () => {
-    const tronAddress = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
     const ORIGIN_ABI = parseAbi([
       'function createPositionAndLeverage((address owner, address collateral, address borrowToken, uint8 eModeCategory, uint256 originChainId, bytes originAddress, address originAsset, address feeReceiver, uint16 feeBps) cfg, uint256 initialAssets, uint256 borrowAmount, uint256 minCollateralOut) returns (address)',
     ]);
@@ -3604,7 +3604,7 @@ describe('LeverageYieldService — MPC-relay origin address', () => {
       collateral: POS_COLLATERAL,
       borrowToken: POS_BORROW_TOKEN,
       eModeCategory: 0,
-      origin: { chainKey: ChainKeys.TRON_MAINNET, address: tronAddress, asset: POS_COLLATERAL },
+      origin: { chainKey: ChainKeys.TRON_MAINNET, address: TRON_TEST_ADDRESS, asset: POS_COLLATERAL },
       initialAssets: 10n ** 18n,
       borrowAmount: 1_000n,
       minCollateralOut: 1n,
@@ -3614,7 +3614,7 @@ describe('LeverageYieldService — MPC-relay origin address', () => {
     if (!result.ok) return;
     const { args } = decodeFunctionData({ abi: ORIGIN_ABI, data: result.value.data });
     expect((args[0] as { originAddress: Hex }).originAddress).toBe(
-      encodeRecipient(ChainKeys.TRON_MAINNET, tronAddress),
+      encodeRecipient(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS),
     );
   });
 });
@@ -3879,8 +3879,8 @@ describe('LeverageYieldService — opening a position from any chain', () => {
     const result = await configured.leverageYield.openPosition({
       params: {
         srcChainKey: 'tron',
-        srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
-        token: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        srcAddress: TRON_TEST_ADDRESS,
+        token: tronSupportedTokens.USDT.address,
         amount: 10n ** 6n,
         borrowToken: POS_BORROW_TOKEN,
         borrowAmount: 1n,
@@ -3963,7 +3963,7 @@ describe('LeverageYieldService.operatePosition', () => {
     const result = await configured.leverageYield.operatePosition({
       params: {
         srcChainKey: 'tron',
-        srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
+        srcAddress: TRON_TEST_ADDRESS,
         calls: [{ from: HUB_WALLET, to: POSITION, value: 0n, data: '0x' }],
       },
     } as never);

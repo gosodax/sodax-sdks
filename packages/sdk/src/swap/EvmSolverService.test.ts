@@ -55,6 +55,7 @@ import { EvmSolverService } from './EvmSolverService.js';
 import { HookService } from './HookService.js';
 import { IntentDataService } from './IntentDataService.js';
 import { Sodax } from '../index.js';
+import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
 
 // --- fixtures -------------------------------------------------------------
 
@@ -219,17 +220,16 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
       .mockReturnValueOnce(hubInputXToken)
       .mockReturnValueOnce(hubOutputXToken);
-    const tronAddress = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
 
     const [, intent] = EvmSolverService.constructCreateIntentData(
-      { ...baseParams(), dstChainKey: ChainKeys.TRON_MAINNET, dstAddress: tronAddress },
+      { ...baseParams(), dstChainKey: ChainKeys.TRON_MAINNET, dstAddress: TRON_TEST_ADDRESS },
       HUB_WALLET,
       mockConfig,
       undefined,
     );
 
-    const identity = encodeAddress(ChainKeys.TRON_MAINNET, tronAddress);
-    expect(intent.dstAddress).toBe(encodeRecipient(ChainKeys.TRON_MAINNET, tronAddress));
+    const identity = encodeAddress(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS);
+    expect(intent.dstAddress).toBe(encodeRecipient(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS));
     expect(intent.dstAddress).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
     expect(intent.srcAddress).toBe(SRC_USER);
   });
@@ -238,17 +238,16 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
       .mockReturnValueOnce(hubInputXToken)
       .mockReturnValueOnce(hubOutputXToken);
-    const tronAddress = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
 
     const [, intent] = EvmSolverService.constructCreateIntentData(
-      { ...baseParams(), srcChainKey: ChainKeys.TRON_MAINNET, srcAddress: tronAddress },
+      { ...baseParams(), srcChainKey: ChainKeys.TRON_MAINNET, srcAddress: TRON_TEST_ADDRESS },
       HUB_WALLET,
       mockConfig,
       undefined,
     );
 
-    expect(intent.srcAddress).toBe(encodeRecipient(ChainKeys.TRON_MAINNET, tronAddress));
-    expect(intent.srcAddress).not.toBe(encodeAddress(ChainKeys.TRON_MAINNET, tronAddress));
+    expect(intent.srcAddress).toBe(encodeRecipient(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS));
+    expect(intent.srcAddress).not.toBe(encodeAddress(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS));
   });
 
   it('treats the input token as already-on-hub when srcChainKey is the hub chain (skips lookup)', () => {

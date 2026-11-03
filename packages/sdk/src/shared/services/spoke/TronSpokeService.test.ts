@@ -16,6 +16,7 @@ import {
   type MpcWithdrawMessage,
   type TronRawTransaction,
   type TronRawWithdraw,
+  tronSupportedTokens,
 } from '@sodax/types';
 import { encodeAbiParameters, getAddress, keccak256, sha256 } from 'viem';
 import { Sodax } from '../../entities/Sodax.js';
@@ -36,7 +37,7 @@ const tron = sodax.spoke.tron;
 
 const TRON = 'tron' as const;
 const NATIVE_TRX = '0x0000000000000000000000000000000000000000';
-const USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+const USDT = tronSupportedTokens.USDT.address;
 const SENDER = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
 const RESERVE = 'TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92';
 const HUB_WALLET = '0x1111111111111111111111111111111111111111' as Hex;
@@ -484,7 +485,12 @@ describe('TronSpokeService.waitForDeposit', () => {
 });
 
 describe('TronSpokeService hub release: submit, read, wait', () => {
-  const RELEASE = { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: `0x${'b'.repeat(64)}`, logIndex: 2 };
+  const RELEASE = {
+    dstChainKey: ChainKeys.TRON_MAINNET,
+    hubChainId: '146',
+    hubTxHash: `0x${'b'.repeat(64)}`,
+    logIndex: 2,
+  };
 
   it('submits by notifying the hub tx as a withdrawal once, without waiting for the release', async () => {
     const notifySpy = vi.mocked(MpcRelayApiService.notify);

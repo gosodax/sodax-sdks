@@ -7,11 +7,12 @@
  * spoke sendMessage commits to (fromHubWallet), exactly as executeDeposit already does.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChainKeys, type Address, type Hex } from '@sodax/types';
+import { ChainKeys, type Address, type Hex, tronSupportedTokens } from '@sodax/types';
 import { pad, toEventSelector, toHex, type TransactionReceipt } from 'viem';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { isSodaxError } from '../errors/SodaxError.js';
 import * as IntentRelayApiService from '../shared/services/intentRelay/IntentRelayApiService.js';
+import { TRON_TEST_ADDRESS, TRON_TEST_RECIPIENT_WORD } from '../shared/services/spoke/tron-test-fixtures.js';
 
 const sodax = new Sodax();
 const asset = sodax.dex.assetService;
@@ -59,8 +60,8 @@ describe('AssetService.executeWithdraw', () => {
     const result = await asset.executeWithdraw({
       params: {
         srcChainKey: ChainKeys.TRON_MAINNET,
-        srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
-        asset: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        srcAddress: TRON_TEST_ADDRESS,
+        asset: tronSupportedTokens.USDT.address,
         poolToken: POOL_TOKEN,
         amount: 1000n,
       },
@@ -70,10 +71,10 @@ describe('AssetService.executeWithdraw', () => {
     expect(result.ok).toBe(true);
     expect(asset.getTokenUnwrapAction).toHaveBeenCalledWith(
       ChainKeys.TRON_MAINNET,
-      'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+      tronSupportedTokens.USDT.address,
       1000n,
       HUB_WALLET,
-      `0x${'00'.repeat(12)}45df1d9f0d472080e5272946e4444f885473245d`,
+      TRON_TEST_RECIPIENT_WORD,
     );
   });
 });
@@ -89,8 +90,8 @@ describe('AssetService.executeWithdraw — payout to an MPC-relay chain', () => 
     return asset.executeWithdraw({
       params: {
         srcChainKey: ChainKeys.TRON_MAINNET,
-        srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
-        asset: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+        srcAddress: TRON_TEST_ADDRESS,
+        asset: tronSupportedTokens.USDT.address,
         poolToken: POOL_TOKEN,
         amount,
       },
@@ -120,8 +121,8 @@ describe('AssetService deposit/withdraw from an MPC-relay source', () => {
   const SETTLED = { srcChainTxHash: TRON_TX, dstChainTxHash: '0xhub' };
   const params = {
     srcChainKey: ChainKeys.TRON_MAINNET,
-    srcAddress: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
-    asset: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    srcAddress: TRON_TEST_ADDRESS,
+    asset: tronSupportedTokens.USDT.address,
     poolToken: POOL_TOKEN,
     amount: 1000n,
   } as const;
@@ -162,7 +163,6 @@ describe('AssetService deposit/withdraw from an MPC-relay source', () => {
 
 // Below `settle`: only the relay seams are stubbed, so the result shape is what a caller really gets.
 describe('AssetService.withdraw — settled through the MPC relay seams', () => {
-  const TRON_ADDRESS = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
   const RELAY_DATA = { address: HUB_WALLET, payload: '0x01' as Hex };
 
   it('returns the relay trackingId, never a source tx, for a withdraw from Tron', async () => {
@@ -179,7 +179,7 @@ describe('AssetService.withdraw — settled through the MPC relay seams', () => 
     const result = await asset.withdraw({
       params: {
         srcChainKey: ChainKeys.TRON_MAINNET,
-        srcAddress: TRON_ADDRESS,
+        srcAddress: TRON_TEST_ADDRESS,
         asset: ASSET,
         poolToken: POOL_TOKEN,
         amount: 1000n,
@@ -220,7 +220,7 @@ describe('AssetService.withdraw — settled through the MPC relay seams', () => 
         asset: ASSET,
         poolToken: POOL_TOKEN,
         amount: 1000n,
-        dst: { dstChainKey: ChainKeys.TRON_MAINNET, dstAddress: TRON_ADDRESS },
+        dst: { dstChainKey: ChainKeys.TRON_MAINNET, dstAddress: TRON_TEST_ADDRESS },
       },
       raw: false,
       walletProvider: {} as never,

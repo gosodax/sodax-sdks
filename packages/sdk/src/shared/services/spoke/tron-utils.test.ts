@@ -1,3 +1,4 @@
+import { tronSupportedTokens } from '@sodax/types';
 import { describe, expect, it } from 'vitest';
 import { sha256 } from 'viem';
 import {
@@ -19,7 +20,7 @@ import { nativeTransferRaw, pbBytes, pbVarint, trc20TransferRaw, tronRawData } f
 // Verified mainnet deposit fixtures (20 TRX → sodaTRX).
 const RESERVE = 'TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92';
 const OWNER = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
-const USDT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+const USDT = tronSupportedTokens.USDT.address;
 const RESERVE_HEX = '4165af5fef4974f67c4421ebb70244d8c485ada423';
 const MEMO = 'b07ec4b9c2d410c84fb75cb2cf00122f6316cf191ae1fe7bec45ac203c5e13fd';
 
