@@ -110,9 +110,15 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   const bridgeApiBaseURL = effectiveBridgeApiBaseUrl(sodaxSettings);
   const bridgeApiConfig = useMemo((): RequestOverrideConfig => ({ baseURL: bridgeApiBaseURL }), [bridgeApiBaseURL]);
 
-  const { data: apiTokens, isLoading: isLoadingBridgeableTokens } = useBridgeApiTokens({
-    params: { apiConfig: bridgeApiConfig },
-  });
+  const {
+    data: apiTokens,
+    isLoading: isLoadingBridgeableTokens,
+    error: bridgeableTokensError,
+    refetch: refetchBridgeableTokens,
+    isFetching: isFetchingBridgeableTokens,
+  } = useBridgeApiTokens({ params: { apiConfig: bridgeApiConfig } });
+  // Only a failed first load blocks the page; a failed refetch keeps the last list.
+  const tokenDiscoveryError = apiTokens ? null : bridgeableTokensError;
   const supportedTokensPerChain = useMemo(
     () =>
       new Map(
@@ -600,8 +606,20 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
         </CardContent>
 
         <CardFooter className="flex flex-col space-y-4">
-          {isLoadingBridgeableAmount ? (
+          {isLoadingBridgeableTokens || isLoadingBridgeableAmount ? (
             <Skeleton className="w-48 h-5" />
+          ) : tokenDiscoveryError ? (
+            <div className="flex items-center gap-2 text-sm text-destructive">
+              {formatMutationFailureMessage(tokenDiscoveryError, 'Could not load the bridge tokens')}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetchBridgeableTokens()}
+                disabled={isFetchingBridgeableTokens}
+              >
+                Retry
+              </Button>
+            </div>
           ) : isBridgeable && bridgeableAmount && limitAmount !== undefined ? (
             <div className="flex items-center gap-2 text-sm">
               Maximum bridgeable:{' '}
