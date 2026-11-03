@@ -135,6 +135,7 @@ Plus public fields (PK mode only): `account?: Account`, `rpcProvider?: JsonRpcPr
 | `signMessage` | ``(hash: `0x${string}`) => Promise<`0x${string}`>`` |
 | `waitForTransactionReceipt` | `(txHash: string) => Promise<TronRawTransactionReceipt>` |
 | `sendTransaction?` | `(signedTx: TronSignedTransaction) => Promise<string>` — optional, returns the tx id |
+| `signAndSendTransaction?` | `(params: TronRawTransaction) => Promise<string>` — the SDK / Swaps-API handoff path |
 
 `signMessage` must sign the hash's hex text, not its raw bytes (`signMessageV2` semantics), and return the 65-byte `r‖s‖v` hex. A custom provider that signs the bytes produces a signature that recovers to a different address — see [`../features/tron.md`](../features/tron.md) § Gotchas.
 

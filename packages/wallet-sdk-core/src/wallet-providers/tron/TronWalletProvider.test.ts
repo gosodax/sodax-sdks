@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { concat, keccak256, recoverAddress, stringToBytes, toBytes, type Hex } from 'viem';
-import type { TronSignedTransaction, TronUnsignedTransaction } from '@sodax/types';
+import { concat, keccak256, recoverAddress, sha256, stringToBytes, toBytes, type Hex } from 'viem';
+import type { TronRawTransaction, TronSignedTransaction, TronUnsignedTransaction } from '@sodax/types';
 import { TronWalletProvider } from './TronWalletProvider.js';
 import type { TronProviderLike, TronWebLike } from './types.js';
 
@@ -18,6 +18,8 @@ const TX: TronUnsignedTransaction = {
   visible: false,
 };
 const HASH: Hex = `0x${'cd'.repeat(32)}`;
+// The same transaction as a raw deposit hands it out: with its decoded body, expiring in ten minutes.
+const RAW_TX: TronRawTransaction = { ...TX, raw_data: { contract: [], expiration: Date.now() + 600_000 } };
 
 /** Scheme-1 digest the relay recovers against: the hash's 66-char hex TEXT under the TRON prefix. */
 const scheme1Digest = (hash: Hex): Hex =>
@@ -136,6 +138,15 @@ describe('TronWalletProvider.signTransaction', () => {
     expect(injected.trx.sign).toHaveBeenCalledWith(TX);
   });
 
+  it('browser: refuses a txID that is not sha256(raw_data_hex) before the wallet signs', async () => {
+    const tronWeb = makeTronWeb();
+
+    await expect(new TronWalletProvider({ tronWeb }).signTransaction({ ...TX, txID: 'ff'.repeat(32) })).rejects.toThrow(
+      /is not sha256\(raw_data_hex\)/,
+    );
+    expect(tronWeb.trx.sign).not.toHaveBeenCalled();
+  });
+
   it('browser: tells the user to reconnect when no injected TronWeb has an account', async () => {
     const provider = new TronWalletProvider({ tronWeb: makeTronWeb(false), address: TRON_ADDRESS });
     await expect(provider.signTransaction(TX)).rejects.toThrow(/not connected .* Reconnect/);
@@ -162,6 +173,72 @@ describe('TronWalletProvider.signMessage', () => {
 
     expect(tronWeb.trx.signMessageV2).toHaveBeenCalledWith(HASH);
     expect(signature).toBe('0xdeadbeef');
+  });
+});
+
+describe('TronWalletProvider.signAndSendTransaction', () => {
+  const broadcastBody = (fetchMock: ReturnType<typeof stubFetch>) =>
+    (JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as { transaction: string }).transaction;
+
+  it('private key: broadcasts the signed raw bytes as hex and returns their txID', async () => {
+    const fetchMock = stubFetch({ '/wallet/broadcasthex': { result: true } });
+    const provider = new TronWalletProvider({ privateKey: PRIVATE_KEY });
+    const [signature] = (await provider.signTransaction(RAW_TX)).signature;
+
+    const txID = await provider.signAndSendTransaction(RAW_TX);
+
+    expect(txID).toBe(TX.txID);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.trongrid.io/wallet/broadcasthex');
+    // Field 1 (`0a`, 4 bytes) then field 2 (`12`, 65 bytes = `41`): the bytes the key signed, unchanged.
+    expect(broadcastBody(fetchMock)).toBe(`0a04${TX.raw_data_hex}1241${signature}`);
+  });
+
+  it('browser: encodes a raw body over 127 bytes with a two-byte length, and every signature returned', async () => {
+    const fetchMock = stubFetch({ '/wallet/broadcasthex': { result: true } });
+    const raw = 'ab'.repeat(200);
+    const tronWeb = makeTronWeb();
+    // A multi-signature account's wallet returns one signature per signer, with or without `0x`.
+    vi.mocked(tronWeb.trx.sign).mockImplementation(async tx => ({
+      ...tx,
+      signature: ['cd'.repeat(65), `0x${'ef'.repeat(65)}`],
+    }));
+
+    await new TronWalletProvider({ tronWeb }).signAndSendTransaction({
+      ...RAW_TX,
+      txID: sha256(`0x${raw}`).slice(2),
+      raw_data_hex: raw,
+    });
+
+    // 200 = 0xc8: varint `c8 01`; each 65-byte signature is its own field 2.
+    expect(broadcastBody(fetchMock)).toBe(`0ac801${raw}1241${'cd'.repeat(65)}1241${'ef'.repeat(65)}`);
+  });
+
+  it('refuses a transaction without raw_data, which a browser wallet signs from', async () => {
+    const tronWeb = makeTronWeb();
+
+    // A raw tx parsed from JSON can arrive without the field the type requires.
+    await expect(new TronWalletProvider({ tronWeb }).signAndSendTransaction(TX as TronRawTransaction)).rejects.toThrow(
+      /carries no raw_data/,
+    );
+    expect(tronWeb.trx.sign).not.toHaveBeenCalled();
+  });
+
+  it('refuses a wallet that returns no signature, without broadcasting', async () => {
+    const fetchMock = stubFetch({ '/wallet/broadcasthex': { result: true } });
+    const tronWeb = makeTronWeb();
+    vi.mocked(tronWeb.trx.sign).mockImplementation(async tx => ({ ...tx, signature: [] }));
+
+    await expect(new TronWalletProvider({ tronWeb }).signAndSendTransaction(RAW_TX)).rejects.toThrow(/no signature/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('throws the node message when the broadcast is rejected, e.g. for an expired transaction', async () => {
+    // The node checks `raw_data.expiration` against its own head block, so the wallet leaves that to it.
+    stubFetch({ '/wallet/broadcasthex': { result: false, message: 'TRANSACTION_EXPIRATION_ERROR' } });
+
+    await expect(new TronWalletProvider({ privateKey: PRIVATE_KEY }).signAndSendTransaction(RAW_TX)).rejects.toThrow(
+      /Tron broadcast failed: TRANSACTION_EXPIRATION_ERROR/,
+    );
   });
 });
 

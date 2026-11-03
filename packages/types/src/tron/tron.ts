@@ -104,4 +104,6 @@ export interface ITronWalletProvider extends ICoreWallet {
   waitForTransactionReceipt: (txHash: string) => Promise<TronRawTransactionReceipt>;
   /** Broadcast an already-signed transaction via a Tron node. Returns the tx id. */
   sendTransaction?: (signedTx: TronSignedTransaction) => Promise<string>;
+  /** Sign and broadcast an unsigned `TronRawTransaction` (e.g. from the Swaps API). Returns the tx id. */
+  signAndSendTransaction?: (params: TronRawTransaction) => Promise<string>;
 }

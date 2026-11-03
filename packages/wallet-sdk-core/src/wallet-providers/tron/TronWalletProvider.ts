@@ -2,6 +2,7 @@ import { concat, keccak256, sha256, stringToBytes, toBytes, type Hex } from 'vie
 import { privateKeyToAccount, sign } from 'viem/accounts';
 import type {
   ITronWalletProvider,
+  TronRawTransaction,
   TronRawTransactionReceipt,
   TronSignedTransaction,
   TronUnsignedTransaction,
@@ -49,6 +50,24 @@ function toBase58Check(payload: Uint8Array): string {
     else break;
   }
   return s;
+}
+
+/** A protobuf length-delimited field: tag, varint byte length, then the bytes. */
+function protoBytesField({ tag, hex }: { tag: string; hex: string }): string {
+  const length: number[] = [];
+  let n = hex.length / 2;
+  while (n > 0x7f) {
+    length.push((n & 0x7f) | 0x80);
+    n >>>= 7;
+  }
+  length.push(n);
+  return `${tag}${bufHex(Uint8Array.from(length))}${hex}`;
+}
+
+/** The `broadcasthex` body: field 1 holds the raw_data bytes, then one field 2 per signature. */
+function broadcastHex({ rawDataHex, signatures }: { rawDataHex: string; signatures: readonly string[] }): string {
+  const sigFields = signatures.map(sig => protoBytesField({ tag: '12', hex: sig.replace(/^0x/, '') }));
+  return protoBytesField({ tag: '0a', hex: rawDataHex }) + sigFields.join('');
 }
 
 /** Derive the base58 Tron address from a private key (EVM address == the 20-byte Tron hash). */
@@ -112,12 +131,12 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
   }
 
   public async signTransaction(tx: TronUnsignedTransaction): Promise<TronSignedTransaction> {
+    // The txID is only a claim about the bytes: refuse one that disagrees, whichever signer runs.
+    const txID = sha256(`0x${tx.raw_data_hex}`).slice(2);
+    if (txID !== tx.txID.toLowerCase()) {
+      throw new Error(`[TronWalletProvider] txID ${tx.txID} is not sha256(raw_data_hex) ${txID}`);
+    }
     if (this.privateKey) {
-      // The txID is only a claim about the bytes: sign their hash, and refuse a tx whose id disagrees.
-      const txID = sha256(`0x${tx.raw_data_hex}`).slice(2);
-      if (txID !== tx.txID.toLowerCase()) {
-        throw new Error(`[TronWalletProvider] txID ${tx.txID} is not sha256(raw_data_hex) ${txID}`);
-      }
       const s = await sign({ hash: `0x${txID}`, privateKey: this.privateKey });
       const signature = `${s.r.slice(2)}${s.s.slice(2)}${Number(s.yParity).toString(16).padStart(2, '0')}`;
       return { ...tx, signature: [signature] };
@@ -159,6 +178,21 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
     const res = (await this.rpc('/wallet/broadcasttransaction', signedTx)) as { result?: boolean; message?: string };
     if (!res?.result) throw new Error(`Tron broadcast failed: ${res?.message ?? 'unknown'}`);
     return signedTx.txID;
+  }
+
+  /** Sign and broadcast an unsigned `TronRawTransaction` (e.g. from the Swaps API). Returns the tx id. */
+  public async signAndSendTransaction(params: TronRawTransaction): Promise<string> {
+    // Required by the type, but a raw tx parsed from JSON can lack it, and a browser wallet signs from it.
+    if (!params.raw_data) throw new Error('[TronWalletProvider] the transaction carries no raw_data');
+    const { signature } = await this.signTransaction(params);
+    if (signature.length === 0) throw new Error('[TronWalletProvider] wallet returned no signature');
+
+    // `broadcasthex` sends the exact bytes that were checked and signed.
+    const res = (await this.rpc('/wallet/broadcasthex', {
+      transaction: broadcastHex({ rawDataHex: params.raw_data_hex, signatures: signature }),
+    })) as { result?: boolean; message?: string };
+    if (!res?.result) throw new Error(`Tron broadcast failed: ${res?.message ?? 'unknown'}`);
+    return params.txID.toLowerCase();
   }
 
   /** TRX balance in sun, `0n` when the node reports none (unactivated or empty account). Throws if the read fails. */

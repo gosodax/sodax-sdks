@@ -38,6 +38,7 @@ Holds `rpcUrl`, read once in the constructor; no method takes per-call options. 
 | `signTransaction` | `(tx: TronUnsignedTransaction) => Promise<TronSignedTransaction>` | the tx with `signature` attached |
 | `signMessage` | ``(hash: `0x${string}`) => Promise<`0x${string}`>`` | 65-byte `r‖s‖v` hex — see Gotchas |
 | `sendTransaction` | `(signedTx: TronSignedTransaction) => Promise<string>` | tx id; throws with the node's message if rejected |
+| `signAndSendTransaction` | `(params: TronRawTransaction) => Promise<string>` | tx id — signs + broadcasts an unsigned raw tx exactly as built (the Swaps-API / SDK-handoff path) |
 | `waitForTransactionReceipt` | `(txHash: string) => Promise<TronRawTransactionReceipt>` | receipt, once the tx is in a block |
 | `getBalance` | `(address?: string) => Promise<bigint>` | TRX balance in sun (class-only, not on the interface) |
 
@@ -56,8 +57,8 @@ Everything else is private.
 ## Gotchas
 
 - **`signMessage` signs the hash's hex text, not its bytes.** It follows `signMessageV2` (scheme 1): the digest covers the lowercased 66-character `0x…` string under the TRON message prefix. A custom `ITronWalletProvider` must sign the same digest — TronWeb's `trx.signMessageV2` does, its other message APIs use a different prefix — or the signature recovers to a different address; the test's `scheme1Digest` is the reference. Pass a 32-byte hash, not encoded text: the private-key path fixes the length in the prefix.
-- **The private-key `signTransaction` checks the `txID`.** It signs `sha256(raw_data_hex)` and throws when the tx's `txID` differs, so splice any change into `raw_data_hex` and recompute the id before signing.
-- **The SDK signs Tron deposits through `signTransaction` and withdrawals through `signMessage`.** It builds, broadcasts and polls deposits itself, so a custom provider can leave out the optional `sendTransaction`.
+- **`signTransaction` checks the `txID` in both modes.** It throws when the tx's `txID` is not `sha256(raw_data_hex)`, which the private key then signs, so splice any change into `raw_data_hex` and recompute the id before signing.
+- **The SDK signs Tron deposits through `signTransaction` and withdrawals through `signMessage`.** It builds, broadcasts and polls deposits itself, so a custom provider can leave out the optional `sendTransaction` and `signAndSendTransaction`, which only a raw flow calls.
 - **`waitForTransactionReceipt` resolves on inclusion, not success.** A reverted call still returns; check the receipt's `receipt?.result` (absent for plain TRX transfers).
 ---
 
