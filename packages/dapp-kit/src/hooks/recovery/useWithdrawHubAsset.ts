@@ -21,7 +21,8 @@ export type UseWithdrawHubAssetVars<K extends SpokeChainKey = SpokeChainKey> = O
  * React hook for withdrawing a hub-side asset back to the user's spoke chain wallet.
  *
  * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped tx return value on success.
+ * `onError`, `retry`). Returns the spoke tx hash on success, or from an MPC-relay chain (Tron) the
+ * relay's `trackingId`, which is not a tx hash: never link it to an explorer.
  */
 export function useWithdrawHubAsset<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,

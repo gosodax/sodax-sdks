@@ -1,5 +1,6 @@
 import { erc20Abi, isAddress, type Address } from 'viem';
 import type { GetAddressType, Result, SpokeChainKey, SpokeExecActionParams, SendMessageReturnType } from '@sodax/types';
+import { isMpcRelayChainKey } from '@sodax/types';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import type { HubProvider } from '../shared/types/types.js';
 import type { SpokeService } from '../shared/services/spoke/SpokeService.js';
@@ -182,7 +183,8 @@ export class RecoveryService {
    * @param _params.params.amount - Amount to withdraw, denominated in the hub-side asset's
    *   native precision (i.e. the same unit returned by {@link fetchHubAssetBalances}).
    * @returns A `Result` wrapping the chain-specific transaction return value: a raw unsigned
-   *   transaction object when `raw: true`, or the broadcast transaction hash when `raw: false`.
+   *   transaction object when `raw: true`, or the broadcast transaction hash when `raw: false`. From an
+   *   MPC-relay chain (Tron) a signed withdraw returns the relay's `trackingId` instead, which is not a tx hash.
    */
   public async withdrawHubAsset<K extends SpokeChainKey, Raw extends boolean>(
     _params: WithdrawHubAssetAction<K, Raw>,
@@ -255,7 +257,11 @@ export class RecoveryService {
           token: _params.params.token,
           amount: _params.params.amount,
         }),
-        success: value => ({ txHash: typeof value === 'string' ? value : undefined }),
+        success: value => {
+          if (typeof value !== 'string') return { txHash: undefined };
+          // From an MPC-relay chain the value is the relay's trackingId, not a tx hash.
+          return isMpcRelayChainKey(_params.params.srcChainKey) ? { trackingId: value } : { txHash: value };
+        },
         failure: error => ({ code: isSodaxError(error) ? error.code : undefined }),
       },
     );
