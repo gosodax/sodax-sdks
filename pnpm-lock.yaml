@@ -318,6 +318,9 @@ importers:
       '@sodax/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+      '@sodax/wallet-sdk-core':
+        specifier: workspace:*
+        version: link:../../packages/wallet-sdk-core
       react:
         specifier: 'catalog:'
         version: 19.1.1

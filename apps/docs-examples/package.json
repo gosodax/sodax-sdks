@@ -16,6 +16,7 @@
   "dependencies": {
     "@sodax/dapp-kit": "workspace:*",
     "@sodax/sdk": "workspace:*",
+    "@sodax/wallet-sdk-core": "workspace:*",
     "react": "catalog:"
   },
   "devDependencies": {
