@@ -8,6 +8,7 @@ import { InjectiveXService } from './xchains/injective/index.js';
 import { NearXService } from './xchains/near/NearXService.js';
 import { StacksXService } from './xchains/stacks/index.js';
 import { StellarXService } from './xchains/stellar/index.js';
+import { TronXConnector } from './xchains/tron/index.js';
 
 type CtorOpts = { defaults?: unknown };
 
@@ -601,5 +602,38 @@ describe('chainRegistry — BITCOIN signMessage dispatches to the wallet provide
     await expect(
       signWith('bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh', new FakeBitcoinXConnector(provider)),
     ).rejects.toThrow('fake-btc does not support BIP-322 signing');
+  });
+});
+
+describe('chainRegistry — TRON signMessage goes through the TronLink connector', () => {
+  const ADDRESS = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
+
+  const tronStore = (connector: TronXConnector): StoreAccessor =>
+    vi.fn(() => ({
+      xConnections: {
+        TRON: { xAccount: { address: ADDRESS, xChainType: 'TRON' as const }, xConnectorId: connector.id },
+      },
+      xConnectorsByChain: {},
+      xServices: {},
+      setXConnectors: vi.fn(),
+      unsetXConnection: vi.fn(),
+      setWalletProvider: vi.fn(),
+      walletConfig: undefined,
+    }));
+
+  it('signs as the connected address', async () => {
+    const connector = new TronXConnector();
+    const sign = vi.spyOn(connector, 'signMessage').mockResolvedValue('0xsig');
+    const { chainActions } = createChainServices({ TRON: { connectors: [connector] } }, tronStore(connector));
+
+    await expect(chainActions.TRON?.signMessage?.('hello')).resolves.toBe('0xsig');
+    expect(sign).toHaveBeenCalledWith('hello', ADDRESS);
+  });
+
+  it('throws when no Tron wallet is connected', async () => {
+    const connector = new TronXConnector();
+    const { chainActions } = createChainServices({ TRON: { connectors: [connector] } }, makeStore());
+
+    await expect(chainActions.TRON?.signMessage?.('hello')).rejects.toThrow('Tron wallet not connected');
   });
 });

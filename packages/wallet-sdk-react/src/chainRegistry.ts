@@ -404,6 +404,16 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
     displayName: 'Tron',
     defaultConnectors: () => [new TronXConnector()],
     providerManaged: false,
+    createActions: (service, getStore) => ({
+      ...createDefaultActions('TRON', service, getStore),
+      signMessage: async (message: string) => {
+        const connection = getStore().xConnections.TRON;
+        const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+        const address = connection?.xAccount.address;
+        if (!(connector instanceof TronXConnector) || !address) throw new Error('Tron wallet not connected');
+        return connector.signMessage(message, address);
+      },
+    }),
     createWalletProvider: (service, getStore) => {
       const store = getStore();
       const connection = store.xConnections.TRON;

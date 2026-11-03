@@ -78,7 +78,7 @@ export type UseWalletModalOptions = {
    * connector the user picked. Defaults to 5000ms. Raise this for slow
    * networks / wallets that take a long time to surface the account after
    * the user approves the popup. Ignored for non-provider chains (Bitcoin,
-   * ICON, Stellar, NEAR, Stacks, Injective) — those return the account
+   * ICON, Stellar, NEAR, Stacks, Injective, Tron) — those return the account
    * directly from `connect()`.
    */
   hydrationTimeoutMs?: number;
@@ -215,7 +215,7 @@ export function useWalletModal({ onConnected, hydrationTimeoutMs }: UseWalletMod
         setConnecting(connector.xChainType, connector);
         try {
           // Non-provider-managed chains (Bitcoin, ICON, Stellar, NEAR, Stacks,
-          // Injective) return the account directly. Provider-managed chains
+          // Injective, Tron) return the account directly. Provider-managed chains
           // (EVM, Solana, Sui) resolve with `undefined` and populate
           // xConnections via their Hydrator — wait for that, scoped to this
           // connector's id so a residual connection from a previously-connected

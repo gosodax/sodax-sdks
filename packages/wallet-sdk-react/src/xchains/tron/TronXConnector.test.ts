@@ -12,9 +12,7 @@ const HEX_ACCOUNT = '0x41f62fffa4d92bcdfc310dccbe943747fe8302e871';
 
 type Provider = {
   request: ReturnType<typeof vi.fn>;
-  tronWeb?: { defaultAddress?: { base58?: string | false } };
-  on?: ReturnType<typeof vi.fn>;
-  removeListener?: ReturnType<typeof vi.fn>;
+  tronWeb?: { defaultAddress?: { base58?: string | false }; trx?: { signMessageV2: ReturnType<typeof vi.fn> } };
 };
 
 const provider = (over: Partial<Provider> = {}): Provider => ({
@@ -288,35 +286,33 @@ describe('TronXConnector.getTronWeb', () => {
   });
 });
 
-describe('TronXConnector.onWalletEvents', () => {
-  it('subscribes to accountsChanged and chainChanged on the authorized provider', async () => {
-    const handlers = new Map<string, (...a: unknown[]) => void>();
-    const p = provider({
-      on: vi.fn((e: string, fn: (...a: unknown[]) => void) => handlers.set(e, fn)),
-      removeListener: vi.fn((e: string) => handlers.delete(e)),
+describe('TronXConnector.signMessage', () => {
+  const signing = (account: string, signature = 'ab12') => {
+    const signMessageV2 = vi.fn().mockResolvedValue(signature);
+    stubWindow({
+      globals: { tron: provider({ tronWeb: { defaultAddress: { base58: account }, trx: { signMessageV2 } } }) },
     });
-    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: p }] });
-    const c = connector();
-    await settle(c.connect());
+    return signMessageV2;
+  };
 
-    const seen: [string, unknown][] = [];
-    const unsubscribe = c.onWalletEvents((event, payload) => seen.push([event, payload]));
-    handlers.get('accountsChanged')?.([ADDRESS]);
-    handlers.get('chainChanged')?.('0x2b6653dc');
+  it('signs with signMessageV2 as the connected account and returns 0x-prefixed hex', async () => {
+    const signMessageV2 = signing(ADDRESS);
 
-    expect(seen).toEqual([
-      ['accountsChanged', [ADDRESS]],
-      ['chainChanged', '0x2b6653dc'],
-    ]);
-
-    unsubscribe();
-    expect(p.removeListener).toHaveBeenCalledTimes(2);
+    await expect(connector().signMessage('hello', ADDRESS)).resolves.toBe('0xab12');
+    expect(signMessageV2).toHaveBeenCalledWith('hello');
   });
 
-  it('is a no-op unsubscribe when the provider emits no events', () => {
-    stubWindow({ globals: { tron: provider({ on: undefined }) } });
+  it('refuses when the wallet has switched to another account', async () => {
+    const signMessageV2 = signing('TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow');
 
-    expect(() => connector().onWalletEvents(() => undefined)()).not.toThrow();
+    await expect(connector().signMessage('hello', ADDRESS)).rejects.toThrow(`not the connected ${ADDRESS}`);
+    expect(signMessageV2).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the wallet exposes no account', async () => {
+    stubWindow({ globals: { tron: provider({ tronWeb: { defaultAddress: { base58: false } } }) } });
+
+    await expect(connector().signMessage('hello', ADDRESS)).rejects.toThrow('Tron wallet is not connected');
   });
 });
 

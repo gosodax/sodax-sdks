@@ -37,7 +37,7 @@ Variables:
 | `xChainType` | `ChainType` | Which chain to sign with (`'EVM'`, `'BITCOIN'`, …) |
 | `message` | `string` | Plain UTF-8; per-chain wrappers handle encoding |
 
-Return type is the declared union `` `0x${string}` | Uint8Array | string | undefined `` because each chain returns its native signature shape (hex for EVM, base64 for Stellar and Solana, etc.). `ChainActions.signMessage` is typed `(message: string) => Promise<string>`, so every chain resolves to a string — the `Uint8Array` arm of the union is never produced at runtime. Cast or branch on `xChainType` when consuming.
+Return type is the declared union `` `0x${string}` | Uint8Array | string | undefined `` because each chain returns its native signature shape (hex for EVM and Tron, base64 for Stellar and Solana, etc.). `ChainActions.signMessage` is typed `(message: string) => Promise<string>`, so every chain resolves to a string — the `Uint8Array` arm of the union is never produced at runtime. Cast or branch on `xChainType` when consuming.
 
 `undefined` is returned (not thrown) when the chain doesn't implement `signMessage` — currently ICON, NEAR, and Stacks. A `console.warn` accompanies each such call; there is no per-chain dedupe, so repeated attempts repeat the log.
 
@@ -53,6 +53,7 @@ Return type is the declared union `` `0x${string}` | Uint8Array | string | undef
 | Bitcoin | Auto-detect: BIP-322 (P2WPKH/P2TR) or ECDSA (P2SH/P2PKH) | `string` |
 | Stellar | `walletsKit.signMessage` from `@creit.tech/stellar-wallets-kit` | `string` (base64) |
 | Injective | `walletStrategy.signArbitrary` from `@injectivelabs/wallet-base` | `string` |
+| Tron | `trx.signMessageV2` on the connected TronLink TronWeb (TIP-191 prefix); refuses once the wallet is on another account than the connected one | `` `0x${string}` `` |
 | **ICON** | **Not supported** — Hana wallet does not expose a signing API | `undefined` |
 | **NEAR** | **Not supported** — no `signMessage` registered in `chainRegistry` | `undefined` |
 | **Stacks** | **Not supported** — no `signMessage` registered in `chainRegistry` | `undefined` |

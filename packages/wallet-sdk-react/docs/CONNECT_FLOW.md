@@ -212,7 +212,7 @@ await connect(connector); // may resolve before account.address is populated
 // Don't read connect's return value — read account.address from the next render.
 ```
 
-Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks) write the connection state inside the mutation, so the resolved `XAccount` is reliable for those chains. Code defensively if you support both.
+Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks, Tron) write the connection state inside the mutation, so the resolved `XAccount` is reliable for those chains. Code defensively if you support both.
 
 ---
 
