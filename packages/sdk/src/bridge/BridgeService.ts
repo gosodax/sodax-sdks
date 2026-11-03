@@ -243,7 +243,7 @@ export class BridgeService {
    * @param _params - Bridge parameters containing source chain, token, amount, and sender address.
    * @returns `Result<boolean>` — `true` if the allowance covers the bridge amount, `false` otherwise.
    */
-  public async isAllowanceValid<S extends SpokeChainKey, Raw extends boolean>(
+  public async isAllowanceValid<S extends SpokeChainKey, Raw extends boolean = false>(
     _params: BridgeParams<S, Raw>,
   ): Promise<Result<boolean, BridgeAllowanceCheckError>> {
     const { params } = _params;
@@ -315,7 +315,7 @@ export class BridgeService {
    * @param _params - Bridge parameters including source chain, token, amount, wallet provider, and `raw` flag.
    * @returns `Result<TxReturnType<K, Raw>>` — encoded transaction data (raw) or submitted transaction hash.
    */
-  public async approve<K extends SpokeChainKey, Raw extends boolean>(
+  public async approve<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: BridgeParams<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>, BridgeApproveError>> {
     const { params } = _params;
@@ -984,7 +984,7 @@ export class BridgeService {
    *   `tx` is the spoke deposit tx hash (or encoded call data when raw), and `relayData`
    *   contains the hub wallet address and encoded hub execution payload needed for relay.
    */
-  async createBridgeIntent<K extends SpokeChainKey, Raw extends boolean>(
+  async createBridgeIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: BridgeParams<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, BridgeCreateIntentError>> {
     const { params, skipSimulation, extras } = _params;

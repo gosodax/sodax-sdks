@@ -19,7 +19,7 @@
  *      (the `isBridgeOrchestrationError` guard's else-branch).
  */
 
-import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, type MockInstance, vi } from 'vitest';
 import {
   AtomicityNotSupportedError,
   AtomicReadyWalletRejectedUpgradeError,
@@ -36,6 +36,7 @@ import type {
   EvmRawTransaction,
   IEvmWalletProvider,
   SpokeChainKey,
+  TxReturnType,
 } from '@sodax/types';
 import { ChainKeys, DEFAULT_BACKEND_API_TIMEOUT, DEFAULT_RELAY_TX_TIMEOUT, getIntentRelayChainId } from '@sodax/types';
 import { RELAY_FALLBACK_FLOOR_MS } from '../shared/services/intentRelay/IntentRelayApiService.js';
@@ -150,6 +151,26 @@ const btcBridgeInput = (): BridgeParams<typeof BTC, false> =>
       recipient: SAMPLE_DST,
     },
   }) as BridgeParams<typeof BTC, false>;
+
+describe('BridgeService types — result is typed by execution mode', () => {
+  type OkValue<P> = Extract<Awaited<P>, { ok: true }> extends { value: infer T } ? T : never;
+
+  it('infers the broadcast result from walletProvider and the raw result from raw: true, with no type arguments', () => {
+    if (false as boolean) {
+      const { params } = bridgeInput(ChainKeys.BSC_MAINNET, ChainKeys.SONIC_MAINNET);
+      const approved = sodax.bridge.approve({ params, walletProvider: mockEvmProvider });
+      expectTypeOf<OkValue<typeof approved>>().toEqualTypeOf<TxReturnType<typeof ChainKeys.BSC_MAINNET, false>>();
+      const approvedRaw = sodax.bridge.approve({ params, raw: true });
+      expectTypeOf<OkValue<typeof approvedRaw>>().toEqualTypeOf<TxReturnType<typeof ChainKeys.BSC_MAINNET, true>>();
+      const created = sodax.bridge.createBridgeIntent({ params, walletProvider: mockEvmProvider });
+      expectTypeOf<OkValue<typeof created>['tx']>().toEqualTypeOf<TxReturnType<typeof ChainKeys.BSC_MAINNET, false>>();
+      const createdRaw = sodax.bridge.createBridgeIntent({ params, raw: true });
+      expectTypeOf<OkValue<typeof createdRaw>['tx']>().toEqualTypeOf<
+        TxReturnType<typeof ChainKeys.BSC_MAINNET, true>
+      >();
+    }
+  });
+});
 
 describe('BridgeService.getFee — global-fee fallback', () => {
   it('returns 0n when neither a bridge nor a global fee is configured', () => {

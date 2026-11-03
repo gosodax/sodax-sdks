@@ -270,7 +270,7 @@ describe('BitcoinSpokeService.getWalletBalance / getWalletBalances', () => {
       // Only the native BTC read hits the network; the Rune token never reaches fetch, so this
       // fails exactly one token of the batch and leaves a successful read behind.
       url.endsWith('/utxo')
-        ? (({ ok: false, statusText: 'Too Many Requests' }) as unknown as Response)
+        ? ({ ok: false, statusText: 'Too Many Requests' } as unknown as Response)
         : new Response(null, { status: 404 }),
     );
 
@@ -476,7 +476,7 @@ describe('BitcoinSpokeService.encodeWithdrawalData', () => {
       raw: false,
       walletProvider: mockBtcProvider,
       ...overrides,
-    }) as SendMessageParams<typeof BTC, Raw> & { walletMode?: 'USER' | 'TRADING' };
+    }) as unknown as SendMessageParams<typeof BTC, Raw> & { walletMode?: 'USER' | 'TRADING' }; // a literal fixture is not comparable to the generic `Raw` slot
 
   it('TRADING raw=true → substitutes srcAddress with trading address and returns JSON payload with no signature', async () => {
     vi.spyOn(btcSpoke.radfi, 'getTradingWallet').mockResolvedValueOnce({

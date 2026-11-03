@@ -496,7 +496,7 @@ describe('SuiSpokeService.deposit', () => {
       raw: false,
       walletProvider: mockSuiProvider,
       ...overrides,
-    }) as DepositParams<typeof SUI, Raw>;
+    }) as unknown as DepositParams<typeof SUI, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   const expectedTransferTarget = `${SUI_ASSET_MGR_PKG}::${SUI_ASSET_MGR_MOD}::transfer`;
 
@@ -649,7 +649,7 @@ describe('SuiSpokeService.sendMessage', () => {
       raw: false,
       walletProvider: mockSuiProvider,
       ...overrides,
-    }) as SendMessageParams<typeof SUI, Raw>;
+    }) as unknown as SendMessageParams<typeof SUI, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   const expectedConnectionTarget = `${SUI_CONN_PKG}::${SUI_CONN_MOD}::send_message_ua`;
 

@@ -325,7 +325,7 @@ describe('SolanaSpokeService.deposit', () => {
       raw: false,
       walletProvider: mockSolanaProvider,
       ...overrides,
-    }) as DepositParams<typeof SOL, Raw>;
+    }) as unknown as DepositParams<typeof SOL, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it('native (SOL) path builds asset-manager transfer with native vault accounts', async () => {
     vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
@@ -749,7 +749,7 @@ describe('SolanaSpokeService.sendMessage', () => {
       raw: false,
       walletProvider: mockSolanaProvider,
       ...overrides,
-    }) as SendMessageParams<typeof SOL, Raw>;
+    }) as unknown as SendMessageParams<typeof SOL, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it('raw=true returns rawTx with to: connection.programId and value: 0n', async () => {
     vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({

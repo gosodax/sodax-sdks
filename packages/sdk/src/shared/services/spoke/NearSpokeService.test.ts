@@ -244,7 +244,7 @@ describe('NearSpokeService.deposit', () => {
       raw: false,
       walletProvider: mockNearProvider,
       ...overrides,
-    }) as DepositParams<typeof NEAR, Raw>;
+    }) as unknown as DepositParams<typeof NEAR, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it('native NEAR raw=true → transfer on assetManager with deposit=amount', async () => {
     const tx = (await nearSpoke.deposit(depositParams<true>({ token: NEAR_NATIVE, raw: true }))) as {
@@ -569,7 +569,7 @@ describe('NearSpokeService.sendMessage', () => {
       raw: false,
       walletProvider: mockNearProvider,
       ...overrides,
-    }) as SendMessageParams<typeof NEAR, Raw>;
+    }) as unknown as SendMessageParams<typeof NEAR, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it('raw=true → returns tx targeting the connection contract with send_message', async () => {
     const tx = await nearSpoke.sendMessage(sendMessageParams<true>({ raw: true }));

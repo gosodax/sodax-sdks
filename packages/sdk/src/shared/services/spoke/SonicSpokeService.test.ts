@@ -695,7 +695,7 @@ describe('SonicSpokeService.deposit (static)', () => {
       raw: false,
       walletProvider: mockEvmProvider,
       ...overrides,
-    }) as DepositParams<SonicChainKey, Raw>;
+    }) as unknown as DepositParams<SonicChainKey, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   describe('rejects on invalid inputs', () => {
     it('throws when srcChainKey is not a Sonic chain key (invariant)', async () => {
@@ -1094,7 +1094,7 @@ describe('SonicSpokeService.sendMessage', () => {
       raw: false,
       walletProvider: mockEvmProvider,
       ...overrides,
-    }) as SendMessageParams<SonicChainKey, Raw>;
+    }) as unknown as SendMessageParams<SonicChainKey, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it('throws when srcChainKey is not a Sonic chain key (invariant)', async () => {
     await expect(

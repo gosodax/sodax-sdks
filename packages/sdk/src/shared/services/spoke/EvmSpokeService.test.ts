@@ -581,7 +581,7 @@ describe('EvmSpokeService.deposit — chain-independent branches', () => {
       raw: false,
       walletProvider: mockEvmProvider,
       ...overrides,
-    }) as DepositParams<typeof ARB, Raw>;
+    }) as unknown as DepositParams<typeof ARB, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it('threads a non-default `data` blob through to the transfer call', async () => {
     const extraData = '0xfeedface' as Hex;

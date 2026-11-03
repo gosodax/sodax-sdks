@@ -206,7 +206,7 @@ export class SonicSpokeService {
    * @param {DepositParams<SonicChainKey, Raw>} params - The parameters for the deposit
    * @returns {Promise<TxReturnType<SonicChainKey, Raw>>} A promise that resolves to the transaction hash
    */
-  public async deposit<Raw extends boolean>(
+  public async deposit<Raw extends boolean = false>(
     params: DepositParams<SonicChainKey, Raw>,
   ): Promise<TxReturnType<SonicChainKey, Raw>> {
     invariant(isSonicChainKeyType(params.srcChainKey), '[SonicSpokeService] invalid spoke provider');
@@ -451,7 +451,7 @@ export class SonicSpokeService {
    * @param {SonicSpokeProviderType} spokeProvider - The provider for the spoke chain
    * @returns {Promise<TxReturnType<S, R>>} A promise that resolves to the transaction hash
    */
-  public async sendMessage<Raw extends boolean>(
+  public async sendMessage<Raw extends boolean = false>(
     params: SendMessageParams<SonicChainKey, Raw>,
   ): Promise<TxReturnType<SonicChainKey, Raw>> {
     invariant(isSonicChainKeyType(params.srcChainKey), '[SonicSpokeService.callWallet] invalid chain id');

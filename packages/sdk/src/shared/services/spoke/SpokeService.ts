@@ -251,7 +251,7 @@ export class SpokeService {
    * contract callers see is unchanged. An unsigned caller still gets exactly one transaction — use
    * {@link SpokeService.buildApproveTxs} to get the whole plan.
    */
-  public async approve<K extends SpokeChainKey, Raw extends boolean>(
+  public async approve<K extends SpokeChainKey, Raw extends boolean = false>(
     params: SpokeApproveParams<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>>> {
     try {
@@ -1037,7 +1037,7 @@ export class SpokeService {
    * @param {EvmHubProvider} hubProvider - The provider for the hub chain.
    * @returns {Promise<Hash>} A promise that resolves to the transaction hash.
    */
-  public async sendMessage<K extends SpokeChainKey, Raw extends boolean>(
+  public async sendMessage<K extends SpokeChainKey, Raw extends boolean = false>(
     params: SendMessageParams<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>>> {
     try {
@@ -1158,7 +1158,7 @@ export class SpokeService {
     }
   }
 
-  public async verifySimulation<K extends SpokeChainKey, Raw extends boolean>(
+  public async verifySimulation<K extends SpokeChainKey, Raw extends boolean = false>(
     params: VerifySimulationParams<K, Raw>,
   ): Promise<Result<void>> {
     try {

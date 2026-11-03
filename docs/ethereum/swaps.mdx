@@ -82,7 +82,7 @@ The user also pays Ethereum's network fee for the intent transaction, in ETH, li
 
 ```typescript
 // The type arguments tell TypeScript this is the unsigned (raw) form
-const intent = await sodax.swaps.createIntent<typeof ChainKeys.ETHEREUM_MAINNET, true>({ params, raw: true });
+const intent = await sodax.swaps.createIntent({ params, raw: true });
 if (!intent.ok) throw intent.error;
 
 const gas = await sodax.swaps.estimateGas({

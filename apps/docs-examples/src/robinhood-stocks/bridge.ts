@@ -29,7 +29,7 @@ const params = {
 
 const allowance = await sodax.bridge.isAllowanceValid({ params, walletProvider: hederaWalletProvider });
 if (allowance.ok && !allowance.value) {
-  const approve = await sodax.bridge.approve<typeof ChainKeys.HEDERA_MAINNET, false>({
+  const approve = await sodax.bridge.approve({
     params,
     walletProvider: hederaWalletProvider,
   });

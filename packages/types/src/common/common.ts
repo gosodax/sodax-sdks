@@ -429,9 +429,10 @@ export type BridgeLimit = {
 
 export type SpokeChainConfigMap = Record<SpokeChainKey, SpokeChainConfig>;
 
+// `raw` is typed as the bare `Raw` (not `true` / `false`) so a caller's `raw` infers it; omitting `raw` falls back to the default.
 export type WalletProviderSlot<K extends SpokeChainKey | ChainType, Raw extends boolean = false> = Raw extends true
-  ? { raw: true; walletProvider?: never }
-  : { raw?: false; walletProvider: GetWalletProviderType<K> };
+  ? { raw: Raw; walletProvider?: never }
+  : { raw?: Raw; walletProvider: GetWalletProviderType<K> };
 
 /**
  * Standard exec-mode wrapper for hub/spoke flows: bounded `params`, optional per-action `extras`,

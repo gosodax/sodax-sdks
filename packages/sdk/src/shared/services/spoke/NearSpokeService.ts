@@ -325,7 +325,7 @@ export class NearSpokeService {
    * @param {CWSpokeProvider} spokeProvider - The provider for the spoke chain.
    * @returns {Promise<TxReturnType<S, R>>} A promise that resolves to the transaction hash.
    */
-  public async sendMessage<Raw extends boolean>(
+  public async sendMessage<Raw extends boolean = false>(
     params: SendMessageParams<NearChainKey, Raw>,
   ): Promise<TxReturnType<NearChainKey, Raw>> {
     const dstRelayChainId = getIntentRelayChainId(params.dstChainKey);

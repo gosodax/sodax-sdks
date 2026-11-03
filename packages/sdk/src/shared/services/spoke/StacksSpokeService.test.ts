@@ -373,7 +373,7 @@ describe('StacksSpokeService.deposit', () => {
       raw: false,
       walletProvider: mockStacksProvider,
       ...overrides,
-    }) as DepositParams<typeof STACKS, Raw>;
+    }) as unknown as DepositParams<typeof STACKS, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   // First action in `deposit` is `this.getImplContractAddress(assetManager)`. We spy on the spoke
   // method directly so we don't have to thread the impl through fetchCallReadOnlyFunction in every
@@ -764,7 +764,7 @@ describe('StacksSpokeService.sendMessage', () => {
       raw: false,
       walletProvider: mockStacksProvider,
       ...overrides,
-    }) as SendMessageParams<typeof STACKS, Raw>;
+    }) as unknown as SendMessageParams<typeof STACKS, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it('raw=true → builds an unsigned send-message tx and returns { payload: "0x<hex>" }', async () => {
     const result = await stacksSpoke.sendMessage(sendMessageParams<true>({ raw: true }));

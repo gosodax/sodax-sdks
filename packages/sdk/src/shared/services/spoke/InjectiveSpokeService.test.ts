@@ -291,7 +291,7 @@ describe('InjectiveSpokeService.deposit', () => {
       raw: false,
       walletProvider: mockInjProvider,
       ...overrides,
-    }) as DepositParams<typeof INJ, Raw>;
+    }) as unknown as DepositParams<typeof INJ, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it('raw=true → delegates to getRawTransaction with the asset-manager target and transfer msg', async () => {
     const fake = makeRawTx(INJ_ASSET_MGR);
@@ -511,7 +511,7 @@ describe('InjectiveSpokeService.sendMessage', () => {
       raw: false,
       walletProvider: mockInjProvider,
       ...overrides,
-    }) as SendMessageParams<typeof INJ, Raw>;
+    }) as unknown as SendMessageParams<typeof INJ, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it('raw=true → delegates to getRawTransaction with the connection target and send_message msg', async () => {
     const fake = makeRawTx(INJ_CONNECTION);

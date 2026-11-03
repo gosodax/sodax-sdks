@@ -161,7 +161,7 @@ describe('IconSpokeService.deposit', () => {
       raw: false,
       walletProvider: mockIconProvider,
       ...overrides,
-    }) as DepositParams<typeof ICON, Raw>;
+    }) as unknown as DepositParams<typeof ICON, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it("native ICX raw=true → 'to' is substituted with wICX and value is BigIntToHex(amount)", async () => {
     const result = (await iconSpoke.deposit(depositParams<true>({ token: ICON_NATIVE, raw: true }))) as Record<
@@ -243,9 +243,9 @@ describe('IconSpokeService.getDeposit', () => {
   it('rejects when the node returns a non-string result', async () => {
     vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(httpCall({ value: '0x1d4c' }) as never);
 
-    await expect(
-      iconSpoke.getDeposit({ srcChainKey: ICON, srcAddress: SRC_ADDR, token: ICON_BNUSD }),
-    ).rejects.toThrow(/Unexpected balanceOf response/);
+    await expect(iconSpoke.getDeposit({ srcChainKey: ICON, srcAddress: SRC_ADDR, token: ICON_BNUSD })).rejects.toThrow(
+      /Unexpected balanceOf response/,
+    );
   });
 });
 
@@ -311,16 +311,14 @@ describe('IconSpokeService.getWalletBalances', () => {
     const balanceSpy = vi
       .spyOn(iconSpoke.iconService, 'getBalance')
       .mockReturnValueOnce(httpCall({ toFixed: () => '12345' }) as never);
-    const callSpy = vi
-      .spyOn(iconSpoke.iconService, 'call')
-      .mockReturnValueOnce(
-        httpCall(
-          aggregated([
-            { returnData: '0x1d4c', success: '0x1' },
-            { returnData: '0x0', success: '0x1' },
-          ]),
-        ) as never,
-      );
+    const callSpy = vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(
+      httpCall(
+        aggregated([
+          { returnData: '0x1d4c', success: '0x1' },
+          { returnData: '0x0', success: '0x1' },
+        ]),
+      ) as never,
+    );
 
     const result = await iconSpoke.getWalletBalances({
       srcChainKey: ICON,
@@ -473,7 +471,7 @@ describe('IconSpokeService.sendMessage', () => {
       raw: false,
       walletProvider: mockIconProvider,
       ...overrides,
-    }) as SendMessageParams<typeof ICON, Raw>;
+    }) as unknown as SendMessageParams<typeof ICON, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it("raw=true → returns a rawTx targeting the connection contract with method='sendMessage'", async () => {
     const result = (await iconSpoke.sendMessage(sendMessageParams<true>({ raw: true }))) as Record<string, unknown>;

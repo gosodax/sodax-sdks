@@ -541,7 +541,7 @@ describe('StellarSpokeService.sendMessage', () => {
       raw: false,
       walletProvider: mockStellarProvider,
       ...overrides,
-    }) as SendMessageParams<typeof STELLAR, Raw>;
+    }) as unknown as SendMessageParams<typeof STELLAR, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it('raw=true → returns rawTx with `to` set to the asset manager (NOT connection) and value=0n', async () => {
     vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValueOnce(NETWORK_RESPONSE);
@@ -614,7 +614,7 @@ describe('StellarSpokeService.deposit', () => {
       raw: false,
       walletProvider: mockStellarProvider,
       ...overrides,
-    }) as DepositParams<typeof STELLAR, Raw>;
+    }) as unknown as DepositParams<typeof STELLAR, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
 
   it('raw=true → returns rawTx with `to` set to the asset manager and value=BigInt(amount)', async () => {
     vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValueOnce(NETWORK_RESPONSE);
@@ -1214,8 +1214,7 @@ describe('StellarSpokeService.getWalletBalance', () => {
 
   it('counts subentries and sponsorships in the reserve, but not sponsored reserves', async () => {
     const load = vi.spyOn(stellarSpoke.server, 'loadAccount');
-    const read = () =>
-      stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN });
+    const read = () => stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN });
 
     load.mockResolvedValueOnce(
       makeHorizonAccount({ balance: '198.8944970', subentryCount: 3, numSponsoring: 1, numSponsored: 0 }),
@@ -1236,15 +1235,14 @@ describe('StellarSpokeService.getWalletBalance', () => {
     );
 
     // 2 + 0 + 0 - 5 is negative; a signed reserve would inflate the balance above what exists.
-    expect(
-      await stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN }),
-    ).toBe(10_000_000n);
+    expect(await stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN })).toBe(
+      10_000_000n,
+    );
   });
 
   it('clamps to 0n when the reserve meets or exceeds the balance', async () => {
     const load = vi.spyOn(stellarSpoke.server, 'loadAccount');
-    const read = () =>
-      stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN });
+    const read = () => stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN });
 
     load.mockResolvedValueOnce(makeHorizonAccount({ balance: '0.5000000' }));
     expect(await read()).toBe(0n);
@@ -1255,13 +1253,11 @@ describe('StellarSpokeService.getWalletBalance', () => {
   });
 
   it('returns 0n when the account carries no native balance line', async () => {
-    vi.spyOn(stellarSpoke.server, 'loadAccount').mockResolvedValueOnce(
-      makeHorizonAccount({ withNativeLine: false }),
-    );
+    vi.spyOn(stellarSpoke.server, 'loadAccount').mockResolvedValueOnce(makeHorizonAccount({ withNativeLine: false }));
 
-    expect(
-      await stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN }),
-    ).toBe(0n);
+    expect(await stellarSpoke.getWalletBalance({ srcChainKey: STELLAR, srcAddress: SRC_ADDR, token: XLM_TOKEN })).toBe(
+      0n,
+    );
   });
 
   it('rejects instead of reporting a zero when Horizon fails on the native path', async () => {
