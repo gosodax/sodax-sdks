@@ -1,8 +1,12 @@
 /**
- * Test-only builders for Tron `raw_data_hex` bodies, shaped like TronGrid's `createtransaction` /
- * `triggersmartcontract` output: ref block, expiration, one contract, then an optional fee limit.
+ * Test-only Tron fixtures: a test account, and builders for `raw_data_hex` bodies shaped like TronGrid's
+ * `createtransaction` / `triggersmartcontract` output: ref block, expiration, one contract, then an optional fee limit.
  */
 import { encodeTrc20TransferParams, tronBase58ToHex } from './tron-utils.js';
+
+/** A Tron test account, and the 32-byte word a hub release pays it through: 12 zero bytes, then its hash. */
+export const TRON_TEST_ADDRESS = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
+export const TRON_TEST_RECIPIENT_WORD = `0x${'00'.repeat(12)}45df1d9f0d472080e5272946e4444f885473245d` as const;
 
 const varint = (n: bigint): string => {
   let out = '';

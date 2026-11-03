@@ -323,6 +323,11 @@ if (!setResult.ok) {
 (`raw: true`). When `raw: true`, `walletProvider` must be omitted — the method returns the
 unsigned transaction object instead.
 
+An MPC-relay `dstChainKey` (Tron) is refused with `VALIDATION_FAILED` and
+`context.reason: 'mpc-relay-auto-swap-destination'`, and so is a claim whose stored preference pays
+out there. An auto-swap intent allows partial fills with no minimum output, so a payout to Tron could
+fall at or below the relay's release fee, which releases nothing once the hub has burned it.
+
 ### Step 3 — Approve the fee token
 
 Before swapping, ensure the ProtocolIntents contract is approved to spend the fee token.

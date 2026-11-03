@@ -25,6 +25,8 @@ sodax.partners.feeClaim.createIntentAutoSwap<Raw>(args): Promise<Result<...>>;  
 // already-created same-token intent is unfillable and locks the funds. Cancel via ProtocolIntents' own
 // cancelIntent — the only authorized path: the intent's creator is the ProtocolIntents contract, so the
 // generic SwapService.cancelIntent reverts Unauthorized().
+// Tron (an MPC-relay chain) is refused as an auto-swap destination, in setSwapPreference and at claim,
+// with VALIDATION_FAILED and context.reason 'mpc-relay-auto-swap-destination'.
 sodax.partners.feeClaim.cancelIntent<Raw>(args): Promise<Result<TxReturnType, Error>>; // args.params: { srcChainKey: Hub, srcAddress, fromToken, toToken }
 
 // Reads
