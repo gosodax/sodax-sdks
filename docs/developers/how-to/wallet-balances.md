@@ -11,8 +11,9 @@ Use this guide to show a user what they hold before they swap, bridge or deposit
 
 `sodax.spoke.getWalletBalance` reads one token for one address. It works the same on every chain type: native coins, EVM ERC-20s, Solana SPL tokens and the rest.
 
+{/* example: wallet-balances/one-token.ts#one-token */}
 ```typescript
-import { Sodax, ChainKeys } from '@sodax/sdk';
+import { ChainKeys, Sodax } from '@sodax/sdk';
 
 const sodax = new Sodax();
 await sodax.initialize();
@@ -40,6 +41,7 @@ The balance is a `bigint` in the token's smallest unit. Divide by `10 ** token.d
 
 `sodax.spoke.getWalletBalances` reads a list of tokens in one call. The SDK batches the reads where the chain allows it (EVM multicall3, ICON aggregated calls, the Injective portfolio), so a full token list costs one or two round trips, not one per token.
 
+{/* example: wallet-balances/many-tokens.ts#many-tokens */}
 ```typescript
 const tokens = sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.ARBITRUM_MAINNET);
 
@@ -63,10 +65,11 @@ The result is a map keyed by `token.address`. Look tokens up by address, not by 
 
 Each call reads one network. To show a portfolio across networks, run one call per network the user has connected, in parallel:
 
+{/* example: wallet-balances/portfolio.ts#portfolio */}
 ```typescript
-import type { SpokeChainKey } from '@sodax/sdk';
+import type { Sodax, SpokeChainKey } from '@sodax/sdk';
 
-async function readPortfolio(wallets: { chainKey: SpokeChainKey; address: string }[]) {
+export async function readPortfolio(sodax: Sodax, wallets: { chainKey: SpokeChainKey; address: string }[]) {
   return Promise.all(
     wallets.map(async ({ chainKey, address }) => {
       const tokens = sodax.swaps.getSupportedSwapTokensByChainId(chainKey);
@@ -83,11 +86,16 @@ A failed network comes back as `null` here, so one broken RPC does not hide the 
 
 `useBalances` from `@sodax/dapp-kit` wraps `getWalletBalances` in a React Query hook. It only needs a `SodaxProvider`, not a wallet SDK, and it refreshes every 5 seconds.
 
+{/* example: wallet-balances/Balances.tsx#use-balances */}
 ```tsx
 import { useBalances } from '@sodax/dapp-kit';
 import type { SpokeChainKey, XToken } from '@sodax/sdk';
 
-function Balances({ chainKey, address, tokens }: {
+export function Balances({
+  chainKey,
+  address,
+  tokens,
+}: {
   chainKey: SpokeChainKey | undefined;
   address: string | undefined;
   tokens: readonly XToken[];

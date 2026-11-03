@@ -40,10 +40,16 @@ Do not hardcode supported chain counts or chain lists in agent guidance. When ex
 | `apps/swap-api-example` | Vite + React reference app driving `@sodax/swaps-api` end to end (wallet SDK for signing) | [`apps/swap-api-example/README.md`](apps/swap-api-example/README.md) |
 | `apps/stellar-sponsor-example` | Vite + React reference app for the Stellar sponsored-activation journey (dapp-kit hooks), plus an offline test lab with a bundled mock backend | [`apps/stellar-sponsor-example/AGENTS.md`](apps/stellar-sponsor-example/AGENTS.md) |
 | `apps/playground` | Embeddable SODAX swap widget and visual builder: quotes, wallet-backed execution, activity tracking and integration exports | [`apps/playground/AGENTS.md`](apps/playground/AGENTS.md) |
+| `apps/docs-examples` | Compiled, tested TypeScript examples that hand-written docs.sodax.com pages show through `{/* example: … */}` markers | [`apps/docs-examples/AGENTS.md`](apps/docs-examples/AGENTS.md) |
 
 ### Docs site
 
 `docs/` is the docs.sodax.com Mintlify site, built from this repo by Mintlify's GitHub App: a page merged here is published, and one pushed to a branch gets a preview URL on the PR. Read [`docs/AGENTS.md`](docs/AGENTS.md) before adding, moving or renaming a page — paths are URLs, and `docs.json` navigation is what makes a page reachable. Gates: `pnpm check:docs-nav` and `pnpm docs:validate`.
+
+## Contribution Lanes
+
+- **Content lane**, picked by the paths a change touches: hand-written `docs/` pages (no `generatedFrom` key), their `docs.json` entries and images, and `apps/docs-examples`. Write with `.claude/skills/write-docs/`, review with `.claude/skills/review-docs/`. If the work needs a change anywhere else, stop and open an issue.
+- **Developer lane:** everything else. Use the `add-*` skills and `review-core-sdk`; package docs follow the `write-docs` rules too.
 
 ## Dependency Direction
 
@@ -81,13 +87,7 @@ cd packages/<pkg> && pnpm coverage
 cd packages/<pkg> && npx vitest run path/to/test.test.ts
 ```
 
-To try unreleased `@sodax/*` packages in a project outside this repo, pack them into local
-tarballs — plain `pnpm pack` is not enough, because it rewrites `workspace:*` to a registry
-version. See [`docs/local-package-testing.md`](docs/local-package-testing.md).
-
-```bash
-pnpm pack:local --version 2.0.0-local.1 --packages @sodax/sdk
-```
+To try unreleased `@sodax/*` packages outside this repo, use `pnpm pack:local`, not `pnpm pack` (it rewrites `workspace:*` to a registry version); see [`docs/local-package-testing.md`](docs/local-package-testing.md).
 
 ## Repo-Wide Rules
 

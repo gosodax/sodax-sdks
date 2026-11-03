@@ -16,6 +16,8 @@
 /scripts/check-doc-links.mjs @gosodax/sodax-sdks-admin
 /scripts/check-docs-nav.mjs @gosodax/sodax-sdks-admin
 /scripts/sync-docs-pages.mjs @gosodax/sodax-sdks-admin
+/scripts/sync-docs-examples.mjs @gosodax/sodax-sdks-admin
+/scripts/docs-examples-allowlist.json @gosodax/sodax-sdks-admin
 
 # The published site. Root-anchored: bare `docs/` would also claim packages/*/docs/.
 /docs/ @gosodax/sodax-sdks-admin
