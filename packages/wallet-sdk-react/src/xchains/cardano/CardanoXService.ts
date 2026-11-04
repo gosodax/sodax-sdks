@@ -24,7 +24,10 @@ export class CardanoXService extends XService {
 
   /** `address_info` from Koios, in lovelace. An address Koios has never seen is an empty array. */
   private async rpcBalance(rpcUrl: string, address: string): Promise<bigint> {
-    const res = await fetch(`${rpcUrl.replace(/\/+$/, '')}/address_info`, {
+    let end = rpcUrl.length;
+    // Scanning back, not a regex, which would backtrack on a long run of slashes.
+    while (end > 0 && rpcUrl[end - 1] === '/') end--;
+    const res = await fetch(`${rpcUrl.slice(0, end)}/address_info`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ _addresses: [address] }),

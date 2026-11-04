@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ChainKeys } from '@sodax/types';
 import { encodeAddress, encodeRecipient, reverseEncodeAddress } from './shared-utils.js';
 import { tronBase58ToHex } from '../services/spoke/tron-utils.js';
-import { CARDANO_ADDRESSES, CARDANO_KEY_HASH } from '../services/spoke/cardano-test-vectors.js';
+import { CARDANO_ADDRESSES, CARDANO_PAYMENT_HASH } from '../services/spoke/cardano-test-vectors.js';
 
 // Every chain counts as MPC-relayed here: relay membership must not choose the recipient encoding.
 vi.mock('@sodax/types', async importOriginal => ({
@@ -105,8 +105,8 @@ describe('encodeAddress / encodeRecipient / reverseEncodeAddress — Cardano', (
   const { enterpriseMainnet, baseMainnet } = CARDANO_ADDRESSES;
 
   it('identifies an account by its 28-byte payment key hash, whatever its stake part', () => {
-    expect(encodeAddress(ChainKeys.CARDANO_MAINNET, enterpriseMainnet.bech32)).toBe(CARDANO_KEY_HASH);
-    expect(encodeAddress(ChainKeys.CARDANO_MAINNET, baseMainnet.bech32)).toBe(CARDANO_KEY_HASH);
+    expect(encodeAddress(ChainKeys.CARDANO_MAINNET, enterpriseMainnet.bech32)).toBe(CARDANO_PAYMENT_HASH);
+    expect(encodeAddress(ChainKeys.CARDANO_MAINNET, baseMainnet.bech32)).toBe(CARDANO_PAYMENT_HASH);
   });
 
   it('pays a release to the full raw address, neither the key hash nor a padded word', () => {
@@ -122,7 +122,9 @@ describe('encodeAddress / encodeRecipient / reverseEncodeAddress — Cardano', (
   });
 
   it('refuses to decode the key-hash identity, which does not say what stake part the address had', () => {
-    expect(() => reverseEncodeAddress(ChainKeys.CARDANO_MAINNET, CARDANO_KEY_HASH)).toThrow(/cannot be turned back/);
+    expect(() => reverseEncodeAddress(ChainKeys.CARDANO_MAINNET, CARDANO_PAYMENT_HASH)).toThrow(
+      /cannot be turned back/,
+    );
   });
 
   it('refuses a testnet recipient rather than pay a different network', () => {

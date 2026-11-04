@@ -15,7 +15,7 @@ import { computeSignedMessageHash } from './mpc-message.js';
 import {
   CARDANO_ADDRESSES,
   CARDANO_CIP8,
-  CARDANO_KEY_HASH,
+  CARDANO_PAYMENT_HASH,
   CARDANO_MEMO_DEPOSIT,
   CARDANO_REJECTED_ADDRESSES,
 } from './cardano-test-vectors.js';
@@ -29,7 +29,7 @@ describe('cardano addresses', () => {
     expect(parsed.kind).toBe('enterprise');
     expect(parsed.bytes).toHaveLength(29);
     expect(Buffer.from(parsed.bytes).toString('hex')).toBe(CARDANO_ADDRESSES.enterpriseMainnet.hex.slice(2));
-    expect(Buffer.from(parsed.paymentHash).toString('hex')).toBe(CARDANO_KEY_HASH.slice(2));
+    expect(Buffer.from(parsed.paymentHash).toString('hex')).toBe(CARDANO_PAYMENT_HASH.slice(2));
   });
 
   it('parses a base mainnet address into its 57 raw bytes, with the same payment key hash', () => {
@@ -37,7 +37,7 @@ describe('cardano addresses', () => {
 
     expect(parsed.kind).toBe('base');
     expect(parsed.bytes).toHaveLength(57);
-    expect(Buffer.from(parsed.paymentHash).toString('hex')).toBe(CARDANO_KEY_HASH.slice(2));
+    expect(Buffer.from(parsed.paymentHash).toString('hex')).toBe(CARDANO_PAYMENT_HASH.slice(2));
   });
 
   it('pays a release to the full raw address bytes, not a padded word', () => {
@@ -48,8 +48,8 @@ describe('cardano addresses', () => {
   });
 
   it('identifies an account by its payment key hash, whatever its stake part', () => {
-    expect(cardanoIdentityBytes(CARDANO_ADDRESSES.enterpriseMainnet.bech32)).toBe(CARDANO_KEY_HASH);
-    expect(cardanoIdentityBytes(CARDANO_ADDRESSES.baseMainnet.bech32)).toBe(CARDANO_KEY_HASH);
+    expect(cardanoIdentityBytes(CARDANO_ADDRESSES.enterpriseMainnet.bech32)).toBe(CARDANO_PAYMENT_HASH);
+    expect(cardanoIdentityBytes(CARDANO_ADDRESSES.baseMainnet.bech32)).toBe(CARDANO_PAYMENT_HASH);
   });
 
   it('round-trips recipient bytes back to the bech32 address', () => {
@@ -83,7 +83,7 @@ describe('cardano addresses', () => {
     expect(() => parseCardanoAddress('not-an-address')).toThrow(/invalid Cardano bech32/);
     expect(() => parseCardanoAddress('addr1'.padEnd(201, 'q'))).toThrow(/above the 200-character limit/);
     // A 28-byte identity is not a recipient: it carries no header and cannot be paid.
-    expect(() => cardanoAddressFromRecipientBytes(CARDANO_KEY_HASH)).toThrow(/Cardano/);
+    expect(() => cardanoAddressFromRecipientBytes(CARDANO_PAYMENT_HASH)).toThrow(/Cardano/);
   });
 
   it('pins the release floor at 1 ADA', () => {
@@ -121,32 +121,32 @@ describe('cardano withdraw-auth', () => {
     expect(() => cardanoSignDataPayload(messageHash.slice(2) as Hex)).toThrow(/0x-prefixed/);
   });
 
-  const valid = { signature: CARDANO_CIP8.coseSign1, key: CARDANO_CIP8.coseKey };
+  const valid = { signature: CARDANO_CIP8.coseSign1, key: CARDANO_CIP8.coseSigner };
 
   it('turns a wallet signData result into the signature and COSE fields for the relay', () => {
-    const fields = cardanoSignDataFields(valid, messageHash, CARDANO_CIP8.keyHash);
+    const fields = cardanoSignDataFields(valid, messageHash, CARDANO_CIP8.paymentHash);
 
     expect(fields.signature).toBe(CARDANO_CIP8.signature);
     expect(fields.cardanoSignData).toEqual({
       coseSign1: `0x${CARDANO_CIP8.coseSign1}`,
-      coseKey: `0x${CARDANO_CIP8.coseKey}`,
+      coseKey: `0x${CARDANO_CIP8.coseSigner}`,
     });
   });
 
   it('accepts a COSE_Sign1 that carries its registered tag 18', () => {
     const tagged = { ...valid, signature: `d2${CARDANO_CIP8.coseSign1}` };
 
-    expect(cardanoSignDataFields(tagged, messageHash, CARDANO_CIP8.keyHash).signature).toBe(CARDANO_CIP8.signature);
+    expect(cardanoSignDataFields(tagged, messageHash, CARDANO_CIP8.paymentHash).signature).toBe(CARDANO_CIP8.signature);
   });
 
   it('refuses a wallet that signed something other than the unhashed 0x<hash> payload', () => {
     const otherHash = `0x${'11'.repeat(32)}` as Hex;
-    expect(() => cardanoSignDataFields(valid, otherHash, CARDANO_CIP8.keyHash)).toThrow(/payload other than/);
+    expect(() => cardanoSignDataFields(valid, otherHash, CARDANO_CIP8.paymentHash)).toThrow(/payload other than/);
   });
 
   it('refuses a signature from a key other than the withdraw sender', () => {
-    expect(() => cardanoSignDataFields(valid, messageHash, CARDANO_KEY_HASH)).toThrow(
-      new RegExp(`signed with payment key hash ${CARDANO_CIP8.keyHash}`),
+    expect(() => cardanoSignDataFields(valid, messageHash, CARDANO_PAYMENT_HASH)).toThrow(
+      new RegExp(`signed with payment key hash ${CARDANO_CIP8.paymentHash}`),
     );
   });
 
@@ -160,7 +160,7 @@ describe('cardano withdraw-auth', () => {
     ['a COSE_Key that is not a map', { ...valid, key: '8101' }, /COSE_Key malformed: expected a map/],
     ['a COSE_Key without a 32-byte public key', { ...valid, key: 'a121410a' }, /32-byte ed25519 public key/],
   ])('refuses %s', (_label, dataSignature, message) => {
-    expect(() => cardanoSignDataFields(dataSignature, messageHash, CARDANO_CIP8.keyHash)).toThrow(message);
+    expect(() => cardanoSignDataFields(dataSignature, messageHash, CARDANO_CIP8.paymentHash)).toThrow(message);
   });
 });
 

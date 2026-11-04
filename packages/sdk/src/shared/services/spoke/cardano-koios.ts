@@ -17,6 +17,13 @@ export type KoiosUtxo = CardanoUtxo & { hasAssets: boolean; hasReferenceScript: 
 
 type Row = Record<string, unknown>;
 
+/** `url` without trailing slashes, by scanning back rather than with a regex that backtracks on a long run of them. */
+function trimTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end--;
+  return url.slice(0, end);
+}
+
 function fail(where: string, what: string): never {
   throw new Error(`koios ${where}: ${what}`);
 }
@@ -61,7 +68,7 @@ export type KoiosClient = {
 };
 
 export function createKoiosClient(baseUrl: string): KoiosClient {
-  const base = baseUrl.replace(/\/+$/, '');
+  const base = trimTrailingSlashes(baseUrl);
   if (base.length === 0)
     throw new Error('Cardano rpcUrl is empty: set a Koios base URL (https://…/api/v1) through the chain config');
 

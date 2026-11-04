@@ -5,7 +5,7 @@
  * verifier pin the same bytes, so a mismatch here means the SDK would sign or pay something the relay refuses.
  */
 
-export const CARDANO_KEY_HASH = '0x8b218424ad74df25d35c2ea8e094a4c5c5aeb2cbb442419331569313';
+export const CARDANO_PAYMENT_HASH = '0x8b218424ad74df25d35c2ea8e094a4c5c5aeb2cbb442419331569313';
 
 export const CARDANO_ADDRESSES = {
   enterpriseMainnet: {
@@ -32,9 +32,9 @@ export const CARDANO_REJECTED_ADDRESSES = {
   byron: 'FHnt4NL7yPY11rKDHyuao6ZnjsXah2cF6z7qdfA4B1qppRR1rEjviJXrKUxePG9',
 } as const;
 
-/** A CIP-8 `signData` over the withdraw-auth message below, signed by the key behind `CARDANO_CIP8.keyHash`. */
+/** A CIP-8 `signData` over the withdraw-auth message below, signed by the key behind `CARDANO_CIP8.paymentHash`. */
 export const CARDANO_CIP8 = {
-  keyHash: '0x049f5171ace4a410fc97f3c5de45d19ef8ee62bfdf56658f51cae9ef',
+  paymentHash: '0x049f5171ace4a410fc97f3c5de45d19ef8ee62bfdf56658f51cae9ef',
   message: {
     to: '0xabababababababababababababababababababab',
     data: '0xdeadbeef',
@@ -47,7 +47,7 @@ export const CARDANO_CIP8 = {
     '0x307832383538646630643233643039336231333933366662373535663035646532353138626531346131623864373664393365386561346264643063366536396666',
   coseSign1:
     '84582aa201276761646472657373581d60049f5171ace4a410fc97f3c5de45d19ef8ee62bfdf56658f51cae9efa166686173686564f45842307832383538646630643233643039336231333933366662373535663035646532353138626531346131623864373664393365386561346264643063366536396666584009b30bbe512b1c6ebc37abdd450532014e4104a5c6de19b8183e2532d69150b178ef5f696432d430643352432ed0b6681adad0c63ce9fd9131b0599900d11c07',
-  coseKey: 'a401010327200621582066be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a',
+  coseSigner: 'a401010327200621582066be7e332c7a453332bd9d0a7f7db055f5c5ef1a06ada66d98b39fb6810c473a',
   signature:
     '0x09b30bbe512b1c6ebc37abdd450532014e4104a5c6de19b8183e2532d69150b178ef5f696432d430643352432ed0b6681adad0c63ce9fd9131b0599900d11c07',
 } as const;

@@ -344,7 +344,7 @@ describe('CardanoSpokeService reads', () => {
 
 describe('CardanoSpokeService.sendMessage', () => {
   // An account whose payment key is the CIP-8 vector's, so the vector's COSE_Key proves the sender.
-  const SIGNER_ADDRESS = cardanoAddressFromRecipientBytes(`0x61${CARDANO_CIP8.keyHash.slice(2)}`);
+  const SIGNER_ADDRESS = cardanoAddressFromRecipientBytes(`0x61${CARDANO_CIP8.paymentHash.slice(2)}`);
 
   /** A COSE_Sign1 `[protected, {}, payload, 64-byte signature]` over whatever payload the wallet is asked to sign. */
   const coseSign1Over = (payloadHex: Hex) =>
@@ -355,7 +355,10 @@ describe('CardanoSpokeService.sendMessage', () => {
     getWalletAddress: vi.fn(async () => SIGNER_ADDRESS),
     signTransaction: vi.fn(),
     submitTransaction: vi.fn(),
-    signData: vi.fn(async (asked: Hex) => ({ signature: coseSign1Over(payloadFor(asked)), key: CARDANO_CIP8.coseKey })),
+    signData: vi.fn(async (asked: Hex) => ({
+      signature: coseSign1Over(payloadFor(asked)),
+      key: CARDANO_CIP8.coseSigner,
+    })),
   });
 
   const messageParams = (walletProvider: unknown, extra: object = {}) =>
@@ -386,10 +389,10 @@ describe('CardanoSpokeService.sendMessage', () => {
       to: HUB_WALLET,
       data: '0xdeadbeef',
       chainId: '1815',
-      sender: CARDANO_CIP8.keyHash,
+      sender: CARDANO_CIP8.paymentHash,
     });
     expect(request?.signature).toBe(`0x${'77'.repeat(64)}`);
-    expect(request?.cardanoSignData?.coseKey).toBe(`0x${CARDANO_CIP8.coseKey}`);
+    expect(request?.cardanoSignData?.coseKey).toBe(`0x${CARDANO_CIP8.coseSigner}`);
   });
 
   it('refuses a wallet that signed a different payload, submitting nothing', async () => {
