@@ -14,9 +14,19 @@ A bridge call deposits the source token into its vault on the hub, then triggers
 
 ```ts
 sodax.bridge.bridge<K>(action: BridgeParams<K, false>): Promise<Result<TxHashPair, SodaxError>>;
+// bridge() with the approval folded in: one EIP-5792 batch (one signature) when the wallet can, else approve → wait → bridge.
+sodax.bridge.bridgeWithApproval<K>(action: BridgeWithApprovalParams<K>): Promise<Result<BridgeWithApprovalResponse, SodaxError>>;
+// 'not-required' | 'atomic-batch' | 'sequential' — the path bridgeWithApproval would take; label the button with it.
+sodax.bridge.getApprovalStrategy<K>(action: BridgeWithApprovalParams<K>): Promise<Result<ApprovalStrategy, SodaxError>>;
 sodax.bridge.createBridgeIntent<K, Raw>(action: BridgeParams<K, Raw>): Promise<Result<IntentTxResult<K, Raw>, SodaxError>>;
 sodax.bridge.approve<K, Raw>(args): Promise<Result<TxReturnType<K, Raw>, SodaxError>>;
+// Unsigned callers only: returns both transactions when a stale allowance must be cleared first.
+sodax.bridge.buildApproveTxs<K>(action: BridgeParams<K, true>): Promise<Result<ApprovalTxs<K>, SodaxError>>;
 sodax.bridge.isAllowanceValid<K, Raw>(args): Promise<Result<boolean, SodaxError>>;
+
+// Routes from the source tx to whichever source can answer — the backend record while it is in
+// play, else the delivered relay packet. Covers a bridge the client-side fallback completed.
+sodax.bridge.getDetailedStatus({ srcChainKey, srcTxHash }, config?): Promise<Result<DetailedBridgeStatus, SodaxError>>;
 
 sodax.bridge.getBridgeableAmount(from: XToken, to: XToken): Promise<Result<BridgeLimit, SodaxError>>;
 sodax.bridge.getBridgeableTokens(from: SpokeChainKey, to: SpokeChainKey, token: string): Result<XToken[], SodaxError>;
@@ -57,12 +67,14 @@ type BridgeExtras<K extends SpokeChainKey> = (GetChainType<K> extends 'STACKS'
   : { srcPublicKey?: never }) &
   (GetChainType<K> extends 'BITCOIN' ? { bound?: { accessToken?: string } } : { bound?: never }) & {
     partnerFee?: PartnerFee;
+    apiKey?: string;
   };
 ```
 
 | Slot | When | Notes |
 |---|---|---|
 | `partnerFee` | any chain, optional | Takes precedence over the config-level `bridge.partnerFee` for this call. Omit to use the configured fee. |
+| `apiKey` | any chain, optional | Overrides the configured backend API key (`x-api-key`) for this action's backend submit-tx leg. Omit to use `new Sodax({ apiKey })`. |
 | `srcPublicKey` | Stacks source + `raw: true` — **required** | A Stacks address can't yield the signer public key at raw-tx build time. Omitting it fails `VALIDATION_FAILED` (`field: 'srcPublicKey'`). |
 | `bound` | raw Bitcoin TRADING source, optional | Bound Exchange (Radfi) access token; falls back to the `RadfiProvider` instance token. |
 
@@ -195,6 +207,7 @@ if (result.ok) {
 | `bridge` | `TxHashPair` |
 | `createBridgeIntent` | `IntentTxResult<K, Raw>` = `{ tx: TxReturnType<K, Raw>, relayData }` |
 | `approve` | `TxReturnType<K, Raw>` |
+| `buildApproveTxs` | `ApprovalTxs<K> = { approveTx, resetTx? }` |
 | `isAllowanceValid` | `boolean` |
 | `getBridgeableAmount` | `BridgeLimit = { amount, decimals, type }` |
 | `getBridgeableTokens` | `XToken[]` |
@@ -205,6 +218,13 @@ approval, so the user signs twice. The returned value is unchanged — one hash,
 transaction's. Detection simulates the approval, so never gate on a token list. Full note: "ERC-20
 approval can take two transactions" in [`architecture.md`](../architecture.md).
 
+Unsigned callers cannot get that from `approve({ raw: true })`, which returns a single transaction.
+Use `buildApproveTxs` instead — it returns `{ approveTx, resetTx? }`, and when `resetTx` is present
+you must broadcast it and wait for it to be mined before `approveTx`. It resolves the same spender as
+`approve` and `isAllowanceValid` (the caller's own hub wallet router on the hub, the asset manager on
+an EVM spoke), so do not substitute `sodax.swaps.buildApproveTxs` for a bridge — swaps approves a
+different contract on the hub.
+
 ## Error codes
 
 `feature: 'bridge'`. Per-method narrow unions:
@@ -212,10 +232,14 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 | Method | Codes | `error.context` |
 |---|---|---|
 | `bridge` | full exec set | `action: 'bridge'` |
+| `bridgeWithApproval` | `bridge`'s codes + `APPROVE_FAILED`, `ALLOWANCE_CHECK_FAILED` | approval-step errors: `action: 'bridgeWithApproval'`, `approvalStrategy` (after the broadcast, `bridge()`'s own context); a batch that may still land is `TX_VERIFICATION_FAILED` with `reason: ATOMIC_BATCH_UNCONFIRMED` — never bridge it again; call again with `resumeBatchId: context.batchId, resumeBatchCallCount: context.callCount`, which sends nothing and relays the deposit once the batch lands |
+| `getApprovalStrategy` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` (`isAllowanceValid`'s) | `action: 'bridgeWithApproval'` |
 | `createBridgeIntent` | `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` | `action: 'bridge'` |
 | `approve` | `VALIDATION_FAILED`, `APPROVE_FAILED`, `UNKNOWN` | n/a |
 | `isAllowanceValid` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` | n/a |
 | `getBridgeableAmount`, `getBridgeableTokens` | `VALIDATION_FAILED`, `LOOKUP_FAILED`, `UNKNOWN` | `method: 'getBridgeableAmount' \| 'getBridgeableTokens'` |
+
+**A `bridge()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED` and the relay codes set `error.context.srcTxHash` (plus `srcChainKey`). The deposit is on-chain and the bridge may still complete — a slow relay can deliver late, and on the default backend path the backend keeps working after `bridge()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the bridge as lost or retrying `bridge()`. Failures before the broadcast carry no `srcTxHash`. After `TX_SUBMIT_FAILED`, if the backend did not take the deposit (submit-tx off or rejected) nothing else submits it: when no packet ever shows up, resubmit the same tx with `submitTransaction({ action: 'submit', params: { chain_id, tx_hash } }, relayerApiEndpoint)` — the relay ignores a tx it already has. A Solana or Bitcoin source also needs the original `relayData`, which `bridge()` does not return.
 
 ## Cross-references
 

@@ -100,7 +100,7 @@ Run-all is only enabled against the mock, where nothing is ever submitted to Ste
 
 An `x-api-key` shipped in a browser bundle is public by nature. The service's per-key quotas,
 fleet-wide daily cap, per-IP throttle, and origin gating are the real controls. If that is not
-acceptable for your deployment, point `baseURL` at your own backend and inject the header there.
+acceptable for your deployment, point `baseURL` at your own backend and inject the header there — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
 
 `example.env` ships `mock-dev-key`, which is the bundled mock's non-secret default. Never commit a
 real key here.

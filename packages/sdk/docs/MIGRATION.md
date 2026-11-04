@@ -23,7 +23,7 @@ const iconChainKey: SpokeChainKey = ChainKeys.ICON_MAINNET;
 const migrationTokens = ['ICX', 'bnUSD', 'BALN'] as const;
 ```
 
-Please refer to [SDK ChainKeys](https://github.com/icon-project/sodax-sdks/blob/main/packages/types/src/chains/chain-keys.ts) for more. For a direct mapping from old `*_CHAIN_ID` constants to `ChainKeys.*` see `packages/sdk/CHAIN_ID_MIGRATION.md`.
+Please refer to [SDK ChainKeys](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chain-keys.ts) for more. For a direct mapping from old `*_CHAIN_ID` constants to `ChainKeys.*` see `packages/sdk/CHAIN_ID_MIGRATION.md`.
 
 ### Wallet Providers
 
@@ -165,7 +165,7 @@ if (approveResult.ok) {
 
 ### Stellar Trustline Requirements
 
-For Stellar-based migration operations, you need to handle trustlines differently depending on whether Stellar is the source or destination chain. See [Stellar Trustline Requirements](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md#migration) for detailed information and code examples.
+For Stellar-based migration operations, you need to handle trustlines differently depending on whether Stellar is the source or destination chain. See [Stellar Trustline Requirements](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md#migration) for detailed information and code examples.
 
 ## ICX Migration (ICX/wICX → SODA)
 

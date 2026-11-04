@@ -1,0 +1,78 @@
+---
+title: "SODAX for BNB Chain"
+sidebarTitle: "Overview"
+description: "Reach the users and liquidity of every SODAX network from your BNB Chain product. No contracts to deploy, your entire integration is TypeScript."
+icon: cubes
+---
+
+<Note>
+  **No new contracts.** SODAX's BNB Chain spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary EVM transactions on BNB Smart Chain, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+You keep shipping on BNB Chain. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## Two things to know on BNB Chain
+
+BNB Chain (BNB Smart Chain, chain ID 56) takes the standard SODAX EVM path: the same `EvmWalletProvider` as every other EVM network, ERC-20 approvals for tokens, no approval for native BNB, and no chain-specific handling in the SDK. BNB is the gas token, with 18 decimals. The differences are in the token list:
+
+- **Stablecoins use 18 decimals.** USDC and USDT on BNB Chain have 18 decimals, where most other networks use 6. Most other tokens SODAX lists on BNB Chain use 18 as well. Build every amount from `token.decimals` of the token on the network it lives on, and never carry a decimal count from one network to another. See [Decimals across networks](/bnb-chain/swaps#decimals-across-networks).
+- **Some SODAX symbols differ from the on-chain symbol.** The Binance-Peg ETH token reports `ETH` on-chain, but SODAX lists it as `ETHB`, alongside `BTCB`. Look tokens up by the SODAX symbol, or better, by address.
+
+## What you can build
+
+Two SODAX modules are relevant to BNB Chain builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/bnb-chain/swaps">
+    Intent-based cross-network swaps. Users swap between BNB or BEP-20 tokens and assets on any supported network with one signed transaction on BNB Chain. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/bnb-chain/money-market">
+    Cross-network lending and borrowing. Supply from BNB Chain, borrow to BNB Chain or any other supported network, and manage positions without running lending infrastructure.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/bnb-chain/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/bnb-chain/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/bnb-chain/quickstart): install the SDK, connect a BNB Chain wallet, make your first cross-network swap.
+- [Swaps on BNB Chain](/bnb-chain/swaps): approvals, quoting, fees, and decimals across networks.
+- [Money Market on BNB Chain](/bnb-chain/money-market): supply, borrow, repay, and withdraw with cross-network collateral.
+- [Wallets](/bnb-chain/wallets): EVM wallets on BNB Chain, and every other network's wallets through one interface.
+- [Networks & Assets](/bnb-chain/networks-and-assets): what is live on BNB Chain today and what your users can reach.
+- [BNB Chain FAQ](/bnb-chain/faq): the questions BNB Chain engineers actually ask.
+
+## BNB Chain references
+
+- [**BNB Chain documentation**](https://docs.bnbchain.org/): BNB Smart Chain and its developer tooling.
+- [**BNB Smart Chain overview**](https://docs.bnbchain.org/bnb-smart-chain/): the EVM chain SODAX runs on.
+- [**JSON-RPC endpoints**](https://docs.bnbchain.org/bnb-smart-chain/developers/json_rpc/json-rpc-endpoint/): chain ID and public RPC endpoints, with their rate limits.
+
+---
+
+Building something? Start with the [Quickstart](/bnb-chain/quickstart).

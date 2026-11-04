@@ -20,16 +20,29 @@ const HOOKS: Array<{ path: string; nativeThrow?: true }> = [
   { path: 'bitcoin/useRenewUtxos.ts', nativeThrow: true },
   { path: 'bridge/useBridge.ts' },
   { path: 'bridge/useBridgeApprove.ts' },
+  { path: 'bridge/useBridgeWithApproval.ts' },
   { path: 'dex/useClaimRewards.ts' },
   { path: 'dex/useDecreaseLiquidity.ts' },
   { path: 'dex/useDexApprove.ts' },
   { path: 'dex/useDexDeposit.ts' },
   { path: 'dex/useDexWithdraw.ts' },
   { path: 'dex/useSupplyLiquidity.ts' },
+  { path: 'leverageYield/useRunLeveragePositionOperation.ts' },
   { path: 'leverageYield/useLeverageYieldDeposit.ts' },
   { path: 'leverageYield/useLeverageYieldNotifySolver.ts' },
   { path: 'leverageYield/useLeverageYieldVaultSwap.ts' },
+  { path: 'leverageYield/useLeverageYieldVaultSwapWithApproval.ts' },
   { path: 'leverageYield/useLeverageYieldWithdraw.ts' },
+  { path: 'leverageYield/useApproveLeveragePositionFunding.ts' },
+  { path: 'leverageYield/useOpenLeveragePosition.ts' },
+  { path: 'leverageYield/useSubmitLeveragePositionIntent.ts' },
+  { path: 'leverageYieldApi/useLeverageYieldApiApprove.ts' },
+  { path: 'leverageYieldApi/useLeverageYieldApiApproveAndBroadcast.ts' },
+  { path: 'leverageYieldApi/useLeverageYieldApiCancelIntent.ts' },
+  { path: 'leverageYieldApi/useLeverageYieldApiCreateDepositIntent.ts' },
+  { path: 'leverageYieldApi/useLeverageYieldApiCreateWithdrawIntent.ts' },
+  { path: 'leverageYieldApi/useLeverageYieldApiSubmitIntent.ts' },
+  { path: 'leverageYieldApi/useLeverageYieldApiSubmitTx.ts' },
   { path: 'migrate/useMigrateBaln.ts' },
   { path: 'migrate/useMigrateIcxToSoda.ts' },
   { path: 'migrate/useMigratebnUSD.ts' },
@@ -63,14 +76,17 @@ const HOOKS: Array<{ path: string; nativeThrow?: true }> = [
   { path: 'swap/useCreateLimitOrder.ts' },
   { path: 'swap/useSwap.ts' },
   { path: 'swap/useSwapApprove.ts' },
+  { path: 'swap/useSwapWithApproval.ts' },
   { path: 'swapsApi/useSwapsApiApprove.ts' },
   { path: 'swapsApi/useSwapsApiApproveAndBroadcast.ts' },
+  { path: 'swapsApi/useSwapsApiBroadcastWithApproval.ts' },
   { path: 'swapsApi/useSwapsApiCancelIntent.ts' },
   { path: 'swapsApi/useSwapsApiCreateIntent.ts' },
   { path: 'swapsApi/useSwapsApiCreateLimitOrder.ts' },
   { path: 'swapsApi/useSwapsApiSubmitIntent.ts' },
   { path: 'swapsApi/useSwapsApiSubmitTx.ts' },
   { path: 'bridgeApi/useBridgeApiApprove.ts' },
+  { path: 'bridgeApi/useBridgeApiApproveAndBroadcast.ts' },
   { path: 'bridgeApi/useBridgeApiCreateBridgeIntent.ts' },
   { path: 'bridgeApi/useBridgeApiSubmitTx.ts' },
 ];
@@ -108,6 +124,12 @@ describe.each(HOOKS)('mutation hook contract: $path', ({ path, nativeThrow }) =>
     const spreadIdx = src.indexOf('...mutationOptions');
     const fnIdx = src.search(/\bmutationFn:/);
     expect(fnIdx).toBeGreaterThan(spreadIdx);
+  });
+
+  it('routes balance invalidation through invalidateBalances', () => {
+    // Hand-rolling one balance key invalidates only one of the two balance hooks (useBalances vs
+    // useXBalances) and leaves the other stale — the exact drift the shared helper exists to stop.
+    expect(src).not.toMatch(/invalidateQueries\(\{\s*queryKey:\s*\[\s*'shared',\s*'x?[bB]alances'/);
   });
 
   if (!nativeThrow) {

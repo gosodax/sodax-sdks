@@ -21,6 +21,8 @@ export interface RequestConfig {
   body?: string;
   timeout?: number;
   baseURL?: string;
+  /** Honoured only via {@link resolveRequestConfig}; `makeRequest` expands `overrideConfig.apiKey`, not this field. */
+  apiKey?: string;
 }
 
 /**
@@ -32,7 +34,63 @@ export type RequestOverrideConfig = {
   baseURL?: string;
   timeout?: number;
   headers?: Record<string, string>;
+  /**
+   * Per-call API key, sent as the `x-api-key` header. Wins over the service's configured key; an
+   * explicit `headers['x-api-key']` on this same override wins over it.
+   */
+  apiKey?: string;
 };
+
+/** Canonical (lower-case) name of the backend API-key header. */
+const API_KEY_HEADER = 'x-api-key';
+
+/**
+ * The `x-api-key` header for an `apiKey` convenience option, or nothing when it is unset. An empty
+ * string counts as unset — a set-but-empty env var must fall back rather than send a blank credential,
+ * matching how {@link resolveRequestConfig} and `layerConfigs` treat an empty `baseURL`.
+ */
+export function apiKeyHeader(apiKey: string | undefined): Record<string, string> {
+  return apiKey ? { [API_KEY_HEADER]: apiKey } : {};
+}
+
+/**
+ * Merge header records left to right, comparing names case-insensitively. HTTP header names are
+ * case-insensitive and `fetch` folds two casings of one name into a single comma-joined value instead
+ * of letting the later one win — so a plain spread of `{'x-api-key'}` under a caller's `{'X-Api-Key'}`
+ * would send both, which is neither key. The last source to set a name supplies its casing and value.
+ *
+ * Kept in step with the identical helper in `@sodax/swaps-api`'s and `@sodax/bridge-api`'s `http.ts` —
+ * neither package can import from the SDK, and this copy also serves the non-swaps services here.
+ */
+export function mergeHeaders(...sources: Array<Record<string, string> | undefined>): Record<string, string> {
+  const byName = new Map<string, [name: string, value: string]>();
+  for (const source of sources) {
+    for (const entry of Object.entries(source ?? {})) byName.set(entry[0].toLowerCase(), entry);
+  }
+  return Object.fromEntries(byName.values());
+}
+
+/**
+ * Bake a config-level `apiKey` into a service config's headers, so every request that service makes
+ * carries it. Explicitly configured headers still win, matching the per-call expansion's rule.
+ */
+export function withApiKey<T extends { headers: Record<string, string> }>(config: T, apiKey: string | undefined): T {
+  return { ...config, headers: mergeHeaders(apiKeyHeader(apiKey), config.headers) };
+}
+
+/**
+ * Merge `source` into `target` IN PLACE, with the same case-insensitive last-write-wins rule as
+ * {@link mergeHeaders}. Used by the services' `setHeaders`, where a plain `target[name] = value` is
+ * unsafe: updating an existing key does NOT move it in insertion order, so a caller who once wrote
+ * `X-Api-Key` and later rewrites `x-api-key` would leave the stale casing sitting last and win the
+ * merge — silently sending the superseded credential. Rebuilds in place so `headers` can stay
+ * `readonly` on the services that hold it.
+ */
+export function assignHeaders(target: Record<string, string>, source: Record<string, string>): void {
+  const merged = mergeHeaders(target, source);
+  for (const name of Object.keys(target)) delete target[name];
+  Object.assign(target, merged);
+}
 
 /**
  * Non-2xx failure with structured status and body. The legacy
@@ -91,7 +149,7 @@ export type MakeRequestParams = {
 };
 
 /**
- * `JSON.stringify` that is safe for request bodies containing `bigint` values (e.g. the Bridge API v2
+ * `JSON.stringify` that is safe for request bodies containing `bigint` values (e.g. the Bridge API
  * quote/fee bodies whose numeric amounts are serialized as decimal strings). Plain `JSON.stringify`
  * throws `TypeError` on a `bigint`; this serializes each `bigint` to its decimal string form, matching
  * the wire shape the backend expects.
@@ -118,8 +176,9 @@ export async function makeRequest<T>(params: MakeRequestParams): Promise<T> {
   // baseURL is treated as "not provided" and falls back to the service default.
   const baseURL = overrideConfig.baseURL || config.baseURL || '';
   const url = `${trimTrailingSlashes(baseURL)}${endpoint}`;
-  // Per-call override headers take precedence over the service defaults.
-  const headers = { ...config.headers, ...overrideConfig.headers };
+  // Per-call override headers take precedence over the service defaults, and an explicit override
+  // `x-api-key` header wins over the override's `apiKey` convenience option.
+  const headers = mergeHeaders(config.headers, apiKeyHeader(overrideConfig.apiKey), overrideConfig.headers);
 
   // Create AbortController for timeout
   const controller = new AbortController();
@@ -161,18 +220,19 @@ export async function makeRequest<T>(params: MakeRequestParams): Promise<T> {
 
 /**
  * Apply per-call config over service defaults. Headers merge with the override
- * winning; an empty base URL falls back to the default.
+ * winning; an empty base URL falls back to the default. The per-call `apiKey` is expanded here and
+ * dropped from the result, so the transport never re-applies it.
  */
 export function resolveRequestConfig(
   config: RequestConfig,
   defaults: { baseURL: string; timeout: number; headers: Record<string, string> },
 ): RequestConfig {
-  const { baseURL, timeout, headers, ...rest } = config;
+  const { baseURL, timeout, headers, apiKey, ...rest } = config;
   return {
     ...rest,
     baseURL: baseURL || defaults.baseURL,
     timeout: timeout ?? defaults.timeout,
-    headers: { ...defaults.headers, ...headers },
+    headers: mergeHeaders(defaults.headers, apiKeyHeader(apiKey), headers),
   };
 }
 

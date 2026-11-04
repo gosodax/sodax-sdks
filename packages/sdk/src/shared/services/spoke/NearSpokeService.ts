@@ -4,10 +4,13 @@ import type {
   DepositParams,
   EstimateGasParams,
   GetDepositParams,
+  GetBalanceParams,
+  GetBalancesParams,
   SendMessageParams,
   WaitForTxReceiptParams,
   WaitForTxReceiptReturnType,
 } from '../../types/spoke-types.js';
+import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 import type { RateLimitConfig } from '../../types/types.js';
 import type { ConfigService } from '../../config/ConfigService.js';
 import { sleep } from '../../utils/shared-utils.js';
@@ -213,6 +216,46 @@ export class NearSpokeService {
     }
 
     return BigInt(bal);
+  }
+
+  /**
+   * Get the user's own wallet balance of a token on NEAR, in smallest units (yoctoNEAR for the
+   * native coin). Native NEAR via the account's `viewAccount().amount`; NEP-141 tokens via the
+   * token contract's `ft_balance_of` view. Reads the balance held by `srcAddress` (the user
+   * wallet), not the protocol asset manager. Uses this service's own configured RPC provider.
+   * @param {GetBalanceParams<NearChainKey>} params - The chain key, user address, and token.
+   * @returns {Promise<bigint>} The token balance in smallest units.
+   */
+  public async getWalletBalance(params: GetBalanceParams<NearChainKey>): Promise<bigint> {
+    if (isNativeToken(params.srcChainKey, params.token)) {
+      const account = await this.rpcProvider.viewAccount({ accountId: params.srcAddress });
+      return BigInt(account.amount);
+    }
+
+    const bal = await this.queryContract(params.token.address, 'ft_balance_of', {
+      account_id: params.srcAddress,
+    });
+
+    if (typeof bal !== 'string') {
+      throw new Error('[NearSpokeService.getWalletBalance] Failed to get balance. Unexpected response type.');
+    }
+
+    return BigInt(bal);
+  }
+
+  /**
+   * Get the user's own wallet balances of multiple tokens on NEAR, in smallest units. Fans out
+   * over {@link getWalletBalance}, keyed by `token.address`.
+   * @param {GetBalancesParams<NearChainKey>} params - The chain key, user address, and tokens.
+   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
+   */
+  public async getWalletBalances(params: GetBalancesParams<NearChainKey>): Promise<WalletBalanceMap> {
+    const { srcChainKey, srcAddress, tokens } = params;
+    const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
+    await settleWalletBalances(collector, tokens, token =>
+      this.getWalletBalance({ srcChainKey, srcAddress, token }),
+    );
+    return collector.finish();
   }
 
   /**

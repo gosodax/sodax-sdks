@@ -38,6 +38,7 @@ export const ChainKeys = {
   STACKS_MAINNET: 'stacks',
   HEDERA_MAINNET: 'hedera',
   TRON_MAINNET: 'tron',
+  ROBINHOOD_MAINNET: 'robinhood',
   XRP_MAINNET: 'xrp',
 } as const;
 

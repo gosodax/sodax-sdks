@@ -1,13 +1,15 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
-import { ChainKeys } from '@sodax/types';
+import { ChainKeys, type IBitcoinWalletProvider } from '@sodax/types';
 import { XConnector } from './core/index.js';
 import type { SodaxWalletConfig } from './types/config.js';
-import { BitcoinXService } from './xchains/bitcoin/index.js';
+import { BitcoinXConnector, BitcoinXService } from './xchains/bitcoin/index.js';
 import { IconXService } from './xchains/icon/index.js';
 import { InjectiveXService } from './xchains/injective/index.js';
 import { NearXService } from './xchains/near/NearXService.js';
 import { StacksXService } from './xchains/stacks/index.js';
 import { StellarXService } from './xchains/stellar/index.js';
+
+type CtorOpts = { defaults?: unknown };
 
 // Mock wallet-sdk-core provider constructors so tests verify defaults forwarding
 // without actually constructing the providers (avoids real SDK init side-effects).
@@ -21,28 +23,27 @@ const ctorSpies = {
 
 vi.mock('@sodax/wallet-sdk-core', async importOriginal => {
   const actual = await importOriginal<typeof import('@sodax/wallet-sdk-core')>();
+  // vitest 4 builds the instance with Reflect.construct, so a `new`-ed mock needs a class impl.
+  // The spy is reached through a callback because `ctorSpies` is still in TDZ when this factory runs.
+  const ctorMock = (spy: (opts: CtorOpts) => void) =>
+    vi.fn(
+      class {
+        defaults: unknown;
+        _opts: CtorOpts;
+        constructor(opts: CtorOpts) {
+          spy(opts);
+          this.defaults = opts.defaults;
+          this._opts = opts;
+        }
+      },
+    );
   return {
     ...actual,
-    IconWalletProvider: vi.fn().mockImplementation(opts => {
-      ctorSpies.Icon(opts);
-      return { defaults: opts.defaults, _opts: opts };
-    }),
-    InjectiveWalletProvider: vi.fn().mockImplementation(opts => {
-      ctorSpies.Injective(opts);
-      return { defaults: opts.defaults, _opts: opts };
-    }),
-    StellarWalletProvider: vi.fn().mockImplementation(opts => {
-      ctorSpies.Stellar(opts);
-      return { defaults: opts.defaults, _opts: opts };
-    }),
-    NearWalletProvider: vi.fn().mockImplementation(opts => {
-      ctorSpies.Near(opts);
-      return { defaults: opts.defaults, _opts: opts };
-    }),
-    StacksWalletProvider: vi.fn().mockImplementation(opts => {
-      ctorSpies.Stacks(opts);
-      return { defaults: opts.defaults, _opts: opts };
-    }),
+    IconWalletProvider: ctorMock(opts => ctorSpies.Icon(opts)),
+    InjectiveWalletProvider: ctorMock(opts => ctorSpies.Injective(opts)),
+    StellarWalletProvider: ctorMock(opts => ctorSpies.Stellar(opts)),
+    NearWalletProvider: ctorMock(opts => ctorSpies.Near(opts)),
+    StacksWalletProvider: ctorMock(opts => ctorSpies.Stacks(opts)),
   };
 });
 
@@ -58,6 +59,14 @@ const makeStore = (walletConfig?: SodaxWalletConfig): StoreAccessor =>
     setWalletProvider: vi.fn(),
     walletConfig,
   }));
+
+// chainRegistry is Record<string, ChainServiceFactory>, so under
+// noUncheckedIndexedAccess every keyed access is possibly undefined — narrow once here.
+const getChainEntry = (key: string) => {
+  const entry = chainRegistry[key];
+  if (!entry) throw new Error(`expected chainRegistry entry for ${key}`);
+  return entry;
+};
 
 describe('createChainServices', () => {
   it('only initializes chains listed in config', () => {
@@ -107,10 +116,14 @@ describe('createChainServices', () => {
 
   it('rejects custom connectors that do not extend XConnector (warns + filters)', () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // Complete IXConnector shape — still rejected at runtime because it is not
+    // an `instanceof XConnector`, which is exactly what this test proves.
     const plainConnector = {
+      _id: 'plain',
       id: 'plain',
       name: 'Plain',
       icon: undefined,
+      installUrl: undefined,
       xChainType: 'BITCOIN' as const,
       isInstalled: true,
       connect: vi.fn(),
@@ -198,15 +211,13 @@ describe('chainRegistry — defaults forwarding to provider constructors', () =>
           chains: {
             [ChainKeys.BITCOIN_MAINNET]: {
               rpcUrl: 'https://mempool.space/api',
-              radfiApiUrl: 'https://api.bound.exchange/api',
-              radfiUmsUrl: 'https://api.ums.bound.exchange/api',
               defaults: { defaultFinalize: true },
             },
           },
         },
       };
 
-      const connectors = chainRegistry.BITCOIN.defaultConnectors(walletConfig);
+      const connectors = getChainEntry('BITCOIN').defaultConnectors(walletConfig);
       expect(connectors).toHaveLength(4);
       for (const connector of connectors) {
         expect((connector as unknown as { defaults?: unknown }).defaults).toEqual({ defaultFinalize: true });
@@ -219,21 +230,19 @@ describe('chainRegistry — defaults forwarding to provider constructors', () =>
           chains: {
             [ChainKeys.BITCOIN_MAINNET]: {
               rpcUrl: 'https://mempool.space/api',
-              radfiApiUrl: 'https://api.bound.exchange/api',
-              radfiUmsUrl: 'https://api.ums.bound.exchange/api',
             },
           },
         },
       };
 
-      const connectors = chainRegistry.BITCOIN.defaultConnectors(walletConfig);
+      const connectors = getChainEntry('BITCOIN').defaultConnectors(walletConfig);
       for (const connector of connectors) {
         expect((connector as unknown as { defaults?: unknown }).defaults).toBeUndefined();
       }
     });
 
     it('passes undefined defaults when walletConfig is empty', () => {
-      const connectors = chainRegistry.BITCOIN.defaultConnectors({});
+      const connectors = getChainEntry('BITCOIN').defaultConnectors({});
       for (const connector of connectors) {
         expect((connector as unknown as { defaults?: unknown }).defaults).toBeUndefined();
       }
@@ -255,7 +264,7 @@ describe('chainRegistry — defaults forwarding to provider constructors', () =>
       };
 
       const mockService = { msgBroadcaster: { broadcast: vi.fn() } as never };
-      const provider = chainRegistry.INJECTIVE.createWalletProvider!(mockService as never, makeStore(walletConfig));
+      const provider = getChainEntry('INJECTIVE').createWalletProvider!(mockService as never, makeStore(walletConfig));
 
       expect((provider as unknown as { defaults?: unknown }).defaults).toEqual({
         defaultMemo: 'test-memo',
@@ -279,7 +288,7 @@ describe('chainRegistry — defaults forwarding to provider constructors', () =>
       };
 
       const mockService = { walletsKit: {} as never };
-      const provider = chainRegistry.STELLAR.createWalletProvider!(mockService as never, makeStore(walletConfig));
+      const provider = getChainEntry('STELLAR').createWalletProvider!(mockService as never, makeStore(walletConfig));
 
       expect((provider as unknown as { defaults?: unknown }).defaults).toEqual({
         pollInterval: 1500,
@@ -311,7 +320,7 @@ describe('chainRegistry — defaults forwarding to provider constructors', () =>
         walletConfig,
       }));
 
-      const provider = chainRegistry.ICON.createWalletProvider!({} as never, storeWithIconConnection as never);
+      const provider = getChainEntry('ICON').createWalletProvider!({} as never, storeWithIconConnection as never);
       expect((provider as unknown as { defaults?: unknown }).defaults).toEqual({ stepLimit: 4_000_000 });
     });
 
@@ -319,7 +328,7 @@ describe('chainRegistry — defaults forwarding to provider constructors', () =>
       const walletConfig: SodaxWalletConfig = {
         ICON: { chains: { [ChainKeys.ICON_MAINNET]: { defaults: {} } } },
       };
-      const provider = chainRegistry.ICON.createWalletProvider!({} as never, makeStore(walletConfig));
+      const provider = getChainEntry('ICON').createWalletProvider!({} as never, makeStore(walletConfig));
       expect(provider).toBeUndefined();
     });
   });
@@ -338,7 +347,7 @@ describe('chainRegistry — defaults forwarding to provider constructors', () =>
       };
 
       const mockService = { walletSelector: { whenManifestLoaded: Promise.resolve() } as never };
-      const provider = chainRegistry.NEAR.createWalletProvider!(mockService as never, makeStore(walletConfig));
+      const provider = getChainEntry('NEAR').createWalletProvider!(mockService as never, makeStore(walletConfig));
 
       expect((provider as unknown as { defaults?: unknown }).defaults).toEqual({
         throwOnFailure: false,
@@ -377,7 +386,7 @@ describe('chainRegistry — defaults forwarding to provider constructors', () =>
       }));
 
       const mockService = { getXConnectorById: vi.fn() };
-      const provider = chainRegistry.STACKS.createWalletProvider!(
+      const provider = getChainEntry('STACKS').createWalletProvider!(
         mockService as never,
         storeWithStacksConnection as never,
       );
@@ -405,7 +414,7 @@ describe('chainRegistry — defaults forwarding to provider constructors', () =>
       }));
 
       const mockService = { getXConnectorById: vi.fn() };
-      const provider = chainRegistry.STACKS.createWalletProvider!(
+      const provider = getChainEntry('STACKS').createWalletProvider!(
         mockService as never,
         storeWithStacksConnection as never,
       );
@@ -426,13 +435,11 @@ describe('chainRegistry — rpcUrl/network forwarding to XService.getInstance', 
 
   it('BITCOIN.createService passes BITCOIN_MAINNET.rpcUrl to BitcoinXService.getInstance', () => {
     const spy = vi.spyOn(BitcoinXService, 'getInstance').mockReturnValue({} as never);
-    chainRegistry.BITCOIN.createService({
+    getChainEntry('BITCOIN').createService({
       BITCOIN: {
         chains: {
           [ChainKeys.BITCOIN_MAINNET]: {
             rpcUrl: 'https://mempool.example/api',
-            radfiApiUrl: 'https://radfi-api.example',
-            radfiUmsUrl: 'https://radfi-ums.example',
           },
         },
       },
@@ -442,14 +449,14 @@ describe('chainRegistry — rpcUrl/network forwarding to XService.getInstance', 
 
   it('BITCOIN.createService passes undefined when rpcUrl omitted', () => {
     const spy = vi.spyOn(BitcoinXService, 'getInstance').mockReturnValue({} as never);
-    chainRegistry.BITCOIN.createService({ BITCOIN: {} });
+    getChainEntry('BITCOIN').createService({ BITCOIN: {} });
     expect(spy).toHaveBeenCalledWith(undefined);
   });
 
   it('INJECTIVE.createService passes the full INJECTIVE_MAINNET entry to InjectiveXService.getInstance', () => {
     const spy = vi.spyOn(InjectiveXService, 'getInstance').mockReturnValue({} as never);
     const entry = { indexer: 'https://indexer.example', grpc: 'https://grpc.example' };
-    chainRegistry.INJECTIVE.createService({
+    getChainEntry('INJECTIVE').createService({
       INJECTIVE: { chains: { [ChainKeys.INJECTIVE_MAINNET]: entry } },
     });
     expect(spy).toHaveBeenCalledWith(entry);
@@ -457,7 +464,7 @@ describe('chainRegistry — rpcUrl/network forwarding to XService.getInstance', 
 
   it('STELLAR.createService passes horizonRpcUrl + sorobanRpcUrl as separate args', () => {
     const spy = vi.spyOn(StellarXService, 'getInstance').mockReturnValue({} as never);
-    chainRegistry.STELLAR.createService({
+    getChainEntry('STELLAR').createService({
       STELLAR: {
         chains: {
           [ChainKeys.STELLAR_MAINNET]: {
@@ -472,13 +479,13 @@ describe('chainRegistry — rpcUrl/network forwarding to XService.getInstance', 
 
   it('STELLAR.createService passes (undefined, undefined) when STELLAR_MAINNET entry omitted', () => {
     const spy = vi.spyOn(StellarXService, 'getInstance').mockReturnValue({} as never);
-    chainRegistry.STELLAR.createService({ STELLAR: {} });
+    getChainEntry('STELLAR').createService({ STELLAR: {} });
     expect(spy).toHaveBeenCalledWith(undefined, undefined);
   });
 
   it('ICON.createService passes ICON_MAINNET.rpcUrl to IconXService.getInstance', () => {
     const spy = vi.spyOn(IconXService, 'getInstance').mockReturnValue({} as never);
-    chainRegistry.ICON.createService({
+    getChainEntry('ICON').createService({
       ICON: { chains: { [ChainKeys.ICON_MAINNET]: { rpcUrl: 'https://icon.example/api/v3' } } },
     });
     expect(spy).toHaveBeenCalledWith('https://icon.example/api/v3');
@@ -486,7 +493,7 @@ describe('chainRegistry — rpcUrl/network forwarding to XService.getInstance', 
 
   it('NEAR.createService passes NEAR_MAINNET.rpcUrl to NearXService.getInstance', () => {
     const spy = vi.spyOn(NearXService, 'getInstance').mockReturnValue({} as never);
-    chainRegistry.NEAR.createService({
+    getChainEntry('NEAR').createService({
       NEAR: { chains: { [ChainKeys.NEAR_MAINNET]: { rpcUrl: 'https://near.example' } } },
     });
     expect(spy).toHaveBeenCalledWith('https://near.example');
@@ -494,7 +501,7 @@ describe('chainRegistry — rpcUrl/network forwarding to XService.getInstance', 
 
   it('STACKS.createService passes STACKS_MAINNET preset name to StacksXService.getInstance', () => {
     const spy = vi.spyOn(StacksXService, 'getInstance').mockReturnValue({} as never);
-    chainRegistry.STACKS.createService({
+    getChainEntry('STACKS').createService({
       STACKS: { chains: { [ChainKeys.STACKS_MAINNET]: 'mainnet' } },
     });
     expect(spy).toHaveBeenCalledWith('mainnet');
@@ -511,9 +518,88 @@ describe('chainRegistry — rpcUrl/network forwarding to XService.getInstance', 
       addressVersion: { singleSig: 0, multiSig: 0 },
       client: { baseUrl: 'https://api.hiro.so' },
     };
-    chainRegistry.STACKS.createService({
+    getChainEntry('STACKS').createService({
       STACKS: { chains: { [ChainKeys.STACKS_MAINNET]: entry } },
     });
     expect(spy).toHaveBeenCalledWith(entry);
+  });
+});
+
+// ─── chainRegistry: BITCOIN signMessage dispatch ────────────────────────────
+
+describe('chainRegistry — BITCOIN signMessage dispatches to the wallet provider', () => {
+  const makeProvider = (overrides: Record<string, unknown> = {}): IBitcoinWalletProvider =>
+    ({
+      signBip322Message: vi.fn(async () => 'sig-bip322'),
+      signEcdsaMessage: vi.fn(async () => 'sig-ecdsa'),
+      ...overrides,
+      // Only the message-signing surface is exercised; the rest of IBitcoinWalletProvider is unused.
+    }) as unknown as IBitcoinWalletProvider;
+
+  class FakeBitcoinXConnector extends BitcoinXConnector {
+    constructor(
+      private readonly live: IBitcoinWalletProvider | undefined,
+      private readonly restored: IBitcoinWalletProvider | undefined = undefined,
+    ) {
+      super('Fake Bitcoin Wallet', 'fake-btc');
+    }
+    async connect() {
+      return undefined;
+    }
+    async disconnect() {}
+    getWalletProvider() {
+      return this.live;
+    }
+    recreateWalletProvider() {
+      return this.restored;
+    }
+  }
+
+  const signWith = (address: string, connector: BitcoinXConnector) => {
+    const store: StoreAccessor = vi.fn(() => ({
+      xConnections: { BITCOIN: { xAccount: { address, xChainType: 'BITCOIN' as const }, xConnectorId: 'fake-btc' } },
+      xConnectorsByChain: {},
+      xServices: {},
+      setXConnectors: vi.fn(),
+      unsetXConnection: vi.fn(),
+      setWalletProvider: vi.fn(),
+      walletConfig: undefined,
+    }));
+    const { chainActions } = createChainServices({ BITCOIN: { connectors: [connector] } }, store);
+    const signMessage = chainActions.BITCOIN?.signMessage;
+    if (!signMessage) throw new Error('BITCOIN signMessage not registered');
+    return signMessage('hello');
+  };
+
+  it.each([
+    ['bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh', 'P2WPKH', 'signBip322Message', 'sig-bip322'],
+    ['bc1pxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh', 'P2TR', 'signBip322Message', 'sig-bip322'],
+    ['3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy', 'P2SH', 'signEcdsaMessage', 'sig-ecdsa'],
+    ['1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2', 'P2PKH', 'signEcdsaMessage', 'sig-ecdsa'],
+  ])('%s (%s) signs via %s', async (address, _type, method, expected) => {
+    const provider = makeProvider();
+    await expect(signWith(address, new FakeBitcoinXConnector(provider))).resolves.toBe(expected);
+    expect(provider[method as 'signBip322Message' | 'signEcdsaMessage']).toHaveBeenCalledWith('hello');
+  });
+
+  it('falls back to recreateWalletProvider when the live provider is gone (post-reload)', async () => {
+    const restored = makeProvider();
+    await expect(
+      signWith('bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh', new FakeBitcoinXConnector(undefined, restored)),
+    ).resolves.toBe('sig-bip322');
+    expect(restored.signBip322Message).toHaveBeenCalledWith('hello');
+  });
+
+  it('throws when the connector yields no wallet provider', async () => {
+    await expect(
+      signWith('bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh', new FakeBitcoinXConnector(undefined)),
+    ).rejects.toThrow('fake-btc has no wallet provider');
+  });
+
+  it('throws when the wallet provider does not implement the scheme the address needs', async () => {
+    const provider = makeProvider({ signBip322Message: undefined });
+    await expect(
+      signWith('bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh', new FakeBitcoinXConnector(provider)),
+    ).rejects.toThrow('fake-btc does not support BIP-322 signing');
   });
 });

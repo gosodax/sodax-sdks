@@ -1,0 +1,109 @@
+name: Plan check
+
+on:
+  # `pull_request_target` so fork PRs can get the sticky comment; nothing from the PR is checked out or run.
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+      - labeled
+      - unlabeled
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  main:
+    name: Spec and plan
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the linked issues for a spec and an approved plan
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        env:
+          # Advisory until the `PLAN_ENFORCE` repository variable is `true`. See .github/issue-workflow.md.
+          PLAN_ENFORCE: ${{ vars.PLAN_ENFORCE }}
+        with:
+          script: |
+            const STICKY = '<!-- sodax:plan-check -->';
+            const PLAN = '<!-- sodax:plan -->';
+            // The repo is public: a plan counts only from an org member, a collaborator, or an agent app installed here.
+            const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+            const AGENT_BOTS = new Set(['claude', 'chatgpt-codex-connector']);
+            const isTrusted = (c) => TRUSTED.has(c.authorAssociation) || (c.author?.__typename === 'Bot' && AGENT_BOTS.has(c.author.login));
+            const pr = context.payload.pull_request;
+            const { owner, repo } = context.repo;
+            const labels = pr.labels.map((l) => l.name);
+
+            const findings = [];
+            if (!labels.includes('no-plan') && !labels.includes('no-issue')) {
+              const body = (pr.body ?? '').replace(/<!--[\s\S]*?-->/g, '');
+              // Same grammar as issue-link.yml; a reference into another repository is out of scope here.
+              const refs = [...body.matchAll(/(?:^|[^\w])(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+(?:([\w.-]+\/[\w.-]+))?#(\d+)/gi)];
+              const issues = [...new Set(refs.filter((m) => !m[1] || m[1].toLowerCase() === `${owner}/${repo}`.toLowerCase()).map((m) => Number(m[2])))];
+              if (issues.length === 0) findings.push('No linked issue in this repository (`Closes #N`).');
+
+              for (const number of issues) {
+                const ref = `#${number}`;
+                let issue;
+                try {
+                  const { repository } = await github.graphql(
+                    `query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){issueOrPullRequest(number:$number){
+                      ... on Issue { body createdAt lastEditedAt labels(first:50){nodes{name}} comments(last:100){nodes{body authorAssociation author{login __typename}}} }}}}`,
+                    { owner, repo, number },
+                  );
+                  issue = repository.issueOrPullRequest;
+                } catch (error) {
+                  core.info(`${ref}: ${error.message}`);
+                  findings.push(`${ref}: could not load the issue; see the job log.`);
+                  continue;
+                }
+                if (!issue || issue.body === undefined) continue;
+                if (!/^##\s+Acceptance criteria/im.test(issue.body)) {
+                  findings.push(`${ref}: the issue body has no spec (no \`## Acceptance criteria\` section).`);
+                }
+                const plan = issue.comments.nodes.find((c) => isTrusted(c) && c.body.includes(PLAN));
+                if (!plan) {
+                  findings.push(`${ref}: no plan comment (\`${PLAN}\`) from an org member, collaborator or agent app.`);
+                } else {
+                  const revision = plan.body.match(/\*\*Spec revision:\*\*\s*(\S+)/)?.[1];
+                  const specEditedAt = Date.parse(issue.lastEditedAt ?? issue.createdAt);
+                  if (!revision || Number.isNaN(Date.parse(revision))) {
+                    findings.push(`${ref}: the plan has no valid **Spec revision** timestamp.`);
+                  } else if (specEditedAt > Date.parse(revision)) {
+                    findings.push(`${ref}: the spec was edited after the plan was written; re-approve if the change is material.`);
+                  }
+                }
+                if (!issue.labels.nodes.some((l) => l.name === 'plan-approved')) {
+                  findings.push(`${ref}: missing the \`plan-approved\` label.`);
+                }
+              }
+            }
+
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number });
+            const sticky = comments.find((c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(STICKY));
+            if (findings.length === 0) {
+              if (sticky) await github.rest.issues.deleteComment({ owner, repo, comment_id: sticky.id });
+              core.info('Spec and plan in order.');
+              return;
+            }
+
+            for (const f of findings) core.warning(f);
+            const body = [
+              STICKY,
+              '### Spec and plan check',
+              ...findings.map((f) => `- ${f}`),
+              '',
+              `See [.github/issue-workflow.md](${context.serverUrl}/${owner}/${repo}/blob/main/.github/issue-workflow.md). A human applies \`no-plan\` for trivial work.`,
+            ].join('\n');
+            if (sticky) await github.rest.issues.updateComment({ owner, repo, comment_id: sticky.id, body });
+            else await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+
+            if (process.env.PLAN_ENFORCE === 'true') core.setFailed('Spec and plan check failed (PLAN_ENFORCE is on).');

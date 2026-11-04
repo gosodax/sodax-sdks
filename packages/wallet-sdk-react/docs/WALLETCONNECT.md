@@ -4,7 +4,7 @@ Default EVM wallet discovery uses [EIP-6963](https://eips.ethereum.org/EIPS/eip-
 
 `@sodax/wallet-sdk-react` enables WalletConnect via the `walletConnect` field on the `EVM` chain-type slot. The field extends wagmi's [`WalletConnectParameters`](https://wagmi.sh/core/api/connectors/walletConnect) directly — every wagmi option is available.
 
-The integration point is [`EvmProvider.tsx`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/src/providers/evm/EvmProvider.tsx).
+The integration point is [`EvmProvider.tsx`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/providers/evm/EvmProvider.tsx).
 
 ## Table of contents
 
@@ -118,7 +118,7 @@ function WalletModalRoot() {
 }
 ```
 
-The wagmi connector id is the literal string `'walletConnect'`. Resume rendering when the state transitions to `success` / `error`. See [`WALLET_MODAL.md`](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_MODAL.md#walletconnect-qr-modal-caveat) for the full discussion.
+The wagmi connector id is the literal string `'walletConnect'`. Resume rendering when the state transitions to `success` / `error`. See [`WALLET_MODAL.md`](./WALLET_MODAL.md#walletconnect-qr-modal-caveat) for the full discussion.
 
 ---
 
@@ -146,9 +146,9 @@ To support Solana via WalletConnect-equivalent protocols (Solana Wallet Standard
 
 ## Related docs
 
-- [Configure SodaxWalletProvider](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONFIGURE_PROVIDER.md#walletconnect-evm-only) — full chain-type slot reference
-- [Wallet Modal](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_MODAL.md) — `useWalletModal` state machine + QR-stacking pattern
-- [Connect Flow](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md) — discover/connect/disconnect lifecycle
-- [Connectors](https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECTORS.md) — `IXConnector` contract; the WC connector surfaces with `id === 'walletConnect'`
+- [Configure SodaxWalletProvider](./CONFIGURE_PROVIDER.md#walletconnect-evm-only) — full chain-type slot reference
+- [Wallet Modal](./WALLET_MODAL.md) — `useWalletModal` state machine + QR-stacking pattern
+- [Connect Flow](./CONNECT_FLOW.md) — discover/connect/disconnect lifecycle
+- [Connectors](./CONNECTORS.md) — `IXConnector` contract; the WC connector surfaces with `id === 'walletConnect'`
 - [wagmi WalletConnect docs](https://wagmi.sh/core/api/connectors/walletConnect) — full `WalletConnectParameters` reference
 - [WalletConnect Cloud](https://cloud.walletconnect.com) — get a `projectId`

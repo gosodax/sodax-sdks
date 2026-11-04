@@ -2,6 +2,7 @@
 import type { SpokeChainKey, TxReturnType, WithdrawHubAssetAction } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
@@ -41,7 +42,7 @@ export function useWithdrawHubAsset<K extends SpokeChainKey = SpokeChainKey>({
       queryClient.invalidateQueries({
         queryKey: ['recovery', 'hubAssetBalances', params.srcChainKey, params.srcAddress],
       });
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', params.srcChainKey] });
+      invalidateBalances(queryClient, params.srcChainKey);
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },
   });

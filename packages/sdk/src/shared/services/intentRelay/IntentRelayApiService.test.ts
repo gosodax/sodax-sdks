@@ -29,7 +29,6 @@ import {
   type GetPacketResponse,
   type GetTransactionPacketsResponse,
   type PacketData,
-  type RelayExtraData,
   relayTxAndWaitPacket,
   submitTransaction,
   type SubmitTxResponse,
@@ -52,13 +51,6 @@ const API_URL = 'https://relay.example.com/v1' as HttpUrl;
 const SPOKE_TX_HASH = '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
 const CHAIN_ID = '4'; // BSC_MAINNET relay id — matches getIntentRelayChainId(BSC) and packet src_chain_id
 const CONN_SN = '42';
-
-// `RelayAndWaitParams.data` is statically typed as required `RelayExtraData`,
-// but `relayTxAndWaitPacket`'s invariant only requires it for Solana/Bitcoin
-// source chains and the EVM branch never reads it. Tests for non-Solana/Bitcoin
-// chains pass `undefined` and rely on this cast — same intent-defeating mock
-// pattern the rest of the SDK test suite uses for misaligned param types.
-const NO_DATA = undefined as unknown as RelayExtraData;
 
 // Build a `fetch` response stub matching the subset of `Response` that `postRequest` reads:
 // `ok`/`status`/`statusText` for the HTTP-level success check, and `json()` for the body.
@@ -278,6 +270,103 @@ describe('getTransactionPackets', () => {
     });
   });
 
+  // `timeoutMs` switches the read onto the deadline-aware path. The no-timeout tests above are the
+  // other half of this contract: they assert the legacy request shape (no `signal`) is untouched.
+  describe('bounded reads (timeoutMs)', () => {
+    const payload: IntentRelayRequest<'get_transaction_packets'> = {
+      action: 'get_transaction_packets',
+      params: baseParams,
+    };
+
+    // Never settles on its own; rejects with an AbortError only once its signal aborts, mirroring
+    // how the platform `fetch` reacts to an `AbortSignal`.
+    const hungFetch = (_url: unknown, opts: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        opts.signal.addEventListener('abort', () =>
+          reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })),
+        );
+      });
+
+    it('settles at the deadline when the connection hangs', async () => {
+      vi.useFakeTimers();
+      mockFetch.mockImplementation(hungFetch);
+
+      const promise = getTransactionPackets(payload, API_URL, 5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const result = await promise;
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect((result.error as Error).name).toBe('AbortError');
+      // The budget caps the attempt AND is spent by it — one request, no retry overrun past it.
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('settles at the deadline when the response body stalls after headers arrive', async () => {
+      vi.useFakeTimers();
+      // `fetch` resolves as soon as headers land; only a timer still armed over `json()` catches this.
+      mockFetch.mockImplementation((_url: unknown, opts: { signal: AbortSignal }) =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          json: () =>
+            new Promise((_resolve, reject) =>
+              opts.signal.addEventListener('abort', () =>
+                reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+              ),
+            ),
+        }),
+      );
+
+      const promise = getTransactionPackets(payload, API_URL, 5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const result = await promise;
+
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect((result.error as Error).name).toBe('AbortError');
+    });
+
+    // A caller who mistypes a budget asked for a bound, so they get this module's own per-request
+    // one — not `DEFAULT_RELAY_TX_TIMEOUT`, which is sized for the packet wait loop and would buy
+    // three 15s attempts before the retry cap ended it.
+    it('falls back to the per-request budget when the value is non-finite', async () => {
+      vi.useFakeTimers();
+      mockFetch.mockImplementation(hungFetch);
+
+      const promise = getTransactionPackets(payload, API_URL, Number.NaN);
+      await vi.advanceTimersByTimeAsync(15_000);
+      const result = await promise;
+
+      expect(result.ok).toBe(false);
+      // One attempt: the fallback budget equals the per-attempt cap, so it is spent in full by it.
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails without issuing a request when the budget is non-positive', async () => {
+      // No budget left to spend, so there is nothing to spend it on. Documented, not floored —
+      // a floor would be a second timeout policy invented here.
+      const result = await getTransactionPackets(payload, API_URL, 0);
+
+      expect(result.ok).toBe(false);
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('passes the abort signal through on the bounded path', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ success: true, data: [] }));
+
+      await getTransactionPackets(payload, API_URL, 5_000);
+
+      expect(mockFetch).toHaveBeenCalledWith(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: expect.any(AbortSignal),
+      });
+    });
+  });
+
   describe('rejects on invalid inputs', () => {
     it('throws when chain_id is empty (invariant)', async () => {
       await expect(
@@ -286,6 +375,17 @@ describe('getTransactionPackets', () => {
           API_URL,
         ),
       ).rejects.toThrow('Invalid input parameters. source_chain_id empty');
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('throws before consuming the budget when identifiers are empty', async () => {
+      await expect(
+        getTransactionPackets(
+          { action: 'get_transaction_packets', params: { chain_id: CHAIN_ID, tx_hash: '' } },
+          API_URL,
+          5_000,
+        ),
+      ).rejects.toThrow('Invalid input parameters. tx_hash empty');
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
@@ -935,7 +1035,6 @@ describe('relayTxAndWaitPacket', () => {
 
       const result = await relayTxAndWaitPacket({
         srcTxHash: SPOKE_TX_HASH,
-        data: NO_DATA,
         chainKey: ChainKeys.BSC_MAINNET,
         relayerApiEndpoint: API_URL,
         timeout: undefined,
@@ -955,7 +1054,6 @@ describe('relayTxAndWaitPacket', () => {
 
       await relayTxAndWaitPacket({
         srcTxHash: SPOKE_TX_HASH,
-        data: NO_DATA,
         chainKey: ChainKeys.BSC_MAINNET,
         relayerApiEndpoint: API_URL,
         timeout: undefined,
@@ -964,7 +1062,7 @@ describe('relayTxAndWaitPacket', () => {
       const submitBody = JSON.parse(mockFetch.mock.calls[0]?.[1].body);
       expect(submitBody.action).toBe('submit');
       expect(submitBody.params).toEqual({ chain_id: '4', tx_hash: SPOKE_TX_HASH });
-      // No `data` field when undefined was passed.
+      // No `data` field when none was passed.
       expect(submitBody.params.data).toBeUndefined();
     });
 
@@ -1027,7 +1125,6 @@ describe('relayTxAndWaitPacket', () => {
 
       const promise = relayTxAndWaitPacket({
         srcTxHash: SPOKE_TX_HASH,
-        data: NO_DATA,
         chainKey: ChainKeys.BSC_MAINNET,
         relayerApiEndpoint: API_URL,
         timeout: 1_000,
@@ -1049,7 +1146,6 @@ describe('relayTxAndWaitPacket', () => {
 
       const result = await relayTxAndWaitPacket({
         srcTxHash: SPOKE_TX_HASH,
-        data: NO_DATA,
         chainKey: ChainKeys.BSC_MAINNET,
         relayerApiEndpoint: API_URL,
         timeout: undefined,
@@ -1072,7 +1168,6 @@ describe('relayTxAndWaitPacket', () => {
       // captures this and returns ok:false with the raw error.
       const result = await relayTxAndWaitPacket({
         srcTxHash: SPOKE_TX_HASH,
-        data: NO_DATA,
         chainKey: 'unknown_chain' as never,
         relayerApiEndpoint: API_URL,
         timeout: undefined,
@@ -1095,7 +1190,6 @@ describe('relayTxAndWaitPacket', () => {
       // try/catch turns it into ok:false with the raw Error.
       const result = await relayTxAndWaitPacket({
         srcTxHash: SPOKE_TX_HASH,
-        data: NO_DATA,
         chainKey: ChainKeys.SOLANA_MAINNET,
         relayerApiEndpoint: API_URL,
         timeout: undefined,

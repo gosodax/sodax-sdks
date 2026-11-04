@@ -1,0 +1,128 @@
+name: Add to Project
+
+on:
+  issues:
+    types:
+      - opened
+      - reopened
+      - transferred
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number }}
+
+permissions: {}
+
+env:
+  PROJECT_URL: https://github.com/orgs/gosodax/projects/1
+  PROJECT_ID: PVT_kwDODGRGe84Bn5mT
+  STREAM_FIELD_ID: PVTSSF_lADODGRGe84Bn5mTzhmcM5w
+  STREAM_SDK_OPTION_ID: b9294b93
+  STATUS_FIELD_ID: PVTSSF_lADODGRGe84Bn5mTzhmcGMg
+  STATUS_BACKLOG_OPTION_ID: f75ad846
+  STATUS_READY_OPTION_ID: 61e4505c
+
+jobs:
+  main:
+    name: Add issue to board
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      # The repo is public: only issues opened, reopened or transferred by a writer reach the board.
+      - name: Require write access from the sender
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SENDER: ${{ github.event.sender.login }}
+        run: |
+          set -euo pipefail
+          permission=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$SENDER/permission" --jq .permission)
+          case "$permission" in
+            admin | maintain | write) echo 'allowed=true' >> "$GITHUB_OUTPUT" ;;
+            *) echo "$SENDER has $permission access: not adding to the board." ;;
+          esac
+
+      # PROJECT_TOKEN needs the org `project` scope; GITHUB_TOKEN cannot write org projects.
+      - name: Add to project
+        id: add
+        if: steps.gate.outputs.allowed == 'true'
+        uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
+        with:
+          project-url: ${{ env.PROJECT_URL }}
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+
+      - name: Set Stream = Sodax SDK
+        if: steps.gate.outputs.allowed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          ITEM_ID: ${{ steps.add.outputs.itemId }}
+        run: |
+          set -euo pipefail
+          gh api graphql \
+            -f query='mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+              updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field, value: {singleSelectOptionId: $option}}) {
+                projectV2Item { id }
+              }
+            }' \
+            -f project="$PROJECT_ID" \
+            -f item="$ITEM_ID" \
+            -f field="$STREAM_FIELD_ID" \
+            -f option="$STREAM_SDK_OPTION_ID"
+
+      # A body that fills a template's required sections goes to Ready; an empty or free-form one to Backlog.
+      # An item that already has a Status (e.g. a reopened issue) keeps it.
+      - name: Set Status from the issue body
+        if: steps.gate.outputs.allowed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          ITEM_ID: ${{ steps.add.outputs.itemId }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          set -euo pipefail
+          current=$(gh api graphql \
+            -f query='query($item: ID!) {
+              node(id: $item) {
+                ... on ProjectV2Item {
+                  fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+                }
+              }
+            }' \
+            -f item="$ITEM_ID" \
+            --jq '.data.node.fieldValueByName.name // empty')
+          if [ -n "$current" ]; then
+            echo "Status is already $current: leaving it."
+            exit 0
+          fi
+
+          status=$(node - <<'JS'
+          // Required sections per template (spec, bug report, epic), matched after template comments are stripped.
+          const TEMPLATES = [
+            ['goal', 'requirements', 'acceptance criteria'],
+            ['observed', 'expected', 'acceptance criteria'],
+            ['goal', 'exit criteria'],
+          ];
+          // Unfilled template lines such as "-", "1.", "- [ ]" or "- [ ] AC1:" are not content.
+          const PLACEHOLDER = /^\s*(?:[-*]|\d+\.)?\s*(?:\[[ xX]\])?\s*(?:AC\d+:)?\s*$/;
+          const body = (process.env.ISSUE_BODY ?? '').replace(/<!--[\s\S]*?-->/g, '');
+          const filled = new Set();
+          let section = null;
+          for (const line of body.split(/\r?\n/)) {
+            const heading = /^##\s+(.+?)\s*$/.exec(line);
+            if (heading) section = heading[1].toLowerCase();
+            else if (section && !PLACEHOLDER.test(line)) filled.add(section);
+          }
+          console.log(TEMPLATES.some(sections => sections.every(s => filled.has(s))) ? 'Ready' : 'Backlog');
+          JS
+          )
+
+          if [ "$status" = 'Ready' ]; then option="$STATUS_READY_OPTION_ID"; else option="$STATUS_BACKLOG_OPTION_ID"; fi
+          gh api graphql \
+            -f query='mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+              updateProjectV2ItemFieldValue(input: {projectId: $project, itemId: $item, fieldId: $field, value: {singleSelectOptionId: $option}}) {
+                projectV2Item { id }
+              }
+            }' \
+            -f project="$PROJECT_ID" \
+            -f item="$ITEM_ID" \
+            -f field="$STATUS_FIELD_ID" \
+            -f option="$option"
+          echo "Status set to $status."

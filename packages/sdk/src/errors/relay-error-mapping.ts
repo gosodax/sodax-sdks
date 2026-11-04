@@ -28,6 +28,8 @@ export type MapRelayFailureCtx = {
   action?: string;
   srcChainKey?: string;
   dstChainKey?: string;
+  /** The broadcast source tx, so a caller can keep reading status after a post-broadcast failure. */
+  srcTxHash?: string;
   /**
    * Phase override. Defaults to `'relay'`. Set to `'destinationExecution'` for migration's
    * secondary `waitUntilIntentExecuted` watcher (`migratebnUSD`) where the failure is
@@ -50,6 +52,7 @@ export function mapRelayFailure(error: unknown, ctx: MapRelayFailureCtx): SodaxE
     action: ctx.action,
     srcChainKey: ctx.srcChainKey,
     dstChainKey: ctx.dstChainKey,
+    ...(ctx.srcTxHash !== undefined && { srcTxHash: ctx.srcTxHash }),
   };
 
   if (message === RELAY_ERROR_CODES.RELAY_TIMEOUT) {

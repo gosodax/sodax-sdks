@@ -4,6 +4,6 @@
   "project": ["src/**/*.ts"],
   "ignore": ["ai-exported/**"],
   "ignoreBinaries": ["biome"],
-  "ignoreDependencies": ["@sodax/types", "@sodax/libs", "@vitest/coverage-v8"],
+  "ignoreDependencies": ["@sodax/types", "@sodax/libs"],
   "ignoreExportsUsedInFile": true
 }

@@ -101,7 +101,7 @@ README.md
 LICENSE
 ```
 
-Don't rely on any other path being present. Consumer-facing AI docs (this knowledge tree) are shipped separately via [`@sodax/skills`](https://github.com/icon-project/sodax-sdks/tree/main/packages/skills).
+Don't rely on any other path being present. Consumer-facing AI docs (this knowledge tree) are shipped separately via [`@sodax/skills`](https://github.com/gosodax/sodax-sdks/tree/main/packages/skills).
 
 ## Cross-references
 

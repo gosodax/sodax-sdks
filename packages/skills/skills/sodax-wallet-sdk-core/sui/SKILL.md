@@ -1,6 +1,6 @@
 ---
 name: sodax-wallet-sdk-core-sui
-description: 'Granular skill for the @sodax/wallet-sdk-core v2 Sui wallet provider only — `SuiWalletProvider` (backed by @mysten/sui + @mysten/wallet-standard). Use when a backend / Node script / CI / bot / non-React browser flow needs to instantiate a Sui provider directly and sign + execute — e.g. "instantiate SuiWalletProvider", "Sui signing from a mnemonic in Node", "signAndExecuteTxn with dry-run". Covers BOTH integration (write new v2 code) and migration (port v1 — almost a no-op at this surface: deep-import → barrel). Picks via Step 1. Links into the parent sodax-wallet-sdk-core knowledge tree. For React dapps use the sodax-wallet-sdk-react skill instead (get the typed provider via useWalletProvider).'
+description: 'Granular skill for the @sodax/wallet-sdk-core v2 Sui wallet provider only — `SuiWalletProvider` (backed by @mysten/sui over gRPC). Use when a backend / Node script / CI / bot / non-React browser flow needs to instantiate a Sui provider directly and sign + execute — e.g. "instantiate SuiWalletProvider", "Sui signing from a mnemonic in Node", "signAndExecuteTxn with dry-run". Covers BOTH integration (write new v2 code) and migration (port v1 — private-key mode is near mechanical, but browser-extension mode is a hard break: `{client, wallet, account}` becomes `{grpcUrl, address, signTransaction}`). Picks via Step 1. Links into the parent sodax-wallet-sdk-core knowledge tree. For React dapps use the sodax-wallet-sdk-react skill instead (get the typed provider via useWalletProvider).'
 license: MIT
 metadata:
   version: '0.0.1'
@@ -13,8 +13,8 @@ Granular skill for `SuiWalletProvider` — the low-level Sui wallet for backend 
 
 ## Step 1 — Clarify with user before coding
 
-1. **New code or v1 → v2 port?** New → § Integration. Port v1 → § Migration (almost always a no-op here).
-2. **Private-key or browser-extension config?** Sui discriminates by **field presence** (no `type`) but the PK credential is a **`mnemonics`** string (BIP-39), not a raw key: PK = `{ rpcUrl, mnemonics }`; browser-extension = `{ client, wallet, account }` (all THREE required). Mutually exclusive — pick one.
+1. **New code or v1 → v2 port?** New → § Integration. Port v1 → § Migration (mechanical for private-key mode; browser-extension mode must be rewritten).
+2. **Private-key or browser-extension config?** Sui discriminates by **field presence** (no `type`) but the PK credential is a **`mnemonics`** string (BIP-39), not a raw key: PK = `{ grpcUrl, mnemonics }`; browser-extension = `{ grpcUrl, address, signTransaction }`. Mutually exclusive — pick one. `rpcUrl` is still accepted as a deprecated alias for `grpcUrl`. Exactly one of the two must be present — passing both throws.
 3. **Dry-run?** `signAndExecuteTxn` runs a pre-flight dry-run **on by default**; disable only when paying gas for a doomed tx is acceptable.
 
 ## Integration workflow (new v2 code)
@@ -28,20 +28,21 @@ Granular skill for `SuiWalletProvider` — the low-level Sui wallet for backend 
 ### Sui-specific anti-patterns
 
 - **Passing a raw private key.** The PK variant accepts only a `mnemonics` phrase — the library derives the Ed25519 keypair. There is no raw-secret-key constructor.
-- **Forgetting the active `account` in browser-extension mode.** It needs all three of `client` + `wallet` + `account`; many adapters expose the first two but not the active account (fetch via `wallet.accounts[0]`).
+- **Assigning `dAppKit.signTransaction` straight to `signTransaction`.** The config's callback takes the transaction positionally; dApp Kit's and wallet-standard's signers are options-shaped. Wrap it, and name the account — otherwise it signs with whichever one is connected, not the `address` you passed.
 - **Disabling dry-run by default.** It's on for safety — production scripts almost never want `{ dryRun: { enabled: false } }`.
 - **Mixing PK + browser-extension fields.** Discriminated union — don't `as`.
 
 ## Migration workflow (port v1 → v2)
 
-1. [`../migration-v1-to-v2/knowledge/ai-rules.md`](../migration-v1-to-v2/knowledge/ai-rules.md) — headline: **v1 code drops in unchanged at this surface**.
-2. Only mechanical change: deep-import → barrel ([`../migration-v1-to-v2/knowledge/breaking-changes/folder-layout.md`](../migration-v1-to-v2/knowledge/breaking-changes/folder-layout.md)). Optionally adopt `defaults` ([`defaults-config.md`](../migration-v1-to-v2/knowledge/breaking-changes/defaults-config.md)) / re-imported library types ([`library-exports.md`](../migration-v1-to-v2/knowledge/breaking-changes/library-exports.md)).
-3. Compile errors on `@sodax/sdk` / `@sodax/types` symbols → not this migration; load the `sodax-sdk` skill (migration mode).
+1. [`../migration-v1-to-v2/knowledge/ai-rules.md`](../migration-v1-to-v2/knowledge/ai-rules.md) — headline: **private-key v1 code drops in nearly unchanged; browser-extension code does not**.
+2. **Browser-extension mode must be rewritten**: `{ client, wallet, account }` → `{ grpcUrl, address, signTransaction }`, and the endpoint must speak gRPC-web. `rpcUrl` survives as a deprecated alias for `grpcUrl`; `SuiSignAndExecutePolicy.response` is gone. See [`../integration/knowledge/features/sui.md`](../integration/knowledge/features/sui.md) for the new config and the signer wrapper.
+3. Otherwise mechanical: deep-import → barrel ([`../migration-v1-to-v2/knowledge/breaking-changes/folder-layout.md`](../migration-v1-to-v2/knowledge/breaking-changes/folder-layout.md)). Optionally adopt `defaults` ([`defaults-config.md`](../migration-v1-to-v2/knowledge/breaking-changes/defaults-config.md)) / re-imported library types ([`library-exports.md`](../migration-v1-to-v2/knowledge/breaking-changes/library-exports.md)).
+4. Compile errors on `@sodax/sdk` / `@sodax/types` symbols → not this migration; load the `sodax-sdk` skill (migration mode).
 
 ## Verification
 
 1. `pnpm tsc --noEmit` exits clean.
-2. Config uses exactly one discriminant variant; browser-extension passes all three objects.
+2. Config uses exactly one discriminant variant; browser-extension passes `grpcUrl` + `address` + a wrapped `signTransaction`.
 3. No v1 deep imports from `@sodax/wallet-sdk-core/wallet-providers/` (migration only).
 
 ## Related skills (same family)

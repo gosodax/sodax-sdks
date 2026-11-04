@@ -15,9 +15,7 @@ Source file: `src/types/library-exports.ts`. The export name is the same as upst
 | Chain SDK | Re-exported types |
 |---|---|
 | `viem` | `Account`, `Address`, `Chain`, `Transport`, `PublicClient`, `WalletClient`, `HttpTransportConfig`, `PublicClientConfig`, `WalletClientConfig`, `SendTransactionParameters`, `WaitForTransactionReceiptParameters`, `TransactionReceipt` |
-| `@mysten/sui/client` | `SuiTransactionBlockResponseOptions` |
 | `@mysten/sui/transactions` | `Transaction`, `TransactionArgument` |
-| `@mysten/wallet-standard` | `SuiWalletFeatures`, `WalletAccount`, `WalletWithFeatures` |
 | `@solana/web3.js` | `Commitment`, `ConnectionConfig`, `SendOptions` |
 | `@injectivelabs/networks` | `Network` |
 | `@injectivelabs/ts-types` | `ChainId`, `EvmChainId` |
@@ -48,9 +46,6 @@ import type {
   WalletClient,
   PublicClient,
   TransactionReceipt,
-  SuiWalletFeatures,
-  WalletAccount,
-  WalletWithFeatures,
   ConnectionConfig,
   Network,
   ChainId,

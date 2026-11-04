@@ -17,6 +17,8 @@ import { retry } from '../../utils/shared-utils.js';
 import type {
   DepositParams,
   EstimateGasParams,
+  GetBalanceParams,
+  GetBalancesParams,
   GetDepositParams,
   SendMessageParams,
   WaitForTxReceiptParams,
@@ -32,6 +34,7 @@ import {
   type DepositRecord,
   type WithdrawalRecord,
 } from '../mpcRelay/MpcRelayApiService.js';
+import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 import {
   assembleBroadcastHex,
   computeSignedMessageHash,
@@ -344,6 +347,19 @@ export class TronSpokeService {
       visible: false,
     });
     return BigInt(acct.balance ?? 0);
+  }
+
+  /** The user's own wallet balance of `token`, in smallest units — the same read as {@link getDeposit}. */
+  public async getWalletBalance(params: GetBalanceParams<TronChainKey>): Promise<bigint> {
+    return this.getDeposit({ srcChainKey: params.srcChainKey, srcAddress: params.srcAddress, token: params.token.address });
+  }
+
+  /** The user's own wallet balances of multiple tokens, keyed by `token.address`. */
+  public async getWalletBalances(params: GetBalancesParams<TronChainKey>): Promise<WalletBalanceMap> {
+    const { srcChainKey, srcAddress, tokens } = params;
+    const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
+    await settleWalletBalances(collector, tokens, token => this.getWalletBalance({ srcChainKey, srcAddress, token }));
+    return collector.finish();
   }
 
   /**

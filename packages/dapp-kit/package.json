@@ -15,9 +15,9 @@
     "hooks",
     "defi"
   ],
-  "homepage": "https://github.com/icon-project/sodax-sdks/tree/main/packages/dapp-kit",
+  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/dapp-kit",
   "bugs": {
-    "url": "https://github.com/icon-project/sodax-sdks/issues"
+    "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "type": "module",
   "main": "dist/index.mjs",
@@ -30,16 +30,16 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/icon-project/sodax-sdks"
+    "url": "https://github.com/gosodax/sodax-sdks"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node ../../scripts/verify-dist-exports.mjs",
     "dev": "tsup --watch ./src",
     "test": "vitest run",
     "prepublishOnly": "pnpm run build",
     "clean": "rm -rf dist && rm -rf node_modules && rm -rf .turbo",
     "pretty": "biome format . --write",
-    "checkTs": "tsc --noEmit",
+    "checkTs": "tsc --noEmit && node ../../scripts/check-tests-typechecked.mjs",
     "check-exports": "attw --pack --profile esm-only",
     "check:knip": "knip",
     "lint": "biome lint . --write"
@@ -63,7 +63,7 @@
     "react": ">=18"
   },
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=22.12.0"
   },
   "sideEffects": false,
   "exports": {

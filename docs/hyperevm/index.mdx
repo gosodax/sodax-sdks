@@ -1,0 +1,79 @@
+---
+title: "SODAX for HyperEVM"
+sidebarTitle: "Overview"
+description: "Reach the users and liquidity of every SODAX network from your HyperEVM product. No contracts to deploy, your entire integration is TypeScript."
+icon: bolt-lightning
+---
+
+<Note>
+  **No new contracts.** SODAX's HyperEVM spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary EVM transactions on HyperEVM, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+You keep shipping on HyperEVM. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer, against HyperEVM. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## Two things that differ from other EVM networks
+
+To the SDK, HyperEVM is an EVM network like any other: chain ID 999, HYPE as the native gas token, the same wallet provider and approvals. What sets it apart is its place inside Hyperliquid:
+
+- **HyperCore balances are not HyperEVM balances.** Hyperliquid has two parts, HyperCore (spot, perps, and the order books) and HyperEVM. SODAX acts on HyperEVM only. Funds a user holds in HyperCore spot or perps are invisible to the SDK and cannot fund an intent until the user transfers them to HyperEVM (the "Transfer to/from EVM" action in Hyperliquid's app).
+- **Swaps can deliver USDC straight into HyperCore.** The SDK ships a delivery hook for HyperEVM: set `hook: { kind: HookKind.HYPERCORE_DEPOSIT }` on a swap whose output is USDC on HyperEVM, and the output is deposited into the recipient's HyperCore perps account instead of their HyperEVM wallet. See [Delivering into HyperCore](/hyperevm/swaps#delivering-into-hypercore).
+
+## What you can build
+
+Two SODAX modules are relevant to HyperEVM builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/hyperevm/swaps">
+    Intent-based cross-network swaps. Users swap between HYPE or HyperEVM tokens and assets on any supported network with one signed transaction, and can land USDC directly in HyperCore. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/hyperevm/money-market">
+    Cross-network lending and borrowing. Supply from HyperEVM, borrow to HyperEVM or any other supported network, and manage positions without running lending infrastructure.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/hyperevm/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/hyperevm/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/hyperevm/quickstart): install the SDK, connect a HyperEVM wallet, make your first cross-network swap.
+- [Swaps on HyperEVM](/hyperevm/swaps): approvals, quoting, fees, and delivering USDC into HyperCore.
+- [Money Market on HyperEVM](/hyperevm/money-market): supply, borrow, repay, and withdraw with cross-network collateral.
+- [Wallets](/hyperevm/wallets): EVM wallets on HyperEVM, and every other network's wallets through one interface.
+- [Networks & Assets](/hyperevm/networks-and-assets): what is live on HyperEVM today and what your users can reach.
+- [HyperEVM FAQ](/hyperevm/faq): the questions HyperEVM engineers actually ask.
+
+## HyperEVM references
+
+- [**HyperEVM for developers**](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm): chain ID, JSON-RPC endpoint, and HYPE as the gas token.
+- [**HyperCore and HyperEVM transfers**](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/hyperevm/hypercore-less-than-greater-than-hyperevm-transfers): how assets move between HyperCore and HyperEVM.
+- [**How to use the HyperEVM**](https://hyperliquid.gitbook.io/hyperliquid-docs/onboarding/how-to-use-the-hyperevm): adding the network to a wallet and moving assets from HyperCore.
+- [**HyperEVMScan**](https://hyperevmscan.io/): the HyperEVM explorer, for checking transactions and token balances.
+
+---
+
+Building something? Start with the [Quickstart](/hyperevm/quickstart).

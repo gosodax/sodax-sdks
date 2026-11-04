@@ -1,4 +1,4 @@
-// Sign-and-broadcast dispatcher for the unsigned transactions the Swaps API v2 returns
+// Sign-and-broadcast dispatcher for the unsigned transactions the Swaps API returns
 // (`approve.tx`, `createIntent.tx`, `cancelIntent.tx`). The API leaves signing entirely to the
 // client, and neither @sodax/dapp-kit nor @sodax/sdk ship a utility for this step — every consumer
 // has to hand-roll the per-chain dispatch below. Remaining gaps this file works around:
@@ -8,16 +8,17 @@
 //    SDK's BitcoinSpokeService.signAndSubmitRawTransaction (sign → Bound co-sign + broadcast), which
 //    SwapCard calls directly with the client's Bound session.
 // b. No `IntentResponseV2` → `IntentRequestV2` converter (see ./mappers.ts).
-// c. `useSwapsApiApprove` cannot auto-invalidate `['swapsApi','allowance']` — confirmation
-//    happens client-side after the hook resolves, so callers refetch allowance manually.
+// c. `approve` cannot auto-invalidate the `['swapsApi','allowance']` query — confirmation happens
+//    client-side, so callers refetch allowance manually. Signing/confirming an approve plan is the
+//    one step dapp-kit does cover: `runApprovalPlan` sequences `resetTx` before `tx` and checks
+//    each receipt's execution status, so this file deliberately does not reimplement it.
 //
-// `tx` is the typed `RawTxReturnType` union: the SDK validates each response against the
-// chain-specific schema and reconstructs bigints, so no structural validation or numeric
-// coercion is needed here — narrowing to a per-chain variant is driven by the chain type.
+// `tx` is the typed `RawTxReturnType` union: the @sodax/swaps-api client validates each response
+// against the chain-specific schema and reconstructs bigints, so no structural validation or
+// numeric coercion is needed here — narrowing to a per-chain variant is driven by the chain type.
 
 import type {
   EvmRawTransaction,
-  Hex,
   IEvmWalletProvider,
   IIconWalletProvider,
   IInjectiveWalletProvider,
@@ -38,6 +39,7 @@ import type {
   SuiRawTransaction,
   TxReturnType,
 } from '@sodax/dapp-kit';
+import { getEvmViemChain, type EvmChainKey } from '@sodax/dapp-kit';
 import { getXChainType } from '@sodax/wallet-sdk-react';
 
 export class SwapsApiSignError extends Error {
@@ -53,7 +55,7 @@ export class SwapsApiSignError extends Error {
 }
 
 /**
- * Sign and broadcast an unsigned transaction returned by the Swaps API v2 using only the chain's
+ * Sign and broadcast an unsigned transaction returned by the Swaps API using only the chain's
  * wallet provider. Returns the spoke-chain tx hash / signature / digest. `tx` is the typed
  * `RawTxReturnType` variant for `chainKey` (already validated + bigint-reconstructed by the SDK),
  * so narrowing it to the per-chain variant below is sound. Chains whose wallet-provider interface
@@ -69,7 +71,10 @@ export async function signAndBroadcastSwapsApiTx(args: {
 
   switch (chainType) {
     case 'EVM':
-      return await (walletProvider as IEvmWalletProvider).sendTransaction(tx as EvmRawTransaction);
+      // Chain-bind the send: the wallet must be on `chainKey`'s network, not wherever it happens to be.
+      return await (walletProvider as IEvmWalletProvider).sendTransaction(tx as EvmRawTransaction, {
+        expectedChainId: getEvmViemChain(chainKey as EvmChainKey).id,
+      });
     case 'SUI': {
       // SuiTransaction is structurally { toJSON(): Promise<string> }; the wallet provider rebuilds
       // via Transaction.from(...), which accepts the base64-serialized tx bytes in `data`.
@@ -158,29 +163,4 @@ export function isSignableSwapsApiChain(chainKey: SpokeChainKey): boolean {
     chainType === 'STACKS' ||
     chainType === 'INJECTIVE'
   );
-}
-
-/**
- * Wait until the broadcast tx is final enough to re-check allowance / submit to the API.
- * EVM and ICON expose receipts; Solana's signAndSendTransaction returns before confirmation, so
- * await it explicitly. Stellar's signAndSendTransaction returns once the tx is submitted to Soroban
- * RPC, so poll Horizon for the receipt. Sui's signAndExecuteTxn, NEAR's signAndSubmitTxn, and
- * Injective's signAndSendTransaction (which broadcasts via TxGrpcApi) already resolve on execution,
- * so they need no extra wait.
- */
-export async function waitForTxFinality(
-  chainKey: SpokeChainKey,
-  walletProvider: IWalletProvider,
-  txHash: string,
-): Promise<void> {
-  const chainType = getXChainType(chainKey);
-  if (chainType === 'EVM') {
-    await (walletProvider as IEvmWalletProvider).waitForTransactionReceipt(txHash as Hex);
-  } else if (chainType === 'ICON') {
-    await (walletProvider as IIconWalletProvider).waitForTransactionReceipt(txHash as Hex);
-  } else if (chainType === 'SOLANA') {
-    await (walletProvider as ISolanaWalletProvider).waitForConfirmation(txHash, 'confirmed');
-  } else if (chainType === 'STELLAR') {
-    await (walletProvider as IStellarWalletProvider).waitForTransactionReceipt(txHash);
-  }
 }

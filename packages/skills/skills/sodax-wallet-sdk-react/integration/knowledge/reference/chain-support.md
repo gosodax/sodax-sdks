@@ -10,9 +10,9 @@ Chains supported by `@sodax/wallet-sdk-react` v2 — their `ChainType` family an
 
 | ChainType | Networks (examples) | React adapter mounted |
 |---|---|---|
-| `EVM` | Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera | wagmi |
+| `EVM` | Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood Chain | wagmi |
 | `SOLANA` | Solana mainnet | `@solana/wallet-adapter-react` |
-| `SUI` | Sui mainnet/testnet | `@mysten/dapp-kit` |
+| `SUI` | Sui mainnet/testnet | `@mysten/dapp-kit-react` |
 | `BITCOIN` | Bitcoin mainnet | (none — direct extension probes) |
 | `STELLAR` | Stellar mainnet | (none) |
 | `ICON` | ICON mainnet | (none) |
@@ -28,9 +28,9 @@ EVM is the only family with multiple networks under one connection — wagmi mai
 
 | Slot | Config fields | Notes |
 |---|---|---|
-| `EVM` | `ssr?, reconnectOnMount?, initialState?, walletConnect?, connectors?, chains` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }` |
+| `EVM` | `ssr?, reconnectOnMount?, initialState?, persistKey?, walletConnect?, privy?, connectors?, chains` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }` |
 | `SOLANA` | `autoConnect?, connectors?, chains` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }` |
-| `SUI` | `network?, connectors?, chains?` | `network: 'mainnet' \| 'testnet' \| 'devnet'` |
+| `SUI` | `network?, connectors?, chains?` | `network: 'mainnet' \| 'testnet'` |
 | `BITCOIN` | extends `BitcoinRpcConfig` + `{ defaults?, connectors? }` | Pass `{}` for SDK defaults |
 | `STELLAR` | extends `StellarRpcConfig` + `{ defaults?, connectors? }` | Pass `{}` for SDK defaults |
 | `INJECTIVE` | extends `InjectiveRpcConfig` + `{ defaults?, connectors? }` | Pass `{}` for SDK defaults |
@@ -56,7 +56,7 @@ ChainKeys.BITCOIN_MAINNET;     // BITCOIN
 // …etc
 ```
 
-Naming pattern: `<NETWORK>_MAINNET`. EVM has 13 entries (Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera); the other 8 families each have one. Inspect `@sodax/types` for the authoritative list.
+Naming pattern: `<NETWORK>_MAINNET`. EVM has 14 entries (Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood Chain); the other 8 families each have one. Inspect `@sodax/types` for the authoritative list.
 
 ---
 

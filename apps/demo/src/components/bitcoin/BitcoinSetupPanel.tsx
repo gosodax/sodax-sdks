@@ -145,8 +145,8 @@ export const BitcoinSetupPanel = ({
   };
 
   return (
-    <div className="flex flex-col gap-4 p-4 mt-4 bg-muted/30 rounded-lg border border-border">
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-4 p-3 sm:p-4 mt-4 bg-muted/30 rounded-lg border border-border">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-semibold text-sm">Bitcoin Trading Setup</h3>
 
         {/* Address type selector — Xverse only */}
@@ -189,7 +189,7 @@ export const BitcoinSetupPanel = ({
         <div className="flex flex-col gap-3">
           {/* Trading wallet address + Top Up */}
           <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm font-medium">Trading Wallet</span>
               {tradingAddress && (
                 <div className="flex items-center gap-1.5">
@@ -347,7 +347,7 @@ export const BitcoinSetupPanel = ({
                       </div>
                     ))}
                   </div>
-                  {renewError && <p className="text-xs text-red-500">{renewError}</p>}
+                  {renewError && <p className="text-xs text-red-500 wrap-anywhere">{renewError}</p>}
                 </div>
               )}
             </div>

@@ -81,7 +81,7 @@ For wagmi cookie hydration in App Router, also see [`recipes/ssr-setup.md`](../.
 |---|---|---|
 | `EVM` | ✅ wagmi | One connection across every configured EVM chain. WalletConnect opt-in via `EVM.walletConnect.projectId`. |
 | `SOLANA` | ✅ `@solana/wallet-adapter-react` | `autoConnect` defaults to `true`. |
-| `SUI` | ✅ `@mysten/dapp-kit` | `network` defaults to `'mainnet'`. |
+| `SUI` | ✅ `@mysten/dapp-kit-react` | `network` defaults to `'mainnet'`. |
 | `BITCOIN` / `STELLAR` / `ICON` / `INJECTIVE` / `NEAR` / `STACKS` | ❌ no React adapter | Service auto-registered at mount. Connector list shipped per chain. |
 
 For chain key constants and per-chain entry shapes, see [`../reference/chain-support.md`](../reference/chain-support.md).

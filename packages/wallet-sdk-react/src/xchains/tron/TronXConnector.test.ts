@@ -49,6 +49,7 @@ function stubWindow(
       if (event.type !== 'TIP6963:requestProvider') return true;
       for (const detail of opts.announce ?? []) {
         for (const fn of listeners.get('TIP6963:announceProvider') ?? []) {
+          // A plain object stands in for the CustomEvent: the connector only reads `detail`.
           fn({ type: 'TIP6963:announceProvider', detail } as unknown as Event);
         }
       }

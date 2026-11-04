@@ -1,6 +1,7 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import type { RequestOverrideConfig, StatusResponseV2 } from '@sodax/sdk';
+import { isAuthFailure, type RequestOverrideConfig, type StatusResponseV2 } from '@sodax/sdk';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { retryUnlessAuthFailure } from '../shared/retryUnlessAuthFailure.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 import type { ReadHookParams } from '../shared/types.js';
 import { isTerminalSwapIntentStatus } from './isTerminalSwapIntentStatus.js';
@@ -21,7 +22,8 @@ export type UseSwapsApiStatusParams = ReadHookParams<
  * const { data } = useSwapsApiStatus({ params: { intentTxHash: '0x123...' } });
  *
  * @remarks
- * - Default refetch interval is 1 second; stops once `status` is `3` (SOLVED) or `4` (FAILED).
+ * - Default refetch interval is 1 second; stops once `status` is `3` (SOLVED) or `4` (FAILED), or
+ *   once the backend rejects the API key (401/403 is terminal — a retry cannot fix it).
  */
 export const useSwapsApiStatus = ({
   params,
@@ -38,8 +40,12 @@ export const useSwapsApiStatus = ({
       return unwrapResult(await sodax.api.swaps.getStatus({ intentTxHash }, apiConfig));
     },
     enabled: !!intentTxHash && intentTxHash.length > 0,
-    retry: 3,
-    refetchInterval: query => (isTerminalSwapIntentStatus(query.state.data?.status) ? false : 1000),
+    retry: retryUnlessAuthFailure,
+    refetchInterval: query => {
+      // `retry` bounds attempts within a tick, not the interval itself — so stop it here too.
+      if (isAuthFailure(query.state.error)) return false;
+      return isTerminalSwapIntentStatus(query.state.data?.status) ? false : 1000;
+    },
     ...queryOptions,
   });
 };

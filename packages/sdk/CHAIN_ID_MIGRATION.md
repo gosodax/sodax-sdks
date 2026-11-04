@@ -22,6 +22,7 @@ This document maps the old individual chain ID constants to their new `ChainKeys
 | `BSC_MAINNET_CHAIN_ID` | `ChainKeys.BSC_MAINNET` | `'0x38.bsc'` |
 | `ETHEREUM_MAINNET_CHAIN_ID` | `ChainKeys.ETHEREUM_MAINNET` | `'ethereum'` |
 | `HEDERA_MAINNET_CHAIN_ID` | `ChainKeys.HEDERA_MAINNET` | `'hedera'` |
+| `ROBINHOOD_MAINNET_CHAIN_ID` | `ChainKeys.ROBINHOOD_MAINNET` | `'robinhood'` |
 | `HYPEREVM_MAINNET_CHAIN_ID` | `ChainKeys.HYPEREVM_MAINNET` | `'hyper'` |
 | `ICON_MAINNET_CHAIN_ID` | `ChainKeys.ICON_MAINNET` | `'0x1.icon'` |
 | `INJECTIVE_MAINNET_CHAIN_ID` | `ChainKeys.INJECTIVE_MAINNET` | `'injective-1'` |

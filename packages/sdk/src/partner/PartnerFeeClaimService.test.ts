@@ -7,6 +7,11 @@ import type { HubProvider } from '../shared/types/types.js';
 import type { SpokeService } from '../shared/services/spoke/SpokeService.js';
 import { ProtocolIntentsAbi } from '../shared/abis/protocolIntents.abi.js';
 import { noopAnalytics } from '../shared/index.js';
+
+// The fee-claim swap notifies the solver through a static import, so it is replaced at the module.
+const mocks = vi.hoisted(() => ({ solverPostExecution: vi.fn() }));
+vi.mock('../swap/SolverApiService.js', () => ({ SolverApiService: { postExecution: mocks.solverPostExecution } }));
+
 import { PartnerFeeClaimService } from './PartnerFeeClaimService.js';
 
 const PROTOCOL_INTENTS = '0xaFf2EDb3057ed6f9C1dA6c930b8ddDf2beE573A5' as Address;
@@ -18,16 +23,22 @@ const EVM_WALLET = { chainType: 'EVM', sendTransaction: vi.fn() } as unknown as 
 function makeService(overrides: {
   readContract?: ReturnType<typeof vi.fn>;
   sendTransaction?: ReturnType<typeof vi.fn>;
+  waitForTransactionReceipt?: ReturnType<typeof vi.fn>;
   isValidIntentRelayChainId?: (chainId: bigint) => boolean;
+  apiKey?: string;
 }): PartnerFeeClaimService {
   const config = {
     solver: { protocolIntentsContract: PROTOCOL_INTENTS },
     logger: { warn: vi.fn(), error: vi.fn() },
     analytics: noopAnalytics,
     isValidIntentRelayChainId: overrides.isValidIntentRelayChainId ?? (() => true),
+    apiKey: overrides.apiKey,
   } as unknown as ConfigService;
   const hubProvider = {
-    publicClient: { readContract: overrides.readContract ?? vi.fn() },
+    publicClient: {
+      readContract: overrides.readContract ?? vi.fn(),
+      waitForTransactionReceipt: overrides.waitForTransactionReceipt ?? vi.fn(),
+    },
     chainConfig: { chain: { key: ChainKeys.SONIC_MAINNET } },
   } as unknown as HubProvider;
   const spoke = {} as unknown as SpokeService;
@@ -89,6 +100,25 @@ describe('PartnerFeeClaimService.swap same-token guard', () => {
     expect((result.error as { code?: string }).code).toBe('VALIDATION_FAILED');
     // The guard must short-circuit before any swap transaction is built/sent.
     expect(readContract).toHaveBeenCalled();
+  });
+
+  it('forwards the configured backend API key to the solver /execute notice', async () => {
+    const intentTxHash = '0xintentTx' as Hex;
+    const service = makeService({
+      apiKey: 'instance-key',
+      waitForTransactionReceipt: vi.fn(async () => ({ transactionHash: intentTxHash })),
+    });
+    vi.spyOn(service, 'createIntentAutoSwap').mockResolvedValueOnce({ ok: true, value: intentTxHash });
+    mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK' } });
+
+    const result = await service.swap({
+      raw: false,
+      params: { srcChainKey: ChainKeys.SONIC_MAINNET, srcAddress: SRC, fromToken: USDC, amount: 1_000_000n },
+      walletProvider: EVM_WALLET,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(mocks.solverPostExecution.mock.calls[0]?.[3]).toBe('instance-key');
   });
 });
 

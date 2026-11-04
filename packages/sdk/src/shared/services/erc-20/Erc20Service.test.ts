@@ -196,3 +196,25 @@ describe('Erc20Service.planApproval', () => {
     });
   });
 });
+
+describe('Erc20Service.approve — chain binding', () => {
+  // An approval must not broadcast on whatever chain the wallet happens to be on (BOT-R4/F2):
+  // the option must reach the provider, whose guard refuses on mismatch.
+  it('forwards expectedChainId to the wallet provider on the signed path', async () => {
+    const sendTransaction = vi.fn().mockResolvedValue('0xhash');
+    await Erc20Service.approve<false>({
+      token: TOKEN,
+      amount: AMOUNT,
+      from: OWNER,
+      spender: SPENDER,
+      raw: false,
+      walletProvider: { sendTransaction } as never,
+      expectedChainId: 146,
+    });
+
+    expect(sendTransaction).toHaveBeenCalledWith(
+      { from: OWNER, to: TOKEN, value: 0n, data: approveCalldata(AMOUNT) },
+      { expectedChainId: 146 },
+    );
+  });
+});

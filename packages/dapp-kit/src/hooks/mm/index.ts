@@ -12,3 +12,4 @@ export * from './useAToken.js';
 export * from './useATokensBalances.js';
 export * from './useReservesUsdFormat.js';
 export * from './useUserFormattedSummary.js';
+export * from './useEModes.js';

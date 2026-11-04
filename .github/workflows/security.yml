@@ -25,10 +25,10 @@ jobs:
       contents: read
     steps:
       - name: Check out code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Dependency Review
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
 
   codeql-analysis:
     name: CodeQL Analysis
@@ -40,44 +40,136 @@ jobs:
       actions: read
     steps:
       - name: Check out code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@6f5948dfacef28e207b48d0905cf90c03365536d # v3.37.9
         with:
           languages: javascript-typescript
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@6f5948dfacef28e207b48d0905cf90c03365536d # v3.37.9
 
-  osv-scanner:
-    name: OSV-Scanner (dependencies)
+  # Blocking, and only on what the branch ADDS: base and head are scanned in the
+  # same job against one advisory snapshot, so an advisory published mid-review
+  # shows up in both and does not fail the check. The scanner reads pnpm-lock.yaml
+  # directly, so neither scan needs an install.
+  osv-scanner-pr:
+    name: OSV-Scanner (new in PR)
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
       - name: Check out code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      # Non-blocking on first land so we can triage the baseline of pre-existing
-      # findings before making it gate PRs. Remove `continue-on-error` to enforce.
-      - name: Run OSV-Scanner
+      - name: Scan pull request head
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
         continue-on-error: true
-        uses: google/osv-scanner-action/osv-scanner-action@v2.3.8
         with:
           scan-args: |-
             --recursive
-            --format=sarif
-            --output=osv-results.sarif
+            --format=json
+            --output-file=osv-head.json
             ./
+
+      - name: Check out base branch
+        run: |
+          git fetch --no-tags --depth=1 origin "+refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}"
+          git checkout -f --detach "refs/remotes/origin/${GITHUB_BASE_REF}"
+
+      - name: Scan base branch
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        continue-on-error: true
+        with:
+          scan-args: |-
+            --recursive
+            --format=json
+            --output-file=osv-base.json
+            ./
+
+      # The scan steps swallow their own exit code so the reporter can decide, which
+      # would also swallow a scanner crash. An empty result file means it crashed.
+      - name: Verify both scans produced results
+        run: |
+          for f in osv-head.json osv-base.json; do
+            test -s "$f" || { echo "::error::$f is missing or empty — the scan step failed"; exit 1; }
+          done
+
+      - name: Report advisories the pull request adds
+        uses: google/osv-scanner-action/osv-reporter-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        with:
+          scan-args: |-
+            --old=osv-base.json
+            --new=osv-head.json
+            --fail-on-vuln=true
+            --output-files=sarif:osv-results.sarif,table:#stdout,gh-annotations:#stderr
 
       - name: Upload OSV-Scanner results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: osv-scanner-pr-results
+          path: |
+            osv-results.sarif
+            osv-base.json
+            osv-head.json
+          retention-days: 30
+
+  # Advisory, not blocking. OSV's feed moves independently of this repo, so an
+  # absolute scan over the whole lockfile turns red on commits that changed no
+  # dependency. Findings go to Security > Code scanning for triage instead; the
+  # accepted baseline is in osv-scanner.toml and every entry expires.
+  osv-scanner:
+    name: OSV-Scanner (dependencies)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Check out code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - name: Run OSV-Scanner
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        continue-on-error: true
+        with:
+          scan-args: |-
+            --recursive
+            --format=json
+            --output-file=osv-results.json
+            ./
+
+      - name: Verify the scan produced results
+        run: test -s osv-results.json || { echo "::error::osv-results.json is missing or empty — the scan step failed"; exit 1; }
+
+      - name: Render results
+        uses: google/osv-scanner-action/osv-reporter-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        with:
+          scan-args: |-
+            --new=osv-results.json
+            --fail-on-vuln=false
+            --output-files=sarif:osv-results.sarif,table:#stdout
+
+      - name: Upload to Code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@6f5948dfacef28e207b48d0905cf90c03365536d # v3.37.9
+        with:
+          sarif_file: osv-results.sarif
+          category: osv-scanner
+
+      - name: Upload OSV-Scanner results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: osv-scanner-results
-          path: osv-results.sarif
+          path: |
+            osv-results.sarif
+            osv-results.json
           retention-days: 30
 
   semgrep:
@@ -90,10 +182,11 @@ jobs:
       image: semgrep/semgrep:1.163.0
     steps:
       - name: Check out code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
-      # No `--error` flag yet so the baseline of pre-existing findings doesn't block PRs.
-      # Add `--error` once the team has triaged the first run.
+      # Blocking via --error. Excluded: the two audit-tier JS rules are triaged
+      # log/tooling noise; the release-age rule reads .npmrc, but our cooldown is
+      # enforced by minimumReleaseAge in pnpm-workspace.yaml.
       - name: Run Semgrep
         run: |
           semgrep scan \
@@ -101,11 +194,15 @@ jobs:
             --config=p/react \
             --config=p/owasp-top-ten \
             --config=p/secrets \
+            --error \
+            --exclude-rule=javascript.lang.security.audit.unsafe-formatstring.unsafe-formatstring \
+            --exclude-rule=javascript.lang.security.audit.detect-non-literal-regexp.detect-non-literal-regexp \
+            --exclude-rule=package_managers.npm.npm-missing-minimum-release-age.npm-missing-minimum-release-age \
             --sarif --output=semgrep-results.sarif
 
       - name: Upload Semgrep results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: semgrep-results
           path: semgrep-results.sarif
@@ -119,27 +216,33 @@ jobs:
       contents: read
     steps:
       - name: Check out code
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 
       # gitleaks-action needs a paid org license even on public repos; run the binary.
       - name: Install gitleaks
+        id: install-gitleaks
         run: |
-          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz" | tar -xz gitleaks
+          # --fail, or curl exits 0 on an HTTP error and the error body becomes gitleaks.tar.gz,
+          # which surfaces as a checksum mismatch rather than as the failed download it is.
+          curl -fsSL --retry 3 --retry-all-errors -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks version
 
-      # Broad low-noise pass (allowlists docs/skills/fixtures). Non-blocking, like OSV/Semgrep.
+      # Broad low-noise pass (allowlists docs/skills/fixtures). Blocking.
       - name: Run gitleaks (broad)
-        continue-on-error: true
         run: ./gitleaks dir . --config .gitleaks.toml --redact --no-banner --report-format sarif --report-path gitleaks-results.sarif
 
       # Strict private-key pass — scans docs/dev-skills too; only fake fixtures exempt.
+      # Runs even when the broad pass failed so the artifact carries both reports, but not when
+      # there is no binary to run — that only buries the install failure under an exit 127.
       - name: Run gitleaks (strict private-key)
-        continue-on-error: true
+        if: always() && steps.install-gitleaks.outcome == 'success'
         run: ./gitleaks dir . --config .gitleaks-strict.toml --redact --no-banner --report-format sarif --report-path gitleaks-strict-results.sarif
 
       - name: Upload gitleaks results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gitleaks-results
           path: |

@@ -1,0 +1,154 @@
+name: AI Files Drift Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled, unlabeled]
+
+concurrency:
+  group: ai-drift-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    name: AI files match the code they describe
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Escape hatch: add the `no-ai-drift` label to skip a disputed model finding.
+    # The auditor is a language model, so a wrong finding must never be able to strand a PR.
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'no-ai-drift') }}
+    permissions:
+      contents: read
+      pull-requests: write
+      # The action exchanges the OAuth token through GitHub's OIDC provider, which needs this even
+      # though the audit itself only reads. Without it the action fails before the first file read.
+      id-token: write
+
+    steps:
+      # `pull_request` withholds secrets from forks, and the alternative — `pull_request_target` —
+      # would hand a token to a job whose entire purpose is reading untrusted diff content. So a
+      # fork PR reports green with a visible reason instead of running an audit it cannot run.
+      - name: Check whether this run has credentials
+        id: gate
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          THIS_REPO: ${{ github.repository }}
+          HAS_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+        run: |
+          if [ "$HEAD_REPO" != "$THIS_REPO" ]; then
+            echo "::notice::Fork pull request — the drift audit needs a credential forks cannot receive. A maintainer should run it on a branch in this repository before merging."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          elif [ "$HAS_TOKEN" != "true" ]; then
+            echo "::warning::CLAUDE_CODE_OAUTH_TOKEN is not configured; skipping the drift audit."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out code
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24.x'
+
+      # No `pnpm install`: both scripts are Node stdlib only, so the audit starts in seconds.
+      - name: Scope the audit to the AI files this change could affect
+        id: scope
+        if: steps.gate.outputs.run == 'true'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/ai-drift-scope.mjs --base "$BASE_SHA"
+
+      # Skipped when the pull request edits the gate. claude-code-action's token exchange refuses a
+      # workflow that differs from the copy on the default branch, but the prompt and the two scripts
+      # carry no such protection — they run from the pull request's own checkout. Without this
+      # condition a pull request could rewrite the rules it is judged by and still post a report that
+      # reads as an ordinary clean audit. The report step below still runs and says the audit
+      # declined, which is the contract CONTRIBUTING.md states.
+      #
+      # The prompt file comes from the pull request's own checkout, so the heredoc delimiter has to be
+      # unguessable: a fixed one lets a crafted prompt close the value early and have the rest of the
+      # file parsed as further assignments — into the same job that holds the OAuth token below.
+      - name: Load the audit prompt
+        if: steps.scope.outputs.should_run == 'true' && steps.scope.outputs.gate_self_edited != 'true'
+        run: |
+          DELIM="AI_DRIFT_PROMPT_EOF_$(openssl rand -hex 16)"
+          if grep -qxF "$DELIM" .github/ai-drift-prompt.md; then
+            echo "::error::The audit prompt contains the generated heredoc delimiter; refusing to load it."
+            exit 1
+          fi
+          {
+            printf 'AI_DRIFT_PROMPT<<%s\n' "$DELIM"
+            cat .github/ai-drift-prompt.md
+            printf '%s\n' "$DELIM"
+          } >> "$GITHUB_ENV"
+
+      # Read-only three ways over: the tool allowlist, the explicit write-tool denylist, and
+      # `contents: read` on the job. The agent reports drift; it never fixes it.
+      #
+      # `continue-on-error` so a provider outage, an expired token or the model's own timeout reaches
+      # the report step as a stated reason instead of a bare red check. An incident on someone else's
+      # infrastructure is not evidence that this pull request drifted.
+      #
+      # `audited_files` is required, not optional: it is what lets the report distinguish a clean
+      # audit from one that only opened part of its scope.
+      - name: Audit the AI files against the source
+        id: audit
+        if: steps.scope.outputs.should_run == 'true' && steps.scope.outputs.gate_self_edited != 'true'
+        continue-on-error: true
+        timeout-minutes: 10
+        uses: anthropics/claude-code-action@70fec183852c4f82f3f1969faed7dd60c5149ca7 # v1.0.207
+        env:
+          DRIFT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: ${{ env.AI_DRIFT_PROMPT }}
+          claude_args: |
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(ls:*),Bash(rg:*)"
+            --disallowedTools "Write,Edit,MultiEdit,NotebookEdit,WebFetch,WebSearch,Bash(gh:*)"
+            --max-turns 40
+            --json-schema '{"type":"object","required":["verdict","audited_files","findings"],"additionalProperties":false,"properties":{"verdict":{"type":"string","enum":["clean","gaps_only","contradictions"]},"audited_files":{"type":"array","items":{"type":"string"}},"notes":{"type":"string"},"findings":{"type":"array","items":{"type":"object","required":["severity","ai_file","ai_line","ai_quote","source_file","source_line","source_quote","explanation"],"additionalProperties":false,"properties":{"severity":{"type":"string","enum":["contradiction","gap"]},"ai_file":{"type":"string"},"ai_line":{"type":"integer"},"ai_quote":{"type":"string"},"source_file":{"type":"string"},"source_line":{"type":"integer"},"source_quote":{"type":"string"},"explanation":{"type":"string"},"suggested_fix":{"type":"string"}}}}}}'
+
+      # Re-reads every citation before letting any of it fail the build. See the header comment in
+      # scripts/ai-drift-report.mjs for why the model's word alone is not enough here.
+      - name: Verify the findings and decide the verdict
+        id: verdict
+        if: always() && steps.scope.outputs.should_run == 'true'
+        env:
+          AI_DRIFT_RESULT: ${{ steps.audit.outputs.structured_output }}
+          AUDIT_OUTCOME: ${{ steps.audit.outcome }}
+          # Turns every cited `path:line` in the report into a permalink to that line. The head SHA
+          # rather than the merge commit, so the link still resolves after the branch moves on.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Blocking is opt-in per repository. Leave `AI_DRIFT_ENFORCE` unset until the audit has run
+          # advisory for a cycle and its verdicts have proved stable across re-runs; then set the
+          # repository variable to `true`. Promotion is a reviewable settings change, not a habit.
+          AI_DRIFT_ENFORCE: ${{ vars.AI_DRIFT_ENFORCE }}
+        run: node scripts/ai-drift-report.mjs --scope drift-scope.json --comment-out drift-comment.md
+
+      # Runs even when the verdict step failed — a blocking finding is exactly the case where the
+      # report needs to be on the PR. The flagged AI file is usually absent from the diff, so an
+      # inline annotation alone is easy to miss.
+      - name: Post the report on the pull request
+        if: always() && steps.scope.outputs.should_run == 'true' && hashFiles('drift-comment.md') != ''
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const body = require('node:fs').readFileSync('drift-comment.md', 'utf8');
+            const marker = '<!-- ai-drift-check -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...context.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(comment => comment.body?.startsWith(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+            }

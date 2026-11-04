@@ -30,7 +30,7 @@ export function BitcoinTradingSection() {
           before using BTC in the money market.
         </p>
       </CardHeader>
-      <CardContent className="pt-0">
+      <CardContent className="px-4 sm:px-6 pt-0">
         <BitcoinSetupPanel
           walletProvider={walletProvider}
           onReadyChange={noop}

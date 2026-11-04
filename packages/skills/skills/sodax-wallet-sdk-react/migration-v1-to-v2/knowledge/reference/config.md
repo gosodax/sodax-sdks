@@ -98,7 +98,8 @@ const walletConfig: SodaxWalletConfig = {
 
 | Slot | Per-chain entry |
 |---|---|
-| `EVM`, `SOLANA`, `SUI`, `ICON`, `NEAR` | `{ rpcUrl?, defaults? }` |
+| `EVM`, `SOLANA`, `ICON`, `NEAR` | `{ rpcUrl?, defaults? }` |
+| `SUI` | `{ grpcUrl?, defaults? }` — `rpcUrl` is a deprecated alias; pass one or the other, never both |
 | `BITCOIN`, `STELLAR`, `INJECTIVE` | extends their `*RpcConfig` type with `{ defaults? }` |
 | `STACKS` | preset name (string) **or** `StacksNetworkLike & { defaults? }` |
 
@@ -187,7 +188,7 @@ SUI: {
 | Field | Type | Default |
 |---|---|---|
 | `autoConnect` | `boolean?` | `true` |
-| `network` | `'mainnet' \| 'testnet' \| 'devnet'?` | `'mainnet'` |
+| `network` | `'mainnet' \| 'testnet'?` | `'mainnet'` |
 
 | v1 | v2 |
 |---|---|

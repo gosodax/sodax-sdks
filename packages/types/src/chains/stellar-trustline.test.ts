@@ -8,7 +8,7 @@ const stellar = spokeChainConfig[STELLAR];
 
 const exemptAddresses = new Set(
   [stellar.nativeToken, stellar.supportedTokens.legacybnUSD?.address]
-    .filter((address): address is string => typeof address === 'string')
+    .filter((address): address is NonNullable<typeof address> => typeof address === 'string')
     .map(address => address.toLowerCase()),
 );
 

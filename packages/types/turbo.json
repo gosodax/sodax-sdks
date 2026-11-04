@@ -3,6 +3,9 @@
   "tasks": {
     "build": {
       "outputs": ["dist/**"]
+    },
+    "test": {
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/assets/token/**", "$TURBO_ROOT$/packages/assets/chain/**"]
     }
   }
 }

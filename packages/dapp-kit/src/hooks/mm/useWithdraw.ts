@@ -2,6 +2,7 @@
 import type { MoneyMarketWithdrawActionParams, SpokeChainKey, TxHashPair } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
@@ -43,10 +44,7 @@ export function useWithdraw<K extends SpokeChainKey = SpokeChainKey>({
         queryKey: ['mm', 'userFormattedSummary', params.srcChainKey, params.srcAddress],
       });
       queryClient.invalidateQueries({ queryKey: ['mm', 'aTokensBalances'] });
-      const balanceChains = new Set([params.srcChainKey, params.dstChainKey ?? params.srcChainKey]);
-      for (const chainKey of balanceChains) {
-        queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', chainKey] });
-      }
+      invalidateBalances(queryClient, params.srcChainKey, params.dstChainKey);
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },
   });

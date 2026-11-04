@@ -1,21 +1,18 @@
 // apps/demo/src/hooks/useSodaBalance.ts
-import { useSodaxContext, useXBalances, type SpokeChainKey } from '@sodax/dapp-kit';
-import { getXChainType, useXService } from '@sodax/wallet-sdk-react';
+import { useSodaxContext, useBalances, type SpokeChainKey } from '@sodax/dapp-kit';
 
 /**
  * Hook for getting the SODA token balance of the connected wallet on a specific chain. Wraps
- * `useXBalances` and looks up the SODA token via `sodax.config.findSupportedTokenBySymbol`.
+ * `useBalances` and looks up the SODA token via `sodax.config.findSupportedTokenBySymbol`.
  */
 export function useSodaBalance(chainKey: SpokeChainKey, userAddress: string | undefined): bigint | undefined {
   const { sodax } = useSodaxContext();
   const sodaToken = sodax.config.findSupportedTokenBySymbol(chainKey, 'SODA');
-  const xService = useXService({ xChainType: getXChainType(chainKey) });
 
-  const { data: balances } = useXBalances({
+  const { data: balances } = useBalances({
     params: {
-      xService,
-      xChainId: chainKey,
-      xTokens: sodaToken ? [sodaToken] : [],
+      chainKey,
+      tokens: sodaToken ? [sodaToken] : [],
       address: userAddress,
     },
   });

@@ -15,7 +15,7 @@ Granular skill for the bridge hooks of `@sodax/dapp-kit` v2. queryKey/mutationKe
 
 1. **New code or v1 → v2 port?**
 2. **Need a bridgeable precheck?** `useGetBridgeableAmount` (vault deposit/withdrawal cap, returns a `BridgeLimit`) and `useGetBridgeableTokens` (enumerate compatible destinations).
-3. **Allowance gating?** `useBridgeAllowance` + `useBridgeApprove` before `useBridge`.
+3. **Allowance gating?** `useBridgeWithApproval` folds the approval in (one EIP-5792 batch when the wallet can), labelled with `useBridgeApprovalStrategy`. The two-step alternative is `useBridgeAllowance` + `useBridgeApprove` before `useBridge`.
 4. **Source/destination chains + recipient format** — confirm both are supported spokes and the `recipient` matches the destination chain encoding.
 
 ## Integration workflow (new v2 code)

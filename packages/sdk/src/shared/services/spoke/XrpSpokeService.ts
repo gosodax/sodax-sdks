@@ -16,6 +16,8 @@ import { retry } from '../../utils/shared-utils.js';
 import type {
   DepositParams,
   EstimateGasParams,
+  GetBalanceParams,
+  GetBalancesParams,
   GetDepositParams,
   SendMessageParams,
   WaitForTxReceiptParams,
@@ -33,6 +35,7 @@ import {
 } from '../mpcRelay/MpcRelayApiService.js';
 import { computeSignedMessageHash } from './mpc-message.js';
 import { xrpCurrencyCode, xrpIdentityBytes } from './xrp-utils.js';
+import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 
 /** Per-request budget for a rippled call, mirroring the Tron service's own request cap. */
 const XRP_RPC_TIMEOUT_MS = 15_000;
@@ -344,6 +347,23 @@ export class XrpSpokeService {
     const line = lines.lines?.find(l => l.currency === currency && l.account === entry.address);
     if (!line) return 0n;
     return toBaseUnits(line.balance, entry.decimals);
+  }
+
+  /** The user's own wallet balance of `token`, in smallest units — the same read as {@link getDeposit}. */
+  public async getWalletBalance(params: GetBalanceParams<XrpChainKey>): Promise<bigint> {
+    return this.getDeposit({
+      srcChainKey: params.srcChainKey,
+      srcAddress: params.srcAddress,
+      token: params.token.address,
+    });
+  }
+
+  /** The user's own wallet balances of multiple tokens, keyed by `token.address`. */
+  public async getWalletBalances(params: GetBalancesParams<XrpChainKey>): Promise<WalletBalanceMap> {
+    const { srcChainKey, srcAddress, tokens } = params;
+    const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
+    await settleWalletBalances(collector, tokens, token => this.getWalletBalance({ srcChainKey, srcAddress, token }));
+    return collector.finish();
   }
 
   /**

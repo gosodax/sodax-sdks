@@ -1,0 +1,92 @@
+---
+title: "Money Market on HyperEVM"
+description: "Cross-network lending and borrowing from HyperEVM: supply, borrow, repay, and withdraw against collateral sourced on any SODAX network."
+icon: sack-dollar
+---
+
+Fragmented money markets mean lower capital efficiency and worse rates. The SODAX money market pools lending liquidity on the hub while letting users act from any supported network, including HyperEVM. A user can supply tokens from HyperEVM and borrow on another network, or borrow into their HyperEVM account against collateral held elsewhere, without your product running its own lending infrastructure.
+
+Four actions, all through `sodax.moneyMarket`: `supply`, `borrow`, `withdraw`, `repay`. Each has a complete one-call form (handles the relay end-to-end) and a `create*Intent` form when you want the transaction only.
+
+The assets that work in the money market from HyperEVM are a subset of the HyperEVM swap list. Read the list at runtime, as below, or see [Networks & Assets](/hyperevm/networks-and-assets). As with swaps, only HyperEVM balances can be supplied or used to repay; funds in HyperCore must be transferred to HyperEVM first.
+
+## Supply from HyperEVM
+
+Supplying an ERC-20 needs an allowance first, the same as any EVM network:
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// find() returns XToken | undefined, so narrow before using the address
+const hyperTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.HYPEREVM_MAINNET);
+const usdc = hyperTokens.find(t => t.symbol === 'USDC');
+if (!usdc) throw new Error('USDC is not a supported money-market token on HyperEVM');
+
+const params = {
+  srcChainKey: ChainKeys.HYPEREVM_MAINNET,
+  srcAddress: await walletProvider.getWalletAddress(),
+  token: usdc.address,
+  amount: 100n * 10n ** BigInt(usdc.decimals), // 100 USDC
+  action: 'supply',
+} as const;
+
+const allowance = await sodax.moneyMarket.isAllowanceValid({ params });
+if (!allowance.ok) throw allowance.error;
+if (!allowance.value) {
+  const approval = await sodax.moneyMarket.approve({ params, walletProvider });
+  if (!approval.ok) throw approval.error;
+  // wait for the approval to be mined before supplying
+}
+
+const result = await sodax.moneyMarket.supply({
+  params,
+  walletProvider, // IEvmWalletProvider, narrowed by srcChainKey
+  timeout: 120_000, // optional relay timeout (default 120 s)
+});
+```
+
+Native HYPE needs no approval when it is the supplied or repaid token.
+
+## Borrow to HyperEVM
+
+`dstChainKey` and `dstAddress` default to the source, but any supported network can be the destination. That is the cross-network story in one parameter: collateral supplied from one network, borrowed liquidity delivered to another.
+
+```typescript
+const bnUSD = hyperTokens.find(t => t.symbol === 'bnUSD');
+if (!bnUSD) throw new Error('bnUSD is not a supported money-market token on HyperEVM');
+
+const result = await sodax.moneyMarket.borrow({
+  params: {
+    srcChainKey: ChainKeys.HYPEREVM_MAINNET,  // where the caller acts from
+    srcAddress: userHyperEvmAddress,
+    token: bnUSD.address,                      // token on the destination network
+    amount: 50n * 10n ** BigInt(bnUSD.decimals), // 50 bnUSD
+    action: 'borrow',
+    dstChainKey: ChainKeys.HYPEREVM_MAINNET,   // deliver on HyperEVM
+    dstAddress: userHyperEvmAddress,
+  },
+  walletProvider,
+});
+```
+
+Borrowed and withdrawn funds land in the user's HyperEVM wallet. The HyperCore deposit hook is a swap feature; money market deliveries do not go to HyperCore.
+
+`withdraw` and `repay` follow the same shape. Withdraw and borrow need no approval on any network; repaying with an ERC-20 needs an allowance, like supply.
+
+## Building a lending UI
+
+`sodax.moneyMarket.data` exposes what you need for rates, positions, and health factors without extra indexing:
+
+- `getReservesHumanized()`: all reserves, human-readable.
+- `getUserReservesHumanized(spokeChainKey, userAddress)`: a user's positions.
+- `formatReservesUSD(request)` / `formatUserSummary(request)`: USD-converted reserves and portfolio summaries.
+
+## Error handling
+
+The module returns typed results. Discriminate on `result.error.code` (`'RELAY_TIMEOUT'`, `'EXECUTION_FAILED'`, …) with structured context on `result.error.context`.
+
+---
+
+Full reference, including intent-only methods, gas estimation, and the per-method error-code table: [Lend / Borrow (Money Market)](/developers/packages/foundation/sdk/functional-modules/money_market).

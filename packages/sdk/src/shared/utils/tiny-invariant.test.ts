@@ -1,5 +1,5 @@
 import { describe, it, expect, expectTypeOf, vi } from 'vitest';
-import { assertOk, invariant } from './tiny-invariant';
+import { assertOk, invariant } from './tiny-invariant.js';
 
 describe('tiny-invariant', () => {
   it('should correctly narrow a type (boolean)', _done => {

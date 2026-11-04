@@ -22,6 +22,7 @@ function stubStatuses(bodies: Record<string, unknown>[]) {
     'fetch',
     vi.fn(async () => {
       const body = bodies[Math.min(i++, bodies.length - 1)];
+      // Only `ok` and `text()` are read, so a partial stands in for the full fetch Response.
       return { ok: true, text: async () => JSON.stringify(body) } as unknown as Response;
     }),
   );

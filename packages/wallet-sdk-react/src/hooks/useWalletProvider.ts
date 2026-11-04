@@ -2,6 +2,7 @@ import type { ChainType, GetChainType, GetWalletProviderType, IWalletProvider, S
 import { assert } from '@/shared/guards.js';
 import { getXChainType } from '@/actions/index.js';
 import { useXWalletStore, type GetWalletProviderReturnType } from '@/useXWalletStore.js';
+import { shouldWarnChainDisabled } from './warnChainDisabled.js';
 
 export type UseWalletProviderOptions = {
   xChainId?: SpokeChainKey;
@@ -26,7 +27,7 @@ const warnedChains = new Set<ChainType>();
  * Hydrator whenever the underlying client changes (chain switch, wallet swap). For
  * non-provider chains, the provider is created as a side-effect of `setXConnection`.
  *
- * @see {@link https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PROVIDER_BRIDGE.md | Wallet Provider Bridge}
+ * @see {@link https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/WALLET_PROVIDER_BRIDGE.md | Wallet Provider Bridge}
  */
 export function useWalletProvider<S extends SpokeChainKey>(options: {
   xChainId: S;
@@ -45,8 +46,7 @@ export function useWalletProvider({
 
   return useXWalletStore(state => {
     if (!target) return undefined;
-    if (!state.enabledChains.includes(target) && !warnedChains.has(target)) {
-      warnedChains.add(target);
+    if (shouldWarnChainDisabled(target, state, warnedChains)) {
       console.warn(
         `[useWalletProvider] chain "${target}" is not enabled in SodaxWalletProvider config.chains — returning undefined`,
       );

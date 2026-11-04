@@ -23,6 +23,7 @@ For glossing terms during the interview. Apply **by tier** (see [`interview-guid
 | **Liquidity / LP** | "Put two coins into a shared pool so others can trade, and earn fees." | Concentrated-liquidity DEX. |
 | **Allowance / approval** | "A one-time permission so the app can move a specific token for you." | ERC-20 approve step. |
 | **Wallet** | "The app that holds your coins and signs actions (e.g. MetaMask)." | Per-chain provider in the SDK. |
+| **Embedded wallet / email login** | "A wallet created for you when you log in with your email — no app to install." | Privy-held; EVM only. See [`feature-catalog.md`](./feature-catalog.md#email-login--users-without-a-crypto-wallet). |
 | **Partner fee** | "The cut the app you built takes on each transaction." | See [`monetization.md`](./monetization.md). |
 | **Gas** | "The small network fee paid to process a transaction." | Paid in the chain's native coin; not a SODAX fee. |
 | **Token migration** | "Move an older ICON-era coin (ICX/BALN/bnUSD) into the new system." | Specific tokens only. |

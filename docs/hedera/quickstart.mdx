@@ -1,0 +1,139 @@
+---
+title: "Quickstart on Hedera"
+description: "Install the SDK, wire up a Hedera wallet provider, and execute your first cross-network swap from Hedera."
+icon: bolt
+---
+
+This page takes you from zero to a cross-network swap sourced from Hedera. No new contracts, no approval for native HBAR, one signed transaction for your user.
+
+<Note>
+  Building with an AI assistant? Add the [SODAX Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`) to Claude, Cursor, or any MCP-capable tool and it can pull live token lists, real quotes, and these docs while it writes your integration.
+</Note>
+
+## 1. Install
+
+```bash
+npm install @sodax/sdk @sodax/wallet-sdk-core
+# or: pnpm add / yarn add
+```
+
+## 2. Create a Hedera wallet provider
+
+Hedera is an EVM network to the SDK, so it uses the same `EvmWalletProvider` as every other EVM network, keyed by `ChainKeys.HEDERA_MAINNET`. The account behind it must have an ECDSA (secp256k1) key: ED25519 accounts cannot sign EVM transactions.
+
+<CodeGroup>
+  ```typescript Private key (scripts / bots)
+  import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+  import { ChainKeys } from '@sodax/sdk';
+
+  const walletProvider = new EvmWalletProvider({
+    privateKey: '0x…', // ECDSA private key of the Hedera account
+    chainId: ChainKeys.HEDERA_MAINNET,
+    rpcUrl: 'https://mainnet.hashio.io/api', // Hedera JSON-RPC relay
+  });
+  ```
+
+  ```typescript Browser extension (dApps)
+  import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+
+  // walletClient and publicClient are viem clients for Hedera mainnet,
+  // usually supplied by wagmi from the user's connected EVM wallet
+  const walletProvider = new EvmWalletProvider({
+    walletClient,
+    publicClient,
+  });
+  ```
+</CodeGroup>
+
+Building in React? [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) connects EVM wallets for you and hands back a ready-made provider via `useWalletProvider`. See [Wallets](/hedera/wallets).
+
+## 3. Look up supported tokens
+
+Token addresses and decimals come from the SDK config, so you never hard-code them. On Hedera this matters more than usual: HTS token addresses are the EVM form of a native token ID, and HBAR uses 8 decimals.
+
+```typescript
+import { Sodax, ChainKeys, type XToken } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// find() returns XToken | undefined, so narrow before using the address
+const bySymbol = (tokens: readonly XToken[], symbol: string) => {
+  const token = tokens.find(t => t.symbol === symbol);
+  if (!token) throw new Error(`${symbol} is not a supported swap token`);
+  return token;
+};
+
+const hbar = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.HEDERA_MAINNET), 'HBAR');
+const usdcBase = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.BASE_MAINNET), 'USDC');
+```
+
+## 4. Quote and swap
+
+`swap()` runs the full lifecycle: it creates the intent on Hedera, verifies the transaction landed, relays it to the hub, and notifies the solver to fill on the destination network.
+
+```typescript
+import type { SolverIntentQuoteRequest } from '@sodax/sdk';
+
+// 10 HBAR, built from the token's own decimals (8 for HBAR)
+const inputAmount = 10n * 10n ** BigInt(hbar.decimals);
+
+// Quote: 10 HBAR -> USDC on Base
+const quoteResult = await sodax.swaps.getQuote({
+  token_src: hbar.address,
+  token_dst: usdcBase.address,
+  token_src_blockchain_id: ChainKeys.HEDERA_MAINNET,
+  token_dst_blockchain_id: ChainKeys.BASE_MAINNET,
+  amount: inputAmount,
+  quote_type: 'exact_input',
+} satisfies SolverIntentQuoteRequest);
+
+if (!quoteResult.ok) throw new Error('Quote failed');
+const { quoted_amount } = quoteResult.value;
+
+// `deadline` is an absolute Unix timestamp; getSwapDeadline turns an offset into one
+const deadlineResult = await sodax.swaps.getSwapDeadline(300n); // 5 minutes from now
+if (!deadlineResult.ok) throw new Error('Deadline lookup failed');
+
+// Execute
+const swapResult = await sodax.swaps.swap({
+  params: {
+    inputToken: hbar.address,
+    outputToken: usdcBase.address,
+    inputAmount,
+    minOutputAmount: (quoted_amount * 99n) / 100n, // your slippage policy
+    deadline: deadlineResult.value,
+    allowPartialFill: false,
+    srcChainKey: ChainKeys.HEDERA_MAINNET,
+    dstChainKey: ChainKeys.BASE_MAINNET,
+    srcAddress: await walletProvider.getWalletAddress(),
+    dstAddress: '0x...', // recipient on Base
+    solver: '0x0000000000000000000000000000000000000000',
+    data: '0x',
+  },
+  walletProvider,
+  timeout: 120_000,
+});
+
+if (swapResult.ok) {
+  console.log('Submitted. Hub tx:', swapResult.value.intentDeliveryInfo.dstTxHash);
+} else {
+  console.error('Swap failed:', swapResult.error);
+}
+```
+
+`ok` means the intent was created, relayed to the hub, and the solver notified, **not** that it was
+filled. Poll `sodax.swaps.getStatus({ intent_tx_hash: intentDeliveryInfo.dstTxHash })` until the
+status is `SolverIntentStatusCode.SOLVED`, which is the only success signal. The
+[main quickstart](/quickstart) has the full polling loop, including why `NOT_FOUND` is not terminal.
+
+A few things to know on Hedera:
+
+- **HBAR needs no approval.** It is the native token. Swapping an HTS token (USDC, bnUSD, and the rest) needs an ERC-20 allowance first; see [Approvals](/hedera/swaps#approvals).
+- **Amounts follow `token.decimals`.** HBAR is 8 decimals in the SDK even though Hedera's EVM layer counts native value in 18. The SDK scales `msg.value` for you; never scale it yourself.
+- **Swapping into Hedera?** The recipient account must be able to receive the output token. See [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera).
+
+## Next steps
+
+- [Swaps on Hedera](/hedera/swaps): approvals, fees, receiving HTS tokens, manual orchestration.
+- [Money Market on Hedera](/hedera/money-market): supply and borrow with cross-network collateral.
+- Full API reference: [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps) in the SDK docs.

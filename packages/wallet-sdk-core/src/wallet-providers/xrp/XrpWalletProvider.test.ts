@@ -46,6 +46,7 @@ function stubRippled(overrides: Record<string, unknown> = {}) {
         ...overrides,
       };
 
+      // Only `ok` and `json()` are read, so a partial stands in for the full fetch Response.
       return { ok: true, json: async () => ({ result: responses[method] ?? {} }) } as unknown as Response;
     }),
   );
@@ -283,6 +284,7 @@ describe('XrpWalletProvider.waitForTransactionReceipt', () => {
             : attempt === 2
               ? { hash: TX_HASH, validated: false }
               : { hash: TX_HASH, validated: true };
+        // Only `ok` and `json()` are read, so a partial stands in for the full fetch Response.
         return { ok: true, json: async () => ({ result }) } as unknown as Response;
       }),
     );

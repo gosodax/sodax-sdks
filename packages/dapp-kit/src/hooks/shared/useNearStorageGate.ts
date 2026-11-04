@@ -3,9 +3,9 @@ import { resolveNearStorageGate } from '../../utils/nearStorageGate.js';
 import { useNearStorageCheck } from './useNearStorageCheck.js';
 import { useRegisterNearStorage } from './useRegisterNearStorage.js';
 
-interface UseNearStorageGateParams {
-  /** Destination chain the token is delivered on. */
-  dstChainKey: SpokeChainKey;
+export interface UseNearStorageGateParams {
+  /** Destination chain the token is delivered on; `undefined` (not chosen yet) leaves the gate inert. */
+  dstChainKey: SpokeChainKey | undefined;
   /** Destination token address the recipient must be registered for. */
   token: string | undefined;
   /** Recipient NEAR account id. */
@@ -14,7 +14,7 @@ interface UseNearStorageGateParams {
   walletProvider: GetWalletProviderType<SpokeChainKey> | undefined;
 }
 
-interface NearStorageGate {
+export interface NearStorageGate {
   /** Destination is NEAR. */
   isNear: boolean;
   /** Destination is NEAR and the recipient is not yet storage-registered for `token`. */
@@ -23,6 +23,10 @@ interface NearStorageGate {
   blocksAction: boolean;
   /** The registration-status query is actively fetching. */
   isChecking: boolean;
+  /** Destination is NEAR and the registration check failed, so whether the recipient can receive is unknown. */
+  checkFailed: boolean;
+  /** Re-run the registration check. */
+  retry: () => void;
   /** A `storage_deposit` tx is in flight. */
   isRegistering: boolean;
   /** Submit the `storage_deposit`; resolves to the SDK `Result` or `undefined` if inputs are missing. */
@@ -54,6 +58,8 @@ export function useNearStorageGate({
     needsRegistration,
     blocksAction,
     isChecking: storageCheck.isLoading,
+    checkFailed: isNear && storageCheck.isError && storageCheck.data === undefined,
+    retry: () => void storageCheck.refetch(),
     isRegistering,
     registerStorage,
   };

@@ -40,6 +40,9 @@ DO / DO NOT / workflow / stop conditions for AI agents writing v2 dapp-kit code.
 - **DO NOT** destructure cross-chain mutation results as arrays — `[a, b] = result.value` is wrong. The shape is `TxHashPair = { srcChainTxHash, dstChainTxHash }` (object). This applies to `useBridge`, `useStake`/`useUnstake`/etc., `useDexDeposit`/`useDexWithdraw`, all four MM mutations, and all four migration mutations.
 - **DO NOT** use legacy chain-id constants (`BSC_MAINNET_CHAIN_ID`, etc.). They're gone in v2 — use `ChainKeys.X_MAINNET`.
 - **DO NOT** reach for `as any` / `as IEvmWalletProvider` casts when wiring `useWalletProvider({ xChainId })` into mutation `mutate(vars)`. v2 supports the broad-union case structurally; the cast is not needed. See `recipes/wallet-connectivity.md` § "No type cast is needed".
+- **DO NOT** send a zero or hand-picked minimum output (`minOutputAmount: 0n` or a literal). Derive it from a live quote for that exact input minus a slippage tolerance in basis points, show both to the user before they sign, and disable the action while there is no quote. The SDK does not reject a zero minimum (swaps and bridge only enforce the 546-sat dust floor on a BTC payout); a zero minimum accepts any fill.
+- **DO NOT** add a `partnerFee` the integrator did not ask for. It is optional; omit it by default, and never copy a fee receiver address from a SODAX demo, doc, or example.
+- **DO NOT** pass `skipSimulation: true` in user-facing flows. The simulation replays the hub-side execution and catches an intent that would revert there before the user signs it.
 
 ## Stop conditions (defer to user)
 
