@@ -243,8 +243,9 @@ means the batch may still land, so never let the user sign that swap again — r
 `confirmApprovalBatch` instead. A wallet that cannot batch (the Sonic hub never does), or refuses the batch
 before signing, rejects with an `isAtomicBatchRefusal` error and nothing sent: approve with
 `useSwapsApiApproveAndBroadcast`, create the intent again — a fresh deadline — and sign that. Pass
-`fallbackOnRefusal: true` to have the hook approve and then send the `intentTx` it was given; that intent was
-built before the approval, so its deadline has to outlast the approval's wait.
+`fallbackOnRefusal: true` to have the hook approve, re-check the API's allowance for up to about 15 seconds like
+the approve hooks, and then send the `intentTx` it was given; that intent was built before the approval, so its
+deadline has to outlast the approval and that wait.
 
 All three, and `useSwapsApiBroadcastWithApproval` for its separate approval, accept an optional **`onProgress`** in their mutation vars. It reports each transaction as
 `{ step, phase, index, total, hash?, error? }` — `step` is `'allowance-reset'` or `'approve'`, `phase`
