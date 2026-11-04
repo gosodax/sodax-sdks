@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { PayoutMinimumNotice } from '@/components/shared/PayoutMinimumNotice';
 import {
   ACCOUNT_UPGRADE_DECLINED,
   isSodaxError,
@@ -23,6 +24,7 @@ import {
   type GetWalletProviderType,
   type IBitcoinWalletProvider,
   type CreateBridgeIntentParams,
+  getUnmetMpcPayoutMinimum,
 } from '@sodax/dapp-kit';
 import { useEvmSwitchChain, useWalletProvider, useXAccount } from '@sodax/wallet-sdk-react';
 import { BitcoinSetupPanel } from '@/components/bitcoin/BitcoinSetupPanel';
@@ -121,6 +123,11 @@ export function BridgeDialog({
     accountId: toAccount.address,
     walletProvider: toWalletProvider,
   });
+
+  const unmetPayoutMinimum =
+    toToken && order.amount
+      ? getUnmetMpcPayoutMinimum({ token: toToken, amount: order.amount, amountDecimals: fromToken?.decimals })
+      : undefined;
 
   const toBtcAddress = toChainKey === ChainKeys.BITCOIN_MAINNET ? toAccount.address : undefined;
   const { data: toBtcBalance } = useBitcoinBalance({ params: { address: toBtcAddress } });
@@ -306,6 +313,8 @@ export function BridgeDialog({
           </div>
         )}
 
+        {unmetPayoutMinimum && <PayoutMinimumNotice unmet={unmetPayoutMinimum} chainKey={toChainKey} />}
+
         <DialogFooter className="flex flex-col gap-2 sm:flex-col">
           {stellar.isStellar && stellar.isChecking && <span className="text-sm">Checking Stellar account…</span>}
 
@@ -360,7 +369,11 @@ export function BridgeDialog({
           )}
 
           {!isWrongChain && (
-            <Button className="w-full" onClick={() => void handleBridge()} disabled={isBridgeDisabled}>
+            <Button
+              className="w-full"
+              onClick={() => void handleBridge()}
+              disabled={isBridgeDisabled || unmetPayoutMinimum !== undefined}
+            >
               {isBridging ? (
                 'Bridging…'
               ) : (

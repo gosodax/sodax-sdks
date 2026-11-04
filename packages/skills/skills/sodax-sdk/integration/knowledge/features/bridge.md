@@ -25,7 +25,8 @@ sodax.bridge.buildApproveTxs<K>(action: BridgeParams<K, true>): Promise<Result<A
 sodax.bridge.isAllowanceValid<K, Raw>(args): Promise<Result<boolean, SodaxError>>;
 
 // Routes from the source tx to whichever source can answer — the backend record while it is in
-// play, else the delivered relay packet. Covers a bridge the client-side fallback completed.
+// play, else the delivered relay packet (an MPC-relay source: its deposit record). Covers a bridge
+// the client-side fallback completed.
 sodax.bridge.getDetailedStatus({ srcChainKey, srcTxHash }, config?): Promise<Result<DetailedBridgeStatus, SodaxError>>;
 
 sodax.bridge.getBridgeableAmount(from: XToken, to: XToken): Promise<Result<BridgeLimit, SodaxError>>;

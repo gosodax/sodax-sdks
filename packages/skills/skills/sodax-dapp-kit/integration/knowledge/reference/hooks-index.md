@@ -52,7 +52,7 @@ Comprehensive hook table across 12 feature domains. Use this when you know the f
 | Hook | Type | Purpose |
 |---|---|---|
 | `useBridge` | Mutation | Execute a cross-chain bridge transfer |
-| `useBridgeDetailedStatus` | Query | Track a bridge from its source tx (`{ srcChainKey, srcTxHash, apiConfig? }`; polls 3s; Result-wrapped; stops on the answering source's terminal state, on a rejected API key, and after 40 consecutive ambiguous reads — a relay with no packet for the tx; outages keep polling). Returns a tagged union — backend submit-tx record or delivered relay packet — narrow on `source`. Unlike `useBridgeApiSubmitTxStatus`, answers for both `bridge()` completion paths |
+| `useBridgeDetailedStatus` | Query | Track a bridge from its source tx (`{ srcChainKey, srcTxHash, apiConfig? }`; polls 3s; Result-wrapped; stops on the answering source's terminal state, on a rejected API key, and after 40 consecutive ambiguous reads — a relay with no packet for the tx; outages keep polling). Returns a tagged union — backend submit-tx record, delivered relay packet, or an MPC-relay source's deposit record — narrow on `source`. Unlike `useBridgeApiSubmitTxStatus`, answers for both `bridge()` completion paths |
 | `useBridgeAllowance` | Query | Approval check |
 | `useBridgeApprove` | Mutation | Approve tokens for bridge |
 | `useBridgeWithApproval` | Mutation | Bridge with the approval folded in — one EIP-5792 signature when the wallet can; `TxHashPair` + `approvalStrategy` |

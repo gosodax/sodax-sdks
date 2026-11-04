@@ -6,7 +6,7 @@ import {
   Erc4626Service,
   EvmVaultTokenService,
   encodeContractCalls,
-  encodeAddress,
+  encodeRecipient,
   poolAbi,
   SonicSpokeService,
   isSonicChainKeyType,
@@ -20,7 +20,6 @@ import {
   type SpokeIsAllowanceValidParamsHub,
   type SpokeIsAllowanceValidParamsStellar,
   isBitcoinChainKeyType,
-  isBitcoinWalletProviderType,
   isPartnerFeeAmount,
   isPartnerFeePercentage,
   isUndefinedOrValidWalletProviderForChainKey,
@@ -29,6 +28,7 @@ import {
   retry,
   type RelayExtraData,
   type IntentDeliveryInfo,
+  assertMpcPayoutAboveMinimum,
 } from '../shared/index.js';
 import type { HubProvider, TxHashPair } from '../shared/types/types.js';
 import {
@@ -36,9 +36,11 @@ import {
   FEE_PERCENTAGE_SCALE,
   getIntentRelayChainId,
   HUB_CHAIN_KEY,
-  isBitcoinChainKey,
+  isMpcRelayChainKey,
   SolverIntentErrorCode,
   SolverIntentStatusCode,
+  type DepositReturnType,
+  type SendMessageReturnType,
 } from '@sodax/types';
 import type {
   Address,
@@ -80,7 +82,7 @@ import {
   DETAILED_STATUS_NOT_DELIVERED,
   isBackendSubmitTxAbandoned,
   readIntentJournalOutcome,
-  resolveDeliveredPacket,
+  resolveDeliveredHubTxHash,
 } from '../backendApi/detailedStatusRouting.js';
 import { isAuthFailure, isSodaxError } from '../errors/guards.js';
 import type { DetailedLeverageYieldStatus, DetailedLeverageYieldStatusKey } from './detailedStatus.js';
@@ -327,11 +329,22 @@ export type PositionOperationParams<K extends SpokeChainKey, C extends EvmRawTra
 /**
  * Why positions refuse a Bitcoin source. Every other spoke resolves its own address, but Bitcoin in
  * TRADING mode pulls from the Bound trading wallet, so the hub wallet must be derived from
- * `getEffectiveWalletAddress` and gated on `ensureRadfiAccessToken` — as `createVaultIntent` does.
- * The position paths do neither, so a deposit would fund a hub wallet the batch does not name.
+ * `getEffectiveWalletAddress` and gated on `ensureRadfiAccessToken`. The position paths do neither,
+ * so a deposit would fund a hub wallet the batch does not name. Vault swaps refuse Bitcoin as well.
  */
 const BITCOIN_UNSUPPORTED_MESSAGE =
   'Bitcoin is not a supported source chain for leverage positions; use a supported spoke or the hub';
+
+/** Vault swaps do not support Bitcoin yet, as a source or a destination. */
+const VAULT_BITCOIN_UNSUPPORTED_MESSAGE =
+  'Bitcoin is not a supported chain for leverage-yield vault swaps; use a supported spoke or the hub';
+
+/**
+ * The SDK confirms a hub-wallet message from an MPC-relay source (Tron) only by the release back to it,
+ * and a vault withdraw or position operation releases nothing. With no way out, the way in is refused too.
+ */
+const MPC_RELAY_UNSUPPORTED_MESSAGE =
+  'MPC-relay source chains are not supported for leverage yield yet; use a supported spoke or the hub';
 
 /** Sentinel `solver` address meaning "any solver may fill this intent". */
 const ANY_SOLVER_ADDRESS: Address = '0x0000000000000000000000000000000000000000';
@@ -901,6 +914,14 @@ export class LeverageYieldService {
   ): Promise<Result<LeverageYieldSwapPayload, LeverageYieldCreateIntentError | LeverageYieldLookupError>> {
     const baseCtx = { srcChainKey: params.srcChainKey, action: 'deposit' satisfies LeverageYieldAction };
     try {
+      leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
       leverageYieldInvariant(params.inputAmount > 0n, 'inputAmount must be greater than 0', {
         ...baseCtx,
         field: 'inputAmount',
@@ -966,6 +987,19 @@ export class LeverageYieldService {
   ): Promise<Result<LeverageYieldSwapPayload, LeverageYieldCreateIntentError | LeverageYieldLookupError>> {
     const baseCtx = { srcChainKey: params.srcChainKey, action: 'withdraw' satisfies LeverageYieldAction };
     try {
+      leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isBitcoinChainKeyType(params.dstChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        dstChainKey: params.dstChainKey,
+        field: 'dstChainKey',
+      });
       leverageYieldInvariant(params.inputAmount > 0n, 'inputAmount must be greater than 0', {
         ...baseCtx,
         field: 'inputAmount',
@@ -1042,6 +1076,18 @@ export class LeverageYieldService {
     const baseCtx = { srcChainKey: params.srcChainKey, dstChainKey: params.dstChainKey };
 
     try {
+      leverageYieldInvariant(!isBitcoinChainKeyType(params.srcChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+      leverageYieldInvariant(!isBitcoinChainKeyType(params.dstChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'dstChainKey',
+      });
       leverageYieldInvariant(
         isUndefinedOrValidWalletProviderForChainKey(params.srcChainKey, _params.walletProvider),
         `Invalid wallet provider for chain key: ${params.srcChainKey}`,
@@ -1071,32 +1117,20 @@ export class LeverageYieldService {
         `Invalid spoke chain (params.dstChain): ${params.dstChainKey}`,
         { ...baseCtx, field: 'dstChainKey' },
       );
-      // A withdraw can deliver BTC: if dstChain is Bitcoin and token is BTC, minOutputAmount
-      // must stay above the 546-sat dust limit.
-      if (isBitcoinChainKey(params.dstChainKey) && params.outputToken === 'BTC') {
-        leverageYieldInvariant(
-          params.minOutputAmount >= 546n,
-          `Invalid minOutputAmount (params.minOutputAmount): ${params.minOutputAmount}`,
-          { ...baseCtx, field: 'minOutputAmount' },
-        );
+      const outputTokenInfo = this.config.getSpokeTokenFromOriginalAssetAddress(params.dstChainKey, params.outputToken);
+      if (outputTokenInfo) {
+        assertMpcPayoutAboveMinimum({
+          feature: 'leverageYield',
+          token: outputTokenInfo,
+          amount: params.minOutputAmount,
+          context: { ...baseCtx, field: 'minOutputAmount' },
+        });
       }
-      const personalAddress = params.srcAddress;
-
-      // Bitcoin TRADING mode: use trading wallet for hub wallet derivation (see getEffectiveWalletAddress)
-      // NOTE: bitcoin is only enabled in non-raw execution mode == walletProvider is required
-      let walletAddress: string = personalAddress;
-      if (isBitcoinChainKeyType(params.srcChainKey) && _params.raw === false) {
-        leverageYieldInvariant(
-          isBitcoinWalletProviderType(_params.walletProvider),
-          `Invalid wallet provider for chain key: ${params.srcChainKey}`,
-          baseCtx,
-        );
-        walletAddress = await this.spoke.bitcoin.getEffectiveWalletAddress(personalAddress);
-        await this.spoke.bitcoin.radfi.ensureRadfiAccessToken(_params.walletProvider);
-      }
-
       // derive users hub wallet address
-      const creatorHubWalletAddress = await this.hubProvider.getUserHubWalletAddress(walletAddress, params.srcChainKey);
+      const creatorHubWalletAddress = await this.hubProvider.getUserHubWalletAddress(
+        params.srcAddress,
+        params.srcChainKey,
+      );
 
       // Hub-wallet swap (withdraw): the lsoda* input already sits in the user's hub wallet.
       // The user signs a `Connection.sendMessage` on their spoke chain (`srcChainKey`)
@@ -1113,12 +1147,7 @@ export class LeverageYieldService {
 
         const coreSendMessageParams = {
           srcChainKey: params.srcChainKey,
-          // Personal address — NOT the resolved trading `walletAddress`. SpokeService.sendMessage
-          // re-resolves the effective (Bitcoin trading) address itself; passing the already-resolved
-          // trading address here would double-resolve it (getTradingWallet(tradingAddress) →
-          // "Trading wallet not found"). The trading address is used only for the hub-wallet
-          // derivation above (creatorHubWalletAddress). Mirrors MoneyMarketService borrow/withdraw.
-          srcAddress: personalAddress as GetAddressType<K>,
+          srcAddress: params.srcAddress as GetAddressType<K>,
           dstChainKey: hubChainKey,
           dstAddress: creatorHubWalletAddress,
           payload: data,
@@ -1145,7 +1174,7 @@ export class LeverageYieldService {
         return {
           ok: true,
           value: {
-            tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+            tx: txResult.value satisfies SendMessageReturnType<K, Raw> as TxReturnType<K, Raw>,
             intent: { ...intent, feeAmount } as Intent & FeeAmount,
             relayData: { address: creatorHubWalletAddress, payload: data },
           },
@@ -1184,10 +1213,7 @@ export class LeverageYieldService {
 
       // construct the intent data
       const [data, intent, feeAmount] = EvmSolverService.constructCreateIntentData(
-        {
-          ...params,
-          srcAddress: walletAddress,
-        },
+        params,
         creatorHubWalletAddress,
         this.config,
         partnerFee,
@@ -1195,7 +1221,7 @@ export class LeverageYieldService {
 
       const coreDepositParams = {
         srcChainKey: params.srcChainKey,
-        srcAddress: walletAddress as GetAddressType<K>,
+        srcAddress: params.srcAddress as GetAddressType<K>,
         to: creatorHubWalletAddress,
         token: params.inputToken as GetTokenAddressType<K>,
         amount: params.inputAmount,
@@ -1229,7 +1255,7 @@ export class LeverageYieldService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies DepositReturnType<K, Raw> as TxReturnType<K, Raw>,
           intent: { ...intent, feeAmount } as Intent & FeeAmount,
           relayData: { address: intent.creator, payload: data },
         },
@@ -2211,8 +2237,8 @@ export class LeverageYieldService {
 
   /**
    * The hub-chain tx hash the solver is keyed on. A hub-source vault swap has no relay leg — the
-   * source tx *is* the hub tx. Otherwise the delivered relay packet carries it, so an undelivered
-   * packet is simply "no hash yet".
+   * source tx *is* the hub tx. Otherwise the delivered relay packet — or, for an MPC-relay chain,
+   * the minted deposit record — carries it, so an undelivered one is simply "no hash yet".
    */
   private async resolveHubTxHash(
     key: DetailedLeverageYieldStatusKey,
@@ -2221,11 +2247,12 @@ export class LeverageYieldService {
     let hubTxHash: string = key.srcTxHash;
 
     if (!isHubChainKeyType(key.srcChainKey)) {
-      const delivered = await resolveDeliveredPacket({
+      const delivered = await resolveDeliveredHubTxHash({
         srcChainKey: key.srcChainKey,
         srcTxHash: key.srcTxHash,
         relayerApiEndpoint: this.config.relay.relayerApiEndpoint,
         backendAnswered,
+        spoke: this.spoke,
       });
       if (!delivered.ok) {
         return {
@@ -2235,7 +2262,7 @@ export class LeverageYieldService {
           }),
         };
       }
-      hubTxHash = delivered.packet.dst_tx_hash;
+      hubTxHash = delivered.hubTxHash;
     }
 
     // Validate rather than cast — this hash reaches the solver next.
@@ -2954,8 +2981,9 @@ export class LeverageYieldService {
         // The chain's own encoding, not a 0x-prefixed string. `originAddress` is `bytes` on-chain and
         // is handed to the AssetManager as the refund destination, so a Solana or Stellar address has
         // to arrive in the form that chain's spoke expects — prefixing `0x` would produce a refund
-        // address that is merely well-formed hex. EVM addresses pass through unchanged.
-        address: encodeAddress(origin.chainKey, origin.address),
+        // address that is merely well-formed hex. EVM addresses pass through unchanged; an MPC-relay
+        // origin gets the padded recipient word its release decodes.
+        address: encodeRecipient(origin.chainKey, origin.address),
         // Named on the hub as well, not just off it. The asset decides what a cancellation pays back,
         // and zeroing it here is why someone who funded with USSD was refunded `sodaUSSD`. Callers pass
         // the asset only when a wrap actually happened — when the reserve IS what was deposited there is
@@ -3788,6 +3816,10 @@ export class LeverageYieldService {
         ...baseCtx,
         field: 'srcChainKey',
       });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
       leverageYieldInvariant(params.amount > 0n, 'amount must be greater than 0', { ...baseCtx, field: 'amount' });
       leverageYieldInvariant(params.minCollateralOut > 0n, 'minCollateralOut must be greater than 0', {
         ...baseCtx,
@@ -3806,7 +3838,7 @@ export class LeverageYieldService {
       const data = await buildData(hubWallet, params);
       if (!data.ok) return data;
 
-      const txResult = await this.spoke.deposit({
+      const txResult = await this.spoke.deposit<K, false>({
         srcChainKey: params.srcChainKey,
         srcAddress: params.srcAddress as GetAddressType<K>,
         to: hubWallet,
@@ -4050,6 +4082,10 @@ export class LeverageYieldService {
         ...baseCtx,
         field: 'srcChainKey',
       });
+      leverageYieldInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
       leverageYieldInvariant(params.calls.length > 0, 'at least one call is required', {
         ...baseCtx,
         field: 'calls',
@@ -4063,7 +4099,7 @@ export class LeverageYieldService {
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
       const payload = this.encodePositionCalls(params.calls);
 
-      const txResult = await this.spoke.sendMessage({
+      const txResult = await this.spoke.sendMessage<K, false>({
         srcChainKey: params.srcChainKey,
         srcAddress: params.srcAddress as GetAddressType<K>,
         dstChainKey: HUB_CHAIN_KEY,
@@ -4093,7 +4129,7 @@ export class LeverageYieldService {
    * is nothing to relay, and both hashes are the same transaction.
    */
   private async settleHubWalletMessage<K extends SpokeChainKey>(
-    srcTxHash: TxReturnType<K, false>,
+    srcTxHash: string,
     relayData: RelayExtraData,
     baseCtx: { srcChainKey: K; action: LeverageYieldAction },
     opts: { timeout: number },

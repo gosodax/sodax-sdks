@@ -18,5 +18,6 @@ One file per chain family. Each file documents:
 | [Injective](./injective.md)| `InjectiveWalletProvider` | Field presence (uses `secret` wrapper) | `@injectivelabs/sdk-ts`, `@injectivelabs/wallet-core` |
 | [NEAR](./near.md)         | `NearWalletProvider`      | Field presence | `near-api-js` + `@hot-labs/near-connect` |
 | [Stacks](./stacks.md)     | `StacksWalletProvider`    | Field presence | `@stacks/transactions`, `@stacks/connect` |
+| [Tron](./tron.md)         | `TronWalletProvider`      | Field presence | none (`viem` signs) |
 
 For the mental model behind these tables — why discriminants differ, how `defaults` merges, what `library-exports` re-exports — see [`../architecture.md`](../architecture.md).

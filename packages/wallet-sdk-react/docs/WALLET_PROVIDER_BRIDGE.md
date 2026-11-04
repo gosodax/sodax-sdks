@@ -156,7 +156,7 @@ wagmi connection observed  →  EvmHydrator constructs EvmWalletProvider({ walle
 
 `useWalletProvider({ xChainType: 'EVM' })` reads that slot — no chain-specific switch case in user code.
 
-### Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks)
+### Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks, Tron)
 
 The provider is created as a side-effect of `setXConnection()` inside the store. When `useXConnect` resolves a successful connection, the store's setter constructs the chain-specific provider (`BitcoinWalletProvider`, `IconWalletProvider`, …) and writes it to `walletProviders`.
 

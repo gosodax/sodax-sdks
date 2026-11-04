@@ -50,7 +50,7 @@ type UseLeverageYieldDepositVars = LeverageYieldSwapDepositParams;
 //   { vault: Address; srcChainKey; srcAddress; inputToken; inputAmount: bigint;
 //     minOutputAmount: bigint; deadline?: bigint; solver?: Address; partnerFee? }
 
-// withdraw — lsoda* shares → any token on any chain (hub-wallet sourced)
+// withdraw — lsoda* shares → any token on any chain but Bitcoin (hub-wallet sourced)
 type UseLeverageYieldWithdrawVars = LeverageYieldSwapWithdrawParams;
 //   { vault: Address; srcChainKey; srcAddress; dstChainKey; outputToken;
 //     inputAmount: bigint; minOutputAmount: bigint; recipient?; deadline?; solver? }

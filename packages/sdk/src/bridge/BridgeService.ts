@@ -7,6 +7,7 @@ import {
   EvmVaultTokenService,
   EvmAssetManagerService,
   encodeContractCalls,
+  assertMpcPayoutAboveMinimum,
   calculateFeeAmount,
   isNativeBitcoinTransfer,
   encodeRecipient,
@@ -35,6 +36,8 @@ import {
   DETAILED_STATUS_NOT_DELIVERED,
   isBackendSubmitTxAbandoned,
   resolveDeliveredPacket,
+  resolveMintedMpcDeposit,
+  resolvePaidHubRelease,
 } from '../backendApi/detailedStatusRouting.js';
 import { isAuthFailure, isSodaxError } from '../errors/guards.js';
 import type { DetailedBridgeStatus, DetailedBridgeStatusKey } from './detailedStatus.js';
@@ -65,6 +68,7 @@ import {
   type VaultReserves,
   type StellarChainKey,
   isHubChainKey,
+  isMpcRelayChainKey,
   type GetWalletProviderType,
   type EvmSpokeOnlyChainKey,
   type GetTokenAddressType,
@@ -73,6 +77,7 @@ import {
   type EvmRawTransaction,
   DEFAULT_RELAY_TX_TIMEOUT,
   BITCOIN_DUST_SATS,
+  type DepositReturnType,
 } from '@sodax/types';
 import { encodeFunctionData } from 'viem';
 import type { ConfigService } from '../shared/config/ConfigService.js';
@@ -733,7 +738,8 @@ export class BridgeService {
 
   /**
    * Finishes a batch an earlier call left {@link ATOMIC_BATCH_UNCONFIRMED}, without sending anything to
-   * the wallet: waits for it again, then relays its deposit client-side and waits for the settlement packet.
+   * the wallet: waits for it again, then relays its deposit client-side and waits for the settlement packet,
+   * and for a payout to an MPC-relay chain (Tron), notifies its release and waits for the payout.
    */
   private async resumeAtomicBatch<K extends SpokeChainKey>(
     _params: BridgeWithApprovalParams<K>,
@@ -768,18 +774,31 @@ export class BridgeService {
     const txCtx = { ...ctx, srcTxHash };
 
     // An EVM spoke tx is relayed by its hash alone, so the lost `relayData` is not needed.
+    const relayTimeout = Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS);
     const packet = await relayTxAndWaitPacket({
       srcTxHash,
       chainKey: srcChainKey,
       relayerApiEndpoint: this.config.relay.relayerApiEndpoint,
-      timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
+      timeout: relayTimeout,
     });
     if (!packet.ok) return { ok: false, error: mapRelayFailure(packet.error, { feature: 'bridge', ...txCtx }) };
 
-    return {
-      ok: true,
-      value: { srcChainTxHash: srcTxHash, dstChainTxHash: packet.value.dst_tx_hash, approvalStrategy: 'atomic-batch' },
-    };
+    // The intent relay stops at the hub; an MPC-relay chain pays out only once the hub tx is notified.
+    let dstChainTxHash = packet.value.dst_tx_hash;
+    if (isMpcRelayChainKey(params.dstChainKey)) {
+      const released = await this.spoke.settleHubRelease(dstChainTxHash, params.dstChainKey, relayTimeout);
+      if (!released.ok) {
+        const { phase, cause } = released.error;
+        const error =
+          phase === 'verification'
+            ? verifyFailed('bridge', cause, txCtx)
+            : mapRelayFailure(cause, { feature: 'bridge', ...txCtx });
+        return { ok: false, error };
+      }
+      dstChainTxHash = released.value.dstChainTxHash;
+    }
+
+    return { ok: true, value: { srcChainTxHash: srcTxHash, dstChainTxHash, approvalStrategy: 'atomic-batch' } };
   }
 
   /** Approve, wait for the approval to confirm, then send the deposit — two or more signatures. */
@@ -835,7 +854,9 @@ export class BridgeService {
     // Backend submit-tx flow (default on): hand the broadcast spoke-deposit tx to the bridge API, which
     // relays server-side. On ANY non-success we fall back to the client-side relay so the bridge
     // still completes — safe because re-relay is idempotent.
-    if (this.useBackendSubmitTx) {
+    // The backend only relays through the intent relay, so a bridge to or from an MPC-relay chain settles client-side.
+    const { srcChainKey, dstChainKey } = _params.params;
+    if (this.useBackendSubmitTx && !isMpcRelayChainKey(srcChainKey) && !isMpcRelayChainKey(dstChainKey)) {
       const submitted = await this.submitTx(_params, created, createSubmitTxAttempt(timeoutMs));
       if (submitted.ok) return submitted;
       this.config.logger.warn('[bridge] backend submit-tx did not complete; falling back to the client-side relay', {
@@ -875,6 +896,7 @@ export class BridgeService {
       tx: created.tx,
       direction: 'inbound',
       relayData: created.relayData,
+      dstChainKey: params.dstChainKey,
       // The caller's full `timeout`, starting HERE — after verification, and whether this runs as the only
       // path or as the backend's fallback. Neither a stalled backend attempt nor a slow source-chain
       // confirmation (Stacks polls for up to its full 120s `maxTimeoutMs`) may shorten the relay wait.
@@ -981,7 +1003,7 @@ export class BridgeService {
    */
   async createBridgeIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: BridgeParams<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>, BridgeCreateIntentError>> {
+  ): Promise<Result<IntentTxResult<K, Raw, 'deposit'>, BridgeCreateIntentError>> {
     const { params, skipSimulation, extras } = _params;
     // Per-action `extras.partnerFee` wins over the config-level `bridgePartnerFee` (undefined = no fee).
     // Resolved once so the dust guard below and `buildBridgeData` price the same fee.
@@ -1042,6 +1064,16 @@ export class BridgeService {
           `Post-fee BTC delivery (${delivered}) is below the Bitcoin dust limit of ${BITCOIN_DUST_SATS} sats`,
           { ...baseCtx, field: 'amount' },
         );
+      }
+      if (isMpcRelayChainKey(params.dstChainKey)) {
+        // Like the dust guard, the floor applies to what arrives after the partner fee.
+        const { delivered } = this.computeBridgeAmounts(params.amount, srcToken, dstToken, partnerFee);
+        assertMpcPayoutAboveMinimum({
+          feature: 'bridge',
+          token: dstToken,
+          amount: delivered,
+          context: { ...baseCtx, field: 'amount' },
+        });
       }
 
       // Stacks addresses can't yield the signer public key at raw-tx build time, so a raw Stacks
@@ -1117,7 +1149,7 @@ export class BridgeService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies DepositReturnType<K, Raw> as DepositReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };
@@ -1278,6 +1310,8 @@ export class BridgeService {
    *
    * 1. Read the backend record; return it while it is still in play.
    * 2. Otherwise return the delivered relay packet, which is terminal by construction.
+   * 3. A bridge paying out on an MPC-relay chain has no packet for that leg, so it answers from the
+   *    relay's release record instead, once the payout tx is recorded.
    *
    * A rejected API key is the one failure that does **not** fall through to step 2: the status route
    * is key-guarded, so degrading would bury a 401/403 behind a relay error and leave a poller
@@ -1324,12 +1358,55 @@ export class BridgeService {
       // cannot tell a bridge that will never resolve from a live one whose record we could not read.
       const backendAnswered = record.ok || (isSodaxError(record.error) && record.error.context?.status === 404);
 
+      const minted = await resolveMintedMpcDeposit({
+        srcChainKey: params.srcChainKey,
+        srcTxHash: params.srcTxHash,
+        backendAnswered,
+        spoke: this.spoke,
+      });
+      if (minted) {
+        if (!minted.ok) {
+          return {
+            ok: false,
+            error: this.detailedStatusLookupFailed(minted.cause, params.srcChainKey, {
+              reason: minted.budgetable ? DETAILED_STATUS_NOT_DELIVERED : undefined,
+            }),
+          };
+        }
+        return { ok: true, value: { source: 'mpcRelay', data: minted.deposit } };
+      }
+
       const delivered = await resolveDeliveredPacket({
         srcChainKey: params.srcChainKey,
         srcTxHash: params.srcTxHash,
         relayerApiEndpoint: this.config.relay.relayerApiEndpoint,
         backendAnswered,
       });
+
+      // A hub source's packet is the final answer, so only its miss can mean an MPC-relay payout. A
+      // spoke source's packet stops at the hub, whose tx may still have that payout ahead of it.
+      const isHubSource = isHubChainKeyType(params.srcChainKey);
+      const hubTxHash = delivered.ok
+        ? isHubSource
+          ? undefined
+          : delivered.packet.dst_tx_hash
+        : isHubSource
+          ? params.srcTxHash
+          : undefined;
+      const release = hubTxHash
+        ? await resolvePaidHubRelease({ hubTxHash, backendAnswered, spoke: this.spoke })
+        : undefined;
+      if (release?.ok) return { ok: true, value: { source: 'mpcRelay', data: release.release } };
+      // An unreadable hub-source receipt leaves the packet miss as the better answer.
+      if (release && (delivered.ok || release.budgetable)) {
+        return {
+          ok: false,
+          error: this.detailedStatusLookupFailed(release.cause, params.srcChainKey, {
+            reason: release.budgetable ? DETAILED_STATUS_NOT_DELIVERED : undefined,
+          }),
+        };
+      }
+
       if (!delivered.ok) {
         return {
           ok: false,

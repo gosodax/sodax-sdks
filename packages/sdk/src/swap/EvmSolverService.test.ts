@@ -55,6 +55,7 @@ import { EvmSolverService } from './EvmSolverService.js';
 import { HookService } from './HookService.js';
 import { IntentDataService } from './IntentDataService.js';
 import { Sodax } from '../index.js';
+import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
 
 // --- fixtures -------------------------------------------------------------
 
@@ -237,6 +238,22 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     expect(intent.dstAddress).toBe(encodeRecipient(chainKey, address));
     expect(intent.dstAddress).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
     expect(intent.srcAddress).toBe(SRC_USER);
+  });
+
+  it('encodes a Tron srcAddress as the recipient word, since a cancel refunds to it', () => {
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(hubOutputXToken);
+
+    const [, intent] = EvmSolverService.constructCreateIntentData(
+      { ...baseParams(), srcChainKey: ChainKeys.TRON_MAINNET, srcAddress: TRON_TEST_ADDRESS },
+      HUB_WALLET,
+      mockConfig,
+      undefined,
+    );
+
+    expect(intent.srcAddress).toBe(encodeRecipient(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS));
+    expect(intent.srcAddress).not.toBe(encodeAddress(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS));
   });
 
   it('treats the input token as already-on-hub when srcChainKey is the hub chain (skips lookup)', () => {

@@ -6,7 +6,7 @@ Chains supported by `@sodax/wallet-sdk-react` v2 — their `ChainType` family an
 
 ## Chain families (`ChainType`)
 
-9 chain families. Each is a top-level slot on `SodaxWalletConfig`:
+Each chain family is a top-level slot on `SodaxWalletConfig`:
 
 | ChainType | Networks (examples) | React adapter mounted |
 |---|---|---|
@@ -19,6 +19,7 @@ Chains supported by `@sodax/wallet-sdk-react` v2 — their `ChainType` family an
 | `INJECTIVE` | Injective mainnet | (none) |
 | `NEAR` | NEAR mainnet | (none) |
 | `STACKS` | Stacks mainnet | (none) |
+| `TRON` | Tron mainnet | (none — TIP-6963 discovery preferring TronLink, falling back to `window.tron` / `window.tronLink`) |
 
 EVM is the only family with multiple networks under one connection — wagmi maintains a single connection that spans every configured EVM network. See [`../architecture.md`](../architecture.md) § "EVM is one connection".
 
@@ -37,6 +38,7 @@ EVM is the only family with multiple networks under one connection — wagmi mai
 | `ICON` | `connectors?, chains` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }` |
 | `NEAR` | `connectors?, chains` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }` |
 | `STACKS` | preset name (string) **or** `StacksNetworkLike & { defaults?, connectors? }` | `'mainnet'` / `'testnet'` preset accepted |
+| `TRON` | `connectors?, chains?` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }` |
 
 The single source of truth for the per-chain shape is `ChainMeta` in `src/types/config.ts` — `SodaxWalletConfig`, `ChainEntry<K>`, `WalletDefaultsByKey<K>` derive from it.
 
@@ -56,7 +58,7 @@ ChainKeys.BITCOIN_MAINNET;     // BITCOIN
 // …etc
 ```
 
-Naming pattern: `<NETWORK>_MAINNET`. EVM has 14 entries (Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood Chain); the other 8 families each have one. Inspect `@sodax/types` for the authoritative list.
+Naming pattern: `<NETWORK>_MAINNET`. EVM has 14 entries (Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood Chain); the other families each have one. Inspect `@sodax/types` for the authoritative list.
 
 ---
 

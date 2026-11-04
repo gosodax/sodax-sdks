@@ -4,7 +4,7 @@ Every v2 design concept the SDK rests on, in a single TOC-navigable file. Read e
 
 ## Section index
 
-1. [Hub-and-spoke model](#1-hub-and-spoke-model) — Sonic is the hub; 20 spoke chains route through it.
+1. [Hub-and-spoke model](#1-hub-and-spoke-model) — Sonic is the hub; every spoke chain routes through it.
 2. [`SpokeService` router](#2-spokeservice-router) — single internal dispatcher; no per-chain provider classes.
 3. [`Sodax` facade and service graph](#3-sodax-facade-and-service-graph) — one instance owns every feature service.
 4. [`ConfigService`](#4-configservice) — dynamic config from backend with packaged-defaults fallback.
@@ -50,7 +50,7 @@ For most consumers, this whole pipeline is one method call (`sodax.swaps.swap(..
 
 ### Supported chains
 
-22 total. EVM (14): Sonic (hub), Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood Chain. Non-EVM (8): Solana, Sui, Stellar, ICON, Injective, NEAR, Stacks, Bitcoin. See [`reference/`](reference/) § "Chain keys" for the full table with relay IDs and address-type mapping.
+See [`reference/`](reference/) § "Chain keys" for the full table with chain families and address-type mapping.
 
 ---
 
@@ -62,7 +62,7 @@ Instead, the SDK has **one** `SpokeService` instance (owned by `Sodax`) which ho
 
 ```
 SpokeService
- ├── EvmSpokeService        (handles all 14 EVM chains)
+ ├── EvmSpokeService        (every EVM spoke chain)
  ├── SonicSpokeService      (special-cased for the hub)
  ├── SolanaSpokeService
  ├── SuiSpokeService
@@ -71,7 +71,8 @@ SpokeService
  ├── InjectiveSpokeService
  ├── StacksSpokeService
  ├── BitcoinSpokeService
- └── NearSpokeService
+ ├── NearSpokeService
+ └── TronSpokeService
 ```
 
 Public entry: `sodax.spoke.getSpokeService(chainKey)` (typed). Feature services route to the right family by calling this internally — consumer-side code never does.
@@ -254,7 +255,7 @@ This is what allows `sodax.swaps.createIntent({ params: { srcChainKey: ChainKeys
 ```ts
 import { getChainType, isEvmChainKeyType, isSolanaChainKeyType, isBitcoinChainKeyType, /* … */ } from '@sodax/sdk';
 
-getChainType(chainKey);        // 'EVM' | 'BITCOIN' | 'SOLANA' | 'STELLAR' | 'SUI' | 'ICON' | 'INJECTIVE' | 'STACKS' | 'NEAR'
+getChainType(chainKey);        // ChainType: 'EVM' | 'BITCOIN' | … (full set in ChainTypeArr)
 isEvmChainKeyType(chainKey);   // boolean (with type guard)
 ```
 

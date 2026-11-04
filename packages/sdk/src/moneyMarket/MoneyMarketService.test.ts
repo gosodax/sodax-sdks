@@ -23,8 +23,10 @@ import {
   type IStellarWalletProvider,
   type Result,
   type SpokeChainKey,
+  tronSupportedTokens,
 } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
+import type { MpcWithdrawalSettlement, TxHashPair } from '../shared/types/types.js';
 import { SodaxError } from '../errors/SodaxError.js';
 import { decodeFunctionData, keccak256, stringToBytes } from 'viem';
 import { poolAbi } from '../shared/abis/pool.abi.js';
@@ -59,6 +61,7 @@ import {
   type MoneyMarketWithdrawActionParams,
   type MoneyMarketWithdrawParams,
 } from './MoneyMarketService.js';
+import { TRON_TEST_ADDRESS, TRON_TEST_RECIPIENT_WORD } from '../shared/services/spoke/tron-test-fixtures.js';
 
 // --- test fixtures --------------------------------------------------------
 //
@@ -84,8 +87,8 @@ const SAMPLE_DST_ADDRESS = '0x5555555555555555555555555555555555555555' as Addre
 const MPC_RECIPIENTS = [
   {
     chainKey: ChainKeys.TRON_MAINNET,
-    address: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow',
-    word: `0x${'00'.repeat(12)}45df1d9f0d472080e5272946e4444f885473245d` as Address,
+    address: TRON_TEST_ADDRESS,
+    word: TRON_TEST_RECIPIENT_WORD,
   },
   {
     chainKey: ChainKeys.XRP_MAINNET,
@@ -1843,6 +1846,31 @@ describe('MoneyMarketService.borrow', () => {
       expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledTimes(1);
     });
 
+    // The intent relay never delivers to Tron; the MPC relay releases once the hub tx is notified.
+    it('on hub with a Tron target: settles the release on the MPC relay, not the intent relay', async () => {
+      vi.spyOn(sodax.moneyMarket, 'createBorrowIntent').mockResolvedValueOnce({
+        ok: true,
+        value: { tx: '0xhub-tx', relayData: { address: HUB_WALLET, payload: '0x' } },
+      });
+      const release = vi
+        .spyOn(sodax.spoke, 'settleHubRelease')
+        .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xhub-tx', dstChainTxHash: 'TronPayout' } });
+
+      const result = await sodax.moneyMarket.borrow({
+        raw: false,
+        params: {
+          ...borrowParams(ChainKeys.SONIC_MAINNET),
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstAddress: TRON_TEST_ADDRESS,
+        },
+        walletProvider: mockEvmProvider,
+      });
+
+      expect(release).toHaveBeenCalledWith('0xhub-tx', ChainKeys.TRON_MAINNET, expect.anything());
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
+      expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xhub-tx', dstChainTxHash: 'TronPayout' } });
+    });
+
     it('on EVM spoke: relays the packet', async () => {
       vi.spyOn(sodax.moneyMarket, 'createBorrowIntent').mockResolvedValueOnce({
         ok: true,
@@ -3508,5 +3536,88 @@ describe('MoneyMarketService — hub-only actions verify the source tx', () => {
     expect(result.error.cause).toBe(verifyError);
     expect(result.error.context?.action).toBe(action);
     expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
+  });
+});
+
+describe('MoneyMarketService — outbound result by source chain', () => {
+  type Settled<K extends SpokeChainKey> = Extract<
+    Awaited<ReturnType<typeof sodax.moneyMarket.borrow<K>>>,
+    { ok: true }
+  >['value'];
+
+  // A withdraw-auth has no Tron tx, so its tracking id never fills a tx-hash field.
+  it('types a borrow from Tron as a withdraw-auth settlement and any other as a tx pair', () => {
+    expectTypeOf<Settled<typeof ChainKeys.TRON_MAINNET>>().toEqualTypeOf<MpcWithdrawalSettlement>();
+    expectTypeOf<Settled<typeof ChainKeys.ARBITRUM_MAINNET>>().toEqualTypeOf<TxHashPair>();
+    expectTypeOf<Settled<SpokeChainKey>>().toEqualTypeOf<TxHashPair | MpcWithdrawalSettlement>();
+  });
+});
+
+describe('MoneyMarketService — small payout to an MPC-relay chain', () => {
+  const usdt = {
+    address: tronSupportedTokens.USDT.address,
+    chainKey: ChainKeys.TRON_MAINNET,
+    symbol: 'USDT',
+    decimals: 6,
+  };
+
+  const setup = () => {
+    vi.spyOn(sodax.config, 'getMoneyMarketToken').mockReturnValue(usdt as never);
+    vi.spyOn(sodax.config, 'isMoneyMarketSupportedToken').mockReturnValue(true);
+    vi.spyOn(sodax.moneyMarket, 'buildWithdrawData').mockReturnValue('0xwithdraw-data');
+    return vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValue({ ok: true, value: '0xsend-hash' });
+  };
+  const run = (method: 'createBorrowIntent' | 'createWithdrawIntent', amount: bigint, raw: boolean) =>
+    sodax.moneyMarket[method]({
+      raw,
+      ...(raw ? {} : { walletProvider: mockEvmProvider }),
+      params: {
+        ...borrowParams(ChainKeys.BSC_MAINNET),
+        action: method === 'createBorrowIntent' ? 'borrow' : 'withdraw',
+        token: usdt.address,
+        amount,
+        dstChainKey: ChainKeys.TRON_MAINNET,
+        dstAddress: TRON_TEST_ADDRESS,
+      },
+    } as never);
+  const cases = [
+    ['createBorrowIntent', false],
+    ['createBorrowIntent', true],
+    ['createWithdrawIntent', false],
+    ['createWithdrawIntent', true],
+  ] as const;
+
+  it.each(cases)('%s (raw: %s) refuses the minimum before signing', async (method, raw) => {
+    const send = setup();
+
+    const result = await run(method, 3_000_000n, raw);
+
+    if (result.ok) throw new Error('expected a refusal');
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.reason).toBe('mpc-payout-below-minimum');
+    expect(result.error.message).toContain('must be greater than 3 USDT');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each(cases)('%s (raw: %s) sends above it', async (method, raw) => {
+    const send = setup();
+
+    expect((await run(method, 3_000_001n, raw)).ok).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks a borrow on what it pays out after the partner fee', async () => {
+    const send = setup();
+    vi.spyOn(sodax.moneyMarket, 'partnerFee', 'get').mockReturnValue({
+      address: '0x9999999999999999999999999999999999999999',
+      percentage: 1_000,
+    });
+
+    // 10% off 3.1 USDT leaves 2.79, under the 3 USDT floor; off 3.4 USDT it leaves 3.06.
+    const refused = await run('createBorrowIntent', 3_100_000n, true);
+    if (refused.ok) throw new Error('expected a refusal');
+    expect(refused.error.context?.reason).toBe('mpc-payout-below-minimum');
+    expect((await run('createBorrowIntent', 3_400_000n, true)).ok).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });

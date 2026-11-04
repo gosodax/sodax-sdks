@@ -58,9 +58,8 @@ export const RelayChainIdMap = {
   [ChainKeys.KAIA_MAINNET]: 27489n,
   [ChainKeys.STACKS_MAINNET]: 60n,
   [ChainKeys.HEDERA_MAINNET]: 18501n,
-  // Tron settles through the MPC relay, not the intent relay (see MpcRelayChainMap below). This
-  // entry exists only to keep the map total (Record<ChainKey, bigint>) and mirrors Tron's native
-  // chain id; `SpokeService.settle` routes MPC chains away before an intent-relay path is reached.
+  // Tron settles through the MPC relay (MpcRelayChainMap), but this id still derives its hub wallets
+  // and fills intent srcChain/dstChain.
   [ChainKeys.TRON_MAINNET]: 728126428n,
   [ChainKeys.ROBINHOOD_MAINNET]: 21071n,
   [ChainKeys.XRP_MAINNET]: 66n,
@@ -75,6 +74,15 @@ export const INTENT_CHAIN_IDS = Object.values(RelayChainIdMap);
  * `0` EVM, `1` Tron, `2` generic ed25519, `3` XRP, `4` Aptos.
  */
 export type MpcWithdrawScheme = 0 | 1 | 2 | 3 | 4;
+
+/** A withdraw-auth message as the MPC relay takes it: numeric fields are u64 decimal strings. */
+export type MpcWithdrawMessage = {
+  to: Hex;
+  data: Hex;
+  nonce: string;
+  chainId: string;
+  sender: Hex;
+};
 
 export type MpcRelayChainInfo = {
   /** The relay's `srcChain` / `chain_id` for this chain; sent to the relay as a decimal string. */
@@ -102,6 +110,15 @@ export const MpcRelayChainMap = {
 } as const satisfies Partial<Record<ChainKey, MpcRelayChainInfo>>;
 
 export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
+
+/**
+ * Floor for a payout through the MPC relay, by chain and token symbol, in the payout token's decimals: the SDK
+ * refuses a payout at or below it. The relay deducts a live release fee from the payout, and releases nothing
+ * once that fee reaches the amount, after the hub has already burned it. Sized to the fee cap the solver assumes.
+ */
+export const MpcRelayPayoutMinimums: Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
+  [ChainKeys.TRON_MAINNET]: { USDT: 3_000_000n, TRX: 10_000_000n },
+};
 
 export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey>(
   Object.entries(RelayChainIdMap).map(([chainKey, chainId]) => [chainId, chainKey as ChainKey]),
@@ -703,11 +720,8 @@ export type NearSpokeChainConfig = BaseSpokeChainConfig<'NEAR'> & {
 /**
  * Config carried by a chain that settles through the **MPC relay** (NEAR chain signatures) instead
  * of the intent relay: deposits are paid to a shared reserve and tracked over the relay's REST API,
- * rather than submitted as a packet.
- *
- * The presence of `mpcRelayApiEndpoint` IS the marker the SDK routes on (see `isMpcRelayChainConfig`)
- * — there is no hardcoded list of MPC chains. Tron is the only one today; XRP and Aptos are the same
- * shape, so adding them is a config change plus a spoke service, not a new branch in feature code.
+ * rather than submitted as a packet. Which chains settle this way is `MpcRelayChainMap`
+ * (`isMpcRelayChainKey`).
  */
 export type MpcRelayChainConfig = {
   /** MPC relay REST endpoint (notify + deposit-address), distinct from the intent relay. */

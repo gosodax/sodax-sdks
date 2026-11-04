@@ -49,6 +49,7 @@ import {
   isStacksChainKeyType,
   isNearChainKeyType,
   isBitcoinChainKeyType,
+  isTronChainKeyType,
   isHubChainKeyType,
   type GetChainType,
   type GetWalletProviderType,
@@ -102,6 +103,7 @@ import {
   type IStacksWalletProvider,
   type INearWalletProvider,
   type IBitcoinWalletProvider,
+  type ITronWalletProvider,
 
   // Approve + swap in one signature (see features/swap.md)
   type SwapApprovalStrategy,     // 'not-required' | 'atomic-batch' | 'sequential'

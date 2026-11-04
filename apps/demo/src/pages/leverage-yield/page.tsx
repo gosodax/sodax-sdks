@@ -35,6 +35,7 @@ import {
   useLeverageYieldShareBalances,
   ACCOUNT_UPGRADE_DECLINED,
   ChainKeys,
+  isBitcoinChainKey,
   isSodaxError,
   type ApprovalStrategy,
   getSupportedSolverTokens,
@@ -151,6 +152,11 @@ export default function LeverageYieldPage() {
   // deterministically from (userChain, userAddress).
 
   const supportedSpokeChains = useMemo(() => sodax.config.getSupportedSpokeChains(), [sodax]);
+  // Vault swaps refuse Bitcoin on either side, so it is not offered as the user's chain.
+  const vaultSwapChains = useMemo(
+    () => supportedSpokeChains.filter(chainKey => !isBitcoinChainKey(chainKey)),
+    [supportedSpokeChains],
+  );
   const [userChain, setUserChain] = useState<SpokeChainKey>(ChainKeys.ARBITRUM_MAINNET);
   const userTokens = useMemo(() => getSupportedSolverTokens(userChain), [userChain]);
   // Store the SYMBOL and derive the token during render. Holding the token in its own state and
@@ -732,7 +738,7 @@ export default function LeverageYieldPage() {
                 <ChainSelector
                   selectedChainId={userChain}
                   selectChainId={setUserChain}
-                  allowedChains={supportedSpokeChains}
+                  allowedChains={vaultSwapChains}
                 />
                 <div className="text-xs text-muted-foreground break-all">
                   {userAccount.address ? (

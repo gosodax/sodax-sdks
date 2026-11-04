@@ -1,18 +1,23 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ChainKeys } from '@sodax/types';
-import { encodeAddress, encodeRecipient } from './shared-utils.js';
+import { encodeAddress, encodeRecipient, reverseEncodeAddress } from './shared-utils.js';
 import { tronBase58ToHex } from '../services/spoke/tron-utils.js';
 
+// Every chain counts as MPC-relayed here: relay membership must not choose the recipient encoding.
+vi.mock('@sodax/types', async importOriginal => ({
+  ...(await importOriginal<typeof import('@sodax/types')>()),
+  isMpcRelayChainKey: () => true,
+}));
+
 /**
- * A hub release reads its recipient from `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so an
- * MPC-relay chain's recipient is the LEFT-PADDED word — not the bare identity that authorizes the
- * withdrawal. The two encodings are different values for the same address and are not
- * interchangeable; conflating them mis-decodes the payout target.
+ * A Tron release reads its recipient from `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so the
+ * recipient is the LEFT-PADDED word — not the bare identity that authorizes the withdrawal. The two
+ * encodings are different values for the same address; conflating them mis-decodes the payout target.
  */
 
 const TRON_ADDRESS = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
 
-describe('encodeRecipient — MPC relay chains', () => {
+describe('encodeRecipient — Tron', () => {
   it('left-pads the 20-byte hash into a 32-byte word', () => {
     const recipient = encodeRecipient(ChainKeys.TRON_MAINNET, TRON_ADDRESS);
 
@@ -32,10 +37,51 @@ describe('encodeRecipient — MPC relay chains', () => {
   });
 });
 
-describe('encodeRecipient — intent relay chains', () => {
-  it('leaves a non-MPC chain encoding untouched', () => {
+describe('reverseEncodeAddress — Tron', () => {
+  it('decodes both the identity and the padded recipient word back to the base58 address', () => {
+    expect(reverseEncodeAddress(ChainKeys.TRON_MAINNET, encodeAddress(ChainKeys.TRON_MAINNET, TRON_ADDRESS))).toBe(
+      TRON_ADDRESS,
+    );
+    expect(reverseEncodeAddress(ChainKeys.TRON_MAINNET, encodeRecipient(ChainKeys.TRON_MAINNET, TRON_ADDRESS))).toBe(
+      TRON_ADDRESS,
+    );
+  });
+
+  it('rejects a 32-byte word whose padding is not zero', () => {
+    const word = encodeRecipient(ChainKeys.TRON_MAINNET, TRON_ADDRESS);
+    const dirty = `0x01${word.slice(4)}` as const;
+    expect(() => reverseEncodeAddress(ChainKeys.TRON_MAINNET, dirty)).toThrow(/Invalid Tron recipient word/);
+  });
+});
+
+const XRP_ADDRESS = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+
+describe('encodeRecipient / reverseEncodeAddress — XRP', () => {
+  it('left-pads the 20-byte AccountID into a 32-byte word, as the relay releases to it', () => {
+    const identity = encodeAddress(ChainKeys.XRP_MAINNET, XRP_ADDRESS);
+    const recipient = encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS);
+
+    expect(recipient).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
+  });
+
+  it('decodes both the identity and the padded recipient word back to the classic address', () => {
+    expect(reverseEncodeAddress(ChainKeys.XRP_MAINNET, encodeAddress(ChainKeys.XRP_MAINNET, XRP_ADDRESS))).toBe(
+      XRP_ADDRESS,
+    );
+    expect(reverseEncodeAddress(ChainKeys.XRP_MAINNET, encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS))).toBe(
+      XRP_ADDRESS,
+    );
+  });
+
+  it('rejects a 32-byte word whose padding is not zero', () => {
+    const dirty = `0x01${encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS).slice(4)}` as const;
+    expect(() => reverseEncodeAddress(ChainKeys.XRP_MAINNET, dirty)).toThrow(/Invalid XRP recipient word/);
+  });
+});
+
+describe('encodeRecipient — other chain types', () => {
+  it('keeps the address encoding even when the chain settles through the MPC relay', () => {
     const evm = '0x1111111111111111111111111111111111111111';
-    // Only the MPC release contract reads the padded word; padding elsewhere would break it.
     expect(encodeRecipient(ChainKeys.ARBITRUM_MAINNET, evm)).toBe(encodeAddress(ChainKeys.ARBITRUM_MAINNET, evm));
   });
 });

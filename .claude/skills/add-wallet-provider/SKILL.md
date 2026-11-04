@@ -30,6 +30,7 @@ The wallet layer is two independent slices: **wallet-sdk-core** signs/broadcasts
 | Injective, Stacks | **one** connector class, multiple parameterized **instances** | add an instance — Injective `new InjectiveXConnector('Name', Wallet.X)`, Stacks add to `STACKS_PROVIDERS` — usually **no new class** |
 | Stellar, NEAR | runtime **discovery** via an aggregator (`discoverConnectors`) | the wallet set comes from the Stellar Wallets Kit / NEAR wallet-selector — support is added through the aggregator, not a hand-written connector |
 | EVM, Solana, Sui | **provider-managed** (native SDK) | not Case A — see the caveat |
+| Tron | **one** `TronXConnector` (id `TronLink`): TIP-6963 discovery that prefers TronLink, else another announcing wallet, else `window.tron` / `window.tronLink` | no per-wallet choice yet — offering several Tron wallets needs the connector to expose each announcement; ask first |
 
 **Writing a connector** (Bitcoin / Icon pattern): `src/xchains/<chain>/<Wallet>XConnector.ts` extending the chain's connector base (e.g. `BitcoinXConnector`, itself extending `XConnector`). Implement the base's abstract methods — for Bitcoin: `connect()`, `disconnect()`, `getWalletProvider()`, `recreateWalletProvider(xAccount)` — plus `isInstalled` / `installUrl`. It builds the matching `I<Chain>WalletProvider` from `wallet-sdk-core`, forwarding `this.defaults`. Keep the connector `id` and install metadata **stable** — they key persisted connections and the modal.
 

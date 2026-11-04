@@ -27,7 +27,7 @@ const signature = await sign.mutateAsync({
 
 Return type is the discriminated union `` `0x${string}` | Uint8Array | string | undefined `` because each chain returns its native signature shape (hex for EVM, base64 for Stellar and Solana, etc.). Cast or branch on `xChainType` when consuming.
 
-`undefined` is returned (not thrown) when the chain doesn't implement `signMessage` — ICON, NEAR, and Stacks. A one-time `console.warn` accompanies the `undefined`.
+`undefined` is returned (not thrown) when the chain doesn't implement `signMessage` (see the matrix below). A one-time `console.warn` accompanies the `undefined`.
 
 ---
 
@@ -41,6 +41,7 @@ Return type is the discriminated union `` `0x${string}` | Uint8Array | string | 
 | Bitcoin | Auto-detect: BIP-322 (P2WPKH/P2TR) or ECDSA (P2SH/P2PKH) | `string` |
 | Stellar | `walletsKit.signMessage` from `@creit.tech/stellar-wallets-kit` | `string` (base64) |
 | Injective | `walletStrategy.signArbitrary` from `@injectivelabs/wallet-base` | `string` |
+| Tron | `trx.signMessageV2` on the connected TronLink TronWeb (TIP-191 prefix); refuses once the wallet is on another account than the connected one | `` `0x${string}` `` |
 | **NEAR** | **Not supported** — registers no `signMessage` action | `undefined` |
 | **Stacks** | **Not supported** — registers no `signMessage` action | `undefined` |
 | **ICON** | **Not supported** — Hana wallet does not expose a signing API | `undefined` |

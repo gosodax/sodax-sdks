@@ -8,8 +8,9 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { HttpUrl } from '@sodax/types';
-import { waitForDeposit, waitForWithdrawal } from './MpcRelayApiService.js';
+import { ChainKeys, type HttpUrl } from '@sodax/types';
+import { mapRelayFailure } from '../../../errors/relay-error-mapping.js';
+import { waitForDeposit, waitForHubRelease, waitForWithdrawal } from './MpcRelayApiService.js';
 
 const API = 'https://relay.example' as HttpUrl;
 const DEPOSIT_ID = '728126428-abc-0';
@@ -57,10 +58,26 @@ describe('waitForDeposit', () => {
     const res = await waitForDeposit(API, DEPOSIT_ID, { timeout: 30, pollIntervalMs: 1 });
 
     // The relay has no `failed` status for deposits: a dropped deposit stays `pending`, so a
-    // timeout is the only signal a caller gets.
+    // timeout is the only signal a caller gets — in the intent relay's vocabulary, as RELAY_TIMEOUT.
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(String(res.error)).toMatch(/timed out/);
+    expect(res.error).toMatchObject({
+      message: 'RELAY_TIMEOUT',
+      cause: { message: `mpc-relay: timed out waiting for deposit ${DEPOSIT_ID}` },
+    });
+    expect(mapRelayFailure(res.error, { feature: 'bridge' }).code).toBe('RELAY_TIMEOUT');
+  });
+
+  it('keeps polling a mint whose hub tx is not recorded yet', async () => {
+    // The hub mint hash is what settle hands on as the hub tx, so a record without it is not settled.
+    stubStatuses([
+      { depositId: DEPOSIT_ID, status: 'minted', txs: {} },
+      { depositId: DEPOSIT_ID, status: 'minted', txs: { hubMint: { hash: '0xmint' } } },
+    ]);
+
+    const res = await waitForDeposit(API, DEPOSIT_ID, { timeout: 1_000, pollIntervalMs: 1 });
+
+    expect(res.ok && res.value.txs.hubMint?.hash).toBe('0xmint');
   });
 });
 
@@ -84,5 +101,75 @@ describe('waitForWithdrawal', () => {
     expect(res.ok).toBe(false);
     if (res.ok) return;
     expect(String(res.error)).toContain('bad signature');
+  });
+
+  it('keeps polling a release whose tx is not recorded yet', async () => {
+    stubStatuses([
+      { trackingId: TRACKING_ID, status: 'released', txs: {} },
+      { trackingId: TRACKING_ID, status: 'released', txs: { release: { hash: '0xrelease' } } },
+    ]);
+
+    const res = await waitForWithdrawal(API, TRACKING_ID, { timeout: 1_000, pollIntervalMs: 1 });
+
+    expect(res.ok && res.value.txs?.release?.hash).toBe('0xrelease');
+  });
+
+  it('ends in RELAY_TIMEOUT when nothing is released in time', async () => {
+    stubStatuses([{ trackingId: TRACKING_ID, status: 'attested', txs: {} }]);
+
+    const res = await waitForWithdrawal(API, TRACKING_ID, { timeout: 30, pollIntervalMs: 1 });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(mapRelayFailure(res.error, { feature: 'moneyMarket' }).code).toBe('RELAY_TIMEOUT');
+  });
+});
+
+describe('waitForWithdrawal — until burned', () => {
+  // A withdraw-auth paying out off this chain releases nothing here, so it never reaches `released`.
+  it('settles once the hub tx is recorded, without waiting for a release', async () => {
+    stubStatuses([
+      { trackingId: TRACKING_ID, status: 'submitted', txs: {} },
+      { trackingId: TRACKING_ID, status: 'burned', txs: { burn: { hash: '0xhub' } } },
+    ]);
+
+    const res = await waitForWithdrawal(API, TRACKING_ID, { timeout: 1_000, pollIntervalMs: 1, until: 'burned' });
+
+    expect(res.ok && res.value.txs?.burn?.hash).toBe('0xhub');
+  });
+
+  it('still fails on a terminal `failed`', async () => {
+    stubStatuses([{ trackingId: TRACKING_ID, status: 'failed', error: 'rejected', txs: {} }]);
+
+    const res = await waitForWithdrawal(API, TRACKING_ID, { timeout: 1_000, pollIntervalMs: 1, until: 'burned' });
+
+    expect(res.ok).toBe(false);
+  });
+});
+
+describe('waitForHubRelease', () => {
+  const RELEASE = { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: '0xABCDEF', logIndex: 3 };
+
+  it('reads the release by its withdrawal id, with the hash lowercased as the relay keys it', async () => {
+    stubStatuses([
+      { depositId: 'id', status: 'pending', txs: {} },
+      { depositId: 'id', status: 'pending', txs: { release: { hash: 'TronPayout' } } },
+    ]);
+
+    const res = await waitForHubRelease(API, RELEASE, { timeout: 1_000, pollIntervalMs: 1 });
+
+    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe(`${API}/deposit/146-0xabcdef-3`);
+    // `status` follows the deposit ladder and never names a release; the recorded payout is the signal.
+    expect(res.ok && res.value.txs?.release?.hash).toBe('TronPayout');
+  });
+
+  it('ends in RELAY_TIMEOUT when the release is never recorded', async () => {
+    stubStatuses([{ depositId: 'id', status: 'submitted', txs: {} }]);
+
+    const res = await waitForHubRelease(API, RELEASE, { timeout: 30, pollIntervalMs: 1 });
+
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(mapRelayFailure(res.error, { feature: 'moneyMarket' }).code).toBe('RELAY_TIMEOUT');
   });
 });

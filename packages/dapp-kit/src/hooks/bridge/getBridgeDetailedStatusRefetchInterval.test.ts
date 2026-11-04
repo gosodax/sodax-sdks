@@ -20,9 +20,10 @@ import {
 
 /**
  * Guards the polling-stop invariant for `useBridgeDetailedStatus.refetchInterval`: stop on a
- * terminal or abandoned backend record, on any relay packet (always terminal), on a rejected API
- * key, and on an exhausted not-delivered budget — but keep polling through an outage. Tested as a
- * pure function because dapp-kit's vitest runs in the `node` environment.
+ * terminal or abandoned backend record, on any relay packet or MPC deposit record (always
+ * terminal), on a rejected API key, and on an exhausted not-delivered budget — but keep polling
+ * through an outage. Tested as a pure function because dapp-kit's vitest runs in the `node`
+ * environment.
  */
 const KEY_A = 'arb:0xaaa';
 const KEY_B = 'arb:0xbbb';
@@ -51,6 +52,19 @@ const packet: PacketData = {
 };
 
 const relayed: Read = { ok: true, value: { source: 'relay', data: packet } };
+
+const minted: Read = {
+  ok: true,
+  value: {
+    source: 'mpcRelay',
+    data: {
+      depositId: 'id',
+      status: 'minted',
+      createdAt: 0,
+      txs: { hubMint: { chain: 'sonic', hash: '0xdst', ts: 0 } },
+    },
+  },
+};
 
 const lookupFailed = (context: Record<string, unknown>): Read => ({
   ok: false,
@@ -91,6 +105,10 @@ describe('getBridgeDetailedStatusRefetchInterval', () => {
 
   it('stops on a relay packet without waiting for a budget — that arm is terminal on arrival', () => {
     expect(getBridgeDetailedStatusRefetchInterval(relayed, 0)).toBe(false);
+  });
+
+  it('stops on a minted MPC-relay deposit record — that arm is terminal on arrival too', () => {
+    expect(getBridgeDetailedStatusRefetchInterval(minted, 0)).toBe(false);
   });
 
   it('stops on a rejected API key, at the first read', () => {

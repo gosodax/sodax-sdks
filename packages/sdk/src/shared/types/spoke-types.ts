@@ -301,13 +301,21 @@ export type RawDestinationParams = {
  */
 export type SettlementDirection = 'inbound' | 'outbound';
 
-export type SettleParams = {
-  chainKey: SpokeChainKey;
+export type SettleParams<
+  K extends SpokeChainKey = SpokeChainKey,
+  D extends SettlementDirection = SettlementDirection,
+> = {
+  chainKey: K;
   /** What `create*Intent` returned: the spoke tx hash, or an MPC tracking id for a Tron withdrawal. */
   tx: string;
-  direction: SettlementDirection;
+  direction: D;
   relayData: RelayExtraData;
   timeout?: number;
+  /**
+   * Spoke the action pays out to, when it ends in a transfer off the hub; omit when it ends on the hub.
+   * Drives the destination leg, which an MPC-relay chain or an MPC-produced hub tx needs driven here.
+   */
+  dstChainKey?: SpokeChainKey;
 };
 
 /** Why a settlement failed. `phase` lets a feature map it onto its own errors. */

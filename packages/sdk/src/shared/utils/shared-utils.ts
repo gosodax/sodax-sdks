@@ -9,20 +9,24 @@ import {
 } from '../guards.js';
 import { canonicalizeBitcoinAddress, isValidBitcoinAddress } from '../entities/btc/btc-utils.js';
 import type { ConfigService } from '../config/ConfigService.js';
+import { SodaxError } from '../../errors/SodaxError.js';
+import type { SodaxErrorContext } from '../../errors/codes.js';
 import {
   type SpokeChainKey,
   type Hex,
   type XToken,
   getChainType,
+  type ChainType,
   isNativeBitcoinToken,
   DEFAULT_MAX_RETRY,
   DEFAULT_RETRY_DELAY_MS,
   FEE_PERCENTAGE_SCALE,
   type PartnerFee,
   type QuoteType,
-  isMpcRelayChainKey,
+  getUnmetMpcPayoutMinimum,
+  type SodaxFeature,
 } from '@sodax/types';
-import { hexToBytes, isAddress, toHex } from 'viem';
+import { formatUnits, hexToBytes, isAddress, toHex } from 'viem';
 import { tronHashToBase58, tronIdentityBytes } from '../services/spoke/tron-utils.js';
 import { xrpHashToClassicAddress, xrpIdentityBytes } from '../services/spoke/xrp-utils.js';
 import { bcs } from '@mysten/sui/bcs';
@@ -153,21 +157,59 @@ export function BigIntToHex(value: bigint): Hex {
 }
 
 /**
+ * Refuses a payout at or below its {@link MpcRelayPayoutMinimums} entry, before anything is signed: the relay
+ * takes its release fee from the payout and releases nothing once the fee reaches it, after the hub has burned it.
+ */
+export function assertMpcPayoutAboveMinimum({
+  feature,
+  token,
+  amount,
+  amountDecimals,
+  context,
+}: {
+  feature: SodaxFeature;
+  token: Pick<XToken, 'chainKey' | 'symbol' | 'decimals'>;
+  amount: bigint;
+  /** Decimals `amount` is in, when not the token's own. */
+  amountDecimals?: number;
+  context?: Partial<SodaxErrorContext>;
+}): void {
+  const unmet = getUnmetMpcPayoutMinimum({ token, amount, amountDecimals });
+  if (!unmet) return;
+  throw new SodaxError(
+    'VALIDATION_FAILED',
+    `A ${unmet.symbol} payout to ${token.chainKey} must be greater than ${formatUnits(unmet.minimum, unmet.decimals)} ${unmet.symbol}: the relay's release fee comes out of it`,
+    { feature, context: { phase: 'validate', ...context, reason: 'mpc-payout-below-minimum' } },
+  );
+}
+
+/** Chain types whose hub release reads its recipient as a left-padded 32-byte word. */
+const PADDED_RECIPIENT_CHAIN_TYPES: readonly ChainType[] = ['TRON', 'XRP'];
+
+/**
  * Recipient bytes for a hub release — the `to` an `AssetManager.transfer` pays out to.
  *
  * This is NOT {@link encodeAddress}, which produces the withdrawal-auth identity / hub-wallet salt.
- * For an MPC-relay chain the release contract reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`,
- * so the 20-byte identity has to be left-padded into a full word; passing the bare identity
- * mis-decodes the recipient. Intent-relay chains keep their own encoding unchanged.
+ * An MPC-relay release reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so its recipient is the
+ * left-padded word; the bare identity mis-decodes. The chain type picks the encoding, never the relay
+ * a chain settles through; every other type keeps {@link encodeAddress}.
  */
 export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): Hex {
   const encoded = encodeAddress(spokeChainId, address);
-  if (!isMpcRelayChainKey(spokeChainId)) return encoded;
+  if (!PADDED_RECIPIENT_CHAIN_TYPES.includes(getChainType(spokeChainId))) return encoded;
   const hash = encoded.replace(/^0x/, '');
   if (hash.length !== 40) {
     throw new Error(`[encodeRecipient] expected a 20-byte identity for ${spokeChainId}, got ${hash.length / 2} bytes`);
   }
   return `0x${'00'.repeat(12)}${hash}`;
+}
+
+/** The 20-byte identity of an MPC-relay account, from either that identity or the padded `encodeRecipient` word intents store as srcAddress. */
+function mpcRelayIdentityHash(encoded: string, label: string): string {
+  const hash = encoded.replace(/^0x/, '').toLowerCase();
+  if (hash.length !== 64) return hash;
+  invariant(hash.startsWith('0'.repeat(24)), `Invalid ${label} recipient word: ${encoded}`);
+  return hash.slice(24);
 }
 
 export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex {
@@ -280,11 +322,9 @@ export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex):
     case 'INJECTIVE':
       return Buffer.from(hexToBytes(encoded)).toString('utf8');
     case 'TRON':
-      // Inverse of the identity encoding: 20-byte hash → base58check Tron address.
-      return tronHashToBase58(encoded);
+      return tronHashToBase58(mpcRelayIdentityHash(encoded, 'Tron'));
     case 'XRP':
-      // Inverse of the identity encoding: 20-byte AccountID → classic `r…` address.
-      return xrpHashToClassicAddress(encoded);
+      return xrpHashToClassicAddress(mpcRelayIdentityHash(encoded, 'XRP'));
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);

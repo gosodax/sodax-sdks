@@ -252,6 +252,14 @@ See [`features/stacks.md`](./features/stacks.md).
 
 ---
 
+## Tron
+
+[`TronWalletProvider.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/TronWalletProvider.test.ts) constructs both modes. Private-key mode takes `privateKey` (hex, `0x` optional). Browser-extension mode takes the injected `tronWeb` plus `getProvider`, which returns the provider the wallet announced over TIP-6963 — its TronWeb is the one that signs.
+
+See [`features/tron.md`](./features/tron.md).
+
+---
+
 ## Next steps
 
 After construction:

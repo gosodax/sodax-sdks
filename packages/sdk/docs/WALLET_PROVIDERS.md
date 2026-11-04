@@ -35,6 +35,7 @@ Every chain family has a named interface that `@sodax/sdk` exports:
 | `IStacksWalletProvider` | `'STACKS'` | Stacks |
 | `IBitcoinWalletProvider` | `'BITCOIN'` | Bitcoin |
 | `INearWalletProvider` | `'NEAR'` | NEAR |
+| `ITronWalletProvider` | `'TRON'` | Tron |
 
 All interfaces extend `WalletAddressProvider` (from `@sodax/sdk`), which requires:
 
@@ -42,7 +43,7 @@ All interfaces extend `WalletAddressProvider` (from `@sodax/sdk`), which require
 getWalletAddress(): Promise<string>;
 ```
 
-The full union of all nine interfaces is `IWalletProvider`. `GetWalletProviderType<K>` maps a
+The full union of these interfaces is `IWalletProvider`. `GetWalletProviderType<K>` maps a
 chain key or `ChainType` literal to the appropriate specific interface.
 
 ---
@@ -116,12 +117,13 @@ wallet-providers/
 ├── stellar/                   # StellarWalletProvider + types
 ├── stacks/                    # StacksWalletProvider + types
 ├── bitcoin/                   # BitcoinWalletProvider + types
-└── near/                      # NearWalletProvider + types
+├── near/                      # NearWalletProvider + types
+└── tron/                      # TronWalletProvider + types
 ```
 
 ### BaseWalletProvider
 
-All nine provider classes extend `BaseWalletProvider<TDefaults>`:
+All provider classes extend `BaseWalletProvider<TDefaults>`:
 
 ```ts
 abstract class BaseWalletProvider<TDefaults extends object> {
@@ -156,7 +158,7 @@ if (walletProvider.chainType === 'SOLANA') {
 ```
 
 Valid `chainType` values: `'EVM'`, `'BITCOIN'`, `'SOLANA'`, `'STELLAR'`, `'SUI'`, `'ICON'`,
-`'INJECTIVE'`, `'STACKS'`, `'NEAR'`.
+`'INJECTIVE'`, `'STACKS'`, `'NEAR'`, `'TRON'`.
 
 `packages/sdk/src/shared/guards.ts` also exposes named guards for the most common cases:
 
@@ -174,7 +176,7 @@ mechanism varies by chain:
 
 | Mechanism | Chains |
 |---|---|
-| **Field presence** — `privateKey` field present vs. absent | EVM, ICON, Solana, Sui (uses `mnemonics`), NEAR |
+| **Field presence** — `privateKey` field present vs. absent | EVM, ICON, Solana, Sui (uses `mnemonics`), NEAR, Tron |
 | **Explicit `type` field** (`'PRIVATE_KEY'` / `'BROWSER_EXTENSION'`) | Bitcoin, Stellar |
 | **`secret` nested object** (`{ privateKey }` or `{ mnemonics }`) vs. `msgBroadcaster` | Injective |
 | **Field presence** — `privateKey` present vs. absent | Stacks |
@@ -194,6 +196,7 @@ All config types include an optional `defaults` field for per-method behavioral 
 | Stacks | `StacksWalletProvider` | @stacks/transactions | `'STACKS'` |
 | Bitcoin | `BitcoinWalletProvider` | bitcoinjs-lib (PSBT) | `'BITCOIN'` |
 | NEAR | `NearWalletProvider` | near-api-js | `'NEAR'` |
+| Tron | `TronWalletProvider` | none (TronWeb typed structurally) | `'TRON'` |
 
 ---
 
@@ -442,7 +445,7 @@ Wallet providers are populated into the store by:
 
 - **Provider-managed chains (EVM, Solana, Sui)** — Hydrator components (`EvmHydrator`,
   `SolanaHydrator`, `SuiHydrator`) sync the native SDK state into the store as the sole writers.
-- **Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks)** — providers are
+- **Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks, Tron)** — providers are
   created as a side-effect of `setXConnection()` in the store, triggered when a user connects a
   wallet through `ChainActions`.
 

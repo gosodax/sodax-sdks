@@ -261,10 +261,8 @@ export const moneyMarketSupportedTokens = {
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.SODA,
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.USDG,
   ] as const satisfies XToken[],
-  [ChainKeys.TRON_MAINNET]: [
-    spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.TRX,
-    spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.USDT,
-  ] as const satisfies XToken[],
+  // No TRX: its sodaTRX vault is not a money-market reserve.
+  [ChainKeys.TRON_MAINNET]: [spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.USDT] as const satisfies XToken[],
   // RLUSD is swap-only for now — unlike sodaXRP and sodaUSDC, its vault is not a lending-pool reserve.
   [ChainKeys.XRP_MAINNET]: [
     spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.XRP,

@@ -110,6 +110,7 @@ import { SonicSpokeService } from './SonicSpokeService.js';
 import { encodeAddress } from '../../utils/shared-utils.js';
 import type { CreateIntentParams } from '../../types/intent-types.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
+import { TRON_TEST_ADDRESS } from './tron-test-fixtures.js';
 
 // --- fixtures -------------------------------------------------------------
 
@@ -926,12 +927,11 @@ describe('SonicSpokeService.createSwapIntent (static)', () => {
         hubAsset: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Address,
         // Only `hubAsset` is read, so a partial XToken stands in for the full config entry.
       } as unknown as ReturnType<typeof sodax.config.getSpokeTokenFromOriginalAssetAddress>);
-      const tronAddress = 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow';
 
       const [, intent] = await SonicSpokeService.createSwapIntent({
         createIntentParams: baseCreateIntentParams(SONIC, {
           dstChainKey: ChainKeys.TRON_MAINNET,
-          dstAddress: tronAddress,
+          dstAddress: TRON_TEST_ADDRESS,
         }),
         creatorHubWalletAddress: HUB_WALLET,
         solverConfig,
@@ -940,7 +940,7 @@ describe('SonicSpokeService.createSwapIntent (static)', () => {
         raw: true,
       });
 
-      const identity = encodeAddress(ChainKeys.TRON_MAINNET, tronAddress);
+      const identity = encodeAddress(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS);
       expect(intent.dstAddress).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
     });
 

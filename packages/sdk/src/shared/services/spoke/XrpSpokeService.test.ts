@@ -334,22 +334,79 @@ describe('XrpSpokeService.deposit — rotated reserve', () => {
 });
 
 describe('XrpSpokeService.deposit — notify failure', () => {
-  it('keeps the submitted tx hash in the error so the stranded deposit can be re-notified', async () => {
+  it('still resolves to the submitted tx hash, leaving the re-notify to settlement', async () => {
     // The retry waits between attempts; on real timers that is seconds and times out under load.
     vi.useFakeTimers();
     stubRippled();
     vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
 
-    const pending = xrp.deposit(depositParams(NATIVE_XRP)).catch((error: Error) => error);
+    const pending = xrp.deposit(depositParams(NATIVE_XRP));
     await vi.runAllTimersAsync();
-    const failure = await pending;
+    const hash = await pending;
     vi.useRealTimers();
 
-    // The funds are already in the reserve here: an error without the hash would lose them.
-    expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toMatch(/0x[0-9a-f]{64} submitted but the relay was not notified/);
-    // Notifying twice is harmless, so the transient failure is retried before giving up.
+    // The funds are already in the reserve: the hash is what settlement waits on and re-notifies.
+    expect(hash).toMatch(/^0x[0-9a-f]{64}$/);
+    // Notifying twice is harmless, so the transient failure is retried before handing over.
     expect(vi.mocked(MpcRelayApiService.notify).mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+describe('XrpSpokeService — relay submit and read', () => {
+  const HUB_RELEASE = { dstChainKey: XRP, hubChainId: '146', hubTxHash: '0xhub', logIndex: 3 } as const;
+
+  it('submitDeposit notifies the relay of the tx on the XRPL chain id, without polling', async () => {
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit');
+
+    expect(await xrp.submitDeposit('0xabc')).toEqual({ ok: true, value: undefined });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '66', '0xabc');
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it('submitDeposit keeps the tx hash in the failure so the deposit can be re-notified', async () => {
+    vi.useFakeTimers();
+    vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
+
+    const pending = xrp.submitDeposit('0xabc');
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    vi.useRealTimers();
+
+    expect(!result.ok && (result.error as Error).message).toMatch(/deposit 0xabc was not notified/);
+  });
+
+  it('submitHubRelease notifies the hub tx as a withdrawal on the hub chain id', async () => {
+    expect(await xrp.submitHubRelease(HUB_RELEASE)).toEqual({ ok: true, value: undefined });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '146', '0xhub', 'withdrawal');
+  });
+
+  it('reads a deposit, a withdrawal and a hub release once each, notifying nothing', async () => {
+    const record = { ok: true as const, value: { depositId: 'id', status: 'pending' as const, createdAt: 0, txs: {} } };
+    vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(record);
+    vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: '0xtrack', status: 'submitted' },
+    });
+
+    expect(await xrp.getDepositRecord('0xabc')).toEqual(record);
+    expect(await xrp.getHubReleaseRecord(HUB_RELEASE)).toEqual(record);
+    expect((await xrp.getWithdrawalRecord('0xtrack')).ok).toBe(true);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
+  it('waitForWithdrawal passes the stage to stop on through to the relay poll', async () => {
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: '0xtrack', status: 'burned' },
+    });
+
+    await xrp.waitForWithdrawal('0xtrack', undefined, 'burned');
+
+    expect(wait).toHaveBeenCalledWith(
+      expect.anything(),
+      '0xtrack',
+      expect.objectContaining({ until: 'burned' }),
+    );
   });
 });
 
