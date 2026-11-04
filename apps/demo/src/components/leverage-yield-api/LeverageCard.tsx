@@ -42,7 +42,7 @@ import {
 } from '@sodax/dapp-kit';
 import { getXChainType, useEvmSwitchChain, useWalletProvider, useXAccount, useXService } from '@sodax/wallet-sdk-react';
 import type { LeverageYieldApiOrder } from '@/components/leverage-yield-api/OrderStatus';
-import { effectiveLeverageYieldApiBaseUrl } from '@/lib/sodaxSettings';
+import { effectiveLeverageYieldApiBaseUrl, effectiveSwapsApiBaseUrl } from '@/lib/sodaxSettings';
 import { toIntentRequest, toXToken } from '@/components/swaps-api/lib/mappers';
 import { isSignableSwapsApiChain, signAndBroadcastSwapsApiTx } from '@/components/swaps-api/lib/signAndBroadcast';
 import { useDebouncedValue } from '@/components/swaps-api/lib/useDebouncedValue';
@@ -164,7 +164,9 @@ export default function LeverageCard({
   const { data: deadlineData, refetch: refetchDeadline } = useLeverageYieldApiDeadline({ params: { apiConfig } });
 
   // The backend's token list, not the installed SDK's: this API accepts tokens the SDK does not bundle.
-  const { data: apiSwapTokens } = useSwapsApiTokens({ params: { apiConfig } });
+  // A swaps route, so it follows the swaps base URL, not this page's leverage-yield one.
+  const swapsApiConfig = useMemo(() => ({ baseURL: effectiveSwapsApiBaseUrl(sodaxSettings) }), [sodaxSettings]);
+  const { data: apiSwapTokens } = useSwapsApiTokens({ params: { apiConfig: swapsApiConfig } });
   const tokensByChain = useMemo(
     () =>
       Object.fromEntries(Object.entries(apiSwapTokens ?? {}).map(([chain, tokens]) => [chain, tokens.map(toXToken)])),
