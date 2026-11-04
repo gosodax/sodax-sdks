@@ -36,6 +36,22 @@ export function normaliseTokenAmount(amount: number | string | bigint, decimals:
     .toFixed(decimals, BigNumber.ROUND_DOWN);
 }
 
+/**
+ * Restate a raw amount from one decimals base to another. A bridge moves the same nominal value,
+ * so the two sides differ only in scale — and a gate that compares across chains (Stellar's
+ * trustline check works in stroops) needs the destination's base, not the source's.
+ *
+ * Downscaling truncates: a positive amount below the destination asset's smallest unit floors to
+ * `0n`. Callers must reject that amount rather than forward it to a gate that reads `0n` as "no
+ * amount" (`enabled: !!amount`) and skips the check.
+ */
+export function rescaleTokenAmount(amount: bigint, fromDecimals: number, toDecimals: number): bigint {
+  if (fromDecimals === toDecimals) return amount;
+  return fromDecimals > toDecimals
+    ? amount / 10n ** BigInt(fromDecimals - toDecimals)
+    : amount * 10n ** BigInt(toDecimals - fromDecimals);
+}
+
 export function formatTokenAmount(amount: number | string | bigint, decimals: number, displayDecimals = 2): string {
   return new BigNumber(amount.toString())
     .dividedBy(new BigNumber(10).pow(decimals))
@@ -217,7 +233,11 @@ export function getReadableTxError(error: unknown): string {
   }
 
   const e = error as Record<string, string>;
-  const message = e?.shortMessage || e?.details || e?.message || '';
+  const raw = e?.shortMessage || e?.details || e?.message || '';
+  // viem appends the whole calldata to `details`/`message`. Through a hub-wallet route that is
+  // several hundred bytes of hex nobody can act on, and it buried the one sentence that could be
+  // read. Everything before it is viem's own summary, so cutting there loses nothing.
+  const message = raw.split('Raw Call Arguments:')[0]?.trim() || raw;
 
   if (message.includes('gas price below minimum')) {
     return 'Network gas fee is too low. Please try again in a moment.';
@@ -294,14 +314,20 @@ export function clearTokenIdsFromLocalStorage(userAddress: string): void {
   localStorage.removeItem(`sodax-dex-positions-${userAddress}`);
 }
 
+/**
+ * `tone` names what the state MEANS, so a caller can colour it by meaning rather than by reusing
+ * `className`. The brand palette has no green, so `text-cherry-soda` had been standing in for
+ * "good" and reading as a warning — same brick red as a real problem. Callers that want colour to
+ * mean only "act on this" can drop the class on `safe` and keep the label.
+ */
 export function getHealthFactorState(hf: number) {
   if (hf < 1) {
-    return { label: 'At risk', className: 'text-negative' };
+    return { label: 'At risk', className: 'text-negative', tone: 'danger' as const };
   }
   if (hf < 2) {
-    return { label: 'Moderate Risk', className: 'text-yellow-dark' };
+    return { label: 'Moderate Risk', className: 'text-yellow-dark', tone: 'caution' as const };
   }
-  return { label: 'Low Risk', className: 'text-cherry-soda' };
+  return { label: 'Low Risk', className: 'text-cherry-soda', tone: 'safe' as const };
 }
 
 export function getChainsWithThisToken(sodax: Sodax, token: XToken) {
@@ -553,4 +579,26 @@ export function getNativeTokenSymbol(chainId: SpokeChainKey): string {
   );
 
   return nativeToken?.symbol ?? 'native token';
+}
+
+/**
+ * Format a WAD-scaled health factor. AAVE returns `type(uint256).max` when an account has
+ * no debt — display that as `∞` instead of a giant number.
+ *
+ * Shared by the leverage-yield vault view and the leverage-position panel; both read WAD
+ * health factors from the same pool.
+ */
+export function fmtHealthFactor(hfWad: bigint | undefined, digits = 2): string {
+  if (hfWad === undefined) return '—';
+  const UINT256_MAX = (1n << 256n) - 1n;
+  if (hfWad >= UINT256_MAX - 1n) return '∞';
+  const SCALE = 100_000n;
+  const scaled = (hfWad * SCALE) / 1_000_000_000_000_000_000n;
+  return (Number(scaled) / Number(SCALE)).toFixed(digits);
+}
+
+/** Format a basis-points value (e.g. `8500n`) as a percentage string. */
+export function fmtBps(value: bigint | undefined, digits = 2): string {
+  if (value === undefined) return '—';
+  return `${(Number(value) / 100).toFixed(digits)}%`;
 }

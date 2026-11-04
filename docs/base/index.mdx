@@ -1,0 +1,75 @@
+---
+title: "SODAX for Base"
+sidebarTitle: "Overview"
+description: "Reach the users and liquidity of every SODAX network from your Base product. No contracts to deploy, your entire integration is TypeScript."
+icon: b
+---
+
+<Note>
+  **No new contracts.** SODAX's Base spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary EVM transactions on Base, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+You keep shipping on Base. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## What to know on Base
+
+Base works like any other EVM network in SODAX: the same `EvmWalletProvider`, the same ERC-20 approvals, and the same intent flow, with no Base-specific handling in the SDK. Gas is paid in ETH, which is also Base's native token in SODAX and needs no approval. If you already integrate SODAX on another EVM network, the only change is the chain key, `ChainKeys.BASE_MAINNET`.
+
+## What you can build
+
+Two SODAX modules are relevant to Base builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/base/swaps">
+    Intent-based cross-network swaps. Users swap between ETH or ERC-20 tokens and assets on any supported network with one signed transaction on Base. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/base/money-market">
+    Cross-network lending and borrowing. Supply from Base, borrow to Base or any other supported network, and manage positions without running lending infrastructure.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/base/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/base/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/base/quickstart): install the SDK, connect a Base account, make your first cross-network swap.
+- [Swaps on Base](/base/swaps): approvals, quoting, and fees.
+- [Money Market on Base](/base/money-market): supply, borrow, repay, and withdraw with cross-network collateral.
+- [Wallets](/base/wallets): EVM wallets on Base, and every other network's wallets through one interface.
+- [Networks & Assets](/base/networks-and-assets): what is live on Base today and what your users can reach.
+- [Base FAQ](/base/faq): the questions Base engineers actually ask.
+
+## Base references
+
+- [**Base documentation**](https://docs.base.org/): building on Base.
+- [**Connect to Base**](https://docs.base.org/get-started/connect-to-base): chain ID, public RPC endpoint, and block explorer.
+- [**Network fees**](https://docs.base.org/specifications/transactions/network-fees): the L2 execution fee and L1 security fee every Base transaction pays.
+
+---
+
+Building something? Start with the [Quickstart](/base/quickstart).

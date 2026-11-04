@@ -1,5 +1,6 @@
 import type { ApproveResponseV2, CreateIntentParamsV2, RequestOverrideConfig } from '@sodax/sdk';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { retryUnlessAuthFailure } from '../shared/retryUnlessAuthFailure.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
@@ -34,7 +35,7 @@ export const useSwapsApiApprove = ({
 
   return useSafeMutation<ApproveResponseV2, Error, UseSwapsApiApproveVars>({
     mutationKey: ['swapsApi', 'approve'],
-    retry: 3,
+    retry: retryUnlessAuthFailure,
     ...mutationOptions,
     mutationFn: async ({ body, apiConfig }): Promise<ApproveResponseV2> =>
       unwrapResult(await sodax.api.swaps.approve(body, apiConfig)),

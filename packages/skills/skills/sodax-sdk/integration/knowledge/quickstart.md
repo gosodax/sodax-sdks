@@ -36,7 +36,7 @@ If you're on `moduleResolution: 'node'` (legacy), upgrade to `'bundler'` or `'no
 
 ## 3. The wallet-provider contract
 
-Methods that sign and broadcast take a `walletProvider` parameter typed as the chain-specific `I*WalletProvider` interface (`IEvmWalletProvider`, `ISolanaWalletProvider`, `ISuiWalletProvider`, `IStellarWalletProvider`, `IIconWalletProvider`, `IInjectiveWalletProvider`, `IStacksWalletProvider`, `INearWalletProvider`, `IBitcoinWalletProvider`). All nine interfaces are exported from `@sodax/sdk`.
+Methods that sign and broadcast take a `walletProvider` parameter typed as the chain-specific `I*WalletProvider` interface (`IEvmWalletProvider`, `ISolanaWalletProvider`, `ISuiWalletProvider`, `IStellarWalletProvider`, `IIconWalletProvider`, `IInjectiveWalletProvider`, `IStacksWalletProvider`, `INearWalletProvider`, `IBitcoinWalletProvider`, `ITronWalletProvider`). All of them are exported from `@sodax/sdk`.
 
 `@sodax/sdk` does **not** ship implementations of these interfaces. Read methods (`sodax.config.*`, `sodax.bridge.getBridgeableAmount`, `sodax.staking.getStakingConfig`, etc.) and `raw: true` flows do not require a `walletProvider`.
 
@@ -45,7 +45,7 @@ Methods that sign and broadcast take a `walletProvider` parameter typed as the c
 Two options:
 
 1. **Implement the interface yourself.** Each `I*WalletProvider` is a small set of methods (`getWalletAddress`, plus chain-specific signing / broadcasting). Wrap whatever wallet abstraction your app already owns (`viem`'s `WalletClient` for EVM, `@solana/web3.js` keypairs for Solana, `@stellar/stellar-sdk` for Stellar, etc.) in an object literal that satisfies the interface.
-2. **Use `@sodax/wallet-sdk-core`** — a separate SODAX package (not part of `@sodax/sdk`, not a transitive dependency — install it separately) that ships ready-made `I*WalletProvider` implementations for all 9 chain families with both private-key (Node / scripts) and browser-extension (dApp) modes. Refer to that package's own documentation for usage.
+2. **Use `@sodax/wallet-sdk-core`** — a separate SODAX package (not part of `@sodax/sdk`, not a transitive dependency — install it separately) that ships ready-made `I*WalletProvider` implementations for every chain family with both private-key (Node / scripts) and browser-extension (dApp) modes. Refer to that package's own documentation for usage.
 
 Examples in this guide use TypeScript `declare const` placeholders so the surface stays Core-SDK-only — substitute your own object regardless of which option you chose.
 
@@ -92,6 +92,48 @@ const stakingConfig = await sodax.staking.getStakingConfig();
 // DEX
 const pools = sodax.dex.clService.getPools();   // synchronous in v2
 ```
+
+### Wallet balances (`sodax.spoke.getWalletBalance` / `getWalletBalances`)
+
+Chain-agnostic reads of the balances a user's own address holds — the SDK dispatches to the right
+chain family and reads the native coin or that chain's token standard (EVM erc20, Solana SPL, Sui
+coin, Soroban contract, IRC-2, NEP-141, SIP-010, Injective bank denom, Bitcoin UTXOs, TRC-20). Distinct from
+`getDeposit`, which reads the protocol asset manager rather than the user.
+
+```ts
+// @ai-snippets-skip
+const one = await sodax.spoke.getWalletBalance({
+  srcChainKey: ChainKeys.ARBITRUM_MAINNET,
+  srcAddress: '0x…',          // the user
+  token: usdc,                // a full XToken living on srcChainKey (token.chainKey is ignored)
+});
+// one: Result<bigint> — smallest units
+
+const many = await sodax.spoke.getWalletBalances({
+  srcChainKey: ChainKeys.ARBITRUM_MAINNET,
+  srcAddress: '0x…',
+  tokens: [usdc, weth],
+});
+// many: Result<Record<string, bigint>> — smallest units, keyed by token.address
+if (many.ok) console.log(many.value[usdc.address]);
+```
+
+Contract worth internalising:
+
+- **A token that could not be read is logged and reported as `0n`**, so one flaky token never
+  discards the balances that did resolve. The flip side: a caller cannot tell a failed read from an
+  empty wallet. The direction is deliberately conservative — under-reporting blocks a spend, it
+  never permits one. Wire a `logger` into `new Sodax({ logger })` to surface those failures.
+- The `Result` fails when the whole batch is unusable — an unknown chain key, a single shared
+  round-trip every token depends on (ICON's `tryAggregate`, Injective's portfolio fetch), or a batch
+  in which NO token could be read, which would otherwise render as "this wallet is empty on every
+  asset".
+- Batching is per chain: EVM/Sonic use multicall3, ICON one `tryAggregate`, Injective one portfolio
+  fetch, Stellar one shared network + account fetch; the rest fan out per token.
+- **Chain-specific values.** Stellar XLM reports the *spendable* amount (total minus the minimum
+  reserve and selling liabilities). Bitcoin reads native BTC from its UTXO set and returns `0n` for
+  Rune tokens, whose amounts that endpoint does not carry. Hedera's native balance is rescaled from
+  the EVM layer's 18-decimal "weibar" to HBAR's canonical 8 decimals.
 
 ## 7. Build raw transactions (no wallet)
 

@@ -26,7 +26,7 @@ export const DEFAULT_BACKEND_API_HEADERS = {
   'Content-Type': 'application/json',
   Accept: 'application/json',
 };
-export const DEFAULT_RELAYER_API_ENDPOINT = 'https://xcall-relay.nw.iconblockchain.xyz';
+export const DEFAULT_RELAYER_API_ENDPOINT = 'https://api.sodax.com/v1/relay';
 export const VAULT_TOKEN_DECIMALS = 18;
 
 /**

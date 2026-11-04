@@ -1,0 +1,94 @@
+---
+title: "Money Market on Polygon"
+description: "Cross-network lending and borrowing from Polygon: supply, borrow, repay, and withdraw against collateral sourced on any SODAX network."
+icon: sack-dollar
+---
+
+Fragmented money markets mean lower capital efficiency and worse rates. The SODAX money market pools lending liquidity on the hub while letting users act from any supported network, including Polygon. A user can supply POL or ERC-20 tokens from Polygon and borrow on another network, or borrow into their Polygon account against collateral held elsewhere, without your product running its own lending infrastructure.
+
+Four actions, all through `sodax.moneyMarket`: `supply`, `borrow`, `withdraw`, `repay`. Each has a complete one-call form (handles the relay end-to-end) and a `create*Intent` form when you want the transaction only.
+
+The assets that work in the money market from Polygon overlap with the Polygon swap list but are not the same set: some tokens can be supplied and borrowed on Polygon but not swapped there. Native POL is in both. Read the list at runtime, as below, or see [Networks & Assets](/polygon/networks-and-assets).
+
+## Supply from Polygon
+
+Supplying an ERC-20 needs an allowance first. Native POL needs none. The allowance check reads through the `Sodax` instance's Polygon RPC, so pass a working endpoint when you construct it.
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+
+const sodax = new Sodax({
+  chains: {
+    [ChainKeys.POLYGON_MAINNET]: { rpcUrl: 'https://polygon.drpc.org' }, // not the packaged default
+  },
+});
+
+// find() returns XToken | undefined, so narrow before using the address
+const polygonTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.POLYGON_MAINNET);
+const usdc = polygonTokens.find(t => t.symbol === 'USDC');
+if (!usdc) throw new Error('USDC is not a supported money-market token on Polygon');
+
+const params = {
+  srcChainKey: ChainKeys.POLYGON_MAINNET,
+  srcAddress: await walletProvider.getWalletAddress(),
+  token: usdc.address,
+  amount: 100n * 10n ** BigInt(usdc.decimals), // 100 USDC
+  action: 'supply',
+} as const;
+
+const allowance = await sodax.moneyMarket.isAllowanceValid({ params });
+if (!allowance.ok) throw allowance.error;
+if (!allowance.value) {
+  const approval = await sodax.moneyMarket.approve({ params, walletProvider });
+  if (!approval.ok) throw approval.error;
+  // wait for the approval to be mined before supplying
+}
+
+const result = await sodax.moneyMarket.supply({
+  params,
+  walletProvider, // IEvmWalletProvider, narrowed by srcChainKey
+  timeout: 120_000, // optional relay timeout (default 120 s)
+});
+```
+
+## Borrow to Polygon
+
+`dstChainKey` and `dstAddress` default to the source, but any supported network can be the destination. That is the cross-network story in one parameter: collateral supplied from one network, borrowed liquidity delivered to another.
+
+```typescript
+const bnUSD = polygonTokens.find(t => t.symbol === 'bnUSD');
+if (!bnUSD) throw new Error('bnUSD is not a supported money-market token on Polygon');
+
+const result = await sodax.moneyMarket.borrow({
+  params: {
+    srcChainKey: ChainKeys.POLYGON_MAINNET,  // where the caller acts from
+    srcAddress: userPolygonAddress,
+    token: bnUSD.address,                      // token on the destination network
+    amount: 50n * 10n ** BigInt(bnUSD.decimals), // 50 bnUSD
+    action: 'borrow',
+    dstChainKey: ChainKeys.POLYGON_MAINNET,   // deliver on Polygon
+    dstAddress: userPolygonAddress,
+  },
+  walletProvider,
+});
+```
+
+Build every amount from the token's own `decimals`: on Polygon, USDC and USDT use 6 and most other tokens in the SODAX list use 18.
+
+`withdraw` and `repay` follow the same shape. Withdraw and borrow need no approval on any network; repaying with an ERC-20 needs an allowance, like supply.
+
+## Building a lending UI
+
+`sodax.moneyMarket.data` exposes what you need for rates, positions, and health factors without extra indexing:
+
+- `getReservesHumanized()`: all reserves, human-readable.
+- `getUserReservesHumanized(spokeChainKey, userAddress)`: a user's positions.
+- `formatReservesUSD(request)` / `formatUserSummary(request)`: USD-converted reserves and portfolio summaries.
+
+## Error handling
+
+The module returns typed results. Discriminate on `result.error.code` (`'RELAY_TIMEOUT'`, `'EXECUTION_FAILED'`, …) with structured context on `result.error.context`.
+
+---
+
+Full reference, including intent-only methods, gas estimation, and the per-method error-code table: [Lend / Borrow (Money Market)](/developers/packages/foundation/sdk/functional-modules/money_market).

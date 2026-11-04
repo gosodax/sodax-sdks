@@ -1,38 +1,43 @@
-import type { HttpUrl, MpcWithdrawScheme, Result } from '@sodax/types';
-import type { Hex } from 'viem';
+import type { HttpUrl, MpcRelayChainKey, MpcWithdrawMessage, MpcWithdrawScheme, Result } from '@sodax/types';
+import { encodeAbiParameters, keccak256, type Hex } from 'viem';
 import { invariant } from '../../utils/tiny-invariant.js';
+import { RELAY_ERROR_CODES } from '../intentRelay/IntentRelayApiService.js';
 
 /**
- * Client for the SODAX **MPC relay** (NEAR chain-signatures relay), used by every chain in
- * `MpcRelayChainMap` — Tron today, with XRP and Aptos settling the same way. Nothing here is
- * chain-specific: the chain only supplies its relay endpoint and numeric id. This is a distinct
- * relay from the intent relay:
- *
- *   intent relay :  spoke.deposit → submitTransaction → waitUntilIntentExecuted
- *   MPC relay    :  getDepositAddress(data) → send memo tx to reserve → notify → poll /deposit/:id
- *
- * The flow, per deposit:
- *   1. {@link getDepositAddress} — register the hub-side `data` (the calls to run after the mint,
- *      e.g. vault deposit) and get back the shared `reserveAddress` + the `memo` (a 32-byte hash)
- *      to attach to the on-chain transfer.
- *   2. The caller sends the spoke transfer to `reserveAddress` carrying `memo`.
- *   3. {@link notify} — tell the relay a deposit tx exists so verifiers pick it up.
- *   4. {@link waitForDeposit} — poll {@link getDeposit} until the hub mint lands (`minted`).
+ * Client for the SODAX MPC relay (NEAR chain signatures), used by every chain in `MpcRelayChainMap`.
+ * Distinct from the intent relay. Per deposit: getDepositAddress → send the spoke transfer → notify →
+ * waitForDeposit.
  */
 
 /**
- * Settlement surface a spoke service implements to settle through the MPC relay. `SpokeService`
- * dispatches to this for any chain in `MpcRelayChainMap`, so a new MPC chain (XRP, Aptos) plugs
- * in by implementing these two methods — no feature service learns its name.
- *
- * `tx` is whatever `create*Intent` returned: the spoke tx hash for a deposit, the withdraw
- * `trackingId` for a withdrawal. `timeout` is the caller's budget; an implementation may raise it to
- * a chain-specific floor (its confirmation depth), but should not silently shorten it.
+ * Settlement surface an MPC-relay spoke service implements, so no feature service learns a chain name. Each
+ * operation has a submit that only notifies, a one-read get, and a wait that polls (and re-notifies, which is
+ * idempotent) until it lands. An implementation may raise a wait's `timeout` to a chain floor, never shorten it.
  */
 export interface MpcRelaySettlement {
+  /** Notify the relay of a broadcast deposit, without waiting for it to land. */
+  submitDeposit(tx: string): Promise<Result<void>>;
+  getDepositRecord(tx: string): Promise<Result<DepositRecord>>;
   waitForDeposit(tx: string, timeout?: number): Promise<Result<DepositRecord>>;
-  waitForWithdrawal(trackingId: string, timeout?: number): Promise<Result<WithdrawalRecord>>;
+  /** A withdraw-auth is submitted when signed; this reads its record by the `trackingId` that returned. */
+  getWithdrawalRecord(trackingId: string): Promise<Result<WithdrawalRecord>>;
+  waitForWithdrawal(
+    trackingId: string,
+    timeout?: number,
+    until?: WithdrawalSettledOn,
+  ): Promise<Result<WithdrawalRecord>>;
+  /** Notify the relay of a hub tx releasing to this chain, without waiting: the relay does not watch the hub. */
+  submitHubRelease(release: HubRelease): Promise<Result<void>>;
+  /** One read of a hub release's record, without notifying: a status read must not change anything. */
+  getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>>;
+  waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>>;
 }
+
+/**
+ * A hub tx's `BridgeRequest` to an MPC-relay chain. The relay keys its release on the hub chain, tx and log
+ * index, so re-notifying or reading with the same value always reaches the same release. JSON-safe.
+ */
+export type HubRelease = { dstChainKey: MpcRelayChainKey; hubChainId: string; hubTxHash: string; logIndex: number };
 
 export type MpcDepositMethod = 'memo' | 'address';
 
@@ -64,10 +69,8 @@ export interface AddressDepositAddressResponse extends DepositAddressBase {
 export type DepositAddressResponse = MemoDepositAddressResponse | AddressDepositAddressResponse;
 
 /**
- * Deposit ladder, most-advanced stage wins (ingest `deriveDepositStatus`):
- * `pending` (no row yet, also before `/notify` is processed) → `submitted` → `attested` → `minted`
- * → `swept`. There is deliberately no `failed`: a deposit the verifiers drop (unmapped token, no
- * memo, reverted tx) simply never leaves `pending`, so a caller distinguishes failure by timeout.
+ * Deposit ladder: `pending` → `submitted` → `attested` → `minted` → `swept`. There is no `failed` —
+ * a dropped deposit never leaves `pending`, so callers detect failure by timeout.
  */
 export type MpcDepositStatus = 'pending' | 'submitted' | 'attested' | 'minted' | 'swept';
 
@@ -79,6 +82,8 @@ export interface DepositRecord {
     source?: { chain: string; hash: string; ts: number };
     nearSubmit?: { chain: string; hash: string; ts: number };
     hubMint?: { chain: string; hash: string; ts: number };
+    /** Set on a hub release's record (read through the same route): the spoke payout tx. */
+    release?: { chain: string; hash: string; ts: number };
   };
 }
 
@@ -92,14 +97,8 @@ export interface NotifyResponse {
 /** Withdraw-auth scheme (per client-api.md §4). Per-chain values live in `MpcRelayChainMap`. */
 export type WithdrawScheme = MpcWithdrawScheme;
 
-/** Signed withdraw message as submitted to the ingest (numeric fields are u64 decimal strings). */
-export interface WithdrawMessagePayload {
-  to: Hex;
-  data: Hex;
-  nonce: string;
-  chainId: string;
-  sender: Hex;
-}
+/** Signed withdraw message as submitted to the ingest. */
+export type WithdrawMessagePayload = MpcWithdrawMessage;
 
 export interface SubmitWithdrawRequest {
   message: WithdrawMessagePayload;
@@ -127,12 +126,14 @@ export interface SubmitWithdrawResponse {
   error?: string;
 }
 
-/**
- * Withdrawal ladder: `submitted` (accepted, burn not mined — `withdrawalId` is null) → `burned` →
- * `attested` → `released`; or `failed` with an `error` for a deterministic terminal rejection such
- * as a bad signature.
- */
+/** Withdrawal ladder: `submitted` → `burned` → `attested` → `released`, or `failed` with an `error`. */
 export type WithdrawalStatus = 'submitted' | 'burned' | 'attested' | 'released' | 'failed';
+
+/**
+ * When a withdraw-auth counts as settled: `released` once the relay pays this chain back, `burned` once
+ * the hub tx ran — the end of its leg when the action pays out elsewhere, since nothing is released here.
+ */
+export type WithdrawalSettledOn = 'released' | 'burned';
 
 export interface WithdrawalRecord {
   trackingId: Hex;
@@ -151,15 +152,7 @@ export interface WithdrawalRecord {
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_DEPOSIT_TIMEOUT_MS = 300_000;
 
-/**
- * Per-request budget, mirroring the intent relay's own cap. It covers the body read as well as the
- * response: a relay can answer headers and then stall the stream, which would otherwise hold a
- * polling loop open indefinitely — the `waitFor*` deadline only bounds the gaps between attempts.
- *
- * Requests are not retried here. `getDeposit`/`getWithdrawal` are retried by their polling loops,
- * and the mutating POSTs (`deposit-address`, `notify`, `withdraw`) are left to the caller for the
- * same reason the intent relay leaves `submit` alone: re-POSTing a delivered request is not safe.
- */
+/** Per-request budget, covering the body read: a stalled stream would otherwise hold a poll open. */
 const MPC_RELAY_REQUEST_TIMEOUT_MS = 15_000;
 
 async function getJson<T>(url: string, init?: RequestInit): Promise<Result<T>> {
@@ -189,14 +182,17 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<Result<T>> {
   }
 }
 
+/** The payload hash the relay derives for a deposit: `keccak256(abi.encode(hubWallet, data))`. */
+export function computePayloadHash(hubWallet: Hex, data: Hex): Hex {
+  return keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'bytes' }], [hubWallet, data]));
+}
+
 /**
- * Register a memo-mode deposit's hub payload and get the reserve + memo to send to.
- * @param owner  Spoke-chain address (its hub wallet is derived from this).
- * @param srcChain  Numeric spoke chain id as a string (e.g. Tron `'728126428'`).
- * @param data  Hub-side calls to execute after the mint, ABI-encoded with `encodeContractCalls`.
- *   For a plain wrapped-token mint pass `encodeContractCalls([])` — an encoded EMPTY call array,
- *   which is still non-empty bytes, and that non-emptiness is what makes the hub deploy the user's
- *   wallet. A literal `'0x'` is accepted by the relay but skips the deployment.
+ * Register a deposit's hub payload and get back where to send the funds.
+ * @param owner  Spoke-chain address; its hub wallet is derived from this.
+ * @param srcChain  Numeric spoke chain id as a string.
+ * @param data  Hub-side calls, from `encodeContractCalls`. Pass `encodeContractCalls([])` rather than
+ *   `'0x'` for a plain mint: only non-empty bytes make the hub deploy the user's wallet.
  */
 export async function getDepositAddress(
   apiUrl: HttpUrl,
@@ -214,15 +210,8 @@ export async function getDepositAddress(
 }
 
 /**
- * Notify the relay that a tx exists so verifiers start attesting it.
- *
- * `type` is OMITTED for a deposit — it is what routes ingest to the hub verifier, so sending
- * `'deposit'` sends the deposit to the wrong one and it is never attested. Only a hub withdrawal
- * burn passes `'withdrawal'`.
- *
- * `txHash` is used VERBATIM, exactly as the source chain reports it: `0x`-prefixed on EVM, bare hex
- * on Tron. It must be the same string {@link toDepositId} is later given, or the record is written
- * under one id and polled under another.
+ * Notify the relay that a tx exists so verifiers attest it. `type` must be omitted for a deposit; it
+ * routes to the hub verifier. `txHash` is used verbatim and must match what {@link toDepositId} is given.
  */
 export async function notify(
   apiUrl: HttpUrl,
@@ -243,14 +232,14 @@ export async function notify(
   return res;
 }
 
-/**
- * depositId = `${chainId}-${txid}-${logIndex}` (logIndex 0 for a memo transfer).
- *
- * The txid is used VERBATIM — no lowercasing and no `0x` stripping, so an EVM hash keeps its `0x`
- * and a Tron txid stays bare. It must match the hash passed to {@link notify} exactly.
- */
+/** `${chainId}-${txHash}-${logIndex}`. The hash is used verbatim and must match {@link notify}'s. */
 export function toDepositId(chainId: string, txHash: string, logIndex = 0): string {
   return `${chainId}-${txHash}-${logIndex}`;
+}
+
+/** A hub release's withdrawal id. The hub verifier lowercases the hash before deriving it. */
+export function toHubReleaseId({ hubChainId, hubTxHash, logIndex }: HubRelease): string {
+  return toDepositId(hubChainId, hubTxHash.toLowerCase(), logIndex);
 }
 
 export async function getDeposit(apiUrl: HttpUrl, depositId: string): Promise<Result<DepositRecord>> {
@@ -258,12 +247,20 @@ export async function getDeposit(apiUrl: HttpUrl, depositId: string): Promise<Re
   return getJson<DepositRecord>(`${apiUrl}/deposit/${encodeURIComponent(depositId)}`);
 }
 
+/** A wait that ran out, in the intent relay's vocabulary so `mapRelayFailure` reports `RELAY_TIMEOUT`. */
+function relayTimeout(detail: string): Error {
+  return new Error(RELAY_ERROR_CODES.RELAY_TIMEOUT, { cause: new Error(detail) });
+}
+
 export interface WaitForDepositOptions {
   timeout?: number;
   pollIntervalMs?: number;
 }
 
-/** Poll until the deposit reaches `minted` (resolve) or `failed` (reject). */
+/**
+ * Poll until the deposit is `minted` (or `swept` past it) with its hub mint tx recorded. Ends in
+ * `RELAY_TIMEOUT`, as the intent relay does, when that does not happen within `timeout`.
+ */
 export async function waitForDeposit(
   apiUrl: HttpUrl,
   depositId: string,
@@ -274,23 +271,46 @@ export async function waitForDeposit(
   const deadline = Date.now() + timeout;
 
   for (;;) {
-    // No `retry` here: `getDeposit` reports failure in its Result rather than throwing, so a retry
-    // wrapper would never fire. This loop IS the retry — it re-polls until the deadline.
+    // This loop is the retry: `getDeposit` reports failure in its Result, so `retry` would never fire.
     const res = await getDeposit(apiUrl, depositId);
-    // `swept` is one rung PAST `minted`: the hub mint landed and the reserve was swept afterwards.
-    // Waiting only for `minted` would poll a settled deposit until timeout if a sweep beat the poll.
-    if (res.ok && (res.value.status === 'minted' || res.value.status === 'swept')) return res;
+    // `swept` is past `minted`; waiting only for `minted` would miss a deposit a sweep already passed.
+    const minted = res.ok && (res.value.status === 'minted' || res.value.status === 'swept');
+    if (minted && res.value.txs?.hubMint?.hash) return res;
     if (Date.now() >= deadline) {
-      return { ok: false, error: new Error(`mpc-relay: timed out waiting for deposit ${depositId}`) };
+      return { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for deposit ${depositId}`) };
     }
     await new Promise(r => setTimeout(r, interval));
   }
 }
 
 /**
- * Submit a signed withdraw-auth message (hub→spoke release). The caller builds and signs the
- * message; this hands it to the relay's withdrawal pipeline (verify → hub burn → MPC-signed release).
- * @returns the `trackingId` (= keccak256(sender ‖ nonce_be8)) to poll {@link waitForWithdrawal} with.
+ * Poll a hub-triggered release until its spoke payout tx is recorded. `/withdrawal/` only takes a
+ * withdraw-auth trackingId, so this reads the release's row by its withdrawalId through `/deposit/`,
+ * whose `status` does not track releases; `txs.release` is the signal. Ends in `RELAY_TIMEOUT`.
+ */
+export async function waitForHubRelease(
+  apiUrl: HttpUrl,
+  release: HubRelease,
+  options: WaitForDepositOptions = {},
+): Promise<Result<DepositRecord>> {
+  const timeout = options.timeout ?? DEFAULT_DEPOSIT_TIMEOUT_MS;
+  const interval = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  const deadline = Date.now() + timeout;
+  const withdrawalId = toHubReleaseId(release);
+
+  for (;;) {
+    const res = await getDeposit(apiUrl, withdrawalId);
+    if (res.ok && res.value.txs?.release?.hash) return res;
+    if (Date.now() >= deadline) {
+      return { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for release ${withdrawalId}`) };
+    }
+    await new Promise(r => setTimeout(r, interval));
+  }
+}
+
+/**
+ * Submit a signed withdraw-auth message (hub→spoke release).
+ * @returns the `trackingId` to poll {@link waitForWithdrawal} with.
  */
 export async function submitWithdraw(
   apiUrl: HttpUrl,
@@ -313,21 +333,27 @@ export async function getWithdrawal(apiUrl: HttpUrl, trackingId: string): Promis
   return getJson<WithdrawalRecord>(`${apiUrl}/withdrawal/${encodeURIComponent(trackingId)}`);
 }
 
-/** Poll until the withdrawal reaches `released` (resolve) or `failed` (reject). */
+/**
+ * Poll until the withdrawal reaches `until` (default `released`) with that stage's tx recorded, or
+ * `failed` (reject). Ends in `RELAY_TIMEOUT` when neither happens within `timeout`.
+ */
 export async function waitForWithdrawal(
   apiUrl: HttpUrl,
   trackingId: string,
-  options: WaitForDepositOptions = {},
+  options: WaitForDepositOptions & { until?: WithdrawalSettledOn } = {},
 ): Promise<Result<WithdrawalRecord>> {
   const timeout = options.timeout ?? DEFAULT_DEPOSIT_TIMEOUT_MS;
   const interval = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const deadline = Date.now() + timeout;
 
   for (;;) {
-    // See `waitForDeposit`: the loop is the retry; a `retry` wrapper would never fire here.
+    // The loop is the retry, as in `waitForDeposit`.
     const res = await getWithdrawal(apiUrl, trackingId);
     if (res.ok) {
-      if (res.value.status === 'released') return res;
+      if (res.value.status === 'released' && res.value.txs?.release?.hash) return res;
+      // `attested` and `released` are past `burned`, so they settle a `burned` wait too.
+      const pastBurn = res.value.status !== 'submitted' && res.value.status !== 'failed';
+      if (options.until === 'burned' && pastBurn && res.value.txs?.burn?.hash) return res;
       if (res.value.status === 'failed') {
         return {
           ok: false,
@@ -336,7 +362,7 @@ export async function waitForWithdrawal(
       }
     }
     if (Date.now() >= deadline) {
-      return { ok: false, error: new Error(`mpc-relay: timed out waiting for withdrawal ${trackingId}`) };
+      return { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for withdrawal ${trackingId}`) };
     }
     await new Promise(r => setTimeout(r, interval));
   }

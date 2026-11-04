@@ -30,12 +30,33 @@ import type { SodaxError } from '../errors/SodaxError.js';
 
 export const leverageYieldInvariant: FeatureInvariant = createInvariant('leverageYield');
 
-export type LeverageYieldAction = 'deposit' | 'withdraw' | 'approve' | 'allowanceCheck' | 'vaultSwap';
+export type LeverageYieldAction =
+  | 'deposit'
+  | 'withdraw'
+  | 'approve'
+  | 'allowanceCheck'
+  | 'vaultSwap'
+  | 'vaultSwapWithApproval'
+  | 'openPosition'
+  | 'openPositionFromDebtToken'
+  | 'operatePosition'
+  | 'openLeveragePosition'
+  | 'submitLeveragePositionIntent'
+  | 'runLeveragePositionOperation'
+  | 'getPositionLegQuote';
 
 export type LeverageYieldCreateIntentErrorCode = CreateIntentErrorCode;
 export type LeverageYieldApproveErrorCode = ApproveErrorCode;
 export type LeverageYieldAllowanceCheckErrorCode = AllowanceCheckErrorCode;
 export type LeverageYieldLookupErrorCode = LookupErrorCode;
+
+/**
+ * The only code `getDetailedStatus` returns: no status source could produce a usable answer.
+ * Narrower than {@link LeverageYieldLookupErrorCode}, which also admits `VALIDATION_FAILED` /
+ * `UNKNOWN`. Prefixed because swap's equivalent is not — the root barrel is a flat `export *`, so
+ * an unprefixed `DetailedStatusError` here would collide with it.
+ */
+export type LeverageYieldDetailedStatusErrorCode = Extract<SodaxErrorCode, 'LOOKUP_FAILED'>;
 
 /**
  * Codes returnable by the solver-notify step inside `vaultSwap`. Mirrors the swap
@@ -65,6 +86,11 @@ export type LeverageYieldSwapErrorCode = Extract<
   | 'UNKNOWN'
 >;
 
+/** Codes returnable by `vaultSwapWithApproval`: every `vaultSwap` code plus the approval leg's. */
+export type VaultSwapWithApprovalErrorCode =
+  | LeverageYieldSwapErrorCode
+  | Extract<SodaxErrorCode, 'APPROVE_FAILED' | 'ALLOWANCE_CHECK_FAILED'>;
+
 export type LeverageYieldErrorCode = Extract<
   SodaxErrorCode,
   | 'USER_REJECTED'
@@ -86,8 +112,10 @@ export type LeverageYieldCreateIntentError = SodaxError<LeverageYieldCreateInten
 export type LeverageYieldApproveError = SodaxError<LeverageYieldApproveErrorCode>;
 export type LeverageYieldAllowanceCheckError = SodaxError<LeverageYieldAllowanceCheckErrorCode>;
 export type LeverageYieldLookupError = SodaxError<LeverageYieldLookupErrorCode>;
+export type LeverageYieldDetailedStatusError = SodaxError<LeverageYieldDetailedStatusErrorCode>;
 export type LeverageYieldPostExecutionError = SodaxError<LeverageYieldPostExecutionErrorCode>;
 export type LeverageYieldSwapError = SodaxError<LeverageYieldSwapErrorCode>;
+export type VaultSwapWithApprovalError = SodaxError<VaultSwapWithApprovalErrorCode>;
 export type LeverageYieldError = SodaxError<LeverageYieldErrorCode>;
 
 const LEVERAGE_YIELD_CODES: ReadonlySet<LeverageYieldErrorCode> = new Set<LeverageYieldErrorCode>([
@@ -134,4 +162,7 @@ export const isLeverageYieldPostExecutionError = isCodeMember<LeverageYieldPostE
   LEVERAGE_YIELD_POST_EXECUTION_CODES,
 );
 export const isLeverageYieldSwapError = isCodeMember<LeverageYieldSwapErrorCode>(LEVERAGE_YIELD_SWAP_CODES);
+export const isVaultSwapWithApprovalError = isCodeMember<VaultSwapWithApprovalErrorCode>(
+  new Set<VaultSwapWithApprovalErrorCode>([...LEVERAGE_YIELD_SWAP_CODES, 'APPROVE_FAILED', 'ALLOWANCE_CHECK_FAILED']),
+);
 export const isLeverageYieldError = isCodeMember<LeverageYieldErrorCode>(LEVERAGE_YIELD_CODES);

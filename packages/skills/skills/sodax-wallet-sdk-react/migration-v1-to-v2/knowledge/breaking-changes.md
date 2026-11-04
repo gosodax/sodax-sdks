@@ -27,7 +27,7 @@ What did NOT change → [bottom of file](#what-did-not-change).
 
 v1 spread chain configuration across **three separate props**: `rpcConfig` (per-chain RPC URLs), `options` (per-adapter options like `wagmi.ssr`, `solana.autoConnect`, `sui.autoConnect`), and `initialState` (wagmi state for SSR hydration).
 
-v2 collapses all three into a **single `config` prop** of type `SodaxWalletConfig`. The new shape uses **chain-type slots** (`EVM`, `SOLANA`, `SUI`, `BITCOIN`, `STELLAR`, `ICON`, `INJECTIVE`, `NEAR`, `STACKS`) at the top level. Each slot is `ChainTypeConfig<T>` — adapter options merged with `{ chains?, connectors? }` where `chains` is keyed by `ChainKey` and holds per-chain `{ rpcUrl?, defaults? }`.
+v2 collapses all three into a **single `config` prop** of type `SodaxWalletConfig`. The new shape uses **chain-type slots** (`EVM`, `SOLANA`, `SUI`, `BITCOIN`, `STELLAR`, `ICON`, `INJECTIVE`, `NEAR`, `STACKS`) at the top level. Each slot is `ChainTypeConfig<T>` — adapter options merged with `{ chains?, connectors? }` where `chains` is keyed by `ChainKey` and holds per-chain `{ rpcUrl?, defaults? }` — except `SUI`, whose entry is `{ grpcUrl?, defaults? }` with `rpcUrl` kept as a deprecated alias.
 
 ### Why
 
@@ -140,7 +140,7 @@ See [`reference/imports.md`](./reference/imports.md) for the sub-path map per ch
 
 ### What changed
 
-v1 mounted **every** chain adapter (wagmi, `@solana/wallet-adapter`, `@mysten/dapp-kit`) and registered services for every chain regardless of whether the consumer used them.
+v1 mounted **every** chain adapter (wagmi, `@solana/wallet-adapter`, `@mysten/dapp-kit-react`) and registered services for every chain regardless of whether the consumer used them.
 
 v2 mounts only the slots present in `walletConfig`. An app that only needs EVM + Sui passes `{ EVM: {...}, SUI: {...} }` and ships **none** of the Solana / Bitcoin / NEAR adapter code in the React tree.
 

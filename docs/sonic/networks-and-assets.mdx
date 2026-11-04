@@ -1,0 +1,67 @@
+---
+title: "Sonic: Networks & Assets"
+description: "What is live on Sonic, the SODAX hub, today, and the networks and assets your users can reach from it."
+icon: coins
+---
+
+Sonic is the hub of the SODAX System. Every other network is a spoke: user funds stay on their own network, the hub coordinates execution, and solvers settle against deep native liquidity on each network rather than isolated bridge pools. Users on Sonic sit at the center of that layout, so their actions reach the hub without a relay hop.
+
+There are two asset lists to keep straight, and the difference is the point of SODAX:
+
+- **Assets on Sonic**: the <span data-sodax-config="count" data-metric="chain-swap-tokens" data-chain="sonic">63</span> assets that live on Sonic itself. These are what your users hold, send, and receive on Sonic; the entry and exit points of any Sonic-side flow.
+- **Assets across the SODAX System**: <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets across all supported networks. Every one of them is a valid swap destination or collateral source for your Sonic users, because every SODAX action is cross-network by default.
+
+A user holding S is not limited to the Sonic-side list. They can swap S into ETH on Ethereum, USDC on Base, SOL on Solana, or any other listed asset on any network, in one signed transaction. The on-Sonic assets are simply where those journeys start and end on your side.
+
+Every count and list below is read live from the backend config API, `GET https://api.sodax.com/v2/be/config/all`, so it reflects what the backend serves today rather than what an SDK release has listed.
+
+## Assets on Sonic
+
+Live for swaps on Sonic:
+
+<div data-sodax-config="swap-tokens" data-chain="sonic">
+  Live token list loads from the config API. If it has not appeared, read `config.swaps.supportedTokens.sonic` from [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all), or use the SDK call below.
+</div>
+
+Live in the [Money Market](/sonic/money-market) for supply, borrow, repay, and withdraw (<span data-sodax-config="count" data-metric="chain-money-market-tokens" data-chain="sonic">36</span> today):
+
+<div data-sodax-config="money-market-tokens" data-chain="sonic">
+  Live token list loads from the config API: `config.moneyMarket.supportedTokens.sonic` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+</div>
+
+Because Sonic is the hub, its list includes the hub's own tokens next to Sonic-native ones such as S, wS, and USDC. Among them are the `soda*` [vault tokens](/developers/technical-overview/vault-token), each of which unifies one asset's variants from different networks, and hub representations of assets from other networks, listed under their usual symbols (BTC, SOL, and others). Treat each entry by its address and `decimals`, not by its symbol alone. Native S uses the zero address.
+
+Hub vault addresses per asset are listed in [Swaps: Compatible Assets](/developers/deployments/swaps-compatible-assets), and the hub contracts themselves in [Mainnet Deployments](/developers/deployments/mainnet).
+
+## Assets your users can reach
+
+From a Sonic-sourced action, users can trade, lend, and borrow across every SODAX-supported network:
+
+<div data-sodax-config="chains">
+  Live network list loads from the config API: `config.chains` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+</div>
+
+Chain identifiers come from `ChainKeys.*` in the SDK (`ChainKeys.SONIC_MAINNET` = `'sonic'`), and the live chain list from `sodax.config.getSupportedSpokeChains()`, which includes Sonic. Prefer the config call over hard-coding: networks are added over time.
+
+## Asset discovery in code
+
+Never hard-code token addresses or asset lists; read them from the SDK config at runtime:
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// Swappable assets on Sonic
+const swapTokens = sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.SONIC_MAINNET);
+
+// Money market assets on Sonic
+const mmTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.SONIC_MAINNET);
+```
+
+These lists ship with the SDK package, so a token the backend has added since your SDK release appears in the live tables above before it appears here.
+
+---
+
+- All deployment addresses by network: [Mainnet Deployments](/developers/deployments/mainnet)
+- The full cross-network asset directory: [sodax.com/partners/asset-directory](https://sodax.com/partners/asset-directory)

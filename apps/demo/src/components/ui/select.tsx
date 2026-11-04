@@ -68,7 +68,7 @@ const SelectContent = React.forwardRef<
     <SelectPrimitive.Content
       ref={ref}
       className={cn(
-        'relative z-50 max-h-96 min-w-[8rem] overflow-hidden',
+        'relative z-50 max-h-[min(24rem,var(--radix-select-content-available-height))] max-w-[var(--radix-select-content-available-width)] min-w-[8rem] overflow-hidden',
         'rounded-lg border border-gray-200 bg-white shadow-lg translate-y-1',
         'data-[state=open]:animate-in data-[state=closed]:animate-out',
         'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
@@ -105,8 +105,11 @@ SelectLabel.displayName = 'SelectLabel';
 
 const SelectItem = React.forwardRef<
   React.ComponentRef<typeof SelectPrimitive.Item>,
-  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item>
->(({ className, children, ...props }, ref) => (
+  React.ComponentPropsWithoutRef<typeof SelectPrimitive.Item> & {
+    /** Secondary line shown under the item in the list only — Radix mirrors just `children` into the trigger. */
+    description?: React.ReactNode;
+  }
+>(({ className, children, description, ...props }, ref) => (
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
@@ -124,7 +127,10 @@ const SelectItem = React.forwardRef<
         <Check className="h-4 w-4 text-cherry-soda" />
       </SelectPrimitive.ItemIndicator>
     </span>
-    <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    <span className="flex min-w-0 flex-col">
+      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+      {description !== undefined && <span className="text-xs text-gray-500">{description}</span>}
+    </span>
   </SelectPrimitive.Item>
 ));
 SelectItem.displayName = 'SelectItem';

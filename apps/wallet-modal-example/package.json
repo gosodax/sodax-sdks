@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "dev": "vite --port 3002 --host",
@@ -21,21 +21,22 @@
     "@sodax/wallet-sdk-react": "workspace:*",
     "@tanstack/react-query": "catalog:",
     "@types/node": "catalog:",
-    "@vitejs/plugin-react": "4.2.1",
+    "@vitejs/plugin-react": "catalog:",
     "buffer": "^6.0.3",
     "react": "19.1.4",
     "react-dom": "19.1.4"
   },
   "devDependencies": {
     "@bangjelkoski/vite-plugin-node-polyfills": "^0.0.2",
+    "@privy-io/react-auth": "3.40.0",
     "@tailwindcss/vite": "^4.1.16",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "babel-plugin-macros": "3.1.0",
     "tailwindcss": "^4.1.16",
     "typescript": "catalog:",
-    "vite": "^5.4.11",
-    "vite-plugin-svgr": "4.2.0",
+    "vite": "catalog:",
+    "vite-plugin-svgr": "catalog:",
     "vite-tsconfig-paths": "4.3.1"
   }
 }

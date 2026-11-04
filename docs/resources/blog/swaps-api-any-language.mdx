@@ -1,0 +1,177 @@
+---
+title: "Cross-network swaps from any language: the SODAX Swaps API"
+sidebarTitle: "Swaps API from any language"
+icon: rotate
+description: "Quote, build an unsigned transaction, sign it in your own infrastructure, submit and poll. The SODAX Swaps API runs cross-network swaps over plain HTTP, with no SDK and no wallet library."
+---
+
+A cross-network swap through SODAX needs no SDK, no viem and no wallet library. If your stack can send an HTTP request and sign a transaction, it can swap across the networks SODAX supports.
+
+The Swaps API is the same surface the SODAX SDK's swaps client calls, so a direct integration reaches the same liquidity layer and the same settlement. The shape of every integration is five steps:
+
+1. **Quote** the pair.
+2. **Build** an unsigned transaction. The API returns it with the intent and relay payload already assembled.
+3. **Sign and broadcast** it wherever your keys live: a custodian, an HSM, a smart wallet, a backend signer.
+4. **Submit** the broadcast transaction hash.
+5. **Poll** until the swap is `solved` or `failed`.
+
+The API never sees a private key. It hands you bytes to sign and waits for a transaction hash. That split is what makes it a fit for Python services, Go trading bots, Rust backends, exchanges and agents.
+
+## The flow on the wire
+
+Base URL: `https://api.sodax.com/v1/swaps`. All amounts are decimal strings in the token's smallest unit. The example below swaps USDC for TSLAx (a tokenized Tesla xStock) on Solana, the same pair the public Go demo uses.
+
+### 0. Find your tokens
+
+```bash
+curl -s https://api.sodax.com/v1/swaps/tokens/solana
+```
+
+Each entry carries `symbol`, `name`, `decimals`, `address` and `chainKey`. `GET /tokens` returns every supported token grouped by chain key. The chain key (`solana`, `0xa4b1.arbitrum`, `0x2105.base` and so on) is how every other endpoint names a network.
+
+### 1. Quote
+
+```bash
+curl -s https://api.sodax.com/v1/swaps/quote \
+  -H 'content-type: application/json' \
+  -d '{
+    "tokenSrc": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "tokenSrcChainKey": "solana",
+    "tokenDst": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+    "tokenDstChainKey": "solana",
+    "amount": "5000000",
+    "quoteType": "exact_input"
+  }'
+# {"quotedAmount":"1380300"}
+```
+
+`quotedAmount` is in the destination token's smallest unit. `exact_input` is the supported quote type. Apply your slippage tolerance to it to get the `minOutputAmount` for the next step.
+
+### 2. Build the unsigned transaction
+
+```bash
+curl -s https://api.sodax.com/v1/swaps/intents \
+  -H 'content-type: application/json' \
+  -d '{
+    "srcChainKey": "solana",
+    "dstChainKey": "solana",
+    "inputToken": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "outputToken": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+    "inputAmount": "5000000",
+    "minOutputAmount": "1366497",
+    "deadline": "1790835277",
+    "allowPartialFill": false,
+    "srcAddress": "<your-solana-address>",
+    "dstAddress": "<your-solana-address>",
+    "solver": "0x0000000000000000000000000000000000000000",
+    "data": "0x"
+  }'
+```
+
+The response is `{ tx, intent, relayData }`. `tx` is the unsigned transaction for the source network: `{ from, to, value, data }` on EVM chains, and a chain-specific shape elsewhere (on Solana, `tx.data` is a base64 transaction with an empty signature slot). `GET /deadline?offsetSeconds=600` returns a ready-made `deadline` if you prefer not to compute one.
+
+Note that the quote and intent bodies name the same fields differently (`tokenSrc` versus `inputToken`, `amount` versus `inputAmount`). To collapse steps 1 and 2 into one call, send the quote with `?includeTxData=true` plus `srcAddress` and `dstAddress`; the response then includes `txData` in the same `{ tx, intent, relayData }` shape.
+
+For ERC-20 inputs on EVM networks, `POST /allowance/check` and `POST /approve` cover the approval step with the same request body as `/intents`.
+
+### 3. Sign and broadcast
+
+This is the step that stays on your side. Decode `tx`, sign it with whatever holds the key, broadcast it to the source network and keep the resulting transaction hash.
+
+### 4. Submit
+
+```bash
+curl -s https://api.sodax.com/v1/swaps/submit-tx \
+  -H 'content-type: application/json' \
+  -d '{
+    "txHash": "<source-tx-hash>",
+    "srcChainKey": "solana",
+    "walletAddress": "<your-solana-address>",
+    "intent": { "...": "verbatim from step 2" },
+    "relayData": "<relayData.payload from step 2>"
+  }'
+# {"success":true,"data":{"status":"inserted","message":"..."}}
+```
+
+`submit-tx` is idempotent on `(txHash, srcChainKey)`, so a retry after a timeout returns `"duplicate"` instead of a second submission. Back off on `429`.
+
+### 5. Poll
+
+```bash
+curl -s "https://api.sodax.com/v1/swaps/submit-tx/status?txHash=<source-tx-hash>&srcChainKey=solana"
+```
+
+`data.status` moves through `pending`, `relaying`, `relayed`, `posting_execution` and `posted_execution`, then lands on `solved` or `failed`. Only those last two are terminal. Transient relay hiccups stay on an in-flight status, so a `failed` is real and comes with a `userMessage`. If the intent is still open on-chain after a failure, build a cancel transaction with `POST /intents/cancel` to recover the input.
+
+## The same flow in Go
+
+The [gosodax/swap-api-demo](https://github.com/gosodax/swap-api-demo) repository runs this exact lifecycle in Go: USDC to TSLAx on Solana, no `@sodax/sdk`, no TypeScript, no browser. The orchestration in `internal/swap/swap.go` reads like the list above:
+
+```go
+q, err := d.API.Quote(ctx, sodax.QuoteRequest{
+    TokenSrc: r.Input.Mint, TokenSrcChainKey: r.SrcChainKey,
+    TokenDst: r.Output.Mint, TokenDstChainKey: r.DstChainKey,
+    Amount: r.InputAmount, QuoteType: "exact_input",
+})
+minOut := applySlippage(q.QuotedAmount, r.SlippageBps)
+
+ci, err := d.API.CreateIntent(ctx, sodax.CreateIntentRequest{ /* ...MinOutputAmount: minOut... */ })
+
+txHash, err := d.Sender.SignAndSend(ctx, r.Account, ci.Tx.Data) // the only step that touches the key
+
+err = d.API.SubmitTx(ctx, sodax.SubmitTxRequest{
+    TxHash: txHash, SrcChainKey: r.SrcChainKey, WalletAddress: addr,
+    Intent: ci.Intent, RelayData: ci.RelayData.Payload,
+})
+
+return poll(ctx, d.API, txHash, r.SrcChainKey, logf) // every 3s until solved or failed
+```
+
+Against the live production API, the demo verifies that the quote returns a price, that `/intents` returns an unsigned Solana transaction, and that the transaction deserializes, re-signs and reaches on-chain simulation. A real fill only needs a funded wallet. One practical detail from the demo: it refreshes the blockhash baked into the unsigned Solana transaction before signing, so sign and send promptly.
+
+## Charging a partner fee
+
+Quote, intent, allowance, approve and limit-order bodies accept an optional `partnerFee` object:
+
+```json
+"partnerFee": { "address": "0x<fee-receiver-on-sonic>", "percentage": 10 }
+```
+
+`address` is the EVM hub address that receives the fee. `percentage` is in basis points (1 to 100, so `10` is 0.1%), or send a fixed `amount` in the input token's smallest unit instead. If both are present, `amount` wins. There is no default fee: omit the field and no partner fee applies. `GET /fees/partner?amount=...` returns the computed fee for an input amount.
+
+<Tip>
+  Include `partnerFee` on every quote and intent request, with the same value each time. The quote then matches what the intent charges, and your users see one consistent price. `submit-tx` does not take it, because the fee is already encoded in the intent.
+</Tip>
+
+## A typed client for TypeScript
+
+On a TypeScript backend, the optional [`@sodax/swaps-api`](/developers/packages/foundation/swaps-api) package wraps these endpoints with one method each (`getQuote`, `createIntent`, `submitTx`, `getSubmitTxStatus` and the rest). It validates every response at runtime, converts unsigned transactions back to domain types, throws a single `SwapsApiError` with endpoint and status context, and retries idempotent reads and quotes on transient faults. It depends only on `@sodax/types` and `valibot`: no `@sodax/sdk`, no viem, no wallet providers.
+
+## API vs SDK vs widget
+
+All three reach the same SODAX execution and liquidity. Pick by how much you want to own.
+
+| | Swaps API | SDK | Swap widget |
+|---|---|---|---|
+| Language | Anything that speaks HTTP | TypeScript | None, it is an iframe |
+| Signing | Your infrastructure | Wallet providers in the SDK stack | The user's wallet, inside the widget |
+| Best for | Backends, bots, exchanges, custodial flows, non-JS stacks | TypeScript dapps that want wallet and React layers | Adding swaps to a product page fast |
+
+If your stack is TypeScript and you want wallet connection handled, the SDK is the shorter path. If you want a swap on a page today with nothing to maintain, use the [swap widget](/widget). Everywhere else, the API is the direct route.
+
+## Go further
+
+<CardGroup cols={2}>
+  <Card title="Swagger reference" icon="code" href="https://api.sodax.com/v1/swaps/docs">
+    Every endpoint, request schema and example, live against production.
+  </Card>
+  <Card title="Swaps API docs" icon="book" href="/developers/http-api/swaps">
+    Status fields, failure handling, limit orders and the full endpoint catalog.
+  </Card>
+  <Card title="Go demo" icon="github" href="https://github.com/gosodax/swap-api-demo">
+    A complete Solana swap over plain HTTP with local signing.
+  </Card>
+  <Card title="SODAX API overview" icon="globe" href="https://sodax.com/partners/sodax-api">
+    Supported networks, assets and integration paths.
+  </Card>
+</CardGroup>

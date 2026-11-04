@@ -1,4 +1,10 @@
-import { SodaxError, SPONSOR_CONFIG_TTL_MS, type StellarSponsorConfig } from '@sodax/sdk';
+import {
+  SodaxError,
+  SPONSOR_CONFIG_TTL_MS,
+  type Result,
+  type SponsoringConfigError,
+  type StellarSponsorConfig,
+} from '@sodax/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { getSponsorConfigQueryOptions } from './useSponsorConfig.js';
 
@@ -15,7 +21,7 @@ const CONFIG: StellarSponsorConfig = {
   requiredStartingBalance: '0',
 };
 
-const makeSodax = (result: { ok: true; value: StellarSponsorConfig } | { ok: false; error: SodaxError }) => {
+const makeSodax = (result: Result<StellarSponsorConfig, SponsoringConfigError>) => {
   const getStellarSponsorConfig = vi.fn(async () => result);
   return { sodax: { sponsoring: { getStellarSponsorConfig } }, getStellarSponsorConfig };
 };

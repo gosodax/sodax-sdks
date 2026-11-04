@@ -1,7 +1,8 @@
 // packages/dapp-kit/src/hooks/dex/useDexWithdraw.ts
-import type { AssetWithdrawAction, SpokeChainKey, TxHashPair } from '@sodax/sdk';
+import type { AssetWithdrawAction, SpokeChainKey, OutboundSettlement } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
@@ -17,26 +18,27 @@ export type UseDexWithdrawVars<K extends SpokeChainKey = SpokeChainKey> = Omit<A
  * React hook for withdrawing an asset from a DEX pool.
  *
  * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
+ * `onError`, `retry`). Returns the unwrapped {@link OutboundSettlement} on success: a tx pair, or
+ * from Tron the relay's `trackingId` beside the destination tx.
  */
 export function useDexWithdraw<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
-}: MutationHookParams<TxHashPair, UseDexWithdrawVars<K>> = {}): SafeUseMutationResult<
-  TxHashPair,
+}: MutationHookParams<OutboundSettlement<K>, UseDexWithdrawVars<K>> = {}): SafeUseMutationResult<
+  OutboundSettlement<K>,
   Error,
   UseDexWithdrawVars<K>
 > {
   const { sodax } = useSodaxContext();
   const queryClient = useQueryClient();
 
-  return useSafeMutation<TxHashPair, Error, UseDexWithdrawVars<K>>({
+  return useSafeMutation<OutboundSettlement<K>, Error, UseDexWithdrawVars<K>>({
     mutationKey: ['dex', 'withdraw'],
     ...mutationOptions,
     mutationFn: async vars => unwrapResult(await sodax.dex.assetService.withdraw({ ...vars, raw: false })),
     onSuccess: async (data, vars, ctx) => {
       const { params } = vars;
       queryClient.invalidateQueries({ queryKey: ['dex', 'poolBalances', params.srcChainKey, params.srcAddress] });
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', params.srcChainKey] });
+      invalidateBalances(queryClient, params.srcChainKey);
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },
   });

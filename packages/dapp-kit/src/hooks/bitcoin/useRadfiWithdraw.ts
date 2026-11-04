@@ -3,6 +3,7 @@ import { normalizePsbtToBase64, ChainKeys, type IBitcoinWalletProvider } from '@
 import { useQueryClient } from '@tanstack/react-query';
 import { loadRadfiSession } from './useRadfiAuth.js';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 
@@ -60,7 +61,7 @@ export function useRadfiWithdraw({
     onSuccess: async (data, vars, ctx) => {
       queryClient.invalidateQueries({ queryKey: ['bitcoin', 'tradingWalletBalance'] });
       queryClient.invalidateQueries({ queryKey: ['bitcoin', 'balance'] });
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', ChainKeys.BITCOIN_MAINNET] });
+      invalidateBalances(queryClient, ChainKeys.BITCOIN_MAINNET);
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },
   });

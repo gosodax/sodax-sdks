@@ -1,5 +1,6 @@
 // packages/dapp-kit/src/hooks/bridge/useBridge.ts
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { BridgeParams, SpokeChainKey, TxHashPair } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import type { MutationHookParams } from '../shared/types.js';
@@ -30,8 +31,7 @@ export function useBridge<K extends SpokeChainKey = SpokeChainKey>({
     ...mutationOptions,
     mutationFn: async vars => unwrapResult(await sodax.bridge.bridge({ ...vars, raw: false })),
     onSuccess: async (data, vars, ctx) => {
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', vars.params.srcChainKey] });
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', vars.params.dstChainKey] });
+      invalidateBalances(queryClient, vars.params.srcChainKey, vars.params.dstChainKey);
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },
   });

@@ -1,0 +1,77 @@
+---
+title: "SODAX for Ethereum"
+sidebarTitle: "Overview"
+description: "Reach the users and liquidity of every SODAX network from your Ethereum product. No contracts to deploy, your entire integration is TypeScript."
+icon: ethereum
+---
+
+<Note>
+  **No new contracts.** SODAX's Ethereum spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary Ethereum transactions, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+You keep shipping on Ethereum. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## What to know on Ethereum
+
+Ethereum is a standard EVM network to SODAX: the same `EvmWalletProvider`, the same ERC-20 approvals, and the same intent flow as every other EVM network. ETH is the native token and needs no approval. One token behaves differently:
+
+- **USDT can take two approval transactions.** Ethereum USDT rejects an allowance change from one non-zero value to another. When a wallet already holds a stale USDT allowance, the SDK's `approve` sends `approve(0)` first, waits for it to be mined, then sends the real approval, so the user signs twice. See [Approvals](/ethereum/swaps#approvals).
+
+## What you can build
+
+Two SODAX modules are relevant to Ethereum builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/ethereum/swaps">
+    Intent-based cross-network swaps. Users swap between ETH or ERC-20 tokens and assets on any supported network with one signed transaction on Ethereum. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/ethereum/money-market">
+    Cross-network lending and borrowing. Supply from Ethereum, borrow to Ethereum or any other supported network, and manage positions without running lending infrastructure.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/ethereum/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/ethereum/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/ethereum/quickstart): install the SDK, connect an Ethereum account, make your first cross-network swap.
+- [Swaps on Ethereum](/ethereum/swaps): approvals (including USDT), quoting, fees, and gas estimates.
+- [Money Market on Ethereum](/ethereum/money-market): supply, borrow, repay, and withdraw with cross-network collateral.
+- [Wallets](/ethereum/wallets): EVM wallets on Ethereum, and every other network's wallets through one interface.
+- [Networks & Assets](/ethereum/networks-and-assets): what is live on Ethereum today and what your users can reach.
+- [Ethereum FAQ](/ethereum/faq): the questions Ethereum engineers actually ask.
+
+## Ethereum references
+
+- [**Ethereum developer docs**](https://ethereum.org/developers/docs/): accounts, transactions, and the EVM.
+- [**Gas and fees**](https://ethereum.org/developers/docs/gas/): how Ethereum prices the transactions your users sign.
+- [**Etherscan**](https://etherscan.io/): the Ethereum mainnet explorer, for checking transactions and allowances.
+
+---
+
+Building something? Start with the [Quickstart](/ethereum/quickstart).

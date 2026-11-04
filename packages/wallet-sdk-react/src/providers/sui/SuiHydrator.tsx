@@ -1,19 +1,32 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { useCurrentAccount, useCurrentWallet, useSuiClient, useWallets } from '@mysten/dapp-kit';
+import {
+  getWalletUniqueIdentifier,
+  useCurrentAccount,
+  useCurrentClient,
+  useCurrentWallet,
+  useDAppKit,
+  useWallets,
+} from '@mysten/dapp-kit-react';
+import { Transaction } from '@mysten/sui/transactions';
 import { SuiWalletProvider } from '@sodax/wallet-sdk-core';
-import { ChainKeys } from '@sodax/types';
+import { ChainKeys, type SuiTransaction } from '@sodax/types';
 import { SuiXService, SuiXConnector } from '@/xchains/sui/index.js';
 import { useXWalletStore } from '@/useXWalletStore.js';
 import { useWalletConfig } from '@/context/WalletConfigContext.js';
 import { getEntryDefaults } from '@/utils/walletRpcConfig.js';
-import { assertSuiProviderShape } from '@/shared/guards.js';
+
+type SuiHydratorProps = {
+  /** Resolved by SuiProvider so the endpoint is decided in exactly one place. */
+  grpcUrl: string;
+};
 
 /**
- * Hydrates SUI state from @mysten/dapp-kit hooks into SuiXService singleton and store.
+ * Hydrates SUI state from @mysten/dapp-kit-react hooks into SuiXService singleton and store.
  */
-export const SuiHydrator = (): null => {
-  const suiClient = useSuiClient();
-  const { currentWallet } = useCurrentWallet();
+export const SuiHydrator = ({ grpcUrl }: SuiHydratorProps): null => {
+  const dAppKit = useDAppKit();
+  const suiClient = useCurrentClient();
+  const currentWallet = useCurrentWallet();
   const suiAccount = useCurrentAccount();
   const suiWallets = useWallets();
   const setXConnection = useXWalletStore(state => state.setXConnection);
@@ -23,7 +36,7 @@ export const SuiHydrator = (): null => {
   const suiDefaults = getEntryDefaults<typeof ChainKeys.SUI_MAINNET>(walletConfig.SUI?.chains?.[ChainKeys.SUI_MAINNET]);
 
   // Sync dapp-kit values into the SuiXService singleton in a single effect.
-  // The singleton is read by SuiXService.createWalletProvider() and balance methods.
+  // The singleton is read by SuiXService balance methods.
   useEffect(() => {
     const service = SuiXService.getInstance();
     if (suiClient) service.suiClient = suiClient;
@@ -46,8 +59,7 @@ export const SuiHydrator = (): null => {
       wasConnectedRef.current = true;
       setXConnection('SUI', {
         xAccount: { address: suiAccount.address, xChainType: 'SUI' },
-        // Match SuiXConnector.id derivation: prefer Wallet Standard `id`, fall back to `name`.
-        xConnectorId: currentWallet.id ?? currentWallet.name,
+        xConnectorId: getWalletUniqueIdentifier(currentWallet),
       });
     } else if (wasConnectedRef.current) {
       wasConnectedRef.current = false;
@@ -59,23 +71,18 @@ export const SuiHydrator = (): null => {
   // render, before the useEffect that syncs values into the singleton. Reading from the
   // singleton here would use stale fields from the previous render.
   const walletProvider = useMemo(() => {
-    if (suiClient && currentWallet && suiAccount) {
-      assertSuiProviderShape('SuiHydrator', suiClient, currentWallet, suiAccount);
-
-      // @mysten/dapp-kit and wallet-sdk-core may resolve different @mysten/sui versions.
-      // The types are structurally identical but nominally different.
-      // `as unknown as T` documents a known, intentional version-mismatch cast —
-      // unlike `as any`, it doesn't silence unrelated type errors.
-      type SuiWalletProviderConfig = ConstructorParameters<typeof SuiWalletProvider>[0];
-      return new SuiWalletProvider({
-        client: suiClient,
-        wallet: currentWallet,
-        account: suiAccount,
-        defaults: suiDefaults,
-      } as unknown as SuiWalletProviderConfig);
-    }
-    return undefined;
-  }, [suiClient, currentWallet, suiAccount, suiDefaults]);
+    if (!suiAccount) return undefined;
+    return new SuiWalletProvider({
+      grpcUrl,
+      address: suiAccount.address,
+      // Shape adapter only: dApp Kit's signer is options-shaped, ours is positional. The
+      // provider has already built the transaction against its client by this point, and
+      // `account` is named so the wallet cannot sign with a different connected account.
+      signTransaction: async (txn: SuiTransaction) =>
+        dAppKit.signTransaction({ transaction: Transaction.from(await txn.toJSON()), account: suiAccount }),
+      defaults: suiDefaults,
+    });
+  }, [dAppKit, grpcUrl, suiAccount, suiDefaults]);
 
   useEffect(() => {
     setWalletProvider('SUI', walletProvider);

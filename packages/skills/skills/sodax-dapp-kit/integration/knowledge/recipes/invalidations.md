@@ -58,14 +58,16 @@ Each feature mutation hook invalidates the related read keys. Common patterns:
 
 | Mutation | Invalidates |
 |---|---|
-| `useSwap` | `['shared', 'xBalances', srcChainKey]`, `['shared', 'xBalances', dstChainKey]` |
-| `useBridge` | Same as `useSwap` (xBalances on both chains). |
-| `useSupply`, `useWithdraw`, `useBorrow`, `useRepay` | `['mm', 'userReservesData']`, `['shared', 'xBalances', srcChainKey]`, plus reserves data on the affected token. |
-| `useStake`, `useUnstake`, `useClaim`, `useCancelUnstake`, `useInstantUnstake` | `['staking', 'info']`, `['staking', 'unstakingInfo']`, `['shared', 'xBalances', srcChainKey]`. |
-| `useDexDeposit`, `useDexWithdraw` | `['dex', 'poolBalances']`, `['shared', 'xBalances', srcChainKey]`. |
+| `useSwap` | `invalidateBalances(queryClient, srcChainKey, dstChainKey)` |
+| `useBridge` | Same as `useSwap` (balances on both chains). |
+| `useSupply`, `useWithdraw`, `useBorrow`, `useRepay` | `['mm', 'userReservesData']`, `invalidateBalances(queryClient, srcChainKey)`, plus reserves data on the affected token. |
+| `useStake`, `useUnstake`, `useClaim`, `useCancelUnstake`, `useInstantUnstake` | `['staking', 'info']`, `['staking', 'unstakingInfo']`, `invalidateBalances(queryClient, srcChainKey)`. |
+| `useDexDeposit`, `useDexWithdraw` | `['dex', 'poolBalances']`, `invalidateBalances(queryClient, srcChainKey)`. |
 | `useSupplyLiquidity`, `useDecreaseLiquidity`, `useClaimRewards` | `['dex', 'positionInfo', tokenId]`, `['dex', 'poolBalances']`. |
-| `useMigrateIcxToSoda`, etc. | `['shared', 'xBalances']` for source + destination chains. |
+| `useMigrateIcxToSoda`, etc. | `invalidateBalances(queryClient, …)` for source + destination chains. |
 | Approve hooks (`useSwapApprove`, etc.) | The corresponding allowance read (`['swap', 'allowance']`, etc.). |
+
+`invalidateBalances(queryClient, ...chainKeys)` is exported from `@sodax/dapp-kit`; it invalidates BOTH `['shared','balances', chainKey]` (`useBalances`) and `['shared','xBalances', chainKey]` (`useXBalances`), skipping `undefined` and collapsing duplicates. React Query matches keys element-wise, so one never matches the other — hand-rolling a single key leaves the other hook stale. Use the helper in your own mutations too.
 
 The exact keys are derived from `vars` at success time — so a successful supply on Base only invalidates Base-side reserves, not Arbitrum's.
 

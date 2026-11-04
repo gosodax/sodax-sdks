@@ -77,16 +77,19 @@ function stubToncenter(opts: { baselineLt?: string; txs?: unknown[] } = {}) {
       } else if (method === 'getAddressBalance') {
         result = '1500000000';
       }
+      // The service reads only `ok`, `status` and `json`; a full Response has nothing more to offer a test.
       return { ok: true, status: 200, json: async () => ({ ok: true, result }) } as unknown as Response;
     }),
   );
 }
 
+type SentMessage = { messages: { address: string; amount: string; payload: string }[] };
+const sendTransaction = vi.fn(async (_tx: SentMessage) => undefined);
 const walletProvider = {
   chainType: 'TON',
   getWalletAddress: vi.fn(async () => PUBKEY),
   getAccountAddress: vi.fn(async () => SENDER_ADDRESS),
-  sendTransaction: vi.fn(async () => undefined),
+  sendTransaction,
   signMessage: vi.fn(async () => ({
     signature: `0x${'ef'.repeat(64)}` as Hex,
     workchain: 0,
@@ -109,10 +112,11 @@ const depositParams = (token: string, extra: object = {}) =>
     ...extra,
   }) as never;
 
-const sentMessage = () =>
-  vi.mocked(walletProvider.sendTransaction).mock.calls[0]?.[0] as unknown as {
-    messages: { address: string; amount: string; payload: string }[];
-  };
+const sentMessage = (): SentMessage => {
+  const sent = sendTransaction.mock.calls[0]?.[0];
+  if (!sent) throw new Error('no TonConnect transaction was sent');
+  return sent;
+};
 
 beforeEach(() => {
   calls = [];
@@ -203,7 +207,7 @@ describe('TonSpokeService.deposit', () => {
     expect(await pending).toBe(`0x${'cd'.repeat(32)}`);
     const baselineCall = calls.findIndex(c => c.method === 'getTransactions' && c.params.limit === 1);
     expect(baselineCall).toBeGreaterThanOrEqual(0);
-    expect(vi.mocked(walletProvider.sendTransaction).mock.invocationCallOrder[0]).toBeGreaterThan(0);
+    expect(sendTransaction.mock.invocationCallOrder[0]).toBeGreaterThan(0);
   });
 
   it('returns the unsigned message in raw mode, sent from the key wallet-v4R2 address', async () => {
@@ -212,7 +216,7 @@ describe('TonSpokeService.deposit', () => {
     const raw = await ton.deposit({ ...(depositParams(NATIVE_TON) as object), raw: true } as never);
 
     expect(raw).toMatchObject({ from: tonWalletAddress(PUBKEY).toString(), value: 2_000_000n, token: NATIVE_TON });
-    expect(vi.mocked(walletProvider.sendTransaction)).not.toHaveBeenCalled();
+    expect(sendTransaction).not.toHaveBeenCalled();
   });
 
   it('refuses an address-mode relay response and a hub wallet that disagrees with the relay', async () => {
@@ -232,19 +236,75 @@ describe('TonSpokeService.deposit', () => {
     await expect(
       ton.deposit(depositParams(NATIVE_TON, { to: '0x9999999999999999999999999999999999999999' })),
     ).rejects.toThrow(/relay derives hub wallet/);
-    expect(vi.mocked(walletProvider.sendTransaction)).not.toHaveBeenCalled();
+    expect(sendTransaction).not.toHaveBeenCalled();
   });
 
-  it('keeps the reserve tx hash in the error when the relay cannot be notified', async () => {
+  it('still resolves to the reserve tx hash when the relay cannot be notified, leaving the re-notify to settlement', async () => {
     vi.useFakeTimers();
     stubToncenter({ txs: [nativeTx('200', MEMO)] });
     vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
 
-    const pending = ton.deposit(depositParams(NATIVE_TON)).catch((error: Error) => error);
+    const pending = ton.deposit(depositParams(NATIVE_TON));
     await vi.runAllTimersAsync();
-    const failure = await pending;
 
-    expect((failure as Error).message).toContain(`0x${'cd'.repeat(32)} landed but the relay was not notified`);
+    // The funds already landed on the reserve: the hash is what settlement waits on and re-notifies.
+    expect(await pending).toBe(`0x${'cd'.repeat(32)}`);
+    expect(vi.mocked(MpcRelayApiService.notify).mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+describe('TonSpokeService — relay submit and read', () => {
+  const HASH = `0x${'cd'.repeat(32)}`;
+  const HUB_RELEASE = { dstChainKey: 'ton', hubChainId: '146', hubTxHash: '0xhub', logIndex: 3 } as const;
+
+  it('submitDeposit notifies the relay on the TON relay id, without polling', async () => {
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit');
+
+    expect(await ton.submitDeposit(HASH)).toEqual({ ok: true, value: undefined });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', HASH);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it('submitDeposit keeps the tx hash in the failure so the deposit can be re-notified', async () => {
+    vi.useFakeTimers();
+    vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
+
+    const pending = ton.submitDeposit(HASH);
+    await vi.runAllTimersAsync();
+    const result = await pending;
+
+    expect(!result.ok && (result.error as Error).message).toContain(`deposit ${HASH} was not notified`);
+  });
+
+  it('submitHubRelease notifies the hub tx as a withdrawal on the hub chain id', async () => {
+    expect(await ton.submitHubRelease(HUB_RELEASE)).toEqual({ ok: true, value: undefined });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '146', '0xhub', 'withdrawal');
+  });
+
+  it('reads a deposit, a withdrawal and a hub release once each, notifying nothing', async () => {
+    const record = { ok: true as const, value: { depositId: 'id', status: 'pending' as const, createdAt: 0, txs: {} } };
+    const read = vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(record);
+    vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: '0xtrack', status: 'submitted' },
+    });
+
+    expect(await ton.getDepositRecord(HASH)).toEqual(record);
+    expect(read.mock.calls[0]?.[1]).toBe(`607-${HASH}-0`);
+    expect(await ton.getHubReleaseRecord(HUB_RELEASE)).toEqual(record);
+    expect((await ton.getWithdrawalRecord('0xtrack')).ok).toBe(true);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
+  it('waitForWithdrawal passes the stage to stop on through to the relay poll', async () => {
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: '0xtrack', status: 'burned' },
+    });
+
+    await ton.waitForWithdrawal('0xtrack', undefined, 'burned');
+
+    expect(wait).toHaveBeenCalledWith(expect.anything(), '0xtrack', expect.objectContaining({ until: 'burned' }));
   });
 });
 

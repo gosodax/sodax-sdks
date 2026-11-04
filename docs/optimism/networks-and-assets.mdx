@@ -1,0 +1,69 @@
+---
+title: "Optimism: Networks & Assets"
+description: "What is live on Optimism today, and the networks and assets your users can reach from it."
+icon: coins
+---
+
+Optimism is a spoke network in the SODAX System. User funds stay on Optimism; the hub (Sonic) coordinates execution, and solvers settle against deep native liquidity on each network rather than isolated bridge pools.
+
+There are two asset lists to keep straight, and the difference is the point of SODAX:
+
+- **Assets on Optimism**: the <span data-sodax-config="count" data-metric="chain-swap-tokens" data-chain="0xa.optimism">9</span> assets that live on Optimism itself, ETH and ERC-20 tokens. These are what your users hold, send, and receive on Optimism; the entry and exit points of any Optimism-side flow.
+- **Assets across the SODAX System**: <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets across all supported networks. Every one of them is a valid swap destination or collateral source for your Optimism users, because every SODAX action is cross-network by default.
+
+A user holding ETH on Optimism is not limited to the Optimism-side list. They can swap it into USDC on Base, SOL on Solana, or any other listed asset on any network, in one signed transaction. The on-Optimism assets are simply where those journeys start and end on your side.
+
+Every count and list below is read live from the backend config API, `GET https://api.sodax.com/v2/be/config/all`, so it reflects what the backend serves today rather than what an SDK release has listed.
+
+## Assets on Optimism
+
+Live for swaps on Optimism:
+
+<div data-sodax-config="swap-tokens" data-chain="0xa.optimism">
+  Live token list loads from the config API. If it has not appeared, read `config.swaps.supportedTokens["0xa.optimism"]` from [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all), or use the SDK call below.
+</div>
+
+Live in the [Money Market](/optimism/money-market) for supply, borrow, repay, and withdraw:
+
+<div data-sodax-config="money-market-tokens" data-chain="0xa.optimism">
+  Live token list loads from the config API: `config.moneyMarket.supportedTokens["0xa.optimism"]` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+</div>
+
+The two lists overlap but differ: some tokens are swap-only and some are money-market-only, so check the list for the action you are building.
+
+Addresses are standard ERC-20 contract addresses on OP Mainnet; ETH uses the zero address. More than one contract on Optimism can report the same symbol (two report `USDC`), and SODAX supports only the address in its list, so match tokens by address, not by symbol. The SODAX USDC on Optimism is Circle's native USDC, the address Circle lists for [OP Mainnet](https://developers.circle.com/stablecoins/usdc-contract-addresses).
+
+Hub vault addresses per asset are listed in [Swaps: Compatible Assets](/developers/deployments/swaps-compatible-assets).
+
+## Assets your users can reach
+
+From an Optimism-sourced action, users can trade, lend, and borrow across every SODAX-supported network:
+
+<div data-sodax-config="chains">
+  Live network list loads from the config API: `config.chains` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+</div>
+
+Chain identifiers come from `ChainKeys.*` in the SDK (`ChainKeys.OPTIMISM_MAINNET` = `'0xa.optimism'`), and the live chain list from `sodax.config.getSupportedSpokeChains()`. Prefer the config call over hard-coding: networks are added over time.
+
+## Asset discovery in code
+
+Never hard-code token addresses or asset lists; read them from the SDK config at runtime:
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// Swappable assets on Optimism
+const swapTokens = sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.OPTIMISM_MAINNET);
+
+// Money market assets on Optimism
+const mmTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.OPTIMISM_MAINNET);
+```
+
+These lists ship with the SDK package, so a token the backend has added since your SDK release appears in the live tables above before it appears here.
+
+---
+
+- All deployment addresses by network: [Mainnet Deployments](/developers/deployments/mainnet)
+- The full cross-network asset directory: [sodax.com/partners/asset-directory](https://sodax.com/partners/asset-directory)

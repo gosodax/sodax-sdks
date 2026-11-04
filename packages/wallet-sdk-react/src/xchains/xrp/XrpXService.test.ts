@@ -14,6 +14,7 @@ const token = (over: Partial<XToken>): XToken =>
     chainKey: 'xrp',
     name: 'XRP',
     ...over,
+    // A spread `Partial<XToken>` widens the literal fields, so the fixture is asserted back to `XToken`.
   }) as unknown as XToken;
 
 const XRP_TOKEN = token({});
@@ -32,6 +33,7 @@ function stubRippled(responses: Record<string, unknown>) {
     vi.fn(async (url: string, init: { body: string }) => {
       const { method, params } = JSON.parse(init.body) as { method: string; params: [Record<string, unknown>] };
       calls.push({ url, method, params: params[0] });
+      // Only `json()` is read, so a partial stands in for the full fetch Response.
       return { json: async () => ({ result: responses[method] }) } as unknown as Response;
     }),
   );

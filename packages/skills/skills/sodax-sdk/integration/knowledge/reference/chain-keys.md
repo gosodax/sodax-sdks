@@ -1,6 +1,6 @@
 # Chain keys
 
-21 supported chains. The `ChainKey` type is the union of every `ChainKeys.*` value. **`SpokeChainKey` is the same union — it includes Sonic.** The "spoke" naming refers to how feature services type their `srcChainKey` parameter (they accept the hub too — bridge / swap / staking etc. all run from Sonic as source via the hub-wallet abstraction). When you specifically need "EVM chains excluding the hub" use `EVM_SPOKE_ONLY_CHAIN_KEYS` / `isEvmSpokeOnlyChainKeyType`.
+The `ChainKey` type is the union of every `ChainKeys.*` value — the table below is the full set. **`SpokeChainKey` is the same union — it includes Sonic.** The "spoke" naming refers to how feature services type their `srcChainKey` parameter (they accept the hub too — bridge / swap / staking etc. all run from Sonic as source via the hub-wallet abstraction). When you specifically need "EVM chains excluding the hub" use `EVM_SPOKE_ONLY_CHAIN_KEYS` / `isEvmSpokeOnlyChainKeyType`.
 
 | `ChainKeys.*` | String value | Family | Hub vs spoke | Address type |
 |---|---|---|---|---|
@@ -19,6 +19,7 @@
 | `HEDERA_MAINNET` | `'hedera'` | EVM | spoke | `0x${string}` |
 | `MONAD_MAINNET` | `'monad'` | EVM | spoke (MPC relay) | `0x${string}` |
 | `TON_MAINNET` | `'ton'` | TON | spoke (MPC relay) | 32-byte ed25519 public key `0x${string}` (not a TON address) |
+| `ROBINHOOD_MAINNET` | `'robinhood'` | EVM | spoke | `0x${string}` |
 | `SOLANA_MAINNET` | `'solana'` | SOLANA | spoke | base58 PublicKey string |
 | `SUI_MAINNET` | `'sui'` | SUI | spoke | `0x${string}` (32-byte) |
 | `STELLAR_MAINNET` | `'stellar'` | STELLAR | spoke | `G…` |
@@ -27,6 +28,7 @@
 | `NEAR_MAINNET` | `'near'` | NEAR | spoke | `<account>.near` / `<hex>` |
 | `STACKS_MAINNET` | `'stacks'` | STACKS | spoke | `SP…` / `ST…` |
 | `BITCOIN_MAINNET` | `'bitcoin'` | BITCOIN | spoke | `bc1…` / `1…` / `3…` |
+| `TRON_MAINNET` | `'tron'` | TRON | spoke | `T…` (base58check) |
 
 ### Notes
 
@@ -38,9 +40,9 @@
 
 | Type | What it is |
 |---|---|
-| `ChainKey` | Union of all `ChainKeys.*` values (21 chains). |
-| `SpokeChainKey` | Same union as `ChainKey` — includes Sonic (21 chains). For "EVM chains excluding the hub" use `EvmSpokeOnlyChainKey`. |
-| `EvmChainKey` | Subset of `ChainKey` for the 13 EVM chains. |
+| `ChainKey` | Union of all `ChainKeys.*` values. |
+| `SpokeChainKey` | Same union as `ChainKey` — includes Sonic. For "EVM chains excluding the hub" use `EvmSpokeOnlyChainKey`. |
+| `EvmChainKey` | Subset of `ChainKey` for the EVM chains. |
 | `HubChainKey` | The literal `'sonic'`. |
 
 ### Chain-family helpers
@@ -57,6 +59,7 @@ import {
   isStacksChainKeyType,
   isNearChainKeyType,
   isBitcoinChainKeyType,
+  isTronChainKeyType,
   isHubChainKeyType,
 } from '@sodax/sdk';
 ```

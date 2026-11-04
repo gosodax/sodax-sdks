@@ -14,13 +14,13 @@
     "frontend",
     "interface"
   ],
-  "homepage": "https://github.com/icon-project/sodax-sdks/tree/main/packages/wallet-sdk-core",
+  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/wallet-sdk-core",
   "bugs": {
-    "url": "https://github.com/icon-project/sodax-sdks/issues"
+    "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/icon-project/sodax-sdks"
+    "url": "https://github.com/gosodax/sodax-sdks"
   },
   "type": "module",
   "main": "./dist/index.cjs",
@@ -39,7 +39,7 @@
     }
   },
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=22.12.0"
   },
   "files": [
     "dist",
@@ -47,13 +47,13 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node ../../scripts/verify-dist-exports.mjs",
     "test": "vitest run --exclude ./src/tests/e2e",
     "test:e2e": "vitest run --passWithNoTests ./src/tests/e2e",
     "coverage": "vitest run --coverage",
     "dev": "tsup --watch",
     "ci": "pnpm run pretty && pnpm run build && pnpm run test",
-    "checkTs": "tsc --noEmit",
+    "checkTs": "tsc --noEmit && node ../../scripts/check-tests-typechecked.mjs",
     "pretty": "biome format . --write",
     "lint": "biome lint . --write",
     "check-exports": "attw --pack",
@@ -69,7 +69,6 @@
     "@injectivelabs/ts-types": "catalog:",
     "@injectivelabs/wallet-core": "catalog:",
     "@mysten/sui": "catalog:",
-    "@mysten/wallet-standard": "catalog:",
     "@sodax/libs": "workspace:*",
     "@sodax/types": "workspace:*",
     "@solana/spl-token": "catalog:",

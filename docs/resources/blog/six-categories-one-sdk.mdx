@@ -1,0 +1,123 @@
+---
+title: "One SDK, more than swaps"
+sidebarTitle: "One SDK, more than swaps"
+icon: cubes
+description: "Swaps, a money market, leveraged liquid-staking vaults, tokenized stocks and limit orders from one SDK. Keep your users on their own network and give them markets that do not exist there."
+---
+
+Most cross-network SDKs do one thing: they move a token from network A to network B. `@sodax/sdk` gives you more than swaps.
+
+One `Sodax` instance gives your app swaps, a money market, leveraged liquid-staking vaults, tokenized stocks and limit orders. Your users call them from the network they already use, with the wallet they already have, without leaving your app.
+
+## The idea: keep users on their own network
+
+Picture a Sui app. Its users hold SUI and USDC on Sui. They want leveraged ETH or leveraged SOL exposure. Today the usual answer is "bridge to another chain, find a protocol there, come back later." Most users never make that trip, and the ones who do leave your app to make it.
+
+With SODAX, the Sui app calls the SDK with `srcChainKey: ChainKeys.SUI_MAINNET`, the user signs with their Sui wallet, and the position opens. The vault does not need to live on Sui. Your users stay on Sui and still get these assets in a leverage loop.
+
+That works because of how SODAX is built.
+
+## Hub and spoke, in one paragraph
+
+Sonic is the hub: the money market, the vaults and the intent contracts all live there. Every other network is a spoke that holds assets locally and reaches the hub through relayed messages, so a user on Sui gets the full feature set without any of those contracts existing on Sui. The companion article, [Hub and spoke: how SODAX works](/resources/blog/hub-and-spoke), walks through it end to end.
+
+Every category below rides on that same architecture, which is why one SDK can offer all of them everywhere.
+
+```typescript
+import { Sodax } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+sodax.swaps;         // swaps, tokenized stocks, limit orders
+sodax.moneyMarket;   // supply, borrow, repay, withdraw
+sodax.leverageYield; // leveraged LST vaults and leverage positions
+```
+
+## Swaps
+
+Intent-based swaps between any two supported networks. You quote with `sodax.swaps.getQuote()`, then call `sodax.swaps.swap()`, which creates the intent on the source network, relays it to the hub and returns once it is submitted for execution. Routing goes through the SODAX liquidity layer, and every DEX connected to it adds more depth to the quotes your users see.
+
+**Entry point:** `sodax.swaps.swap(params)` and `sodax.swaps.getQuote(request)`. React apps can use the dapp-kit swap hooks.
+
+## Money markets
+
+One money market on the hub, reachable from every spoke. A user can supply collateral on one network and borrow on another: `borrow` accepts an optional `dstChainKey` and `dstAddress`, so borrowed funds can land on a different network from the one the user signed on.
+
+**Entry point:** `sodax.moneyMarket.supply()`, `borrow()`, `repay()` and `withdraw()`, each with a `create*Intent` variant for manual relay control.
+
+```typescript
+const result = await sodax.moneyMarket.borrow({
+  params: {
+    srcChainKey: ChainKeys.SUI_MAINNET,
+    srcAddress: suiAddress,
+    token: '0x...',
+    amount: 1_000n,
+    action: 'borrow',
+    dstChainKey: ChainKeys.ARBITRUM_MAINNET, // optional: deliver elsewhere
+    dstAddress: '0x...',
+  },
+  walletProvider: suiWalletProvider,
+});
+```
+
+## Liquid-staking vaults
+
+Leverage-yield vaults are ERC-4626 vaults on the hub. Each one holds a liquid staking token, borrows a correlated asset against it and loops back into more of the LST up to a target loan to value. The registry spans ETH, SOL and stablecoin collateral vaults, such as `lsodaWEETH`, `lsodaWSTETH`, `lsodaJITOSOL` and `lsodaSUSDS`.
+
+This is the category behind the Sui example. Entering a vault is an ordinary intent-based swap from any supported token into the vault's `lsoda*` share token, and `deposit()` routes by the user's `srcChainKey`. A Sui user can put Sui-side funds into `lsodaWEETH` or `lsodaJITOSOL`, and `withdraw()` swaps the shares back into any supported token on any network.
+
+**Entry point:** `sodax.leverageYield.listVaults()`, `getQuote()`, `deposit()`, `withdraw()` and `vaultSwap()`.
+
+```typescript
+const vault = sodax.leverageYield.getVault('lsodaJITOSOL');
+if (!vault) throw new Error('Unknown vault');
+
+const payload = await sodax.leverageYield.deposit({
+  vault: vault.vault,
+  srcChainKey: ChainKeys.SUI_MAINNET,
+  srcAddress: suiAddress,
+  inputToken: suiUsdc,
+  inputAmount: 100_000_000n,     // input token decimals
+  minOutputAmount: quotedShares, // from getQuote, minus slippage
+});
+if (!payload.ok) throw payload.error;
+
+const result = await sodax.leverageYield.vaultSwap({
+  ...payload.value,
+  walletProvider: suiWalletProvider,
+});
+```
+
+The same module also offers per-owner leverage positions through `openLeveragePosition()`, for apps that want each user at their own leverage tier instead of a pooled vault. Driving positions from a spoke network is marked experimental in the docs, so the pooled vaults are the place to start for a cross-network product today.
+
+<Note>
+  Leverage multiplies yield and risk together. `getPosition()` returns live health factor and LTV, and `getEffectiveApr()` returns the vault's current effective APR. Surface both in your UI.
+</Note>
+
+## Tokenized stocks
+
+Tokenized equities (xStocks) quote and execute as any other swap asset, so a stock is one `swap()` away for users on any supported network. The SDK flags real-world assets in its token registry: `XToken.isRwa === true` marks a registered tokenized stock, ETF or commodity, and `isRealWorldAsset({ chainKey, address })` resolves the flag for tokens that come from an API.
+
+**Entry point:** `sodax.swaps.swap()`, with `getSupportedSolverTokens(chainKey)` and `isRealWorldAsset()` to build a stocks tab.
+
+```typescript
+import { ChainKeys, getSupportedSolverTokens, isRealWorldAsset } from '@sodax/sdk';
+
+const stocks = getSupportedSolverTokens(ChainKeys.SOLANA_MAINNET).filter(isRealWorldAsset);
+```
+
+## Limit orders
+
+A limit order is a swap intent with `deadline = 0n`. It stays open until it can be filled at your `minOutputAmount` or the creator cancels it. SODAX has supported them for about eight months, across the same networks as swaps.
+
+**Entry point:** `sodax.swaps.createLimitOrder()` and `sodax.swaps.cancelLimitOrder()`, plus `useCreateLimitOrder` and `useCancelLimitOrder` in dapp-kit. The [companion article on limit orders](/resources/blog/limit-orders) has the full walkthrough, and the [Swaps module docs](/developers/packages/foundation/sdk/functional-modules/swaps) have the reference.
+
+## One integration, every network
+
+The surface is consistent across categories. Every module takes a `srcChainKey` and a wallet provider for that network, returns a `Result` you check with `result.ok`, and accepts a partner fee configured once in the `Sodax` constructor. Once your app has wired up swaps for its users' network, adding a money market tab, a vault or a limit order screen reuses the same wallet provider, the same error handling and the same status polling.
+
+That is the real pitch. Your users stay on their own network, and your app offers them markets that do not exist there.
+
+<Tip>
+  Building with an AI coding agent? Point it at the [Builders MCP](/builders-mcp) and the `@sodax/skills` bundle. Both give your agent live SDK context, so it writes code against the real API.
+</Tip>

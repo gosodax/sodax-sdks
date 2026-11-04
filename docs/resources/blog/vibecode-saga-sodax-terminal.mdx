@@ -1,0 +1,141 @@
+---
+title: "VibeCode Saga: SODAX Terminal: a whole DeFi section on one SDK"
+sidebarTitle: "SODAX Terminal"
+icon: terminal
+description: "Swaps, xStocks, cross-network limit orders, lending, staking and a portfolio in one terminal, built on the SODAX SDK with no backend of my own. One hook pattern everywhere, and an orderbook view that draws every route through the Sonic hub."
+---
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.youtube.com/embed/4zPWCLk4Lw4"
+  title="SODAX Terminal demo video"
+  frameBorder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  referrerPolicy="strict-origin-when-cross-origin"
+  allowFullScreen
+></iframe>
+
+## What it is
+
+[SODAX Terminal](https://sodax-terminal.vercel.app) puts an entire DeFi section on one screen: market swaps, tokenized stocks, cross-network limit orders, lending, staking and a portfolio. All of it is SODAX SDK calls plus a UI. There is no backend of my own.
+
+The terminal has four instruments:
+
+- **Trade**: market swaps with live quotes, tokenized stocks (xStocks), and cross-network limit orders.
+- **Earn**: every money market reserve in one sortable table. Supply, borrow, withdraw and repay from whichever network your funds are on, plus SODA staking.
+- **Portfolio**: balances across networks, your lending position with health factor, open orders with cancel, and recent history.
+- **Analytics**: TVL, borrowed, reserve rates and the open intent orderbook. No wallet needed.
+
+The framing in the repo is "the DeFi section that could live inside any neobanking app."
+
+The terminal never holds funds. Users sign intents in their own wallets, solvers fill them, and settlement runs through the SODAX hub on Sonic.
+
+## The design idea: the architecture is the interface
+
+Most DeFi dashboards ship one of two layouts: a grid of stat cards, or a centred swap card. I wanted the screen to show how SODAX actually works.
+
+The direction is called Event Display, borrowed from collider detector cross sections. Sonic sits at the centre as the beamline. Every supported spoke network sits on a ring around it. Every live intent from the orderbook is a track that leaves its source network, passes through the core, and lands on its destination. The detector stays live the whole time, and the instrument you are using docks in a column next to it. When you compose a swap in Trade, your route lights up inside the detector, so the form and the picture are the same surface.
+
+## The SDK pieces that carried this
+
+The app is three packages, all at `2.0.0`: `@sodax/sdk`, `@sodax/dapp-kit` (React Query hooks), and `@sodax/wallet-sdk-react` (EVM and Solana wallets here).
+
+### 1. Three providers and a partner fee
+
+The whole app sits under this:
+
+```tsx
+const sodaxConfig: SodaxOptions = PARTNER_FEE
+  ? { swaps: { partnerFee: PARTNER_FEE } }
+  : {};
+
+<SodaxProvider config={sodaxConfig}>
+  <QueryClientProvider client={queryClient}>
+    <SodaxWalletProvider config={walletConfig}>{children}</SodaxWalletProvider>
+  </QueryClientProvider>
+</SodaxProvider>
+```
+
+`PARTNER_FEE` is `{ address, percentage: 15 }`, which is 15 basis points on every swap, routed to an address on Sonic. That one object is the builder monetization story. `PARTNER_FEE` is only set when the address is a valid `0x` address, so the fee config ships exactly when it should.
+
+### 2. A live directory instead of hardcoded lists
+
+Nothing about tokens or networks is typed in by hand. The token picker comes from `sodax.swaps.getSupportedSwapTokens()`. The xStocks list is filtered out of that same SDK-served list (the equities settle on Solana, so the destination locks to a Solana wallet). The money market sheet finds the right spoke token for a reserve on each network with `sodax.config.getSupportedMoneyMarketTokensByChainId(chainKey)`, which also handles per-network decimals for free (USDC on BSC has 18).
+
+The detector draws every network from `sodax.config.getSupportedSpokeChains()`. The terminal mounts wallets for 12 of them today, and the detector draws all of them anyway, because the protocol's reach is bigger than what this one app wires.
+
+### 3. Swaps and limit orders share one intent
+
+Market swaps and limit orders are the same `CreateIntentParams` with two differences: where `minOutputAmount` comes from, and whether the intent expires.
+
+```ts
+const { data: quoteResult } = useQuote({ params: { payload: quotePayload } });
+// quote_type: 'exact_input', refreshed every 3s, 400ms input debounce
+
+const minOut = (quotedOut * (10000n-SLIPPAGE_BPS)) / 10000n; // 0.5%
+
+if (mode === 'limit') {
+  await createLimitOrder({ params: intentParams, walletProvider });
+} else {
+  const dl = await sodax.swaps.getSwapDeadline();
+  const deadline = dl.ok ? dl.value : BigInt(Math.floor(Date.now() / 1000)) + 300n;
+  await swap({ params: { ...intentParams, deadline }, walletProvider });
+}
+```
+
+For a limit order, the user's price sets `minOutputAmount`, `allowPartialFill` is true, and `deadline: 0n` means it rests until it fills or you cancel. A market swap gets its deadline from `getSwapDeadline()`. Before either call there is a `useSwapAllowance` check and a `useSwapApprove` step only if needed.
+
+Every mutation goes through `mutateAsyncSafe`, which returns a `Result` with `ok` instead of throwing. Branching on `r.ok` everywhere made error states boring to write, which is what you want.
+
+### 4. Lending and staking are the same shape again
+
+The money market sheet is four hooks over one params object:
+
+```ts
+const params: MoneyMarketParams = {
+  srcChainKey: chainKey, srcAddress: account.address,
+  token: selected.token.address, amount: parsedAmount, action,
+};
+const { data: isApproved } = useMMAllowance({ params: { payload: params } });
+const { mutateAsyncSafe: supply } = useSupply();
+// useBorrow, useWithdraw, useRepay follow the same pattern
+```
+
+Staking is the same pattern with `useStake`, `useUnstake` and `useClaim`. `useStakeRatio` gives the expected xSODA out, and the stake call sets `minReceive` to 99% of that as a guard. `useUnstakingInfoWithPenalty` and `useStakingConfig` feed the unstake requests list and the unstaking period.
+
+Once you have written one of these flows, the next one is mostly copying the shape. That is why the first version (all four tabs, phases 2 through 7 in the commit log) landed on a single day, July 23.
+
+### 5. Read-only data with no wallet
+
+Analytics, the status strip, the intent tape and the detector all run on two hooks: `useReservesUsdFormat()` for every reserve with price, supplied, borrowed, APYs and utilization, and `useBackendOrderbook()` for open intents. Intent tokens resolve through `sodax.config.getXTokenFromHubAsset()`.
+
+## Drawing the whole orderbook
+
+The backend returns the full open book in one call at `limit: 500`. The detector fetches all of it, ranks routes by intent count, and draws the top 60. The legend states how many routes were left undrawn and how many intents could not be resolved, so the picture always matches the numbers next to it. When I shipped this it drew 60 of 65 cross-network routes across 18 of 20 active networks.
+
+The visual trick came from the protocol itself. Sixty straight chords across a ring of twenty networks would be a hairball, and a straight line from Sui to Arbitrum would also misrepresent the route. Every SODAX cross-network intent settles through Sonic, so the real path is Sui, then Sonic, then Arbitrum. Drawing each route as a three-point line through the hub turns the whole book into a radial star. The bundling is the architecture, drawn faithfully.
+
+## What made it easy
+
+- **One hook pattern for everything.** Swap, limit order, cancel, four lending actions, stake, unstake and claim all follow allowance, approve, mutate, with a `Result` you branch on.
+- **The live config.** `sodax.config` gave me tokens, networks, decimals, xStocks and chain id mapping. I wrote zero token or network tables.
+- **Read hooks that need no wallet.** Two hooks power a full analytics view for anyone who lands on the page.
+- **AI-readable docs.** The SDK ships doc skills, so my coding agent could read SDK docs while writing the code.
+
+## Tips for builders
+
+- Map intent chain ids with `config.getSpokeChainKeyFromIntentRelayChainId`, since intents carry relay chain ids.
+- Fetch a user's orders with `useGetUserHubWalletAddress`, then `useBackendUserIntents` for that hub address.
+- Use `deadline: 0n` for resting limit orders and `getSwapDeadline()` for market swaps.
+
+## Stack
+
+Next.js 15 (App Router), React 19, TypeScript, `@sodax/sdk` 2.0.0, `@sodax/dapp-kit` 2.0.0, `@sodax/wallet-sdk-react` 2.0.0, wagmi and viem, TanStack Query and Table, Tailwind v4 with shadcn/ui on Base UI, ECharts 6, anime.js. Deployed on Vercel. Built with Claude Code.
+
+## Try it
+
+Live: [sodax-terminal.vercel.app](https://sodax-terminal.vercel.app)
+
+Repo: [github.com/hazy2go/sodax-terminal](https://github.com/hazy2go/sodax-terminal)
+
+Run it locally with `npm install`, copy `.env.example` to `.env.local`, set `NEXT_PUBLIC_PARTNER_SONIC_ADDRESS` (and optionally a WalletConnect project id), then `npm run dev`.

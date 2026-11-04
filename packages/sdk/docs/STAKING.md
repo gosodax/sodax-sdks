@@ -141,7 +141,7 @@ const result = await sodax.staking.approve({
 
 For Stellar-based staking operations, `isAllowanceValid` and `approve` handle trustlines automatically
 when Stellar is the source chain. See
-[Stellar Trustline Requirements](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md#staking)
+[Stellar Trustline Requirements](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md#staking)
 for details.
 
 Staking operations always flow from spoke chains (including Stellar) to the hub chain (Sonic), so Stellar

@@ -37,6 +37,9 @@ DO / DO NOT / workflow / stop conditions for AI agents writing `@sodax/sdk` v2 c
 - **DO NOT** call `getStakeRatio` and treat its return as `Result<bigint>`. It's `Result<[xSodaAmount, previewDepositAmount]>` — a tuple of two bigints.
 - **DO NOT** assume `BalnSwapService` lock-management methods (`stake`, `unstake`, `claim`, `claimUnstaked`, `cancelUnstake`, `getDetailedUserLocks`) return `Result<T>`. They still throw on error in v2 — known carve-out. Wrap them in `try/catch`.
 - **DO NOT** call methods that need a wallet provider with `raw: true` — TypeScript rejects `walletProvider` when `raw: true`. Use `raw: false` + `walletProvider`, or stick to read methods.
+- **DO NOT** send a zero or hand-picked minimum output (`minOutputAmount: 0n` or a literal). Derive it from a live quote for that exact input minus a slippage tolerance in basis points, show both to the user before they sign, and disable the action while there is no quote. The SDK does not reject a zero minimum (swaps and bridge only enforce the 546-sat dust floor on a BTC payout); a zero minimum accepts any fill.
+- **DO NOT** add a `partnerFee` the integrator did not ask for. It is optional; omit it by default, and never copy a fee receiver address from a SODAX demo, doc, or example.
+- **DO NOT** pass `skipSimulation: true` in user-facing flows. The simulation replays the hub-side execution and catches an intent that would revert there before the user signs it.
 
 ## Stop conditions (defer to user)
 

@@ -20,9 +20,10 @@
 // - `Hex` / `Address` / `Hash` / `SpokeChainKey` are plain `string` everywhere.
 // - The unsigned `tx` is typed as the SDK domain union `RawTxReturnType`. It
 //   travels as pure JSON (bigints stringified; Injective byte arrays as
-//   `{ "0": N, … }` index objects), and the SDK client's response schema
-//   (`@sodax/sdk` `rawTxSchemas`) rebuilds the domain shape (`bigint`,
-//   `Uint8Array`) on parse — the inverse of the backend's `stringifyBigInts`.
+//   `{ "0": N, … }` index objects), and the wire clients' response schemas
+//   (the `rawTxSchemas` module in `@sodax/swaps-api` / `@sodax/bridge-api`)
+//   rebuild the domain shape (`bigint`, `Uint8Array`) on parse — the inverse
+//   of the backend's `stringifyBigInts`.
 // - The remaining chain-specific opaque payloads (gas estimate, raw relay
 //   `result`) stay `unknown` because their shape varies by chain family.
 //
@@ -43,6 +44,7 @@ import type { ConcentratedLiquidityConfig, DexDefaultConfig } from '../dex/dex.j
 import type { SodaxDefaultConfig } from '../sodax-config/sodax-config.js';
 
 import type { RawTxReturnType } from '../common/index.js';
+import type { HookKind } from '../hooks/hooks.js';
 
 // ──────────────────────────────────────────────────────────────────────
 // Shared building blocks
@@ -88,6 +90,38 @@ export interface SwapExtrasV2 {
    * top-level field per item. Only used for raw Bitcoin TRADING-mode intents.
    */
   bound?: BitcoinBoundExtrasV2;
+  /**
+   * Route the intent's output through a registered delivery hook instead of transferring it to
+   * `dstAddress`. The backend resolves the hook's deployed address (from its pinned SDK's
+   * `spokeHooks` registry in `@sodax/types`) and encodes its payload, so `dstAddress` stays the
+   * recipient the hook credits, not the delivery target. Omit for a plain transfer.
+   *
+   * Only used when building an intent: `createIntent`/`createLimitOrderIntent`, or `getQuote` with
+   * `includeTxData=true` — a bare quote never builds one, so `hook` is a no-op there without it.
+   * `checkAllowance`/`approve` inherit the field too (both extend {@link CreateIntentParamsV2}) but
+   * ignore it, same as `partnerFee`: allowance-checking and approval are source-side only and never
+   * touch `dstAddress`. Look the registry entry up by *this request's own* destination-chain field,
+   * which is **not** spelled the same way on every DTO: `dstChainKey` on
+   * {@link CreateIntentParamsV2}/`CreateLimitOrderParamsV2`, but `tokenDstChainKey` on
+   * {@link QuoteRequestV2}.
+   *
+   * The `deliveryData` payload is a per-`HookKind` ABI encoding (see the SDK's `HookService` /
+   * `HOOK_DELIVERY_ABI`) — today every registered kind (`hyperCoreDeposit`, `flintDeposit`) encodes
+   * `abi.encode(address recipient)`, but that shape is not guaranteed to stay uniform as new kinds
+   * are added, so don't hardcode one shared ABI across kinds.
+   *
+   * A registry entry's `supportedTokens` describes the hook's own on-chain fallback behaviour (which
+   * output tokens it actually acts on, vs. passes through as a plain transfer) — it's metadata, not
+   * a constraint for the backend to enforce; don't reject a mismatched `outputToken` server-side
+   * because of it.
+   *
+   * Requires a backend new enough to forward this field, and one whose pinned SDK has the hook
+   * registered for the destination chain. An unregistered kind is expected to fail the request
+   * rather than silently falling back to a plain transfer — that expectation (like `getQuote`
+   * forwarding above) describes what this backend needs to implement, not behavior this repo has
+   * observed, since the backend lives outside this monorepo.
+   */
+  hook?: HookRequestV2;
 }
 // JSON-safety (no `bigint`) is enforced at compile time by the `_AssertJsonSafe` guard intersected onto
 // `CreateLimitOrderParamsV2` below — the swaps-section counterpart to the `GetAllConfigResponseV2` guard.
@@ -232,9 +266,11 @@ export type GetSwapTokensByChainResponseV2 = readonly SwapTokenV2[];
 // ──────────────────────────────────────────────────────────────────────
 
 /**
- * POST /swaps/quote — request body. Inherits the swap extras (`partnerFee`, `srcPublicKey`, `bound`) from
- * {@link SwapExtrasV2}; the inherited `srcPublicKey`/`bound` are consumed only by the `includeTxData=true`
- * intent-building path (Stacks/Bitcoin sources), mirroring `srcAddress`/`dstAddress` below.
+ * POST /swaps/quote — request body. Inherits the swap extras (`partnerFee`, `srcPublicKey`, `bound`,
+ * `hook`) from {@link SwapExtrasV2}; the inherited `srcPublicKey`/`bound`/`hook` are consumed only by
+ * the `includeTxData=true` intent-building path (Stacks/Bitcoin sources; delivery hooks), mirroring
+ * `srcAddress`/`dstAddress` below. Whether a given backend actually forwards `hook` on this endpoint
+ * is a deployment question — see `hook`'s own doc comment on {@link SwapExtrasV2}.
  */
 export interface QuoteRequestV2 extends SwapExtrasV2 {
   /** Source token address on the source spoke chain. */
@@ -292,8 +328,9 @@ export interface DeadlineResponseV2 {
 
 /**
  * Shared request body for `/swaps/allowance/check`, `/swaps/approve`, and `/swaps/intents`. Inherits the
- * swap extras (`partnerFee`, `srcPublicKey`, `bound`) from {@link SwapExtrasV2}; the Bitcoin Bound token
- * is carried as `bound.accessToken` (not a flat `accessToken`), mirroring the SDK's grouped `extras.bound`.
+ * swap extras (`partnerFee`, `srcPublicKey`, `bound`, `hook`) from {@link SwapExtrasV2}; the Bitcoin Bound
+ * token is carried as `bound.accessToken` (not a flat `accessToken`), mirroring the SDK's grouped
+ * `extras.bound`.
  */
 export interface CreateIntentParamsV2 extends SwapExtrasV2 {
   /** Source spoke chain key (SODAX SpokeChainKey). */
@@ -320,6 +357,11 @@ export interface CreateIntentParamsV2 extends SwapExtrasV2 {
   solver?: string;
   /** Arbitrary calldata hex string. Defaults to `0x`. */
   data?: string;
+}
+
+/** Selects a delivery hook by kind. Mirrors the SDK's own `HookRequest`. */
+export interface HookRequestV2 {
+  kind: HookKind;
 }
 
 /** POST /swaps/allowance/check — response body. */
@@ -609,6 +651,14 @@ export type SubmitSwapTxStatusV2 =
   | 'solved'
   | 'failed';
 
+/**
+ * Product/operation discriminator on a submit-tx status row. `'swap'` for an ordinary swap;
+ * `'leverage_deposit'` / `'leverage_withdraw'` for a leverage-yield vault op queued via
+ * `POST /leverage-yield/submit-tx` (the backend maps that body's `operation: 'deposit' | 'withdraw'`
+ * onto these row-level values).
+ */
+export type SubmitTxOperationV2 = 'swap' | 'leverage_deposit' | 'leverage_withdraw';
+
 /** Lifecycle status of a cross-chain relay packet. */
 export type PacketDataStatusV2 = 'pending' | 'validating' | 'executing' | 'executed';
 
@@ -644,6 +694,11 @@ export interface SubmitTxStatusResultV2 {
   packetData?: PacketDataV2;
   /** Intent hash from the solver API (populated after post-execution). */
   intent_hash?: string;
+  /**
+   * Solver destination-chain fill tx hash. Set on solver-confirmed fills; MAY be absent even when
+   * `status === 'solved'` if the fill was confirmed via the on-chain journal instead.
+   */
+  fillTxHash?: string;
 }
 
 /** Processing state of a submitted swap tx. */
@@ -654,6 +709,8 @@ export interface SubmitTxStatusDataV2 {
   srcChainKey: string;
   /** Current processing status. */
   status: SubmitSwapTxStatusV2;
+  /** Product/operation discriminator. Absent from backends predating the field — treat as `'swap'`. */
+  operation?: SubmitTxOperationV2;
   /** Step where processing failed. */
   failedAtStep?: SubmitSwapTxStatusV2;
   /** Failure reason. */
@@ -662,6 +719,8 @@ export interface SubmitTxStatusDataV2 {
   processingAttempts: number;
   /** ISO 8601 timestamp set when the swap exhausted its processing budget and was abandoned. */
   abandonedAt?: string;
+  /** ISO 8601 timestamp set when an expired, abandoned swap was relayed for refund; the row stays abandoned. */
+  relayedForRefundAt?: string;
   /** Processing result (present when solved). */
   result?: SubmitTxStatusResultV2;
   /** User-facing hint when status is failed or the swap was abandoned. */

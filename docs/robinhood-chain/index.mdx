@@ -1,0 +1,82 @@
+---
+title: "SODAX for Robinhood Chain"
+sidebarTitle: "Overview"
+description: "Reach the users and liquidity of every SODAX network from your Robinhood Chain product. No contracts to deploy, your entire integration is TypeScript."
+icon: feather
+---
+
+<Note>
+  **No new contracts.** SODAX's Robinhood Chain spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary EVM transactions on Robinhood Chain, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+You keep shipping on Robinhood Chain. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## What to know on Robinhood Chain
+
+Robinhood Chain is an Arbitrum Layer 2 with ETH as its gas token, and to the SDK a standard EVM network: the same `EvmWalletProvider`, ERC-20 approvals, and intent flow as any other EVM network. Four details are yours to know about:
+
+- **Stock Tokens are swap-only.** The live config lists Robinhood Stock Tokens, Robinhood's tokenized stocks and ETFs, for swaps on Robinhood Chain. None of them is in the money market list. See [Stock Tokens](/robinhood-chain/swaps#stock-tokens).
+- **SDK 2.1.0 covers part of what is live.** In `@sodax/sdk` 2.1.0, Robinhood Chain's swap list holds only ETH, bnUSD, SODA, and USDG, and its money market list is empty. The SDK rejects Stock Token swaps and Robinhood Chain money market actions until the next release, which adds both; they are already on `main`.
+- **Bring the chain definition for your own viem setup.** The viem version SODAX pins has no Robinhood Chain entry, so `@sodax/wallet-sdk-core` exports one as `robinhoodChain` (chain ID 4663). `@sodax/wallet-sdk-react` already includes it.
+- **The public RPC is rate-limited.** The SODAX config uses `https://rpc.mainnet.chain.robinhood.com`, which Robinhood marks as rate-limited and not recommended for production. Pass a provider endpoint through `rpcUrl`.
+
+## What you can build
+
+Two SODAX modules are relevant to Robinhood Chain builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/robinhood-chain/swaps">
+    Intent-based cross-network swaps. Users swap between ETH or Robinhood Chain tokens and assets on any supported network with one signed transaction on Robinhood Chain. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/robinhood-chain/money-market">
+    Cross-network lending and borrowing. Supply from Robinhood Chain, borrow to Robinhood Chain or any other supported network. Needs the SDK release after 2.1.0.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/robinhood-chain/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/robinhood-chain/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/robinhood-chain/quickstart): install the SDK, connect a Robinhood Chain account, make your first cross-network swap.
+- [Swaps on Robinhood Chain](/robinhood-chain/swaps): approvals, quoting, fees, and Stock Tokens.
+- [Money Market on Robinhood Chain](/robinhood-chain/money-market): supply, borrow, repay, and withdraw with cross-network collateral.
+- [Wallets](/robinhood-chain/wallets): EVM wallets on Robinhood Chain, and every other network's wallets through one interface.
+- [Networks & Assets](/robinhood-chain/networks-and-assets): what is live on Robinhood Chain today and what your users can reach.
+- [Robinhood Chain FAQ](/robinhood-chain/faq): the questions Robinhood Chain engineers actually ask.
+
+## Robinhood Chain references
+
+- [**Robinhood Chain documentation**](https://docs.robinhood.com/chain/): connecting, bridging, and building on Robinhood Chain.
+- [**Connecting to Robinhood Chain**](https://docs.robinhood.com/chain/connecting/): chain ID, public endpoints, and RPC providers.
+- [**Stock Tokens**](https://docs.robinhood.com/chain/stock-tokens): what Stock Tokens are, the corporate-action multiplier, and offer restrictions.
+- [**Differences from Ethereum**](https://docs.robinhood.com/chain/differences-from-ethereum): Layer 2 behaviors, fees, and transaction screening.
+- [**Blockscout**](https://robinhoodchain.blockscout.com/): the Robinhood Chain explorer.
+
+---
+
+Building something? Start with the [Quickstart](/robinhood-chain/quickstart).

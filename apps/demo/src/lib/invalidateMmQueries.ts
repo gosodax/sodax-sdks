@@ -41,13 +41,13 @@
 //   queryClient.invalidateQueries({ queryKey: ['mm', 'aTokensBalances'] });
 //
 //   // Balance queries: use predicate for reliable matching since query keys contain nested arrays.
-//   // Query key format: ['xBalances', chainId, tokenSymbols[], address]
+//   // Query key format: ['shared', 'balances', chainKey, tokenSymbols[], address]
 //   // Prefix matching with nested arrays can be unreliable, so we match explicitly.
 //   const balanceChainIdSet = new Set(balanceChainIds ?? []);
 //   const balancePredicate =
 //     balanceChainIdSet.size > 0
 //       ? (query: { queryKey: readonly unknown[] }) =>
-//           query.queryKey[0] === 'xBalances' && balanceChainIdSet.has(query.queryKey[1] as ChainId)
+//           query.queryKey[1] === 'balances' && balanceChainIdSet.has(query.queryKey[2] as ChainId)
 //       : undefined;
 //
 //   if (balancePredicate) {

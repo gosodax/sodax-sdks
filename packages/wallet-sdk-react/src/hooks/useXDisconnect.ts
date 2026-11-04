@@ -18,7 +18,7 @@ export type UseXDisconnectArgs = {
  * Even if the wallet's native disconnect throws, the store is cleared — the UI never
  * gets stuck on "connected" state.
  *
- * @see {@link https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md#disconnect | Connect Flow — Disconnect}
+ * @see {@link https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md#disconnect | Connect Flow — Disconnect}
  */
 export function useXDisconnect(): (args: UseXDisconnectArgs) => Promise<void> {
   const actionsRegistry = useXWalletStore(state => state.chainActions);

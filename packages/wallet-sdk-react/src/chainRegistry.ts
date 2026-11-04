@@ -211,22 +211,29 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
         const store = getStore();
         const connection = store.xConnections.BITCOIN;
         const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
-        if (!(connector instanceof BitcoinXConnector)) {
+        if (!connection || !(connector instanceof BitcoinXConnector)) {
           throw new Error('Bitcoin wallet not connected');
         }
-        const address = connection?.xAccount.address;
+        const address = connection.xAccount.address;
         if (!address) throw new Error('Bitcoin address not found');
+        // Signing lives on the wallet provider, not on the connector. Prefer the live one from
+        // `connect()`; after a page reload that is gone, so rebuild it from the stored account —
+        // same lookup as `createWalletProvider` below.
+        const walletProvider = connector.getWalletProvider() ?? connector.recreateWalletProvider(connection.xAccount);
+        if (!walletProvider) {
+          throw new Error(`${connector.id} has no wallet provider`);
+        }
         // Pick the message-signing scheme by address type: P2WPKH/P2TR sign via BIP322, P2SH/P2PKH via ECDSA.
         if (usesBip322MessageSigning(detectBitcoinAddressType(address))) {
-          if (!hasSignBip322(connector)) {
+          if (!hasSignBip322(walletProvider)) {
             throw new Error(`${connector.id} does not support BIP-322 signing`);
           }
-          return connector.signBip322Message(message);
+          return walletProvider.signBip322Message(message);
         }
-        if (!hasSignEcdsa(connector)) {
+        if (!hasSignEcdsa(walletProvider)) {
           throw new Error(`${connector.id} does not support ECDSA signing`);
         }
-        return connector.signEcdsaMessage(message);
+        return walletProvider.signEcdsaMessage(message);
       },
     }),
     createWalletProvider: (service, getStore) => {
@@ -401,6 +408,16 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
     displayName: 'Tron',
     defaultConnectors: () => [new TronXConnector()],
     providerManaged: false,
+    createActions: (service, getStore) => ({
+      ...createDefaultActions('TRON', service, getStore),
+      signMessage: async (message: string) => {
+        const connection = getStore().xConnections.TRON;
+        const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+        const address = connection?.xAccount.address;
+        if (!(connector instanceof TronXConnector) || !address) throw new Error('Tron wallet not connected');
+        return connector.signMessage(message, address);
+      },
+    }),
     createWalletProvider: (service, getStore) => {
       const store = getStore();
       const connection = store.xConnections.TRON;
@@ -409,7 +426,7 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
       const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
       const tronWeb = connector instanceof TronXConnector ? connector.getTronWeb() : undefined;
       if (!tronWeb) return undefined;
-      // Signing goes through the announced provider; `tronWeb` alone can only read.
+      // Signing prefers the announced provider's TronWeb; the injected one is the fallback.
       const provider = connector instanceof TronXConnector ? connector.getProvider() : undefined;
       const entry = store.walletConfig?.TRON?.chains?.[ChainKeys.TRON_MAINNET];
       const defaults = getEntryDefaults<typeof ChainKeys.TRON_MAINNET>(entry);

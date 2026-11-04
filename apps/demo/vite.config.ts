@@ -34,6 +34,9 @@ export default defineConfig(({ command, mode }: ConfigEnv) => {
         '@': path.resolve(__dirname, './src'),
         buffer: 'buffer/',
       },
+      // The SDK's `./privy` entry and this app must share one Privy copy, or the workspace's second copy
+      // splits Privy's React context (and pulls in peers this app does not use).
+      dedupe: ['@privy-io/react-auth'],
     },
 
     optimizeDeps: {

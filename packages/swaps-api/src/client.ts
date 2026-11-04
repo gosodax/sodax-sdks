@@ -18,7 +18,7 @@ import type {
 } from '@sodax/types';
 import * as v from 'valibot';
 import type { SwapsApiConfig } from './config.js';
-import { type RequestContext, request } from './http.js';
+import { apiKeyHeader, mergeHeaders, type RequestContext, request } from './http.js';
 import { rawTxSchemaForChainKey } from './rawTxSchemas.js';
 import * as s from './schemas.js';
 import { serializeBigints, serializeIntentRequest } from './serialize.js';
@@ -49,12 +49,13 @@ const PATHS = {
 } as const;
 
 /**
- * Minimal HTTP client for the SODAX backend Swaps API v2.
+ * Minimal HTTP client for the SODAX backend Swaps API.
  *
  * One thin method per `ISwapsApiV2` endpoint. Each method builds its request, runs any
  * `IntentRequestV2` body through {@link serializeIntentRequest}, and validates the response with a
  * valibot schema. All failures surface as a thrown `SwapsApiError`. `idempotent: true` marks the
- * read/poll/pure-compute calls that may be retried; mutating calls never are.
+ * read/poll/pure-compute calls that may be retried; mutating calls are not, except on an apiguard 503
+ * (see `API_KEY_VERIFICATION_UNAVAILABLE_MESSAGE`).
  */
 export class SwapsApi implements ISwapsApiV2 {
   private readonly ctx: RequestContext;
@@ -65,7 +66,9 @@ export class SwapsApi implements ISwapsApiV2 {
       // Bind the global default so it works in browsers (where unbound fetch throws). A
       // caller-provided fetch is used as-is — they own its binding.
       fetchImpl: config.fetch ?? globalThis.fetch.bind(globalThis),
-      defaultHeaders: config.headers,
+      // The `apiKey` convenience option expands first so an explicit `x-api-key` header wins, in any
+      // casing — see `mergeHeaders`.
+      defaultHeaders: mergeHeaders(apiKeyHeader(config.apiKey), config.headers),
       timeout: config.timeout,
     };
   }

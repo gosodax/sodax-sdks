@@ -8,7 +8,7 @@ If you are upgrading from an older version of the package instead, see [`sodax-w
 
 ## What this package does
 
-`@sodax/wallet-sdk-core` is a **low-level multi-chain wallet provider layer**. For each of the 9 chain families that SODAX supports it ships **one provider class** that:
+`@sodax/wallet-sdk-core` is a **low-level multi-chain wallet provider layer**. For each chain family that SODAX supports it ships **one provider class** that:
 
 - Accepts a **discriminated union config** — `PrivateKey*WalletConfig | BrowserExtension*WalletConfig`.
 - Extends a small `BaseWalletProvider` to merge per-call options over a typed `defaults` shape.
@@ -18,15 +18,16 @@ It is intentionally framework-agnostic — Node ≥ 20.12, browser, edge runtime
 
 | Chain family | Provider class | Underlying chain SDK |
 |---|---|---|
-| EVM (13 chains)        | `EvmWalletProvider`       | `viem` |
+| EVM (14 chains)        | `EvmWalletProvider`       | `viem` |
 | Solana                 | `SolanaWalletProvider`    | `@solana/web3.js` |
-| Sui                    | `SuiWalletProvider`       | `@mysten/sui` + `@mysten/wallet-standard` |
+| Sui                    | `SuiWalletProvider`       | `@mysten/sui` |
 | Bitcoin                | `BitcoinWalletProvider`   | `bitcoinjs-lib` (+ `ecpair`, `secp256k1`) |
 | Stellar                | `StellarWalletProvider`   | `@stellar/stellar-sdk` |
 | ICON                   | `IconWalletProvider`      | `icon-sdk-js` |
 | Injective              | `InjectiveWalletProvider` | `@injectivelabs/sdk-ts` + `@injectivelabs/wallet-core` |
 | NEAR                   | `NearWalletProvider`      | `near-api-js` + `@hot-labs/near-connect` |
 | Stacks                 | `StacksWalletProvider`    | `@stacks/transactions` + `@stacks/connect` |
+| Tron                   | `TronWalletProvider`      | none (TronWeb is typed structurally; `viem` signs) |
 
 ---
 
@@ -70,7 +71,7 @@ Every provider class supports **two** construction modes. Picking the wrong one 
 
 | Mode | When to use | Discriminant style |
 |---|---|---|
-| **Private-key** | Node scripts, CI tests, indexers, bots — anywhere you possess the raw key | Either field presence (EVM, Solana, Sui, ICON, Injective, NEAR, Stacks) OR `type: 'PRIVATE_KEY'` (Bitcoin, Stellar) |
+| **Private-key** | Node scripts, CI tests, indexers, bots — anywhere you possess the raw key | Either field presence OR `type: 'PRIVATE_KEY'` (Bitcoin, Stellar) |
 | **Browser-extension** | Consumer dApps where a wallet extension provides a pre-built client / signer | Either field presence (different fields from PK variant) OR `type: 'BROWSER_EXTENSION'` (Bitcoin, Stellar) |
 
 For a chain-by-chain breakdown of the exact discriminant shape, see [`features/`](./features/) and [`architecture.md`](./architecture.md) § "Discriminant variants".
@@ -105,4 +106,4 @@ In a React dApp you usually consume this package **indirectly** — `useWalletPr
 ## Getting help
 
 - API surface lookup: [`reference/`](./reference/).
-- Bug or missing feature: [open an issue](https://github.com/icon-project/sodax-sdks/issues).
+- Bug or missing feature: [open an issue](https://github.com/gosodax/sodax-sdks/issues).

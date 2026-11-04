@@ -53,7 +53,8 @@
       "cache": false
     },
     "checkTs": {
-      "dependsOn": ["^checkTs"]
+      "dependsOn": ["^checkTs"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/check-tests-typechecked.mjs"]
     },
     "checkTs:packages": {
       "dependsOn": ["^checkTs"],

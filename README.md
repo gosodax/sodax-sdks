@@ -1,5 +1,5 @@
-[![CI](https://github.com/icon-project/sodax-sdks/actions/workflows/ci.yml/badge.svg)](https://github.com/icon-project/sodax-sdks/actions/workflows/ci.yml)
-[![Security](https://github.com/icon-project/sodax-sdks/actions/workflows/security.yml/badge.svg)](https://github.com/icon-project/sodax-sdks/actions/workflows/security.yml)
+[![CI](https://github.com/gosodax/sodax-sdks/actions/workflows/ci.yml/badge.svg)](https://github.com/gosodax/sodax-sdks/actions/workflows/ci.yml)
+[![Security](https://github.com/gosodax/sodax-sdks/actions/workflows/security.yml/badge.svg)](https://github.com/gosodax/sodax-sdks/actions/workflows/security.yml)
 
 # SODAX SDKs
 
@@ -7,10 +7,12 @@ This repository contains the SDK packages and demo applications for the SODAX pr
 
 ## Architecture
 
-SODAX is a cross-chain DeFi platform built on a **hub-and-spoke architecture**, with **Sonic** as the hub chain. It supports swaps (intent-based via solver), lending/borrowing (money market), staking, bridging, DEX (concentrated liquidity), token migration, partner fee operations, and recovery (withdrawing stuck hub-wallet assets) across 21 blockchains:
+SODAX is a cross-chain DeFi platform built on a **hub-and-spoke architecture**, with **Sonic** as the hub chain. It supports swaps (intent-based via solver), lending/borrowing (money market), staking, bridging, DEX (concentrated liquidity), token migration, partner fee operations, and recovery (withdrawing stuck hub-wallet assets) across a mainnet network of EVM and non-EVM spoke chains that route through the Sonic hub:
 
-- **EVM (13):** Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera
-- **Non-EVM (8):** Solana, Sui, Stellar, ICON, Injective, NEAR, Stacks, Bitcoin
+- **EVM:** Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood
+- **Non-EVM:** Solana, Sui, Stellar, ICON, Injective, NEAR, Stacks, Bitcoin
+
+The supported chains are source-of-truth in `@sodax/types` — see `ChainKeys` for the authoritative, current list.
 
 See the [SODAX SDK README](./packages/sdk/README.md) for a deeper architectural overview.
 
@@ -19,10 +21,10 @@ See the [SODAX SDK README](./packages/sdk/README.md) for a deeper architectural 
 Building with the `@sodax/*` SDKs in an AI coding agent (Claude Code, Cursor, Codex, Copilot, and 50+ others)? Install the official SODAX skills — agent-native guides covering integration and v1→v2 migration for every package:
 
 ```bash
-npx skills@latest add icon-project/sodax-sdks/packages/skills
+npx skills@latest add gosodax/sodax-sdks/packages/skills
 ```
 
-Browse them on [skills.sh](https://www.skills.sh/icon-project/sodax-sdks). See the [Skills Documentation](./packages/skills/README.md) for what ships and how to use it.
+Browse them on [skills.sh](https://www.skills.sh/gosodax/sodax-sdks). See the [Skills Documentation](./packages/skills/README.md) for what ships and how to use it.
 
 ## Repository Structure
 

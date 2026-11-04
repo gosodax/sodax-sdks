@@ -50,11 +50,12 @@ import {
 import { IntentsAbi } from '../shared/abis/intents.abi.js';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import { IntentDataType, type CreateIntentParams, type Intent } from '../shared/types/intent-types.js';
-import { calculatePercentageFeeAmount } from '../shared/utils/shared-utils.js';
+import { calculatePercentageFeeAmount, encodeAddress, encodeRecipient } from '../shared/utils/shared-utils.js';
 import { EvmSolverService } from './EvmSolverService.js';
 import { HookService } from './HookService.js';
 import { IntentDataService } from './IntentDataService.js';
 import { Sodax } from '../index.js';
+import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
 
 // --- fixtures -------------------------------------------------------------
 
@@ -213,6 +214,63 @@ describe('EvmSolverService.constructCreateIntentData', () => {
 
     expect(intent.srcAddress).toBe(SRC_USER);
     expect(intent.dstAddress).toBe(DST_USER);
+  });
+
+  it.each([
+    { chainKey: ChainKeys.TRON_MAINNET, address: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow' },
+    { chainKey: ChainKeys.XRP_MAINNET, address: 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah' },
+  ])('encodes an MPC-relay ($chainKey) dstAddress as the 32-byte recipient word, not the 20-byte identity', ({
+    chainKey,
+    address,
+  }) => {
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(hubOutputXToken);
+
+    const [, intent] = EvmSolverService.constructCreateIntentData(
+      { ...baseParams(), dstChainKey: chainKey, dstAddress: address },
+      HUB_WALLET,
+      mockConfig,
+      undefined,
+    );
+
+    const identity = encodeAddress(chainKey, address);
+    expect(intent.dstAddress).toBe(encodeRecipient(chainKey, address));
+    expect(intent.dstAddress).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
+    expect(intent.srcAddress).toBe(SRC_USER);
+  });
+
+  it('encodes an EVM MPC-relay (Monad) dstAddress as the plain 20-byte address', () => {
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(hubOutputXToken);
+    const monadAddress = '0x6be3a4afbd5983604385bcba71aaa3645918e2e2';
+
+    const [, intent] = EvmSolverService.constructCreateIntentData(
+      { ...baseParams(), dstChainKey: ChainKeys.MONAD_MAINNET, dstAddress: monadAddress },
+      HUB_WALLET,
+      mockConfig,
+      undefined,
+    );
+
+    // A padded word here was released to the zero address on Monad.
+    expect(intent.dstAddress).toBe(monadAddress);
+  });
+
+  it('encodes a Tron srcAddress as the recipient word, since a cancel refunds to it', () => {
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(hubOutputXToken);
+
+    const [, intent] = EvmSolverService.constructCreateIntentData(
+      { ...baseParams(), srcChainKey: ChainKeys.TRON_MAINNET, srcAddress: TRON_TEST_ADDRESS },
+      HUB_WALLET,
+      mockConfig,
+      undefined,
+    );
+
+    expect(intent.srcAddress).toBe(encodeRecipient(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS));
+    expect(intent.srcAddress).not.toBe(encodeAddress(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS));
   });
 
   it('treats the input token as already-on-hub when srcChainKey is the hub chain (skips lookup)', () => {
@@ -475,35 +533,47 @@ describe('EvmSolverService.reconstructCreateIntentData', () => {
       .mockReturnValueOnce(hubInputXToken)
       .mockReturnValueOnce(hubOutputXToken);
 
+  // A real Solana → Sonic swap: the intent as read from the hub and the payload that was actually relayed for it.
+  const SOLANA_RELAYED_INTENT = {
+    intentId: BigInt('83488095412101173390950552028345512257870714538704893067132536316339680419144'),
+    creator: '0x502a1ff98CaE3E596BBaa3586ffb9cD58826C140',
+    inputToken: '0x0c09e69a4528945de6d16c7E469deA6996Fdf636',
+    outputToken: '0x9Ee17486571917837210824b0d4CAdfe3B324D12',
+    inputAmount: BigInt('2500000'),
+    minOutputAmount: BigInt('2112617738149668914'),
+    deadline: BigInt('1781199633'),
+    allowPartialFill: false,
+    srcChain: 1n,
+    dstChain: 5n,
+    srcAddress: '0xcea4dc7d8fd9f14b68c0611cc46c984838f78a506420c22ee40427377464f191',
+    dstAddress: '0x0ab764ab3816cd036ea951be973098510d8105a6',
+    solver: '0x0000000000000000000000000000000000000000',
+    data: '0x',
+  } satisfies Intent;
+  const SOLANA_RELAYED_PAYLOAD =
+    '0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000001200000000000000000000000000c09e69a4528945de6d16c7e469dea6996fdf636000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000044095ea7b30000000000000000000000006382d6ccd780758c5e8a6123c33ee8f4472f96ef00000000000000000000000000000000000000000000000000000000002625a0000000000000000000000000000000000000000000000000000000000000000000000000000000006382d6ccd780758c5e8a6123c33ee8f4472f96ef000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000284016f02e30000000000000000000000000000000000000000000000000000000000000020b89496621e10855e7ca566b16484c70234e14287966fe17cd7e57fc142539d48000000000000000000000000502a1ff98cae3e596bbaa3586ffb9cd58826c1400000000000000000000000000c09e69a4528945de6d16c7e469dea6996fdf6360000000000000000000000009ee17486571917837210824b0d4cadfe3b324d1200000000000000000000000000000000000000000000000000000000002625a00000000000000000000000000000000000000000000000001d5186a3c499a832000000000000000000000000000000000000000000000000000000006a2af31100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000500000000000000000000000000000000000000000000000000000000000001c00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002400000000000000000000000000000000000000000000000000000000000000020cea4dc7d8fd9f14b68c0611cc46c984838f78a506420c22ee40427377464f19100000000000000000000000000000000000000000000000000000000000000140Ab764AB3816cD036Ea951bE973098510D8105A6000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000';
+
   it('reconstruct actual solana relay data', () => {
     const sodax = new Sodax();
 
-    const intent = {
-      intentId: BigInt('83488095412101173390950552028345512257870714538704893067132536316339680419144'),
-      creator: '0x502a1ff98CaE3E596BBaa3586ffb9cD58826C140',
-      inputToken: '0x0c09e69a4528945de6d16c7E469deA6996Fdf636',
-      outputToken: '0x9Ee17486571917837210824b0d4CAdfe3B324D12',
-      inputAmount: BigInt('2500000'),
-      minOutputAmount: BigInt('2112617738149668914'),
-      deadline: BigInt('1781199633'),
-      allowPartialFill: false,
-      srcChain: 1n,
-      dstChain: 5n,
-      srcAddress: '0xcea4dc7d8fd9f14b68c0611cc46c984838f78a506420c22ee40427377464f191',
-      dstAddress: '0x0ab764ab3816cd036ea951be973098510d8105a6',
-      solver: '0x0000000000000000000000000000000000000000',
-      data: '0x',
-    } satisfies Intent;
-    const actualData =
-      '0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000001200000000000000000000000000c09e69a4528945de6d16c7e469dea6996fdf636000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000044095ea7b30000000000000000000000006382d6ccd780758c5e8a6123c33ee8f4472f96ef00000000000000000000000000000000000000000000000000000000002625a0000000000000000000000000000000000000000000000000000000000000000000000000000000006382d6ccd780758c5e8a6123c33ee8f4472f96ef000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000284016f02e30000000000000000000000000000000000000000000000000000000000000020b89496621e10855e7ca566b16484c70234e14287966fe17cd7e57fc142539d48000000000000000000000000502a1ff98cae3e596bbaa3586ffb9cd58826c1400000000000000000000000000c09e69a4528945de6d16c7e469dea6996fdf6360000000000000000000000009ee17486571917837210824b0d4cadfe3b324d1200000000000000000000000000000000000000000000000000000000002625a00000000000000000000000000000000000000000000000001d5186a3c499a832000000000000000000000000000000000000000000000000000000006a2af31100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000500000000000000000000000000000000000000000000000000000000000001c00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002400000000000000000000000000000000000000000000000000000000000000020cea4dc7d8fd9f14b68c0611cc46c984838f78a506420c22ee40427377464f19100000000000000000000000000000000000000000000000000000000000000140Ab764AB3816cD036Ea951bE973098510D8105A6000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000';
-
-    const reconstructResult = sodax.swaps.reconstructRelayData(intent);
+    const reconstructResult = sodax.swaps.reconstructRelayData(SOLANA_RELAYED_INTENT);
     if (!reconstructResult.ok) {
       throw new Error('Failed to reconstruct relay data');
     }
-    expect(reconstructResult.ok).toBe(true);
 
-    expect(reconstructResult.ok && reconstructResult.value.payload.toLowerCase()).toBe(actualData.toLowerCase());
+    expect(reconstructResult.value.payload.toLowerCase()).toBe(SOLANA_RELAYED_PAYLOAD.toLowerCase());
+  });
+
+  it('getIntentSubmitTxExtraData rebuilds the same relayed multicall payload for a spoke-source intent', async () => {
+    const sodax = new Sodax();
+
+    const result = await sodax.swaps.getIntentSubmitTxExtraData({ intent: SOLANA_RELAYED_INTENT });
+    if (!result.ok) {
+      throw new Error('Failed to get intent submit tx extra data');
+    }
+
+    expect(result.value.address).toBe(SOLANA_RELAYED_INTENT.creator);
+    expect(result.value.payload.toLowerCase()).toBe(SOLANA_RELAYED_PAYLOAD.toLowerCase());
   });
 
   // The canonical proof: the payload `constructCreateIntentData` produced for a spoke source must be
@@ -607,7 +677,8 @@ describe('EvmSolverService.getIntent', () => {
     });
 
     it('throws when the intent references an unrecognized relay chain id', async () => {
-      const intent = buildIntent({ srcChain: 9999n });
+      // Deliberate cast: 9999n is exactly the unrecognized relay chain id under test.
+      const intent = buildIntent({ srcChain: 9999n as unknown as Intent['srcChain'] });
       const intentHash = EvmSolverService.getIntentHash(intent);
       const log = encodeIntentCreatedLog(intentHash, intent, INTENTS_CONTRACT);
       vi.mocked(mockPublicClient.waitForTransactionReceipt).mockResolvedValueOnce(receiptWith([log]));

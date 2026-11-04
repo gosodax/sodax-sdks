@@ -1,6 +1,6 @@
 ---
 name: sodax-dapp-kit-swap
-description: 'Granular skill for the @sodax/dapp-kit v2 swap feature only — React Query hooks for intent-based cross-chain swaps via the solver: useSwap, useQuote, useSwapAllowance, useSwapApprove, useStatus, useCreateLimitOrder, useCancelSwap, useCancelLimitOrder. Use when a React dapp has decided the task is a swap (e.g. "useSwap with dapp-kit", "Sodax React swap hook", "limit order hook", "poll swap status", "cancel a Sodax intent in React") and you want to skip loading the broad sodax-dapp-kit skill. Covers BOTH integration (write new v2 hooks) and migration (port v1 swap hooks to v2 — single-object params, mutateAsyncSafe, hook-owned invalidations). Picks via Step 1. Links into the parent sodax-dapp-kit knowledge tree. For backend/Node swaps (no React), use the sodax-sdk skill instead.'
+description: 'Granular skill for the @sodax/dapp-kit v2 swap feature only — React Query hooks for intent-based cross-chain swaps via the solver: useSwapLifecycle, useSwap, useSwapWithApproval, useSwapApprovalStrategy, useQuote, useSwapAllowance, useSwapApprove, useDetailedStatus, useStatus, useCreateLimitOrder, useCancelSwap, useCancelLimitOrder. Use when a React dapp has decided the task is a swap (e.g. "useSwap with dapp-kit", "Sodax React swap hook", "limit order hook", "poll swap status", "cancel a Sodax intent in React") and you want to skip loading the broad sodax-dapp-kit skill. Covers BOTH integration (write new v2 hooks) and migration (port v1 swap hooks to v2 — single-object params, mutateAsyncSafe, hook-owned invalidations). Picks via Step 1. Links into the parent sodax-dapp-kit knowledge tree. For backend/Node swaps (no React), use the sodax-sdk skill instead.'
 license: MIT
 metadata:
   version: '0.0.1'
@@ -16,7 +16,7 @@ Granular skill for the swap hooks of `@sodax/dapp-kit` v2. React-only — backen
 1. **New code or v1 → v2 port?**
    - New → § Integration workflow.
    - Port v1 → § Migration workflow.
-2. **Which hooks?** Quote/preview (`useQuote`), execute (`useSwap`), allowance gate (`useSwapAllowance` + `useSwapApprove`), status polling (`useStatus`), or limit orders (`useCreateLimitOrder` / `useCancelLimitOrder`).
+2. **Which hooks?** A whole swap form → `useSwapLifecycle` (one `state` + `next()`; the hooks below are its parts and stay available). Otherwise: quote/preview (`useQuote`), execute (`useSwap`, or `useSwapWithApproval` to fold the approval in — one EIP-5792 signature where the wallet can batch; `useSwapApprovalStrategy` labels it; `allowAccountUpgrade: false` keeps a wallet that would ask for a smart-account upgrade on the two-step path), allowance gate (`useSwapAllowance` + `useSwapApprove`), status polling (`useDetailedStatus` from the source tx — the default; `useStatus` only when you hold the hub tx hash), or limit orders (`useCreateLimitOrder` / `useCancelLimitOrder`).
 3. **Market order or limit order?** Limit orders use `useCreateLimitOrder` (no `deadline`; cancel manually via `useCancelLimitOrder`).
 4. **Imperative flow or render-driven?** Sequenced flows → `mutateAsyncSafe` (returns `Result<T>`, never rejects). Fire-and-forget → `mutate`.
 
@@ -33,7 +33,7 @@ Granular skill for the swap hooks of `@sodax/dapp-kit` v2. React-only — backen
 - **Treating `useSwap` `data` as `Result<T>`.** The hook's `mutationFn` unwraps before resolving — `data` is the success value (`SwapResponse = { intent, intentDeliveryInfo, solverExecutionResponse }`). For SDK `!ok` read `mutation.error` or use `mutateAsyncSafe` for the `Result<T>` shape.
 - **Passing the SDK request directly under `params` on `useQuote`.** It nests under `params.payload` (a `SolverIntentQuoteRequest`). `useSwapAllowance` nests `payload` + `srcChainKey` + `walletProvider` under `params`.
 - **Reading `data.status` on `useQuote` / `useStatus` without `data?.ok`.** Both return a `Result<…>` as their `data` — branch on `.ok` first. (`useSwapAllowance` is the opposite — already-unwrapped `boolean`.)
-- **`useStatus` key is `intentTxHash`, not `intentHash`.**
+- **`useStatus` key is `intentTxHash`, not `intentHash`.** It needs the **hub** tx; for a status from what `swap()` returns use `useDetailedStatus({ params: { srcChainKey, srcTxHash } })`.
 - **Flattening `getSupportedSwapTokens()` and keying rows on `address`.** The same token address recurs across chains — use a composite `${address}-${chainKey}` key (`XToken` carries `chainKey`, not `blockchain_id`).
 - **Reaching for `useSpokeProvider`.** Deleted. Pass `walletProvider` into `mutate(vars)` for `useSwap`/`useSwapApprove`; cancel hooks take it flat.
 

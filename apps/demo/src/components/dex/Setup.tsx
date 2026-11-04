@@ -39,7 +39,7 @@ export function Setup({
         {/* Chain Selection */}
         <div className="space-y-2">
           <Label htmlFor="chain">Select Chain</Label>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {selectedChainId ? (
               <ChainSelector selectedChainId={selectedChainId} selectChainId={selectChainId} />
             ) : (
@@ -79,7 +79,7 @@ export function Setup({
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-between p-3 border rounded-md border-dashed">
+            <div className="flex items-center justify-between gap-3 p-3 border rounded-md border-dashed">
               <p className="text-sm text-muted-foreground">Connect your wallet to manage liquidity</p>
               <Button onClick={openWalletModal}>Connect Wallet</Button>
             </div>

@@ -1,0 +1,94 @@
+---
+title: "Money Market on Robinhood Chain"
+description: "Cross-network lending and borrowing from Robinhood Chain: supply, borrow, repay, and withdraw against collateral sourced on any SODAX network."
+icon: sack-dollar
+---
+
+<Note>
+  **Needs the next SDK release.** The backend config lists money market tokens for Robinhood Chain, but `@sodax/sdk` 2.1.0 lists none, so on 2.1.0 these calls fail validation with an unsupported-token error. Robinhood Chain money market support is on `main` for the next release. The code below is written for that release.
+</Note>
+
+Fragmented money markets mean lower capital efficiency and worse rates. The SODAX money market pools lending liquidity on the hub while letting users act from any supported network, including Robinhood Chain. A user can supply tokens from Robinhood Chain and borrow on another network, or borrow into their Robinhood Chain account against collateral held elsewhere, without your product running its own lending infrastructure.
+
+Four actions, all through `sodax.moneyMarket`: `supply`, `borrow`, `withdraw`, `repay`. Each has a complete one-call form (handles the relay end-to-end) and a `create*Intent` form when you want the transaction only.
+
+The assets that work in the money market from Robinhood Chain are a subset of the Robinhood Chain swap list. Stock Tokens are not among them; they are swap-only. Read the list at runtime, as below, or see [Networks & Assets](/robinhood-chain/networks-and-assets).
+
+## Supply from Robinhood Chain
+
+Supplying an ERC-20 token needs an allowance first, the same as any EVM network:
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// find() returns XToken | undefined, so narrow before using the address
+const robinhoodTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.ROBINHOOD_MAINNET);
+const usdg = robinhoodTokens.find(t => t.symbol === 'USDG');
+if (!usdg) throw new Error('USDG is not a supported money-market token on Robinhood Chain');
+
+const params = {
+  srcChainKey: ChainKeys.ROBINHOOD_MAINNET,
+  srcAddress: await walletProvider.getWalletAddress(),
+  token: usdg.address,
+  amount: 100n * 10n ** BigInt(usdg.decimals), // 100 USDG
+  action: 'supply',
+} as const;
+
+const allowance = await sodax.moneyMarket.isAllowanceValid({ params });
+if (!allowance.ok) throw allowance.error;
+if (!allowance.value) {
+  const approval = await sodax.moneyMarket.approve({ params, walletProvider });
+  if (!approval.ok) throw approval.error;
+  // wait for the approval to be mined before supplying
+}
+
+const result = await sodax.moneyMarket.supply({
+  params,
+  walletProvider, // IEvmWalletProvider, narrowed by srcChainKey
+  timeout: 120_000, // optional relay timeout (default 120 s)
+});
+```
+
+## Borrow to Robinhood Chain
+
+`dstChainKey` and `dstAddress` default to the source, but any supported network can be the destination. That is the cross-network story in one parameter: collateral supplied from one network, borrowed liquidity delivered to another.
+
+```typescript
+const bnUSD = robinhoodTokens.find(t => t.symbol === 'bnUSD');
+if (!bnUSD) throw new Error('bnUSD is not a supported money-market token on Robinhood Chain');
+
+const result = await sodax.moneyMarket.borrow({
+  params: {
+    srcChainKey: ChainKeys.ROBINHOOD_MAINNET, // where the caller acts from
+    srcAddress: userRobinhoodAddress,
+    token: bnUSD.address,                     // token on the destination network
+    amount: 50n * 10n ** BigInt(bnUSD.decimals), // 50 bnUSD
+    action: 'borrow',
+    dstChainKey: ChainKeys.ROBINHOOD_MAINNET, // deliver on Robinhood Chain
+    dstAddress: userRobinhoodAddress,
+  },
+  walletProvider,
+});
+```
+
+Build every amount from the token's own `decimals`: on Robinhood Chain, USDG uses 6 while ETH and bnUSD use 18.
+
+`withdraw` and `repay` follow the same shape. Withdraw and borrow need no approval on any network; repaying with an ERC-20 token needs an allowance, like supply. Native ETH needs no approval.
+
+## Building a lending UI
+
+`sodax.moneyMarket.data` exposes what you need for rates, positions, and health factors without extra indexing:
+
+- `getReservesHumanized()`: all reserves, human-readable.
+- `getUserReservesHumanized(spokeChainKey, userAddress)`: a user's positions.
+- `formatReservesUSD(request)` / `formatUserSummary(request)`: USD-converted reserves and portfolio summaries.
+
+## Error handling
+
+The module returns typed results. Discriminate on `result.error.code` (`'RELAY_TIMEOUT'`, `'EXECUTION_FAILED'`, …) with structured context on `result.error.context`.
+
+---
+
+Full reference, including intent-only methods, gas estimation, and the per-method error-code table: [Lend / Borrow (Money Market)](/developers/packages/foundation/sdk/functional-modules/money_market).

@@ -2,10 +2,12 @@ import {
   type SpokeService,
   Erc20Service,
   type HubProvider,
+  relayTxAndWaitPacket,
   RELAY_FALLBACK_FLOOR_MS,
   EvmVaultTokenService,
   EvmAssetManagerService,
   encodeContractCalls,
+  assertMpcPayoutAboveMinimum,
   calculateFeeAmount,
   isNativeBitcoinTransfer,
   encodeRecipient,
@@ -22,14 +24,36 @@ import {
   isUndefinedOrValidWalletProviderForChainKey,
   isOptionalEvmWalletProviderType,
   isOptionalStellarWalletProviderType,
+  isEvmWalletProviderType,
   type SpokeApproveParams,
   type BitcoinBoundExtras,
 } from '../shared/index.js';
 import type { IntentTxResult, TxHashPair } from '../shared/types/types.js';
-import type { BackendApiService } from '../backendApi/index.js';
+import type { ApprovalTxs } from '../shared/types/spoke-types.js';
+import type { BackendApiService, RequestOverrideConfig } from '../backendApi/index.js';
 import { runBackendSubmitTx } from '../backendApi/runBackendSubmitTx.js';
+import {
+  DETAILED_STATUS_NOT_DELIVERED,
+  isBackendSubmitTxAbandoned,
+  resolveDeliveredPacket,
+  resolveMintedMpcDeposit,
+  resolvePaidHubRelease,
+} from '../backendApi/detailedStatusRouting.js';
+import { isAuthFailure, isSodaxError } from '../errors/guards.js';
+import type { DetailedBridgeStatus, DetailedBridgeStatusKey } from './detailedStatus.js';
 import { createSubmitTxAttempt, type SubmitTxAttempt } from '../backendApi/submitTxAttempt.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
+import { canSendAtomicBatch } from '../shared/utils/evmAtomicBatch.js';
+import {
+  approvalBatchWaitMs,
+  confirmApproval,
+  confirmApprovalBatch,
+  resolveApprovalStrategy,
+  runWithApproval,
+  sendApprovalBatch,
+  type ApprovalOptions,
+  type ApprovalStrategy,
+} from '../shared/utils/approvalBatch.js';
 import {
   type SpokeChainKey,
   type XToken,
@@ -44,13 +68,16 @@ import {
   type VaultReserves,
   type StellarChainKey,
   isHubChainKey,
+  isMpcRelayChainKey,
   type GetWalletProviderType,
   type EvmSpokeOnlyChainKey,
   type GetTokenAddressType,
   type SpokeExecActionParams,
   type GetChainType,
+  type EvmRawTransaction,
   DEFAULT_RELAY_TX_TIMEOUT,
   BITCOIN_DUST_SATS,
+  type DepositReturnType,
 } from '@sodax/types';
 import { encodeFunctionData } from 'viem';
 import type { ConfigService } from '../shared/config/ConfigService.js';
@@ -63,20 +90,24 @@ import {
   approveFailed,
   allowanceCheckFailed,
   unknownFailed,
+  withErrorContext,
 } from '../errors/wrappers.js';
 import { mapRelayFailure } from '../errors/relay-error-mapping.js';
 import {
   type BridgeAllowanceCheckError,
   type BridgeApproveError,
   type BridgeCreateIntentError,
+  type BridgeDetailedStatusError,
   type BridgeLookupError,
   type BridgeOrchestrationError,
+  type BridgeWithApprovalError,
   bridgeInvariant,
   isBridgeAllowanceCheckError,
   isBridgeApproveError,
   isBridgeCreateIntentError,
   isBridgeLookupError,
   isBridgeOrchestrationError,
+  isBridgeWithApprovalError,
 } from './errors.js';
 
 export type CreateBridgeIntentParams<K extends SpokeChainKey = SpokeChainKey> = {
@@ -109,6 +140,11 @@ export type BridgeExtras<K extends SpokeChainKey = SpokeChainKey> = (GetChainTyp
      * Omit to use the configured fee. Chain-agnostic (unlike `srcPublicKey`/`bound`).
      */
     partnerFee?: PartnerFee;
+    /**
+     * Overrides the configured backend API key for this action's backend submit-tx leg; sent as the
+     * `x-api-key` header. Falls back to config when omitted. Chain-agnostic.
+     */
+    apiKey?: string;
   };
 
 export type BridgeParams<ChainKey extends SpokeChainKey, Raw extends boolean> = SpokeExecActionParams<
@@ -117,6 +153,24 @@ export type BridgeParams<ChainKey extends SpokeChainKey, Raw extends boolean> = 
   CreateBridgeIntentParams<ChainKey>,
   BridgeExtras<ChainKey>
 >;
+
+/** Params for `bridgeWithApproval` / `getApprovalStrategy`: `bridge()`'s, plus the account-upgrade choice. */
+export type BridgeWithApprovalParams<K extends SpokeChainKey> = BridgeParams<K, false> &
+  ApprovalOptions & {
+    /**
+     * `bridgeWithApproval` only: the `context.batchId` of an {@link ATOMIC_BATCH_UNCONFIRMED} error from an
+     * earlier call with the same `params` and wallet. Waits for that batch again instead of sending
+     * anything and, once its deposit confirms, completes the bridge through the client-side relay.
+     */
+    resumeBatchId?: string;
+    /**
+     * With `resumeBatchId`: that error's `context.callCount`. Without it, a batch the wallet confirmed as one
+     * transaction per call cannot be matched to its deposit and stays unconfirmed.
+     */
+    resumeBatchCallCount?: number;
+  };
+
+export type BridgeWithApprovalResponse = TxHashPair & { approvalStrategy: ApprovalStrategy };
 
 export type BridgeServiceConstructorParams = {
   hubProvider: HubProvider;
@@ -261,6 +315,8 @@ export class BridgeService {
    * When `raw` is `true` the encoded transaction is returned without broadcasting.
    * When `raw` is `false` the transaction is signed and submitted via the provided wallet provider.
    *
+   * Returns a SINGLE transaction — for the unsigned two-step case use {@link BridgeService.buildApproveTxs}.
+   *
    * @param _params - Bridge parameters including source chain, token, amount, wallet provider, and `raw` flag.
    * @returns `Result<TxReturnType<K, Raw>>` — encoded transaction data (raw) or submitted transaction hash.
    */
@@ -282,9 +338,7 @@ export class BridgeService {
           'Invalid wallet provider. Expected Evm wallet provider.',
           { ...baseCtx, field: 'walletProvider' },
         );
-        const spender = isHubChainKeyType(params.srcChainKey)
-          ? await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey)
-          : this.config.getChainConfig(params.srcChainKey).addresses.assetManager;
+        const spender = await this.resolveEvmApprovalSpender(params.srcChainKey, params.srcAddress);
 
         const coreParams = {
           srcChainKey: params.srcChainKey,
@@ -344,6 +398,85 @@ export class BridgeService {
 
       // Reached only for chains that don't support approval (Solana, NEAR, Bitcoin, etc.).
       // Surface as a validation failure rather than a generic Error so consumers can discriminate.
+      bridgeInvariant(false, 'Approval only supported for EVM spoke chains and Stellar', {
+        ...baseCtx,
+        field: 'srcChainKey',
+      });
+    } catch (error) {
+      if (isBridgeApproveError(error)) return { ok: false, error };
+      return { ok: false, error: wrapApproveFailure(error) };
+    }
+  }
+
+  /**
+   * The contract a bridge source token must be approved to, on the EVM approval path: the caller's own
+   * hub wallet router for a hub source (per-caller, hence async), the chain's asset manager on a spoke.
+   * NOT the swaps spender. Shared by `approve` and `buildApproveTxs` so the two cannot drift apart.
+   */
+  private async resolveEvmApprovalSpender(
+    srcChainKey: HubChainKey | EvmSpokeOnlyChainKey,
+    srcAddress: string,
+  ): Promise<GetAddressType<HubChainKey | EvmSpokeOnlyChainKey>> {
+    return isHubChainKeyType(srcChainKey)
+      ? await this.hubProvider.getUserHubWalletAddress(srcAddress, srcChainKey)
+      : this.config.getChainConfig(srcChainKey).addresses.assetManager;
+  }
+
+  /**
+   * The unsigned approval transactions for the bridge's source token: `approveTx`, preceded by a
+   * `resetTx` when a stale allowance must be zeroed first. Broadcast `resetTx` and wait for it to be
+   * mined — `approveTx` is not valid until it lands.
+   */
+  public async buildApproveTxs<K extends SpokeChainKey>(
+    _params: BridgeParams<K, true>,
+  ): Promise<Result<ApprovalTxs<K>, BridgeApproveError>> {
+    const { params } = _params;
+    const baseCtx = { srcChainKey: params.srcChainKey };
+
+    const wrapApproveFailure = (cause: unknown) => approveFailed('bridge', cause, baseCtx);
+
+    try {
+      bridgeInvariant(params.amount > 0n, 'Amount must be greater than 0', { ...baseCtx, field: 'amount' });
+      bridgeInvariant(params.srcToken.length > 0, 'Source asset is required', { ...baseCtx, field: 'srcToken' });
+
+      if (isHubChainKeyType(params.srcChainKey) || isEvmSpokeOnlyChainKeyType(params.srcChainKey)) {
+        const spender = await this.resolveEvmApprovalSpender(params.srcChainKey, params.srcAddress);
+
+        const result = await this.spoke.buildApproveTxs<HubChainKey | EvmSpokeOnlyChainKey>({
+          srcChainKey: params.srcChainKey,
+          owner: params.srcAddress as GetAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
+          token: params.srcToken as GetTokenAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
+          amount: params.amount,
+          spender,
+          raw: true,
+        });
+
+        if (!result.ok) return { ok: false, error: wrapApproveFailure(result.error) };
+
+        return {
+          ok: true,
+          value: result.value satisfies ApprovalTxs<HubChainKey | EvmSpokeOnlyChainKey> as ApprovalTxs<K>,
+        };
+      }
+
+      if (isStellarChainKeyType(params.srcChainKey)) {
+        const result = await this.spoke.buildApproveTxs<StellarChainKey>({
+          srcChainKey: params.srcChainKey,
+          token: params.srcToken,
+          amount: params.amount,
+          owner: params.srcAddress as GetAddressType<StellarChainKey>,
+          raw: true,
+        });
+
+        if (!result.ok) return { ok: false, error: wrapApproveFailure(result.error) };
+
+        return {
+          ok: true,
+          value: result.value satisfies ApprovalTxs<StellarChainKey> as ApprovalTxs<K>,
+        };
+      }
+
+      // Same unsupported-chain set as `approve`, reported the same way.
       bridgeInvariant(false, 'Approval only supported for EVM spoke chains and Stellar', {
         ...baseCtx,
         field: 'srcChainKey',
@@ -415,26 +548,7 @@ export class BridgeService {
           // CreateBridgeIntentErrorCode ⊂ BridgeOrchestrationErrorCode, so SodaxError narrows correctly.
           if (!created.ok) return { ok: false, error: created.error };
 
-          // `timeout` is a PER-ATTEMPT budget, not an end-to-end one: the backend attempt gets it, and if
-          // that attempt fails the client-side relay fallback gets a fresh one. Sharing a single deadline
-          // would leave the fallback whatever the backend had not spent, which is how a relay that needs
-          // longer than the leftovers ends in RELAY_TIMEOUT. Resolved (not just defaulted) so a non-finite
-          // caller value cannot reach either budget — see `resolveTimeoutMs`.
-          const timeoutMs = resolveTimeoutMs(_params.timeout, DEFAULT_RELAY_TX_TIMEOUT);
-
-          // Backend submit-tx flow (default on): hand the broadcast spoke-deposit tx to the bridge API, which
-          // relays server-side. On ANY non-success we fall back to the client-side relay so the bridge
-          // still completes — safe because re-relay is idempotent.
-          if (this.useBackendSubmitTx) {
-            const submitted = await this.submitTx(_params, created.value, createSubmitTxAttempt(timeoutMs));
-            if (submitted.ok) return submitted;
-            this.config.logger.warn(
-              '[bridge] backend submit-tx did not complete; falling back to the client-side relay',
-              { error: submitted.error },
-            );
-          }
-
-          return this.fallbackBridgeSteps(_params, created.value, timeoutMs);
+          return await this.completeBridge(_params, created.value);
         } catch (error) {
           if (isBridgeOrchestrationError(error)) return { ok: false, error };
           return {
@@ -463,6 +577,297 @@ export class BridgeService {
   }
 
   /**
+   * Which approval path {@link bridgeWithApproval} would take for these params, so a UI can say up
+   * front whether the bridge costs one signature or two. Read-only; sends nothing.
+   *
+   * `'atomic-batch'` needs an EVM spoke source and a wallet that reports EIP-5792 atomic support for
+   * that chain (`'supported'`, or `'ready'` unless `allowAccountUpgrade: false`). The Sonic hub,
+   * Stellar and wallets without batch support get `'sequential'`; other non-EVM sources have no
+   * allowance and get `'not-required'`.
+   *
+   * @returns `isAllowanceValid`'s error — `VALIDATION_FAILED` for invalid params, `ALLOWANCE_CHECK_FAILED`
+   *   when the read fails — or the strategy.
+   */
+  public async getApprovalStrategy<K extends SpokeChainKey>(
+    _params: BridgeWithApprovalParams<K>,
+  ): Promise<Result<ApprovalStrategy, BridgeAllowanceCheckError>> {
+    const { params, walletProvider, allowAccountUpgrade = true } = _params;
+
+    const allowance = await this.isAllowanceValid(_params);
+    if (!allowance.ok) {
+      return {
+        ok: false,
+        error: withErrorContext(allowance.error, {
+          srcChainKey: params.srcChainKey,
+          dstChainKey: params.dstChainKey,
+          action: 'bridgeWithApproval',
+        }),
+      };
+    }
+    if (allowance.value) return { ok: true, value: 'not-required' };
+    return {
+      ok: true,
+      value: await resolveApprovalStrategy({ srcChainKey: params.srcChainKey, walletProvider, allowAccountUpgrade }),
+    };
+  }
+
+  /**
+   * {@link bridge} with the source-token approval folded in. Picks a path with
+   * {@link getApprovalStrategy}: no approval when the allowance already suffices; on an EIP-5792
+   * wallet, approve and the deposit as **one atomic batch — one signature**; otherwise approve, wait
+   * for it to confirm, then the deposit. Completion is exactly `bridge()`'s.
+   *
+   * A wallet that refuses the batch before signing anything falls back to the two-step path. A batch
+   * the user saw is never retried as separate transactions:
+   * - rejected → `USER_REJECTED`; a declined account upgrade (5750) adds `context.reason:
+   *   'account-upgrade-declined'`, after which `allowAccountUpgrade: false` bridges without one;
+   * - never included or fully reverted (EIP-5792 400 / 500) → `INTENT_CREATION_FAILED` with
+   *   `context.reason: 'atomic-batch-failed'`;
+   * - anything else short of a confirmed deposit receipt → `TX_VERIFICATION_FAILED` with
+   *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED}, `context.batchId` and `context.callCount`. It may
+   *   have landed — do not send it again; call again with `resumeBatchId` and `resumeBatchCallCount` to
+   *   finish it once it does.
+   *
+   * @returns `bridge()`'s `TxHashPair` plus the `approvalStrategy` that ran. Errors are `bridge()`'s
+   *   codes plus `APPROVE_FAILED` and `ALLOWANCE_CHECK_FAILED`.
+   */
+  public async bridgeWithApproval<K extends SpokeChainKey>(
+    _params: BridgeWithApprovalParams<K>,
+  ): Promise<Result<BridgeWithApprovalResponse, BridgeWithApprovalError>> {
+    const { params } = _params;
+    const baseCtx = { srcChainKey: params.srcChainKey, dstChainKey: params.dstChainKey, action: 'bridgeWithApproval' };
+    return this.config.analytics.trackResult(
+      'bridge',
+      'bridgeWithApproval',
+      async () => {
+        try {
+          if (_params.resumeBatchId !== undefined) return await this.resumeAtomicBatch(_params, _params.resumeBatchId);
+
+          const strategy = await this.getApprovalStrategy(_params);
+          if (!strategy.ok) return strategy;
+
+          const { result: created, approvalStrategy } = await runWithApproval<
+            IntentTxResult<K, false>,
+            BridgeWithApprovalError
+          >({
+            strategy: strategy.value,
+            notRequired: () => this.createBridgeIntent(_params),
+            atomicBatch: () => this.createBridgeIntentInAtomicBatch(_params),
+            sequential: afterRefusedBatch => this.approveThenCreateBridgeIntent(_params, afterRefusedBatch),
+            onBatchRefused: error =>
+              this.config.logger.warn('[bridgeWithApproval] wallet refused the atomic batch; approving separately', {
+                error,
+              }),
+          });
+          if (!created.ok) return created;
+          const completed = await this.completeBridge(_params, created.value);
+          if (!completed.ok) return completed;
+          return { ok: true, value: { ...completed.value, approvalStrategy } };
+        } catch (error) {
+          if (isBridgeWithApprovalError(error)) return { ok: false, error };
+          return { ok: false, error: executionFailed('bridge', error, baseCtx) };
+        }
+      },
+      {
+        start: () => ({
+          srcChainKey: params.srcChainKey,
+          dstChainKey: params.dstChainKey,
+          srcToken: params.srcToken,
+          dstToken: params.dstToken,
+          amount: params.amount,
+          srcAddress: params.srcAddress,
+          recipient: params.recipient,
+        }),
+        success: value => ({
+          srcChainTxHash: value.srcChainTxHash,
+          dstChainTxHash: value.dstChainTxHash,
+          approvalStrategy: value.approvalStrategy,
+        }),
+        failure: error => ({ code: error.code }),
+      },
+    );
+  }
+
+  /**
+   * Approve + deposit as one EIP-5792 atomic batch, in broadcast order (`[reset?, approve, deposit]`),
+   * then hand back the batch's transaction hash as the deposit tx, for {@link completeBridge}.
+   */
+  private async createBridgeIntentInAtomicBatch<K extends SpokeChainKey>(
+    _params: BridgeParams<K, false>,
+  ): Promise<Result<IntentTxResult<K, false>, BridgeWithApprovalError>> {
+    const { params, walletProvider, extras, skipSimulation } = _params;
+    const srcChainKey = params.srcChainKey;
+    bridgeInvariant(
+      isEvmSpokeOnlyChainKeyType(srcChainKey) && isEvmWalletProviderType(walletProvider),
+      'Atomic batches need an EVM spoke source and an EVM wallet provider',
+    );
+    const ctx = {
+      srcChainKey,
+      dstChainKey: params.dstChainKey,
+      action: 'bridgeWithApproval',
+      approvalStrategy: 'atomic-batch',
+    };
+
+    const [approval, created] = await Promise.all([
+      this.buildApproveTxs<K>({ params, raw: true }),
+      this.createBridgeIntent<K, true>({ params, extras, skipSimulation, raw: true }),
+    ]);
+    if (!approval.ok) return { ok: false, error: withErrorContext(approval.error, ctx) };
+    if (!created.ok) return { ok: false, error: withErrorContext(created.error, ctx) };
+
+    // An EVM spoke source makes every unsigned leg an EvmRawTransaction.
+    const { resetTx, approveTx } = approval.value as ApprovalTxs<EvmSpokeOnlyChainKey>;
+    const depositTx = created.value.tx as EvmRawTransaction;
+    const sent = await sendApprovalBatch({
+      walletProvider,
+      srcChainKey,
+      txs: resetTx ? [resetTx, approveTx, depositTx] : [approveTx, depositTx],
+      timeoutMs: approvalBatchWaitMs(_params.timeout),
+      feature: 'bridge',
+      context: ctx,
+    });
+    if (!sent.ok) return sent;
+    return {
+      ok: true,
+      value: {
+        tx: sent.value.txHash satisfies TxReturnType<EvmSpokeOnlyChainKey, false> as TxReturnType<K, false>,
+        relayData: created.value.relayData,
+      },
+    };
+  }
+
+  /**
+   * Finishes a batch an earlier call left {@link ATOMIC_BATCH_UNCONFIRMED}, without sending anything to
+   * the wallet: waits for it again, then relays its deposit client-side and waits for the settlement packet,
+   * and for a payout to an MPC-relay chain (Tron), notifies its release and waits for the payout.
+   */
+  private async resumeAtomicBatch<K extends SpokeChainKey>(
+    _params: BridgeWithApprovalParams<K>,
+    batchId: string,
+  ): Promise<Result<BridgeWithApprovalResponse, BridgeWithApprovalError>> {
+    const { params, walletProvider } = _params;
+    const srcChainKey = params.srcChainKey;
+    bridgeInvariant(
+      isEvmSpokeOnlyChainKeyType(srcChainKey) &&
+        isEvmWalletProviderType(walletProvider) &&
+        canSendAtomicBatch(walletProvider),
+      'Resuming an atomic batch needs an EVM spoke source and an EIP-5792 wallet provider',
+    );
+    const ctx = {
+      srcChainKey,
+      dstChainKey: params.dstChainKey,
+      action: 'bridgeWithApproval',
+      approvalStrategy: 'atomic-batch',
+    };
+    const timeoutMs = approvalBatchWaitMs(_params.timeout);
+
+    const deposit = await confirmApprovalBatch({
+      walletProvider,
+      batchId,
+      callCount: _params.resumeBatchCallCount,
+      timeoutMs,
+      feature: 'bridge',
+      context: ctx,
+    });
+    if (!deposit.ok) return deposit;
+    const srcTxHash = deposit.value.txHash;
+    const txCtx = { ...ctx, srcTxHash };
+
+    // An EVM spoke tx is relayed by its hash alone, so the lost `relayData` is not needed.
+    const relayTimeout = Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS);
+    const packet = await relayTxAndWaitPacket({
+      srcTxHash,
+      chainKey: srcChainKey,
+      relayerApiEndpoint: this.config.relay.relayerApiEndpoint,
+      timeout: relayTimeout,
+    });
+    if (!packet.ok) return { ok: false, error: mapRelayFailure(packet.error, { feature: 'bridge', ...txCtx }) };
+
+    // The intent relay stops at the hub; an MPC-relay chain pays out only once the hub tx is notified.
+    let dstChainTxHash = packet.value.dst_tx_hash;
+    if (isMpcRelayChainKey(params.dstChainKey)) {
+      const released = await this.spoke.settleHubRelease(dstChainTxHash, params.dstChainKey, relayTimeout);
+      if (!released.ok) {
+        const { phase, cause } = released.error;
+        const error =
+          phase === 'verification'
+            ? verifyFailed('bridge', cause, txCtx)
+            : mapRelayFailure(cause, { feature: 'bridge', ...txCtx });
+        return { ok: false, error };
+      }
+      dstChainTxHash = released.value.dstChainTxHash;
+    }
+
+    return { ok: true, value: { srcChainTxHash: srcTxHash, dstChainTxHash, approvalStrategy: 'atomic-batch' } };
+  }
+
+  /** Approve, wait for the approval to confirm, then send the deposit — two or more signatures. */
+  private async approveThenCreateBridgeIntent<K extends SpokeChainKey>(
+    _params: BridgeParams<K, false>,
+    validated = false,
+  ): Promise<Result<IntentTxResult<K, false>, BridgeWithApprovalError>> {
+    const { params, extras, skipSimulation } = _params;
+    const ctx = {
+      srcChainKey: params.srcChainKey,
+      dstChainKey: params.dstChainKey,
+      action: 'bridgeWithApproval',
+      approvalStrategy: 'sequential',
+    };
+
+    // Build the deposit unsigned first, so params that can never bridge fail before the user pays for an approval.
+    if (!validated) {
+      const preflight = await this.createBridgeIntent<K, true>({ params, extras, skipSimulation, raw: true });
+      if (!preflight.ok) return { ok: false, error: withErrorContext(preflight.error, ctx) };
+    }
+
+    const approved = await this.approve(_params);
+    if (!approved.ok) return { ok: false, error: withErrorContext(approved.error, ctx) };
+
+    const confirmed = await confirmApproval({
+      waitForTxReceipt: receiptParams => this.spoke.waitForTxReceipt(receiptParams),
+      txHash: approved.value,
+      chainKey: params.srcChainKey,
+      feature: 'bridge',
+      context: ctx,
+    });
+    if (!confirmed.ok) return confirmed;
+
+    return this.createBridgeIntent(_params);
+  }
+
+  /**
+   * Completes a bridge whose deposit tx is already broadcast: the backend submit-tx attempt when
+   * `useBackendSubmitTx` is on, falling back to {@link fallbackBridgeSteps} on any non-success.
+   * Shared by `bridge()` and `bridgeWithApproval()`, which differ only in how the deposit is sent.
+   */
+  private async completeBridge<K extends SpokeChainKey>(
+    _params: BridgeParams<K, false>,
+    created: IntentTxResult<K, false>,
+  ): Promise<Result<TxHashPair, BridgeOrchestrationError>> {
+    // `timeout` is a PER-ATTEMPT budget, not an end-to-end one: the backend attempt gets it, and if
+    // that attempt fails the client-side relay fallback gets a fresh one. Sharing a single deadline
+    // would leave the fallback whatever the backend had not spent, which is how a relay that needs
+    // longer than the leftovers ends in RELAY_TIMEOUT. Resolved (not just defaulted) so a non-finite
+    // caller value cannot reach either budget — see `resolveTimeoutMs`.
+    const timeoutMs = resolveTimeoutMs(_params.timeout, DEFAULT_RELAY_TX_TIMEOUT);
+
+    // Backend submit-tx flow (default on): hand the broadcast spoke-deposit tx to the bridge API, which
+    // relays server-side. On ANY non-success we fall back to the client-side relay so the bridge
+    // still completes — safe because re-relay is idempotent.
+    // The backend only relays through the intent relay, so a bridge to or from an MPC-relay chain settles client-side.
+    const { srcChainKey, dstChainKey } = _params.params;
+    if (this.useBackendSubmitTx && !isMpcRelayChainKey(srcChainKey) && !isMpcRelayChainKey(dstChainKey)) {
+      const submitted = await this.submitTx(_params, created, createSubmitTxAttempt(timeoutMs));
+      if (submitted.ok) return submitted;
+      this.config.logger.warn('[bridge] backend submit-tx did not complete; falling back to the client-side relay', {
+        error: submitted.error,
+      });
+    }
+
+    return this.fallbackBridgeSteps(_params, created, timeoutMs);
+  }
+
+  /**
    * Client-side bridge completion (opt-out via `bridge.useBackendSubmitTx: false`): verify the broadcast
    * spoke-deposit tx, then relay it to the hub and wait for the settlement packet. Extracted verbatim from
    * `bridge()` so the backend submit-tx path ({@link submitTx}) can fall back to it on any non-success.
@@ -478,19 +883,25 @@ export class BridgeService {
     timeoutMs: number,
   ): Promise<Result<TxHashPair, BridgeOrchestrationError>> {
     const { params } = _params;
-    const baseCtx = { srcChainKey: params.srcChainKey, dstChainKey: params.dstChainKey };
+    // Every failure from here on is post-broadcast: carry the tx so the caller can keep reading its status.
+    const txCtx = {
+      srcChainKey: params.srcChainKey,
+      dstChainKey: params.dstChainKey,
+      action: 'bridge',
+      srcTxHash: created.tx,
+    };
 
     const settled = await this.spoke.settle({
       chainKey: params.srcChainKey,
       tx: created.tx,
       direction: 'inbound',
       relayData: created.relayData,
+      dstChainKey: params.dstChainKey,
       // The caller's full `timeout`, starting HERE — after verification, and whether this runs as the only
       // path or as the backend's fallback. Neither a stalled backend attempt nor a slow source-chain
-      // confirmation (Stacks polls for up to its full 120s `maxTimeoutMs`) may shorten the relay wait. The
-      // floor covers a sub-floor caller `timeout`: settlement SUBMITS the tx to the relay before `timeout`
-      // bounds anything, so a zero budget would strand an already-landed deposit unrelayed. Re-relay is
-      // idempotent, so always spending the floor is safe.
+      // confirmation (Stacks polls for up to its full 120s `maxTimeoutMs`) may shorten the relay wait.
+      // Settlement submits before `timeout` bounds anything, so a zero budget would strand a landed
+      // deposit unrelayed. Re-relaying is idempotent.
       timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
     });
 
@@ -499,13 +910,8 @@ export class BridgeService {
         ok: false,
         error:
           settled.error.phase === 'verification'
-            ? verifyFailed('bridge', settled.error.cause, baseCtx)
-            : mapRelayFailure(settled.error.cause, {
-                feature: 'bridge',
-                action: 'bridge',
-                srcChainKey: baseCtx.srcChainKey,
-                dstChainKey: baseCtx.dstChainKey,
-              }),
+            ? verifyFailed('bridge', settled.error.cause, txCtx)
+            : mapRelayFailure(settled.error.cause, { feature: 'bridge', ...txCtx }),
       };
     }
 
@@ -546,6 +952,9 @@ export class BridgeService {
       const outcome = await runBackendSubmitTx({
         attempt,
         api: this.backendApi.bridge,
+        // The configured key is already baked into the BridgeApiService headers, so only this
+        // per-action override (mirroring `extras.partnerFee`) travels per call.
+        overrideConfig: { apiKey: _params.extras?.apiKey },
         body: {
           txHash: spokeTxHash,
           srcChainKey,
@@ -594,7 +1003,7 @@ export class BridgeService {
    */
   async createBridgeIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: BridgeParams<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>, BridgeCreateIntentError>> {
+  ): Promise<Result<IntentTxResult<K, Raw, 'deposit'>, BridgeCreateIntentError>> {
     const { params, skipSimulation, extras } = _params;
     // Per-action `extras.partnerFee` wins over the config-level `bridgePartnerFee` (undefined = no fee).
     // Resolved once so the dust guard below and `buildBridgeData` price the same fee.
@@ -655,6 +1064,16 @@ export class BridgeService {
           `Post-fee BTC delivery (${delivered}) is below the Bitcoin dust limit of ${BITCOIN_DUST_SATS} sats`,
           { ...baseCtx, field: 'amount' },
         );
+      }
+      if (isMpcRelayChainKey(params.dstChainKey)) {
+        // Like the dust guard, the floor applies to what arrives after the partner fee.
+        const { delivered } = this.computeBridgeAmounts(params.amount, srcToken, dstToken, partnerFee);
+        assertMpcPayoutAboveMinimum({
+          feature: 'bridge',
+          token: dstToken,
+          amount: delivered,
+          context: { ...baseCtx, field: 'amount' },
+        });
       }
 
       // Stacks addresses can't yield the signer public key at raw-tx build time, so a raw Stacks
@@ -730,7 +1149,7 @@ export class BridgeService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies DepositReturnType<K, Raw> as DepositReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };
@@ -876,6 +1295,144 @@ export class BridgeService {
       );
     }
     return encodeContractCalls(calls);
+  }
+
+  /**
+   * Answers "what is the status of this bridge?" from the **source-chain** tx — the one identifier a
+   * caller always holds. It does not define a new status: it routes to whichever of the two existing
+   * sources can answer, and returns that source's payload unmodified.
+   *
+   * `sodax.api.bridge.getSubmitTxStatus` cannot answer for every bridge. Sometimes there is no
+   * record — `useBackendSubmitTx: false`, or the submit itself never landed. More often the record
+   * exists but is stale: the backend path POSTs the tx first and only falls back to the client-side
+   * relay once that stalls, so a fallback-completed bridge leaves behind whatever state the backend
+   * last reached, including a record it abandoned outright. Neither shape reflects what happened.
+   *
+   * 1. Read the backend record; return it while it is still in play.
+   * 2. Otherwise return the delivered relay packet, which is terminal by construction.
+   * 3. A bridge paying out on an MPC-relay chain has no packet for that leg, so it answers from the
+   *    relay's release record instead, once the payout tx is recorded.
+   *
+   * A rejected API key is the one failure that does **not** fall through to step 2: the status route
+   * is key-guarded, so degrading would bury a 401/403 behind a relay error and leave a poller
+   * retrying a request only a corrected key can satisfy. It surfaces with `context.status` instead,
+   * which is what `isAuthFailure` reads.
+   *
+   * A point-in-time read; poll it yourself, or use dapp-kit's `useBridgeDetailedStatus`.
+   *
+   * @param params - `srcChainKey` and `srcTxHash` of the source-chain bridge transaction.
+   * @param config - Optional per-request override for the backend read (e.g. a per-action API key).
+   *   The relay leg is unauthenticated and takes none.
+   * @returns A `Result` containing a {@link DetailedBridgeStatus}. Fails with `LOOKUP_FAILED` when no
+   *   source can answer yet — usually the relay has not delivered the packet. Branch on
+   *   `error.context.reason`: `DETAILED_STATUS_NOT_DELIVERED` is the ambiguous miss a caller should
+   *   bound with a retry budget; anything else is a dependency failing right now, so keep retrying.
+   */
+  public async getDetailedStatus(
+    params: DetailedBridgeStatusKey,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<DetailedBridgeStatus, BridgeDetailedStatusError>> {
+    try {
+      const record = await this.backendApi.bridge.getSubmitTxStatus(
+        { txHash: params.srcTxHash, srcChainKey: params.srcChainKey },
+        config,
+      );
+
+      // `success: false` is the wire contract's "no record found", whatever `data` carries — `ok`
+      // only proves the request and schema succeeded.
+      if (record.ok && record.value.success && !isBackendSubmitTxAbandoned(record.value.data)) {
+        return { ok: true, value: { source: 'backend', data: record.value.data } };
+      }
+
+      if (!record.ok && isSodaxError(record.error) && isAuthFailure(record.error)) {
+        return {
+          ok: false,
+          error: this.detailedStatusLookupFailed(record.error, params.srcChainKey, {
+            status: record.error.context?.status,
+          }),
+        };
+      }
+
+      // Did the backend *answer*? A record — even `success: false`, even abandoned — and a 404 are
+      // both definitive "nothing usable here". A 5xx or a transport failure is not: behind one we
+      // cannot tell a bridge that will never resolve from a live one whose record we could not read.
+      const backendAnswered = record.ok || (isSodaxError(record.error) && record.error.context?.status === 404);
+
+      const minted = await resolveMintedMpcDeposit({
+        srcChainKey: params.srcChainKey,
+        srcTxHash: params.srcTxHash,
+        backendAnswered,
+        spoke: this.spoke,
+      });
+      if (minted) {
+        if (!minted.ok) {
+          return {
+            ok: false,
+            error: this.detailedStatusLookupFailed(minted.cause, params.srcChainKey, {
+              reason: minted.budgetable ? DETAILED_STATUS_NOT_DELIVERED : undefined,
+            }),
+          };
+        }
+        return { ok: true, value: { source: 'mpcRelay', data: minted.deposit } };
+      }
+
+      const delivered = await resolveDeliveredPacket({
+        srcChainKey: params.srcChainKey,
+        srcTxHash: params.srcTxHash,
+        relayerApiEndpoint: this.config.relay.relayerApiEndpoint,
+        backendAnswered,
+      });
+
+      // A hub source's packet is the final answer, so only its miss can mean an MPC-relay payout. A
+      // spoke source's packet stops at the hub, whose tx may still have that payout ahead of it.
+      const isHubSource = isHubChainKeyType(params.srcChainKey);
+      const hubTxHash = delivered.ok
+        ? isHubSource
+          ? undefined
+          : delivered.packet.dst_tx_hash
+        : isHubSource
+          ? params.srcTxHash
+          : undefined;
+      const release = hubTxHash
+        ? await resolvePaidHubRelease({ hubTxHash, backendAnswered, spoke: this.spoke })
+        : undefined;
+      if (release?.ok) return { ok: true, value: { source: 'mpcRelay', data: release.release } };
+      // An unreadable hub-source receipt leaves the packet miss as the better answer.
+      if (release && (delivered.ok || release.budgetable)) {
+        return {
+          ok: false,
+          error: this.detailedStatusLookupFailed(release.cause, params.srcChainKey, {
+            reason: release.budgetable ? DETAILED_STATUS_NOT_DELIVERED : undefined,
+          }),
+        };
+      }
+
+      if (!delivered.ok) {
+        return {
+          ok: false,
+          error: this.detailedStatusLookupFailed(delivered.cause, params.srcChainKey, {
+            reason: delivered.budgetable ? DETAILED_STATUS_NOT_DELIVERED : undefined,
+          }),
+        };
+      }
+      return { ok: true, value: { source: 'relay', data: delivered.packet } };
+    } catch (error) {
+      // The relay client asserts on empty identifiers rather than returning a Result.
+      return { ok: false, error: this.detailedStatusLookupFailed(error, params.srcChainKey) };
+    }
+  }
+
+  /**
+   * `reason` is set only for {@link DETAILED_STATUS_NOT_DELIVERED} — the miss a caller can bound with
+   * a retry budget. `status` is lifted for a rejected key so `isAuthFailure` recognises the wrapped
+   * error; it reads `context.status` and does not walk the cause chain.
+   */
+  private detailedStatusLookupFailed(
+    cause: unknown,
+    srcChainKey: SpokeChainKey,
+    extra?: { reason?: string; status?: number },
+  ): BridgeDetailedStatusError {
+    return lookupFailed('bridge', 'getDetailedStatus', cause, { srcChainKey, action: 'bridge', ...extra });
   }
 
   /**

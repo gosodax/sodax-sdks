@@ -15,14 +15,14 @@ import { useXWalletStore } from '@/useXWalletStore.js';
  * after the native SDK reports `connected`. Read the resolved account via
  * `useXAccount` / `useXConnection`, not the mutation's return value.
  *
- * **Non-provider chains** (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks) return
+ * **Non-provider chains** (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks, Tron) return
  * the resolved `XAccount` directly. Code defensively if your component supports
  * both — `useXAccount` works for both cases.
  *
  * Throws `Error('Chain "<X>" is not enabled or ChainActions not registered')` when
  * the connector's chain type isn't mounted in `SodaxWalletProvider` config.
  *
- * @see {@link https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md#connect-a-wallet | Connect Flow — Connect}
+ * @see {@link https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md#connect-a-wallet | Connect Flow — Connect}
  */
 export function useXConnect(): UseMutationResult<XAccount | undefined, Error, IXConnector> {
   const setXConnection = useXWalletStore(state => state.setXConnection);
