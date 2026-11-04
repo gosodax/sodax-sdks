@@ -16,6 +16,8 @@ export * from './XrpSpokeService.js';
 export * from './MonadSpokeService.js';
 export * from './TonSpokeService.js';
 export * from './ton-utils.js';
+export * from './ZcashSpokeService.js';
+export * from './zcash-utils.js';
 export * from './xrp-utils.js';
 export * from './mpc-message.js';
 export * from './tron-utils.js';

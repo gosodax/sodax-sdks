@@ -61,7 +61,7 @@
     "url": "https://github.com/gosodax/sodax-sdks"
   },
   "scripts": {
-    "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsup && tsup --config tsup.privy-dts.config.ts && node ../../scripts/verify-dist-exports.mjs && node scripts/check-privy-isolation.mjs",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=12288 tsup && tsup --config tsup.privy-dts.config.ts && node ../../scripts/verify-dist-exports.mjs && node scripts/check-privy-isolation.mjs",
     "dev": "tsup --watch ./src",
     "prepublishOnly": "pnpm run build",
     "clean": "rm -rf dist && rm -rf node_modules && rm -rf .turbo",

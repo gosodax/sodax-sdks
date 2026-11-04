@@ -14,6 +14,7 @@ import {
   TronWalletProvider,
   XrpWalletProvider,
   TonWalletProvider,
+  ZcashWalletProvider,
 } from '@sodax/wallet-sdk-core';
 import { Wallet } from '@injectivelabs/wallet-base';
 import { getEthereumAddress } from '@injectivelabs/sdk-ts';
@@ -46,6 +47,7 @@ import { StacksXService, StacksXConnector, STACKS_PROVIDERS } from './xchains/st
 import { TronXService, TronXConnector } from './xchains/tron/index.js';
 import { XrpXService, XrpXConnector } from './xchains/xrp/index.js';
 import { TonXService, TonXConnector } from './xchains/ton/index.js';
+import { ZcashXService, ZcashXConnector } from './xchains/zcash/index.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -481,6 +483,23 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
         store.walletConfig?.TON?.chains?.[ChainKeys.TON_MAINNET],
       );
       return new TonWalletProvider({ tonConnect: connector.getTonConnect(), defaults });
+    },
+  }),
+  ZCASH: defineChain({
+    createService: walletConfig => ZcashXService.getInstance(walletConfig?.ZCASH?.chains?.[ChainKeys.ZCASH_MAINNET]),
+    displayName: 'Zcash',
+    defaultConnectors: () => [new ZcashXConnector()],
+    providerManaged: false,
+    createWalletProvider: (service, getStore) => {
+      const store = getStore();
+      const connection = store.xConnections.ZCASH;
+      if (!connection?.xAccount.address) return undefined;
+      const connector = connection.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+      if (!(connector instanceof ZcashXConnector)) return undefined;
+      const defaults = getEntryDefaults<typeof ChainKeys.ZCASH_MAINNET>(
+        store.walletConfig?.ZCASH?.chains?.[ChainKeys.ZCASH_MAINNET],
+      );
+      return new ZcashWalletProvider({ wallet: connector.getWallet(), defaults });
     },
   }),
 };

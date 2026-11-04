@@ -501,6 +501,7 @@ export const swapSupportedTokens = {
   // Staging-only for now.
   [ChainKeys.MONAD_MAINNET]: [],
   [ChainKeys.TON_MAINNET]: [],
+  [ChainKeys.ZCASH_MAINNET]: [],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 // Tokens supported ONLY in the staging solver environment.
@@ -566,6 +567,7 @@ export const stagingSwapSupportedTokens = {
     spokeChainConfig[ChainKeys.TON_MAINNET].supportedTokens.TON,
     spokeChainConfig[ChainKeys.TON_MAINNET].supportedTokens.USDT,
   ] as const satisfies XToken[],
+  [ChainKeys.ZCASH_MAINNET]: [spokeChainConfig[ChainKeys.ZCASH_MAINNET].supportedTokens.ZEC] as const satisfies XToken[],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 export type SwapsOptions = {

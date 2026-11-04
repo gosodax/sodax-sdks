@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { ChainKeys } from './chains.js';
-import { SodaTokens, solanaSupportedTokens, supportedTokensByChain, type XToken } from './tokens.js';
+import {
+  SodaTokens,
+  solanaSupportedTokens,
+  supportedTokensByChain,
+  zcashSupportedTokens,
+  type XToken,
+} from './tokens.js';
 import { swapSupportedTokens, stagingSwapSupportedTokens } from '../swap/swap.js';
 import { moneyMarketSupportedTokens, moneyMarketReserveAssets } from '../moneyMarket/moneyMarket.js';
 
@@ -37,8 +43,17 @@ describe('ADA and ZEC vault feature membership', () => {
     expect(swapSupportedTokens[token.chainKey]).not.toContainEqual(token);
   });
 
-  it.each([SodaTokens.sodaADA, SodaTokens.sodaZEC])('$symbol has no money-market listing or reserve', token => {
+  it('keeps the ADA vault out of the money market', () => {
+    const token = SodaTokens.sodaADA;
     expect(moneyMarketSupportedTokens[token.chainKey]).not.toContainEqual(token);
     expect(moneyMarketReserveAssets).not.toContain(token.address);
+  });
+
+  it('lists the ZEC vault as a money-market reserve, backing Zcash ZEC', () => {
+    const token = SodaTokens.sodaZEC;
+    expect(moneyMarketSupportedTokens[token.chainKey]).toContainEqual(token);
+    expect(moneyMarketReserveAssets).toContain(token.address);
+    expect(zcashSupportedTokens.ZEC.vault).toBe(token.address);
+    expect(moneyMarketSupportedTokens[ChainKeys.ZCASH_MAINNET]).toContainEqual(zcashSupportedTokens.ZEC);
   });
 });

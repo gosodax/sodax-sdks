@@ -1029,6 +1029,9 @@ importers:
       '@mysten/sui':
         specifier: 'catalog:'
         version: 2.23.2(typescript@5.5.4)
+      '@noble/hashes':
+        specifier: ^1.8.0
+        version: 1.8.0
       '@sodax/libs':
         specifier: workspace:*
         version: link:../libs

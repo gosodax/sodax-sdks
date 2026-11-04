@@ -31,6 +31,7 @@ import {
   xrpSupportedTokens,
   monadSupportedTokens,
   tonSupportedTokens,
+  zcashSupportedTokens,
 } from './tokens.js';
 
 import { ChainKeys, CHAIN_KEYS, type ChainKey, type ChainType } from './chain-keys.js';
@@ -67,6 +68,7 @@ export const RelayChainIdMap = {
   [ChainKeys.XRP_MAINNET]: 66n,
   [ChainKeys.MONAD_MAINNET]: 48n,
   [ChainKeys.TON_MAINNET]: 607n,
+  [ChainKeys.ZCASH_MAINNET]: 133n,
 } as const satisfies Record<ChainKey, bigint>;
 
 export type IntentChainId = (typeof RelayChainIdMap)[keyof typeof RelayChainIdMap];
@@ -77,7 +79,7 @@ export const INTENT_CHAIN_IDS = Object.values(RelayChainIdMap);
  * derivation together, so a client cannot mix them to forge an identity:
  * `0` EVM, `1` Tron, `2` generic ed25519, `3` XRP, `4` Aptos.
  */
-export type MpcWithdrawScheme = 0 | 1 | 2 | 3 | 4 | 5;
+export type MpcWithdrawScheme = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 /** A withdraw-auth message as the MPC relay takes it: numeric fields are u64 decimal strings. */
 export type MpcWithdrawMessage = {
@@ -117,6 +119,9 @@ export const MpcRelayChainMap = {
   // TON's relay id is 607 (a SODAX routing id). Scheme 5 is a TonConnect `signData` over a text line
   // embedding the message hash, submitted with the pubkey and the wallet's signing envelope.
   [ChainKeys.TON_MAINNET]: { chainId: 607n, withdrawScheme: 5 },
+  // Zcash's relay id is 133. Scheme 6 is a Bitcoin-style `signmessage` over the hex text of the hash,
+  // recovered to the hash160 identity a transparent address encodes.
+  [ChainKeys.ZCASH_MAINNET]: { chainId: 133n, withdrawScheme: 6 },
 } as const satisfies Partial<Record<ChainKey, MpcRelayChainInfo>>;
 
 export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
@@ -510,6 +515,21 @@ export const baseChainInfo = {
       contractUrl: 'https://tonviewer.com/',
     },
   },
+  [ChainKeys.ZCASH_MAINNET]: {
+    name: 'Zcash',
+    key: ChainKeys.ZCASH_MAINNET,
+    type: 'ZCASH',
+    // The relay's internal routing id for Zcash mainnet.
+    chainId: 133,
+    mainnet: true,
+    logo: chainLogo(ChainKeys.ZCASH_MAINNET),
+    explorer: {
+      baseUrl: 'https://mainnet.zcashexplorer.app/',
+      txUrl: 'https://mainnet.zcashexplorer.app/transactions/',
+      addressUrl: 'https://mainnet.zcashexplorer.app/address/',
+      contractUrl: 'https://mainnet.zcashexplorer.app/address/',
+    },
+  },
 } as const satisfies Record<ChainKey, BaseChainInfo<ChainType>>;
 
 type ChainKeysByType<T extends ChainType> = {
@@ -540,6 +560,7 @@ export type TronChainKey = ChainKeysByType<'TRON'>;
 export type XrpChainKey = ChainKeysByType<'XRP'>;
 export type MonadChainKey = typeof ChainKeys.MONAD_MAINNET;
 export type TonChainKey = ChainKeysByType<'TON'>;
+export type ZcashChainKey = ChainKeysByType<'ZCASH'>;
 
 const filterChainKeysByType = <T extends ChainType>(type: T) =>
   CHAIN_KEYS.filter((key): key is ChainKeysByType<T> => baseChainInfo[key].type === type);
@@ -575,6 +596,8 @@ export const XRP_CHAIN_KEYS = filterChainKeysByType('XRP');
 export const XRP_CHAIN_KEYS_SET = new Set(XRP_CHAIN_KEYS);
 export const TON_CHAIN_KEYS = filterChainKeysByType('TON');
 export const TON_CHAIN_KEYS_SET = new Set(TON_CHAIN_KEYS);
+export const ZCASH_CHAIN_KEYS = filterChainKeysByType('ZCASH');
+export const ZCASH_CHAIN_KEYS_SET = new Set(ZCASH_CHAIN_KEYS);
 
 export type HubChainKey = typeof HUB_CHAIN_KEY;
 export type HubChainType = 'EVM';
@@ -795,6 +818,12 @@ export type TonSpokeChainConfig = BaseSpokeChainConfig<'TON'> &
     rpcUrl: string;
   };
 
+export type ZcashSpokeChainConfig = BaseSpokeChainConfig<'ZCASH'> &
+  MpcRelayChainConfig & {
+    /** Zcash JSON-RPC with address indexing (`getaddressutxos`) — building a deposit needs it. */
+    rpcUrl: string;
+  };
+
 /** Monad: an EVM chain settling through the MPC relay in address mode (per-deposit derived EOAs). */
 export type MonadSpokeChainConfig = BaseSpokeChainConfig<'EVM'> &
   MpcRelayChainConfig & {
@@ -802,6 +831,7 @@ export type MonadSpokeChainConfig = BaseSpokeChainConfig<'EVM'> &
   };
 
 export type SpokeChainConfig =
+  | ZcashSpokeChainConfig
   | TonSpokeChainConfig
   | MonadSpokeChainConfig
   | XrpSpokeChainConfig
@@ -845,6 +875,8 @@ export type GetSpokeChainConfigType<T extends SpokeChainKey> = T extends SonicCh
                           ? XrpSpokeChainConfig
                           : GetChainType<T> extends 'TON'
                             ? TonSpokeChainConfig
+                            : GetChainType<T> extends 'ZCASH'
+                              ? ZcashSpokeChainConfig
                             : SpokeChainConfig;
 
 export type IconAddress = `hx${string}` | `cx${string}`;
@@ -1528,6 +1560,24 @@ export const spokeChainConfig = {
       maxTimeoutMs: 120_000,
     },
   } as const satisfies TonSpokeChainConfig,
+  [ChainKeys.ZCASH_MAINNET]: {
+    chain: baseChainInfo[ChainKeys.ZCASH_MAINNET] satisfies BaseChainInfo<'ZCASH'>,
+    // No public Zcash RPC indexes addresses; set an address-indexed endpoint through config.
+    rpcUrl: '',
+    // MPC-relay REST endpoint (notify + deposit-address). Not the intent relay.
+    mpcRelayApiEndpoint: 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com',
+    addresses: {
+      reserve: 't1TFab5a31gE6bxzatfs1KSqiportHDCE3X',
+    },
+    nativeToken: '0x0000000000000000000000000000000000000000',
+    bnUSD: '',
+    supportedTokens: zcashSupportedTokens,
+    pollingConfig: {
+      pollingIntervalMs: 15_000,
+      // Zcash targets 75-second blocks and the relay waits for a confirmation.
+      maxTimeoutMs: 600_000,
+    },
+  } as const satisfies ZcashSpokeChainConfig,
 } as const satisfies Record<SpokeChainKey, SpokeChainConfig>;
 
 export const supportedSpokeChains: SpokeChainKey[] = Object.keys(spokeChainConfig) as SpokeChainKey[];

@@ -637,10 +637,10 @@ export const SodaTokens = {
     symbol: 'sodaZEC',
     name: 'SODA ZEC',
     decimals: 18,
-    address: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
+    address: '0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
     chainKey: ChainKeys.SONIC_MAINNET,
-    hubAsset: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
-    vault: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
+    hubAsset: '0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
+    vault: '0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
   },
   sodaTRX: {
     symbol: 'sodaTRX',
@@ -2651,6 +2651,19 @@ export const xrpSupportedTokens = {
   },
 } as const satisfies Record<string, XToken>;
 
+export const zcashSupportedTokens = {
+  // Native transparent ZEC (8 decimals), deposited into the sodaZEC vault.
+  ZEC: {
+    symbol: 'ZEC',
+    name: 'Zcash',
+    decimals: 8,
+    address: '0x0000000000000000000000000000000000000000',
+    chainKey: ChainKeys.ZCASH_MAINNET,
+    hubAsset: '0x24312b2Cc7A56ADdD3a849Db5e9B81704D6B20af',
+    vault: SodaTokens.sodaZEC.address,
+  },
+} as const satisfies Record<string, XToken>;
+
 export const tonSupportedTokens = {
   // Native TON (9 decimals). There is no TON vault, so `vault` is the wrapped hub asset itself.
   TON: {
@@ -4657,6 +4670,7 @@ export const supportedTokensByChain = {
   [ChainKeys.XRP_MAINNET]: xrpSupportedTokens,
   [ChainKeys.MONAD_MAINNET]: monadSupportedTokens,
   [ChainKeys.TON_MAINNET]: tonSupportedTokens,
+  [ChainKeys.ZCASH_MAINNET]: zcashSupportedTokens,
 } as const satisfies Record<ChainKey, Record<string, XToken>>;
 
 /**

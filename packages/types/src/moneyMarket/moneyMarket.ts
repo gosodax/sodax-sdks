@@ -35,6 +35,7 @@ const moneyMarketHubVaults = [
   SodaTokens.sodaJITOSOL,
   SodaTokens.sodaUSDS,
   SodaTokens.sodaUSSD,
+  SodaTokens.sodaZEC,
 ] as const satisfies XToken[];
 
 // currently supported spoke chain tokens for money market
@@ -274,6 +275,9 @@ export const moneyMarketSupportedTokens = {
   ] as const satisfies XToken[],
   // USDT only: TON has no vault, so it cannot be a lending-pool reserve.
   [ChainKeys.TON_MAINNET]: [spokeChainConfig[ChainKeys.TON_MAINNET].supportedTokens.USDT] as const satisfies XToken[],
+  [ChainKeys.ZCASH_MAINNET]: [
+    spokeChainConfig[ChainKeys.ZCASH_MAINNET].supportedTokens.ZEC,
+  ] as const satisfies XToken[],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 export const moneyMarketReserveAssets = [

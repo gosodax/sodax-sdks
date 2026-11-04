@@ -14,6 +14,7 @@ import type {
   TronChainKey,
   XrpChainKey,
   TonChainKey,
+  ZcashChainKey,
   StacksNetworkLike,
   StacksNetworkName,
   StellarChainKey,
@@ -33,6 +34,7 @@ import type {
   TronWalletDefaults,
   XrpWalletDefaults,
   TonWalletDefaults,
+  ZcashWalletDefaults,
 } from '@sodax/wallet-sdk-core';
 import type { State as WagmiState } from 'wagmi';
 import type { WalletConnectParameters } from 'wagmi/connectors';
@@ -66,6 +68,7 @@ export type NearChainEntry = SimpleChainEntry<NearWalletDefaults>;
 export type TronChainEntry = SimpleChainEntry<TronWalletDefaults>;
 export type XrpChainEntry = SimpleChainEntry<XrpWalletDefaults>;
 export type TonChainEntry = SimpleChainEntry<TonWalletDefaults>;
+export type ZcashChainEntry = SimpleChainEntry<ZcashWalletDefaults>;
 
 // Chains with multi-field RPC config (horizon+soroban, indexer+grpc)
 // extend the existing `*RpcConfig` from @sodax/types instead.
@@ -160,6 +163,7 @@ export type ChainMeta = {
   TRON: { keys: TronChainKey; entry: TronChainEntry; defaults: TronWalletDefaults; adapter: {} };
   XRP: { keys: XrpChainKey; entry: XrpChainEntry; defaults: XrpWalletDefaults; adapter: {} };
   TON: { keys: TonChainKey; entry: TonChainEntry; defaults: TonWalletDefaults; adapter: TonAdapterFields };
+  ZCASH: { keys: ZcashChainKey; entry: ZcashChainEntry; defaults: ZcashWalletDefaults; adapter: {} };
 };
 
 // ─── Derived types — change `ChainMeta` and these update automatically ─────
@@ -205,6 +209,7 @@ export type StacksTypeConfig = ChainTypeConfig<'STACKS'>;
 export type TronTypeConfig = ChainTypeConfig<'TRON'>;
 export type XrpTypeConfig = ChainTypeConfig<'XRP'>;
 export type TonTypeConfig = ChainTypeConfig<'TON'>;
+export type ZcashTypeConfig = ChainTypeConfig<'ZCASH'>;
 
 /** Top-level config for `<SodaxWalletProvider>`. Omitted chain-type slots are not mounted. */
 export type SodaxWalletConfig = {

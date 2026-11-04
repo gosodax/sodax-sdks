@@ -30,6 +30,7 @@ import { formatUnits, hexToBytes, isAddress, toHex } from 'viem';
 import { tronHashToBase58, tronIdentityBytes } from '../services/spoke/tron-utils.js';
 import { xrpHashToClassicAddress, xrpIdentityBytes } from '../services/spoke/xrp-utils.js';
 import { tonAddressHash, tonIdentityBytes, tonWalletAddress } from '../services/spoke/ton-utils.js';
+import { zcashHashToAddress, zcashIdentityBytes } from '../services/spoke/zcash-utils.js';
 import { bcs } from '@mysten/sui/bcs';
 import { PublicKey } from '@solana/web3.js';
 import { Address as StellarAddress, xdr } from '@stellar/stellar-sdk';
@@ -268,6 +269,9 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
       // TON's identity is the 32-byte ed25519 public key itself: a TON address is a hash of the
       // wallet's StateInit and cannot be inverted, so the key is what the relay identifies users by.
       return tonIdentityBytes(address);
+    case 'ZCASH':
+      // The 20-byte hash160 a transparent t1 address encodes — the identity scheme 6 recovers.
+      return zcashIdentityBytes(address);
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);
@@ -342,6 +346,8 @@ export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex):
     case 'TON':
       // The identity encoding is the public key verbatim.
       return tonIdentityBytes(encoded);
+    case 'ZCASH':
+      return zcashHashToAddress(encoded);
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);

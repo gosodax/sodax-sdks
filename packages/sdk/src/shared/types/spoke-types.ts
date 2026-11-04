@@ -20,6 +20,7 @@ import type {
   TronRawTransactionReceipt,
   XrpRawTransactionReceipt,
   TonRawTransactionReceipt,
+  ZcashRawTransactionReceipt,
   ChainType,
   GetAddressType,
   EvmSpokeOnlyChainKey,
@@ -163,6 +164,8 @@ export type GetTxReceiptType<C extends SpokeChainKey | ChainType> =
                         ? XrpRawTransactionReceipt
                         : GetChainType<C> extends 'TON'
                           ? TonRawTransactionReceipt
+                          : GetChainType<C> extends 'ZCASH'
+                            ? ZcashRawTransactionReceipt
                           : unknown;
 
 export type TxStatus = 'success' | 'failure' | 'timeout';

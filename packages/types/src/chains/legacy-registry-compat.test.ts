@@ -294,6 +294,8 @@ const LEGACY_MONEY_MARKET_SONIC: readonly string[] = [
   'JitoSOL:0xe1bad4400d947Bc4fa66f9c0A143D800002083a0',
   'USDS:0xA3AeFa2BAfEAB479c4Aca6024A16906bbC75566e',
   'sodaUSSD:0xb780e09576C2667ba9F5B80FbAb2e6b8A0a21e37',
+  // Added after the merge base: the sodaZEC vault, a reserve now that Zcash is a money-market spoke.
+  'sodaZEC:0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
 ];
 
 const LEGACY_MONEY_MARKET_RESERVE_ASSETS: readonly string[] = [
@@ -326,6 +328,8 @@ const LEGACY_MONEY_MARKET_RESERVE_ASSETS: readonly string[] = [
   '0xe1bad4400d947Bc4fa66f9c0A143D800002083a0',
   '0xA3AeFa2BAfEAB479c4Aca6024A16906bbC75566e',
   '0xb780e09576C2667ba9F5B80FbAb2e6b8A0a21e37',
+  // Added after the merge base: the sodaZEC vault.
+  '0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
   '0xE801CA34E19aBCbFeA12025378D19c4FBE250131',
   // XRP vault, listed as a reserve by the XRP spoke.
   '0xb89B3a6633fb06CAB86b7d54e2f6913C51a73952',
@@ -415,11 +419,11 @@ describe('legacy production swap sequences are unchanged prefixes', () => {
 });
 
 describe('Sonic money market is untouched by the equity vaults', () => {
-  it('supported tokens match the merge base exactly, all 29 legacy vaults included', () => {
+  it('supported tokens match the merge base exactly, all 29 legacy vaults included, plus sodaZEC', () => {
     expect(identify(moneyMarketSupportedTokens[ChainKeys.SONIC_MAINNET])).toEqual(LEGACY_MONEY_MARKET_SONIC);
   });
 
-  it('reserve assets match the merge base exactly', () => {
+  it('reserve assets match the merge base exactly, plus sodaZEC', () => {
     expect([...moneyMarketReserveAssets]).toEqual(LEGACY_MONEY_MARKET_RESERVE_ASSETS);
   });
 });

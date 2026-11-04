@@ -248,6 +248,7 @@ describe('e2e', () => {
     [ChainKeys.XRP_MAINNET]: [],
     [ChainKeys.MONAD_MAINNET]: [],
     [ChainKeys.TON_MAINNET]: [],
+    [ChainKeys.ZCASH_MAINNET]: [],
   };
 
   it('Verify money market supported tokens as hub assets are contained in the Soda token vaults', async () => {
