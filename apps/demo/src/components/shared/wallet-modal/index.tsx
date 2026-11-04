@@ -3,7 +3,6 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
-import { isInPrivyDialog } from '@/privy';
 import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
 import type { WalletItemProps } from './wallet-item';
 import WalletItem from './wallet-item';
@@ -55,14 +54,7 @@ export const xChainTypes: WalletItemProps[] = [
 export const WalletModal = ({ isOpen, onDismiss }: WalletModalProps) => {
   return (
     <Sheet open={isOpen} onOpenChange={_ => onDismiss()} modal={false}>
-      <SheetContent
-        side={'right'}
-        className="w-full p-4 sm:w-3/4 sm:max-w-sm sm:p-6"
-        // Privy's login dialog renders outside this sheet; typing into it must not close the sheet mid-connect.
-        onInteractOutside={event => {
-          if (isInPrivyDialog(event.target)) event.preventDefault();
-        }}
-      >
+      <SheetContent side={'right'} className="w-full p-4 sm:w-3/4 sm:max-w-sm sm:p-6">
         <VisuallyHidden.Root>
           <SheetTitle>Wallet Modal</SheetTitle>
           <SheetDescription>Wallet Modal</SheetDescription>
