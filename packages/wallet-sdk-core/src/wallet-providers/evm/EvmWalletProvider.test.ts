@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { EvmWalletProvider } from './EvmWalletProvider.js';
+import { EvmWalletProvider, getEvmViemChain } from './EvmWalletProvider.js';
 import type { BrowserExtensionEvmWalletConfig, EvmWalletConfig } from './types.js';
 import type { EvmRawTransaction } from '@sodax/types';
 import { ChainKeys } from '@sodax/types';
@@ -7,6 +7,7 @@ import {
   createWalletClient,
   createPublicClient,
   http,
+  recoverMessageAddress,
   WaitForCallsStatusTimeoutError,
   type GetCallsStatusReturnType,
   type TransactionReceipt,
@@ -327,6 +328,31 @@ describe('EvmWalletProvider', () => {
       void provider.sendTransaction(RAW_TX, { to: '0xOther' });
       // @ts-expect-error — `data` belongs to EvmRawTransaction
       void provider.sendTransaction(RAW_TX, { data: '0xdead' });
+    });
+  });
+
+  describe('signMessage', () => {
+    const HASH = `0x${'5a'.repeat(32)}` as const;
+
+    it.each([
+      [
+        'private-key',
+        () => new EvmWalletProvider({ privateKey: PRIVATE_KEY, chainId: ChainKeys.SONIC_MAINNET, rpcUrl: RPC_URL }),
+      ],
+      ['browser-extension', () => new EvmWalletProvider(makeBrowserExtensionConfig())],
+    ])('%s: signs the raw 32 bytes of the hash under EIP-191, recoverable to the account', async (_mode, make) => {
+      const signature = await make().signMessage(HASH);
+
+      // Scheme 0 verifies `recoverMessageAddress({ message: { raw } })` — signing the hex text instead
+      // would recover a different address.
+      const recovered = await recoverMessageAddress({ message: { raw: HASH }, signature });
+      expect(recovered).toBe(privateKeyToAccount(PRIVATE_KEY).address);
+    });
+  });
+
+  describe('getEvmViemChain', () => {
+    it('resolves Monad to its mainnet network id, not the relay routing id', () => {
+      expect(getEvmViemChain(ChainKeys.MONAD_MAINNET).id).toBe(143);
     });
   });
 

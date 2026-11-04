@@ -16,7 +16,6 @@ import {
   type Hex,
   type XToken,
   getChainType,
-  type ChainType,
   isNativeBitcoinToken,
   DEFAULT_MAX_RETRY,
   DEFAULT_RETRY_DELAY_MS,
@@ -24,6 +23,7 @@ import {
   type PartnerFee,
   type QuoteType,
   getUnmetMpcPayoutMinimum,
+  isMpcRelayChainKey,
   type SodaxFeature,
 } from '@sodax/types';
 import { formatUnits, hexToBytes, isAddress, toHex } from 'viem';
@@ -183,22 +183,27 @@ export function assertMpcPayoutAboveMinimum({
   );
 }
 
-/** Chain types whose hub release reads its recipient as a left-padded 32-byte word. */
-const PADDED_RECIPIENT_CHAIN_TYPES: readonly ChainType[] = ['TRON', 'XRP'];
-
 /**
  * Recipient bytes for a hub release — the `to` an `AssetManager.transfer` pays out to.
  *
  * This is NOT {@link encodeAddress}, which produces the withdrawal-auth identity / hub-wallet salt.
- * An MPC-relay release reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so its recipient is the
- * left-padded word; the bare identity mis-decodes. The chain type picks the encoding, never the relay
- * a chain settles through; every other type keeps {@link encodeAddress}.
+ * A non-EVM MPC-relay chain (Tron, XRP) reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so its
+ * 20-byte identity is left-padded into a full word. An EVM MPC-relay chain (Monad) releases to a plain
+ * 20-byte address: the relay does not decode the padded word, and sent one to the zero address.
+ * Intent-relay chains keep their own encoding unchanged.
  */
 export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): Hex {
-  const encoded = encodeAddress(spokeChainId, address);
-  if (!PADDED_RECIPIENT_CHAIN_TYPES.includes(getChainType(spokeChainId))) return encoded;
-  const hash = encoded.replace(/^0x/, '');
-  if (hash.length !== 40) {
+  if (!isMpcRelayChainKey(spokeChainId)) return encodeAddress(spokeChainId, address);
+  if (getChainType(spokeChainId) === 'EVM') {
+    // `encodeAddress` passes EVM input through unchecked, and a malformed recipient here is released
+    // on-chain as-is, so validate before it reaches the hub.
+    if (!isAddress(address, { strict: false })) {
+      throw new Error(`[encodeRecipient] invalid EVM recipient for ${spokeChainId}: ${address}`);
+    }
+    return address.toLowerCase() as Hex;
+  }
+  const hash = encodeAddress(spokeChainId, address).replace(/^0x/, '');
+  if (!/^[0-9a-fA-F]{40}$/.test(hash)) {
     throw new Error(`[encodeRecipient] expected a 20-byte identity for ${spokeChainId}, got ${hash.length / 2} bytes`);
   }
   return `0x${'00'.repeat(12)}${hash}`;

@@ -79,8 +79,22 @@ describe('encodeRecipient / reverseEncodeAddress — XRP', () => {
   });
 });
 
-describe('encodeRecipient — other chain types', () => {
-  it('keeps the address encoding even when the chain settles through the MPC relay', () => {
+describe('encodeRecipient — EVM MPC relay chains (Monad)', () => {
+  const MONAD_ADDRESS = '0x6Be3a4AfBD5983604385BCba71aaA3645918E2E2';
+
+  it('returns the plain 20-byte address, not the padded word', () => {
+    // The relay releases a padded word on Monad to the zero address (mainnet tx 0x1992cdac…234d).
+    expect(encodeRecipient(ChainKeys.MONAD_MAINNET, MONAD_ADDRESS)).toBe(MONAD_ADDRESS.toLowerCase());
+  });
+
+  it('rejects a malformed EVM recipient instead of releasing to it', () => {
+    expect(() => encodeRecipient(ChainKeys.MONAD_MAINNET, '0x1234')).toThrow(/invalid EVM recipient/);
+    expect(() => encodeRecipient(ChainKeys.MONAD_MAINNET, `0x${'zz'.repeat(20)}`)).toThrow(/invalid EVM recipient/);
+  });
+});
+
+describe('encodeRecipient — intent relay chains', () => {
+  it('leaves a non-MPC chain encoding untouched', () => {
     const evm = '0x1111111111111111111111111111111111111111';
     expect(encodeRecipient(ChainKeys.ARBITRUM_MAINNET, evm)).toBe(encodeAddress(ChainKeys.ARBITRUM_MAINNET, evm));
   });

@@ -72,6 +72,16 @@ export const hyper = /*#__PURE__*/ defineChain({
   },
 });
 
+// Monad mainnet is absent from the pinned `wagmi/chains`, which only carries its testnet.
+export const monad = /*#__PURE__*/ defineChain({
+  id: 143,
+  name: 'Monad',
+  nativeCurrency: { decimals: 18, name: 'Monad', symbol: 'MON' },
+  rpcUrls: { default: { http: ['https://rpc.monad.xyz'] } },
+  blockExplorers: { default: { name: 'MonadScan', url: 'https://monadscan.com/' } },
+  contracts: { multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11' } },
+});
+
 // Robinhood Chain is not yet in viem/wagmi's bundled chain list, so define it manually
 export const robinhoodChain = /*#__PURE__*/ defineChain({
   id: 4663,
@@ -107,6 +117,7 @@ export const SODAX_EVM_CHAINS = [
   kaia,
   redbellyMainnet,
   hedera,
+  monad,
   robinhoodChain,
 ] as const satisfies readonly [Chain, ...Chain[]];
 
@@ -152,6 +163,7 @@ export const createWagmiConfig = (
       [redbellyMainnet.id]: http(rpcUrls[redbellyMainnet.id]),
       [kaia.id]: http(rpcUrls[kaia.id]),
       [hedera.id]: http(rpcUrls[hedera.id]),
+      [monad.id]: http(rpcUrls[monad.id]),
       [robinhoodChain.id]: http(rpcUrls[robinhoodChain.id]),
     },
     storage: createStorage({

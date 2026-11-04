@@ -32,7 +32,6 @@ import {
   type GetAddressType,
   type Result,
   type GetWalletProviderType,
-  isEvmChainKey,
   type EvmChainKey,
   type HubChainKey,
   type GetTokenAddressType,
@@ -237,7 +236,7 @@ export class StakingService {
       // spoke-layer failure as STAKING_ALLOWANCE_CHECK_FAILED at the single return point below.
       let inner: Result<boolean> = { ok: true, value: true };
 
-      if (isEvmChainKey(params.srcChainKey) || isHubChainKeyType(params.srcChainKey)) {
+      if (isEvmSpokeOnlyChainKeyType(params.srcChainKey) || isHubChainKeyType(params.srcChainKey)) {
         const spender = isHubChainKeyType(params.srcChainKey)
           ? await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey)
           : this.config.getChainConfig(params.srcChainKey).addresses.assetManager;

@@ -1,7 +1,7 @@
 import 'dotenv/config';
 
 import { createPublicClient, http, type Hex } from 'viem';
-import { Sodax, encodeContractCalls, xrpIdentityBytes } from '@sodax/sdk';
+import { Sodax, encodeContractCalls, encodeRecipient } from '@sodax/sdk';
 import { XrpWalletProvider } from '@sodax/wallet-sdk-core';
 
 /**
@@ -122,7 +122,9 @@ async function main() {
           : endpoint === 'intent'
             ? DATA
             : encodeContractCalls([]);
-      log(`deposit ${AMOUNT_XRP} ${TOKEN === NATIVE_XRP ? 'XRP' : TOKEN}  data=${data.slice(0, 42)}${data.length > 42 ? '…' : ''}`);
+      log(
+        `deposit ${AMOUNT_XRP} ${TOKEN === NATIVE_XRP ? 'XRP' : TOKEN}  data=${data.slice(0, 42)}${data.length > 42 ? '…' : ''}`,
+      );
 
       const txHash = await xrp.deposit({
         srcChainKey: XRP,
@@ -146,9 +148,9 @@ async function main() {
     case 'borrow':
     case 'withdraw': {
       const recipient = TO ?? SENDER;
-      // The same encoding the SDK's own `moneyMarket.borrow`/`withdraw` apply via `encodeAddress`,
-      // so this harness exercises the real path instead of a hand-rolled variant that could drift.
-      const dstAddress = xrpIdentityBytes(recipient);
+      // The release recipient is the 32-byte word the asset manager expects — the same encoding the
+      // SDK's own money-market flows apply, so this harness exercises the real path.
+      const dstAddress = encodeRecipient(XRP, recipient);
       const payload: Hex =
         endpoint === 'borrow'
           ? sodax.moneyMarket.buildBorrowData(hubWallet, dstAddress, TOKEN, amountUnits, XRP)

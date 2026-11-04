@@ -69,6 +69,7 @@ describe('guards', () => {
     it('excludes Sonic hub config from EVM-only spoke narrowing', () => {
       expect(isEvmSpokeChainConfig(spokeChainConfig[ChainKeys.ARBITRUM_MAINNET])).toBe(true);
       expect(isEvmSpokeChainConfig(spokeChainConfig[ChainKeys.SONIC_MAINNET])).toBe(false);
+      expect(isEvmSpokeChainConfig(spokeChainConfig[ChainKeys.MONAD_MAINNET])).toBe(false);
     });
   });
 });

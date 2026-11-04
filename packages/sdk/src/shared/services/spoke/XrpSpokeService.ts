@@ -1,4 +1,4 @@
-import { bytesToBigInt, type Hex } from 'viem';
+import type { Hex } from 'viem';
 import {
   ChainKeys,
   getMpcRelayChainInfo,
@@ -41,7 +41,7 @@ import {
   type WithdrawalRecord,
   type WithdrawalSettledOn,
 } from '../mpcRelay/MpcRelayApiService.js';
-import { computeSignedMessageHash } from './mpc-message.js';
+import { computeSignedMessageHash, randomWithdrawNonce } from './mpc-message.js';
 import { xrpCurrencyCode, xrpIdentityBytes } from './xrp-utils.js';
 import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 
@@ -58,19 +58,6 @@ const XRP_SETTLEMENT_FLOOR_MS = 300_000;
 
 /** How often to re-notify the relay while waiting for a deposit — a couple of ledger closes. */
 const RENOTIFY_INTERVAL_MS = 6_000;
-
-/**
- * Withdraw-auth nonce: any value the sender has not used before — NEAR rejects a repeat, it does not
- * require an increasing value, so a random draw avoids same-millisecond and clock-skew collisions.
- *
- * Capped at 53 bits: the relay passes the nonce through a JavaScript `number` before the NEAR call,
- * so a larger value arrives rounded and the contract verifies a message that was never signed.
- */
-const MAX_SAFE_NONCE = (1n << 53n) - 1n;
-
-function randomNonce(): bigint {
-  return bytesToBigInt(crypto.getRandomValues(new Uint8Array(8))) & MAX_SAFE_NONCE;
-}
 
 /**
  * Whether an XRPL account can receive a release, and if not, why. The relay treats a destination it
@@ -174,6 +161,11 @@ export class XrpSpokeService implements MpcRelaySettlement {
     // Register the hub-side calls and get the shared reserve + the memo to tag the Payment with.
     const addr = await getDepositAddress(this.relayApiUrl, srcAddress, this.chainId, data);
     if (!addr.ok) throw addr.error;
+    if (addr.value.depositMethod !== 'memo') {
+      throw new Error(
+        `[XrpSpokeService.deposit] relay returned a ${addr.value.depositMethod}-mode deposit, expected memo`,
+      );
+    }
     const { reserveAddress, memo, hubWallet } = addr.value;
     this.warnOnUnknownReserve(reserveAddress);
 
@@ -475,7 +467,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     const message = {
       to: params.dstAddress as Hex, // hub wallet that executes the calls
       data: params.payload,
-      nonce: randomNonce(),
+      nonce: randomWithdrawNonce(),
       chainId: BigInt(this.chainId), // the relay's source-chain id, not the hub's
       sender,
     };

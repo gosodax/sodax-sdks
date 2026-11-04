@@ -41,6 +41,22 @@ export const hyper = /*#__PURE__*/ defineChain({
   },
 });
 
+// Monad mainnet is not in the pinned viem release (only its testnet is), so define it here.
+export const monad = /*#__PURE__*/ defineChain({
+  id: 143,
+  name: 'Monad',
+  nativeCurrency: { decimals: 18, name: 'Monad', symbol: 'MON' },
+  rpcUrls: {
+    default: { http: ['https://rpc.monad.xyz'] },
+  },
+  blockExplorers: {
+    default: { name: 'MonadScan', url: 'https://monadscan.com/' },
+  },
+  contracts: {
+    multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11' },
+  },
+});
+
 // Robinhood Chain is not yet in viem's bundled chain list, so define it manually
 export const robinhoodChain = /*#__PURE__*/ defineChain({
   id: 4663,
@@ -89,6 +105,8 @@ export function getEvmViemChain(key: EvmChainKey): Chain {
       return kaia;
     case ChainKeys.HEDERA_MAINNET:
       return hedera;
+    case ChainKeys.MONAD_MAINNET:
+      return monad;
     case ChainKeys.ROBINHOOD_MAINNET:
       return robinhoodChain;
     default: {

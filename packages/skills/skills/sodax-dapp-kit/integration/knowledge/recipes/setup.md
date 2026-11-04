@@ -163,7 +163,7 @@ ChainKeys.NEAR_MAINNET;        // 'near'
 ChainKeys.STACKS_MAINNET;      // 'stacks'
 ChainKeys.BITCOIN_MAINNET;     // 'bitcoin'
 ChainKeys.TRON_MAINNET;        // 'tron'
-// HyperEVM, Lightlink, Redbelly, Kaia, Hedera also available.
+// HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Monad, Robinhood also available.
 ```
 
 **v1 → v2:** the legacy `*_MAINNET_CHAIN_ID` constants (e.g. `BSC_MAINNET_CHAIN_ID`) are gone. Use `ChainKeys.X_MAINNET` namespace access.

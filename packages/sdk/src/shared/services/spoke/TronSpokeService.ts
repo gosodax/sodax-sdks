@@ -1,4 +1,4 @@
-import { bytesToBigInt, isAddress, sha256, type Hex } from 'viem';
+import { isAddress, sha256, type Hex } from 'viem';
 import {
   ChainKeys,
   getMpcRelayChainInfo,
@@ -45,6 +45,7 @@ import {
   type WithdrawalRecord,
   type WithdrawalSettledOn,
 } from '../mpcRelay/MpcRelayApiService.js';
+import { randomWithdrawNonce } from './mpc-message.js';
 import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 import {
   assembleBroadcastHex,
@@ -95,17 +96,6 @@ type ConstantCallResult = { result?: { result?: boolean; message?: string } };
 
 const constantCallFailed = (res: ConstantCallResult): boolean =>
   res.result?.result !== true || res.result.message !== undefined;
-
-/**
- * Withdraw-auth nonce: random, since NEAR only rejects a repeat (a clock reading collides or goes
- * backwards). Capped at 53 bits because the relay round-trips it through a JavaScript `number`, and a
- * rounded nonce fails signature recovery after it is already spent.
- */
-const MAX_SAFE_NONCE = (1n << 53n) - 1n;
-
-function randomNonce(): bigint {
-  return bytesToBigInt(crypto.getRandomValues(new Uint8Array(8))) & MAX_SAFE_NONCE;
-}
 
 /**
  * Spoke service for Tron. Deposits ride the MPC relay in memo mode: a transfer to the shared reserve
@@ -188,6 +178,11 @@ export class TronSpokeService implements MpcRelaySettlement {
     // Register the hub-side calls and get the shared reserve + the memo to tag the transfer with.
     const addr = await getDepositAddress(this.relayApiUrl, srcAddress, this.chainId, data);
     if (!addr.ok) throw addr.error;
+    if (addr.value.depositMethod !== 'memo') {
+      throw new Error(
+        `[TronSpokeService.deposit] relay returned a ${addr.value.depositMethod}-mode deposit, expected memo`,
+      );
+    }
     const { reserveAddress, memo, hubWallet } = addr.value;
     this.warnOnUnknownReserve(reserveAddress);
 
@@ -579,7 +574,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     const message = {
       to: hubWallet, // hub wallet that executes the calls
       data: payload,
-      nonce: randomNonce(),
+      nonce: randomWithdrawNonce(),
       chainId: BigInt(this.chainId), // the relay's source-chain id, not the hub's
       sender: tronIdentityBytes(srcAddress),
     };

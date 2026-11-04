@@ -41,19 +41,32 @@ export type HubRelease = { dstChainKey: MpcRelayChainKey; hubChainId: string; hu
 
 export type MpcDepositMethod = 'memo' | 'address';
 
-export interface DepositAddressResponse {
-  /** Where the user sends funds (shared reserve for memo-mode chains). */
-  reserveAddress: string;
-  /** 32-byte hash to attach as the transfer memo (memo-mode). */
-  memo: Hex;
-  /** keccak256(abi.encode(hubWallet, data)) — same value as `memo`. */
+interface DepositAddressBase {
+  /** keccak256(abi.encode(hubWallet, data)). */
   payloadHash: Hex;
   /** MPC derivation path for the deposit. */
   path: string;
   /** Hub-side smart wallet that receives the mint / runs `data`. */
   hubWallet: Hex;
-  depositMethod: MpcDepositMethod;
 }
+
+/** Memo mode (Tron, XRP): pay the shared reserve and tag the transfer with `memo`. */
+export interface MemoDepositAddressResponse extends DepositAddressBase {
+  depositMethod: 'memo';
+  /** The shared reserve the transfer pays. */
+  reserveAddress: string;
+  /** 32-byte hash to attach as the transfer memo — the same value as `payloadHash`. */
+  memo: Hex;
+}
+
+/** Address mode (Monad): pay a deposit address derived for this one payload; the relay sweeps it. */
+export interface AddressDepositAddressResponse extends DepositAddressBase {
+  depositMethod: 'address';
+  /** The per-payload deposit address the transfer pays. */
+  depositAddress: string;
+}
+
+export type DepositAddressResponse = MemoDepositAddressResponse | AddressDepositAddressResponse;
 
 /**
  * Deposit ladder: `pending` → `submitted` → `attested` → `minted` → `swept`. There is no `failed` —
