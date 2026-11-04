@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { PayoutMinimumNotice } from '@/components/shared/PayoutMinimumNotice';
+import { WarningNotice } from '@/components/shared/WarningNotice';
 import {
   ACCOUNT_UPGRADE_DECLINED,
   isSodaxError,
@@ -246,10 +247,10 @@ export function BridgeDialog({
           <div className="break-all">Recipient: {order.recipient}</div>
 
           {mustKeepPageOpen && (
-            <div className="text-amber-600">
-              Keep this page open until the bridge finishes (a few minutes). If it closes early, your funds stay safe on
-              the SODAX hub but won't reach the destination until the transfer is completed.
-            </div>
+            <WarningNotice>
+              Please keep this page open for a few minutes until your transfer is complete. If closed early, your funds
+              stay safe on the SODAX hub until you finish the transfer.
+            </WarningNotice>
           )}
 
           {/* Below the minimum, PayoutMinimumNotice already says this. */}
