@@ -25,6 +25,7 @@ DO / DO NOT / workflow / stop conditions for AI agents writing v2 dapp-kit code.
 - **DO** preserve literal chain keys in generic positions where possible (e.g. `srcChainKey: ChainKeys.ETHEREUM_MAINNET as const`) — TypeScript narrowing flows from the literal, including the `walletProvider` parameter type.
 - **DO** use the canonical hook shape: queries take `{ params, queryOptions }`; mutations take only `{ mutationOptions }` and flow domain inputs through `mutate(vars)`.
 - **DO** compose `onSuccess` instead of replacing it: `mutationOptions: { onSuccess: (data, vars, ctx) => myExtra(...) }` runs AFTER dapp-kit's hook-owned invalidations.
+- **DO** branch on `isMpcRelayChainKeyType(chainKey)` for Tron: no approval, settlement can take minutes, payouts have a floor (`getUnmetMpcPayoutMinimum`), and some features refuse a Tron source. Details: the `sodax-sdk` skill (integration mode), `chain-specifics.md` § "Tron (MPC relay)".
 
 ## DO NOT
 

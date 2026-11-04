@@ -224,6 +224,7 @@ On-chain verification (`verifyTxHash`) runs on the **client-side path only** —
 | ↳ any single backend request within it | `min(budget left in the attempt, api.timeout)` |
 | On-chain verification — client-side path only | the source chain's `pollingConfig.maxTimeoutMs` |
 | Relay wait — client-side path only, starts after verification | `max(timeout, RELAY_FALLBACK_FLOOR_MS)` |
+| ↳ each MPC-relay leg, added to the worst case below | at least [`TRON_SETTLEMENT_FLOOR_MS`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/TronSpokeService.ts) |
 
 So a stalled backend cannot shorten the fallback's relay wait, and raising `timeout` grows both attempts. Worst-case wall-clock is `createBridgeIntent + timeout + verification + max(timeout, RELAY_FALLBACK_FLOOR_MS)` — reached only when the backend accepts the submission and then never finishes. Bridge has no solver post-execution, so unlike swaps there is no `'posting_execution'` step and no post-execution term.
 
@@ -543,7 +544,7 @@ A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 
 
 **The MPC-relay arm.** An MPC-relay source never produces an intent-relay packet, so step 2 reads the relay's deposit record instead and returns it whole once `txs.hubMint` holds the hub settlement tx. Until then it is the same budgetable "not delivered" miss as an undelivered packet: the relay answers an unknown deposit as `pending`, so a stuck deposit and one in flight look alike.
 
-A bridge **to** an MPC-relay chain has no packet for that leg either, because the hub emits a `BridgeRequest` for that relay rather than an intent-relay message. So a hub-source bridge with no packet, or a spoke-source bridge whose packet reached the hub, checks that hub tx's receipt. If it carries a release, the arm returns the relay's record once `txs.release` holds the payout tx, and until then it is the same budgetable miss. Read `txs.release`, not `status`, which follows the deposit ladder and never names a release. This read does not notify the relay, so a release nobody notified stays a miss.
+A bridge **to** an MPC-relay chain has no packet for that leg either, because the hub emits a `BridgeRequest` for that relay rather than an intent-relay message. Its arm is that relay's release record, returned once `txs.release` holds the payout tx; until then it is the same budgetable miss. Read `txs.release`, not `status`, which follows the deposit ladder and never names a release. This read does not notify the relay, so a release nobody notified stays a miss.
 
 Every payload is already documented — the submit-tx record in [BRIDGE_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md), the relay packet as `PacketData`, the MPC relay's record as `DepositRecord`. Nothing is translated between them, so no field is dropped and no status is reinterpreted.
 

@@ -27,7 +27,7 @@ const { tx, intent, relayData } = result.value;
 // tx: the spoke tx hash (string for EVM, base58 for Solana, …)
 ```
 
-For cross-chain mutations (`bridge.bridge`, `staking.stake`, `moneyMarket.supply/borrow/withdraw/repay`, `dex.deposit/withdraw/supplyLiquidity/…`, `migration.migratebnUSD/…`) the success value is `TxHashPair = { srcChainTxHash, dstChainTxHash }` — the spoke transaction hash on the source chain plus the relayed hub transaction hash:
+For cross-chain mutations (`bridge.bridge`, `staking.stake`, `moneyMarket.supply/borrow/withdraw/repay`, `dex.deposit/withdraw/supplyLiquidity/…`, `migration.migratebnUSD/…`) the success value is `TxHashPair = { srcChainTxHash, dstChainTxHash }` — the spoke transaction hash on the source chain plus the relayed hub transaction hash (from Tron, see [`ai-rules.md`](../ai-rules.md)):
 
 ```ts
 const result = await sodax.bridge.bridge({ params, raw: false, walletProvider });

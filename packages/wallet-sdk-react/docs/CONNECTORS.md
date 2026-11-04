@@ -71,7 +71,7 @@ export abstract class XConnector implements IXConnector {
 
 The `isInstalled = true` default is correct for **provider-managed chains** (EVM via EIP-6963, Solana via wallet-adapter discovery, Sui via dapp-kit) — if the connector exists in the store, the underlying extension was found by the native SDK.
 
-Browser-extension chains (Bitcoin, ICON, Stacks) override `isInstalled` with a `window.unisat` / `window.hanaWallet` / `window.LeatherProvider` probe, plus an `installUrl` to point users to the Chrome Web Store entry.
+Browser-extension chains (Bitcoin, ICON, Stacks, Tron) override `isInstalled` with a `window.unisat` / `window.hanaWallet` / `window.LeatherProvider` / `window.tron` probe, plus an `installUrl` to point users to the wallet's install page.
 
 ---
 
@@ -108,6 +108,7 @@ The `package.json` `exports` field maps `./xchains/*` to `./dist/xchains/*/index
 | `@sodax/wallet-sdk-react/xchains/icon` | `IconXService`, `IconHanaXConnector`, `CHAIN_INFO`, `SupportedChainId` |
 | `@sodax/wallet-sdk-react/xchains/near` | `NearXService`, `NearXConnector` |
 | `@sodax/wallet-sdk-react/xchains/stacks` | `StacksXService`, `StacksXConnector`, `STACKS_PROVIDERS`, `useStacksXConnectors`, type `StacksProviderConfig` |
+| `@sodax/wallet-sdk-react/xchains/tron` | `TronXService`, `TronXConnector` |
 
 None of these are re-exported from the barrel, not even as types — `import type { XverseXConnector } from '@sodax/wallet-sdk-react'` fails to resolve. A type-only reference comes from the same sub-path as the runtime class. `BtcWalletAddressType` originates in `@sodax/types`, so it can also be imported from there.
 
@@ -126,8 +127,11 @@ None of these are re-exported from the barrel, not even as types — `import typ
 | Bitcoin | `UnisatXConnector`, `XverseXConnector`, `OKXXConnector`, `BitcoinHanaXConnector` | `window.unisat`, `window.BitcoinProvider`, `window.okxwallet.bitcoin`, `window.hanaWallet.bitcoin` | `sats-connect` (Xverse, Hana), connector-specific (Unisat, OKX) |
 | NEAR | `NearXConnector` | `@hot-labs/near-connect` | `near-api-js` |
 | Stacks | `StacksXConnector` × N (one per registered provider) | provider list + `window.LeatherProvider` probe | `@stacks/connect` |
+| Tron | `TronXConnector` | TIP-6963, else `window.tron` / `window.tronLink` | none (the wallet's injected TronWeb) |
 
 The `BitcoinXConnector` is an abstract base declaring `connect`, `disconnect`, `getWalletProvider` and `recreateWalletProvider`; the concrete subclasses (Unisat, Xverse, OKX, Hana) implement those four plus the `isInstalled` / `installUrl` / `icon` overrides. The message-signing methods `signEcdsaMessage` / `signBip322Message` are defined on the `IBitcoinWalletProvider` implementations that live in the same files (`UnisatWalletProvider`, `XverseWalletProvider`, `OKXWalletProvider`, `BitcoinHanaWalletProvider`) and are handed out through `getWalletProvider()` / `recreateWalletProvider()`. `chainRegistry`'s Bitcoin `signMessage` resolves that provider first and runs its `hasSignBip322` / `hasSignEcdsa` checks against it, so a connector must hand out a provider carrying those methods for the dispatch to succeed — putting them on the connector has no effect. See [`SIGN_MESSAGE.md`](./SIGN_MESSAGE.md) for the dispatch logic.
+
+Tron's registry `signMessage` and wallet-provider lookup narrow with `instanceof TronXConnector`, so a Tron connector must extend it.
 
 ---
 
@@ -211,7 +215,7 @@ const config: SodaxWalletConfig = {
 };
 ```
 
-The `connectors` field is read only for the chain types the SDK does not manage through a native SDK provider — Bitcoin, Injective, Stellar, ICON, NEAR and Stacks. For those it **replaces** the registry defaults for that chain, so include the SDK's defaults in the array if you want them alongside your custom one.
+The `connectors` field is read only for chain types whose [`chainRegistry.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/chainRegistry.ts) entry is `providerManaged: false`. For those it **replaces** the registry defaults for that chain, so include the SDK's defaults in the array if you want them alongside your custom one.
 
 EVM, Solana and Sui are provider-managed and ignore the field: `createChainServices` skips the override branch for them, and each chain's Hydrator overwrites the store's connector list from wagmi / wallet-adapter / dapp-kit, so a connector passed there never reaches `useXConnectors`. Register an EVM wallet through wagmi instead — the `walletConnect` slot field, a custom wagmi connector, or `privy` for Privy email login ([`WALLET_PRIVY.md`](./WALLET_PRIVY.md)). A connector's `isAuthorized()` decides whether wagmi restores it on reload: it must never throw (wagmi does not catch it) and must answer quickly without waiting on a slow SDK.
 

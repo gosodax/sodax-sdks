@@ -59,6 +59,7 @@ import {
   isBitcoinChainKeyType,
   isTronChainKeyType,
   isHubChainKeyType,
+  isMpcRelayChainKeyType, // settles through the MPC relay (Tron): ../chain-specifics.md § "Tron (MPC relay)"
 } from '@sodax/sdk';
 ```
 

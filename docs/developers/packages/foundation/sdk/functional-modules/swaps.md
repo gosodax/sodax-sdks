@@ -143,6 +143,7 @@ Each phase is bounded by a different thing:
 | ↳ any single backend request within it | `min(budget left in the attempt, api.timeout)` |
 | On-chain verification — client-side path only | the source chain's `pollingConfig.maxTimeoutMs` |
 | Relay wait — client-side path only, starts after verification | `max(timeout, RELAY_FALLBACK_FLOOR_MS)` |
+| ↳ each MPC-relay leg, added to the worst case below | at least [`TRON_SETTLEMENT_FLOOR_MS`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/TronSpokeService.ts) |
 | `postExecution` — solver notify, client-side path only | **not** bounded by `timeout` |
 
 Read the constants from source rather than memorising them: `DEFAULT_RELAY_TX_TIMEOUT`, `DEFAULT_BACKEND_API_TIMEOUT` and per-chain `pollingConfig` live in [`@sodax/types`](https://github.com/gosodax/sodax-sdks/tree/main/packages/types/src), and `RELAY_FALLBACK_FLOOR_MS` in [`IntentRelayApiService.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/intentRelay/IntentRelayApiService.ts). Verification timeouts differ widely by chain — Stacks alone is several times Sui's — so derive them per chain from `chains.ts`.
@@ -969,7 +970,7 @@ const rawResult = await sodax.swaps.createLimitOrderIntent({
 
 **Important:** `cancelIntent` takes `{ params: CancelIntentParams<K>, walletProvider }` — not positional arguments. You must supply `srcChainKey` explicitly because `Intent.srcChain` is a bigint relay ID that cannot narrow to a `SpokeChainKey` at the type level.
 
-An intent from an MPC-relay source chain cannot be cancelled yet: `cancelIntent` confirms the cancel through the intent relay, which an MPC-relay chain does not use, so `createCancelIntent` refuses it before signing. Only its deadline can refund it, so `createIntent` refuses one with `deadline: 0n`, and with it a limit order from an MPC-relay chain.
+An intent from an MPC-relay source chain cannot be cancelled: `cancelIntent` confirms the cancel through the intent relay, which an MPC-relay chain does not use, so `createCancelIntent` refuses it before signing. Only its deadline can refund it ([once notified](#the-solver-answer-is-reconciled)), so `createIntent` refuses one with `deadline: 0n`, and with it a limit order from an MPC-relay chain.
 
 A payout to an MPC-relay chain (Tron) arrives less the relay's release fee, and nothing is released once that fee reaches the amount. So `createIntent` refuses, with `VALIDATION_FAILED` and `context.reason: 'mpc-payout-below-minimum'`, a `minOutputAmount` to Tron at or below `MpcRelayPayoutMinimums`, and a Tron-source `inputAmount` whose post-fee amount, the refund if the intent is cancelled, is at or below it. It also refuses `allowPartialFill` to or from Tron, since each fill or refund would pay out separately.
 
@@ -1288,7 +1289,7 @@ failing right now, so it stays retryable and does not consume a not-delivered bu
 
 ## Get Solved Intent Packet
 
-Poll the relayer until the solver's fill tx has been delivered to the destination chain. Call this after `getStatus` returns `SolverIntentStatusCode.SOLVED`.
+Poll the relayer until the solver's fill tx has been delivered to the destination chain. Call this after `getStatus` returns `SolverIntentStatusCode.SOLVED`. For a swap to an MPC-relay chain (Tron), use `waitForIntentDelivery` instead: it is paid by a release of the fill's hub tx, not a packet.
 
 ```typescript
 import { Sodax, ChainKeys, SolverIntentStatusCode } from '@sodax/sdk';

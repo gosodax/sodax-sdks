@@ -737,6 +737,9 @@ export class SwapService {
    *   - `intent` — the on-chain intent object that was created.
    *   - `intentDeliveryInfo` — source/destination chain keys, tx hashes, and user addresses.
    *
+   *   A payout to an MPC-relay chain (Tron) is released once the solver notifies the relay of its fill;
+   *   {@link waitForIntentDelivery} waits for that payout.
+   *
    *   On failure `result.error` is a {@link SodaxError} with one of:
    *   - `VALIDATION_FAILED` — input validation failed (propagated from `createIntent`).
    *   - `INTENT_CREATION_FAILED` — spoke-side intent creation/deposit failed.
@@ -2177,8 +2180,8 @@ export class SwapService {
   /**
    * Wait until a solved intent's output reaches its destination and return where it landed. The intent
    * relay delivers it to most chains, as the packet {@link getSolvedIntentPacket} returns. An MPC-relay
-   * destination (Tron) is paid instead by a release of the fill's hub tx, which the MPC relay learns of
-   * only when notified: this submits the release, then waits for its payout.
+   * destination (Tron) is paid instead by a release of the fill's hub tx, which the solver notifies the MPC
+   * relay of: this submits the release as well, then waits for its payout.
    *
    * @param chainId - The destination spoke chain key.
    * @param fillTxHash - The solver's fill transaction hash, from `getStatus.fill_tx_hash`.

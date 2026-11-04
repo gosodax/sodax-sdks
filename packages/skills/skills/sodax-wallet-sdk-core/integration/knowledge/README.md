@@ -27,7 +27,7 @@ It is intentionally framework-agnostic — Node ≥ 20.12, browser, edge runtime
 | Injective              | `InjectiveWalletProvider` | `@injectivelabs/sdk-ts` + `@injectivelabs/wallet-core` |
 | NEAR                   | `NearWalletProvider`      | `near-api-js` + `@hot-labs/near-connect` |
 | Stacks                 | `StacksWalletProvider`    | `@stacks/transactions` + `@stacks/connect` |
-| Tron                   | `TronWalletProvider`      | none (TronWeb is typed structurally; `viem` signs) |
+| Tron                   | `TronWalletProvider`      | none (TronWeb is typed structurally; `viem` signs with a private key) |
 
 ---
 

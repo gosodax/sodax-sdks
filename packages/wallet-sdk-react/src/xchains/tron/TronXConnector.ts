@@ -117,7 +117,7 @@ async function resolveProvider(): Promise<TronProvider | undefined> {
 }
 
 /**
- * TronLink connector over TIP-6963. The registry reads {@link getTronWeb} to build the wallet provider.
+ * Tron connector over TIP-6963 that prefers TronLink. The registry reads {@link getTronWeb} to build the wallet provider.
  */
 export class TronXConnector extends XConnector {
   /** Set by `connect()`, so the registry builds from the wallet that actually authorized. */
@@ -185,7 +185,7 @@ export class TronXConnector extends XConnector {
     return this.connected ?? syncProvider();
   }
 
-  /** The authorized provider's TronWeb. Never the global `window.tronWeb`, which cannot sign. */
+  /** The authorized provider's TronWeb, not the global `window.tronWeb`, which may have no account to sign with. */
   public getTronWeb(): TronWebLike | undefined {
     return this.connected?.tronWeb ?? syncProvider()?.tronWeb;
   }
