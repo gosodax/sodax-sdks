@@ -1,0 +1,35 @@
+---
+title: "Bridge"
+icon: bridge-suspension
+description: "Move assets network to network through hub-and-spoke vaults — SDK today, HTTP API coming."
+---
+
+Low-level transfer primitives for when you need asset movement without swap logic: spoke → hub, hub → spoke, and spoke → spoke.
+
+Follow the [bridge usage flow](/developers/packages/foundation/sdk/functional-modules/bridge#usage-flow), then use the [bridge example](/developers/packages/foundation/sdk/functional-modules/bridge#bridge) to submit a transfer.
+Check [completion and timeouts](/developers/packages/foundation/sdk/functional-modules/bridge#completion-paths-and-timeout) and [errors](/developers/packages/foundation/sdk/functional-modules/bridge#error-handling) before adding retries.
+
+## Integration reference
+
+<CardGroup cols={2}>
+  <Card title="SDK method reference" icon="code" href="/developers/packages/foundation/sdk/functional-modules/bridge">
+    `@sodax/sdk` — `sodax.bridge` transfer primitives.
+  </Card>
+  <Card title="HTTP API" icon="server" href="/developers/http-api">
+    No Bridge write API yet. Live HTTP surfaces: Swaps, Yield, Oracle, and Stats.
+  </Card>
+</CardGroup>
+
+### Next steps
+
+<CardGroup cols={2}>
+  <Card title="Bitcoin integration" icon="bitcoin" href="/developers/how-to/bitcoin-integration">
+    Use Bitcoin as a source or destination network.
+  </Card>
+  <Card title="React frontend" icon="react" href="/developers/packages/experience/dapp-kit">
+    `@sodax/dapp-kit` hooks with wallet wiring included.
+  </Card>
+  <Card title="Builders MCP" icon="plug" href="/builders-mcp">
+    Live chains and assets inside your AI coding agent.
+  </Card>
+</CardGroup>

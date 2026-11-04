@@ -20,17 +20,33 @@ vi.mock('@solana/wallet-adapter-react', () => ({
 
 const solanaCtor = vi.fn();
 vi.mock('@sodax/wallet-sdk-core', () => ({
-  SolanaWalletProvider: vi.fn().mockImplementation(opts => {
-    solanaCtor(opts);
-    return { defaults: opts.defaults, _opts: opts };
-  }),
+  // vitest 4 builds the instance with Reflect.construct, so a `new`-ed mock needs a class impl.
+  SolanaWalletProvider: vi.fn(
+    class {
+      defaults: unknown;
+      _opts: { defaults?: unknown };
+      constructor(opts: { defaults?: unknown }) {
+        solanaCtor(opts);
+        this.defaults = opts.defaults;
+        this._opts = opts;
+      }
+    },
+  ),
 }));
 
 vi.mock('../../xchains/solana/SolanaXService.js', () => ({
   SolanaXService: { getInstance: () => ({ connection: undefined, wallet: undefined, setXConnectors: vi.fn() }) },
 }));
 vi.mock('../../xchains/solana/index.js', () => ({
-  SolanaXConnector: vi.fn().mockImplementation(w => ({ id: 'solana-connector', _wrapped: w })),
+  SolanaXConnector: vi.fn(
+    class {
+      id = 'solana-connector';
+      _wrapped: unknown;
+      constructor(w: unknown) {
+        this._wrapped = w;
+      }
+    },
+  ),
 }));
 
 const setters = {

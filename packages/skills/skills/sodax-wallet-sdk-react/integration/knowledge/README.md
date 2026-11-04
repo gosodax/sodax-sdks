@@ -10,7 +10,7 @@ If you are migrating from v1 instead, see [`sodax-wallet-sdk-react` (migration m
 
 `@sodax/wallet-sdk-react` is the React layer over `@sodax/wallet-sdk-core`. It gives you:
 
-- **Multi-chain wallet connect** across 9 chain types (EVM, Solana, Sui, Bitcoin, Stellar, ICON, Injective, NEAR, Stacks).
+- **Multi-chain wallet connect** across chain types (EVM, Solana, Sui, Bitcoin, Stellar, ICON, Injective, NEAR, Stacks, Tron).
 - **Hooks** (`useXConnect`, `useXAccount`, `useXDisconnect`, `useXSignMessage`, etc.) backed by a Zustand store — composable and SSR-safe.
 - **Headless modal primitives** (`useWalletModal`, `useChainGroups`, `useBatchConnect`) — bring your own UI.
 - **Typed wallet providers** for hand-off to `@sodax/sdk` calls (`useWalletProvider`).
@@ -31,6 +31,7 @@ If this is your first time using the package:
 6. [`recipes/chain-detection.md`](./recipes/chain-detection.md) — list enabled chains, render connected list with hydration gate, install detection.
 7. Add advanced features as needed:
    - [`recipes/walletconnect-setup.md`](./recipes/walletconnect-setup.md) — enable WalletConnect for enterprise-custody / mobile-only wallets.
+   - [`recipes/privy-email-login.md`](./recipes/privy-email-login.md) — add "Email (Privy)" email login with an embedded wallet (`EVM.privy`).
    - [`recipes/batch-operations.md`](./recipes/batch-operations.md) — batch connect / disconnect across multiple chains.
    - [`recipes/sub-path-imports.md`](./recipes/sub-path-imports.md) — deep imports from `xchains/<chain>` for `instanceof` checks or custom connector lists.
 8. Reference docs (lookup as needed):
@@ -99,5 +100,5 @@ If you are using all three, mount providers in this order at the app root:
 ## Getting help
 
 - API surface lookup: [`reference/`](./reference/).
-- Bug or missing feature: [open an issue](https://github.com/icon-project/sodax-sdks/issues).
+- Bug or missing feature: [open an issue](https://github.com/gosodax/sodax-sdks/issues).
 - Internal architecture (only relevant for SODAX maintainers): `../CLAUDE.md` in the package root.

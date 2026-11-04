@@ -1,23 +1,20 @@
 import { XService } from '@/core/XService.js';
-import type { XToken, ISuiWalletProvider } from '@sodax/types';
-import { SuiWalletProvider } from '@sodax/wallet-sdk-core';
+import type { XToken } from '@sodax/types';
 import { isNativeToken } from '@/utils/index.js';
-import { assertSuiProviderShape } from '@/shared/guards.js';
 
-// These fields are hydrated by SuiHydrator from @mysten/dapp-kit hooks.
-// We use structural interfaces instead of importing nominal types from @mysten/wallet-standard
-// because dapp-kit may resolve a different version than wallet-sdk-core, causing nominal mismatch.
-// The `getBalance` method is the only field we call directly — the rest are passed through.
+// Hydrated by SuiHydrator from @mysten/dapp-kit-react hooks. Typed structurally so this file
+// carries no @mysten/sui import; `core.getBalance` is the only method called here.
 interface SuiClientLike {
-  getBalance(input: { owner: string; coinType: string }): Promise<{ totalBalance: string }>;
+  core: {
+    getBalance(input: { owner: string; coinType: string }): Promise<{ balance: { balance: string } }>;
+  };
 }
 
 export class SuiXService extends XService {
   private static instance: SuiXService;
 
   // Hydrated by SuiHydrator. Start undefined because wallet may not be connected yet.
-  // suiClient is typed structurally for the methods we call directly.
-  // suiWallet/suiAccount are opaque — stored and passed through to SuiWalletProvider.
+  // suiWallet/suiAccount are opaque — stored for consumers, not used by this class.
   public suiClient: SuiClientLike | undefined;
   public suiWallet: unknown;
   public suiAccount: unknown;
@@ -32,32 +29,6 @@ export class SuiXService extends XService {
     }
     return SuiXService.instance;
   }
-
-  createWalletProvider(): ISuiWalletProvider | undefined {
-    if (!this.suiClient || !this.suiWallet || !this.suiAccount) {
-      console.warn('[SuiXService] createWalletProvider: missing dependencies — wallet not connected yet', {
-        hasClient: !!this.suiClient,
-        hasWallet: !!this.suiWallet,
-        hasAccount: !!this.suiAccount,
-      });
-      return undefined;
-    }
-
-    // Runtime validation before passing data to wallet-sdk-core. This avoids "trust me bro" casting.
-    // Note: we validate the minimum shape we rely on; the exact nominal types may differ by package version.
-    assertSuiProviderShape('SuiXService', this.suiClient, this.suiWallet, this.suiAccount);
-
-    // Version mismatch cast: dapp-kit hooks return types from their bundled @mysten/wallet-standard,
-    // which differs nominally from wallet-sdk-core's version. Structurally identical at runtime.
-    type SuiWalletProviderConfig = ConstructorParameters<typeof SuiWalletProvider>[0];
-    return new SuiWalletProvider({
-      client: this.suiClient,
-      wallet: this.suiWallet,
-      account: this.suiAccount,
-    } as unknown as SuiWalletProviderConfig);
-  }
-
-  // getBalance is not used because getBalances uses getAllBalances which returns all balances
 
   override async getBalances(address: string | undefined, xTokens: readonly XToken[]): Promise<Record<string, bigint>> {
     if (!address || !this.suiClient) return {};
@@ -76,14 +47,14 @@ export class SuiXService extends XService {
             '0x3917a812fe4a6d6bc779c5ab53f8a80ba741f8af04121193fc44e0f662e2ceb::balanced_dollar::BALANCED_DOLLAR';
         }
 
-        const balance = await client.getBalance({
+        const result = await client.core.getBalance({
           owner: address,
           coinType: coinType,
         });
 
         return {
           address: xToken.address,
-          balance: balance ? BigInt(balance.totalBalance) : undefined,
+          balance: result ? BigInt(result.balance.balance) : undefined,
         };
       });
 

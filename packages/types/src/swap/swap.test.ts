@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import type { XToken } from '../chains/tokens.js';
+import {
+  bscSupportedTokens,
+  ethereumSupportedTokens,
+  SodaTokens,
+  solanaSupportedTokens,
+  type XToken,
+} from '../chains/tokens.js';
 import type { SpokeChainKey } from '../chains/chains.js';
 import {
   swapSupportedTokens,
@@ -10,6 +16,19 @@ import {
 } from './swap.js';
 
 const chainKeys = Object.keys(swapSupportedTokens) as SpokeChainKey[];
+
+describe('assets with unavailable production routes remain staging-only', () => {
+  it.each([
+    solanaSupportedTokens.PRIME,
+    solanaSupportedTokens.ANSEM,
+    bscSupportedTokens.ADA,
+    SodaTokens.sodaADA,
+    ethereumSupportedTokens.wM,
+  ])('$symbol on $chainKey is excluded from production', token => {
+    expect(getSupportedSolverTokens(token.chainKey).map(supported => supported.address)).not.toContain(token.address);
+    expect(getStagingSolverTokens(token.chainKey)).toContainEqual(token);
+  });
+});
 
 describe('production and staging swap token lists are disjoint', () => {
   for (const chainKey of chainKeys) {

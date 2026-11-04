@@ -2,9 +2,10 @@ import { getSupportedSolverTokens, type SpokeChainKey, type XToken } from '@soda
 import { readJson, writeJson } from '@/lib/storage';
 
 // Persists the last picked solver swap chain + token so From/To restore on reload.
-// Store the chain key + token SYMBOL only — never a serialized XToken object: the live
-// token must be re-resolved from getSupportedSolverTokens(chain) on the target chain, or
-// balance readers (which key off xToken.chainKey) fetch the wrong chain. See apps/demo/AGENTS.md.
+// Store the chain key + token SYMBOL only — never a serialized XToken object: the live token must
+// be re-resolved from getSupportedSolverTokens(chain) on the target chain, or the restored chain
+// and token disagree and `useBalances` silently reads the wrong chain as `0n` — it never errors on
+// a mismatch, so nothing downstream would catch it. See apps/demo/AGENTS.md.
 
 const STORAGE_KEY = 'sodax-demo:solver:last-selection';
 

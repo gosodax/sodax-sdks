@@ -2,7 +2,8 @@
 // Distinct from the on-chain `bridge/` hooks (which call `sodax.bridge.*` directly).
 
 export * from './useBridgeApiAllowance.js'; // query
-export * from './useBridgeApiApprove.js'; // mutation
+export * from './useBridgeApiApprove.js'; // mutation (unsigned txs only)
+export * from './useBridgeApiApproveAndBroadcast.js'; // mutation (request → sign → broadcast → wait)
 export * from './useBridgeApiBridgeableAmount.js'; // query (deposit capacity / withdrawal liquidity)
 export * from './useBridgeApiCreateBridgeIntent.js'; // mutation
 export * from './useBridgeApiFee.js'; // query (partner fee — per-request override or configured default)

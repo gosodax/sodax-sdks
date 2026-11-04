@@ -25,9 +25,7 @@ export type {
 } from 'viem';
 
 // ─── Sui (@mysten/sui) ─────────────────────────────────────────────────────
-export type { SuiTransactionBlockResponseOptions } from '@mysten/sui/client';
 export type { Transaction, TransactionArgument } from '@mysten/sui/transactions';
-export type { SuiWalletFeatures, WalletAccount, WalletWithFeatures } from '@mysten/wallet-standard';
 
 // ─── Solana (@solana/web3.js) ──────────────────────────────────────────────
 export type { Commitment, ConnectionConfig, SendOptions } from '@solana/web3.js';

@@ -1,0 +1,102 @@
+---
+title: "Swaps on Solana"
+description: "Intent-based cross-network swaps from a Solana perspective: one signed transaction, solver-filled, settled across networks."
+icon: rotate
+---
+
+SODAX swaps are intents, not bridges. Your user signs one transaction on Solana that locks the input and declares what they want on the destination network. Solvers fill it; the SODAX relayer carries proof between Solana, the hub (Sonic), and the destination. If nothing fills, the intent can be cancelled and funds recovered.
+
+From your side it is one SDK call. From your user's side it is one Phantom prompt.
+
+## What this looks like on Solana
+
+- **Source**: the intent transaction is a normal Solana transaction signed by the user's wallet. `ChainKeys.SOLANA_MAINNET` (`'solana'`) identifies the chain everywhere in the SDK.
+- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">140</span> assets today. The [on-Solana asset list](/solana/networks-and-assets) only bounds what users hold on Solana itself, not what they can swap into.
+- **No approvals**: there is no ERC-20 style allowance on Solana. `isAllowanceValid` always returns `true`; you can go straight from quote to swap.
+- **Settlement**: output lands on the destination network at `dstAddress`. Swaps into Solana settle to the user's address as SPL balances.
+- **Raw mode**: methods that support `raw: true` return a `SolanaRawTransaction` when the source is Solana, TypeScript-narrowed from `srcChainKey`, if you want to control signing and broadcast yourself.
+
+## Quoting
+
+The solver API quotes both directions:
+
+```typescript
+const quoteResult = await sodax.swaps.getQuote({
+  token_src: sol.address,             // token on Solana
+  token_dst: usdc.address,            // token on the destination network
+  token_src_blockchain_id: ChainKeys.SOLANA_MAINNET,
+  token_dst_blockchain_id: ChainKeys.ARBITRUM_MAINNET,
+  amount: 100_000_000n,
+  quote_type: 'exact_input',          // the only supported quote type
+});
+```
+
+`getQuote` deducts any configured partner fee before quoting, so `quoted_amount` is the net output the user actually receives.
+
+## Fees
+
+Using SODAX is free to integrate. Two fees can apply to a trade:
+
+- **Base fee**: a fixed 0.1% of the input, taken by the protocol. Not configurable; compute it ahead of time with `getSolverFee(inputAmount)`.
+- **Your fee**: optional platform fee on top, set by you and paid to you. It is the only fee you control. Configure it at SDK setup and check it with `getPartnerFee(inputAmount)`. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## Executing
+
+Prefer `swap()`. It creates the intent on Solana, verifies it landed, submits it to the relay, waits for the packet on the hub, and notifies the solver:
+
+```typescript
+// `deadline` is an absolute Unix timestamp; getSwapDeadline turns an offset into one
+const deadlineResult = await sodax.swaps.getSwapDeadline(300n); // 5 minutes from now
+if (!deadlineResult.ok) throw deadlineResult.error;
+
+const result = await sodax.swaps.swap({
+  params: {
+    inputToken: sol.address,
+    outputToken: usdc.address,
+    inputAmount: 100_000_000n,
+    minOutputAmount: minOut,
+    deadline: deadlineResult.value,
+    allowPartialFill: false,
+    srcChainKey: ChainKeys.SOLANA_MAINNET,
+    dstChainKey: ChainKeys.ARBITRUM_MAINNET,
+    srcAddress: await walletProvider.getWalletAddress(),
+    dstAddress: recipient,
+    solver: '0x0000000000000000000000000000000000000000',
+    data: '0x',
+  },
+  walletProvider, // ISolanaWalletProvider, narrowed by srcChainKey
+});
+```
+
+Track progress with `getStatus(request)`, and cancel unfilled intents with `cancelIntent`. Limit orders (intents without deadlines) work from Solana too, via `createLimitOrder`.
+
+## Orchestrating manually? One Solana-specific step
+
+If you use `createIntent` + `submitIntent` instead of `swap()`, note that **Solana (and Bitcoin) intents require relay extra data**. `createIntent` already returns it as `relayData` — pass that as `data` in the relay submission:
+
+```typescript
+// `params` is the same intent params object passed to swap() above
+const created = await sodax.swaps.createIntent({ params, walletProvider });
+if (!created.ok) throw created.error;
+
+await sodax.swaps.submitIntent({
+  action: 'submit',
+  params: {
+    chain_id: 'solana',
+    tx_hash: created.value.tx,      // the Solana intent transaction
+    data: created.value.relayData,  // required for Solana sources
+  },
+});
+```
+
+Only rebuild the extra data if you no longer hold that return value: `getIntentSubmitTxExtraData({ intent })` (or `reconstructRelayData(intent)`) derives it from the intent alone. The `{ txHash }` overload looks the intent up on the hub, so it needs the hub transaction hash — which does not exist until the relay lands.
+
+`swap()` does this automatically; most integrations never touch it.
+
+## Error handling
+
+Operations return `Result<T>` instead of throwing. The core methods (`swap`, `createIntent`, `postExecution`) return a typed `SodaxError` union you can `switch` on by `error.code`.
+
+---
+
+Full reference, including raw mode, limit orders, cancellation, and the complete error-code table: [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps).

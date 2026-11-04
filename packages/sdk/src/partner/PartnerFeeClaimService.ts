@@ -1,5 +1,6 @@
 // packages/sdk/src/partner/PartnerFeeClaimService.ts
 import { invariant } from '../shared/utils/tiny-invariant.js';
+import { getEvmViemChain } from '../shared/utils/constant-utils.js';
 import { erc20Abi, encodeFunctionData, isAddress, type Address } from 'viem';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import type { HubProvider } from '../shared/types/types.js';
@@ -8,6 +9,7 @@ import { lookupFailed, approveFailed } from '../errors/wrappers.js';
 import { SolverApiService } from '../swap/SolverApiService.js';
 import { ProtocolIntentsAbi } from '../shared/abis/protocolIntents.abi.js';
 import {
+  ChainKeys,
   type SpokeChainKey,
   getIntentRelayChainId,
   type Hex,
@@ -21,9 +23,10 @@ import {
   type TxReturnType,
   type HubChainKey,
   type SpokeExecActionParams,
+  isMpcRelayChainKey,
 } from '@sodax/types';
 import {
-  encodeAddress,
+  encodeRecipient,
   isEvmWalletProviderType,
   isHubChainKeyType,
   isOptionalEvmWalletProviderType,
@@ -31,6 +34,11 @@ import {
   type SpokeService,
 } from '../shared/index.js';
 import type { Intent } from '../shared/types/intent-types.js';
+import { partnerInvariant } from './errors.js';
+
+// Why it is refused: see `createIntentAutoSwap`.
+const MPC_RELAY_AUTO_SWAP_MESSAGE =
+  "Auto-swap cannot pay out to an MPC-relay chain: its intents allow partial fills with no minimum output, so a payout could fall below the relay's release fee and be lost. Choose another destination chain.";
 
 export type PartnerFeeClaimAssetBalance = {
   symbol: string;
@@ -51,7 +59,8 @@ export type AutoSwapPreferences = {
 export type SetSwapPreferenceParams = {
   srcChainKey: HubChainKey;
   srcAddress: Address;
-  outputToken: Address;
+  /** In `dstChainKey`'s own format; resolved to the hub asset before it is stored. */
+  outputToken: OriginalAssetAddress;
   dstChainKey: SpokeChainKey;
   dstAddress: string;
 };
@@ -334,7 +343,8 @@ export class PartnerFeeClaimService {
    *   - `params.srcChainKey` — must be the hub chain key (Sonic).
    *   - `params.srcAddress` — partner's EVM address on Sonic.
    *   - `params.outputToken` — desired output token address (spoke-chain or hub-chain).
-   *   - `params.dstChainKey` — spoke chain to receive the swapped proceeds.
+   *   - `params.dstChainKey` — spoke chain to receive the swapped proceeds. An MPC-relay chain (Tron) is
+   *     refused with `VALIDATION_FAILED`: see {@link createIntentAutoSwap}.
    *   - `params.dstAddress` — recipient address on `dstChainKey`.
    *   - `raw` — when `true`, returns the unsigned transaction object instead of submitting it.
    *   - `walletProvider` — required when `raw` is `false`; must be an EVM wallet provider.
@@ -352,12 +362,20 @@ export class PartnerFeeClaimService {
         try {
           invariant(isHubChainKeyType(params.srcChainKey), 'PartnerFeeClaimService only supports Sonic spoke provider');
           invariant(this.protocolIntentsContract, 'protocolIntentsContract is not configured in solver config');
+          partnerInvariant(!isMpcRelayChainKey(params.dstChainKey), MPC_RELAY_AUTO_SWAP_MESSAGE, {
+            action: 'setSwapPreference',
+            field: 'dstChainKey',
+            dstChainKey: params.dstChainKey,
+            reason: 'mpc-relay-auto-swap-destination',
+          });
 
           const outputToken =
             params.dstChainKey !== this.hubProvider.chainConfig.chain.key
               ? this.hubProvider.config.getSpokeTokenFromOriginalAssetAddress(params.dstChainKey, params.outputToken)
                   ?.hubAsset
-              : params.outputToken;
+              : isAddress(params.outputToken)
+                ? params.outputToken
+                : undefined;
 
           invariant(
             outputToken,
@@ -374,7 +392,7 @@ export class PartnerFeeClaimService {
               args: [
                 outputToken,
                 BigInt(getIntentRelayChainId(params.dstChainKey)),
-                encodeAddress(params.dstChainKey, params.dstAddress),
+                encodeRecipient(params.dstChainKey, params.dstAddress),
               ],
             }),
           } satisfies TxReturnType<HubChainKey, true>;
@@ -391,7 +409,9 @@ export class PartnerFeeClaimService {
             'PartnerFeeClaimService only supports Evm (sonic) wallet provider',
           );
 
-          const txHash = await walletProvider.sendTransaction(rawTx);
+          const txHash = await walletProvider.sendTransaction(rawTx, {
+            expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id,
+          });
 
           return {
             ok: true,
@@ -545,7 +565,9 @@ export class PartnerFeeClaimService {
    * Guards against same-token intents: if the configured output token equals `fromToken` the solver
    * cannot fill the swap, so the call is rejected with `VALIDATION_FAILED` before any transaction is
    * built. The guard fails closed — if the preference lookup fails the call returns that error rather
-   * than submitting an intent that may become unfillable.
+   * than submitting an intent that may become unfillable. A preference paying out to an MPC-relay chain
+   * (Tron) is refused the same way: the intent allows partial fills with no minimum output, so a payout
+   * there could fall at or below the relay's release fee, which releases nothing once the hub has burned it.
    *
    * @param _params - Action descriptor containing:
    *   - `params.srcChainKey` — must be the hub chain key (Sonic).
@@ -581,6 +603,17 @@ export class PartnerFeeClaimService {
       // than risk recreating the stuck-funds scenario this guard exists to prevent.
       const prefs = await this.getAutoSwapPreferences(params.srcAddress);
       if (!prefs.ok) return prefs;
+      const { dstChainKey } = prefs.value;
+      partnerInvariant(
+        dstChainKey === 'not configured' || !isMpcRelayChainKey(dstChainKey),
+        MPC_RELAY_AUTO_SWAP_MESSAGE,
+        {
+          action: 'createIntentAutoSwap',
+          field: 'dstChainKey',
+          dstChainKey,
+          reason: 'mpc-relay-auto-swap-destination',
+        },
+      );
       if (prefs.value.outputToken.toLowerCase() === params.fromToken.toLowerCase()) {
         return {
           ok: false,
@@ -622,7 +655,9 @@ export class PartnerFeeClaimService {
         };
       }
 
-      const txHash = await _params.walletProvider.sendTransaction(rawTx);
+      const txHash = await _params.walletProvider.sendTransaction(rawTx, {
+        expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id,
+      });
 
       return {
         ok: true,
@@ -692,6 +727,7 @@ export class PartnerFeeClaimService {
             { intent_tx_hash: intentTxHash },
             this.config.solver,
             this.config.logger,
+            this.config.apiKey,
           );
 
           if (!solverExecutionResponse.ok) {
@@ -783,7 +819,9 @@ export class PartnerFeeClaimService {
             };
           }
 
-          const txHash = await _params.walletProvider.sendTransaction(rawTx);
+          const txHash = await _params.walletProvider.sendTransaction(rawTx, {
+            expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id,
+          });
 
           return {
             ok: true,

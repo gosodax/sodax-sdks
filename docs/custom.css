@@ -1,0 +1,262 @@
+/* SODAX brand theme for Mintlify — light + dark
+   Accent lives in docs.json (colors.primary/light/dark).
+   This file only sets surfaces, neutrals and the few things
+   Mintlify does not expose as config. */
+
+:root {
+  --sodax-cherry:        #A55C55;
+  --sodax-cherry-dark:   #964D48;
+  --sodax-cherry-soft:   #C36C65;
+  --sodax-cherry-bright: #E3BEBB;
+  --sodax-yellow:        #ECC100;
+
+  --sodax-page:      #FFFFFF;
+  --sodax-chrome:    #F9F7F5;
+  --sodax-raised:    #F8F3F3;
+  --sodax-border:    #F0EAEB;
+  --sodax-heading:   #1D1414;
+  --sodax-body:      #6B5C5B;
+  --sodax-muted:     #8E7E7D;
+
+  --sodax-link:       var(--sodax-cherry);
+  --sodax-link-hover: var(--sodax-cherry-dark);
+  --sodax-code:       var(--sodax-cherry-dark);
+  --sodax-code-bg:    var(--sodax-raised);
+  --sodax-btn-bg:     var(--sodax-cherry);
+  --sodax-btn-text:   #FFFFFF;
+}
+
+:root.dark {
+  --sodax-page:      #1D1414;
+  --sodax-chrome:    #241A1A;
+  --sodax-raised:    #2A1E1E;
+  --sodax-border:    #332626;
+  --sodax-heading:   #F9F7F5;
+  --sodax-body:      #CFC2C1;
+  --sodax-muted:     #B9ACAB;
+
+  --sodax-link:       var(--sodax-cherry-bright);
+  --sodax-link-hover: #F0DEDD;
+  --sodax-code:       var(--sodax-cherry-bright);
+  --sodax-code-bg:    var(--sodax-raised);
+  --sodax-btn-bg:     var(--sodax-cherry-soft);
+  --sodax-btn-text:   #1D1414;
+}
+
+/* ---- Surfaces ---------------------------------------------------- */
+body { background-color: var(--sodax-page); color: var(--sodax-body); }
+#navbar, #sidebar, #topbar { background-color: var(--sodax-chrome); }
+
+/* ---- Links: PROSE ONLY. Never a bare `a` selector — Mintlify's
+   sidebar, tabs, breadcrumb, TOC and footer are all <a>. ---------- */
+#content-area a,
+.prose a,
+main article a {
+  color: var(--sodax-link);
+  text-decoration-color: color-mix(in srgb, var(--sodax-link) 40%, transparent);
+  text-underline-offset: 2px;
+}
+#content-area a:hover,
+.prose a:hover,
+main article a:hover { color: var(--sodax-link-hover); }
+
+/* Headings and anchor links inside them stay neutral */
+#content-area h1, #content-area h2, #content-area h3,
+#content-area h4, .prose h1, .prose h2, .prose h3, .prose h4 {
+  color: var(--sodax-heading);
+}
+#content-area h1 a, #content-area h2 a, #content-area h3 a,
+.prose h1 a, .prose h2 a, .prose h3 a { color: inherit; }
+
+/* ---- Inline code ------------------------------------------------- */
+:not(pre) > code {
+  color: var(--sodax-code);
+  background-color: var(--sodax-code-bg);
+  border: 1px solid var(--sodax-border);
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+/* ---- Primary button (scoped — do NOT style every <button>) ------- */
+a[class*="btn"], .button-primary, #content-area a[role="button"] {
+  background-color: var(--sodax-btn-bg);
+  color: var(--sodax-btn-text);
+  border-radius: 999px;
+}
+a[class*="btn"]:hover, .button-primary:hover {
+  background-color: var(--sodax-cherry-dark);
+  color: #FFFFFF;
+}
+
+/* ---- Search: target the input, not everything named "search" ----- */
+#search-bar-entry, input[type="search"] {
+  background-color: var(--sodax-page);
+  border: 1px solid var(--sodax-border);
+  color: var(--sodax-body);
+}
+#search-bar-entry:focus-within { border-color: var(--sodax-cherry-soft); }
+
+/* ---- Callouts -----------------------------------------------------
+   Mintlify renders .callout[data-callout-type="<variant>"] around
+   [data-component-part="callout-icon"] and "callout-content".
+   Only `note` is rebranded — it's the generic/marketing callout and
+   ships blue by default. The semantic variants (warning, danger, tip,
+   check) keep their colors because those carry meaning, and `info` is
+   already neutral grey.
+   Mintlify forces `color: currentColor !important` onto nested <a>,
+   <strong> and <code>, so those three need !important to win. -------- */
+.callout[data-callout-type="note"] {
+  border-color: color-mix(in srgb, var(--sodax-cherry) 35%, transparent);
+  background-color: var(--sodax-raised);
+}
+:root.dark .callout[data-callout-type="note"] {
+  border-color: color-mix(in srgb, var(--sodax-cherry-soft) 45%, transparent);
+  background-color: var(--sodax-raised);
+}
+
+.callout[data-callout-type="note"] [data-component-part="callout-icon"] svg {
+  color: var(--sodax-cherry);
+}
+:root.dark .callout[data-callout-type="note"] [data-component-part="callout-icon"] svg {
+  color: var(--sodax-cherry-soft);
+}
+
+.callout[data-callout-type="note"] [data-component-part="callout-content"] {
+  color: var(--sodax-body);
+}
+.callout[data-callout-type="note"] [data-component-part="callout-content"] strong {
+  color: var(--sodax-heading) !important;
+}
+.callout[data-callout-type="note"] [data-component-part="callout-content"] code {
+  color: var(--sodax-code) !important;
+}
+.callout[data-callout-type="note"] [data-component-part="callout-content"] a {
+  color: var(--sodax-link) !important;
+  border-color: currentColor;
+}
+.callout[data-callout-type="note"] [data-component-part="callout-content"] a:hover {
+  color: var(--sodax-link-hover) !important;
+}
+
+/* ---- Dividers ---------------------------------------------------- */
+hr, #sidebar, #navbar { border-color: var(--sodax-border); }
+
+/* ---- Sidebar nav: Mintlify's default theme reserves 32px on the
+   right of the scroll viewport, so the active-item highlight pill
+   stops well short of the sidebar edge. Tighten it so the highlight
+   reads as full-width. ---------------------------------------------- */
+#sidebar [data-component-part="scroll-area-viewport"] {
+  padding-right: 0.75rem;
+}
+
+/* Mintlify renders every page of a group flush, so a nested page reads as a
+   sibling of its parent. Re-indent by path depth, over its inline padding. */
+#sidebar li[id^="/developers/packages/foundation/"] > a,
+#sidebar li[id^="/developers/packages/connection/"] > a,
+#sidebar li[id^="/developers/packages/experience/"] > a {
+  padding-left: 1.75rem !important;
+}
+/* Matched through the parent list: a collapsed group renders no child <ul>. */
+#sidebar ul:has(> li[id="/developers/packages/foundation"]) > li[data-group-tag] > button {
+  padding-left: 2.5rem !important;
+}
+#sidebar li[id^="/developers/packages/foundation/sdk/"] > a {
+  padding-left: 3.25rem !important;
+}
+
+/* ---- Homepage proof line ------------------------------------------ */
+.sodax-stat-line {
+  margin: 0 0 1.25rem;
+  color: var(--sodax-body);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+.sodax-stat-line span {
+  color: var(--sodax-heading);
+  font-weight: 700;
+}
+
+/* ---- Homepage hero (brand banner, no character art) --------------- */
+.sodax-home-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-height: 9.5rem;
+  margin: 0 0 1.25rem;
+  padding: 1.75rem 1.75rem;
+  border-radius: 12px;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      ellipse 90% 120% at 70% 50%,
+      color-mix(in srgb, var(--sodax-cherry-soft) 45%, transparent) 0%,
+      transparent 55%
+    ),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--sodax-cherry) 92%, #000) 0%,
+      var(--sodax-cherry) 55%,
+      var(--sodax-cherry-soft) 100%
+    );
+}
+.sodax-home-hero-kicker {
+  margin: 0;
+  color: #fff;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+.sodax-home-hero-sub {
+  margin: 0;
+  color: color-mix(in srgb, #fff 78%, transparent);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+@media (max-width: 640px) {
+  .sodax-home-hero {
+    min-height: 8rem;
+    padding: 1.35rem 1.25rem;
+  }
+  .sodax-home-hero-kicker { font-size: 1.4rem; }
+}
+
+/* ---- AI assistant floating input: Mintlify centers this over the
+   content by default, covering text. Dock it bottom-right instead.
+   Unofficial/undocumented-position override — re-check after Mintlify
+   platform updates if it stops moving or the panel overlaps it. ---- */
+chat-assistant-floating-input {
+  position: fixed !important;
+  inset: auto 1.5rem 1.5rem auto !important;
+  transform: none !important;
+  margin: 0 !important;
+  width: min(26rem, calc(100vw - 3rem)) !important;
+  z-index: 40 !important;
+}
+@media (max-width: 640px) {
+  chat-assistant-floating-input {
+    inset: auto 0.75rem 0.75rem 0.75rem !important;
+    width: auto !important;
+  }
+}
+body:has(chat-assistant-sheet) chat-assistant-floating-input {
+  display: none !important;
+}
+
+/* ---- Global anchors (docs.json navigation.global.anchors) render
+   above the sidebar nav, so the menu opens on FAQ / Get in touch
+   instead of the section itself. Order them last. The anchors are the
+   only <ul> in #navigation-items that is not a .sidebar-group.
+   Unofficial/undocumented-DOM override — re-check after Mintlify
+   platform updates if the anchors stop moving. ------------------- */
+#navigation-items {
+  display: flex;
+  flex-direction: column;
+}
+#navigation-items > ul:not(.sidebar-group) {
+  order: 1;
+  margin-top: 1.5rem;
+}

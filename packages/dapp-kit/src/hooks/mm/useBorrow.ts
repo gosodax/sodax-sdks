@@ -1,7 +1,8 @@
 // packages/dapp-kit/src/hooks/mm/useBorrow.ts
-import type { MoneyMarketBorrowActionParams, SpokeChainKey, TxHashPair } from '@sodax/sdk';
+import type { MoneyMarketBorrowActionParams, SpokeChainKey, OutboundSettlement } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
@@ -20,15 +21,20 @@ export type UseBorrowVars<K extends SpokeChainKey = SpokeChainKey> = Omit<
  * React hook for borrowing tokens from the Sodax money market protocol.
  *
  * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
+ * `onError`, `retry`). Returns the unwrapped {@link OutboundSettlement} on success: a tx pair, or
+ * from Tron the relay's `trackingId` beside the destination tx.
  */
 export function useBorrow<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
-}: MutationHookParams<TxHashPair, UseBorrowVars<K>> = {}): SafeUseMutationResult<TxHashPair, Error, UseBorrowVars<K>> {
+}: MutationHookParams<OutboundSettlement<K>, UseBorrowVars<K>> = {}): SafeUseMutationResult<
+  OutboundSettlement<K>,
+  Error,
+  UseBorrowVars<K>
+> {
   const { sodax } = useSodaxContext();
   const queryClient = useQueryClient();
 
-  return useSafeMutation<TxHashPair, Error, UseBorrowVars<K>>({
+  return useSafeMutation<OutboundSettlement<K>, Error, UseBorrowVars<K>>({
     mutationKey: ['mm', 'borrow'],
     ...mutationOptions,
     mutationFn: async vars => unwrapResult(await sodax.moneyMarket.borrow({ ...vars, raw: false })),
@@ -39,10 +45,7 @@ export function useBorrow<K extends SpokeChainKey = SpokeChainKey>({
         queryKey: ['mm', 'userFormattedSummary', params.srcChainKey, params.srcAddress],
       });
       queryClient.invalidateQueries({ queryKey: ['mm', 'aTokensBalances'] });
-      const balanceChains = new Set([params.srcChainKey, params.dstChainKey ?? params.srcChainKey]);
-      for (const chainKey of balanceChains) {
-        queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', chainKey] });
-      }
+      invalidateBalances(queryClient, params.srcChainKey, params.dstChainKey);
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },
   });

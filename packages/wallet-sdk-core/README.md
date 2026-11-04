@@ -2,7 +2,7 @@
 
 The SODAX wallet-sdk-core is a core wallet SDK package containing implementations of wallet providers that enable multi-chain wallet connectivity. This package provides TypeScript implementations of wallet providers for various blockchain networks, making them compatible with the Core SODAX SDK (@sodax/sdk).
 
-> **AI-friendly docs:** shipped via [`@sodax/skills`](https://github.com/icon-project/sodax-sdks/tree/main/packages/skills) — [`skills` CLI](https://github.com/vercel-labs/skills) recommended; npm + `AGENTS.md` pointer as fallback. See [docs/ai-integration-guide.md](https://github.com/icon-project/sodax-sdks/blob/main/docs/ai-integration-guide.md) for all install modes and per-tool wiring.
+> **AI-friendly docs:** shipped via [`@sodax/skills`](https://github.com/gosodax/sodax-sdks/tree/main/packages/skills) — [`skills` CLI](https://github.com/vercel-labs/skills) recommended; npm + `AGENTS.md` pointer as fallback. See [docs/ai-integration-guide.md](https://github.com/gosodax/sodax-sdks/blob/main/docs/ai-integration-guide.md) for all install modes and per-tool wiring.
 
 ## Installation
 
@@ -36,6 +36,7 @@ The package includes wallet provider implementations for:
 - Near ✅
 - Stacks ✅
 - Bitcoin ✅
+- Tron ✅
 
 ## Public API surface
 
@@ -50,7 +51,7 @@ Internal utilities (e.g. `shallowMerge` in `src/utils/merge.ts`) are **not** exp
 
 All providers support two modes, but **the union discriminant depends on the provider**:
 
-- **Field presence (no `type` field in config)**: EVM, Solana, Sui, Near, Stacks, Icon, Injective
+- **Field presence (no `type` field in config)**: EVM, Solana, Sui, Near, Stacks, Icon, Injective, Tron
 - **Explicit uppercase `type` field**: Bitcoin, Stellar (`'PRIVATE_KEY' | 'BROWSER_EXTENSION'`)
 
 ### EVM
@@ -75,6 +76,21 @@ const evmBrowser = new EvmWalletProvider({
   publicClient: myViemPublicClient,
 });
 ```
+
+A connected wallet can also send several transactions as one atomic [EIP-5792](https://eips.ethereum.org/EIPS/eip-5792)
+batch — one signature, all or nothing. A private-key account always reports `'unsupported'`.
+
+```ts
+const support = await evmBrowser.getAtomicBatchSupport(8453); // 'supported' | 'ready' | 'unsupported'
+if (support !== 'unsupported') {
+  const batchId = await evmBrowser.sendAtomicBatch([approveTx, transferTx], { expectedChainId: 8453 });
+  const { status, receipts } = await evmBrowser.waitForBatch(batchId);
+}
+```
+
+`'ready'` means the wallet asks the user to upgrade the account (MetaMask: an EIP-7702 smart account) when the
+first batch is sent.
+`waitForBatch` reads the batch status again after a failed read, within its timeout and up to three reads.
 
 ### Solana
 
@@ -116,22 +132,27 @@ const btcBrowser = new BitcoinWalletProvider({
 
 ### Sui
 
-Sui uses `mnemonics` (not `privateKey`) for private-key mode. Browser extension requires a pre-constructed `SuiClient`, wallet object, and active `WalletAccount`.
+Sui uses `mnemonics` (not `privateKey`) for private-key mode. Both modes speak gRPC-web — Mysten's public fullnodes stopped serving JSON-RPC in July 2026, and `sui-node` drops it in October 2026. Browser extension supplies the connected address plus a signer callback; the provider builds its own client.
+
+`signTransaction` takes the transaction positionally. `dAppKit.signTransaction` is options-shaped, so wrap it rather than assigning it directly — and pass `account` explicitly, since dApp Kit otherwise signs with whatever account is currently connected, which need not be the `address` given here. `myWalletAccount` is dApp Kit's own `UiWalletAccount`, from `useCurrentAccount()` in React.
 
 ```ts
 import { SuiWalletProvider } from '@sodax/wallet-sdk-core';
 
 // Private key (Node/scripts/CI) — field presence discriminant
 const suiPk = new SuiWalletProvider({
-  rpcUrl: 'https://...',
+  grpcUrl: 'https://fullnode.mainnet.sui.io',
   mnemonics: '...',
 });
 
 // Browser/extension
 const suiBrowser = new SuiWalletProvider({
-  client: mySuiClient,
-  wallet: myWalletWithFeatures,
-  account: myWalletAccount,
+  grpcUrl: 'https://fullnode.mainnet.sui.io',
+  address: myWalletAccount.address,
+  // The provider has already built the transaction against its client, so serializing it
+  // is all the adapter has to do.
+  signTransaction: async txn =>
+    dAppKit.signTransaction({ transaction: await txn.toJSON(), account: myWalletAccount }),
 });
 ```
 
@@ -245,6 +266,10 @@ const nearBrowser = new NearWalletProvider({
   wallet: myNearConnector,
 });
 ```
+
+### Tron
+
+Tron discriminates by field presence. The private-key config has `privateKey`; the browser-extension config has the injected `tronWeb` plus `getProvider`, which returns the provider the wallet (e.g. TronLink) announces over TIP-6963. Signing uses the first TronWeb with an account (`getProvider()`, then `provider`, then the injected `tronWeb`); `getProvider` re-resolves the announced provider on every call, while a captured `provider` can go stale. Both configs refuse a transaction whose `txID` is not `sha256(raw_data_hex)`; the private-key config signs that hash. Node calls go to `endpoint`, then `defaults.rpcUrl`, then TronGrid. Both configs are constructed in [`TronWalletProvider.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/TronWalletProvider.test.ts).
 
 ## Defaults and merge semantics
 

@@ -3,6 +3,7 @@ import type { IcxMigrateAction, TxHashPair } from '@sodax/sdk';
 import { ChainKeys } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
@@ -36,8 +37,7 @@ export function useMigrateIcxToSoda({
     mutationFn: async vars => unwrapResult(await sodax.migration.migrateIcxToSoda({ ...vars, raw: false })),
     onSuccess: async (data, vars, ctx) => {
       queryClient.invalidateQueries({ queryKey: ['migrate', 'allowance'] });
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', vars.params.srcChainKey] });
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', ChainKeys.SONIC_MAINNET] });
+      invalidateBalances(queryClient, vars.params.srcChainKey, ChainKeys.SONIC_MAINNET);
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },
   });

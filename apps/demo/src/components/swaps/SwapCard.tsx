@@ -1,5 +1,5 @@
 import { SelectChain } from '@/components/swaps/SelectChain';
-import { SelectToken } from '@/components/swaps/SelectToken';
+import { SelectToken } from '@/components/shared/SelectToken';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -17,29 +17,27 @@ import { calculateExchangeRate, formatMutationFailureMessage, formatTokenAmount 
 import { parseUnits, formatUnits } from 'viem';
 import BigNumber from 'bignumber.js';
 import { ArrowDownUp, ArrowLeftRight, Loader2 } from 'lucide-react';
-import React, { type SetStateAction, useEffect, useMemo, useState } from 'react';
+import React, { type SetStateAction, useEffect, useMemo, useRef, useState } from 'react';
 import {
   useQuote,
-  useSwapAllowance,
-  useSwapApprove,
-  useSwap,
-  useStellarGate,
+  useSwapLifecycle,
   useSodaxContext,
   loadRadfiSession,
   useTradingWalletBalance,
-  useXBalances,
-  useNearStorageGate,
+  useBalances,
   getSupportedSolverTokens,
   getStagingSolverTokens,
+  isSodaxError,
+  ACCOUNT_UPGRADE_DECLINED,
   type CreateIntentParams,
   type SolverIntentQuoteRequest,
   type GetWalletProviderType,
   type SpokeChainKey,
+  type SwapLifecycleState,
+  type SwapSetupReason,
   type XToken,
   type ChainType,
   ChainKeys,
-  HookKind,
-  isHookSupportedToken,
 } from '@sodax/dapp-kit';
 import {
   getXChainType,
@@ -47,15 +45,57 @@ import {
   useXAccount,
   useXDisconnect,
   useWalletProvider,
-  useXService,
 } from '@sodax/wallet-sdk-react';
-import type { Order } from '@/components/swaps/OrderStatus';
+import type { Order, OrderSummary } from '@/components/swaps/OrderStatus';
 import { DEFAULT_SELECTED_CHAIN, SolverEnv, useAppStore } from '@/zustand/useAppStore';
 import { BitcoinSetupPanel } from '@/components/bitcoin/BitcoinSetupPanel';
 import { loadLastSelection, saveLastSelection } from '@/lib/lastSelection';
 import { appendOrder } from '@/lib/orderHistory';
 import { buildOrderSummary } from '@/components/swaps/OrderStatus';
-import { solverApiEndpointForEnv } from '@/constants';
+import { HOOK_LABELS, resolveAvailableHookKind, toHookRequest } from '@/lib/deliveryHooks';
+
+const SETUP_LABELS: Record<SwapSetupReason, string> = {
+  stellarActivation: 'Activate Stellar Account',
+  stellarFunding: 'Fund the Stellar account with XLM first',
+  stellarTrustline: 'Request Trustline',
+  stellarCheckFailed: 'Retry Stellar Check',
+  nearStorage: 'Register Storage',
+  nearStorageCheckFailed: 'Retry NEAR Storage Check',
+  external: 'Finish the Bitcoin setup first',
+};
+
+/** The one button's label, from the lifecycle state — the approval strategy decides the ready label. */
+function primaryLabel(state: SwapLifecycleState): string {
+  switch (state.kind) {
+    case 'idle':
+      return 'Swap';
+    case 'checking':
+      return 'Checking…';
+    case 'needsChainSwitch':
+      return 'Switch Chain';
+    case 'needsSetup':
+      return SETUP_LABELS[state.reason];
+    case 'ready':
+      if (state.approvalStrategy === 'atomic-batch') return 'Approve & Swap (1 signature)';
+      return state.approvalStrategy === 'sequential' ? 'Approve, then Swap' : 'Swap';
+    // Spans signing and, on the backend path, settlement — not just the wallet prompt.
+    case 'submitting':
+    case 'pending':
+      return 'Swap in progress…';
+    case 'unconfirmed':
+      return 'Check the batch again';
+    case 'settled':
+      return 'Swap again';
+    case 'failed':
+      return 'Try again';
+  }
+}
+
+/** States the button cannot act on: waiting, or a prerequisite only the user (or the app) can resolve. */
+function isPassive(state: SwapLifecycleState): boolean {
+  if (state.kind === 'needsSetup') return state.reason === 'stellarFunding' || state.reason === 'external';
+  return state.kind === 'idle' || state.kind === 'checking' || state.kind === 'submitting' || state.kind === 'pending';
+}
 
 export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAction<Order[]>) => void }) {
   const { sodax } = useSodaxContext();
@@ -76,8 +116,12 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
   );
 
   // Persist the latest chain/token picks (symbol only) so they restore on reload.
+  // Skip while a chain has no solver-supported token yet (e.g. Hedera in production/dev) —
+  // src.token/dst.token is undefined right after such a chain switch.
   useEffect(() => {
-    if (src.token && dst.token) saveLastSelection(src, dst);
+    if (src.token && dst.token) {
+      saveLastSelection(src, dst);
+    }
   }, [src, dst]);
   const sourceAccount = useXAccount({ xChainId: src.chain });
   const sourceWalletProvider = useWalletProvider({ xChainId: src.chain });
@@ -90,20 +134,11 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
     () => (solverEnvironment === SolverEnv.Staging ? getStagingSolverTokens : getSupportedSolverTokens),
     [solverEnvironment],
   );
-  const { mutateAsync: swap } = useSwap();
   const [sourceAmount, setSourceAmount] = useState<string>('');
   const [intentOrderPayload, setIntentOrderPayload] = useState<CreateIntentParams | undefined>(undefined);
-  const { data: hasAllowed, isLoading: isAllowanceLoading } = useSwapAllowance({
-    params: {
-      payload: intentOrderPayload,
-      srcChainKey: src.chain,
-      walletProvider: sourceWalletProvider,
-    },
-  });
-  const { mutateAsyncSafe: approve, isPending: isApproving } = useSwapApprove();
   const supportedSpokeChains = sodax.config.getSupportedSpokeChains();
   // Only chains the selected environment can actually swap. A chain listed in one environment but
-  // not the other (Tron and Hedera are staging-only) otherwise resolves to an undefined token.
+  // not the other (Tron is staging-only) otherwise resolves to an undefined token.
   const swappableChains = useMemo(
     () => supportedSpokeChains.filter(chain => getSolverTokens(chain).length > 0),
     [supportedSpokeChains, getSolverTokens],
@@ -127,34 +162,32 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
       }
     }
   }, [getSolverTokens, swappableChains, src, dst]);
-  // Keep amount undefined until the payload exists; 0n disables the trustline query.
-  const stellar = useStellarGate({
-    dstChainKey: dst.chain,
-    token: intentOrderPayload?.outputToken,
-    amount: intentOrderPayload ? BigInt(intentOrderPayload.minOutputAmount) : undefined,
-    address: destAccount.address,
-    walletProvider: destWalletProvider,
-  });
-  const nearStorage = useNearStorageGate({
-    dstChainKey: dst.chain,
-    token: intentOrderPayload?.outputToken,
-    accountId: destAccount.address,
-    walletProvider: destWalletProvider,
-  });
   const [open, setOpen] = useState(false);
-  const [approveError, setApproveError] = useState<string | null>(null);
-  const [swapError, setSwapError] = useState<string | null>(null);
-  const [nearStorageError, setNearStorageError] = useState<string | null>(null);
-  const [stellarError, setStellarError] = useState<string | null>(null);
+  // A failed setup action (activation, trustline, storage); a failed swap lands in the lifecycle state.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [slippage, setSlippage] = useState<string>('0.5');
-  const [hyperCoreDeposit, setHyperCoreDeposit] = useState(false);
+  const [deliveryHookEnabled, setDeliveryHookEnabled] = useState(false);
   const [isBitcoinReady, setIsBitcoinReady] = useState(false);
   const [isDestBitcoinReady, setIsDestBitcoinReady] = useState(false);
+  // App policy, not SDK: once the user declines the smart-account upgrade, stop offering it this session.
+  const [allowAccountUpgrade, setAllowAccountUpgrade] = useState(true);
 
-  // HyperCore deposit is available only when the destination chain/token is accepted by the registered
-  // hook (HyperEVM + USDC today). The registry — not this component — owns those constraints.
-  const canHyperCoreDeposit =
-    !!dst.token && isHookSupportedToken(dst.chain, HookKind.HYPERCORE_DEPOSIT, dst.token.address);
+  // The delivery hook — if any — that the registry accepts for this destination chain + output token
+  // (HyperCore on HyperEVM+USDC, Flint on Ethereum+USDC today). Resolved from the registry rather than
+  // pinned to one kind, so a newly registered hook surfaces here without touching this component.
+  const availableHookKind = useMemo(
+    () => resolveAvailableHookKind(dst.chain, dst.token?.address),
+    [dst.chain, dst.token],
+  );
+
+  // Reset the toggle whenever the resolved hook kind changes (including to/from `undefined`) — the
+  // checkbox must never carry an opt-in for a hook the user didn't see. Without this, checking the box
+  // for one destination and then switching to a different destination that resolves a different hook
+  // kind would silently submit that other hook instead.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: availableHookKind is the intentional reset trigger, not a value read in the effect
+  useEffect(() => {
+    setDeliveryHookEnabled(false);
+  }, [availableHookKind]);
 
   const onChangeDirection = () => {
     setSrc(dst);
@@ -172,24 +205,20 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
   };
 
   // Balance fetching- Fetch source token balance for the connected wallet
-  const sourceXService = useXService({ xChainType: getXChainType(src.chain) });
-  const { data: sourceBalances } = useXBalances({
+  const { data: sourceBalances } = useBalances({
     params: {
-      xService: sourceXService,
-      xChainId: src.chain,
-      xTokens: src.token ? [src.token] : [],
+      chainKey: src.chain,
+      tokens: src.token ? [src.token] : [],
       address: sourceAccount.address,
     },
   });
   const sourceTokenBalance = sourceBalances?.[src.token?.address ?? ''] ?? 0n;
 
   // Fetch destination token balance for the connected wallet
-  const destXService = useXService({ xChainType: getXChainType(dst.chain) });
-  const { data: destBalances } = useXBalances({
+  const { data: destBalances } = useBalances({
     params: {
-      xService: destXService,
-      xChainId: dst.chain,
-      xTokens: dst.token ? [dst.token] : [],
+      chainKey: dst.chain,
+      tokens: dst.token ? [dst.token] : [],
       address: destAccount.address,
     },
   });
@@ -260,6 +289,14 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
       ? new BigNumber(quote?.quoted_amount).multipliedBy(new BigNumber(100).minus(new BigNumber(slippage))).div(100)
       : undefined;
   }, [quote, slippage]);
+  // A 0 minimum accepts any fill, and the Stellar trustline check never runs on it.
+  const isZeroMinOutput = minOutputAmount?.integerValue().lte(0) ?? false;
+
+  const speedTier = useMemo(
+    () =>
+      src.token && dst.token ? sodax.swaps.getSwapSpeedTier({ srcToken: src.token, dstToken: dst.token }) : undefined,
+    [sodax, src.token, dst.token],
+  );
 
   const onSourceAmountChange = (value: string) => {
     setSourceAmount(value);
@@ -278,6 +315,11 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
 
     if (!minOutputAmount) {
       console.error('minOutputAmount undefined');
+      return;
+    }
+
+    if (isZeroMinOutput) {
+      console.error('minOutputAmount rounds to 0');
       return;
     }
 
@@ -308,9 +350,9 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
       dstAddress = tradingAddress;
     }
 
-    // HyperCore deposit: select the hook by kind and keep dstAddress as the recipient (the user's own
-    // HyperEVM address). The SDK resolves the hook's deployed address and encodes the payload.
-    const useHyperCoreDeposit = hyperCoreDeposit && canHyperCoreDeposit;
+    // Delivery hook: select it by kind and keep dstAddress as the recipient (the user's own address on
+    // the destination chain). The SDK resolves the hook's deployed address and encodes the payload.
+    const hookRequest = deliveryHookEnabled && availableHookKind ? toHookRequest(availableHookKind) : undefined;
 
     const createIntentParams = {
       inputToken: src.token.address, // The address of the input token on hub chain
@@ -326,39 +368,69 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
       solver: '0x0000000000000000000000000000000000000000', // Optional specific solver address (address(0) = any solver)
       data: '0x', // Additional arbitrary data
       // When set, the SDK routes the output through this hook (overrides dstAddress, encodes deliveryData).
-      hook: useHyperCoreDeposit ? { kind: HookKind.HYPERCORE_DEPOSIT } : undefined,
+      hook: hookRequest,
     } satisfies CreateIntentParams;
 
     setIntentOrderPayload(createIntentParams);
+    return createIntentParams;
   };
 
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: src.chain });
 
-  const handleSwap = async (intentOrderPayload: CreateIntentParams) => {
-    setOpen(false);
-    console.log('intentOrderPayload', intentOrderPayload);
-    console.log('wallet provider', sourceWalletProvider);
-    if (!sourceWalletProvider) return;
-    setSwapError(null);
-    try {
-      const swapResponse = await swap({ params: intentOrderPayload, walletProvider: sourceWalletProvider });
-      const { solverExecutionResponse: response, intent, intentDeliveryInfo } = swapResponse;
-      setOrders(prev =>
-        appendOrder(prev, {
-          mode: 'solver',
-          intentHash: response.intent_hash,
-          orderId: intent.intentId.toString(),
-          dstTxHash: intentDeliveryInfo.dstTxHash as string,
-          srcTxHash: intentDeliveryInfo.srcTxHash,
-          srcChainKey: intentDeliveryInfo.srcChainKey,
-          statusEndpoint: solverApiEndpointForEnv(solverEnvironment),
-          createdAt: Date.now(),
-          summary: buildOrderSummary(src, dst, sourceAmount, quote?.quoted_amount),
-        }),
-      );
-    } catch (error) {
-      console.error('Error creating and submitting intent:', error);
-      setSwapError(formatMutationFailureMessage(error, 'Swap failed'));
+  const submittedSummary = useRef<OrderSummary | undefined>(undefined);
+  const lifecycle = useSwapLifecycle({
+    intentParams: intentOrderPayload,
+    srcWalletProvider: sourceWalletProvider,
+    dstWalletProvider: destWalletProvider,
+    chainSwitch: { isWrongChain, switchChain: handleSwitchChain },
+    externalBlocked:
+      (src.chain === ChainKeys.BITCOIN_MAINNET && !isBitcoinReady) ||
+      (dst.chain === ChainKeys.BITCOIN_MAINNET && !isDestBitcoinReady),
+    allowAccountUpgrade,
+    mutationOptions: {
+      onSuccess: ({ solverExecutionResponse: response, intent, intentDeliveryInfo }) => {
+        setOrders(prev =>
+          appendOrder(prev, {
+            mode: 'solver',
+            intentHash: response.intent_hash,
+            orderId: intent.intentId.toString(),
+            dstTxHash: intentDeliveryInfo.dstTxHash as string,
+            srcTxHash: intentDeliveryInfo.srcTxHash,
+            srcChainKey: intentDeliveryInfo.srcChainKey,
+            statusEndpoint: sodax.config.solver.solverApiEndpoint,
+            createdAt: Date.now(),
+            summary: submittedSummary.current ?? buildOrderSummary(src, dst, sourceAmount, quote?.quoted_amount),
+          }),
+        );
+      },
+    },
+  });
+  const { state, stellar, nearStorage } = lifecycle;
+  const isActing = stellar.isActivating || stellar.isRequestingTrustline || nearStorage.isRegistering;
+  const upgradeDeclined =
+    state.kind === 'failed' && isSodaxError(state.error) && state.error.context?.reason === ACCOUNT_UPGRADE_DECLINED;
+  // The lifecycle holds a swap that may still land whatever the params, so the dialog keeps showing that order.
+  const holdsSentSwap =
+    state.kind === 'submitting' || state.kind === 'unconfirmed' || (state.kind === 'pending' && !!state.error);
+
+  const swapWithoutUpgrade = async (): Promise<void> => {
+    setAllowAccountUpgrade(false);
+    lifecycle.reset();
+    // The form may have changed since the declined attempt, so confirm an order built from it now.
+    if (await createIntentOrderPayload()) setOpen(true);
+  };
+
+  const handlePrimary = async (): Promise<void> => {
+    setActionError(null);
+    const swapping = state.kind === 'ready';
+    // Resuming a batch keeps the summary snapshotted when it was sent; its failures land in `state` too.
+    const callsSwap = swapping || state.kind === 'unconfirmed';
+    // onSuccess runs with the latest render's values; snapshot what the user confirmed instead.
+    if (swapping) submittedSummary.current = buildOrderSummary(src, dst, sourceAmount, quote?.quoted_amount);
+    if (callsSwap) setOpen(false);
+    const result = await lifecycle.next();
+    if (!callsSwap && result && !result.ok) {
+      setActionError(formatMutationFailureMessage(result.error, 'Action failed'));
     }
   };
 
@@ -371,51 +443,10 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
     disconnect({ xChainType: getXChainType(dst.chain) as ChainType });
   };
 
-  const handleApprove = async (): Promise<void> => {
-    if (!intentOrderPayload || !sourceWalletProvider) {
-      console.error('intentOrderPayload or sourceWalletProvider undefined');
-      return;
-    }
-
-    const result = await approve({ params: intentOrderPayload, walletProvider: sourceWalletProvider });
-    if (!result.ok) {
-      setApproveError(formatMutationFailureMessage(result.error, 'Approve failed'));
-      return;
-    }
-    setApproveError(null);
-  };
-
-  const handleActivateStellarAccount = async () => {
-    const result = await stellar.activate();
-    if (result && !result.ok) {
-      setStellarError(formatMutationFailureMessage(result.error, 'Stellar account activation failed'));
-      return;
-    }
-    setStellarError(null);
-  };
-
-  const handleRequestTrustline = async () => {
-    const result = await stellar.requestTrustline();
-    if (result && !result.ok) {
-      setStellarError(formatMutationFailureMessage(result.error, 'Trustline request failed'));
-      return;
-    }
-    setStellarError(null);
-  };
-
-  const handleRegisterNearStorage = async () => {
-    const result = await nearStorage.registerStorage();
-    if (result && !result.ok) {
-      setNearStorageError(formatMutationFailureMessage(result.error, 'Storage registration failed'));
-      return;
-    }
-    setNearStorageError(null);
-  };
-
   return (
     <Card className="w-full max-w-lg mx-auto">
       <CardHeader>
-        <CardTitle className="text-2xl font-bold text-center">Cross-Chain Swap</CardTitle>
+        <CardTitle className="text-xl sm:text-2xl font-bold text-center">Cross-Chain Swap (SDK)</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
@@ -444,8 +475,8 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
             className="w-[110px]"
           />
         </div>
-        <div className="mix-blend-multiply text-black text-(length:--body-comfortable) font-medium font-['InterRegular'] flex gap-1">
-          <span className="hidden sm:inline">Balance:</span>
+        <div className="mix-blend-multiply text-black text-(length:--body-comfortable) font-medium flex gap-1">
+          <span>Balance:</span>
           <span className="inline">
             {formatTokenAmount(
               src.chain === ChainKeys.BITCOIN_MAINNET && srcTradingBal ? srcTradingBal.btcSatoshi : sourceTokenBalance,
@@ -505,8 +536,8 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
             className="w-[110px]"
           />
         </div>
-        <div className="mix-blend-multiply text-black text-(length:--body-comfortable) font-medium font-['InterRegular'] flex gap-1">
-          <span className="hidden sm:inline">Balance:</span>
+        <div className="mix-blend-multiply text-black text-(length:--body-comfortable) font-medium flex gap-1">
+          <span>Balance:</span>
           <span className="inline">
             {formatTokenAmount(
               dst.chain === ChainKeys.BITCOIN_MAINNET && destTradingBal ? destTradingBal.btcSatoshi : destTokenBalance,
@@ -548,13 +579,13 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
       </CardContent>
       <CardFooter className="flex flex-col space-y-4">
         <div className="w-full text-sm text-muted-foreground">
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center gap-2">
             <span>Exchange Rate</span>
-            <span>
+            <span className="text-right">
               1 {src.token?.symbol} ≈ {exchangeRate.toString()} {dst.token?.symbol}
             </span>
           </div>
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center gap-2">
             <span>Slippage:</span>
             <div className="flex items-center gap-2">
               <Input type="number" value={slippage} onChange={e => setSlippage(e.target.value)} />
@@ -562,29 +593,37 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
             </div>
           </div>
 
-          <div className="flex justify-between items-center">
+          <div className="flex justify-between items-center gap-2">
             <span>Minimum Output Amount</span>
-            <span>
+            <span className="text-right">
               {minOutputAmount ? formatUnits(BigInt(minOutputAmount.toFixed(0)), dst.token?.decimals ?? 0) : '0'}{' '}
               {dst.token?.symbol}
             </span>
           </div>
+
+          <div className="flex justify-between items-center gap-2">
+            <span>Estimated Settlement</span>
+            <span className="text-right">
+              {speedTier ? `~${speedTier.estimatedSeconds}s (${speedTier.tier})` : '—'}
+            </span>
+          </div>
         </div>
 
-        <div className="">
+        <div className="wrap-anywhere">
           {quoteQuery.data?.ok === false && <div className="text-red-500">{quoteQuery.data.error.detail.message}</div>}
+          {isZeroMinOutput && <div className="text-red-500">The minimum output rounds to 0. Lower the slippage.</div>}
         </div>
 
-        {canHyperCoreDeposit && (
+        {availableHookKind && (
           <div className="flex items-center gap-2 w-full">
-            <label htmlFor="hypercore-deposit-toggle" className="text-sm font-medium cursor-pointer">
-              Deposit to HyperCore (perps)
+            <label htmlFor="delivery-hook-toggle" className="text-sm font-medium cursor-pointer">
+              {HOOK_LABELS[availableHookKind]}
             </label>
             <input
-              id="hypercore-deposit-toggle"
+              id="delivery-hook-toggle"
               type="checkbox"
-              checked={hyperCoreDeposit}
-              onChange={e => setHyperCoreDeposit(e.target.checked)}
+              checked={deliveryHookEnabled}
+              onChange={e => setDeliveryHookEnabled(e.target.checked)}
               className="h-4 w-4 cursor-pointer"
             />
           </div>
@@ -595,13 +634,20 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
           onOpenChange={(nextOpen): void => {
             setOpen(nextOpen);
             if (nextOpen) {
-              setApproveError(null);
-              setSwapError(null);
+              setActionError(null);
+              // A finished swap for the same params would otherwise greet the user as "Swap again".
+              if (state.kind === 'settled' || state.kind === 'failed') lifecycle.reset();
             }
           }}
         >
           <DialogTrigger asChild>
-            <Button variant="outline" onClick={() => createIntentOrderPayload()}>
+            <Button
+              variant="outline"
+              disabled={isZeroMinOutput && !holdsSentSwap}
+              onClick={() => {
+                if (!holdsSentSwap) void createIntentOrderPayload();
+              }}
+            >
               Swap
             </Button>
           </DialogTrigger>
@@ -611,7 +657,7 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
               <DialogDescription>See details of intent order.</DialogDescription>
             </DialogHeader>
             <div className="">
-              <div className="flex flex-col">
+              <div className="flex flex-col wrap-anywhere">
                 <div>
                   inputToken: {intentOrderPayload?.inputToken} on {intentOrderPayload?.srcChainKey}
                 </div>
@@ -655,93 +701,86 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
                     Recipient is not storage-registered for this token on NEAR (register storage to proceed)
                   </div>
                 )}
-                {approveError ? <div className="text-red-500 text-sm">{approveError}</div> : null}
-                {swapError ? <div className="text-red-500 text-sm">{swapError}</div> : null}
-                {nearStorageError ? <div className="text-red-500 text-sm">{nearStorageError}</div> : null}
-                {stellarError ? <div className="text-red-500 text-sm">{stellarError}</div> : null}
+                {state.kind === 'ready' && state.approvalStrategy === 'atomic-batch' && (
+                  <div className="text-sm text-muted-foreground">
+                    Your wallet sends the approval and the swap as one batch. MetaMask may first ask to upgrade the
+                    account to a smart account (same address).
+                  </div>
+                )}
+                {lifecycle.error ? (
+                  <div className="text-red-500 text-sm">
+                    {formatMutationFailureMessage(lifecycle.error, 'Swap failed')}
+                  </div>
+                ) : null}
+                {actionError ? <div className="text-red-500 text-sm">{actionError}</div> : null}
               </div>
             </div>
             <DialogFooter>
-              {src.chain !== ChainKeys.BITCOIN_MAINNET && (
+              {intentOrderPayload ? (
                 <Button
                   className="w-full"
                   type="button"
-                  variant="default"
-                  onClick={handleApprove}
-                  disabled={isAllowanceLoading || hasAllowed || isApproving}
+                  onClick={handlePrimary}
+                  disabled={isPassive(state) || isActing || stellar.isChecking}
                 >
-                  {isApproving ? 'Approving...' : hasAllowed ? 'Approved' : 'Approve'}
-                </Button>
-              )}
-
-              {isWrongChain && (
-                <Button className="w-full" type="button" variant="default" onClick={handleSwitchChain}>
-                  Switch Chain
-                </Button>
-              )}
-
-              {!isWrongChain &&
-                (intentOrderPayload ? (
-                  <Button
-                    className="w-full"
-                    onClick={() => handleSwap(intentOrderPayload)}
-                    disabled={
-                      (src.chain !== ChainKeys.BITCOIN_MAINNET && !hasAllowed) ||
-                      (src.chain === ChainKeys.BITCOIN_MAINNET && !isBitcoinReady) ||
-                      (dst.chain === ChainKeys.BITCOIN_MAINNET && !isDestBitcoinReady) ||
-                      stellar.blocksAction ||
-                      nearStorage.blocksAction
-                    }
-                  >
-                    <ArrowLeftRight className="mr-2 h-4 w-4" /> Swap
-                  </Button>
-                ) : (
-                  <span>Intent Order undefined</span>
-                ))}
-              {stellar.isStellar && stellar.isChecking && <span>Checking Stellar account...</span>}
-              {stellar.needsActivation && (
-                <Button className="w-full" onClick={handleActivateStellarAccount} disabled={stellar.isActivating}>
-                  {stellar.isActivating ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Activating...
-                    </>
+                  {isActing || state.kind === 'checking' || state.kind === 'submitting' ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
-                    'Activate Stellar Account'
+                    state.kind === 'ready' && <ArrowLeftRight className="mr-2 h-4 w-4" />
                   )}
+                  {primaryLabel(state)}
                 </Button>
-              )}
-              {stellar.needsTrustline && (
-                <Button className="w-full" onClick={handleRequestTrustline} disabled={stellar.isRequestingTrustline}>
-                  {stellar.isRequestingTrustline ? 'Requesting...' : 'Request Trustline'}
-                </Button>
-              )}
-              {stellar.checkFailed && (
-                <Button className="w-full" onClick={stellar.retry} disabled={stellar.isChecking}>
-                  {stellar.isChecking ? 'Rechecking...' : 'Retry Stellar Check'}
-                </Button>
-              )}
-              {nearStorage.isNear && (nearStorage.isChecking || nearStorage.needsRegistration) && (
-                <Button
-                  className="w-full"
-                  onClick={handleRegisterNearStorage}
-                  disabled={nearStorage.isChecking || nearStorage.isRegistering}
-                >
-                  {nearStorage.isChecking ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking storage...
-                    </>
-                  ) : nearStorage.isRegistering ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Registering...
-                    </>
-                  ) : (
-                    'Register Storage'
-                  )}
-                </Button>
+              ) : (
+                <span>Intent Order undefined</span>
               )}
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {(state.kind === 'submitting' ||
+          state.kind === 'pending' ||
+          state.kind === 'unconfirmed' ||
+          state.kind === 'settled' ||
+          state.kind === 'failed') && (
+          <div className="w-full text-sm space-y-1" role="status">
+            {state.kind === 'submitting' && <div>Swap in progress…</div>}
+            {state.kind === 'pending' && (
+              <>
+                <div>Swap in progress — source tx {state.srcTxHash}</div>
+                {state.error && (
+                  <div className="text-amber-600">
+                    {formatMutationFailureMessage(state.error, 'Swap hit an error')} — it may still complete; still
+                    checking.
+                  </div>
+                )}
+                {/* The status read can stop polling without an error, so stopping is always on offer. */}
+                <button type="button" className="underline" onClick={lifecycle.reset}>
+                  Stop tracking
+                </button>
+              </>
+            )}
+            {state.kind === 'unconfirmed' && (
+              <div className="text-amber-600">
+                Your wallet sent the swap (batch {state.batchId}) but it was not confirmed in time. It may still land —
+                check the batch again to finish the swap once it does.{' '}
+                <button type="button" className="underline" onClick={lifecycle.reset}>
+                  Start over
+                </button>
+              </div>
+            )}
+            {state.kind === 'settled' && <div>Swap settled.</div>}
+            {state.kind === 'failed' && !upgradeDeclined && (
+              <div className="text-red-500">{formatMutationFailureMessage(state.error, 'Swap failed')}</div>
+            )}
+            {upgradeDeclined && (
+              <div className="text-amber-600">
+                You declined the smart account upgrade, so nothing was sent.{' '}
+                <button type="button" className="underline" onClick={() => void swapWithoutUpgrade()}>
+                  Swap without upgrading (2 signatures)
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </CardFooter>
     </Card>
   );

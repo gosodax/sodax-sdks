@@ -62,6 +62,13 @@ export type ConfigServiceConstructorParams = {
    */
   fee?: PartnerFee;
   /**
+   * Global backend API key (the `apiKey` option passed to `new Sodax(...)`). Held outside the
+   * swappable `SodaxConfig` — like {@link fee} — so a dynamic config fetch never replaces it. Sent as
+   * the `x-api-key` header on every backend API request; read here by the swap, leverage-yield, and
+   * partner solver flows, whose transport does not go through `BackendApiService`.
+   */
+  apiKey?: string;
+  /**
    * RadFi/Bound request signer (the `radfi.signRequest` option passed to `new Sodax(...)`). Held
    * outside the swappable `SodaxConfig` — like {@link logger} — so a dynamic config fetch never
    * replaces it. Read by {@link BitcoinSpokeService} to inject Bound `x-api-signature` headers.
@@ -99,6 +106,14 @@ export class ConfigService {
   public readonly fee: PartnerFee | undefined;
 
   /**
+   * Global backend API key. Resolved once at construction and kept independent of {@link sodax} so
+   * that {@link initialize}'s dynamic-config swap never clobbers it. The backend never supplies it —
+   * it is a client-side option set via `new Sodax({ apiKey })`. Never logged; read here by the swap,
+   * leverage-yield, and partner solver flows, whose transport does not go through `BackendApiService`.
+   */
+  public readonly apiKey: string | undefined;
+
+  /**
    * RadFi/Bound request signer. Resolved once at construction and kept independent of {@link sodax}
    * so that {@link initialize}'s dynamic-config swap never clobbers it. Read by `BitcoinSpokeService`
    * via `config.radfiSigner`; `undefined` unless the consumer passed `radfi.signRequest` to
@@ -121,11 +136,21 @@ export class ConfigService {
 
   // `api` / `userConfig` are accepted but unused while initialize()'s dynamic fetch is disabled
   // (see TODO(config-v2) below); restore their assignments when re-enabling.
-  constructor({ api, config, userConfig, logger, analytics, fee, radfiSigner }: ConfigServiceConstructorParams) {
+  constructor({
+    api,
+    config,
+    userConfig,
+    logger,
+    analytics,
+    fee,
+    apiKey,
+    radfiSigner,
+  }: ConfigServiceConstructorParams) {
     this.sodax = config;
     this.logger = logger ?? resolveLogger(undefined);
     this.analytics = analytics ?? noopAnalytics;
     this.fee = fee;
+    this.apiKey = apiKey;
     this.radfiSigner = radfiSigner;
     this.loadSodaxConfigDataStructures(config);
   }
@@ -360,12 +385,15 @@ export class ConfigService {
     return this.sodax.moneyMarket.supportedTokens[chainId].some(t => t.address.toLowerCase() === token.toLowerCase());
   }
 
+  /**
+   * Is `asset` one of the money-market reserve assets?
+   *
+   * The reserve set is built from `moneyMarketHubVaults`, so its members are hub **vault**
+   * addresses. Query it with an `XToken.vault`; an `XToken.hubAsset` only matches for the Sonic
+   * vault shares themselves, where `hubAsset === vault`.
+   */
   public isMoneyMarketReserveAsset(asset: Address): boolean {
-    return this.sodax.moneyMarket.supportedReserveAssets.map(a => a.toLowerCase()).includes(asset.toLowerCase());
-  }
-
-  public isMoneyMarketReserveHubAsset(hubAsset: Address): boolean {
-    return this.moneyMarketReserveAssetsSet.has(hubAsset.toLowerCase() as Address);
+    return this.moneyMarketReserveAssetsSet.has(asset.toLowerCase() as Address);
   }
 
   private loadSodaxConfigDataStructures(sodaxConfig: SodaxConfig): void {
@@ -395,7 +423,9 @@ export class ConfigService {
       ]),
     );
     this.loadSpokeChainConfigDataStructures(sodaxConfig);
-    this.moneyMarketReserveAssetsSet = new Set(sodaxConfig.moneyMarket.supportedReserveAssets);
+    this.moneyMarketReserveAssetsSet = new Set(
+      sodaxConfig.moneyMarket.supportedReserveAssets.map(address => address.toLowerCase() as Address),
+    );
     this.stakedATokenAddressesSet = new Set(
       Object.keys(sodaxConfig.dex.statATokenAddresses).map(address => address.toLowerCase() as Address),
     );
@@ -475,6 +505,14 @@ export class ConfigService {
 
   get bridgeUseBackendSubmitTx(): boolean {
     return this.bridge.useBackendSubmitTx ?? this.sodax.bridgeOptions?.useBackendSubmitTx ?? true;
+  }
+
+  // Same ON default as the two above, and for the same reason: any backend non-success falls back
+  // to the client-side relay, so the default costs a rejected attempt at worst. No deprecated
+  // second-precedence key here — leverage yield arrived after `swapsOptions` / `bridgeOptions` were
+  // already deprecated, so it never had one.
+  get leverageYieldUseBackendSubmitTx(): boolean {
+    return this.leverageYield.useBackendSubmitTx ?? true;
   }
 
   get dex(): DexConfig {

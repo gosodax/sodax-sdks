@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "demo",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "sodax-demo-v2", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "swap-api-example (legacy /be)",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "VITE_SWAPS_API_BASE_URL=https://canary-api.sodax.com/v1/be/",
+        "pnpm",
+        "--filter",
+        "swap-api-example",
+        "dev"
+      ],
+      "port": 3001
+    },
+    {
+      "name": "swap-api-example",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "swap-api-example", "dev"],
+      "port": 3001
+    }
+  ]
+}

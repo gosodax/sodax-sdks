@@ -1,0 +1,138 @@
+---
+title: "Quickstart on Kaia"
+description: "Install the SDK, wire up a Kaia wallet provider, and execute your first cross-network swap from Kaia."
+icon: bolt
+---
+
+This page takes you from zero to a cross-network swap sourced from Kaia. No new contracts, no approval for native KAIA, one signed transaction for your user.
+
+<Note>
+  Building with an AI assistant? Add the [SODAX Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`) to Claude, Cursor, or any MCP-capable tool and it can pull live token lists, real quotes, and these docs while it writes your integration.
+</Note>
+
+## 1. Install
+
+```bash
+npm install @sodax/sdk @sodax/wallet-sdk-core
+# or: pnpm add / yarn add
+```
+
+## 2. Create a Kaia wallet provider
+
+Kaia uses the same `EvmWalletProvider` as every other EVM network, keyed by `ChainKeys.KAIA_MAINNET`. The account behind it must have Kaia's `AccountKeyLegacy` key type. Kaia creates accounts with that type, and it stays until the owner updates the key.
+
+<CodeGroup>
+  ```typescript Private key (scripts / bots)
+  import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+  import { ChainKeys } from '@sodax/sdk';
+
+  const walletProvider = new EvmWalletProvider({
+    privateKey: '0x…', // private key of the Kaia account
+    chainId: ChainKeys.KAIA_MAINNET,
+    rpcUrl: 'https://public-en.node.kaia.io', // use your own endpoint in production
+  });
+  ```
+
+  ```typescript Browser extension (dApps)
+  import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+
+  // walletClient and publicClient are viem clients for Kaia mainnet,
+  // usually supplied by wagmi from the user's connected EVM wallet
+  const walletProvider = new EvmWalletProvider({
+    walletClient,
+    publicClient,
+  });
+  ```
+</CodeGroup>
+
+Building in React? [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) connects EVM wallets for you and hands back a ready-made provider via `useWalletProvider`. See [Wallets](/kaia/wallets).
+
+## 3. Look up supported tokens
+
+Token addresses and decimals come from the SDK config, so you never hard-code them.
+
+```typescript
+import { Sodax, ChainKeys, type XToken } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// find() returns XToken | undefined, so narrow before using the address
+const bySymbol = (tokens: readonly XToken[], symbol: string) => {
+  const token = tokens.find(t => t.symbol === symbol);
+  if (!token) throw new Error(`${symbol} is not a supported swap token`);
+  return token;
+};
+
+const kaia = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.KAIA_MAINNET), 'KAIA');
+const usdcArbitrum = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.ARBITRUM_MAINNET), 'USDC');
+```
+
+## 4. Quote and swap
+
+`swap()` runs the full lifecycle: it creates the intent on Kaia, verifies the transaction landed, relays it to the hub, and notifies the solver to fill on the destination network.
+
+```typescript
+import type { SolverIntentQuoteRequest } from '@sodax/sdk';
+
+// 100 KAIA, built from the token's own decimals
+const inputAmount = 100n * 10n ** BigInt(kaia.decimals);
+
+// Quote: 100 KAIA -> USDC on Arbitrum
+const quoteResult = await sodax.swaps.getQuote({
+  token_src: kaia.address,
+  token_dst: usdcArbitrum.address,
+  token_src_blockchain_id: ChainKeys.KAIA_MAINNET,
+  token_dst_blockchain_id: ChainKeys.ARBITRUM_MAINNET,
+  amount: inputAmount,
+  quote_type: 'exact_input',
+} satisfies SolverIntentQuoteRequest);
+
+if (!quoteResult.ok) throw new Error('Quote failed');
+const { quoted_amount } = quoteResult.value;
+
+// `deadline` is an absolute Unix timestamp; getSwapDeadline turns an offset into one
+const deadlineResult = await sodax.swaps.getSwapDeadline(300n); // 5 minutes from now
+if (!deadlineResult.ok) throw new Error('Deadline lookup failed');
+
+// Execute
+const swapResult = await sodax.swaps.swap({
+  params: {
+    inputToken: kaia.address,
+    outputToken: usdcArbitrum.address,
+    inputAmount,
+    minOutputAmount: (quoted_amount * 99n) / 100n, // your slippage policy
+    deadline: deadlineResult.value,
+    allowPartialFill: false,
+    srcChainKey: ChainKeys.KAIA_MAINNET,
+    dstChainKey: ChainKeys.ARBITRUM_MAINNET,
+    srcAddress: await walletProvider.getWalletAddress(),
+    dstAddress: '0x...', // recipient on Arbitrum
+    solver: '0x0000000000000000000000000000000000000000',
+    data: '0x',
+  },
+  walletProvider,
+  timeout: 120_000,
+});
+
+if (swapResult.ok) {
+  console.log('Submitted. Hub tx:', swapResult.value.intentDeliveryInfo.dstTxHash);
+} else {
+  console.error('Swap failed:', swapResult.error);
+}
+```
+
+`ok` means the intent was created, relayed to the hub, and the solver notified, **not** that it was
+filled. Poll `sodax.swaps.getStatus({ intent_tx_hash: intentDeliveryInfo.dstTxHash })` until the
+status is `SolverIntentStatusCode.SOLVED`, which is the only success signal. The
+[main quickstart](/quickstart) has the full polling loop, including why `NOT_FOUND` is not terminal.
+
+A few things to know on Kaia:
+
+- **KAIA needs no approval.** It is the native token. Swapping an ERC-20 token on Kaia needs an allowance first; see [Approvals](/kaia/swaps#approvals).
+- **Amounts follow `token.decimals`.** KAIA has 18 decimals, but not every Kaia token does: USDT on Kaia has 6. Always build amounts from the token's own `decimals`.
+
+## Next steps
+
+- [Swaps on Kaia](/kaia/swaps): approvals, fees, manual orchestration.
+- [Money Market on Kaia](/kaia/money-market): supply and borrow with cross-network collateral.
+- Full API reference: [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps) in the SDK docs.

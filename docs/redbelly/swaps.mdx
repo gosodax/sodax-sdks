@@ -1,0 +1,73 @@
+---
+title: "Swaps on Redbelly"
+description: "Intent-based cross-network swaps from a Redbelly perspective: one signed EVM transaction, solver-filled, settled across networks."
+icon: rotate
+---
+
+SODAX swaps are intents, not bridges. Your user signs one transaction on Redbelly that locks the input and declares what they want on the destination network. Solvers fill it; the SODAX relayer carries proof between Redbelly, the hub (Sonic), and the destination. If nothing fills, the intent can be cancelled and funds recovered.
+
+From your side it is one SDK call. From your user's side it is one wallet prompt, plus an approval the first time they swap an ERC-20 token.
+
+## What this looks like on Redbelly
+
+- **Source**: the intent transaction is an EVM transaction on Redbelly mainnet (chain ID 151), sent from an account with Redbelly network access. `ChainKeys.REDBELLY_MAINNET` (`'redbelly'`) identifies the network everywhere in the SDK.
+- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets today. The [on-Redbelly asset list](/redbelly/networks-and-assets) only bounds what users hold on Redbelly itself, not what they can swap into.
+- **Tokens**: RBNT is the native gas token and uses the zero address in the SDK config. Every other Redbelly asset is an ERC-20 token, including the r-prefixed tokens such as rBTC and rETH. Read addresses and decimals from the SDK config; never hard-code them.
+- **Settlement**: output lands on the destination network at `dstAddress`, whichever network that is.
+
+## Approvals {#approvals}
+
+`swap()` does not approve the input token for you. RBNT is the native token and needs no approval. Every ERC-20 token does: the allowance is checked against SODAX's asset manager on Redbelly, so check it first and approve when it falls short.
+
+```typescript
+const allowance = await sodax.swaps.isAllowanceValid({ params, walletProvider });
+if (!allowance.ok) throw allowance.error;
+
+if (!allowance.value) {
+  const approval = await sodax.swaps.approve({ params, walletProvider });
+  if (!approval.ok) throw approval.error;
+  // wait for the approval to be mined before calling swap()
+}
+```
+
+`params` is the same intent params object you pass to `swap()`. The approval is a Redbelly transaction too, so it also needs network access.
+
+## Quoting
+
+The solver API quotes both directions:
+
+```typescript
+const quoteResult = await sodax.swaps.getQuote({
+  token_src: rbnt.address,            // token on Redbelly
+  token_dst: usdc.address,            // token on the destination network
+  token_src_blockchain_id: ChainKeys.REDBELLY_MAINNET,
+  token_dst_blockchain_id: ChainKeys.ARBITRUM_MAINNET,
+  amount: 100n * 10n ** BigInt(rbnt.decimals), // 100 RBNT
+  quote_type: 'exact_input',          // the only supported quote type
+});
+```
+
+`getQuote` deducts any configured partner fee before quoting, so `quoted_amount` is the net output the user actually receives.
+
+## Fees
+
+Using SODAX is free to integrate. Two fees can apply to a trade:
+
+- **Base fee**: a fixed 0.1% of the input, taken by the protocol. Not configurable; compute it ahead of time with `getSolverFee(inputAmount)`.
+- **Your fee**: optional platform fee on top, set by you and paid to you. It is the only fee you control. Configure it at SDK setup and check it with `getPartnerFee(inputAmount)`. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+The user also pays Redbelly's network fee for the intent transaction, in RBNT. Redbelly fixes the unit gas price in US dollar terms, so the RBNT amount varies with the RBNT price; see [Network fees](https://vine.redbelly.network/network-fees/).
+
+## Executing
+
+Prefer `swap()`. It creates the intent on Redbelly, verifies it landed, submits it to the relay, waits for the packet on the hub, and notifies the solver. The [Quickstart](/redbelly/quickstart#4-quote-and-swap) has the complete call. Track progress with `getStatus(request)`, and cancel unfilled intents with `cancelIntent`. Limit orders (intents without deadlines) work from Redbelly too, via `createLimitOrder`.
+
+Orchestrating manually with `createIntent` and `submitIntent` works the same as on any EVM network: Redbelly intents need no relay extra data.
+
+## Error handling
+
+Operations return `Result<T>` instead of throwing. The core methods (`swap`, `createIntent`, `postExecution`) return a typed `SodaxError` union you can `switch` on by `error.code`.
+
+---
+
+Full reference, including raw mode, limit orders, cancellation, and the complete error-code table: [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps).

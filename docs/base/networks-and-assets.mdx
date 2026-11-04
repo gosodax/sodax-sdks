@@ -1,0 +1,67 @@
+---
+title: "Base: Networks & Assets"
+description: "What is live on Base today, and the networks and assets your users can reach from it."
+icon: coins
+---
+
+Base is a spoke network in the SODAX System. User funds stay on Base; the hub (Sonic) coordinates execution, and solvers settle against deep native liquidity on each network rather than isolated bridge pools.
+
+There are two asset lists to keep straight, and the difference is the point of SODAX:
+
+- **Assets on Base**: the <span data-sodax-config="count" data-metric="chain-swap-tokens" data-chain="0x2105.base">11</span> assets that live on Base itself, ETH and ERC-20 tokens. These are what your users hold, send, and receive on Base; the entry and exit points of any Base-side flow.
+- **Assets across the SODAX System**: <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets across all supported networks. Every one of them is a valid swap destination or collateral source for your Base users, because every SODAX action is cross-network by default.
+
+A user holding ETH on Base is not limited to the Base-side list. They can swap it into USDC on Arbitrum, SOL on Solana, or any other listed asset on any network, in one signed transaction. The on-Base assets are simply where those journeys start and end on your side.
+
+Every count and list below is read live from the backend config API, `GET https://api.sodax.com/v2/be/config/all`, so it reflects what the backend serves today rather than what an SDK release has listed.
+
+## Assets on Base
+
+Live for swaps on Base:
+
+<div data-sodax-config="swap-tokens" data-chain="0x2105.base">
+  Live token list loads from the config API. If it has not appeared, read `config.swaps.supportedTokens["0x2105.base"]` from [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all), or use the SDK call below.
+</div>
+
+Live in the [Money Market](/base/money-market) for supply, borrow, repay, and withdraw:
+
+<div data-sodax-config="money-market-tokens" data-chain="0x2105.base">
+  Live token list loads from the config API: `config.moneyMarket.supportedTokens["0x2105.base"]` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+</div>
+
+ETH uses the zero address. Every other address is the token's ERC-20 contract on Base mainnet, which you can look up on Basescan, the explorer listed in [Connect to Base](https://docs.base.org/get-started/connect-to-base).
+
+Hub vault addresses per asset are listed in [Swaps: Compatible Assets](/developers/deployments/swaps-compatible-assets).
+
+## Assets your users can reach
+
+From a Base-sourced action, users can trade, lend, and borrow across every SODAX-supported network:
+
+<div data-sodax-config="chains">
+  Live network list loads from the config API: `config.chains` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+</div>
+
+Chain identifiers come from `ChainKeys.*` in the SDK (`ChainKeys.BASE_MAINNET` = `'0x2105.base'`), and the live chain list from `sodax.config.getSupportedSpokeChains()`. Prefer the config call over hard-coding: networks are added over time.
+
+## Asset discovery in code
+
+Never hard-code token addresses or asset lists; read them from the SDK config at runtime:
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+
+const sodax = new Sodax();
+
+// Swappable assets on Base
+const swapTokens = sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.BASE_MAINNET);
+
+// Money market assets on Base
+const mmTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.BASE_MAINNET);
+```
+
+These lists ship with the SDK package, so a token the backend has added since your SDK release appears in the live tables above before it appears here.
+
+---
+
+- All deployment addresses by network: [Mainnet Deployments](/developers/deployments/mainnet)
+- The full cross-network asset directory: [sodax.com/partners/asset-directory](https://sodax.com/partners/asset-directory)

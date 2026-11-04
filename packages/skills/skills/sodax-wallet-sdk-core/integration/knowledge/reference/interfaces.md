@@ -13,8 +13,11 @@ The tables below summarise the methods each provider exposes. For full type-leve
 | `getWalletAddress` | `() => Promise<Address>` |
 | `sendTransaction` | `(tx: EvmRawTransaction, opts?: EvmSendTransactionPolicy) => Promise<Hash>` |
 | `waitForTransactionReceipt` | `(hash: Hash, opts?: EvmWaitForTransactionReceiptPolicy) => Promise<EvmRawTransactionReceipt>` |
+| `getAtomicBatchSupport?` | `(chainId: number) => Promise<EvmAtomicBatchSupport>` — optional (EIP-5792) |
+| `sendAtomicBatch?` | `(txs: readonly EvmRawTransaction[], opts: EvmSendBatchOptions) => Promise<string>` — optional, returns a batch id |
+| `waitForBatch?` | `(batchId: string, opts?: EvmWaitForBatchOptions) => Promise<EvmBatchResult>` — optional; throws on timeout |
 
-Plus public field: `publicClient: PublicClient`.
+Plus public field: `publicClient: PublicClient`. The three EIP-5792 methods are optional on the interface; a custom provider that omits them still works — the SDK falls back to separate transactions.
 
 ---
 
@@ -120,6 +123,21 @@ Plus public fields (PK mode only): `account?: Account`, `rpcProvider?: JsonRpcPr
 | `sendTransaction` | `(params: StacksTransactionParams) => Promise<…>` |
 | `readContract` | `(params: StacksTransactionParams) => Promise<ClarityValue>` |
 | `getBalance` | `(address: string) => Promise<bigint>` |
+
+---
+
+## `ITronWalletProvider`
+
+| Method | Signature (abridged) |
+|---|---|
+| `getWalletAddress` | `() => Promise<string>` |
+| `signTransaction` | `(tx: TronUnsignedTransaction) => Promise<TronSignedTransaction>` |
+| `signMessage` | ``(hash: `0x${string}`) => Promise<`0x${string}`>`` |
+| `waitForTransactionReceipt` | `(txHash: string) => Promise<TronRawTransactionReceipt>` |
+| `sendTransaction?` | `(signedTx: TronSignedTransaction) => Promise<string>` — optional, returns the tx id |
+| `signAndSendTransaction?` | `(params: TronRawTransaction) => Promise<string>` — the SDK / Swaps-API handoff path |
+
+`signMessage` must sign the hash's hex text, not its raw bytes (`signMessageV2` semantics), and return the 65-byte `r‖s‖v` hex. A custom provider that signs the bytes produces a signature that recovers to a different address — see [`../features/tron.md`](../features/tron.md) § Gotchas.
 
 ---
 

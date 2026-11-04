@@ -70,7 +70,7 @@ type EvmSpokeFixture = (typeof EVM_SPOKES)[number];
 
 const SAMPLE_USER = '0x4444444444444444444444444444444444444444' as Address;
 const SAMPLE_TOKEN = '0x2170Ed0880ac9A755fd29B2688956BD959F933F8' as Address;
-const SPOKE_TX_HASH = '0xspokeTxHash' as never;
+const SPOKE_TX_HASH = '0xspokeTxHash';
 
 const mockEvmProvider = {
   chainType: 'EVM',
@@ -163,6 +163,7 @@ describe('StakingService.stake — integration error-path coverage', () => {
     // the error code is in CreateStakeIntentErrorCode (a subset of StakeErrorCode), so
     // `stake()` returns the same SodaxError unchanged — no extra wrap, no code rewrite.
     const intentError = new SodaxError('INTENT_CREATION_FAILED', 'spoke deposit reverted', {
+      feature: 'staking',
       context: { srcChainKey: BSC, action: 'stake', phase: 'intentCreation' },
     });
     vi.spyOn(sodax.staking, 'createStakeIntent').mockResolvedValueOnce({ ok: false, error: intentError });
@@ -202,7 +203,7 @@ describe('StakingService.stake — integration error-path coverage', () => {
 
   it('wraps a relayTxAndWaitPacket failure via mapRelayFailureToStakingError', async () => {
     vi.spyOn(sodax.staking, 'createStakeIntent').mockResolvedValueOnce({ ok: true, value: validIntent });
-    vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValueOnce({ ok: true, value: undefined });
+    vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValueOnce({ ok: true, value: true });
     const relayError = new Error('RELAY_TIMEOUT');
     mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: relayError });
 
@@ -392,5 +393,33 @@ describe.each(EVM_SPOKES)('StakingService — per-chain SODA lookup on srcChainK
     expect(result.value.tx).toBe(SPOKE_TX_HASH);
     expect(result.value.relayData.address).toBe(HUB_WALLET);
     expect(result.value.relayData.payload.startsWith('0x')).toBe(true);
+  });
+});
+
+// Staking settles through the intent relay, which an MPC-relay chain does not use.
+describe('StakingService — MPC-relay source', () => {
+  it('refuses unstake and cancelUnstake from Tron before signing', async () => {
+    const hubWallet = vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress');
+    const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
+    const srcChainKey = 'tron' as const satisfies SpokeChainKey;
+
+    const results = [
+      await sodax.staking.createUnstakeIntent({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, amount: 1n, action: 'unstake' },
+      }),
+      await sodax.staking.createCancelUnstakeIntent({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, requestId: 1n, action: 'cancelUnstake' },
+      }),
+    ];
+
+    for (const result of results) {
+      if (result.ok) throw new Error('expected a refusal');
+      expect(result.error.code).toBe('VALIDATION_FAILED');
+      expect(result.error.context?.field).toBe('srcChainKey');
+    }
+    expect(hubWallet).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 });

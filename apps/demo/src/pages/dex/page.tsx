@@ -6,7 +6,7 @@ export default function DexPage(): JSX.Element {
     <main className="container mx-auto p-4 mt-10 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold">DEX Demo - Concentrated Liquidity</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold">DEX Demo - Concentrated Liquidity</h1>
           <p className="text-muted-foreground mt-2">Simple SDK-based pool management</p>
         </div>
       </div>

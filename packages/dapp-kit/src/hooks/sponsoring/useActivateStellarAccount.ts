@@ -1,6 +1,7 @@
 import { ChainKeys, type ActivateStellarAccountParams, type ActivateStellarAccountResult } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
@@ -31,7 +32,7 @@ export function useActivateStellarAccount({
       queryClient.invalidateQueries({ queryKey: ['sponsoring', 'stellarAccountStatus', vars.address] });
       // Clear trustline errors cached while the account did not exist.
       queryClient.invalidateQueries({ queryKey: ['shared', 'stellarTrustlineCheck'] });
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', ChainKeys.STELLAR_MAINNET] });
+      invalidateBalances(queryClient, ChainKeys.STELLAR_MAINNET);
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },
   });

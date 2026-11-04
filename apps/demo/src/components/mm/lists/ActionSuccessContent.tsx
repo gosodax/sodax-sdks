@@ -4,7 +4,7 @@
 import React, { useState, type ReactElement } from 'react';
 import { Button } from '@/components/ui/button';
 import { DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import type { SpokeChainKey, XToken } from '@sodax/dapp-kit';
+import { isMpcRelayChainKey, type SpokeChainKey, type XToken } from '@sodax/dapp-kit';
 import { chainIdToChainName } from '@/constants';
 import { getChainExplorerTxUrl } from '@/lib/utils';
 import { useSodaxScanMessageUrl } from '@/hooks/useSodaxScanMessageUrl';
@@ -19,6 +19,8 @@ export type ActionSuccessData = {
   sourceChainId: SpokeChainKey;
   destinationChainId: SpokeChainKey;
   txHash?: string;
+  /** The chain `txHash` is on, when not the source. */
+  txChainId?: SpokeChainKey;
 };
 
 interface ActionSuccessContentProps {
@@ -30,13 +32,19 @@ interface ActionSuccessContentProps {
 export function ActionSuccessContent({ action, data, onClose }: ActionSuccessContentProps): ReactElement {
   // Tracks whether transaction hash was copied to clipboard (for UI feedback)
   const [copied, setCopied] = useState(false);
-  // Prefer SodaxScan message URL; fall back to chain explorer when not available
-  const { url: sodaxScanUrl, isLoading: sodaxScanLoading } = useSodaxScanMessageUrl({ txHash: data.txHash });
+  // Prefer SodaxScan message URL; fall back to chain explorer when not available. SodaxScan indexes
+  // intent-relay messages only, so a tx on an MPC-relay leg (Tron) is never found there: skip the lookup.
+  const viaMpcRelay = isMpcRelayChainKey(data.sourceChainId) || isMpcRelayChainKey(data.destinationChainId);
+  const { url: sodaxScanUrl, isLoading: sodaxScanLoading } = useSodaxScanMessageUrl({
+    txHash: viaMpcRelay ? undefined : data.txHash,
+  });
   // On-demand relay ids (od:<hash>, e.g. Bitcoin borrow/withdraw) are not a transaction on any chain
   // explorer — only SodaxScan resolves them — so don't build a broken chain-explorer fallback for them.
   const isRelayMessageId = data.txHash?.startsWith('od:') ?? false;
   const explorerUrl =
-    data.txHash && !isRelayMessageId ? getChainExplorerTxUrl(data.sourceChainId, data.txHash) : undefined;
+    data.txHash && !isRelayMessageId
+      ? getChainExplorerTxUrl(data.txChainId ?? data.sourceChainId, data.txHash)
+      : undefined;
   const txUrl = sodaxScanUrl ?? explorerUrl;
 
   // Copy transaction hash to clipboard and show visual feedback
@@ -99,7 +107,7 @@ export function ActionSuccessContent({ action, data, onClose }: ActionSuccessCon
 
       <div className="bg-cream rounded-lg p-4 text-center">
         <p className="text-sm uppercase tracking-wider text-clay mb-2">{currentConfig.label}</p>
-        <p className="text-2xl font-bold text-cherry-dark font-mono">
+        <p className="text-2xl font-bold text-cherry-dark font-mono break-all">
           {data.amount} {data.token.symbol}
         </p>
       </div>
@@ -108,7 +116,7 @@ export function ActionSuccessContent({ action, data, onClose }: ActionSuccessCon
 
       {data.txHash && (
         <div className=" border-t border-cherry-grey/10">
-          <div className="flex items-center justify-center gap-2">
+          <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1">
             <p className="text-xs text-clay-light uppercase tracking-wide font-semibold">Transaction Hash</p>
             <code className="text-sm font-mono text-clay whitespace-nowrap">
               {data.txHash.slice(0, TX_HASH_DISPLAY_LENGTH)}...{data.txHash.slice(-TX_HASH_DISPLAY_LENGTH)}

@@ -7,11 +7,17 @@ import type { BitcoinRawTransaction, BitcoinReturnType } from '../bitcoin/bitcoi
 import type { IconRawTransaction, IconReturnType } from '../icon/icon.js';
 import type { InjectiveRawTransaction, InjectiveReturnType } from '../injective/injective.js';
 import type { NearRawTransaction, NearReturnType } from '../near/near.js';
-import type { SolanaRawTransaction, SolanaReturnType } from '../solana/solana.js';
+import type { SolanaBase58PublicKey, SolanaRawTransaction, SolanaReturnType } from '../solana/solana.js';
 import type { StacksRawTransaction, StacksReturnType } from '../stacks/stacks.js';
 import type { StellarRawTransaction, StellarReturnType } from '../stellar/stellar.js';
 import type { SuiRawTransaction, SuiReturnType } from '../sui/sui.js';
-import type { TronRawTransaction, TronReturnType } from '../tron/tron.js';
+import type {
+  TronDepositReturnType,
+  TronRawTransaction,
+  TronRawWithdraw,
+  TronReturnType,
+  TronSendMessageReturnType,
+} from '../tron/tron.js';
 import type { XrpRawTransaction, XrpReturnType } from '../xrp/xrp.js';
 import type { GetWalletProviderType } from '../wallet/providers.js';
 
@@ -95,7 +101,7 @@ export type GetAddressType<C extends SpokeChainKey | ChainType> =
           : GetChainType<C> extends 'SUI'
             ? Hex
             : GetChainType<C> extends 'SOLANA'
-              ? Hex
+              ? SolanaBase58PublicKey
               : GetChainType<C> extends 'STACKS'
                 ? string
                 : GetChainType<C> extends 'NEAR'
@@ -208,6 +214,7 @@ export type RawTxReturnType =
   | NearRawTransaction
   | BitcoinRawTransaction
   | TronRawTransaction
+  | TronRawWithdraw
   | XrpRawTransaction;
 
 export type GetDefaultTxReturnType<Raw extends boolean> = Raw extends true ? RawTxReturnType : HashTxReturnType;
@@ -240,6 +247,14 @@ export type TxReturnType<C extends SpokeChainKey | ChainType, Raw extends boolea
                       : GetChainType<C> extends 'XRP'
                         ? XrpReturnType<Raw>
                         : GetDefaultTxReturnType<Raw>;
+
+/** What a deposit returns on `C`: {@link TxReturnType}, except that a Tron deposit is only ever a transfer. */
+export type DepositReturnType<C extends SpokeChainKey | ChainType, Raw extends boolean> =
+  GetChainType<C> extends 'TRON' ? TronDepositReturnType<Raw> : TxReturnType<C, Raw>;
+
+/** What a message to the hub (borrow, withdraw) returns on `C`: {@link TxReturnType}, but a Tron withdraw-auth. */
+export type SendMessageReturnType<C extends SpokeChainKey | ChainType, Raw extends boolean> =
+  GetChainType<C> extends 'TRON' ? TronSendMessageReturnType<Raw> : TxReturnType<C, Raw>;
 
 export type Prettify<T> = {
   [K in keyof T]: T[K];
@@ -373,11 +388,10 @@ export type StellarRpcConfig = {
   sorobanRpcUrl?: string;
 };
 
-// Type for Bitcoin RPC configuration with Bound Exchange API endpoints
+// Type for Bitcoin RPC configuration. Bound Exchange hosts are NOT set here — nothing reads
+// them off this shape. They live on `chains[BITCOIN_MAINNET].radfi` in the SDK config.
 export type BitcoinRpcConfig = {
   rpcUrl?: string;
-  radfiApiUrl?: string;
-  radfiUmsUrl?: string;
 };
 
 // Type for Injective RPC configuration — covers indexer and gRPC endpoints.
@@ -413,7 +427,7 @@ export type StacksNetworkLike = {
 
 // Mapped type that uses ChainKey as keys and assigns appropriate value types per chain:
 // - Stellar    → StellarRpcConfig                   (horizon + soroban URLs)
-// - Bitcoin    → BitcoinRpcConfig                   (rpcUrl + radfi endpoints)
+// - Bitcoin    → BitcoinRpcConfig                   (rpcUrl only; Bound hosts live on chains.radfi)
 // - Injective  → InjectiveRpcConfig                 (indexer + grpc endpoints)
 // - Stacks     → StacksNetworkName | StacksNetworkLike (preset name or full network)
 // - All others → string                             (single RPC URL)

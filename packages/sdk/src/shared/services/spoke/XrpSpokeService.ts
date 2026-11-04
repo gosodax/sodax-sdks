@@ -16,23 +16,34 @@ import { retry } from '../../utils/shared-utils.js';
 import type {
   DepositParams,
   EstimateGasParams,
+  GetBalanceParams,
+  GetBalancesParams,
   GetDepositParams,
   SendMessageParams,
   WaitForTxReceiptParams,
   WaitForTxReceiptReturnType,
 } from '../../types/spoke-types.js';
 import {
+  getDeposit,
   getDepositAddress,
+  getWithdrawal,
   notify,
   submitWithdraw,
   toDepositId,
+  toHubReleaseId,
   waitForDeposit,
+  waitForHubRelease,
   waitForWithdrawal,
   type DepositRecord,
+  type HubRelease,
+  type MpcRelaySettlement,
+  type NotifyResponse,
   type WithdrawalRecord,
+  type WithdrawalSettledOn,
 } from '../mpcRelay/MpcRelayApiService.js';
 import { computeSignedMessageHash, randomWithdrawNonce } from './mpc-message.js';
 import { xrpCurrencyCode, xrpIdentityBytes } from './xrp-utils.js';
+import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 
 /** Per-request budget for a rippled call, mirroring the Tron service's own request cap. */
 const XRP_RPC_TIMEOUT_MS = 15_000;
@@ -69,7 +80,7 @@ export type XrpDestinationReadiness =
  *
  * @see MpcRelayApiService for the relay REST flow (deposit-address → notify → poll).
  */
-export class XrpSpokeService {
+export class XrpSpokeService implements MpcRelaySettlement {
   private readonly config: ConfigService;
 
   constructor(config: ConfigService) {
@@ -133,7 +144,9 @@ export class XrpSpokeService {
    *
    * `Raw: true` returns the unsigned transfer descriptor (no wallet needed). `Raw: false` registers
    * the hub `data`, builds the memo Payment, signs it with the wallet provider, submits it, and
-   * notifies the relay — resolving to the source tx hash once accepted.
+   * notifies the relay — resolving to the source tx hash. After signing, a definite submit failure
+   * throws; a failed notify warns and still resolves to the hash, so a retry cannot pay twice. `settle`
+   * re-notifies it; a caller that does not settle notifies it with `spoke.submitMpcDeposit`.
    *
    * Both token kinds ride the same memo mechanism: `Memos` is a transaction-level field, so it
    * rides an IOU Payment exactly as it rides a drops transfer. An IOU deposit needs no allowance,
@@ -195,24 +208,41 @@ export class XrpSpokeService {
     // Tron path normalises identically, and its hashes are natively unprefixed too).
     const hash = `0x${rawHash.replace(/^0x/, '').toLowerCase()}` as Hex;
 
-    // Tell the relay a deposit tx exists so verifiers begin attesting it. The funds are already on
-    // chain by now, so this is retried (notifying twice is harmless) and, if it still fails, the tx
-    // hash goes into the error: without it the deposit cannot be polled or re-notified, and a
-    // caller that only sees "notify failed" has lost the only handle to funds sitting in the reserve.
-    try {
-      // `retry` reacts to a throw, and `notify` reports failure in its Result — so rethrow to arm it.
-      await retry(async () => {
-        const res = await notify(this.relayApiUrl, this.chainId, hash);
-        if (!res.ok) throw res.error;
+    const submitted = await this.submitDeposit(hash);
+    if (!submitted.ok) {
+      this.config.logger.warn('[XrpSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it', {
+        hash,
+        error: submitted.error,
       });
-    } catch (error) {
-      throw new Error(
-        `[XrpSpokeService.deposit] deposit ${hash} submitted but the relay was not notified — re-notify this tx hash to settle it`,
-        { cause: error },
-      );
     }
 
     return hash satisfies string as TxReturnType<XrpChainKey, R>;
+  }
+
+  /**
+   * Notify the relay of a submitted deposit, without waiting for it to land. The funds are already on
+   * ledger, so it retries, and a failure keeps the tx hash: the only handle left for re-notifying the deposit.
+   */
+  public async submitDeposit(txHash: string): Promise<Result<void>> {
+    try {
+      await this.retryNotify(() => notify(this.relayApiUrl, this.chainId, txHash));
+      return { ok: true, value: undefined };
+    } catch (error) {
+      return {
+        ok: false,
+        error: new Error(`mpc-relay: deposit ${txHash} was not notified — re-notify this tx hash to settle it`, {
+          cause: error,
+        }),
+      };
+    }
+  }
+
+  /** A notify, retried: `retry` reacts to a throw and `notify` reports failure in its Result, so rethrow it. */
+  private async retryNotify(send: () => Promise<Result<NotifyResponse>>): Promise<void> {
+    await retry(async () => {
+      const res = await send();
+      if (!res.ok) throw res.error;
+    });
   }
 
   /**
@@ -311,6 +341,11 @@ export class XrpSpokeService {
     }
   }
 
+  /** The MPC relay's current record for an XRPL deposit, read once. `txHash` is as for {@link waitForDeposit}. */
+  public async getDepositRecord(txHash: string): Promise<Result<DepositRecord>> {
+    return getDeposit(this.relayApiUrl, toDepositId(this.chainId, txHash));
+  }
+
   /**
    * On-chain balance for the deposit owner. XRPL memo-mode has no per-chain asset manager, so this
    * reads the holder's balance directly — native XRP from `account_info`, an IOU from the trustline
@@ -336,6 +371,23 @@ export class XrpSpokeService {
     const line = lines.lines?.find(l => l.currency === currency && l.account === entry.address);
     if (!line) return 0n;
     return toBaseUnits(line.balance, entry.decimals);
+  }
+
+  /** The user's own wallet balance of `token`, in smallest units — the same read as {@link getDeposit}. */
+  public async getWalletBalance(params: GetBalanceParams<XrpChainKey>): Promise<bigint> {
+    return this.getDeposit({
+      srcChainKey: params.srcChainKey,
+      srcAddress: params.srcAddress,
+      token: params.token.address,
+    });
+  }
+
+  /** The user's own wallet balances of multiple tokens, keyed by `token.address`. */
+  public async getWalletBalances(params: GetBalancesParams<XrpChainKey>): Promise<WalletBalanceMap> {
+    const { srcChainKey, srcAddress, tokens } = params;
+    const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
+    await settleWalletBalances(collector, tokens, token => this.getWalletBalance({ srcChainKey, srcAddress, token }));
+    return collector.finish();
   }
 
   /**
@@ -440,15 +492,67 @@ export class XrpSpokeService {
     return res.value.trackingId satisfies string as TxReturnType<XrpChainKey, Raw>;
   }
 
+  /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */
+  public async getWithdrawalRecord(trackingId: string): Promise<Result<WithdrawalRecord>> {
+    return getWithdrawal(this.relayApiUrl, trackingId);
+  }
+
   /**
    * Wait for a hub→XRPL withdrawal to reach `released`, via the MPC relay.
    * `trackingId` is the value returned by {@link sendMessage}.
    */
-  public async waitForWithdrawal(trackingId: string, timeout?: number): Promise<Result<WithdrawalRecord>> {
+  public async waitForWithdrawal(
+    trackingId: string,
+    timeout?: number,
+    until?: WithdrawalSettledOn,
+  ): Promise<Result<WithdrawalRecord>> {
     return waitForWithdrawal(this.relayApiUrl, trackingId, {
+      until,
       timeout: Math.max(timeout ?? 0, XRP_SETTLEMENT_FLOOR_MS),
       pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
     });
+  }
+
+  /**
+   * Notify the relay of a hub tx releasing to XRPL, without waiting for the release. The relay has no hub
+   * watcher and learns of the hub tx only through `/notify`.
+   */
+  public async submitHubRelease(release: HubRelease): Promise<Result<void>> {
+    const { hubChainId, hubTxHash } = release;
+    try {
+      await this.retryNotify(() => notify(this.relayApiUrl, hubChainId, hubTxHash, 'withdrawal'));
+      return { ok: true, value: undefined };
+    } catch (error) {
+      // The hub has already burned the tokens; the hash is what a retry has to re-notify.
+      return {
+        ok: false,
+        error: new Error(`mpc-relay: hub tx ${hubTxHash} was not notified — re-notify it to release`, { cause: error }),
+      };
+    }
+  }
+
+  /**
+   * Wait until a release {@link submitHubRelease} notified is paid. The relay's verifier also waits on hub
+   * confirmations and may have dropped an early notify, so this keeps re-notifying.
+   */
+  public async waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>> {
+    const { hubChainId, hubTxHash } = release;
+    const renotify = setInterval(() => {
+      void notify(this.relayApiUrl, hubChainId, hubTxHash, 'withdrawal');
+    }, RENOTIFY_INTERVAL_MS);
+    try {
+      return await waitForHubRelease(this.relayApiUrl, release, {
+        timeout: Math.max(timeout ?? 0, XRP_SETTLEMENT_FLOOR_MS),
+        pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
+      });
+    } finally {
+      clearInterval(renotify);
+    }
+  }
+
+  /** One read of a hub release's record through the relay, which `txs.release` marks as paid. */
+  public async getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>> {
+    return getDeposit(this.relayApiUrl, toHubReleaseId(release));
   }
 
   /** Poll rippled until the transaction is in a validated ledger, mapping it to the SDK shape. */

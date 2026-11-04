@@ -28,8 +28,6 @@ const TRON_ADDRESS_WAIT_MS = 2000;
 interface TronProvider {
   request: (args: { method: string; params?: unknown }) => Promise<unknown>;
   tronWeb?: TronWebLike;
-  on?: (event: string, handler: (...args: unknown[]) => void) => void;
-  removeListener?: (event: string, handler: (...args: unknown[]) => void) => void;
 }
 
 /** One TIP-6963 announcement: who the wallet is, plus its provider handle. */
@@ -192,17 +190,18 @@ export class TronXConnector extends XConnector {
     return this.connected?.tronWeb ?? syncProvider()?.tronWeb;
   }
 
-  /** Subscribe to wallet-side account/network changes. Returns an unsubscribe function. */
-  public onWalletEvents(handler: (event: 'accountsChanged' | 'chainChanged', payload: unknown) => void): () => void {
-    const provider = this.connected ?? syncProvider();
-    if (!provider?.on) return () => undefined;
-    const onAccounts = (...args: unknown[]): void => handler('accountsChanged', args[0]);
-    const onChain = (...args: unknown[]): void => handler('chainChanged', args[0]);
-    provider.on('accountsChanged', onAccounts);
-    provider.on('chainChanged', onChain);
-    return () => {
-      provider.removeListener?.('accountsChanged', onAccounts);
-      provider.removeListener?.('chainChanged', onChain);
-    };
+  /**
+   * Signs `message` with `signMessageV2` (TIP-191 prefix), refusing when the wallet's account is no longer
+   * `address`: the connection does not follow an account switched in the wallet.
+   */
+  public async signMessage(message: string, address: string): Promise<string> {
+    const tronWeb = this.getTronWeb();
+    const account = tronWeb?.defaultAddress?.base58;
+    if (!tronWeb || !account) throw new Error('Tron wallet is not connected. Reconnect and retry.');
+    if (account !== address) {
+      throw new Error(`Tron wallet is on ${account}, not the connected ${address}. Reconnect and retry.`);
+    }
+    const signature = await tronWeb.trx.signMessageV2(message);
+    return signature.startsWith('0x') ? signature : `0x${signature}`;
   }
 }

@@ -48,8 +48,9 @@ import { stripLegacyBackendMount } from './apiConfig.js';
 import { SwapsApi, SwapsApiError } from '@sodax/swaps-api';
 import * as v from 'valibot';
 
-import type { RequestOverrideConfig } from './api-utils.js';
+import { apiKeyHeader, assignHeaders, mergeHeaders, type RequestOverrideConfig } from './api-utils.js';
 import { SodaxError } from '../errors/SodaxError.js';
+import { isAuthStatus } from '../errors/guards.js';
 import { consoleLogger } from '../shared/logger.js';
 
 /**
@@ -67,7 +68,7 @@ type ResultifiedSwapsApiV2 = {
 };
 
 /**
- * HTTP client for the backend **Swaps API v2** (`/swaps/*`).
+ * HTTP client for the backend **Swaps API** (`/swaps/*`).
  *
  * A thin adapter over the standalone `@sodax/swaps-api` package (the single source of the wire
  * client — request building, per-chain `tx` validation/transform, response schemas, HTTP + retry).
@@ -79,8 +80,8 @@ type ResultifiedSwapsApiV2 = {
  * canonical `SodaxError<'EXTERNAL_API_ERROR'>` (`feature: 'backend'`, `context.api: 'swaps'`,
  * `context.endpoint`); the underlying `SwapsApiError` is preserved on `error.cause`.
  *
- * Per-call request overrides (base URL, timeout, headers) can be passed as the optional last
- * argument to any method via `RequestOverrideConfig`.
+ * Per-call request overrides (base URL, timeout, headers, API key) can be passed as the optional
+ * last argument to any method via `RequestOverrideConfig`.
  *
  * Reachable on the Sodax facade as `sodax.api.swaps`.
  */
@@ -106,7 +107,9 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
 
   constructor(config: SwapsApiConfig, logger: SodaxLogger = consoleLogger, options: SwapsApiServiceOptions = {}) {
     this.config = config;
-    this.headers = { ...config.headers };
+    // The config-level key arrives pre-baked in `headers` (see `withApiKey`); merged rather than spread
+    // so two casings of one name cannot both survive — see `mergeHeaders`.
+    this.headers = mergeHeaders(config.headers);
     this.logger = logger;
     this.trimsLegacyOverrides = options.trimLegacyOverrides ?? true;
   }
@@ -131,7 +134,9 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
         : override
       : this.config.baseURL;
     const timeout = overrideConfig?.timeout ?? this.config.timeout ?? DEFAULT_BACKEND_API_TIMEOUT;
-    const headers = { ...this.headers, ...overrideConfig?.headers };
+    // A per-call `apiKey` wins over the service's configured key (already expanded into
+    // `this.headers`); an explicit override `x-api-key` header wins over both.
+    const headers = mergeHeaders(this.headers, apiKeyHeader(overrideConfig?.apiKey), overrideConfig?.headers);
     return new SwapsApi({ baseUrl, headers, timeout });
   }
 
@@ -170,6 +175,13 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
           context.issues = issues instanceof v.ValiError ? v.flatten(issues.issues) : issues;
         }
         if (error.context.status !== undefined) context.status = error.context.status;
+        // The apiguard's 401/403 are terminal config problems only the consumer can fix (issue #389):
+        // point at the fix instead of leaving a bare status. The key itself is never logged.
+        if (isAuthStatus(error.context.status)) {
+          this.logger.warn(
+            `[SwapsApiService] ${endpoint} was rejected by the swaps API key guard (${error.context.status}). Configure a valid partner API key — new Sodax({ apiKey }) — see docs/CONFIGURE_SDK.md.`,
+          );
+        }
       }
       this.logger.error(`[SwapsApiService] Request to ${endpoint} failed`, error);
       return {
@@ -391,9 +403,7 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
    * every subsequent call (the delegated client is rebuilt per call).
    */
   public setHeaders(headers: Record<string, string>): void {
-    Object.entries(headers).forEach(([key, value]) => {
-      this.headers[key] = value;
-    });
+    assignHeaders(this.headers, headers);
   }
 
   /** Return the base URL the service is currently pointing at. */

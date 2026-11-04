@@ -23,7 +23,7 @@ export function SodaBalance({
             <span className="text-sm text-muted-foreground">Loading...</span>
           </div>
         ) : (
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-x-2">
             <div className="text-lg font-semibold">
               {formatTokenAmount(sodaBalance, sodaToken.decimals)} {sodaToken.symbol}
             </div>

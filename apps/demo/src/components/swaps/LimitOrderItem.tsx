@@ -126,10 +126,10 @@ export default function LimitOrderItem({ intent }: LimitOrderItemProps) {
 
   return (
     <TableRow>
-      <TableCell className="font-medium">
+      <TableCell className="font-medium wrap-anywhere">
         {inputAmount} {inputToken.symbol} on {inputToken.chainKey}
       </TableCell>
-      <TableCell className="font-medium">
+      <TableCell className="font-medium wrap-anywhere">
         {outputAmount} {outputToken.symbol} on {outputToken.chainKey}
       </TableCell>
       <TableCell className="text-right">

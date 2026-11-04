@@ -1,0 +1,154 @@
+---
+title: "The SDK feature you didn't know you had: limit orders"
+sidebarTitle: "Limit orders"
+icon: bullseye
+description: "SODAX has supported cross-network limit orders for about eight months. Here is how createLimitOrder works, how orders fill and how you cancel them."
+---
+
+SODAX has supported cross-network limit orders for about eight months. They live in the same `sodax.swaps` module you already use for swaps, so if your app swaps through SODAX today, you are one method call away from letting users set a price on any network you support and walk away.
+
+## What a limit order is in SODAX
+
+In SODAX, a limit order is not a separate product with its own contracts. It is a regular swap intent with one field changed: `deadline = 0n`.
+
+A normal swap intent carries a deadline. If it is not filled in time, it expires. A limit order has no deadline, so it stays open until one of two things happens:
+
+1. It is filled at or above the `minOutputAmount` you set.
+2. The creator cancels it.
+
+That design has a nice consequence. Everything you already know about swap intents applies: the same parameters, the same cross-network routing through the SODAX liquidity layer, the same status calls, the same partner fee handling. Your `minOutputAmount` is your limit price.
+
+## The API surface
+
+All limit order methods live on `sodax.swaps`:
+
+| Method | What it does |
+| --- | --- |
+| `createLimitOrder(params)` | Full lifecycle: creates the intent, relays it to the hub and submits it for execution. The limit order equivalent of `swap()`. Signed execution only. |
+| `createLimitOrderIntent(params)` | Creates the intent transaction only, without relaying or submitting it. Supports raw (`raw: true`) and signed modes. |
+| `cancelLimitOrder(params)` | Cancels an open order and waits for the cancellation to confirm on the hub. An alias for `cancelIntent`. |
+| `createCancelIntent(params)` | Builds the cancel transaction only, raw or signed, for gas estimation or manual relay. |
+
+Both create methods take `CreateLimitOrderParams`, which is `CreateIntentParams` with `deadline` made optional. Whatever you pass for `deadline`, the SDK forces it to `0n`.
+
+For React apps, `@sodax/dapp-kit` wraps the same calls in `useCreateLimitOrder` and `useCancelLimitOrder`. If you integrate over HTTP instead of the SDK, the Swaps API exposes `POST /swaps/limit-orders` to build a limit order intent.
+
+## Place a limit order
+
+<Steps>
+  <Step title="Pick your limit price">
+    Call `sodax.swaps.getQuote()` to see what the market gives today, then set `minOutputAmount` to the amount you actually want to receive. For a buy below market, that is a higher output than the current quote.
+  </Step>
+  <Step title="Check the allowance">
+    Like `swap()`, `createLimitOrder()` does not approve the input token for you. Call `isAllowanceValid()` and `approve()` first on EVM chains (and check the trustline on Stellar).
+  </Step>
+  <Step title="Create the order">
+    Call `createLimitOrder()` with the intent params and the user's wallet provider.
+  </Step>
+</Steps>
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+import type { IEvmWalletProvider } from '@sodax/sdk';
+
+declare const evmWalletProvider: IEvmWalletProvider;
+
+const sodax = new Sodax();
+
+const result = await sodax.swaps.createLimitOrder({
+  params: {
+    inputToken: '0x...',          // token on the source network
+    outputToken: '0x...',         // token on the destination network
+    inputAmount: 1_000_000n,
+    minOutputAmount: 900_000n,    // your limit price, in output token units
+    // deadline omitted: the SDK sets it to 0n
+    allowPartialFill: false,
+    srcChainKey: ChainKeys.BSC_MAINNET,
+    dstChainKey: ChainKeys.ARBITRUM_MAINNET,
+    srcAddress: '0x...',
+    dstAddress: '0x...',
+    data: '0x',
+  },
+  walletProvider: evmWalletProvider,
+});
+
+if (result.ok) {
+  const { intent, intentDeliveryInfo } = result.value;
+  console.log('Order hash:', sodax.swaps.getIntentHash(intent));
+  console.log('Hub tx:', intentDeliveryInfo.dstTxHash);
+} else {
+  console.error(result.error.code);
+}
+```
+
+`createLimitOrder()` returns the same `SwapResponse` as `swap()`, wrapped in a `Result`. Store the `intent` object: you need it to cancel later. `intentDeliveryInfo.dstTxHash` is the hub transaction where the intent lives, and it is the hash you use to track the order.
+
+Source and destination do not have to match. The example above sells on BNB Chain and receives on Arbitrum, and the docs confirm limit orders work from Solana through the same `createLimitOrder` call.
+
+<Tip>
+  Set your partner fee once in the constructor with `new Sodax({ swaps: { partnerFee: { address, percentage } } })`, or per call through the `extras.partnerFee` slot. Limit orders carry it exactly like swaps do.
+</Tip>
+
+## How orders fill
+
+Once the order is live on the hub, the SODAX liquidity layer can fill it whenever it can deliver at least `minOutputAmount` of the output token to `dstAddress`. Until then, the order simply waits. There is no keeper for you to run and no expiry to refresh.
+
+`allowPartialFill` controls whether the order can be filled in pieces. Leave it `false` for all-or-nothing orders. Set it to `true` if you are happy for a large order to fill in several steps while input remains.
+
+To show order state in your UI, poll `sodax.swaps.getStatus({ intent_tx_hash })` with the hub transaction hash. A filled order reports `SolverIntentStatusCode.SOLVED` and includes `fill_tx_hash`. If you only hold the source chain transaction hash, `sodax.swaps.getDetailedStatus({ srcChainKey, srcTxHash })` resolves the status from there.
+
+## Cancel an order
+
+Because a limit order never expires, cancelling is how users get their funds back from an order they no longer want.
+
+```typescript
+import type { Intent } from '@sodax/sdk';
+
+// Use the intent you stored, or fetch it by hub tx hash
+const intentResult = await sodax.swaps.getIntent(hubTxHash);
+if (!intentResult.ok) throw intentResult.error;
+const intent: Intent = intentResult.value;
+
+const cancel = await sodax.swaps.cancelLimitOrder({
+  params: {
+    srcChainKey: ChainKeys.BSC_MAINNET, // must match the chain the order came from
+    intent,
+  },
+  walletProvider: evmWalletProvider,
+});
+
+if (cancel.ok) {
+  const { srcChainTxHash, dstChainTxHash } = cancel.value;
+  console.log('Cancelled:', srcChainTxHash, dstChainTxHash);
+}
+```
+
+A few rules from the docs to build around:
+
+- You pass `srcChainKey` explicitly. `Intent.srcChain` is a relay chain ID, so the SDK needs the key to type the wallet provider, and it checks at runtime that the two match.
+- Only the creator can cancel an open limit order.
+- An intent with pending fills cannot be cancelled until those fills settle.
+- `cancelLimitOrder` returns `Result<TxHashPair, Error | unknown>`, not the `SodaxError` family the create methods use. Read `error.message` for diagnostics instead of switching on `error.code`.
+
+## Raw mode for custodial and server flows
+
+If your backend builds transactions and a separate signer broadcasts them, use the intent only variant:
+
+```typescript
+const raw = await sodax.swaps.createLimitOrderIntent({
+  params: limitOrderParams,
+  raw: true,
+});
+```
+
+This returns the chain specific raw transaction without relaying it. You then relay it yourself, ideally through `sodax.api.swaps.submitTx`, with `submitIntent` as the fallback. `createCancelIntent({ params, raw: true })` gives you the matching raw cancel transaction.
+
+## What to build with it
+
+Limit orders turn a swap screen into a trading surface. A few ideas that need nothing beyond the methods above:
+
+- **Buy the dip, any network.** Let a user on Sui or Solana park a bid for an asset on another network and walk away.
+- **Take profit.** Pair an open position with a standing sell order at the user's target.
+- **Agent strategies.** Orders persist with no deadline, so an AI agent can place, monitor with `getStatus` and cancel without babysitting expiries.
+
+The full reference, including error codes and raw cancel relay details, lives in the [Swaps module docs](/developers/packages/foundation/sdk/functional-modules/swaps).

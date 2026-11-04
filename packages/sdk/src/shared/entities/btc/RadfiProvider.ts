@@ -1,4 +1,7 @@
 import {
+  BOUND_API_HOST,
+  BOUND_COMPANION_HOSTS,
+  DEPRECATED_BOUND_HOSTS,
   detectBitcoinAddressType,
   usesBip322MessageSigning,
   type IBitcoinWalletProvider,
@@ -120,14 +123,29 @@ export type RadfiMaxSpentResponse = {
  * a third argument. gh-831.
  */
 export type RadfiProviderOptions = {
-  /** Attaches per-request headers to outbound Bound `apiUrl` calls, e.g. a backend's HMAC closure. */
+  /** Attaches per-request headers to outbound Bound calls, e.g. a backend's HMAC closure. */
   signer?: RadfiSigner;
+};
+
+/**
+ * Declared per call site, so an unrouted call fails to compile rather than defaulting to `apiUrl`.
+ * No `'ums'` member on purpose: routing a UMS call through `request()` would move it to auth.
+ */
+export type RadfiHost = 'api' | 'auth' | 'transactions';
+
+const stripSlash = (url: string): string => (url.endsWith('/') ? url.slice(0, -1) : url);
+/** Blank is not a host: `''` from an env var or a form would survive `??` and make every URL relative. */
+const normalizeUrl = (url: string | undefined): string | undefined => {
+  const trimmed = url?.trim();
+  return trimmed ? stripSlash(trimmed) : undefined;
 };
 
 export class RadfiProvider {
   private readonly config: RadfiConfig;
+  private readonly hosts: Record<RadfiHost, string>;
   // Client-side runtime signer (e.g. a backend's HMAC closure). Holds no credential itself — the SDK
-  // only keeps the reference and invokes it per outbound `apiUrl` request. See `RadfiOptions` / gh-831.
+  // only keeps the reference and invokes it per outbound Bound request, on every routed host.
+  // UMS calls bypass `request()` and stay unsigned. See `RadfiOptions` / gh-831.
   private readonly signer?: RadfiSigner;
   public accessToken = '';
   public refreshToken = '';
@@ -142,13 +160,39 @@ export class RadfiProvider {
     // unauthenticated (which the API answers with a non-2xx HTML page).
     this.accessToken = config.accessToken ?? '';
     this.refreshToken = config.refreshToken ?? '';
-    if (config.apiUrl.endsWith('/')) {
-      // Remove trailing slash from baseUrl
-      this.config.apiUrl = config.apiUrl.slice(0, -1);
-    }
     if (config.umsUrl?.endsWith('/')) {
       // Remove trailing slash from umsUrl
       this.config.umsUrl = config.umsUrl.slice(0, -1);
+    }
+
+    const api = normalizeUrl(config.apiUrl) ?? config.apiUrl;
+    // Companions are registered per api host, so an apiUrl the table does not know sends every
+    // family to itself — which is what makes a partial override unable to straddle environments.
+    const companions = BOUND_COMPANION_HOSTS[api] ?? {};
+
+    this.hosts = {
+      api,
+      auth: normalizeUrl(config.authUrl) ?? companions.auth ?? api,
+      transactions: normalizeUrl(config.transactionsUrl) ?? companions.transactions ?? api,
+    };
+
+    // Refuse a retired host outright rather than warning: this SDK routes to the split hosts, and
+    // letting a caller stay on the old one only defers the failure to the day Bound turns it off.
+    // Checked per config field — the replacement differs by family, auth does not move to service.
+    const packaged = BOUND_COMPANION_HOSTS[BOUND_API_HOST] ?? {};
+    const replacementFor = {
+      apiUrl: BOUND_API_HOST,
+      authUrl: packaged.auth ?? BOUND_API_HOST,
+      transactionsUrl: packaged.transactions ?? BOUND_API_HOST,
+    } as const;
+
+    for (const field of ['apiUrl', 'authUrl', 'transactionsUrl'] as const) {
+      const url = normalizeUrl(config[field]);
+      if (url && DEPRECATED_BOUND_HOSTS.includes(url)) {
+        throw new Error(
+          `Bound Exchange has retired ${url}. Set chains.bitcoin.radfi.${field} to ${replacementFor[field]}, or remove it to take the packaged default.`,
+        );
+      }
     }
   }
 
@@ -222,7 +266,7 @@ export class RadfiProvider {
     address: string;
     publicKey: string;
   }): Promise<RadfiAuthResult> {
-    const res = await this.request('/auth/authenticate', {
+    const res = await this.request('auth', '/auth/authenticate', {
       method: 'POST',
       body: JSON.stringify(params),
     });
@@ -245,7 +289,7 @@ export class RadfiProvider {
   }
 
   public async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
-    const res = await this.request('/auth/refresh-token', {
+    const res = await this.request('auth', '/auth/refresh-token', {
       method: 'POST',
       body: JSON.stringify({ refreshToken }),
     });
@@ -268,7 +312,7 @@ export class RadfiProvider {
     },
     accessToken: string,
   ): Promise<RadfiTradingWallet> {
-    const res = await this.request('/wallets', {
+    const res = await this.request('auth', '/wallets', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.resolveAuth(accessToken)}`,
@@ -285,7 +329,7 @@ export class RadfiProvider {
   }
 
   public async getTradingWallet(userAddress: string): Promise<RadfiTradingWallet> {
-    const res = await this.request(`/wallets/details/${userAddress}`, {
+    const res = await this.request('auth', `/wallets/details/${userAddress}`, {
       method: 'GET',
     });
 
@@ -299,9 +343,9 @@ export class RadfiProvider {
     return body.data;
   }
 
-  // UMS call: goes out unsigned even when a signer is configured. Bound scopes the backend
-  // credential to the Sodax endpoints on `apiUrl`, so a signature here is unverified — this
-  // deliberately does not go through `request()`. Same for `getExpiredUtxos` below. See gh-831.
+  // UMS call: goes out unsigned even when a signer is configured. UMS is separate infrastructure
+  // on `umsUrl`, outside the api/auth/transactions routing table, and does not verify the backend
+  // signature — so this bypasses `request()`, which signs. Same for `getExpiredUtxos`. See gh-831.
   public async getBalance(address: string): Promise<RadfiWalletBalance> {
     if (!this.config.umsUrl) {
       throw new Error('RadfiConfig.umsUrl is required for getBalance');
@@ -350,7 +394,7 @@ export class RadfiProvider {
     },
     accessToken: string,
   ): Promise<RadfiDepositTxResponse> {
-    const res = await this.request('/sodax/transaction', {
+    const res = await this.request('api', '/sodax/transaction', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.resolveAuth(accessToken)}`,
@@ -392,7 +436,7 @@ export class RadfiProvider {
     },
     accessToken: string,
   ): Promise<string> {
-    const res = await this.request('/sodax/transaction/sign', {
+    const res = await this.request('api', '/sodax/transaction/sign', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.resolveAuth(accessToken)}`,
@@ -414,8 +458,8 @@ export class RadfiProvider {
   /**
    * Fetch expired (or near-expiry) UTXOs for a trading wallet address from UMS API.
    *
-   * UMS call — unsigned by design, like `getBalance`: the backend credential is scoped to the
-   * Sodax endpoints on `apiUrl`, so a configured signer intentionally does not reach here.
+   * UMS call — unsigned by design, like `getBalance`: UMS sits outside the api/auth/transactions
+   * routing table, so it bypasses `request()` and a configured signer never runs.
    */
   public async getExpiredUtxos(
     tradingAddress: string,
@@ -449,7 +493,7 @@ export class RadfiProvider {
     params: { userAddress: string; txIdVouts: string[] },
     accessToken: string,
   ): Promise<RadfiBuildTxResponse> {
-    const res = await this.request('/transactions', {
+    const res = await this.request('transactions', '/transactions', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -479,7 +523,7 @@ export class RadfiProvider {
     params: { userAddress: string; signedBase64Tx: string },
     accessToken: string,
   ): Promise<string> {
-    const res = await this.request('/transactions/sign', {
+    const res = await this.request('transactions', '/transactions/sign', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -514,7 +558,7 @@ export class RadfiProvider {
     },
     accessToken: string,
   ): Promise<RadfiBuildTxResponse> {
-    const res = await this.request('/transactions', {
+    const res = await this.request('transactions', '/transactions', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -540,7 +584,7 @@ export class RadfiProvider {
     params: { userAddress: string; signedBase64Tx: string },
     accessToken: string,
   ): Promise<string> {
-    const res = await this.request('/transactions/sign', {
+    const res = await this.request('transactions', '/transactions/sign', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -580,7 +624,7 @@ export class RadfiProvider {
     },
     accessToken: string,
   ): Promise<RadfiMaxSpentResponse> {
-    const res = await this.request('/transactions/max-spent', {
+    const res = await this.request('transactions', '/transactions/max-spent', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -647,14 +691,15 @@ export class RadfiProvider {
     }
   }
 
-  private async request(endpoint: string, options?: RequestInit): Promise<Response> {
+  private async request(host: RadfiHost, endpoint: string, options?: RequestInit): Promise<Response> {
     // Let an injected signer add request headers (e.g. Bound's `x-api-signature` HMAC for a backend
     // caller). Computed per request so a time-boxed signature stays inside its validity window. The
     // signer owns the credential; this provider never sees it.
+    const baseUrl = this.hosts[host];
     const signed = this.signer
-      ? await this.signer({ method: options?.method ?? 'GET', path: endpoint })
+      ? await this.signer({ method: options?.method ?? 'GET', path: endpoint, baseUrl })
       : undefined;
-    return fetch(`${this.config.apiUrl}${endpoint}`, {
+    return fetch(`${baseUrl}${endpoint}`, {
       ...options,
       headers: {
         'Content-Type': 'application/json',

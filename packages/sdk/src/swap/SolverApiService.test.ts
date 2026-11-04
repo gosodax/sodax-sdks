@@ -11,7 +11,7 @@
  *      and the real `retry` helper replaced by a pass-through so the postExecution failure path
  *      doesn't sit through DEFAULT_RETRY_DELAY_MS * DEFAULT_MAX_RETRY of real timer waits.
  */
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   SolverIntentErrorCode,
   type Hex,
@@ -73,7 +73,7 @@ const mockConfigService = {
 
 const realFetch = globalThis.fetch;
 const fetchMock = vi.fn();
-globalThis.fetch = fetchMock as unknown as typeof fetch;
+globalThis.fetch = fetchMock;
 
 afterAll(() => {
   globalThis.fetch = realFetch;
@@ -365,5 +365,180 @@ describe('SolverApiService.getStatus', () => {
       },
     });
     consoleSpy.mockRestore();
+  });
+});
+
+// =========================================================================
+// getStatus — optional request budget
+// =========================================================================
+//
+// `timeoutMs` is opt-in: every test above calls without it and asserts the unbounded behavior,
+// including the wire format, which carries no `signal`. These cover the bounded path — a status read
+// polled on a short interval must not be held open by a solver that never answers.
+
+describe('SolverApiService.getStatus with a timeout budget', () => {
+  const request: SolverIntentStatusRequest = { intent_tx_hash: INTENT_TX_HASH };
+
+  // Never settles on its own; rejects with an AbortError only once its signal aborts.
+  const hungFetch = (_url: unknown, opts: { signal: AbortSignal }) =>
+    new Promise((_resolve, reject) => {
+      opts.signal.addEventListener('abort', () =>
+        reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })),
+      );
+    });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    // Not `vi.clearAllMocks()`'s job: it clears recorded calls, not implementations. A leaked
+    // `hungFetch` would hang the next test in this file that relies on the default fetch mock.
+    fetchMock.mockReset();
+  });
+
+  it('gives up at the budget when the connection hangs', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(hungFetch);
+
+    const promise = SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, 5_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(await promise).toEqual({
+      ok: false,
+      error: {
+        detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'solver /status timed out after 5000ms' },
+      },
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('gives up at the budget when the response body stalls after headers arrive', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.useFakeTimers();
+    // `fetch` resolves as soon as headers land, so only a timer still armed over `json()` catches this.
+    fetchMock.mockImplementation((_url: unknown, opts: { signal: AbortSignal }) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          new Promise((_resolve, reject) =>
+            opts.signal.addEventListener('abort', () =>
+              reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+            ),
+          ),
+      }),
+    );
+
+    const promise = SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, 5_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(await promise).toEqual({
+      ok: false,
+      error: {
+        detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'solver /status timed out after 5000ms' },
+      },
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('answers normally inside the budget, forwarding the abort signal', async () => {
+    const body = { status: 3, fill_tx_hash: FILL_TX_HASH };
+    fetchMock.mockResolvedValueOnce(okResponse(body));
+
+    const result = await SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, 5_000);
+
+    expect(result).toEqual({ ok: true, value: body });
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  // `setTimeout` coerces these to ~0, so arming a timer with one would abort a perfectly healthy
+  // request on the next tick and report it as a timeout — every call failing, not just slow ones.
+  it.each([
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('answers normally when the budget is %s, rather than aborting instantly', async (_label, budget) => {
+    vi.useFakeTimers();
+    const body = { status: 3, fill_tx_hash: FILL_TX_HASH };
+    fetchMock.mockResolvedValueOnce(okResponse(body));
+
+    const promise = SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, budget);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(await promise).toEqual({ ok: true, value: body });
+    // No usable budget means no bound at all — the same call omitting the argument would make.
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    expect(init?.signal).toBeUndefined();
+  });
+
+  it('aborts immediately on a non-positive budget', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    fetchMock.mockImplementation(hungFetch);
+
+    const result = await SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, 0);
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'solver /status timed out after 0ms' },
+      },
+    });
+    consoleSpy.mockRestore();
+  });
+});
+
+// =========================================================================
+// API key — the configured instance key (`new Sodax({ apiKey })`) rides every solver request.
+// =========================================================================
+//
+// The solver transport has no per-request override surface, so this config-level tier is the only
+// one. Every case asserts the whole header record: the key must be added to `Content-Type`, never
+// replace it, and an unset or empty key must send no `x-api-key` at all.
+
+describe('SolverApiService API key', () => {
+  /** The shared double plus a configured key — the field `getQuote` reads for its `x-api-key`. */
+  const withApiKey = (apiKey: string | undefined): ConfigService =>
+    ({ ...mockConfigService, apiKey }) as unknown as ConfigService;
+
+  const sentHeaders = (): Record<string, string> => fetchMock.mock.calls[0]?.[1]?.headers;
+  const JSON_HEADER = { 'Content-Type': 'application/json' };
+  const request: SolverExecutionRequest = { intent_tx_hash: INTENT_TX_HASH };
+
+  it('sends the configured key on /quote', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ quoted_amount: '1' }));
+
+    await SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, withApiKey('instance-key'));
+
+    expect(sentHeaders()).toEqual({ ...JSON_HEADER, 'x-api-key': 'instance-key' });
+  });
+
+  it('sends the configured key on /execute', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ answer: 'OK', intent_hash: INTENT_TX_HASH }));
+
+    await SolverApiService.postExecution(request, SOLVER_CONFIG, silentLogger, 'instance-key');
+
+    expect(sentHeaders()).toEqual({ ...JSON_HEADER, 'x-api-key': 'instance-key' });
+  });
+
+  it('sends the configured key on /status', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ status: 3 }));
+
+    await SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, undefined, 'instance-key');
+
+    expect(sentHeaders()).toEqual({ ...JSON_HEADER, 'x-api-key': 'instance-key' });
+  });
+
+  it.each([
+    ['unset', undefined],
+    ['empty', ''],
+  ])('sends no x-api-key on any endpoint when the key is %s', async (_label, apiKey) => {
+    for (const call of [
+      () => SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, withApiKey(apiKey)),
+      () => SolverApiService.postExecution(request, SOLVER_CONFIG, silentLogger, apiKey),
+      () => SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, undefined, apiKey),
+    ]) {
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(okResponse({ quoted_amount: '1', status: 3, answer: 'OK' }));
+      await call();
+      expect(sentHeaders()).toEqual(JSON_HEADER);
+    }
   });
 });

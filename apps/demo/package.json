@@ -4,11 +4,11 @@
   "type": "module",
   "private": true,
   "engines": {
-    "node": ">=20.12.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "dev": "vite --port 3000 --host",
-    "build": "vite build",
+    "build": "cross-env NODE_OPTIONS=--max-old-space-size=6144 vite build",
     "preview": "vite preview",
     "test": "true",
     "checkTs": "tsc --noEmit",
@@ -31,10 +31,11 @@
     "@radix-ui/react-visually-hidden": "^1.1.2",
     "@sentry/react": "^8.55.0",
     "@sodax/dapp-kit": "workspace:*",
+    "@sodax/swaps-api": "workspace:*",
     "@sodax/wallet-sdk-react": "workspace:*",
     "@tanstack/react-query": "catalog:",
     "@types/node": "catalog:",
-    "@vitejs/plugin-react": "4.2.1",
+    "@vitejs/plugin-react": "catalog:",
     "bignumber.js": "catalog:",
     "buffer": "^6.0.3",
     "class-variance-authority": "^0.7.0",
@@ -42,7 +43,7 @@
     "lucide-react": "^0.456.0",
     "react": "19.1.4",
     "react-dom": "19.1.4",
-    "react-router": "^7.6.1",
+    "react-router": "^7.18.2",
     "tailwind-merge": "^2.5.4",
     "viem": "catalog:",
     "web-vitals": "^2.1.4",
@@ -50,15 +51,17 @@
   },
   "devDependencies": {
     "@bangjelkoski/vite-plugin-node-polyfills": "^0.0.2",
+    "@privy-io/react-auth": "3.40.0",
     "@tailwindcss/vite": "^4.1.16",
     "@types/react": "^19.0.8",
     "@types/react-dom": "^19.0.3",
     "babel-plugin-macros": "3.1.0",
+    "cross-env": "catalog:",
     "tailwindcss": "^4.1.16",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "catalog:",
-    "vite": "^5.4.11",
-    "vite-plugin-svgr": "4.2.0",
+    "vite": "catalog:",
+    "vite-plugin-svgr": "catalog:",
     "vite-tsconfig-paths": "4.3.1"
   },
   "browserslist": {

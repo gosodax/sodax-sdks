@@ -90,8 +90,8 @@ const SONIC = ChainKeys.SONIC_MAINNET;
 const injConfig = spokeChainConfig[INJ];
 const INJ_ASSET_MGR = injConfig.addresses.assetManager;
 const INJ_CONNECTION = injConfig.addresses.connection;
-const INJ_NATIVE = injConfig.nativeToken;
 const INJ_BNUSD = injConfig.bnUSD;
+const INJ_NATIVE = injConfig.nativeToken;
 const INJ_NETWORK_ID = injConfig.networkId;
 const INJ_POLLING_MS = injConfig.pollingConfig.pollingIntervalMs;
 const INJ_TIMEOUT_MS = injConfig.pollingConfig.maxTimeoutMs;
@@ -152,6 +152,8 @@ describe('InjectiveSpokeService — constructor', () => {
     expect(typeof injSpoke.estimateGas).toBe('function');
     expect(typeof injSpoke.deposit).toBe('function');
     expect(typeof injSpoke.getDeposit).toBe('function');
+    expect(typeof injSpoke.getWalletBalance).toBe('function');
+    expect(typeof injSpoke.getWalletBalances).toBe('function');
     expect(typeof injSpoke.getRawTransaction).toBe('function');
     expect(typeof injSpoke.getState).toBe('function');
     expect(typeof injSpoke.sendMessage).toBe('function');
@@ -162,8 +164,9 @@ describe('InjectiveSpokeService — constructor', () => {
     expect(typeof injSpoke.waitForTransactionReceipt).toBe('function');
   });
 
-  it('wires chainGrpcWasmApi/txClient/endpoints', () => {
+  it('wires chainGrpcWasmApi/indexerGrpcAccountPortfolioApi/txClient/endpoints', () => {
     expect(injSpoke.chainGrpcWasmApi).toBeDefined();
+    expect(injSpoke.indexerGrpcAccountPortfolioApi).toBeDefined();
     expect(injSpoke.txClient).toBeDefined();
     expect(injSpoke.endpoints).toBeDefined();
   });
@@ -368,6 +371,109 @@ describe('InjectiveSpokeService.getDeposit', () => {
     // numeric content of the base64 string.
     expect(typeof result).toBe('bigint');
     expect(spy).toHaveBeenCalledWith(INJ_ASSET_MGR, toBase64({ get_balance: { denom: INJ_BNUSD } }));
+  });
+});
+
+// =========================================================================
+// 4b. getWalletBalance / getWalletBalances — the USER's bank coins, matched by denom
+// =========================================================================
+
+describe('InjectiveSpokeService.getWalletBalance / getWalletBalances', () => {
+  const INJ_TOKEN = injConfig.supportedTokens.INJ;
+  const BNUSD_TOKEN = injConfig.supportedTokens.bnUSD;
+  const USDC_TOKEN = injConfig.supportedTokens.USDC;
+  const SODA_TOKEN = injConfig.supportedTokens.SODA;
+  const USDT_TOKEN = injConfig.supportedTokens.USDT;
+
+  const spyPortfolio = (bankBalancesList: { denom: string; amount: string }[]) =>
+    vi
+      .spyOn(injSpoke.indexerGrpcAccountPortfolioApi, 'fetchAccountPortfolioBalances')
+      .mockResolvedValueOnce({ accountAddress: SRC_ADDR, bankBalancesList, subaccountsList: [] } as never);
+
+  it('matches a non-native token by its token.address denom, on the USER account', async () => {
+    const spy = spyPortfolio([
+      { denom: INJ_NATIVE, amount: '999' },
+      { denom: BNUSD_TOKEN.address, amount: '5000' },
+    ]);
+
+    const result = await injSpoke.getWalletBalance({ srcChainKey: INJ, srcAddress: SRC_ADDR, token: BNUSD_TOKEN });
+
+    expect(result).toBe(5000n);
+    // The portfolio is fetched for the user, NOT the asset manager — the difference from getDeposit.
+    expect(spy).toHaveBeenCalledWith(SRC_ADDR);
+    expect(spy).not.toHaveBeenCalledWith(INJ_ASSET_MGR);
+  });
+
+  it('matches native INJ by the config nativeToken denom, not by another account entry', async () => {
+    spyPortfolio([
+      { denom: BNUSD_TOKEN.address, amount: '5000' },
+      { denom: INJ_NATIVE, amount: '42' },
+    ]);
+
+    const result = await injSpoke.getWalletBalance({ srcChainKey: INJ, srcAddress: SRC_ADDR, token: INJ_TOKEN });
+
+    expect(result).toBe(42n);
+  });
+
+  it('returns 0n for a denom absent from a portfolio that WAS fetched successfully', async () => {
+    spyPortfolio([{ denom: INJ_NATIVE, amount: '42' }]);
+
+    const result = await injSpoke.getWalletBalance({ srcChainKey: INJ, srcAddress: SRC_ADDR, token: USDC_TOKEN });
+
+    expect(result).toBe(0n);
+  });
+
+  it('rejects when the portfolio fetch fails, so an unread balance never surfaces as 0n', async () => {
+    const rpcError = new Error('indexer unavailable');
+    vi.spyOn(injSpoke.indexerGrpcAccountPortfolioApi, 'fetchAccountPortfolioBalances').mockRejectedValueOnce(rpcError);
+
+    await expect(
+      injSpoke.getWalletBalance({ srcChainKey: INJ, srcAddress: SRC_ADDR, token: BNUSD_TOKEN }),
+    ).rejects.toThrow(rpcError);
+  });
+
+  it('getWalletBalances issues exactly one portfolio fetch for every token and keys by token.address', async () => {
+    const spy = spyPortfolio([
+      { denom: INJ_NATIVE, amount: '11' },
+      { denom: BNUSD_TOKEN.address, amount: '22' },
+      { denom: USDT_TOKEN.address, amount: '33' },
+    ]);
+    const warnSpy = vi.spyOn(sodax.config.logger, 'warn');
+
+    const result = await injSpoke.getWalletBalances({
+      srcChainKey: INJ,
+      srcAddress: SRC_ADDR,
+      tokens: Object.values(injConfig.supportedTokens),
+    });
+
+    expect(result).toEqual({
+      [INJ_TOKEN.address]: 11n,
+      [BNUSD_TOKEN.address]: 22n,
+      [USDT_TOKEN.address]: 33n,
+      // Absent denoms are confirmed zeroes, not failures: the bank module omits zero balances.
+      [USDC_TOKEN.address]: 0n,
+      [SODA_TOKEN.address]: 0n,
+    });
+    // A read 0n and a failed-read 0n are indistinguishable in the flat map, so the absent denoms
+    // above must NOT have been logged as failures.
+    expect(warnSpy).not.toHaveBeenCalled();
+    // One shared fetch covers N tokens — the batching invariant this chain's implementation buys.
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith(SRC_ADDR);
+  });
+
+  it('getWalletBalances rejects when the single shared fetch fails — no per-token read to isolate', async () => {
+    const rpcError = new Error('indexer unavailable');
+    vi.spyOn(injSpoke.indexerGrpcAccountPortfolioApi, 'fetchAccountPortfolioBalances').mockRejectedValueOnce(rpcError);
+
+    // Nothing was read at all, so a map of zeroes would render a dead indexer as an empty wallet.
+    await expect(
+      injSpoke.getWalletBalances({
+        srcChainKey: INJ,
+        srcAddress: SRC_ADDR,
+        tokens: [INJ_TOKEN, BNUSD_TOKEN],
+      }),
+    ).rejects.toThrow(rpcError);
   });
 });
 

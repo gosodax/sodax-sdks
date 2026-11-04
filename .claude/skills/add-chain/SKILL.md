@@ -1,6 +1,6 @@
 ---
 name: add-chain
-description: 'Use when integrating a NEW spoke chain into the SODAX SDK. The footprint branches HARD by chain family: an EVM chain is smaller (reuses the shared EvmSpokeService) but still must update hardcoded viem/wagmi maps across sdk + wallet-sdk-core + wallet-sdk-react; a new non-EVM family (Solana / Sui / Stacks / Near / Stellar / Icon / Injective-like) is a full cross-package integration with its own SpokeService; Bitcoin is a special trading-wallet model. Triggers on "add a chain", "integrate <chain>", "support <chain> spoke", "new spoke service", "wallet connect for a new chain". The chain token list is handled by the add-token skill.'
+description: 'Use when integrating a NEW spoke chain into the SODAX SDK. The footprint branches HARD by chain family: an EVM chain is smaller (reuses the shared EvmSpokeService) but still must update hardcoded viem/wagmi maps across sdk + wallet-sdk-core + wallet-sdk-react; a new non-EVM family (Solana / Sui / Stacks / Near / Stellar / Icon / Injective-like) is a full cross-package integration with its own SpokeService; an MPC-relay chain (Tron-like) is that plus settlement through the MPC relay instead of the intent relay; Bitcoin is a special trading-wallet model. Triggers on "add a chain", "integrate <chain>", "support <chain> spoke", "new spoke service", "wallet connect for a new chain". The chain token list is handled by the add-token skill.'
 ---
 
 # Adding a Chain to the SODAX SDK
@@ -28,12 +28,15 @@ Each ✓ feature then drives its own touch points (e.g. money-market token wirin
 | **EVM** | reuses the single shared **`EvmSpokeService`** (`EvmChainKey = ChainKeysByType<'EVM'>`) | **small but NOT config-only** — no new spoke service, yet still the hardcoded viem/wagmi maps across sdk + both wallet packages (see the EVM example) |
 | **New non-EVM** (Solana/Sui/Stacks/Near/Stellar/Icon/Injective-like) | a **new `<Chain>SpokeService`** | **large** — full cross-package integration |
 | **Bitcoin-like** | `BitcoinSpokeService` + `entities/btc/` trading-wallet (RadFi/Bound) model | **special** — different shape, do not generalize |
+| **MPC-relay** (Tron-like: no intent-relay lane) | a **new `<Chain>SpokeService`** that also implements `MpcRelaySettlement` | **large** — all of §2, plus §2b |
 
 ## Complete coverage — CHECK every package; edit only when required (don't skip, don't over-edit)
 A chain *can* reach **every package** — but edit each **only when the family + feature matrix requires it** (`libs` only for a build workaround; `dapp-kit` only for a special gate). Checklist:
 - `types` · `libs` (only if build workaround) · `sdk` · `wallet-sdk-core` · `wallet-sdk-react`
 - `dapp-kit` — usually nothing (chain-agnostic); only a special-need hook (NEAR storage / Stellar trustline).
-- **`packages/skills`** — the **largest footprint and easiest to forget** (consumer docs). Update the skill knowledge that references chains (esp. `sodax-wallet-sdk-react`: config / hooks / imports / checklist), then run `pnpm check:ai`.
+- **`packages/skills`** — partner-facing agent docs (how integrators call the SDK), not the feature-introduction path. After the chain is wired, update the skill knowledge that references chains (esp. `sodax-wallet-sdk-react`: config / hooks / imports / checklist), then run `pnpm check:ai`. This does not satisfy Docs Drift.
+- **Published docs** — Docs Drift CI requires a related publishable site signal for every package whose `src/` changed. Update `packages/sdk/docs/WALLET_PROVIDERS.md` (and any other mapped feature doc the chain enables) plus the affected package README / `packages/wallet-sdk-react/docs/`. That mapped `packages/sdk/docs/` page also covers `packages/types` — the `types` README passes the gate but does not publish. JSDoc is not enough. A new `packages/sdk/docs/` page must be added to `scripts/docs-pages-map.json` (every mapped src is published) and given a nav entry in `docs/docs.json`, or it is live but absent from the sidebar and search; a page not ready to go live goes on the map's `unpublished` list instead.
+- **`packages/assets`** — drop `<chainKey>.png` in `packages/assets/chain/` (filename === the `ChainKeys` value) and, once the chain's token list lands, a `<tokenLogoSlug(symbol)>.png` per token in `packages/assets/token/`. Required, not cosmetic: [`packages/types/src/chains/logo-assets.test.ts`](../../../packages/types/src/chains/logo-assets.test.ts) fails CI for a chain or token with no logo file.
 - **apps** — `apps/node/src/<chain>.ts` smoke script; wire the chain into the demo / example apps that surface chains (e.g. `apps/demo`, `apps/wallet-modal-example`) as relevant.
 
 ## Per-family quirks — check these 4 dimensions for YOUR non-EVM chain
@@ -75,6 +78,12 @@ Template: read a recent same-shape chain end-to-end (`Stacks`, `Near`, `Sui`, �
 - **libs:** a subpath only if the chain SDK needs a build workaround.
 - **Tokens:** run the **`add-token`** skill.
 
+## 2b. MPC-relay chain (Tron-like) — §2 plus a different settlement
+The hub reaches the chain through the MPC relay, not the intent relay. Template: Tron (`TronSpokeService`, `shared/services/mpcRelay/`). On top of §2:
+- **types:** an entry in `MpcRelayChainMap` (`chains/chains.ts`: relay chain id + withdraw scheme). Keep the `RelayChainIdMap` entry as well: hub wallet derivation and the intent `srcChain` / `dstChain` still read it.
+- **sdk:** the spoke service implements `MpcRelaySettlement` and is routed in `SpokeService.getMpcRelayService`. Feature services settle through `SpokeService.settle`, never `relayTxAndWaitPacket`; a path `settle` cannot serve must refuse the chain before signing. Status readers use `SpokeService.getMpcRelayDeposit` where intent-relay chains read the delivered packet.
+- **Addresses:** encode an address that receives funds with `encodeRecipient`; `encodeAddress` is the identity form (hub wallet derivation, signing). They differ only on MPC-relay chains.
+
 ## 3. Bitcoin — the exception (don't generalize it)
 Bitcoin doesn't follow the non-EVM pattern: it uses a **custodial trading-wallet model (RadFi / Bound Exchange)** instead of direct spoke deposits, and has the heaviest dapp-kit footprint. **Don't apply §2** — read the existing Bitcoin integration directly if you ever touch it.
 
@@ -112,8 +121,10 @@ pnpm build:packages && pnpm checkTs
 pnpm test                            # unit — NOTE: excludes apps/node AND sdk e2e-tests
 pnpm --filter @sodax/sdk test:e2e    # the e2e you updated is a SEPARATE runner
 # apps/node `test` is a no-op → run the chain's smoke directly, e.g. tsx apps/node/src/<chain>.ts
-pnpm check:ai                        # ONLY if you changed packages/skills consumer docs
+pnpm check:ai                        # required when packages/skills consumer docs changed
 pnpm check:ai-dev-files
+# Docs Drift: a published doc / package README / packages/<pkg>/docs/ must land with src/ changes
+# (or a maintainer applies the docs-not-needed label). JSDoc does not pass the gate.
 ```
 `pnpm test` does NOT cover `e2e-tests` or `apps/node` — run `test:e2e` and the smoke script explicitly.
 

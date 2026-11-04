@@ -14,7 +14,6 @@ For the full list of re-exported types, see [`recipes/library-exports.md`](../..
 import type { WalletClient, PublicClient, TransactionReceipt } from 'viem';
 import { Networks } from '@stellar/stellar-sdk';
 import { PostConditionMode } from '@stacks/transactions';
-import type { WalletAccount, WalletWithFeatures, SuiWalletFeatures } from '@mysten/wallet-standard';
 import type { Commitment, ConnectionConfig, SendOptions } from '@solana/web3.js';
 ```
 
@@ -25,9 +24,6 @@ import type {
   WalletClient,
   PublicClient,
   TransactionReceipt,
-  WalletAccount,
-  WalletWithFeatures,
-  SuiWalletFeatures,
   Commitment,
   ConnectionConfig,
   SendOptions,

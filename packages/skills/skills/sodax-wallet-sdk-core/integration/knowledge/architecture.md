@@ -8,7 +8,7 @@ If you are looking for "how do I do X", go to [`recipes/`](./recipes/) or [`feat
 
 ## The shape of the package
 
-`@sodax/wallet-sdk-core` is a **uniform low-level wallet layer over heterogeneous chain SDKs**. For each of the 9 chain families that SODAX supports, the package ships:
+`@sodax/wallet-sdk-core` is a **uniform low-level wallet layer over heterogeneous chain SDKs**. For each chain family that SODAX supports, the package ships:
 
 1. A `*WalletProvider` **class** that implements a chain-specific interface (`IEvmWalletProvider`, `ISolanaWalletProvider`, …) imported from `@sodax/types`.
 2. A discriminated-union **config type** (`*WalletConfig = PrivateKey* | BrowserExtension*`).
@@ -56,7 +56,8 @@ src/
     ├── icon/     { …same shape… }
     ├── injective/{ …same shape… }
     ├── near/     { …same shape… }
-    └── stacks/   { …same shape… }
+    ├── stacks/   { …same shape… }
+    └── tron/     { …same shape… }
 ```
 
 Three things to internalize:
@@ -105,7 +106,7 @@ Every chain supports two construction modes — but the discriminant **looks dif
 
 | Discriminant style | Chains | Example |
 |---|---|---|
-| **Field presence** (no `type` field) | EVM, Solana, Sui, ICON, Injective, NEAR, Stacks | EVM: `privateKey + chainId` → private-key. `walletClient + publicClient` → browser-extension. |
+| **Field presence** (no `type` field) | EVM, Solana, Sui, ICON, Injective, NEAR, Stacks, Tron | EVM: `privateKey + chainId` → private-key. `walletClient + publicClient` → browser-extension. |
 | **Explicit uppercase `type`** | Bitcoin, Stellar | `{ type: 'PRIVATE_KEY', … }` vs `{ type: 'BROWSER_EXTENSION', … }` |
 
 Why the inconsistency: the field-presence form is shorter for the common case but only works when the two variants share **zero** required-field overlap. Bitcoin and Stellar have shared required fields (`network`, `walletsKit` shapes that overlap with PK fields) that would make field presence ambiguous, so they use explicit `type`.
@@ -131,9 +132,7 @@ export type { Account, Address, Chain, Transport, PublicClient, WalletClient,
               TransactionReceipt } from 'viem';
 
 // Sui types
-export type { SuiTransactionBlockResponseOptions } from '@mysten/sui/client';
 export type { Transaction, TransactionArgument } from '@mysten/sui/transactions';
-export type { SuiWalletFeatures, WalletAccount, WalletWithFeatures } from '@mysten/wallet-standard';
 
 // Solana types
 export type { Commitment, ConnectionConfig, SendOptions } from '@solana/web3.js';

@@ -15,6 +15,7 @@ import { balnSwapAbi } from '../shared/abis/balnSwap.abi.js';
 import type { HubProvider } from '../shared/types/types.js';
 import { encodeContractCalls, Erc20Service } from '../shared/index.js';
 import { invariant } from '../shared/utils/tiny-invariant.js';
+import { getEvmViemChain } from '../shared/utils/constant-utils.js';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 
 /**
@@ -453,8 +454,8 @@ export class BalnSwapService {
       return tx satisfies TxReturnType<SonicChainKey, true> as TxReturnType<SonicChainKey, R>;
     }
 
-    return walletProviderSlot.walletProvider.sendTransaction(tx) satisfies Promise<
-      TxReturnType<SonicChainKey, false>
-    > as Promise<TxReturnType<SonicChainKey, R>>;
+    return walletProviderSlot.walletProvider.sendTransaction(tx, {
+      expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id,
+    }) satisfies Promise<TxReturnType<SonicChainKey, false>> as Promise<TxReturnType<SonicChainKey, R>>;
   }
 }

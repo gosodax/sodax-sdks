@@ -1,6 +1,6 @@
 # Backend API — `BackendApiService`
 
-HTTP client for backend services. Provides intent lookup, solver orderbook queries, money-market position/reserve reads, and (internally) config fetching. Most consumer-side code uses just `getIntentByHash` / `getIntentByTxHash` and the money-market read methods. Swap-tx submission lives on the sibling swaps API client — `sodax.api.swaps.submitTx` (see below).
+HTTP client for backend services. Provides intent lookup, solver orderbook queries, money-market position/reserve reads, USD OHLC price candles, and (internally) config fetching. Most consumer-side code uses just `getIntentByHash` / `getIntentByTxHash` and the money-market read methods. Swap-tx submission lives on the sibling swaps API client — `sodax.api.swaps.submitTx` (see below).
 
 Access: `sodax.backendApi`. Service class: `BackendApiService`. **Feature tag for errors:** every method emits `feature: 'backend'` with `error.context.api: 'backend'` (the HTTP-client layer — the domain feature tags like `'moneyMarket'` belong to the on-chain services, not these backend reads).
 
@@ -26,6 +26,10 @@ sodax.backendApi.getMoneyMarketAssetBorrowers(...): Promise<Result<...>>;
 sodax.backendApi.getMoneyMarketAssetSuppliers(...): Promise<Result<...>>;
 sodax.backendApi.getAllMoneyMarketBorrowers(...): Promise<Result<...>>;
 
+// Oracle price reads (USD OHLC candles for charts)
+sodax.backendApi.getOracleMarkets(config?): Promise<Result<OracleMarketsResponse>>; // { quote, intervals, symbols }
+sodax.backendApi.getOracleCandles(params, config?): Promise<Result<OracleCandlesResponse>>; // params: { symbol, interval: '1m'|'5m'|'1h'|'1d', from, to } — UNIX SECONDS, half-open [from, to), max 5000 buckets
+
 // Config-API methods (used internally by ConfigService — implements `IConfigApiV1`)
 sodax.backendApi.getAllConfig(config?): Promise<Result<GetAllConfigApiResponse>>;
 sodax.backendApi.getChains(config?): Promise<Result<GetChainsApiResponse>>;
@@ -36,6 +40,10 @@ sodax.backendApi.getMoneyMarketReserveAssets(...): Promise<Result<...>>;
 sodax.backendApi.getMoneyMarketTokensByChainId(...): Promise<Result<XToken[]>>;
 sodax.backendApi.getRelayChainIdMap(config?): Promise<Result<GetRelayChainIdMapApiResponse>>;
 ```
+
+Oracle typing: `getOracleMarkets().intervals[].key` is `string`, not the `OracleCandleInterval` union — discovery stays tolerant of an interval a newer backend serves, so narrow it with the exported `isOracleCandleInterval(key)` guard (or membership-test `ORACLE_CANDLE_INTERVALS`) before passing it to `getOracleCandles`. The candles response `interval` echoes what you sent and IS strictly validated.
+
+Oracle candles: `open`/`high`/`low`/`close` are USD **decimal strings** (convert them yourself) and `timestamp` is the bucket START in UNIX seconds. `final` marks the still-forming current bucket: branch on `final === false` (re-poll while that holds), never on the field's presence — the backend omits it on closed candles today, but the type is `boolean`. A valid range with no stored candles resolves `ok: true` with `candles: []`; an unknown symbol currently produces the same successful empty result rather than a 404. A zero-width/reversed range, another invalid parameter, or a range over 5000 buckets is a 400, surfacing as `HTTP_REQUEST_FAILED` with `error.context.status === 400`. The solver's live mark prices (`GET /v1/intent/oracle`) are a separate service with no SDK wrapper.
 
 All methods return `Result<T, SodaxError<'EXTERNAL_API_ERROR'>>` where the error carries `feature: 'backend'`, `error.context.api === 'backend'`, and `context.endpoint`.
 
@@ -95,7 +103,7 @@ The `IConfigApiV1` interface itself still matters for both patterns — every me
 
 - v1 → v2 migration of `BackendApiService` (the load-bearing change: every method now returns `Promise<Result<T>>`): [`features/backend-api.md`](../../../migration-v1-to-v2/knowledge/features/backend-api.md).
 - The full submit-tx flow with `createIntent` upstream: [`./swap.md`](swap.md) § "Backend submit-tx flow".
-- The full typed Swaps API v2 client (`sodax.api.swaps`, 21 endpoints — quote, create-intent, submit-tx, fees, status, …): [`./swaps-api.md`](swaps-api.md).
+- The full typed Swaps API client (`sodax.api.swaps`, 21 endpoints — quote, create-intent, submit-tx, fees, status, …): [`./swaps-api.md`](swaps-api.md).
 - Partner-fee handling (separate service): [`./partner.md`](partner.md).
 - Stuck-asset recovery (separate service): [`./recovery.md`](recovery.md).
 - Error model context fields (`error.context.api`, `error.context.method`): [`../reference/`](../reference/) § 3.

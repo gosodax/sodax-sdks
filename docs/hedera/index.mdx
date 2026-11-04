@@ -1,0 +1,80 @@
+---
+title: "SODAX for Hedera"
+sidebarTitle: "Overview"
+description: "Reach the users and liquidity of every SODAX network from your Hedera product through Hedera's EVM. No contracts to deploy, your entire integration is TypeScript."
+icon: h
+---
+
+<Note>
+  **No new contracts.** SODAX's Hedera spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary EVM transactions through Hedera's JSON-RPC relay, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+You keep shipping on Hedera. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer, against Hedera's EVM. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## Three things that differ from other EVM networks
+
+Hedera runs the EVM, but its account and token model is its own. SODAX handles the parts it can; these three are yours to know about:
+
+- **Accounts must use an ECDSA key.** Hedera's EVM tooling only signs with ECDSA (secp256k1). Accounts with an ED25519 key can hold HBAR and tokens but cannot sign the EVM transactions SODAX uses. MetaMask and other EVM wallets create ECDSA accounts by default.
+- **HBAR has 8 decimals in the SDK, 18 on the wire.** SODAX tracks HBAR in its canonical 8 decimals (tinybars) and scales `msg.value` and native balances for Hedera's EVM layer, which reports 18-decimal weibars. Always build amounts from `token.decimals`, and do not mix SDK balances with raw `eth_getBalance` reads.
+- **Receiving a token can require an association.** Hedera tokens are native HTS tokens, addressed through their EVM address. An account receives a token only if it is associated with it or has a free automatic association slot. Accounts auto-created by sending to an EVM address have unlimited automatic associations; older or natively created accounts may not. See [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera).
+
+## What you can build
+
+Two SODAX modules are relevant to Hedera builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/hedera/swaps">
+    Intent-based cross-network swaps. Users swap between HBAR or HTS tokens and assets on any supported network with one signed transaction on Hedera. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/hedera/money-market">
+    Cross-network lending and borrowing. Supply from Hedera, borrow to Hedera or any other supported network, and manage positions without running lending infrastructure.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/hedera/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/hedera/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/hedera/quickstart): install the SDK, connect a Hedera account, make your first cross-network swap.
+- [Swaps on Hedera](/hedera/swaps): approvals, quoting, fees, and receiving HTS tokens.
+- [Money Market on Hedera](/hedera/money-market): supply, borrow, repay, and withdraw with cross-network collateral.
+- [Wallets](/hedera/wallets): EVM wallets on Hedera, and every other network's wallets through one interface.
+- [Networks & Assets](/hedera/networks-and-assets): what is live on Hedera today and what your users can reach.
+- [Hedera FAQ](/hedera/faq): the questions Hedera engineers actually ask.
+
+## Hedera references
+
+- [**Hedera documentation**](https://docs.hedera.com/): accounts, HTS tokens, and the EVM on Hedera.
+- [**Auto account creation**](https://docs.hedera.com/learn/core-concepts/accounts/auto-account-creation): how EVM-address accounts are created and why they get unlimited automatic token associations.
+- [**Mirror nodes**](https://docs.hedera.com/operators/mirror-node/index): public REST endpoints for account, token, and association lookups by EVM address.
+- [**HashScan**](https://hashscan.io/): the Hedera mainnet explorer, for checking transactions and token associations.
+
+---
+
+Building something? Start with the [Quickstart](/hedera/quickstart).

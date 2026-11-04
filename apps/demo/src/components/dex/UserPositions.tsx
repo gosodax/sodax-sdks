@@ -74,7 +74,7 @@ function PositionListItem({
 
   if (isError) {
     return (
-      <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+      <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive wrap-anywhere">
         Failed to load position {tokenId}: {positionInfoError?.message ?? 'Unknown error'}
       </div>
     );
@@ -187,7 +187,7 @@ function PositionListItem({
   };
 
   return (
-    <div className="rounded-md border border-border bg-background p-4">
+    <div className="rounded-md border border-border bg-background p-3 sm:p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <p className="text-sm font-medium">Position #{tokenId}</p>
@@ -201,22 +201,22 @@ function PositionListItem({
       <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">{poolData.token0.symbol} Amount</p>
-          <p className="font-mono">{amount0}</p>
+          <p className="font-mono break-all">{amount0}</p>
         </div>
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">{poolData.token1.symbol} Amount</p>
-          <p className="font-mono">{amount1}</p>
+          <p className="font-mono break-all">{amount1}</p>
         </div>
         <div className="col-span-2 flex items-center justify-between text-xs text-muted-foreground">
           <span>Unclaimed fees</span>
         </div>
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Unclaimed {poolData.token0.symbol} Fees</p>
-          <p className="font-mono">{fees0}</p>
+          <p className="font-mono break-all">{fees0}</p>
         </div>
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">Unclaimed {poolData.token1.symbol} Fees</p>
-          <p className="font-mono">{fees1}</p>
+          <p className="font-mono break-all">{fees1}</p>
         </div>
         <div className="space-y-1">
           <Button
@@ -229,14 +229,14 @@ function PositionListItem({
             {claimRewardsMutation.isPending ? 'Claiming...' : 'Claim'}
           </Button>
         </div>
-        {error ? <div className="col-span-2 text-xs text-destructive">{error}</div> : null}
+        {error ? <div className="col-span-2 text-xs text-destructive wrap-anywhere">{error}</div> : null}
       </div>
       <div className="mt-4">
         <div className="flex flex-col space-y-2 p-2 rounded w-full">
           <Label htmlFor="decrease-percentage" className="text-sm font-medium">
             Decrease Liquidity (%)
           </Label>
-          <div className="flex gap-2 items-center w-fit">
+          <div className="flex flex-wrap gap-2 items-center w-fit">
             <Input
               className="w-[60px]"
               id="decrease-percentage"
@@ -250,7 +250,7 @@ function PositionListItem({
               onClick={() => handleDecreaseLiquidity(percentageToRemove)}
               disabled={isLoading || !percentageToRemove}
               variant="outline"
-              className="w-fit ml-2"
+              className="w-fit sm:ml-2"
             >
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               Decrease Liquidity
@@ -345,17 +345,17 @@ export function UserPositions({
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="px-4 sm:px-6">
         <CardTitle className="text-base">My positions</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="px-4 sm:px-6 space-y-4">
         <div className="flex flex-col gap-2">
           Utils
           <div className="space-y-2">
             <Label htmlFor="position-token-id" className="text-xs text-muted-foreground">
               Save an existing position ID (token ID)
             </Label>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Input
                 id="position-token-id"
                 type="number"
@@ -372,7 +372,7 @@ export function UserPositions({
             <Label htmlFor="position-token-id" className="text-xs text-muted-foreground">
               Hub tx hash (find existing position ID)
             </Label>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <Input
                 id="hub-tx-hash"
                 type="text"

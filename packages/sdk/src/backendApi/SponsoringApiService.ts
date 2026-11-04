@@ -11,10 +11,14 @@ import { SPONSORING_API_STELLAR_BASE_PATH } from '@sodax/types';
 
 import * as v from 'valibot';
 import {
+  apiKeyHeader,
+  assignHeaders,
   makeRequest,
+  mergeHeaders,
   resolveRequestConfig,
   toExternalApiError,
   toInvalidResponseShapeError,
+  trimTrailingSlashes,
   type RequestConfig,
   type RequestOverrideConfig,
 } from './api-utils.js';
@@ -29,6 +33,19 @@ type ResultifiedSponsoringApi = {
     : never;
 };
 
+/** Construction options for {@link SponsoringApiService}. */
+export type SponsoringApiServiceOptions = {
+  /**
+   * The instance-wide `new Sodax({ apiKey })`, which sponsoring inherits only when its effective
+   * target is one of `inheritedApiKeyBaseURLs`. Deliberately not baked into the headers: a per-request
+   * `baseURL` retargets the call while keeping the default headers, which would carry the credential
+   * off-gateway. Outranked by the configured slice key (`SponsoringApiConfig.apiKey`) and by headers.
+   */
+  inheritedApiKey?: string;
+  /** Roots the inherited key may be sent to — the packaged sponsoring default and the shared gateway. */
+  inheritedApiKeyBaseURLs?: readonly string[];
+};
+
 /**
  * Uncached HTTP client for the sponsoring API. Stellar orchestration and
  * config caching belong to `SponsoringService`.
@@ -40,15 +57,29 @@ export class SponsoringApiService implements ResultifiedSponsoringApi {
   private readonly config: SponsoringApiConfig;
   private readonly headers: Record<string, string>;
   private readonly logger: SodaxLogger;
+  private readonly inheritedApiKey: string | undefined;
+  private readonly inheritedApiKeyBaseURLs: readonly string[];
 
-  constructor(config: SponsoringApiConfig, logger: SodaxLogger = consoleLogger) {
+  constructor(
+    config: SponsoringApiConfig,
+    logger: SodaxLogger = consoleLogger,
+    options: SponsoringApiServiceOptions = {},
+  ) {
     this.config = config;
-    // Explicit headers may override the `apiKey` convenience option.
-    this.headers = {
-      ...(config.apiKey !== undefined ? { 'x-api-key': config.apiKey } : {}),
-      ...config.headers,
-    };
+    // Explicit headers may override the `apiKey` convenience option, whatever casing they use.
+    this.headers = mergeHeaders(apiKeyHeader(config.apiKey), config.headers);
     this.logger = logger;
+    this.inheritedApiKey = options.inheritedApiKey;
+    this.inheritedApiKeyBaseURLs = (options.inheritedApiKeyBaseURLs ?? []).map(trimTrailingSlashes);
+  }
+
+  /**
+   * The inherited instance key, but only for a request whose effective target is an allowed root.
+   * Evaluated per call because a `RequestOverrideConfig.baseURL` retargets the request.
+   */
+  private inheritedKeyFor(baseURL: string): string | undefined {
+    if (!this.inheritedApiKey) return undefined;
+    return this.inheritedApiKeyBaseURLs.includes(trimTrailingSlashes(baseURL)) ? this.inheritedApiKey : undefined;
   }
 
   /**
@@ -61,9 +92,12 @@ export class SponsoringApiService implements ResultifiedSponsoringApi {
     schema: S,
   ): Promise<Result<v.InferOutput<S>, SodaxError<'EXTERNAL_API_ERROR'>>> {
     try {
+      // The inherited key sits LOWEST, under the configured slice key and headers; `resolveRequestConfig`
+      // then layers the per-request `apiKey` and headers on top.
+      const inherited = apiKeyHeader(this.inheritedKeyFor(config.baseURL || this.config.baseURL));
       const raw = await makeRequest<unknown>({
         endpoint,
-        config: resolveRequestConfig(config, { ...this.config, headers: this.headers }),
+        config: resolveRequestConfig(config, { ...this.config, headers: mergeHeaders(inherited, this.headers) }),
         logger: this.logger,
         serviceLabel: 'SponsoringApiService',
       });
@@ -114,9 +148,7 @@ export class SponsoringApiService implements ResultifiedSponsoringApi {
   }
 
   public setHeaders(headers: Record<string, string>): void {
-    Object.entries(headers).forEach(([key, value]) => {
-      this.headers[key] = value;
-    });
+    assignHeaders(this.headers, headers);
   }
 
   public getBaseURL(): string {

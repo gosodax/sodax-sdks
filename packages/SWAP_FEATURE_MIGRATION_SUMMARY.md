@@ -98,7 +98,7 @@ breaking changes" and Concepts 1, 4. Demo-specific deltas:
 ### Other impacts
 
 - `RpcConfig` is now keyed by `ChainKey` values (`rpcConfig[ChainKeys.SONIC_MAINNET]`).
-  `BitcoinRpcConfig` for Bitcoin (Bound Exchange endpoints), `StellarRpcConfig` for Stellar, `string` for
+  `BitcoinRpcConfig` for Bitcoin (`rpcUrl` only — Bound hosts live on `chains[BITCOIN_MAINNET].radfi`), `StellarRpcConfig` for Stellar, `string` for
   EVM URLs.
 - `IConfigApi` methods now return `Promise<Result<T>>` (every method).
 - Bitcoin types live under `@sodax/types`'s `bitcoin` sub-path (was `btc`).

@@ -1,4 +1,10 @@
-import { SodaxError, STELLAR_TRUSTLINE_MIN_XLM_STROOPS, type StellarAccountStatus } from '@sodax/sdk';
+import {
+  SodaxError,
+  STELLAR_TRUSTLINE_MIN_XLM_STROOPS,
+  type Result,
+  type SponsoringLookupError,
+  type StellarAccountStatus,
+} from '@sodax/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { getStellarAccountStatusQueryOptions } from './useStellarAccountStatus.js';
 
@@ -13,7 +19,7 @@ const FUNDED: StellarAccountStatus = {
   trustlineMinXlmStroops: STELLAR_TRUSTLINE_MIN_XLM_STROOPS,
 };
 
-const makeSodax = (result: { ok: true; value: StellarAccountStatus } | { ok: false; error: SodaxError }) => {
+const makeSodax = (result: Result<StellarAccountStatus, SponsoringLookupError>) => {
   const getStellarAccountStatus = vi.fn(async () => result);
   return { sodax: { sponsoring: { getStellarAccountStatus } }, getStellarAccountStatus };
 };

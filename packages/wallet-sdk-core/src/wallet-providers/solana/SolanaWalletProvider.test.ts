@@ -58,6 +58,13 @@ const PRIVATE_KEY = new Uint8Array(64);
 const ENDPOINT = 'https://api.mainnet-beta.solana.com';
 const RAW_TX = new Uint8Array([1, 2, 3]);
 
+// The provider reads nothing off the adapter but `publicKey.toBase58()` and `signTransaction`, so
+// this two-field stub stands in for the whole wallet-adapter surface.
+const adapterWallet = <T>(signTransaction: T) => ({
+  publicKey: { toBase58: () => 'pk' } as unknown as PublicKeyType,
+  signTransaction,
+});
+
 describe('SolanaWalletProvider', () => {
   describe('constructor', () => {
     it('initializes with private-key config', () => {
@@ -67,10 +74,7 @@ describe('SolanaWalletProvider', () => {
     });
 
     it('initializes with browser-extension config', () => {
-      const wallet = {
-        publicKey: { toBase58: () => 'pk' } as unknown as PublicKeyType,
-        signTransaction: vi.fn(),
-      };
+      const wallet = adapterWallet(vi.fn());
       const provider = new SolanaWalletProvider({ wallet, endpoint: ENDPOINT });
       expect(provider.chainType).toBe('SOLANA');
     });
@@ -212,10 +216,7 @@ describe('SolanaWalletProvider', () => {
     });
 
     it('applies defaults.sendOptions in browser-extension mode', async () => {
-      const wallet = {
-        publicKey: { toBase58: () => 'pk' } as unknown as PublicKeyType,
-        signTransaction: vi.fn(),
-      };
+      const wallet = adapterWallet(vi.fn());
       const provider = new SolanaWalletProvider({
         wallet,
         endpoint: ENDPOINT,
@@ -234,11 +235,9 @@ describe('SolanaWalletProvider', () => {
     it('adapter mode signs via the wallet adapter, not the keypair path', async () => {
       const SIGNED = new Uint8Array([9, 9, 9]);
       const signTransaction = vi.fn().mockResolvedValue({ serialize: () => SIGNED });
-      const wallet = {
-        publicKey: { toBase58: () => 'pk' } as unknown as PublicKeyType,
-        signTransaction,
-      };
+      const wallet = adapterWallet(signTransaction);
       const provider = new SolanaWalletProvider({ wallet, endpoint: ENDPOINT });
+      // Only `sign`/`serialize` are exercised; a real VersionedTransaction would need a full message.
       const tx = { sign: vi.fn(), serialize: () => new Uint8Array() } as unknown as VersionedTransactionType;
 
       const serialized = await provider.signAndSerializeTransaction(tx);
@@ -251,6 +250,7 @@ describe('SolanaWalletProvider', () => {
       const provider = new SolanaWalletProvider({ privateKey: PRIVATE_KEY, endpoint: ENDPOINT });
       const sign = vi.fn();
       const SIGNED = new Uint8Array([4, 2]);
+      // Only `sign`/`serialize` are exercised; a real VersionedTransaction would need a full message.
       const tx = { sign, serialize: () => SIGNED } as unknown as VersionedTransactionType;
 
       const serialized = await provider.signAndSerializeTransaction(tx);
@@ -270,16 +270,14 @@ describe('SolanaWalletProvider', () => {
     it('signs the deserialized tx via the adapter and broadcasts the signed bytes', async () => {
       const SIGNED = new Uint8Array([7, 7]);
       const signTransaction = vi.fn().mockResolvedValue({ serialize: () => SIGNED });
-      const wallet = {
-        publicKey: { toBase58: () => 'pk' } as unknown as PublicKeyType,
-        signTransaction,
-      };
+      const wallet = adapterWallet(signTransaction);
       const provider = new SolanaWalletProvider({ wallet, endpoint: ENDPOINT });
       const params = {
         from: 'src',
         to: 'dst',
         value: 0n,
         data: Buffer.from('unsigned-tx').toString('base64'),
+        // `data` carries the whole unsigned tx; the address/value fields are unread on this path.
       } as unknown as SolanaRawTransaction;
 
       const signature = await provider.signAndSendTransaction(params);

@@ -24,8 +24,8 @@ chain config from the backend but **never** replaces the logger — the backend 
 it.
 
 > Combine with the other constructor options freely — pass `logger` alongside `chains` / `api` /
-> `solver` overrides in the same object. The constructor splits `logger` off the data override before
-> merging, so it never lands in `sodax.instanceConfig`. See [`initialize-sodax.md`](initialize-sodax.md).
+> `solver` overrides in the same object. The merged options land on `sodax.instanceConfig` (including the
+> `logger` key), but the sink the services use is `sodax.config.logger`. See [`initialize-sodax.md`](initialize-sodax.md).
 
 ## Custom sink
 

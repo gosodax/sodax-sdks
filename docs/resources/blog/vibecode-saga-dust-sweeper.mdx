@@ -1,0 +1,149 @@
+---
+title: "VibeCode Saga: Just Sweep It: consolidating scattered balances with a 0.15% partner fee"
+sidebarTitle: "Just Sweep It"
+icon: broom
+description: "A cross-network consolidator built on the SODAX SDK. Eight networks scanned, fragments swept into one token with intents, a partner fee set in one line of config, and self-serve recovery through the hub."
+---
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.youtube.com/embed/7Kg8VC9M-KM"
+  title="Just Sweep It demo video"
+  frameBorder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  referrerPolicy="strict-origin-when-cross-origin"
+  allowFullScreen
+></iframe>
+
+## What it is
+
+[Just Sweep It](https://just-sweep-it-app.vercel.app) finds the small balances you have scattered across networks and sweeps the ones you pick into one token on one network. Connect an EVM wallet and a Solana wallet, and the app scans eight networks (Ethereum, Base, Arbitrum, Optimism, Polygon, BNB Chain, Avalanche, Solana), prices what it finds, and shows you which fragments are worth moving. You review, you sign, and they land as USDC (the default target) wherever you choose.
+
+The app never holds funds. Every swap is an intent signed in your own wallet and filled by SODAX solvers, routed through the hub on Sonic. The business model is one line of config: a 0.15% partner fee on every swap, accruing to an address I control on the Sonic hub.
+
+Version 0.2.0 ("First Yen") is where real fragments got swept across multiple networks by a real wallet and the 0.15% fees showed up on the Sonic hub.
+
+Two routes do the work:
+
+- `/sweep`: Discover, then a Review gate, then Execute.
+- `/fees`: partner fee earnings, plus a recovery panel for anything parked at the hub.
+
+There is also a Demo mode that runs the full flow with sample balances and a simulated queue, so the live URL works as a showcase without a wallet.
+
+## The design: a clear plan, then a queue
+
+I checked two facts against the SDK before writing any UI, and they shaped the product.
+
+**Each token is its own intent.** Each token gets its own approve, swap, relay, and fill. So the product is a resumable per-token queue, and the UI tells you up front exactly what you will sign.
+
+**SODAX routes a curated canonical token set per network.** On Base that is assets like ETH, USDC, weETH, wstETH, cbBTC, bnUSD, SODA. On Solana it is SOL, USDC, bnUSD, SODA. So Just Sweep It consolidates major-asset fragments, and the README says so plainly.
+
+The design followed. Discovery only surfaces tokens SODAX can route. A viability filter hides anything where fees would eat the value. Before anything fires, a confirm modal shows the per-network plan with exact signature counts (EVM native is 1, ERC-20 is at most 2, Solana is 1) and how many network switches you will be asked for.
+
+## The SDK pieces that carried this
+
+### 1. The partner fee, verified before any UI existed
+
+The partner fee is set once on the `Sodax` instance and applies to every swap routed through it:
+
+```ts
+export const PARTNER_FEE: PartnerFee = {
+  address: PARTNER_SONIC_ADDRESS,
+  percentage: 15,
+};
+
+<SodaxProvider config={{ swaps: { partnerFee: PARTNER_FEE } }}>
+```
+
+`percentage` is in basis points, capped at 100 (which is 1%). So `15` is 0.15%. Because the fee helpers are synchronous, I locked that in with a zero-network script (`pnpm spike:fee`) before building anything else:
+
+```ts
+const sodax = new Sodax({
+  swaps: { partnerFee: { address: PARTNER_ADDRESS, percentage: 15 } },
+});
+const partnerFee = sodax.swaps.getPartnerFee(1_000_000n); // 1 USDC
+// expect 1_500n (15 bps). Fail loudly otherwise.
+```
+
+`getPartnerFee` and `getSolverFee` run with no keys and no RPC, so fee math is unit-testable offline.
+
+Fees accrue on Sonic as wrapped ERC-20. The `/fees` page reads them with one call:
+
+```ts
+const r = await sodax.partners.feeClaim.fetchAssetsBalances(PARTNER_SONIC_ADDRESS);
+if (!r.ok) throw new Error(/* ... */);
+return Array.from(r.value.values());
+```
+
+### 2. A live token registry as the discovery filter
+
+Balance discovery runs server-side (Alchemy for the seven EVM networks, Helius for Solana). The SDK decides what counts. For each network I build an index from `sodax.config.getSupportedSwapTokensByChainId(chainKey)`, keyed by network key plus lowercased address, and only tokens in that index are offered. If SODAX adds an asset, the sweeper picks it up without code changes.
+
+The same read-only server `Sodax` instance carries the partner fee, so quotes reflect what the user will actually receive.
+
+### 3. One token, three steps
+
+The per-token executor is short. Quote, approve if needed, swap:
+
+```ts
+const quote = await sodax.swaps.getQuote({
+  token_src: req.inputToken,
+  token_src_blockchain_id: req.srcChainKey,
+  token_dst: req.outputToken,
+  token_dst_blockchain_id: req.dstChainKey,
+  amount: req.rawAmount,
+  quote_type: 'exact_input',
+});
+// minOut = quoted_amount minus 0.5% slippage
+
+if (req.isEvm) {
+  const allow = await sodax.swaps.isAllowanceValid({ params, walletProvider });
+  if (allow.ok && allow.value === false) {
+    await sodax.swaps.approve({ params, walletProvider });
+  }
+}
+
+const res = await sodax.swaps.swap({ params, walletProvider });
+```
+
+`swap()` is the all-in-one path: it creates the intent, relays it to the hub, and hands it to the solver. A small localStorage marker is written before the swap call and cleared on success, which is all the app needs to know whether to offer recovery.
+
+Every call returns `Result<T, E>`, so each step becomes a clean terminal state (`failed` at `quote`, `approve`, or `swap`) rather than an exception. A failure at `swap` is flagged `recoverable: true`, which routes the user to the recovery panel.
+
+### 4. A queue where one failure never stops the batch
+
+The queue (Zustand) runs tokens sequentially, one wallet prompt at a time. Tokens are grouped by network so you get one network-switch prompt per network instead of one per token. If a switch is declined, or a quote fails, that token is marked failed and the loop moves on. Providers are read at execution time, and the Sweep button enables once every needed wallet family is ready, so a long batch runs straight through.
+
+### 5. Recovery through the hub
+
+If an in-flight marker survives, the app checks the hub on every network:
+
+```ts
+const r = await sodax.recovery.fetchHubAssetBalances({ chainKey: c.key, srcAddress });
+```
+
+Anything with a nonzero balance gets a withdraw button that calls `sodax.recovery.withdrawHubAsset(...)` with the user's own wallet provider. If nothing is parked, the banner flips to a green "delivered" state you can dismiss. No support ticket, no operator refund. The funds are always under the user's control.
+
+## What made it easy
+
+- **Monetization is one field.** The partner fee is a single config value with synchronous helpers you can test offline, and one call reads accrued earnings.
+- **One wallet layer for two ecosystems.** `@sodax/wallet-sdk-react` put seven EVM networks and Solana behind one provider and one `useWalletProvider` hook, with `useEnabledChainTypes()` to know when wallets are ready.
+- **`Result<T, E>` everywhere.** The per-token state machine became almost mechanical: every step either returns `ok` or becomes a labeled failure.
+- **A real answer to "what if it gets stuck".** The recovery service lets users pull assets back from the hub themselves.
+- **The registry is the filter.** `getSupportedSwapTokensByChainId` decides what is sweepable, so discovery stays current with SODAX for free.
+
+## Tips for builders
+
+- Pin your `@sodax/*` packages to one explicit version (this build uses `2.0.0-rc.8` across all three) so the SDK, wallet layer and hooks move together.
+- Load the SDK in client-only dynamic islands: making `/sweep` and `/fees` mount their own providers took first load from 2.36 MB to 110 kB, with the SDK streaming in after the shell paints.
+- Write a ten-line `getPartnerFee` assertion before you ship a fee, so the basis-point math is checked in CI.
+
+## Stack
+
+Next.js 15 · React 19 · TypeScript · `@sodax/sdk` 2.0.0-rc.8 · `@sodax/wallet-sdk-react` 2.0.0-rc.8 · `@sodax/dapp-kit` 2.0.0-rc.8 · Zustand · TanStack Query · Alchemy · Helius · CoinGecko · Vitest · Vercel
+
+## Try it
+
+Live: [just-sweep-it-app.vercel.app](https://just-sweep-it-app.vercel.app) (Demo mode works without a wallet)
+
+Repo: [github.com/hazy2go/dust-sweeper](https://github.com/hazy2go/dust-sweeper)

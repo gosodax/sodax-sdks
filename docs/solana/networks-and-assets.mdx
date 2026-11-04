@@ -1,0 +1,70 @@
+---
+title: "Solana: Networks & Assets"
+description: "What is live on Solana today, and the networks and assets your users can reach from it."
+icon: coins
+---
+
+Solana is a spoke network in the SODAX System. User funds stay on Solana; the hub (Sonic) coordinates execution, and solvers settle against deep native liquidity on each network rather than isolated bridge pools.
+
+There are two asset lists to keep straight, and the difference is the point of SODAX:
+
+- **Assets on Solana**: the <span data-sodax-config="count" data-metric="chain-swap-tokens" data-chain="solana">21</span> assets that live on Solana itself. These are what your users hold, send, and receive on Solana; the entry and exit points of any Solana-side flow.
+- **Assets across the SODAX System**: <span data-sodax-config="count" data-metric="swap-tokens">140</span> assets across all supported networks. Every one of them is a valid swap destination or collateral source for your Solana users, because every SODAX action is cross-network by default.
+
+A user holding SOL is not limited to the Solana-side list. They can swap SOL into ETH on Ethereum, USDC on Base, BTC on Bitcoin, or any other listed asset on any network, in one signed transaction. The on-Solana assets are simply where those journeys start and end on your side.
+
+Every count and list below is read live from the backend config API — `GET https://api.sodax.com/v2/be/config/all` — so it reflects what the backend serves today rather than what an SDK release has listed.
+
+## Assets on Solana
+
+Live for swaps on Solana:
+
+<div data-sodax-config="swap-tokens" data-chain="solana">
+
+Live token list loads from the config API. If it has not appeared, read `config.swaps.supportedTokens.solana` from [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all), or use the SDK call below.
+
+</div>
+
+Live in the [Money Market](/solana/money-market) for supply, borrow, repay, and withdraw:
+
+<div data-sodax-config="money-market-tokens" data-chain="solana">
+
+Live token list loads from the config API — `config.moneyMarket.supportedTokens.solana` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+
+</div>
+
+Hub vault addresses per asset are listed in [Swaps: Compatible Assets](/developers/deployments/swaps-compatible-assets).
+
+## Assets your users can reach
+
+From a Solana-sourced action, users can trade, lend, and borrow across every SODAX-supported network:
+
+<div data-sodax-config="chains">
+
+Live network list loads from the config API — `config.chains` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+
+</div>
+
+Chain identifiers come from `ChainKeys.*` in the SDK (`ChainKeys.SOLANA_MAINNET` = `'solana'`), and the live chain list from `sodax.config.getSupportedSpokeChains()`. Prefer the config call over hard-coding: networks are added over time.
+
+## Asset discovery in code
+
+Never hard-code mints or asset lists; read them from the SDK config at runtime:
+
+```typescript
+import { Sodax, ChainKeys } from '@sodax/sdk';
+
+const sodax = new Sodax();
+await sodax.initialize(); // pull the latest asset config
+
+// Swappable assets on Solana
+const swapTokens = sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.SOLANA_MAINNET);
+
+// Money market assets on Solana
+const mmTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.SOLANA_MAINNET);
+```
+
+---
+
+- All deployment addresses by network: [Mainnet Deployments](/developers/deployments/mainnet)
+- The full cross-network asset directory: [sodax.com/partners/asset-directory](https://sodax.com/partners/asset-directory)

@@ -8,6 +8,7 @@ import type {
 } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { UseCreateSupplyLiquidityParamsResult } from './useCreateSupplyLiquidityParams.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
@@ -89,7 +90,7 @@ export function useSupplyLiquidity<K extends SpokeChainKey = SpokeChainKey>({
       }
       queryClient.invalidateQueries({ queryKey: ['dex', 'poolData', params.poolKey] });
       queryClient.invalidateQueries({ queryKey: ['dex', 'poolBalances', params.srcChainKey, params.srcAddress] });
-      queryClient.invalidateQueries({ queryKey: ['shared', 'xBalances', params.srcChainKey] });
+      invalidateBalances(queryClient, params.srcChainKey);
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },
   });

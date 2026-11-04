@@ -35,6 +35,7 @@ import {
   type EvmSpokeOnlyChainKey,
   type Hex,
   type IEvmWalletProvider,
+  type XToken,
 } from '@sodax/types';
 import { encodeFunctionData } from 'viem';
 import { connectionAbi, erc20Abi, spokeAssetManagerAbi } from '../../abis/index.js';
@@ -56,6 +57,7 @@ vi.mock('../erc-20/Erc20Service.js', async () => {
 });
 
 import { Sodax } from '../../entities/Sodax.js';
+import { getEvmViemChain } from '../../utils/constant-utils.js';
 import { EvmSpokeService } from './EvmSpokeService.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
 
@@ -73,7 +75,6 @@ const HEDERA = ChainKeys.HEDERA_MAINNET; // the only chain that scales native ms
 
 const arbConfig = spokeChainConfig[ARB];
 const ARB_ASSET_MANAGER = arbConfig.addresses.assetManager as Address;
-const ARB_CONNECTION = arbConfig.addresses.connection as Address;
 const ARB_NATIVE = arbConfig.nativeToken as Address;
 const ARB_RPC = arbConfig.rpcUrl;
 // A real ERC-20 deployed on Arbitrum (sourced from chain config). Grounds chain-independent
@@ -126,6 +127,7 @@ const TEST_CHAINS = [
   ChainKeys.REDBELLY_MAINNET,
   ChainKeys.KAIA_MAINNET,
   ChainKeys.HEDERA_MAINNET,
+  ChainKeys.ROBINHOOD_MAINNET,
 ] as const satisfies readonly EvmSpokeOnlyChainKey[];
 
 // Warm the publicClients cache for ARB so chain-independent test spies have a stable client
@@ -338,7 +340,7 @@ describe.each(TEST_CHAINS)('EvmSpokeService — %s', chainKey => {
       });
 
     it("ERC20 raw=true → rawTx targets this chain's assetManager with value=0n", async () => {
-      const result = await evmSpoke.deposit({
+      const result = await evmSpoke.deposit<true>({
         srcAddress: SRC_ADDR,
         srcChainKey: chainKey,
         to: HUB_WALLET,
@@ -371,16 +373,20 @@ describe.each(TEST_CHAINS)('EvmSpokeService — %s', chainKey => {
       });
 
       expect(result).toBe(TX_HASH);
-      expect(mockEvmProvider.sendTransaction).toHaveBeenCalledWith({
-        from: SRC_ADDR,
-        to: ASSET_MANAGER,
-        value: 0n,
-        data: expectedCalldata(CHAIN_TOKEN, 1_000n),
-      });
+      expect(mockEvmProvider.sendTransaction).toHaveBeenCalledWith(
+        {
+          from: SRC_ADDR,
+          to: ASSET_MANAGER,
+          value: 0n,
+          data: expectedCalldata(CHAIN_TOKEN, 1_000n),
+        },
+        // The tx must be chain-bound to the spoke it was built for.
+        { expectedChainId: getEvmViemChain(chainKey).id },
+      );
     });
 
     it("native raw=true → msg.value uses this chain's native scaling when token matches nativeToken", async () => {
-      const result = await evmSpoke.deposit({
+      const result = await evmSpoke.deposit<true>({
         srcAddress: SRC_ADDR,
         srcChainKey: chainKey,
         to: HUB_WALLET,
@@ -415,6 +421,7 @@ describe.each(TEST_CHAINS)('EvmSpokeService — %s', chainKey => {
       expect(result).toBe(TX_HASH);
       expect(mockEvmProvider.sendTransaction).toHaveBeenCalledWith(
         expect.objectContaining({ to: ASSET_MANAGER, value: scaleNativeMsgValue(chainKey, 1_000n) }),
+        { expectedChainId: getEvmViemChain(chainKey).id },
       );
     });
   });
@@ -463,12 +470,15 @@ describe.each(TEST_CHAINS)('EvmSpokeService — %s', chainKey => {
       });
 
       expect(result).toBe(TX_HASH);
-      expect(mockEvmProvider.sendTransaction).toHaveBeenCalledWith({
-        from: SRC_ADDR,
-        to: CONNECTION,
-        value: 0n,
-        data: expectedCalldata(DST_ADDR, '0xpayload' as Hex),
-      });
+      expect(mockEvmProvider.sendTransaction).toHaveBeenCalledWith(
+        {
+          from: SRC_ADDR,
+          to: CONNECTION,
+          value: 0n,
+          data: expectedCalldata(DST_ADDR, '0xpayload' as Hex),
+        },
+        { expectedChainId: getEvmViemChain(chainKey).id },
+      );
     });
   });
 
@@ -626,7 +636,7 @@ describe('EvmSpokeService.deposit — Hedera native msg.value scaling', () => {
     });
 
   it('scales a native HBAR deposit msg.value by 10^10 while leaving the transfer amount in 8 decimals', async () => {
-    const result = await evmSpoke.deposit({
+    const result = await evmSpoke.deposit<true>({
       srcAddress: SRC_ADDR,
       srcChainKey: HEDERA,
       to: HUB_WALLET,
@@ -648,7 +658,7 @@ describe('EvmSpokeService.deposit — Hedera native msg.value scaling', () => {
   });
 
   it('leaves msg.value at 0n for a non-native Hedera (ERC-20) deposit — no scaling', async () => {
-    const result = await evmSpoke.deposit({
+    const result = await evmSpoke.deposit<true>({
       srcAddress: SRC_ADDR,
       srcChainKey: HEDERA,
       to: HUB_WALLET,
@@ -664,7 +674,7 @@ describe('EvmSpokeService.deposit — Hedera native msg.value scaling', () => {
   });
 
   it('passes a non-Hedera native deposit msg.value through unscaled (Arbitrum)', async () => {
-    const result = await evmSpoke.deposit({
+    const result = await evmSpoke.deposit<true>({
       srcAddress: SRC_ADDR,
       srcChainKey: ARB,
       to: HUB_WALLET,
@@ -893,7 +903,7 @@ describe('EvmSpokeService — cross-chain independence', () => {
     const spy = vi.spyOn(sodax.config, 'getChainConfig');
 
     for (const chainKey of TEST_CHAINS) {
-      await evmSpoke.deposit({
+      await evmSpoke.deposit<true>({
         srcAddress: SRC_ADDR,
         srcChainKey: chainKey,
         to: HUB_WALLET,
@@ -910,5 +920,143 @@ describe('EvmSpokeService — cross-chain independence', () => {
     for (const chainKey of TEST_CHAINS) {
       expect(spy).toHaveBeenCalledWith(chainKey);
     }
+  });
+});
+
+// getWalletBalance / getWalletBalances read the USER's wallet holdings (native + erc20), in
+// contrast to getDeposit which reads the asset-manager holding. The native-vs-token branch and
+// the multicall batching are chain-independent, so they run on ARB (plus a Hedera native-scale
+// case), matching this file's chain-independent-branch convention.
+describe('EvmSpokeService.getWalletBalance / getWalletBalances', () => {
+  const xtoken = (address: Address, chainKey: EvmSpokeOnlyChainKey, symbol = 'TKN'): XToken => ({
+    symbol,
+    name: symbol,
+    decimals: 18,
+    address,
+    chainKey,
+    hubAsset: address,
+    vault: address,
+  });
+
+  it('reads the native coin via publicClient.getBalance on the user address', async () => {
+    const spy = vi.spyOn(arbClient, 'getBalance').mockResolvedValueOnce(1_234n);
+
+    const result = await evmSpoke.getWalletBalance({
+      srcChainKey: ARB,
+      srcAddress: SRC_ADDR,
+      token: xtoken(ARB_NATIVE, ARB),
+    });
+
+    expect(result).toBe(1_234n);
+    expect(spy).toHaveBeenCalledWith({ address: SRC_ADDR });
+  });
+
+  it('reads erc20 balanceOf with the USER as holder for a non-native token', async () => {
+    const spy = vi.spyOn(arbClient, 'readContract').mockResolvedValueOnce(5_000n);
+
+    const result = await evmSpoke.getWalletBalance({
+      srcChainKey: ARB,
+      srcAddress: SRC_ADDR,
+      token: xtoken(ARB_TOKEN, ARB),
+    });
+
+    expect(result).toBe(5_000n);
+    // Holder is srcAddress (the user), NOT the asset manager — the key difference from getDeposit.
+    expect(spy).toHaveBeenCalledWith({
+      address: ARB_TOKEN,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [SRC_ADDR],
+    });
+  });
+
+  it('scales the native balance down by 10^10 on Hedera', async () => {
+    const hederaClient = evmSpoke.getPublicClient(HEDERA);
+    vi.spyOn(hederaClient, 'getBalance').mockResolvedValueOnce(50_000_000_000n); // 5 HBAR in 18-dec weibar
+
+    const result = await evmSpoke.getWalletBalance({
+      srcChainKey: HEDERA,
+      srcAddress: SRC_ADDR,
+      token: xtoken(HEDERA_NATIVE, HEDERA),
+    });
+
+    expect(result).toBe(5n); // 50_000_000_000 / 10^10
+  });
+
+  it('batches non-native tokens through multicall3 and merges native balances', async () => {
+    const nativeSpy = vi.spyOn(arbClient, 'getBalance').mockResolvedValueOnce(100n);
+    const multicallSpy = vi
+      .spyOn(arbClient, 'multicall')
+      .mockResolvedValueOnce([{ status: 'success', result: 700n }] as never);
+
+    const result = await evmSpoke.getWalletBalances({
+      srcChainKey: ARB,
+      srcAddress: SRC_ADDR,
+      tokens: [xtoken(ARB_NATIVE, ARB, 'ETH'), xtoken(ARB_TOKEN, ARB, 'bnUSD')],
+    });
+
+    expect(result).toEqual({
+      [ARB_NATIVE]: 100n,
+      [ARB_TOKEN]: 700n,
+    });
+    expect(nativeSpy).toHaveBeenCalledWith({ address: SRC_ADDR });
+    expect(multicallSpy).toHaveBeenCalledWith({
+      contracts: [{ abi: erc20Abi, address: ARB_TOKEN, functionName: 'balanceOf', args: [SRC_ADDR] }],
+    });
+  });
+
+  it('reports a failed multicall entry as 0n and logs it, keeping the tokens that did resolve', async () => {
+    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
+    vi.spyOn(arbClient, 'getBalance').mockResolvedValueOnce(100n);
+    // viem fans a rejected aggregate3 chunk out as one failure entry per call in that chunk.
+    const rpcError = new Error('HTTP 429');
+    vi.spyOn(arbClient, 'multicall').mockResolvedValueOnce([
+      { status: 'failure', error: rpcError, result: undefined },
+    ] as never);
+
+    const result = await evmSpoke.getWalletBalances({
+      srcChainKey: ARB,
+      srcAddress: SRC_ADDR,
+      tokens: [xtoken(ARB_NATIVE, ARB, 'ETH'), xtoken(ARB_TOKEN, ARB, 'bnUSD')],
+    });
+
+    expect(result[ARB_NATIVE]).toBe(100n);
+    expect(result[ARB_TOKEN]).toBe(0n);
+    // The zero is indistinguishable from an empty wallet, so the log line is the only signal a
+    // read failed — assert it fired for that token, or a silent zero could regress unnoticed.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('balance read failed'),
+      expect.objectContaining({ chainKey: ARB, token: ARB_TOKEN, error: rpcError.message }),
+    );
+  });
+
+  it('rejects when no token in the batch could be read (a dead RPC must not look like an empty wallet)', async () => {
+    vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
+    vi.spyOn(arbClient, 'getBalance').mockRejectedValueOnce(new Error('HTTP 429'));
+    vi.spyOn(arbClient, 'multicall').mockResolvedValueOnce([
+      { status: 'failure', error: new Error('HTTP 429'), result: undefined },
+    ] as never);
+
+    await expect(
+      evmSpoke.getWalletBalances({
+        srcChainKey: ARB,
+        srcAddress: SRC_ADDR,
+        tokens: [xtoken(ARB_NATIVE, ARB, 'ETH'), xtoken(ARB_TOKEN, ARB, 'bnUSD')],
+      }),
+    ).rejects.toThrow(`every balance read failed on ${ARB}`);
+  });
+
+  it('keeps a genuine on-chain zero as a successful read', async () => {
+    // An empty wallet returns 0n from every read; that must not trip the all-failed rule.
+    vi.spyOn(arbClient, 'getBalance').mockResolvedValueOnce(0n);
+    vi.spyOn(arbClient, 'multicall').mockResolvedValueOnce([{ status: 'success', result: 0n }] as never);
+
+    const result = await evmSpoke.getWalletBalances({
+      srcChainKey: ARB,
+      srcAddress: SRC_ADDR,
+      tokens: [xtoken(ARB_NATIVE, ARB, 'ETH'), xtoken(ARB_TOKEN, ARB, 'bnUSD')],
+    });
+
+    expect(result).toEqual({ [ARB_NATIVE]: 0n, [ARB_TOKEN]: 0n });
   });
 });

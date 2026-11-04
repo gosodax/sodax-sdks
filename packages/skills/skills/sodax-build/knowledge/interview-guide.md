@@ -52,6 +52,7 @@ See [`feature-catalog.md`](./feature-catalog.md) for the plain-English descripti
 
 - **Who uses it** and **on which chains**. Tier A gets a recommended default to confirm (e.g. "start with a small number of EVM chains — one major chain plus one lower-fee chain"). Confirm against [`chains-and-assets.md`](./chains-and-assets.md).
 - **Honesty-gate** any unsupported chain.
+- **Do the users already have a crypto wallet?** If not (Tier A audiences often do not), offer email login as the onboarding default — EVM only, with the trade-offs in [`feature-catalog.md`](./feature-catalog.md#email-login--users-without-a-crypto-wallet). It changes the handoff.
 - **Flag non-EVM assets**: if the product touches **any non-EVM chain**, note that it pulls in a chain-specific wallet provider — this changes the handoff (a matching chain skill in `sodax-wallet-sdk-core`). Confirm which chains are non-EVM against live source if it matters.
 
 ## Stage 4 — Monetization detail (only if not "free")

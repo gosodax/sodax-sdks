@@ -122,7 +122,7 @@ Same shape changes as `useSwap` — drop `spokeProvider`, move domain inputs to 
 ## Pitfalls
 
 1. **`Intent.srcChain` / `Intent.dstChain` look like they should rename.** They didn't. Those are read-shape `IntentRelayChainId` (bigint), distinct from request-side `srcChainKey` / `dstChainKey`. Don't grep-replace.
-2. **`useStatus` polling default.** v2 polls every 3 s unconditionally once `intentTxHash` is supplied (it does not auto-stop on terminal states — your UI should disable rendering when no longer needed, or override `queryOptions.refetchInterval: false`). Port any v1 custom polling to `queryOptions.refetchInterval`.
+2. **`useStatus` polling default.** v2 polls every 3 s once `intentTxHash` is supplied, then stops on status `3` (SOLVED) / `4` (FAILED), and after 40 consecutive successful fetches while status stays `-1` (NOT_FOUND). In-flight `1` / `2` reset that streak and keep polling. Override with `queryOptions.refetchInterval`. Port any v1 custom polling to `queryOptions.refetchInterval`.
 3. **`useQuote` data is `Result<T>`** — branch on `data?.ok` before reading `data.value.quoted_amount`.
 
 ## Cross-references

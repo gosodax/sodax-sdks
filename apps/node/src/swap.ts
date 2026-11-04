@@ -2,7 +2,6 @@ import 'dotenv/config';
 import {
   Sodax,
   ChainKeys,
-  spokeChainConfig,
   type CreateIntentParams,
   type SolverIntentQuoteRequest,
   type SolverIntentStatusRequest,
@@ -43,8 +42,8 @@ async function executeSwap(inputAmount: bigint): Promise<void> {
     console.log('Step 2: Wallet provider ready');
 
     // Token addresses (native gas token on each chain)
-    const arbEthToken: string = spokeChainConfig[ChainKeys.ARBITRUM_MAINNET].nativeToken; // ETH on Arbitrum
-    const polygonPolToken: string = spokeChainConfig[ChainKeys.POLYGON_MAINNET].nativeToken; // POL on Polygon
+    const arbEthToken: string = sodax.config.spokeChainConfig[ChainKeys.ARBITRUM_MAINNET].nativeToken; // ETH on Arbitrum
+    const polygonPolToken: string = sodax.config.spokeChainConfig[ChainKeys.POLYGON_MAINNET].nativeToken; // POL on Polygon
 
     // Step 3: Get Quote
     console.log('Step 3: Getting quote...');
