@@ -1567,6 +1567,7 @@ describe('BridgeService.getDetailedStatus', () => {
   // Carries the identity fields the attribution guard matches on, so the happy paths exercise it.
   // The relay has its own chain numbering, so derive it rather than hardcoding a chain id.
   const RELAY_CHAIN_ID = Number(getIntentRelayChainId(ARBITRUM));
+  const HUB_RELAY_CHAIN_ID = Number(getIntentRelayChainId(ChainKeys.SONIC_MAINNET));
   const delivered = [{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }];
 
   beforeEach(() => {
@@ -1676,6 +1677,65 @@ describe('BridgeService.getDetailedStatus', () => {
       expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
     });
 
+    describe('to another spoke', () => {
+      const toArbitrum = { ...tronKey, dstChainKey: ARBITRUM } as const;
+      const onwardPacket = {
+        status: 'executed',
+        dst_tx_hash: '0xa7b1',
+        src_tx_hash: DST_TX,
+        src_chain_id: HUB_RELAY_CHAIN_ID,
+      };
+
+      beforeEach(() => {
+        recordNotFound();
+        deposit('minted', { hubMint: { chain: 'sonic', hash: DST_TX, ts: 0 } });
+      });
+
+      it('waits for the hub-to-spoke packet: the hub mint alone is not delivered', async () => {
+        packets([]);
+
+        const result = await sodaxBE.bridge.getDetailedStatus(toArbitrum);
+
+        invariant(!result.ok, 'expected LOOKUP_FAILED');
+        expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+        expect(result.error.context?.hubTxHash).toBe(DST_TX);
+      });
+
+      it('answers with that packet once it lands', async () => {
+        packets([onwardPacket]);
+
+        const result = await sodaxBE.bridge.getDetailedStatus(toArbitrum);
+
+        expect(result).toEqual({ ok: true, value: { source: 'relay', data: onwardPacket } });
+      });
+
+      it('keeps an onward miss out of the not-delivered budget while the backend is down', async () => {
+        vi.restoreAllMocks();
+        backendFails('upstream unavailable', 503);
+        deposit('minted', { hubMint: { chain: 'sonic', hash: DST_TX, ts: 0 } });
+        packets([]);
+
+        const result = await sodaxBE.bridge.getDetailedStatus(toArbitrum);
+
+        invariant(!result.ok, 'expected LOOKUP_FAILED');
+        expect(result.error.context?.reason).toBeUndefined();
+      });
+
+      it('has no onward leg when the destination is the source chain', async () => {
+        const result = await sodaxBE.bridge.getDetailedStatus({ ...tronKey, dstChainKey: ChainKeys.TRON_MAINNET });
+
+        invariant(result.ok && result.value.source === 'mpcRelay', 'expected the mpcRelay arm');
+        expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
+      });
+
+      it('keeps the hub mint as the answer for a bridge to the hub', async () => {
+        const result = await sodaxBE.bridge.getDetailedStatus({ ...tronKey, dstChainKey: ChainKeys.SONIC_MAINNET });
+
+        invariant(result.ok && result.value.source === 'mpcRelay', 'expected the mpcRelay arm');
+        expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
+      });
+    });
+
     it('tags a deposit the relay has not minted as the budgetable not-delivered miss', async () => {
       recordNotFound();
       deposit('attested', {});
@@ -1725,7 +1785,7 @@ describe('BridgeService.getDetailedStatus', () => {
 
     it('does not read the hub receipt when a hub-source packet already answers', async () => {
       recordNotFound();
-      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: 146 }]);
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: HUB_RELAY_CHAIN_ID }]);
 
       const result = await sodaxBE.bridge.getDetailedStatus(hubKey);
 

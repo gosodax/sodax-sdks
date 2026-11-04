@@ -22,9 +22,10 @@ useBridgeApprovalStrategy({ params: { payload, walletProvider, allowAccountUpgra
 // Polls 3s from the source tx; stops on a terminal source, a rejected API key, or 40 consecutive
 // ambiguous reads. Result-wrapped — narrow `data.value.source` ('backend' | 'relay' | 'mpcRelay';
 // on 'mpcRelay' the hash is data.value.data.txs.hubMint.hash, or .txs.release.hash for a payout to Tron).
-// Feed it `srcChainTxHash` on success, or `error.context.srcTxHash` / `srcChainKey` when the bridge
+// Feed it `srcChainTxHash` (plus `dstChainKey`, which a Tron source needs) on success, or
+// `error.context.srcTxHash` / `srcChainKey` when the bridge
 // failed after broadcast (verify / relay codes) — the deposit may still deliver.
-useBridgeDetailedStatus({ params: { srcChainKey, srcTxHash, apiConfig? }, queryOptions });
+useBridgeDetailedStatus({ params: { srcChainKey, srcTxHash, dstChainKey?, apiConfig? }, queryOptions });
 useGetBridgeableAmount({ params: { from: XToken, to: XToken }, queryOptions });
 useGetBridgeableTokens({ params: { from: SpokeChainKey, to: SpokeChainKey, token: string }, queryOptions });
 ```

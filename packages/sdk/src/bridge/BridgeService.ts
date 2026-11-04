@@ -1309,11 +1309,13 @@ export class BridgeService {
    * last reached, including a record it abandoned outright. Neither shape reflects what happened.
    *
    * 1. Read the backend record; return it while it is still in play.
-   * 2. Otherwise return the delivered relay packet, which is terminal by construction.
-   * 3. A bridge paying out on an MPC-relay chain has no packet for that leg, so it answers from the
+   * 2. From an MPC-relay source, return the relay's deposit record once minted on the hub, or, for a non-hub
+   *    `dstChainKey`, the hub-to-spoke packet once it lands.
+   * 3. Otherwise return the delivered relay packet, which is terminal by construction.
+   * 4. A bridge paying out on an MPC-relay chain has no packet for that leg, so it answers from the
    *    relay's release record instead, once the payout tx is recorded.
    *
-   * A rejected API key is the one failure that does **not** fall through to step 2: the status route
+   * A rejected API key is the one failure that does **not** fall through to the relay reads: the status route
    * is key-guarded, so degrading would bury a 401/403 behind a relay error and leave a poller
    * retrying a request only a corrected key can satisfy. It surfaces with `context.status` instead,
    * which is what `isAuthFailure` reads.
@@ -1373,7 +1375,26 @@ export class BridgeService {
             }),
           };
         }
-        return { ok: true, value: { source: 'mpcRelay', data: minted.deposit } };
+        const dst = params.dstChainKey;
+        // Like settle(): no onward leg to the hub or the source itself, and an MPC-relay leg is not a packet.
+        if (!dst || dst === params.srcChainKey || isHubChainKey(dst) || isMpcRelayChainKey(dst)) {
+          return { ok: true, value: { source: 'mpcRelay', data: minted.deposit } };
+        }
+        // The MPC relay produced the hub mint, so its leg to the spoke lands only once someone relays it.
+        const onward = await resolveDeliveredPacket({
+          srcChainKey: this.hubProvider.chainConfig.chain.key,
+          srcTxHash: minted.hubTxHash,
+          relayerApiEndpoint: this.config.relay.relayerApiEndpoint,
+          backendAnswered,
+        });
+        if (onward.ok) return { ok: true, value: { source: 'relay', data: onward.packet } };
+        return {
+          ok: false,
+          error: this.detailedStatusLookupFailed(onward.cause, params.srcChainKey, {
+            reason: onward.budgetable ? DETAILED_STATUS_NOT_DELIVERED : undefined,
+            hubTxHash: minted.hubTxHash,
+          }),
+        };
       }
 
       const delivered = await resolveDeliveredPacket({
@@ -1430,7 +1451,7 @@ export class BridgeService {
   private detailedStatusLookupFailed(
     cause: unknown,
     srcChainKey: SpokeChainKey,
-    extra?: { reason?: string; status?: number },
+    extra?: { reason?: string; status?: number; hubTxHash?: string },
   ): BridgeDetailedStatusError {
     return lookupFailed('bridge', 'getDetailedStatus', cause, { srcChainKey, action: 'bridge', ...extra });
   }

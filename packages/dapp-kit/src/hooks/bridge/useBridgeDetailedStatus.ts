@@ -22,6 +22,8 @@ export type UseBridgeDetailedStatusParams = ReadHookParams<
   {
     srcChainKey: SpokeChainKey | undefined;
     srcTxHash: string | undefined;
+    /** The bridge's destination; from Tron to another spoke the read waits for that leg. */
+    dstChainKey?: SpokeChainKey;
     apiConfig?: RequestOverrideConfig;
   }
 >;
@@ -30,7 +32,8 @@ export type UseBridgeDetailedStatusParams = ReadHookParams<
  * Hook for monitoring a bridge from its source-chain transaction.
  *
  * `useBridgeApiSubmitTxStatus` needs the backend to still hold a usable record; this takes
- * `(srcChainKey, srcTxHash)` — the pair you hold after `bridge()` — and routes to whichever source
+ * `(srcChainKey, srcTxHash)` — the pair you hold after `bridge()`, plus `dstChainKey` for a bridge from Tron —
+ * and routes to whichever source
  * can answer, so it also covers a bridge the client-side fallback completed. `data.value` is
  * discriminated on `source`, and each variant carries that source's payload unmodified.
  *
@@ -42,10 +45,16 @@ export type UseBridgeDetailedStatusParams = ReadHookParams<
  *
  * @example
  * ```typescript
- * const { data } = useBridgeDetailedStatus({ params: { srcChainKey, srcTxHash } });
+ * const { data } = useBridgeDetailedStatus({ params: { srcChainKey, srcTxHash, dstChainKey } });
  * if (data?.ok && data.value.source === 'relay') console.log(data.value.data.dst_tx_hash);
  * ```
  */
+/** The hub tx a Tron-source miss is waiting on past the hub mint, if any. */
+function onwardHubTxHash(data: UseBridgeDetailedStatusResult): string | undefined {
+  const hubTxHash = data && !data.ok ? data.error.context?.hubTxHash : undefined;
+  return typeof hubTxHash === 'string' ? hubTxHash : undefined;
+}
+
 export const useBridgeDetailedStatus = ({
   params,
   queryOptions,
@@ -53,22 +62,25 @@ export const useBridgeDetailedStatus = ({
   const { sodax } = useSodaxContext();
   const srcChainKey = params?.srcChainKey;
   const srcTxHash = params?.srcTxHash;
+  const dstChainKey = params?.dstChainKey;
   const apiConfig = params?.apiConfig;
   // Composite identity: a new bridge must start its own not-delivered budget.
-  const pollKey = srcChainKey && srcTxHash ? `${srcChainKey}:${srcTxHash}` : undefined;
+  const pollKey = srcChainKey && srcTxHash ? `${srcChainKey}:${srcTxHash}:${dstChainKey ?? ''}` : undefined;
   const notFoundStreakRef = useRef({ ...INITIAL_NOT_FOUND_STREAK });
 
   return useQuery({
-    queryKey: ['bridge', 'detailedStatus', srcChainKey, srcTxHash],
+    queryKey: ['bridge', 'detailedStatus', srcChainKey, srcTxHash, ...(dstChainKey ? [dstChainKey] : [])],
     queryFn: async () => {
       if (!srcChainKey || !srcTxHash) return undefined;
-      return sodax.bridge.getDetailedStatus({ srcChainKey, srcTxHash }, apiConfig);
+      return sodax.bridge.getDetailedStatus({ srcChainKey, srcTxHash, dstChainKey }, apiConfig);
     },
     enabled: !!srcChainKey && !!srcTxHash,
     refetchInterval: query => {
+      // Reaching the hub mint is progress, so the leg after it gets a budget of its own.
+      const hubTxHash = onwardHubTxHash(query.state.data);
       notFoundStreakRef.current = advanceNotFoundStreak(
         notFoundStreakRef.current,
-        pollKey,
+        pollKey && hubTxHash ? `${pollKey}:${hubTxHash}` : pollKey,
         isBridgeNotDelivered(query.state.data),
         query.state.dataUpdateCount,
       );
