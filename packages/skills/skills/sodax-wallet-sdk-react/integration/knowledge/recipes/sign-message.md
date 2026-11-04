@@ -27,7 +27,7 @@ const signature = await sign.mutateAsync({
 
 Return type is the discriminated union `` `0x${string}` | Uint8Array | string | undefined `` because each chain returns its native signature shape (hex for EVM, base64 for Stellar and Solana, etc.). Cast or branch on `xChainType` when consuming.
 
-`undefined` is returned (not thrown) when the chain doesn't implement `signMessage` (see the matrix below). A one-time `console.warn` accompanies the `undefined`.
+`undefined` is returned (not thrown) when the chain doesn't implement `signMessage` (see the matrix below). A `console.warn` accompanies the `undefined`.
 
 ---
 
@@ -123,6 +123,7 @@ Common error messages by chain:
 | Bitcoin | `<connector.id> does not support BIP-322 signing` (mismatch with address type), `User canceled the request` |
 | Stellar | `Stellar signature not found` |
 | Injective | `Injective signature not found`, `Injective address not found` |
+| Tron | `Tron wallet is on <account>, not the connected <address>. Reconnect and retry.` (account switched in the wallet), `Tron wallet is not connected. Reconnect and retry.` (no account on its TronWeb), `Tron wallet not connected` |
 
 `mutation.error` reflects the latest failure; `mutation.isError` / `mutation.isPending` follow standard React Query semantics.
 

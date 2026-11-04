@@ -97,7 +97,7 @@ The service does **not** expose bespoke "deposit into vault" / "redeem from vaul
 >
 > They refuse an MPC-relay `srcChainKey` (such as Tron) the same way. The SDK confirms a hub-wallet message from such a chain only by the release back to it, and a vault withdraw's message releases nothing itself, so a deposit from there would have no way out.
 >
-> A vault withdraw to an MPC-relay `dstChainKey` is refused, with `context.reason: 'mpc-payout-below-minimum'`, when its `minOutputAmount` is at or below `MpcRelayPayoutMinimums`: the relay's release fee comes out of the payout.
+> A vault withdraw to an MPC-relay `dstChainKey` is refused, with `context.reason: 'mpc-payout-below-minimum'`, when its `minOutputAmount` is at or below `MpcRelayPayoutMinimums`: the relay's release fee comes out of the payout. The solver notifies the relay of that release; `sodax.swaps.waitForIntentDelivery` waits for the payout once the intent is `SOLVED`.
 
 `createVaultIntent` / `vaultSwap` are leverage-yield copies of the swap domain's `createIntent` / `swap()` — duplicated **deliberately** so the vault-specific execution modifiers (`hubWalletSwap`, per-intent `partnerFee`) live on the leverage-yield action wrapper (`VaultSwapActionParams`) and never leak into the generic swap surface.
 

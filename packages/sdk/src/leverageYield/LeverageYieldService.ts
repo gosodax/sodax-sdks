@@ -1291,6 +1291,9 @@ export class LeverageYieldService {
    *   - `intent` — the on-chain intent object that was created.
    *   - `intentDeliveryInfo` — source/destination chain keys, tx hashes, and user addresses.
    *
+   *   A payout to an MPC-relay chain (Tron) is released once the solver notifies the relay of its fill;
+   *   `sodax.swaps.waitForIntentDelivery` waits for that payout.
+   *
    *   On failure `result.error` carries one of the create-intent codes plus
    *   `TX_VERIFICATION_FAILED`, `TX_SUBMIT_FAILED`, `RELAY_TIMEOUT`, `RELAY_FAILED`,
    *   `EXECUTION_FAILED`, `EXTERNAL_API_ERROR` or `UNKNOWN`.

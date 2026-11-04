@@ -167,6 +167,21 @@ import {
   type LeverageYieldVault,
   // …
 
+  // Tron / MPC relay (see chain-specifics.md § "Tron (MPC relay)")
+  isMpcRelayChainKey,
+  isMpcRelayChainKeyType,
+  type MpcRelayChainKey,
+  getUnmetMpcPayoutMinimum,     // the payout floor an amount misses, or undefined
+  MpcRelayPayoutMinimums,
+  type OutboundSettlement,      // borrow / withdraw result: TxHashPair, or from Tron { trackingId, dstChainTxHash }
+  type TronRawTransaction,      // raw Tron deposit
+  type TronRawWithdraw,         // raw Tron borrow / withdraw: a digest to sign
+  type SettleParams,            // sodax.spoke.settle
+  type HubRelease,              // sodax.spoke.submitHubRelease
+  type DepositRecord,           // MPC-relay deposit or release record
+  type WithdrawalRecord,
+  type IntentDelivery,          // sodax.swaps.waitForIntentDelivery
+
   // Delivery hooks (CreateIntentParams.hook — see features/swap.md)
   HookKind,
   type HookRequest,

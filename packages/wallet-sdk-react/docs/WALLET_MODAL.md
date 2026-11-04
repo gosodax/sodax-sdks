@@ -222,7 +222,7 @@ const modal = useWalletModal({
 });
 ```
 
-Default: `5_000` ms. Ignored for non-provider chains (Bitcoin, ICON, Stellar, NEAR, Stacks, Injective, Tron) — those return the account directly from `connect()`.
+Default: `5_000` ms. Ignored for non-provider chains — those return the account directly from `connect()`.
 
 ---
 

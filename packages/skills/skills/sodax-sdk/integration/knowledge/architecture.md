@@ -40,7 +40,7 @@ EvmHubProvider
 destination spoke (e.g. Stellar)
 ```
 
-For most consumers, this whole pipeline is one method call (`sodax.swaps.swap(...)`, `sodax.bridge.bridge(...)`, etc.). The result is a `Result<TxHashPair>` where `TxHashPair = { srcChainTxHash, dstChainTxHash }` — the spoke transaction hash on the source chain and the relayed hub transaction hash. The relay state in between is handled internally.
+For most consumers, this whole pipeline is one method call (`sodax.swaps.swap(...)`, `sodax.bridge.bridge(...)`, etc.). The result is a `Result<TxHashPair>` where `TxHashPair = { srcChainTxHash, dstChainTxHash }` — the spoke transaction hash on the source chain and the relayed hub transaction hash (from Tron, see [`ai-rules.md`](ai-rules.md)). The relay state in between is handled internally.
 
 **You will hit "the relay" surface area** when:
 

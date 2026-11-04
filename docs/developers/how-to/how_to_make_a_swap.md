@@ -433,7 +433,7 @@ await checkIntentStatus(sodax, intentDeliveryInfo.dstTxHash);
 - Maximum polling duration: 5 minutes by default (60 attempts × 5 seconds, configurable via `maxAttempts`)
 - Handles temporary API errors gracefully by continuing to poll
 
-**Note**: The `fill_tx_hash` field is only present when the status is `SOLVED (3)`. This is the transaction hash of the fill transaction on the destination chain.
+**Note**: The `fill_tx_hash` field is only present when the status is `SOLVED (3)`. This is the transaction hash of the fill transaction on the destination chain, or on the hub for an MPC-relay destination (Tron), whose release the solver notifies; `sodax.swaps.waitForIntentDelivery` returns the payout.
 
 ## Step 9: Handle Errors
 

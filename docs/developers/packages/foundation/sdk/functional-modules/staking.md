@@ -8,7 +8,7 @@ generatedFrom: packages/sdk/docs/STAKING.md
 
 The `StakingService` class, reachable through `sodax.staking`, provides functionality for staking SODA tokens,
 unstaking, claiming rewards, and retrieving staking information. It supports operations across all spoke chains
-with automatic hub chain integration.
+except an MPC-relay chain (Tron), with automatic hub chain integration.
 
 ## Setup
 

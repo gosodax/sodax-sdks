@@ -27,7 +27,7 @@ What did NOT change → [bottom of file](#what-did-not-change).
 
 v1 spread chain configuration across **three separate props**: `rpcConfig` (per-chain RPC URLs), `options` (per-adapter options like `wagmi.ssr`, `solana.autoConnect`, `sui.autoConnect`), and `initialState` (wagmi state for SSR hydration).
 
-v2 collapses all three into a **single `config` prop** of type `SodaxWalletConfig`. The new shape uses **chain-type slots** (`EVM`, `SOLANA`, `SUI`, `BITCOIN`, `STELLAR`, `ICON`, `INJECTIVE`, `NEAR`, `STACKS`) at the top level. Each slot is `ChainTypeConfig<T>` — adapter options merged with `{ chains?, connectors? }` where `chains` is keyed by `ChainKey` and holds per-chain `{ rpcUrl?, defaults? }` — except `SUI`, whose entry is `{ grpcUrl?, defaults? }` with `rpcUrl` kept as a deprecated alias.
+v2 collapses all three into a **single `config` prop** of type `SodaxWalletConfig`. The new shape uses **chain-type slots** (one per `ChainTypeArr` member in `@sodax/types`) at the top level. Each slot is `ChainTypeConfig<T>` — adapter options merged with `{ chains?, connectors? }` where `chains` is keyed by `ChainKey` and holds per-chain `{ rpcUrl?, defaults? }` — except `SUI`, whose entry is `{ grpcUrl?, defaults? }` with `rpcUrl` kept as a deprecated alias.
 
 ### Why
 
@@ -302,7 +302,7 @@ Bumping `configVersion` (e.g. when the user picks a new RPC endpoint) forces a c
 
 ## What did NOT change
 
-- Chain support: still 9 chain types (EVM, BITCOIN, INJECTIVE, STELLAR, SUI, SOLANA, ICON, NEAR, STACKS).
+- Chain support: every v1 chain type remains (full list: `ChainTypeArr` in `@sodax/types`).
 - Persisted localStorage key: still `xwagmi-store`.
 - Devtools store name: still `xwagmi-store`.
 - Peer dependencies: `react >= 19`, `@tanstack/react-query 5.x`.

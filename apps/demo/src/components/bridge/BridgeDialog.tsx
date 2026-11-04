@@ -25,9 +25,11 @@ import {
   type IBitcoinWalletProvider,
   type CreateBridgeIntentParams,
   getUnmetMpcPayoutMinimum,
+  isMpcRelayChainKey,
 } from '@sodax/dapp-kit';
 import { useEvmSwitchChain, useWalletProvider, useXAccount } from '@sodax/wallet-sdk-react';
 import { BitcoinSetupPanel } from '@/components/bitcoin/BitcoinSetupPanel';
+import { getChainName } from '@/constants';
 import { formatMutationFailureMessage, rescaleTokenAmount } from '@/lib/utils';
 import { type UnconfirmedBatch, unconfirmedBatchOf } from '@/lib/heldBatch';
 import { ArrowLeftRight, Loader2 } from 'lucide-react';
@@ -234,6 +236,14 @@ export function BridgeDialog({
           </div>
           <div>Amount: {formatUnits(order.amount, fromToken?.decimals ?? 0)}</div>
           <div className="break-all">Recipient: {order.recipient}</div>
+
+          {/* Below the minimum, PayoutMinimumNotice already says this. */}
+          {isMpcRelayChainKey(toChainKey) && !unmetPayoutMinimum && (
+            <div className="text-muted-foreground">
+              The recipient gets this amount less any partner fee and the relay's release fee on{' '}
+              {getChainName(toChainKey) || toChainKey}. That fee varies per release and is not quoted in advance.
+            </div>
+          )}
 
           {isBelowDestinationUnit && toToken && (
             <div className="text-red-500">

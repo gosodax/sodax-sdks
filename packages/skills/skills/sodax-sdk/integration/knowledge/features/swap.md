@@ -30,7 +30,7 @@ asset. Canonical hub vault registration alone does not enable swaps or lending.
 
 Two execution paths:
 
-- **`swap`** — full flow in one call. Wraps `createIntent` + relay + `postExecution`. Returns `SwapResponse` on success. By default uses a **backend-driven 2-step** variant (`swaps.useBackendSubmitTx`, default `true` — the backend relays + post-executes server-side); on any non-success it falls back to the client-side relay, returning the same `SwapResponse`. Set `new Sodax({ swaps: { useBackendSubmitTx: false } })` to force client-side only. The SDK does NOT verify the tx on-chain before handing it to the backend — the backend verifies itself, so `verifyTxHash` (and `TX_VERIFICATION_FAILED`) belong to the client-side path only. `timeout` (defaults to `DEFAULT_RELAY_TX_TIMEOUT`) is a PER-ATTEMPT budget, not end-to-end: the backend attempt (submit POST + status poll) gets it, and if that attempt does not complete the client-side relay wait gets a fresh one starting after verification — so neither a stalled backend nor a slow source-chain confirmation shortens the fallback, and raising `timeout` grows both. Each backend request is clamped to `min(budget left in the attempt, api.timeout)`; `api.timeout` is configurable (packaged default `DEFAULT_BACKEND_API_TIMEOUT`), and once the attempt's remainder drops below it a single stalled request can spend what is left — the clamp bounds a request by the attempt, it does not guarantee a retry. Worst case is `createIntent + timeout + verification + max(timeout, RELAY_FALLBACK_FLOOR_MS) + postExecution`; verification is bounded by the source chain's `pollingConfig.maxTimeoutMs` (varies widely — Stacks is several times Sui — read `chains.ts`, and it is a no-op on EVM), and intent creation and post-execution are not bounded by `timeout` at all.
+- **`swap`** — full flow in one call. Wraps `createIntent` + relay + `postExecution`. Returns `SwapResponse` on success. By default uses a **backend-driven 2-step** variant (`swaps.useBackendSubmitTx`, default `true` — the backend relays + post-executes server-side; a Tron source always takes the client-side path); on any non-success it falls back to the client-side relay, returning the same `SwapResponse`. Set `new Sodax({ swaps: { useBackendSubmitTx: false } })` to force client-side only. The SDK does NOT verify the tx on-chain before handing it to the backend — the backend verifies itself, so `verifyTxHash` (and `TX_VERIFICATION_FAILED`) belong to the client-side path only. `timeout` (defaults to `DEFAULT_RELAY_TX_TIMEOUT`) is a PER-ATTEMPT budget, not end-to-end: the backend attempt (submit POST + status poll) gets it, and if that attempt does not complete the client-side relay wait gets a fresh one starting after verification — so neither a stalled backend nor a slow source-chain confirmation shortens the fallback, and raising `timeout` grows both. Each backend request is clamped to `min(budget left in the attempt, api.timeout)`; `api.timeout` is configurable (packaged default `DEFAULT_BACKEND_API_TIMEOUT`), and once the attempt's remainder drops below it a single stalled request can spend what is left — the clamp bounds a request by the attempt, it does not guarantee a retry. Worst case is `createIntent + timeout + verification + max(timeout, RELAY_FALLBACK_FLOOR_MS) + postExecution`; verification is bounded by the source chain's `pollingConfig.maxTimeoutMs` (varies widely — Stacks is several times Sui — read `chains.ts`, and it is a no-op on EVM), and intent creation and post-execution are not bounded by `timeout` at all.
 - **`createIntent` + backend submit** — break it apart for custom relay handling. `createIntent` returns `{ tx, intent, relayData }`; submit `relayData.payload` to the backend swap-tx endpoint via `sodax.api.swaps.submitTx`.
 
 ## Public methods
@@ -90,6 +90,9 @@ sodax.swaps.getDetailedStatus(
   params: { srcChainKey: SpokeChainKey; srcTxHash: string },   // the SOURCE-chain tx hash
 ): Promise<Result<DetailedSwapStatus, SodaxError<'LOOKUP_FAILED'>>>;
 //   Routes to the backend submit-tx record or the solver. Does NOT define a new status vocabulary.
+
+sodax.swaps.waitForIntentDelivery({ chainId, fillTxHash, timeout? }): Promise<Result<IntentDelivery>>;
+//   After SOLVED: where the output landed (`dstTxHash`). To Tron, that is the release of the fill, which the solver notifies.
 ```
 
 ## Approve and swap in one signature
@@ -204,7 +207,7 @@ type CreateIntentParams<K extends SpokeChainKey> = {
 };
 ```
 
-`CreateLimitOrderParams<K>` is `Omit<CreateIntentParams<K>, 'deadline'> & { deadline?: bigint }` — it makes `deadline` optional rather than removing it; when omitted the SDK forces it to `0n` internally (limit orders use a different expiry mechanism).
+`CreateLimitOrderParams<K>` is `Omit<CreateIntentParams<K>, 'deadline'> & { deadline?: bigint }` — it makes `deadline` optional rather than removing it; when omitted the SDK forces it to `0n` internally (limit orders use a different expiry mechanism). A Tron source refuses a limit order: see [`chain-specifics.md`](../chain-specifics.md#6-tron-mpc-relay).
 
 ### Delivery hooks (`hook` / `deliveryData`)
 
@@ -406,7 +409,7 @@ await sodax.swaps.cancelIntent({
 });
 ```
 
-Relay handling is chain-aware and needs no caller input: Solana cancels submit the cancel payload with the spoke tx, Bitcoin cancels relay the signed on-demand payload. On Bitcoin `srcChainTxHash` is the relay's `od:<hash>` id, not a chain tx hash.
+A Tron source cannot be cancelled: see [`chain-specifics.md`](../chain-specifics.md#6-tron-mpc-relay). Relay handling is chain-aware and needs no caller input: Solana cancels submit the cancel payload with the spoke tx, Bitcoin cancels relay the signed on-demand payload. On Bitcoin `srcChainTxHash` is the relay's `od:<hash>` id, not a chain tx hash.
 
 `params.srcAddress` (optional) overrides the wallet the cancel is sent from; it defaults to the intent's `srcAddress`, or on Bitcoin TRADING mode to `walletProvider.getWalletAddress()` (the intent stores the trading address). A raw (`raw: true`) Bitcoin TRADING-mode cancel must pass it.
 

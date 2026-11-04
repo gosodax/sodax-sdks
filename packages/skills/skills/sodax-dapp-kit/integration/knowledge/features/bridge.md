@@ -20,7 +20,8 @@ useBridgeAllowance({ params: { payload: CreateBridgeIntentParams<K>, walletProvi
 // 'not-required' | 'atomic-batch' | 'sequential' — the path useBridgeWithApproval would take; not polled
 useBridgeApprovalStrategy({ params: { payload, walletProvider, allowAccountUpgrade? }, queryOptions });
 // Polls 3s from the source tx; stops on a terminal source, a rejected API key, or 40 consecutive
-// ambiguous reads. Result-wrapped — narrow `data.value.source` ('backend' | 'relay').
+// ambiguous reads. Result-wrapped — narrow `data.value.source` ('backend' | 'relay' | 'mpcRelay';
+// on 'mpcRelay' the hash is data.value.data.txs.hubMint.hash, or .txs.release.hash for a payout to Tron).
 // Feed it `srcChainTxHash` on success, or `error.context.srcTxHash` / `srcChainKey` when the bridge
 // failed after broadcast (verify / relay codes) — the deposit may still deliver.
 useBridgeDetailedStatus({ params: { srcChainKey, srcTxHash, apiConfig? }, queryOptions });

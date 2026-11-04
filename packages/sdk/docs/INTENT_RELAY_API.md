@@ -39,7 +39,7 @@ On failure, check `result.error.message` for CODE-form errors such as `'SUBMIT_T
 
 ### High-Level Entry Point: `relayTxAndWaitPacket`
 
-For most use cases, call `relayTxAndWaitPacket` rather than invoking `submitTransaction` / `waitUntilIntentExecuted` separately. It submits the transaction and polls until the relay packet reaches `'executed'` status.
+For most use cases, call `relayTxAndWaitPacket` rather than invoking `submitTransaction` / `waitUntilIntentExecuted` separately. It submits the transaction and polls until the relay packet reaches `'executed'` status. An MPC-relay chain's tx does not ride this relay: settle it with [`sodax.spoke.settle`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/SpokeService.ts).
 
 ```typescript
 import { relayTxAndWaitPacket } from '@sodax/sdk';

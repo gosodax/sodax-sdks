@@ -204,6 +204,7 @@ Common error messages by chain:
 | Bitcoin | `<connector.id> does not support BIP-322 signing` (mismatch with address type), `User canceled the request` |
 | Stellar | Raw `@creit.tech/stellar-wallets-kit` errors (user rejection, no wallet selected) — the registry action adds none of its own |
 | Injective | `Injective signature not found`, `Injective address not found` |
+| Tron | `Tron wallet is on <account>, not the connected <address>. Reconnect and retry.` (account switched in the wallet), `Tron wallet is not connected. Reconnect and retry.` (no account on its TronWeb), `Tron wallet not connected` |
 
 `mutation.error` reflects the latest failure; `mutation.isError` / `mutation.isPending` follow standard React Query semantics.
 

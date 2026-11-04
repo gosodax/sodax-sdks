@@ -61,7 +61,7 @@ How to setup local development
 * NEAR ✅
 * Stacks ✅
 * Bitcoin ✅ (BTC only)
-* Tron ✅
+* Tron ✅ (USDT only)
 
 <a href="https://docs.sodax.com/developers/packages/foundation/sdk/functional-modules/bridge" class="button secondary" data-icon="bridge-suspension">Bridge</a>- Cross-chain token bridging
 

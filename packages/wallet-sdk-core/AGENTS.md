@@ -31,7 +31,7 @@ src/
     ├── stacks/                       # Stacks (@stacks/transactions)
     ├── bitcoin/                      # Bitcoin (bitcoinjs-lib, PSBT signing)
     ├── near/                         # NEAR (near-api-js)
-    └── tron/                         # Tron (no chain SDK: TronWeb typed structurally, viem signs)
+    └── tron/                         # Tron (no chain SDK: TronWeb typed structurally, viem signs with a private key)
 ```
 
 ### Provider Pattern

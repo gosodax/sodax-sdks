@@ -171,7 +171,7 @@ const clarityValue = await provider.readContract(params);
 
 ## Tron
 
-The provider does not build transactions: get an unsigned one from your node (TronGrid `createtransaction` / `triggersmartcontract`), then call `signTransaction`, `sendTransaction` (returns the tx id) and `waitForTransactionReceipt`. The receipt comes back once the tx is in a block, reverted or not, so check its `receipt?.result`. `signMessage` takes a 32-byte hash, not free text — see [`../features/tron.md`](../features/tron.md). [`TronWalletProvider.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/TronWalletProvider.test.ts) covers each call, with the node stubbed.
+The provider does not build transactions: get an unsigned one from your node (TronGrid `createtransaction` / `triggersmartcontract`), then call `signTransaction`, `sendTransaction` (returns the tx id) and `waitForTransactionReceipt`. The receipt comes back once the tx is in a block, reverted or not, so check its `receipt?.result`. The node rejects a raw tx sent to `signAndSendTransaction` after `raw_data.expiration`; move it first with the SDK's `sodax.spoke.tron.extendExpiration`. A raw deposit must still be submitted to the MPC relay (see the `sodax-sdk` skill). `signMessage` takes a 32-byte hash, not free text — see [`../features/tron.md`](../features/tron.md). [`TronWalletProvider.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/TronWalletProvider.test.ts) covers each call, with the node stubbed.
 
 ---
 
