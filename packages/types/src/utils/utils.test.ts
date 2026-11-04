@@ -37,7 +37,7 @@ describe('getUnmetMpcPayoutMinimum', () => {
   const trx = { chainKey: ChainKeys.TRON_MAINNET, symbol: 'TRX', decimals: 6 };
 
   it('fails below and at the minimum, since the relay skips a release once fee >= amount', () => {
-    const unmet = { symbol: 'USDT', decimals: 6, minimum: 3_000_000n };
+    const unmet = { symbol: 'USDT', decimals: 6, minimum: 3_000_000n, inclusive: false };
     expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 2_999_999n })).toEqual(unmet);
     expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3_000_000n })).toEqual(unmet);
     expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3_000_001n })).toBeUndefined();
@@ -50,6 +50,23 @@ describe('getUnmetMpcPayoutMinimum', () => {
     expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 2n * 10n ** 18n, amountDecimals: 18 })).toBeDefined();
     expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3n * 10n ** 18n, amountDecimals: 18 })).toBeDefined();
     expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3n * 10n ** 18n + 1n, amountDecimals: 18 })).toBeUndefined();
+  });
+
+  describe('a floor the amount may equal (Cardano)', () => {
+    const ada = { chainKey: ChainKeys.CARDANO_MAINNET, symbol: 'ADA', decimals: 6 };
+    const unmet = { symbol: 'ADA', decimals: 6, minimum: 1_000_000n, inclusive: true };
+
+    it('fails below 1 ADA but passes exactly 1 ADA, which the relay releases', () => {
+      expect(getUnmetMpcPayoutMinimum({ token: ada, amount: 999_999n })).toEqual(unmet);
+      expect(getUnmetMpcPayoutMinimum({ token: ada, amount: 1n })).toEqual(unmet);
+      expect(getUnmetMpcPayoutMinimum({ token: ada, amount: 1_000_000n })).toBeUndefined();
+      expect(getUnmetMpcPayoutMinimum({ token: ada, amount: 1_000_001n })).toBeUndefined();
+    });
+
+    it('compares an amount given in other decimals without rounding', () => {
+      expect(getUnmetMpcPayoutMinimum({ token: ada, amount: 10n ** 18n - 1n, amountDecimals: 18 })).toEqual(unmet);
+      expect(getUnmetMpcPayoutMinimum({ token: ada, amount: 10n ** 18n, amountDecimals: 18 })).toBeUndefined();
+    });
   });
 
   it('passes a chain or token with no minimum', () => {

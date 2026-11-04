@@ -278,6 +278,8 @@ export const moneyMarketSupportedTokens = {
   [ChainKeys.ZCASH_MAINNET]: [
     spokeChainConfig[ChainKeys.ZCASH_MAINNET].supportedTokens.ZEC,
   ] as const satisfies XToken[],
+  // None: the sodaADA vault is not a lending-pool reserve.
+  [ChainKeys.CARDANO_MAINNET]: [],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 export const moneyMarketReserveAssets = [

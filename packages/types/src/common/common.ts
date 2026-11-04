@@ -21,6 +21,7 @@ import type {
 import type { XrpRawTransaction, XrpReturnType } from '../xrp/xrp.js';
 import type { TonGasEstimate, TonRawTransaction, TonReturnType } from '../ton/ton.js';
 import type { ZcashGasEstimate, ZcashRawTransaction, ZcashReturnType } from '../zcash/zcash.js';
+import type { CardanoGasEstimate, CardanoRawTransaction, CardanoReturnType } from '../cardano/cardano.js';
 import type { GetWalletProviderType } from '../wallet/providers.js';
 
 export type Default = {
@@ -219,7 +220,8 @@ export type RawTxReturnType =
   | TronRawWithdraw
   | XrpRawTransaction
   | TonRawTransaction
-  | ZcashRawTransaction;
+  | ZcashRawTransaction
+  | CardanoRawTransaction;
 
 export type GetDefaultTxReturnType<Raw extends boolean> = Raw extends true ? RawTxReturnType : HashTxReturnType;
 
@@ -254,7 +256,9 @@ export type TxReturnType<C extends SpokeChainKey | ChainType, Raw extends boolea
                           ? TonReturnType<Raw>
                           : GetChainType<C> extends 'ZCASH'
                             ? ZcashReturnType<Raw>
-                            : GetDefaultTxReturnType<Raw>;
+                            : GetChainType<C> extends 'CARDANO'
+                              ? CardanoReturnType<Raw>
+                              : GetDefaultTxReturnType<Raw>;
 
 /** What a deposit returns on `C`: {@link TxReturnType}, except that a Tron deposit is only ever a transfer. */
 export type DepositReturnType<C extends SpokeChainKey | ChainType, Raw extends boolean> =
@@ -335,7 +339,8 @@ export type GasEstimateType =
   | TronGasEstimate
   | XrpGasEstimate
   | TonGasEstimate
-  | ZcashGasEstimate;
+  | ZcashGasEstimate
+  | CardanoGasEstimate;
 
 export type GetEstimateGasReturnTypeForSpokeChainId<C extends SpokeChainKey | ChainType> =
   GetChainType<C> extends 'EVM'
@@ -364,7 +369,9 @@ export type GetEstimateGasReturnTypeForSpokeChainId<C extends SpokeChainKey | Ch
                           ? TonGasEstimate
                           : GetChainType<C> extends 'ZCASH'
                             ? ZcashGasEstimate
-                            : GasEstimateType;
+                            : GetChainType<C> extends 'CARDANO'
+                              ? CardanoGasEstimate
+                              : GasEstimateType;
 
 export type GetEstimateGasReturnTypeForChainType<C extends ChainType> = C extends 'EVM'
   ? EvmGasEstimate
@@ -392,7 +399,9 @@ export type GetEstimateGasReturnTypeForChainType<C extends ChainType> = C extend
                         ? TonGasEstimate
                         : C extends 'ZCASH'
                           ? ZcashGasEstimate
-                          : GasEstimateType;
+                          : C extends 'CARDANO'
+                            ? CardanoGasEstimate
+                            : GasEstimateType;
 
 export type GetEstimateGasReturnType<C extends SpokeChainKey | ChainType> = C extends SpokeChainKey
   ? GetEstimateGasReturnTypeForSpokeChainId<C>

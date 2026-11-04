@@ -18,4 +18,4 @@ New public surface:
 - `@sodax/wallet-sdk-core` — `ZcashWalletProvider` in raw-key mode (`signTransaction`) and browser-wallet mode (`sendTransfer`), plus `serializeZcashV5` and `zip244SignatureDigest`.
 - `@sodax/wallet-sdk-react` — `ZcashXService` and the Noir Wallet `ZcashXConnector`, wired into `chainRegistry` under the `ZCASH` config slot.
 
-ZEC is swap-supported in the **staging** solver environment only. There is no money market: sodaZEC is not a lending-pool reserve.
+ZEC is swap-supported in the **staging** solver environment only. It is also listed in the money market: the sodaZEC vault is a lending-pool reserve.

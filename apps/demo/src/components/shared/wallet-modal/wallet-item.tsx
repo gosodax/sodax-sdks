@@ -41,6 +41,10 @@ const WalletItem = ({ name, xChainType, onConnectionSuccess }: WalletItemProps) 
       } catch (error) {
         // Closing a wallet's own dialog (Privy, WalletConnect) rejects the connect; that is not an error.
         if (!(error instanceof Error && error.name === 'UserRejectedRequestError')) console.error(error);
+        // A wallet that is not installed cannot connect: send the user to where it can be installed.
+        if (!xConnector.isInstalled && xConnector.installUrl) {
+          window.open(xConnector.installUrl, '_blank', 'noopener,noreferrer');
+        }
         setWasConnecting(false);
       } finally {
         setConnectingXConnector(null);

@@ -21,6 +21,7 @@ import type {
   XrpRawTransactionReceipt,
   TonRawTransactionReceipt,
   ZcashRawTransactionReceipt,
+  CardanoRawTransactionReceipt,
   ChainType,
   GetAddressType,
   EvmSpokeOnlyChainKey,
@@ -164,9 +165,11 @@ export type GetTxReceiptType<C extends SpokeChainKey | ChainType> =
                         ? XrpRawTransactionReceipt
                         : GetChainType<C> extends 'TON'
                           ? TonRawTransactionReceipt
-                          : GetChainType<C> extends 'ZCASH'
-                            ? ZcashRawTransactionReceipt
-                          : unknown;
+                          : GetChainType<C> extends 'CARDANO'
+                            ? CardanoRawTransactionReceipt
+                            : GetChainType<C> extends 'ZCASH'
+                              ? ZcashRawTransactionReceipt
+                              : unknown;
 
 export type TxStatus = 'success' | 'failure' | 'timeout';
 export type WaitForTxReceiptParams<C extends SpokeChainKey> = {
@@ -232,18 +235,18 @@ export type SpokeIsAllowanceValidParamsOther<K extends OtherSpokeChainKey = Othe
 export type SpokeIsAllowanceValidParams<K extends SpokeChainKey = SpokeChainKey> = K extends MonadChainKey
   ? SpokeIsAllowanceValidParamsOther<K>
   : K extends EvmChainKey
-  ? K extends HubChainKey // handle case when EvmChainKey type is passed
-    ? SpokeIsAllowanceValidParamsHub<K>
-    : SpokeIsAllowanceValidParamsEvmSpoke<EvmSpokeOnlyChainKey>
-  : K extends HubChainKey
-    ? SpokeIsAllowanceValidParamsHub<K>
-    : K extends EvmSpokeOnlyChainKey
-      ? SpokeIsAllowanceValidParamsEvmSpoke<K>
-      : K extends StellarChainKey
-        ? SpokeIsAllowanceValidParamsStellar<K>
-        : K extends OtherSpokeChainKey
-          ? SpokeIsAllowanceValidParamsOther<K>
-          : never;
+    ? K extends HubChainKey // handle case when EvmChainKey type is passed
+      ? SpokeIsAllowanceValidParamsHub<K>
+      : SpokeIsAllowanceValidParamsEvmSpoke<EvmSpokeOnlyChainKey>
+    : K extends HubChainKey
+      ? SpokeIsAllowanceValidParamsHub<K>
+      : K extends EvmSpokeOnlyChainKey
+        ? SpokeIsAllowanceValidParamsEvmSpoke<K>
+        : K extends StellarChainKey
+          ? SpokeIsAllowanceValidParamsStellar<K>
+          : K extends OtherSpokeChainKey
+            ? SpokeIsAllowanceValidParamsOther<K>
+            : never;
 
 type SpokeApproveParamsCommon<K extends SpokeChainKey, Raw extends boolean> = {
   token: GetTokenAddressType<K>;

@@ -31,6 +31,8 @@ const rpcConfig: RpcConfig = {
   [ChainKeys.TRON_MAINNET]: process.env.TRON_RPC_URL ?? 'https://api.trongrid.io',
   [ChainKeys.XRP_MAINNET]: process.env.XRP_RPC_URL ?? 'https://xrplcluster.com',
   [ChainKeys.TON_MAINNET]: process.env.TON_RPC_URL ?? 'https://toncenter.com/api/v2/jsonRPC',
+  // Public Koios sends no CORS headers on responses, so the dev server proxies it at `/__koios` (vite.config.ts).
+  [ChainKeys.CARDANO_MAINNET]: process.env.CARDANO_RPC_URL ?? `${window.location.origin}/__koios`,
   [ChainKeys.STELLAR_MAINNET]: {
     horizonRpcUrl: process.env.STELLAR_HORIZON_RPC_URL ?? 'https://horizon.stellar.org',
     sorobanRpcUrl: process.env.STELLAR_SOROBAN_RPC_URL ?? 'https://rpc.ankr.com/stellar_soroban',
@@ -140,6 +142,12 @@ export default function Providers({ children, privy }: { children: ReactNode; pr
       },
       // Zcash rides the MPC relay in address mode; Noir Wallet is its connector.
       ZCASH: {},
+      // Cardano rides the MPC relay in memo mode; Lace (CIP-30) is its connector and Koios supplies the UTXOs.
+      CARDANO: {
+        chains: {
+          [ChainKeys.CARDANO_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.CARDANO_MAINNET] },
+        },
+      },
     };
   }, [privy]);
 
@@ -210,6 +218,7 @@ export default function Providers({ children, privy }: { children: ReactNode; pr
         [ChainKeys.TRON_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.TRON_MAINNET] },
         [ChainKeys.XRP_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.XRP_MAINNET] },
         [ChainKeys.TON_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.TON_MAINNET] },
+        [ChainKeys.CARDANO_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.CARDANO_MAINNET] },
       },
     };
   }, [solverEnvironment, sodaxSettings]);

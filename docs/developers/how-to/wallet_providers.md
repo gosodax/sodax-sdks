@@ -40,6 +40,7 @@ Every chain family has a named interface that `@sodax/sdk` exports:
 | `IBitcoinWalletProvider` | `'BITCOIN'` | Bitcoin |
 | `INearWalletProvider` | `'NEAR'` | NEAR |
 | `ITronWalletProvider` | `'TRON'` | Tron |
+| `ICardanoWalletProvider` | `'CARDANO'` | Cardano |
 
 All interfaces extend `WalletAddressProvider` (from `@sodax/sdk`), which requires:
 
@@ -201,6 +202,7 @@ All config types include an optional `defaults` field for per-method behavioral 
 | Bitcoin | `BitcoinWalletProvider` | bitcoinjs-lib (PSBT) | `'BITCOIN'` |
 | NEAR | `NearWalletProvider` | near-api-js | `'NEAR'` |
 | Tron | `TronWalletProvider` | none (TronWeb typed structurally) | `'TRON'` |
+| Cardano | `CardanoWalletProvider` | none (a CIP-30 wallet typed structurally) | `'CARDANO'` |
 
 ---
 
@@ -416,6 +418,30 @@ new NearWalletProvider({
 
 ---
 
+### Cardano (`CardanoWalletProvider`)
+
+Browser-wallet mode only: a CIP-30 wallet (Lace) holds the key. The SDK builds the deposit transaction from the
+account's pure-ADA UTXOs (read from Koios), the wallet adds its witness (`signTx`) and submits it, and a withdraw
+authorization is a `signData` over the readable `0x<hash>` payload.
+
+```ts
+new CardanoWalletProvider({
+  wallet: {                // CardanoWalletLike: the CIP-30 calls, hex CBOR without 0x
+    getAddress,            // bech32 key-hash payment address
+    signTx,                // api.signTx(tx, false) → witness set
+    submitTx,              // api.submitTx(tx) → tx hash
+    signData,              // api.signData(address, payload)
+  },
+  defaults?: CardanoWalletDefaults,
+});
+```
+
+The SDK reads UTXOs, the tip and the protocol parameters from Koios (`chains.cardano.rpcUrl`, default
+`https://api.koios.rest/api/v1`). Public Koios does not send CORS headers on its responses, so **a browser app must
+point `rpcUrl` at a CORS-enabled endpoint or its own proxy**; Node and backends can use the default.
+
+---
+
 ## 5. React integration: useWalletProvider
 
 `packages/wallet-sdk-react` provides `useWalletProvider` — a hook that reads the chain-appropriate
@@ -449,7 +475,7 @@ Wallet providers are populated into the store by:
 
 - **Provider-managed chains (EVM, Solana, Sui)** — Hydrator components (`EvmHydrator`,
   `SolanaHydrator`, `SuiHydrator`) sync the native SDK state into the store as the sole writers.
-- **Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks, Tron)** — providers are
+- **Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks, Tron, Cardano)** — providers are
   created as a side-effect of `setXConnection()` in the store, triggered when a user connects a
   wallet through `ChainActions`.
 

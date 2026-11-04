@@ -12,3 +12,4 @@ export * from './tron/index.js';
 export * from './xrp/index.js';
 export * from './ton/index.js';
 export * from './zcash/index.js';
+export * from './cardano/index.js';
