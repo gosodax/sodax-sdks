@@ -66,6 +66,10 @@ export const xChainTypes: WalletItemProps[] = [
     name: 'Zcash',
     xChainType: 'ZCASH',
   },
+  {
+    name: 'Cardano',
+    xChainType: 'CARDANO',
+  },
 ];
 
 export const WalletModal = ({ isOpen, onDismiss }: WalletModalProps) => {

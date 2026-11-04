@@ -70,6 +70,7 @@
     "@injectivelabs/wallet-core": "catalog:",
     "@mysten/sui": "catalog:",
     "@noble/hashes": "^1.8.0",
+    "@scure/base": "^1.2.6",
     "@sodax/libs": "workspace:*",
     "@sodax/types": "workspace:*",
     "@solana/spl-token": "catalog:",

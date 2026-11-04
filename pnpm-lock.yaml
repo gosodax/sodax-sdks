@@ -823,6 +823,9 @@ importers:
       '@mysten/sui':
         specifier: 'catalog:'
         version: 2.23.2(typescript@5.5.4)
+      '@noble/hashes':
+        specifier: ^1.8.0
+        version: 1.8.0
       '@pancakeswap/infinity-sdk':
         specifier: 'catalog:'
         version: 1.0.8(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.5.4)(utf-8-validate@6.0.6)(zod@3.25.76)
@@ -832,6 +835,9 @@ importers:
       '@pancakeswap/v3-sdk':
         specifier: 'catalog:'
         version: 3.10.0(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.5.4)(utf-8-validate@6.0.6)(zod@3.25.76)
+      '@scure/base':
+        specifier: ^1.2.6
+        version: 1.2.6
       '@sodax/bridge-api':
         specifier: workspace:*
         version: link:../bridge-api
@@ -1032,6 +1038,9 @@ importers:
       '@noble/hashes':
         specifier: ^1.8.0
         version: 1.8.0
+      '@scure/base':
+        specifier: ^1.2.6
+        version: 1.2.6
       '@sodax/libs':
         specifier: workspace:*
         version: link:../libs

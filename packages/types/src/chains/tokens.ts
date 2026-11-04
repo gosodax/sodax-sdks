@@ -2664,6 +2664,20 @@ export const zcashSupportedTokens = {
   },
 } as const satisfies Record<string, XToken>;
 
+export const cardanoSupportedTokens = {
+  // Native ADA (6 decimals), deposited into the sodaADA vault. Cardano is ADA only: a native-token payment to
+  // the reserve is never credited.
+  ADA: {
+    symbol: 'ADA',
+    name: 'Cardano',
+    decimals: 6,
+    address: '0x0000000000000000000000000000000000000000',
+    chainKey: ChainKeys.CARDANO_MAINNET,
+    hubAsset: '0xB1eE2A6920E335F5544Ec6a8070a1D92dcF25fa6',
+    vault: SodaTokens.sodaADA.address,
+  },
+} as const satisfies Record<string, XToken>;
+
 export const tonSupportedTokens = {
   // Native TON (9 decimals). There is no TON vault, so `vault` is the wrapped hub asset itself.
   TON: {
@@ -4671,6 +4685,7 @@ export const supportedTokensByChain = {
   [ChainKeys.MONAD_MAINNET]: monadSupportedTokens,
   [ChainKeys.TON_MAINNET]: tonSupportedTokens,
   [ChainKeys.ZCASH_MAINNET]: zcashSupportedTokens,
+  [ChainKeys.CARDANO_MAINNET]: cardanoSupportedTokens,
 } as const satisfies Record<ChainKey, Record<string, XToken>>;
 
 /**

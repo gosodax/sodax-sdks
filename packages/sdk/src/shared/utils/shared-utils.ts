@@ -31,6 +31,11 @@ import { tronHashToBase58, tronIdentityBytes } from '../services/spoke/tron-util
 import { xrpHashToClassicAddress, xrpIdentityBytes } from '../services/spoke/xrp-utils.js';
 import { tonAddressHash, tonIdentityBytes, tonWalletAddress } from '../services/spoke/ton-utils.js';
 import { zcashHashToAddress, zcashIdentityBytes } from '../services/spoke/zcash-utils.js';
+import {
+  cardanoAddressFromRecipientBytes,
+  cardanoIdentityBytes,
+  cardanoRecipientBytes,
+} from '../services/spoke/cardano-utils.js';
 import { bcs } from '@mysten/sui/bcs';
 import { PublicKey } from '@solana/web3.js';
 import { Address as StellarAddress, xdr } from '@stellar/stellar-sdk';
@@ -159,8 +164,9 @@ export function BigIntToHex(value: bigint): Hex {
 }
 
 /**
- * Refuses a payout at or below its {@link MpcRelayPayoutMinimums} entry, before anything is signed: the relay
- * takes its release fee from the payout and releases nothing once the fee reaches it, after the hub has burned it.
+ * Refuses a payout at or below its {@link MpcRelayPayoutMinimums} entry, or below its {@link MpcRelayPayoutFloors}
+ * entry, before anything is signed: the relay takes its release fee from the payout and releases nothing once the
+ * fee reaches it, and refuses a release under a floor, both after the hub has burned it.
  */
 export function assertMpcPayoutAboveMinimum({
   feature,
@@ -178,9 +184,12 @@ export function assertMpcPayoutAboveMinimum({
 }): void {
   const unmet = getUnmetMpcPayoutMinimum({ token, amount, amountDecimals });
   if (!unmet) return;
+  const minimum = `${formatUnits(unmet.minimum, unmet.decimals)} ${unmet.symbol}`;
   throw new SodaxError(
     'VALIDATION_FAILED',
-    `A ${unmet.symbol} payout to ${token.chainKey} must be greater than ${formatUnits(unmet.minimum, unmet.decimals)} ${unmet.symbol}: the relay's release fee comes out of it`,
+    unmet.inclusive
+      ? `A ${unmet.symbol} payout to ${token.chainKey} must be at least ${minimum}: the relay refuses a smaller release after the hub has burned it`
+      : `A ${unmet.symbol} payout to ${token.chainKey} must be greater than ${minimum}: the relay's release fee comes out of it`,
     { feature, context: { phase: 'validate', ...context, reason: 'mpc-payout-below-minimum' } },
   );
 }
@@ -195,10 +204,12 @@ export function assertMpcPayoutAboveMinimum({
  * Intent-relay chains keep their own encoding unchanged.
  *
  * TON is the exception: its identity is a public key, and a release pays the 32-byte account hash of
- * that key's wallet-v4R2 address, which already fills the word.
+ * that key's wallet-v4R2 address, which already fills the word. Cardano pays the full raw address (29 or 57
+ * bytes), which is neither the 28-byte key-hash identity nor a padded word.
  */
 export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): Hex {
   if (getChainType(spokeChainId) === 'TON') return tonAddressHash(tonWalletAddress(address));
+  if (getChainType(spokeChainId) === 'CARDANO') return cardanoRecipientBytes(address);
   if (!isMpcRelayChainKey(spokeChainId)) return encodeAddress(spokeChainId, address);
   if (getChainType(spokeChainId) === 'EVM') {
     // `encodeAddress` passes EVM input through unchecked, and a malformed recipient here is released
@@ -272,6 +283,9 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
     case 'ZCASH':
       // The 20-byte hash160 a transparent t1 address encodes — the identity scheme 6 recovers.
       return zcashIdentityBytes(address);
+    case 'CARDANO':
+      // The 28-byte payment key hash — the identity scheme 7 proves with `signData`.
+      return cardanoIdentityBytes(address);
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);
@@ -348,6 +362,9 @@ export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex):
       return tonIdentityBytes(encoded);
     case 'ZCASH':
       return zcashHashToAddress(encoded);
+    case 'CARDANO':
+      // Only the raw recipient bytes decode: the 28-byte identity does not say which stake part its address had.
+      return cardanoAddressFromRecipientBytes(encoded);
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);

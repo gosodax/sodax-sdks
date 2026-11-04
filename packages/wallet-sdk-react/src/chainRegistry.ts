@@ -15,6 +15,7 @@ import {
   XrpWalletProvider,
   TonWalletProvider,
   ZcashWalletProvider,
+  CardanoWalletProvider,
 } from '@sodax/wallet-sdk-core';
 import { Wallet } from '@injectivelabs/wallet-base';
 import { getEthereumAddress } from '@injectivelabs/sdk-ts';
@@ -48,6 +49,7 @@ import { TronXService, TronXConnector } from './xchains/tron/index.js';
 import { XrpXService, XrpXConnector } from './xchains/xrp/index.js';
 import { TonXService, TonXConnector } from './xchains/ton/index.js';
 import { ZcashXService, ZcashXConnector } from './xchains/zcash/index.js';
+import { CardanoXService, CardanoXConnector } from './xchains/cardano/index.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -500,6 +502,24 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
         store.walletConfig?.ZCASH?.chains?.[ChainKeys.ZCASH_MAINNET],
       );
       return new ZcashWalletProvider({ wallet: connector.getWallet(), defaults });
+    },
+  }),
+  CARDANO: defineChain({
+    createService: walletConfig =>
+      CardanoXService.getInstance(walletConfig?.CARDANO?.chains?.[ChainKeys.CARDANO_MAINNET]),
+    displayName: 'Cardano',
+    defaultConnectors: () => [new CardanoXConnector()],
+    providerManaged: false,
+    createWalletProvider: (service, getStore) => {
+      const store = getStore();
+      const connection = store.xConnections.CARDANO;
+      if (!connection?.xAccount.address) return undefined;
+      const connector = connection.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+      if (!(connector instanceof CardanoXConnector)) return undefined;
+      const defaults = getEntryDefaults<typeof ChainKeys.CARDANO_MAINNET>(
+        store.walletConfig?.CARDANO?.chains?.[ChainKeys.CARDANO_MAINNET],
+      );
+      return new CardanoWalletProvider({ wallet: connector.getWallet(), defaults });
     },
   }),
 };

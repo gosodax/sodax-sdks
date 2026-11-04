@@ -32,6 +32,7 @@ import {
   monadSupportedTokens,
   tonSupportedTokens,
   zcashSupportedTokens,
+  cardanoSupportedTokens,
 } from './tokens.js';
 
 import { ChainKeys, CHAIN_KEYS, type ChainKey, type ChainType } from './chain-keys.js';
@@ -69,6 +70,7 @@ export const RelayChainIdMap = {
   [ChainKeys.MONAD_MAINNET]: 48n,
   [ChainKeys.TON_MAINNET]: 607n,
   [ChainKeys.ZCASH_MAINNET]: 133n,
+  [ChainKeys.CARDANO_MAINNET]: 1815n,
 } as const satisfies Record<ChainKey, bigint>;
 
 export type IntentChainId = (typeof RelayChainIdMap)[keyof typeof RelayChainIdMap];
@@ -79,7 +81,7 @@ export const INTENT_CHAIN_IDS = Object.values(RelayChainIdMap);
  * derivation together, so a client cannot mix them to forge an identity:
  * `0` EVM, `1` Tron, `2` generic ed25519, `3` XRP, `4` Aptos.
  */
-export type MpcWithdrawScheme = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+export type MpcWithdrawScheme = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 /** A withdraw-auth message as the MPC relay takes it: numeric fields are u64 decimal strings. */
 export type MpcWithdrawMessage = {
@@ -122,6 +124,9 @@ export const MpcRelayChainMap = {
   // Zcash's relay id is 133. Scheme 6 is a Bitcoin-style `signmessage` over the hex text of the hash,
   // recovered to the hash160 identity a transparent address encodes.
   [ChainKeys.ZCASH_MAINNET]: { chainId: 133n, withdrawScheme: 6 },
+  // Cardano's relay id is 1815 (SLIP-44 ADA; one id for every Cardano network). Scheme 7 is a CIP-30 `signData`
+  // over the text `0x<hash>`, submitted with the wallet's COSE_Sign1 and COSE_Key.
+  [ChainKeys.CARDANO_MAINNET]: { chainId: 1815n, withdrawScheme: 7 },
 } as const satisfies Partial<Record<ChainKey, MpcRelayChainInfo>>;
 
 export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
@@ -133,6 +138,16 @@ export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
  */
 export const MpcRelayPayoutMinimums: Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
   [ChainKeys.TRON_MAINNET]: { USDT: 3_000_000n, TRX: 10_000_000n },
+};
+
+/**
+ * Smallest payout the MPC relay releases, by chain and token symbol, in the payout token's decimals: the SDK refuses
+ * one below it. Unlike {@link MpcRelayPayoutMinimums} this is a floor the amount may equal, not a fee to exceed.
+ */
+export const MpcRelayPayoutFloors: Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
+  // The contract refuses a Cardano release below 1 ADA (the min-UTXO of the largest recipient output, rounded up)
+  // after the hub has burned it. There is no release fee on Cardano.
+  [ChainKeys.CARDANO_MAINNET]: { ADA: 1_000_000n },
 };
 
 export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey>(
@@ -530,6 +545,21 @@ export const baseChainInfo = {
       contractUrl: 'https://mainnet.zcashexplorer.app/address/',
     },
   },
+  [ChainKeys.CARDANO_MAINNET]: {
+    name: 'Cardano',
+    key: ChainKeys.CARDANO_MAINNET,
+    type: 'CARDANO',
+    // The relay's internal routing id for Cardano (SLIP-44 ADA).
+    chainId: 1815,
+    mainnet: true,
+    logo: chainLogo(ChainKeys.CARDANO_MAINNET),
+    explorer: {
+      baseUrl: 'https://cardanoscan.io/',
+      txUrl: 'https://cardanoscan.io/transaction/',
+      addressUrl: 'https://cardanoscan.io/address/',
+      contractUrl: 'https://cardanoscan.io/address/',
+    },
+  },
 } as const satisfies Record<ChainKey, BaseChainInfo<ChainType>>;
 
 type ChainKeysByType<T extends ChainType> = {
@@ -561,6 +591,7 @@ export type XrpChainKey = ChainKeysByType<'XRP'>;
 export type MonadChainKey = typeof ChainKeys.MONAD_MAINNET;
 export type TonChainKey = ChainKeysByType<'TON'>;
 export type ZcashChainKey = ChainKeysByType<'ZCASH'>;
+export type CardanoChainKey = ChainKeysByType<'CARDANO'>;
 
 const filterChainKeysByType = <T extends ChainType>(type: T) =>
   CHAIN_KEYS.filter((key): key is ChainKeysByType<T> => baseChainInfo[key].type === type);
@@ -598,6 +629,8 @@ export const TON_CHAIN_KEYS = filterChainKeysByType('TON');
 export const TON_CHAIN_KEYS_SET = new Set(TON_CHAIN_KEYS);
 export const ZCASH_CHAIN_KEYS = filterChainKeysByType('ZCASH');
 export const ZCASH_CHAIN_KEYS_SET = new Set(ZCASH_CHAIN_KEYS);
+export const CARDANO_CHAIN_KEYS = filterChainKeysByType('CARDANO');
+export const CARDANO_CHAIN_KEYS_SET = new Set(CARDANO_CHAIN_KEYS);
 
 export type HubChainKey = typeof HUB_CHAIN_KEY;
 export type HubChainType = 'EVM';
@@ -824,6 +857,12 @@ export type ZcashSpokeChainConfig = BaseSpokeChainConfig<'ZCASH'> &
     rpcUrl: string;
   };
 
+export type CardanoSpokeChainConfig = BaseSpokeChainConfig<'CARDANO'> &
+  MpcRelayChainConfig & {
+    /** Koios REST base URL, used to read the account's UTXOs, the tip and the protocol parameters. */
+    rpcUrl: string;
+  };
+
 /** Monad: an EVM chain settling through the MPC relay in address mode (per-deposit derived EOAs). */
 export type MonadSpokeChainConfig = BaseSpokeChainConfig<'EVM'> &
   MpcRelayChainConfig & {
@@ -831,6 +870,7 @@ export type MonadSpokeChainConfig = BaseSpokeChainConfig<'EVM'> &
   };
 
 export type SpokeChainConfig =
+  | CardanoSpokeChainConfig
   | ZcashSpokeChainConfig
   | TonSpokeChainConfig
   | MonadSpokeChainConfig
@@ -877,7 +917,9 @@ export type GetSpokeChainConfigType<T extends SpokeChainKey> = T extends SonicCh
                             ? TonSpokeChainConfig
                             : GetChainType<T> extends 'ZCASH'
                               ? ZcashSpokeChainConfig
-                            : SpokeChainConfig;
+                              : GetChainType<T> extends 'CARDANO'
+                                ? CardanoSpokeChainConfig
+                                : SpokeChainConfig;
 
 export type IconAddress = `hx${string}` | `cx${string}`;
 export type IconSpokeChainConfig = BaseSpokeChainConfig<'ICON'> & {
@@ -1578,6 +1620,25 @@ export const spokeChainConfig = {
       maxTimeoutMs: 600_000,
     },
   } as const satisfies ZcashSpokeChainConfig,
+  [ChainKeys.CARDANO_MAINNET]: {
+    chain: baseChainInfo[ChainKeys.CARDANO_MAINNET] satisfies BaseChainInfo<'CARDANO'>,
+    // Koios: the public mainnet endpoint is keyless and rate limited; point this at a keyed one for production traffic.
+    rpcUrl: 'https://api.koios.rest/api/v1',
+    // MPC-relay REST endpoint (notify + deposit-address). Not the intent relay.
+    mpcRelayApiEndpoint: 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com',
+    addresses: {
+      // Derived on-chain by the bridge contract at `bridge:reserve:1815`; the relay returns the current one per deposit.
+      reserve: 'addr1vx0h73rxdjtggq58vadnyfp7dnduu3l90750lmlurmr20kgej3dfa',
+    },
+    nativeToken: '0x0000000000000000000000000000000000000000',
+    bnUSD: '',
+    supportedTokens: cardanoSupportedTokens,
+    pollingConfig: {
+      pollingIntervalMs: 15_000,
+      // The relay waits for 15 confirmations (about 5 minutes) before attesting.
+      maxTimeoutMs: 900_000,
+    },
+  } as const satisfies CardanoSpokeChainConfig,
 } as const satisfies Record<SpokeChainKey, SpokeChainConfig>;
 
 export const supportedSpokeChains: SpokeChainKey[] = Object.keys(spokeChainConfig) as SpokeChainKey[];

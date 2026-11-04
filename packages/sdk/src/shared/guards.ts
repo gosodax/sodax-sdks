@@ -23,6 +23,7 @@ import type {
   MonadChainKey,
   TonChainKey,
   ZcashChainKey,
+  CardanoChainKey,
   MpcRelayChainKey,
   HubChainKey,
   PartnerFeeAmount,
@@ -52,6 +53,7 @@ import {
   isMonadChainKey,
   isTonChainKey,
   isZcashChainKey,
+  isCardanoChainKey,
   isMpcRelayChainKey,
   isHubChainKey,
   isEvmChainKey,
@@ -241,6 +243,10 @@ export function isTonChainKeyType(value: SpokeChainKey): value is TonChainKey {
 
 export function isZcashChainKeyType(value: SpokeChainKey): value is ZcashChainKey {
   return isZcashChainKey(value);
+}
+
+export function isCardanoChainKeyType(value: SpokeChainKey): value is CardanoChainKey {
+  return isCardanoChainKey(value);
 }
 
 /** Settles through the MPC relay rather than the intent relay. Prefer this over naming a chain. */
