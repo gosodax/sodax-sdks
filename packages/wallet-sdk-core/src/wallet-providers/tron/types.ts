@@ -35,10 +35,13 @@ export interface TronProviderLike {
   tronWeb?: TronWebLike;
 }
 
-/** Configuration for constructing a `TronWalletProvider` backed by a browser extension (TronLink). */
+/**
+ * Configuration for constructing a `TronWalletProvider` backed by a browser extension (TronLink). Pass `tronWeb`,
+ * `getProvider`, or both: `getProvider` alone still signs with a wallet discovered after construction.
+ */
 export type BrowserExtensionTronWalletConfig = {
   /** The injected TronWeb: the address fallback, and the signer when no announced provider's TronWeb has an account. */
-  tronWeb: TronWebLike;
+  tronWeb?: TronWebLike;
   /** The announced provider, used for signing. */
   provider?: TronProviderLike;
   /** Resolves the connected provider at call time; prefer it, since a captured one can be stale. */

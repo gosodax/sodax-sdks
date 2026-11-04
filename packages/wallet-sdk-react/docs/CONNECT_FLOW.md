@@ -222,7 +222,7 @@ Connection state is persisted to `localStorage` (key: `xwagmi-store`) by Zustand
 
 - **Provider-managed chains** — wagmi/wallet-adapter/dapp-kit auto-reconnect from their own persistence layer; the Hydrator observes and re-writes the store.
 - **Non-provider chains** — `useInitChainServices` calls `reconnectIcon()` / `reconnectInjective()` / `reconnectStellar()` after hydration. ICON, Injective, and Stellar attempt to reconnect to the previously-connected wallet automatically.
-- **Bitcoin / Tron** — `BitcoinXConnector.recreateWalletProvider` / `TronXConnector.getTronWeb()` rebuild the provider from `window.*` + the persisted `XAccount` (no popup), so signing works after reload without a reconnect call; on Tron only when the wallet injects `window.tron` or `window.tronLink`.
+- **Bitcoin / Tron** — `BitcoinXConnector.recreateWalletProvider` rebuilds the provider from `window.*` + the persisted `XAccount`, and Tron's provider resolves the wallet through `TronXConnector.getProvider()` each time it signs (no popup), so signing works after reload without a reconnect call.
 - **NEAR / Stacks** — no auto-reconnect. The user must re-connect manually after a reload.
 - **Cleanup** — connections for chains no longer in `SodaxWalletProvider` config are removed via `cleanupDisabledConnections()` after persist hydration completes.
 

@@ -312,7 +312,7 @@ describe('TronXConnector.signMessage', () => {
   it('refuses when the wallet exposes no account', async () => {
     stubWindow({ globals: { tron: provider({ tronWeb: { defaultAddress: { base58: false } } }) } });
 
-    await expect(connector().signMessage('hello', ADDRESS)).rejects.toThrow('Tron wallet is not connected');
+    await expect(connector().signMessage('hello', ADDRESS)).rejects.toThrow('Tron wallet is locked or not connected');
   });
 });
 

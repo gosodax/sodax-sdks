@@ -18,9 +18,9 @@ The config union and the structural `TronWebLike` / `TronProviderLike` shapes ar
 | Mode discriminant | How to detect |
 |---|---|
 | Private-key | `'privateKey' in config` |
-| Browser-extension | `'tronWeb' in config` |
+| Browser-extension | `'tronWeb' in config` or `'getProvider' in config` |
 
-In browser-extension mode the provider signs with the first TronWeb that has an account, trying `getProvider()`, then `provider`, then the injected `tronWeb`, and throws a reconnect error when none has one. Pass `getProvider` returning the provider the wallet announced over TIP-6963: its TronWeb is the connected one, while a captured `provider` can go stale.
+In browser-extension mode the provider signs with the first TronWeb that has an account, trying `getProvider()`, then `provider`, then the injected `tronWeb`. When none has one, it asks the wallet for its account (`eth_requestAccounts`, which prompts only a locked or unauthorized wallet), then throws an unlock-or-reconnect error if there is still none. Pass `getProvider` returning the provider the wallet announced over TIP-6963: its TronWeb is the connected one, while a captured `provider` can go stale. `getProvider` alone is enough, so a provider built before the wallet is discovered (a page reload) still signs once it is.
 
 In a browser, authorize it first with `request({ method: 'eth_requestAccounts' })` and pass its TronWeb as `tronWeb`, not `window.tronWeb`; pass `address` as base58 `T…` (`eth_requestAccounts` returns hex), as [`chainRegistry.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/chainRegistry.ts) does.
 

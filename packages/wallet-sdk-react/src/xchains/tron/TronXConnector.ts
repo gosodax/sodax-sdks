@@ -197,7 +197,8 @@ export class TronXConnector extends XConnector {
   public async signMessage(message: string, address: string): Promise<string> {
     const tronWeb = this.getTronWeb();
     const account = tronWeb?.defaultAddress?.base58;
-    if (!tronWeb || !account) throw new Error('Tron wallet is not connected. Reconnect and retry.');
+    if (!tronWeb || !account)
+      throw new Error('Tron wallet is locked or not connected. Unlock it, or reconnect it, and retry.');
     if (account !== address) {
       throw new Error(`Tron wallet is on ${account}, not the connected ${address}. Reconnect and retry.`);
     }
