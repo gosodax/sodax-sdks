@@ -78,24 +78,26 @@ export class StellarXService extends XService {
   /**
    * Reads every balance from one Horizon account load: XLM and classic-asset tokens come from the account's
    * balance lines, and only custom Soroban tokens are simulated. Rejects when a request fails, so a failed
-   * (e.g. rate-limited) request is never reported as a zero balance. An account never funded reads as all zeros.
+   * (e.g. rate-limited) request is never reported as a zero balance. An account never funded holds no XLM or
+   * classic asset, but a custom Soroban token can still credit its address, so those are still simulated.
    */
   override async getBalances(address: string | undefined, xTokens: readonly XToken[]): Promise<Record<string, bigint>> {
     if (!address) return {};
 
-    let stellarAccount: StellarSdk.Horizon.AccountResponse;
+    let stellarAccount: StellarSdk.Horizon.AccountResponse | undefined;
     try {
       stellarAccount = await this.server.loadAccount(address);
     } catch (error) {
-      if (error instanceof StellarSdk.NotFoundError) {
-        return Object.fromEntries(xTokens.map(xToken => [xToken.address, BigInt(0)]));
-      }
-      throw error;
+      if (!(error instanceof StellarSdk.NotFoundError)) throw error;
     }
-    const trustlineBalances = getTrustlineBalances(stellarAccount.balances, StellarSdk.Networks.PUBLIC);
+    const trustlineBalances = stellarAccount
+      ? getTrustlineBalances(stellarAccount.balances, StellarSdk.Networks.PUBLIC)
+      : new Map<string, bigint>();
+    // Simulation does not require the source account to exist, so an unfunded one stands in at sequence 0.
+    const simulationSource = stellarAccount ?? new StellarSdk.Account(address, '0');
 
     const readBalance = async (xToken: XToken): Promise<bigint> => {
-      if (isNativeToken(xToken)) return getAvailableXlmStroops(stellarAccount);
+      if (isNativeToken(xToken)) return stellarAccount ? getAvailableXlmStroops(stellarAccount) : BigInt(0);
 
       const trustlineBalance = trustlineBalances.get(xToken.address);
       if (trustlineBalance !== undefined) return trustlineBalance;
@@ -104,7 +106,7 @@ export class StellarXService extends XService {
       // No contract can exist at a malformed id, so it holds nothing; rejecting would drop every other balance.
       if (!StellarSdk.StrKey.isValidContract(xToken.address)) return BigInt(0);
 
-      const txBuilder = new StellarSdk.TransactionBuilder(stellarAccount, {
+      const txBuilder = new StellarSdk.TransactionBuilder(simulationSource, {
         fee: StellarSdk.BASE_FEE,
         networkPassphrase: StellarSdk.Networks.PUBLIC,
       });

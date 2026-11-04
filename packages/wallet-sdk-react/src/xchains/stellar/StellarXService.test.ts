@@ -154,16 +154,17 @@ describe('StellarXService.getBalances', () => {
     expect(await service.getBalances(OWNER, [XLM])).toEqual({ [XLM.address]: 970_000_000n });
   });
 
-  it('reads every token as zero for an account that was never funded', async () => {
+  it('reads XLM and classic assets as zero for an account never funded, but still simulates custom tokens', async () => {
     const { service, loadAccount, simulateTransaction } = makeService([]);
     loadAccount.mockRejectedValue(new NotFoundError('Not Found', {}));
 
     expect(await service.getBalances(OWNER, [XLM, USDC, CUSTOM])).toEqual({
       [XLM.address]: 0n,
       [USDC.address]: 0n,
-      [CUSTOM.address]: 0n,
+      [CUSTOM.address]: 42n,
     });
-    expect(simulateTransaction).not.toHaveBeenCalled();
+    expect(simulateTransaction).toHaveBeenCalledTimes(1);
+    expect(simulateTransaction.mock.calls[0]?.[0].source).toBe(OWNER);
   });
 
   it('reads a classic asset without a trustline as zero and simulates only custom contracts', async () => {
