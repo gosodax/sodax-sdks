@@ -131,6 +131,11 @@ overrides:
   # its useQueryClient resolves to the wrong instance. Update both lines
   # together when bumping the catalog version.
   "@tanstack/react-query": "5.87.4"
+  # Force every transitive `@types/react` to the catalog version. Without this the
+  # XRPL/GemWallet resolve pulls react-native's 19.2.x types in beside the catalog's
+  # 19.0.8, and the two `ReactNode` declarations make SolanaProvider/SuiProvider
+  # children fail to typecheck. Update together with the catalog entry.
+  "@types/react": "19.0.8"
 
 patchedDependencies:
   # Fixes a multi-chunk tarball-extraction bug in @arethetypeswrong/core (used by

@@ -327,6 +327,8 @@ const LEGACY_MONEY_MARKET_RESERVE_ASSETS: readonly string[] = [
   '0xA3AeFa2BAfEAB479c4Aca6024A16906bbC75566e',
   '0xb780e09576C2667ba9F5B80FbAb2e6b8A0a21e37',
   '0xE801CA34E19aBCbFeA12025378D19c4FBE250131',
+  // XRP vault, listed as a reserve by the XRP spoke.
+  '0xb89B3a6633fb06CAB86b7d54e2f6913C51a73952',
 ];
 
 // Plain swap tokens listed after the equities (sodax-solver-v2#1063).

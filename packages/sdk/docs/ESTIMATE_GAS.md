@@ -51,6 +51,7 @@ The return type is conditional on the source chain's chain family. The concrete 
 | NEAR | `bigint` (`NearGasEstimate`) | Gas in yoctoNEAR |
 | Stacks | `FeeEstimateTransaction` | Object with `low`, `medium`, `high` tiers, each `{ fee: number, fee_rate: number }` |
 | Tron | `TronGasEstimate` | Object with `energy: bigint` and `bandwidth: bigint`; both `0n` for a `TronRawWithdraw`, which is signed off chain |
+| XRP Ledger | `XrpGasEstimate` | Object with `fee: bigint` — the flat per-transaction fee in drops. XRPL does not meter execution, so the estimate does not depend on the transaction |
 
 The full type definitions are in `packages/types/src/common/common.ts`.
 

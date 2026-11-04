@@ -28,6 +28,7 @@ import {
   hederaSupportedTokens,
   tronSupportedTokens,
   robinhoodSupportedTokens,
+  xrpSupportedTokens,
 } from './tokens.js';
 
 import { ChainKeys, CHAIN_KEYS, type ChainKey, type ChainType } from './chain-keys.js';
@@ -61,6 +62,7 @@ export const RelayChainIdMap = {
   // and fills intent srcChain/dstChain.
   [ChainKeys.TRON_MAINNET]: 728126428n,
   [ChainKeys.ROBINHOOD_MAINNET]: 21071n,
+  [ChainKeys.XRP_MAINNET]: 66n,
 } as const satisfies Record<ChainKey, bigint>;
 
 export type IntentChainId = (typeof RelayChainIdMap)[keyof typeof RelayChainIdMap];
@@ -101,6 +103,10 @@ export type MpcRelayChainInfo = {
  */
 export const MpcRelayChainMap = {
   [ChainKeys.TRON_MAINNET]: { chainId: 728126428n, withdrawScheme: 1 },
+  // XRPL's relay id is 66 on mainnet (an internal routing id, not XRPL's network id).
+  // Scheme 3 signs the RAW message hash and submits the 33-byte 0xED public key alongside,
+  // because an ed25519 signature cannot recover its signer the way secp256k1 does.
+  [ChainKeys.XRP_MAINNET]: { chainId: 66n, withdrawScheme: 3 },
 } as const satisfies Partial<Record<ChainKey, MpcRelayChainInfo>>;
 
 export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
@@ -450,6 +456,21 @@ export const baseChainInfo = {
       contractUrl: 'https://robinhoodchain.blockscout.com/address/',
     },
   },
+  [ChainKeys.XRP_MAINNET]: {
+    name: 'XRP Ledger',
+    key: ChainKeys.XRP_MAINNET,
+    type: 'XRP',
+    // The relay's internal routing id for XRPL mainnet, not an EVM network id.
+    chainId: 66,
+    mainnet: true,
+    logo: chainLogo(ChainKeys.XRP_MAINNET),
+    explorer: {
+      baseUrl: 'https://livenet.xrpl.org/',
+      txUrl: 'https://livenet.xrpl.org/transactions/',
+      addressUrl: 'https://livenet.xrpl.org/accounts/',
+      contractUrl: 'https://livenet.xrpl.org/accounts/',
+    },
+  },
 } as const satisfies Record<ChainKey, BaseChainInfo<ChainType>>;
 
 type ChainKeysByType<T extends ChainType> = {
@@ -473,6 +494,7 @@ export type StacksChainKey = ChainKeysByType<'STACKS'>;
 export type NearChainKey = ChainKeysByType<'NEAR'> & keyof typeof spokeChainConfig;
 export type BitcoinChainKey = ChainKeysByType<'BITCOIN'>;
 export type TronChainKey = ChainKeysByType<'TRON'>;
+export type XrpChainKey = ChainKeysByType<'XRP'>;
 
 const filterChainKeysByType = <T extends ChainType>(type: T) =>
   CHAIN_KEYS.filter((key): key is ChainKeysByType<T> => baseChainInfo[key].type === type);
@@ -504,6 +526,8 @@ export const BITCOIN_CHAIN_KEYS = filterChainKeysByType('BITCOIN');
 export const BITCOIN_CHAIN_KEYS_SET = new Set(BITCOIN_CHAIN_KEYS);
 export const TRON_CHAIN_KEYS = filterChainKeysByType('TRON');
 export const TRON_CHAIN_KEYS_SET = new Set(TRON_CHAIN_KEYS);
+export const XRP_CHAIN_KEYS = filterChainKeysByType('XRP');
+export const XRP_CHAIN_KEYS_SET = new Set(XRP_CHAIN_KEYS);
 
 export type HubChainKey = typeof HUB_CHAIN_KEY;
 export type HubChainType = 'EVM';
@@ -713,7 +737,13 @@ export type TronSpokeChainConfig = BaseSpokeChainConfig<'TRON'> &
     rpcUrl: string;
   };
 
+export type XrpSpokeChainConfig = BaseSpokeChainConfig<'XRP'> &
+  MpcRelayChainConfig & {
+    rpcUrl: string;
+  };
+
 export type SpokeChainConfig =
+  | XrpSpokeChainConfig
   | EvmSpokeChainConfig
   | SonicSpokeChainConfig
   | InjectiveSpokeChainConfig
@@ -748,7 +778,9 @@ export type GetSpokeChainConfigType<T extends SpokeChainKey> = T extends SonicCh
                     ? BitcoinSpokeChainConfig
                     : GetChainType<T> extends 'TRON'
                       ? TronSpokeChainConfig
-                      : SpokeChainConfig;
+                      : GetChainType<T> extends 'XRP'
+                        ? XrpSpokeChainConfig
+                        : SpokeChainConfig;
 
 export type IconAddress = `hx${string}` | `cx${string}`;
 export type IconSpokeChainConfig = BaseSpokeChainConfig<'ICON'> & {
@@ -1381,6 +1413,24 @@ export const spokeChainConfig = {
       maxTimeoutMs: 60_000,
     },
   } as const satisfies EvmSpokeChainConfig,
+  [ChainKeys.XRP_MAINNET]: {
+    chain: baseChainInfo[ChainKeys.XRP_MAINNET] satisfies BaseChainInfo<'XRP'>,
+    rpcUrl: 'https://xrplcluster.com',
+    // MPC-relay REST endpoint (notify + deposit-address). Not the intent relay.
+    mpcRelayApiEndpoint: 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com',
+    addresses: {
+      reserve: 'rbtWzBnJB84fKuVCg2qbKKX4EUtCWVik7',
+    },
+    nativeToken: '0x0000000000000000000000000000000000000000',
+    bnUSD: '',
+    supportedTokens: xrpSupportedTokens,
+    pollingConfig: {
+      pollingIntervalMs: 3000,
+      // XRPL validates in ~4s and the relay attests at 0 confirmations, but the hub mint still
+      // has to land, so this matches Tron's budget rather than XRPL's ledger close time.
+      maxTimeoutMs: 90_000,
+    },
+  } as const satisfies XrpSpokeChainConfig,
 } as const satisfies Record<SpokeChainKey, SpokeChainConfig>;
 
 export const supportedSpokeChains: SpokeChainKey[] = Object.keys(spokeChainConfig) as SpokeChainKey[];

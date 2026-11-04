@@ -9,6 +9,7 @@ import type { IStacksWalletProvider } from '../stacks/stacks.js';
 import type { IStellarWalletProvider } from '../stellar/stellar.js';
 import type { ISuiWalletProvider } from '../sui/sui.js';
 import type { ITronWalletProvider } from '../tron/tron.js';
+import type { IXrpWalletProvider } from '../xrp/xrp.js';
 
 /**
  * Union of all chain-specific wallet providers. Narrow by the discriminant field
@@ -25,7 +26,8 @@ export type IWalletProvider =
   | ISolanaWalletProvider
   | IStacksWalletProvider
   | INearWalletProvider
-  | ITronWalletProvider;
+  | ITronWalletProvider
+  | IXrpWalletProvider;
 
 /**
  * Wallet provider type for a chain key or abstract {@link ChainType}. Maps `C` to the matching
@@ -54,4 +56,6 @@ export type GetWalletProviderType<C extends SpokeChainKey | ChainType> =
                     ? IBitcoinWalletProvider
                     : GetChainType<C> extends 'TRON'
                       ? ITronWalletProvider
-                      : IWalletProvider;
+                      : GetChainType<C> extends 'XRP'
+                        ? IXrpWalletProvider
+                        : IWalletProvider;

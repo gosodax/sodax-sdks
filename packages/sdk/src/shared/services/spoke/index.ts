@@ -12,4 +12,7 @@ export * from './StacksSpokeService.js';
 export * from './BitcoinSpokeService.js';
 export * from './NearSpokeService.js';
 export * from './TronSpokeService.js';
+export * from './XrpSpokeService.js';
+export * from './xrp-utils.js';
+export * from './mpc-message.js';
 export * from './tron-utils.js';

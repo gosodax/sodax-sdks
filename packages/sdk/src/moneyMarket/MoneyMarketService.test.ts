@@ -81,9 +81,21 @@ const SAMPLE_EVM_TOKEN = '0x2170Ed0880ac9A755fd29B2688956BD959F933F8' as Address
 const SAMPLE_USER_ADDRESS = '0x4444444444444444444444444444444444444444' as Address;
 const SAMPLE_DST_ADDRESS = '0x5555555555555555555555555555555555555555' as Address;
 
-// A Tron account and the two encodings it has on the hub. `encodeAddress` yields the bare 20-byte
-// identity (what derives the hub wallet); `encodeRecipient` left-pads it to a 32-byte word, which is
-// what AssetManager.transfer expects as the delivery address.
+// MPC-relay accounts and the recipient word each becomes on the hub. `encodeAddress` yields the bare
+// 20-byte identity (what derives the hub wallet); `encodeRecipient` left-pads it to the 32-byte word
+// AssetManager.transfer expects as the delivery address.
+const MPC_RECIPIENTS = [
+  {
+    chainKey: ChainKeys.TRON_MAINNET,
+    address: TRON_TEST_ADDRESS,
+    word: TRON_TEST_RECIPIENT_WORD,
+  },
+  {
+    chainKey: ChainKeys.XRP_MAINNET,
+    address: 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah',
+    word: `0x${'00'.repeat(12)}72a3de6b0973062d5f2fe77383ef02f0c17901ab` as Address,
+  },
+] as const;
 
 // Wallet provider fakes — shape-only; the bodies are never invoked at runtime because
 // every spoke method that would touch them is stubbed.
@@ -1500,25 +1512,67 @@ describe('MoneyMarketService.createBorrowIntent', () => {
       expect(call?.walletProvider).toBe(mockEvmProvider);
     });
 
-    it('on a Tron destination: pads the recipient to 32 bytes for the asset-manager transfer', async () => {
+    it.each(
+      MPC_RECIPIENTS,
+    )('on a $chainKey destination: pads the recipient to 32 bytes for the asset-manager transfer', async ({
+      chainKey,
+      address,
+      word,
+    }) => {
+      vi.spyOn(sodax.spoke.xrp, 'checkDestination').mockResolvedValue({ ready: true });
       const buildSpy = vi.spyOn(sodax.moneyMarket, 'buildBorrowData').mockReturnValueOnce('0xborrow-data');
       vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xsend-hash' });
 
       const result = await sodax.moneyMarket.createBorrowIntent({
         raw: false,
-        params: {
-          ...borrowParams(ChainKeys.BSC_MAINNET),
-          dstChainKey: ChainKeys.TRON_MAINNET,
-          dstAddress: TRON_TEST_ADDRESS,
-        },
+        params: { ...borrowParams(ChainKeys.BSC_MAINNET), dstChainKey: chainKey, dstAddress: address },
         walletProvider: mockEvmProvider,
       });
 
       expect(result.ok).toBe(true);
-      // An MPC-relay recipient reaches AssetManager.transfer as a 32-byte word (12 zero bytes then
-      // the 20-byte account), not the bare identity form used to derive the hub wallet. The bare
-      // form is still accepted on-chain, so getting this wrong delivers funds to a dead address.
-      expect(buildSpy.mock.calls[0]?.[1]).toBe(TRON_TEST_RECIPIENT_WORD);
+      // The bare identity is still accepted on-chain, so the unpadded form delivers to a dead address.
+      expect(buildSpy.mock.calls[0]?.[1]).toBe(word);
+    });
+
+    it.each([
+      ['account_not_found', /does not exist/],
+      ['no_trustline', /no trustline/],
+      ['trustline_limit', /trustline limit/],
+    ] as const)('refuses an XRPL destination that cannot receive the release (%s)', async (reason, message) => {
+      vi.spyOn(sodax.spoke.xrp, 'checkDestination').mockResolvedValue({ ready: false, reason });
+      const sendSpy = vi.spyOn(sodax.spoke, 'sendMessage');
+
+      const result = await sodax.moneyMarket.createBorrowIntent({
+        raw: false,
+        params: {
+          ...borrowParams(ChainKeys.BSC_MAINNET),
+          dstChainKey: ChainKeys.XRP_MAINNET,
+          dstAddress: MPC_RECIPIENTS[1].address,
+        },
+        walletProvider: mockEvmProvider,
+      });
+
+      // The relay fails these terminally after the hub has burned the funds, so nothing may be sent.
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('VALIDATION_FAILED');
+        expect(result.error.message).toMatch(message);
+      }
+      expect(sendSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not check the destination when it is not an XRPL chain', async () => {
+      const checkSpy = vi.spyOn(sodax.spoke.xrp, 'checkDestination');
+      vi.spyOn(sodax.moneyMarket, 'buildBorrowData').mockReturnValueOnce('0xborrow-data');
+      vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xsend-hash' });
+
+      await sodax.moneyMarket.createBorrowIntent({
+        raw: false,
+        params: borrowParams(ChainKeys.BSC_MAINNET),
+        walletProvider: mockEvmProvider,
+      });
+
+      expect(checkSpy).not.toHaveBeenCalled();
     });
 
     it('on Bitcoin source: derives the hub wallet from the trading address but passes the personal srcAddress', async () => {
@@ -1980,25 +2034,67 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
       expect(call?.raw).toBe(false);
     });
 
-    it('on a Tron destination: pads the recipient to 32 bytes for the asset-manager transfer', async () => {
+    it.each(
+      MPC_RECIPIENTS,
+    )('on a $chainKey destination: pads the recipient to 32 bytes for the asset-manager transfer', async ({
+      chainKey,
+      address,
+      word,
+    }) => {
+      vi.spyOn(sodax.spoke.xrp, 'checkDestination').mockResolvedValue({ ready: true });
       const buildSpy = vi.spyOn(sodax.moneyMarket, 'buildWithdrawData').mockReturnValueOnce('0xwithdraw-data');
       vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xsend-hash' });
 
       const result = await sodax.moneyMarket.createWithdrawIntent({
         raw: false,
-        params: {
-          ...withdrawParams(ChainKeys.BSC_MAINNET),
-          dstChainKey: ChainKeys.TRON_MAINNET,
-          dstAddress: TRON_TEST_ADDRESS,
-        },
+        params: { ...withdrawParams(ChainKeys.BSC_MAINNET), dstChainKey: chainKey, dstAddress: address },
         walletProvider: mockEvmProvider,
       });
 
       expect(result.ok).toBe(true);
-      // An MPC-relay recipient reaches AssetManager.transfer as a 32-byte word (12 zero bytes then
-      // the 20-byte account), not the bare identity form used to derive the hub wallet. The bare
-      // form is still accepted on-chain, so getting this wrong delivers funds to a dead address.
-      expect(buildSpy.mock.calls[0]?.[1]).toBe(TRON_TEST_RECIPIENT_WORD);
+      // The bare identity is still accepted on-chain, so the unpadded form delivers to a dead address.
+      expect(buildSpy.mock.calls[0]?.[1]).toBe(word);
+    });
+
+    it.each([
+      ['account_not_found', /does not exist/],
+      ['no_trustline', /no trustline/],
+      ['trustline_limit', /trustline limit/],
+    ] as const)('refuses an XRPL destination that cannot receive the release (%s)', async (reason, message) => {
+      vi.spyOn(sodax.spoke.xrp, 'checkDestination').mockResolvedValue({ ready: false, reason });
+      const sendSpy = vi.spyOn(sodax.spoke, 'sendMessage');
+
+      const result = await sodax.moneyMarket.createWithdrawIntent({
+        raw: false,
+        params: {
+          ...withdrawParams(ChainKeys.BSC_MAINNET),
+          dstChainKey: ChainKeys.XRP_MAINNET,
+          dstAddress: MPC_RECIPIENTS[1].address,
+        },
+        walletProvider: mockEvmProvider,
+      });
+
+      // The relay fails these terminally after the hub has burned the funds, so nothing may be sent.
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('VALIDATION_FAILED');
+        expect(result.error.message).toMatch(message);
+      }
+      expect(sendSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not check the destination when it is not an XRPL chain', async () => {
+      const checkSpy = vi.spyOn(sodax.spoke.xrp, 'checkDestination');
+      vi.spyOn(sodax.moneyMarket, 'buildWithdrawData').mockReturnValueOnce('0xwithdraw-data');
+      vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xsend-hash' });
+
+      await sodax.moneyMarket.createWithdrawIntent({
+        raw: false,
+        params: withdrawParams(ChainKeys.BSC_MAINNET),
+        walletProvider: mockEvmProvider,
+      });
+
+      expect(checkSpy).not.toHaveBeenCalled();
     });
 
     it('on Bitcoin source: derives the hub wallet from the trading address but passes the personal srcAddress', async () => {

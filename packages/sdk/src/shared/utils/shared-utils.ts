@@ -16,6 +16,7 @@ import {
   type Hex,
   type XToken,
   getChainType,
+  type ChainType,
   isNativeBitcoinToken,
   DEFAULT_MAX_RETRY,
   DEFAULT_RETRY_DELAY_MS,
@@ -26,7 +27,8 @@ import {
   type SodaxFeature,
 } from '@sodax/types';
 import { formatUnits, hexToBytes, isAddress, toHex } from 'viem';
-import { tronHashToBase58, tronIdentityBytes, tronRecipientBytes } from '../services/spoke/tron-utils.js';
+import { tronHashToBase58, tronIdentityBytes } from '../services/spoke/tron-utils.js';
+import { xrpHashToClassicAddress, xrpIdentityBytes } from '../services/spoke/xrp-utils.js';
 import { bcs } from '@mysten/sui/bcs';
 import { PublicKey } from '@solana/web3.js';
 import { Address as StellarAddress, xdr } from '@stellar/stellar-sdk';
@@ -181,17 +183,33 @@ export function assertMpcPayoutAboveMinimum({
   );
 }
 
+/** Chain types whose hub release reads its recipient as a left-padded 32-byte word. */
+const PADDED_RECIPIENT_CHAIN_TYPES: readonly ChainType[] = ['TRON', 'XRP'];
+
 /**
  * Recipient bytes for a hub release — the `to` an `AssetManager.transfer` pays out to.
  *
  * This is NOT {@link encodeAddress}, which produces the withdrawal-auth identity / hub-wallet salt.
- * Tron's release reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so its recipient is the
+ * An MPC-relay release reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so its recipient is the
  * left-padded word; the bare identity mis-decodes. The chain type picks the encoding, never the relay
  * a chain settles through; every other type keeps {@link encodeAddress}.
  */
 export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): Hex {
-  if (getChainType(spokeChainId) === 'TRON') return tronRecipientBytes(address);
-  return encodeAddress(spokeChainId, address);
+  const encoded = encodeAddress(spokeChainId, address);
+  if (!PADDED_RECIPIENT_CHAIN_TYPES.includes(getChainType(spokeChainId))) return encoded;
+  const hash = encoded.replace(/^0x/, '');
+  if (hash.length !== 40) {
+    throw new Error(`[encodeRecipient] expected a 20-byte identity for ${spokeChainId}, got ${hash.length / 2} bytes`);
+  }
+  return `0x${'00'.repeat(12)}${hash}`;
+}
+
+/** The 20-byte identity of an MPC-relay account, from either that identity or the padded `encodeRecipient` word intents store as srcAddress. */
+function mpcRelayIdentityHash(encoded: string, label: string): string {
+  const hash = encoded.replace(/^0x/, '').toLowerCase();
+  if (hash.length !== 64) return hash;
+  invariant(hash.startsWith('0'.repeat(24)), `Invalid ${label} recipient word: ${encoded}`);
+  return hash.slice(24);
 }
 
 export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex {
@@ -231,6 +249,11 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
     case 'TRON':
       // Tron's hub-wallet identity is the 20-byte address hash: base58 payload without the 0x41 byte.
       return tronIdentityBytes(address);
+    case 'XRP':
+      // XRPL's identity is the 20-byte AccountID — ripemd160(sha256(pubkey)) — which a classic
+      // `r…` address encodes. NOT the public key: the two are distinct and the contract derives
+      // one from the other.
+      return xrpIdentityBytes(address);
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);
@@ -298,15 +321,10 @@ export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex):
     case 'NEAR':
     case 'INJECTIVE':
       return Buffer.from(hexToBytes(encoded)).toString('utf8');
-    case 'TRON': {
-      // Accepts the 20-byte identity and the padded `encodeRecipient` word intents store as srcAddress.
-      const hash = encoded.replace(/^0x/, '').toLowerCase();
-      if (hash.length === 64) {
-        invariant(hash.startsWith('0'.repeat(24)), `Invalid Tron recipient word: ${encoded}`);
-        return tronHashToBase58(hash.slice(24));
-      }
-      return tronHashToBase58(hash);
-    }
+    case 'TRON':
+      return tronHashToBase58(mpcRelayIdentityHash(encoded, 'Tron'));
+    case 'XRP':
+      return xrpHashToClassicAddress(mpcRelayIdentityHash(encoded, 'XRP'));
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);

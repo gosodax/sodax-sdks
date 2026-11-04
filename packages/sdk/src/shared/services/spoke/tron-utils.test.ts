@@ -13,7 +13,6 @@ import {
   tronBase58ToHex,
   tronHashToBase58,
   tronIdentityBytes,
-  tronRecipientBytes,
 } from './tron-utils.js';
 import { nativeTransferRaw, pbBytes, pbVarint, trc20TransferRaw, tronRawData } from './tron-test-fixtures.js';
 
@@ -127,14 +126,6 @@ describe('tronHashToBase58', () => {
   it('accepts a bare 20-byte hash and round-trips with tronIdentityBytes', () => {
     const b58 = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
     expect(tronHashToBase58(tronIdentityBytes(b58))).toBe(b58);
-  });
-});
-
-describe('tronRecipientBytes', () => {
-  it('left-pads the 20-byte hash into a 32-byte word (12 zero bytes ‖ hash)', () => {
-    expect(tronRecipientBytes('TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d')).toBe(
-      '0x000000000000000000000000f62fffa4d92bcdfc310dccbe943747fe8302e871',
-    );
   });
 });
 
