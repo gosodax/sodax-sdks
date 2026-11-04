@@ -461,6 +461,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   const isBridgeDisabled =
     isBridging ||
     !bridgeBody ||
+    !isBridgeable ||
     !!feeDraft.error ||
     isBelowDestinationUnit ||
     (fromChainType === 'EVM' && !hasAllowance) ||
