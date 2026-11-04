@@ -420,7 +420,7 @@ Relaying a `createCancelIntent` tx yourself: on Solana pass `data: sodax.swaps.g
 | Method | Success type |
 |---|---|
 | `swap` | `SwapResponse` = `{ solverExecutionResponse, intent, intentDeliveryInfo }` |
-| `createIntent` | `CreateIntentResult<K, Raw>` = `{ tx: TxReturnType<K, Raw>, intent: Intent & FeeAmount, relayData: RelayExtraData }` |
+| `createIntent` | `CreateIntentResult<K, Raw>` = `{ tx: DepositReturnType<K, Raw>, intent: Intent & FeeAmount, relayData: RelayExtraData }` |
 | `postExecution` | `SwapResponse` |
 | `createLimitOrder` / `createLimitOrderIntent` | Same as `createIntent` |
 | `cancelIntent` / `cancelLimitOrder` | `TxHashPair` = `{ srcChainTxHash, dstChainTxHash }` (not generic over `Raw`) |

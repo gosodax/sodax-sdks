@@ -92,6 +92,7 @@ const result = await sodax.bridge.bridge({
 
 - **Native BTC dust limit (`BITCOIN_DUST_SATS` = 546 sats).** Native BTC is denominated in satoshis, and outputs below the dust limit are unspendable/rejected by nodes. Bitcoin as **source**: `amount >= 546`. Bitcoin as **destination**: the *post-fee delivered* amount must clear 546 — the partner fee is deducted on the hub in 18-dp vault units, so a percentage fee or a wei-denominated fixed `PartnerFee.amount` can push a nominally valid `amount` under the limit. Both fail `VALIDATION_FAILED` on `field: 'amount'`.
 - **Stacks + `raw: true`** requires `extras.srcPublicKey` (above).
+- **Tron payout floor.** A bridge to Tron fails `VALIDATION_FAILED` on `field: 'amount'` (`context.reason: 'mpc-payout-below-minimum'`) when the post-partner-fee delivered amount is at or below `MpcRelayPayoutMinimums`; pre-check with `getUnmetMpcPayoutMinimum`.
 - Amount must be `> 0n`; both chain keys must be registered spoke chains; both tokens must be supported on their chain and share a vault.
 
 ## Routing the spoke deposit through the backend
