@@ -33,7 +33,7 @@ ETH uses the zero address in these lists; every other entry is an ERC-20 contrac
 
 ### What your installed SDK knows
 
-The live lists above can be ahead of your installed SDK. `getSupportedSwapTokensByChainId(ChainKeys.ROBINHOOD_MAINNET)` and the money market's `getSupportedTokensByChainId` return the lists shipped with your release, and the SDK validates tokens against them, so a token added after your release fails until you upgrade.
+The live lists above can be ahead of your installed SDK. `getSupportedSwapTokensByChainId(ChainKeys.ROBINHOOD_MAINNET)` and the money market's `getSupportedTokensByChainId` return the lists shipped with your release. The SDK validates tokens against the config shipped with your release, so a token added after your release fails until you upgrade.
 
 ## Assets your users can reach
 
