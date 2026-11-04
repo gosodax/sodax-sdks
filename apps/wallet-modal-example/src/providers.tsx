@@ -1,13 +1,12 @@
 import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { type PrivySource, SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
+import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
 import { ChainKeys } from '@sodax/types';
 
 const queryClient = new QueryClient();
 
-const createWalletConfig = (privy: PrivySource | undefined): SodaxWalletConfig => ({
+const walletConfig: SodaxWalletConfig = {
   EVM: {
-    privy,
     ssr: false,
     reconnectOnMount: true,
     chains: {
@@ -45,12 +44,12 @@ const createWalletConfig = (privy: PrivySource | undefined): SodaxWalletConfig =
   INJECTIVE: {},
   NEAR: {},
   STACKS: { chains: { [ChainKeys.STACKS_MAINNET]: 'mainnet' } },
-});
+};
 
-export default function Providers({ children, privy }: { children: ReactNode; privy?: PrivySource }) {
+export default function Providers({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <SodaxWalletProvider config={createWalletConfig(privy)}>{children}</SodaxWalletProvider>
+      <SodaxWalletProvider config={walletConfig}>{children}</SodaxWalletProvider>
     </QueryClientProvider>
   );
 }

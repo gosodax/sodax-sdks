@@ -37,9 +37,7 @@ export default defineConfig((_env: ConfigEnv) => {
       // pulled in via @injectivelabs/wallet-ledger) drag a second copy of
       // react/react-dom into the graph, and the dev server renders a blank
       // page because hooks fire on a different React than the renderer sees.
-      // Same for Privy: the SDK's `./privy` entry and this app must share one copy, or `usePrivy()` here
-      // reads a different context than the PrivyProvider the SDK mounts (a workspace-only split).
-      dedupe: ['react', 'react-dom', '@privy-io/react-auth'],
+      dedupe: ['react', 'react-dom'],
     },
 
     optimizeDeps: {
