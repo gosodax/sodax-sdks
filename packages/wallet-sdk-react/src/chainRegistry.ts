@@ -13,6 +13,7 @@ import {
   StacksWalletProvider,
   TronWalletProvider,
   XrpWalletProvider,
+  TonWalletProvider,
 } from '@sodax/wallet-sdk-core';
 import { Wallet } from '@injectivelabs/wallet-base';
 import { getEthereumAddress } from '@injectivelabs/sdk-ts';
@@ -44,6 +45,7 @@ import { NearXConnector } from './xchains/near/NearXConnector.js';
 import { StacksXService, StacksXConnector, STACKS_PROVIDERS } from './xchains/stacks/index.js';
 import { TronXService, TronXConnector } from './xchains/tron/index.js';
 import { XrpXService, XrpXConnector } from './xchains/xrp/index.js';
+import { TonXService, TonXConnector } from './xchains/ton/index.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -458,6 +460,27 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
       const entry = store.walletConfig?.XRP?.chains?.[ChainKeys.XRP_MAINNET];
       const defaults = getEntryDefaults<typeof ChainKeys.XRP_MAINNET>(entry);
       return new XrpWalletProvider({ gemWallet, address, endpoint: entry?.rpcUrl, defaults });
+    },
+  }),
+  TON: defineChain({
+    createService: walletConfig =>
+      TonXService.getInstance({
+        rpcUrl: walletConfig?.TON?.chains?.[ChainKeys.TON_MAINNET]?.rpcUrl,
+        manifestUrl: walletConfig?.TON?.manifestUrl,
+      }),
+    displayName: 'TON',
+    defaultConnectors: () => [new TonXConnector()],
+    providerManaged: false,
+    createWalletProvider: (service, getStore) => {
+      const store = getStore();
+      const connection = store.xConnections.TON;
+      if (!connection?.xAccount.address) return undefined;
+      const connector = connection.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+      if (!(connector instanceof TonXConnector)) return undefined;
+      const defaults = getEntryDefaults<typeof ChainKeys.TON_MAINNET>(
+        store.walletConfig?.TON?.chains?.[ChainKeys.TON_MAINNET],
+      );
+      return new TonWalletProvider({ tonConnect: connector.getTonConnect(), defaults });
     },
   }),
 };

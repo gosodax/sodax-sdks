@@ -104,8 +104,16 @@ export interface SubmitWithdrawRequest {
   message: WithdrawMessagePayload;
   signature: Hex;
   scheme: WithdrawScheme;
-  /** Required only for schemes that can't recover the identity from the sig (2/3/4). */
+  /** Required only for schemes that can't recover the identity from the sig (2/3/4/5). */
   publicKey?: Hex;
+  /** The TonConnect `signData` envelope the signature binds — required for scheme 5 (TON). */
+  tonSignData?: {
+    workchain: number;
+    addressHash: Hex;
+    domain: string;
+    timestamp: number;
+    payloadType: 'txt' | 'bin';
+  };
 }
 
 export interface SubmitWithdrawResponse {

@@ -19,6 +19,7 @@ import type {
   TronSendMessageReturnType,
 } from '../tron/tron.js';
 import type { XrpRawTransaction, XrpReturnType } from '../xrp/xrp.js';
+import type { TonGasEstimate, TonRawTransaction, TonReturnType } from '../ton/ton.js';
 import type { GetWalletProviderType } from '../wallet/providers.js';
 
 export type Default = {
@@ -215,7 +216,8 @@ export type RawTxReturnType =
   | BitcoinRawTransaction
   | TronRawTransaction
   | TronRawWithdraw
-  | XrpRawTransaction;
+  | XrpRawTransaction
+  | TonRawTransaction;
 
 export type GetDefaultTxReturnType<Raw extends boolean> = Raw extends true ? RawTxReturnType : HashTxReturnType;
 
@@ -246,7 +248,9 @@ export type TxReturnType<C extends SpokeChainKey | ChainType, Raw extends boolea
                       ? TronReturnType<Raw>
                       : GetChainType<C> extends 'XRP'
                         ? XrpReturnType<Raw>
-                        : GetDefaultTxReturnType<Raw>;
+                        : GetChainType<C> extends 'TON'
+                          ? TonReturnType<Raw>
+                          : GetDefaultTxReturnType<Raw>;
 
 /** What a deposit returns on `C`: {@link TxReturnType}, except that a Tron deposit is only ever a transfer. */
 export type DepositReturnType<C extends SpokeChainKey | ChainType, Raw extends boolean> =
@@ -325,7 +329,8 @@ export type GasEstimateType =
   | SuiGasEstimate
   | InjectiveGasEstimate
   | TronGasEstimate
-  | XrpGasEstimate;
+  | XrpGasEstimate
+  | TonGasEstimate;
 
 export type GetEstimateGasReturnTypeForSpokeChainId<C extends SpokeChainKey | ChainType> =
   GetChainType<C> extends 'EVM'
@@ -350,7 +355,9 @@ export type GetEstimateGasReturnTypeForSpokeChainId<C extends SpokeChainKey | Ch
                       ? TronGasEstimate
                       : GetChainType<C> extends 'XRP'
                         ? XrpGasEstimate
-                        : GasEstimateType;
+                        : GetChainType<C> extends 'TON'
+                          ? TonGasEstimate
+                          : GasEstimateType;
 
 export type GetEstimateGasReturnTypeForChainType<C extends ChainType> = C extends 'EVM'
   ? EvmGasEstimate
@@ -374,7 +381,9 @@ export type GetEstimateGasReturnTypeForChainType<C extends ChainType> = C extend
                     ? TronGasEstimate
                     : C extends 'XRP'
                       ? XrpGasEstimate
-                      : GasEstimateType;
+                      : C extends 'TON'
+                        ? TonGasEstimate
+                        : GasEstimateType;
 
 export type GetEstimateGasReturnType<C extends SpokeChainKey | ChainType> = C extends SpokeChainKey
   ? GetEstimateGasReturnTypeForSpokeChainId<C>

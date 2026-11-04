@@ -21,6 +21,7 @@ import type {
   TronChainKey,
   XrpChainKey,
   MonadChainKey,
+  TonChainKey,
   MpcRelayChainKey,
   HubChainKey,
   PartnerFeeAmount,
@@ -48,6 +49,7 @@ import {
   isTronChainKey,
   isXrpChainKey,
   isMonadChainKey,
+  isTonChainKey,
   isMpcRelayChainKey,
   isHubChainKey,
   isEvmChainKey,
@@ -229,6 +231,10 @@ export function isXrpChainKeyType(value: SpokeChainKey): value is XrpChainKey {
 
 export function isMonadChainKeyType(value: SpokeChainKey): value is MonadChainKey {
   return isMonadChainKey(value);
+}
+
+export function isTonChainKeyType(value: SpokeChainKey): value is TonChainKey {
+  return isTonChainKey(value);
 }
 
 /** Settles through the MPC relay rather than the intent relay. Prefer this over naming a chain. */

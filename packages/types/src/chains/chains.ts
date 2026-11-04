@@ -30,6 +30,7 @@ import {
   robinhoodSupportedTokens,
   xrpSupportedTokens,
   monadSupportedTokens,
+  tonSupportedTokens,
 } from './tokens.js';
 
 import { ChainKeys, CHAIN_KEYS, type ChainKey, type ChainType } from './chain-keys.js';
@@ -65,6 +66,7 @@ export const RelayChainIdMap = {
   [ChainKeys.ROBINHOOD_MAINNET]: 21071n,
   [ChainKeys.XRP_MAINNET]: 66n,
   [ChainKeys.MONAD_MAINNET]: 48n,
+  [ChainKeys.TON_MAINNET]: 607n,
 } as const satisfies Record<ChainKey, bigint>;
 
 export type IntentChainId = (typeof RelayChainIdMap)[keyof typeof RelayChainIdMap];
@@ -75,7 +77,7 @@ export const INTENT_CHAIN_IDS = Object.values(RelayChainIdMap);
  * derivation together, so a client cannot mix them to forge an identity:
  * `0` EVM, `1` Tron, `2` generic ed25519, `3` XRP, `4` Aptos.
  */
-export type MpcWithdrawScheme = 0 | 1 | 2 | 3 | 4;
+export type MpcWithdrawScheme = 0 | 1 | 2 | 3 | 4 | 5;
 
 /** A withdraw-auth message as the MPC relay takes it: numeric fields are u64 decimal strings. */
 export type MpcWithdrawMessage = {
@@ -112,6 +114,9 @@ export const MpcRelayChainMap = {
   // Monad's relay id is 48 (a SODAX routing id; the EVM network id is 143). Scheme 0 is EIP-191
   // personal_sign over the raw message hash, recovered like any EVM signature.
   [ChainKeys.MONAD_MAINNET]: { chainId: 48n, withdrawScheme: 0 },
+  // TON's relay id is 607 (a SODAX routing id). Scheme 5 is a TonConnect `signData` over a text line
+  // embedding the message hash, submitted with the pubkey and the wallet's signing envelope.
+  [ChainKeys.TON_MAINNET]: { chainId: 607n, withdrawScheme: 5 },
 } as const satisfies Partial<Record<ChainKey, MpcRelayChainInfo>>;
 
 export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
@@ -490,6 +495,21 @@ export const baseChainInfo = {
       contractUrl: 'https://monadscan.com/address/',
     },
   },
+  [ChainKeys.TON_MAINNET]: {
+    name: 'TON',
+    key: ChainKeys.TON_MAINNET,
+    type: 'TON',
+    // The relay's internal routing id for TON mainnet; TON has no numeric network id of its own here.
+    chainId: 607,
+    mainnet: true,
+    logo: chainLogo(ChainKeys.TON_MAINNET),
+    explorer: {
+      baseUrl: 'https://tonviewer.com/',
+      txUrl: 'https://tonviewer.com/transaction/',
+      addressUrl: 'https://tonviewer.com/',
+      contractUrl: 'https://tonviewer.com/',
+    },
+  },
 } as const satisfies Record<ChainKey, BaseChainInfo<ChainType>>;
 
 type ChainKeysByType<T extends ChainType> = {
@@ -519,6 +539,7 @@ export type BitcoinChainKey = ChainKeysByType<'BITCOIN'>;
 export type TronChainKey = ChainKeysByType<'TRON'>;
 export type XrpChainKey = ChainKeysByType<'XRP'>;
 export type MonadChainKey = typeof ChainKeys.MONAD_MAINNET;
+export type TonChainKey = ChainKeysByType<'TON'>;
 
 const filterChainKeysByType = <T extends ChainType>(type: T) =>
   CHAIN_KEYS.filter((key): key is ChainKeysByType<T> => baseChainInfo[key].type === type);
@@ -552,6 +573,8 @@ export const TRON_CHAIN_KEYS = filterChainKeysByType('TRON');
 export const TRON_CHAIN_KEYS_SET = new Set(TRON_CHAIN_KEYS);
 export const XRP_CHAIN_KEYS = filterChainKeysByType('XRP');
 export const XRP_CHAIN_KEYS_SET = new Set(XRP_CHAIN_KEYS);
+export const TON_CHAIN_KEYS = filterChainKeysByType('TON');
+export const TON_CHAIN_KEYS_SET = new Set(TON_CHAIN_KEYS);
 
 export type HubChainKey = typeof HUB_CHAIN_KEY;
 export type HubChainType = 'EVM';
@@ -766,6 +789,12 @@ export type XrpSpokeChainConfig = BaseSpokeChainConfig<'XRP'> &
     rpcUrl: string;
   };
 
+export type TonSpokeChainConfig = BaseSpokeChainConfig<'TON'> &
+  MpcRelayChainConfig & {
+    /** toncenter v2 JSON-RPC endpoint. */
+    rpcUrl: string;
+  };
+
 /** Monad: an EVM chain settling through the MPC relay in address mode (per-deposit derived EOAs). */
 export type MonadSpokeChainConfig = BaseSpokeChainConfig<'EVM'> &
   MpcRelayChainConfig & {
@@ -773,6 +802,7 @@ export type MonadSpokeChainConfig = BaseSpokeChainConfig<'EVM'> &
   };
 
 export type SpokeChainConfig =
+  | TonSpokeChainConfig
   | MonadSpokeChainConfig
   | XrpSpokeChainConfig
   | EvmSpokeChainConfig
@@ -813,7 +843,9 @@ export type GetSpokeChainConfigType<T extends SpokeChainKey> = T extends SonicCh
                         ? TronSpokeChainConfig
                         : GetChainType<T> extends 'XRP'
                           ? XrpSpokeChainConfig
-                          : SpokeChainConfig;
+                          : GetChainType<T> extends 'TON'
+                            ? TonSpokeChainConfig
+                            : SpokeChainConfig;
 
 export type IconAddress = `hx${string}` | `cx${string}`;
 export type IconSpokeChainConfig = BaseSpokeChainConfig<'ICON'> & {
@@ -1480,6 +1512,22 @@ export const spokeChainConfig = {
       maxTimeoutMs: 90_000,
     },
   } as const satisfies MonadSpokeChainConfig,
+  [ChainKeys.TON_MAINNET]: {
+    chain: baseChainInfo[ChainKeys.TON_MAINNET] satisfies BaseChainInfo<'TON'>,
+    rpcUrl: 'https://toncenter.com/api/v2/jsonRPC',
+    // MPC-relay REST endpoint (notify + deposit-address). Not the intent relay.
+    mpcRelayApiEndpoint: 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com',
+    addresses: {
+      reserve: '0:2a7f65800a2ebe06fa227e7f29cd188d5c3e39d0566d8646c8c73104417a6a97',
+    },
+    nativeToken: '0x0000000000000000000000000000000000000000',
+    bnUSD: '',
+    supportedTokens: tonSupportedTokens,
+    pollingConfig: {
+      pollingIntervalMs: 5000,
+      maxTimeoutMs: 120_000,
+    },
+  } as const satisfies TonSpokeChainConfig,
 } as const satisfies Record<SpokeChainKey, SpokeChainConfig>;
 
 export const supportedSpokeChains: SpokeChainKey[] = Object.keys(spokeChainConfig) as SpokeChainKey[];

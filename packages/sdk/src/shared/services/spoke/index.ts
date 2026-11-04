@@ -14,6 +14,8 @@ export * from './NearSpokeService.js';
 export * from './TronSpokeService.js';
 export * from './XrpSpokeService.js';
 export * from './MonadSpokeService.js';
+export * from './TonSpokeService.js';
+export * from './ton-utils.js';
 export * from './xrp-utils.js';
 export * from './mpc-message.js';
 export * from './tron-utils.js';

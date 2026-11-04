@@ -33,6 +33,8 @@ import {
   type TRON_CHAIN_KEYS,
   XRP_CHAIN_KEYS_SET,
   type XRP_CHAIN_KEYS,
+  TON_CHAIN_KEYS_SET,
+  type TON_CHAIN_KEYS,
   MpcRelayChainMap,
   MpcRelayPayoutMinimums,
   type MpcRelayChainInfo,
@@ -110,6 +112,10 @@ export function isTronChainKey(chainId: SpokeChainKey): boolean {
 
 export function isXrpChainKey(chainId: SpokeChainKey): boolean {
   return XRP_CHAIN_KEYS_SET.has(chainId as (typeof XRP_CHAIN_KEYS)[number]);
+}
+
+export function isTonChainKey(chainId: SpokeChainKey): boolean {
+  return TON_CHAIN_KEYS_SET.has(chainId as (typeof TON_CHAIN_KEYS)[number]);
 }
 
 export function isMonadChainKey(chainId: SpokeChainKey): boolean {

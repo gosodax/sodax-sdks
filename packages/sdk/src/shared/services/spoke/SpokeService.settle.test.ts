@@ -254,6 +254,7 @@ describe('SpokeService.settle — Tron MPC relay', () => {
       tron: spoke.tron,
       xrp: spoke.xrp,
       monad: spoke.monad,
+      ton: spoke.ton,
     };
     const relay = stubRelay();
     for (const service of Object.values(services)) {

@@ -79,6 +79,7 @@
     "@solana/spl-token": "catalog:",
     "@solana/web3.js": "catalog:",
     "@stellar/stellar-sdk": "catalog:",
+    "@ton/core": "catalog:",
     "bignumber.js": "catalog:",
     "bitcoinjs-lib": "^6.1.5",
     "bn.js": "^5.2.1",
@@ -86,8 +87,8 @@
     "icon-sdk-js": "catalog:",
     "near-api-js": "catalog:",
     "rlp": "3.0.0",
-    "viem": "catalog:",
-    "valibot": "catalog:"
+    "valibot": "catalog:",
+    "viem": "catalog:"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",

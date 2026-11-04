@@ -272,6 +272,8 @@ export const moneyMarketSupportedTokens = {
   [ChainKeys.MONAD_MAINNET]: [
     spokeChainConfig[ChainKeys.MONAD_MAINNET].supportedTokens.USDC,
   ] as const satisfies XToken[],
+  // USDT only: TON has no vault, so it cannot be a lending-pool reserve.
+  [ChainKeys.TON_MAINNET]: [spokeChainConfig[ChainKeys.TON_MAINNET].supportedTokens.USDT] as const satisfies XToken[],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 export const moneyMarketReserveAssets = [

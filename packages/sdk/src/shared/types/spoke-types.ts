@@ -19,6 +19,7 @@ import type {
   BitcoinRawTransactionReceipt,
   TronRawTransactionReceipt,
   XrpRawTransactionReceipt,
+  TonRawTransactionReceipt,
   ChainType,
   GetAddressType,
   EvmSpokeOnlyChainKey,
@@ -160,7 +161,9 @@ export type GetTxReceiptType<C extends SpokeChainKey | ChainType> =
                       ? TronRawTransactionReceipt
                       : GetChainType<C> extends 'XRP'
                         ? XrpRawTransactionReceipt
-                        : unknown;
+                        : GetChainType<C> extends 'TON'
+                          ? TonRawTransactionReceipt
+                          : unknown;
 
 export type TxStatus = 'success' | 'failure' | 'timeout';
 export type WaitForTxReceiptParams<C extends SpokeChainKey> = {
