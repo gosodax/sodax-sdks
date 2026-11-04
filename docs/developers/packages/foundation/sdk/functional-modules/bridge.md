@@ -211,7 +211,7 @@ if (result.ok) {
 
 #### Completion paths and `timeout`
 
-`bridge()` completes through the **backend submit-tx path by default** (`bridge.useBackendSubmitTx`, default `true`): it hands the broadcast deposit to the bridge API (`sodax.api.bridge.submitTx`), which relays server-side, and polls submit-tx status. On **any** non-success — submission rejected, terminal `failed`/abandoned, or the poll running out — it falls back to the client-side `relayTxAndWaitPacket` flow so the bridge still completes, returning the same `TxHashPair` either way. That is safe because re-relaying an already-relayed deposit is idempotent, and it matters in practice: the backend keeps processing at its own pace after the SDK gives up, so the two relays can race. Set `new Sodax({ bridge: { useBackendSubmitTx: false } })` to force the client-side path. A bridge from or to an MPC-relay chain (Tron) skips the backend and settles client-side, since the backend relays only through the intent relay; the SDK drives the hub-to-Tron release itself, and `dstChainTxHash` is the Tron payout tx. A bridge whose post-fee payout to Tron is at or below `MpcRelayPayoutMinimums` fails with `VALIDATION_FAILED` (`context.reason: 'mpc-payout-below-minimum'`) before anything is signed, because the relay's release fee comes out of the payout and nothing is released once it reaches the amount; a UI can check first with `getUnmetMpcPayoutMinimum`.
+`bridge()` completes through the **backend submit-tx path by default** (`bridge.useBackendSubmitTx`, default `true`): it hands the broadcast deposit to the bridge API (`sodax.api.bridge.submitTx`), which relays server-side, and polls submit-tx status. On **any** non-success — submission rejected, terminal `failed`/abandoned, or the poll running out — it falls back to the client-side `relayTxAndWaitPacket` flow so the bridge still completes, returning the same `TxHashPair` either way. That is safe because re-relaying an already-relayed deposit is idempotent, and it matters in practice: the backend keeps processing at its own pace after the SDK gives up, so the two relays can race. Set `new Sodax({ bridge: { useBackendSubmitTx: false } })` to force the client-side path. A bridge from or to an MPC-relay chain (Tron) skips the backend and settles client-side, since the backend relays only through the intent relay; the SDK drives the hub-to-Tron release itself, and `dstChainTxHash` is the Tron payout tx.
 
 On-chain verification (`verifyTxHash`) runs on the **client-side path only** — the backend runs its own, so verifying before handing the deposit over would delay every backend success by the source chain's confirmation wait and could fail a bridge the backend would have completed. `TX_VERIFICATION_FAILED` therefore never surfaces on a bridge the backend completes.
 
@@ -303,10 +303,11 @@ When `raw` is `true`, returns the encoded transaction without broadcasting (usef
 
 **Bitcoin note:** Bitcoin is only supported with `raw: false` because it requires the Bound Exchange trading wallet derivation flow.
 
-**Chain-specific preconditions** (both fail as `VALIDATION_FAILED` with the offending `context.field`):
+**Chain-specific preconditions** (each fails as `VALIDATION_FAILED` with the offending `context.field`):
 
 - **Native BTC and the dust limit.** Native BTC is denominated in satoshis and must clear the Bitcoin dust limit of `BITCOIN_DUST_SATS` (546) — outputs below it are economically unspendable and nodes reject transactions that create them. With Bitcoin as the **source**, `amount` must be at least 546. With Bitcoin as the **destination**, the *post-fee delivered* amount must clear 546: the partner fee is deducted on the hub in 18-dp vault units, so a percentage fee — or a fixed wei-denominated `PartnerFee.amount` — can push a nominally valid `amount` under the limit (`Post-fee BTC delivery (…) is below the Bitcoin dust limit`).
 - **Stacks with `raw: true`** requires `extras.srcPublicKey` — see [BridgeExtras](#bridgeextras).
+- **A payout to an MPC-relay chain (Tron)** must stay above `MpcRelayPayoutMinimums` after the partner fee, or it fails before anything is signed with `context.reason: 'mpc-payout-below-minimum'`: the relay's release fee comes out of the payout, and nothing is released once that fee reaches the amount. A UI can check first with `getUnmetMpcPayoutMinimum`.
 
 **Parameters:**
 - `_params`: `BridgeParams<K, Raw>` — bridge parameters including source/destination chain keys, token addresses, amount, recipient, wallet provider, `raw` flag, optional `extras` (see [BridgeExtras](#bridgeextras)), and optional `skipSimulation`
@@ -349,6 +350,8 @@ if (result.ok) {
 Calculates the partner fee deducted from a given bridge input amount.
 
 Returns `0n` when no partner fee applies. The fee is denominated in the same units as `inputAmount` (vault token decimals, 18 dp).
+
+It prices the partner fee only. A payout to an MPC-relay chain (Tron) also arrives less the relay's release fee, which the relay sets at each release and the SDK cannot quote, so no bridge amount the SDK computes has it deducted.
 
 **Parameters:**
 - `inputAmount`: `bigint` — gross amount being bridged, in 18-dp hub/vault units (the units the hub deducts the fee in — **not** the spoke token's native base units). This matters for a fixed `PartnerFee.amount`, which is wei-denominated; a percentage fee is unit-agnostic.
