@@ -26,6 +26,7 @@ import {
   type CreateBridgeIntentParams,
   getUnmetMpcPayoutMinimum,
   isMpcRelayChainKey,
+  isHubChainKey,
 } from '@sodax/dapp-kit';
 import { useEvmSwitchChain, useWalletProvider, useXAccount } from '@sodax/wallet-sdk-react';
 import { BitcoinSetupPanel } from '@/components/bitcoin/BitcoinSetupPanel';
@@ -210,6 +211,13 @@ export function BridgeDialog({
     }
   };
 
+  // The SDK call carries the Tron leg itself, so it stops if the page closes.
+  // A recheck runs the held batch's order, which can differ from the form's.
+  const activeOrder = heldBatch?.order ?? order;
+  const mustKeepPageOpen =
+    isMpcRelayChainKey(activeOrder.dstChainKey) ||
+    (isMpcRelayChainKey(activeOrder.srcChainKey) && !isHubChainKey(activeOrder.dstChainKey));
+
   const isBridgeDisabled =
     isBridging ||
     heldBatch !== null ||
@@ -236,6 +244,13 @@ export function BridgeDialog({
           </div>
           <div>Amount: {formatUnits(order.amount, fromToken?.decimals ?? 0)}</div>
           <div className="break-all">Recipient: {order.recipient}</div>
+
+          {mustKeepPageOpen && (
+            <div className="text-amber-600">
+              Keep this page open until the bridge finishes (a few minutes). If it closes early, your funds stay safe on
+              the SODAX hub but won't reach the destination until the transfer is completed.
+            </div>
+          )}
 
           {/* Below the minimum, PayoutMinimumNotice already says this. */}
           {isMpcRelayChainKey(toChainKey) && !unmetPayoutMinimum && (
