@@ -1709,16 +1709,17 @@ describe('BridgeService.getDetailedStatus', () => {
         expect(result).toEqual({ ok: true, value: { source: 'relay', data: onwardPacket } });
       });
 
-      it('keeps an onward miss out of the not-delivered budget while the backend is down', async () => {
+      it('never asks the backend, which holds no bridge from Tron and rejects its chain key', async () => {
         vi.restoreAllMocks();
-        backendFails('upstream unavailable', 503);
+        const backend = vi.spyOn(sodaxBE.api.bridge, 'getSubmitTxStatus');
         deposit('minted', { hubMint: { chain: 'sonic', hash: DST_TX, ts: 0 } });
         packets([]);
 
         const result = await sodaxBE.bridge.getDetailedStatus(toArbitrum);
 
+        expect(backend).not.toHaveBeenCalled();
         invariant(!result.ok, 'expected LOOKUP_FAILED');
-        expect(result.error.context?.reason).toBeUndefined();
+        expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
       });
 
       it('has no onward leg when the destination is the source chain', async () => {

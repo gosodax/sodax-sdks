@@ -194,6 +194,14 @@ export type BridgeServiceConstructorParams = {
  * The high-level `bridge()` method handles the full lifecycle. For fine-grained control,
  * `createBridgeIntent()` executes only the spoke-side deposit, leaving relay to the caller.
  */
+/**
+ * Whether the backend submit-tx path relays this bridge: it relays only through the intent relay, so not a
+ * bridge with an MPC-relay end. Submitting and reading status both key off it, so they change together.
+ */
+function backendRelaysBridge(srcChainKey: SpokeChainKey, dstChainKey: SpokeChainKey | undefined): boolean {
+  return !isMpcRelayChainKey(srcChainKey) && !(dstChainKey !== undefined && isMpcRelayChainKey(dstChainKey));
+}
+
 export class BridgeService {
   public readonly hubProvider: HubProvider;
   public readonly config: ConfigService;
@@ -854,9 +862,8 @@ export class BridgeService {
     // Backend submit-tx flow (default on): hand the broadcast spoke-deposit tx to the bridge API, which
     // relays server-side. On ANY non-success we fall back to the client-side relay so the bridge
     // still completes — safe because re-relay is idempotent.
-    // The backend only relays through the intent relay, so a bridge to or from an MPC-relay chain settles client-side.
     const { srcChainKey, dstChainKey } = _params.params;
-    if (this.useBackendSubmitTx && !isMpcRelayChainKey(srcChainKey) && !isMpcRelayChainKey(dstChainKey)) {
+    if (this.useBackendSubmitTx && backendRelaysBridge(srcChainKey, dstChainKey)) {
       const submitted = await this.submitTx(_params, created, createSubmitTxAttempt(timeoutMs));
       if (submitted.ok) return submitted;
       this.config.logger.warn('[bridge] backend submit-tx did not complete; falling back to the client-side relay', {
@@ -1308,7 +1315,8 @@ export class BridgeService {
    * relay once that stalls, so a fallback-completed bridge leaves behind whatever state the backend
    * last reached, including a record it abandoned outright. Neither shape reflects what happened.
    *
-   * 1. Read the backend record; return it while it is still in play.
+   * 1. Read the backend record; return it while it is still in play. A bridge with an MPC-relay end skips this:
+   *    the backend never holds one.
    * 2. From an MPC-relay source, return the relay's deposit record once minted on the hub, or, for a non-hub
    *    `dstChainKey`, the hub-to-spoke packet once it lands.
    * 3. Otherwise return the delivered relay packet, which is terminal by construction.
@@ -1335,18 +1343,21 @@ export class BridgeService {
     config?: RequestOverrideConfig,
   ): Promise<Result<DetailedBridgeStatus, BridgeDetailedStatusError>> {
     try {
-      const record = await this.backendApi.bridge.getSubmitTxStatus(
-        { txHash: params.srcTxHash, srcChainKey: params.srcChainKey },
-        config,
-      );
+      // A bridge the backend never relays has no record there (it rejects an MPC-relay chain key outright):
+      // skip it, and count that as a definitive answer below.
+      const { srcChainKey, dstChainKey } = params;
+      const skipsBackend = !backendRelaysBridge(srcChainKey, dstChainKey);
+      const record = skipsBackend
+        ? undefined
+        : await this.backendApi.bridge.getSubmitTxStatus({ txHash: params.srcTxHash, srcChainKey }, config);
 
       // `success: false` is the wire contract's "no record found", whatever `data` carries — `ok`
       // only proves the request and schema succeeded.
-      if (record.ok && record.value.success && !isBackendSubmitTxAbandoned(record.value.data)) {
+      if (record?.ok && record.value.success && !isBackendSubmitTxAbandoned(record.value.data)) {
         return { ok: true, value: { source: 'backend', data: record.value.data } };
       }
 
-      if (!record.ok && isSodaxError(record.error) && isAuthFailure(record.error)) {
+      if (record && !record.ok && isSodaxError(record.error) && isAuthFailure(record.error)) {
         return {
           ok: false,
           error: this.detailedStatusLookupFailed(record.error, params.srcChainKey, {
@@ -1358,7 +1369,8 @@ export class BridgeService {
       // Did the backend *answer*? A record — even `success: false`, even abandoned — and a 404 are
       // both definitive "nothing usable here". A 5xx or a transport failure is not: behind one we
       // cannot tell a bridge that will never resolve from a live one whose record we could not read.
-      const backendAnswered = record.ok || (isSodaxError(record.error) && record.error.context?.status === 404);
+      const backendAnswered =
+        !record || record.ok || (isSodaxError(record.error) && record.error.context?.status === 404);
 
       const minted = await resolveMintedMpcDeposit({
         srcChainKey: params.srcChainKey,

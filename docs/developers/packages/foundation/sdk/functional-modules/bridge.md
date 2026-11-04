@@ -533,7 +533,7 @@ Sometimes there is **no record**, and it reads 404 — you opted out with `useBa
 
 The relay can answer for it, but only if you know to ask it, and with what. So the caller had to know which path ran and pick a source. This method makes that choice instead:
 
-1. Read the backend record; return it while it is still in play.
+1. Read the backend record; return it while it is still in play. A bridge from Tron, or to Tron with `dstChainKey`, skips this step: the backend never holds one.
 2. Otherwise return the delivered relay packet for the source tx — or, for an MPC-relay source, its relay deposit record (with a `dstChainKey` on another spoke, the hub-to-spoke packet).
 
 A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 2, and on the default path this is the *common* branch rather than an edge case: the record almost always exists, so abandonment — not a 404 — is what usually signals the fallback ran. It never self-heals, so keeping it would report `failed` for a bridge the fallback went on to complete. A `success: false` envelope takes step 2 as well — that is the wire contract's "no record found", whatever `data` carries. A transport or server error routes on too, so a transient backend outage does not fail a bridge the relay can still report on.
