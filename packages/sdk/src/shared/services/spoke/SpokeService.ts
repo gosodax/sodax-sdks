@@ -97,7 +97,7 @@ import type {
   SettlementFailure,
 } from '../../types/spoke-types.js';
 import type { MpcWithdrawalSettlement, Settlement, TxHashPair } from '../../types/types.js';
-import { relayTxAndWaitPacket } from '../intentRelay/IntentRelayApiService.js';
+import { relayTxAndWaitPacket, submitTransaction } from '../intentRelay/IntentRelayApiService.js';
 import type {
   DepositRecord,
   HubRelease,
@@ -1381,6 +1381,25 @@ export class SpokeService {
       const submitted = await this.getMpcRelaySettlement(dstChainKey).submitHubRelease(release);
       if (!submitted.ok) return { ok: false, error: { phase: 'relay', cause: submitted.error } };
       return { ok: true, value: release };
+    } catch (error) {
+      return { ok: false, error: { phase: 'relay', cause: error } };
+    }
+  }
+
+  /**
+   * Submit a hub tx to the intent relay so its message reaches the spoke it targets, without waiting. This is
+   * the leg after an MPC-relay deposit's hub mint, which no relay knows of, as {@link settle} drives it with a
+   * `dstChainKey`. Re-submitting is idempotent; `bridge.getDetailedStatus` with `dstChainKey` reads the delivery.
+   */
+  public async submitHubDelivery(hubTxHash: string): Promise<Result<void, SettlementFailure>> {
+    try {
+      const chainId = getIntentRelayChainId(this.hubProvider.chainConfig.chain.key).toString();
+      const submitted = await submitTransaction(
+        { action: 'submit', params: { chain_id: chainId, tx_hash: hubTxHash } },
+        this.config.relay.relayerApiEndpoint,
+      );
+      if (!submitted.ok) return { ok: false, error: { phase: 'relay', cause: submitted.error } };
+      return { ok: true, value: undefined };
     } catch (error) {
       return { ok: false, error: { phase: 'relay', cause: error } };
     }
