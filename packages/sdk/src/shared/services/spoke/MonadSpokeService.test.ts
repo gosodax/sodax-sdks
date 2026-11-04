@@ -37,11 +37,9 @@ const publicClient = {
   estimateGas: vi.fn(async () => 21_000n),
 };
 
-const walletProvider = {
-  chainType: 'EVM',
-  sendTransaction: vi.fn(async () => TX_HASH),
-  signMessage: vi.fn(async () => `0x${'cd'.repeat(65)}` as Hex),
-} as never;
+const sendTransaction = vi.fn(async () => TX_HASH);
+const signMessage = vi.fn(async () => `0x${'cd'.repeat(65)}` as Hex);
+const walletProvider = { chainType: 'EVM', sendTransaction, signMessage } as never;
 
 const depositParams = (token: string, extra: object = {}) =>
   ({
@@ -98,7 +96,8 @@ describe('MonadSpokeService.deposit', () => {
   });
 
   it('sends an ERC-20 as a plain transfer to the deposit address, needing no allowance', async () => {
-    const tx = (await monad.deposit({ ...(depositParams(USDC) as object), raw: true } as never)) as {
+    // The never-typed params erase `raw`, so the call is typed as returning the hash rather than the raw tx.
+    const tx = (await monad.deposit({ ...(depositParams(USDC) as object), raw: true } as never)) as unknown as {
       to: string;
       value: bigint;
       data: Hex;
@@ -116,7 +115,7 @@ describe('MonadSpokeService.deposit', () => {
     const hash = await monad.deposit(depositParams(NATIVE_MON));
 
     expect(hash).toBe(TX_HASH);
-    expect(vi.mocked(walletProvider.sendTransaction)).toHaveBeenCalledOnce();
+    expect(sendTransaction).toHaveBeenCalledOnce();
     expect(publicClient.waitForTransactionReceipt).toHaveBeenCalledWith({ hash: TX_HASH });
     // The relay's id for Monad is 48, not the EVM network id 143.
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '48', TX_HASH);
@@ -143,26 +142,106 @@ describe('MonadSpokeService.deposit', () => {
     });
 
     await expect(monad.deposit(depositParams(NATIVE_MON))).rejects.toThrow(/expected address/);
-    expect(vi.mocked(walletProvider.sendTransaction)).not.toHaveBeenCalled();
+    expect(sendTransaction).not.toHaveBeenCalled();
   });
 
   it('refuses a deposit whose target disagrees with the hub wallet the relay derives', async () => {
     await expect(
       monad.deposit(depositParams(NATIVE_MON, { to: '0x9999999999999999999999999999999999999999' })),
     ).rejects.toThrow(/relay derives hub wallet/);
-    expect(vi.mocked(walletProvider.sendTransaction)).not.toHaveBeenCalled();
+    expect(sendTransaction).not.toHaveBeenCalled();
   });
 
-  it('keeps the tx hash in the error when the relay cannot be notified, so the deposit can be re-notified', async () => {
+  it('still resolves to the tx hash when the relay cannot be notified, leaving the re-notify to settlement', async () => {
     vi.useFakeTimers();
     vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
 
-    const pending = monad.deposit(depositParams(NATIVE_MON)).catch((error: Error) => error);
+    const pending = monad.deposit(depositParams(NATIVE_MON));
     await vi.runAllTimersAsync();
-    const failure = await pending;
 
-    expect((failure as Error).message).toContain(`${TX_HASH} sent but the relay was not notified`);
+    // The funds already moved: the hash is what settlement waits on and re-notifies.
+    expect(await pending).toBe(TX_HASH);
     expect(vi.mocked(MpcRelayApiService.notify).mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+describe('MonadSpokeService — relay submit and read', () => {
+  const HUB_RELEASE = { dstChainKey: MONAD, hubChainId: '146', hubTxHash: '0xhub', logIndex: 3 } as const;
+
+  it('submitDeposit notifies the relay on the Monad relay id, without polling', async () => {
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit');
+
+    expect(await monad.submitDeposit(TX_HASH)).toEqual({ ok: true, value: undefined });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '48', TX_HASH);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it('submitDeposit keeps the tx hash in the failure so the deposit can be re-notified', async () => {
+    vi.useFakeTimers();
+    vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
+
+    const pending = monad.submitDeposit(TX_HASH);
+    await vi.runAllTimersAsync();
+    const result = await pending;
+
+    expect(!result.ok && (result.error as Error).message).toContain(`deposit ${TX_HASH} was not notified`);
+  });
+
+  it('getDepositRecord reads the record by the Transfer log index without waiting for the receipt', async () => {
+    const read = vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue({
+      ok: true,
+      value: { depositId: 'id', status: 'pending', createdAt: 0, txs: {} },
+    });
+    receipt = { status: 'success', logs: [usdcTransferLog(5)] };
+    const getReceipt = vi.fn(async () => receipt);
+    vi.spyOn(monad, 'getPublicClient').mockReturnValue({ ...publicClient, getTransactionReceipt: getReceipt } as never);
+
+    await monad.getDepositRecord(TX_HASH);
+
+    expect(read.mock.calls[0]?.[1]).toBe(`48-${TX_HASH}-5`);
+    expect(getReceipt).toHaveBeenCalledWith({ hash: TX_HASH });
+    expect(publicClient.waitForTransactionReceipt).not.toHaveBeenCalled();
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
+  it('getDepositRecord reports a tx the node cannot find as a failure rather than rejecting', async () => {
+    vi.spyOn(monad, 'getPublicClient').mockReturnValue({
+      ...publicClient,
+      getTransactionReceipt: vi.fn(async () => {
+        throw new Error('not found');
+      }),
+    } as never);
+
+    expect((await monad.getDepositRecord(TX_HASH)).ok).toBe(false);
+  });
+
+  it('submitHubRelease notifies the hub tx as a withdrawal on the hub chain id', async () => {
+    expect(await monad.submitHubRelease(HUB_RELEASE)).toEqual({ ok: true, value: undefined });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '146', '0xhub', 'withdrawal');
+  });
+
+  it('reads a withdrawal and a hub release once each, notifying nothing', async () => {
+    const record = { ok: true as const, value: { depositId: 'id', status: 'pending' as const, createdAt: 0, txs: {} } };
+    vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(record);
+    vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: '0xtrack', status: 'submitted' },
+    });
+
+    expect(await monad.getHubReleaseRecord(HUB_RELEASE)).toEqual(record);
+    expect((await monad.getWithdrawalRecord('0xtrack')).ok).toBe(true);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
+  it('waitForWithdrawal passes the stage to stop on through to the relay poll', async () => {
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: '0xtrack', status: 'burned' },
+    });
+
+    await monad.waitForWithdrawal('0xtrack', undefined, 'burned');
+
+    expect(wait).toHaveBeenCalledWith(expect.anything(), '0xtrack', expect.objectContaining({ until: 'burned' }));
   });
 });
 

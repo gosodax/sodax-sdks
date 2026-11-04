@@ -1,8 +1,10 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { BridgeSubmitTxStatusResponseV2, RequestOverrideConfig } from '@sodax/sdk';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
+import { retryUnlessAuthFailure } from '../shared/retryUnlessAuthFailure.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 import type { ReadHookParams } from '../shared/types.js';
+import { getBridgeSubmitTxStatusRefetchInterval } from './getBridgeSubmitTxStatusRefetchInterval.js';
 
 export type UseBridgeApiSubmitTxStatusParams = ReadHookParams<
   BridgeSubmitTxStatusResponseV2 | undefined,
@@ -24,8 +26,9 @@ export type UseBridgeApiSubmitTxStatusParams = ReadHookParams<
  * });
  *
  * @remarks
- * - Default refetch interval is 1 second; stops on 'executed' or 'failed' status, or when the
- *   backend marks the submission abandoned (`abandonedAt`) while `status` stays non-terminal —
+ * - Default refetch interval is 1 second; stops on 'executed' or 'failed' status, when the
+ *   backend marks the submission abandoned (`abandonedAt`) while `status` stays non-terminal, or
+ *   once the backend rejects the API key (401/403 is terminal — a retry cannot fix it) —
  *   mirroring the SDK's backend submit-tx poll (no solver `posting_execution` state — bridge has
  *   no post-execution).
  */
@@ -47,14 +50,8 @@ export const useBridgeApiSubmitTxStatus = ({
       return unwrapResult(await sodax.api.bridge.getSubmitTxStatus({ txHash, srcChainKey }, apiConfig));
     },
     enabled: !!txHash && txHash.length > 0 && !!srcChainKey,
-    retry: 3,
-    refetchInterval: query => {
-      const data = query.state.data?.data;
-      // `abandonedAt` is terminal even when `status` is still non-terminal (e.g. 'relayed') —
-      // same rule as the SDK's pollBackendSubmitTx.
-      if (data?.status === 'executed' || data?.status === 'failed' || data?.abandonedAt) return false;
-      return 1000;
-    },
+    retry: retryUnlessAuthFailure,
+    refetchInterval: query => getBridgeSubmitTxStatusRefetchInterval(query.state.error, query.state.data?.data),
     ...queryOptions,
   });
 };

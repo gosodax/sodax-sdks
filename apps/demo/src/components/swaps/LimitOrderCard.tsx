@@ -226,7 +226,7 @@ export default function LimitOrderCard() {
     <>
       <Card className="w-full max-w-lg mx-auto">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-center">Cross Chain Limit Order</CardTitle>
+          <CardTitle className="text-xl sm:text-2xl font-bold text-center">Cross Chain Limit Order</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grow">
@@ -368,7 +368,7 @@ export default function LimitOrderCard() {
                 <DialogDescription>See details of limit order intent.</DialogDescription>
               </DialogHeader>
               <div className="">
-                <div className="flex flex-col">
+                <div className="flex flex-col wrap-anywhere">
                   <div>
                     inputToken: {limitOrderPayload?.inputToken} on {limitOrderPayload?.srcChainKey}
                   </div>

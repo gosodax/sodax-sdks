@@ -24,7 +24,6 @@ import {
   DEFAULT_BACKEND_API_TIMEOUT,
   DEFAULT_SPONSORING_API_ENDPOINT,
   sodaxConfig,
-  type DeepPartial,
   type PartnerFee,
   type SodaxConfig,
   type SodaxOptions,
@@ -157,7 +156,7 @@ describe('mergeSodaxConfig — api ApiConfig union resolves correctly per servic
   // Every service resolves the same gateway root; only the backend data API appends a mount below it.
   const withMount = <T extends object>(resolved: T) => ({ ...resolved, basePath: BACKEND_API_BASE_PATH });
 
-  const resolveServices = (override: DeepPartial<SodaxConfig>) => {
+  const resolveServices = (override: SodaxOptions) => {
     const merged = mergeSodaxConfig(freshConfig(), override);
     return {
       base: resolveBaseApiConfig(merged.api),

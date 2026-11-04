@@ -127,7 +127,7 @@ if (!isApproved) await approve({ params: supplyParams, walletProvider });
 | `useReservesData` | `[ReserveData[], ...]` | Raw data for custom rendering |
 | `useReservesHumanized` | `ReserveDataHumanized[]` | Decimal-normalized (most common for UI) |
 | `useReservesList` | `Address[]` | Just the reserve addresses |
-| `useReservesUsdFormat` | `ReserveDataWithUsd[]` | With USD price overlays |
+| `useReservesUsdFormat` | `ReserveUsdFormat[]` | With USD price overlays |
 | `useUserFormattedSummary` | `{ totalCollateralUSD, totalBorrowsUSD, healthFactor, ... }` | Dashboard-ready summary |
 | `useUserReservesData` | `UserReserveData[]` | Per-reserve user position |
 
@@ -135,7 +135,7 @@ if (!isApproved) await approve({ params: supplyParams, walletProvider });
 
 | Hook | Returns |
 |---|---|
-| `useSupply` / `useBorrow` / `useWithdraw` / `useRepay` | `SafeUseMutationResult<TxHashPair, Error, ...>` (`{ srcChainTxHash, dstChainTxHash }`) |
+| `useSupply` / `useBorrow` / `useWithdraw` / `useRepay` | `SafeUseMutationResult<TxHashPair, Error, ...>` (`{ srcChainTxHash, dstChainTxHash }`); `useBorrow` / `useWithdraw` return `OutboundSettlement<K>`, which from Tron is `{ trackingId, dstChainTxHash }`: a withdraw-auth has no Tron tx, so never link `trackingId` to an explorer |
 | `useMMApprove` | `SafeUseMutationResult<TxReturnType<K, false>, Error, ...>` — chain-keyed receipt union |
 | `useMMAllowance` | `UseQueryResult<boolean, Error>` — already unwrapped; for `borrow`/`withdraw` actions the query is `enabled: false` and `data` is `undefined` |
 | Reserve / position hooks | `UseQueryResult<TData, Error>` — already unwrapped; queries throw on SDK `!ok` |

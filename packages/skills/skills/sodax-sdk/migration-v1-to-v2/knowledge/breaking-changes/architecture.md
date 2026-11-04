@@ -113,7 +113,7 @@ These v1 names still ship through `@sodax/sdk` (re-exported from `@sodax/types`)
 |---|---|---|
 | `moneyMarketSupportedTokens[chainId]` | Still exported (`packages/types/src/moneyMarket/moneyMarket.ts`) | `sodax.moneyMarket.getSupportedTokensByChainId(chainKey)` |
 | `Object.entries(moneyMarketSupportedTokens)` (walk pattern) | Const still exported | `sodax.moneyMarket.getSupportedTokens()` (returns `Record<SpokeChainKey, XToken[]>`) |
-| `SodaTokens` registry (vault-validation) | Still exported (`packages/types/src/chains/tokens.ts`) | `sodax.config.getMoneyMarketReserveAssets()` or `sodax.moneyMarket.getSupportedReserves()` |
+| `SodaTokens` (hub-vault registry — feature-neutral, **not** the reserve list) | Still exported (`packages/types/src/chains/tokens.ts`) | `sodax.config.getMoneyMarketReserveAssets()` or `sodax.moneyMarket.getSupportedReserves()` for reserves; `sodax.config.getSupportedSwapTokensByChainId('sonic')` for swaps |
 | `swapSupportedTokens[chainId]` (v1 had no `solverSupportedTokens`) | Still exported (`packages/types/src/swap/swap.ts`) | `sodax.config.getSupportedSwapTokensByChainId(chainKey)` |
 | `getSupportedSolverTokens(chainId)` (free function) | Still exported (`packages/types/src/swap/swap.ts`) | `sodax.config.getSupportedSwapTokensByChainId(chainKey)` |
 | `supportedSpokeChains` (`SpokeChainKey[]`) | Still exported (`packages/types/src/chains/chains.ts`) | `sodax.config.isValidSpokeChainKey(chainKey)` for validation, or read `sodaxConfig.chains` at module scope |
@@ -176,7 +176,7 @@ If you pass a config override to `new Sodax({ ... })`, put solver endpoints in `
 v1 had per-feature relay helpers (each feature module had its own `*WaitForRelay()` or `relay*Tx()` function). v2 centralises this into `IntentRelayApiService` with two public entry points:
 
 - `submitTransaction(payload, apiUrl)` — TWO positional args (`payload: IntentRelayRequest<'submit'>`, `apiUrl: HttpUrl`), not an options object. POSTs the spoke transaction to the relay submit endpoint and resolves the relay's first-stage acknowledgement.
-- `relayTxAndWaitPacket({ srcTxHash, data, chainKey, relayerApiEndpoint, timeout, pollTxHash? })` — `RelayAndWaitParams`: `data` is the whole `RelayExtraData` / `OnDemandRelayData` object, `chainKey` is the source `SpokeChainKey`. Runs `submitTransaction` and then polls until the destination packet reaches `executed`. Resolves with `{ srcTxHash, dstTxHash, packet }` on success.
+- `relayTxAndWaitPacket({ srcTxHash, data?, chainKey, relayerApiEndpoint, timeout, pollTxHash? })` — `RelayAndWaitParams`: `data` is the whole `RelayExtraData` / `OnDemandRelayData` object (required for Solana and Bitcoin), `chainKey` is the source `SpokeChainKey`. Runs `submitTransaction` and then polls until the destination packet reaches `executed`. Resolves with `{ srcTxHash, dstTxHash, packet }` on success.
 
 Internally, every feature service now calls `relayTxAndWaitPacket` for the spoke→hub leg. Failures from this layer surface to consumers via `mapRelayFailure`.
 

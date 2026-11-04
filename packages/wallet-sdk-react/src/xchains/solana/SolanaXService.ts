@@ -27,6 +27,89 @@ export class SolanaXService extends XService {
     return SolanaXService.instance;
   }
 
+  /**
+   * Batches native SOL and SPL / Token-2022 balance reads into as few RPC calls as possible.
+   * Rejects when any RPC request fails, so a failed request is never reported as zero balances.
+   */
+  override async getBalances(address: string | undefined, xTokens: readonly XToken[]): Promise<Record<string, bigint>> {
+    if (!address) return {};
+
+    const balances = xTokens.map(() => 0n);
+    const toRecord = () =>
+      xTokens.reduce<Record<string, bigint>>((result, xToken, index) => {
+        result[xToken.address] = balances[index] ?? 0n;
+        return result;
+      }, {});
+
+    const connection = this.connection;
+    if (!connection) return toRecord();
+
+    let owner: PublicKey;
+    try {
+      owner = new PublicKey(address);
+    } catch {
+      return toRecord();
+    }
+
+    const nativeIndexes: number[] = [];
+    const tokenCandidates: {
+      index: number;
+      candidates: { programId: PublicKey; ata: PublicKey }[];
+    }[] = [];
+
+    for (const [index, xToken] of xTokens.entries()) {
+      try {
+        if (isNativeToken(xToken)) {
+          nativeIndexes.push(index);
+          continue;
+        }
+
+        const mint = new PublicKey(xToken.address);
+        tokenCandidates.push({
+          index,
+          candidates: [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID].map(programId => ({
+            programId,
+            ata: getAssociatedTokenAddressSync(mint, owner, true, programId),
+          })),
+        });
+      } catch {
+        // Invalid token metadata leaves this input's compatibility fallback at zero.
+      }
+    }
+
+    const nativeBalancePromise = nativeIndexes.length
+      ? connection.getBalance(owner).then(balance => BigInt(balance))
+      : Promise.resolve(0n);
+
+    const batchPromises: Promise<void>[] = [];
+    for (let start = 0; start < tokenCandidates.length; start += 50) {
+      const chunk = tokenCandidates.slice(start, start + 50);
+      const candidates = chunk.flatMap(entry =>
+        entry.candidates.map(candidate => ({ ...candidate, index: entry.index })),
+      );
+
+      batchPromises.push(
+        connection.getMultipleAccountsInfo(candidates.map(candidate => candidate.ata)).then(accounts => {
+          for (const [candidateIndex, candidate] of candidates.entries()) {
+            const info = accounts[candidateIndex];
+            if (!info) continue;
+            try {
+              balances[candidate.index] =
+                (balances[candidate.index] ?? 0n) + unpackAccount(candidate.ata, info, candidate.programId).amount;
+            } catch {
+              // Not a token account for this candidate's program — ignore it.
+            }
+          }
+        }),
+      );
+    }
+
+    const [nativeBalance] = await Promise.all([nativeBalancePromise, Promise.all(batchPromises)]);
+    for (const index of nativeIndexes) balances[index] = nativeBalance;
+
+    return toRecord();
+  }
+
   override async getBalance(address: string | undefined, xToken: XToken): Promise<bigint> {
     if (!address) return BigInt(0);
 

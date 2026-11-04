@@ -50,20 +50,15 @@ export const spokeHooks = {
       supportedTokens: [spokeChainConfig[ChainKeys.HYPEREVM_MAINNET].supportedTokens.USDC.address], // USDC on HyperEVM
     },
   ],
-  // HookKind.FLINT_DEPOSIT is not registered yet: FlintDepositHook is not deployed to Ethereum
-  // mainnet (icon-project/sodax-contracts#693). Registering it with a placeholder address would
-  // route real intent output to that address, so the entry lands with the deployment:
-  //
-  //   [ChainKeys.ETHEREUM_MAINNET]: [
-  //     {
-  //       kind: HookKind.FLINT_DEPOSIT,
-  //       address: '0x…',
-  //       supportedTokens: [spokeChainConfig[ChainKeys.ETHEREUM_MAINNET].supportedTokens.USDC.address],
-  //     },
-  //   ],
-  //
-  // Until then `getSpokeHook` returns undefined and `resolveDeliveryHook` throws, which is the
-  // correct behaviour for a hook that does not exist on chain.
+  [ChainKeys.ETHEREUM_MAINNET]: [
+    {
+      kind: HookKind.FLINT_DEPOSIT,
+      // FlintDepositHook, deployed 2026-08-10 (icon-project/sodax-contracts#693). USDC only: any
+      // other delivered token is handed to the recipient as a plain transfer by the hook itself.
+      address: '0xDf376dE34e9f1474A025Dfe411b7EB5541793C5d',
+      supportedTokens: [spokeChainConfig[ChainKeys.ETHEREUM_MAINNET].supportedTokens.USDC.address], // USDC on Ethereum
+    },
+  ],
 } as const satisfies Partial<Record<SpokeChainKey, readonly SpokeHookConfig[]>>;
 
 /** Returns the deployed hook of the given kind on `chainKey`, or `undefined` if none is registered. */

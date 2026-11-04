@@ -1,3 +1,14 @@
+# Block staged secrets before they enter history; CI gitleaks is the hard gate.
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks git --pre-commit --staged --redact --no-banner --config .gitleaks.toml
+  gitleaks git --pre-commit --staged --redact --no-banner --config .gitleaks-strict.toml
+else
+  echo "warn: gitleaks not installed (brew install gitleaks); skipping staged secret scan"
+fi
+# `git commit` exports GIT_INDEX_FILE (the index.lock it is holding) to its hooks. The suites that
+# drive git in a temp repo inherit it and die on `index.lock.lock: File exists`, so drop it here.
+unset GIT_INDEX_FILE GIT_DIR GIT_WORK_TREE
+
 pnpm checkTs
 pnpm build
 pnpm test

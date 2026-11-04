@@ -58,8 +58,7 @@ See [`recipes/library-exports.md`](../../../integration/knowledge/recipes/librar
 Summary:
 
 - **viem** — `Account`, `Address`, `Chain`, `Transport`, `PublicClient`, `WalletClient`, `HttpTransportConfig`, `PublicClientConfig`, `WalletClientConfig`, `SendTransactionParameters`, `WaitForTransactionReceiptParameters`, `TransactionReceipt`
-- **@mysten/sui** — `SuiTransactionBlockResponseOptions`, `Transaction`, `TransactionArgument`
-- **@mysten/wallet-standard** — `SuiWalletFeatures`, `WalletAccount`, `WalletWithFeatures`
+- **@mysten/sui** — `Transaction`, `TransactionArgument`
 - **@solana/web3.js** — `Commitment`, `ConnectionConfig`, `SendOptions`
 - **@injectivelabs/*** — `Network`, `ChainId`, `EvmChainId`, `MsgBroadcaster`
 - **@stellar/stellar-sdk** — `Networks` (runtime value)

@@ -17,6 +17,8 @@ import { retry } from '../../utils/shared-utils.js';
 import type {
   DepositParams,
   EstimateGasParams,
+  GetBalanceParams,
+  GetBalancesParams,
   GetDepositParams,
   SendMessageParams,
   WaitForTxReceiptParams,
@@ -25,14 +27,22 @@ import type {
 import {
   getDeposit,
   getDepositAddress,
+  getWithdrawal,
   notify,
   submitWithdraw,
   toDepositId,
+  toHubReleaseId,
   waitForDeposit,
+  waitForHubRelease,
   waitForWithdrawal,
   type DepositRecord,
+  type HubRelease,
+  type MpcRelaySettlement,
+  type NotifyResponse,
   type WithdrawalRecord,
+  type WithdrawalSettledOn,
 } from '../mpcRelay/MpcRelayApiService.js';
+import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 import { computeSignedMessageHash, randomWithdrawNonce } from './mpc-message.js';
 import {
   ZCASH_DUST_ZATOSHIS,
@@ -78,7 +88,7 @@ const canonicalTxid = (txid: string): string => txid.replace(/^0x/, '').toLowerC
  *
  * @see MpcRelayApiService for the relay REST flow (deposit-address → notify → poll).
  */
-export class ZcashSpokeService {
+export class ZcashSpokeService implements MpcRelaySettlement {
   private readonly config: ConfigService;
   /** Deposit output index by txid, for deposits made through this instance. */
   private readonly depositOutputs = new Map<string, number>();
@@ -161,7 +171,9 @@ export class ZcashSpokeService {
    *
    * `Raw: true` returns the transfer descriptor (the derived deposit address and amount). `Raw: false` builds a
    * v5 transaction paying that address, has the wallet sign it, checks the signed bytes pay exactly the deposit
-   * address, broadcasts it, and notifies the relay — resolving to the txid.
+   * address, broadcasts it, and notifies the relay — resolving to the txid. After broadcast, a failed notify
+   * warns and still resolves to the txid, so a retry cannot pay twice: `settle` re-notifies it, and a caller that
+   * does not settle notifies it with `spoke.submitMpcDeposit`.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<ZcashChainKey, R>,
@@ -211,17 +223,12 @@ export class ZcashSpokeService {
       );
     }
 
-    try {
-      // `retry` reacts to a throw, and `notify` reports failure in its Result — so rethrow to arm it.
-      await retry(async () => {
-        const res = await notify(this.relayApiUrl, this.chainId, txid);
-        if (!res.ok) throw res.error;
+    const submitted = await this.submitDeposit(txid);
+    if (!submitted.ok) {
+      this.config.logger.warn('[ZcashSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it', {
+        txid,
+        error: submitted.error,
       });
-    } catch (error) {
-      throw new Error(
-        `[ZcashSpokeService.deposit] deposit ${txid} broadcast but the relay was not notified — re-notify this txid to settle it`,
-        { cause: error },
-      );
     }
 
     if (!this.depositOutputs.has(txid)) {
@@ -231,6 +238,33 @@ export class ZcashSpokeService {
     }
 
     return txid satisfies string as TxReturnType<ZcashChainKey, R>;
+  }
+
+  /**
+   * Notify the relay of a broadcast deposit, without waiting for the hub mint. The funds are already on chain,
+   * so it retries, and a failure keeps the txid: the only handle left for re-notifying the deposit.
+   */
+  public async submitDeposit(txHash: string): Promise<Result<void>> {
+    const txid = canonicalTxid(txHash);
+    try {
+      await this.retryNotify(() => notify(this.relayApiUrl, this.chainId, txid));
+      return { ok: true, value: undefined };
+    } catch (error) {
+      return {
+        ok: false,
+        error: new Error(`mpc-relay: deposit ${txid} was not notified — re-notify this txid to settle it`, {
+          cause: error,
+        }),
+      };
+    }
+  }
+
+  /** A notify, retried: `retry` reacts to a throw and `notify` reports failure in its Result, so rethrow it. */
+  private async retryNotify(send: () => Promise<Result<NotifyResponse>>): Promise<void> {
+    await retry(async () => {
+      const res = await send();
+      if (!res.ok) throw res.error;
+    });
   }
 
   /** Select UTXOs, build the deposit transaction, have the wallet sign it, check the signed bytes, broadcast. */
@@ -372,10 +406,57 @@ export class ZcashSpokeService {
     }
   }
 
+  /**
+   * The MPC relay's current record for a Zcash deposit, read once. The relay keys a deposit on the output paying
+   * the deposit address: when this instance did not make the deposit, every output of the transaction is read and
+   * a settled record is preferred.
+   */
+  public async getDepositRecord(txHash: string): Promise<Result<DepositRecord>> {
+    const txid = canonicalTxid(txHash);
+    try {
+      const known = this.depositOutputs.get(txid);
+      if (known !== undefined) return await getDeposit(this.relayApiUrl, toDepositId(this.chainId, txid, known));
+
+      const indices = (await this.getTransaction(txid))?.vout?.map(o => o.n) ?? [];
+      let found: Result<DepositRecord> | undefined;
+      let failure: Result<DepositRecord> | undefined;
+      for (const index of indices) {
+        const res = await getDeposit(this.relayApiUrl, toDepositId(this.chainId, txid, index));
+        if (!res.ok) {
+          failure = res;
+        } else if (res.value.status === 'minted' || res.value.status === 'swept') {
+          return res;
+        } else {
+          found ??= res;
+        }
+      }
+      return found ?? failure ?? { ok: false, error: new Error(`mpc-relay: no deposit record for ${txid}`) };
+    } catch (error) {
+      return { ok: false, error };
+    }
+  }
+
   /** Transparent ZEC balance of the deposit owner, in zatoshis. */
   public async getDeposit(params: GetDepositParams<ZcashChainKey>): Promise<bigint> {
     const res = await this.rpc<{ balance: number | string }>('getaddressbalance', [{ addresses: [params.srcAddress] }]);
     return BigInt(res.balance);
+  }
+
+  /** The user's own wallet balance of `token`, in zatoshis — the same read as {@link getDeposit}. */
+  public async getWalletBalance(params: GetBalanceParams<ZcashChainKey>): Promise<bigint> {
+    return this.getDeposit({
+      srcChainKey: params.srcChainKey,
+      srcAddress: params.srcAddress,
+      token: params.token.address,
+    });
+  }
+
+  /** The user's own wallet balances of multiple tokens, keyed by `token.address`. */
+  public async getWalletBalances(params: GetBalancesParams<ZcashChainKey>): Promise<WalletBalanceMap> {
+    const { srcChainKey, srcAddress, tokens } = params;
+    const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
+    await settleWalletBalances(collector, tokens, token => this.getWalletBalance({ srcChainKey, srcAddress, token }));
+    return collector.finish();
   }
 
   /** The ZIP-317 fee of a typical deposit — one input, a deposit output and change — in zatoshis. */
@@ -418,15 +499,67 @@ export class ZcashSpokeService {
     return res.value.trackingId satisfies string as TxReturnType<ZcashChainKey, Raw>;
   }
 
+  /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */
+  public async getWithdrawalRecord(trackingId: string): Promise<Result<WithdrawalRecord>> {
+    return getWithdrawal(this.relayApiUrl, trackingId);
+  }
+
   /**
    * Wait for a hub→Zcash withdrawal to reach `released`, via the MPC relay.
    * `trackingId` is the value returned by {@link sendMessage}.
    */
-  public async waitForWithdrawal(trackingId: string, timeout?: number): Promise<Result<WithdrawalRecord>> {
+  public async waitForWithdrawal(
+    trackingId: string,
+    timeout?: number,
+    until?: WithdrawalSettledOn,
+  ): Promise<Result<WithdrawalRecord>> {
     return waitForWithdrawal(this.relayApiUrl, trackingId, {
+      until,
       timeout: Math.max(timeout ?? 0, ZCASH_SETTLEMENT_FLOOR_MS),
       pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
     });
+  }
+
+  /**
+   * Notify the relay of a hub tx releasing to Zcash, without waiting for the release. The relay has no hub
+   * watcher and learns of the hub tx only through `/notify`.
+   */
+  public async submitHubRelease(release: HubRelease): Promise<Result<void>> {
+    const { hubChainId, hubTxHash } = release;
+    try {
+      await this.retryNotify(() => notify(this.relayApiUrl, hubChainId, hubTxHash, 'withdrawal'));
+      return { ok: true, value: undefined };
+    } catch (error) {
+      // The hub has already burned the tokens; the hash is what a retry has to re-notify.
+      return {
+        ok: false,
+        error: new Error(`mpc-relay: hub tx ${hubTxHash} was not notified — re-notify it to release`, { cause: error }),
+      };
+    }
+  }
+
+  /**
+   * Wait until a release {@link submitHubRelease} notified is paid. The relay's verifier also waits on hub
+   * confirmations and may have dropped an early notify, so this keeps re-notifying.
+   */
+  public async waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>> {
+    const { hubChainId, hubTxHash } = release;
+    const renotify = setInterval(() => {
+      void notify(this.relayApiUrl, hubChainId, hubTxHash, 'withdrawal');
+    }, RENOTIFY_INTERVAL_MS);
+    try {
+      return await waitForHubRelease(this.relayApiUrl, release, {
+        timeout: Math.max(timeout ?? 0, ZCASH_SETTLEMENT_FLOOR_MS),
+        pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
+      });
+    } finally {
+      clearInterval(renotify);
+    }
+  }
+
+  /** One read of a hub release's record through the relay, which `txs.release` marks as paid. */
+  public async getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>> {
+    return getDeposit(this.relayApiUrl, toHubReleaseId(release));
   }
 
   /** Poll until the transaction has a confirmation. */

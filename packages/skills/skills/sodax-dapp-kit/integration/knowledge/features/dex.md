@@ -130,7 +130,7 @@ if (supplyResult && walletProvider) {
 
 | Hook | Returns |
 |---|---|
-| `useDexDeposit` / `useDexWithdraw` | `SafeUseMutationResult<TxHashPair, Error, UseDex(Deposit\|Withdraw)Vars<K>>` (TVars = `{ params, walletProvider, ...optional }`) |
+| `useDexDeposit` / `useDexWithdraw` | `SafeUseMutationResult<TxHashPair, Error, UseDexDepositVars<K>>` / `SafeUseMutationResult<OutboundSettlement<K>, Error, UseDexWithdrawVars<K>>` (TVars = `{ params, walletProvider, ...optional }`). `OutboundSettlement<K>` is `TxHashPair`, except from Tron: `{ trackingId, dstChainTxHash }`, since a withdraw-auth has no Tron tx |
 | `useDexApprove` | `SafeUseMutationResult<TxReturnType<K, false>, Error, UseDexApproveVars<K>>` — chain-keyed receipt union |
 | `useSupplyLiquidity` (mint or increase) | `SafeUseMutationResult<TxHashPair, Error, UseSupplyLiquidityVars<K>>` — single shape for both branches; fan-out happens inside the hook |
 | `useDecreaseLiquidity` / `useClaimRewards` | `SafeUseMutationResult<TxHashPair, Error, ...>` |

@@ -1,0 +1,79 @@
+---
+title: "SODAX for Redbelly"
+sidebarTitle: "Overview"
+description: "Reach the users and liquidity of every SODAX network from your Redbelly product. No contracts to deploy, your entire integration is TypeScript."
+icon: r
+---
+
+<Note>
+  **No new contracts.** SODAX's Redbelly spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary EVM transactions on Redbelly, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+You keep shipping on Redbelly. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## What to know on Redbelly
+
+To the SDK, Redbelly is a standard EVM network: the same `EvmWalletProvider`, ERC-20 approvals, and intent flow as any other EVM network. Two Redbelly details are yours to know about:
+
+- **Accounts need Redbelly network access.** Redbelly is a permissioned-access network. Before an account can write to it, its owner claims a Redbelly Network Access Credential from an accredited issuer, which verifies a passport with biometric checks, and then enables the account. Creating an intent on Redbelly is a write, so your users need access before they can start a swap or money market action from Redbelly. They set it up through Redbelly's [access dApp](https://access.redbelly.network/).
+- **Gas is priced in US dollars.** Redbelly fixes the unit gas price in US dollar terms and charges it in RBNT at the on-chain RBNT price, so the RBNT cost of the same transaction changes with the RBNT price. Redbelly notes that most wallets are not configured for this and may show gas information inaccurately.
+
+## What you can build
+
+Two SODAX modules are relevant to Redbelly builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/redbelly/swaps">
+    Intent-based cross-network swaps. Users swap between RBNT or Redbelly tokens and assets on any supported network with one signed transaction on Redbelly. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/redbelly/money-market">
+    Cross-network lending and borrowing. Supply from Redbelly, borrow to Redbelly or any other supported network, and manage positions without running lending infrastructure.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/redbelly/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/redbelly/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/redbelly/quickstart): install the SDK, connect a Redbelly account, make your first cross-network swap.
+- [Swaps on Redbelly](/redbelly/swaps): approvals, quoting, and fees.
+- [Money Market on Redbelly](/redbelly/money-market): supply, borrow, repay, and withdraw with cross-network collateral.
+- [Wallets](/redbelly/wallets): EVM wallets on Redbelly, and every other network's wallets through one interface.
+- [Networks & Assets](/redbelly/networks-and-assets): what is live on Redbelly today and what your users can reach.
+- [Redbelly FAQ](/redbelly/faq): the questions Redbelly engineers actually ask.
+
+## Redbelly references
+
+- [**Redbelly Developer Portal**](https://vine.redbelly.network/): the network, identity, and building on Redbelly.
+- [**User access**](https://vine.redbelly.network/identity/user-access/): how a user claims the network access credential and enables their account.
+- [**Network fees**](https://vine.redbelly.network/network-fees/): the US dollar gas model and the on-chain RBNT price oracle.
+- [**Environments**](https://vine.redbelly.network/environments/): mainnet chain ID, RPC endpoints, and explorer.
+
+---
+
+Building something? Start with the [Quickstart](/redbelly/quickstart).

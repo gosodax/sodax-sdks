@@ -6,7 +6,7 @@
  *
  * This test exists because the resolver-level unit tests could not catch the defect it guards: they
  * asserted the resolved config against `DEFAULT_BACKEND_API_ENDPOINT`, so when that constant carried the
- * backend data API's `/be` mount and swaps/bridge inherited it, the assertions agreed with the bug and
+ * backend data API's `/be` mount and the sibling clients inherited it, the assertions agreed with the bug and
  * `sodax.api.swaps.submitTx()` silently posted to `/v1/be/swaps/submit-tx`. A URL is what the gateway
  * routes on, so a URL is what this file pins.
  */
@@ -40,6 +40,11 @@ describe('packaged API URL defaults', () => {
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/be/config/all');
   });
 
+  it('oracle reads mount under /be', async () => {
+    await sodax.backendApi.getOracleMarkets();
+    expect(requestedUrl()).toBe('https://api.sodax.com/v1/be/oracle/markets');
+  });
+
   // The reported defect: this posted to `/v1/be/swaps/submit-tx`, which the gateway does not route.
   it('swaps API is a sibling of /be, not a child of it', async () => {
     await sodax.api.swaps.getTokens();
@@ -49,6 +54,11 @@ describe('packaged API URL defaults', () => {
   it('bridge API is a sibling of /be, not a child of it', async () => {
     await sodax.api.bridge.getTokens();
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/bridge/tokens');
+  });
+
+  it('leverage-yield API is a sibling of /be, not a child of it', async () => {
+    await sodax.api.leverageYield.getVaults();
+    expect(requestedUrl()).toBe('https://api.sodax.com/v1/leverage-yield/vaults');
   });
 
   it('sponsoring API keeps its own route below the same root', async () => {
@@ -62,6 +72,7 @@ describe('packaged API URL defaults', () => {
     expect(sodax.backendApi.getBasePath()).toBe('/be');
     expect(sodax.api.swaps.getBaseURL()).toBe(root);
     expect(sodax.api.bridge.getBaseURL()).toBe(root);
+    expect(sodax.api.leverageYield.getBaseURL()).toBe(root);
     expect(sodax.api.sponsoring.getBaseURL()).toBe(root);
   });
 });
@@ -89,11 +100,13 @@ describe('a legacy /be-suffixed baseURL still resolves every service', () => {
     expect(logger.warn).toHaveBeenCalledTimes(1);
   });
 
-  it('no longer nests swaps and bridge under /be', async () => {
+  it('no longer nests swaps, bridge and leverage-yield under /be', async () => {
     await legacy.api.swaps.getTokens();
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/swaps/tokens');
     await legacy.api.bridge.getTokens();
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/bridge/tokens');
+    await legacy.api.leverageYield.getVaults();
+    expect(requestedUrl()).toBe('https://api.sodax.com/v1/leverage-yield/vaults');
   });
 });
 
@@ -118,6 +131,11 @@ describe('a legacy /be-suffixed per-call baseURL override', () => {
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/bridge/tokens');
   });
 
+  it('does not nest the leverage-yield client under the data API mount', async () => {
+    await sodax.api.leverageYield.getVaults({ baseURL: legacy });
+    expect(requestedUrl()).toBe('https://api.sodax.com/v1/leverage-yield/vaults');
+  });
+
   it('is left exactly as given when an explicit basePath says the consumer writes complete roots', async () => {
     // The config-level trim stands down for an explicit `basePath`; the per-call path must agree, or a
     // `/be` that is a real path segment for this deployment gets eaten out of the override.
@@ -131,7 +149,7 @@ describe('a legacy /be-suffixed per-call baseURL override', () => {
     expect(requestedUrl()).toBe('https://gw2.example/be/config/all');
   });
 
-  it('is left as given for swaps and bridge too when basePath opts the config out', async () => {
+  it('is left as given for every sibling client too when basePath opts the config out', async () => {
     // Finding 1 from the PR review: `BackendApiService` honoured the opt-out but the decision never
     // reached the sibling clients, so their per-call overrides had a real path segment trimmed away.
     const gw = new Sodax({
@@ -142,13 +160,17 @@ describe('a legacy /be-suffixed per-call baseURL override', () => {
     expect(requestedUrl()).toBe('https://gw2.example/be/swaps/tokens');
     await gw.api.bridge.getTokens({ baseURL: 'https://gw2.example/be' });
     expect(requestedUrl()).toBe('https://gw2.example/be/bridge/tokens');
+    await gw.api.leverageYield.getVaults({ baseURL: 'https://gw2.example/be' });
+    expect(requestedUrl()).toBe('https://gw2.example/be/leverage-yield/vaults');
   });
 
-  it('still trims for swaps and bridge when the config did not opt out', async () => {
+  it('still trims for every sibling client when the config did not opt out', async () => {
     await sodax.api.swaps.getTokens({ baseURL: legacy });
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/swaps/tokens');
     await sodax.api.bridge.getTokens({ baseURL: legacy });
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/bridge/tokens');
+    await sodax.api.leverageYield.getVaults({ baseURL: legacy });
+    expect(requestedUrl()).toBe('https://api.sodax.com/v1/leverage-yield/vaults');
   });
 
   it('leaves a gateway-root override untouched for every service', async () => {
@@ -159,6 +181,8 @@ describe('a legacy /be-suffixed per-call baseURL override', () => {
     expect(requestedUrl()).toBe(`${root}/swaps/tokens`);
     await sodax.api.bridge.getTokens({ baseURL: root });
     expect(requestedUrl()).toBe(`${root}/bridge/tokens`);
+    await sodax.api.leverageYield.getVaults({ baseURL: root });
+    expect(requestedUrl()).toBe(`${root}/leverage-yield/vaults`);
   });
 });
 
@@ -173,8 +197,8 @@ describe('a bare-origin baseURL on the packaged host', () => {
   });
 
   it.each([
-    ['swapsApiConfig', { swapsApiConfig: { baseURL: 'https://api.sodax.com' } }],
-    ['sponsoringApiConfig', { sponsoringApiConfig: { baseURL: 'https://api.sodax.com' } }],
+    ['swapsApiConfig', { swapsApiConfig: { baseURL: 'https://api.sodax.com' } } as const],
+    ['sponsoringApiConfig', { sponsoringApiConfig: { baseURL: 'https://api.sodax.com' } } as const],
   ])('is reported when the short root arrives through the %s slice', (slice, api) => {
     // Finding 2 from the PR review: the old check layered only the flat fields and `baseApiConfig`, so a
     // root reaching its service through its own slice resolved one segment short with no warning.

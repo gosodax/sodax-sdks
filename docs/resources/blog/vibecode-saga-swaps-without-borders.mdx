@@ -1,0 +1,154 @@
+---
+title: "VibeCode Saga: Swaps without Borders: a charity swap built in public"
+sidebarTitle: "Swaps without Borders"
+icon: hand-holding-heart
+description: "A two-week mainnet build on SODAX SDK V2 where 100% of the partner fee goes to a community-voted charity. One config object routes the fee, the Builders MCP got me to a mainnet swap in an afternoon, and the solver's own status API makes points unfarmable."
+---
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.youtube.com/embed/1VM5r-XTKWU"
+  title="Swaps without Borders demo video"
+  frameBorder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  referrerPolicy="strict-origin-when-cross-origin"
+  allowFullScreen
+></iframe>
+
+## What it is
+
+[Swaps without Borders](https://charity-swap.vercel.app) is a cross-network swap app where every swap pays a flat 0.1% partner fee, and 100% of that fee goes to a charity the community picks. No protocol cut, no ops skim.
+
+The whole charity mechanism is one object in the SDK config. SODAX handles the fee deduction, the routing and the accrual. My code handles the community side: points, votes and payouts.
+
+The loop:
+
+1. You connect a wallet and swap across networks through the SODAX solver.
+2. The SDK deducts a 0.1% partner fee, which accrues on the Sonic hub to a public charity wallet (`0x95A8E0BcF616f7eF630b0D923667fbF52AA721AD`).
+3. Once the solver confirms your swap, you earn points based on its USD value.
+4. When the pot crosses a threshold, an admin opens a vote round with three charities from the shortlist. Connected wallets vote, weighted by their points.
+5. The winning charity takes the pot and the cycle restarts.
+
+I built it in public over two weeks (Day 3 scaffold on 2026-05-20, v1.0 on 2026-05-29). The community voted on the name, the charity shortlist, and the UI direction. It ran on mainnet from day one. The charity wallet is a single-key wallet today, and moving to a multisig is a one-line address change.
+
+## The design idea: the fee is the product
+
+Most swap apps hide the fee. This one is built around it, so the money path is the most auditable part of the codebase:
+
+- **One reviewable diff turns money on.** For the first week the `Sodax` config had no `partnerFee` at all, and the build log said so explicitly ("`partnerFee` config touched: 0"). The fee went live on Day 9 as its own commit.
+- **One dedicated wallet.** It is used only for charity fees, so every inflow is a fee and every outflow is a payout.
+- **Points only for real swaps.** The server asks the solver whether an intent executed before crediting anything. The client cannot self-confirm.
+
+## Scaffolded against the Builders MCP
+
+I pointed Claude Code at the [SODAX Builders MCP](https://builders.sodax.com/mcp) and asked for a cross-network swap component with partner fees. Going from `pnpm create next-app` to a working mainnet swap took one afternoon, and I read zero SDK docs outside the MCP that day.
+
+What the MCP handed over, per the Day 3 build log:
+
+- The `SodaxProvider` > `QueryClientProvider` > `SodaxWalletProvider` nesting, and why the config must be one stable reference.
+- The shapes of `useQuote`, `useSwap`, `useSwapAllowance`, `useSwapApprove`, including the nested `params.payload` pattern.
+- `CreateIntentParams` field by field, including `srcChainKey` (request side) vs `srcChain` (read side).
+- `ChainKeys` constants and token addresses with decimals.
+
+Later the token registry came from the MCP too (`sodax_get_swap_tokens`). On Day 11 it filled out my picker with 13 more tokens, taking the catalog from 103 to 116.
+
+## The SDK pieces that carried this
+
+### 1. Partner fee as config
+
+The whole charity mechanism is one object passed into the SDK config:
+
+```ts
+// `percentage` is basis points (FEE_PERCENTAGE_SCALE = 10_000): 10 = 0.1%
+const charityPartnerFee: PartnerFee = {
+  address: CHARITY_FEE_ADDRESS,
+  percentage: 10,
+};
+
+export const sodaxConfig: DeepPartial<SodaxConfig> = {
+  swaps: { partnerFee: charityPartnerFee },
+  bridge: { partnerFee: charityPartnerFee },
+  moneyMarket: { partnerFee: charityPartnerFee },
+  // ...
+};
+```
+
+The same object covers swaps, bridging and the money market. Around it, the address is regex-checked at module load so a malformed env var throws early, and the comment documents the basis-point scale, which I confirmed in the SDK source (`amount * percentage / 10_000n`).
+
+### 2. The swap hooks from dapp-kit
+
+Quote, allowance, approve, swap. The quote is `exact_input`, and the intent's minimum output comes from the quote minus user-set slippage:
+
+```ts
+const { data: quoteResult } = useQuote({
+  params: { payload: {
+    token_src: src.address, token_dst: dst.address,
+    token_src_blockchain_id: src.chain, token_dst_blockchain_id: dst.chain,
+    amount: parsedAmount, quote_type: "exact_input",
+  } },
+});
+
+const { mutateAsync: swap } = useSwap();
+const swapRes = await swap({ params: intentParams, walletProvider, timeout: 120_000 });
+```
+
+`useSwap` accepts a `timeout`, so the UI always gets an answer back within a bound I choose.
+
+### 3. Fees accrue on the hub
+
+Partner fees accumulate as wrapped tokens on the Sonic hub, one per source token people swapped from. The `/charities` panel reads the live basket server-side with one call:
+
+```ts
+const result = await sodax.partners.feeClaim.fetchAssetsBalances(CHARITY_WALLET);
+```
+
+That is the number the community sees grow. Claiming is available to the charity wallet through the `feeClaim` lifecycle on an admin page, and the claim card only acts for that wallet.
+
+### 4. Server-side confirmation with `getStatus`
+
+Points decide vote weight, so they cannot be farmable. After `useSwap` returns, the client logs every candidate hash (source tx, destination tx, solver intent hash). A server route then asks the solver which one it recognises:
+
+```ts
+const res = await sodax.swaps.getStatus({ intent_tx_hash: h });
+if (res.ok && res.value.status === SolverIntentStatusCode.SOLVED) {
+  return { verdict: "confirmed", matchedHash: h };
+}
+```
+
+`SOLVED` credits points, `FAILED` credits nothing, and `NOT_FOUND` moves on to the next hash. The solver is the source of truth, and `getStatus` keeps the check to a few lines.
+
+### 5. One wallet layer for every ecosystem
+
+`@sodax/wallet-sdk-react` covers EVM plus Solana, Sui, Injective, ICON, Stellar, NEAR, and Bitcoin (via Radfi) with the same hooks: `useXAccount`, `useWalletProvider`, `useXBalances`, `useEvmSwitchChain`. v1.0 lists swaps across 19 networks, and non-EVM routes quote live through the same hooks.
+
+`useEvmSwitchChain` also drives a clean pre-sign guard: when the wallet is on a different network than the route's source, the button becomes "Switch wallet to \{network\}". Balance is checked before signing too, so every swap that reaches the wallet is one that can go through.
+
+### 6. Self-serve recovery from the hub
+
+v1.0.2 added a "Recover stuck funds" panel. Because assets that do not reach their destination wait in the user's hub wallet on Sonic, users can always get them back themselves. `recovery.ts` scans the user's EVM hub-wallet derivations, builds the withdrawal with `EvmAssetManagerService.withdrawAssetData`, decodes the payload to prove it is exactly one `AssetManager.transfer` of that asset back to the user, dry-runs it with `eth_call`, and only then asks for a signature. Every building block came from the SDK.
+
+## What made it easy
+
+- **The Builders MCP.** An afternoon from an empty Next.js app to a real mainnet swap, with the provider tree, hook shapes and intent fields served straight to my coding agent.
+- **Partner fees as plain config.** One object routes 100% of the fee to the charity across swaps, bridge and money market.
+- **Readable fee accrual.** `fetchAssetsBalances` turns the hub basket into a live charity pot with one call.
+- **The wallet layer.** Eight ecosystems behind one hook shape.
+- **Smooth upgrades.** The mid-build bump from `2.0.0-rc.1` to `2.0.0-rc.8` was type-clean for my usage.
+
+## Tips for builders
+
+- Check the SODAX Intents spec when building a token picker: native gas tokens are used on the hub, so offer ERC-20s on spoke networks.
+- Pass a `timeout` to `useSwap` and validate network and balance before signing.
+- In Next.js, render the provider tree after a client mount, since wallet adapters touch browser globals.
+
+## Stack
+
+Next.js 16 (webpack) · React 19 · `@sodax/sdk`, `@sodax/dapp-kit`, `@sodax/wallet-sdk-react`, `@sodax/types` all at `2.0.0-rc.8` · TanStack Query · viem · Prisma + Supabase Postgres · CoinGecko pricing · Vercel
+
+## Try it
+
+Live: [charity-swap.vercel.app](https://charity-swap.vercel.app)
+
+Repo (MIT): [github.com/hazy2go/swaps-without-borders](https://github.com/hazy2go/swaps-without-borders). `BUILD-LOG.md` and `CHANGELOG.md` have the full day-by-day story.
+
+This is mainnet code. If you run it locally, test with small amounts.

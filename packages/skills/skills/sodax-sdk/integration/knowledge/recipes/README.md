@@ -13,6 +13,7 @@ Copy-pasteable patterns for the most common Core SDK consumer tasks. Each file i
 | [`testing.md`](testing.md) | Mocking the `Sodax` instance, stubbing the relay layer, `Result<T>` assertions. |
 | [`gas-estimation.md`](gas-estimation.md) | Pre-flight gas estimation for raw-tx flows. |
 | [`backend-server-init.md`](backend-server-init.md) | Node script / bot / partner backend pattern with `declare const` wallet placeholders. |
+| [`manual-submit-tx-with-fallback.md`](manual-submit-tx-with-fallback.md) | Driving the swap steps yourself instead of `swap()`: backend submit-tx + status poll, with the client-side relay fallback `swap()` does internally. |
 
 ## Cross-references
 

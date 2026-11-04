@@ -1,6 +1,7 @@
 import type {
   Address,
   GetTokenAddressType,
+  XToken,
   Hex,
   HubAddress,
   HubChainKey,
@@ -25,6 +26,7 @@ import type {
   EvmSpokeOnlyChainKey,
   StellarChainKey,
   EvmChainKey,
+  MonadChainKey,
   WalletProviderSlot,
 } from '@sodax/types';
 import type { RelayExtraData } from './relay-types.js';
@@ -58,6 +60,52 @@ export type GetDepositParams<ChainKey extends SpokeChainKey = SpokeChainKey> = {
   srcChainKey: ChainKey; // The chain key of the spoke (origin) chain
   srcAddress: GetAddressType<ChainKey>; // The address of the user on the spoke (origin) chain
   token: GetTokenAddressType<ChainKey>;
+};
+
+/**
+ * Parameters for reading a user's own wallet balance of a single token on a spoke chain.
+ *
+ * Unlike {@link GetDepositParams} (which reads the protocol asset-manager holding and keys
+ * the token by raw address), this reads the balance held by `srcAddress` itself. `token` is
+ * the full {@link XToken} so the reader can detect the native coin and resolve chain-specific
+ * token identifiers (EVM erc20 address, Solana mint, Sui coinType, Soroban contract, …).
+ *
+ * The reader picks its RPC provider from `srcChainKey` and the on-chain identifier from
+ * `token.address`; it never consults `token.chainKey`. Passing a token that does not live on
+ * `srcChainKey` therefore reads the wrong chain and — on an EVM target — resolves to `0n` rather
+ * than an error, so keep the chain key and the token list in step. This is NOT enforced: a few
+ * config entries carry a `chainKey` that disagrees with where the address actually lives, so the
+ * field is not reliable enough to validate against.
+ *
+ * Failure contract: this single-token read REJECTS on a network, RPC, or contract-read failure, and
+ * the router turns that into an unsuccessful `Result`. The batch variant is deliberately more
+ * forgiving — see {@link GetBalancesParams}.
+ */
+export type GetBalanceParams<ChainKey extends SpokeChainKey = SpokeChainKey> = {
+  srcChainKey: ChainKey; // The chain key of the spoke (origin) chain
+  srcAddress: GetAddressType<ChainKey>; // The address of the user whose balance is read
+  token: XToken; // The token to read the balance of
+};
+
+/**
+ * Parameters for reading a user's own wallet balances of multiple tokens on a spoke chain.
+ * Per-chain implementations batch the reads where the chain supports it (EVM multicall3, ICON
+ * `tryAggregate`, Injective portfolio).
+ *
+ * Returns `Record<tokenAddress, bigint>` in smallest units. A token that could not be read is logged
+ * through the SDK logger and reported as `0n`, so one flaky token never discards the balances that
+ * did resolve. Callers therefore cannot tell a failed read from an empty wallet; the direction is
+ * deliberately conservative — under-reporting blocks a spend, it never permits one.
+ *
+ * The `Result` fails when the whole batch is unusable: an invalid chain key, a shared round-trip
+ * every token depends on (ICON `tryAggregate`, Injective's portfolio fetch), or a batch in which NO
+ * token could be read — a dead or rate-limited RPC would otherwise render as "this wallet is empty
+ * on every asset".
+ */
+export type GetBalancesParams<ChainKey extends SpokeChainKey = SpokeChainKey> = {
+  srcChainKey: ChainKey; // The chain key of the spoke (origin) chain
+  srcAddress: GetAddressType<ChainKey>; // The address of the user whose balances are read
+  tokens: readonly XToken[]; // The tokens to read the balances of
 };
 
 export type DepositSimulationParams = {
@@ -181,7 +229,9 @@ export type SpokeIsAllowanceValidParamsOther<K extends OtherSpokeChainKey = Othe
   };
 
 /** @internal Distributive: picks the variant based on `K`. Defaults to the full union. */
-export type SpokeIsAllowanceValidParams<K extends SpokeChainKey = SpokeChainKey> = K extends EvmChainKey
+export type SpokeIsAllowanceValidParams<K extends SpokeChainKey = SpokeChainKey> = K extends MonadChainKey
+  ? SpokeIsAllowanceValidParamsOther<K>
+  : K extends EvmChainKey
   ? K extends HubChainKey // handle case when EvmChainKey type is passed
     ? SpokeIsAllowanceValidParamsHub<K>
     : SpokeIsAllowanceValidParamsEvmSpoke<EvmSpokeOnlyChainKey>
@@ -255,26 +305,27 @@ export type RawDestinationParams = {
 };
 
 /**
- * Direction of the cross-chain settlement a feature waits on. `inbound` is spoke→hub (a deposit the
- * hub executes), `outbound` is hub→spoke (a borrow/withdraw released back to the spoke).
- *
- * The two are not symmetric per chain family: Bitcoin outbound is relayed on demand under a derived
- * poll id, and Tron settles through the MPC relay's withdrawal record rather than its deposit record.
- * Feature services pass the direction; {@link SpokeService.settle} owns the per-family behavior.
+ * Direction of the settlement a feature waits on: `inbound` is spoke→hub, `outbound` hub→spoke. The
+ * two are not symmetric per chain family; {@link SpokeService.settle} owns that behaviour.
  */
 export type SettlementDirection = 'inbound' | 'outbound';
 
-export type SettleParams = {
-  chainKey: SpokeChainKey;
+export type SettleParams<
+  K extends SpokeChainKey = SpokeChainKey,
+  D extends SettlementDirection = SettlementDirection,
+> = {
+  chainKey: K;
   /** What `create*Intent` returned: the spoke tx hash, or an MPC tracking id for a Tron withdrawal. */
   tx: string;
-  direction: SettlementDirection;
+  direction: D;
   relayData: RelayExtraData;
   timeout?: number;
+  /**
+   * Spoke the action pays out to, when it ends in a transfer off the hub; omit when it ends on the hub.
+   * Drives the destination leg, which an MPC-relay chain or an MPC-produced hub tx needs driven here.
+   */
+  dstChainKey?: SpokeChainKey;
 };
 
-/**
- * Why a settlement failed. `phase` lets a feature keep its own error taxonomy (a source tx that
- * never landed vs a relay that never delivered) without knowing which settlement mechanism ran.
- */
+/** Why a settlement failed. `phase` lets a feature map it onto its own errors. */
 export type SettlementFailure = { phase: 'verification' | 'relay'; cause: unknown };

@@ -1,0 +1,143 @@
+---
+title: "Quickstart on Polygon"
+description: "Install the SDK, wire up a Polygon wallet provider, and execute your first cross-network swap from Polygon."
+icon: bolt
+---
+
+This page takes you from zero to a cross-network swap sourced from Polygon. No new contracts, no approval for native POL, one signed transaction for your user.
+
+<Note>
+  Building with an AI assistant? Add the [SODAX Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`) to Claude, Cursor, or any MCP-capable tool and it can pull live token lists, real quotes, and these docs while it writes your integration.
+</Note>
+
+## 1. Install
+
+```bash
+npm install @sodax/sdk @sodax/wallet-sdk-core
+# or: pnpm add / yarn add
+```
+
+## 2. Create a Polygon wallet provider
+
+Polygon uses the same `EvmWalletProvider` as every other EVM network, keyed by `ChainKeys.POLYGON_MAINNET`. Pass your own RPC endpoint rather than relying on the packaged default. This page uses `https://polygon.drpc.org`, the mainnet endpoint on [Polygon's RPC list](https://docs.polygon.technology/pos/reference/rpc-endpoints/); use your own provider in production.
+
+<CodeGroup>
+  ```typescript Private key (scripts / bots)
+  import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+  import { ChainKeys } from '@sodax/sdk';
+
+  const walletProvider = new EvmWalletProvider({
+    privateKey: '0x…',
+    chainId: ChainKeys.POLYGON_MAINNET,
+    rpcUrl: 'https://polygon.drpc.org', // not the packaged default
+  });
+  ```
+
+  ```typescript Browser extension (dApps)
+  import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+
+  // walletClient and publicClient are viem clients for Polygon mainnet,
+  // usually supplied by wagmi from the user's connected EVM wallet
+  const walletProvider = new EvmWalletProvider({
+    walletClient,
+    publicClient,
+  });
+  ```
+</CodeGroup>
+
+Building in React? [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) connects EVM wallets for you and hands back a ready-made provider via `useWalletProvider`. See [Wallets](/polygon/wallets).
+
+## 3. Look up supported tokens
+
+Token addresses and decimals come from the SDK config, so you never hard-code them. Give the `Sodax` instance the same Polygon RPC: the SDK reads Polygon state, such as allowances, through its own client, not through your wallet provider.
+
+```typescript
+import { Sodax, ChainKeys, type XToken } from '@sodax/sdk';
+
+const sodax = new Sodax({
+  chains: {
+    [ChainKeys.POLYGON_MAINNET]: { rpcUrl: 'https://polygon.drpc.org' },
+  },
+});
+
+// find() returns XToken | undefined, so narrow before using the address
+const bySymbol = (tokens: readonly XToken[], symbol: string) => {
+  const token = tokens.find(t => t.symbol === symbol);
+  if (!token) throw new Error(`${symbol} is not a supported swap token`);
+  return token;
+};
+
+const pol = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.POLYGON_MAINNET), 'POL');
+const usdcArb = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.ARBITRUM_MAINNET), 'USDC');
+```
+
+## 4. Quote and swap
+
+`swap()` runs the full lifecycle: it creates the intent on Polygon, verifies the transaction landed, relays it to the hub, and notifies the solver to fill on the destination network.
+
+```typescript
+import type { SolverIntentQuoteRequest } from '@sodax/sdk';
+
+// 100 POL, built from the token's own decimals (18 for POL)
+const inputAmount = 100n * 10n ** BigInt(pol.decimals);
+
+// Quote: 100 POL -> USDC on Arbitrum
+const quoteResult = await sodax.swaps.getQuote({
+  token_src: pol.address,
+  token_dst: usdcArb.address,
+  token_src_blockchain_id: ChainKeys.POLYGON_MAINNET,
+  token_dst_blockchain_id: ChainKeys.ARBITRUM_MAINNET,
+  amount: inputAmount,
+  quote_type: 'exact_input',
+} satisfies SolverIntentQuoteRequest);
+
+if (!quoteResult.ok) throw new Error('Quote failed');
+const { quoted_amount } = quoteResult.value;
+
+// `deadline` is an absolute Unix timestamp; getSwapDeadline turns an offset into one
+const deadlineResult = await sodax.swaps.getSwapDeadline(300n); // 5 minutes from now
+if (!deadlineResult.ok) throw new Error('Deadline lookup failed');
+
+// Execute
+const swapResult = await sodax.swaps.swap({
+  params: {
+    inputToken: pol.address,
+    outputToken: usdcArb.address,
+    inputAmount,
+    minOutputAmount: (quoted_amount * 99n) / 100n, // your slippage policy
+    deadline: deadlineResult.value,
+    allowPartialFill: false,
+    srcChainKey: ChainKeys.POLYGON_MAINNET,
+    dstChainKey: ChainKeys.ARBITRUM_MAINNET,
+    srcAddress: await walletProvider.getWalletAddress(),
+    dstAddress: '0x...', // recipient on Arbitrum
+    solver: '0x0000000000000000000000000000000000000000',
+    data: '0x',
+  },
+  walletProvider,
+  timeout: 120_000,
+});
+
+if (swapResult.ok) {
+  console.log('Submitted. Hub tx:', swapResult.value.intentDeliveryInfo.dstTxHash);
+} else {
+  console.error('Swap failed:', swapResult.error);
+}
+```
+
+`ok` means the intent was created, relayed to the hub, and the solver notified, **not** that it was
+filled. Poll `sodax.swaps.getStatus({ intent_tx_hash: intentDeliveryInfo.dstTxHash })` until the
+status is `SolverIntentStatusCode.SOLVED`, which is the only success signal. The
+[main quickstart](/quickstart) has the full polling loop, including why `NOT_FOUND` is not terminal.
+
+A few things to know on Polygon:
+
+- **POL needs no approval.** It is the native token, listed as `POL` (not `MATIC`). Swapping an ERC-20 (USDC, bnUSD, and the rest) needs an allowance first; see [Approvals](/polygon/swaps#approvals).
+- **Amounts follow `token.decimals`.** POL uses 18; USDC uses 6. Build every amount from the token you are sending.
+- **Keep POL for gas.** When swapping POL itself, do not send the whole balance.
+
+## Next steps
+
+- [Swaps on Polygon](/polygon/swaps): approvals, fees, manual orchestration.
+- [Money Market on Polygon](/polygon/money-market): supply and borrow with cross-network collateral.
+- Full API reference: [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps) in the SDK docs.

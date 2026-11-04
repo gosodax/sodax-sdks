@@ -1,10 +1,17 @@
-import { SuiClient } from '@mysten/sui/client';
-import type { SuiTransactionBlockResponseOptions } from '@mysten/sui/client';
+import type { SuiClientTypes } from '@mysten/sui/client';
+import { SuiGrpcClient } from '@mysten/sui/grpc';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { Transaction } from '@mysten/sui/transactions';
 import type { TransactionArgument } from '@mysten/sui/transactions';
-import type { ISuiWalletProvider, SuiTransaction, SuiExecutionResult, SuiPaginatedCoins } from '@sodax/types';
-import { signTransaction } from '@mysten/wallet-standard';
+import { fromBase64 } from '@mysten/sui/utils';
+import {
+  type ISuiWalletProvider,
+  type SuiExecutionResult,
+  type SuiPaginatedCoins,
+  type SuiTransaction,
+  toSuiExecutionResult,
+  toSuiPaginatedCoins,
+} from '@sodax/types';
 import { BaseWalletProvider } from '../BaseWalletProvider.js';
 import type {
   BrowserExtensionSuiWallet,
@@ -14,17 +21,13 @@ import type {
   SuiGetCoinsPolicy,
   SuiSignAndExecutePolicy,
   SuiWallet,
+  SuiEndpointConfig,
   SuiWalletConfig,
   SuiWalletDefaults,
 } from './types.js';
 
 const DEFAULT_DRY_RUN_ENABLED = true;
 const DEFAULT_GET_COINS_LIMIT = 10;
-const DEFAULT_PK_RESPONSE_OPTIONS: SuiTransactionBlockResponseOptions = { showEffects: true };
-const DEFAULT_BROWSER_RESPONSE_OPTIONS: SuiTransactionBlockResponseOptions = {
-  showEffects: true,
-  showRawEffects: true,
-};
 
 function isPrivateKeySuiWalletConfig(walletConfig: SuiWalletConfig): walletConfig is PrivateKeySuiWalletConfig {
   return 'mnemonics' in walletConfig;
@@ -33,15 +36,31 @@ function isPrivateKeySuiWalletConfig(walletConfig: SuiWalletConfig): walletConfi
 function isBrowserExtensionSuiWalletConfig(
   walletConfig: SuiWalletConfig,
 ): walletConfig is BrowserExtensionSuiWalletConfig {
-  return 'wallet' in walletConfig && 'account' in walletConfig;
+  return 'signTransaction' in walletConfig && 'address' in walletConfig;
 }
 
 export function isPkSuiWallet(wallet: SuiWallet): wallet is PkSuiWallet {
   return 'keyPair' in wallet;
 }
 
+/**
+ * `rpcUrl` is the pre-gRPC name for the same endpoint. The type union already rejects passing both,
+ * so this only catches untyped callers — but it turns a silent wrong-endpoint into a clear error.
+ */
+export function resolveSuiEndpoint(config: SuiEndpointConfig): string {
+  const { grpcUrl, rpcUrl } = config;
+  if (grpcUrl && rpcUrl) {
+    throw new Error('Sui wallet configuration accepts `grpcUrl` or `rpcUrl`, not both');
+  }
+  const endpoint = grpcUrl ?? rpcUrl;
+  if (!endpoint) {
+    throw new Error('Sui wallet configuration requires a gRPC endpoint (`grpcUrl`)');
+  }
+  return endpoint;
+}
+
 export function isBrowserExtensionSuiWallet(wallet: SuiWallet): wallet is BrowserExtensionSuiWallet {
-  return 'wallet' in wallet && 'account' in wallet;
+  return 'signTransaction' in wallet;
 }
 
 /**
@@ -56,21 +75,24 @@ async function toMystenTransaction(txn: SuiTransaction): Promise<Transaction> {
 
 export class SuiWalletProvider extends BaseWalletProvider<SuiWalletDefaults> implements ISuiWalletProvider {
   public readonly chainType = 'SUI' as const;
-  private readonly client: SuiClient;
+  private readonly client: SuiGrpcClient;
   private readonly wallet: SuiWallet;
 
   constructor(walletConfig: SuiWalletConfig) {
     super(walletConfig.defaults);
 
+    const endpoint = resolveSuiEndpoint(walletConfig);
+    // Only mainnet is supported. `network` is not derived from the endpoint because the client
+    // reads it for one thing only — the default Move Registry URL — which nothing here uses.
+    this.client = new SuiGrpcClient({ network: 'mainnet', baseUrl: endpoint });
+
     if (isPrivateKeySuiWalletConfig(walletConfig)) {
-      this.client = new SuiClient({ url: walletConfig.rpcUrl });
       this.wallet = { keyPair: Ed25519Keypair.deriveKeypair(walletConfig.mnemonics) };
       return;
     }
 
     if (isBrowserExtensionSuiWalletConfig(walletConfig)) {
-      this.client = walletConfig.client;
-      this.wallet = { wallet: walletConfig.wallet, account: walletConfig.account };
+      this.wallet = { address: walletConfig.address, signTransaction: walletConfig.signTransaction };
       return;
     }
 
@@ -92,39 +114,21 @@ export class SuiWalletProvider extends BaseWalletProvider<SuiWalletDefaults> imp
       : await this.buildOnly(tx, sender);
 
     if (isPkSuiWallet(this.wallet)) {
-      const res = await this.client.signAndExecuteTransaction({
+      const res = await this.client.core.signAndExecuteTransaction({
         transaction: transactionBlock,
         signer: this.wallet.keyPair,
-        options: { ...DEFAULT_PK_RESPONSE_OPTIONS, ...policy.response },
       });
-      this.assertEffectsSuccess(res.digest, res.effects?.status);
-      return res.digest;
+      return this.assertSuccess(res);
     }
 
     if (isBrowserExtensionSuiWallet(this.wallet)) {
-      const browserWallet = this.wallet.wallet;
-      const browserAccount = this.wallet.account;
-
-      if (!browserAccount || browserAccount.chains.length === 0) {
-        throw new Error('No chains available for wallet account');
-      }
-      const chain = browserAccount.chains[0];
-      if (!chain) {
-        throw new Error('No chain available for wallet account');
-      }
-      const { bytes, signature } = await signTransaction(browserWallet, {
-        transaction: txn,
-        account: browserAccount,
-        chain,
+      // Hand over `tx`, not `txn` — it carries the sender we just dry-ran with.
+      const { bytes, signature } = await this.wallet.signTransaction(tx);
+      const res = await this.client.core.executeTransaction({
+        transaction: fromBase64(bytes),
+        signatures: [signature],
       });
-
-      const res = await this.client.executeTransactionBlock({
-        transactionBlock: bytes,
-        signature,
-        options: { ...DEFAULT_BROWSER_RESPONSE_OPTIONS, ...policy.response },
-      });
-      this.assertEffectsSuccess(res.digest, res.effects?.status);
-      return res.digest;
+      return this.assertSuccess(res);
     }
 
     throw new Error('Invalid wallet configuration');
@@ -144,27 +148,36 @@ export class SuiWalletProvider extends BaseWalletProvider<SuiWalletDefaults> imp
       typeArguments: typeArgs,
     });
 
-    const sender = this.getSuiAddress();
-    const txResults = await this.client.devInspectTransactionBlock({ transactionBlock: tx, sender });
+    tx.setSenderIfNotSet(this.getSuiAddress());
+    // `checksEnabled: false` is what `devInspectTransactionBlock` did: it lets public non-entry
+    // Move functions be called with no gas coin.
+    const result = await this.client.core.simulateTransaction({
+      transaction: tx,
+      include: { commandResults: true },
+      checksEnabled: false,
+    });
 
-    if (txResults.results && txResults.results[0] !== undefined) {
-      return txResults.results[0] as SuiExecutionResult;
+    const command = result.commandResults?.[0];
+    if (!command) {
+      throw Error(`transaction didn't return any values: ${JSON.stringify(result, null, 2)}`);
     }
-    throw Error(`transaction didn't return any values: ${JSON.stringify(txResults, null, 2)}`);
+    return toSuiExecutionResult(command);
   }
 
   async getCoins(address: string, token: string, options?: SuiGetCoinsPolicy): Promise<SuiPaginatedCoins> {
     const policy = this.mergePolicy('getCoins', options);
     const limit = policy.limit ?? DEFAULT_GET_COINS_LIMIT;
-    return this.client.getCoins({ owner: address, coinType: token, limit });
+    const response = await this.client.core.listCoins({ owner: address, coinType: token, limit });
+    return toSuiPaginatedCoins(response, token);
   }
 
   private async buildAndDryRunOrThrow(tx: Transaction, sender: string): Promise<Uint8Array> {
     tx.setSenderIfNotSet(sender);
     const transactionBlock = await tx.build({ client: this.client });
-    const result = await this.client.dryRunTransactionBlock({ transactionBlock });
-    if (result.effects.status.status === 'failure') {
-      throw new Error(`Sui transaction pre-flight failed: ${result.effects.status.error ?? 'unknown'}`);
+    const result = await this.client.core.simulateTransaction({ transaction: transactionBlock });
+    const status = (result.Transaction ?? result.FailedTransaction).status;
+    if (!status.success) {
+      throw new Error(`Sui transaction pre-flight failed: ${status.error.message}`);
     }
     return transactionBlock;
   }
@@ -174,18 +187,19 @@ export class SuiWalletProvider extends BaseWalletProvider<SuiWalletDefaults> imp
     return tx.build({ client: this.client });
   }
 
-  private assertEffectsSuccess(
-    digest: string,
-    status: { status?: 'success' | 'failure'; error?: string | null } | undefined,
-  ): void {
-    if (status?.status === 'failure') {
-      throw new Error(`Sui transaction failed on-chain: ${status.error ?? 'unknown'} (digest=${digest})`);
+  private assertSuccess(result: SuiClientTypes.TransactionResult): string {
+    const transaction = result.Transaction ?? result.FailedTransaction;
+    if (!transaction.status.success) {
+      throw new Error(
+        `Sui transaction failed on-chain: ${transaction.status.error.message} (digest=${transaction.digest})`,
+      );
     }
+    return transaction.digest;
   }
 
   private getSuiAddress(): string {
     if (isPkSuiWallet(this.wallet)) return this.wallet.keyPair.toSuiAddress();
-    if (isBrowserExtensionSuiWallet(this.wallet)) return this.wallet.account.address;
+    if (isBrowserExtensionSuiWallet(this.wallet)) return this.wallet.address;
     throw new Error('Invalid wallet configuration');
   }
 }

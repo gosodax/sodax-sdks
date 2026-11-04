@@ -1,0 +1,92 @@
+---
+title: "Robinhood Chain Wallets"
+description: "EVM wallets on Robinhood Chain, and every other network's wallets through one interface, with @sodax/wallet-sdk-react or a direct provider."
+icon: wallet
+---
+
+Welcoming cross-network users means supporting the wallets they already use. On Robinhood Chain, SODAX works through the EVM: any wallet that can sign EVM transactions on Robinhood Chain (chain ID 4663), such as MetaMask. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
+
+Robinhood Chain is permissionless, so the account needs no registration or special key type, and users pay gas in ETH. Robinhood's sequencer does exclude transactions associated with sanctioned addresses; see [Differences from Ethereum](https://docs.robinhood.com/chain/differences-from-ethereum).
+
+## React apps: `@sodax/wallet-sdk-react`
+
+The React package wraps each chain family's native wallet SDK (wagmi for EVM networks, including Robinhood Chain) behind a uniform connector interface with a single persisted store. Its wagmi config already includes Robinhood Chain.
+
+```bash
+pnpm add @sodax/wallet-sdk-react
+```
+
+Mount the provider with the chains you serve. Robinhood Chain is an entry under `EVM`, alongside any other EVM network you support:
+
+```tsx
+import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
+import { ChainKeys } from '@sodax/types';
+
+const config: SodaxWalletConfig = {
+  EVM: {
+    chains: {
+      [ChainKeys.ROBINHOOD_MAINNET]: { rpcUrl: 'https://rpc.mainnet.chain.robinhood.com' }, // rate-limited: use a provider endpoint in production
+      [ChainKeys.SONIC_MAINNET]: { rpcUrl: 'https://rpc.soniclabs.com' },
+    },
+  },
+};
+```
+
+Then connect and read accounts with the same three hooks for every chain family:
+
+```tsx
+import { useXConnectors, useXConnect, useXAccount } from '@sodax/wallet-sdk-react';
+
+function EvmConnect() {
+  const connectors = useXConnectors({ xChainType: 'EVM' }); // MetaMask, Rabby, ...
+  const { mutateAsync: connect } = useXConnect();
+  const account = useXAccount({ xChainType: 'EVM' });
+
+  if (account.address) return <p>Connected: {account.address}</p>;
+
+  return connectors.map(c => (
+    <button key={c.id} onClick={() => connect(c)}>{c.name}</button>
+  ));
+}
+```
+
+One EVM connection covers every EVM network, so the wallet may be on a different network than Robinhood Chain when your user acts. `useEvmSwitchChain({ xChainId: ChainKeys.ROBINHOOD_MAINNET })` returns `isWrongChain` and a `handleSwitchChain` callback to prompt the switch.
+
+### Bridging to SDK calls
+
+`useWalletProvider({ xChainId: ChainKeys.ROBINHOOD_MAINNET })` returns a typed `IEvmWalletProvider` ready to pass into any `@sodax/sdk` method. The [swap](/robinhood-chain/swaps) and [money market](/robinhood-chain/money-market) calls take it directly.
+
+## Your own viem or wagmi setup {#your-own-viem-or-wagmi-setup}
+
+SODAX's 2.1.0 packages depend on viem 2.29.2, which has no Robinhood Chain definition. `@sodax/wallet-sdk-core` (and `@sodax/sdk`) export one, so you do not have to write it yourself:
+
+```typescript
+import { robinhoodChain } from '@sodax/wallet-sdk-core';
+
+// id 4663, native currency ETH (18 decimals), Blockscout explorer
+const chains = [robinhoodChain /* , your other chains */] as const;
+```
+
+Add it to the `chains` of the viem clients or wagmi config you pass to `EvmWalletProvider`. Its default RPC is the public endpoint, so set your provider's URL on the transport.
+
+## Scripts and backends: `EvmWalletProvider`
+
+Outside React, construct the provider from `@sodax/wallet-sdk-core` directly. With a private key it resolves the chain definition from `ChainKeys.ROBINHOOD_MAINNET` for you:
+
+```typescript
+import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+import { ChainKeys } from '@sodax/sdk';
+
+const walletProvider = new EvmWalletProvider({
+  privateKey: '0x…', // private key of the Robinhood Chain account
+  chainId: ChainKeys.ROBINHOOD_MAINNET,
+  rpcUrl: 'https://rpc.mainnet.chain.robinhood.com', // rate-limited: use a provider endpoint in production
+});
+```
+
+`EvmWalletDefaults` lets you tune behavior per provider: `sendTransaction`, `waitForTransactionReceipt`, `publicClient`, `walletClient`, and `transport`.
+
+---
+
+- Full React reference: [@sodax/wallet-sdk-react](/developers/packages/connection/wallet-sdk-react)
+- Every chain family's providers: [Setup Wallet Providers](/developers/how-to/wallet_providers)

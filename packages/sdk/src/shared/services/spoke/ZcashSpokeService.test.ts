@@ -202,15 +202,15 @@ describe('ZcashSpokeService.deposit', () => {
     expect(walletProvider.signTransaction).not.toHaveBeenCalled();
   });
 
-  it('keeps the txid in the error when the relay cannot be notified, so the deposit can be re-notified', async () => {
+  it('still resolves to the txid when the relay cannot be notified, leaving the re-notify to settlement', async () => {
     vi.useFakeTimers();
     vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
 
-    const pending = zcash.deposit(depositParams()).catch((error: Error) => error);
+    const pending = zcash.deposit(depositParams());
     await vi.runAllTimersAsync();
-    const failure = await pending;
 
-    expect((failure as Error).message).toContain(`${TXID} broadcast but the relay was not notified`);
+    // The funds are already on chain: the txid is what settlement waits on and re-notifies.
+    expect(await pending).toBe(TXID);
     expect(vi.mocked(MpcRelayApiService.notify).mock.calls.length).toBeGreaterThan(1);
   });
 
@@ -333,6 +333,98 @@ describe('ZcashSpokeService.waitForDeposit', () => {
     notifySpy.mockClear();
     await vi.advanceTimersByTimeAsync(120_000);
     expect(notifySpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('ZcashSpokeService — relay submit and read', () => {
+  const HUB_RELEASE = { dstChainKey: ZCASH, hubChainId: '146', hubTxHash: '0xhub', logIndex: 3 } as const;
+  const pendingRecord = {
+    ok: true as const,
+    value: { depositId: 'id', status: 'pending' as const, createdAt: 0, txs: {} },
+  };
+  const settledRecord = {
+    ok: true as const,
+    value: { depositId: 'id', status: 'minted' as const, createdAt: 0, txs: {} },
+  };
+
+  it('submitDeposit notifies the relay of the bare lowercase txid on the Zcash relay id, without polling', async () => {
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit');
+
+    expect(await zcash.submitDeposit(`0x${TXID.toUpperCase()}`)).toEqual({ ok: true, value: undefined });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '133', TXID);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it('submitDeposit keeps the txid in the failure so the deposit can be re-notified', async () => {
+    vi.useFakeTimers();
+    vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
+
+    const pending = zcash.submitDeposit(TXID);
+    await vi.runAllTimersAsync();
+    const result = await pending;
+
+    expect(!result.ok && (result.error as Error).message).toContain(`deposit ${TXID} was not notified`);
+  });
+
+  it('getDepositRecord reads a deposit this instance made by its known output index, without fetching the tx', async () => {
+    await zcash.deposit(depositParams());
+    rpcCalls = [];
+    const read = vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(settledRecord);
+
+    expect(await zcash.getDepositRecord(TXID)).toBe(settledRecord);
+    expect(read.mock.calls[0]?.[1]).toBe(`133-${TXID}-0`);
+    expect(rpcCalls).toEqual([]);
+  });
+
+  it('getDepositRecord prefers a settled output when it must read every output of an unknown transaction', async () => {
+    // A txid no earlier test used: the shared instance remembers the output index of those it has settled.
+    const txid = '34'.repeat(32);
+    rpcResults.getrawtransaction = { txid, vout: [{ n: 0 }, { n: 1 }, { n: 2 }] };
+    vi.spyOn(MpcRelayApiService, 'getDeposit').mockImplementation(async (_url, depositId) => {
+      if (depositId === `133-${txid}-0`) return { ok: false, error: new Error('404') };
+      return depositId === `133-${txid}-1` ? pendingRecord : settledRecord;
+    });
+
+    expect(await zcash.getDepositRecord(txid)).toBe(settledRecord);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
+  it('getDepositRecord reports the relay failure when no output has a record', async () => {
+    const txid = '56'.repeat(32);
+    rpcResults.getrawtransaction = { txid, vout: [{ n: 0 }] };
+    const failure = { ok: false as const, error: new Error('404') };
+    vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(failure);
+
+    expect(await zcash.getDepositRecord(txid)).toBe(failure);
+  });
+
+  it('submitHubRelease notifies the hub tx as a withdrawal on the hub chain id', async () => {
+    expect(await zcash.submitHubRelease(HUB_RELEASE)).toEqual({ ok: true, value: undefined });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '146', '0xhub', 'withdrawal');
+  });
+
+  it('reads a withdrawal and a hub release once each, notifying nothing', async () => {
+    const read = vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(pendingRecord);
+    vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: '0xtrack', status: 'submitted' },
+    });
+
+    expect(await zcash.getHubReleaseRecord(HUB_RELEASE)).toBe(pendingRecord);
+    expect(read).toHaveBeenCalledOnce();
+    expect((await zcash.getWithdrawalRecord('0xtrack')).ok).toBe(true);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
+  it('waitForWithdrawal passes the stage to stop on through to the relay poll', async () => {
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: '0xtrack', status: 'burned' },
+    });
+
+    await zcash.waitForWithdrawal('0xtrack', undefined, 'burned');
+
+    expect(wait).toHaveBeenCalledWith(expect.anything(), '0xtrack', expect.objectContaining({ until: 'burned' }));
   });
 });
 

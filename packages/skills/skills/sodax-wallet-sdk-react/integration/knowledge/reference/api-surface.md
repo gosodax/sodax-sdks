@@ -85,12 +85,12 @@ Top-level:
 | `ChainTypeOf<K>` | generic type |
 | `WalletDefaultsByKey<K>` | generic type |
 
-Per-chain aliases follow two naming patterns — one alias per chain family (9 each):
+Per-chain aliases follow two naming patterns — one alias per chain family:
 
 - `<Chain>TypeConfig` — per-slot config (e.g. `EvmTypeConfig`, `SolanaTypeConfig`)
 - `<Chain>ChainEntry` — per-chain-key entry (e.g. `EvmChainEntry`, `BitcoinChainEntry`)
 
-Replace `<Chain>` with `Evm | Solana | Sui | Bitcoin | Stellar | Injective | Icon | Near | Stacks`. Most consumers can derive these from `ChainTypeConfig<T>` / `ChainEntry<K>` instead of importing the per-chain alias directly.
+Replace `<Chain>` with `Evm | Solana | Sui | Bitcoin | Stellar | Injective | Icon | Near | Stacks | Tron`. Most consumers can derive these from `ChainTypeConfig<T>` / `ChainEntry<K>` instead of importing the per-chain alias directly.
 
 Adapter-field types (only chains with React adapters):
 
@@ -99,6 +99,7 @@ Adapter-field types (only chains with React adapters):
 | `EvmAdapterFields` | type |
 | `SolanaAdapterFields` | type |
 | `SuiAdapterFields` | type |
+| `PrivySource` | type — opaque value of `EvmAdapterFields.privy`; only `privy()` from the `/privy` sub-path creates one |
 
 ### Hook option / result types
 
@@ -112,7 +113,7 @@ Concrete chain classes live behind sub-paths. Default to barrel imports; opt int
 
 ### Default pattern (most chains)
 
-`/xchains/{bitcoin, evm, icon, injective, near, solana, stacks, stellar, sui}` re-export the chain's `XService` + `XConnector` classes — `EvmXService`/`EvmXConnector`, `SolanaXService`/`SolanaXConnector`, `BitcoinXService`/`BitcoinXConnector`, `StacksXService`/`StacksXConnector`, `StellarXService`/`StellarWalletsKitXConnector`, etc. Icon also exports `IconHanaXConnector` (the connector for the Hana wallet).
+`/xchains/{bitcoin, evm, icon, injective, near, solana, stacks, stellar, sui, tron}` re-export the chain's `XService` + `XConnector` classes — `EvmXService`/`EvmXConnector`, `SolanaXService`/`SolanaXConnector`, `BitcoinXService`/`BitcoinXConnector`, `StacksXService`/`StacksXConnector`, `StellarXService`/`StellarWalletsKitXConnector`, etc. Icon also exports `IconHanaXConnector` (the connector for the Hana wallet).
 
 ```ts
 // @ai-snippets-skip
@@ -135,6 +136,18 @@ import { IconHanaXConnector } from '@sodax/wallet-sdk-react/xchains/icon';
 |---|---|
 | `/xchains/stellar` | Re-exports `StellarXService` + `StellarWalletsKitXConnector` (the concrete connector wrapping `@creit.tech/stellar-wallets-kit`). |
 
+---
+
+## Privy email login — `import { X } from '@sodax/wallet-sdk-react/privy'`
+
+Opt-in; the only entry that loads the optional peer `@privy-io/react-auth` (3.40+). See [`recipes/privy-email-login.md`](../recipes/privy-email-login.md).
+
+| Symbol | Kind | Notes |
+|---|---|---|
+| `privy` | function `(options: PrivyOptions) => PrivySource` | Value for `EVM.privy`. Never throws: bad input warns and leaves the entry out |
+| `PrivyOptions` | type | `appId` (required), `clientId?`, `defaultChain?` (EVM `ChainKey`, default Sonic), `showWalletUIs?`, `disconnectBehavior?` (`'logout'` \| `'detach'`, default `'logout'`), `appearance?`, `legal?` |
+| `PRIVY_CONNECTOR_ID` | value `'privy'` | The connector id / `xConnectorId` of "Email (Privy)" |
+
 If unsure what a sub-path exports, check the published `dist/`:
 
 ```bash
@@ -149,6 +162,7 @@ grep -E '^export' node_modules/@sodax/wallet-sdk-react/dist/xchains/<chain>/inde
 |---|---|
 | `react` | `>= 19` |
 | `@tanstack/react-query` | `5.x` |
+| `@privy-io/react-auth` | optional — only with `EVM.privy`; 3.40 or newer (older versions are left out with a warning) |
 
 `@tanstack/react-query` is required at runtime — `<QueryClientProvider>` must wrap `<SodaxWalletProvider>`. v1 mounted one internally; v2 does not.
 

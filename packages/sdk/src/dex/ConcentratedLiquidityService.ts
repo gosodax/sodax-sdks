@@ -27,9 +27,10 @@ import type {
   Result,
   SpokeChainKey,
   SpokeExecActionParams,
-  TxReturnType,
   XToken,
+  SendMessageReturnType,
 } from '@sodax/types';
+import { isMpcRelayChainKey } from '@sodax/types';
 import type { IntentTxResult, TxHashPair } from '../shared/types/types.js';
 import { erc20Abi, maxUint160, maxUint48, parseEventLogs } from 'viem';
 import { Price, Token } from '@pancakeswap/swap-sdk-core';
@@ -53,6 +54,10 @@ import {
   tickToPrice,
 } from '@pancakeswap/v3-sdk';
 import { invariant } from '../shared/utils/tiny-invariant.js';
+
+/** CL calls pay the hub wallet, and the SDK confirms an MPC-relay message only by a release to its source chain. */
+const MPC_RELAY_UNSUPPORTED_MESSAGE =
+  'Concentrated liquidity does not support MPC-relay source chains yet; use a supported spoke or the hub';
 
 export type ClMintPositionEventLog = {
   tokenId: bigint;
@@ -369,6 +374,10 @@ export class ClService {
   ): Promise<Result<IntentTxResult<K, Raw>>> {
     const { params, skipSimulation } = _params;
     try {
+      dexInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        srcChainKey: params.srcChainKey,
+        field: 'srcChainKey',
+      });
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
       const calls: EvmContractCall[] = [];
 
@@ -442,7 +451,7 @@ export class ClService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, boolean> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, boolean> as SendMessageReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };
@@ -521,6 +530,10 @@ export class ClService {
   ): Promise<Result<IntentTxResult<K, Raw>>> {
     const { params, skipSimulation } = _params;
     try {
+      dexInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        srcChainKey: params.srcChainKey,
+        field: 'srcChainKey',
+      });
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
       const calls: EvmContractCall[] = [];
 
@@ -585,7 +598,7 @@ export class ClService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, Raw> as SendMessageReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: encodeContractCalls(calls) },
         },
       };
@@ -613,6 +626,10 @@ export class ClService {
   ): Promise<Result<IntentTxResult<K, Raw>>> {
     const { params, skipSimulation } = _params;
     try {
+      dexInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        srcChainKey: params.srcChainKey,
+        field: 'srcChainKey',
+      });
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
       const calls: EvmContractCall[] = [];
 
@@ -669,7 +686,7 @@ export class ClService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, Raw> as SendMessageReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };
@@ -1010,6 +1027,10 @@ export class ClService {
   ): Promise<Result<IntentTxResult<K, Raw>>> {
     const { params, skipSimulation } = _params;
     try {
+      dexInvariant(!isMpcRelayChainKey(params.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+        srcChainKey: params.srcChainKey,
+        field: 'srcChainKey',
+      });
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
       const calls: EvmContractCall[] = [];
 
@@ -1068,7 +1089,7 @@ export class ClService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, Raw> as SendMessageReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };

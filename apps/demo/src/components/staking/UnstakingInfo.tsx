@@ -146,7 +146,7 @@ export function UnstakingInfo({
                           )}
 
                           {/* Action buttons */}
-                          <div className="mt-2 flex gap-2">
+                          <div className="mt-2 flex flex-wrap gap-2">
                             <Button
                               size="sm"
                               onClick={() => {

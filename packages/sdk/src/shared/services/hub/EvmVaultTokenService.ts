@@ -1,6 +1,13 @@
 import { type Address, type Hash, type PublicClient, encodeFunctionData } from 'viem';
 import { vaultTokenAbi } from '../../abis/index.js';
-import type { IEvmWalletProvider, TokenInfo, EvmContractCall, VaultReserves } from '@sodax/types';
+import {
+  ChainKeys,
+  type IEvmWalletProvider,
+  type TokenInfo,
+  type EvmContractCall,
+  type VaultReserves,
+} from '@sodax/types';
+import { getEvmViemChain } from '../../utils/constant-utils.js';
 
 export class EvmVaultTokenService {
   private constructor() {}
@@ -117,16 +124,20 @@ export class EvmVaultTokenService {
     walletProvider: IEvmWalletProvider,
   ): Promise<Hash> {
     const from = (await walletProvider.getWalletAddress()) as `0x${string}`;
-    return walletProvider.sendTransaction({
-      from,
-      to: vault,
-      value: 0n,
-      data: encodeFunctionData({
-        abi: vaultTokenAbi,
-        functionName: 'deposit',
-        args: [token, amount],
-      }),
-    });
+    return walletProvider.sendTransaction(
+      {
+        from,
+        to: vault,
+        value: 0n,
+        data: encodeFunctionData({
+          abi: vaultTokenAbi,
+          functionName: 'deposit',
+          args: [token, amount],
+        }),
+      },
+      // Vaults live on the hub; refuse to broadcast from a wallet on another EVM network.
+      { expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id },
+    );
   }
 
   /**
@@ -144,16 +155,19 @@ export class EvmVaultTokenService {
     provider: IEvmWalletProvider,
   ): Promise<Hash> {
     const from = (await provider.getWalletAddress()) as `0x${string}`;
-    return provider.sendTransaction({
-      from,
-      to: vault,
-      value: 0n,
-      data: encodeFunctionData({
-        abi: vaultTokenAbi,
-        functionName: 'withdraw',
-        args: [token, amount],
-      }),
-    });
+    return provider.sendTransaction(
+      {
+        from,
+        to: vault,
+        value: 0n,
+        data: encodeFunctionData({
+          abi: vaultTokenAbi,
+          functionName: 'withdraw',
+          args: [token, amount],
+        }),
+      },
+      { expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id },
+    );
   }
 
   /**

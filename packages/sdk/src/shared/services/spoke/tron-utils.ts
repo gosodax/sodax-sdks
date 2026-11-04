@@ -7,19 +7,34 @@ import { numberToHex, sha256, type Hex } from 'viem';
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
-/** base58check Tron address → 41-prefixed hex (drops the 4-byte checksum). Accepts hex/0x pass-through. */
+/**
+ * base58check Tron address → 41-prefixed hex (drops the 4-byte checksum). Also accepts the 41-prefixed
+ * hex form, with or without `0x`.
+ *
+ * Strict on purpose: these bytes become MPC-relay recipients and withdraw identities, so a typo that
+ * still decodes must throw rather than resolve to someone else's account.
+ */
 export function tronBase58ToHex(addr: string): string {
-  if (addr.startsWith('0x')) return addr.slice(2);
-  if (/^41[0-9a-fA-F]{40}$/.test(addr)) return addr;
+  const hex = addr.startsWith('0x') ? addr.slice(2) : addr;
+  if (/^41[0-9a-fA-F]{40}$/.test(hex)) return hex;
+  if (addr.startsWith('0x')) throw new Error(`invalid Tron hex address (expected 0x41 + 20 bytes): ${addr}`);
+
   let n = 0n;
   for (const c of addr) {
     const i = B58.indexOf(c);
     if (i < 0) throw new Error(`invalid base58 char in Tron address: ${addr}`);
     n = n * 58n + BigInt(i);
   }
-  let h = n.toString(16);
-  if (h.length % 2) h = `0${h}`;
-  return h.slice(0, -8); // strip checksum
+  // A Tron address is 25 bytes (0x41 ‖ 20-byte hash ‖ 4-byte checksum); the leading 0x41 means no
+  // leading zero bytes, so the big-integer form is exactly 50 hex chars.
+  const h = n.toString(16).padStart(50, '0');
+  if (h.length !== 50 || !h.startsWith('41')) {
+    throw new Error(`invalid Tron address (expected 25 bytes with 0x41 version): ${addr}`);
+  }
+  const payload = h.slice(0, 42);
+  const checksum = sha256(sha256(`0x${payload}`)).slice(2, 10);
+  if (h.slice(42) !== checksum) throw new Error(`invalid Tron address checksum: ${addr}`);
+  return payload;
 }
 
 /**
@@ -63,23 +78,169 @@ export function spliceMemo(rawHex: string, memoHex: string): string {
   return `${buf.subarray(0, at).toString('hex')}5220${clean}${buf.subarray(at).toString('hex')}`;
 }
 
-/**
- * Assemble the `broadcasthex` envelope: field 1 (raw_data) + field 2 (signature). The `41` before
- * the signature is its protobuf length — 65 bytes of `r‖s‖v` — not a Tron address version byte.
- */
-export function assembleBroadcastHex(rawHex: string, signatureHex: string): string {
-  const varint = (n: number): string => {
-    const o: number[] = [];
-    let x = n;
-    while (x > 0x7f) {
-      o.push((x & 0x7f) | 0x80);
-      x >>>= 7;
+type ProtoField = { field: number; varint?: bigint; bytes?: Uint8Array; start: number; end: number };
+
+/** Top-level fields of a protobuf message with their byte spans; bigint varints, since a sun amount can exceed 2^31. */
+function readProtoFields(buf: Uint8Array): ProtoField[] {
+  const fields: ProtoField[] = [];
+  let pos = 0;
+  const readVarint = (): bigint => {
+    let value = 0n;
+    for (let shift = 0n; shift < 70n; shift += 7n) {
+      const b = buf[pos++];
+      if (b === undefined) break;
+      value |= BigInt(b & 0x7f) << shift;
+      if (!(b & 0x80)) return value;
     }
-    o.push(x);
-    return Buffer.from(o).toString('hex');
+    throw new Error('malformed protobuf varint');
   };
-  const sig = signatureHex.replace(/^0x/, '');
-  return `0a${varint(rawHex.length / 2)}${rawHex}12${'41'}${sig}`;
+  while (pos < buf.length) {
+    const start = pos;
+    const tag = readVarint();
+    const field = Number(tag >> 3n);
+    const wire = Number(tag & 7n);
+    if (wire === 0) {
+      const varint = readVarint();
+      fields.push({ field, varint, start, end: pos });
+    } else if (wire === 2) {
+      const len = Number(readVarint());
+      if (pos + len > buf.length) throw new Error('truncated protobuf field');
+      fields.push({ field, bytes: buf.subarray(pos, pos + len), start, end: pos + len });
+      pos += len;
+    } else throw new Error(`unexpected protobuf wire type ${wire}`);
+  }
+  return fields;
+}
+
+/** A protobuf varint as hex. */
+function varintHex(value: number | bigint): string {
+  const out: number[] = [];
+  let n = BigInt(value);
+  while (n > 0x7fn) {
+    out.push(Number((n & 0x7fn) | 0x80n));
+    n >>= 7n;
+  }
+  out.push(Number(n));
+  return Buffer.from(out).toString('hex');
+}
+
+/**
+ * `rawHex` with its `expiration` (field 8, ms since epoch) replaced. Only for unsigned bytes: the txID
+ * and any signature change with them.
+ */
+export function setExpiration({ rawHex, expiration }: { rawHex: string; expiration: number }): string {
+  const buf = Buffer.from(rawHex.replace(/^0x/, ''), 'hex');
+  const fields = readProtoFields(buf).filter(f => f.field === 8);
+  const [current] = fields;
+  if (fields.length !== 1 || !current) throw new Error(`[tron] expected one expiration field, got ${fields.length}`);
+  const field8 = `40${varintHex(expiration)}`;
+  return `${buf.subarray(0, current.start).toString('hex')}${field8}${buf.subarray(current.end).toString('hex')}`;
+}
+
+/** The field's single occurrence; a repeat is refused because protobuf's last-wins would hide it. */
+function singleField(fields: ProtoField[], field: number): ProtoField | undefined {
+  const found = fields.filter(f => f.field === field);
+  if (found.length > 1) throw new Error(`field ${field} appears ${found.length} times`);
+  return found[0];
+}
+
+const bytesHex = (f: ProtoField | undefined): string => (f?.bytes ? Buffer.from(f.bytes).toString('hex') : '');
+const varintOf = (f: ProtoField | undefined): bigint => f?.varint ?? 0n;
+
+const TRANSFER_CONTRACT = 1n;
+const TRIGGER_SMART_CONTRACT = 31n;
+const TRC20_TRANSFER_SELECTOR = 'a9059cbb';
+
+/** A `raw_data_hex` body's fields, its contract count, and its first contract's type and parameter fields. */
+type DecodedTransaction = { raw: ProtoField[]; contracts: number; type: bigint; value: ProtoField[] };
+
+function decodeTransaction(rawHex: string): DecodedTransaction {
+  const raw = readProtoFields(Buffer.from(rawHex.replace(/^0x/, ''), 'hex'));
+  const contracts = raw.filter(f => f.field === 11);
+  const contract = readProtoFields(contracts[0]?.bytes ?? new Uint8Array());
+  const any = readProtoFields(singleField(contract, 2)?.bytes ?? new Uint8Array());
+  return {
+    raw,
+    contracts: contracts.length,
+    type: varintOf(singleField(contract, 1)),
+    value: readProtoFields(singleField(any, 2)?.bytes ?? new Uint8Array()),
+  };
+}
+
+/** A TRC-20 `transfer` call read back from a transaction: base58 addresses and its ABI-encoded arguments. */
+export type Trc20TransferCall = { owner: string; contract: string; parameter: string };
+
+/**
+ * The TRC-20 `transfer` a deposit's `raw_data_hex` makes, or `undefined` for a native TRX transfer.
+ * Throws for anything else, since only those two are deposits.
+ */
+export function readTrc20TransferCall(rawHex: string): Trc20TransferCall | undefined {
+  const { contracts, type, value } = decodeTransaction(rawHex);
+  if (contracts !== 1) throw new Error(`[tron] expected one contract, got ${contracts}`);
+  if (type === TRANSFER_CONTRACT) return undefined;
+  const calldata = bytesHex(singleField(value, 4));
+  if (type !== TRIGGER_SMART_CONTRACT || !calldata.startsWith(TRC20_TRANSFER_SELECTOR)) {
+    throw new Error(`[tron] not a TRX or TRC-20 transfer (contract type ${type})`);
+  }
+  return {
+    owner: tronHashToBase58(bytesHex(singleField(value, 1))),
+    contract: tronHashToBase58(bytesHex(singleField(value, 2))),
+    parameter: calldata.slice(TRC20_TRANSFER_SELECTOR.length),
+  };
+}
+
+export type ExpectedDepositTransfer = {
+  owner: string;
+  reserve: string;
+  amount: bigint;
+  /** TRC-20 token address; omitted for native TRX. */
+  token?: string;
+  maxFeeLimitSun: number;
+};
+
+/**
+ * Throws unless a node-built deposit `raw_data_hex` is exactly the transfer the SDK requested: one
+ * contract from `owner` paying `amount` to `reserve` (or `token.transfer(reserve, amount)`), with no
+ * memo yet and a fee limit within budget. The SDK signs these bytes, so the node is not trusted for them.
+ */
+export function assertDepositTransfer(rawHex: string, expected: ExpectedDepositTransfer): void {
+  const reject = (reason: string): never => {
+    throw new Error(`[tron] node-built deposit transfer rejected: ${reason}`);
+  };
+  const lower = (addr: string): string => tronBase58ToHex(addr).toLowerCase();
+
+  const { raw, contracts, type, value } = decodeTransaction(rawHex);
+  if (raw.some(f => f.field === 10)) reject('it already carries a data field');
+  if (contracts !== 1) reject(`expected one contract, got ${contracts}`);
+  if (varintOf(singleField(raw, 18)) > BigInt(expected.maxFeeLimitSun)) reject('fee_limit above the deposit budget');
+
+  if (bytesHex(singleField(value, 1)) !== lower(expected.owner)) reject('owner is not the depositor');
+
+  if (expected.token === undefined) {
+    if (type !== TRANSFER_CONTRACT) reject(`expected a TransferContract, got type ${type}`);
+    if (bytesHex(singleField(value, 2)) !== lower(expected.reserve)) reject('recipient is not the reserve');
+    if (varintOf(singleField(value, 3)) !== expected.amount) reject('amount differs from the requested amount');
+    return;
+  }
+
+  if (type !== TRIGGER_SMART_CONTRACT) reject(`expected a TriggerSmartContract, got type ${type}`);
+  if (bytesHex(singleField(value, 2)) !== lower(expected.token)) reject('contract is not the deposit token');
+  if (varintOf(singleField(value, 3)) !== 0n) reject('call_value must be zero');
+  if (varintOf(singleField(value, 5)) !== 0n || singleField(value, 6)) reject('it attaches a TRC-10 token');
+  const calldata = `${TRC20_TRANSFER_SELECTOR}${encodeTrc20TransferParams(expected.reserve, expected.amount)}`;
+  if (bytesHex(singleField(value, 4)) !== calldata) reject('calldata is not transfer(reserve, amount)');
+}
+
+/** The `broadcasthex` envelope: field 1 holds the raw_data bytes, then one field 2 per signature. */
+export function assembleBroadcastHex({
+  rawHex,
+  signatures,
+}: {
+  rawHex: string;
+  signatures: readonly string[];
+}): string {
+  const field = (tag: string, hex: string): string => `${tag}${varintHex(hex.length / 2)}${hex}`;
+  return field('0a', rawHex) + signatures.map(sig => field('12', sig.replace(/^0x/, ''))).join('');
 }
 
 /** Encode a Tron base58 address as a right-aligned 32-byte word (20-byte body, 0x41 prefix dropped). */

@@ -16,6 +16,8 @@ New public surface:
 - `@sodax/wallet-sdk-core` — `EvmWalletProvider.signMessage` and Monad in `getEvmViemChain`.
 - `@sodax/wallet-sdk-react` — Monad in the wagmi config.
 
+A Monad **recipient** — swap `dstAddress`, money-market borrow/withdraw, bridge and recovery — is the plain 20-byte address, not the 32-byte word Tron and XRP use: `encodeRecipient` returns it as-is and rejects a malformed address.
+
 Monad is swap-supported in the **staging** solver environment only (MON and USDC). **Money market** lists USDC only: MON has no vault, so it cannot be a lending-pool reserve. Bridge, partner-fee and recovery include Monad automatically.
 
 `EvmSpokeOnlyChainKey` and `isEvmSpokeChainConfig` exclude Monad, so the EVM asset-manager paths — deposits through `EvmSpokeService`, and the allowance checks in money market, staking, DEX assets and migration — never reach a chain that has no asset manager.

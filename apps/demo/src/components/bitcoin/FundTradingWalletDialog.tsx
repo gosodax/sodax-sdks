@@ -68,7 +68,7 @@ export const FundTradingWalletDialog = ({
         </DialogHeader>
 
         {/* From → To visual */}
-        <div className="flex items-center justify-center gap-6 py-4">
+        <div className="flex flex-col items-center justify-center gap-3 py-4 sm:flex-row sm:gap-6">
           {/* From */}
           <div className="flex flex-col items-center gap-2">
             <span className="text-xs text-muted-foreground font-medium">From parent wallet</span>
@@ -82,7 +82,7 @@ export const FundTradingWalletDialog = ({
           </div>
 
           {/* Arrow */}
-          <ArrowRight className="h-5 w-5 text-muted-foreground mt-[-24px]" />
+          <ArrowRight className="h-5 w-5 shrink-0 rotate-90 text-muted-foreground sm:rotate-0 sm:mt-[-24px]" />
 
           {/* To */}
           <div className="flex flex-col items-center gap-2">
@@ -126,7 +126,7 @@ export const FundTradingWalletDialog = ({
               setAmount(e.target.value);
               setFundError(null);
             }}
-            className="h-9 text-sm"
+            className="h-9"
           />
           <Button size="sm" onClick={handleFund} disabled={isFunding || !amount} className="shrink-0">
             {isFunding && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -136,7 +136,7 @@ export const FundTradingWalletDialog = ({
 
         {fundSuccess && <p className="text-xs text-green-500 text-center">Transaction submitted successfully!</p>}
 
-        {fundError && <p className="text-xs text-red-500 text-center break-words">{fundError}</p>}
+        {fundError && <p className="text-xs text-red-500 text-center wrap-anywhere">{fundError}</p>}
 
         {/* Info */}
         <div className="flex items-start gap-2 pt-1 text-xs text-muted-foreground">

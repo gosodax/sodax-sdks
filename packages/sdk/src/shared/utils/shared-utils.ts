@@ -1,6 +1,16 @@
 import { invariant } from './tiny-invariant.js';
-import { isBitcoinChainKeyType, isIconAddress, isPartnerFeeAmount, isPartnerFeePercentage } from '../guards.js';
+import {
+  isBitcoinChainKeyType,
+  isIconAddress,
+  isPartnerFeeAmount,
+  isPartnerFeePercentage,
+  isValidInjectiveAddress,
+  isValidNearAccountId,
+} from '../guards.js';
+import { canonicalizeBitcoinAddress, isValidBitcoinAddress } from '../entities/btc/btc-utils.js';
 import type { ConfigService } from '../config/ConfigService.js';
+import { SodaxError } from '../../errors/SodaxError.js';
+import type { SodaxErrorContext } from '../../errors/codes.js';
 import {
   type SpokeChainKey,
   type Hex,
@@ -12,9 +22,11 @@ import {
   FEE_PERCENTAGE_SCALE,
   type PartnerFee,
   type QuoteType,
+  getUnmetMpcPayoutMinimum,
   isMpcRelayChainKey,
+  type SodaxFeature,
 } from '@sodax/types';
-import { hexToBytes, toHex } from 'viem';
+import { formatUnits, hexToBytes, isAddress, toHex } from 'viem';
 import { tronHashToBase58, tronIdentityBytes } from '../services/spoke/tron-utils.js';
 import { xrpHashToClassicAddress, xrpIdentityBytes } from '../services/spoke/xrp-utils.js';
 import { tonAddressHash, tonIdentityBytes, tonWalletAddress } from '../services/spoke/ton-utils.js';
@@ -63,11 +75,10 @@ export async function retry<T>(
 }
 
 export function getRandomBytes(length: number): Uint8Array {
-  const array = new Uint8Array(length);
-  for (let i = 0; i < length; i++) {
-    array[i] = Math.floor(Math.random() * 256);
+  if (!globalThis.crypto?.getRandomValues) {
+    throw new Error('Web Crypto (crypto.getRandomValues) is unavailable in this runtime');
   }
-  return array;
+  return globalThis.crypto.getRandomValues(new Uint8Array(length));
 }
 
 export function randomUint256(): bigint {
@@ -148,31 +159,77 @@ export function BigIntToHex(value: bigint): Hex {
 }
 
 /**
+ * Refuses a payout at or below its {@link MpcRelayPayoutMinimums} entry, before anything is signed: the relay
+ * takes its release fee from the payout and releases nothing once the fee reaches it, after the hub has burned it.
+ */
+export function assertMpcPayoutAboveMinimum({
+  feature,
+  token,
+  amount,
+  amountDecimals,
+  context,
+}: {
+  feature: SodaxFeature;
+  token: Pick<XToken, 'chainKey' | 'symbol' | 'decimals'>;
+  amount: bigint;
+  /** Decimals `amount` is in, when not the token's own. */
+  amountDecimals?: number;
+  context?: Partial<SodaxErrorContext>;
+}): void {
+  const unmet = getUnmetMpcPayoutMinimum({ token, amount, amountDecimals });
+  if (!unmet) return;
+  throw new SodaxError(
+    'VALIDATION_FAILED',
+    `A ${unmet.symbol} payout to ${token.chainKey} must be greater than ${formatUnits(unmet.minimum, unmet.decimals)} ${unmet.symbol}: the relay's release fee comes out of it`,
+    { feature, context: { phase: 'validate', ...context, reason: 'mpc-payout-below-minimum' } },
+  );
+}
+
+/**
  * Recipient bytes for a hub release — the `to` an `AssetManager.transfer` pays out to.
  *
  * This is NOT {@link encodeAddress}, which produces the withdrawal-auth identity / hub-wallet salt.
- * For an MPC-relay chain the release contract reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`,
- * so the 20-byte identity has to be left-padded into a full word; passing the bare identity
- * mis-decodes the recipient. Intent-relay chains keep their own encoding unchanged.
+ * A non-EVM MPC-relay chain (Tron, XRP) reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so its
+ * 20-byte identity is left-padded into a full word. An EVM MPC-relay chain (Monad) releases to a plain
+ * 20-byte address: the relay does not decode the padded word, and sent one to the zero address.
+ * Intent-relay chains keep their own encoding unchanged.
  *
  * TON is the exception: its identity is a public key, and a release pays the 32-byte account hash of
  * that key's wallet-v4R2 address, which already fills the word.
  */
 export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): Hex {
   if (getChainType(spokeChainId) === 'TON') return tonAddressHash(tonWalletAddress(address));
-  const encoded = encodeAddress(spokeChainId, address);
-  if (!isMpcRelayChainKey(spokeChainId)) return encoded;
-  const hash = encoded.replace(/^0x/, '');
-  if (hash.length !== 40) {
+  if (!isMpcRelayChainKey(spokeChainId)) return encodeAddress(spokeChainId, address);
+  if (getChainType(spokeChainId) === 'EVM') {
+    // `encodeAddress` passes EVM input through unchecked, and a malformed recipient here is released
+    // on-chain as-is, so validate before it reaches the hub.
+    if (!isAddress(address, { strict: false })) {
+      throw new Error(`[encodeRecipient] invalid EVM recipient for ${spokeChainId}: ${address}`);
+    }
+    return address.toLowerCase() as Hex;
+  }
+  const hash = encodeAddress(spokeChainId, address).replace(/^0x/, '');
+  if (!/^[0-9a-fA-F]{40}$/.test(hash)) {
     throw new Error(`[encodeRecipient] expected a 20-byte identity for ${spokeChainId}, got ${hash.length / 2} bytes`);
   }
   return `0x${'00'.repeat(12)}${hash}`;
+}
+
+/** The 20-byte identity of an MPC-relay account, from either that identity or the padded `encodeRecipient` word intents store as srcAddress. */
+function mpcRelayIdentityHash(encoded: string, label: string): string {
+  const hash = encoded.replace(/^0x/, '').toLowerCase();
+  if (hash.length !== 64) return hash;
+  invariant(hash.startsWith('0'.repeat(24)), `Invalid ${label} recipient word: ${encoded}`);
+  return hash.slice(24);
 }
 
 export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex {
   const chainType = getChainType(spokeChainId);
   switch (chainType) {
     case 'EVM':
+      // Strict: a wrong-length recipient ABI-encodes cleanly, the hub burns the tokens, and the
+      // spoke reverts with no refund path — EIP-55 is what catches a mistyped one. Lowercase passes.
+      invariant(isAddress(address), `Invalid EVM address: ${address}`);
       return address as Hex;
     case 'ICON': {
       // Validate type + length before decoding: `Buffer.from(str, 'hex')` silently stops at the
@@ -192,12 +249,16 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
     case 'STACKS':
       return `0x${serializeCV(Cl.principal(address))}`;
     case 'BITCOIN':
+      invariant(isValidBitcoinAddress(address), `Invalid Bitcoin address: ${address}`);
+      return toHex(Buffer.from(canonicalizeBitcoinAddress(address), 'utf-8'));
     case 'NEAR':
+      invariant(isValidNearAccountId(address), `Invalid NEAR account id: ${address}`);
+      return toHex(Buffer.from(address, 'utf-8'));
     case 'INJECTIVE':
+      invariant(isValidInjectiveAddress(address), `Invalid Injective address: ${address}`);
       return toHex(Buffer.from(address, 'utf-8'));
     case 'TRON':
-      // Tron's hub-wallet identity (the `bytes user` for WalletFactory.getDeployedAddress) is the
-      // 20-byte address hash — the base58 payload with the 0x41 version byte dropped.
+      // Tron's hub-wallet identity is the 20-byte address hash: base58 payload without the 0x41 byte.
       return tronIdentityBytes(address);
     case 'XRP':
       // XRPL's identity is the 20-byte AccountID — ripemd160(sha256(pubkey)) — which a classic
@@ -215,6 +276,23 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);
     }
+  }
+}
+
+/**
+ * Encode a chain-native TOKEN IDENTIFIER for hub-side encoding. On BITCOIN/NEAR/INJECTIVE these are
+ * not addresses ('0:0', '897442:43', 'inj', 'factory/…', 'NEAR') — utf-8 identifier semantics, so
+ * they must not hit {@link encodeAddress}'s recipient validators. Every other family's token IS an
+ * address and keeps the validated path.
+ */
+export function encodeTokenIdentifier(spokeChainId: SpokeChainKey, token: string): Hex {
+  switch (getChainType(spokeChainId)) {
+    case 'BITCOIN':
+    case 'NEAR':
+    case 'INJECTIVE':
+      return toHex(Buffer.from(token, 'utf-8'));
+    default:
+      return encodeAddress(spokeChainId, token);
   }
 }
 
@@ -262,11 +340,9 @@ export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex):
     case 'INJECTIVE':
       return Buffer.from(hexToBytes(encoded)).toString('utf8');
     case 'TRON':
-      // Inverse of the identity encoding: 20-byte hash → base58check Tron address.
-      return tronHashToBase58(encoded);
+      return tronHashToBase58(mpcRelayIdentityHash(encoded, 'Tron'));
     case 'XRP':
-      // Inverse of the identity encoding: 20-byte AccountID → classic `r…` address.
-      return xrpHashToClassicAddress(encoded);
+      return xrpHashToClassicAddress(mpcRelayIdentityHash(encoded, 'XRP'));
     case 'TON':
       // The identity encoding is the public key verbatim.
       return tonIdentityBytes(encoded);

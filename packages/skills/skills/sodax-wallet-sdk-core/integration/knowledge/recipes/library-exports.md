@@ -15,9 +15,7 @@ Source file: `src/types/library-exports.ts`. The export name is the same as upst
 | Chain SDK | Re-exported types |
 |---|---|
 | `viem` | `Account`, `Address`, `Chain`, `Transport`, `PublicClient`, `WalletClient`, `HttpTransportConfig`, `PublicClientConfig`, `WalletClientConfig`, `SendTransactionParameters`, `WaitForTransactionReceiptParameters`, `TransactionReceipt` |
-| `@mysten/sui/client` | `SuiTransactionBlockResponseOptions` |
 | `@mysten/sui/transactions` | `Transaction`, `TransactionArgument` |
-| `@mysten/wallet-standard` | `SuiWalletFeatures`, `WalletAccount`, `WalletWithFeatures` |
 | `@solana/web3.js` | `Commitment`, `ConnectionConfig`, `SendOptions` |
 | `@injectivelabs/networks` | `Network` |
 | `@injectivelabs/ts-types` | `ChainId`, `EvmChainId` |
@@ -28,6 +26,8 @@ Source file: `src/types/library-exports.ts`. The export name is the same as upst
 | `near-api-js` | `KeyPairString` |
 | `@hot-labs/near-connect` | `NearConnector` |
 | `bitcoinjs-lib/src/networks.js` | `Network as BitcoinJsNetwork` |
+
+Tron has no upstream SDK to re-export from: its browser-extension config types TronWeb structurally as `TronWebLike` / `TronProviderLike`, exported from the package root, so don't add `tronweb` for them.
 
 ### Runtime values (also re-exported)
 
@@ -48,9 +48,6 @@ import type {
   WalletClient,
   PublicClient,
   TransactionReceipt,
-  SuiWalletFeatures,
-  WalletAccount,
-  WalletWithFeatures,
   ConnectionConfig,
   Network,
   ChainId,

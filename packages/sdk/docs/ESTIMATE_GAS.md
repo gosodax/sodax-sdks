@@ -40,7 +40,7 @@ The return type is conditional on the source chain's chain family. The concrete 
 
 | Chain family | Type | Notes |
 |---|---|---|
-| EVM (Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera) | `bigint` (`EvmGasEstimate`) | Gas units |
+| EVM (Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood) | `bigint` (`EvmGasEstimate`) | Gas units |
 | EVM hub (Sonic) | `bigint` (`EvmGasEstimate`) | Gas units |
 | Solana | `number \| undefined` (`SolanaGasEstimate`) | Compute units; `undefined` if simulation unavailable |
 | Stellar | `bigint` (`StellarGasEstimate`) | Fee in stroops |
@@ -50,7 +50,7 @@ The return type is conditional on the source chain's chain family. The concrete 
 | Bitcoin | `bigint` (`BitcoinGasEstimate`) | Fee in satoshis |
 | NEAR | `bigint` (`NearGasEstimate`) | Gas in yoctoNEAR |
 | Stacks | `FeeEstimateTransaction` | Object with `low`, `medium`, `high` tiers, each `{ fee: number, fee_rate: number }` |
-| Tron | `TronGasEstimate` | Object with `energy: bigint` and `bandwidth: bigint` — Tron prices a transaction in two staked resources rather than one gas number, so there is no single fee figure. `energy` is `0n` for a native TRX transfer |
+| Tron | `TronGasEstimate` | Object with `energy: bigint` and `bandwidth: bigint` — Tron prices a transaction in two staked resources rather than one gas number, so there is no single fee figure. `energy` is `0n` for a native TRX transfer, and both are `0n` for a `TronRawWithdraw`, which is signed off chain |
 | XRP Ledger | `XrpGasEstimate` | Object with `fee: bigint` — the flat per-transaction fee in drops. XRPL does not meter execution, so the estimate does not depend on the transaction |
 
 The full type definitions are in `packages/types/src/common/common.ts`.
@@ -156,7 +156,7 @@ const supplyResult = await sodax.moneyMarket.createSupplyIntent({
 if (supplyResult.ok) {
   // Step 2: Estimate gas
   const gasResult = await sodax.moneyMarket.estimateGas({
-    tx: supplyResult.value,
+    tx: supplyResult.value.tx,
     chainKey: ChainKeys.ETHEREUM_MAINNET,
   });
 

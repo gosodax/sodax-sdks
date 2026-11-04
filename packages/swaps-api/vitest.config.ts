@@ -8,5 +8,10 @@ export default defineConfig({
     // next stage, at which point this becomes a no-op. Keeps turbo's auto-
     // discovered `test` task from failing the package on an empty `src/`.
     passWithNoTests: true,
+    coverage: {
+      // vitest 4 dropped `coverage.all`; an explicit include is what keeps untested files in the report.
+      include: ['src/**'],
+      exclude: ['**/*.test.ts'],
+    },
   },
 });

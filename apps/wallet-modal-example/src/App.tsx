@@ -1,8 +1,12 @@
+import { lazy, Suspense } from 'react';
 import { useWalletModal } from '@sodax/wallet-sdk-react';
 import { WalletModal } from './components/WalletModal';
 import { ConnectedChains } from './components/ConnectedChains';
 import { BatchActions } from './components/BatchActions';
 import { ConnectionFlowDemo } from './components/ConnectionFlowDemo';
+
+// Dead code without VITE_PRIVY_APP_ID, so the default build stays Privy-free.
+const PrivyPanel = import.meta.env.VITE_PRIVY_APP_ID ? lazy(() => import('./components/PrivyPanel')) : undefined;
 
 function OpenModalButton() {
   const { state, open } = useWalletModal();
@@ -51,6 +55,15 @@ export default function App() {
       <section className="space-y-3 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
         <ConnectionFlowDemo />
       </section>
+
+      {PrivyPanel && (
+        <section className="space-y-3 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+          <h2 className="text-base font-semibold">Email (Privy)</h2>
+          <Suspense fallback={null}>
+            <PrivyPanel />
+          </Suspense>
+        </section>
+      )}
 
       <WalletModal />
 

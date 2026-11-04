@@ -1,0 +1,67 @@
+name: Docs Drift
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-drift:
+    name: Docs ship with code
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Skip inside the job so a required check still reports (job-level if: would hide it).
+    steps:
+      - name: Check out code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check for documentation drift
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Exact match. contains() on a single label is substring, so "waiting-docs-not-needed" would skip.
+          SKIP: ${{ contains(toJSON(github.event.pull_request.labels.*.name), '"docs-not-needed"') }}
+          # Whoever triggered this run — the labeller on a `labeled` event, but the
+          # pusher on `synchronize`, so not necessarily who applied the label.
+          SKIP_ACTOR: ${{ github.event.sender.login }}
+        run: |
+          set -euo pipefail
+
+          if [ "$SKIP" = "true" ]; then
+            echo "::notice::docs-not-needed label present — Docs Drift skipped (event actor: ${SKIP_ACTOR:-unknown})."
+            exit 0
+          fi
+
+          if ! git cat-file -e "${BASE_SHA}^{commit}"; then
+            echo "::error::PR base SHA $BASE_SHA is not in this clone (needed to diff)."
+            exit 1
+          fi
+          if ! git cat-file -e "${HEAD_SHA}^{commit}"; then
+            echo "::error::PR head SHA $HEAD_SHA is not in this clone (needed to diff)."
+            exit 1
+          fi
+
+          GATE_CHANGED=$(git -c core.quotePath=false diff --name-only "$BASE_SHA...$HEAD_SHA" -- \
+            .github/workflows/docs-drift.yml .github/scripts/check-docs-drift.sh || true)
+          if [ -n "$GATE_CHANGED" ]; then
+            echo "::warning::This PR modifies Docs Drift enforcement ($GATE_CHANGED). Workflow YAML is PR-supplied; the check script is taken from the base branch when it exists there. Treat as security-sensitive."
+          fi
+
+          # Run the base-branch script so a PR cannot no-op this gate. Fallback: file not on base yet.
+          SCRIPT_BLOB="${BASE_SHA}:.github/scripts/check-docs-drift.sh"
+          if git cat-file -e "$SCRIPT_BLOB" 2>/dev/null; then
+            echo "Running Docs Drift script from base $BASE_SHA (ignoring PR edits to the script)."
+            git show "$SCRIPT_BLOB" | bash -s -- "$BASE_SHA" "$HEAD_SHA"
+          else
+            echo "::warning::Docs Drift script is absent from base $BASE_SHA — running this PR's own copy (bootstrap). Only expected until the gate is on the base branch."
+            bash .github/scripts/check-docs-drift.sh "$BASE_SHA" "$HEAD_SHA"
+          fi

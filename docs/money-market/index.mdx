@@ -1,0 +1,35 @@
+---
+title: "Money Market"
+icon: sack-dollar
+description: "Supply and borrow across networks through one money market on the Sonic hub — SDK today, HTTP API coming."
+---
+
+Supply collateral from any spoke network and borrow against it. The money market itself lives on the Sonic hub.
+
+Start with the [supply example](/developers/packages/foundation/sdk/functional-modules/money_market#supply-tokens), including its allowance check, then follow [borrowing](/developers/packages/foundation/sdk/functional-modules/money_market#borrow-tokens) if your app needs it.
+For failures, use the [money-market error reference](/developers/packages/foundation/sdk/functional-modules/money_market#error-handling).
+
+## Integration reference
+
+<CardGroup cols={2}>
+  <Card title="SDK method reference" icon="code" href="/developers/packages/foundation/sdk/functional-modules/money_market">
+    `@sodax/sdk` — supply, borrow, withdraw, repay, and reserve data.
+  </Card>
+  <Card title="HTTP API" icon="server" href="/developers/http-api">
+    Reserve and position reads exist. No write API yet — supply and borrow through the SDK.
+  </Card>
+</CardGroup>
+
+### Next steps
+
+<CardGroup cols={2}>
+  <Card title="Solana money market" icon="sun" href="/solana/money-market">
+    Solana-specific lend / borrow flows.
+  </Card>
+  <Card title="React frontend" icon="react" href="/developers/packages/experience/dapp-kit">
+    `@sodax/dapp-kit` hooks with wallet wiring included.
+  </Card>
+  <Card title="Builders MCP" icon="plug" href="/builders-mcp">
+    Live reserves, rates and positions inside your AI coding agent.
+  </Card>
+</CardGroup>

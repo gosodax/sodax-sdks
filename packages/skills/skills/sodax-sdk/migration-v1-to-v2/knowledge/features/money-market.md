@@ -30,7 +30,7 @@ Pair: [`features/money-market.md`](../../../integration/knowledge/features/money
 
 - `moneyMarketSupportedTokens` — `Record<SpokeChainKey, XToken[]>` global. Use `sodax.moneyMarket.getSupportedTokensByChainId(chainKey)` / `getSupportedTokens()`.
 - `hubAssets` — vault address lookup global. Use `XToken.vault` / `XToken.hubAsset` directly.
-- `SodaTokens` — vault-validation registry. Use `sodax.config.getMoneyMarketReserveAssets()`.
+- `SodaTokens` — hub-vault registry. It is feature-neutral: a vault listed there is not necessarily a money-market reserve (the Robinhood tokenized equities are swap-only, for example). Never derive reserve support from it — use `sodax.config.getMoneyMarketReserveAssets()`.
 - `MoneyMarketError<MoneyMarketErrorCode>` and `isMoneyMarketError` — replaced by `SodaxError<C>` + `isSodaxError(e) && e.feature === 'moneyMarket'`.
 
 ### v1 → v2 error code crosswalk (money-market-specific)

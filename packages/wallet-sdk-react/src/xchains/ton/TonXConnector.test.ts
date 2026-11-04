@@ -25,7 +25,10 @@ const ui = {
   sendTransaction: vi.fn(async () => ({ boc: 'x' })),
   signData: vi.fn(async () => ({ signature: 'AA==', address: RAW_ADDRESS, timestamp: 1, domain: 'app.sodax.com' })),
 };
-const TonConnectUI = vi.fn(() => ui);
+// biome-ignore lint/complexity/useArrowFunction: the service calls this mock with `new`, which vitest 4 only allows for a `function`.
+const TonConnectUI = vi.fn(function () {
+  return ui;
+});
 vi.mock('@tonconnect/ui', () => ({ TonConnectUI }));
 
 const { TonXService } = await import('./TonXService.js');

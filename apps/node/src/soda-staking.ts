@@ -15,7 +15,7 @@ if (!privateKey) {
 const spokeEvmWallet = new EvmWalletProvider({
   privateKey: privateKey as Hex,
   chainId: SONIC_MAINNET_CHAIN_ID,
-  rpcUrl: 'https://rpc.soniclabs.com',
+  rpcUrl: HUB_RPC_URL,
 });
 
 const spokeProvider = new SonicSpokeProvider(spokeEvmWallet, spokeChainConfig[HUB_CHAIN_ID]);

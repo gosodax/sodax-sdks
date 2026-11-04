@@ -39,7 +39,8 @@ const WalletItem = ({ name, xChainType, onConnectionSuccess }: WalletItemProps) 
         await xConnect(xConnector);
         // Address will be updated via useXAccount hook, useEffect will handle closing
       } catch (error) {
-        console.error(error);
+        // Closing a wallet's own dialog (Privy, WalletConnect) rejects the connect; that is not an error.
+        if (!(error instanceof Error && error.name === 'UserRejectedRequestError')) console.error(error);
         setWasConnecting(false);
       } finally {
         setConnectingXConnector(null);
@@ -78,7 +79,7 @@ const WalletItem = ({ name, xChainType, onConnectionSuccess }: WalletItemProps) 
   }, [xConnectors]);
 
   return (
-    <div className="flex items-center gap-6 text-[#0d0229]">
+    <div className="flex items-center gap-3 sm:gap-6 text-[#0d0229]">
       <div className="w-[76px] text-right text-black text-xs font-bold leading-none">{name}</div>
 
       <div className="flex flex-wrap justify-start gap-2 grow">

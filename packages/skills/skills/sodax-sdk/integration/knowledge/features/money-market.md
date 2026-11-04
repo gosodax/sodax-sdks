@@ -1,6 +1,6 @@
 # Money Market — `MoneyMarketService`
 
-Cross-chain lending and borrowing. Supply, borrow, withdraw, repay across 21 spoke chains. Position state lives on the hub.
+Cross-chain lending and borrowing. Supply, borrow, withdraw, repay across the supported spoke chains (`moneyMarketSupportedTokens` in `@sodax/types` is the source of truth). Position state lives on the hub.
 
 Access: `sodax.moneyMarket`. Service class: `MoneyMarketService`. Feature tag for errors: `'moneyMarket'`.
 

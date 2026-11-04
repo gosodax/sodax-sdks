@@ -30,6 +30,7 @@ The wallet layer is two independent slices: **wallet-sdk-core** signs/broadcasts
 | Injective, Stacks | **one** connector class, multiple parameterized **instances** | add an instance — Injective `new InjectiveXConnector('Name', Wallet.X)`, Stacks add to `STACKS_PROVIDERS` — usually **no new class** |
 | Stellar, NEAR | runtime **discovery** via an aggregator (`discoverConnectors`) | the wallet set comes from the Stellar Wallets Kit / NEAR wallet-selector — support is added through the aggregator, not a hand-written connector |
 | EVM, Solana, Sui | **provider-managed** (native SDK) | not Case A — see the caveat |
+| Tron | **one** `TronXConnector` (id `TronLink`): TIP-6963 discovery that prefers TronLink, else another announcing wallet, else `window.tron` / `window.tronLink` | no per-wallet choice yet — offering several Tron wallets needs the connector to expose each announcement; ask first |
 
 **Writing a connector** (Bitcoin / Icon pattern): `src/xchains/<chain>/<Wallet>XConnector.ts` extending the chain's connector base (e.g. `BitcoinXConnector`, itself extending `XConnector`). Implement the base's abstract methods — for Bitcoin: `connect()`, `disconnect()`, `getWalletProvider()`, `recreateWalletProvider(xAccount)` — plus `isInstalled` / `installUrl`. It builds the matching `I<Chain>WalletProvider` from `wallet-sdk-core`, forwarding `this.defaults`. Keep the connector `id` and install metadata **stable** — they key persisted connections and the modal.
 
@@ -46,6 +47,9 @@ The wallet layer is two independent slices: **wallet-sdk-core** signs/broadcasts
 3. `<Chain>WalletProvider.test.ts` — add the new constructor-variant case.
 
 See `wallet-sdk-core/AGENTS.md` → "Adding a New Chain Provider" / "Config variants" for the full provider shape.
+
+## Docs
+Docs Drift CI fails unless a related publishable site surface changed with `src/`. Update `packages/wallet-sdk-react/docs/` (Case A) or `packages/wallet-sdk-core/README.md` (Case B). If `packages/types/src` changed too, note that neither of those covers it — update a mapped `packages/sdk/docs/` page such as `WALLET_PROVIDERS.md`, since the `types` README passes the gate but does not publish. JSDoc is not enough. If you add a brand-new published page, add it to `scripts/docs-pages-map.json` and give it a nav entry in `docs/docs.json`, or it is live but absent from the sidebar and search; a page not ready to go live goes on the map's `unpublished` list instead. `packages/skills` is partner-agent docs (how integrators connect/sign) — update it when that public surface changed, then run `pnpm check:ai`; it does not satisfy Docs Drift. An unrelated mapped file (for example `packages/skills/README.md`) does not satisfy a wallet-package source change.
 
 ## Verify
 - Case A: `cd packages/wallet-sdk-react && pnpm test && pnpm checkTs`. Case B: `cd packages/wallet-sdk-core && pnpm test && pnpm checkTs`.

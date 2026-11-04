@@ -7,7 +7,7 @@ import type { SodaxError } from '../errors/SodaxError.js';
 
 export const swapInvariant: FeatureInvariant = createInvariant('swap');
 
-export type SwapAction = 'swap' | 'createLimitOrder';
+export type SwapAction = 'swap' | 'swapWithApproval' | 'createLimitOrder';
 
 export type SwapCreateIntentErrorCode = CreateIntentErrorCode;
 
@@ -19,6 +19,9 @@ export type SwapCreateIntentErrorCode = CreateIntentErrorCode;
  * that handles both `postExecution` and `swap` errors expecting the same union.
  */
 export type PostExecutionErrorCode = Extract<SodaxErrorCode, 'EXECUTION_FAILED' | 'EXTERNAL_API_ERROR' | 'UNKNOWN'>;
+
+/** The only code `getDetailedStatus` returns: no status source could produce a usable answer. */
+export type DetailedStatusErrorCode = Extract<SodaxErrorCode, 'LOOKUP_FAILED'>;
 
 export type SwapErrorCode = Extract<
   SodaxErrorCode,
@@ -34,9 +37,16 @@ export type SwapErrorCode = Extract<
   | 'UNKNOWN'
 >;
 
+/** Codes returnable by `swapWithApproval`: every `swap` code plus the approval leg's. */
+export type SwapWithApprovalErrorCode =
+  | SwapErrorCode
+  | Extract<SodaxErrorCode, 'APPROVE_FAILED' | 'ALLOWANCE_CHECK_FAILED'>;
+
 export type SwapCreateIntentError = SodaxError<SwapCreateIntentErrorCode>;
 export type PostExecutionError = SodaxError<PostExecutionErrorCode>;
 export type SwapError = SodaxError<SwapErrorCode>;
+export type DetailedStatusError = SodaxError<DetailedStatusErrorCode>;
+export type SwapWithApprovalError = SodaxError<SwapWithApprovalErrorCode>;
 
 const POST_EXECUTION_ERROR_CODES: ReadonlySet<PostExecutionErrorCode> = new Set([
   'EXECUTION_FAILED',
@@ -60,3 +70,6 @@ const SWAP_ERROR_CODES: ReadonlySet<SwapErrorCode> = new Set([
 export const isSwapCreateIntentError = isCodeMember<SwapCreateIntentErrorCode>(CREATE_INTENT_CODES);
 export const isPostExecutionError = isCodeMember<PostExecutionErrorCode>(POST_EXECUTION_ERROR_CODES);
 export const isSwapError = isCodeMember<SwapErrorCode>(SWAP_ERROR_CODES);
+export const isSwapWithApprovalError = isCodeMember<SwapWithApprovalErrorCode>(
+  new Set<SwapWithApprovalErrorCode>([...SWAP_ERROR_CODES, 'APPROVE_FAILED', 'ALLOWANCE_CHECK_FAILED']),
+);

@@ -16,21 +16,32 @@ import { retry } from '../../utils/shared-utils.js';
 import type {
   DepositParams,
   EstimateGasParams,
+  GetBalanceParams,
+  GetBalancesParams,
   GetDepositParams,
   SendMessageParams,
   WaitForTxReceiptParams,
   WaitForTxReceiptReturnType,
 } from '../../types/spoke-types.js';
 import {
+  getDeposit,
   getDepositAddress,
+  getWithdrawal,
   notify,
   submitWithdraw,
   toDepositId,
+  toHubReleaseId,
   waitForDeposit,
+  waitForHubRelease,
   waitForWithdrawal,
   type DepositRecord,
+  type HubRelease,
+  type MpcRelaySettlement,
+  type NotifyResponse,
   type WithdrawalRecord,
+  type WithdrawalSettledOn,
 } from '../mpcRelay/MpcRelayApiService.js';
+import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 import { computeSignedMessageHash, randomWithdrawNonce } from './mpc-message.js';
 import {
   buildJettonDepositBody,
@@ -108,7 +119,7 @@ function memoOf(tx: ToncenterTx): string | null {
  *
  * @see MpcRelayApiService for the relay REST flow (deposit-address → notify → poll).
  */
-export class TonSpokeService {
+export class TonSpokeService implements MpcRelaySettlement {
   private readonly config: ConfigService;
 
   constructor(config: ConfigService) {
@@ -214,6 +225,8 @@ export class TonSpokeService {
    * `srcAddress` is the account's public key. `Raw: true` returns the unsigned message (sent from the
    * key's wallet-v4R2 address). `Raw: false` has the wallet send it from the account it controls, finds the
    * reserve transaction that carries the memo, and notifies the relay — resolving to that transaction hash.
+   * Once the deposit has landed, a failed notify warns and still resolves to the hash, so a retry cannot send
+   * it twice: `settle` re-notifies it, and a caller that does not settle notifies it with `spoke.submitMpcDeposit`.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<TonChainKey, R>,
@@ -285,20 +298,41 @@ export class TonSpokeService {
 
     const txHash = await this.findReserveTx(reserveAddress, memo, sinceLt);
 
-    try {
-      // `retry` reacts to a throw, and `notify` reports failure in its Result — so rethrow to arm it.
-      await retry(async () => {
-        const res = await notify(this.relayApiUrl, this.chainId, txHash);
-        if (!res.ok) throw res.error;
+    const submitted = await this.submitDeposit(txHash);
+    if (!submitted.ok) {
+      this.config.logger.warn('[TonSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it', {
+        txHash,
+        error: submitted.error,
       });
-    } catch (error) {
-      throw new Error(
-        `[TonSpokeService.deposit] deposit ${txHash} landed but the relay was not notified — re-notify this tx hash to settle it`,
-        { cause: error },
-      );
     }
 
     return txHash satisfies string as TxReturnType<TonChainKey, R>;
+  }
+
+  /**
+   * Notify the relay of a landed deposit, without waiting for the hub mint. The funds have already moved,
+   * so it retries, and a failure keeps the tx hash: the only handle left for re-notifying the deposit.
+   */
+  public async submitDeposit(txHash: string): Promise<Result<void>> {
+    try {
+      await this.retryNotify(() => notify(this.relayApiUrl, this.chainId, txHash));
+      return { ok: true, value: undefined };
+    } catch (error) {
+      return {
+        ok: false,
+        error: new Error(`mpc-relay: deposit ${txHash} was not notified — re-notify this tx hash to settle it`, {
+          cause: error,
+        }),
+      };
+    }
+  }
+
+  /** A notify, retried: `retry` reacts to a throw and `notify` reports failure in its Result, so rethrow it. */
+  private async retryNotify(send: () => Promise<Result<NotifyResponse>>): Promise<void> {
+    await retry(async () => {
+      const res = await send();
+      if (!res.ok) throw res.error;
+    });
   }
 
   /** Warn when the relay's reserve differs from the configured one, without blocking — reserves can rotate. */
@@ -332,6 +366,11 @@ export class TonSpokeService {
     }
   }
 
+  /** The MPC relay's current record for a TON deposit, read once. `txHash` is as for {@link waitForDeposit}. */
+  public async getDepositRecord(txHash: string): Promise<Result<DepositRecord>> {
+    return getDeposit(this.relayApiUrl, toDepositId(this.chainId, txHash));
+  }
+
   /**
    * On-chain balance of `token` for the account's wallet-v4R2 address — nanotons for native TON, jetton
    * base units for a jetton. TON memo-mode has no spoke asset manager, so this reads the holder directly.
@@ -355,6 +394,23 @@ export class TonSpokeService {
       throw new Error(`[TonSpokeService.getDeposit] get_wallet_data failed on ${jettonWallet}`);
     }
     return BigInt(balance);
+  }
+
+  /** The user's own wallet balance of `token`, in smallest units — the same read as {@link getDeposit}. */
+  public async getWalletBalance(params: GetBalanceParams<TonChainKey>): Promise<bigint> {
+    return this.getDeposit({
+      srcChainKey: params.srcChainKey,
+      srcAddress: params.srcAddress,
+      token: params.token.address,
+    });
+  }
+
+  /** The user's own wallet balances of multiple tokens, keyed by `token.address`. */
+  public async getWalletBalances(params: GetBalancesParams<TonChainKey>): Promise<WalletBalanceMap> {
+    const { srcChainKey, srcAddress, tokens } = params;
+    const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
+    await settleWalletBalances(collector, tokens, token => this.getWalletBalance({ srcChainKey, srcAddress, token }));
+    return collector.finish();
   }
 
   /**
@@ -411,15 +467,67 @@ export class TonSpokeService {
     return res.value.trackingId satisfies string as TxReturnType<TonChainKey, Raw>;
   }
 
+  /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */
+  public async getWithdrawalRecord(trackingId: string): Promise<Result<WithdrawalRecord>> {
+    return getWithdrawal(this.relayApiUrl, trackingId);
+  }
+
   /**
    * Wait for a hub→TON withdrawal to reach `released`, via the MPC relay.
    * `trackingId` is the value returned by {@link sendMessage}.
    */
-  public async waitForWithdrawal(trackingId: string, timeout?: number): Promise<Result<WithdrawalRecord>> {
+  public async waitForWithdrawal(
+    trackingId: string,
+    timeout?: number,
+    until?: WithdrawalSettledOn,
+  ): Promise<Result<WithdrawalRecord>> {
     return waitForWithdrawal(this.relayApiUrl, trackingId, {
+      until,
       timeout: Math.max(timeout ?? 0, TON_SETTLEMENT_FLOOR_MS),
       pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
     });
+  }
+
+  /**
+   * Notify the relay of a hub tx releasing to TON, without waiting for the release. The relay has no hub
+   * watcher and learns of the hub tx only through `/notify`.
+   */
+  public async submitHubRelease(release: HubRelease): Promise<Result<void>> {
+    const { hubChainId, hubTxHash } = release;
+    try {
+      await this.retryNotify(() => notify(this.relayApiUrl, hubChainId, hubTxHash, 'withdrawal'));
+      return { ok: true, value: undefined };
+    } catch (error) {
+      // The hub has already burned the tokens; the hash is what a retry has to re-notify.
+      return {
+        ok: false,
+        error: new Error(`mpc-relay: hub tx ${hubTxHash} was not notified — re-notify it to release`, { cause: error }),
+      };
+    }
+  }
+
+  /**
+   * Wait until a release {@link submitHubRelease} notified is paid. The relay's verifier also waits on hub
+   * confirmations and may have dropped an early notify, so this keeps re-notifying.
+   */
+  public async waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>> {
+    const { hubChainId, hubTxHash } = release;
+    const renotify = setInterval(() => {
+      void notify(this.relayApiUrl, hubChainId, hubTxHash, 'withdrawal');
+    }, RENOTIFY_INTERVAL_MS);
+    try {
+      return await waitForHubRelease(this.relayApiUrl, release, {
+        timeout: Math.max(timeout ?? 0, TON_SETTLEMENT_FLOOR_MS),
+        pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
+      });
+    } finally {
+      clearInterval(renotify);
+    }
+  }
+
+  /** One read of a hub release's record through the relay, which `txs.release` marks as paid. */
+  public async getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>> {
+    return getDeposit(this.relayApiUrl, toHubReleaseId(release));
   }
 
   /**

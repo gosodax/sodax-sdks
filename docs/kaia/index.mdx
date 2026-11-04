@@ -1,0 +1,80 @@
+---
+title: "SODAX for Kaia"
+sidebarTitle: "Overview"
+description: "Reach the users and liquidity of every SODAX network from your Kaia product. No contracts to deploy, your entire integration is TypeScript."
+icon: k
+---
+
+<Note>
+  **No new contracts.** SODAX's Kaia spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary EVM transactions on Kaia, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+</Note>
+
+You keep shipping on Kaia. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer. There is nothing to deploy, audit, or maintain on-chain.
+
+Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
+
+## What to know on Kaia
+
+To the SDK, Kaia is a standard EVM network: the same `EvmWalletProvider`, ERC-20 approvals, and intent flow as any other EVM network. Two Kaia details are yours to know about:
+
+- **The signing account must have a legacy account key.** Kaia lets an account change its key or switch to multisig and role-based keys. Ethereum-format transactions, which SODAX and EVM wallets send, only work from accounts with the `AccountKeyLegacy` type, whose address is derived from their key. Kaia creates new accounts with that type; an account whose key has been updated cannot sign SODAX transactions.
+- **The public endpoint is for testing.** The SODAX config uses `https://public-en.node.kaia.io`, which Kaia provides for testing and development and asks not to be used commercially. Pass your own endpoint through `rpcUrl` in production.
+
+## What you can build
+
+Two SODAX modules are relevant to Kaia builders:
+
+<CardGroup>
+  <Card title="Swaps" icon="rotate" href="/kaia/swaps">
+    Intent-based cross-network swaps. Users swap between KAIA or Kaia tokens and assets on any supported network with one signed transaction on Kaia. Solvers fill; SODAX routes and settles.
+  </Card>
+
+  <Card title="Money Market" icon="sack-dollar" href="/kaia/money-market">
+    Cross-network lending and borrowing. Supply from Kaia, borrow to Kaia or any other supported network, and manage positions without running lending infrastructure.
+  </Card>
+</CardGroup>
+
+## Choose your integration path
+
+| Path | Best for | Start here |
+| - | - | - |
+| [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/kaia/quickstart) |
+| [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/kaia/wallets) |
+| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax-builders": {
+      "url": "https://builders.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+
+## In this section
+
+- [Quickstart](/kaia/quickstart): install the SDK, connect a Kaia account, make your first cross-network swap.
+- [Swaps on Kaia](/kaia/swaps): approvals, quoting, and fees.
+- [Money Market on Kaia](/kaia/money-market): supply, borrow, repay, and withdraw with cross-network collateral.
+- [Wallets](/kaia/wallets): EVM wallets on Kaia, and every other network's wallets through one interface.
+- [Networks & Assets](/kaia/networks-and-assets): what is live on Kaia today and what your users can reach.
+- [Kaia FAQ](/kaia/faq): the questions Kaia engineers actually ask.
+
+## Kaia references
+
+- [**Kaia documentation**](https://docs.kaia.io/): accounts, transactions, and the EVM on Kaia.
+- [**Kaia accounts**](https://docs.kaia.io/learn/accounts/): account key types, and how Kaia decouples keys from addresses.
+- [**Ethereum compatibility**](https://docs.kaia.io/build/transactions/ethereum/): the Ethereum transaction types Kaia accepts, and the `AccountKeyLegacy` requirement.
+- [**Public JSON-RPC endpoints**](https://docs.kaia.io/references/public-en/): Kaia's public endpoints and the providers that offer production ones.
+- [**KaiaScan**](https://kaiascan.io/): a Kaia mainnet explorer, for checking transactions and accounts.
+
+---
+
+Building something? Start with the [Quickstart](/kaia/quickstart).

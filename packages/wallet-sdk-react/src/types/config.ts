@@ -54,7 +54,15 @@ type SimpleChainEntry<D> = {
 
 export type EvmChainEntry = SimpleChainEntry<EvmWalletDefaults>;
 export type SolanaChainEntry = SimpleChainEntry<SolanaWalletDefaults>;
-export type SuiChainEntry = SimpleChainEntry<SuiWalletDefaults>;
+/**
+ * Sui speaks gRPC-web, not JSON-RPC — hence `grpcUrl` rather than the shared `rpcUrl`. The two names
+ * are mutually exclusive; passing both is a configuration error, not a precedence question.
+ */
+export type SuiChainEntry = { defaults?: SuiWalletDefaults } & (
+  | { grpcUrl?: string; rpcUrl?: never }
+  /** @deprecated Renamed to `grpcUrl`. */
+  | { grpcUrl?: never; rpcUrl?: string }
+);
 export type IconChainEntry = SimpleChainEntry<IconWalletDefaults>;
 export type NearChainEntry = SimpleChainEntry<NearWalletDefaults>;
 export type TronChainEntry = SimpleChainEntry<TronWalletDefaults>;
@@ -62,7 +70,7 @@ export type XrpChainEntry = SimpleChainEntry<XrpWalletDefaults>;
 export type TonChainEntry = SimpleChainEntry<TonWalletDefaults>;
 export type ZcashChainEntry = SimpleChainEntry<ZcashWalletDefaults>;
 
-// Chains with multi-field RPC config (horizon+soroban, rpc+radfi, indexer+grpc)
+// Chains with multi-field RPC config (horizon+soroban, indexer+grpc)
 // extend the existing `*RpcConfig` from @sodax/types instead.
 export type StellarChainEntry = StellarRpcConfig & { defaults?: StellarWalletDefaults };
 export type BitcoinChainEntry = BitcoinRpcConfig & { defaults?: BitcoinWalletDefaults };
@@ -98,7 +106,16 @@ export type EvmAdapterFields = {
   initialState?: WagmiState;
   /** WalletConnect configuration. Adds a WalletConnect connector when provided. */
   walletConnect?: WalletConnectParameters;
+  /**
+   * Opt-in Privy email login as an EVM wallet (connector id `privy`, "Email (Privy)"). Build it with
+   * `privy()` from '@sodax/wallet-sdk-react/privy', which needs `@privy-io/react-auth` installed.
+   * Omit it and no Privy code is loaded.
+   */
+  privy?: PrivySource;
 };
+
+/** Opaque value returned by `privy()` from '@sodax/wallet-sdk-react/privy'. */
+export type PrivySource = { readonly kind: 'privy' };
 
 /** `@solana/wallet-adapter-react` provider settings. */
 export type SolanaAdapterFields = {
@@ -112,11 +129,11 @@ export type TonAdapterFields = {
   manifestUrl?: string;
 };
 
-/** `@mysten/dapp-kit` provider settings. */
+/** `@mysten/dapp-kit-react` provider settings. */
 export type SuiAdapterFields = {
   autoConnect?: boolean;
-  /** Default network for the SuiClientProvider. @default 'mainnet' */
-  network?: 'mainnet' | 'testnet' | 'devnet';
+  /** Default network for the dApp Kit instance. @default 'mainnet' */
+  network?: 'mainnet' | 'testnet';
 };
 
 // ─── Central chain registry ─────────────────────────────────────────────────

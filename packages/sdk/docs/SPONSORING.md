@@ -224,7 +224,15 @@ const sodax = new Sodax({
 
 `apiKey` is sugar for the `x-api-key` header the service gates on; an explicit `x-api-key` in
 `headers` wins, so you can proxy through your own backend instead. Keep the key in an env var — never
-inline it.
+inline it — and read it server-side; see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices).
+
+The instance-wide `new Sodax({ apiKey })` is **gated** for this service: it is inherited only when the
+call actually targets a SODAX gateway — the packaged sponsoring default or the resolved shared root —
+and that check is made per request against the effective target, so a per-call `baseURL` override
+cannot carry it off-gateway. A custom sponsoring origin never receives it. The slice key above is the
+credential for independently hosted sponsoring and wins wherever the slice points. Sponsoring keys come
+from their own registry, so a partner portal key that reaches sponsoring by inheritance is rejected —
+always set the slice `apiKey`.
 
 Two deliberate differences from `swapsApiConfig`:
 
@@ -240,7 +248,7 @@ Two deliberate differences from `swapsApiConfig`:
 `baseURL` is the service base URL **including any version or gateway prefix** — the SDK appends only
 `SPONSORING_API_STELLAR_BASE_PATH` (`/sponsorships/stellar`), because where the service is mounted is
 the deployment's business. This is the same rule every backend service now follows; see
-[CONFIGURE_SDK.md](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md)
+[CONFIGURE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md)
 for the shared URL model. The packaged default is `https://api.sodax.com/v1`; point `baseURL` at
 `http://localhost:3011` to run against a local `sponsoring-api`, which serves the routes at the bare
 origin.
@@ -266,7 +274,7 @@ offline without a sponsoring service and without spending XLM.
 
 ## Related Documentation
 
-- [Stellar Trustlines](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md) - The step after activation
-- [Backend API](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/BACKEND_API.md) - The raw `sodax.api.sponsoring` wire client
-- [Wallet Providers](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) - Constructing a Stellar wallet provider
-- [Configure SDK](https://github.com/icon-project/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md) - Full `ApiConfig` reference
+- [Stellar Trustlines](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STELLAR_TRUSTLINE.md) - The step after activation
+- [Backend API](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BACKEND_API.md) - The raw `sodax.api.sponsoring` wire client
+- [Wallet Providers](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) - Constructing a Stellar wallet provider
+- [Configure SDK](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md) - Full `ApiConfig` reference

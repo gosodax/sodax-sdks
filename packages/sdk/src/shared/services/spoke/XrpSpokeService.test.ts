@@ -10,7 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Hex } from '@sodax/types';
+import { ChainKeys, spokeChainConfig, type Hex } from '@sodax/types';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import { xrpCurrencyCode, xrpIdentityBytes } from './xrp-utils.js';
@@ -56,14 +56,16 @@ function stubRippled(overrides: Record<string, unknown> = {}) {
         ...overrides,
       };
 
+      // Only `ok` and `json()` are read, so a partial stands in for the full fetch Response.
       return { ok: true, json: async () => ({ result: responses[method] ?? {} }) } as unknown as Response;
     }),
   );
 }
 
+const signTransaction = vi.fn(async (_tx: Record<string, unknown>) => ({ tx_blob: '1200002280000000', hash: TX_HASH }));
 const walletProvider = {
   chainType: 'XRP',
-  signTransaction: vi.fn(async () => ({ tx_blob: '1200002280000000', hash: TX_HASH })),
+  signTransaction,
   signMessage: vi.fn(async () => SIGNATURE),
   getPublicKey: vi.fn(async () => PUBLIC_KEY),
 } as never;
@@ -83,6 +85,7 @@ const callTo = (method: string) => calls.find(c => c.method === method);
 
 beforeEach(() => {
   calls = [];
+  signTransaction.mockClear();
   vi.spyOn(MpcRelayApiService, 'getDepositAddress').mockResolvedValue({
     ok: true,
     value: {
@@ -108,7 +111,7 @@ describe('XrpSpokeService.deposit — native XRP', () => {
 
     await xrp.deposit(depositParams(NATIVE_XRP));
 
-    const signed = vi.mocked(walletProvider.signTransaction).mock.calls[0]?.[0];
+    const signed = vi.mocked(signTransaction).mock.calls[0]?.[0];
     expect(signed).toMatchObject({
       TransactionType: 'Payment',
       Account: SENDER,
@@ -125,7 +128,7 @@ describe('XrpSpokeService.deposit — native XRP', () => {
     await xrp.deposit(depositParams(NATIVE_XRP));
 
     // Pinning these races the wallet for the account Sequence, and GemWallet rejects a tx that sets them.
-    const signed = vi.mocked(walletProvider.signTransaction).mock.calls[0]?.[0] as Record<string, unknown>;
+    const signed = vi.mocked(signTransaction).mock.calls[0]?.[0] as Record<string, unknown>;
     expect(signed).not.toHaveProperty('Sequence');
     expect(signed).not.toHaveProperty('Fee');
     expect(signed).not.toHaveProperty('LastLedgerSequence');
@@ -148,7 +151,7 @@ describe('XrpSpokeService.deposit — native XRP', () => {
 
     expect(raw).toEqual({ from: SENDER, to: RESERVE, value: AMOUNT, data: MEMO, token: NATIVE_XRP });
     expect(calls).toHaveLength(0);
-    expect(walletProvider.signTransaction).not.toHaveBeenCalled();
+    expect(signTransaction).not.toHaveBeenCalled();
   });
 });
 
@@ -159,7 +162,7 @@ describe('XrpSpokeService.deposit — IOU', () => {
     await xrp.deposit(depositParams(RLUSD_ISSUER));
 
     // 20_000_000 base units at 6 decimals is 20 RLUSD — sending "20000000" would move 10^6 too much.
-    expect(vi.mocked(walletProvider.signTransaction).mock.calls[0]?.[0]).toMatchObject({
+    expect(vi.mocked(signTransaction).mock.calls[0]?.[0]).toMatchObject({
       Amount: { currency: xrpCurrencyCode('RLUSD'), issuer: RLUSD_ISSUER, value: '20' },
     });
   });
@@ -169,7 +172,7 @@ describe('XrpSpokeService.deposit — IOU', () => {
 
     await xrp.deposit({ ...(depositParams(RLUSD_ISSUER) as object), amount: 1_500_000n } as never);
 
-    expect(vi.mocked(walletProvider.signTransaction).mock.calls[0]?.[0]).toMatchObject({
+    expect(vi.mocked(signTransaction).mock.calls[0]?.[0]).toMatchObject({
       Amount: expect.objectContaining({ value: '1.5' }),
     });
   });
@@ -179,8 +182,7 @@ describe('XrpSpokeService.deposit — IOU', () => {
 
     await xrp.deposit(depositParams(RLUSD_ISSUER));
 
-    const amount = (vi.mocked(walletProvider.signTransaction).mock.calls[0]?.[0] as { Amount: { currency: string } })
-      .Amount;
+    const amount = (vi.mocked(signTransaction).mock.calls[0]?.[0] as { Amount: { currency: string } }).Amount;
     expect(amount.currency).toBe('524C555344000000000000000000000000000000');
   });
 
@@ -197,13 +199,33 @@ describe('XrpSpokeService.deposit — submit results', () => {
   it('treats a tec* applied-but-failed result as a failure and does not notify', async () => {
     stubRippled({ submit: { engine_result: 'tecUNFUNDED_PAYMENT', tx_json: { hash: TX_HASH } } });
 
-    await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toThrow(/submit failed: tecUNFUNDED_PAYMENT/);
+    await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toThrow(
+      new RegExp(`submit of ${TX_HASH} failed: tecUNFUNDED_PAYMENT`),
+    );
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
+  it('keeps the signed tx hash in the error when the submit call itself fails', async () => {
+    stubRippled();
+    const fetchMock = vi.mocked(fetch);
+    const answer = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation(async (url, init) => {
+      const { method } = JSON.parse(String(init?.body)) as { method: string };
+      if (method === 'submit') throw new Error('aborted');
+      return answer ? answer(url, init) : Promise.reject(new Error('no stub'));
+    });
+
+    const failure = await xrp.deposit(depositParams(NATIVE_XRP)).catch((error: Error) => error);
+
+    // A signed blob may still land after a lost response; the hash is the only way to find it.
+    expect((failure as Error).message).toMatch(new RegExp(`submit of ${TX_HASH} failed or timed out`));
+    expect(((failure as Error).cause as Error).message).toMatch(/aborted/);
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
   it('rejects a submit that reports success but returns no hash', async () => {
     stubRippled({ submit: { engine_result: 'tesSUCCESS' } });
-    vi.mocked(walletProvider.signTransaction).mockResolvedValueOnce({ tx_blob: '1200002280000000' } as never);
+    vi.mocked(signTransaction).mockResolvedValueOnce({ tx_blob: '1200002280000000' } as never);
 
     await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toThrow(/no transaction hash returned/);
   });
@@ -211,7 +233,7 @@ describe('XrpSpokeService.deposit — submit results', () => {
   it('uses the hash of a wallet that already submitted, without submitting again, and notifies', async () => {
     stubRippled();
     // GemWallet signs and submits in one step, so it hands back a hash and no blob.
-    vi.mocked(walletProvider.signTransaction).mockResolvedValueOnce({ tx_blob: '', hash: TX_HASH } as never);
+    vi.mocked(signTransaction).mockResolvedValueOnce({ tx_blob: '', hash: TX_HASH } as never);
 
     const hash = await xrp.deposit(depositParams(NATIVE_XRP));
 
@@ -222,7 +244,7 @@ describe('XrpSpokeService.deposit — submit results', () => {
 
   it('rejects a wallet that returns neither a signed blob nor a hash before touching the node', async () => {
     stubRippled();
-    vi.mocked(walletProvider.signTransaction).mockResolvedValueOnce({} as never);
+    vi.mocked(signTransaction).mockResolvedValueOnce({} as never);
 
     await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toThrow(/neither a signed blob nor a hash/);
     expect(callTo('submit')).toBeUndefined();
@@ -306,28 +328,85 @@ describe('XrpSpokeService.deposit — rotated reserve', () => {
 
     await xrp.deposit(depositParams(NATIVE_XRP));
 
-    expect(vi.mocked(walletProvider.signTransaction).mock.calls[0]?.[0]).toMatchObject({ Destination: rotated });
+    expect(vi.mocked(signTransaction).mock.calls[0]?.[0]).toMatchObject({ Destination: rotated });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(rotated));
   });
 });
 
 describe('XrpSpokeService.deposit — notify failure', () => {
-  it('keeps the submitted tx hash in the error so the stranded deposit can be re-notified', async () => {
+  it('still resolves to the submitted tx hash, leaving the re-notify to settlement', async () => {
     // The retry waits between attempts; on real timers that is seconds and times out under load.
     vi.useFakeTimers();
     stubRippled();
     vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
 
-    const pending = xrp.deposit(depositParams(NATIVE_XRP)).catch((error: Error) => error);
+    const pending = xrp.deposit(depositParams(NATIVE_XRP));
     await vi.runAllTimersAsync();
-    const failure = await pending;
+    const hash = await pending;
     vi.useRealTimers();
 
-    // The funds are already in the reserve here: an error without the hash would lose them.
-    expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toMatch(/0x[0-9a-f]{64} submitted but the relay was not notified/);
-    // Notifying twice is harmless, so the transient failure is retried before giving up.
+    // The funds are already in the reserve: the hash is what settlement waits on and re-notifies.
+    expect(hash).toMatch(/^0x[0-9a-f]{64}$/);
+    // Notifying twice is harmless, so the transient failure is retried before handing over.
     expect(vi.mocked(MpcRelayApiService.notify).mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+describe('XrpSpokeService — relay submit and read', () => {
+  const HUB_RELEASE = { dstChainKey: XRP, hubChainId: '146', hubTxHash: '0xhub', logIndex: 3 } as const;
+
+  it('submitDeposit notifies the relay of the tx on the XRPL chain id, without polling', async () => {
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit');
+
+    expect(await xrp.submitDeposit('0xabc')).toEqual({ ok: true, value: undefined });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '66', '0xabc');
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it('submitDeposit keeps the tx hash in the failure so the deposit can be re-notified', async () => {
+    vi.useFakeTimers();
+    vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
+
+    const pending = xrp.submitDeposit('0xabc');
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    vi.useRealTimers();
+
+    expect(!result.ok && (result.error as Error).message).toMatch(/deposit 0xabc was not notified/);
+  });
+
+  it('submitHubRelease notifies the hub tx as a withdrawal on the hub chain id', async () => {
+    expect(await xrp.submitHubRelease(HUB_RELEASE)).toEqual({ ok: true, value: undefined });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '146', '0xhub', 'withdrawal');
+  });
+
+  it('reads a deposit, a withdrawal and a hub release once each, notifying nothing', async () => {
+    const record = { ok: true as const, value: { depositId: 'id', status: 'pending' as const, createdAt: 0, txs: {} } };
+    vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(record);
+    vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: '0xtrack', status: 'submitted' },
+    });
+
+    expect(await xrp.getDepositRecord('0xabc')).toEqual(record);
+    expect(await xrp.getHubReleaseRecord(HUB_RELEASE)).toEqual(record);
+    expect((await xrp.getWithdrawalRecord('0xtrack')).ok).toBe(true);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
+  it('waitForWithdrawal passes the stage to stop on through to the relay poll', async () => {
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: '0xtrack', status: 'burned' },
+    });
+
+    await xrp.waitForWithdrawal('0xtrack', undefined, 'burned');
+
+    expect(wait).toHaveBeenCalledWith(
+      expect.anything(),
+      '0xtrack',
+      expect.objectContaining({ until: 'burned' }),
+    );
   });
 });
 
@@ -364,6 +443,30 @@ describe('XrpSpokeService.getDeposit', () => {
     });
 
     expect(await xrp.getDeposit({ srcChainKey: XRP, srcAddress: SENDER, token: RLUSD_ISSUER } as never)).toBe(0n);
+  });
+});
+
+describe('XrpSpokeService wallet balances', () => {
+  const { XRP: XRP_TOKEN, RLUSD } = spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens;
+
+  it('routes a single-token read through SpokeService to the on-chain balance', async () => {
+    stubRippled();
+
+    const result = await sodax.spoke.getWalletBalance({ srcChainKey: XRP, srcAddress: SENDER, token: XRP_TOKEN });
+
+    expect(result).toEqual({ ok: true, value: 42_000_000n });
+  });
+
+  it('reads XRP and IOU balances in one batch, keyed by token address', async () => {
+    stubRippled();
+
+    const result = await sodax.spoke.getWalletBalances({
+      srcChainKey: XRP,
+      srcAddress: SENDER,
+      tokens: [XRP_TOKEN, RLUSD],
+    });
+
+    expect(result).toEqual({ ok: true, value: { [XRP_TOKEN.address]: 42_000_000n, [RLUSD.address]: 1_500_000n } });
   });
 });
 

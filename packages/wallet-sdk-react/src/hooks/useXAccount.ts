@@ -22,7 +22,7 @@ export type UseXAccountOptions =
  * `address` is `undefined` but `xChainType` is filled — consumers can render
  * `account.address ?? <ConnectCta />` without null-checking the wrapper.
  *
- * @see {@link https://github.com/icon-project/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md#read-connected-account-state | Connect Flow — Read state}
+ * @see {@link https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/docs/CONNECT_FLOW.md#read-connected-account-state | Connect Flow — Read state}
  */
 export function useXAccount({ xChainId, xChainType }: UseXAccountOptions): XAccount {
   assert(!(xChainId && xChainType), '[useXAccount] pass either xChainId or xChainType, not both');

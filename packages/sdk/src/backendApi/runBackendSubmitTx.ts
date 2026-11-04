@@ -54,6 +54,7 @@ export async function runBackendSubmitTx<TBody, TQuery, TResult, TValue>({
   statusQuery,
   terminalStatus,
   onExecuted,
+  overrideConfig,
 }: {
   attempt: SubmitTxAttempt;
   api: BackendSubmitTxApi<TBody, TQuery, TResult>;
@@ -62,6 +63,11 @@ export async function runBackendSubmitTx<TBody, TQuery, TResult, TValue>({
   /** The feature's terminal-success status (`'solved'` for swaps, `'executed'` for bridge). */
   terminalStatus: string;
   onExecuted: (result: TResult | undefined) => TValue | undefined;
+  /**
+   * Per-action request override (an `apiKey` from swap/bridge `extras`) applied to the POST and every
+   * status request. Deliberately excludes `timeout`/`baseURL` — the attempt budget owns the deadline.
+   */
+  overrideConfig?: Pick<RequestOverrideConfig, 'apiKey'>;
 }): Promise<BackendSubmitTxResult<TValue>> {
   // Bound the POST and every status request by this attempt, never above the service's own timeout. The
   // API persists and returns immediately, so a slow POST means a degraded endpoint; it can cost this
@@ -72,7 +78,7 @@ export async function runBackendSubmitTx<TBody, TQuery, TResult, TValue>({
   const requestTimeout = attempt.requestTimeout(serviceTimeoutMs);
   if (requestTimeout === null) return { ok: false, cause: noRequestBudgetCause(serviceTimeoutMs) };
 
-  const submitted = await api.submitTx(body, { timeout: requestTimeout });
+  const submitted = await api.submitTx(body, { ...overrideConfig, timeout: requestTimeout });
   if (!submitted.ok) return { ok: false, cause: submitted.error };
   // `ok` is only transport-level. A 200 carrying `success: false` means the backend did NOT queue the
   // submission, so there is nothing to poll for — fall back now instead of burning the whole attempt
@@ -84,7 +90,8 @@ export async function runBackendSubmitTx<TBody, TQuery, TResult, TValue>({
   const polled = await pollBackendSubmitTx({
     attempt,
     terminalStatus,
-    getStatus: override => api.getSubmitTxStatus(statusQuery, override),
+    // The poll's own override (its per-request timeout) wins over the per-action fields.
+    getStatus: override => api.getSubmitTxStatus(statusQuery, { ...overrideConfig, ...override }),
     onExecuted,
     // While this ceiling is the smaller bound the poll retries within the attempt; once the attempt's
     // remainder falls below it, one stalled request can spend the rest.

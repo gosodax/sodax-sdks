@@ -22,7 +22,7 @@ import {
 } from './ton-utils.js';
 
 const MEMO = `0x${'ab'.repeat(32)}`;
-const PUBKEY_07 = `0x${'07'.repeat(32)}`;
+const PUBKEY_07 = `0x${'07'.repeat(32)}` as const;
 const RESERVE = '0:2a7f65800a2ebe06fa227e7f29cd188d5c3e39d0566d8646c8c73104417a6a97';
 const RESERVE_PUBKEY = 'fe9d58506e80230e2d2830e19114af2f9b1f02b372ccee866cbe066314426e79';
 

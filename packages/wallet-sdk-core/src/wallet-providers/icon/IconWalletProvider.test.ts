@@ -102,8 +102,7 @@ describe('IconWalletProvider', () => {
     });
 
     it('throws on invalid config', () => {
-      // biome-ignore lint/suspicious/noExplicitAny: testing invalid config rejection
-      expect(() => new IconWalletProvider({} as any)).toThrow('Invalid Icon wallet config');
+      expect(() => new IconWalletProvider({} as never)).toThrow('Invalid Icon wallet config');
     });
 
     it('accepts defaults without throwing', () => {
@@ -193,7 +192,7 @@ describe('IconWalletProvider', () => {
     // Register a wallet stub that reacts to each outgoing ICONEX_RELAY_REQUEST.
     function onRequest(reply: (detail: any) => void) {
       win.addEventListener('ICONEX_RELAY_REQUEST', (event: Event) => {
-        reply((event as any).detail);
+        reply((event as CustomEvent).detail);
       });
     }
 
@@ -239,7 +238,7 @@ describe('IconWalletProvider', () => {
       // the first response would resolve BOTH promises).
       const dispatched: string[] = [];
       win.addEventListener('ICONEX_RELAY_REQUEST', (event: Event) => {
-        const d = (event as any).detail;
+        const d = (event as CustomEvent).detail;
         if (d.type === 'REQUEST_SIGNING') dispatched.push(d.payload.hash);
       });
 

@@ -20,7 +20,7 @@ pnpm add @sodax/sdk
 
 ---
 
-## EVM (13 chains)
+## EVM (14 chains)
 
 ```ts
 import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
@@ -84,15 +84,19 @@ import { SuiWalletProvider } from '@sodax/wallet-sdk-core';
 
 // Private-key — DERIVED FROM MNEMONIC, not a raw key
 const suiPk = new SuiWalletProvider({
-  rpcUrl: 'https://sui-rpc.publicnode.com',
+  grpcUrl: 'https://fullnode.mainnet.sui.io',
   mnemonics: 'word1 word2 … word12',
 });
 
-// Browser-extension — wallet-standard wallet
+// Browser-extension — the provider owns the client; you supply the signer
 const suiBrowser = new SuiWalletProvider({
-  client: mySuiClient,                          // SuiClient
-  wallet: myWalletWithSuiFeatures,              // WalletWithFeatures<Partial<SuiWalletFeatures>>
-  account: myActiveWalletAccount,               // WalletAccount
+  grpcUrl: 'https://fullnode.mainnet.sui.io',
+  address: myActiveWalletAccount.address,       // string — from dApp Kit's UiWalletAccount
+  // `signTransaction` takes the transaction positionally; dApp Kit's is options-shaped,
+  // so wrap it. Name the account — otherwise dApp Kit signs with whichever one happens
+  // to be connected.
+  signTransaction: async txn =>
+    dAppKit.signTransaction({ transaction: await txn.toJSON(), account: myActiveWalletAccount }),
 });
 ```
 
@@ -245,6 +249,14 @@ const stacksBrowser = new StacksWalletProvider({
 ```
 
 See [`features/stacks.md`](./features/stacks.md).
+
+---
+
+## Tron
+
+[`TronWalletProvider.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/TronWalletProvider.test.ts) constructs both modes. Private-key mode takes `privateKey` (hex, `0x` optional). Browser-extension mode takes the injected `tronWeb` plus `getProvider`, which returns the provider the wallet announced over TIP-6963 — its TronWeb is the one that signs.
+
+See [`features/tron.md`](./features/tron.md).
 
 ---
 

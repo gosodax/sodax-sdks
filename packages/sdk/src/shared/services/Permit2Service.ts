@@ -1,6 +1,17 @@
 import { encodeFunctionData, type Address, type PublicClient } from 'viem';
 import { permit2Abi } from '../abis/permit2.abi.js';
-import type { EvmChainKey, EvmContractCall, IEvmWalletProvider, Result, TxReturnType } from '@sodax/types';
+import {
+  ChainKeys,
+  type EvmChainKey,
+  type EvmContractCall,
+  type IEvmWalletProvider,
+  type Result,
+  type TxReturnType,
+} from '@sodax/types';
+import { getEvmViemChain } from '../utils/constant-utils.js';
+
+// Permit2 lives on the hub; refuse to broadcast from a wallet on another EVM network.
+const HUB_CHAIN_ID = getEvmViemChain(ChainKeys.SONIC_MAINNET).id;
 
 export interface PermitDetails {
   token: Address;
@@ -157,7 +168,9 @@ export class Permit2Service {
       return rawTx as TxReturnType<EvmChainKey, R>;
     }
 
-    return walletProvider.sendTransaction(rawTx) as Promise<TxReturnType<EvmChainKey, R>>;
+    return walletProvider.sendTransaction(rawTx, { expectedChainId: HUB_CHAIN_ID }) as Promise<
+      TxReturnType<EvmChainKey, R>
+    >;
   }
 
   /**
@@ -193,7 +206,9 @@ export class Permit2Service {
       return rawTx as TxReturnType<EvmChainKey, R>;
     }
 
-    return walletProvider.sendTransaction(rawTx) as Promise<TxReturnType<EvmChainKey, R>>;
+    return walletProvider.sendTransaction(rawTx, { expectedChainId: HUB_CHAIN_ID }) as Promise<
+      TxReturnType<EvmChainKey, R>
+    >;
   }
 
   /**
@@ -229,7 +244,9 @@ export class Permit2Service {
       return rawTx as TxReturnType<EvmChainKey, R>;
     }
 
-    return walletProvider.sendTransaction(rawTx) as Promise<TxReturnType<EvmChainKey, R>>;
+    return walletProvider.sendTransaction(rawTx, { expectedChainId: HUB_CHAIN_ID }) as Promise<
+      TxReturnType<EvmChainKey, R>
+    >;
   }
 
   /**
@@ -267,7 +284,9 @@ export class Permit2Service {
       return rawTx as TxReturnType<EvmChainKey, R>;
     }
 
-    return walletProvider.sendTransaction(rawTx) as Promise<TxReturnType<EvmChainKey, R>>;
+    return walletProvider.sendTransaction(rawTx, { expectedChainId: HUB_CHAIN_ID }) as Promise<
+      TxReturnType<EvmChainKey, R>
+    >;
   }
 
   /**
@@ -299,7 +318,9 @@ export class Permit2Service {
       return rawTx as TxReturnType<EvmChainKey, R>;
     }
 
-    return walletProvider.sendTransaction(rawTx) as Promise<TxReturnType<EvmChainKey, R>>;
+    return walletProvider.sendTransaction(rawTx, { expectedChainId: HUB_CHAIN_ID }) as Promise<
+      TxReturnType<EvmChainKey, R>
+    >;
   }
 
   /**
@@ -331,7 +352,9 @@ export class Permit2Service {
       return rawTx as TxReturnType<EvmChainKey, R>;
     }
 
-    return walletProvider.sendTransaction(rawTx) as Promise<TxReturnType<EvmChainKey, R>>;
+    return walletProvider.sendTransaction(rawTx, { expectedChainId: HUB_CHAIN_ID }) as Promise<
+      TxReturnType<EvmChainKey, R>
+    >;
   }
 
   /**
@@ -367,7 +390,9 @@ export class Permit2Service {
       return rawTx as TxReturnType<EvmChainKey, R>;
     }
 
-    return walletProvider.sendTransaction(rawTx) as Promise<TxReturnType<EvmChainKey, R>>;
+    return walletProvider.sendTransaction(rawTx, { expectedChainId: HUB_CHAIN_ID }) as Promise<
+      TxReturnType<EvmChainKey, R>
+    >;
   }
 
   /**

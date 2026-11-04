@@ -57,7 +57,7 @@ These are mounted **inside** `SodaxWalletProvider` and are not part of the publi
 | Component | v1 | v2 | Note |
 |---|---|---|---|
 | `Hydrate` | exported (file `Hydrate.ts`) | replaced by per-chain `EvmHydrator`, `SolanaHydrator`, `SuiHydrator` (internal) | If you imported `Hydrate` from v1, **remove the import** — v2 does not export an equivalent. State hydration is automatic. |
-| `WagmiProvider`, `SuiClientProvider`, `SolanaWalletProvider` (re-exports) | not re-exported | not re-exported | Use the original packages (`wagmi`, `@mysten/dapp-kit`, `@solana/wallet-adapter-react`) only if you need direct access — most apps should not. |
+| `WagmiProvider`, `SuiClientProvider`, `SolanaWalletProvider` (re-exports) | not re-exported | not re-exported | Use the original packages (`wagmi`, `@mysten/dapp-kit-react`, `@solana/wallet-adapter-react`) only if you need direct access — most apps should not. |
 
 ---
 

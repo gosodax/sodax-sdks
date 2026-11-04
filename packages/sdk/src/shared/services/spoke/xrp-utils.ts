@@ -17,7 +17,7 @@ const XRPL_ALPHABET = 'rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxy
 
 const sha256d = (b: Uint8Array): Uint8Array => sha256(sha256(b, 'bytes'), 'bytes');
 
-/** Classic `r...` address → 20-byte AccountID, checksum verified. */
+/** Classic `r...` address → 20-byte AccountID, with length, checksum and account type prefix verified. */
 export function decodeAccountId(addr: string): Uint8Array {
   let n = 0n;
   for (const ch of addr) {
@@ -39,7 +39,10 @@ export function decodeAccountId(addr: string): Uint8Array {
   if (Buffer.compare(Buffer.from(sha256d(body).subarray(0, 4)), Buffer.from(chk)) !== 0) {
     throw new Error(`bad checksum for ${addr}`);
   }
-  // body[0] is the 0x00 type prefix; the AccountID is the remaining 20 bytes.
+  // body[0] is the type prefix; only 0x00 is an account. Another payload with a valid checksum
+  // would still decode to 20 bytes that no account controls.
+  if (body[0] !== 0x00)
+    throw new Error(`not an XRPL account address (type prefix 0x${body[0]?.toString(16)}): ${addr}`);
   return body.subarray(1);
 }
 

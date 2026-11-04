@@ -103,7 +103,7 @@ export class StacksWalletProvider extends BaseWalletProvider<StacksWalletDefault
       contractName: payload.contractName.content,
       functionName: payload.functionName.content,
       functionArgs: payload.functionArgs,
-      postConditionMode: PostConditionMode.Allow, // matches how the spoke service builds the tx
+      postConditionMode: PostConditionMode.Allow, // serialized payloads carry no post-condition info; tightening is part of the backend-tx verification work
     });
   }
 
