@@ -5,11 +5,11 @@ description: "Let a user pay from the token and network they already hold, and h
 icon: rotate
 ---
 
-Use this recipe when your app runs on Base and you want to be paid in a Base asset, but your users hold something else on another network. SODAX turns the payment into a single cross-network swap that settles at an address you control on Base. There are no new contracts and nothing for you to run; the payer signs one transaction on the network they are paying from.
+Use this recipe when your app runs on Base and you want to be paid in a Base asset, but your users hold something else on another network. SODAX turns the payment into a single cross-network swap that settles at an address you control on Base. There are no new contracts and nothing for you to run; the payer signs on the network they are paying from: an approval when the allowance is short, then the swap.
 
 ## What you will build
 
-A checkout step that takes a payer's token on any supported network, quotes it against a Base asset, and settles the output at your app's Base address.
+A checkout step that takes a payer's token on a supported EVM network, quotes it against a Base asset, and settles the output at your app's Base address.
 
 ## Prerequisites
 
@@ -23,7 +23,7 @@ SODAX is mainnet only, so test with small amounts. See [Is SODAX on Testnet?](/d
 
 <Steps>
   <Step title="Key the wallet provider to the payer's network">
-    The payer signs where they are paying from, so the provider belongs to that network, not to Base. Base is only the destination.
+    The payer signs where they are paying from, so the provider belongs to that network, not to Base. Base is only the destination. The recipe types it as an EVM provider; a payer on another network type needs that network's wallet provider.
   </Step>
 
   <Step title="Resolve both tokens from config">
@@ -41,12 +41,12 @@ SODAX is mainnet only, so test with small amounts. See [Is SODAX on Testnet?](/d
 
 ## Code
 
-Pay from any network and settle at your Base address:
+Pay from an EVM network and settle at your Base address:
 
 {/* example: base-recipes/accept-any-token.ts#accept-any-token */}
 ```ts
 import { ChainKeys, SolverIntentStatusCode } from '@sodax/sdk';
-import type { IEvmWalletProvider, Sodax, SpokeChainKey, XToken } from '@sodax/sdk';
+import type { EvmChainKey, IEvmWalletProvider, Sodax, XToken } from '@sodax/sdk';
 
 export const bySymbol = (tokens: readonly XToken[], symbol: string): XToken => {
   const token = tokens.find(t => t.symbol === symbol);
@@ -59,7 +59,7 @@ const isHexHash = (value: string): value is `0x${string}` => value.startsWith('0
 export type AcceptAnyTokenParams = {
   sodax: Sodax;
   walletProvider: IEvmWalletProvider;
-  payChainKey: SpokeChainKey;
+  payChainKey: EvmChainKey;
   paySymbol: string;
   payAmount: bigint;
   settleSymbol: string;
@@ -67,7 +67,7 @@ export type AcceptAnyTokenParams = {
   slippageBps?: bigint;
 };
 
-/** Pays from any network and settles a Base asset at the app's address; resolves with the hub tx hash. */
+/** Pays from an EVM network and settles a Base asset at the app's address; resolves with the hub tx hash. */
 export async function acceptAnyToken({
   sodax,
   walletProvider,

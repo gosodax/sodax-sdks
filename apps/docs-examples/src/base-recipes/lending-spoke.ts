@@ -4,7 +4,6 @@ import type { IEvmWalletProvider, Sodax, SpokeChainKey } from '@sodax/sdk';
 // #endregion lending-spoke
 import { bySymbol } from './accept-any-token.js';
 // #region lending-spoke
-
 export type SupplyFromBaseParams = {
   sodax: Sodax;
   walletProvider: IEvmWalletProvider;

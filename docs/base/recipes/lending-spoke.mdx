@@ -58,7 +58,6 @@ Supply, borrow and read the position:
 import { ChainKeys } from '@sodax/sdk';
 import type { IEvmWalletProvider, Sodax, SpokeChainKey } from '@sodax/sdk';
 
-
 export type SupplyFromBaseParams = {
   sodax: Sodax;
   walletProvider: IEvmWalletProvider;
@@ -140,7 +139,7 @@ export async function readPosition(sodax: Sodax, userBaseAddress: `0x${string}`)
 
 ## Failures
 
-Each method returns a typed `Result`; the error codes are in [Lend / Borrow (Money Market)](/developers/packages/foundation/sdk/functional-modules/money_market). A borrow that fails validation usually means the collateral does not cover the amount, so read the position before retrying.
+Each method returns a typed `Result`; the error codes are in [Lend / Borrow (Money Market)](/developers/packages/foundation/sdk/functional-modules/money_market). Read the position before you borrow, so the amount stays within what the collateral covers.
 
 ## Next steps
 

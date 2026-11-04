@@ -1,6 +1,6 @@
 // #region accept-any-token
 import { ChainKeys, SolverIntentStatusCode } from '@sodax/sdk';
-import type { IEvmWalletProvider, Sodax, SpokeChainKey, XToken } from '@sodax/sdk';
+import type { EvmChainKey, IEvmWalletProvider, Sodax, XToken } from '@sodax/sdk';
 
 // #region by-symbol
 export const bySymbol = (tokens: readonly XToken[], symbol: string): XToken => {
@@ -15,7 +15,7 @@ const isHexHash = (value: string): value is `0x${string}` => value.startsWith('0
 export type AcceptAnyTokenParams = {
   sodax: Sodax;
   walletProvider: IEvmWalletProvider;
-  payChainKey: SpokeChainKey;
+  payChainKey: EvmChainKey;
   paySymbol: string;
   payAmount: bigint;
   settleSymbol: string;
@@ -23,7 +23,7 @@ export type AcceptAnyTokenParams = {
   slippageBps?: bigint;
 };
 
-/** Pays from any network and settles a Base asset at the app's address; resolves with the hub tx hash. */
+/** Pays from an EVM network and settles a Base asset at the app's address; resolves with the hub tx hash. */
 export async function acceptAnyToken({
   sodax,
   walletProvider,
