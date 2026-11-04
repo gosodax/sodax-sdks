@@ -5,6 +5,20 @@ import { acceptAnyToken, bySymbol, waitForSettlement } from './accept-any-token.
 
 const HUB_TX = '0x1111111111111111111111111111111111111111111111111111111111111111';
 const APP = '0x2222222222222222222222222222222222222222';
+const RECEIPT = {
+  transactionHash: '0xabc',
+  transactionIndex: '0x0',
+  blockHash: '0x0',
+  blockNumber: '0x1',
+  from: '0x0',
+  to: null,
+  cumulativeGasUsed: '0x0',
+  gasUsed: '0x0',
+  contractAddress: null,
+  logs: [],
+  logsBloom: '0x0',
+  status: '0x1',
+};
 
 function setup(allowanceOk: boolean) {
   const sodax = new Sodax();
@@ -18,11 +32,12 @@ function setup(allowanceOk: boolean) {
   vi.spyOn(swaps, 'getSwapDeadline').mockResolvedValue({ ok: true, value: 999n });
   vi.spyOn(swaps, 'isAllowanceValid').mockResolvedValue({ ok: true, value: allowanceOk });
   const approve = vi.spyOn(swaps, 'approve').mockResolvedValue({ ok: true, value: '0xabc' });
+  const waitForReceipt = vi.spyOn(walletProvider, 'waitForTransactionReceipt').mockResolvedValue(RECEIPT);
   const swap = vi.spyOn(swaps, 'swap').mockResolvedValue({
     ok: true,
     value: { intentDeliveryInfo: { dstTxHash: HUB_TX } },
   } as Awaited<ReturnType<typeof swaps.swap>>);
-  return { sodax, walletProvider, approve, swap };
+  return { sodax, walletProvider, approve, waitForReceipt, swap };
 }
 
 afterEach(() => {
@@ -56,7 +71,7 @@ describe('acceptAnyToken', () => {
     });
   });
 
-  it('approves only when the allowance is short', async () => {
+  it('approves only when the allowance is short, and waits for the approval before swapping', async () => {
     const enough = setup(true);
     await acceptAnyToken({
       ...enough,
@@ -79,6 +94,10 @@ describe('acceptAnyToken', () => {
       appBaseAddress: APP,
     });
     expect(short.approve).toHaveBeenCalledOnce();
+    expect(short.waitForReceipt).toHaveBeenCalledWith('0xabc');
+    const [receiptOrder] = short.waitForReceipt.mock.invocationCallOrder;
+    const [swapOrder] = short.swap.mock.invocationCallOrder;
+    expect(receiptOrder).toBeLessThan(swapOrder ?? 0);
   });
 
   it('throws on a symbol the network does not list', () => {

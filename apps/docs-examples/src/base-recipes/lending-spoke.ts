@@ -26,8 +26,9 @@ export async function supplyFromBase({ sodax, walletProvider, userBaseAddress, s
   const allowance = await sodax.moneyMarket.isAllowanceValid({ params });
   if (!allowance.ok) throw allowance.error;
   if (!allowance.value) {
-    const approval = await sodax.moneyMarket.approve({ params, walletProvider });
+    const approval = await sodax.moneyMarket.approve<typeof ChainKeys.BASE_MAINNET, false>({ params, walletProvider });
     if (!approval.ok) throw approval.error;
+    await walletProvider.waitForTransactionReceipt(approval.value);
   }
 
   const supplied = await sodax.moneyMarket.supply({ params, walletProvider, timeout: 120_000 });

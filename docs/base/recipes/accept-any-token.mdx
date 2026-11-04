@@ -1,7 +1,7 @@
 ---
 title: "Accept any token, settle on Base"
 sidebarTitle: "Accept any token"
-description: "Let a user pay from the token and network they already hold, and have your Base app receive a Base asset such as USDC. One cross-network swap, settled at your Base address."
+description: "Let a user pay from the token and network they already hold, and have your Base app receive a Base asset of your choice. One cross-network swap, settled at your Base address."
 icon: rotate
 ---
 
@@ -31,11 +31,11 @@ SODAX is mainnet only, so test with small amounts. See [Is SODAX on Testnet?](/d
   </Step>
 
   <Step title="Quote, approve, swap">
-    The quote is the net output that lands on Base, so set your slippage floor from it. The intent's destination is Base: `dstChainKey` is `ChainKeys.BASE_MAINNET` and `dstAddress` is your address. An ERC-20 input needs an allowance first, so approve only when `isAllowanceValid` says it is short. `swap()` then creates the intent, relays it to the hub, and hands it to a solver.
+    The quote is the net output that lands on Base, so set your slippage floor from it. The intent's destination is Base: `dstChainKey` is `ChainKeys.BASE_MAINNET` and `dstAddress` is your address. An ERC-20 input needs an allowance first, so approve only when `isAllowanceValid` says it is short, and wait for the approval to confirm before you swap. `swap()` then creates the intent, relays it to the hub, and hands it to a solver.
   </Step>
 
-  <Step title="Confirm settlement on Base">
-    A successful `swap()` is not a fill. Only `SolverIntentStatusCode.SOLVED` means the asset reached your Base address. `getStatus` is a one-shot read, so the recipe bounds its own poll and stops on `FAILED`. For what happens to an intent that fails or expires, see [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps).
+  <Step title="Wait for the fill">
+    A successful `swap()` is not a fill. `SolverIntentStatusCode.SOLVED` means a solver filled the intent; to confirm the output was delivered to your Base address, follow it with [`getSolvedIntentPacket`](/developers/packages/foundation/sdk/functional-modules/swaps#get-solved-intent-packet). `getStatus` is a one-shot read, so the recipe bounds its own poll and stops on `FAILED`. For what happens to an intent that fails or expires, see [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps).
   </Step>
 </Steps>
 
@@ -89,7 +89,7 @@ export async function acceptAnyToken({
     amount: payAmount,
     quote_type: 'exact_input',
   });
-  if (!quote.ok) throw new Error('Quote failed');
+  if (!quote.ok) throw new Error(`Quote failed: ${quote.error.detail.message}`);
 
   const deadline = await sodax.swaps.getSwapDeadline(300n);
   if (!deadline.ok) throw deadline.error;
@@ -112,8 +112,9 @@ export async function acceptAnyToken({
   const allowance = await sodax.swaps.isAllowanceValid({ params, walletProvider });
   if (!allowance.ok) throw allowance.error;
   if (!allowance.value) {
-    const approval = await sodax.swaps.approve({ params, walletProvider });
+    const approval = await sodax.swaps.approve<EvmChainKey, false>({ params, walletProvider });
     if (!approval.ok) throw approval.error;
+    await walletProvider.waitForTransactionReceipt(approval.value);
   }
 
   const swap = await sodax.swaps.swap({ params, walletProvider, timeout: 120_000 });

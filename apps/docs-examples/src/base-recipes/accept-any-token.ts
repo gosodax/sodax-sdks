@@ -45,7 +45,7 @@ export async function acceptAnyToken({
     amount: payAmount,
     quote_type: 'exact_input',
   });
-  if (!quote.ok) throw new Error('Quote failed');
+  if (!quote.ok) throw new Error(`Quote failed: ${quote.error.detail.message}`);
 
   const deadline = await sodax.swaps.getSwapDeadline(300n);
   if (!deadline.ok) throw deadline.error;
@@ -68,8 +68,9 @@ export async function acceptAnyToken({
   const allowance = await sodax.swaps.isAllowanceValid({ params, walletProvider });
   if (!allowance.ok) throw allowance.error;
   if (!allowance.value) {
-    const approval = await sodax.swaps.approve({ params, walletProvider });
+    const approval = await sodax.swaps.approve<EvmChainKey, false>({ params, walletProvider });
     if (!approval.ok) throw approval.error;
+    await walletProvider.waitForTransactionReceipt(approval.value);
   }
 
   const swap = await sodax.swaps.swap({ params, walletProvider, timeout: 120_000 });
