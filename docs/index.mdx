@@ -1,11 +1,51 @@
 ---
 title: Liquidity and execution, across every network
 sidebarTitle: Home
-description: Choose a product, follow an integration guide, or look up the API and SDK reference.
+description: Get your free API key, catch up on the latest releases, or look up the API and SDK reference.
 icon: house
 "og:image": "/images/og/docs-home-card.png"
 "twitter:image": "/images/og/docs-home-card.png"
 ---
+
+## Latest from SODAX
+
+<CardGroup cols={2}>
+  <Card title="Candlestick price data, direct to your app" img="/images/news/candlestick-price-data.jpg" href="/resources/blog/oracle-candles-api" arrow>
+    USD OHLC candles for every SODAX asset from one unauthenticated GET. Build your charts.
+  </Card>
+  <Card title="Sponsored account activation for Stellar wallets" img="/images/news/stellar-sponsored-activation.jpg" href="/developers/how-to/stellar-sponsoring-getting-started" arrow>
+    SODAX pays the base reserve, so a brand-new Stellar account can receive assets from any network.
+  </Card>
+  <Card title="The swap widget: one embed across every SODAX network" img="/images/news/swap-widget-launch.jpg" href="/widget" arrow>
+    Cross-network swaps on any page with a single iframe. Configure it, brand it, paste it.
+  </Card>
+  <Card title="Circle EURC joins a new batch of whitelisted assets" img="/images/news/eurc-52-assets.jpg" href="/developers/deployments/swaps-compatible-assets" arrow>
+    See every token you can swap today, read live from the SODAX config.
+  </Card>
+</CardGroup>
+
+[All product updates →](/resources/product-updates)
+
+## Start with the API
+
+The fastest way to your first integration is the HTTP API: any language, no packages to install.
+
+<CardGroup cols={2}>
+  <Card title="Get your free API key" icon="key" href="https://portal.sodax.com" horizontal arrow>
+    Sign in to the partner portal, pick your organisation, and create a key.
+  </Card>
+  <Card title="Your first API swap" icon="bolt" href="/developers/http-api/swaps#bot-flow-create-submit-tx-poll" horizontal arrow>
+    Quote, build the intent, submit, and poll until it settles.
+  </Card>
+</CardGroup>
+
+Send your key as `x-api-key` from your server. [API keys](/developers/how-to/api-keys) covers where to put it and how to rotate it.
+
+Building in TypeScript and want typed, end-to-end flows? The [SDK quickstart](/quickstart) does the same swap with `@sodax/sdk`.
+Building on Solana? Start with the [Solana quickstart](/solana/quickstart).
+
+**Building with an AI agent?** Add [Builders MCP](/builders-mcp) for live data and docs, and
+[SDK skills](/ai-integration-guide) for coding guidance.
 
 ## What do you want to build?
 
@@ -24,23 +64,14 @@ icon: house
   </Card>
 </CardGroup>
 
-## Start with your first swap
-
-Follow [Your first swap](/quickstart) to install the SDK, get a quote, submit an intent,
-and track settlement. Quoting needs no funds or signature; execution uses mainnet funds.
-
-Prefer [HTTP](/developers/http-api/swaps) or [Solana](/solana/quickstart)? Start with the guide for your integration.
-
-**Building with an AI agent?** Add [Builders MCP](/builders-mcp) for live data and docs, and
-[SDK skills](/ai-integration-guide) for coding guidance.
-
 ## Find the right documentation
 
 | You need to… | Start here |
 | --- | --- |
-| Choose a product and integration path | The product choices above |
-| Implement a specific task | [How To](/developers/how-to) |
+| Get an API key | [Partner portal](https://portal.sodax.com) |
 | Look up an HTTP endpoint or request field | [HTTP API](/developers/http-api) |
+| Implement a specific task | [How To](/developers/how-to) |
+| Choose a product and integration path | The product choices above |
 | Look up a TypeScript method or type | [SDK reference](/developers/packages) |
 | Build a React frontend | [dapp-kit](/developers/packages/experience/dapp-kit) |
 
@@ -53,19 +84,6 @@ SODAX is not a router you operate. **SODAX routes and settles.** Independent **s
 3. **Settle** — Poll until solved or failed — terminal states, not a silent partial fill.
 
 [Full execution model →](/home/how-execution-works)
-
-## Latest product updates
-
-<CardGroup cols={2}>
-  <Card title="The swap widget: one embed across every SODAX network" img="/images/news/swap-widget-launch.jpg" href="/widget" horizontal arrow>
-    Cross-network swaps on any website with a single embed.
-  </Card>
-  <Card title="SODAX, your Colosseum cheat code" img="/images/news/colosseum-cheat-code.jpg" href="/resources/workshops/colosseum-worlds-fair" arrow>
-    Cross-network execution and liquidity for hackathon builders.
-  </Card>
-</CardGroup>
-
-[All product updates →](/resources/product-updates)
 
 ## Audits
 
@@ -88,8 +106,8 @@ Eight published reports covering contracts across Sui, Solana, Soroban (Stellar)
 ## Go deeper
 
 <CardGroup cols={2}>
-  <Card title="Your first swap" icon="bolt" href="/quickstart">
-    Install → quote → execute on mainnet.
+  <Card title="Get your free API key" icon="key" href="https://portal.sodax.com">
+    Mint a key in the partner portal, then call the API from any language.
   </Card>
   <Card title="Get started" icon="signs-post" href="/introduction">
     Solana, Bitcoin, SDK, API, AI agents, or talk to the team.

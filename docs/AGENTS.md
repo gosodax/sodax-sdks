@@ -72,3 +72,11 @@ one that reads a hand-written page's prose — do not wait for CI to find that f
 Do not restructure `docs.json` navigation, rename existing pages, or change `custom.css`
 as a side effect of adding content — those move published URLs and the site's visual
 language. Add the page, register it, verify, stop.
+
+## Home page news cards
+
+The top of `index.mdx` ("Latest from SODAX") holds the four most recent developer-relevant
+stories from sodax.com/news, each linking to the docs page that shows how to use it (not to
+the blog post). When a new product update ships, add its card first and drop the oldest.
+Use the post's blog hero image saved as `images/news/<slug>.jpg` at 1200×750, and keep
+counts out of card copy (the rule above applies).

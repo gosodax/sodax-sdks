@@ -44,8 +44,8 @@
     ],
     "primary": {
       "type": "button",
-      "label": "SODAX Scan",
-      "href": "https://sodaxscan.com"
+      "label": "Get Your API Key",
+      "href": "https://portal.sodax.com"
     }
   },
   "navigation": {
@@ -929,7 +929,7 @@
           },
           {
             "label": "Partner portal",
-            "href": "https://www.sodax.com/partner-dashboard"
+            "href": "https://portal.sodax.com"
           },
           {
             "label": "MiCA whitepaper",
