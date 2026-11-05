@@ -9,7 +9,6 @@ import { DEFAULT_API_BASE_URL, DEFAULT_RELAYER_API_ENDPOINT } from '@sodax/dapp-
 import { SolverEnv, useAppStore } from '@/zustand/useAppStore';
 import { defaultUseBackendSubmitTx, productionSolverConfig, stagingSolverConfig } from '@/constants';
 import {
-  DEFAULT_BRIDGE_API_BASE_URL,
   envBridgeApiBaseUrl,
   envLeverageYieldApiBaseUrl,
   envPrivyAppId,
@@ -37,7 +36,7 @@ const URL_FIELDS = [
 ] as const;
 const ADDRESS_FIELDS = ['intentsContract', 'protocolIntentsContract', 'partnerFeeAddress'] as const;
 /** Fields whose unset default is the effective gateway — see `defaultsFor`. */
-const GATEWAY_INHERITED_FIELDS = ['swapsApiBaseUrl', 'leverageYieldApiBaseUrl'] as const;
+const GATEWAY_INHERITED_FIELDS = ['swapsApiBaseUrl', 'bridgeApiBaseUrl', 'leverageYieldApiBaseUrl'] as const;
 const TEXT_FIELDS = [
   ...URL_FIELDS,
   ...ADDRESS_FIELDS,
@@ -67,8 +66,7 @@ function defaultsFor(env: SolverEnv, gatewayUrl: string = DEFAULT_API_BASE_URL):
     protocolIntentsContract: solver.protocolIntentsContract,
     apiBaseUrl: DEFAULT_API_BASE_URL,
     swapsApiBaseUrl: envSwapsApiBaseUrl ?? gatewayUrl,
-    bridgeApiBaseUrl: envBridgeApiBaseUrl ?? DEFAULT_BRIDGE_API_BASE_URL,
-    // Unlike bridge's canary default, the leverage-yield API rides the gateway, same as swaps.
+    bridgeApiBaseUrl: envBridgeApiBaseUrl ?? gatewayUrl,
     leverageYieldApiBaseUrl: envLeverageYieldApiBaseUrl ?? gatewayUrl,
     // Unset means the action inherits the instance key below.
     leverageYieldApiKey: '',

@@ -112,6 +112,10 @@ quote.value.quotedAmount;     // expected lsoda* shares, decimal string
 // Pass query `{ includeTxData: true }` (and srcAddress on the body) to also get `txData`.
 ```
 
+Take `tokenSrc` (and a withdraw's `outputToken`) from `sodax.api.swaps.getTokens()`, not from
+`getSupportedSolverTokens` or `sodax.config`: those list only the tokens bundled with the installed SDK,
+while this API accepts the tokens the backend supports.
+
 ### Create deposit intent
 
 ```ts
@@ -168,12 +172,15 @@ That a hub source or a wallet that cannot batch stays sequential is asserted in
 
 ### Submit tx + poll status
 
+Sign and broadcast `tx` on `srcChainKey` first, as in [`swaps-api.md`](swaps-api.md) § "Sign and broadcast
+`tx`"; the returned hash is the `txHash` below.
+
 ```ts
-// `intent` is the IntentResponseV2 (decimal strings) from createDepositIntent/createWithdrawIntent, converted to IntentRequestV2 (bigint fields).
+// Convert the create-intent `intent` (decimal strings) with `toIntentRequest`, as in swaps-api.md § "Submit tx + poll status".
 // `LeverageYieldSubmitTxRequestV2` is the swaps body PLUS a required `operation` discriminator, which the
 // backend needs to record the queued row as a vault deposit or withdrawal.
 const submit = await sodax.api.leverageYield.submitTx({
-  txHash, srcChainKey, walletAddress, intent,
+  txHash, srcChainKey, walletAddress, intent: toIntentRequest(intent),
   relayData: relayData.payload,   // string — the payload, not the RelayExtraData object
   operation: 'deposit',           // required: 'deposit' | 'withdraw'
 });
@@ -183,7 +190,7 @@ if (!submit.ok) return;
 const status = await sodax.api.leverageYield.getSubmitTxStatus({ txHash, srcChainKey });
 // A vault swap IS a solver swap, so terminal success is 'solved' — NOT the bridge API's 'executed'.
 if (status.ok && status.value.data.status === 'solved') { /* settled */ }
-// Lifecycle: 'pending' → 'relaying' → 'relayed' → 'posting_execution' → 'solved' | 'failed'.
+// Lifecycle: 'pending' → 'relaying' → 'relayed' → 'posting_execution' → 'posted_execution' → 'solved' | 'failed'.
 // A set `abandonedAt` is terminal too, even while `status` is still non-terminal.
 ```
 

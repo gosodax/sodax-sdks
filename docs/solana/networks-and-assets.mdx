@@ -55,7 +55,7 @@ Never hard-code mints or asset lists; read them from the SDK config at runtime:
 import { Sodax, ChainKeys } from '@sodax/sdk';
 
 const sodax = new Sodax();
-await sodax.initialize(); // pull the latest asset config
+await sodax.initialize(); // optional; adds no tokens
 
 // Swappable assets on Solana
 const swapTokens = sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.SOLANA_MAINNET);

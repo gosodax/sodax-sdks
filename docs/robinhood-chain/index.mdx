@@ -18,7 +18,7 @@ Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, a
 Robinhood Chain is an Arbitrum Layer 2 with ETH as its gas token, and to the SDK a standard EVM network: the same `EvmWalletProvider`, ERC-20 approvals, and intent flow as any other EVM network. Four details are yours to know about:
 
 - **Stock Tokens are swap-only.** The live config lists Robinhood Stock Tokens, Robinhood's tokenized stocks and ETFs, for swaps on Robinhood Chain. None of them is in the money market list. See [Stock Tokens](/robinhood-chain/swaps#stock-tokens).
-- **SDK 2.1.0 covers part of what is live.** In `@sodax/sdk` 2.1.0, Robinhood Chain's swap list holds only ETH, bnUSD, SODA, and USDG, and its money market list is empty. The SDK rejects Stock Token swaps and Robinhood Chain money market actions until the next release, which adds both; they are already on `main`.
+- **Your SDK version sets what works.** The SDK validates tokens against the lists it ships with, so a token added after your release fails until you upgrade `@sodax/sdk`.
 - **Bring the chain definition for your own viem setup.** The viem version SODAX pins has no Robinhood Chain entry, so `@sodax/wallet-sdk-core` exports one as `robinhoodChain` (chain ID 4663). `@sodax/wallet-sdk-react` already includes it.
 - **The public RPC is rate-limited.** The SODAX config uses `https://rpc.mainnet.chain.robinhood.com`, which Robinhood marks as rate-limited and not recommended for production. Pass a provider endpoint through `rpcUrl`.
 
@@ -32,7 +32,7 @@ Two SODAX modules are relevant to Robinhood Chain builders:
   </Card>
 
   <Card title="Money Market" icon="sack-dollar" href="/robinhood-chain/money-market">
-    Cross-network lending and borrowing. Supply from Robinhood Chain, borrow to Robinhood Chain or any other supported network. Needs the SDK release after 2.1.0.
+    Cross-network lending and borrowing. Supply from Robinhood Chain, borrow to Robinhood Chain or any other supported network.
   </Card>
 </CardGroup>
 
