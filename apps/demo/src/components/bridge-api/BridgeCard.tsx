@@ -1,6 +1,6 @@
 'use client';
 
-import React, { type SetStateAction, useMemo, useState } from 'react';
+import React, { type SetStateAction, useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Dialog,
@@ -166,6 +166,13 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
     return (supportedTokensPerChain.get(toChainKey) ?? []).filter(t => t.vault.toLowerCase() === vault);
   }, [fromToken, toChainKey, supportedTokensPerChain]);
   const toToken: XToken | undefined = bridgeableTokens.find(t => t.symbol === toSymbol) ?? bridgeableTokens[0];
+
+  // A refetch can still drop a reviewed token; close the review rather than bridge a pair nobody reviewed.
+  const pairKey = [fromToken, toToken].map(t => (t ? `${t.chainKey}:${t.address}` : '')).join('>');
+  const [reviewedPairKey, setReviewedPairKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (dialogOpen && pairKey !== reviewedPairKey) setDialogOpen(false);
+  }, [dialogOpen, pairKey, reviewedPairKey]);
 
   // A listed pair can still have a zero limit, and then create-intent fails, so gate on the live limit.
   const {
@@ -354,6 +361,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   const handleOpenDialog = () => {
     setApproveError(null);
     setBridgeError(null);
+    setReviewedPairKey(pairKey);
     setDialogOpen(true);
   };
 
@@ -475,6 +483,7 @@ export default function BridgeCard({ setOrders }: { setOrders: (value: SetStateA
   const isBridgeDisabled =
     isBridging ||
     !bridgeBody ||
+    !isBridgeable ||
     !!feeDraft.error ||
     isBelowDestinationUnit ||
     (fromChainType === 'EVM' && !hasAllowance) ||

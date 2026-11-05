@@ -228,7 +228,7 @@ Typed React Query wrappers over the backend Swaps API (`sodax.api.swaps.*`), one
 
 ## Bridge API (`sodax.api.bridge`)
 
-Typed React Query wrappers over the backend Bridge API (`sodax.api.bridge.*`). Distinct from the on-chain `bridge/` hooks (`useBridge`/`useBridgeAllowance`/…), which drive `sodax.bridge` (the `BridgeService`). Smaller than the swaps family (no intent/solver surface). The fee / bridgeable-amount / bridgeable quotes are computable client-side (prefer the on-chain `useGetBridgeableAmount` / `sodax.bridge.*` — no round-trip), but are also mirrored here as HTTP hooks for parity.
+Typed React Query wrappers over the backend Bridge API (`sodax.api.bridge.*`). Distinct from the on-chain `bridge/` hooks (`useBridge`/`useBridgeAllowance`/…), which drive `sodax.bridge` (the `BridgeService`). Smaller than the swaps family (no intent/solver surface). The bridgeable-amount / bridgeable quotes also exist on-chain (`useGetBridgeableAmount` / `sodax.bridge.*`, no round-trip) for tokens bundled with the installed SDK; for any other listed token use these HTTP hooks.
 
 | Hook | Type / Polling |
 |---|---|

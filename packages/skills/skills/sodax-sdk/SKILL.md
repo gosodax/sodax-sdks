@@ -91,7 +91,7 @@ Follow in order. Skipping `ai-rules.md` is the most common cause of agents rever
 2. **Every async public method returns `Result<T>`.** Branch on `result.ok`. No throws across service boundaries. Sub-Result forwarding is the default: `if (!sub.ok) return sub`.
 3. **Errors are `SodaxError<C>`.** A single class with a closed 13-code reason vocabulary plus a `feature` field. The pair `(feature, code)` is your discriminator. Use `isSodaxError(e)` (not bare `instanceof`).
 4. **Signed vs raw is a discriminated union.** `WalletProviderSlot<K, Raw>` enforces at compile time: `{ raw: false, walletProvider }` for signing, `{ raw: true }` for unsigned-tx building. Mixing them is a TypeScript error.
-5. **Config is dynamic; overrides only land on `sodax.config`.** Always read via `sodax.config.*` (e.g. `sodax.config.spokeChainConfig[chainKey]`). Direct imports of `spokeChainConfig` / `sodaxConfig` from `@sodax/types` / `@sodax/sdk` are packaged-default snapshots and silently miss both `await sodax.config.initialize()` updates and `new Sodax(config)` overrides.
+5. **Overrides only land on `sodax.config`; tokens come from the installed version.** Always read via `sodax.config.*` (e.g. `sodax.config.spokeChainConfig[chainKey]`). Direct imports of `spokeChainConfig` / `sodaxConfig` from `@sodax/types` / `@sodax/sdk` are packaged-default snapshots and silently miss `new Sodax(config)` overrides. Feature services accept only tokens bundled with the installed `@sodax/sdk`; for newer ones see [`recipes/initialize-sodax.md`](integration/knowledge/recipes/initialize-sodax.md) § "Where supported tokens come from".
 
 ### Top traps, conventions, verification
 
