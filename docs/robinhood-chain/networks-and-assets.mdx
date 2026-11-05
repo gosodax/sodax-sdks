@@ -31,9 +31,9 @@ Live in the [Money Market](/robinhood-chain/money-market) for supply, borrow, re
 
 ETH uses the zero address in these lists; every other entry is an ERC-20 contract address on Robinhood Chain. Stock Tokens carry `isRwa: true` in the config, and they are swap-only. To confirm that an address is a Robinhood Stock Token, Robinhood's [Token Contracts](https://docs.robinhood.com/chain/contracts) page is the canonical list. The Sonic vaults behind them are under [Robinhood Tokenized Equities](/developers/deployments/mainnet#robinhood-tokenized-equities).
 
-### What `@sodax/sdk` 2.1.0 knows
+### What your installed SDK knows
 
-The live lists above are ahead of the published SDK. In `@sodax/sdk` 2.1.0, `getSupportedSwapTokensByChainId(ChainKeys.ROBINHOOD_MAINNET)` returns ETH, bnUSD, SODA, and USDG only, and `getSupportedTokensByChainId` on the money market returns an empty list. The SDK validates tokens against its own lists, so Stock Token swaps and Robinhood Chain money market actions fail on 2.1.0. Both are on `main` for the next release.
+The live lists above can be ahead of your installed SDK. `getSupportedSwapTokensByChainId(ChainKeys.ROBINHOOD_MAINNET)` and the money market's `getSupportedTokensByChainId` return the lists shipped with your release. The SDK validates tokens against the config bundled with that release, so a token added after it fails until you upgrade `@sodax/sdk`.
 
 ## Assets your users can reach
 
@@ -54,10 +54,10 @@ import { Sodax, ChainKeys } from '@sodax/sdk';
 
 const sodax = new Sodax();
 
-// Swappable assets on Robinhood Chain (2.1.0: base assets only)
+// Swappable assets on Robinhood Chain
 const swapTokens = sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.ROBINHOOD_MAINNET);
 
-// Money market assets on Robinhood Chain (2.1.0: empty)
+// Money market assets on Robinhood Chain
 const mmTokens = sodax.moneyMarket.getSupportedTokensByChainId(ChainKeys.ROBINHOOD_MAINNET);
 ```
 

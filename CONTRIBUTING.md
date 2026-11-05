@@ -9,6 +9,18 @@ with [`AGENTS.md`](./AGENTS.md) for the package map and dependency direction, th
 
 Found a security vulnerability? Do not open an issue — follow [`SECURITY.md`](./SECURITY.md).
 
+## Content or code
+
+What you change decides which workflow and checks apply:
+
+- **Content**: hand-written docs.sodax.com pages under `docs/` (no `generatedFrom` frontmatter
+  key), their `docs/docs.json` entries and images, and the examples those pages show, in
+  `apps/docs-examples`. You never need to edit an SDK package; if a page can only be correct after
+  an SDK change, open an issue for that change. Coding agents use the `write-docs` and
+  `review-docs` skills in `.claude/skills/`.
+- **Code**: the packages, the other apps, and the sources of generated pages. All of this guide
+  applies. Coding agents use the `add-*` skills and `review-core-sdk`.
+
 ## Setup
 
 Requirements: Node.js `>=22.12.0` (CI runs 24.x) and pnpm `10.32.1` — the version pinned in
@@ -41,7 +53,7 @@ pnpm check:ai         # when you change packages/skills
 
 CI runs more than this: `check:circular-deps`, `check:knip`, `check-exports`, the package and app
 builds, and the docs gates (`check:doc-links`, `check:docs-nav`, `check:docs-pages`,
-`check:ai-dev-files`, plus `pnpm docs:validate`). See
+`check:docs-examples`, `check:ai-dev-files`, plus `pnpm docs:validate`). See
 [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) for the full list, and run the ones that
 cover what you changed.
 
@@ -150,8 +162,17 @@ sidebar, from search and from `llms.txt`. Docs Drift does not check nav.
 
 ### How to write
 
-- **Lead with working code.** A copy-pasteable snippet beats three paragraphs.
-  Every parameter a user must supply should appear in an example.
+- **Never paste TypeScript into a page.** On a hand-written docs.sodax.com page,
+  code is copied from a compiled, tested region in `apps/docs-examples` by
+  `pnpm docs:sync-examples`, and `pnpm check:docs-examples` fails on pasted or
+  stale code. In package docs, link to a runnable file instead of pasting long code.
+- **Link, don't restate.** Parameters, types, error codes and rationale already
+  live in the code, its JSDoc, the package READMEs, `packages/sdk/docs` and the
+  package `AGENTS.md` files. A page states the reader's goal, the order of steps
+  and when to use which API, and links to the rest.
+- **Give every drift-prone claim a check.** Code comes from an example, networks
+  and tokens from a live config table, everything else from a link. A claim that
+  nothing can check ("available since", "currently") is cut.
 - **Document behavior, not implementation.** What does the caller get, what can
   fail, and what does failure look like? Skip internal mechanics.
 - **Update, don't append.** If your change alters existing behavior, fix the

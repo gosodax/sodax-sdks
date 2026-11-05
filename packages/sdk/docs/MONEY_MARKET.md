@@ -28,17 +28,13 @@ const supplyResult = await sodax.moneyMarket.supply({
 
 SDK includes predefined configurations of supported chains, tokens and other relevant information for the client to consume. All configurations are accessible through the `config` property of the Sodax instance (`sodax.config`), or through service-specific properties for convenience.
 
-**IMPORTANT**: If you want dynamic (backend API based - contains latest tokens) configuration, make sure to initialize the instance before usage:
-```typescript
-await sodax.config.initialize();
-```
-By default, configuration from the specific SDK version you are using is used.
+The configuration is the one bundled with the SDK version you are using. `sodax.config.initialize()` currently returns success without fetching anything, so it does not add tokens listed after your release; see [Configure SDK](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#where-supported-tokens-come-from).
 
 ```typescript
 import { Sodax, ChainKeys, type SpokeChainKey, type Address } from '@sodax/sdk';
 
 const sodax = new Sodax();
-await sodax.config.initialize(); // Initialize for dynamic config (optional)
+await sodax.config.initialize(); // optional; adds no tokens
 
 // All supported spoke chains (general config)
 const spokeChains: SpokeChainKey[] = sodax.config.getSupportedSpokeChains();

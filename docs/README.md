@@ -203,8 +203,13 @@ networks land on the same page in each one.
   `class` from somewhere else silently does nothing.
 - **Images go in `docs/images/`** and are referenced root-relative: `/images/<file>.png`.
   Every image needs alt text.
-- **Lead with working code.** A copy-pasteable snippet beats three paragraphs, and every
-  parameter the caller must supply should appear in it.
+- **Never paste TypeScript.** Every `ts` / `tsx` / `typescript` block is copied from a
+  compiled region in [`apps/docs-examples`](https://github.com/gosodax/sodax-sdks/blob/main/apps/docs-examples/AGENTS.md):
+  put `{/* example: <file>#<region> */}` on the line above the fence and run
+  `pnpm docs:sync-examples`. Pseudocode takes `{/* example: none — <reason> */}`. Pages that
+  predate this rule are listed in `scripts/docs-examples-allowlist.json` until they migrate.
+- **Link, don't restate.** State the reader's goal and the order of steps; link to the
+  package docs for parameters, types, errors and rationale.
 - **Update in place.** When behaviour changes, fix the existing section instead of
   appending a new one.
 
@@ -215,6 +220,7 @@ npm i -g mint@4.2.794  # once; the version CI pins in ci.yml
 
 pnpm check:docs-nav    # nav <-> files, plus redirects and pinned URLs (no network, no CLI)
 pnpm check:docs-pages  # generated copies still match their sources
+pnpm check:docs-examples # shown TypeScript matches its compiled example
 pnpm docs:dev          # local preview, opens in the browser
 pnpm docs:validate     # mint validate + mint broken-links
 ```
@@ -224,7 +230,7 @@ pinned version rather than as a repo dependency. Run them locally anyway — a r
 costs you a push and several minutes. `mint validate` fails on anything the build would
 warn about, including nav entries whose file is missing. `mint broken-links` resolves every
 internal link on every page; it is the only check that catches rule 1, and the only one
-that opens a hand-written page at all.
+that reads a hand-written page's prose and links (`check:docs-examples` reads only its code).
 
 ## What does not belong here
 

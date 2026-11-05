@@ -142,7 +142,7 @@ The real v2 answer: read directly from the packaged-default const `sodaxConfig`,
 + const moneyMarketTokens = sodaxConfig.moneyMarket.supportedTokens;
 ```
 
-> **Once you have a `Sodax` instance**, prefer `sodax.config.*` (`sodax.config.getHubChainConfig()`, `sodax.config.getMoneyMarketReserveAssets()`, etc.). The service-API path reflects backend-driven runtime updates after `await sodax.config.initialize()`; `sodaxConfig` is a packaged-default snapshot frozen at SDK release time.
+> **Once you have a `Sodax` instance**, prefer `sodax.config.*` (`sodax.config.getHubChainConfig()`, `sodax.config.getMoneyMarketReserveAssets()`, etc.). The service-API path reflects your constructor overrides; `sodaxConfig` is a packaged-default snapshot frozen at SDK release time.
 
 For hub-only module-scope reads, `hubConfig` is also exported directly:
 
