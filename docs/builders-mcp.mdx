@@ -26,6 +26,7 @@ Most clients take the same JSON:
 {
   "mcpServers": {
     "sodax-builders": {
+      "type": "http",
       "url": "https://builders.sodax.com/mcp"
     }
   }
@@ -58,12 +59,15 @@ For the swap tools, send your key in an `x-api-key` header:
 {
   "mcpServers": {
     "sodax-builders": {
+      "type": "http",
       "url": "https://builders.sodax.com/mcp",
       "headers": { "x-api-key": "<your SODAX API key>" }
     }
   }
 }
 ```
+
+In Claude Code: `claude mcp add --transport http sodax-builders https://builders.sodax.com/mcp --header "x-api-key: <your SODAX API key>"`.
 
 The server sends the key only on its own calls to the SODAX data, solver and Swaps APIs, and ignores a value that isn't a SODAX API key.
 
