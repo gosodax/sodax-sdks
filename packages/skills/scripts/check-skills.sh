@@ -42,7 +42,7 @@
 #   7. Every relative .md link in packages/skills/{AGENTS,CLAUDE,README}.md and
 #      under skills/ resolves to an existing file (with optional #fragment).
 #   7b. Every https://github.com/gosodax/sodax-sdks/{blob,tree}/main/<path> URL in those
-#       files names a file or directory that exists in the repo, exact case
+#       files, outside code spans and blocks, names a file or directory in the repo, exact case
 #       (scripts/check-repo-urls.mjs, sharing scripts/check-doc-links.mjs at the repo root).
 #   8. Each broad skill routes to all of its children: every nested granular
 #      SKILL.md is linked and every integration features/*.md is named in the
@@ -361,10 +361,8 @@ done < <(find . -maxdepth 1 -type f -name '*.md' -print0 2>/dev/null; \
          find skills -type f -name '*.md' -print0 2>/dev/null)
 
 # -----------------------------------------------------------------------------
-# 7b. Every https://github.com/gosodax/sodax-sdks/{blob,tree}/main/<path> URL under skills/ or in
-#     ./*.md names a file or directory that exists in the repo, exact case. This is how a skill points
-#     at the test that holds its example code. The matching is scripts/check-doc-links.mjs at the repo
-#     root, shared with check:doc-links; a scanner that does not run is an error, never a pass.
+# 7b. Repo URLs name an existing path (see the header). A scanner that does not run is an error,
+#     never a pass.
 # -----------------------------------------------------------------------------
 if out=$(node scripts/check-repo-urls.mjs); then
   if [[ -n "$out" ]]; then

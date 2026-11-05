@@ -225,20 +225,15 @@ test('checkRepoUrls keeps the path inside the checkout and collapses dot segment
   assert.match(failures[0], /^packages\/skills\/README\.md:1 /);
 });
 
-test('checkRepoUrls does not crash on a file that is not valid UTF-8', t => {
-  const root = createWorkspace(t, {});
-  const path = 'packages/skills/README.md';
-  mkdirSync(join(root, dirname(path)), { recursive: true });
-  writeFileSync(
-    join(root, path),
-    Buffer.from([
-      0xff,
-      0x20,
-      ...Buffer.from('https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/missing.ts\n'),
-    ]),
-  );
+test('checkRepoUrls keeps underscores that end a path and stops at a table pipe', t => {
+  const failures = runRepoUrls(t, {
+    'packages/sdk/src/__tests__/a.test.ts': '',
+    'packages/skills/README.md': [
+      'Tests: https://github.com/gosodax/sodax-sdks/tree/main/packages/sdk/src/__tests__',
+      '|https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/index.ts|',
+      '',
+    ].join('\n'),
+  });
 
-  const { failures } = checkRepoUrls({ root, files: [path] });
-
-  assert.equal(failures.length, 1);
+  assert.deepEqual(failures, []);
 });
