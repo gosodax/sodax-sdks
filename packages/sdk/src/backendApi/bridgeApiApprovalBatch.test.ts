@@ -1,10 +1,5 @@
-/**
- * Partner flow: approve and bridge with one wallet signature through `sodax.api.bridge`.
- *
- * `approveAndBridge` is the example the Bridge API skill links to. It uses only public exports
- * (`../index.js`) and a stubbed backend, so the flow is compiled and run, not described.
- * The batch rules themselves (strategy, refusal, unconfirmed) live in `shared/utils/approvalBatch.test.ts`.
- */
+// Partner example the Bridge API skill links to: approve and bridge in one signature, public exports only.
+// The batch rules themselves (strategy, refusal, unconfirmed) are tested in `shared/utils/approvalBatch.test.ts`.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ATOMIC_BATCH_UNCONFIRMED,
@@ -12,8 +7,8 @@ import {
   DEFAULT_API_BASE_URL,
   DEFAULT_RELAY_TX_TIMEOUT,
   Sodax,
-  baseChainInfo,
   confirmApprovalBatch,
+  getEvmViemChain,
   isAtomicBatchRefusal,
   isEvmChainKeyType,
   isEvmSpokeOnlyChainKeyType,
@@ -28,9 +23,11 @@ import {
   type EvmRawTransaction,
   type IEvmWalletProvider,
   type IWalletProvider,
+  type RawTxReturnType,
+  type Result,
   type SpokeChainKey,
 } from '../index.js';
-import { AtomicityNotSupportedError } from 'viem';
+import { AtomicityNotSupportedError, isAddress, isHex } from 'viem';
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
@@ -82,7 +79,10 @@ const batchWallet = (support: EvmAtomicBatchSupport = 'supported') => ({
   chainType: 'EVM' as const,
   getWalletAddress: vi.fn<IEvmWalletProvider['getWalletAddress']>(),
   sendTransaction: vi.fn<IEvmWalletProvider['sendTransaction']>(),
-  waitForTransactionReceipt: vi.fn<IEvmWalletProvider['waitForTransactionReceipt']>(),
+  // Only `status` is read.
+  waitForTransactionReceipt: vi
+    .fn<IEvmWalletProvider['waitForTransactionReceipt']>()
+    .mockResolvedValue({ status: 'success' } as never),
   getAtomicBatchSupport: vi.fn(async (_chainId: number) => support),
   sendAtomicBatch: vi.fn(
     async (_txs: readonly EvmRawTransaction[], _options: { expectedChainId: number }) => 'batch-1',
@@ -90,11 +90,22 @@ const batchWallet = (support: EvmAtomicBatchSupport = 'supported') => ({
   waitForBatch: vi.fn(async (_batchId: string, _options?: { timeout?: number }) => confirmed),
 });
 
-type BackendOptions = { withReset: boolean; allowanceValid?: boolean };
-
-const stubBackend = ({ withReset, allowanceValid = false }: BackendOptions) => {
+const stubBackend = ({
+  withReset,
+  allowanceValid = false,
+  failSubmitOnce = false,
+}: {
+  withReset: boolean;
+  allowanceValid?: boolean;
+  failSubmitOnce?: boolean;
+}) => {
   let intentsCreated = 0;
+  let submitFailures = failSubmitOnce ? 1 : 0;
   mockFetch.mockImplementation(async (url: string) => {
+    if (url === `${BASE}/bridge/submit-tx` && submitFailures > 0) {
+      submitFailures -= 1;
+      return { ok: false, status: 500, text: vi.fn().mockResolvedValue('unavailable') };
+    }
     const body = (() => {
       if (url === `${BASE}/bridge/allowance/check`) return { valid: allowanceValid };
       if (url === `${BASE}/bridge/approve`)
@@ -111,14 +122,38 @@ const stubBackend = ({ withReset, allowanceValid = false }: BackendOptions) => {
 };
 
 const requested = (path: string) => mockFetch.mock.calls.filter(([url]) => url === `${BASE}${path}`);
+const submitted = () => requested('/bridge/submit-tx').map(([, init]) => JSON.parse(init.body));
+
+const unwrap = <T>(result: Result<T>): T => {
+  if (!result.ok) throw result.error;
+  return result.value;
+};
+
+const isEvmTx = (tx: RawTxReturnType): tx is EvmRawTransaction =>
+  'to' in tx &&
+  typeof tx.to === 'string' &&
+  isAddress(tx.to) &&
+  'data' in tx &&
+  typeof tx.data === 'string' &&
+  isHex(tx.data);
+
+/** The API types its txs for every chain type; an EVM source must get EVM ones before anything is signed. */
+const evmTx = (tx: RawTxReturnType): EvmRawTransaction => {
+  if (!isEvmTx(tx)) throw new Error('The API returned a non-EVM transaction for an EVM source');
+  return tx;
+};
 
 /**
  * Persist this with the batch id before waiting on the batch: a resume after a reload needs `callCount`
- * for `confirmApprovalBatch` and `relayData` for `submitTx`. Strings only, so it survives `JSON.stringify`.
+ * for `confirmApprovalBatch` and the rest of the `submitTx` body. Strings only, so it survives `JSON.stringify`.
  */
-type PendingBridge = Pick<BridgeSubmitTxRequestV2, 'relayData'> & { callCount: number };
+type PendingBridge = { callCount: number; submit: Omit<BridgeSubmitTxRequestV2, 'txHash'> };
 
-/** Approves and bridges; one signature when the source is an EVM spoke and the wallet can batch. */
+/**
+ * Approves and sends the deposit; one signature when the source is an EVM spoke and the wallet can batch.
+ * Returns the `submitTx` body unsent: the deposit is already out, so persist it, then submit it, and retry
+ * only `submitTx` if that fails.
+ */
 async function approveAndBridge(
   walletProvider: IWalletProvider,
   params: CreateBridgeIntentParamsV2 & { srcChainKey: SpokeChainKey },
@@ -126,46 +161,44 @@ async function approveAndBridge(
     onBatchSent,
     allowAccountUpgrade,
   }: { onBatchSent?: (batchId: string, pending: PendingBridge) => void; allowAccountUpgrade?: boolean } = {},
-) {
+): Promise<{ strategy: ApprovalStrategy; submit: BridgeSubmitTxRequestV2 }> {
   const { srcChainKey } = params;
   if (!isEvmWalletProviderType(walletProvider) || !isEvmChainKeyType(srcChainKey)) {
     throw new Error('Only EVM sources are handled here; approve and sign other chains separately.');
   }
-  const unwrap = <T>(result: { ok: true; value: T } | { ok: false; error: unknown }): T => {
-    if (!result.ok) throw result.error;
-    return result.value;
-  };
   const allowance = unwrap(await sodax.api.bridge.checkAllowance(params));
-  const approval = allowance.valid ? undefined : unwrap(await sodax.api.bridge.approve(params));
-  let bridge = unwrap(await sodax.api.bridge.createBridgeIntent(params));
-
-  // The API types its txs as `RawTxReturnType`; an EVM source returns EVM transactions.
-  const approvalTxs = approval ? ([approval.resetTx, approval.tx].filter(Boolean) as EvmRawTransaction[]) : [];
-  let strategy: ApprovalStrategy = approval
-    ? await resolveApprovalStrategy({ srcChainKey, walletProvider, allowAccountUpgrade })
-    : 'not-required';
+  const [approval, created, resolved] = await Promise.all([
+    allowance.valid ? undefined : sodax.api.bridge.approve(params).then(unwrap),
+    sodax.api.bridge.createBridgeIntent(params).then(unwrap),
+    allowance.valid
+      ? ('not-required' as const)
+      : resolveApprovalStrategy({ srcChainKey, walletProvider, allowAccountUpgrade }),
+  ]);
+  const approvalTxs = approval ? (approval.resetTx ? [approval.resetTx, approval.tx] : [approval.tx]).map(evmTx) : [];
+  let bridge = created;
+  let strategy: ApprovalStrategy = resolved;
+  const submitBody = () => ({ srcChainKey, walletAddress: params.srcAddress, relayData: bridge.relayData });
 
   let txHash: string | undefined;
   if (strategy === 'atomic-batch' && isEvmSpokeOnlyChainKeyType(srcChainKey)) {
-    const txs = [...approvalTxs, bridge.tx as EvmRawTransaction];
+    const txs = [...approvalTxs, evmTx(bridge.tx)];
     const sent = await sendApprovalBatch({
       walletProvider,
       srcChainKey,
       txs,
       timeoutMs: DEFAULT_RELAY_TX_TIMEOUT,
       feature: 'bridge',
-      onBatchSent:
-        onBatchSent && (batchId => onBatchSent(batchId, { relayData: bridge.relayData, callCount: txs.length })),
+      onBatchSent: onBatchSent && (batchId => onBatchSent(batchId, { callCount: txs.length, submit: submitBody() })),
     });
     if (sent.ok) txHash = sent.value.txHash;
     else if (isAtomicBatchRefusal(sent.error)) strategy = 'sequential';
     else throw sent.error;
   }
   if (txHash === undefined) {
-    const { chainId } = baseChainInfo[srcChainKey];
+    const expectedChainId = getEvmViemChain(srcChainKey).id;
     for (const tx of approvalTxs) {
       const receipt = await walletProvider.waitForTransactionReceipt(
-        await walletProvider.sendTransaction(tx, { expectedChainId: chainId }),
+        await walletProvider.sendTransaction(tx, { expectedChainId }),
       );
       // The deposit is only valid once the allowance is on-chain, so a reverted reset or approve ends the flow.
       if (receipt.status === 'reverted' || receipt.status === '0x0')
@@ -173,44 +206,57 @@ async function approveAndBridge(
     }
     // Once the approval is mined, build the deposit again, as the SDK's `bridgeWithApproval` does.
     if (approval) bridge = unwrap(await sodax.api.bridge.createBridgeIntent(params));
-    txHash = await walletProvider.sendTransaction(bridge.tx as EvmRawTransaction, { expectedChainId: chainId });
+    txHash = await walletProvider.sendTransaction(evmTx(bridge.tx), { expectedChainId });
   }
-
-  unwrap(
-    await sodax.api.bridge.submitTx({
-      txHash,
-      srcChainKey,
-      walletAddress: params.srcAddress,
-      relayData: bridge.relayData,
-    }),
-  );
-  return { txHash, strategy };
+  return { strategy, submit: { ...submitBody(), txHash } };
 }
 
-const submitted = () => JSON.parse(requested('/bridge/submit-tx')[0]?.[1]?.body);
+/** Leaves the batch unconfirmed and returns what `onBatchSent` persisted, read back as after a reload. */
+async function leaveUnconfirmed(walletProvider: ReturnType<typeof batchWallet>) {
+  const onBatchSent = vi.fn<(batchId: string, pending: PendingBridge) => void>();
+  await expect(approveAndBridge(walletProvider, BRIDGE_PARAMS, { onBatchSent })).rejects.toMatchObject({
+    code: 'TX_VERIFICATION_FAILED',
+    context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' },
+  });
+  const [batchId, pending] = onBatchSent.mock.calls[0] ?? [];
+  if (batchId === undefined || pending === undefined) throw new Error('onBatchSent was not called');
+  const saved: PendingBridge = JSON.parse(JSON.stringify(pending));
+  expect(saved).toEqual(pending);
+  return { batchId, saved };
+}
+
+const resume = (walletProvider: IEvmWalletProvider, batchId: string, callCount: number) =>
+  confirmApprovalBatch({ walletProvider, batchId, callCount, timeoutMs: DEFAULT_RELAY_TX_TIMEOUT, feature: 'bridge' });
 
 beforeEach(() => {
   mockFetch.mockReset();
 });
 
 describe('approve and bridge in one signature (Bridge API)', () => {
-  it('sends [resetTx, approve, deposit] as one batch, deposit last, and submits the batch tx with the full relayData', async () => {
+  it('sends [resetTx, approve, deposit] as one batch, deposit last, and returns the submit body with the full relayData', async () => {
     stubBackend({ withReset: true });
     const walletProvider = batchWallet();
 
     const result = await approveAndBridge(walletProvider, BRIDGE_PARAMS);
 
-    expect(result).toEqual({ txHash: DEPOSIT_HASH, strategy: 'atomic-batch' });
+    expect(result).toEqual({
+      strategy: 'atomic-batch',
+      submit: {
+        txHash: DEPOSIT_HASH,
+        srcChainKey: ChainKeys.BASE_MAINNET,
+        walletAddress: ACCOUNT,
+        relayData: relayDataFor(1),
+      },
+    });
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
     const [txs, options] = walletProvider.sendAtomicBatch.mock.calls[0] ?? [];
     expect(txs?.map(tx => tx.data)).toEqual([RESET_WIRE.data, APPROVE_WIRE.data, DEPOSIT_WIRE.data]);
-    expect(options).toEqual({ expectedChainId: baseChainInfo[ChainKeys.BASE_MAINNET].chainId });
+    expect(options).toEqual({ expectedChainId: getEvmViemChain(ChainKeys.BASE_MAINNET).id });
     expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
-    expect(submitted()).toMatchObject({
-      txHash: DEPOSIT_HASH,
-      srcChainKey: ChainKeys.BASE_MAINNET,
-      relayData: relayDataFor(1),
-    });
+    expect(submitted()).toEqual([]);
+
+    unwrap(await sodax.api.bridge.submitTx(result.submit));
+    expect(submitted()).toEqual([result.submit]);
   });
 
   it('sends [approve, deposit] when the token needs no reset', async () => {
@@ -228,21 +274,22 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     const walletProvider = batchWallet();
     walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
     walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xseparate-deposit');
-    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // only `status` is read
 
     const result = await approveAndBridge(walletProvider, BRIDGE_PARAMS);
 
-    expect(result).toEqual({ txHash: '0xseparate-deposit', strategy: 'sequential' });
+    expect(result).toMatchObject({
+      strategy: 'sequential',
+      submit: { txHash: '0xseparate-deposit', relayData: relayDataFor(2) },
+    });
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
     expect(walletProvider.sendTransaction.mock.calls.map(([tx]) => tx.data)).toEqual([
       APPROVE_WIRE.data,
       DEPOSIT_WIRE.data,
     ]);
     expect(requested('/bridge/intents')).toHaveLength(2);
-    expect(submitted()).toMatchObject({ txHash: '0xseparate-deposit', relayData: relayDataFor(2) });
   });
 
-  it('stops when the separate approval reverts: no deposit is sent and nothing is submitted', async () => {
+  it('stops when the separate approval reverts: no deposit is sent', async () => {
     stubBackend({ withReset: false });
     const walletProvider = batchWallet();
     walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
@@ -252,7 +299,6 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     await expect(approveAndBridge(walletProvider, BRIDGE_PARAMS)).rejects.toThrow('The approval transaction reverted');
 
     expect(walletProvider.sendTransaction).toHaveBeenCalledTimes(1);
-    expect(requested('/bridge/submit-tx')).toHaveLength(0);
   });
 
   it('sends only the deposit when the allowance is already valid', async () => {
@@ -262,7 +308,7 @@ describe('approve and bridge in one signature (Bridge API)', () => {
 
     const result = await approveAndBridge(walletProvider, BRIDGE_PARAMS);
 
-    expect(result).toEqual({ txHash: '0xdirect-deposit', strategy: 'not-required' });
+    expect(result).toMatchObject({ strategy: 'not-required', submit: { txHash: '0xdirect-deposit' } });
     expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
     expect(walletProvider.sendTransaction.mock.calls.map(([tx]) => tx.data)).toEqual([DEPOSIT_WIRE.data]);
     expect(requested('/bridge/approve')).toHaveLength(0);
@@ -272,11 +318,10 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     stubBackend({ withReset: false });
     const walletProvider = batchWallet('ready');
     walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xno-upgrade-deposit');
-    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // only `status` is read
 
     const result = await approveAndBridge(walletProvider, BRIDGE_PARAMS, { allowAccountUpgrade: false });
 
-    expect(result).toEqual({ txHash: '0xno-upgrade-deposit', strategy: 'sequential' });
+    expect(result).toMatchObject({ strategy: 'sequential', submit: { txHash: '0xno-upgrade-deposit' } });
     expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
   });
 
@@ -284,11 +329,10 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     stubBackend({ withReset: false });
     const walletProvider = batchWallet();
     walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xhub-deposit');
-    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'success' } as never); // only `status` is read
 
     const result = await approveAndBridge(walletProvider, { ...BRIDGE_PARAMS, srcChainKey: ChainKeys.SONIC_MAINNET });
 
-    expect(result).toEqual({ txHash: '0xhub-deposit', strategy: 'sequential' });
+    expect(result).toMatchObject({ strategy: 'sequential', submit: { txHash: '0xhub-deposit' } });
     expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
     expect(walletProvider.sendTransaction.mock.calls.map(([tx]) => tx.data)).toEqual([
       APPROVE_WIRE.data,
@@ -296,44 +340,53 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     ]);
   });
 
-  it('never resends an unconfirmed batch; confirmApprovalBatch resumes it by id and call count', async () => {
+  it('retries only submitTx when it fails after the deposit: the same body goes again, no second deposit', async () => {
+    stubBackend({ withReset: false, failSubmitOnce: true });
+    const walletProvider = batchWallet();
+
+    const { submit } = await approveAndBridge(walletProvider, BRIDGE_PARAMS);
+    const first = await sodax.api.bridge.submitTx(submit);
+    const retried = await sodax.api.bridge.submitTx(submit);
+
+    expect(first.ok).toBe(false);
+    expect(retried.ok).toBe(true);
+    expect(submitted()).toEqual([submit, submit]);
+    expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('never resends an unconfirmed batch; the persisted state alone resumes and submits it', async () => {
     stubBackend({ withReset: true });
     const walletProvider = batchWallet();
     walletProvider.waitForBatch.mockRejectedValueOnce(new Error('timed out')).mockResolvedValueOnce(oneReceiptPerCall);
-    const onBatchSent = vi.fn<(batchId: string, pending: PendingBridge) => void>();
 
-    await expect(approveAndBridge(walletProvider, BRIDGE_PARAMS, { onBatchSent })).rejects.toMatchObject({
-      code: 'TX_VERIFICATION_FAILED',
-      context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1', callCount: 3 },
-    });
-    expect(onBatchSent).toHaveBeenCalledWith('batch-1', expect.anything());
-    expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
+    const { batchId, saved } = await leaveUnconfirmed(walletProvider);
+
+    expect(saved.callCount).toBe(3);
     expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
-    expect(requested('/bridge/submit-tx')).toHaveLength(0);
+    const { txHash } = unwrap(await resume(walletProvider, batchId, saved.callCount));
+    unwrap(await sodax.api.bridge.submitTx({ ...saved.submit, txHash }));
+    expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
+    expect(submitted()).toEqual([
+      { txHash: DEPOSIT_HASH, srcChainKey: ChainKeys.BASE_MAINNET, walletAddress: ACCOUNT, relayData: relayDataFor(1) },
+    ]);
+  });
 
-    // What was persisted survives a JSON round trip and is all a resume needs: the call count, then the submit inputs.
-    const pending = onBatchSent.mock.calls[0]?.[1];
-    if (!pending) throw new Error('onBatchSent was not called');
-    expect(JSON.parse(JSON.stringify(pending))).toEqual(pending);
-    expect(pending.callCount).toBe(3);
+  it('runs the flow again when the resume reports the batch failed, since nothing landed', async () => {
+    stubBackend({ withReset: false });
+    const walletProvider = batchWallet();
+    walletProvider.waitForBatch
+      .mockRejectedValueOnce(new Error('timed out'))
+      .mockResolvedValueOnce({ status: 'failure', statusCode: 400, atomic: true, receipts: [] });
 
-    const resumed = await confirmApprovalBatch({
-      walletProvider,
-      batchId: 'batch-1',
-      callCount: pending.callCount,
-      timeoutMs: DEFAULT_RELAY_TX_TIMEOUT,
-      feature: 'bridge',
+    const { batchId, saved } = await leaveUnconfirmed(walletProvider);
+    const resumed = await resume(walletProvider, batchId, saved.callCount);
+    expect(!resumed.ok && resumed.error.context?.reason).toBe('atomic-batch-failed');
+
+    const rerun = await approveAndBridge(walletProvider, BRIDGE_PARAMS);
+    expect(rerun).toMatchObject({
+      strategy: 'atomic-batch',
+      submit: { txHash: DEPOSIT_HASH, relayData: relayDataFor(2) },
     });
-    expect(resumed).toEqual({ ok: true, value: { txHash: DEPOSIT_HASH, batchId: 'batch-1' } });
-    if (!resumed.ok) throw resumed.error;
-
-    const finished = await sodax.api.bridge.submitTx({
-      txHash: resumed.value.txHash,
-      srcChainKey: BRIDGE_PARAMS.srcChainKey,
-      walletAddress: BRIDGE_PARAMS.srcAddress,
-      relayData: pending.relayData,
-    });
-    expect(finished.ok).toBe(true);
-    expect(submitted()).toMatchObject({ txHash: DEPOSIT_HASH, relayData: relayDataFor(1) });
+    expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(2);
   });
 });

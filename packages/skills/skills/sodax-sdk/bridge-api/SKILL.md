@@ -39,7 +39,7 @@ validates the response. Errors carry `feature: 'backend'`, `context.api: 'bridge
 - **Calling `getSubmitTxStatus` with only `txHash`.** Both `txHash` AND `srcChainKey` are required.
 - **Using SDK-domain param names in the body.** The wire DTO uses swaps naming (`inputToken`/`outputToken`/`inputAmount`/`srcAddress`/`dstAddress`); map SDK-domain `srcToken`/`dstToken`/`amount`/`recipient` via `toCreateBridgeIntentParamsV2`.
 - **Gating the API path with the local reads.** `sodax.bridge.getBridgeableAmount` / `isBridgeable` read the bundled config and fail for tokens newer than the installed SDK. On the API path gate on `sodax.api.bridge.getBridgeableAmount` (limit above zero); see [`features/bridge-api.md`](../integration/knowledge/features/bridge-api.md) § "Deltas vs the Swaps API".
-- **Sending the approve and the bridge as separate prompts on an EVM spoke.** An EIP-5792 wallet can sign `[resetTx?, approve, deposit]` once — see "Approve and bridge in one signature" in the bridge-api feature doc.
+- **Assuming the approve needs its own prompt.** From an EVM spoke, an EIP-5792 wallet can sign `[resetTx?, approve, deposit]` once — see "Approve and bridge in one signature" in the bridge-api feature doc. In `@sodax/dapp-kit`, `useBridgeApiApproveAndBroadcast` approves separately; batching means running that flow with the SDK.
 - **Confusing `sodax.api.bridge` with `sodax.bridge`.** The former is the backend HTTP client; the latter is the on-chain vault orchestrator.
 
 ## Migration workflow (on-chain → API)

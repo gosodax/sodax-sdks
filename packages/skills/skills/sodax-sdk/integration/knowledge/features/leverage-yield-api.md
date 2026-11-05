@@ -154,19 +154,25 @@ When `checkAllowance` reports the allowance short, an EVM spoke source with an E
 `[resetTx?, approve tx, deposit tx]` from `approve` and `createDepositIntent` as one atomic batch: one wallet
 prompt instead of two or three. This works because `createDepositIntent` builds the deposit without reading
 the allowance, and `approve` targets the spender that deposit pulls from. Finish with `submitTx` (see
-[Submit tx + poll status](#submit-tx--poll-status)), `operation: 'deposit'`, passing the batch's deposit
-`txHash`, the `intent` converted to `IntentRequestV2` (bigint fields, as `toIntentRequest` in the test does)
-and `relayData.payload`.
+[Submit tx + poll status](#submit-tx--poll-status)), `operation: 'deposit'`, passing the deposit `txHash`,
+`srcChainKey`, `walletAddress`, the `intent` converted with `toIntentRequest`, and `relayData.payload`.
+Persist that body before the call, with the wire `intent` (decimal strings, so it survives
+`JSON.stringify`): once the deposit is out, a failed `submitTx` is retried on its own, never by running the
+flow again.
 
 The batch, refusal and unconfirmed-batch rules are the ones in
 [Approve and send the intent in one signature](./swaps-api.md#approve-and-send-the-intent-in-one-signature).
 Before waiting on the batch, persist from `onBatchSent` what a resume after a reload needs: the batch id,
-the batch's call count, the wire `intent` (decimal strings, so it survives `JSON.stringify`) and
-`relayData.payload`. Resume an unconfirmed batch with `confirmApprovalBatch` and finish it with that state;
-never create the intent again or rerun the flow for it. After a refused batch, submit the `intent` and
-`relayData` of the deposit intent you created again. The runnable flow is
+the batch's call count and the `submitTx` body except `txHash`. Resume an unconfirmed batch with
+`confirmApprovalBatch` and finish it with that state; while the batch may still land, never create the
+intent again or rerun the flow. A resume that returns `INTENT_CREATION_FAILED` with
+`context.reason: 'atomic-batch-failed'` means nothing landed: drop the saved state and run the flow again.
+After a refused batch, submit the `intent` and `relayData` of the deposit intent you created again. In
+React, no `sodax-dapp-kit` hook batches this flow: `useLeverageYieldApiApproveAndBroadcast` approves in its
+own prompts. The runnable flow is
 [`leverageYieldApiApprovalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/backendApi/leverageYieldApiApprovalBatch.test.ts): it asserts the
-batch order, the new intent after a refusal, and the resume of an unconfirmed batch from the persisted state.
+batch order, the new intent after a refusal, a `submitTx` retry and both outcomes of a resume from the
+persisted state.
 That a hub source or a wallet that cannot batch stays sequential is asserted in
 [`approvalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/utils/approvalBatch.test.ts).
 
