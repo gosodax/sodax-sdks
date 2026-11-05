@@ -226,7 +226,7 @@ const { mutateAsync: submitVaultTx } = useLeverageYieldApiSubmitTx();
 await submitVaultTx({ request, apiConfig: { baseURL: 'https://...' } });
 ```
 
-Prefer `useLeverageYieldApiApproveAndBroadcast` over `useLeverageYieldApiApprove`: a guarded deposit token can need its stale allowance cleared first, and the approve-and-broadcast hook owns plan → sign → broadcast → wait in that order (reporting each step through `onProgress`) and invalidates `['leverageYieldApi','allowance']` itself.
+Prefer `useLeverageYieldApiApproveAndBroadcast` over `useLeverageYieldApiApprove`: a guarded deposit token can need its stale allowance cleared first, and the approve-and-broadcast hook owns plan → sign → broadcast → wait in that order (reporting each step through `onProgress`) and invalidates `['leverageYieldApi','allowance']` itself, after re-checking the API's allowance for up to about 15 seconds (the API's RPC can trail the node that confirmed the approve).
 
 > Full list in [hooks-index.md](../reference/hooks-index.md); key shapes in [querykey-conventions.md](../reference/querykey-conventions.md). For non-React callers, `sodax.api.leverageYield` is documented in the `sodax-sdk` skill (integration mode).
 
