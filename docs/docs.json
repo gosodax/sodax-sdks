@@ -257,7 +257,16 @@
                       "base/money-market",
                       "base/wallets",
                       "base/networks-and-assets",
-                      "base/faq"
+                      "base/faq",
+                      {
+                        "group": "Recipes",
+                        "icon": "book-open",
+                        "pages": [
+                          "base/recipes/accept-any-token",
+                          "base/recipes/lending-spoke",
+                          "base/recipes/cross-network-balances"
+                        ]
+                      }
                     ]
                   },
                   {

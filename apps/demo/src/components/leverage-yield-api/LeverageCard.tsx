@@ -626,7 +626,7 @@ export default function LeverageCard({
                   {isApproving ? (
                     <>
                       <Loader2 className="animate-spin" />
-                      {approvalProgress && approvalStepLabel(approvalProgress)}
+                      {(approvalProgress && approvalStepLabel(approvalProgress)) ?? 'Approving…'}
                     </>
                   ) : (
                     'Approve'

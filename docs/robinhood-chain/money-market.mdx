@@ -5,7 +5,7 @@ icon: sack-dollar
 ---
 
 <Note>
-  **Needs the next SDK release.** The backend config lists money market tokens for Robinhood Chain, but `@sodax/sdk` 2.1.0 lists none, so on 2.1.0 these calls fail validation with an unsupported-token error. Robinhood Chain money market support is on `main` for the next release. The code below is written for that release.
+  **Seeing an unsupported-token error?** The SDK validates tokens against the lists it ships with. Upgrade `@sodax/sdk` to the latest release.
 </Note>
 
 Fragmented money markets mean lower capital efficiency and worse rates. The SODAX money market pools lending liquidity on the hub while letting users act from any supported network, including Robinhood Chain. A user can supply tokens from Robinhood Chain and borrow on another network, or borrow into their Robinhood Chain account against collateral held elsewhere, without your product running its own lending infrastructure.
