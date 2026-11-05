@@ -1699,6 +1699,7 @@ describe('BridgeService.getDetailedStatus', () => {
         invariant(!result.ok, 'expected LOOKUP_FAILED');
         expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
         expect(result.error.context?.hubTxHash).toBe(DST_TX);
+        expect(result.error.context?.mpcRelay).toBe(true);
       });
 
       it('answers with that packet once it lands', async () => {
@@ -1746,6 +1747,7 @@ describe('BridgeService.getDetailedStatus', () => {
       invariant(!result.ok, 'expected LOOKUP_FAILED');
       expect(result.error.code).toBe('LOOKUP_FAILED');
       expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(true);
       expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
     });
   });
@@ -1782,6 +1784,7 @@ describe('BridgeService.getDetailedStatus', () => {
 
       invariant(!result.ok, 'expected LOOKUP_FAILED');
       expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(true);
     });
 
     it('does not read the hub receipt when a hub-source packet already answers', async () => {
@@ -1804,6 +1807,19 @@ describe('BridgeService.getDetailedStatus', () => {
 
       invariant(!result.ok, 'expected LOOKUP_FAILED');
       expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(false);
+    });
+
+    it('keeps retrying a hub-source bridge to an MPC-relay chain while its release cannot be read', async () => {
+      packets([]);
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({ ok: false, error: new Error('rpc down') });
+
+      const result = await sodaxBE.bridge.getDetailedStatus({ ...hubKey, dstChainKey: ChainKeys.TRON_MAINNET });
+
+      // No packet can exist for that bridge, so a budgetable packet miss would spend its budget on an outage.
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBeUndefined();
+      expect(result.error.context?.mpcRelay).toBe(true);
     });
 
     it('does not report a spoke-source bridge final when its packet only reached the hub', async () => {
@@ -1816,6 +1832,9 @@ describe('BridgeService.getDetailedStatus', () => {
       expect(sodaxBE.spoke.getHubRelease).toHaveBeenCalledWith(DST_TX);
       invariant(!result.ok, 'expected LOOKUP_FAILED');
       expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(true);
+      // The first leg reached the hub, so the release gets a budget of its own.
+      expect(result.error.context?.hubTxHash).toBe(DST_TX);
     });
 
     it('answers a spoke-source bridge from the release record once paid', async () => {
@@ -1838,6 +1857,29 @@ describe('BridgeService.getDetailedStatus', () => {
 
       invariant(!result.ok, 'expected LOOKUP_FAILED');
       expect(result.error.context?.reason).toBeUndefined();
+    });
+
+    it('answers from the packet when the hub receipt is unreadable and dstChainKey is off the MPC relay', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({ ok: false, error: new Error('rpc down') });
+
+      const result = await sodaxBE.bridge.getDetailedStatus({ ...key, dstChainKey: BSC });
+
+      invariant(result.ok && result.value.source === 'relay', 'expected the relay arm');
+      expect(result.value.data.dst_tx_hash).toBe(DST_TX);
+    });
+
+    it('still finds a release the hub tx sends to Tron when dstChainKey says otherwise', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      release({});
+
+      const result = await sodaxBE.bridge.getDetailedStatus({ ...key, dstChainKey: BSC });
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(true);
     });
   });
 

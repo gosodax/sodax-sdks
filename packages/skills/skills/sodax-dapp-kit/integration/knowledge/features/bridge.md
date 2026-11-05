@@ -20,10 +20,12 @@ useBridgeAllowance({ params: { payload: CreateBridgeIntentParams<K>, walletProvi
 // 'not-required' | 'atomic-batch' | 'sequential' — the path useBridgeWithApproval would take; not polled
 useBridgeApprovalStrategy({ params: { payload, walletProvider, allowAccountUpgrade? }, queryOptions });
 // Polls 3s from the source tx; stops on a terminal source, a rejected API key, or 40 consecutive
-// ambiguous reads. Result-wrapped — narrow `data.value.source` ('backend' | 'relay' | 'mpcRelay';
+// ambiguous reads (100 for a bridge with an MPC-relay end, tagged `context.mpcRelay`).
+// Result-wrapped — narrow `data.value.source` ('backend' | 'relay' | 'mpcRelay';
 // on 'mpcRelay' the hash is data.value.data.txs.hubMint.hash, or .txs.release.hash for a payout to Tron).
-// Feed it `srcChainTxHash` (plus `dstChainKey`, which a Tron source needs) on success, or
-// `error.context.srcTxHash` / `srcChainKey` when the bridge
+// Feed it `srcChainTxHash` (plus `dstChainKey`: a Tron source needs it, and with it a bridge between
+// intent-relay chains answers through a hub RPC outage) on success, or `error.context.srcTxHash` /
+// `srcChainKey` when the bridge
 // failed after broadcast (verify / relay codes) — the deposit may still deliver.
 useBridgeDetailedStatus({ params: { srcChainKey, srcTxHash, dstChainKey?, apiConfig? }, queryOptions });
 useGetBridgeableAmount({ params: { from: XToken, to: XToken }, queryOptions });

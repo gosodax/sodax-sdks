@@ -1343,11 +1343,11 @@ export class BridgeService {
     config?: RequestOverrideConfig,
   ): Promise<Result<DetailedBridgeStatus, BridgeDetailedStatusError>> {
     try {
-      // A bridge the backend never relays has no record there (it rejects an MPC-relay chain key outright):
-      // skip it, and count that as a definitive answer below.
+      // A bridge with an MPC-relay end is one the backend never relays, so it has no record there (it rejects
+      // an MPC-relay chain key outright): skip it, and count that as a definitive answer below.
       const { srcChainKey, dstChainKey } = params;
-      const skipsBackend = !backendRelaysBridge(srcChainKey, dstChainKey);
-      const record = skipsBackend
+      const hasMpcRelayEnd = !backendRelaysBridge(srcChainKey, dstChainKey);
+      const record = hasMpcRelayEnd
         ? undefined
         : await this.backendApi.bridge.getSubmitTxStatus({ txHash: params.srcTxHash, srcChainKey }, config);
 
@@ -1360,7 +1360,7 @@ export class BridgeService {
       if (record && !record.ok && isSodaxError(record.error) && isAuthFailure(record.error)) {
         return {
           ok: false,
-          error: this.detailedStatusLookupFailed(record.error, params.srcChainKey, {
+          error: this.detailedStatusLookupFailed(record.error, params, {
             status: record.error.context?.status,
           }),
         };
@@ -1382,7 +1382,7 @@ export class BridgeService {
         if (!minted.ok) {
           return {
             ok: false,
-            error: this.detailedStatusLookupFailed(minted.cause, params.srcChainKey, {
+            error: this.detailedStatusLookupFailed(minted.cause, params, {
               reason: minted.budgetable ? DETAILED_STATUS_NOT_DELIVERED : undefined,
             }),
           };
@@ -1402,7 +1402,7 @@ export class BridgeService {
         if (onward.ok) return { ok: true, value: { source: 'relay', data: onward.packet } };
         return {
           ok: false,
-          error: this.detailedStatusLookupFailed(onward.cause, params.srcChainKey, {
+          error: this.detailedStatusLookupFailed(onward.cause, params, {
             reason: onward.budgetable ? DETAILED_STATUS_NOT_DELIVERED : undefined,
             hubTxHash: minted.hubTxHash,
           }),
@@ -1430,12 +1430,17 @@ export class BridgeService {
         ? await resolvePaidHubRelease({ hubTxHash, backendAnswered, spoke: this.spoke })
         : undefined;
       if (release?.ok) return { ok: true, value: { source: 'mpcRelay', data: release.release } };
-      // An unreadable hub-source receipt leaves the packet miss as the better answer.
-      if (release && (delivered.ok || release.budgetable)) {
+      // A release the read cannot confirm is retried while the bridge may still pay out on the MPC relay:
+      // always when dstChainKey names one, and past the hub when dstChainKey is missing.
+      const dstOnMpcRelay = dstChainKey !== undefined && isMpcRelayChainKey(dstChainKey);
+      if (release && (release.budgetable || dstOnMpcRelay || (delivered.ok && dstChainKey === undefined))) {
         return {
           ok: false,
-          error: this.detailedStatusLookupFailed(release.cause, params.srcChainKey, {
+          error: this.detailedStatusLookupFailed(release.cause, params, {
             reason: release.budgetable ? DETAILED_STATUS_NOT_DELIVERED : undefined,
+            // Past the hub, the release leg gets a budget of its own.
+            hubTxHash: delivered.ok ? hubTxHash : undefined,
+            mpcRelay: release.budgetable || hasMpcRelayEnd,
           }),
         };
       }
@@ -1443,7 +1448,7 @@ export class BridgeService {
       if (!delivered.ok) {
         return {
           ok: false,
-          error: this.detailedStatusLookupFailed(delivered.cause, params.srcChainKey, {
+          error: this.detailedStatusLookupFailed(delivered.cause, params, {
             reason: delivered.budgetable ? DETAILED_STATUS_NOT_DELIVERED : undefined,
           }),
         };
@@ -1451,21 +1456,24 @@ export class BridgeService {
       return { ok: true, value: { source: 'relay', data: delivered.packet } };
     } catch (error) {
       // The relay client asserts on empty identifiers rather than returning a Result.
-      return { ok: false, error: this.detailedStatusLookupFailed(error, params.srcChainKey) };
+      return { ok: false, error: this.detailedStatusLookupFailed(error, params) };
     }
   }
 
   /**
    * `reason` is set only for {@link DETAILED_STATUS_NOT_DELIVERED} — the miss a caller can bound with
    * a retry budget. `status` is lifted for a rejected key so `isAuthFailure` recognises the wrapped
-   * error; it reads `context.status` and does not walk the cause chain.
+   * error; it reads `context.status` and does not walk the cause chain. `mpcRelay` marks a bridge with an
+   * MPC-relay end (from its chain keys, or a release found on the hub tx), which settles in minutes rather
+   * than seconds, so a caller can give it a longer budget.
    */
   private detailedStatusLookupFailed(
     cause: unknown,
-    srcChainKey: SpokeChainKey,
-    extra?: { reason?: string; status?: number; hubTxHash?: string },
+    { srcChainKey, dstChainKey }: DetailedBridgeStatusKey,
+    extra?: { reason?: string; status?: number; hubTxHash?: string; mpcRelay?: boolean },
   ): BridgeDetailedStatusError {
-    return lookupFailed('bridge', 'getDetailedStatus', cause, { srcChainKey, action: 'bridge', ...extra });
+    const mpcRelay = !backendRelaysBridge(srcChainKey, dstChainKey);
+    return lookupFailed('bridge', 'getDetailedStatus', cause, { srcChainKey, action: 'bridge', mpcRelay, ...extra });
   }
 
   /**

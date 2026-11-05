@@ -12,6 +12,7 @@ import type { ReadHookParams } from '../shared/types.js';
 import { advanceNotFoundStreak, INITIAL_NOT_FOUND_STREAK } from '../shared/notFoundStreak.js';
 import {
   getBridgeDetailedStatusRefetchInterval,
+  isBridgeMpcRelayRead,
   isBridgeNotDelivered,
 } from './getBridgeDetailedStatusRefetchInterval.js';
 
@@ -28,6 +29,12 @@ export type UseBridgeDetailedStatusParams = ReadHookParams<
   }
 >;
 
+/** The hub tx a miss is waiting on past, once its first leg has reached the hub. */
+function onwardHubTxHash(data: UseBridgeDetailedStatusResult): string | undefined {
+  const hubTxHash = data && !data.ok ? data.error.context?.hubTxHash : undefined;
+  return typeof hubTxHash === 'string' ? hubTxHash : undefined;
+}
+
 /**
  * Hook for monitoring a bridge from its source-chain transaction.
  *
@@ -39,7 +46,8 @@ export type UseBridgeDetailedStatusParams = ReadHookParams<
  *
  * Polls every 3s. Stops once the answering source is terminal (a relay packet always is), once the
  * backend rejects the API key, and — like `useDetailedStatus` — after 40 consecutive *ambiguous*
- * reads, meaning a `LOOKUP_FAILED` whose relay has no packet for the tx. A dependency outage keeps
+ * reads, meaning a `LOOKUP_FAILED` whose relay has no packet for the tx — 100, about 5 minutes, for a bridge
+ * with an MPC-relay end (`context.mpcRelay`), which settles more slowly. A dependency outage keeps
  * polling instead, so the read recovers by itself; any real answer resets the budget. Override with
  * `queryOptions.refetchInterval`.
  *
@@ -49,11 +57,6 @@ export type UseBridgeDetailedStatusParams = ReadHookParams<
  * if (data?.ok && data.value.source === 'relay') console.log(data.value.data.dst_tx_hash);
  * ```
  */
-/** The hub tx a Tron-source miss is waiting on past the hub mint, if any. */
-function onwardHubTxHash(data: UseBridgeDetailedStatusResult): string | undefined {
-  const hubTxHash = data && !data.ok ? data.error.context?.hubTxHash : undefined;
-  return typeof hubTxHash === 'string' ? hubTxHash : undefined;
-}
 
 export const useBridgeDetailedStatus = ({
   params,
@@ -76,15 +79,17 @@ export const useBridgeDetailedStatus = ({
     },
     enabled: !!srcChainKey && !!srcTxHash,
     refetchInterval: query => {
-      // Reaching the hub mint is progress, so the leg after it gets a budget of its own.
-      const hubTxHash = onwardHubTxHash(query.state.data);
+      // Reaching the hub is progress, so the leg after it gets a budget of its own. An MPC-relay miss counts
+      // on its own streak too, so one untagged miss in between cannot cut its longer budget short.
+      const { data } = query.state;
+      const leg = [onwardHubTxHash(data), isBridgeMpcRelayRead(data) ? 'mpcRelay' : undefined].filter(Boolean);
       notFoundStreakRef.current = advanceNotFoundStreak(
         notFoundStreakRef.current,
-        pollKey && hubTxHash ? `${pollKey}:${hubTxHash}` : pollKey,
-        isBridgeNotDelivered(query.state.data),
+        pollKey && [pollKey, ...leg].join(':'),
+        isBridgeNotDelivered(data),
         query.state.dataUpdateCount,
       );
-      return getBridgeDetailedStatusRefetchInterval(query.state.data, notFoundStreakRef.current.consecutiveNotFound);
+      return getBridgeDetailedStatusRefetchInterval(data, notFoundStreakRef.current.consecutiveNotFound);
     },
     ...queryOptions,
   });
