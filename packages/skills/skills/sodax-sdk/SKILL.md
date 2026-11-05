@@ -54,6 +54,7 @@ This skill documents the **SDK call sites** — what to import, how to construct
 
 - **Wallet provider implementations** (`IEvmWalletProvider`, `ISolanaWalletProvider`, etc.) → **load the `sodax-wallet-sdk-core` skill** (integration mode). It ships ready-made provider classes for all 9 chain families, both private-key (Node / scripts) and browser-extension modes. This skill only treats wallet providers as a contract (`declare const evmWallet: IEvmWalletProvider`).
 - **React hooks wrapping the SDK** → **load the `sodax-dapp-kit` skill** instead of this one.
+- **Making a swap for the user now, or reading live SODAX data, with no code to write** → the [Builders MCP](https://docs.sodax.com/builders-mcp). Its swap tools quote a swap, return the transactions for the user's wallet to sign, then submit and track it. Come back to this skill once the task is writing code.
 - **Browser wallet connectivity** (connect / disconnect / chain switching for React apps) → **load the `sodax-wallet-sdk-react` skill**.
 
 ### App-layer concerns the SDK is intentionally silent on
