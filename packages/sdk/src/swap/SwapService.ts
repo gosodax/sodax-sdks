@@ -1573,7 +1573,7 @@ export class SwapService {
       // deposits originate from the trading wallet, not the personal one.
       let walletAddress: string = personalAddress;
       if (isBitcoinChainKeyType(params.srcChainKey)) {
-        if (_params.raw === false) {
+        if (!_params.raw) {
           // Non-raw needs a provider to sign; only TRADING mode needs Bound auth (USER is self-custody).
           swapInvariant(
             isBitcoinWalletProviderType(_params.walletProvider),

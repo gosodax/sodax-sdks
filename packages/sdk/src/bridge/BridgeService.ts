@@ -1065,7 +1065,7 @@ export class BridgeService {
       // deposit address; the derivation is a public GET). Wallet-provider + Radfi auth stay non-raw only.
       let walletAddress: string = personalAddress;
       if (isBitcoinChainKeyType(params.srcChainKey)) {
-        if (_params.raw === false) {
+        if (!_params.raw) {
           bridgeInvariant(
             isBitcoinWalletProviderType(_params.walletProvider),
             `Invalid wallet provider for chain key: ${params.srcChainKey}. Expected bitcoin wallet provider.`,

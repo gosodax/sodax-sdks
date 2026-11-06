@@ -232,6 +232,16 @@ describe('BridgeService.createBridgeIntent — Bitcoin USER mode', () => {
     expect(ensureRadfiSpy).not.toHaveBeenCalled();
   });
 
+  it('runs Bound Exchange auth in TRADING mode when a signed call omits raw', async () => {
+    Object.defineProperty(sodax.spoke.bitcoin, 'walletMode', { value: 'TRADING', configurable: true });
+    const { params, walletProvider } = btcBridgeInput();
+
+    const result = await sodax.bridge.createBridgeIntent({ params, walletProvider });
+
+    expect(result.ok).toBe(true);
+    expect(ensureRadfiSpy).toHaveBeenCalledWith(walletProvider);
+  });
+
   it('passes skipSimulation=true so the hub skips EVM simulation for Bitcoin USER deposits', async () => {
     await sodax.bridge.createBridgeIntent(btcBridgeInput());
     expect(depositSpy).toHaveBeenCalledWith(expect.objectContaining({ skipSimulation: true }));

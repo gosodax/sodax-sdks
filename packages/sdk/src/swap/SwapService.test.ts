@@ -1029,6 +1029,22 @@ describe('SwapService.createIntent', () => {
       expect(ensureRadfiSpy).toHaveBeenCalledWith(mockBitcoinProvider);
     });
 
+    it('runs the same Bound Exchange setup when a signed Bitcoin call omits raw', async () => {
+      const svc = sodax.swaps;
+      mocks.getUserHubWalletAddress.mockResolvedValueOnce('0xhubwallet');
+      mocks.constructCreateIntentData.mockReturnValueOnce(['0xintentdata', makeIntent(ChainKeys.BITCOIN_MAINNET), 0n]);
+      vi.spyOn(svc.spoke, 'deposit').mockResolvedValueOnce({ ok: true, value: '0xdeposit-hash' });
+      vi.spyOn(svc.spoke.bitcoin, 'getEffectiveWalletAddress').mockImplementation(async (a: string) => a);
+      const ensureRadfiSpy = vi.spyOn(svc.spoke.bitcoin.radfi, 'ensureRadfiAccessToken').mockResolvedValue(undefined);
+
+      await svc.createIntent({
+        params: { ...intentInput(ChainKeys.BITCOIN_MAINNET), srcAddress: 'bc1qusersource' },
+        walletProvider: mockBitcoinProvider,
+      });
+
+      expect(ensureRadfiSpy).toHaveBeenCalledWith(mockBitcoinProvider);
+    });
+
     it('on Bitcoin raw=true, derives the trading address, skips Bound auth, and threads extras.bound.accessToken to deposit', async () => {
       const svc = sodax.swaps;
       mocks.getUserHubWalletAddress.mockResolvedValueOnce('0xhubwallet');
