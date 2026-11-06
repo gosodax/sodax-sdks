@@ -212,9 +212,13 @@ The errors most likely to hit on a fresh install or first port.
 
 - v1 constant name. Use `ChainKeys.SONIC_MAINNET`. See [`breaking-changes/type-system.md`](../../migration-v1-to-v2/knowledge/breaking-changes/type-system.md) § 1.
 
-### "Object literal may only specify known properties, and 'walletProvider' does not exist in type ..."
+### "Property 'walletProvider' is missing in type ... but required in type '{ raw?: false ...; walletProvider: ... }'"
 
-- Forgot `raw: false` (or `raw: true`) discriminator on the call. Add it. See [`architecture.md`](architecture.md) § 6.
+- A signed call without a `walletProvider`. Pass the chain's wallet provider, or `raw: true` to build an unsigned tx. See [`architecture.md`](architecture.md) § 6.
+
+### "Type 'I…WalletProvider' is not assignable to type 'undefined'"
+
+- `raw: true` together with a `walletProvider`. Drop one of them. See [`architecture.md`](architecture.md) § 6.
 
 ### "Property 'tx' does not exist on type 'SwapResponse'" or similar
 

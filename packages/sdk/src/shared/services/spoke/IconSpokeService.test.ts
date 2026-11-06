@@ -148,26 +148,29 @@ describe('IconSpokeService.estimateGas', () => {
 // =========================================================================
 
 describe('IconSpokeService.deposit', () => {
-  const depositParams = <Raw extends boolean>(
-    overrides: Partial<DepositParams<typeof ICON, Raw>>,
-  ): DepositParams<typeof ICON, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: ICON,
-      to: HUB_WALLET,
-      token: ICON_BNUSD,
-      amount: 1_000n,
-      data: '0x' as Hex,
-      raw: false,
-      walletProvider: mockIconProvider,
-      ...overrides,
-    }) as unknown as DepositParams<typeof ICON, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
+  const depositFields: Omit<DepositParams<typeof ICON, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: ICON,
+    to: HUB_WALLET,
+    token: ICON_BNUSD,
+    amount: 1_000n,
+    data: '0x' as Hex,
+  };
+  const depositParams = (overrides: Partial<DepositParams<typeof ICON, false>>): DepositParams<typeof ICON, false> => ({
+    ...depositFields,
+    walletProvider: mockIconProvider,
+    ...overrides,
+  });
+  const rawDepositParams = (
+    overrides: Partial<DepositParams<typeof ICON, true>>,
+  ): DepositParams<typeof ICON, true> => ({
+    ...depositFields,
+    ...overrides,
+    raw: true,
+  });
 
   it("native ICX raw=true → 'to' is substituted with wICX and value is BigIntToHex(amount)", async () => {
-    const result = (await iconSpoke.deposit(depositParams<true>({ token: ICON_NATIVE, raw: true }))) as Record<
-      string,
-      unknown
-    >;
+    const result = await iconSpoke.deposit(rawDepositParams({ token: ICON_NATIVE }));
 
     // Native path resolves `to` to wICX; non-native uses the token address directly.
     expect(result.to).toBe(ICON_WICX);
@@ -178,10 +181,7 @@ describe('IconSpokeService.deposit', () => {
   });
 
   it('non-native token raw=true → `to` is the token address and value is 0x0', async () => {
-    const result = (await iconSpoke.deposit(depositParams<true>({ token: ICON_BNUSD, raw: true }))) as Record<
-      string,
-      unknown
-    >;
+    const result = await iconSpoke.deposit(rawDepositParams({ token: ICON_BNUSD }));
 
     expect(result.to).toBe(ICON_BNUSD);
     expect(result.value).toBe('0x0');
@@ -190,7 +190,7 @@ describe('IconSpokeService.deposit', () => {
   it('raw=false → walletProvider.sendTransaction receives the right payload (non-native)', async () => {
     (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
 
-    const result = await iconSpoke.deposit(depositParams<false>({ raw: false, token: ICON_BNUSD }));
+    const result = await iconSpoke.deposit(depositParams({ token: ICON_BNUSD }));
 
     expect(result).toBe(TX_HASH);
     expect(mockIconProvider.sendTransaction).toHaveBeenCalledTimes(1);
@@ -210,7 +210,7 @@ describe('IconSpokeService.deposit', () => {
   it('raw=false native → walletProvider.sendTransaction gets wICX as `to` and amount as value', async () => {
     (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
 
-    await iconSpoke.deposit(depositParams<false>({ raw: false, token: ICON_NATIVE }));
+    await iconSpoke.deposit(depositParams({ token: ICON_NATIVE }));
 
     const sent = (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
     expect(sent).toMatchObject({ to: ICON_WICX, value: '0x3e8' });
@@ -459,22 +459,16 @@ describe('IconSpokeService.getWalletBalances', () => {
 // =========================================================================
 
 describe('IconSpokeService.sendMessage', () => {
-  const sendMessageParams = <Raw extends boolean>(
-    overrides: Partial<SendMessageParams<typeof ICON, Raw>>,
-  ): SendMessageParams<typeof ICON, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: ICON,
-      dstChainKey: SONIC,
-      dstAddress: DST_ADDR,
-      payload: '0xdeadbeef' as Hex,
-      raw: false,
-      walletProvider: mockIconProvider,
-      ...overrides,
-    }) as unknown as SendMessageParams<typeof ICON, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
+  const sendMessageFields: Omit<SendMessageParams<typeof ICON, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: ICON,
+    dstChainKey: SONIC,
+    dstAddress: DST_ADDR,
+    payload: '0xdeadbeef' as Hex,
+  };
 
   it("raw=true → returns a rawTx targeting the connection contract with method='sendMessage'", async () => {
-    const result = (await iconSpoke.sendMessage(sendMessageParams<true>({ raw: true }))) as Record<string, unknown>;
+    const result = await iconSpoke.sendMessage({ ...sendMessageFields, raw: true });
 
     expect(result.to).toBe(ICON_CONNECTION);
     expect(result.from).toBe(SRC_ADDR);
@@ -489,7 +483,7 @@ describe('IconSpokeService.sendMessage', () => {
   it('raw=false → walletProvider.sendTransaction receives the connection payload', async () => {
     (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
 
-    const result = await iconSpoke.sendMessage(sendMessageParams<false>({ raw: false }));
+    const result = await iconSpoke.sendMessage({ ...sendMessageFields, walletProvider: mockIconProvider });
 
     expect(result).toBe(TX_HASH);
     const sent = (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];

@@ -483,27 +483,33 @@ describe('SuiSpokeService.viewContract', () => {
 // =========================================================================
 
 describe('SuiSpokeService.deposit', () => {
-  const depositParams = <Raw extends boolean>(
-    overrides: Partial<DepositParams<typeof SUI, Raw>>,
-  ): DepositParams<typeof SUI, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: SUI,
-      to: HUB_WALLET,
-      token: SUI_BNUSD,
-      amount: 1_000n,
-      data: '0x' as Hex,
-      raw: false,
-      walletProvider: mockSuiProvider,
-      ...overrides,
-    }) as unknown as DepositParams<typeof SUI, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
+  const depositFields: Omit<DepositParams<typeof SUI, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: SUI,
+    to: HUB_WALLET,
+    token: SUI_BNUSD,
+    amount: 1_000n,
+    data: '0x' as Hex,
+  };
+  const depositParams = (
+    overrides: Partial<DepositParams<typeof SUI, false>> = {},
+  ): DepositParams<typeof SUI, false> => ({
+    ...depositFields,
+    walletProvider: mockSuiProvider,
+    ...overrides,
+  });
+  const rawDepositParams = (overrides: Partial<DepositParams<typeof SUI, true>>): DepositParams<typeof SUI, true> => ({
+    ...depositFields,
+    ...overrides,
+    raw: true,
+  });
 
   const expectedTransferTarget = `${SUI_ASSET_MGR_PKG}::${SUI_ASSET_MGR_MOD}::transfer`;
 
   it('native raw=true → returns rawTx targeting <assetManager>::transfer with value=amount', async () => {
     vi.spyOn(suiSpoke.transport, 'fetchLatestPackageId').mockResolvedValue(SUI_ASSET_MGR_PKG);
 
-    const result = await suiSpoke.deposit(depositParams<true>({ token: SUI_NATIVE, raw: true }));
+    const result = await suiSpoke.deposit(rawDepositParams({ token: SUI_NATIVE }));
 
     expect(result.from).toBe(SRC_ADDR);
     expect(result.to).toBe(expectedTransferTarget);
@@ -521,7 +527,7 @@ describe('SuiSpokeService.deposit', () => {
     vi.spyOn(suiSpoke.transport, 'fetchLatestPackageId').mockResolvedValue(SUI_ASSET_MGR_PKG);
     const getCoinsSpy = vi.spyOn(suiSpoke.transport, 'getCoins');
 
-    await suiSpoke.deposit(depositParams<true>({ token: SUI_NATIVE, raw: true }));
+    await suiSpoke.deposit(rawDepositParams({ token: SUI_NATIVE }));
 
     expect(getCoinsSpy).not.toHaveBeenCalled();
   });
@@ -532,7 +538,7 @@ describe('SuiSpokeService.deposit', () => {
       makeCoinsPage([{ balance: '5000', coinObjectId: '0xa' }]),
     );
 
-    const result = await suiSpoke.deposit(depositParams<true>({ token: SUI_BNUSD, raw: true }));
+    const result = await suiSpoke.deposit(rawDepositParams({ token: SUI_BNUSD }));
 
     expect(result.to).toBe(expectedTransferTarget);
     expect(result.from).toBe(SRC_ADDR);
@@ -546,7 +552,7 @@ describe('SuiSpokeService.deposit', () => {
       .spyOn(suiSpoke.transport, 'getCoins')
       .mockResolvedValueOnce(makeCoinsPage([{ balance: '5000', coinObjectId: '0xa' }]));
 
-    await suiSpoke.deposit(depositParams<true>({ token: SUI_BNUSD, raw: true }));
+    await suiSpoke.deposit(rawDepositParams({ token: SUI_BNUSD }));
 
     expect(getCoinsSpy).toHaveBeenCalledWith(SRC_ADDR, SUI_BNUSD);
   });
@@ -558,7 +564,7 @@ describe('SuiSpokeService.deposit', () => {
     );
     (mockSuiProvider.signAndExecuteTxn as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_DIGEST);
 
-    const result = await suiSpoke.deposit(depositParams<false>({ raw: false, walletProvider: mockSuiProvider }));
+    const result = await suiSpoke.deposit(depositParams());
 
     expect(result).toBe(TX_DIGEST);
     expect(mockSuiProvider.signAndExecuteTxn).toHaveBeenCalledTimes(1);
@@ -583,7 +589,7 @@ describe('SuiSpokeService.deposit', () => {
   it('fetches the package id before building the tx', async () => {
     const spy = vi.spyOn(suiSpoke.transport, 'fetchLatestPackageId').mockResolvedValueOnce(SUI_ASSET_MGR_PKG);
 
-    const result = await suiSpoke.deposit(depositParams<true>({ token: SUI_NATIVE, raw: true }));
+    const result = await suiSpoke.deposit(rawDepositParams({ token: SUI_NATIVE }));
 
     expect(spy).toHaveBeenCalledWith(SUI_ASSET_MGR_CONFIG_ID);
     expect(result.to).toBe(expectedTransferTarget);
@@ -596,7 +602,7 @@ describe('SuiSpokeService.deposit', () => {
     );
     const packageSpy = vi.spyOn(suiSpoke.transport, 'fetchLatestPackageId').mockResolvedValue(SUI_ASSET_MGR_PKG);
 
-    const pending = suiSpoke.deposit(depositParams<true>({ token: SUI_BNUSD, raw: true }));
+    const pending = suiSpoke.deposit(rawDepositParams({ token: SUI_BNUSD }));
     await Promise.resolve();
 
     // The coin read is still pending; a sequential build would not have asked for the package yet.
@@ -612,8 +618,8 @@ describe('SuiSpokeService.deposit', () => {
       .mockResolvedValueOnce(SUI_ASSET_MGR_PKG)
       .mockResolvedValueOnce(upgraded);
 
-    const before = await suiSpoke.deposit(depositParams<true>({ token: SUI_NATIVE, raw: true }));
-    const after = await suiSpoke.deposit(depositParams<true>({ token: SUI_NATIVE, raw: true }));
+    const before = await suiSpoke.deposit(rawDepositParams({ token: SUI_NATIVE }));
+    const after = await suiSpoke.deposit(rawDepositParams({ token: SUI_NATIVE }));
 
     expect(before.to).toBe(expectedTransferTarget);
     expect(after.to).toBe(`${upgraded}::${SUI_ASSET_MGR_MOD}::transfer`);
@@ -625,7 +631,7 @@ describe('SuiSpokeService.deposit', () => {
     vi.spyOn(suiSpoke.transport, 'fetchLatestPackageId').mockResolvedValueOnce(upgraded);
     (mockSuiProvider.signAndExecuteTxn as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_DIGEST);
 
-    await suiSpoke.deposit(depositParams<false>({ token: SUI_NATIVE, raw: false, walletProvider: mockSuiProvider }));
+    await suiSpoke.deposit(depositParams({ token: SUI_NATIVE }));
 
     const [signed] = (mockSuiProvider.signAndExecuteTxn as ReturnType<typeof vi.fn>).mock.calls[0] as [Transaction];
     expect(signed.serialize()).toContain(`${upgraded}::${SUI_ASSET_MGR_MOD}::transfer`);
@@ -637,24 +643,18 @@ describe('SuiSpokeService.deposit', () => {
 // =========================================================================
 
 describe('SuiSpokeService.sendMessage', () => {
-  const sendMessageParams = <Raw extends boolean>(
-    overrides: Partial<SendMessageParams<typeof SUI, Raw>>,
-  ): SendMessageParams<typeof SUI, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: SUI,
-      dstChainKey: SONIC,
-      dstAddress: DST_ADDR,
-      payload: '0xdeadbeef' as Hex,
-      raw: false,
-      walletProvider: mockSuiProvider,
-      ...overrides,
-    }) as unknown as SendMessageParams<typeof SUI, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
+  const sendMessageFields: Omit<SendMessageParams<typeof SUI, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: SUI,
+    dstChainKey: SONIC,
+    dstAddress: DST_ADDR,
+    payload: '0xdeadbeef' as Hex,
+  };
 
   const expectedConnectionTarget = `${SUI_CONN_PKG}::${SUI_CONN_MOD}::send_message_ua`;
 
   it('raw=true → rawTx targets <connection>::send_message_ua with value=0n', async () => {
-    const result = await suiSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
+    const result = await suiSpoke.sendMessage({ ...sendMessageFields, raw: true });
 
     expect(result.from).toBe(SRC_ADDR);
     expect(result.to).toBe(expectedConnectionTarget);
@@ -669,9 +669,7 @@ describe('SuiSpokeService.sendMessage', () => {
   it('raw=false → delegates to walletProvider.signAndExecuteTxn and returns its digest', async () => {
     (mockSuiProvider.signAndExecuteTxn as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_DIGEST);
 
-    const result = await suiSpoke.sendMessage(
-      sendMessageParams<false>({ raw: false, walletProvider: mockSuiProvider }),
-    );
+    const result = await suiSpoke.sendMessage({ ...sendMessageFields, walletProvider: mockSuiProvider });
 
     expect(result).toBe(TX_DIGEST);
     expect(mockSuiProvider.signAndExecuteTxn).toHaveBeenCalledWith(expect.any(Transaction));

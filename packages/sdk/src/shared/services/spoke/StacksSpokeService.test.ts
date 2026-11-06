@@ -358,22 +358,30 @@ describe('StacksSpokeService.getImplContractAddress', () => {
 // =========================================================================
 
 describe('StacksSpokeService.deposit', () => {
-  const depositParams = <Raw extends boolean>(
-    overrides: Partial<DepositParams<typeof STACKS, Raw>>,
-  ): DepositParams<typeof STACKS, Raw> =>
-    ({
-      // raw-mode needs the signer public key via srcPublicKey; srcAddress is always the real Stacks address.
-      srcAddress: SRC_ADDR,
-      srcPublicKey: SRC_PUBKEY,
-      srcChainKey: STACKS,
-      to: HUB_WALLET,
-      token: STACKS_BNUSD,
-      amount: 1_000n,
-      data: '0x' as Hex,
-      raw: false,
-      walletProvider: mockStacksProvider,
-      ...overrides,
-    }) as unknown as DepositParams<typeof STACKS, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
+  const depositFields: Omit<DepositParams<typeof STACKS, false>, 'raw' | 'walletProvider'> = {
+    // raw-mode needs the signer public key via srcPublicKey; srcAddress is always the real Stacks address.
+    srcAddress: SRC_ADDR,
+    srcPublicKey: SRC_PUBKEY,
+    srcChainKey: STACKS,
+    to: HUB_WALLET,
+    token: STACKS_BNUSD,
+    amount: 1_000n,
+    data: '0x' as Hex,
+  };
+  const depositParams = (
+    overrides: Partial<DepositParams<typeof STACKS, false>>,
+  ): DepositParams<typeof STACKS, false> => ({
+    ...depositFields,
+    walletProvider: mockStacksProvider,
+    ...overrides,
+  });
+  const rawDepositParams = (
+    overrides: Partial<DepositParams<typeof STACKS, true>>,
+  ): DepositParams<typeof STACKS, true> => ({
+    ...depositFields,
+    ...overrides,
+    raw: true,
+  });
 
   // First action in `deposit` is `this.getImplContractAddress(assetManager)`. We spy on the spoke
   // method directly so we don't have to thread the impl through fetchCallReadOnlyFunction in every
@@ -383,7 +391,7 @@ describe('StacksSpokeService.deposit', () => {
   });
 
   it('raw=true (non-native) → returns { payload: "0x<hex>" } from makeUnsignedContractCall', async () => {
-    const result = await stacksSpoke.deposit(depositParams<true>({ raw: true, token: STACKS_BNUSD }));
+    const result = await stacksSpoke.deposit(rawDepositParams({ token: STACKS_BNUSD }));
 
     expect(result).toEqual({ payload: FAKE_PAYLOAD_HEX });
     // makeUnsignedContractCall receives the impl-split contract address/name, the deposited
@@ -407,7 +415,7 @@ describe('StacksSpokeService.deposit', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
 
-    const result = await stacksSpoke.deposit(depositParams<true>({ raw: true, token: STACKS_BNUSD }));
+    const result = await stacksSpoke.deposit(rawDepositParams({ token: STACKS_BNUSD }));
 
     expect(result).toEqual({ payload: FAKE_PAYLOAD_HEX });
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -415,7 +423,7 @@ describe('StacksSpokeService.deposit', () => {
   });
 
   it('raw=true non-native → first functionArg is someCV(Cl.principal(token))', async () => {
-    await stacksSpoke.deposit(depositParams<true>({ raw: true, token: STACKS_BNUSD }));
+    await stacksSpoke.deposit(rawDepositParams({ token: STACKS_BNUSD }));
 
     const call = mocks.makeUnsignedContractCall.mock.calls[0]?.[0];
     expect(call).toBeDefined();
@@ -429,7 +437,7 @@ describe('StacksSpokeService.deposit', () => {
   });
 
   it('raw=true native (STX) → first functionArg is noneCV()', async () => {
-    await stacksSpoke.deposit(depositParams<true>({ raw: true, token: STACKS_NATIVE }));
+    await stacksSpoke.deposit(rawDepositParams({ token: STACKS_NATIVE }));
 
     const call = mocks.makeUnsignedContractCall.mock.calls[0]?.[0];
     expect(call).toBeDefined();
@@ -438,7 +446,7 @@ describe('StacksSpokeService.deposit', () => {
   });
 
   it('raw=true → throws when srcPublicKey is missing (needed to build the unsigned tx)', async () => {
-    await expect(stacksSpoke.deposit(depositParams<true>({ srcPublicKey: undefined, raw: true }))).rejects.toThrow(
+    await expect(stacksSpoke.deposit(rawDepositParams({ srcPublicKey: undefined }))).rejects.toThrow(
       'Stacks raw transactions require srcPublicKey',
     );
     // makeUnsignedContractCall must NOT have been invoked once the invariant fails.
@@ -449,14 +457,14 @@ describe('StacksSpokeService.deposit', () => {
     // Real key G derives SRC_ADDR; pairing it with a different real address must be rejected — otherwise
     // the user signs a tx for an account other than the one hub-wallet derivation used.
     await expect(
-      stacksSpoke.deposit(depositParams<true>({ srcPublicKey: SRC_PUBKEY, srcAddress: OTHER_ADDR, raw: true })),
+      stacksSpoke.deposit(rawDepositParams({ srcPublicKey: SRC_PUBKEY, srcAddress: OTHER_ADDR })),
     ).rejects.toThrow('does not match srcAddress');
     expect(mocks.makeUnsignedContractCall).not.toHaveBeenCalled();
   });
 
   it('raw=true → throws when srcPublicKey is not a valid public key (e.g. a Stacks address)', async () => {
     // A c32 address is not hex, so getAddressFromPublicKey fails to parse it — surfaced as a clean error.
-    await expect(stacksSpoke.deposit(depositParams<true>({ srcPublicKey: SRC_ADDR, raw: true }))).rejects.toThrow(
+    await expect(stacksSpoke.deposit(rawDepositParams({ srcPublicKey: SRC_ADDR }))).rejects.toThrow(
       'not a valid Stacks public key',
     );
     expect(mocks.makeUnsignedContractCall).not.toHaveBeenCalled();
@@ -473,9 +481,7 @@ describe('StacksSpokeService.deposit', () => {
       }),
     );
 
-    const result = await stacksSpoke.deposit(
-      depositParams<false>({ raw: false, walletProvider: mockStacksProvider, token: STACKS_BNUSD }),
-    );
+    const result = await stacksSpoke.deposit(depositParams({ token: STACKS_BNUSD }));
 
     expect(result).toBe(TX_ID);
     // The reqData must carry the impl-split contract id, the transfer function name, and a
@@ -502,9 +508,7 @@ describe('StacksSpokeService.deposit', () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);
 
-    await stacksSpoke.deposit(
-      depositParams<false>({ raw: false, walletProvider: mockStacksProvider, token: STACKS_NATIVE }),
-    );
+    await stacksSpoke.deposit(depositParams({ token: STACKS_NATIVE }));
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(mockStacksProvider.sendTransaction).toHaveBeenCalledWith(
@@ -527,7 +531,7 @@ describe('StacksSpokeService.deposit', () => {
       }),
     );
 
-    await stacksSpoke.deposit(depositParams<false>({ raw: false, walletProvider: mockStacksProvider, token: SBTC }));
+    await stacksSpoke.deposit(depositParams({ token: SBTC }));
 
     expect(mockStacksProvider.sendTransaction).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -752,22 +756,16 @@ describe('StacksSpokeService.getWalletBalance / getWalletBalances', () => {
 // =========================================================================
 
 describe('StacksSpokeService.sendMessage', () => {
-  const sendMessageParams = <Raw extends boolean>(
-    overrides: Partial<SendMessageParams<typeof STACKS, Raw>>,
-  ): SendMessageParams<typeof STACKS, Raw> =>
-    ({
-      srcAddress: SRC_PUBKEY,
-      srcChainKey: STACKS,
-      dstChainKey: SONIC,
-      dstAddress: DST_ADDR,
-      payload: '0xdeadbeef' as Hex,
-      raw: false,
-      walletProvider: mockStacksProvider,
-      ...overrides,
-    }) as unknown as SendMessageParams<typeof STACKS, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
+  const sendMessageFields: Omit<SendMessageParams<typeof STACKS, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_PUBKEY,
+    srcChainKey: STACKS,
+    dstChainKey: SONIC,
+    dstAddress: DST_ADDR,
+    payload: '0xdeadbeef' as Hex,
+  };
 
   it('raw=true → builds an unsigned send-message tx and returns { payload: "0x<hex>" }', async () => {
-    const result = await stacksSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
+    const result = await stacksSpoke.sendMessage({ ...sendMessageFields, raw: true });
 
     expect(result).toEqual({ payload: FAKE_PAYLOAD_HEX });
     expect(mocks.makeUnsignedContractCall).toHaveBeenCalledWith(
@@ -786,7 +784,7 @@ describe('StacksSpokeService.sendMessage', () => {
   });
 
   it('raw=true → functionArgs are [uintCV(relayChainId), Cl.bufferFromHex(dstAddress), Cl.bufferFromHex(payload)]', async () => {
-    await stacksSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
+    await stacksSpoke.sendMessage({ ...sendMessageFields, raw: true });
 
     const call = mocks.makeUnsignedContractCall.mock.calls[0]?.[0];
     expect(call).toBeDefined();
@@ -801,9 +799,7 @@ describe('StacksSpokeService.sendMessage', () => {
   it('raw=false → delegates to walletProvider.sendTransaction and returns the txId', async () => {
     (mockStacksProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_ID);
 
-    const result = await stacksSpoke.sendMessage(
-      sendMessageParams<false>({ raw: false, walletProvider: mockStacksProvider }),
-    );
+    const result = await stacksSpoke.sendMessage({ ...sendMessageFields, walletProvider: mockStacksProvider });
 
     expect(result).toBe(TX_ID);
     expect(mockStacksProvider.sendTransaction).toHaveBeenCalledWith(

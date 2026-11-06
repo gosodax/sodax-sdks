@@ -20,6 +20,7 @@ import type {
   ClLiquidityIncreaseLiquidityAction,
   ClSupplyAction,
   CreateIntentParams,
+  DepositParams,
   EvmRawTransaction,
   FeeTokenApproveAction,
   Hex,
@@ -116,6 +117,7 @@ declare const recoveryP: ParamsOf<WithdrawHubAssetAction<BSC, false>>;
 declare const vaultP: ParamsOf<VaultSwapActionParams<BSC>>;
 declare const spokeApproveP: Flat<SpokeApproveParams<BSC, false>>;
 declare const sendMessageP: Flat<SendMessageParams<BSC, false>>;
+declare const depositP: Flat<DepositParams<BSC, false>>;
 declare const feeApproveP: ParamsOf<FeeTokenApproveAction<SONIC, false>>;
 declare const autoSwapP: ParamsOf<PartnerFeeClaimSwapAction<SONIC, false>>;
 declare const feeCancelP: ParamsOf<PartnerFeeClaimCancelAction<SONIC, false>>;
@@ -241,6 +243,10 @@ const evmRows = () =>
     'spoke.approve': [
       sodax.spoke.approve({ ...spokeApproveP, walletProvider: evm }),
       sodax.spoke.approve({ ...spokeApproveP, raw: true }),
+    ],
+    'spoke.deposit': [
+      sodax.spoke.deposit({ ...depositP, walletProvider: evm }),
+      sodax.spoke.deposit({ ...depositP, raw: true }),
     ],
     'spoke.sendMessage': [
       sodax.spoke.sendMessage({ ...sendMessageP, walletProvider: evm }),

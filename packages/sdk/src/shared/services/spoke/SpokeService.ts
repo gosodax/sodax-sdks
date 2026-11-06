@@ -696,15 +696,12 @@ export class SpokeService {
   }
 
   /**
-   * Deposit tokens to the spoke chain.
-   * @param {GetSpokeDepositParamsType<T extends SpokeProvider>} params - The parameters for the deposit, including the user's address, token address, amount, and additional data.
-   * @param {SpokeProvider} spokeProvider - The provider for the spoke chain.
-   * @param {EvmHubProvider} hubProvider - The provider for the hub chain.
-   * @param {boolean} raw - Whether to return raw transaction data.
-   * @param {boolean} skipSimulation - Whether to skip deposit simulation (optional, defaults to false).
-   * @returns {Promise<TxReturnType<T, R>>} A promise that resolves to the transaction hash.
+   * Deposit tokens from a spoke chain to the hub.
+   * @param params - Deposit fields plus the execution mode: `walletProvider` signs and broadcasts,
+   *   `raw: true` builds the unsigned tx. `skipSimulation` skips the hub-side simulation.
+   * @returns The tx hash when signed, the chain's raw transaction when `raw: true`.
    */
-  public async deposit<K extends SpokeChainKey, R extends boolean>(
+  public async deposit<K extends SpokeChainKey, R extends boolean = false>(
     params: DepositParams<K, R>,
   ): Promise<Result<TxReturnType<K, R>>> {
     try {
@@ -809,7 +806,7 @@ export class SpokeService {
     }
   }
 
-  public async verifyDepositSimulation<C extends SpokeChainKey, R extends boolean>(
+  public async verifyDepositSimulation<C extends SpokeChainKey, R extends boolean = false>(
     params: DepositParams<C, R>,
   ): Promise<Result<void>> {
     try {

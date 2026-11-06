@@ -568,24 +568,20 @@ describe('EvmSpokeService.deposit — chain-independent branches', () => {
       args: [token, HUB_WALLET, amount, data],
     });
 
-  const depositParams = <Raw extends boolean>(
-    overrides: Partial<DepositParams<typeof ARB, Raw>>,
-  ): DepositParams<typeof ARB, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: ARB,
-      to: HUB_WALLET,
-      token: ARB_TOKEN,
-      amount: 1_000n,
-      data: '0x' as Hex,
-      raw: false,
-      walletProvider: mockEvmProvider,
-      ...overrides,
-    }) as unknown as DepositParams<typeof ARB, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
+  const rawDepositParams = (overrides: Partial<DepositParams<typeof ARB, true>>): DepositParams<typeof ARB, true> => ({
+    srcAddress: SRC_ADDR,
+    srcChainKey: ARB,
+    to: HUB_WALLET,
+    token: ARB_TOKEN,
+    amount: 1_000n,
+    data: '0x' as Hex,
+    ...overrides,
+    raw: true,
+  });
 
   it('threads a non-default `data` blob through to the transfer call', async () => {
     const extraData = '0xfeedface' as Hex;
-    const result = await evmSpoke.deposit(depositParams<true>({ data: extraData, raw: true }));
+    const result = await evmSpoke.deposit(rawDepositParams({ data: extraData }));
     expect(result.data).toBe(expectedCalldata(ARB_TOKEN, 1_000n, extraData));
   });
 
@@ -595,7 +591,7 @@ describe('EvmSpokeService.deposit — chain-independent branches', () => {
     // the .toLowerCase() guard would silently send value=0 with a non-native calldata to the
     // asset manager (which would revert at the contract).
     const uppered = ARB_NATIVE.toUpperCase().replace('0X', '0x') as Address;
-    const result = await evmSpoke.deposit(depositParams<true>({ token: uppered, raw: true }));
+    const result = await evmSpoke.deposit(rawDepositParams({ token: uppered }));
     expect(result.value).toBe(1_000n);
   });
 

@@ -280,7 +280,7 @@ export class SonicSpokeService {
     }) satisfies Promise<TxReturnType<SonicChainKey, false>> as Promise<TxReturnType<SonicChainKey, Raw>>;
   }
 
-  public static async createSwapIntent<Raw extends boolean>(
+  public static async createSwapIntent<Raw extends boolean = false>(
     params: CreateSonicSwapIntentParams<Raw>,
   ): Promise<[TxReturnType<SonicChainKey, Raw>, Intent, bigint, Hex]> {
     const { createIntentParams, creatorHubWalletAddress, solverConfig, fee, hubProvider } = params;

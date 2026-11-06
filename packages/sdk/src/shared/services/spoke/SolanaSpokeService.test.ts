@@ -312,20 +312,19 @@ describe('SolanaSpokeService.estimateGas', () => {
 // =========================================================================
 
 describe('SolanaSpokeService.deposit', () => {
-  const depositParams = <Raw extends boolean>(
-    overrides: Partial<DepositParams<typeof SOL, Raw>>,
-  ): DepositParams<typeof SOL, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: SOL,
-      to: HUB_WALLET,
-      token: SOL_BNUSD,
-      amount: 1_000n,
-      data: '0x' as Hex,
-      raw: false,
-      walletProvider: mockSolanaProvider,
-      ...overrides,
-    }) as unknown as DepositParams<typeof SOL, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
+  const depositFields: Omit<DepositParams<typeof SOL, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: SOL,
+    to: HUB_WALLET,
+    token: SOL_BNUSD,
+    amount: 1_000n,
+    data: '0x' as Hex,
+  };
+  const rawDepositParams = (overrides: Partial<DepositParams<typeof SOL, true>>): DepositParams<typeof SOL, true> => ({
+    ...depositFields,
+    ...overrides,
+    raw: true,
+  });
 
   it('native (SOL) path builds asset-manager transfer with native vault accounts', async () => {
     vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
@@ -333,7 +332,7 @@ describe('SolanaSpokeService.deposit', () => {
       lastValidBlockHeight: 0,
     });
 
-    await solanaSpoke.deposit(depositParams<true>({ token: SOL_NATIVE, raw: true }));
+    await solanaSpoke.deposit(rawDepositParams({ token: SOL_NATIVE }));
 
     // Asset-manager program is fetched via the mocked utils helper.
     expect(mocks.getAssetManagerProgram).toHaveBeenCalledWith(SRC_ADDR, solanaConfig.rpcUrl, SOL_ASSET_MGR);
@@ -372,7 +371,7 @@ describe('SolanaSpokeService.deposit', () => {
     // The mint's owning token program is read on-chain to resolve legacy vs Token-2022.
     vi.spyOn(solanaSpoke.connection, 'getAccountInfo').mockResolvedValueOnce({ owner: TOKEN_PROGRAM_ID } as never);
 
-    await solanaSpoke.deposit(depositParams<true>({ token: SOL_BNUSD, raw: true }));
+    await solanaSpoke.deposit(rawDepositParams({ token: SOL_BNUSD }));
 
     const transferChain = (fakeAssetManagerProgram.methods.transfer as ReturnType<typeof vi.fn>).mock.results[0]
       ?.value as ReturnType<typeof mocks.makeChain>;
@@ -399,7 +398,7 @@ describe('SolanaSpokeService.deposit', () => {
       owner: TOKEN_2022_PROGRAM_ID,
     } as never);
 
-    await solanaSpoke.deposit(depositParams<true>({ token: SOL_BNUSD, raw: true }));
+    await solanaSpoke.deposit(rawDepositParams({ token: SOL_BNUSD }));
 
     const transferChain = (fakeAssetManagerProgram.methods.transfer as ReturnType<typeof vi.fn>).mock.results[0]
       ?.value as ReturnType<typeof mocks.makeChain>;
@@ -419,7 +418,7 @@ describe('SolanaSpokeService.deposit', () => {
       lastValidBlockHeight: 0,
     });
 
-    const result = await solanaSpoke.deposit(depositParams<true>({ token: SOL_NATIVE, raw: true, amount: 7_500n }));
+    const result = await solanaSpoke.deposit(rawDepositParams({ token: SOL_NATIVE, amount: 7_500n }));
 
     expect(result.from).toBe(SRC_ADDR);
     expect(result.to).toBe(ASSET_MGR_PROGRAM_ID.toBase58());
@@ -435,9 +434,11 @@ describe('SolanaSpokeService.deposit', () => {
     (mockSolanaProvider.buildV0Txn as ReturnType<typeof vi.fn>).mockResolvedValueOnce(signedTx);
     (mockSolanaProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_SIG);
 
-    const result = await solanaSpoke.deposit(
-      depositParams<false>({ token: SOL_NATIVE, raw: false, walletProvider: mockSolanaProvider }),
-    );
+    const result = await solanaSpoke.deposit({
+      ...depositFields,
+      walletProvider: mockSolanaProvider,
+      token: SOL_NATIVE,
+    });
 
     expect(result).toBe(TX_SIG);
     expect(mockSolanaProvider.buildV0Txn).toHaveBeenCalledTimes(1);
@@ -450,7 +451,7 @@ describe('SolanaSpokeService.deposit', () => {
       lastValidBlockHeight: 0,
     });
 
-    await solanaSpoke.deposit(depositParams<true>({ token: SOL_NATIVE, raw: true, data: '0x' as Hex }));
+    await solanaSpoke.deposit(rawDepositParams({ token: SOL_NATIVE, data: '0x' as Hex }));
 
     const transferArgs = (fakeAssetManagerProgram.methods.transfer as ReturnType<typeof vi.fn>).mock.calls[0];
     if (!transferArgs) throw new Error('transfer not called');
@@ -463,7 +464,7 @@ describe('SolanaSpokeService.deposit', () => {
       blockhash: FAKE_BLOCKHASH,
       lastValidBlockHeight: 0,
     });
-    await solanaSpoke.deposit(depositParams<true>({ token: SOL_NATIVE, raw: true }));
+    await solanaSpoke.deposit(rawDepositParams({ token: SOL_NATIVE }));
 
     expect(mocks.getConnectionProgram).toHaveBeenCalledWith(SRC_ADDR, solanaConfig.rpcUrl, SOL_CONNECTION);
     const transferChain = (fakeAssetManagerProgram.methods.transfer as ReturnType<typeof vi.fn>).mock.results[0]
@@ -737,19 +738,13 @@ describe('SolanaSpokeService.getWalletBalance / getWalletBalances', () => {
 // =========================================================================
 
 describe('SolanaSpokeService.sendMessage', () => {
-  const sendMessageParams = <Raw extends boolean>(
-    overrides: Partial<SendMessageParams<typeof SOL, Raw>>,
-  ): SendMessageParams<typeof SOL, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: SOL,
-      dstChainKey: SONIC,
-      dstAddress: DST_ADDR,
-      payload: '0xdeadbeef' as Hex,
-      raw: false,
-      walletProvider: mockSolanaProvider,
-      ...overrides,
-    }) as unknown as SendMessageParams<typeof SOL, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
+  const sendMessageFields: Omit<SendMessageParams<typeof SOL, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: SOL,
+    dstChainKey: SONIC,
+    dstAddress: DST_ADDR,
+    payload: '0xdeadbeef' as Hex,
+  };
 
   it('raw=true returns rawTx with to: connection.programId and value: 0n', async () => {
     vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
@@ -757,7 +752,7 @@ describe('SolanaSpokeService.sendMessage', () => {
       lastValidBlockHeight: 0,
     });
 
-    const result = await solanaSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
+    const result = await solanaSpoke.sendMessage({ ...sendMessageFields, raw: true });
 
     expect(result.from).toBe(SRC_ADDR);
     expect(result.to).toBe(CONNECTION_PROGRAM_ID.toBase58());
@@ -772,9 +767,7 @@ describe('SolanaSpokeService.sendMessage', () => {
     (mockSolanaProvider.buildV0Txn as ReturnType<typeof vi.fn>).mockResolvedValueOnce(signedTx);
     (mockSolanaProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_SIG);
 
-    const result = await solanaSpoke.sendMessage(
-      sendMessageParams<false>({ raw: false, walletProvider: mockSolanaProvider }),
-    );
+    const result = await solanaSpoke.sendMessage({ ...sendMessageFields, walletProvider: mockSolanaProvider });
 
     expect(result).toBe(TX_SIG);
     expect(mockSolanaProvider.buildV0Txn).toHaveBeenCalledTimes(1);
@@ -789,7 +782,7 @@ describe('SolanaSpokeService.sendMessage', () => {
     // Defensive guard against the relay-id table drifting.
     expect(getIntentRelayChainId(SONIC)).toBe(146n);
 
-    await solanaSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
+    await solanaSpoke.sendMessage({ ...sendMessageFields, raw: true });
 
     // First positional arg to sendMessage(...) must be a BN matching the relay id.
     const sendArgs = (fakeConnectionProgram.methods.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0];

@@ -231,26 +231,24 @@ describe('NearSpokeService.fillIntent', () => {
 // =========================================================================
 
 describe('NearSpokeService.deposit', () => {
-  const depositParams = <Raw extends boolean>(
-    overrides: Partial<DepositParams<typeof NEAR, Raw>>,
-  ): DepositParams<typeof NEAR, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: NEAR,
-      to: HUB_WALLET,
-      token: NEAR_BNUSD,
-      amount: 1_000n,
-      data: '0x' as Hex,
-      raw: false,
-      walletProvider: mockNearProvider,
-      ...overrides,
-    }) as unknown as DepositParams<typeof NEAR, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
+  const depositFields: Omit<DepositParams<typeof NEAR, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: NEAR,
+    to: HUB_WALLET,
+    token: NEAR_BNUSD,
+    amount: 1_000n,
+    data: '0x' as Hex,
+  };
+  const rawDepositParams = (
+    overrides: Partial<DepositParams<typeof NEAR, true>>,
+  ): DepositParams<typeof NEAR, true> => ({
+    ...depositFields,
+    ...overrides,
+    raw: true,
+  });
 
   it('native NEAR raw=true → transfer on assetManager with deposit=amount', async () => {
-    const tx = (await nearSpoke.deposit(depositParams<true>({ token: NEAR_NATIVE, raw: true }))) as {
-      signerId: string;
-      params: { contractId: string; method: string; deposit: bigint; gas: bigint };
-    };
+    const tx = await nearSpoke.deposit(rawDepositParams({ token: NEAR_NATIVE }));
 
     expect(tx.signerId).toBe(SRC_ADDR);
     expect(tx.params.contractId).toBe(NEAR_ASSET_MGR);
@@ -260,7 +258,7 @@ describe('NearSpokeService.deposit', () => {
   });
 
   it('non-native raw=true → ft_transfer_call on the token contract with deposit=1 yoctoNEAR', async () => {
-    const tx = await nearSpoke.deposit(depositParams<true>({ token: NEAR_BNUSD, raw: true }));
+    const tx = await nearSpoke.deposit(rawDepositParams({ token: NEAR_BNUSD }));
 
     expect(tx.params.contractId).toBe(NEAR_BNUSD);
     expect(tx.params.method).toBe('ft_transfer_call');
@@ -277,7 +275,7 @@ describe('NearSpokeService.deposit', () => {
   it('raw=false → delegates to walletProvider.signAndSubmitTxn and returns hash', async () => {
     (mockNearProvider.signAndSubmitTxn as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
 
-    const result = await nearSpoke.deposit(depositParams<false>({ raw: false }));
+    const result = await nearSpoke.deposit({ ...depositFields, walletProvider: mockNearProvider });
 
     expect(result).toBe(TX_HASH);
     expect(mockNearProvider.signAndSubmitTxn).toHaveBeenCalledTimes(1);
@@ -557,22 +555,16 @@ describe('NearSpokeService.registerStorage', () => {
 // =========================================================================
 
 describe('NearSpokeService.sendMessage', () => {
-  const sendMessageParams = <Raw extends boolean>(
-    overrides: Partial<SendMessageParams<typeof NEAR, Raw>>,
-  ): SendMessageParams<typeof NEAR, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: NEAR,
-      dstChainKey: SONIC,
-      dstAddress: DST_ADDR,
-      payload: '0xdeadbeef' as Hex,
-      raw: false,
-      walletProvider: mockNearProvider,
-      ...overrides,
-    }) as unknown as SendMessageParams<typeof NEAR, Raw>; // a literal fixture is not comparable to the generic `Raw` slot
+  const sendMessageFields: Omit<SendMessageParams<typeof NEAR, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: NEAR,
+    dstChainKey: SONIC,
+    dstAddress: DST_ADDR,
+    payload: '0xdeadbeef' as Hex,
+  };
 
   it('raw=true → returns tx targeting the connection contract with send_message', async () => {
-    const tx = await nearSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
+    const tx = await nearSpoke.sendMessage({ ...sendMessageFields, raw: true });
 
     expect(tx.signerId).toBe(SRC_ADDR);
     expect(tx.params.contractId).toBe(NEAR_CONNECTION);
@@ -586,7 +578,7 @@ describe('NearSpokeService.sendMessage', () => {
   it('raw=false → delegates to walletProvider.signAndSubmitTxn and returns hash', async () => {
     (mockNearProvider.signAndSubmitTxn as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
 
-    const result = await nearSpoke.sendMessage(sendMessageParams<false>({ raw: false }));
+    const result = await nearSpoke.sendMessage({ ...sendMessageFields, walletProvider: mockNearProvider });
     expect(result).toBe(TX_HASH);
   });
 
