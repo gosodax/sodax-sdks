@@ -6,10 +6,10 @@ icon: wallet
 
 Welcoming cross-network users means supporting the wallets they already use. On HyperEVM, SODAX works with any wallet that can sign EVM transactions on HyperEVM mainnet (chain ID 999), such as MetaMask. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
 
-
 <Note>
-  Using the HTTP API? Your server signs requests directly — no wallet SDK is needed. This page covers SDK wallet integration.
+  Using the HTTP API? You sign and broadcast the intent transaction yourself (see the [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll)), so these wallet packages are optional. This page covers SDK wallet integration.
 </Note>
+
 ## Account requirements
 
 - **The network may need adding.** If a user's wallet does not list HyperEVM yet, they add it as a custom network: chain ID 999, RPC URL `https://rpc.hyperliquid.xyz/evm`, currency symbol HYPE. Hyperliquid's [onboarding guide](https://hyperliquid.gitbook.io/hyperliquid-docs/onboarding/how-to-use-the-hyperevm) walks through it.

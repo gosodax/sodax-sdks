@@ -6,10 +6,10 @@ icon: wallet
 
 Welcoming cross-network users means supporting the wallets they already use. On LightLink, SODAX works with any wallet that can sign EVM transactions on LightLink Phoenix mainnet (chain ID 1890), such as MetaMask. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
 
-
 <Note>
-  Using the HTTP API? Your server signs requests directly — no wallet SDK is needed. This page covers SDK wallet integration.
+  Using the HTTP API? You sign and broadcast the intent transaction yourself (see the [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll)), so these wallet packages are optional. This page covers SDK wallet integration.
 </Note>
+
 ## Account requirements
 
 - **ETH for gas.** The signing account needs ETH on LightLink. Holding only LL or other tokens is not enough: the SDK sends standard gas-paying transactions, not LightLink Enterprise Mode ones.

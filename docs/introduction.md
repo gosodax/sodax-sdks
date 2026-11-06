@@ -6,7 +6,7 @@ description: >-
 icon: signs-post
 ---
 
-The HTTP API works from any language — quote, build an intent, submit, and poll status over REST, with no install required. The open-source SDK adds TypeScript types and abstractions for teams that want them.
+The HTTP API works from any language — quote, build an intent, sign and broadcast it, then submit and poll status over REST, with no install required. The open-source SDK adds TypeScript types and abstractions for teams that want them.
 
 <Card title="HTTP API" icon="server" href="/developers/http-api" horizontal arrow>
   Quote, build intent, submit-tx, and poll status — any language. [Get an API key at portal.sodax.com →](/developers/how-to/api-keys)
