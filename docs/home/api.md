@@ -5,28 +5,26 @@ description: Integrate SODAX from any language over the HTTP API.
 icon: server
 ---
 
-The HTTP API is the main path for new integrations. It works from any language and platform: quote, build intents, submit transactions, and check status over standard REST.
-
 ## Get started
 
-Get your API key at [portal.sodax.com](https://portal.sodax.com), then pick an API:
+The HTTP API is the main path for new integrations. It works from any language over standard REST. Get your API key at [portal.sodax.com](https://portal.sodax.com), then pick an API:
 
 <CardGroup cols={2}>
   <Card title="Swaps API" icon="rotate" href="/developers/http-api/swaps">
     Quote, build intent, submit-tx, status — the full swap lifecycle over REST.
   </Card>
   <Card title="Leverage Yield API" icon="money-bill-trend-up" href="/developers/http-api/leverage">
-    Open and close leveraged yield positions.
+    Deposit into and withdraw from leveraged yield vaults.
   </Card>
   <Card title="Oracle API" icon="chart-line" href="/developers/http-api/oracle">
-    Live token prices.
+    USD price candles and live solver prices.
   </Card>
   <Card title="Stats API" icon="chart-bar" href="/developers/http-api/stats">
-    Protocol statistics.
+    Networks, partners, assets, filled-intent volume and SODA supply.
   </Card>
 </CardGroup>
 
-The intent flow over REST: call **quote** → **build-intent** → **submit-tx** → poll **status**. The intent payload from build-intent passes directly to submit-tx. Your server never holds a user private key.
+A swap over REST goes **quote** → **build intent** → sign and broadcast it on the source chain → **submit-tx** → poll **status**. The [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll) walks through each call.
 
 [Get an API key →](/developers/how-to/api-keys)
 

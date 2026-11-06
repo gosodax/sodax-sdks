@@ -70,39 +70,22 @@
           {
             "group": "Start here",
             "icon": "rocket",
-            "pages": [
-              "index",
-              "introduction",
-              "quickstart",
-              "ai-integration-guide",
-              "builders-mcp"
-            ]
+            "pages": ["index", "introduction", "quickstart", "ai-integration-guide", "builders-mcp"]
           },
           {
             "group": "How SODAX works",
             "icon": "gears",
-            "pages": [
-              "home/why-sodax",
-              "home/how-execution-works",
-              "home/api"
-            ]
+            "pages": ["home/why-sodax", "home/how-execution-works", "home/api"]
           }
         ]
       },
       {
         "tab": "Solutions",
-        "pages": [
-          "swap/index",
-          "money-market/index",
-          "bridge/index",
-          "yield/index"
-        ]
+        "pages": ["swap/index", "money-market/index", "bridge/index", "yield/index"]
       },
       {
         "tab": "Widget",
-        "pages": [
-          "widget/index"
-        ]
+        "pages": ["widget/index"]
       },
       {
         "tab": "API",
@@ -211,9 +194,7 @@
               {
                 "group": "Bitcoin",
                 "icon": "bitcoin-sign",
-                "pages": [
-                  "developers/how-to/bitcoin-integration"
-                ]
+                "pages": ["developers/how-to/bitcoin-integration"]
               },
               {
                 "group": "Stellar",
@@ -454,9 +435,7 @@
           {
             "group": "Security",
             "icon": "shield-halved",
-            "pages": [
-              "developers/audits/index"
-            ]
+            "pages": ["developers/audits/index"]
           }
         ]
       },
@@ -509,26 +488,21 @@
               }
             ]
           },
-          {
-            "group": "Workshops",
-            "pages": [
-              "resources/workshops/leverage-yield",
-              "resources/workshops/colosseum-worlds-fair"
-            ]
-          }
+          { "group": "Workshops", "pages": ["resources/workshops/leverage-yield", "resources/workshops/colosseum-worlds-fair"] }
         ]
       },
       {
         "tab": "Help",
         "align": "end",
-        "pages": [
-          "developers/faq",
-          "contact"
-        ]
+        "pages": ["developers/faq", "contact"]
       }
     ]
   },
   "redirects": [
+    {
+      "source": "/home/sdk-stack",
+      "destination": "/home/api"
+    },
     {
       "source": "/resources/changelog",
       "destination": "/resources/product-updates"
@@ -892,10 +866,6 @@
     {
       "source": "/developers/packages/sdk/docs/BITCOIN_INTEGRATION",
       "destination": "/developers/how-to/bitcoin-integration"
-    },
-    {
-      "source": "/home/sdk-stack",
-      "destination": "/home/api"
     }
   ],
   "thumbnails": {
@@ -911,17 +881,7 @@
     }
   },
   "contextual": {
-    "options": [
-      "copy",
-      "view",
-      "assistant",
-      "chatgpt",
-      "claude",
-      "cursor",
-      "vscode",
-      "mcp",
-      "add-mcp"
-    ]
+    "options": ["copy", "view", "assistant", "chatgpt", "claude", "cursor", "vscode", "mcp", "add-mcp"]
   },
   "feedback": {
     "suggestEdit": true,
