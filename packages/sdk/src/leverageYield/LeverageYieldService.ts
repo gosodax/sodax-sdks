@@ -14,11 +14,6 @@ import {
   isEvmSpokeOnlyChainKeyType,
   isStellarChainKeyType,
   isEvmWalletProviderType,
-  isOptionalEvmWalletProviderType,
-  isOptionalStellarWalletProviderType,
-  type SpokeIsAllowanceValidParamsEvmSpoke,
-  type SpokeIsAllowanceValidParamsHub,
-  type SpokeIsAllowanceValidParamsStellar,
   isBitcoinChainKeyType,
   isPartnerFeeAmount,
   isPartnerFeePercentage,
@@ -97,7 +92,11 @@ import {
   type ApprovalStrategy,
   type ApprovalStrategyError,
 } from '../shared/utils/approvalBatch.js';
-import { intentDepositSpender } from '../swap/intentDepositSpender.js';
+import {
+  approveIntentDeposit,
+  buildIntentDepositApproveTxs,
+  isIntentDepositAllowanceValid,
+} from '../swap/intentDepositApproval.js';
 import type { ApprovalTxs } from '../shared/types/spoke-types.js';
 import { encodeFunctionData, erc20Abi, isAddress, isAddressEqual, isHex, parseAbi, zeroAddress } from 'viem';
 import type { ConfigService } from '../shared/config/ConfigService.js';
@@ -1608,34 +1607,7 @@ export class LeverageYieldService {
     params: CreateIntentParams<K>,
   ): Promise<Result<boolean>> {
     try {
-      const { srcChainKey } = params;
-      if (isHubChainKeyType(srcChainKey)) {
-        return await this.spoke.isAllowanceValid({
-          srcChainKey,
-          token: params.inputToken,
-          amount: params.inputAmount,
-          owner: params.srcAddress,
-          spender: intentDepositSpender(this.config, srcChainKey),
-        } satisfies SpokeIsAllowanceValidParamsHub);
-      }
-      if (isEvmSpokeOnlyChainKeyType(srcChainKey)) {
-        return await this.spoke.isAllowanceValid({
-          srcChainKey,
-          token: params.inputToken,
-          amount: params.inputAmount,
-          owner: params.srcAddress,
-          spender: intentDepositSpender(this.config, srcChainKey),
-        } satisfies SpokeIsAllowanceValidParamsEvmSpoke);
-      }
-      if (isStellarChainKeyType(srcChainKey)) {
-        return await this.spoke.isAllowanceValid({
-          srcChainKey,
-          token: params.inputToken,
-          amount: params.inputAmount,
-          owner: params.srcAddress,
-        } satisfies SpokeIsAllowanceValidParamsStellar);
-      }
-      return { ok: true, value: true };
+      return await isIntentDepositAllowanceValid(this.spoke, this.config, params);
     } catch (error) {
       return { ok: false, error };
     }
@@ -1647,14 +1619,12 @@ export class LeverageYieldService {
     srcChainKey: EvmSpokeOnlyChainKey,
   ): Promise<Result<ApprovalTxs<EvmSpokeOnlyChainKey>>> {
     try {
-      return await this.spoke.buildApproveTxs<EvmSpokeOnlyChainKey>({
+      const result = await buildIntentDepositApproveTxs(this.spoke, this.config, { ...params, srcChainKey });
+      leverageYieldInvariant(result, 'Approve only supported for hub (Sonic), EVM spokes, and Stellar', {
         srcChainKey,
-        owner: params.srcAddress as GetAddressType<EvmSpokeOnlyChainKey>,
-        token: params.inputToken as GetTokenAddressType<EvmSpokeOnlyChainKey>,
-        amount: params.inputAmount,
-        spender: intentDepositSpender(this.config, srcChainKey),
-        raw: true,
+        field: 'srcChainKey',
       });
+      return result;
     } catch (error) {
       return { ok: false, error };
     }
@@ -1664,51 +1634,18 @@ export class LeverageYieldService {
   private async approveDeposit<K extends SpokeChainKey>(
     _params: VaultSwapActionParams<K, false>,
   ): Promise<Result<TxReturnType<K, false>>> {
-    const { params, walletProvider } = _params;
     try {
-      if (isHubChainKeyType(params.srcChainKey) || isEvmSpokeOnlyChainKeyType(params.srcChainKey)) {
-        leverageYieldInvariant(
-          isOptionalEvmWalletProviderType(walletProvider),
-          'Invalid wallet provider. Expected Evm wallet provider.',
-        );
-        const result = await this.spoke.approve<HubChainKey | EvmSpokeOnlyChainKey, false>({
-          srcChainKey: params.srcChainKey,
-          owner: params.srcAddress as GetAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
-          token: params.inputToken as GetTokenAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
-          amount: params.inputAmount,
-          spender: intentDepositSpender(this.config, params.srcChainKey),
-          raw: false,
-          walletProvider,
-        });
-        if (!result.ok) return result;
-        return {
-          ok: true,
-          value: result.value satisfies TxReturnType<EvmSpokeOnlyChainKey, false> as TxReturnType<K, false>,
-        };
-      }
-      if (isStellarChainKeyType(params.srcChainKey)) {
-        leverageYieldInvariant(
-          isOptionalStellarWalletProviderType(walletProvider),
-          'Invalid wallet provider. Expected Stellar wallet provider.',
-        );
-        const result = await this.spoke.approve<StellarChainKey, false>({
-          srcChainKey: params.srcChainKey,
-          token: params.inputToken,
-          amount: params.inputAmount,
-          owner: params.srcAddress as GetAddressType<StellarChainKey>,
-          raw: false,
-          walletProvider,
-        });
-        if (!result.ok) return result;
-        return {
-          ok: true,
-          value: result.value satisfies TxReturnType<StellarChainKey, false> as TxReturnType<K, false>,
-        };
-      }
-      leverageYieldInvariant(false, 'Approve only supported for hub (Sonic), EVM spokes, and Stellar', {
-        srcChainKey: params.srcChainKey,
+      const result = await approveIntentDeposit<K, false>(
+        this.spoke,
+        this.config,
+        { ..._params, raw: false },
+        leverageYieldInvariant,
+      );
+      leverageYieldInvariant(result, 'Approve only supported for hub (Sonic), EVM spokes, and Stellar', {
+        srcChainKey: _params.params.srcChainKey,
         field: 'srcChainKey',
       });
+      return result;
     } catch (error) {
       return { ok: false, error };
     }

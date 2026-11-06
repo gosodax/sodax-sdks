@@ -21,15 +21,9 @@ import {
   isHubChainKeyType,
   reverseEncodeAddress,
   type SendMessageParams,
-  type SpokeIsAllowanceValidParamsEvmSpoke,
-  type SpokeIsAllowanceValidParamsHub,
-  type SpokeIsAllowanceValidParamsStellar,
   isEvmSpokeOnlyChainKeyType,
-  isStellarChainKeyType,
   isUndefinedOrValidWalletProviderForChainKey,
   relayTxAndWaitPacket,
-  isOptionalEvmWalletProviderType,
-  isOptionalStellarWalletProviderType,
   isBitcoinWalletProviderType,
   isEvmWalletProviderType,
   type RelayExtraData,
@@ -59,7 +53,11 @@ import {
 } from '../shared/utils/approvalBatch.js';
 import type { ApprovalTxs } from '../shared/types/spoke-types.js';
 import { selectSolvedIntentPacket } from './selectSolvedIntentPacket.js';
-import { intentDepositSpender } from './intentDepositSpender.js';
+import {
+  approveIntentDeposit,
+  buildIntentDepositApproveTxs,
+  isIntentDepositAllowanceValid,
+} from './intentDepositApproval.js';
 import { estimateSwapSpeedTier, type SwapSpeedTierParams, type SwapSpeedTierResult } from './speed-tier.js';
 import { isSodaxError, SodaxError } from '../errors/SodaxError.js';
 import { isAuthFailure } from '../errors/guards.js';
@@ -139,9 +137,7 @@ import {
   DEFAULT_DEADLINE_OFFSET,
   type GetAddressType,
   type GetTokenAddressType,
-  type HubChainKey,
   type EvmSpokeOnlyChainKey,
-  type StellarChainKey,
   type SpokeExecActionParams,
   type SonicChainKey,
   type EvmRawTransaction,
@@ -1273,39 +1269,7 @@ export class SwapService {
     _params: SwapActionParams<K, boolean>,
   ): Promise<Result<boolean>> {
     try {
-      const { params } = _params;
-      const srcChainKey = params.srcChainKey;
-
-      if (isHubChainKeyType(srcChainKey)) {
-        return await this.spoke.isAllowanceValid({
-          srcChainKey,
-          token: params.inputToken,
-          amount: params.inputAmount,
-          owner: params.srcAddress,
-          spender: intentDepositSpender(this.config, srcChainKey),
-        } satisfies SpokeIsAllowanceValidParamsHub);
-      }
-
-      if (isEvmSpokeOnlyChainKeyType(srcChainKey)) {
-        return await this.spoke.isAllowanceValid({
-          srcChainKey,
-          token: params.inputToken,
-          amount: params.inputAmount,
-          owner: params.srcAddress,
-          spender: intentDepositSpender(this.config, srcChainKey),
-        } satisfies SpokeIsAllowanceValidParamsEvmSpoke);
-      }
-
-      if (isStellarChainKeyType(srcChainKey)) {
-        return await this.spoke.isAllowanceValid({
-          srcChainKey,
-          token: params.inputToken,
-          amount: params.inputAmount,
-          owner: params.srcAddress,
-        } satisfies SpokeIsAllowanceValidParamsStellar);
-      }
-
-      return { ok: true, value: true };
+      return await isIntentDepositAllowanceValid(this.spoke, this.config, _params.params);
     } catch (error) {
       return { ok: false, error };
     }
@@ -1333,77 +1297,16 @@ export class SwapService {
   public async approve<K extends SpokeChainKey, Raw extends boolean>(
     _params: SwapActionParams<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>>> {
-    const { params } = _params;
-    const wrapApproveFailure = (cause: unknown) => approveFailed('swap', cause);
-
     try {
-      if (isHubChainKeyType(params.srcChainKey) || isEvmSpokeOnlyChainKeyType(params.srcChainKey)) {
-        invariant(
-          isOptionalEvmWalletProviderType(_params.walletProvider),
-          'Invalid wallet provider. Expected Evm wallet provider.',
-        );
-        const spender = intentDepositSpender(this.config, params.srcChainKey);
-        const coreParams = {
-          srcChainKey: params.srcChainKey,
-          owner: params.srcAddress as GetAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
-          token: params.inputToken as GetTokenAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
-          amount: params.inputAmount,
-          spender,
-        } as const;
-
-        const result = await this.spoke.approve<HubChainKey | EvmSpokeOnlyChainKey, Raw>({
-          ...coreParams,
-          raw: _params.raw,
-          walletProvider: _params.walletProvider,
-        });
-
-        if (!result.ok) {
-          return { ok: false, error: wrapApproveFailure(result.error) };
-        }
-
+      const result = await approveIntentDeposit<K, Raw>(this.spoke, this.config, _params, invariant);
+      if (!result) {
         return {
-          ok: true,
-          value: result.value satisfies TxReturnType<EvmSpokeOnlyChainKey, Raw> as TxReturnType<K, Raw>,
+          ok: false,
+          error: new Error('Approve only supported for hub (Sonic), EVM spokes, and Stellar'),
         };
       }
-
-      if (isStellarChainKeyType(params.srcChainKey)) {
-        invariant(
-          isOptionalStellarWalletProviderType(_params.walletProvider),
-          'Invalid wallet provider. Expected Stellar wallet provider.',
-        );
-        const coreParams = {
-          srcChainKey: params.srcChainKey,
-          token: params.inputToken,
-          amount: params.inputAmount,
-          owner: params.srcAddress as GetAddressType<StellarChainKey>,
-        } as const;
-
-        const result = await this.spoke.approve<StellarChainKey, boolean>(
-          _params.raw
-            ? {
-                ...coreParams,
-                raw: true,
-              }
-            : {
-                ...coreParams,
-                raw: false,
-                walletProvider: _params.walletProvider,
-              },
-        );
-
-        if (!result.ok) return { ok: false, error: wrapApproveFailure(result.error) };
-
-        return {
-          ok: true,
-          value: result.value satisfies TxReturnType<StellarChainKey, boolean> as TxReturnType<K, Raw>,
-        };
-      }
-
-      return {
-        ok: false,
-        error: new Error('Approve only supported for hub (Sonic), EVM spokes, and Stellar'),
-      };
+      if (!result.ok) return { ok: false, error: approveFailed('swap', result.error) };
+      return result;
     } catch (error) {
       return { ok: false, error };
     }
@@ -1422,55 +1325,16 @@ export class SwapService {
   public async buildApproveTxs<K extends SpokeChainKey>(
     _params: SwapActionParams<K, true>,
   ): Promise<Result<ApprovalTxs<K>>> {
-    const { params } = _params;
-    const wrapApproveFailure = (cause: unknown) => approveFailed('swap', cause);
-
     try {
-      if (isHubChainKeyType(params.srcChainKey) || isEvmSpokeOnlyChainKeyType(params.srcChainKey)) {
-        const spender = intentDepositSpender(this.config, params.srcChainKey);
-
-        const result = await this.spoke.buildApproveTxs<HubChainKey | EvmSpokeOnlyChainKey>({
-          srcChainKey: params.srcChainKey,
-          owner: params.srcAddress as GetAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
-          token: params.inputToken as GetTokenAddressType<HubChainKey | EvmSpokeOnlyChainKey>,
-          amount: params.inputAmount,
-          spender,
-          raw: true,
-        });
-
-        if (!result.ok) {
-          return { ok: false, error: wrapApproveFailure(result.error) };
-        }
-
+      const result = await buildIntentDepositApproveTxs(this.spoke, this.config, _params.params);
+      if (!result) {
         return {
-          ok: true,
-          value: result.value satisfies ApprovalTxs<HubChainKey | EvmSpokeOnlyChainKey> as ApprovalTxs<K>,
+          ok: false,
+          error: new Error('Approve only supported for hub (Sonic), EVM spokes, and Stellar'),
         };
       }
-
-      if (isStellarChainKeyType(params.srcChainKey)) {
-        const result = await this.spoke.buildApproveTxs<StellarChainKey>({
-          srcChainKey: params.srcChainKey,
-          token: params.inputToken,
-          amount: params.inputAmount,
-          owner: params.srcAddress as GetAddressType<StellarChainKey>,
-          raw: true,
-        });
-
-        if (!result.ok) {
-          return { ok: false, error: wrapApproveFailure(result.error) };
-        }
-
-        return {
-          ok: true,
-          value: result.value satisfies ApprovalTxs<StellarChainKey> as ApprovalTxs<K>,
-        };
-      }
-
-      return {
-        ok: false,
-        error: new Error('Approve only supported for hub (Sonic), EVM spokes, and Stellar'),
-      };
+      if (!result.ok) return { ok: false, error: approveFailed('swap', result.error) };
+      return result;
     } catch (error) {
       return { ok: false, error };
     }
