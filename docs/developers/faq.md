@@ -21,6 +21,22 @@ Sonic is the hub. All swap, lend, borrow, bridge and stake actions are coordinat
 
 Deep dives: [Technical Overview](/developers/technical-overview), [Asset Manager](/developers/technical-overview/asset-manager), [Generalized Messaging Protocol](/developers/technical-overview/generalized-messaging-protocol).
 
+### HTTP API
+
+#### Can I integrate without the SDK?
+
+Yes. The [HTTP API](/developers/http-api) covers swaps and leverage yield from any language, plus read endpoints for prices, stats and configuration. The money market's supply and borrow flows have no HTTP write endpoints, so those need [`@sodax/sdk`](/developers/packages/foundation/sdk/functional-modules/money_market).
+
+#### Do I need an API key?
+
+Create one in the [partner portal](https://portal.sodax.com) and send it from your server. [API keys](/developers/how-to/api-keys) covers what the key does, where it goes, and which routes check it.
+
+#### How do I track a swap over HTTP?
+
+After you broadcast the intent and call `submit-tx`, poll its status until it reaches a terminal state. [Poll status](/developers/http-api/swaps#4-poll-status) lists the states and what to do on failure.
+
+### SDK setup
+
 #### 4. Do I need to call `sodax.initialize()` before using the SDK?
 
 No. The constructor uses the config packaged with the SDK version you installed, and `initialize()` currently returns success without fetching anything, so it does not add tokens or chains listed after your release. Calling it is harmless.

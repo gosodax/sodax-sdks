@@ -1,15 +1,15 @@
 ---
 title: "SODAX for LightLink"
 sidebarTitle: "Overview"
-description: "Reach the users and liquidity of every SODAX network from your LightLink product. No contracts to deploy, your entire integration is TypeScript."
+description: "Reach the users and liquidity of every SODAX network from your LightLink product. No contracts to deploy: integrate over the HTTP API from any language, or the TypeScript SDK."
 icon: link
 ---
 
 <Note>
-  **No new contracts.** SODAX's LightLink spoke contracts are already live; your entire integration is TypeScript. Your users sign ordinary EVM transactions on LightLink, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+  **No new contracts.** SODAX's LightLink spoke contracts are already live; integrate over the HTTP API from any language, or in TypeScript with the SDK. Your users sign ordinary EVM transactions on LightLink, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
 </Note>
 
-You keep shipping on LightLink. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Integration happens in TypeScript, at the SDK or React layer, against LightLink's EVM. There is nothing to deploy, audit, or maintain on-chain.
+You keep shipping on LightLink. SODAX absorbs the cross-network execution layer, so your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, without leaving your stack. Swaps and leverage yield run over the HTTP API from any language; money market supply and borrow run in TypeScript at the SDK or React layer, against LightLink's EVM. There is nothing to deploy, audit, or maintain on-chain.
 
 Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue. See [Monetize SDK](/developers/how-to/monetize_sdk).
 
@@ -38,6 +38,7 @@ Two SODAX modules are relevant to LightLink builders:
 
 | Path | Best for | Start here |
 | - | - | - |
+| [HTTP API](/developers/http-api) | Swaps and leverage yield from any language, with no SDK to install. Get a key at [portal.sodax.com](https://portal.sodax.com) | [Swap bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll) |
 | [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/lightlink/quickstart) |
 | [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/lightlink/wallets) |
 | [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
