@@ -343,7 +343,7 @@ export class PartnerFeeClaimService {
    * @returns A `Result` containing either the submitted transaction hash (`raw: false`) or the
    *   unsigned raw transaction (`raw: true`). Returns an error on failure.
    */
-  public async setSwapPreference<K extends SpokeChainKey, Raw extends boolean>(
+  public async setSwapPreference<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: SetSwapPreferenceAction<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>>> {
     return this.config.analytics.trackResult(
@@ -483,7 +483,7 @@ export class PartnerFeeClaimService {
    * @returns A `Result` containing the submitted transaction hash (`raw: false`) or the unsigned
    *   raw transaction (`raw: true`). Returns an `Error` tagged `APPROVE_TOKEN_FAILED` on failure.
    */
-  public async approveToken<Raw extends boolean>(
+  public async approveToken<Raw extends boolean = false>(
     _params: FeeTokenApproveAction<HubChainKey, Raw>,
   ): Promise<Result<TxReturnType<HubChainKey, Raw>>> {
     const { params } = _params;
@@ -562,7 +562,7 @@ export class PartnerFeeClaimService {
    * @returns A `Result` containing the submitted transaction hash (`raw: false`) or the unsigned
    *   raw transaction (`raw: true`). Returns an error on failure.
    */
-  public async createIntentAutoSwap<Raw extends boolean>(
+  public async createIntentAutoSwap<Raw extends boolean = false>(
     _params: PartnerFeeClaimSwapAction<HubChainKey, Raw>,
   ): Promise<Result<TxReturnType<HubChainKey, Raw>>> {
     const { params } = _params;
@@ -756,7 +756,7 @@ export class PartnerFeeClaimService {
    * @returns A `Result` containing the submitted transaction hash (`raw: false`) or the unsigned
    *   raw transaction (`raw: true`).
    */
-  public async cancelIntent<Raw extends boolean>(
+  public async cancelIntent<Raw extends boolean = false>(
     _params: PartnerFeeClaimCancelAction<HubChainKey, Raw>,
   ): Promise<Result<TxReturnType<HubChainKey, Raw>>> {
     return this.config.analytics.trackResult(

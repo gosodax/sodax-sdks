@@ -681,38 +681,34 @@ describe('SonicSpokeService.getWalletBalance / getWalletBalances', () => {
 // =========================================================================
 
 describe('SonicSpokeService.deposit (static)', () => {
-  // Build deposit params parameterized by token + raw — most tests vary just these two.
-  const depositParams = <Raw extends boolean>(
-    overrides: Partial<DepositParams<SonicChainKey, Raw>>,
-  ): DepositParams<SonicChainKey, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: SONIC,
-      to: HUB_WALLET,
-      token: ERC20_TOKEN,
-      amount: 1_000n,
-      data: emptyCallsData,
-      raw: false,
-      walletProvider: mockEvmProvider,
-      ...overrides,
-    }) as DepositParams<SonicChainKey, Raw>;
+  // Shared deposit fields; most tests vary just the token.
+  const depositFields: Omit<DepositParams<SonicChainKey, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: SONIC,
+    to: HUB_WALLET,
+    token: ERC20_TOKEN,
+    amount: 1_000n,
+    data: emptyCallsData,
+  };
+  const rawDepositParams = (
+    overrides: Partial<DepositParams<SonicChainKey, true>> = {},
+  ): DepositParams<SonicChainKey, true> => ({
+    ...depositFields,
+    ...overrides,
+    raw: true,
+  });
 
   describe('rejects on invalid inputs', () => {
     it('throws when srcChainKey is not a Sonic chain key (invariant)', async () => {
       await expect(
-        sonicSpoke.deposit(
-          depositParams<true>({
-            srcChainKey: ChainKeys.BSC_MAINNET as unknown as SonicChainKey,
-            raw: true,
-          }),
-        ),
+        sonicSpoke.deposit(rawDepositParams({ srcChainKey: ChainKeys.BSC_MAINNET as unknown as SonicChainKey })),
       ).rejects.toThrow('[SonicSpokeService] invalid spoke provider');
     });
   });
 
   describe('native token branch', () => {
     it('prepends a wrap-native call and forwards `value: amount` when raw=true', async () => {
-      const result = await sonicSpoke.deposit(depositParams<true>({ token: SONIC_NATIVE, raw: true }));
+      const result = await sonicSpoke.deposit(rawDepositParams({ token: SONIC_NATIVE }));
 
       // Erc20Service.encodeTransferFrom must NOT be touched on the native path.
       expect(mocks.erc20EncodeTransferFrom).not.toHaveBeenCalled();
@@ -738,7 +734,7 @@ describe('SonicSpokeService.deposit (static)', () => {
 
     it('case-insensitive native check — UPPERCASE token still triggers the wrap path', async () => {
       const upperNative = SONIC_NATIVE.toUpperCase() as Address;
-      await sonicSpoke.deposit(depositParams<true>({ token: upperNative, raw: true }));
+      await sonicSpoke.deposit(rawDepositParams({ token: upperNative }));
 
       expect(mocks.erc20EncodeTransferFrom).not.toHaveBeenCalled();
     });
@@ -746,7 +742,7 @@ describe('SonicSpokeService.deposit (static)', () => {
 
   describe('ERC20 token branch', () => {
     it('prepends a transferFrom call and forwards `value: 0n` when raw=true', async () => {
-      const result = await sonicSpoke.deposit(depositParams<true>({ raw: true }));
+      const result = await sonicSpoke.deposit(rawDepositParams());
 
       expect(mocks.erc20EncodeTransferFrom).toHaveBeenCalledWith(ERC20_TOKEN, SRC_ADDR, HUB_WALLET, 1_000n);
       expect(result).toEqual({
@@ -790,7 +786,7 @@ describe('SonicSpokeService.deposit (static)', () => {
         [[{ address: extraCall.address, value: extraCall.value, data: extraCall.data }]],
       );
 
-      const result = await sonicSpoke.deposit(depositParams<true>({ raw: true, data: dataWithExtra }));
+      const result = await sonicSpoke.deposit(rawDepositParams({ data: dataWithExtra }));
 
       // Reconstruct the expected route() calldata: [transferFromCall, extraCall].
       expect(result).toMatchObject({
@@ -816,7 +812,7 @@ describe('SonicSpokeService.deposit (static)', () => {
     it('raw=false delegates to walletProvider.sendTransaction and returns its hash', async () => {
       (mockEvmProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
 
-      const result = await sonicSpoke.deposit(depositParams<false>({ raw: false }));
+      const result = await sonicSpoke.deposit({ ...depositFields, walletProvider: mockEvmProvider });
 
       expect(result).toBe(TX_HASH);
       expect(mockEvmProvider.sendTransaction).toHaveBeenCalledTimes(1);
@@ -826,8 +822,9 @@ describe('SonicSpokeService.deposit (static)', () => {
       expect(sent).toMatchObject({ from: SRC_ADDR, to: SONIC_WALLET_ROUTER, value: 0n });
     });
 
-    it('raw=true never calls walletProvider.sendTransaction', async () => {
-      await sonicSpoke.deposit(depositParams<true>({ raw: true }));
+    it('raw=true never calls walletProvider.sendTransaction, even when a provider is passed', async () => {
+      // Deliberately invalid shape (types forbid both): a JS caller can still send it, and raw must win.
+      await sonicSpoke.deposit({ ...rawDepositParams(), walletProvider: mockEvmProvider } as never);
       expect(mockEvmProvider.sendTransaction).not.toHaveBeenCalled();
     });
   });
@@ -1082,33 +1079,33 @@ describe('SonicSpokeService.createSwapIntent (static)', () => {
 // =========================================================================
 
 describe('SonicSpokeService.sendMessage', () => {
-  const sendMessageParams = <Raw extends boolean>(
-    overrides: Partial<SendMessageParams<SonicChainKey, Raw>>,
-  ): SendMessageParams<SonicChainKey, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: SONIC,
-      dstChainKey: SONIC,
-      dstAddress: HUB_WALLET,
-      payload: emptyCallsData,
-      raw: false,
-      walletProvider: mockEvmProvider,
-      ...overrides,
-    }) as SendMessageParams<SonicChainKey, Raw>;
+  const sendMessageFields: Omit<SendMessageParams<SonicChainKey, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: SONIC,
+    dstChainKey: SONIC,
+    dstAddress: HUB_WALLET,
+    payload: emptyCallsData,
+  };
+  const rawSendMessageParams = (
+    overrides: Partial<SendMessageParams<SonicChainKey, true>> = {},
+  ): SendMessageParams<SonicChainKey, true> => ({
+    ...sendMessageFields,
+    ...overrides,
+    raw: true,
+  });
 
   it('throws when srcChainKey is not a Sonic chain key (invariant)', async () => {
     await expect(
-      sonicSpoke.sendMessage(
-        sendMessageParams<true>({
-          srcChainKey: ChainKeys.BSC_MAINNET as unknown as SonicChainKey,
-          raw: true,
-        }),
-      ),
+      sonicSpoke.sendMessage(rawSendMessageParams({ srcChainKey: ChainKeys.BSC_MAINNET as unknown as SonicChainKey })),
     ).rejects.toThrow('[SonicSpokeService.callWallet] invalid chain id');
   });
 
-  it('raw=true returns a fully-formed unsigned tx without sending', async () => {
-    const result = await sonicSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
+  it('raw=true returns a fully-formed unsigned tx without sending, even when a provider is passed', async () => {
+    // Deliberately invalid shape (types forbid both): a JS caller can still send it, and raw must win.
+    const result = await sonicSpoke.sendMessage({
+      ...rawSendMessageParams(),
+      walletProvider: mockEvmProvider,
+    } as never);
 
     expect(mockEvmProvider.sendTransaction).not.toHaveBeenCalled();
     expect(result).toEqual({
@@ -1144,7 +1141,7 @@ describe('SonicSpokeService.sendMessage', () => {
       [[{ address: inner.address, value: inner.value, data: inner.data }]],
     );
 
-    const result = await sonicSpoke.sendMessage(sendMessageParams<true>({ raw: true, payload }));
+    const result = await sonicSpoke.sendMessage(rawSendMessageParams({ payload }));
 
     expect(result).toMatchObject({
       data: encodeFunctionData({
@@ -1158,7 +1155,7 @@ describe('SonicSpokeService.sendMessage', () => {
   it('raw=false delegates to walletProvider.sendTransaction and returns the hash', async () => {
     (mockEvmProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
 
-    const result = await sonicSpoke.sendMessage(sendMessageParams<false>({ raw: false }));
+    const result = await sonicSpoke.sendMessage({ ...sendMessageFields, walletProvider: mockEvmProvider });
 
     expect(result).toBe(TX_HASH);
     expect(mockEvmProvider.sendTransaction).toHaveBeenCalledTimes(1);

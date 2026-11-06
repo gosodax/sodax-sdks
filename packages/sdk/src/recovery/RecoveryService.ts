@@ -184,7 +184,7 @@ export class RecoveryService {
    * @returns A `Result` wrapping the chain-specific transaction return value: a raw unsigned
    *   transaction object when `raw: true`, or the broadcast transaction hash when `raw: false`.
    */
-  public async withdrawHubAsset<K extends SpokeChainKey, Raw extends boolean>(
+  public async withdrawHubAsset<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: WithdrawHubAssetAction<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>>> {
     return this.config.analytics.trackResult(

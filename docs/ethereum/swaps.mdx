@@ -81,8 +81,8 @@ Using SODAX is free to integrate. Two fees can apply to a trade:
 The user also pays Ethereum's network fee for the intent transaction, in ETH, like any other Ethereum transaction. To show it before the user signs, build the transaction with `raw: true` and estimate it:
 
 ```typescript
-// The type arguments tell TypeScript this is the unsigned (raw) form
-const intent = await sodax.swaps.createIntent<typeof ChainKeys.ETHEREUM_MAINNET, true>({ params, raw: true });
+// `raw: true` returns the unsigned transaction instead of broadcasting it
+const intent = await sodax.swaps.createIntent({ params, raw: true });
 if (!intent.ok) throw intent.error;
 
 const gas = await sodax.swaps.estimateGas({

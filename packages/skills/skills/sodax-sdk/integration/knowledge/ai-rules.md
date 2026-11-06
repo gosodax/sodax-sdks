@@ -12,7 +12,7 @@ DO / DO NOT / workflow / stop conditions for AI agents writing `@sodax/sdk` v2 c
    ```
 
 2. **Tokens come from the installed SDK version.** `initialize()` fetches nothing, so `sodax.config` and the feature services know only the tokens bundled with that `@sodax/sdk` release and reject newer ones. For those, use the `sodax.api.*` clients; see [`recipes/initialize-sodax.md`](recipes/initialize-sodax.md) § "Where supported tokens come from".
-3. **Pick `raw: true` vs `raw: false` explicitly.** Reads and unsigned-tx-building flows take `raw: true` and don't need a wallet. Signed flows take `raw: false` + a chain-narrowed `walletProvider`. The discriminator is mandatory — without it the type system rejects the call. See [`architecture.md`](architecture.md) § 6.
+3. **Pick the execution mode by call shape.** Reads and unsigned-tx-building flows take `raw: true` and don't need a wallet. Signed flows take a chain-narrowed `walletProvider` (`raw: false` is optional). The result type follows the mode without type arguments; passing neither, or both, is a compile error. See [`architecture.md`](architecture.md) § 6.
 4. **Branch on `result.ok` before reading `.value` or `.error`.** Every async public method returns `Promise<Result<T, SodaxError>>`. `try/catch` does **not** catch SDK-level failures — see DO NOT § below.
 5. **Discriminate errors by `(error.feature, error.code)`.** Use `isSodaxError(e)` first, then switch on the pair. Don't string-match `error.message`.
 

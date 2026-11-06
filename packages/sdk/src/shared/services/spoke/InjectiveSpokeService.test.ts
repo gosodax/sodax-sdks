@@ -278,26 +278,20 @@ describe('InjectiveSpokeService.getRawTransaction', () => {
 // =========================================================================
 
 describe('InjectiveSpokeService.deposit', () => {
-  const depositParams = <Raw extends boolean>(
-    overrides: Partial<DepositParams<typeof INJ, Raw>>,
-  ): DepositParams<typeof INJ, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: INJ,
-      to: HUB_WALLET,
-      token: INJ_BNUSD,
-      amount: 1_000n,
-      data: '0x' as Hex,
-      raw: false,
-      walletProvider: mockInjProvider,
-      ...overrides,
-    }) as DepositParams<typeof INJ, Raw>;
+  const depositFields: Omit<DepositParams<typeof INJ, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: INJ,
+    to: HUB_WALLET,
+    token: INJ_BNUSD,
+    amount: 1_000n,
+    data: '0x' as Hex,
+  };
 
   it('raw=true → delegates to getRawTransaction with the asset-manager target and transfer msg', async () => {
     const fake = makeRawTx(INJ_ASSET_MGR);
     const spy = vi.spyOn(injSpoke, 'getRawTransaction').mockResolvedValueOnce(fake);
 
-    const result = await injSpoke.deposit(depositParams<true>({ raw: true }));
+    const result = await injSpoke.deposit({ ...depositFields, raw: true });
 
     expect(result).toBe(fake);
     expect(spy).toHaveBeenCalledTimes(1);
@@ -321,7 +315,7 @@ describe('InjectiveSpokeService.deposit', () => {
       transactionHash: TX_HASH,
     });
 
-    const result = await injSpoke.deposit(depositParams<false>({ raw: false }));
+    const result = await injSpoke.deposit({ ...depositFields, walletProvider: mockInjProvider });
 
     expect(result).toBe(TX_HASH);
     expect(mockInjProvider.execute).toHaveBeenCalledTimes(1);
@@ -499,25 +493,19 @@ describe('InjectiveSpokeService.getState', () => {
 // =========================================================================
 
 describe('InjectiveSpokeService.sendMessage', () => {
-  const sendMessageParams = <Raw extends boolean>(
-    overrides: Partial<SendMessageParams<typeof INJ, Raw>>,
-  ): SendMessageParams<typeof INJ, Raw> =>
-    ({
-      srcAddress: SRC_ADDR,
-      srcChainKey: INJ,
-      dstChainKey: SONIC,
-      dstAddress: DST_ADDR,
-      payload: '0xdeadbeef' as Hex,
-      raw: false,
-      walletProvider: mockInjProvider,
-      ...overrides,
-    }) as SendMessageParams<typeof INJ, Raw>;
+  const sendMessageFields: Omit<SendMessageParams<typeof INJ, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: INJ,
+    dstChainKey: SONIC,
+    dstAddress: DST_ADDR,
+    payload: '0xdeadbeef' as Hex,
+  };
 
   it('raw=true → delegates to getRawTransaction with the connection target and send_message msg', async () => {
     const fake = makeRawTx(INJ_CONNECTION);
     const spy = vi.spyOn(injSpoke, 'getRawTransaction').mockResolvedValueOnce(fake);
 
-    const result = await injSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
+    const result = await injSpoke.sendMessage({ ...sendMessageFields, raw: true });
 
     expect(result).toBe(fake);
     const [chainId, sender, contract, msg] = spy.mock.calls[0] ?? [];
@@ -536,7 +524,7 @@ describe('InjectiveSpokeService.sendMessage', () => {
       transactionHash: TX_HASH,
     });
 
-    const result = await injSpoke.sendMessage(sendMessageParams<false>({ raw: false }));
+    const result = await injSpoke.sendMessage({ ...sendMessageFields, walletProvider: mockInjProvider });
     expect(result).toBe(TX_HASH);
     const [, contract, msg] = (mockInjProvider.execute as ReturnType<typeof vi.fn>).mock.calls[0] ?? [];
     expect(contract).toBe(INJ_CONNECTION);

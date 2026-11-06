@@ -106,7 +106,7 @@ async function executeSwap(inputAmount: bigint): Promise<void> {
     // Step 5: Approve if Needed
     if (!allowanceResult.value) {
       console.log('Step 5: Approving tokens...');
-      const approveResult = await sodax.swaps.approve<typeof ChainKeys.ARBITRUM_MAINNET, false>({
+      const approveResult = await sodax.swaps.approve({
         params: createIntentParams,
         raw: false,
         walletProvider: arbWalletProvider,

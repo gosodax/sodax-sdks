@@ -17,9 +17,9 @@ Work this top-down. Each step is independent enough to land as its own commit; t
 [ ] 6.  Replace every isXxxSpokeProvider(provider) guard with a chain-key
         compare: chainKey === ChainKeys.<X>_MAINNET, or use
         is<Family>ChainKeyType(chainKey) from @sodax/sdk.
-[ ] 7.  Add { raw: false } discriminator to every signed call shape that
-        previously took a positional spoke provider:
-            { intentParams, spokeProvider }   →   { params, raw: false, walletProvider }
+[ ] 7.  Pass walletProvider on every signed call shape that previously took a
+        positional spoke provider (raw: false is optional):
+            { intentParams, spokeProvider }   →   { params, walletProvider }
 [ ] 7b. Cross-cutting rename: every payload field named `spokeProvider:` (incl.
         approve/allowance/utility methods that aren't signed-execution shapes)
         → `walletProvider:`. Mechanical for the OBJECT-LITERAL field key; don't
