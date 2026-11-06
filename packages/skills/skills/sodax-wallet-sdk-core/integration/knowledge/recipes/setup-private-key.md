@@ -21,6 +21,7 @@ Each chain has its own discriminated union. See [`../features/<chain>.md`](../fe
 | Injective | `secret: { privateKey } \| { mnemonics }` | nested credential object |
 | NEAR      | `privateKey: 'ed25519:…'`, `accountId`    | algorithm-prefixed string + accountId |
 | Stacks    | `privateKey: '…'`                         | string |
+| Tron      | `privateKey: '…'`                         | hex string, `0x` optional |
 
 ---
 

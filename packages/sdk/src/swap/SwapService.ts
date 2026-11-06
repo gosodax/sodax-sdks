@@ -36,9 +36,11 @@ import {
   type TxHashPair,
   isStacksChainKeyType,
   isNativeBitcoinTransfer,
+  assertMpcPayoutAboveMinimum,
+  isMpcRelayChainKeyType,
   RELAY_FALLBACK_FLOOR_MS,
 } from '../shared/index.js';
-import { readIntentJournalOutcome, resolveDeliveredPacket } from '../backendApi/detailedStatusRouting.js';
+import { readIntentJournalOutcome, resolveDeliveredHubTxHash } from '../backendApi/detailedStatusRouting.js';
 import { SolverApiService } from './SolverApiService.js';
 import { EvmSolverService } from './EvmSolverService.js';
 import type { BackendApiService } from '../backendApi/index.js';
@@ -59,6 +61,7 @@ import {
 } from '../shared/utils/approvalBatch.js';
 import type { ApprovalTxs } from '../shared/types/spoke-types.js';
 import { selectSolvedIntentPacket } from './selectSolvedIntentPacket.js';
+import type { HubRelease } from '../shared/services/mpcRelay/MpcRelayApiService.js';
 import { intentDepositSpender } from './intentDepositSpender.js';
 import { estimateSwapSpeedTier, type SwapSpeedTierParams, type SwapSpeedTierResult } from './speed-tier.js';
 import { isSodaxError, SodaxError } from '../errors/SodaxError.js';
@@ -116,6 +119,7 @@ import {
   type Hash,
   type HttpUrl,
   getIntentRelayChainId,
+  isMpcRelayChainKey,
   type FeeAmount,
   type GetWalletProviderType,
   type PartnerFee,
@@ -146,6 +150,8 @@ import {
   type SonicChainKey,
   type EvmRawTransaction,
   BITCOIN_DUST_SATS,
+  type DepositReturnType,
+  type SendMessageReturnType,
 } from '@sodax/types';
 
 export type GetIntentSubmitTxExtraDataParams = { txHash: Hash } | { intent: Intent };
@@ -157,6 +163,14 @@ export type SwapResponse = {
 };
 
 /** How {@link SwapService.swapWithApproval} gets the source token approved — see {@link ApprovalStrategy}. */
+/**
+ * Where a solved intent's output landed: a relay packet's delivery, or, on an MPC-relay destination (Tron),
+ * the release of the fill's hub tx. `dstTxHash` is the destination tx either way.
+ */
+export type IntentDelivery =
+  | { source: 'relay'; dstTxHash: string; packet: PacketData }
+  | { source: 'mpcRelay'; dstTxHash: string; release: HubRelease };
+
 export type SwapApprovalStrategy = ApprovalStrategy;
 
 export type SwapWithApprovalResponse = SwapResponse & { approvalStrategy: SwapApprovalStrategy };
@@ -178,7 +192,7 @@ export type SwapWithApprovalParams<K extends SpokeChainKey> = SwapActionParams<K
   };
 
 export type CreateIntentResult<K extends SpokeChainKey, Raw extends boolean> = {
-  tx: TxReturnType<K, Raw>;
+  tx: DepositReturnType<K, Raw>;
   intent: Intent & FeeAmount;
   relayData: RelayExtraData;
 };
@@ -498,7 +512,8 @@ export class SwapService {
    *
    * The solver arm is reconciled against the backend's durable intent record: a settling fill reads
    * `SOLVED`, and a cancel with nothing filled reads `FAILED` even while the solver still reports the
-   * intent in flight. A cancelled intent is already refunded, so do not offer to cancel it again.
+   * intent in flight. Do not offer a cancel for it: its funds are back, or from an MPC-relay source (Tron) once
+   * the cancel's hub tx is released, as the doc linked below describes.
    * Otherwise it carries the solver's answer unmodified, and the backend arm its record unmodified.
    *
    * **Any** unusable backend response routes to the solver — a 404, a transport or server error, or
@@ -567,8 +582,8 @@ export class SwapService {
 
   /**
    * The hub-chain tx hash the solver is keyed on. A hub-source swap has no relay leg — the source
-   * tx *is* the hub tx. Otherwise the delivered relay packet carries it, so an undelivered packet
-   * is simply "no hash yet".
+   * tx *is* the hub tx. Otherwise the delivered relay packet — or, for an MPC-relay chain, the
+   * minted deposit record — carries it, so an undelivered one is simply "no hash yet".
    */
   private async resolveHubTxHash(
     key: DetailedSwapStatusKey,
@@ -577,11 +592,12 @@ export class SwapService {
     let hubTxHash = key.srcTxHash;
 
     if (!isHubChainKeyType(key.srcChainKey)) {
-      const delivered = await resolveDeliveredPacket({
+      const delivered = await resolveDeliveredHubTxHash({
         srcChainKey: key.srcChainKey,
         srcTxHash: key.srcTxHash,
         relayerApiEndpoint: this.relayerApiEndpoint,
         backendAnswered,
+        spoke: this.spoke,
       });
       if (!delivered.ok) {
         return {
@@ -591,7 +607,7 @@ export class SwapService {
           }),
         };
       }
-      hubTxHash = delivered.packet.dst_tx_hash;
+      hubTxHash = delivered.hubTxHash;
     }
 
     // Validate rather than cast — this hash reaches the solver next.
@@ -720,6 +736,9 @@ export class SwapService {
    *   - `solverExecutionResponse` — solver acknowledgement (`{ answer: 'OK', intent_hash }`).
    *   - `intent` — the on-chain intent object that was created.
    *   - `intentDeliveryInfo` — source/destination chain keys, tx hashes, and user addresses.
+   *
+   *   A payout to an MPC-relay chain (Tron) is released once the solver notifies the relay of its fill;
+   *   {@link waitForIntentDelivery} waits for that payout.
    *
    *   On failure `result.error` is a {@link SodaxError} with one of:
    *   - `VALIDATION_FAILED` — input validation failed (propagated from `createIntent`).
@@ -1085,7 +1104,8 @@ export class SwapService {
     // Backend 2-step flow (default on): hand the broadcast intent tx to the swaps API, which relays +
     // post-executes server-side. On ANY non-success we fall back to the client-side relay so the
     // swap still completes — safe because re-relay / re-post are idempotent (see `submitTx`).
-    if (this.useBackendSubmitTx) {
+    // The backend only relays through the intent relay, so an MPC-relay source settles client-side.
+    if (this.useBackendSubmitTx && !isMpcRelayChainKey(_params.params.srcChainKey)) {
       const submitted = await this.submitTx(_params, created, createSubmitTxAttempt(timeoutMs));
       if (submitted.ok) return submitted;
       this.config.logger.warn('[swap] backend submit-tx did not complete; falling back to the client-side relay', {
@@ -1117,34 +1137,36 @@ export class SwapService {
     // Every failure from here on is post-broadcast: carry the tx so the caller can keep reading its status.
     const txCtx = { srcChainKey, dstChainKey: params.dstChainKey, action: 'swap', srcTxHash: spokeTxHash };
 
-    const verifyTxHashResult = await this.spoke.verifyTxHash({
-      txHash: created.tx,
-      chainKey: srcChainKey,
-    });
-    if (!verifyTxHashResult.ok) {
-      return { ok: false, error: verifyFailed('swap', verifyTxHashResult.error, txCtx) };
-    }
-
     let dstIntentTxHash: string;
     if (isHubChainKeyType(srcChainKey)) {
+      const verifyTxHashResult = await this.spoke.verifyTxHash({ txHash: created.tx, chainKey: srcChainKey });
+      if (!verifyTxHashResult.ok) {
+        return { ok: false, error: verifyFailed('swap', verifyTxHashResult.error, txCtx) };
+      }
       dstIntentTxHash = spokeTxHash;
     } else {
-      const packet = await relayTxAndWaitPacket({
-        srcTxHash: spokeTxHash,
-        data: relayData,
+      const settled = await this.spoke.settle({
         chainKey: srcChainKey,
-        relayerApiEndpoint: this.relayerApiEndpoint,
+        tx: spokeTxHash,
+        direction: 'inbound',
+        relayData,
         // The caller's full `timeout`, starting HERE — after verification, and whether this runs as the
         // only path or as the backend's fallback. Neither a stalled backend attempt nor a slow source-chain
         // confirmation may shorten the relay wait. The floor covers a sub-floor caller `timeout`:
-        // `relayTxAndWaitPacket` SUBMITS before `timeout` bounds anything, so a zero budget would strand an
+        // settlement SUBMITS before `timeout` bounds anything, so a zero budget would strand an
         // already-landed tx unrelayed. Re-relay is idempotent, so spending it is safe.
         timeout: Math.max(timeoutMs, RELAY_FALLBACK_FLOOR_MS),
       });
-      if (!packet.ok) {
-        return { ok: false, error: mapRelayFailure(packet.error, { feature: 'swap', ...txCtx }) };
+      if (!settled.ok) {
+        return {
+          ok: false,
+          error:
+            settled.error.phase === 'verification'
+              ? verifyFailed('swap', settled.error.cause, txCtx)
+              : mapRelayFailure(settled.error.cause, { feature: 'swap', ...txCtx }),
+        };
       }
-      dstIntentTxHash = packet.value.dst_tx_hash;
+      dstIntentTxHash = settled.value.dstChainTxHash;
     }
 
     const postExecResult = await this.postExecution({
@@ -1499,7 +1521,8 @@ export class SwapService {
    *
    *   On failure `result.error` is a {@link SodaxError} with one of:
    *   - `VALIDATION_FAILED` — invariant precondition failed (unsupported tokens,
-   *     invalid chain key, Bitcoin dust output below 546 sats, invalid wallet provider).
+   *     invalid chain key, Bitcoin dust output below 546 sats, invalid wallet provider, an output or
+   *     refund to an MPC-relay chain at or below `MpcRelayPayoutMinimums`, or a partial fill there).
    *     The original prose is on `result.error.message`; phase is `'validate'`.
    *   - `INTENT_CREATION_FAILED` — spoke-side intent creation/deposit failed.
    *   - `UNKNOWN` — defensive fallback.
@@ -1559,6 +1582,39 @@ export class SwapService {
           { ...baseCtx, field: 'minOutputAmount' },
         );
       }
+      // On an MPC-relay chain the destination's output and a cancelled intent's refund to the source each pay
+      // out less the relay's release fee; partial fills would split them into smaller payouts.
+      if (isMpcRelayChainKey(params.srcChainKey) || isMpcRelayChainKey(params.dstChainKey)) {
+        swapInvariant(
+          !params.allowPartialFill,
+          'allowPartialFill is not supported for a swap to or from an MPC-relay chain',
+          { ...baseCtx, field: 'allowPartialFill' },
+        );
+      }
+      // `cancelIntent` cannot reach an MPC-relay source, so only its deadline can refund the intent.
+      if (isMpcRelayChainKey(params.srcChainKey)) {
+        swapInvariant(
+          params.deadline > 0n,
+          'An intent from an MPC-relay chain needs a deadline: it cannot be cancelled, so a limit order would hold its funds until filled',
+          { ...baseCtx, field: 'deadline' },
+        );
+      }
+      if (inputTokenInfo) {
+        assertMpcPayoutAboveMinimum({
+          feature: 'swap',
+          token: inputTokenInfo,
+          amount: params.inputAmount - calculateFeeAmount(params.inputAmount, partnerFee),
+          context: { ...baseCtx, field: 'inputAmount' },
+        });
+      }
+      if (outputTokenInfo) {
+        assertMpcPayoutAboveMinimum({
+          feature: 'swap',
+          token: outputTokenInfo,
+          amount: params.minOutputAmount,
+          context: { ...baseCtx, field: 'minOutputAmount' },
+        });
+      }
       if (isStacksChainKeyType(params.srcChainKey) && _params.raw === true) {
         swapInvariant(
           extras?.srcPublicKey !== undefined,
@@ -1613,7 +1669,7 @@ export class SwapService {
         return {
           ok: true,
           value: {
-            tx: txResult satisfies TxReturnType<SonicChainKey, boolean> as TxReturnType<K, Raw>,
+            tx: txResult satisfies TxReturnType<SonicChainKey, boolean> as DepositReturnType<K, Raw>,
             intent: { ...intent, feeAmount } as Intent & FeeAmount,
             relayData: { address: intent.creator, payload: data },
           },
@@ -1670,7 +1726,7 @@ export class SwapService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies DepositReturnType<K, Raw> as DepositReturnType<K, Raw>,
           intent: { ...intent, feeAmount } as Intent & FeeAmount,
           relayData: { address: intent.creator, payload: data },
         },
@@ -1799,6 +1855,12 @@ export class SwapService {
         getIntentRelayChainId(params.srcChainKey) === params.intent.srcChain,
         `srcChainKey (${params.srcChainKey}) does not match intent.srcChain (${params.intent.srcChain}). Expected relay chain id ${getIntentRelayChainId(params.srcChainKey)}.`,
       );
+      // `cancelIntent` confirms the cancel through the intent relay, which an MPC-relay chain does not use.
+      swapInvariant(
+        !isMpcRelayChainKey(params.srcChainKey),
+        `Cancelling an intent from an MPC-relay source chain (${params.srcChainKey}) is not supported yet`,
+        { srcChainKey: params.srcChainKey, field: 'srcChainKey' },
+      );
 
       const relayData = this.buildCancelRelayData(params.intent);
 
@@ -1828,7 +1890,7 @@ export class SwapService {
 
       return {
         ok: true,
-        value: txResult.value satisfies TxReturnType<K, boolean> as TxReturnType<K, Raw>,
+        value: txResult.value satisfies SendMessageReturnType<K, boolean> as TxReturnType<K, Raw>,
       };
     } catch (error) {
       if (isSwapCreateIntentError(error)) return { ok: false, error };
@@ -2078,6 +2140,9 @@ export class SwapService {
    * contract; `selectSolvedIntentPacket` disambiguates so the returned `dst_tx_hash` is the
    * destination delivery tx rather than an internal hop.
    *
+   * An MPC-relay destination (Tron) has no relay packet, so this fails for one without asking the
+   * relayer: use {@link waitForIntentDelivery}, which covers every destination.
+   *
    * @param chainId - The destination spoke chain key (where output tokens are delivered).
    * @param fillTxHash - The solver's fill transaction hash, obtained from `getStatus.fill_tx_hash`.
    * @param timeout - Poll timeout in milliseconds. Defaults to `DEFAULT_RELAY_TX_TIMEOUT` (120 s).
@@ -2093,6 +2158,16 @@ export class SwapService {
     fillTxHash: string;
     timeout?: number;
   }): Promise<Result<PacketData>> {
+    // The intent relay never delivers to an MPC-relay chain, so it would only ever time out here.
+    if (isMpcRelayChainKey(chainId)) {
+      return {
+        ok: false,
+        error: new Error(
+          `[getSolvedIntentPacket] ${chainId} is paid by an MPC relay release, which has no packet: use waitForIntentDelivery`,
+        ),
+      };
+    }
+
     return waitUntilIntentExecuted({
       intentRelayChainId: getIntentRelayChainId(chainId).toString(),
       srcTxHash: fillTxHash,
@@ -2100,6 +2175,44 @@ export class SwapService {
       apiUrl: this.relayerApiEndpoint,
       selectPacket: packets => selectSolvedIntentPacket(packets, this.solver.intentsContract),
     });
+  }
+
+  /**
+   * Wait until a solved intent's output reaches its destination and return where it landed. The intent
+   * relay delivers it to most chains, as the packet {@link getSolvedIntentPacket} returns. An MPC-relay
+   * destination (Tron) is paid instead by a release of the fill's hub tx, which the solver notifies the MPC
+   * relay of: this submits the release as well, then waits for its payout.
+   *
+   * @param chainId - The destination spoke chain key.
+   * @param fillTxHash - The solver's fill transaction hash, from `getStatus.fill_tx_hash`.
+   * @param timeout - Wait budget in ms. Defaults to `DEFAULT_RELAY_TX_TIMEOUT` (120 s); an MPC-relay
+   *   destination waits at least its settlement floor (300 s for Tron).
+   * @returns The destination tx beside the relay packet, or beside the release, whose reference a caller
+   *   can keep to read it again with `sodax.spoke.getHubReleaseRecord`.
+   */
+  public async waitForIntentDelivery({
+    chainId,
+    fillTxHash,
+    timeout = DEFAULT_RELAY_TX_TIMEOUT,
+  }: {
+    chainId: SpokeChainKey;
+    fillTxHash: string;
+    timeout?: number;
+  }): Promise<Result<IntentDelivery>> {
+    if (isMpcRelayChainKeyType(chainId)) {
+      const release = await this.spoke.submitHubRelease({ hubTxHash: fillTxHash, dstChainKey: chainId });
+      if (!release.ok) return { ok: false, error: release.error.cause };
+      const released = await this.spoke.waitForHubRelease({ release: release.value, timeout });
+      if (!released.ok) return { ok: false, error: released.error.cause };
+      return {
+        ok: true,
+        value: { source: 'mpcRelay', dstTxHash: released.value.dstChainTxHash, release: release.value },
+      };
+    }
+
+    const packet = await this.getSolvedIntentPacket({ chainId, fillTxHash, timeout });
+    if (!packet.ok) return packet;
+    return { ok: true, value: { source: 'relay', dstTxHash: packet.value.dst_tx_hash, packet: packet.value } };
   }
 
   /**

@@ -212,7 +212,7 @@ await connect(connector); // may resolve before account.address is populated
 // Don't read connect's return value — read account.address from the next render.
 ```
 
-Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks) write the connection state inside the mutation, so the resolved `XAccount` is reliable for those chains. Code defensively if you support both.
+Non-provider chains write the connection state inside the mutation, so the resolved `XAccount` is reliable for those chains. Code defensively if you support both.
 
 ---
 
@@ -222,7 +222,7 @@ Connection state is persisted to `localStorage` (key: `xwagmi-store`) by Zustand
 
 - **Provider-managed chains** — wagmi/wallet-adapter/dapp-kit auto-reconnect from their own persistence layer; the Hydrator observes and re-writes the store.
 - **Non-provider chains** — `useInitChainServices` calls `reconnectIcon()` / `reconnectInjective()` / `reconnectStellar()` after hydration. ICON, Injective, and Stellar attempt to reconnect to the previously-connected wallet automatically.
-- **Bitcoin** — `BitcoinXConnector.recreateWalletProvider` rebuilds the provider from `window.*` + the persisted `XAccount` (no popup), so signing works after reload without a reconnect call.
+- **Bitcoin / Tron** — `BitcoinXConnector.recreateWalletProvider` rebuilds the provider from `window.*` + the persisted `XAccount`, and Tron's provider resolves the wallet through `TronXConnector.getProvider()` each time it signs (no popup), so signing works after reload without a reconnect call.
 - **NEAR / Stacks** — no auto-reconnect. The user must re-connect manually after a reload.
 - **Cleanup** — connections for chains no longer in `SodaxWalletProvider` config are removed via `cleanupDisabledConnections()` after persist hydration completes.
 
@@ -241,7 +241,7 @@ To detect when persisted state is ready (avoid disconnect flash on first paint),
 | Source | Message style |
 |--------|---------------|
 | User rejects in wallet popup | Wallet-specific (`"User rejected the request"`, `"User denied account authorization"`, etc.) |
-| Wallet not installed | Non-provider chains throw `"<Wallet> is not installed"` (Stacks and Stellar append an install hint); provider-managed chains surface the native SDK error |
+| Wallet not installed | Non-provider chains throw `"<Wallet> is not installed"` (Stacks, Stellar and Tron append an install hint); provider-managed chains surface the native SDK error |
 | Network mismatch | `"Chain not configured"` (wagmi) |
 
 Read `mutation.error.message` and surface to UI; for install CTA, fall back to `connector.installUrl`:

@@ -31,6 +31,7 @@ src/
 ├── icon/               # ICON wallet provider interface + call tx / result
 ├── near/               # NEAR wallet provider interface + raw tx types
 ├── stacks/             # Stacks wallet provider interface + Clarity / post-condition types
+├── tron/               # Tron wallet provider interface + raw tx/receipt types
 │
 ├── swap/               # Swap (intent-based solver) param/response shapes
 ├── moneyMarket/        # Money market param/response shapes

@@ -784,7 +784,7 @@ Address encoding: `stacks-consensus-buff`
 ### Tron
 
 <Note>
-These contracts are deployed on chain, but Tron is **not yet reachable through the SDK** — it has no entry in `ChainKeys` (`@sodax/types`) and is not returned by `GET /config/spoke/chains`. The addresses below are published for reference only.
+Tron is in `ChainKeys` as `TRON_MAINNET` and settles through the MPC relay: SDK deposits go to the reserve address the relay returns for each call. The SDK identifies Tron by its chain id in [`MpcRelayChainMap`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chains.ts). A payout to Tron is released from the relay's reserve less a release fee that the relay sets and that changes over time; the SDK does not quote it, so the recipient gets less than the hub sent. The addresses below are published for reference.
 </Note>
 
 Internal chain id (NID): `1953656686`

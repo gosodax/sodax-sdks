@@ -11,6 +11,7 @@ import {
   StellarWalletProvider,
   NearWalletProvider,
   StacksWalletProvider,
+  TronWalletProvider,
 } from '@sodax/wallet-sdk-core';
 import { Wallet } from '@injectivelabs/wallet-base';
 import { getEthereumAddress } from '@injectivelabs/sdk-ts';
@@ -40,6 +41,7 @@ import { hasSignBip322, hasSignEcdsa } from './xchains/bitcoin/bitcoinSignGuards
 import { NearXService } from './xchains/near/NearXService.js';
 import { NearXConnector } from './xchains/near/NearXConnector.js';
 import { StacksXService, StacksXConnector, STACKS_PROVIDERS } from './xchains/stacks/index.js';
+import { TronXService, TronXConnector } from './xchains/tron/index.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -395,6 +397,42 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
         store.walletConfig?.STACKS?.chains?.[ChainKeys.STACKS_MAINNET],
       );
       return new StacksWalletProvider({ address, provider, defaults });
+    },
+  }),
+  TRON: defineChain({
+    createService: walletConfig => TronXService.getInstance(walletConfig?.TRON?.chains?.[ChainKeys.TRON_MAINNET]),
+    displayName: 'Tron',
+    defaultConnectors: () => [new TronXConnector()],
+    providerManaged: false,
+    createActions: (service, getStore) => ({
+      ...createDefaultActions('TRON', service, getStore),
+      signMessage: async (message: string) => {
+        const connection = getStore().xConnections.TRON;
+        const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+        const address = connection?.xAccount.address;
+        if (!(connector instanceof TronXConnector) || !address) throw new Error('Tron wallet not connected');
+        return connector.signMessage(message, address);
+      },
+    }),
+    createWalletProvider: (service, getStore) => {
+      const store = getStore();
+      const connection = store.xConnections.TRON;
+      const address = connection?.xAccount.address;
+      if (!address) return undefined;
+      const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+      if (!(connector instanceof TronXConnector)) return undefined;
+      const entry = store.walletConfig?.TRON?.chains?.[ChainKeys.TRON_MAINNET];
+      const defaults = getEntryDefaults<typeof ChainKeys.TRON_MAINNET>(entry);
+      // Built even before the wallet is found: on a page reload this runs ahead of TIP-6963 discovery,
+      // so signing re-resolves the provider per call instead of capturing what exists now.
+      return new TronWalletProvider({
+        tronWeb: connector.getTronWeb(),
+        provider: connector.getProvider(),
+        getProvider: () => connector.getProvider(),
+        address,
+        endpoint: entry?.rpcUrl,
+        defaults,
+      });
     },
   }),
 };

@@ -59,7 +59,7 @@ The package currently exposes only the root export (`@sodax/types`) and the DEX 
 | Common types and constants | `Result`, `PartnerFee`, `TxReturnType`, `apiConfig`, `solverConfig`, retry and timeout constants |
 | Chains and tokens | `ChainKeys`, `SpokeChainKey`, `ChainType`, `baseChainInfo`, `spokeChainConfig` [^cfg], `supportedTokensByChain` |
 | Wallet providers | `WalletAddressProvider`, `ICoreWallet`, `IWalletProvider`, `GetWalletProviderType` |
-| Chain transaction types | `EvmRawTransaction`, `BitcoinRawTransaction`, `SolanaRawTransaction`, `StellarRawTransaction`, `SuiRawTransaction`, `IconRawTransaction`, `InjectiveRawTransaction`, `NearRawTransaction`, `StacksRawTransaction` |
+| Chain transaction types | `EvmRawTransaction`, `BitcoinRawTransaction`, `SolanaRawTransaction`, `StellarRawTransaction`, `SuiRawTransaction`, `IconRawTransaction`, `InjectiveRawTransaction`, `NearRawTransaction`, `StacksRawTransaction`, `TronRawTransaction` |
 | Backend API contracts | `IConfigApiV1`, `IConfigApiV2`, `GetAllConfigApiResponse`, `SubmitTxRequestV2`, `SubmitTxResponseV2`, `SubmitTxStatusResponseV2`, `SubmitIntentRequestV2`, `SubmitIntentResponseV2` |
 | Product configuration | `sodaxConfig` [^cfg], `bridgeConfig`, `swapsConfig`, `moneyMarketConfig`, `dexConfig`, `concentratedLiquidityConfig` |
 | Leverage yield | leverage-yield param and response types (`leverageYield`) |
@@ -92,6 +92,7 @@ interface WalletAddressProvider {
 | Injective | `IInjectiveWalletProvider` |
 | NEAR | `INearWalletProvider` |
 | Stacks | `IStacksWalletProvider` |
+| Tron | `ITronWalletProvider` |
 
 Use `IWalletProvider` for the union of all chain-specific wallet providers, or `GetWalletProviderType<C>` to map a `SpokeChainKey` or `ChainType` to the matching provider interface.
 
@@ -118,6 +119,7 @@ function isEvmProvider(provider: IWalletProvider): provider is IEvmWalletProvide
 | Stellar | `Hex` [^addr] | `G…` ed25519 strkey |
 | NEAR | `Address` [^addr] | account id (`alice.near`, or a 64-char implicit account) |
 | Injective, Stacks | `string` | `inj1…` / `SP…`, `ST…` |
+| Tron | `string` | `T…` base58check |
 
 [^addr]: Stellar and NEAR declare a hex type their chain does not use. The Stellar spoke service passes the address to `Address.fromString` and `loadAccount`, which need a `G…` strkey; the NEAR spoke service passes it as a NEAR account id (`signerId`, `accountId`). Pass the chain's own encoding — the declared type is wrong here, not the chain.
 

@@ -1,3 +1,5 @@
+import type { OutboundSettlement, SpokeChainKey } from '@sodax/dapp-kit';
+
 export function extractTxHash(result: unknown): string | undefined {
   if (!result || typeof result !== 'object') {
     return undefined;
@@ -17,4 +19,17 @@ export function extractTxHash(result: unknown): string | undefined {
   }
 
   return undefined;
+}
+
+/**
+ * The tx to show for a settled borrow or withdraw, and the chain it is on. A withdraw-auth from Tron has
+ * no source tx, only the relay's trackingId, which no explorer knows: show its destination tx instead.
+ */
+export function settledTx(
+  result: OutboundSettlement<SpokeChainKey>,
+  { srcChainKey, dstChainKey }: { srcChainKey: SpokeChainKey; dstChainKey: SpokeChainKey },
+): { txHash: string; txChainId: SpokeChainKey } {
+  return 'trackingId' in result
+    ? { txHash: result.dstChainTxHash, txChainId: dstChainKey }
+    : { txHash: result.srcChainTxHash, txChainId: srcChainKey };
 }

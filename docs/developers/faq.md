@@ -73,7 +73,7 @@ Per-module code tables: [Swaps](/developers/packages/foundation/sdk/functional-m
 
 #### 8. What should I do when a swap returns `RELAY_TIMEOUT`?
 
-The spoke transaction landed but the hub packet has not arrived within the timeout window. The relay may still complete. Persist the spoke tx hash and poll the relayer API. Do not re-submit from the user side.
+The spoke transaction landed but the hub packet has not arrived within the timeout window. The relay may still complete. Persist the spoke tx hash and poll `sodax.swaps.getDetailedStatus`, or the relayer API from an intent-relay chain. Do not re-submit from the user side.
 
 Error semantics: [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap), [Relayer API endpoints](/developers/deployments/relayer-api-endpoints).
 
@@ -105,7 +105,7 @@ Walkthrough with code: [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap
 
 #### 12. Can I cancel an intent?
 
-Yes. Call `cancelIntent(intent)` on the Intents contract. The caller must be the creator, or the deadline must have passed. Intents with pending fills cannot be cancelled. Limit orders (`deadline = 0`) always require manual cancellation.
+Yes, unless it comes from an MPC-relay chain (Tron): only its deadline refunds it, so it cannot be a limit order. Call `cancelIntent(intent)` on the Intents contract. The caller must be the creator, or the deadline must have passed. Intents with pending fills cannot be cancelled. Limit orders (`deadline = 0`) always require manual cancellation.
 
 Contract interface: [Intents](/developers/technical-overview/intents).
 
@@ -139,13 +139,11 @@ See [Bridge](/developers/packages/foundation/sdk/functional-modules/bridge) and 
 
 Build a raw tx with `raw: true` from any `createIntent`, `createSupplyIntent`, `approve`, etc. Then call the matching module's `estimateGas({ tx, chainKey })`. The return shape depends on the chain family.
 
-EVM, ICON, Stellar, Bitcoin, NEAR return a `bigint`. Sui returns `{ computationCost, storageCost, storageRebate, nonRefundableStorageFee }`. Injective returns `{ gasWanted, gasUsed }`. Stacks returns `{ low, medium, high }` fee tiers. Solana returns `number | undefined` compute units.
-
-Examples per chain: [Estimate Gas](/developers/how-to/estimate_gas).
+Return shape and examples per chain: [Estimate Gas](/developers/how-to/estimate_gas).
 
 #### 17. Can I stake SODA from a non-EVM chain like Sui or Stellar?
 
-Yes. Every `StakingService` method accepts any `SpokeChainKey` as the source. If you pass `ChainKeys.SONIC_MAINNET`, the spoke and hub tx hashes are identical. Approval is required only on EVM spokes, the hub, and Stellar.
+Yes. Every `StakingService` method accepts any `SpokeChainKey` as the source except an MPC-relay chain (Tron). If you pass `ChainKeys.SONIC_MAINNET`, the spoke and hub tx hashes are identical. Approval is required only on EVM spokes, the hub, and Stellar.
 
 See [Staking](/developers/packages/foundation/sdk/functional-modules/staking).
 

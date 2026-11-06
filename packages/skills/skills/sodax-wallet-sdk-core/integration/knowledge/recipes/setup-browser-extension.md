@@ -21,6 +21,7 @@ Each chain has its own browser-extension variant. See [`../features/<chain>.md`]
 | Injective | `msgBroadcaster` |
 | NEAR      | `wallet` (`NearConnector` from `@hot-labs/near-connect`) |
 | Stacks    | `address` + optional `provider` (StacksProvider) |
+| Tron      | `tronWeb` (injected) + `getProvider` or `provider` — the TIP-6963-announced provider, whose TronWeb signs |
 
 ---
 

@@ -207,7 +207,7 @@ if (result.ok) {
 
 #### Completion paths and `timeout`
 
-`bridge()` completes through the **backend submit-tx path by default** (`bridge.useBackendSubmitTx`, default `true`): it hands the broadcast deposit to the bridge API (`sodax.api.bridge.submitTx`), which relays server-side, and polls submit-tx status. On **any** non-success — submission rejected, terminal `failed`/abandoned, or the poll running out — it falls back to the client-side `relayTxAndWaitPacket` flow so the bridge still completes, returning the same `TxHashPair` either way. That is safe because re-relaying an already-relayed deposit is idempotent, and it matters in practice: the backend keeps processing at its own pace after the SDK gives up, so the two relays can race. Set `new Sodax({ bridge: { useBackendSubmitTx: false } })` to force the client-side path.
+`bridge()` completes through the **backend submit-tx path by default** (`bridge.useBackendSubmitTx`, default `true`): it hands the broadcast deposit to the bridge API (`sodax.api.bridge.submitTx`), which relays server-side, and polls submit-tx status. On **any** non-success — submission rejected, terminal `failed`/abandoned, or the poll running out — it falls back to the client-side `relayTxAndWaitPacket` flow so the bridge still completes, returning the same `TxHashPair` either way. That is safe because re-relaying an already-relayed deposit is idempotent, and it matters in practice: the backend keeps processing at its own pace after the SDK gives up, so the two relays can race. Set `new Sodax({ bridge: { useBackendSubmitTx: false } })` to force the client-side path. A bridge from or to an MPC-relay chain (Tron) skips the backend and settles client-side, since the backend relays only through the intent relay; the SDK drives the hub-to-Tron release itself, and `dstChainTxHash` is the Tron payout tx.
 
 On-chain verification (`verifyTxHash`) runs on the **client-side path only** — the backend runs its own, so verifying before handing the deposit over would delay every backend success by the source chain's confirmation wait and could fail a bridge the backend would have completed. `TX_VERIFICATION_FAILED` therefore never surfaces on a bridge the backend completes.
 
@@ -220,6 +220,7 @@ On-chain verification (`verifyTxHash`) runs on the **client-side path only** —
 | ↳ any single backend request within it | `min(budget left in the attempt, api.timeout)` |
 | On-chain verification — client-side path only | the source chain's `pollingConfig.maxTimeoutMs` |
 | Relay wait — client-side path only, starts after verification | `max(timeout, RELAY_FALLBACK_FLOOR_MS)` |
+| ↳ each MPC-relay leg, added to the worst case below | at least [`TRON_SETTLEMENT_FLOOR_MS`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/TronSpokeService.ts) |
 
 So a stalled backend cannot shorten the fallback's relay wait, and raising `timeout` grows both attempts. Worst-case wall-clock is `createBridgeIntent + timeout + verification + max(timeout, RELAY_FALLBACK_FLOOR_MS)` — reached only when the backend accepts the submission and then never finishes. Bridge has no solver post-execution, so unlike swaps there is no `'posting_execution'` step and no post-execution term.
 
@@ -267,7 +268,8 @@ support, `allowAccountUpgrade` and the failure rules are the same as for swaps (
 `resumeBatchId: error.context.batchId` and `resumeBatchCallCount: error.context.callCount` (without the count, a
 batch the wallet confirmed as one transaction per call stays unconfirmed). It sends nothing: it waits for that batch
 again and, once its deposit confirms, relays it client-side by its hash and returns the usual `TxHashPair` with
-`approvalStrategy: 'atomic-batch'`. It skips the backend submit-tx, which needs the `relayData` the first call held.
+`approvalStrategy: 'atomic-batch'`. To an MPC-relay chain (Tron) it then notifies the release and waits for the
+payout, which `dstChainTxHash` names. It skips the backend submit-tx, which needs the `relayData` the first call held.
 While the batch is still pending it returns the same unconfirmed error, so you can keep calling it; a batch the wallet
 reports as never included comes back as `atomic-batch-failed`, and a relay failure after the deposit landed carries
 `context.srcTxHash`, so calling it again only re-relays.
@@ -298,10 +300,11 @@ When `raw` is `true`, returns the encoded transaction without broadcasting (usef
 
 **Bitcoin note:** Bitcoin is only supported with `raw: false` because it requires the Bound Exchange trading wallet derivation flow.
 
-**Chain-specific preconditions** (both fail as `VALIDATION_FAILED` with the offending `context.field`):
+**Chain-specific preconditions** (each fails as `VALIDATION_FAILED` with the offending `context.field`):
 
 - **Native BTC and the dust limit.** Native BTC is denominated in satoshis and must clear the Bitcoin dust limit of `BITCOIN_DUST_SATS` (546) — outputs below it are economically unspendable and nodes reject transactions that create them. With Bitcoin as the **source**, `amount` must be at least 546. With Bitcoin as the **destination**, the *post-fee delivered* amount must clear 546: the partner fee is deducted on the hub in 18-dp vault units, so a percentage fee — or a fixed wei-denominated `PartnerFee.amount` — can push a nominally valid `amount` under the limit (`Post-fee BTC delivery (…) is below the Bitcoin dust limit`).
 - **Stacks with `raw: true`** requires `extras.srcPublicKey` — see [BridgeExtras](#bridgeextras).
+- **A payout to an MPC-relay chain (Tron)** must stay above `MpcRelayPayoutMinimums` after the partner fee, or it fails before anything is signed with `context.reason: 'mpc-payout-below-minimum'`: the relay's release fee comes out of the payout, and nothing is released once that fee reaches the amount. A UI can check first with `getUnmetMpcPayoutMinimum`.
 
 **Parameters:**
 - `_params`: `BridgeParams<K, Raw>` — bridge parameters including source/destination chain keys, token addresses, amount, recipient, wallet provider, `raw` flag, optional `extras` (see [BridgeExtras](#bridgeextras)), and optional `skipSimulation`
@@ -344,6 +347,8 @@ if (result.ok) {
 Calculates the partner fee deducted from a given bridge input amount.
 
 Returns `0n` when no partner fee applies. The fee is denominated in the same units as `inputAmount` (vault token decimals, 18 dp).
+
+It prices the partner fee only. A payout to an MPC-relay chain (Tron) also arrives less the relay's release fee, which the relay sets at each release and the SDK cannot quote, so no bridge amount the SDK computes has it deducted.
 
 **Parameters:**
 - `inputAmount`: `bigint` — gross amount being bridged, in 18-dp hub/vault units (the units the hub deducts the fee in — **not** the spoke token's native base units). This matters for a fixed `PartnerFee.amount`, which is wei-denominated; a percentage fee is unit-agnostic.
@@ -492,9 +497,13 @@ if (result.ok) {
   if (result.value.source === 'backend') {
     // `data` is the BridgeSubmitTxStatusDataV2 from sodax.api.bridge.getSubmitTxStatus
     console.log(result.value.data.status, result.value.data.userMessage);
-  } else {
+  } else if (result.value.source === 'relay') {
     // `data` is the delivered relay PacketData
     console.log(result.value.data.status, result.value.data.dst_tx_hash);
+  } else {
+    // `data` is the MPC relay's record: from an MPC-relay source `txs.hubMint` is the hub settlement tx,
+    // to an MPC-relay destination `txs.release` is the payout tx
+    console.log(result.value.data.txs.hubMint?.hash, result.value.data.txs.release?.hash);
   }
 }
 ```
@@ -504,7 +513,8 @@ if (result.ok) {
 ```typescript
 type DetailedBridgeStatus =
   | { source: 'backend'; data: BridgeSubmitTxStatusDataV2 }
-  | { source: 'relay'; data: PacketData };
+  | { source: 'relay'; data: PacketData }
+  | { source: 'mpcRelay'; data: DepositRecord };
 ```
 
 A point-in-time read — poll it yourself, or use `@sodax/dapp-kit`'s `useBridgeDetailedStatus`.
@@ -519,22 +529,26 @@ Sometimes there is **no record**, and it reads 404 — you opted out with `useBa
 
 The relay can answer for it, but only if you know to ask it, and with what. So the caller had to know which path ran and pick a source. This method makes that choice instead:
 
-1. Read the backend record; return it while it is still in play.
-2. Otherwise return the delivered relay packet for the source tx.
+1. Read the backend record; return it while it is still in play. A bridge from Tron, or to Tron with `dstChainKey`, skips this step: the backend never holds one.
+2. Otherwise return the delivered relay packet for the source tx — or, for an MPC-relay source, its relay deposit record (with a `dstChainKey` on another spoke, the hub-to-spoke packet).
 
 A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 2, and on the default path this is the *common* branch rather than an edge case: the record almost always exists, so abandonment — not a 404 — is what usually signals the fallback ran. It never self-heals, so keeping it would report `failed` for a bridge the fallback went on to complete. A `success: false` envelope takes step 2 as well — that is the wire contract's "no record found", whatever `data` carries. A transport or server error routes on too, so a transient backend outage does not fail a bridge the relay can still report on.
 
 **One failure does not route on: a rejected API key.** `GET /bridge/submit-tx/status` is guarded by an API key, so a 401/403 is a terminal configuration problem rather than a source that had nothing to say. Degrading to the relay would bury it behind a relay error and leave a poller retrying a request only a corrected key can satisfy, so it surfaces directly, with `context.status` set for `isAuthFailure`.
 
-**What the relay arm proves, and what it does not.** The packet is returned whole rather than reduced to a hash, because `dst_tx_hash` means different things by route: for a spoke-source bridge it is the **hub settlement** tx, and for a hub-source bridge it is the destination spoke's tx. The spoke→spoke hop from the hub onwards is not covered by this read. So a `source: 'relay'` answer means *the deposit reached the packet's destination*, not always *the funds landed with the recipient*. The arm is terminal either way: the router only ever returns an `executed` packet with a non-empty `dst_tx_hash`.
+**What the relay arm proves, and what it does not.** The packet is returned whole rather than reduced to a hash, because `dst_tx_hash` means different things by route: for a spoke-source bridge it is the **hub settlement** tx, and for a hub-source bridge it is the destination spoke's tx. From an intent-relay source, the spoke→spoke hop from the hub onwards is not covered by this read. So a `source: 'relay'` answer means *the deposit reached the packet's destination*, not always *the funds landed with the recipient*. The arm is terminal either way: the router only ever returns an `executed` packet with a non-empty `dst_tx_hash`.
 
-Both payloads are already documented — the submit-tx record in [BRIDGE_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md), the relay packet as `PacketData`. Nothing is translated between them, so no field is dropped and no status is reinterpreted.
+**The MPC-relay arm.** An MPC-relay source never produces an intent-relay packet, so step 2 reads the relay's deposit record instead and returns it whole once `txs.hubMint` holds the hub settlement tx. Until then it is the same budgetable "not delivered" miss as an undelivered packet: the relay answers an unknown deposit as `pending`, so a stuck deposit and one in flight look alike. To another spoke the hub mint is only halfway, and the SDK call relays the rest: pass `dstChainKey` and the read waits for the hub-to-spoke packet, answering with it as the relay arm (`src_tx_hash` the hub mint, `dst_tx_hash` the payout), or with the miss plus `context.hubTxHash` until it lands. If the page closed before that leg was relayed, `sodax.spoke.submitHubDelivery(hubTxHash)` relays it.
+
+A bridge **to** an MPC-relay chain has no packet for that leg either, because the hub emits a `BridgeRequest` for that relay rather than an intent-relay message. Its arm is that relay's release record, returned once `txs.release` holds the payout tx; until then it is the same budgetable miss, with `context.hubTxHash` once the first leg has reached the hub. Read `txs.release`, not `status`, which follows the deposit ladder and never names a release. This read does not notify the relay, so a release nobody notified stays a miss; `sodax.spoke.submitHubRelease({ hubTxHash, dstChainKey })` notifies it. A spoke-source packet is checked against its hub tx's receipt first, so a release is found even without `dstChainKey`. While the release cannot be confirmed (the receipt or the relay record cannot be read), the read keeps retrying, unless a `dstChainKey` off the MPC relay rules it out: then the packet answers.
+
+Every payload is already documented — the submit-tx record in [BRIDGE_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md), the relay packet as `PacketData`, the MPC relay's record as `DepositRecord`. Nothing is translated between them, so no field is dropped and no status is reinterpreted.
 
 #### When it fails
 
 `LOOKUP_FAILED`, and only that. It means no source could answer — most often the relay has not delivered the packet yet.
 
-If you poll this yourself, branch on `error.context.reason`. It equals `DETAILED_STATUS_NOT_DELIVERED` when the backend answered (a record, or a definitive 404) **and** the relay has no packet for the source tx — whether it answers 404 for a tx it has not indexed, or returns no matching delivered packet. You cannot tell that apart from "still in flight", so bound it with a retry budget. Any other `LOOKUP_FAILED` is a dependency failing right now — relay 5xx or unreachable, malformed response, or a backend outage that left the relay miss unprovable. Keep retrying those, since retrying is how the read recovers. A rejected key is the exception: `isAuthFailure(error)` is true and no budget applies, because only a corrected key changes the answer. `useBridgeDetailedStatus` applies exactly this split.
+If you poll this yourself, branch on `error.context.reason`. It equals `DETAILED_STATUS_NOT_DELIVERED` when the backend answered (a record, or a definitive 404) **and** the relay has no packet for the source tx — whether it answers 404 for a tx it has not indexed, or returns no matching delivered packet. You cannot tell that apart from "still in flight", so bound it with a retry budget. Any other `LOOKUP_FAILED` is a dependency failing right now — relay 5xx or unreachable, malformed response, or a backend outage that left the relay miss unprovable. Keep retrying those, since retrying is how the read recovers. A failure for a bridge with an MPC-relay end named by `srcChainKey` or `dstChainKey`, and an unpaid release found on the hub tx, also carry `context.mpcRelay: true`: that relay settles in minutes rather than seconds, so give it a longer budget. A rejected key is the exception: `isAuthFailure(error)` is true and no budget applies, because only a corrected key changes the answer. `useBridgeDetailedStatus` applies exactly this split.
 
 Because it is meant to be polled, the relay read carries the relay module's own per-request budget and gives up rather than hanging. An expiry lands in the retryable group: it is a dependency failing right now, so it does not consume a not-delivered budget.
 
@@ -826,9 +840,7 @@ The chain key in the request payload (e.g. `srcChainKey`) drives both TypeScript
 
 ## Supported Chains
 
-The service supports every chain in the SODAX network (see `ChainKeys` in `@sodax/types` for the authoritative list):
-- **EVM:** Sonic (hub), Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood
-- **Non-EVM:** Solana, Sui, Stellar, ICON, Injective, NEAR, Stacks, Bitcoin
+The service supports every chain in the SODAX network (see `ChainKeys` in `@sodax/types` for the authoritative list).
 
 ## Partner Fees
 

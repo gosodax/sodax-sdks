@@ -85,9 +85,9 @@ type TxHashPair = {
 };
 ```
 
-Re-exported from `@sodax/sdk`. Universal cross-chain mutation return: spoke chain tx + relayed hub tx. Returned by `useBridge`, all four MM mutations, all five staking mutations, `useDexDeposit`/`useDexWithdraw`, all four migration mutations.
+Re-exported from `@sodax/sdk`. Cross-chain mutation return: spoke chain tx + relayed hub tx. Returned by `useBridge`, all four MM mutations, all five staking mutations, `useDexDeposit`/`useDexWithdraw`, all four migration mutations — `useBorrow`, `useWithdraw` and `useDexWithdraw` as `OutboundSettlement<K>`, which from Tron is `{ trackingId, dstChainTxHash }`.
 
-**Always destructure as `{ srcChainTxHash, dstChainTxHash }`, never as `[a, b]`.**
+**Always destructure by name, never as `[a, b]`.**
 
 ## Hook lifecycle terms
 

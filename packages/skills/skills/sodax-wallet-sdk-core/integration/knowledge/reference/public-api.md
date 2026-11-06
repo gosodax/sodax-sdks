@@ -9,7 +9,7 @@ import { /* … */ } from '@sodax/wallet-sdk-core';
 
 ---
 
-## Provider classes (9)
+## Provider classes
 
 | Export | Chain family | File |
 |---|---|---|
@@ -22,6 +22,7 @@ import { /* … */ } from '@sodax/wallet-sdk-core';
 | `InjectiveWalletProvider` | Injective | `wallet-providers/injective/InjectiveWalletProvider.ts` |
 | `NearWalletProvider` | NEAR | `wallet-providers/near/NearWalletProvider.ts` |
 | `StacksWalletProvider` | Stacks | `wallet-providers/stacks/StacksWalletProvider.ts` |
+| `TronWalletProvider` | Tron | `wallet-providers/tron/TronWalletProvider.ts` |
 
 Plus the abstract base:
 
@@ -55,6 +56,7 @@ Full list:
 | Injective | `InjectiveWalletConfig` | `SecretInjectiveWalletConfig` ⚠     | `BrowserExtensionInjectiveWalletConfig` | `InjectiveWalletDefaults` |
 | NEAR      | `NearWalletConfig`      | `PrivateKeyNearWalletConfig`        | `BrowserExtensionNearWalletConfig`      | `NearWalletDefaults` |
 | Stacks    | `StacksWalletConfig`    | `PrivateKeyStacksWalletConfig`      | `BrowserExtensionStacksWalletConfig`    | `StacksWalletDefaults` |
+| Tron      | `TronWalletConfig`      | `PrivateKeyTronWalletConfig`        | `BrowserExtensionTronWalletConfig`      | `TronWalletDefaults` |
 
 ⚠ **Injective uses `Secret*`, not `PrivateKey*`** — see [`../features/injective.md`](../features/injective.md).
 
@@ -87,6 +89,7 @@ Full list:
 | `InjectiveWallet` | Injective | Internal runtime-wallet shape. |
 | `NearTxExecutionStatus` | NEAR | `'NONE' \| 'INCLUDED' \| 'EXECUTED_OPTIMISTIC' \| 'INCLUDED_FINAL' \| 'EXECUTED' \| 'FINAL'` |
 | `StacksPkWallet` / `StacksBrowserExtensionWallet` / `StacksWallet` | Stacks | Internal runtime-wallet union. |
+| `TronWebLike` / `TronProviderLike` (interfaces) | Tron | Structural TronWeb and TIP-6963 provider shapes for the browser-extension config — no `tronweb` dep needed. |
 
 ---
 
