@@ -1,15 +1,15 @@
 ---
-title: API & SDK
-sidebarTitle: API & SDK
-description: Use the SODAX HTTP API from any language, or the open-source TypeScript SDK for full programmatic control.
-icon: layer-group
+title: API
+sidebarTitle: API
+description: Integrate SODAX from any language over the HTTP API.
+icon: server
 ---
 
-The HTTP API is the main path for new integrations. It works from any language and platform, with no SDK install required. The open-source SDK layers TypeScript types and abstractions on top for teams that want them.
+The HTTP API is the main path for new integrations. It works from any language and platform: quote, build intents, submit transactions, and check status over standard REST.
 
-## HTTP API
+## Get started
 
-Quote, build intents, submit transactions, and check status over standard REST. Get your API key at [portal.sodax.com](https://portal.sodax.com) to get started.
+Get your API key at [portal.sodax.com](https://portal.sodax.com), then pick an API:
 
 <CardGroup cols={2}>
   <Card title="Swaps API" icon="rotate" href="/developers/http-api/swaps">

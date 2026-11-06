@@ -84,7 +84,7 @@
             "pages": [
               "home/why-sodax",
               "home/how-execution-works",
-              "home/api-and-sdk"
+              "home/api"
             ]
           }
         ]
@@ -895,7 +895,7 @@
     },
     {
       "source": "/home/sdk-stack",
-      "destination": "/home/api-and-sdk"
+      "destination": "/home/api"
     }
   ],
   "thumbnails": {
