@@ -6,10 +6,14 @@ description: >-
 icon: signs-post
 ---
 
-Pick a solution first. Inside each hub you’ll choose the **HTTP API** or the **open-source SDK**.
+The HTTP API works from any language — quote, build an intent, submit, and poll status over REST, with no install required. The open-source SDK adds TypeScript types and abstractions for teams that want them.
 
-<Card title="Your first swap" icon="bolt" href="/quickstart" horizontal arrow>
-  Install → quote → execute on mainnet, then poll until it settles.
+<Card title="HTTP API" icon="server" href="/developers/http-api" horizontal arrow>
+  Quote, build intent, submit-tx, and poll status — any language. [Get an API key at portal.sodax.com →](/developers/how-to/api-keys)
+</Card>
+
+<Card title="SDK: your first swap" icon="bolt" href="/quickstart" horizontal arrow>
+  TypeScript install → quote → execute on mainnet, then poll until it settles.
 </Card>
 
 <CardGroup cols={2}>

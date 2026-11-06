@@ -6,6 +6,10 @@ icon: wallet
 
 Welcoming cross-network users means supporting the wallets they already use. On Kaia, SODAX works through the EVM: any wallet that can sign Ethereum-format transactions on Kaia mainnet (chain ID 8217), such as MetaMask. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
 
+
+<Note>
+  Using the HTTP API? Your server signs requests directly — no wallet SDK is needed. This page covers SDK wallet integration.
+</Note>
 ## Account requirements
 
 - **Legacy account key.** Kaia accounts can replace their key, or use multisig and role-based keys. Ethereum-format transactions only work from accounts with the `AccountKeyLegacy` type, whose address is derived from their key. Kaia creates accounts with that type, so EVM wallet accounts qualify unless the owner has updated the account key. An updated account can still hold KAIA and tokens, but it cannot sign SODAX transactions.

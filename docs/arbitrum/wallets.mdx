@@ -6,6 +6,10 @@ icon: wallet
 
 Welcoming cross-network users means supporting the wallets they already use. On Arbitrum, that is any EVM wallet that can sign on Arbitrum One (chain ID 42161), such as MetaMask or Rabby. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
 
+
+<Note>
+  Using the HTTP API? Your server signs requests directly — no wallet SDK is needed. This page covers SDK wallet integration.
+</Note>
 ## React apps: `@sodax/wallet-sdk-react`
 
 The React package wraps each chain family's native wallet SDK (wagmi for EVM networks, including Arbitrum) behind a uniform connector interface with a single persisted store.
