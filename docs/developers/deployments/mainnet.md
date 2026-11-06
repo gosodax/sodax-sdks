@@ -8,7 +8,7 @@ EVM Owner: [0x36BB43bED1338Ab7D9F07e06bF5e330D4FdBfd6f](https://sonicscan.org/ad
 
 Lightlink Owner: [0xa5178EfEf61c1877B664269bAedE296e1f451B6a](https://phoenix.lightlink.io/address/0xa5178EfEf61c1877B664269bAedE296e1f451B6a)
 
-HyperEVM Owner: [0x9eD17ecBB8c94f1bE13D4BcC676d346d9779A132](https://liquidscan.io/address/0x9eD17ecBB8c94f1bE13D4BcC676d346d9779A132)
+HyperEVM Owner: [0x9eD17ecBB8c94f1bE13D4BcC676d346d9779A132](https://hyperevmscan.io/address/0x9eD17ecBB8c94f1bE13D4BcC676d346d9779A132)
 
 Solana multisig: [5eJYXYhqxsTgBZmp7CJkoBQpRe2bEWnQZdT3iwaqh715](https://app.squads.so/squads/5eJYXYhqxsTgBZmp7CJkoBQpRe2bEWnQZdT3iwaqh715/home)
 

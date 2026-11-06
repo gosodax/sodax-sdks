@@ -58,7 +58,7 @@ One EVM connection covers every EVM network, so the wallet may be on a different
 
 ## Your own viem or wagmi setup {#your-own-viem-or-wagmi-setup}
 
-SODAX's 2.1.0 packages depend on viem 2.29.2, which has no Robinhood Chain definition. `@sodax/wallet-sdk-core` (and `@sodax/sdk`) export one, so you do not have to write it yourself:
+The viem version SODAX's packages depend on has no Robinhood Chain definition. `@sodax/wallet-sdk-core` (and `@sodax/sdk`) export one, so you do not have to write it yourself:
 
 ```typescript
 import { robinhoodChain } from '@sodax/wallet-sdk-core';

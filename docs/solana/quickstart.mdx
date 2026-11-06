@@ -51,7 +51,7 @@ Token addresses and decimals come from the SDK config, so you never hard-code mi
 import { Sodax, ChainKeys, type XToken } from '@sodax/sdk';
 
 const sodax = new Sodax();
-await sodax.initialize(); // optional: pulls the latest token config
+await sodax.initialize(); // optional; adds no tokens
 
 // find() returns XToken | undefined, so narrow before using the address
 const bySymbol = (tokens: readonly XToken[], symbol: string) => {
