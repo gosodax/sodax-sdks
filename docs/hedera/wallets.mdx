@@ -6,6 +6,10 @@ icon: wallet
 
 Welcoming cross-network users means supporting the wallets they already use. On Hedera, SODAX works through the EVM: any wallet that can sign EVM transactions for an ECDSA account on Hedera mainnet (chain ID 295), such as MetaMask. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
 
+<Note>
+  Using the HTTP API? You sign and broadcast the intent transaction yourself (see the [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll)), so these wallet packages are optional. This page covers SDK wallet integration.
+</Note>
+
 ## Account requirements
 
 - **ECDSA key.** The account must have an ECDSA (secp256k1) key. Accounts with an ED25519 key can hold HBAR and HTS tokens but cannot sign EVM transactions, so they cannot act through SODAX. Accounts created by MetaMask or through the JSON-RPC relay use ECDSA by default.
