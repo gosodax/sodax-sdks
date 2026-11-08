@@ -6,8 +6,10 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 import type {
+  Address,
   AssetDepositAction,
   AssetWithdrawAction,
+  BalnLockParams,
   BalnMigrateAction,
   BitcoinRawTransaction,
   BridgeParams,
@@ -21,6 +23,7 @@ import type {
   ClSupplyAction,
   CreateIntentParams,
   DepositParams,
+  EvmContractCall,
   EvmRawTransaction,
   FeeTokenApproveAction,
   Hex,
@@ -47,7 +50,9 @@ import type {
   NearRawTransaction,
   PartnerFeeClaimCancelAction,
   PartnerFeeClaimSwapAction,
+  Result,
   SendMessageParams,
+  SetSwapPreferenceAction,
   Sodax,
   SolanaRawTransaction,
   SpokeApproveParams,
@@ -68,7 +73,7 @@ type SONIC = typeof ChainKeys.SONIC_MAINNET;
 type ICON = typeof ChainKeys.ICON_MAINNET;
 
 // Success value of a `Promise<Result<…>>`; the spoke transaction when the value is an intent result.
-type Ok<P> = Extract<Awaited<P>, { ok: true }> extends { value: infer V } ? V : never;
+type Ok<P> = Awaited<P> extends Result<infer V> ? V : never;
 type Tx<P> = Ok<P> extends { tx: infer T; relayData: unknown } ? T : Ok<P>;
 type ParamsOf<A> = A extends { params: infer P } ? P : never;
 type Flat<A> = Omit<A, 'raw' | 'walletProvider'>;
@@ -124,6 +129,10 @@ declare const feeCancelP: ParamsOf<PartnerFeeClaimCancelAction<SONIC, false>>;
 declare const revertP: ParamsOf<IcxRevertMigrationAction<false>>;
 declare const balnP: ParamsOf<BalnMigrateAction<false>>;
 declare const icxP: ParamsOf<IcxMigrateAction<false>>;
+declare const swapPrefP: ParamsOf<SetSwapPreferenceAction<SONIC, false>>;
+declare const user: Address;
+declare const lockP: BalnLockParams;
+declare const hubCall: EvmContractCall;
 
 // One row per action: [call with walletProvider and no `raw`, call with `raw: true`]. Never invoked.
 const evmRows = () =>
@@ -265,9 +274,42 @@ const evmRows = () =>
       sodax.partners.feeClaim.cancelIntent({ params: feeCancelP, walletProvider: evm }),
       sodax.partners.feeClaim.cancelIntent({ params: feeCancelP, raw: true }),
     ],
+    'partners.feeClaim.setSwapPreference': [
+      sodax.partners.feeClaim.setSwapPreference({ params: swapPrefP, walletProvider: evm }),
+      sodax.partners.feeClaim.setSwapPreference({ params: swapPrefP, raw: true }),
+    ],
     'migration.createRevertSodaToIcxMigrationIntent': [
       sodax.migration.createRevertSodaToIcxMigrationIntent({ params: revertP, walletProvider: evm }),
       sodax.migration.createRevertSodaToIcxMigrationIntent({ params: revertP, raw: true }),
+    ],
+  }) as const;
+
+// BALN lock actions take the slot positionally and return the tx itself, not a `Result`.
+const balnRows = () =>
+  ({
+    'migration.balnSwapService.stake': [
+      sodax.migration.balnSwapService.stake(user, lockP, { walletProvider: evm }),
+      sodax.migration.balnSwapService.stake(user, lockP, { raw: true }),
+    ],
+    'migration.balnSwapService.unstake': [
+      sodax.migration.balnSwapService.unstake(user, lockP, { walletProvider: evm }),
+      sodax.migration.balnSwapService.unstake(user, lockP, { raw: true }),
+    ],
+    'migration.balnSwapService.cancelUnstake': [
+      sodax.migration.balnSwapService.cancelUnstake(user, lockP, { walletProvider: evm }),
+      sodax.migration.balnSwapService.cancelUnstake(user, lockP, { raw: true }),
+    ],
+    'migration.balnSwapService.claim': [
+      sodax.migration.balnSwapService.claim(user, lockP, { walletProvider: evm }),
+      sodax.migration.balnSwapService.claim(user, lockP, { raw: true }),
+    ],
+    'migration.balnSwapService.claimUnstaked': [
+      sodax.migration.balnSwapService.claimUnstaked(user, lockP, { walletProvider: evm }),
+      sodax.migration.balnSwapService.claimUnstaked(user, lockP, { raw: true }),
+    ],
+    'migration.balnSwapService.call': [
+      sodax.migration.balnSwapService.call(user, hubCall, { walletProvider: evm }),
+      sodax.migration.balnSwapService.call(user, hubCall, { raw: true }),
     ],
   }) as const;
 
@@ -342,6 +384,13 @@ describe('execution mode — result type follows the mode, no type arguments', (
   it('every EVM action: walletProvider → Hex, raw: true → EvmRawTransaction', () => {
     type T = ReturnType<typeof evmRows>;
     expectTypeOf<Mismatches<T, Uniform<T, Hex, EvmRawTransaction>>>().toEqualTypeOf<None>();
+  });
+
+  it('BALN lock actions: walletProvider → Hex, raw: true → EvmRawTransaction, without a Result', () => {
+    type T = ReturnType<typeof balnRows>;
+    expectTypeOf<{ [M in keyof T]: readonly [Awaited<T[M][0]>, Awaited<T[M][1]>] }>().toEqualTypeOf<
+      Uniform<T, Hex, EvmRawTransaction>
+    >();
   });
 
   it('ICON-only migration actions: walletProvider → Hex, raw: true → IconRawTransaction', () => {

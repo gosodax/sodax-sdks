@@ -58,7 +58,7 @@ export type SetSwapPreferenceParams = {
   dstAddress: string;
 };
 
-export type SetSwapPreferenceAction<K extends SpokeChainKey, Raw extends boolean> = SpokeExecActionParams<
+export type SetSwapPreferenceAction<K extends HubChainKey, Raw extends boolean> = SpokeExecActionParams<
   K,
   Raw,
   SetSwapPreferenceParams
@@ -343,7 +343,7 @@ export class PartnerFeeClaimService {
    * @returns A `Result` containing either the submitted transaction hash (`raw: false`) or the
    *   unsigned raw transaction (`raw: true`). Returns an error on failure.
    */
-  public async setSwapPreference<K extends SpokeChainKey, Raw extends boolean = false>(
+  public async setSwapPreference<K extends HubChainKey, Raw extends boolean = false>(
     _params: SetSwapPreferenceAction<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>>> {
     return this.config.analytics.trackResult(
