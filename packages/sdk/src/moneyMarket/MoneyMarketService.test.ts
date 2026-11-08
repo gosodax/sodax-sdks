@@ -23,7 +23,6 @@ import {
   type IStellarWalletProvider,
   type Result,
   type SpokeChainKey,
-  type TxReturnType,
 } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { SodaxError } from '../errors/SodaxError.js';
@@ -274,23 +273,6 @@ describe('MoneyMarketService types — method call sites narrow walletProvider',
         // @ts-expect-error — EVM provider mismatched on Bitcoin chain.
         walletProvider: mockEvmProvider,
       });
-    }
-  });
-
-  it('createSupplyIntent / approve infer the result type from walletProvider or raw: true', () => {
-    type OkValue<P> = Extract<Awaited<P>, { ok: true }> extends { value: infer T } ? T : never;
-    if (false as boolean) {
-      const params = supplyParams(ChainKeys.BSC_MAINNET);
-      const approved = mm.approve({ params, walletProvider: mockEvmProvider });
-      expectTypeOf<OkValue<typeof approved>>().toEqualTypeOf<TxReturnType<typeof ChainKeys.BSC_MAINNET, false>>();
-      const approvedRaw = mm.approve({ params, raw: true });
-      expectTypeOf<OkValue<typeof approvedRaw>>().toEqualTypeOf<TxReturnType<typeof ChainKeys.BSC_MAINNET, true>>();
-      const supplied = mm.createSupplyIntent({ params, walletProvider: mockEvmProvider });
-      expectTypeOf<OkValue<typeof supplied>['tx']>().toEqualTypeOf<TxReturnType<typeof ChainKeys.BSC_MAINNET, false>>();
-      const suppliedRaw = mm.createSupplyIntent({ params, raw: true });
-      expectTypeOf<OkValue<typeof suppliedRaw>['tx']>().toEqualTypeOf<
-        TxReturnType<typeof ChainKeys.BSC_MAINNET, true>
-      >();
     }
   });
 

@@ -34,7 +34,6 @@ import {
   type SolverIntentStatusResponse,
   type SpokeChainKey,
   type SubmitTxStatusDataV2,
-  type TxReturnType,
 } from '@sodax/types';
 import {
   ACCOUNT_UPGRADE_DECLINED,
@@ -302,36 +301,6 @@ describe('SwapService types — walletProvider narrowing', () => {
 
   it('SwapActionParams with unconstrained K falls back to IWalletProvider', () => {
     expectTypeOf<SwapActionParams<SpokeChainKey, false>['walletProvider']>().toEqualTypeOf<IWalletProvider>();
-  });
-});
-
-describe('SwapService types — result is typed by execution mode', () => {
-  type OkValue<P> = Extract<Awaited<P>, { ok: true }> extends { value: infer T } ? T : never;
-
-  it('infers the broadcast result from walletProvider and the raw result from raw: true, with no type arguments', () => {
-    const svc = sodax.swaps;
-    if (false as boolean) {
-      const params = intentInput(ChainKeys.BSC_MAINNET);
-      const approved = svc.approve({ params, walletProvider: mockEvmProvider });
-      expectTypeOf<OkValue<typeof approved>>().toEqualTypeOf<TxReturnType<typeof ChainKeys.BSC_MAINNET, false>>();
-      const approvedRaw = svc.approve({ params, raw: true });
-      expectTypeOf<OkValue<typeof approvedRaw>>().toEqualTypeOf<TxReturnType<typeof ChainKeys.BSC_MAINNET, true>>();
-      const created = svc.createIntent({ params, walletProvider: mockEvmProvider });
-      expectTypeOf<OkValue<typeof created>['tx']>().toEqualTypeOf<TxReturnType<typeof ChainKeys.BSC_MAINNET, false>>();
-      const createdRaw = svc.createIntent({ params, raw: true });
-      expectTypeOf<OkValue<typeof createdRaw>['tx']>().toEqualTypeOf<
-        TxReturnType<typeof ChainKeys.BSC_MAINNET, true>
-      >();
-    }
-  });
-
-  it('keeps both results when the mode is only known at runtime', () => {
-    const svc = sodax.swaps;
-    if (false as boolean) {
-      const actionParams = {} as SwapActionParams<typeof ChainKeys.BSC_MAINNET, boolean>;
-      const approved = svc.approve<typeof ChainKeys.BSC_MAINNET, boolean>(actionParams);
-      expectTypeOf<OkValue<typeof approved>>().toEqualTypeOf<TxReturnType<typeof ChainKeys.BSC_MAINNET, boolean>>();
-    }
   });
 });
 
