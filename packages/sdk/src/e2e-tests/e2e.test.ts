@@ -29,10 +29,20 @@ describe('e2e', () => {
 
   const toMmTokenSyncKey = (chain: SpokeChainKey, address: string): string => `${chain}|${address.toLowerCase()}`;
 
-  // Hub-side debt / bridge-only tokens that share MM vaults but are not money-market spoke assets.
+  // Hub-side debt / bridge-only / swap-only tokens that share MM vaults but are not money-market spoke assets.
   const mmTokenSyncExcludedFromTypes = new Set<string>([
     `${ChainKeys.SONIC_MAINNET}|0x94dc79ce9c515ba4ae4d195da8e6ab86c69bfc38`, // bnUSDd
     `${ChainKeys.BITCOIN_MAINNET}|897442:43`, // BUSD
+    `${ChainKeys.ETHEREUM_MAINNET}|0x18084fba666a33d37592fa2633fd49a74dd93a88`, // tBTC
+    `${ChainKeys.ETHEREUM_MAINNET}|0x73e0c0d45e048d25fc26fa3159b0aa04bfa4db98`, // kBTC
+    `${ChainKeys.ETHEREUM_MAINNET}|0x72dfb2e44f59c5ad2bafe84314e5b99a7cd5075e`, // cirBTC
+    `${ChainKeys.ETHEREUM_MAINNET}|0x85f17cf997934a597031b2e18a9ab6ebd4b9f6a4`, // NEAR
+    `${ChainKeys.ETHEREUM_MAINNET}|0xd31a59c85ae9d8edefec411d448f90841571b89c`, // SOL
+    `${ChainKeys.SOLANA_MAINNET}|98smhvdwxj1rqi5c5mndm3vpe9cbqprblaufmxfnmh5g`, // HYPE
+    `${ChainKeys.SOLANA_MAINNET}|lbtcgu4b3wsfkspwbn1rrzdx5dofutm6rpiet1tpdsy`, // LBTC
+    `${ChainKeys.SOLANA_MAINNET}|ctzpwv73sn1dmgvu3ztlv9ywsyuaanbni19ywdaznnkn`, // xBTC
+    `${ChainKeys.BASE_MAINNET}|0x97be14dd8f994a5364573bc035d85309e7cb34de`, // JitoSOL
+    `${ChainKeys.BASE_MAINNET}|0x311935cd80b76769bf2ecc9d8ab7635b2139cf82`, // SOL
   ]);
 
   // Listed in moneyMarketSupportedTokens but use migration / inactive vaults, not live pool reserves.
@@ -41,7 +51,6 @@ describe('e2e', () => {
     `${ChainKeys.SONIC_MAINNET}|0x9d4b663eb075d2a1c7b8eaefb9eccc0510388b51`, // IbnUSD
     `${ChainKeys.SONIC_MAINNET}|0x4b207114f9118deac56436e1ae3c45648783c7ac`, // sodaRBNT
     `${ChainKeys.NEAR_MAINNET}|bnusd.sodax.near`, // bnUSD (IbnUSD migration vault)
-    `${ChainKeys.SONIC_MAINNET}|0x3bb956cc8922e1ba4148dc10ed1b4fa19aa599c4`, // sodaHBAR (HBAR reserve not yet live on-chain)
   ]);
 
   const isMmTokenSyncExcludedFromTypes = (chain: SpokeChainKey, address: string): boolean =>

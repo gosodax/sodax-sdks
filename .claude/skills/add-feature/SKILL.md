@@ -47,6 +47,7 @@ If consumers call it from React, add a `packages/dapp-kit/src/hooks/<feature>/` 
 ## Tests & docs
 - `<Feature>Service.test.ts` for core flows, invariants, and edge cases; add an `e2e-tests/` entry if the flow is cross-chain.
 - **Docs Drift CI** fails the PR unless a *related* publishable site doc changed (JSDoc is not enough). Update the matching file in `packages/sdk/docs/` that is listed in `scripts/docs-pages-map.json` (e.g. `SWAPS.md`). A brand-new page must be added to that map's `mirrored` list — every mapped src is published — and given a nav entry in `docs/docs.json`, or it is live but absent from the sidebar and search; a page not ready to go live goes on the map's `unpublished` list instead. An unrelated mapped file (for example `packages/skills/README.md`) does not satisfy an SDK source change.
+- **Write the doc to the `.claude/skills/write-docs/` rules:** state the goal and sequence, link to types and source rather than restating them, and link to a runnable file instead of pasting long code.
 - **`packages/skills` is separate** — it teaches *partner* agents how to call the public API, not how we add the feature. After the feature is wired, update the consumer skills so integrators' agents can use it, then run `pnpm check:ai`. That does not satisfy Docs Drift.
 
 ## Verify

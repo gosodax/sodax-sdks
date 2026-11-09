@@ -39,6 +39,8 @@ const supportedTokens: readonly XToken[] = sodax.swaps.getSupportedSwapTokensByC
 const allTokens: Record<SpokeChainKey, readonly XToken[]> = sodax.swaps.getSupportedSwapTokens();
 ```
 
+These lists, and the tokens `sodax.swaps` accepts, are the ones bundled with your `@sodax/sdk` version. For a token listed after your release, see [Where supported tokens come from](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#where-supported-tokens-come-from).
+
 ### Production and staging token lists
 
 `getSupportedSolverTokens(chainKey)` returns production tokens.

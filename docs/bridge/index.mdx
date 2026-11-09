@@ -1,22 +1,27 @@
 ---
 title: "Bridge"
 icon: bridge-suspension
-description: "Move assets network to network through hub-and-spoke vaults — SDK today, HTTP API coming."
+description: "Move assets network to network through hub-and-spoke vaults, over the Bridge API from any language or with the SDK."
 ---
 
 Low-level transfer primitives for when you need asset movement without swap logic: spoke → hub, hub → spoke, and spoke → spoke.
 
-Follow the [bridge usage flow](/developers/packages/foundation/sdk/functional-modules/bridge#usage-flow), then use the [bridge example](/developers/packages/foundation/sdk/functional-modules/bridge#bridge) to submit a transfer.
+Start with the HTTP API at `https://api.sodax.com/v1/bridge`: list tokens, check allowance and approve, build the bridge intent, sign and broadcast it on the source network, then hand it to `submit-tx` and poll its status. The route list lives in the [`@sodax/bridge-api` client](https://github.com/gosodax/sodax-sdks/blob/main/packages/bridge-api/src/client.ts), and [`BRIDGE_API.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md) covers each call's request and response types. Send your [API key](/developers/how-to/api-keys) as `x-api-key` from your server.
+
+For a TypeScript flow, follow the [bridge usage flow](/developers/packages/foundation/sdk/functional-modules/bridge#usage-flow), then use the [bridge example](/developers/packages/foundation/sdk/functional-modules/bridge#bridge) to submit a transfer.
 Check [completion and timeouts](/developers/packages/foundation/sdk/functional-modules/bridge#completion-paths-and-timeout) and [errors](/developers/packages/foundation/sdk/functional-modules/bridge#error-handling) before adding retries.
 
 ## Integration reference
 
 <CardGroup cols={2}>
-  <Card title="SDK method reference" icon="code" href="/developers/packages/foundation/sdk/functional-modules/bridge">
-    `@sodax/sdk` — `sodax.bridge` transfer primitives.
+  <Card title="Bridge API" icon="server" href="https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md">
+    `/v1/bridge/*` over HTTP — tokens, allowance, build intent, submit-tx and status, from any language.
   </Card>
-  <Card title="HTTP API" icon="server" href="/developers/http-api">
-    No Bridge write API yet. Live HTTP surfaces: Swaps, Yield, Oracle, and Stats.
+  <Card title="Typed HTTP client" icon="box" href="/developers/packages/foundation/bridge-api">
+    `@sodax/bridge-api` — a typed TypeScript client for the same routes, without the full SDK.
+  </Card>
+  <Card title="SDK method reference" icon="code" href="/developers/packages/foundation/sdk/functional-modules/bridge">
+    `@sodax/sdk` — `sodax.bridge` orchestrates the whole transfer.
   </Card>
 </CardGroup>
 

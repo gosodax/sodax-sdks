@@ -1,17 +1,17 @@
 ---
 title: "SODAX for Sonic"
 sidebarTitle: "Overview"
-description: "Build on the SODAX hub. Sonic is where SODAX execution settles, so users acting on Sonic reach every SODAX network without a relay hop. No contracts to deploy, your entire integration is TypeScript."
+description: "Build on the SODAX hub. Sonic is where SODAX execution settles, so users acting on Sonic reach every SODAX network without a relay hop. No contracts to deploy: integrate over the HTTP API from any language, or the TypeScript SDK."
 icon: s
 ---
 
 <Note>
-  **No new contracts.** Sonic is the SODAX hub: the intents contract, the money market, and the hub wallets all live there already. Your entire integration is TypeScript. Your users sign ordinary EVM transactions on Sonic, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
+  **No new contracts.** Sonic is the SODAX hub: the intents contract, the money market, and the hub wallets all live there already. Integrate over the HTTP API from any language, or in TypeScript with the SDK. Your users sign ordinary EVM transactions on Sonic, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
 </Note>
 
 Every SODAX network is a spoke connected to one hub, and the hub is Sonic. Swap intents are registered on Sonic and their fills are recorded there, and the money market's reserves sit on Sonic. When a user acts from any other network, the SODAX relayer carries their transaction to Sonic first. When a user acts on Sonic, the transaction they sign is already the hub transaction.
 
-That makes Sonic the shortest path into SODAX: your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, from one EVM network. Integration happens in TypeScript, at the SDK or React layer. There is nothing to deploy, audit, or maintain on-chain.
+That makes Sonic the shortest path into SODAX: your product can offer trading and lending against every asset in the SODAX System, <span data-sodax-config="count" data-metric="swap-tokens">166</span> across all supported networks, from one EVM network. Swaps and leverage yield run over the HTTP API from any language; money market supply and borrow run in TypeScript at the SDK or React layer. There is nothing to deploy, audit, or maintain on-chain.
 
 Using SODAX is free. Trades carry a fixed 0.1% base fee taken by the protocol, and you set your own platform fee on top. That part is fully yours, both the rate and the revenue, and it accrues on Sonic. See [Monetize SDK](/developers/how-to/monetize_sdk).
 
@@ -41,6 +41,7 @@ Two SODAX modules are relevant to Sonic builders:
 
 | Path | Best for | Start here |
 | - | - | - |
+| [HTTP API](/developers/http-api) | Swaps and leverage yield from any language, with no SDK to install. Get a key at [portal.sodax.com](https://portal.sodax.com) | [Swap bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll) |
 | [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/sonic/quickstart) |
 | [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/sonic/wallets) |
 | [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |

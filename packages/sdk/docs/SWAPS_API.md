@@ -183,8 +183,19 @@ const created = await sodax.api.swaps.createIntent({
 if (!created.ok) return;
 const { tx, intent, relayData } = created.value;
 
+// createIntent returns IntentResponseV2 (decimal strings); submitTx takes IntentRequestV2 (bigint).
+const intentRequest: IntentRequestV2 = {
+  ...intent,
+  intentId: BigInt(intent.intentId),
+  inputAmount: BigInt(intent.inputAmount),
+  minOutputAmount: BigInt(intent.minOutputAmount),
+  deadline: BigInt(intent.deadline),
+  srcChain: BigInt(intent.srcChain),
+  dstChain: BigInt(intent.dstChain),
+};
+
 const submit = await sodax.api.swaps.submitTx({
-  txHash, srcChainKey, walletAddress, intent,
+  txHash, srcChainKey, walletAddress, intent: intentRequest,
   relayData: relayData.payload, // string payload, not the RelayExtraData object
 });
 if (!submit.ok) return;

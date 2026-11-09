@@ -80,14 +80,6 @@
         ]
       },
       {
-        "tab": "Solutions",
-        "pages": ["swap/index", "money-market/index", "bridge/index", "yield/index"]
-      },
-      {
-        "tab": "Widget",
-        "pages": ["widget/index"]
-      },
-      {
         "tab": "API",
         "pages": [
           "developers/http-api/index",
@@ -96,6 +88,14 @@
           "developers/http-api/oracle",
           "developers/http-api/stats"
         ]
+      },
+      {
+        "tab": "Solutions",
+        "pages": ["swap/index", "money-market/index", "bridge/index", "yield/index"]
+      },
+      {
+        "tab": "Widget",
+        "pages": ["widget/index"]
       },
       {
         "tab": "SDK",
@@ -257,7 +257,16 @@
                       "base/money-market",
                       "base/wallets",
                       "base/networks-and-assets",
-                      "base/faq"
+                      "base/faq",
+                      {
+                        "group": "Recipes",
+                        "icon": "book-open",
+                        "pages": [
+                          "base/recipes/accept-any-token",
+                          "base/recipes/lending-spoke",
+                          "base/recipes/cross-network-balances"
+                        ]
+                      }
                     ]
                   },
                   {
