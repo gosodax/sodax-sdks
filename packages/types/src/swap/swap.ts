@@ -581,6 +581,11 @@ export const swapSupportedTokens = {
   ] as const satisfies XToken[],
   // Tron is currently staging-only — see stagingSwapSupportedTokens
   [ChainKeys.TRON_MAINNET]: [],
+  [ChainKeys.XRP_MAINNET]: [
+    spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.XRP,
+    spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.RLUSD,
+    spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.USDC,
+  ] as const satisfies XToken[],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 // Tokens supported ONLY in the staging solver environment.
@@ -636,6 +641,8 @@ export const stagingSwapSupportedTokens = {
     spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.TRX,
     spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.USDT,
   ] as const satisfies XToken[],
+  // Production-only: the three XRPL assets are on the production solver oracle.
+  [ChainKeys.XRP_MAINNET]: [],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 export type SwapsOptions = {

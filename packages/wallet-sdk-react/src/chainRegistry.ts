@@ -12,6 +12,7 @@ import {
   NearWalletProvider,
   StacksWalletProvider,
   TronWalletProvider,
+  XrpWalletProvider,
 } from '@sodax/wallet-sdk-core';
 import { Wallet } from '@injectivelabs/wallet-base';
 import { getEthereumAddress } from '@injectivelabs/sdk-ts';
@@ -42,6 +43,7 @@ import { NearXService } from './xchains/near/NearXService.js';
 import { NearXConnector } from './xchains/near/NearXConnector.js';
 import { StacksXService, StacksXConnector, STACKS_PROVIDERS } from './xchains/stacks/index.js';
 import { TronXService, TronXConnector } from './xchains/tron/index.js';
+import { XrpXService, XrpXConnector } from './xchains/xrp/index.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -433,6 +435,32 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
         endpoint: entry?.rpcUrl,
         defaults,
       });
+    },
+  }),
+  XRP: defineChain({
+    createService: walletConfig => XrpXService.getInstance(walletConfig?.XRP?.chains?.[ChainKeys.XRP_MAINNET]),
+    displayName: 'XRP Ledger',
+    defaultConnectors: () => [new XrpXConnector()],
+    providerManaged: false,
+    // The wallet modal refuses a connector that reads as not installed, and GemWallet reads that way until
+    // `@gemwallet/api` has heard from the extension: ask once, then republish so the modal reads it again.
+    discoverConnectors: async (_service, getStore) => {
+      if (!(await XrpXConnector.detect())) return;
+      getStore().setXConnectors('XRP', [...(getStore().xConnectorsByChain.XRP ?? [])]);
+    },
+    createWalletProvider: (service, getStore) => {
+      const store = getStore();
+      const connection = store.xConnections.XRP;
+      const address = connection?.xAccount.address;
+      if (!address) return undefined;
+      const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+      // The connector adapts `@gemwallet/api` to the structural shape the core provider expects,
+      // so wallet-sdk-core needs no GemWallet dependency of its own.
+      const gemWallet = connector instanceof XrpXConnector ? connector.getGemWallet() : undefined;
+      if (!gemWallet) return undefined;
+      const entry = store.walletConfig?.XRP?.chains?.[ChainKeys.XRP_MAINNET];
+      const defaults = getEntryDefaults<typeof ChainKeys.XRP_MAINNET>(entry);
+      return new XrpWalletProvider({ gemWallet, address, endpoint: entry?.rpcUrl, defaults });
     },
   }),
 };

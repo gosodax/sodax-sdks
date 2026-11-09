@@ -2849,6 +2849,50 @@ export const bitcoinSupportedTokens = {
   },
 } as const satisfies Record<string, XToken>;
 
+/**
+ * XRPL spoke tokens.
+ *
+ * XRPL has no token contracts: an issued currency (IOU) is identified by a (currency, issuer)
+ * pair, so `address` carries the ISSUER account — the nearest analogue to a contract address, and
+ * what identifies the asset on-chain. The currency code itself is the nonstandard 160-bit form
+ * (`USDC` is 4 characters, so it cannot use the 3-char form): `5553444300000000000000000000000000000000`.
+ * `XrpSpokeService` needs both halves to build the Payment's Amount object.
+ *
+ * `decimals` is the SPOKE-side scale (XRPL drops are 6, and the relay registers its IOUs at 6),
+ * not the hub vault's — the vault shares are 18 like every other soda vault.
+ */
+export const xrpSupportedTokens = {
+  // Native XRP. The spoke-side "address" uses the EVM-zero sentinel (XRPL native has no issuer);
+  // the hub wraps it as wXRP, minted into the XRP vault via the MPC relay.
+  XRP: {
+    symbol: 'XRP',
+    name: 'XRP',
+    decimals: 6,
+    address: '0x0000000000000000000000000000000000000000',
+    chainKey: ChainKeys.XRP_MAINNET,
+    hubAsset: '0xd4FE528Cb89A9228E3167db260A0036942A21277',
+    vault: '0xb89B3a6633fb06CAB86b7d54e2f6913C51a73952',
+  },
+  RLUSD: {
+    symbol: 'RLUSD',
+    name: 'Ripple USD',
+    decimals: 6,
+    address: 'rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De',
+    chainKey: ChainKeys.XRP_MAINNET,
+    hubAsset: '0x68f7A1C04A596641bB810012A262CD68Bea195af',
+    vault: '0x3521647869645910b6BbB027E14F3bC583752f5c',
+  },
+  USDC: {
+    symbol: 'USDC',
+    name: 'USD Coin',
+    decimals: 6,
+    address: 'rGm7WCVp9gb4jZHWTEtGUr4dd74z2XuWhE',
+    chainKey: ChainKeys.XRP_MAINNET,
+    hubAsset: '0x0895948Cda333E33e5aF401c595a477b3769005c',
+    vault: SodaTokens.sodaUSDC.address,
+  },
+} as const satisfies Record<string, XToken>;
+
 export const tronSupportedTokens = {
   // Native TRX. The spoke-side "address" uses the EVM-zero sentinel (Tron native has no
   // contract); the hub wraps it as wTRX, minted into the sodaTRX vault via the MPC relay.
@@ -5467,6 +5511,7 @@ export const supportedTokensByChain = {
   [ChainKeys.HEDERA_MAINNET]: hederaSupportedTokens,
   [ChainKeys.TRON_MAINNET]: tronSupportedTokens,
   [ChainKeys.ROBINHOOD_MAINNET]: robinhoodSupportedTokens,
+  [ChainKeys.XRP_MAINNET]: xrpSupportedTokens,
 } as const satisfies Record<ChainKey, Record<string, XToken>>;
 
 /**

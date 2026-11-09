@@ -7,7 +7,7 @@
  * spoke sendMessage commits to (fromHubWallet), exactly as executeDeposit already does.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChainKeys, type Address, type Hex, tronSupportedTokens } from '@sodax/types';
+import { ChainKeys, type Address, type Hex, tronSupportedTokens, xrpSupportedTokens } from '@sodax/types';
 import { pad, toEventSelector, toHex, type TransactionReceipt } from 'viem';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { isSodaxError } from '../errors/SodaxError.js';
@@ -111,6 +111,35 @@ describe('AssetService.executeWithdraw — payout to an MPC-relay chain', () => 
   it('sends a release above it', async () => {
     expect((await withdraw(3n * 10n ** 18n + 10n ** 12n)).ok).toBe(true);
     expect(sodax.spoke.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it('refuses a release to an XRPL account that cannot receive it', async () => {
+    const xrplAddress = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+    const xrplUsdc = xrpSupportedTokens.USDC.address;
+    vi.mocked(asset.getTokenUnwrapAction).mockRestore();
+    vi.spyOn(sodax.hubProvider.publicClient, 'readContract').mockResolvedValue(
+      '0x0000000000000000000000000000000000000000' as never,
+    );
+    const checkSpy = vi
+      .spyOn(sodax.spoke.xrp, 'checkDestination')
+      .mockResolvedValue({ ready: false, reason: 'no_trustline' });
+
+    const result = await asset.executeWithdraw({
+      params: {
+        srcChainKey: ChainKeys.XRP_MAINNET,
+        srcAddress: xrplAddress,
+        asset: xrplUsdc,
+        poolToken: POOL_TOKEN,
+        amount: 5n * 10n ** 18n,
+      },
+      raw: true,
+    });
+
+    if (result.ok || !isSodaxError(result.error)) throw new Error('expected a refusal');
+    expect(result.error.context?.reason).toBe('xrpl-no_trustline');
+    // 18-dp vault units in, USDC's 6 decimals out.
+    expect(checkSpy).toHaveBeenCalledWith({ address: xrplAddress, token: xrplUsdc, amount: 5_000_000n });
+    expect(sodax.spoke.sendMessage).not.toHaveBeenCalled();
   });
 });
 

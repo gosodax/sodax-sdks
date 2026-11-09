@@ -23,6 +23,7 @@ import {
   type StacksChainKey,
   type SuiChainKey,
   type TronChainKey,
+  type XrpChainKey,
   getChainType,
   type EvmSpokeOnlyChainKey,
   ChainTypeArr,
@@ -37,11 +38,13 @@ import {
   type SendMessageReturnType,
   type TronDepositReturnType,
   type TronSendMessageReturnType,
+  type XrpDepositReturnType,
+  type XrpSendMessageReturnType,
   isBitcoinChainKey,
   type Result,
 } from '@sodax/types';
 import type { WalletBalanceMap } from './balance-utils.js';
-import { encodeAddress, encodeTokenIdentifier } from '../../utils/shared-utils.js';
+import { encodeAddress, encodeTokenIdentifier, reverseEncodeAddress } from '../../utils/shared-utils.js';
 import { getEvmViemChain } from '../../utils/constant-utils.js';
 import { StacksSpokeService } from './StacksSpokeService.js';
 import { BitcoinSpokeService } from './BitcoinSpokeService.js';
@@ -54,6 +57,7 @@ import { IconSpokeService } from './IconSpokeService.js';
 import { EvmSpokeService } from './EvmSpokeService.js';
 import { InjectiveSpokeService } from './InjectiveSpokeService.js';
 import { TronSpokeService } from './TronSpokeService.js';
+import { XrpSpokeService, type XrpDestinationReadiness } from './XrpSpokeService.js';
 import {
   isHubChainKeyType,
   isNearChainKeyType,
@@ -71,7 +75,10 @@ import {
   isBitcoinChainKeyType,
   isEvmWalletProviderType,
   isUndefinedOrValidWalletProviderForChainKey,
+  isXrpChainKeyType,
 } from '../../guards.js';
+import type { SodaxErrorContext, SodaxFeature } from '../../../errors/codes.js';
+import { sodaxInvariant } from '../../../errors/invariant.js';
 import type { ConfigService } from '../../config/ConfigService.js';
 import type { EvmHubProvider } from '../../entities/EvmHubProvider.js';
 import type {
@@ -120,7 +127,8 @@ export type SpokeServiceType =
   | StacksSpokeService
   | NearSpokeService
   | BitcoinSpokeService
-  | TronSpokeService;
+  | TronSpokeService
+  | XrpSpokeService;
 
 export type GetSpokeServiceType<C extends SpokeChainKey> = C extends EvmSpokeOnlyChainKey
   ? EvmSpokeService
@@ -144,7 +152,9 @@ export type GetSpokeServiceType<C extends SpokeChainKey> = C extends EvmSpokeOnl
                     ? BitcoinSpokeService
                     : C extends TronChainKey
                       ? TronSpokeService
-                      : SpokeServiceType;
+                      : C extends XrpChainKey
+                        ? XrpSpokeService
+                        : SpokeServiceType;
 
 export type SpokeServiceConstructorParams = {
   config: ConfigService;
@@ -166,6 +176,26 @@ function missingFarSideHash(detail: string): { ok: false; error: SettlementFailu
  * @namespace SodaxPublicUtils
  */
 
+/** Why an XRPL release to `address` would be refused, worded for whoever picked the destination. */
+function xrpRefusalMessage(
+  reason: Extract<XrpDestinationReadiness, { ready: false }>['reason'],
+  address: string,
+  token: string,
+): string {
+  const refusals = {
+    account_not_found: `XRPL destination ${address} does not exist — fund it with the XRP base reserve first (and add a trustline for an IOU)`,
+    destination_tag_required: `XRPL destination ${address} requires a destination tag, which a release cannot carry — use an account without one`,
+    deposit_auth: `XRPL destination ${address} has Deposit Authorization enabled and would refuse the release`,
+    issuer_frozen: `XRPL token ${token} is globally frozen by its issuer, so a release of it cannot be paid`,
+    issuer_transfer_fee: `XRPL token ${token} carries an issuer transfer fee, which a release cannot pay`,
+    no_trustline: `XRPL destination ${address} has no trustline for ${token} — add the trustline first`,
+    trustline_unauthorized: `XRPL destination ${address} trustline for ${token} is not yet authorized by the issuer`,
+    trustline_frozen: `XRPL destination ${address} trustline for ${token} is deep-frozen and cannot receive the release`,
+    trustline_limit: `XRPL destination ${address} trustline limit for ${token} is too low for this amount`,
+  } satisfies Record<typeof reason, string>;
+  return refusals[reason];
+}
+
 export class SpokeService {
   private readonly hubProvider: EvmHubProvider;
   private readonly config: ConfigService;
@@ -181,6 +211,7 @@ export class SpokeService {
   public readonly near: NearSpokeService;
   public readonly stacks: StacksSpokeService;
   public readonly tron: TronSpokeService;
+  public readonly xrp: XrpSpokeService;
 
   public constructor({ config, hubProvider }: SpokeServiceConstructorParams) {
     this.config = config;
@@ -196,6 +227,7 @@ export class SpokeService {
     this.near = new NearSpokeService(this.config);
     this.stacks = new StacksSpokeService(this.config);
     this.tron = new TronSpokeService(this.config);
+    this.xrp = new XrpSpokeService(this.config);
   }
 
   public getSpokeService<C extends SpokeChainKey>(chainKey: C): GetSpokeServiceType<C> {
@@ -235,6 +267,9 @@ export class SpokeService {
       }
       case 'TRON': {
         return this.tron satisfies GetSpokeServiceType<TronChainKey> as GetSpokeServiceType<C>;
+      }
+      case 'XRP': {
+        return this.xrp satisfies GetSpokeServiceType<XrpChainKey> as GetSpokeServiceType<C>;
       }
       default: {
         const exhaustiveCheck: never = chainType; // The never type is used to ensure that the default case is exhaustive
@@ -611,6 +646,12 @@ export class SpokeService {
           )) satisfies GetEstimateGasReturnType<TronChainKey> as GetEstimateGasReturnType<C>;
           return { ok: true, value };
         }
+        case 'XRP': {
+          const value = (await this.xrp.estimateGas(
+            params as EstimateGasParams<XrpChainKey>,
+          )) satisfies GetEstimateGasReturnType<XrpChainKey> as GetEstimateGasReturnType<C>;
+          return { ok: true, value };
+        }
         default: {
           const exhaustiveCheck: never = chainType;
           this.config.logger.debug('Unhandled exhaustive case', { value: exhaustiveCheck });
@@ -854,6 +895,13 @@ export class SpokeService {
           )) satisfies TronDepositReturnType<R> as DepositReturnType<K, R>;
           return { ok: true, value };
         }
+        case 'XRP': {
+          // XRPL rides the MPC relay in memo mode — no on-chain asset-manager simulation applies.
+          const value = (await this.xrp.deposit(
+            params as DepositParams<XrpChainKey, R>,
+          )) satisfies XrpDepositReturnType<R> as DepositReturnType<K, R>;
+          return { ok: true, value };
+        }
         default: {
           const exhaustiveCheck: never = chainType;
           this.config.logger.debug('Unhandled exhaustive case', { value: exhaustiveCheck });
@@ -940,6 +988,10 @@ export class SpokeService {
           const value = await this.tron.getDeposit(params as GetDepositParams<TronChainKey>);
           return { ok: true, value };
         }
+        case 'XRP': {
+          const value = await this.xrp.getDeposit(params as GetDepositParams<XrpChainKey>);
+          return { ok: true, value };
+        }
         default: {
           const exhaustiveCheck: never = chainType;
           this.config.logger.debug('Unhandled exhaustive case', { value: exhaustiveCheck });
@@ -1009,6 +1061,10 @@ export class SpokeService {
         }
         case 'TRON': {
           const value = await this.tron.getWalletBalance(params as GetBalanceParams<TronChainKey>);
+          return { ok: true, value };
+        }
+        case 'XRP': {
+          const value = await this.xrp.getWalletBalance(params as GetBalanceParams<XrpChainKey>);
           return { ok: true, value };
         }
         default: {
@@ -1084,6 +1140,10 @@ export class SpokeService {
         }
         case 'TRON': {
           const value = await this.tron.getWalletBalances(params as GetBalancesParams<TronChainKey>);
+          return { ok: true, value };
+        }
+        case 'XRP': {
+          const value = await this.xrp.getWalletBalances(params as GetBalancesParams<XrpChainKey>);
           return { ok: true, value };
         }
         default: {
@@ -1218,6 +1278,12 @@ export class SpokeService {
           const value = (await this.tron.sendMessage(
             params as SendMessageParams<TronChainKey, Raw>,
           )) satisfies TronSendMessageReturnType<Raw> as SendMessageReturnType<K, Raw>;
+          return { ok: true, value };
+        }
+        case 'XRP': {
+          const value = (await this.xrp.sendMessage(
+            params as SendMessageParams<XrpChainKey, Raw>,
+          )) satisfies XrpSendMessageReturnType<Raw> as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         default: {
@@ -1473,6 +1539,39 @@ export class SpokeService {
     return { dstChainKey, hubChainId: String(this.hubProvider.chainConfig.chain.chainId), hubTxHash, logIndex };
   }
 
+  /**
+   * Refuses a release its recipient would turn away, before anything is signed: the relay fails such a
+   * release terminally after the hub has already burned the funds. Only an XRPL account can refuse one
+   * today (see {@link XrpSpokeService.checkDestination}); every other chain passes.
+   *
+   * `recipient` is the release's `to` as `encodeRecipient` encodes it for the hub, and `amount` is in
+   * the spoke token's decimals.
+   */
+  public async assertReleaseRecipientReady({
+    feature,
+    chainKey,
+    recipient,
+    token,
+    amount,
+    context,
+  }: {
+    feature: SodaxFeature;
+    chainKey: SpokeChainKey;
+    recipient: Hex;
+    token: string;
+    amount: bigint;
+    context?: Partial<SodaxErrorContext>;
+  }): Promise<void> {
+    if (!isXrpChainKeyType(chainKey)) return;
+    const address = reverseEncodeAddress(chainKey, recipient);
+    const readiness = await this.xrp.checkDestination({ address, token, amount });
+    if (readiness.ready) return;
+    sodaxInvariant(false, xrpRefusalMessage(readiness.reason, address, token), {
+      feature,
+      context: { ...context, reason: `xrpl-${readiness.reason}` },
+    });
+  }
+
   /** The MPC-relay settlement service for a chain, or `undefined` when it rides the intent relay. */
   private getMpcRelayService(chainKey: SpokeChainKey): MpcRelaySettlement | undefined {
     return isMpcRelayChainKeyType(chainKey) ? this.getMpcRelaySettlement(chainKey) : undefined;
@@ -1482,6 +1581,8 @@ export class SpokeService {
     switch (getChainType(chainKey)) {
       case 'TRON':
         return this.tron;
+      case 'XRP':
+        return this.xrp;
       default:
         // Falling through to the intent relay would submit a packet nothing is waiting for.
         throw new Error(`[SpokeService] no MPC relay settlement service for chain ${chainKey}`);
@@ -1728,6 +1829,11 @@ export class SpokeService {
           return (await this.tron.waitForTransactionReceipt(
             effectiveParams as WaitForTxReceiptParams<TronChainKey>,
           )) satisfies Result<WaitForTxReceiptReturnType<TronChainKey>> as Result<WaitForTxReceiptReturnType<C>>;
+        }
+        case 'XRP': {
+          return (await this.xrp.waitForTransactionReceipt(
+            effectiveParams as WaitForTxReceiptParams<XrpChainKey>,
+          )) satisfies Result<WaitForTxReceiptReturnType<XrpChainKey>> as Result<WaitForTxReceiptReturnType<C>>;
         }
         default: {
           const exhaustiveCheck: never = chainType;

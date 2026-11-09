@@ -9,6 +9,7 @@ import { NearXService } from './xchains/near/NearXService.js';
 import { StacksXService } from './xchains/stacks/index.js';
 import { StellarXService } from './xchains/stellar/index.js';
 import { TronXConnector } from './xchains/tron/index.js';
+import { XrpXConnector } from './xchains/xrp/index.js';
 import { TronWalletProvider } from '@sodax/wallet-sdk-core';
 
 type CtorOpts = { defaults?: unknown };
@@ -648,5 +649,39 @@ describe('chainRegistry — TRON signMessage goes through the TronLink connector
     const { chainActions } = createChainServices({ TRON: { connectors: [connector] } }, makeStore());
 
     await expect(chainActions.TRON?.signMessage?.('hello')).rejects.toThrow('Tron wallet not connected');
+  });
+});
+
+describe('chainRegistry — XRP connector discovery', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  // GemWallet reads as not installed until `@gemwallet/api` hears from the extension.
+  const discover = async (installed: boolean) => {
+    vi.spyOn(XrpXConnector, 'detect').mockResolvedValue(installed);
+    const connector = new XrpXConnector();
+    const setXConnectors = vi.fn();
+    const store: StoreAccessor = vi.fn(() => ({
+      xConnections: {},
+      xConnectorsByChain: { XRP: [connector] },
+      xServices: {},
+      setXConnectors,
+      unsetXConnection: vi.fn(),
+      setWalletProvider: vi.fn(),
+      walletConfig: undefined,
+    }));
+    await getChainEntry('XRP').discoverConnectors?.({} as never, store);
+    return { connector, setXConnectors };
+  };
+
+  it('republishes the GemWallet connector once the extension answers, so the modal reads it as installed', async () => {
+    const { connector, setXConnectors } = await discover(true);
+
+    expect(setXConnectors).toHaveBeenCalledWith('XRP', [connector]);
+  });
+
+  it('leaves the connector list alone when GemWallet is not installed', async () => {
+    const { setXConnectors } = await discover(false);
+
+    expect(setXConnectors).not.toHaveBeenCalled();
   });
 });

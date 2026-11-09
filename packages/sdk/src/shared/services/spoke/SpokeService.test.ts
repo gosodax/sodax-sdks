@@ -32,6 +32,9 @@ import {
 import { Sodax } from '../../entities/Sodax.js';
 import { Erc20Service } from '../erc-20/Erc20Service.js';
 import type { WalletBalanceMap } from './balance-utils.js';
+import { encodeRecipient } from '../../utils/shared-utils.js';
+import { invariant } from '../../utils/tiny-invariant.js';
+import { isSodaxError } from '../../../errors/SodaxError.js';
 
 const sodax = new Sodax();
 const spoke = sodax.spoke;
@@ -474,5 +477,52 @@ describe('SpokeService.getWalletBalances (chain-agnostic router)', () => {
     const result = await spoke.getWalletBalances({ srcChainKey: ARB, srcAddress: SRC, tokens: [xtoken(SRC)] });
 
     expect(result).toEqual({ ok: false, error: boom });
+  });
+});
+
+describe('SpokeService.assertReleaseRecipientReady', () => {
+  const XRP_ADDRESS = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+  const check = (chainKey: SpokeChainKey, recipient: Hex) =>
+    spoke.assertReleaseRecipientReady({
+      feature: 'bridge',
+      chainKey,
+      recipient,
+      token: 'xrpl-token',
+      amount: 5n,
+      context: { field: 'recipient' },
+    });
+
+  it('reads the XRPL account the padded release word decodes to', async () => {
+    const checkSpy = vi.spyOn(spoke.xrp, 'checkDestination').mockResolvedValue({ ready: true });
+
+    await check(ChainKeys.XRP_MAINNET, encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS));
+
+    expect(checkSpy).toHaveBeenCalledWith({ address: XRP_ADDRESS, token: 'xrpl-token', amount: 5n });
+  });
+
+  it("refuses with the caller's feature and a reason it can branch on", async () => {
+    vi.spyOn(spoke.xrp, 'checkDestination').mockResolvedValue({ ready: false, reason: 'destination_tag_required' });
+
+    const error = await check(ChainKeys.XRP_MAINNET, encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS)).catch(
+      (e: unknown) => e,
+    );
+
+    invariant(isSodaxError(error), 'expected a SodaxError');
+    expect(error.code).toBe('VALIDATION_FAILED');
+    expect(error.feature).toBe('bridge');
+    expect(error.message).toMatch(/requires a destination tag/);
+    expect(error.context).toMatchObject({
+      phase: 'validate',
+      field: 'recipient',
+      reason: 'xrpl-destination_tag_required',
+    });
+  });
+
+  it('does not look up a recipient on a chain that cannot refuse a release', async () => {
+    const checkSpy = vi.spyOn(spoke.xrp, 'checkDestination');
+
+    await check(ARB, encodeRecipient(ARB, SRC));
+
+    expect(checkSpy).not.toHaveBeenCalled();
   });
 });

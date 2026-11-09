@@ -760,6 +760,14 @@ export class AssetService {
         amount: translatedAmount,
         context: { dstChainKey, field: 'amount' },
       });
+      await this.spoke.assertReleaseRecipientReady({
+        feature: 'dex',
+        chainKey: dstChainKey,
+        recipient,
+        token: assetConfig.address,
+        amount: translatedAmount,
+        context: { dstChainKey, field: 'recipient' },
+      });
       calls.push(
         EvmAssetManagerService.encodeTransfer(
           assetConfig.hubAsset,

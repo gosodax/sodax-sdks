@@ -6,11 +6,11 @@ import type { ConfigService } from '../shared/config/ConfigService.js';
 import type { HubProvider } from '../shared/types/types.js';
 import type { SpokeService } from '../shared/services/spoke/SpokeService.js';
 import { assetManagerAbi } from '../shared/abis/index.js';
-import { encodeAddress } from '../shared/utils/shared-utils.js';
+import { encodeAddress, encodeRecipient } from '../shared/utils/shared-utils.js';
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import { noopAnalytics, resolveAnalytics } from '../shared/analytics.js';
 import { RecoveryService } from './RecoveryService.js';
-import { isSodaxError } from '../errors/SodaxError.js';
+import { isSodaxError, SodaxError } from '../errors/SodaxError.js';
 import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
 
 describe('RecoveryService.withdrawHubAsset', () => {
@@ -36,6 +36,7 @@ describe('RecoveryService.withdrawHubAsset', () => {
     } as unknown as HubProvider;
     const spoke = {
       sendMessage: vi.fn(async () => ({ ok: true, value: '0xsent' as Hex })),
+      assertReleaseRecipientReady: vi.fn(async () => undefined),
     } as unknown as SpokeService;
     const recovery = new RecoveryService({ config, hubProvider, spoke });
 
@@ -101,6 +102,48 @@ describe('RecoveryService.withdrawHubAsset — payout to an MPC-relay chain', ()
     expect(hubProvider.getUserHubWalletAddress).not.toHaveBeenCalled();
     expect(spoke.sendMessage).not.toHaveBeenCalled();
   });
+
+  it('refuses a release its recipient would turn away before building the message', async () => {
+    const xrpAddress = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+    const token = '0x0000000000000000000000000000000000000000';
+    const config = {
+      getSpokeTokenFromOriginalAssetAddress: vi.fn(() => ({
+        chainKey: ChainKeys.XRP_MAINNET,
+        symbol: 'XRP',
+        decimals: 6,
+        address: token,
+        hubAsset: '0x0000000000000000000000000000000000002000',
+      })),
+      analytics: noopAnalytics,
+    } as unknown as ConfigService; // only the two members withdrawHubAsset reads
+    const hubProvider = { config, getUserHubWalletAddress: vi.fn() } as unknown as HubProvider; // never reached
+    const refusal = new SodaxError('VALIDATION_FAILED', 'requires a destination tag', { feature: 'recovery' });
+    const spoke = {
+      sendMessage: vi.fn(),
+      assertReleaseRecipientReady: vi.fn(async () => {
+        throw refusal;
+      }),
+    } as unknown as SpokeService; // the recipient check refuses, so send is never reached
+    const recovery = new RecoveryService({ config, hubProvider, spoke });
+
+    const result = await recovery.withdrawHubAsset({
+      raw: true,
+      params: { srcChainKey: ChainKeys.XRP_MAINNET, srcAddress: xrpAddress, token, amount: 10_000_000n },
+    });
+
+    invariant(!result.ok, 'expected a refusal');
+    expect(result.error).toBe(refusal);
+    expect(spoke.assertReleaseRecipientReady).toHaveBeenCalledWith(
+      expect.objectContaining({
+        feature: 'recovery',
+        chainKey: ChainKeys.XRP_MAINNET,
+        recipient: encodeRecipient(ChainKeys.XRP_MAINNET, xrpAddress),
+        token,
+        amount: 10_000_000n,
+      }),
+    );
+    expect(spoke.sendMessage).not.toHaveBeenCalled();
+  });
 });
 
 describe('RecoveryService.withdrawHubAsset — analytics', () => {
@@ -123,7 +166,10 @@ describe('RecoveryService.withdrawHubAsset — analytics', () => {
       },
       getUserHubWalletAddress: vi.fn(async () => '0x0000000000000000000000000000000000004000'),
     } as unknown as HubProvider; // only the members withdrawHubAsset reads
-    const spoke = { sendMessage: vi.fn(async () => ({ ok: true, value: 'returned-id' })) } as unknown as SpokeService; // stubbed send
+    const spoke = {
+      sendMessage: vi.fn(async () => ({ ok: true, value: 'returned-id' })),
+      assertReleaseRecipientReady: vi.fn(async () => undefined),
+    } as unknown as SpokeService; // stubbed send and recipient check
     const recovery = new RecoveryService({ config, hubProvider, spoke });
     const srcAddress =
       srcChainKey === ChainKeys.TRON_MAINNET ? TRON_TEST_ADDRESS : 'hx742d35cc6634c0532925a3b8d4c9db96c4b4d8b6';

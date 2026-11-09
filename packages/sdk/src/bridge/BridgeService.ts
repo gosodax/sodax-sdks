@@ -1081,6 +1081,14 @@ export class BridgeService {
           amount: delivered,
           context: { ...baseCtx, field: 'amount' },
         });
+        await this.spoke.assertReleaseRecipientReady({
+          feature: 'bridge',
+          chainKey: params.dstChainKey,
+          recipient: encodeRecipient(params.dstChainKey, params.recipient),
+          token: dstToken.address,
+          amount: delivered,
+          context: { ...baseCtx, field: 'recipient' },
+        });
       }
 
       // Stacks addresses can't yield the signer public key at raw-tx build time, so a raw Stacks

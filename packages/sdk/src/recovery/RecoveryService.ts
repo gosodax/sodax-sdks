@@ -196,19 +196,29 @@ export class RecoveryService {
         const { params } = _params;
         try {
           const token = this.config.getSpokeTokenFromOriginalAssetAddress(params.srcChainKey, params.token);
+          const recipient = encodeRecipient(params.srcChainKey, params.srcAddress);
           if (token) {
+            const context = { action: 'withdrawHubAsset', srcChainKey: params.srcChainKey } as const;
             assertMpcPayoutAboveMinimum({
               feature: 'recovery',
               token,
               amount: params.amount,
-              context: { action: 'withdrawHubAsset', srcChainKey: params.srcChainKey, field: 'amount' },
+              context: { ...context, field: 'amount' },
+            });
+            await this.spoke.assertReleaseRecipientReady({
+              feature: 'recovery',
+              chainKey: params.srcChainKey,
+              recipient,
+              token: token.address,
+              amount: params.amount,
+              context: { ...context, field: 'srcAddress' },
             });
           }
           const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
           const payload = EvmAssetManagerService.withdrawAssetData(
             {
               token: params.token,
-              to: encodeRecipient(params.srcChainKey, params.srcAddress),
+              to: recipient,
               amount: params.amount,
             },
             this.hubProvider,
