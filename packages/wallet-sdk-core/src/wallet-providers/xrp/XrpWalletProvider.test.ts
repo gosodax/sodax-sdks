@@ -10,11 +10,16 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { XrpUnsignedTransaction } from '@sodax/types';
+import { generateSeed } from 'ripple-keypairs';
+import { decode } from 'xrpl';
 import { XrpWalletProvider, isGemWalletXrpWalletConfig, isPrivateKeyXrpWalletConfig } from './XrpWalletProvider.js';
 import type { GemWalletLike } from './types.js';
 
-// 32 bytes of entropy — `Wallet.fromEntropy` derives a deterministic ed25519 account from this.
-const PRIVATE_KEY = `0x${'11'.repeat(32)}`;
+// 16 bytes of seed entropy — `Wallet.fromEntropy` derives a deterministic ed25519 account from this.
+const PRIVATE_KEY = `0x${'11'.repeat(16)}`;
+// PRIVATE_KEY's account, from ripple-keypairs' own derivation rather than the provider's.
+const PRIVATE_KEY_ADDRESS = 'raJ8s1YsReiYm53wEvZnnq2wveTDaEaSL4';
+const ENTROPY = Uint8Array.from(Buffer.from('11'.repeat(16), 'hex'));
 const HASH = `0x${'ab'.repeat(32)}` as const;
 const TX_HASH = 'A'.repeat(64);
 const GEM_ADDRESS = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
@@ -85,7 +90,7 @@ describe('XrpWalletProvider — configuration', () => {
   });
 
   it('accepts a private key with or without the 0x prefix', () => {
-    expect(new XrpWalletProvider({ privateKey: '11'.repeat(32) }).chainType).toBe('XRP');
+    expect(new XrpWalletProvider({ privateKey: '11'.repeat(16) }).chainType).toBe('XRP');
     expect(rawKeyProvider().chainType).toBe('XRP');
   });
 });
@@ -96,11 +101,37 @@ describe('XrpWalletProvider — identity', () => {
     expect(await rawKeyProvider().getPublicKey()).toMatch(/^0xed[0-9a-f]{64}$/);
   });
 
-  it('derives a stable classic address from the same key', async () => {
-    const address = await rawKeyProvider().getWalletAddress();
+  it('derives the account the entropy belongs to', async () => {
+    expect(await rawKeyProvider().getWalletAddress()).toBe(PRIVATE_KEY_ADDRESS);
+  });
 
-    expect(address).toMatch(/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/);
-    expect(await rawKeyProvider().getWalletAddress()).toBe(address);
+  it('derives the same account from the family seed of that entropy', async () => {
+    const seed = generateSeed({ entropy: ENTROPY, algorithm: 'ed25519' });
+
+    expect(await new XrpWalletProvider({ privateKey: seed }).getWalletAddress()).toBe(PRIVATE_KEY_ADDRESS);
+  });
+
+  // Only 16 bytes are read, so a 32-byte key would sign for an account its owner does not expect.
+  it('refuses a key of any other length without echoing it', () => {
+    const key = `0x${'11'.repeat(16)}${'22'.repeat(16)}`;
+
+    expect(() => new XrpWalletProvider({ privateKey: key })).toThrow(
+      /16 bytes of seed entropy as hex, got 64 hex characters/,
+    );
+    expect(() => new XrpWalletProvider({ privateKey: key })).not.toThrow(/2222/);
+  });
+
+  it('refuses a malformed seed without quoting any of it', () => {
+    // 'l' is outside XRPL's base58 alphabet, and the decoder's own error would name it.
+    const seed = `sEd${'l'.repeat(26)}`;
+
+    expect(() => new XrpWalletProvider({ privateKey: seed })).toThrow(/^XRPL privateKey is not a valid family seed$/);
+  });
+
+  it('refuses a secp256k1 seed, whose account could never withdraw', () => {
+    const seed = generateSeed({ entropy: ENTROPY, algorithm: 'ecdsa-secp256k1' });
+
+    expect(() => new XrpWalletProvider({ privateKey: seed })).toThrow(/secp256k1/);
   });
 
   it('prefers the connected address over a GemWallet round-trip', async () => {
@@ -195,9 +226,10 @@ describe('XrpWalletProvider.signTransaction — raw key', () => {
     const provider = rawKeyProvider();
     const account = await provider.getWalletAddress();
 
-    // Signing succeeds only if LastLedgerSequence is a sane value ahead of the current ledger.
-    await expect(provider.signTransaction({ ...payment, Account: account })).resolves.toBeTruthy();
-    expect(calls.find(c => c.method === 'ledger_current')).toBeDefined();
+    const signed = await provider.signTransaction({ ...payment, Account: account });
+
+    // Twenty ledgers past the node's current one, with Sequence and Fee from the node too.
+    expect(decode(signed.tx_blob)).toMatchObject({ LastLedgerSequence: 1020, Sequence: 77, Fee: '15' });
   });
 
   it('falls back to the minimum fee when the node does not report an open-ledger fee', async () => {
@@ -213,15 +245,15 @@ describe('XrpWalletProvider.signTransaction — raw key', () => {
     stubRippled();
     const provider = rawKeyProvider();
 
-    await expect(
-      provider.signTransaction({
-        ...payment,
-        Account: await provider.getWalletAddress(),
-        Sequence: 5,
-        Fee: '20',
-        LastLedgerSequence: 9999,
-      }),
-    ).resolves.toBeTruthy();
+    const signed = await provider.signTransaction({
+      ...payment,
+      Account: await provider.getWalletAddress(),
+      Sequence: 5,
+      Fee: '20',
+      LastLedgerSequence: 9999,
+    });
+
+    expect(decode(signed.tx_blob)).toMatchObject({ Sequence: 5, Fee: '20', LastLedgerSequence: 9999 });
   });
 });
 

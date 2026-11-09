@@ -1,4 +1,5 @@
-import { Wallet } from 'xrpl';
+import { deriveKeypair, sign } from 'ripple-keypairs';
+import { ECDSA, Wallet } from 'xrpl';
 import type {
   IXrpWalletProvider,
   XrpRawTransactionReceipt,
@@ -22,6 +23,39 @@ export function isPrivateKeyXrpWalletConfig(config: XrpWalletConfig): config is 
 
 export function isGemWalletXrpWalletConfig(config: XrpWalletConfig): config is GemWalletXrpWalletConfig {
   return 'gemWallet' in config;
+}
+
+/**
+ * A local wallet from an XRPL family seed (`sEd…`) or 16 bytes of seed entropy as hex. Anything else is
+ * refused rather than read: `fromEntropy` keeps only the first 16 bytes, so a longer value would sign for
+ * an account other than the one its owner expects. The secret never appears in an error.
+ */
+function walletFromSecret(secret: string): Wallet {
+  let wallet: Wallet;
+  if (secret.startsWith('s')) {
+    let keypair: { publicKey: string; privateKey: string };
+    try {
+      // Not `Wallet.fromSeed`: it derives ed25519 whatever the seed encodes, i.e. another account.
+      keypair = deriveKeypair(secret);
+    } catch {
+      // The decoder's own message quotes the offending character of the seed.
+      throw new Error('XRPL privateKey is not a valid family seed');
+    }
+    wallet = new Wallet(keypair.publicKey, keypair.privateKey);
+  } else {
+    const hex = secret.replace(/^0x/i, '');
+    if (!/^[0-9a-fA-F]{32}$/.test(hex)) {
+      throw new Error(
+        `XRPL privateKey must be a family seed (s…) or 16 bytes of seed entropy as hex, got ${hex.length} hex characters — a 32-byte value used to be read as its first 16 bytes, so pass those to keep the same account`,
+      );
+    }
+    wallet = Wallet.fromEntropy(Buffer.from(hex, 'hex'), { algorithm: ECDSA.ed25519 });
+  }
+  // Scheme 3 verifies only ed25519, so a secp256k1 account could deposit and then never withdraw.
+  if (!wallet.publicKey.toUpperCase().startsWith('ED')) {
+    throw new Error('XRPL privateKey is a secp256k1 seed; withdrawals need an ed25519 (sEd…) account');
+  }
+  return wallet;
 }
 
 /**
@@ -50,10 +84,7 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
     this.rpcUrl = config.endpoint ?? this.defaults.rpcUrl ?? DEFAULT_RPC;
 
     if (isPrivateKeyXrpWalletConfig(config)) {
-      const seed = config.privateKey.replace(/^0x/i, '');
-      // `fromEntropy` derives an ed25519 keypair from 16/32 bytes of entropy. Explicitly ed25519:
-      // a secp256k1 XRPL account has no supported withdraw scheme and could never withdraw.
-      this.wallet = Wallet.fromEntropy(Buffer.from(seed, 'hex'), { algorithm: 'ed25519' as never });
+      this.wallet = walletFromSecret(config.privateKey);
       return;
     }
     if (isGemWalletXrpWalletConfig(config)) {
@@ -97,7 +128,6 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
     const hex = hash.replace(/^0x/, '').toUpperCase();
     if (this.wallet) {
       // `sign` over raw bytes; xrpl exposes the keypair's ed25519 signing directly.
-      const { sign } = await import('ripple-keypairs');
       return `0x${sign(hex, this.wallet.privateKey).toLowerCase()}`;
     }
     // `isHex`: sign the 32 decoded bytes, not the 64-character string.

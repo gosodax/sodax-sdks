@@ -10,7 +10,7 @@ import { XrpWalletProvider } from '@sodax/wallet-sdk-core';
  * relay, so these call `sodax.spoke.xrp` directly with the money-market data builders. Mirrors
  * `src/tron.ts`; the differences from Tron are all in the withdraw-auth scheme (3, not 1).
  *
- *   cd apps/node && XRP_PRIVATE_KEY=<64-hex ed25519 entropy> pnpm tsx src/xrp.ts <endpoint> [--amount-xrp 3] [--token 0x..|r..] [--to r..] [--data 0x..]
+ *   cd apps/node && XRP_PRIVATE_KEY=<sEd… family seed or 32-hex seed entropy> pnpm tsx src/xrp.ts <endpoint> [--amount-xrp 3] [--token 0x..|r..] [--to r..] [--data 0x..]
  *
  * Endpoints:
  *   hub        — print the derived hub wallet for the key (no funds)
@@ -37,8 +37,9 @@ const HUB_RPC = 'https://rpc.soniclabs.com';
 const W_XRP = '0xd4FE528Cb89A9228E3167db260A0036942A21277'; // wrapped XRP on the hub
 
 // ---- key / args ----
-const PK = (process.env.XRP_PRIVATE_KEY ?? '').replace(/^0x/, '');
-if (!/^[0-9a-fA-F]{64}$/.test(PK)) throw new Error('set XRP_PRIVATE_KEY to 64-hex ed25519 entropy');
+// The provider validates the format: an ed25519 family seed (sEd…) or 16 bytes of seed entropy as hex.
+const PK = process.env.XRP_PRIVATE_KEY ?? '';
+if (!PK) throw new Error('set XRP_PRIVATE_KEY to an ed25519 family seed (sEd…) or 32-hex seed entropy');
 const argv = process.argv.slice(2);
 const endpoint = argv[0] ?? 'hub';
 const arg = (n: string, d?: string) => {
