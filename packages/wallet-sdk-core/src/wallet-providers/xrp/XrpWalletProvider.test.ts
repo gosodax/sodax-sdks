@@ -257,6 +257,27 @@ describe('XrpWalletProvider.signTransaction — raw key', () => {
   });
 });
 
+describe('XrpWalletProvider.signTransaction — GemWallet network', () => {
+  // GemWallet also serves test networks and the Xahau ledger, where a deposit pays a reserve the relay never watches.
+  it.each([
+    ['the Xahau ledger', { chain: 'XAHAU', network: 'Mainnet' }],
+    ['the XRPL Testnet', { chain: 'XRPL', network: 'Testnet' }],
+  ])('refuses to submit while the wallet is on %s', async (_, result) => {
+    const gem = gemWallet({ getNetwork: vi.fn(async () => ({ result })) });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    await expect(provider.signTransaction(payment)).rejects.toThrow(/switch it to the XRPL Mainnet/);
+    expect(gem.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it('submits on the XRPL Mainnet', async () => {
+    const gem = gemWallet({ getNetwork: vi.fn(async () => ({ result: { chain: 'XRPL', network: 'Mainnet' } })) });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    expect(await provider.signTransaction(payment)).toEqual({ tx_blob: '', hash: TX_HASH });
+  });
+});
+
 describe('XrpWalletProvider.signTransaction — GemWallet', () => {
   it('submits through the wallet and returns the hash with no blob', async () => {
     const gem = gemWallet();

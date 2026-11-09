@@ -26,6 +26,11 @@ export interface GemWalletLike {
   submitTransaction: (payload: {
     transaction: Record<string, unknown>;
   }) => Promise<{ result?: { hash?: string } } | undefined>;
+  /**
+   * `getNetwork()` → the ledger the wallet submits to. GemWallet also serves Testnet, Devnet and the Xahau
+   * ledger; when present, a submit anywhere but the XRPL Mainnet is refused.
+   */
+  getNetwork?: () => Promise<{ result?: { chain?: string; network?: string } } | undefined>;
 }
 
 /** Raw-key mode: signing happens locally via `xrpl`, for headless flows and tests. */

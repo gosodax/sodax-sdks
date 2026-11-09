@@ -1,4 +1,4 @@
-import { getAddress, getPublicKey, isInstalled, signMessage, submitTransaction } from '@gemwallet/api';
+import { getAddress, getNetwork, getPublicKey, isInstalled, signMessage, submitTransaction } from '@gemwallet/api';
 import type { GemWalletLike } from '@sodax/wallet-sdk-core';
 import type { XAccount } from '@/types/index.js';
 import { XConnector } from '@/core/index.js';
@@ -21,6 +21,15 @@ const GEMWALLET_INSTALL_URL = 'https://gemwallet.app/';
 export class XrpXConnector extends XConnector {
   constructor() {
     super('XRP', 'GemWallet', 'GemWallet');
+  }
+
+  /**
+   * Asks the extension whether it is there. Only `@gemwallet/api` sets the `window.gemWallet` flag that
+   * {@link isInstalled} reads, and only after this round-trip, so a fresh page reads as not installed until then.
+   */
+  public static async detect(): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    return (await isInstalled()).result.isInstalled;
   }
 
   async connect(): Promise<XAccount | undefined> {
@@ -47,8 +56,8 @@ export class XrpXConnector extends XConnector {
   }
 
   public override get isInstalled(): boolean {
-    // `window.gemWallet` is the extension's detection flag. The async `isInstalled()` from the API
-    // is authoritative, but this getter is sync and on the render path, so use the flag here.
+    // Set by `@gemwallet/api` once {@link detect} hears from the extension; the registry runs it on start.
+    // The getter is sync and on the render path, so it reads that flag.
     return typeof window !== 'undefined' && (window as unknown as { gemWallet?: boolean }).gemWallet === true;
   }
 
@@ -66,6 +75,7 @@ export class XrpXConnector extends XConnector {
       getPublicKey: () => getPublicKey(),
       signMessage: (message: string, isHex?: boolean) => signMessage(message, isHex),
       submitTransaction: (payload: { transaction: Record<string, unknown> }) => submitTransaction(payload as never),
+      getNetwork: () => getNetwork(),
     } as GemWalletLike;
   }
 }

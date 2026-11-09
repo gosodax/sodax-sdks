@@ -442,6 +442,12 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
     displayName: 'XRP Ledger',
     defaultConnectors: () => [new XrpXConnector()],
     providerManaged: false,
+    // The wallet modal refuses a connector that reads as not installed, and GemWallet reads that way until
+    // `@gemwallet/api` has heard from the extension: ask once, then republish so the modal reads it again.
+    discoverConnectors: async (_service, getStore) => {
+      if (!(await XrpXConnector.detect())) return;
+      getStore().setXConnectors('XRP', [...(getStore().xConnectorsByChain.XRP ?? [])]);
+    },
     createWalletProvider: (service, getStore) => {
       const store = getStore();
       const connection = store.xConnections.XRP;
