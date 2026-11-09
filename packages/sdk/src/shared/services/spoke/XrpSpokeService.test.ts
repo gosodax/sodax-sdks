@@ -11,9 +11,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeAbiParameters, keccak256 } from 'viem';
-import { ChainKeys, spokeChainConfig, type Hex } from '@sodax/types';
+import { ChainKeys, spokeChainConfig, type Hex, type XrpRawWithdraw } from '@sodax/types';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
+import { computeSignedMessageHash } from './mpc-message.js';
 import { xrpCurrencyCode, xrpIdentityBytes } from './xrp-utils.js';
 
 const sodax = new Sodax();
@@ -153,12 +154,26 @@ describe('XrpSpokeService.deposit — native XRP', () => {
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '66', hash);
   });
 
-  it('returns an unsigned descriptor in raw mode, touching no node', async () => {
+  it('returns the unsigned Payment in raw mode, touching no node', async () => {
     stubRippled();
 
     const raw = await xrp.deposit({ ...(depositParams(NATIVE_XRP) as object), raw: true } as never);
 
-    expect(raw).toEqual({ from: SENDER, to: RESERVE, value: AMOUNT, data: MEMO, token: NATIVE_XRP });
+    // The Payment a signed deposit would hand the wallet, so a raw caller signs exactly that.
+    expect(raw).toEqual({
+      from: SENDER,
+      to: RESERVE,
+      value: AMOUNT,
+      data: MEMO,
+      token: NATIVE_XRP,
+      transaction: {
+        TransactionType: 'Payment',
+        Account: SENDER,
+        Destination: RESERVE,
+        Amount: AMOUNT.toString(),
+        Memos: [{ Memo: { MemoData: MEMO.slice(2).toUpperCase() } }],
+      },
+    });
     expect(calls).toHaveLength(0);
     expect(signTransaction).not.toHaveBeenCalled();
   });
@@ -577,7 +592,8 @@ describe('XrpSpokeService.checkDestination', () => {
   const usdcLine = (balance: string, limit: string) => ({
     lines: [{ currency: xrpCurrencyCode('USDC'), account: USDC_ISSUER, balance, limit }],
   });
-  const check = (token: string, amount = 1_000_000n) => xrp.checkDestination({ address: SENDER, token, amount });
+  const check = (token: string, amount = 1_000_000n, address = SENDER) =>
+    xrp.checkDestination({ address, token, amount });
   const withFlags = (Flags: number) => ({ account_info: { account_data: { Balance: '42000000', Flags } } });
 
   it('accepts native XRP to an existing account', async () => {
@@ -586,12 +602,35 @@ describe('XrpSpokeService.checkDestination', () => {
     expect(await check(NATIVE_XRP)).toEqual({ ready: true });
   });
 
-  it('reports a destination account that does not exist on the ledger', async () => {
-    stubRippled({ account_info: { error: 'actNotFound', error_message: 'Account not found.' } });
+  describe('to an account that does not exist yet', () => {
+    // 1 XRP, as rippled reports it in drops.
+    const missing = {
+      account_info: { error: 'actNotFound', error_message: 'Account not found.' },
+      server_state: { state: { validated_ledger: { reserve_base: 1_000_000 } } },
+    };
 
-    // A native release below the base reserve, and any IOU release, cannot create the account.
-    expect(await check(NATIVE_XRP)).toEqual({ ready: false, reason: 'account_not_found' });
-    expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'account_not_found' });
+    it('accepts native XRP of at least the base reserve, which the Payment uses to create it', async () => {
+      stubRippled(missing);
+
+      expect(await check(NATIVE_XRP, 1_000_000n)).toEqual({ ready: true });
+      expect(await check(NATIVE_XRP, 2_500_000n)).toEqual({ ready: true });
+    });
+
+    it('reports native XRP below the base reserve, and any IOU, which cannot create it', async () => {
+      stubRippled(missing);
+
+      expect(await check(NATIVE_XRP, 999_999n)).toEqual({ ready: false, reason: 'account_not_found' });
+      calls = [];
+      expect(await check(USDC_ISSUER, 5_000_000n)).toEqual({ ready: false, reason: 'account_not_found' });
+      // No amount of an IOU creates the account, so the reserve is not read for one.
+      expect(callTo('server_state')).toBeUndefined();
+    });
+
+    it('does not guess a base reserve the node will not report', async () => {
+      stubRippled({ account_info: missing.account_info });
+
+      await expect(check(NATIVE_XRP, 5_000_000n)).rejects.toThrow(/no reserve_base/);
+    });
   });
 
   // A release carries no DestinationTag and comes from the relay's reserve, which the account has not preauthorized.
@@ -634,28 +673,51 @@ describe('XrpSpokeService.checkDestination', () => {
     });
   });
 
-  // The recipient's own account_info answers with no flags; the issuer's carries `issuerFlags`.
-  const withIssuerFlags = (issuerFlags: number, line: Record<string, unknown> = {}) => ({
+  // The issuer's account_info carries `issuer`; the recipient's carries no flags.
+  const withIssuer = (issuer: { Flags?: number; TransferRate?: number }, line: Record<string, unknown> = {}) => ({
     account_info: ({ account }: { account: string }) => ({
-      account_data: { Balance: '42000000', Flags: account === USDC_ISSUER ? issuerFlags : 0 },
+      account_data: account === USDC_ISSUER ? issuer : { Flags: 0 },
     }),
     account_lines: { lines: [{ ...usdcLine('0', '1000').lines[0], ...line }] },
   });
 
-  it('reports a token its issuer has frozen globally, which the reserve can then pay only to the issuer', async () => {
+  it('reports a token whose issuer charges a transfer fee, which a release cannot pay', async () => {
+    stubRippled(withIssuer({ TransferRate: 1_002_000_000 }));
+    expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'issuer_transfer_fee' });
+
+    // 1_000_000_000 is how an issuer states no fee.
+    stubRippled(withIssuer({ TransferRate: 1_000_000_000 }));
+    expect(await check(USDC_ISSUER)).toEqual({ ready: true });
+  });
+
+  // The relay holds such a release past any wait the caller can make, so it is refused up front.
+  it('reports a token its issuer has frozen globally', async () => {
     // lsfGlobalFreeze
-    stubRippled(withIssuerFlags(0x00400000));
+    stubRippled(withIssuer({ Flags: 0x00400000 }));
 
     expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'issuer_frozen' });
     expect(await check(NATIVE_XRP)).toEqual({ ready: true });
   });
 
+  it('reads a TransferRate of 0 as no fee, as rippled does', async () => {
+    stubRippled(withIssuer({ TransferRate: 0 }));
+
+    expect(await check(USDC_ISSUER)).toEqual({ ready: true });
+  });
+
+  it('accepts a payment to the issuer itself, which redeems the IOU with no trustline and no transfer fee', async () => {
+    stubRippled(withIssuer({ TransferRate: 1_002_000_000 }));
+
+    expect(await check(USDC_ISSUER, 1_000_000n, USDC_ISSUER)).toEqual({ ready: true });
+    expect(callTo('account_lines')).toBeUndefined();
+  });
+
   it('reports a trustline the issuer has not authorized when it requires authorization', async () => {
     // lsfRequireAuth
-    stubRippled(withIssuerFlags(0x00040000, { peer_authorized: false }));
+    stubRippled(withIssuer({ Flags: 0x00040000 }, { peer_authorized: false }));
     expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'trustline_unauthorized' });
 
-    stubRippled(withIssuerFlags(0x00040000, { peer_authorized: true }));
+    stubRippled(withIssuer({ Flags: 0x00040000 }, { peer_authorized: true }));
     expect(await check(USDC_ISSUER)).toEqual({ ready: true });
   });
 
@@ -715,7 +777,14 @@ describe('XrpSpokeService.checkDestination', () => {
 describe('XrpSpokeService.estimateGas', () => {
   const gasParams = {
     chainKey: XRP,
-    tx: { from: SENDER, to: RESERVE, value: AMOUNT, data: MEMO, token: NATIVE_XRP },
+    tx: {
+      from: SENDER,
+      to: RESERVE,
+      value: AMOUNT,
+      data: MEMO,
+      token: NATIVE_XRP,
+      transaction: { TransactionType: 'Payment', Account: SENDER, Destination: RESERVE, Amount: AMOUNT.toString() },
+    },
   } as const;
 
   it('reports the ledger base fee in drops', async () => {
@@ -812,10 +881,60 @@ describe('XrpSpokeService.sendMessage', () => {
     }
   });
 
-  it('refuses raw mode, which has no spoke transaction to return', async () => {
-    await expect(xrp.sendMessage({ ...(sendParams as object), raw: true } as never)).rejects.toThrow(
-      /raw mode is not supported/,
-    );
+  describe('in raw mode', () => {
+    const buildRaw = () =>
+      xrp.sendMessage<true>({
+        srcChainKey: XRP,
+        srcAddress: SENDER,
+        dstChainKey: ChainKeys.SONIC_MAINNET,
+        dstAddress: HUB_WALLET,
+        payload: '0xdeadbeef',
+        raw: true,
+      });
+
+    it('returns the unsigned withdraw-auth and submits nothing', async () => {
+      const withdraw = await buildRaw();
+
+      expect(withdraw.scheme).toBe(3);
+      expect(withdraw.message).toMatchObject({ to: HUB_WALLET, sender: xrpIdentityBytes(SENDER), chainId: '66' });
+      expect(withdraw.digest).toBe(
+        computeSignedMessageHash({
+          ...withdraw.message,
+          nonce: BigInt(withdraw.message.nonce),
+          chainId: BigInt(withdraw.message.chainId),
+        }),
+      );
+      expect(MpcRelayApiService.submitWithdraw).not.toHaveBeenCalled();
+    });
+
+    it('submits it once signed elsewhere, with the public key scheme 3 needs', async () => {
+      const withdraw = await buildRaw();
+
+      expect(await xrp.submitSignedWithdraw({ withdraw, signature: SIGNATURE, publicKey: PUBLIC_KEY })).toBe(MEMO);
+      expect(submitCall(0)).toEqual({
+        message: withdraw.message,
+        signature: SIGNATURE,
+        scheme: 3,
+        publicKey: PUBLIC_KEY,
+      });
+    });
+
+    // Each would fail at the relay or the contract with no clear reason, after the user has signed.
+    it.each([
+      ["a scheme that is not XRPL's", (w: XrpRawWithdraw) => ({ ...w, scheme: 1 as const }), PUBLIC_KEY],
+      [
+        'a digest that does not match the message',
+        (w: XrpRawWithdraw) => ({ ...w, digest: `0x${'00'.repeat(32)}` as Hex }),
+        PUBLIC_KEY,
+      ],
+      ["another account's public key", (w: XrpRawWithdraw) => w, `0xed${'22'.repeat(32)}` as Hex],
+      ['a secp256k1 public key', (w: XrpRawWithdraw) => w, `0x02${'11'.repeat(32)}` as Hex],
+    ])('refuses %s', async (_, tamper, publicKey) => {
+      const withdraw = tamper(await buildRaw());
+
+      await expect(xrp.submitSignedWithdraw({ withdraw, signature: SIGNATURE, publicKey })).rejects.toThrow();
+      expect(MpcRelayApiService.submitWithdraw).not.toHaveBeenCalled();
+    });
   });
 });
 

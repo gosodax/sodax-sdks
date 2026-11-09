@@ -1,12 +1,14 @@
-import { bytesToBigInt, ripemd160, sha256, type Hex } from 'viem';
+import { bytesToBigInt, isAddress, ripemd160, sha256, type Hex } from 'viem';
 import {
   ChainKeys,
   getMpcRelayChainInfo,
   type IXrpWalletProvider,
   type Result,
-  type TxReturnType,
   type XrpChainKey,
+  type XrpDepositReturnType,
   type XrpRawTransaction,
+  type XrpRawWithdraw,
+  type XrpSendMessageReturnType,
   type XrpRawTransactionReceipt,
   type XrpSpokeChainConfig,
   type XrpGasEstimate,
@@ -82,6 +84,8 @@ const LSF_DEEP_FREEZE = 0x02000000 | 0x04000000;
 /** Issuer AccountRoot flags: holders need its authorization, or its tokens move only to and from it. */
 const LSF_REQUIRE_AUTH = 0x00040000;
 const LSF_GLOBAL_FREEZE = 0x00400000;
+/** `TransferRate` billionths meaning no issuer transfer fee; an absent or 0 rate means none too. */
+const TRANSFER_RATE_NONE = 1_000_000_000;
 
 type XrpTrustLine = { currency: string; account: string; balance: string; limit: string; peer_authorized?: boolean };
 
@@ -120,6 +124,7 @@ export type XrpDestinationReadiness =
         | 'destination_tag_required'
         | 'deposit_auth'
         | 'issuer_frozen'
+        | 'issuer_transfer_fee'
         | 'no_trustline'
         | 'trustline_unauthorized'
         | 'trustline_frozen'
@@ -212,7 +217,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<XrpChainKey, R>,
-  ): Promise<TxReturnType<XrpChainKey, R>> {
+  ): Promise<XrpDepositReturnType<R>> {
     const { srcAddress, token, amount, data, to } = params;
     const isNative = token === this.chainConfig.nativeToken;
 
@@ -243,18 +248,6 @@ export class XrpSpokeService implements MpcRelaySettlement {
       );
     }
 
-    if ('raw' in params && params.raw) {
-      return {
-        from: srcAddress,
-        to: reserveAddress,
-        value: amount,
-        data: memo,
-        token,
-      } satisfies XrpRawTransaction as TxReturnType<XrpChainKey, R>;
-    }
-
-    const walletProvider = params.walletProvider;
-
     const unsigned: XrpUnsignedTransaction = {
       TransactionType: 'Payment',
       Account: srcAddress,
@@ -263,6 +256,19 @@ export class XrpSpokeService implements MpcRelaySettlement {
       // MemoData is plain hex without `0x` — this is what the relay matches the deposit on.
       Memos: [{ Memo: { MemoData: memo.replace(/^0x/, '').toUpperCase() } }],
     };
+
+    if ('raw' in params && params.raw) {
+      return {
+        from: srcAddress,
+        to: reserveAddress,
+        value: amount,
+        data: memo,
+        token,
+        transaction: unsigned,
+      } satisfies XrpRawTransaction as XrpDepositReturnType<R>;
+    }
+
+    const walletProvider = params.walletProvider;
 
     // Sequence/Fee/LastLedgerSequence are deliberately left to the wallet: GemWallet autofills and
     // rejects a transaction that pins them, and a raw-key provider has xrpl.js do the same. Filling
@@ -278,7 +284,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
       });
     }
 
-    return hash satisfies string as TxReturnType<XrpChainKey, R>;
+    return hash satisfies string as XrpDepositReturnType<R>;
   }
 
   /**
@@ -478,14 +484,13 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Whether `address` can receive `amount` of `token` from a release.
+   * Whether `address` can receive `amount` of `token` from a release, checked before the hub burns it.
+   * `amount` is what arrives, in the token's decimals.
    *
-   * The account must exist: a native release to a missing account fails below the base reserve, and
-   * an IOU release can never create one. It must not demand a DestinationTag, which a release cannot
-   * carry, or Deposit Authorization. For an IOU, the issuer must not have frozen it globally, and the
-   * holder needs a trustline the issuer has authorized (when it requires that), that is not
-   * deep-frozen and has room for the amount. The relay treats each of these as terminal, so check
-   * before submitting.
+   * Refused: a missing account, unless native XRP of at least the base reserve creates it; a required
+   * destination tag; Deposit Authorization. For an IOU paid to anyone but its issuer (paying the issuer
+   * redeems it): a global freeze or transfer fee on the issuer, no trustline, a trustline the issuer has
+   * not authorized when it requires that, a deep freeze, or too little room under the limit.
    */
   public async checkDestination(params: {
     address: string;
@@ -500,22 +505,28 @@ export class XrpSpokeService implements MpcRelaySettlement {
     if (token !== this.chainConfig.nativeToken && !iou) {
       throw new Error(`[XrpSpokeService.checkDestination] unknown XRPL token ${token}`);
     }
+    const needsTrustline = iou !== undefined && address !== iou.address;
 
-    // The reads are independent, so a check costs one round-trip rather than one per read.
-    const [accountFlags, trustline] = await Promise.all([
-      this.readAccountFlags(address),
-      iou ? this.readTrustline(address, iou.address, xrpCurrencyCode(iou.symbol)) : undefined,
+    // Independent reads, so they run together; only creating an account needs one more.
+    const [account, trustline] = await Promise.all([
+      this.readAccountRoot(address),
+      needsTrustline ? this.readTrustline(address, iou.address, xrpCurrencyCode(iou.symbol)) : undefined,
     ]);
-    if (accountFlags === undefined) return { ready: false, reason: 'account_not_found' };
-    if (accountFlags & LSF_REQUIRE_DEST_TAG) return { ready: false, reason: 'destination_tag_required' };
-    if (accountFlags & LSF_DEPOSIT_AUTH) return { ready: false, reason: 'deposit_auth' };
+    if (account === undefined) {
+      if (!iou && amount >= (await this.readBaseReserveDrops())) return { ready: true };
+      return { ready: false, reason: 'account_not_found' };
+    }
+    if (account.flags & LSF_REQUIRE_DEST_TAG) return { ready: false, reason: 'destination_tag_required' };
+    if (account.flags & LSF_DEPOSIT_AUTH) return { ready: false, reason: 'deposit_auth' };
     if (!iou || !trustline) return { ready: true };
 
-    const { line, stateFlags, issuerFlags } = trustline;
-    // Under a global freeze the reserve can pay the issuer and no one else.
-    if (issuerFlags & LSF_GLOBAL_FREEZE) return { ready: false, reason: 'issuer_frozen' };
+    const { line, stateFlags, issuer } = trustline;
+    // The relay holds a release through a global freeze, past any wait the caller can make (forever under NoFreeze).
+    if (issuer.flags & LSF_GLOBAL_FREEZE) return { ready: false, reason: 'issuer_frozen' };
+    const rate = issuer.transferRate;
+    if (rate && rate !== TRANSFER_RATE_NONE) return { ready: false, reason: 'issuer_transfer_fee' };
     if (!line) return { ready: false, reason: 'no_trustline' };
-    if (issuerFlags & LSF_REQUIRE_AUTH && !line.peer_authorized) {
+    if (issuer.flags & LSF_REQUIRE_AUTH && !line.peer_authorized) {
       return { ready: false, reason: 'trustline_unauthorized' };
     }
     if (stateFlags & LSF_DEEP_FREEZE) return { ready: false, reason: 'trustline_frozen' };
@@ -525,20 +536,35 @@ export class XrpSpokeService implements MpcRelaySettlement {
     return { ready: true };
   }
 
-  /** The account's flags, or `undefined` for an address nobody has funded yet. */
-  private async readAccountFlags(account: string): Promise<number | undefined> {
+  /** The account's flags and transfer rate, or `undefined` for an address nobody has funded yet. */
+  private async readAccountRoot(account: string): Promise<{ flags: number; transferRate?: number } | undefined> {
     const info = await orIfMissing(
-      this.rpc<{ account_data?: { Flags?: number } }>('account_info', { account, ledger_index: 'validated' }),
+      this.rpc<{ account_data?: { Flags?: number; TransferRate?: number } }>('account_info', {
+        account,
+        ledger_index: 'validated',
+      }),
       undefined,
     );
-    return info && (info.account_data?.Flags ?? 0);
+    return info && { flags: info.account_data?.Flags ?? 0, transferRate: info.account_data?.TransferRate };
   }
 
-  /** The holder's line to `issuer` (if any), that line's RippleState flags, and the issuer's own flags. */
+  /** The base reserve in drops: the least a Payment can carry to create an account. */
+  private async readBaseReserveDrops(): Promise<bigint> {
+    const res = await this.rpc<{ state?: { validated_ledger?: { reserve_base?: number } } }>('server_state', {});
+    const reserve = res.state?.validated_ledger?.reserve_base;
+    if (typeof reserve !== 'number') throw new Error('[XrpSpokeService] server_state returned no reserve_base');
+    return BigInt(reserve);
+  }
+
+  /** The holder's line to `issuer` (if any), that line's RippleState flags, and the issuer's account root. */
   private async readTrustline(holder: string, issuer: string, currency: string) {
-    const [lines, state, issuerFlags] = await Promise.all([
+    const [lines, state, issuerRoot] = await Promise.all([
       orIfMissing(
-        this.rpc<{ lines?: XrpTrustLine[] }>('account_lines', { account: holder, peer: issuer, ledger_index: 'validated' }),
+        this.rpc<{ lines?: XrpTrustLine[] }>('account_lines', {
+          account: holder,
+          peer: issuer,
+          ledger_index: 'validated',
+        }),
         { lines: [] },
       ),
       // account_lines reports only the ordinary freeze, which still lets the holder receive; a deep freeze does not.
@@ -549,12 +575,12 @@ export class XrpSpokeService implements MpcRelaySettlement {
         }),
         {},
       ),
-      this.readAccountFlags(issuer),
+      this.readAccountRoot(issuer),
     ]);
     return {
       line: lines.lines?.find(l => l.currency === currency && l.account === issuer),
       stateFlags: state.node?.Flags ?? 0,
-      issuerFlags: issuerFlags ?? 0,
+      issuer: issuerRoot ?? { flags: 0 },
     };
   }
 
@@ -582,43 +608,81 @@ export class XrpSpokeService implements MpcRelaySettlement {
    * The `payload` is the hub-wallet calls to run (e.g. `AssetManager.transfer` that burns the
    * wrapped token and requests the release); `dstAddress` is the hub wallet that executes them. The
    * XRPL identity signs the withdraw-auth hash (scheme 3) and the relay verifies → burns on the hub
-   * → MPC-signs the release to the XRPL recipient. Resolves to the `trackingId` to poll
-   * {@link waitForWithdrawal} with. Raw mode is not supported — there is no spoke tx to return.
+   * → MPC-signs the release to the XRPL recipient. `Raw: true` returns the unsigned withdraw-auth
+   * ({@link XrpRawWithdraw}) for {@link submitSignedWithdraw}; `Raw: false` signs and submits it and
+   * resolves to the `trackingId` to poll {@link waitForWithdrawal} with.
    */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<XrpChainKey, Raw>,
-  ): Promise<TxReturnType<XrpChainKey, Raw>> {
-    if ('raw' in params && params.raw) {
-      throw new Error('[XrpSpokeService.sendMessage] raw mode is not supported for XRPL withdrawals');
-    }
+  ): Promise<XrpSendMessageReturnType<Raw>> {
+    const withdraw = this.buildWithdraw(params.srcAddress, params.dstAddress, params.payload);
+    if ('raw' in params && params.raw) return withdraw satisfies XrpRawWithdraw as XrpSendMessageReturnType<Raw>;
 
-    const sender = xrpIdentityBytes(params.srcAddress);
-    const message = {
-      to: params.dstAddress as Hex, // hub wallet that executes the calls
-      data: params.payload,
-      nonce: randomNonce(),
-      chainId: BigInt(this.chainId), // the relay's source-chain id, not the hub's
-      sender,
-    };
-
-    // Scheme 3 signs the RAW 32-byte hash — no prefix, no envelope, unlike scheme 1's TIP-191
-    // wrapping. The public key rides along because an ed25519 signature cannot recover its signer:
-    // the contract derives ripemd160(sha256(publicKey)) and compares it to `sender`.
-    const hash = computeSignedMessageHash(message);
+    // Scheme 3 signs the RAW 32-byte digest — no prefix, no envelope, unlike scheme 1's TIP-191 wrapping.
     const [signature, publicKey] = await Promise.all([
-      params.walletProvider.signMessage(hash),
+      params.walletProvider.signMessage(withdraw.digest),
       params.walletProvider.getPublicKey(),
     ]);
+    const trackingId = await this.submitSignedWithdraw({ withdraw, signature, publicKey });
+    return trackingId satisfies string as XrpSendMessageReturnType<Raw>;
+  }
 
-    const res = await submitWithdraw(this.relayApiUrl, {
-      message: { ...message, nonce: message.nonce.toString(), chainId: message.chainId.toString() },
-      signature,
-      scheme: getMpcRelayChainInfo(ChainKeys.XRP_MAINNET).withdrawScheme,
-      publicKey,
+  /**
+   * Submit a raw withdraw-auth once signed. Resolves to the `trackingId` for {@link waitForWithdrawal}.
+   * An ed25519 signature cannot recover its signer, so the account's `0xED` public key rides along and the
+   * contract checks `ripemd160(sha256(publicKey))` against the message's `sender`; a mismatch is refused here.
+   */
+  public async submitSignedWithdraw({
+    withdraw,
+    signature,
+    publicKey,
+  }: {
+    withdraw: XrpRawWithdraw;
+    signature: Hex;
+    publicKey: Hex;
+  }): Promise<string> {
+    const { message, digest, scheme } = withdraw;
+    const expectedScheme = getMpcRelayChainInfo(ChainKeys.XRP_MAINNET).withdrawScheme;
+    if (scheme !== expectedScheme) {
+      throw new Error(`[XrpSpokeService.submitSignedWithdraw] scheme ${scheme} is not XRPL's (${expectedScheme})`);
+    }
+    const expectedDigest = computeSignedMessageHash({
+      ...message,
+      nonce: BigInt(message.nonce),
+      chainId: BigInt(message.chainId),
     });
-    if (!res.ok) throw res.error;
+    if (digest.toLowerCase() !== expectedDigest) {
+      throw new Error(
+        `[XrpSpokeService.submitSignedWithdraw] digest ${digest} does not match the message (${expectedDigest})`,
+      );
+    }
+    if (!/^0xed[0-9a-f]{64}$/i.test(publicKey) || ripemd160(sha256(publicKey)) !== message.sender.toLowerCase()) {
+      throw new Error('[XrpSpokeService.submitSignedWithdraw] publicKey is not the ed25519 key of the message sender');
+    }
 
-    return res.value.trackingId satisfies string as TxReturnType<XrpChainKey, Raw>;
+    const res = await submitWithdraw(this.relayApiUrl, { message, signature, scheme, publicKey });
+    if (!res.ok) throw res.error;
+    return res.value.trackingId;
+  }
+
+  /** The withdraw-auth for `hubWallet` to run `payload`, and the digest the XRPL account signs. */
+  private buildWithdraw(srcAddress: string, hubWallet: string, payload: Hex): XrpRawWithdraw {
+    // `data` is variable-length inside the signed digest's unframed concat, so `to` must be exactly 20 bytes.
+    if (!isAddress(hubWallet)) {
+      throw new Error(`[XrpSpokeService.sendMessage] invalid hub wallet address: ${hubWallet}`);
+    }
+    const message = {
+      to: hubWallet, // hub wallet that executes the calls
+      data: payload,
+      nonce: randomNonce(),
+      chainId: BigInt(this.chainId), // the relay's source-chain id, not the hub's
+      sender: xrpIdentityBytes(srcAddress),
+    };
+    return {
+      message: { ...message, nonce: message.nonce.toString(), chainId: message.chainId.toString() },
+      digest: computeSignedMessageHash(message),
+      scheme: getMpcRelayChainInfo(ChainKeys.XRP_MAINNET).withdrawScheme,
+    };
   }
 
   /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */

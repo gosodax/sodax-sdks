@@ -176,6 +176,8 @@ import {
   type OutboundSettlement,      // borrow / withdraw result: TxHashPair, or from Tron { trackingId, dstChainTxHash }
   type TronRawTransaction,      // raw Tron deposit
   type TronRawWithdraw,         // raw Tron borrow / withdraw: a digest to sign
+  type XrpRawTransaction,       // raw XRPL deposit: the Payment to sign, in `transaction`
+  type XrpRawWithdraw,          // raw XRPL borrow / withdraw: a digest to sign as raw ed25519
   type SettleParams,            // sodax.spoke.settle
   type HubRelease,              // sodax.spoke.submitHubRelease
   type DepositRecord,           // MPC-relay deposit or release record

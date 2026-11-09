@@ -18,7 +18,13 @@ import type {
   TronReturnType,
   TronSendMessageReturnType,
 } from '../tron/tron.js';
-import type { XrpRawTransaction, XrpReturnType } from '../xrp/xrp.js';
+import type {
+  XrpDepositReturnType,
+  XrpRawTransaction,
+  XrpRawWithdraw,
+  XrpReturnType,
+  XrpSendMessageReturnType,
+} from '../xrp/xrp.js';
 import type { GetWalletProviderType } from '../wallet/providers.js';
 
 export type Default = {
@@ -215,7 +221,8 @@ export type RawTxReturnType =
   | BitcoinRawTransaction
   | TronRawTransaction
   | TronRawWithdraw
-  | XrpRawTransaction;
+  | XrpRawTransaction
+  | XrpRawWithdraw;
 
 export type GetDefaultTxReturnType<Raw extends boolean> = Raw extends true ? RawTxReturnType : HashTxReturnType;
 
@@ -248,13 +255,21 @@ export type TxReturnType<C extends SpokeChainKey | ChainType, Raw extends boolea
                         ? XrpReturnType<Raw>
                         : GetDefaultTxReturnType<Raw>;
 
-/** What a deposit returns on `C`: {@link TxReturnType}, except that a Tron deposit is only ever a transfer. */
+/** What a deposit returns on `C`: {@link TxReturnType}, except that an MPC-relay deposit is only ever a transfer. */
 export type DepositReturnType<C extends SpokeChainKey | ChainType, Raw extends boolean> =
-  GetChainType<C> extends 'TRON' ? TronDepositReturnType<Raw> : TxReturnType<C, Raw>;
+  GetChainType<C> extends 'TRON'
+    ? TronDepositReturnType<Raw>
+    : GetChainType<C> extends 'XRP'
+      ? XrpDepositReturnType<Raw>
+      : TxReturnType<C, Raw>;
 
-/** What a message to the hub (borrow, withdraw) returns on `C`: {@link TxReturnType}, but a Tron withdraw-auth. */
+/** What a message to the hub (borrow, withdraw) returns on `C`: {@link TxReturnType}, but an MPC-relay withdraw-auth. */
 export type SendMessageReturnType<C extends SpokeChainKey | ChainType, Raw extends boolean> =
-  GetChainType<C> extends 'TRON' ? TronSendMessageReturnType<Raw> : TxReturnType<C, Raw>;
+  GetChainType<C> extends 'TRON'
+    ? TronSendMessageReturnType<Raw>
+    : GetChainType<C> extends 'XRP'
+      ? XrpSendMessageReturnType<Raw>
+      : TxReturnType<C, Raw>;
 
 export type Prettify<T> = {
   [K in keyof T]: T[K];

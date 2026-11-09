@@ -25,6 +25,7 @@ import {
   type SpokeChainKey,
   tronSupportedTokens,
 } from '@sodax/types';
+import type { XrpDestinationReadiness } from '../shared/services/spoke/XrpSpokeService.js';
 import { Sodax } from '../shared/entities/Sodax.js';
 import type { MpcWithdrawalSettlement, TxHashPair } from '../shared/types/types.js';
 import { SodaxError } from '../errors/SodaxError.js';
@@ -96,6 +97,22 @@ const MPC_RECIPIENTS = [
     word: `0x${'00'.repeat(12)}72a3de6b0973062d5f2fe77383ef02f0c17901ab` as Address,
   },
 ] as const;
+
+type XrpRefusal = Extract<XrpDestinationReadiness, { ready: false }>['reason'];
+
+// Every reason an XRPL destination can refuse a release, with the message borrow and withdraw report;
+// typed against the reason union so a new reason cannot go unchecked here.
+const XRPL_REFUSALS = Object.entries({
+  account_not_found: /does not exist/,
+  destination_tag_required: /requires a destination tag/,
+  deposit_auth: /Deposit Authorization/,
+  issuer_frozen: /globally frozen/,
+  issuer_transfer_fee: /transfer fee/,
+  no_trustline: /no trustline/,
+  trustline_unauthorized: /not yet authorized/,
+  trustline_frozen: /deep-frozen/,
+  trustline_limit: /trustline limit/,
+} satisfies Record<XrpRefusal, RegExp>) as [XrpRefusal, RegExp][];
 
 // Wallet provider fakes — shape-only; the bodies are never invoked at runtime because
 // every spoke method that would touch them is stubbed.
@@ -1534,16 +1551,9 @@ describe('MoneyMarketService.createBorrowIntent', () => {
       expect(buildSpy.mock.calls[0]?.[1]).toBe(word);
     });
 
-    it.each([
-      ['account_not_found', /does not exist/],
-      ['destination_tag_required', /requires a destination tag/],
-      ['deposit_auth', /Deposit Authorization/],
-      ['issuer_frozen', /globally frozen/],
-      ['no_trustline', /no trustline/],
-      ['trustline_unauthorized', /not yet authorized/],
-      ['trustline_frozen', /deep-frozen/],
-      ['trustline_limit', /trustline limit/],
-    ] as const)('refuses an XRPL destination that cannot receive the release (%s)', async (reason, message) => {
+    it.each(
+      XRPL_REFUSALS,
+    )('refuses an XRPL destination that cannot receive the release (%s)', async (reason, message) => {
       vi.spyOn(sodax.spoke.xrp, 'checkDestination').mockResolvedValue({ ready: false, reason });
       const sendSpy = vi.spyOn(sodax.spoke, 'sendMessage');
 
@@ -2061,16 +2071,9 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
       expect(buildSpy.mock.calls[0]?.[1]).toBe(word);
     });
 
-    it.each([
-      ['account_not_found', /does not exist/],
-      ['destination_tag_required', /requires a destination tag/],
-      ['deposit_auth', /Deposit Authorization/],
-      ['issuer_frozen', /globally frozen/],
-      ['no_trustline', /no trustline/],
-      ['trustline_unauthorized', /not yet authorized/],
-      ['trustline_frozen', /deep-frozen/],
-      ['trustline_limit', /trustline limit/],
-    ] as const)('refuses an XRPL destination that cannot receive the release (%s)', async (reason, message) => {
+    it.each(
+      XRPL_REFUSALS,
+    )('refuses an XRPL destination that cannot receive the release (%s)', async (reason, message) => {
       vi.spyOn(sodax.spoke.xrp, 'checkDestination').mockResolvedValue({ ready: false, reason });
       const sendSpy = vi.spyOn(sodax.spoke, 'sendMessage');
 
@@ -3629,5 +3632,28 @@ describe('MoneyMarketService — small payout to an MPC-relay chain', () => {
     expect(refused.error.context?.reason).toBe('mpc-payout-below-minimum');
     expect((await run('createBorrowIntent', 3_400_000n, true)).ok).toBe(true);
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks an XRPL borrow recipient on what arrives after the partner fee', async () => {
+    vi.spyOn(sodax.moneyMarket, 'partnerFee', 'get').mockReturnValue({
+      address: '0x9999999999999999999999999999999999999999',
+      percentage: 1_000,
+    });
+    const check = vi
+      .spyOn(sodax.spoke.xrp, 'checkDestination')
+      .mockResolvedValue({ ready: false, reason: 'account_not_found' });
+
+    await sodax.moneyMarket.createBorrowIntent({
+      raw: true,
+      params: {
+        ...borrowParams(ChainKeys.BSC_MAINNET),
+        token: spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.XRP.address,
+        dstChainKey: ChainKeys.XRP_MAINNET,
+        dstAddress: MPC_RECIPIENTS[1].address,
+      },
+    });
+
+    // 10% off 1 XRP: a missing account would be sent 0.9 XRP, which is what must clear its reserve.
+    expect(check).toHaveBeenCalledWith(expect.objectContaining({ amount: 900_000n }));
   });
 });

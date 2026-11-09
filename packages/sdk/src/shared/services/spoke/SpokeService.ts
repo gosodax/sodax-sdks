@@ -38,6 +38,8 @@ import {
   type SendMessageReturnType,
   type TronDepositReturnType,
   type TronSendMessageReturnType,
+  type XrpDepositReturnType,
+  type XrpSendMessageReturnType,
   isBitcoinChainKey,
   type Result,
 } from '@sodax/types';
@@ -181,15 +183,16 @@ function xrpRefusalMessage(
   token: string,
 ): string {
   const refusals = {
-    account_not_found: `XRPL destination ${address} does not exist — fund it with the base reserve first`,
+    account_not_found: `XRPL destination ${address} does not exist — fund it with the XRP base reserve first (and add a trustline for an IOU)`,
     destination_tag_required: `XRPL destination ${address} requires a destination tag, which a release cannot carry — use an account without one`,
     deposit_auth: `XRPL destination ${address} has Deposit Authorization enabled and would refuse the release`,
-    issuer_frozen: `XRPL token ${token} is globally frozen by its issuer, so no release of it can be paid`,
+    issuer_frozen: `XRPL token ${token} is globally frozen by its issuer, so a release of it cannot be paid`,
+    issuer_transfer_fee: `XRPL token ${token} carries an issuer transfer fee, which a release cannot pay`,
     no_trustline: `XRPL destination ${address} has no trustline for ${token} — add the trustline first`,
     trustline_unauthorized: `XRPL destination ${address} trustline for ${token} is not yet authorized by the issuer`,
     trustline_frozen: `XRPL destination ${address} trustline for ${token} is deep-frozen and cannot receive the release`,
     trustline_limit: `XRPL destination ${address} trustline limit for ${token} is too low for this amount`,
-  } as const;
+  } satisfies Record<typeof reason, string>;
   return refusals[reason];
 }
 
@@ -894,10 +897,9 @@ export class SpokeService {
         }
         case 'XRP': {
           // XRPL rides the MPC relay in memo mode — no on-chain asset-manager simulation applies.
-          const value = (await this.xrp.deposit(params as DepositParams<XrpChainKey, R>)) satisfies TxReturnType<
-            XrpChainKey,
-            R
-          > as DepositReturnType<K, R>;
+          const value = (await this.xrp.deposit(
+            params as DepositParams<XrpChainKey, R>,
+          )) satisfies XrpDepositReturnType<R> as DepositReturnType<K, R>;
           return { ok: true, value };
         }
         default: {
@@ -1279,10 +1281,9 @@ export class SpokeService {
           return { ok: true, value };
         }
         case 'XRP': {
-          const value = (await this.xrp.sendMessage(params as SendMessageParams<XrpChainKey, Raw>)) as TxReturnType<
-            XrpChainKey,
-            Raw
-          > as SendMessageReturnType<K, Raw>;
+          const value = (await this.xrp.sendMessage(
+            params as SendMessageParams<XrpChainKey, Raw>,
+          )) satisfies XrpSendMessageReturnType<Raw> as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         default: {
