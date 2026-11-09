@@ -144,3 +144,7 @@ patchedDependencies:
   # instead of accumulating; large tarballs lose data. Drop the patch once
   # arethetypeswrong/arethetypeswrong.github.io ships the fix.
   "@arethetypeswrong/core@0.17.4": "patches/@arethetypeswrong__core@0.17.4.patch"
+  # One TypeScript program per .d.ts build instead of one per entry folder: the bundled
+  # rollup-plugin-dts gave each wallet-sdk-react `xchains/<chain>` its own, which outgrew
+  # 8 GB Vercel builds. Still unfixed in rollup-plugin-dts 6.5.1 and tsup 8.5.1.
+  "tsup@8.5.0": "patches/tsup@8.5.0.patch"

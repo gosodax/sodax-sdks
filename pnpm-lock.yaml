@@ -154,6 +154,9 @@ patchedDependencies:
   '@arethetypeswrong/core@0.17.4':
     hash: a25152c3139531c363700c34274c4847985f123026239baa1a5cd5fea359313f
     path: patches/@arethetypeswrong__core@0.17.4.patch
+  tsup@8.5.0:
+    hash: 11bdcdae173940df4f832113f6e797cfc1ce65599d77767bc405fab51ab9e7b9
+    path: patches/tsup@8.5.0.patch
 
 importers:
 
@@ -721,7 +724,7 @@ importers:
         version: 8.0.0(typescript@5.5.4)
       tsup:
         specifier: 'catalog:'
-        version: 8.5.0(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
+        version: 8.5.0(patch_hash=11bdcdae173940df4f832113f6e797cfc1ce65599d77767bc405fab51ab9e7b9)(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: 5.5.4
@@ -758,7 +761,7 @@ importers:
         version: 2.8.1
       tsup:
         specifier: 'catalog:'
-        version: 8.5.0(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
+        version: 8.5.0(patch_hash=11bdcdae173940df4f832113f6e797cfc1ce65599d77767bc405fab51ab9e7b9)(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: 5.5.4
@@ -798,7 +801,7 @@ importers:
         version: 8.0.0(typescript@5.5.4)
       tsup:
         specifier: 'catalog:'
-        version: 8.5.0(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
+        version: 8.5.0(patch_hash=11bdcdae173940df4f832113f6e797cfc1ce65599d77767bc405fab51ab9e7b9)(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: 5.5.4
@@ -904,7 +907,7 @@ importers:
         version: 8.0.0(typescript@5.5.4)
       tsup:
         specifier: 'catalog:'
-        version: 8.5.0(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
+        version: 8.5.0(patch_hash=11bdcdae173940df4f832113f6e797cfc1ce65599d77767bc405fab51ab9e7b9)(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: 5.5.4
@@ -965,7 +968,7 @@ importers:
         version: 8.0.0(typescript@5.5.4)
       tsup:
         specifier: 'catalog:'
-        version: 8.5.0(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
+        version: 8.5.0(patch_hash=11bdcdae173940df4f832113f6e797cfc1ce65599d77767bc405fab51ab9e7b9)(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: 5.5.4
@@ -1089,7 +1092,7 @@ importers:
         version: 5.88.1(@types/node@22.18.1)(typescript@5.5.4)
       tsup:
         specifier: 'catalog:'
-        version: 8.5.0(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
+        version: 8.5.0(patch_hash=11bdcdae173940df4f832113f6e797cfc1ce65599d77767bc405fab51ab9e7b9)(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: 5.5.4
@@ -1216,7 +1219,7 @@ importers:
         version: 2.8.1
       tsup:
         specifier: 'catalog:'
-        version: 8.5.0(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
+        version: 8.5.0(patch_hash=11bdcdae173940df4f832113f6e797cfc1ce65599d77767bc405fab51ab9e7b9)(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0)
       typescript:
         specifier: 'catalog:'
         version: 5.5.4
@@ -27080,7 +27083,7 @@ snapshots:
 
   tslib@2.8.1: {}
 
-  tsup@8.5.0(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0):
+  tsup@8.5.0(patch_hash=11bdcdae173940df4f832113f6e797cfc1ce65599d77767bc405fab51ab9e7b9)(jiti@2.7.0)(postcss@8.5.28)(tsx@4.22.3)(typescript@5.5.4)(yaml@2.9.0):
     dependencies:
       bundle-require: 5.1.0(esbuild@0.25.12)
       cac: 6.7.14
