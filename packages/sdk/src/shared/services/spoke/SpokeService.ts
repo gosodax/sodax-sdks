@@ -42,7 +42,7 @@ import {
   type Result,
 } from '@sodax/types';
 import type { WalletBalanceMap } from './balance-utils.js';
-import { encodeAddress, encodeTokenIdentifier } from '../../utils/shared-utils.js';
+import { encodeAddress, encodeTokenIdentifier, reverseEncodeAddress } from '../../utils/shared-utils.js';
 import { getEvmViemChain } from '../../utils/constant-utils.js';
 import { StacksSpokeService } from './StacksSpokeService.js';
 import { BitcoinSpokeService } from './BitcoinSpokeService.js';
@@ -55,7 +55,7 @@ import { IconSpokeService } from './IconSpokeService.js';
 import { EvmSpokeService } from './EvmSpokeService.js';
 import { InjectiveSpokeService } from './InjectiveSpokeService.js';
 import { TronSpokeService } from './TronSpokeService.js';
-import { XrpSpokeService } from './XrpSpokeService.js';
+import { XrpSpokeService, type XrpDestinationReadiness } from './XrpSpokeService.js';
 import {
   isHubChainKeyType,
   isNearChainKeyType,
@@ -73,7 +73,10 @@ import {
   isBitcoinChainKeyType,
   isEvmWalletProviderType,
   isUndefinedOrValidWalletProviderForChainKey,
+  isXrpChainKeyType,
 } from '../../guards.js';
+import type { SodaxErrorContext, SodaxFeature } from '../../../errors/codes.js';
+import { sodaxInvariant } from '../../../errors/invariant.js';
 import type { ConfigService } from '../../config/ConfigService.js';
 import type { EvmHubProvider } from '../../entities/EvmHubProvider.js';
 import type {
@@ -170,6 +173,25 @@ function missingFarSideHash(detail: string): { ok: false; error: SettlementFailu
  * Important: you should always first handle hub chain id first (since it is evm type, it is also included in evm chain id set).
  * @namespace SodaxPublicUtils
  */
+
+/** Why an XRPL release to `address` would be refused, worded for whoever picked the destination. */
+function xrpRefusalMessage(
+  reason: Extract<XrpDestinationReadiness, { ready: false }>['reason'],
+  address: string,
+  token: string,
+): string {
+  const refusals = {
+    account_not_found: `XRPL destination ${address} does not exist — fund it with the base reserve first`,
+    destination_tag_required: `XRPL destination ${address} requires a destination tag, which a release cannot carry — use an account without one`,
+    deposit_auth: `XRPL destination ${address} has Deposit Authorization enabled and would refuse the release`,
+    issuer_frozen: `XRPL token ${token} is globally frozen by its issuer, so no release of it can be paid`,
+    no_trustline: `XRPL destination ${address} has no trustline for ${token} — add the trustline first`,
+    trustline_unauthorized: `XRPL destination ${address} trustline for ${token} is not yet authorized by the issuer`,
+    trustline_frozen: `XRPL destination ${address} trustline for ${token} is deep-frozen and cannot receive the release`,
+    trustline_limit: `XRPL destination ${address} trustline limit for ${token} is too low for this amount`,
+  } as const;
+  return refusals[reason];
+}
 
 export class SpokeService {
   private readonly hubProvider: EvmHubProvider;
@@ -1514,6 +1536,39 @@ export class SpokeService {
 
   private toHubRelease({ hubTxHash, logIndex, dstChainKey }: Omit<HubRelease, 'hubChainId'>): HubRelease {
     return { dstChainKey, hubChainId: String(this.hubProvider.chainConfig.chain.chainId), hubTxHash, logIndex };
+  }
+
+  /**
+   * Refuses a release its recipient would turn away, before anything is signed: the relay fails such a
+   * release terminally after the hub has already burned the funds. Only an XRPL account can refuse one
+   * today (see {@link XrpSpokeService.checkDestination}); every other chain passes.
+   *
+   * `recipient` is the release's `to` as `encodeRecipient` encodes it for the hub, and `amount` is in
+   * the spoke token's decimals.
+   */
+  public async assertReleaseRecipientReady({
+    feature,
+    chainKey,
+    recipient,
+    token,
+    amount,
+    context,
+  }: {
+    feature: SodaxFeature;
+    chainKey: SpokeChainKey;
+    recipient: Hex;
+    token: string;
+    amount: bigint;
+    context?: Partial<SodaxErrorContext>;
+  }): Promise<void> {
+    if (!isXrpChainKeyType(chainKey)) return;
+    const address = reverseEncodeAddress(chainKey, recipient);
+    const readiness = await this.xrp.checkDestination({ address, token, amount });
+    if (readiness.ready) return;
+    sodaxInvariant(false, xrpRefusalMessage(readiness.reason, address, token), {
+      feature,
+      context: { ...context, reason: `xrpl-${readiness.reason}` },
+    });
   }
 
   /** The MPC-relay settlement service for a chain, or `undefined` when it rides the intent relay. */

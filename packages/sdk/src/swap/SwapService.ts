@@ -37,6 +37,7 @@ import {
   isStacksChainKeyType,
   isNativeBitcoinTransfer,
   assertMpcPayoutAboveMinimum,
+  encodeRecipient,
   isMpcRelayChainKeyType,
   RELAY_FALLBACK_FLOOR_MS,
 } from '../shared/index.js';
@@ -1599,12 +1600,23 @@ export class SwapService {
           { ...baseCtx, field: 'deadline' },
         );
       }
+      // A cancelled or expired intent refunds the source, so the source is a release recipient too.
+      const refundAmount = params.inputAmount - calculateFeeAmount(params.inputAmount, partnerFee);
       if (inputTokenInfo) {
         assertMpcPayoutAboveMinimum({
           feature: 'swap',
           token: inputTokenInfo,
-          amount: params.inputAmount - calculateFeeAmount(params.inputAmount, partnerFee),
+          amount: refundAmount,
           context: { ...baseCtx, field: 'inputAmount' },
+        });
+        await this.spoke.assertReleaseRecipientReady({
+          feature: 'swap',
+          chainKey: params.srcChainKey,
+          recipient: encodeRecipient(params.srcChainKey, params.srcAddress),
+          token: inputTokenInfo.address,
+          // The deposit takes more off this line than a refund puts back, so it needs no room beyond today's.
+          amount: 0n,
+          context: { ...baseCtx, field: 'srcAddress' },
         });
       }
       if (outputTokenInfo) {
@@ -1613,6 +1625,15 @@ export class SwapService {
           token: outputTokenInfo,
           amount: params.minOutputAmount,
           context: { ...baseCtx, field: 'minOutputAmount' },
+        });
+        await this.spoke.assertReleaseRecipientReady({
+          feature: 'swap',
+          chainKey: params.dstChainKey,
+          recipient: encodeRecipient(params.dstChainKey, params.dstAddress),
+          token: outputTokenInfo.address,
+          // A fill can exceed the minimum, so the floor is all that can be checked before it lands.
+          amount: params.minOutputAmount,
+          context: { ...baseCtx, field: 'dstAddress' },
         });
       }
       if (isStacksChainKeyType(params.srcChainKey) && _params.raw === true) {

@@ -26,7 +26,7 @@ import {
   type Address,
   type Hex,
 } from 'viem';
-import { leverageYieldConfig, tronSupportedTokens } from '@sodax/types';
+import { leverageYieldConfig, tronSupportedTokens, xrpSupportedTokens } from '@sodax/types';
 // Import the barrel by relative path, not as `@sodax/sdk`. A self-referential package import
 // resolves through `package.json#exports` into `dist/`, which makes this unit test depend on a
 // build artifact — it then fails to resolve whenever `dist/` is absent or half-written, and turbo
@@ -981,6 +981,37 @@ describe('LeverageYieldService.createVaultIntent', () => {
     if (result.ok) return;
     expect(result.error.code).toBe('VALIDATION_FAILED');
     expect(result.error.context?.field).toBe('minOutputAmount');
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('refuses a payout to an XRPL account that cannot receive it before signing anything', async () => {
+    const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
+    const xrplAddress = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+    const checkSpy = vi
+      .spyOn(sodax.spoke.xrp, 'checkDestination')
+      .mockResolvedValue({ ready: false, reason: 'account_not_found' });
+
+    const result = await sodax.leverageYield.createVaultIntent({
+      params: vaultIntentParams(ARBITRUM, {
+        inputToken: VAULT,
+        outputToken: xrpSupportedTokens.USDC.address,
+        minOutputAmount: 5_000_000n,
+        dstChainKey: ChainKeys.XRP_MAINNET as SpokeChainKey,
+        dstAddress: xrplAddress,
+      }),
+      raw: true,
+      hubWalletSwap: true,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context).toMatchObject({ field: 'dstAddress', reason: 'xrpl-account_not_found' });
+    expect(checkSpy).toHaveBeenCalledWith({
+      address: xrplAddress,
+      token: xrpSupportedTokens.USDC.address,
+      amount: 5_000_000n,
+    });
     expect(sendMessage).not.toHaveBeenCalled();
   });
 

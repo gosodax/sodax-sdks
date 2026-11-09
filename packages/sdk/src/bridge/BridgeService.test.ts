@@ -48,10 +48,12 @@ import {
   DEFAULT_RELAY_TX_TIMEOUT,
   getIntentRelayChainId,
   tronSupportedTokens,
+  xrpSupportedTokens,
 } from '@sodax/types';
 import { RELAY_FALLBACK_FLOOR_MS } from '../shared/services/intentRelay/IntentRelayApiService.js';
 import { EvmVaultTokenService } from '../shared/services/hub/EvmVaultTokenService.js';
 import { Sodax } from '../shared/entities/Sodax.js';
+import type { XrpDestinationReadiness } from '../shared/services/spoke/XrpSpokeService.js';
 import { SodaxError } from '../errors/SodaxError.js';
 import { isAuthFailure } from '../errors/guards.js';
 import { DETAILED_STATUS_NOT_DELIVERED } from '../backendApi/detailedStatusRouting.js';
@@ -1979,6 +1981,53 @@ describe('BridgeService.createBridgeIntent — small payout to an MPC-relay chai
 
   it('passes above the minimum, however large the source decimals make it look', async () => {
     expect((await run(4n * 10n ** 18n)).pastValidation).toHaveBeenCalled();
+  });
+});
+
+// An XRPL account can refuse a release outright, after the hub has already burned the funds.
+describe('BridgeService.createBridgeIntent — XRPL recipient', () => {
+  const sodaxBE = new Sodax({ logger: 'silent' });
+  const XRPL_ADDRESS = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+  const hubAsset = '0x2222222222222222222222222222222222222222' as Address;
+  const src = { address: SAMPLE_TOKEN, chainKey: ARBITRUM, symbol: 'USDC', decimals: 6, hubAsset };
+  const dst = {
+    address: xrpSupportedTokens.USDC.address,
+    chainKey: ChainKeys.XRP_MAINNET,
+    symbol: 'USDC',
+    decimals: 6,
+    hubAsset,
+  };
+
+  const run = async (readiness: XrpDestinationReadiness) => {
+    // Private, and the only seam that resolves both endpoints without a configured route.
+    const resolver = sodaxBE.bridge as unknown as { resolveBridgeEndpointToken: (chainKey: string) => unknown };
+    vi.spyOn(resolver, 'resolveBridgeEndpointToken').mockImplementation(chainKey =>
+      chainKey === ChainKeys.XRP_MAINNET ? dst : src,
+    );
+    const checkSpy = vi.spyOn(sodaxBE.spoke.xrp, 'checkDestination').mockResolvedValue(readiness);
+    const pastValidation = vi
+      .spyOn(sodaxBE.hubProvider, 'getUserHubWalletAddress')
+      .mockRejectedValue(new Error('past validation'));
+    const input = bridgeInput(ARBITRUM, ChainKeys.XRP_MAINNET);
+    const result = await sodaxBE.bridge.createBridgeIntent({
+      ...input,
+      params: { ...input.params, amount: 5_000_000n, recipient: XRPL_ADDRESS },
+    });
+    return { result, pastValidation, checkSpy };
+  };
+
+  it('refuses a bridge to an XRPL account that cannot receive the release', async () => {
+    const { result, pastValidation, checkSpy } = await run({ ready: false, reason: 'destination_tag_required' });
+
+    invariant(!result.ok, 'expected a refusal');
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context).toMatchObject({ field: 'recipient', reason: 'xrpl-destination_tag_required' });
+    expect(checkSpy).toHaveBeenCalledWith(expect.objectContaining({ address: XRPL_ADDRESS, token: dst.address }));
+    expect(pastValidation).not.toHaveBeenCalled();
+  });
+
+  it('passes a bridge to an XRPL account that can receive it', async () => {
+    expect((await run({ ready: true })).pastValidation).toHaveBeenCalled();
   });
 });
 

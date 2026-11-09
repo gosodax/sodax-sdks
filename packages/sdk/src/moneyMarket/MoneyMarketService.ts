@@ -40,7 +40,6 @@ import {
   calculateFeeAmount,
   wrappedSonicAbi,
   isHubChainKeyType,
-  isXrpChainKeyType,
   isEvmSpokeOnlyChainKeyType,
   isStellarChainKeyType,
   isOptionalEvmWalletProviderType,
@@ -841,9 +840,15 @@ export class MoneyMarketService {
         ...baseCtx,
         field: 'token',
       });
-      await this.assertXrpDestinationReady(dstChainKey, dstAddress, dstToken.address, params.amount, baseCtx);
-
       const encodedDstAddress = encodeRecipient(dstChainKey, dstAddress);
+      await this.spoke.assertReleaseRecipientReady({
+        feature: 'moneyMarket',
+        chainKey: dstChainKey,
+        recipient: encodedDstAddress,
+        token: dstToken.address,
+        amount: params.amount,
+        context: { ...baseCtx, field: 'dstAddress' },
+      });
       // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the
       // collateral/debt lives. srcAddress stays the personal address because `SpokeService.sendMessage`
       // resolves the effective address itself (unlike the deposit path used by supply/repay, which
@@ -1028,7 +1033,6 @@ export class MoneyMarketService {
         `Unsupported spoke chain (${dstChainKey}) token: ${params.token}`,
         { ...baseCtx, field: 'token' },
       );
-      await this.assertXrpDestinationReady(dstChainKey, dstAddress, params.token, params.amount, baseCtx);
       const dstToken = this.config.getMoneyMarketToken(dstChainKey, params.token);
       if (dstToken) {
         assertMpcPayoutAboveMinimum({
@@ -1040,6 +1044,14 @@ export class MoneyMarketService {
       }
 
       const encodedDstAddress = encodeRecipient(dstChainKey, dstAddress);
+      await this.spoke.assertReleaseRecipientReady({
+        feature: 'moneyMarket',
+        chainKey: dstChainKey,
+        recipient: encodedDstAddress,
+        token: params.token,
+        amount: params.amount,
+        context: { ...baseCtx, field: 'dstAddress' },
+      });
       // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the
       // collateral/debt lives. srcAddress stays the personal address because `SpokeService.sendMessage`
       // resolves the effective address itself (unlike the deposit path used by supply/repay, which
@@ -1295,30 +1307,6 @@ export class MoneyMarketService {
   }
 
   // ==== build helpers (hub-side call encoding) ==========================================
-
-  /**
-   * Refuse a withdraw or borrow to an XRPL destination that cannot receive the release. The relay
-   * treats that as a terminal failure after the hub has already burned the funds.
-   */
-  private async assertXrpDestinationReady(
-    dstChainKey: SpokeChainKey,
-    dstAddress: string,
-    token: string,
-    amount: bigint,
-    ctx: { srcChainKey: SpokeChainKey; dstChainKey?: SpokeChainKey; action: 'withdraw' | 'borrow' },
-  ): Promise<void> {
-    if (!isXrpChainKeyType(dstChainKey)) return;
-    const readiness = await this.spoke.xrp.checkDestination({ address: dstAddress, token, amount });
-    if (readiness.ready) return;
-    const reasons = {
-      account_not_found: `XRPL destination ${dstAddress} does not exist — fund it with the base reserve first`,
-      destination_tag_required: `XRPL destination ${dstAddress} requires a destination tag, which a release cannot carry — use an account without one`,
-      deposit_auth: `XRPL destination ${dstAddress} has Deposit Authorization enabled and would refuse the release`,
-      no_trustline: `XRPL destination ${dstAddress} has no trustline for ${token} — add the trustline first`,
-      trustline_limit: `XRPL destination ${dstAddress} trustline limit for ${token} is too low for this amount`,
-    } as const;
-    mmInvariant(false, reasons[readiness.reason], { ...ctx, field: 'dstAddress' });
-  }
 
   /**
    * Encode the hub-side calldata for a supply operation.

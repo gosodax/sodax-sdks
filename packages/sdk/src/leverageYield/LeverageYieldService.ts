@@ -220,7 +220,10 @@ const DETAILED_STATUS_SOLVER_TIMEOUT_MS = 5_000;
 export type PositionOrigin = {
   /** Chain the user funded from and is refunded on. */
   chainKey: SpokeChainKey;
-  /** The user's address on `chainKey`. */
+  /**
+   * The user's address on `chainKey`. An XRPL address must be able to receive the refund, which these
+   * synchronous builders cannot read: check it first with `sodax.spoke.xrp.checkDestination`.
+   */
   address: string;
   /**
    * Hub asset a cross-chain refund unwraps the reserve into. Required off-hub, since the
@@ -1124,6 +1127,14 @@ export class LeverageYieldService {
           token: outputTokenInfo,
           amount: params.minOutputAmount,
           context: { ...baseCtx, field: 'minOutputAmount' },
+        });
+        await this.spoke.assertReleaseRecipientReady({
+          feature: 'leverageYield',
+          chainKey: params.dstChainKey,
+          recipient: encodeRecipient(params.dstChainKey, params.dstAddress),
+          token: outputTokenInfo.address,
+          amount: params.minOutputAmount,
+          context: { ...baseCtx, field: 'dstAddress' },
         });
       }
       // derive users hub wallet address

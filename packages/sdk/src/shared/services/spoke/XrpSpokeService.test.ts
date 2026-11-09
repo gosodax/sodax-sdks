@@ -10,6 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { encodeAbiParameters, keccak256 } from 'viem';
 import { ChainKeys, spokeChainConfig, type Hex } from '@sodax/types';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
@@ -21,16 +22,18 @@ const xrp = sodax.spoke.xrp;
 const XRP = 'xrp' as const;
 const NATIVE_XRP = '0x0000000000000000000000000000000000000000';
 const RLUSD_ISSUER = 'rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De';
-const SENDER = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+// 33 bytes, 0xED-prefixed — the only shape scheme 3 accepts.
+const PUBLIC_KEY = `0xed${'11'.repeat(32)}` as Hex;
+// PUBLIC_KEY's own account, from ripple-keypairs' deriveAddress rather than the SDK's hashing.
+const SENDER = 'rJB8dmrf4JxkLKHPUfdxyPwpXMyxjkQsyG';
 const RESERVE = 'rbtWzBnJB84fKuVCg2qbKKX4EUtCWVik7';
 const HUB_WALLET = '0x1111111111111111111111111111111111111111' as Hex;
-const MEMO = '0xb07ec4b9c2d410c84fb75cb2cf00122f6316cf191ae1fe7bec45ac203c5e13fd' as Hex;
+// Derived independently of the SDK helper, matching the relay's computePayloadHash for `data: '0x'`.
+const MEMO = keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'bytes' }], [HUB_WALLET, '0x']));
 const TX_HASH = 'A'.repeat(64);
 /** `TX_HASH` in the 0x-prefixed lowercase form the relay keys XRPL deposits on. */
 const RELAY_HASH = `0x${TX_HASH.toLowerCase()}`;
 const SIGNATURE = `0x${'ab'.repeat(64)}` as Hex;
-// 33 bytes, 0xED-prefixed — the only shape scheme 3 accepts.
-const PUBLIC_KEY = `0xed${'11'.repeat(32)}` as Hex;
 
 /** 6 decimals on the spoke side, so 1 RLUSD is 1_000_000 base units. */
 const AMOUNT = 20_000_000n;
@@ -58,18 +61,22 @@ function stubRippled(overrides: Record<string, unknown> = {}) {
         ...overrides,
       };
 
+      // An override may be a function, to answer per request (e.g. per account).
+      const answer = responses[method];
+      const result = typeof answer === 'function' ? answer(params[0]) : (answer ?? {});
       // Only `ok` and `json()` are read, so a partial stands in for the full fetch Response.
-      return { ok: true, json: async () => ({ result: responses[method] ?? {} }) } as unknown as Response;
+      return { ok: true, json: async () => ({ result }) } as unknown as Response;
     }),
   );
 }
 
 const signTransaction = vi.fn(async (_tx: Record<string, unknown>) => ({ tx_blob: '1200002280000000', hash: TX_HASH }));
+const getPublicKey = vi.fn(async (): Promise<Hex> => PUBLIC_KEY);
 const walletProvider = {
   chainType: 'XRP',
   signTransaction,
   signMessage: vi.fn(async () => SIGNATURE),
-  getPublicKey: vi.fn(async () => PUBLIC_KEY),
+  getPublicKey,
 } as never;
 
 const depositParams = (token: string) =>
@@ -332,6 +339,42 @@ describe('XrpSpokeService.deposit — hub wallet assertion', () => {
   });
 });
 
+describe('XrpSpokeService.deposit — what it refuses to sign', () => {
+  // Verifiers attest whatever payload the relay stored under the memo, as on Tron.
+  it.each([false, true])('refuses a relay memo that does not commit to the payload (raw: %s)', async raw => {
+    stubRippled();
+    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue({
+      ok: true,
+      value: {
+        reserveAddress: RESERVE,
+        memo: `0x${'cd'.repeat(32)}`,
+        payloadHash: MEMO,
+        path: 'm/0',
+        hubWallet: HUB_WALLET,
+        depositMethod: 'memo',
+      },
+    });
+
+    await expect(xrp.deposit({ ...(depositParams(NATIVE_XRP) as object), raw } as never)).rejects.toThrow(
+      /does not commit to this deposit's payload/,
+    );
+    expect(signTransaction).not.toHaveBeenCalled();
+  });
+
+  // Scheme 3 checks ripemd160(sha256(publicKey)) against the account, so either of these strands the deposit.
+  it.each([
+    ['a secp256k1 key', `0x02${'11'.repeat(32)}`, /non-ed25519 key/],
+    ["another account's key (a regular key)", `0xed${'22'.repeat(32)}`, /could never withdraw/],
+  ] as const)('refuses to sign for a wallet holding %s', async (_, publicKey, message) => {
+    stubRippled();
+    getPublicKey.mockResolvedValueOnce(publicKey);
+
+    await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toThrow(message);
+    expect(MpcRelayApiService.getDepositAddress).not.toHaveBeenCalled();
+    expect(signTransaction).not.toHaveBeenCalled();
+  });
+});
+
 describe('XrpSpokeService.deposit — rotated reserve', () => {
   // XRPL SHARDS its reserve across lanes, and a payment to a retired lane is not credited — so the
   // relay's current address wins over the chain config, loudly rather than silently.
@@ -578,6 +621,60 @@ describe('XrpSpokeService.checkDestination', () => {
     expect(await check(USDC_ISSUER, 1_000_000n)).toEqual({ ready: false, reason: 'trustline_limit' });
   });
 
+  // An ordinary freeze still lets the holder receive; a deep freeze by either side stops it.
+  it.each([
+    ['low', 0x02000000],
+    ['high', 0x04000000],
+  ])('reports a trustline deep-frozen on the %s side', async (_, Flags) => {
+    stubRippled({ account_lines: usdcLine('0', '1000'), ledger_entry: { node: { Flags } } });
+
+    expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'trustline_frozen' });
+    expect(callTo('ledger_entry')?.params).toMatchObject({
+      ripple_state: { accounts: [SENDER, USDC_ISSUER], currency: xrpCurrencyCode('USDC') },
+    });
+  });
+
+  // The recipient's own account_info answers with no flags; the issuer's carries `issuerFlags`.
+  const withIssuerFlags = (issuerFlags: number, line: Record<string, unknown> = {}) => ({
+    account_info: ({ account }: { account: string }) => ({
+      account_data: { Balance: '42000000', Flags: account === USDC_ISSUER ? issuerFlags : 0 },
+    }),
+    account_lines: { lines: [{ ...usdcLine('0', '1000').lines[0], ...line }] },
+  });
+
+  it('reports a token its issuer has frozen globally, which the reserve can then pay only to the issuer', async () => {
+    // lsfGlobalFreeze
+    stubRippled(withIssuerFlags(0x00400000));
+
+    expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'issuer_frozen' });
+    expect(await check(NATIVE_XRP)).toEqual({ ready: true });
+  });
+
+  it('reports a trustline the issuer has not authorized when it requires authorization', async () => {
+    // lsfRequireAuth
+    stubRippled(withIssuerFlags(0x00040000, { peer_authorized: false }));
+    expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'trustline_unauthorized' });
+
+    stubRippled(withIssuerFlags(0x00040000, { peer_authorized: true }));
+    expect(await check(USDC_ISSUER)).toEqual({ ready: true });
+  });
+
+  it('reads a RippleState missing by the time ledger_entry runs as no line, not as an error', async () => {
+    const entryNotFound = { error: 'entryNotFound', error_message: 'Entry not found.' };
+    stubRippled({ account_lines: { lines: [] }, ledger_entry: entryNotFound });
+    expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'no_trustline' });
+
+    stubRippled({ account_lines: usdcLine('0', '1000'), ledger_entry: entryNotFound });
+    expect(await check(USDC_ISSUER)).toEqual({ ready: true });
+  });
+
+  it('accepts a trustline under an ordinary freeze, which can still receive', async () => {
+    // lsfLowFreeze | lsfHighFreeze
+    stubRippled({ account_lines: usdcLine('0', '1000'), ledger_entry: { node: { Flags: 0x00400000 | 0x00800000 } } });
+
+    expect(await check(USDC_ISSUER)).toEqual({ ready: true });
+  });
+
   it('reports an IOU destination with no trustline to the issuer', async () => {
     stubRippled({ account_lines: { lines: [] } });
 
@@ -774,10 +871,19 @@ describe('XrpSpokeService — node request budget', () => {
   });
 
   it('surfaces a rippled error payload rather than treating it as a result', async () => {
-    stubRippled({ account_info: { error: 'actNotFound', error_message: 'Account not found.' } });
+    stubRippled({ account_info: { error: 'lgrNotFound', error_message: 'ledgerNotFound' } });
 
     await expect(xrp.getDeposit({ srcChainKey: XRP, srcAddress: SENDER, token: NATIVE_XRP } as never)).rejects.toThrow(
-      /actNotFound/,
+      /lgrNotFound/,
     );
+  });
+
+  it.each([
+    ['native', NATIVE_XRP, 'account_info'],
+    ['IOU', RLUSD_ISSUER, 'account_lines'],
+  ])('reads a %s balance of 0 for an address nobody has funded yet, as Tron does', async (_, token, method) => {
+    stubRippled({ [method]: { error: 'actNotFound', error_message: 'Account not found.' } });
+
+    expect(await xrp.getDeposit({ srcChainKey: XRP, srcAddress: SENDER, token })).toBe(0n);
   });
 });

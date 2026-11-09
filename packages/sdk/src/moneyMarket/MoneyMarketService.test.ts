@@ -1538,7 +1538,10 @@ describe('MoneyMarketService.createBorrowIntent', () => {
       ['account_not_found', /does not exist/],
       ['destination_tag_required', /requires a destination tag/],
       ['deposit_auth', /Deposit Authorization/],
+      ['issuer_frozen', /globally frozen/],
       ['no_trustline', /no trustline/],
+      ['trustline_unauthorized', /not yet authorized/],
+      ['trustline_frozen', /deep-frozen/],
       ['trustline_limit', /trustline limit/],
     ] as const)('refuses an XRPL destination that cannot receive the release (%s)', async (reason, message) => {
       vi.spyOn(sodax.spoke.xrp, 'checkDestination').mockResolvedValue({ ready: false, reason });
@@ -2062,7 +2065,10 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
       ['account_not_found', /does not exist/],
       ['destination_tag_required', /requires a destination tag/],
       ['deposit_auth', /Deposit Authorization/],
+      ['issuer_frozen', /globally frozen/],
       ['no_trustline', /no trustline/],
+      ['trustline_unauthorized', /not yet authorized/],
+      ['trustline_frozen', /deep-frozen/],
       ['trustline_limit', /trustline limit/],
     ] as const)('refuses an XRPL destination that cannot receive the release (%s)', async (reason, message) => {
       vi.spyOn(sodax.spoke.xrp, 'checkDestination').mockResolvedValue({ ready: false, reason });
