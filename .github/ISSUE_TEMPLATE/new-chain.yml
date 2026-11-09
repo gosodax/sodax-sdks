@@ -1,54 +1,108 @@
 name: New chain
-description: Add support for a new chain in this repo.
-title: "feat: add <chain> support"
+description: Add a new chain to the SDK. A spec plus the inputs that must be known before work starts.
+title: "feat: add <chain> chain"
 labels: [new-chain]
 body:
   - type: markdown
     attributes:
       value: |
-        One issue per repo. When a chain touches several repos, link the parent cross-repo issue and keep this one to this repo's part.
-        Never paste private keys, RPC credentials or unannounced contract addresses here.
+        This issue is a spec ([issue workflow](https://github.com/gosodax/sodax-sdks/blob/main/.github/issue-workflow.md)): it says what ships and how we know it is done. The plan comment says how.
+        This repository is public. Never post private keys, RPC credentials or contract addresses that aren't announced yet.
   - type: input
     id: chain
     attributes:
       label: Chain
-      description: Name and network, e.g. "Stacks mainnet".
+      description: The chain's name, e.g. "Plasma".
     validations:
       required: true
-  - type: input
+  - type: dropdown
     id: chain-type
     attributes:
       label: Chain type
-      description: EVM, Solana, Sui, Stellar, ICON, Bitcoin, NEAR, Stacks...
+      description: This decides the size of the work, so confirm it first.
+      options:
+        - EVM
+        - New non-EVM family (Solana-, Sui-, Stacks-, NEAR-, Stellar-, ICON- or Injective-like)
+        - Bitcoin-like
+    validations:
+      required: true
+  - type: dropdown
+    id: network
+    attributes:
+      label: Network
+      options:
+        - Mainnet
+        - Testnet
+        - Mainnet and testnet
     validations:
       required: true
   - type: input
-    id: chain-ids
+    id: chain-id
     attributes:
-      label: Chain IDs
-      description: The native chain ID and the SODAX relay chain ID, if one is assigned yet.
-  - type: input
-    id: parent
-    attributes:
-      label: Parent issue
-      description: The cross-repo issue or Epic this belongs to (owner/repo#N), if any.
+      label: Chain ID
+      description: The chain's own ID, if it has one.
   - type: textarea
-    id: what
+    id: explorers
     attributes:
-      label: What needs to be done
-      description: What changes in this repo, e.g. config and constants, contracts, adapters or clients, UI, docs.
+      label: Explorer URLs
+      description: One per line, for each network above.
     validations:
       required: true
-  - type: textarea
-    id: depends
+  - type: input
+    id: wallets
     attributes:
-      label: Depends on
-      description: What must land first (contract deploys, relay support, an SDK release) and what waits on this.
-  - type: textarea
-    id: acceptance
+      label: Wallets
+      description: The wallets users sign with on this chain, e.g. "MetaMask, Rabby" or "Phantom".
+  - type: checkboxes
+    id: readiness
     attributes:
-      label: Acceptance Criteria
+      label: Ready outside the SDK
+      description: Tick what is already done. The SDK can only use the chain once its spoke contracts and hub assets are deployed.
+      options:
+        - label: Spoke contracts are deployed on this chain
+        - label: Hub assets and vaults for this chain are deployed
+        - label: The chain's token list is agreed (filed as a New token issue)
+        - label: The backend and the solver support this chain
+  - type: checkboxes
+    id: features
+    attributes:
+      label: Features on this chain
+      description: Tick a feature only when its contract, backend or data source exists on this chain, and give the evidence in Context below. If you can't confirm one, ask before ticking it.
+      options:
+        - label: Swap
+        - label: Bridge
+        - label: Money market (supply / borrow)
+        - label: Staking
+        - label: DEX (concentrated liquidity)
+        - label: Migration
+        - label: Partner fee
+        - label: Recovery
+  - type: textarea
+    id: spec
+    attributes:
+      label: Spec
+      description: Fill every section. Non-goals and Constraints may say "None".
       value: |
-        - [ ]
+        ## Goal
+        <!-- 1–3 sentences: which chain, and what users and integrators can do on it once this ships. No implementation. -->
+
+        ## Requirements
+        <!-- Numbered, each one observable, one per ticked feature, e.g. "Users can swap between <chain> and every chain that supports swap". Outcomes only: no internal class, file or mechanism names; those go in the plan. -->
+        1.
+
+        ## Non-goals
+        <!-- The features not ticked above, and anything else this leaves out. "None" if none. -->
+        -
+
+        ## Constraints
+        <!-- Task-specific only, e.g. waits on a contract deployment or a backend release. "None" if none. -->
+        -
+
+        ## Acceptance criteria
+        <!-- Each one checkable by a test, a command, or an observable result (e.g. a swap completes on the chain in a smoke run). The plan and PR Evidence reference AC1, AC2… -->
+        - [ ] AC1:
+
+        ## Context
+        <!-- Evidence for each ticked feature, the New token issue for the chain's tokens, the parent epic, related issues and docs. -->
     validations:
       required: true
