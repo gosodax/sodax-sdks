@@ -1536,6 +1536,8 @@ describe('MoneyMarketService.createBorrowIntent', () => {
 
     it.each([
       ['account_not_found', /does not exist/],
+      ['destination_tag_required', /requires a destination tag/],
+      ['deposit_auth', /Deposit Authorization/],
       ['no_trustline', /no trustline/],
       ['trustline_limit', /trustline limit/],
     ] as const)('refuses an XRPL destination that cannot receive the release (%s)', async (reason, message) => {
@@ -2058,6 +2060,8 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
 
     it.each([
       ['account_not_found', /does not exist/],
+      ['destination_tag_required', /requires a destination tag/],
+      ['deposit_auth', /Deposit Authorization/],
       ['no_trustline', /no trustline/],
       ['trustline_limit', /trustline limit/],
     ] as const)('refuses an XRPL destination that cannot receive the release (%s)', async (reason, message) => {

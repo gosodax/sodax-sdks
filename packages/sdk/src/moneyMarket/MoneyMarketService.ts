@@ -1312,6 +1312,8 @@ export class MoneyMarketService {
     if (readiness.ready) return;
     const reasons = {
       account_not_found: `XRPL destination ${dstAddress} does not exist — fund it with the base reserve first`,
+      destination_tag_required: `XRPL destination ${dstAddress} requires a destination tag, which a release cannot carry — use an account without one`,
+      deposit_auth: `XRPL destination ${dstAddress} has Deposit Authorization enabled and would refuse the release`,
       no_trustline: `XRPL destination ${dstAddress} has no trustline for ${token} — add the trustline first`,
       trustline_limit: `XRPL destination ${dstAddress} trustline limit for ${token} is too low for this amount`,
     } as const;

@@ -1,7 +1,7 @@
 import 'dotenv/config';
 
 import { createPublicClient, http, type Hex } from 'viem';
-import { Sodax, encodeContractCalls, xrpIdentityBytes } from '@sodax/sdk';
+import { Sodax, encodeContractCalls, encodeRecipient } from '@sodax/sdk';
 import { XrpWalletProvider } from '@sodax/wallet-sdk-core';
 
 /**
@@ -146,9 +146,10 @@ async function main() {
     case 'borrow':
     case 'withdraw': {
       const recipient = TO ?? SENDER;
-      // The same encoding the SDK's own `moneyMarket.borrow`/`withdraw` apply via `encodeAddress`,
-      // so this harness exercises the real path instead of a hand-rolled variant that could drift.
-      const dstAddress = xrpIdentityBytes(recipient);
+      // The hub burns before the relay finds out the release cannot land, so check first, as the SDK does.
+      const readiness = await xrp.checkDestination({ address: recipient, token: TOKEN, amount: amountUnits });
+      if (!readiness.ready) throw new Error(`XRPL destination ${recipient} cannot receive: ${readiness.reason}`);
+      const dstAddress = encodeRecipient(XRP, recipient);
       const payload: Hex =
         endpoint === 'borrow'
           ? sodax.moneyMarket.buildBorrowData(hubWallet, dstAddress, TOKEN, amountUnits, XRP)

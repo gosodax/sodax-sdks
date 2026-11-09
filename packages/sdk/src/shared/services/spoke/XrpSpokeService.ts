@@ -72,6 +72,16 @@ function randomNonce(): bigint {
   return bytesToBigInt(crypto.getRandomValues(new Uint8Array(8))) & MAX_SAFE_NONCE;
 }
 
+/** AccountRoot flags that make rippled refuse a Payment carrying no DestinationTag, or from an unauthorized sender. */
+const LSF_REQUIRE_DEST_TAG = 0x00020000;
+const LSF_DEPOSIT_AUTH = 0x01000000;
+
+/** XRPL reports bare uppercase hex; the relay keys XRPL on the 0x-prefixed lowercase form (per chain: Tron's key is bare hex). */
+function toRelayTxHash(txHash: string): string {
+  const bare = txHash.replace(/^0x/i, '').toLowerCase();
+  return bare && `0x${bare}`;
+}
+
 /**
  * Whether an XRPL account can receive a release, and if not, why. The relay treats a destination it
  * cannot pay as a TERMINAL failure — the funds are already burned on the hub by then — so a caller
@@ -79,7 +89,10 @@ function randomNonce(): bigint {
  */
 export type XrpDestinationReadiness =
   | { ready: true }
-  | { ready: false; reason: 'account_not_found' | 'no_trustline' | 'trustline_limit' };
+  | {
+      ready: false;
+      reason: 'account_not_found' | 'destination_tag_required' | 'deposit_auth' | 'no_trustline' | 'trustline_limit';
+    };
 
 /**
  * Spoke service for the XRP Ledger. Like Tron, XRPL deposits ride the **MPC relay** in memo mode: a
@@ -211,10 +224,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     // rejects a transaction that pins them, and a raw-key provider has xrpl.js do the same. Filling
     // them here would mean racing the wallet for the account's Sequence.
     const signed = await walletProvider.signTransaction(unsigned);
-    const rawHash = await this.submitSigned(signed);
-    // XRPL reports hashes as bare uppercase hex; the relay's API takes the 0x-prefixed form (the
-    // Tron path normalises identically, and its hashes are natively unprefixed too).
-    const hash = `0x${rawHash.replace(/^0x/, '').toLowerCase()}` as Hex;
+    const hash = toRelayTxHash(await this.submitSigned(signed));
 
     const submitted = await this.submitDeposit(hash);
     if (!submitted.ok) {
@@ -233,7 +243,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
    */
   public async submitDeposit(txHash: string): Promise<Result<void>> {
     try {
-      await this.retryNotify(() => notify(this.relayApiUrl, this.chainId, txHash));
+      await this.retryNotify(() => notify(this.relayApiUrl, this.chainId, toRelayTxHash(txHash)));
       return { ok: true, value: undefined };
     } catch (error) {
       return {
@@ -277,9 +287,9 @@ export class XrpSpokeService implements MpcRelaySettlement {
         cause: error,
       });
     }
-    // tesSUCCESS is the only unambiguous accept; tec* codes are applied-but-failed and ter*/tem* are
-    // rejections, so anything else would notify the relay about a tx that never moved funds.
-    if (submitted.engine_result !== 'tesSUCCESS') {
+    // terQUEUED is held for a later ledger and usually applies; tec* codes are applied-but-failed and
+    // other ter*/tem* are rejections, so anything else would notify the relay about a tx that never moved funds.
+    if (submitted.engine_result !== 'tesSUCCESS' && submitted.engine_result !== 'terQUEUED') {
       const txHash = signed.hash ?? submitted.tx_json?.hash ?? 'unknown tx';
       throw new Error(`[XrpSpokeService.deposit] submit of ${txHash} failed: ${submitted.engine_result ?? 'unknown'}`);
     }
@@ -333,14 +343,15 @@ export class XrpSpokeService implements MpcRelaySettlement {
    * `txHash` is the source XRPL tx hash returned by {@link deposit}.
    */
   public async waitForDeposit(txHash: string, timeout?: number): Promise<Result<DepositRecord>> {
+    const hash = toRelayTxHash(txHash);
     // `/notify` accepts a tx before its ledger is validated and never re-checks, so a notification
     // sent right after submit can land too early. Re-notifying is idempotent.
     const renotify = setInterval(() => {
-      void notify(this.relayApiUrl, this.chainId, txHash);
+      void notify(this.relayApiUrl, this.chainId, hash);
     }, RENOTIFY_INTERVAL_MS);
 
     try {
-      return await waitForDeposit(this.relayApiUrl, toDepositId(this.chainId, txHash), {
+      return await waitForDeposit(this.relayApiUrl, toDepositId(this.chainId, hash), {
         timeout: Math.max(timeout ?? 0, XRP_SETTLEMENT_FLOOR_MS),
         pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
       });
@@ -351,7 +362,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
 
   /** The MPC relay's current record for an XRPL deposit, read once. `txHash` is as for {@link waitForDeposit}. */
   public async getDepositRecord(txHash: string): Promise<Result<DepositRecord>> {
-    return getDeposit(this.relayApiUrl, toDepositId(this.chainId, txHash));
+    return getDeposit(this.relayApiUrl, toDepositId(this.chainId, toRelayTxHash(txHash)));
   }
 
   /**
@@ -402,8 +413,9 @@ export class XrpSpokeService implements MpcRelaySettlement {
    * Whether `address` can receive `amount` of `token` from a release.
    *
    * The account must exist: a native release to a missing account fails below the base reserve, and
-   * an IOU release can never create one. An IOU also needs a trustline to its issuer with room for
-   * the amount. Every one of these the relay treats as terminal, so check before submitting.
+   * an IOU release can never create one. It must not demand a DestinationTag, which a release cannot
+   * carry, or Deposit Authorization. An IOU also needs a trustline to its issuer with room for the
+   * amount. Every one of these the relay treats as terminal, so check before submitting.
    */
   public async checkDestination(params: {
     address: string;
@@ -412,7 +424,13 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }): Promise<XrpDestinationReadiness> {
     const { address, token, amount } = params;
     try {
-      await this.rpc('account_info', { account: address, ledger_index: 'validated' });
+      const info = await this.rpc<{ account_data?: { Flags?: number } }>('account_info', {
+        account: address,
+        ledger_index: 'validated',
+      });
+      const flags = info.account_data?.Flags ?? 0;
+      if (flags & LSF_REQUIRE_DEST_TAG) return { ready: false, reason: 'destination_tag_required' };
+      if (flags & LSF_DEPOSIT_AUTH) return { ready: false, reason: 'deposit_auth' };
     } catch (error) {
       if (error instanceof Error && error.message.includes('actNotFound')) {
         return { ready: false, reason: 'account_not_found' };
@@ -596,8 +614,16 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }
 }
 
-/** An XRPL decimal IOU amount in base units, truncated to `decimals`. */
+/**
+ * An XRPL decimal IOU amount in base units, truncated to `decimals`. rippled switches to
+ * `<mantissa>e<exponent>` outside exponents -25..-5 (any value from 1e11, such as a large trustline limit).
+ */
 function toBaseUnits(value: string, decimals: number): bigint {
-  const [whole = '0', frac = ''] = value.split('.');
-  return BigInt(whole + frac.padEnd(decimals, '0').slice(0, decimals));
+  const match = /^(-?)(\d*)(?:\.(\d*))?(?:e([+-]?\d{1,3}))?$/i.exec(value);
+  const [, sign = '', whole = '', frac = '', exponent = '0'] = match ?? [];
+  if (!match || (whole === '' && frac === '')) throw new Error(`[XrpSpokeService] unreadable XRPL amount: ${value}`);
+  const digits = BigInt(`${whole}${frac}` || '0');
+  const shift = Number(exponent) - frac.length + decimals;
+  const units = shift >= 0 ? digits * 10n ** BigInt(shift) : digits / 10n ** BigInt(-shift);
+  return sign === '-' ? -units : units;
 }
