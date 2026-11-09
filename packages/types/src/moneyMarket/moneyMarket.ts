@@ -31,7 +31,6 @@ const moneyMarketHubVaults = [
   SodaTokens.sodaKAIA,
   SodaTokens.sodaSTX,
   SodaTokens.sodaSUSDS,
-  SodaTokens.sodaHBAR,
   SodaTokens.sodaJITOSOL,
   SodaTokens.sodaUSDS,
   SodaTokens.sodaUSSD,
@@ -157,7 +156,6 @@ export const moneyMarketSupportedTokens = {
     spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.POL,
     spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.HYPE,
     spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.NEAR,
-    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.HBAR,
     spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.USDS,
   ] as const satisfies XToken[],
   [ChainKeys.SUI_MAINNET]: [

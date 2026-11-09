@@ -20,7 +20,7 @@ But your users are not limited to the Robinhood Chain list. Every swap is cross-
 
 #### Why does the SDK reject a Stock Token, or a money market call on Robinhood Chain?
 
-Because `@sodax/sdk` 2.1.0 does not list them. Its Robinhood Chain swap list holds ETH, bnUSD, SODA, and USDG, its money market list is empty, and it validates every token against those lists. Stock Token swaps and Robinhood Chain money market support are on `main` for the next release.
+Because your installed SDK does not list that token. The SDK validates every token against the lists it ships with, so a token added after your release is rejected until you upgrade `@sodax/sdk`.
 
 #### Can users lend or borrow against Stock Tokens?
 

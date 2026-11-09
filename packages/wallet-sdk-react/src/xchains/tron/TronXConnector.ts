@@ -90,6 +90,16 @@ let announcedProvider: TronProvider | undefined;
 /** The window the cache belongs to — a different one means a different page, so start over. */
 let primedFor: unknown;
 
+/** A provider `connect()` can authorize against. */
+function isUsableProvider(provider: TronProvider | undefined): provider is TronProvider {
+  return typeof provider?.request === 'function';
+}
+
+/** The first announced wallet that can authorize; discovery lists TronLink first. */
+function firstUsable(found: Tip6963ProviderDetail[]): TronProvider | undefined {
+  return found.map(detail => detail.provider).find(isUsableProvider);
+}
+
 /** Start discovery once per page so the announced provider is cached before it is needed. */
 function primeDiscovery(): void {
   const w = tronWindow();
@@ -97,23 +107,24 @@ function primeDiscovery(): void {
   primedFor = w;
   announcedProvider = undefined;
   void discoverProviders().then(found => {
-    announcedProvider ??= found[0]?.provider;
+    // A newer window may have primed meanwhile, and this result is not its wallet.
+    if (primedFor === w) announcedProvider ??= firstUsable(found);
   });
 }
 
-/** The provider handle available without awaiting discovery. */
+/** The first usable provider available without awaiting discovery, so an unusable global cannot hide one. */
 function syncProvider(): TronProvider | undefined {
   const w = tronWindow();
-  if (primedFor !== w) announcedProvider = undefined;
   // The announced provider first: it is the connected one, and the globals may not be.
-  return announcedProvider ?? w?.tron ?? w?.tronLink;
+  const announced = primedFor === w ? announcedProvider : undefined;
+  return [announced, w?.tron, w?.tronLink].find(isUsableProvider);
 }
 
 /** The provider to authorize against: the TIP-6963 announcement first, then the injected globals. */
 async function resolveProvider(): Promise<TronProvider | undefined> {
-  const announced = await discoverProviders();
-  announcedProvider = announced[0]?.provider ?? announcedProvider;
-  return announcedProvider ?? syncProvider();
+  const announced = firstUsable(await discoverProviders());
+  if (announced) announcedProvider = announced;
+  return announced ?? syncProvider();
 }
 
 /**
@@ -131,7 +142,7 @@ export class TronXConnector extends XConnector {
 
   async connect(): Promise<XAccount | undefined> {
     const provider = await resolveProvider();
-    if (!provider || typeof provider.request !== 'function') {
+    if (!isUsableProvider(provider)) {
       throw new Error('TronLink is not installed. Install the extension and reload the page.');
     }
 
@@ -171,9 +182,8 @@ export class TronXConnector extends XConnector {
   }
 
   public override get isInstalled(): boolean {
-    // Sync getter on the render path, so it cannot run TIP-6963 discovery, which is async.
-    const w = tronWindow();
-    return w?.tron != null || w?.tronLink != null;
+    // Sync on the render path, so it cannot await discovery.
+    return isUsableProvider(syncProvider());
   }
 
   public override get installUrl(): string | undefined {
@@ -197,7 +207,8 @@ export class TronXConnector extends XConnector {
   public async signMessage(message: string, address: string): Promise<string> {
     const tronWeb = this.getTronWeb();
     const account = tronWeb?.defaultAddress?.base58;
-    if (!tronWeb || !account) throw new Error('Tron wallet is not connected. Reconnect and retry.');
+    if (!tronWeb || !account)
+      throw new Error('Tron wallet is locked or not connected. Unlock it, or reconnect it, and retry.');
     if (account !== address) {
       throw new Error(`Tron wallet is on ${account}, not the connected ${address}. Reconnect and retry.`);
     }

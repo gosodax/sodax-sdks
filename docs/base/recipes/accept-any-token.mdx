@@ -1,0 +1,159 @@
+---
+title: "Accept any token, settle on Base"
+sidebarTitle: "Accept any token"
+description: "Let a user pay from the token and network they already hold, and have your Base app receive a Base asset of your choice. One cross-network swap, settled at your Base address."
+icon: rotate
+---
+
+Use this recipe when your app runs on Base and you want to be paid in a Base asset, but your users hold something else on another network. SODAX turns the payment into a single cross-network swap that settles at an address you control on Base. There are no new contracts and nothing for you to run; the payer signs on the network they are paying from: an approval when the allowance is short, then the swap.
+
+## What you will build
+
+A checkout step that takes a payer's token on a supported EVM network, quotes it against a Base asset, and settles the output at your app's Base address.
+
+## Prerequisites
+
+- `@sodax/sdk`, plus `@sodax/wallet-sdk-core` (or `@sodax/wallet-sdk-react` in a React app) for the wallet provider.
+- A wallet on the network the payer starts from, funded with that network's native token for gas.
+- Your app's receiving address on Base, and a SODAX API key kept on your server. See [API keys](/developers/how-to/api-keys).
+
+SODAX is mainnet only, so test with small amounts. See [Is SODAX on Testnet?](/developers/how-to/testnet).
+
+## How it works
+
+<Steps>
+  <Step title="Key the wallet provider to the payer's network">
+    The payer signs where they are paying from, so the provider belongs to that network, not to Base. Base is only the destination. The recipe types it as an EVM provider; a payer on another network type needs that network's wallet provider.
+  </Step>
+
+  <Step title="Resolve both tokens from config">
+    Read the payer's token from the source network's swap list and the settlement token from the Base list. Never hard-code addresses or decimals; the recipe throws if a network does not list the symbol.
+  </Step>
+
+  <Step title="Quote, approve, swap">
+    The quote is the net output that lands on Base, so set your slippage floor from it. The intent's destination is Base: `dstChainKey` is `ChainKeys.BASE_MAINNET` and `dstAddress` is your address. An ERC-20 input needs an allowance first, so approve only when `isAllowanceValid` says it is short, and wait for the approval to confirm before you swap. `swap()` then creates the intent, relays it to the hub, and hands it to a solver.
+  </Step>
+
+  <Step title="Wait for the fill">
+    A successful `swap()` is not a fill. `SolverIntentStatusCode.SOLVED` means a solver filled the intent; to confirm the output was delivered to your Base address, follow it with [`getSolvedIntentPacket`](/developers/packages/foundation/sdk/functional-modules/swaps#get-solved-intent-packet). `getStatus` is a one-shot read, so the recipe bounds its own poll and stops on `FAILED`. For what happens to an intent that fails or expires, see [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps).
+  </Step>
+</Steps>
+
+## Code
+
+Pay from an EVM network and settle at your Base address:
+
+{/* example: base-recipes/accept-any-token.ts#accept-any-token */}
+```ts
+import { ChainKeys, SolverIntentStatusCode } from '@sodax/sdk';
+import type { EvmChainKey, IEvmWalletProvider, Sodax, XToken } from '@sodax/sdk';
+
+export const bySymbol = (tokens: readonly XToken[], symbol: string): XToken => {
+  const token = tokens.find(t => t.symbol === symbol);
+  if (!token) throw new Error(`${symbol} is not a supported token on this network`);
+  return token;
+};
+
+const isHexHash = (value: string): value is `0x${string}` => value.startsWith('0x');
+
+export type AcceptAnyTokenParams = {
+  sodax: Sodax;
+  walletProvider: IEvmWalletProvider;
+  payChainKey: EvmChainKey;
+  paySymbol: string;
+  payAmount: bigint;
+  settleSymbol: string;
+  appBaseAddress: `0x${string}`;
+  slippageBps?: bigint;
+};
+
+/** Pays from an EVM network and settles a Base asset at the app's address; resolves with the hub tx hash. */
+export async function acceptAnyToken({
+  sodax,
+  walletProvider,
+  payChainKey,
+  paySymbol,
+  payAmount,
+  settleSymbol,
+  appBaseAddress,
+  slippageBps = 100n,
+}: AcceptAnyTokenParams): Promise<`0x${string}`> {
+  const payToken = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(payChainKey), paySymbol);
+  const settleToken = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.BASE_MAINNET), settleSymbol);
+
+  const quote = await sodax.swaps.getQuote({
+    token_src: payToken.address,
+    token_dst: settleToken.address,
+    token_src_blockchain_id: payChainKey,
+    token_dst_blockchain_id: ChainKeys.BASE_MAINNET,
+    amount: payAmount,
+    quote_type: 'exact_input',
+  });
+  if (!quote.ok) throw new Error(`Quote failed: ${quote.error.detail.message}`);
+
+  const deadline = await sodax.swaps.getSwapDeadline(300n);
+  if (!deadline.ok) throw deadline.error;
+
+  const params = {
+    inputToken: payToken.address,
+    outputToken: settleToken.address,
+    inputAmount: payAmount,
+    minOutputAmount: (quote.value.quoted_amount * (10_000n - slippageBps)) / 10_000n,
+    deadline: deadline.value,
+    allowPartialFill: false,
+    srcChainKey: payChainKey,
+    dstChainKey: ChainKeys.BASE_MAINNET,
+    srcAddress: await walletProvider.getWalletAddress(),
+    dstAddress: appBaseAddress,
+    solver: '0x0000000000000000000000000000000000000000',
+    data: '0x',
+  } as const;
+
+  const allowance = await sodax.swaps.isAllowanceValid({ params, walletProvider });
+  if (!allowance.ok) throw allowance.error;
+  if (!allowance.value) {
+    const approval = await sodax.swaps.approve<EvmChainKey, false>({ params, walletProvider });
+    if (!approval.ok) throw approval.error;
+    await walletProvider.waitForTransactionReceipt(approval.value);
+  }
+
+  const swap = await sodax.swaps.swap({ params, walletProvider, timeout: 120_000 });
+  if (!swap.ok) throw swap.error;
+
+  const hubTxHash = swap.value.intentDeliveryInfo.dstTxHash;
+  if (!isHexHash(hubTxHash)) throw new Error('Unexpected hub transaction hash');
+  return hubTxHash;
+}
+```
+
+Then wait for the outcome:
+
+{/* example: base-recipes/accept-any-token.ts#wait-for-settlement */}
+```ts
+export type SettlementOutcome = 'solved' | 'failed' | 'timed_out';
+
+/** Polls the one-shot getStatus until SOLVED, FAILED, or the budget runs out. */
+export async function waitForSettlement(
+  sodax: Sodax,
+  hubTxHash: `0x${string}`,
+  { budgetMs = 10 * 60_000, intervalMs = 2_000 } = {},
+): Promise<SettlementOutcome> {
+  const until = Date.now() + budgetMs;
+  while (Date.now() < until) {
+    const status = await sodax.swaps.getStatus({ intent_tx_hash: hubTxHash });
+    if (status.ok && status.value.status === SolverIntentStatusCode.SOLVED) return 'solved';
+    if (status.ok && status.value.status === SolverIntentStatusCode.FAILED) return 'failed';
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  return 'timed_out';
+}
+```
+
+## Fees and failures
+
+For fees, see [Fees](/base/swaps#fees). Every call returns a `Result`; the failure codes are in [Swaps](/developers/packages/foundation/sdk/functional-modules/swaps).
+
+## Next steps
+
+- [Swaps on Base](/base/swaps): approvals, quoting, and fees in depth.
+- [Quickstart on Base](/base/quickstart): the minimal first swap.

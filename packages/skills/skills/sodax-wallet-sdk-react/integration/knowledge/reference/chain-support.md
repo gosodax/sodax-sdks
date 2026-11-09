@@ -23,7 +23,7 @@ Each chain family is a top-level slot on `SodaxWalletConfig`:
 
 EVM is the only family with multiple networks under one connection — wagmi maintains a single connection that spans every configured EVM network. See [`../architecture.md`](../architecture.md) § "EVM is one connection".
 
-Tron's `isInstalled` checks only `window.tron` / `window.tronLink`, while `connect()` also tries TIP-6963 wallets. The connection does not follow an account switched in the wallet: reconnect after switching.
+Tron's `isInstalled` reads the wallet found by the TIP-6963 discovery that runs once per page, then `window.tron` / `window.tronLink`, taking the first one that can authorize. `connect()` runs discovery again before the same fallback. The connection does not follow an account switched in the wallet: reconnect after switching.
 
 ---
 

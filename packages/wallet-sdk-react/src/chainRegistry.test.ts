@@ -9,6 +9,7 @@ import { NearXService } from './xchains/near/NearXService.js';
 import { StacksXService } from './xchains/stacks/index.js';
 import { StellarXService } from './xchains/stellar/index.js';
 import { TronXConnector } from './xchains/tron/index.js';
+import { TronWalletProvider } from '@sodax/wallet-sdk-core';
 
 type CtorOpts = { defaults?: unknown };
 
@@ -628,6 +629,18 @@ describe('chainRegistry — TRON signMessage goes through the TronLink connector
 
     await expect(chainActions.TRON?.signMessage?.('hello')).resolves.toBe('0xsig');
     expect(sign).toHaveBeenCalledWith('hello', ADDRESS);
+  });
+
+  it('builds the wallet provider before the wallet is discovered, as on a page reload', () => {
+    const connector = new TronXConnector();
+    expect(connector.getTronWeb()).toBeUndefined();
+
+    const provider = getChainEntry('TRON').createWalletProvider!(
+      { getXConnectorById: () => connector } as never,
+      tronStore(connector),
+    );
+
+    expect(provider).toBeInstanceOf(TronWalletProvider);
   });
 
   it('throws when no Tron wallet is connected', async () => {

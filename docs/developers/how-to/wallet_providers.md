@@ -416,8 +416,8 @@ new NearWalletProvider({
 
 ### Tron (`TronWalletProvider`)
 
-Private-key mode takes `privateKey`; browser-extension mode takes the wallet's `tronWeb` plus `getProvider`, which
-returns the provider the wallet announces over TIP-6963. The shapes are in
+Private-key mode takes `privateKey`; browser-extension mode takes `getProvider`, which returns the provider the wallet
+announces over TIP-6963, and optionally the injected `tronWeb`. The shapes are in
 [`tron/types.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/types.ts).
 
 `TronWalletDefaults` accepts: `rpcUrl`.

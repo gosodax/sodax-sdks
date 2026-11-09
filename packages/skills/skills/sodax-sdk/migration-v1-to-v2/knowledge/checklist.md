@@ -37,8 +37,8 @@ Work this top-down. Each step is independent enough to land as its own commit; t
         SodaTokens, supportedSpokeChains) with the equivalent sodax.config.* /
         sodax.moneyMarket.getSupportedTokens*() call. Per-symbol deleted-vs-
         still-exported status: see breaking-changes/architecture.md § 2.
-[ ] 12. Initialize ConfigService at app startup: await sodax.config.initialize().
-        Falls back to packaged defaults if the backend is unreachable.
+[ ] 12. Optional: await sodax.config.initialize() at app startup. It fetches nothing
+        today; tokens and chains come from the installed SDK version.
 [ ] 13. Add { raw: true } to any read-only allowance check that previously took
         a spoke provider but didn't actually consult it (the underlying SDK
         method now requires WalletProviderSlot).

@@ -1,6 +1,6 @@
 import React, { type ReactNode } from 'react';
 
-/** Amber notice for a condition that keeps an action disabled until the user changes the input. */
+/** Amber notice for something the user has to act on or keep in mind before signing. */
 export function WarningNotice({ children }: { children: ReactNode }) {
   return (
     <p

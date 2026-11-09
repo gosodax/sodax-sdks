@@ -52,7 +52,7 @@ Comprehensive hook table across 12 feature domains. Use this when you know the f
 | Hook | Type | Purpose |
 |---|---|---|
 | `useBridge` | Mutation | Execute a cross-chain bridge transfer |
-| `useBridgeDetailedStatus` | Query | Track a bridge from its source tx (`{ srcChainKey, srcTxHash, apiConfig? }`; polls 3s; Result-wrapped; stops on the answering source's terminal state, on a rejected API key, and after 40 consecutive ambiguous reads — a relay with no packet for the tx; outages keep polling). Returns a tagged union — backend submit-tx record, delivered relay packet, or an MPC-relay record (a Tron source's deposit, or the release of a payout to Tron) — narrow on `source`. Unlike `useBridgeApiSubmitTxStatus`, answers for both `bridge()` completion paths |
+| `useBridgeDetailedStatus` | Query | Track a bridge from its source tx (`{ srcChainKey, srcTxHash, dstChainKey?, apiConfig? }`; pass `dstChainKey`, which a Tron source needs and which lets a bridge between intent-relay chains answer through a hub RPC outage; polls 3s; Result-wrapped; stops on the answering source's terminal state, on a rejected API key, and after 40 consecutive ambiguous reads — a relay with no packet for the tx, 100 for a bridge with an MPC-relay end; outages keep polling). Returns a tagged union — backend submit-tx record, delivered relay packet, or an MPC-relay record (a Tron source's deposit, or the release of a payout to Tron) — narrow on `source`. Unlike `useBridgeApiSubmitTxStatus`, answers for both `bridge()` completion paths |
 | `useBridgeAllowance` | Query | Approval check |
 | `useBridgeApprove` | Mutation | Approve tokens for bridge |
 | `useBridgeWithApproval` | Mutation | Bridge with the approval folded in — one EIP-5792 signature when the wallet can; `TxHashPair` + `approvalStrategy` |
@@ -228,7 +228,7 @@ Typed React Query wrappers over the backend Swaps API (`sodax.api.swaps.*`), one
 
 ## Bridge API (`sodax.api.bridge`)
 
-Typed React Query wrappers over the backend Bridge API (`sodax.api.bridge.*`). Distinct from the on-chain `bridge/` hooks (`useBridge`/`useBridgeAllowance`/…), which drive `sodax.bridge` (the `BridgeService`). Smaller than the swaps family (no intent/solver surface). The fee / bridgeable-amount / bridgeable quotes are computable client-side (prefer the on-chain `useGetBridgeableAmount` / `sodax.bridge.*` — no round-trip), but are also mirrored here as HTTP hooks for parity.
+Typed React Query wrappers over the backend Bridge API (`sodax.api.bridge.*`). Distinct from the on-chain `bridge/` hooks (`useBridge`/`useBridgeAllowance`/…), which drive `sodax.bridge` (the `BridgeService`). Smaller than the swaps family (no intent/solver surface). The bridgeable-amount / bridgeable quotes also exist on-chain (`useGetBridgeableAmount` / `sodax.bridge.*`, no round-trip) for tokens bundled with the installed SDK; for any other listed token use these HTTP hooks.
 
 | Hook | Type / Polling |
 |---|---|

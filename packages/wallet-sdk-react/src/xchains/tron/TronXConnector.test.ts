@@ -28,7 +28,7 @@ const provider = (over: Partial<Provider> = {}): Provider => ({
 function stubWindow(
   opts: {
     announce?: { info?: { name?: string; rdns?: string }; provider: Provider }[];
-    globals?: { tron?: Provider; tronLink?: Provider; tronWeb?: unknown };
+    globals?: { tron?: Partial<Provider>; tronLink?: Partial<Provider>; tronWeb?: unknown };
   } = {},
 ) {
   const listeners = new Map<string, ((e: Event) => void)[]>();
@@ -112,6 +112,39 @@ describe('TronXConnector.isInstalled', () => {
 
     expect(connector().isInstalled).toBe(false);
   });
+
+  it('counts a wallet found only through TIP-6963 once discovery has answered', async () => {
+    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: provider() }] });
+    const c = connector();
+
+    await vi.runAllTimersAsync();
+
+    // The wallet modal checks this before connect(), so it must agree with what connect() would find.
+    expect(c.isInstalled).toBe(true);
+  });
+
+  it('is false for a global that connect() could not authorize against', () => {
+    stubWindow({ globals: { tron: { tronWeb: {} } } });
+
+    expect(connector().isInstalled).toBe(false);
+  });
+
+  it('is true when a usable global sits behind one that cannot authorize', () => {
+    stubWindow({ globals: { tron: { tronWeb: {} }, tronLink: provider() } });
+
+    expect(connector().isInstalled).toBe(true);
+  });
+
+  it('ignores a discovery started for a window that has since been replaced', async () => {
+    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: provider() }] });
+    connector();
+    stubWindow();
+    const c = connector();
+
+    await vi.runAllTimersAsync();
+
+    expect(c.isInstalled).toBe(false);
+  });
 });
 
 describe('TronXConnector.connect — TIP-6963 discovery', () => {
@@ -167,6 +200,15 @@ describe('TronXConnector.connect — TIP-6963 discovery', () => {
 
     await expect(settle(connector().connect())).resolves.toEqual({ address: ADDRESS, xChainType: 'TRON' });
     expect(p.request).toHaveBeenCalledWith({ method: 'eth_requestAccounts' });
+  });
+
+  it('authorizes through a usable global behind one that cannot authorize', async () => {
+    const tronLink = provider();
+    stubWindow({ globals: { tron: { tronWeb: {} }, tronLink } });
+
+    await settle(connector().connect());
+
+    expect(tronLink.request).toHaveBeenCalledWith({ method: 'eth_requestAccounts' });
   });
 
   it('reports a missing wallet when nothing announces and no global exists', async () => {
@@ -312,7 +354,7 @@ describe('TronXConnector.signMessage', () => {
   it('refuses when the wallet exposes no account', async () => {
     stubWindow({ globals: { tron: provider({ tronWeb: { defaultAddress: { base58: false } } }) } });
 
-    await expect(connector().signMessage('hello', ADDRESS)).rejects.toThrow('Tron wallet is not connected');
+    await expect(connector().signMessage('hello', ADDRESS)).rejects.toThrow('Tron wallet is locked or not connected');
   });
 });
 

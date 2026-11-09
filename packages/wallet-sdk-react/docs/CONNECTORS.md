@@ -71,7 +71,7 @@ export abstract class XConnector implements IXConnector {
 
 The `isInstalled = true` default is correct for **provider-managed chains** (EVM via EIP-6963, Solana via wallet-adapter discovery, Sui via dapp-kit) — if the connector exists in the store, the underlying extension was found by the native SDK.
 
-Browser-extension chains (Bitcoin, ICON, Stacks, Tron) override `isInstalled` with a `window.unisat` / `window.hanaWallet` / `window.LeatherProvider` / `window.tron` probe, plus an `installUrl` to point users to the wallet's install page.
+Browser-extension chains (Bitcoin, ICON, Stacks, Tron) override `isInstalled` with a `window.unisat` / `window.hanaWallet` / `window.LeatherProvider` / `window.tron` probe, plus an `installUrl` to point users to the wallet's install page. Tron also counts a wallet found by the TIP-6963 discovery that runs once per page, and `connect()` runs discovery again before falling back to the same globals.
 
 ---
 

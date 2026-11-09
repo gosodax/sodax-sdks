@@ -15,7 +15,8 @@ import {
   type ITronWalletProvider,
 } from '@sodax/types';
 import type { ConfigService } from '../../config/ConfigService.js';
-import { retry } from '../../utils/shared-utils.js';
+import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
+import { retry, sleep } from '../../utils/shared-utils.js';
 import type {
   DepositParams,
   EstimateGasParams,
@@ -659,12 +660,14 @@ export class TronSpokeService implements MpcRelaySettlement {
     params: WaitForTxReceiptParams<TronChainKey>,
   ): Promise<Result<WaitForTxReceiptReturnType<TronChainKey>>> {
     const { txHash } = params;
-    const pollingIntervalMs = params.pollingIntervalMs ?? this.chainConfig.pollingConfig.pollingIntervalMs;
-    const maxTimeoutMs = params.maxTimeoutMs ?? this.chainConfig.pollingConfig.maxTimeoutMs;
+    const { pollingConfig } = this.chainConfig;
+    const pollingIntervalMs = resolveTimeoutMs(params.pollingIntervalMs, pollingConfig.pollingIntervalMs);
+    const maxTimeoutMs = resolveTimeoutMs(params.maxTimeoutMs, pollingConfig.maxTimeoutMs);
     const value = txHash.replace(/^0x/, '');
-    const maxAttempts = Math.max(1, Math.round(maxTimeoutMs / pollingIntervalMs));
+    // A deadline, so a stalling node overruns maxTimeoutMs by at most one call (TRON_RPC_TIMEOUT_MS).
+    const deadline = Date.now() + maxTimeoutMs;
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    for (;;) {
       try {
         const info = await this.rpc<TronRawTransactionReceipt>('/wallet/gettransactioninfobyid', { value });
         if (info.blockNumber) {
@@ -680,7 +683,9 @@ export class TronSpokeService implements MpcRelaySettlement {
       } catch (error) {
         this.config.logger.debug('[TronSpokeService.waitForTransactionReceipt] poll error', { error });
       }
-      await new Promise(r => setTimeout(r, pollingIntervalMs));
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) break;
+      await sleep(Math.min(pollingIntervalMs, remainingMs));
     }
     return { ok: true, value: { status: 'timeout', error: new Error(`tron tx ${txHash} not confirmed in time`) } };
   }

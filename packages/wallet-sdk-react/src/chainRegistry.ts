@@ -422,18 +422,15 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
       const address = connection?.xAccount.address;
       if (!address) return undefined;
       const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
-      const tronWeb = connector instanceof TronXConnector ? connector.getTronWeb() : undefined;
-      if (!tronWeb) return undefined;
-      // Signing prefers the announced provider's TronWeb; the injected one is the fallback.
-      const provider = connector instanceof TronXConnector ? connector.getProvider() : undefined;
+      if (!(connector instanceof TronXConnector)) return undefined;
       const entry = store.walletConfig?.TRON?.chains?.[ChainKeys.TRON_MAINNET];
       const defaults = getEntryDefaults<typeof ChainKeys.TRON_MAINNET>(entry);
+      // Built even before the wallet is found: on a page reload this runs ahead of TIP-6963 discovery,
+      // so signing re-resolves the provider per call instead of capturing what exists now.
       return new TronWalletProvider({
-        tronWeb,
-        provider,
-        // Re-resolved per call: which injected instance is connected is only known once TIP-6963
-        // discovery resolves, which is after this runs on a page reload.
-        getProvider: () => (connector instanceof TronXConnector ? connector.getProvider() : undefined),
+        tronWeb: connector.getTronWeb(),
+        provider: connector.getProvider(),
+        getProvider: () => connector.getProvider(),
         address,
         endpoint: entry?.rpcUrl,
         defaults,

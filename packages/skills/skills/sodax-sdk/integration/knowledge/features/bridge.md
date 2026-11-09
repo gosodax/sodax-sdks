@@ -25,9 +25,9 @@ sodax.bridge.buildApproveTxs<K>(action: BridgeParams<K, true>): Promise<Result<A
 sodax.bridge.isAllowanceValid<K, Raw>(args): Promise<Result<boolean, SodaxError>>;
 
 // Routes from the source tx to whichever source can answer — the backend record while it is in
-// play, else the delivered relay packet (an MPC-relay leg: its deposit or release record). Covers a
-// bridge the client-side fallback completed.
-sodax.bridge.getDetailedStatus({ srcChainKey, srcTxHash }, config?): Promise<Result<DetailedBridgeStatus, SodaxError>>;
+// play, else the delivered relay packet (an MPC-relay leg: its deposit or release record; from Tron to
+// another spoke, with dstChainKey, the hub-to-spoke packet). Covers a bridge the client-side fallback completed.
+sodax.bridge.getDetailedStatus({ srcChainKey, srcTxHash, dstChainKey? }, config?): Promise<Result<DetailedBridgeStatus, SodaxError>>;
 
 sodax.bridge.getBridgeableAmount(from: XToken, to: XToken): Promise<Result<BridgeLimit, SodaxError>>;
 sodax.bridge.getBridgeableTokens(from: SpokeChainKey, to: SpokeChainKey, token: string): Result<XToken[], SodaxError>;
@@ -92,6 +92,7 @@ const result = await sodax.bridge.bridge({
 
 - **Native BTC dust limit (`BITCOIN_DUST_SATS` = 546 sats).** Native BTC is denominated in satoshis, and outputs below the dust limit are unspendable/rejected by nodes. Bitcoin as **source**: `amount >= 546`. Bitcoin as **destination**: the *post-fee delivered* amount must clear 546 — the partner fee is deducted on the hub in 18-dp vault units, so a percentage fee or a wei-denominated fixed `PartnerFee.amount` can push a nominally valid `amount` under the limit. Both fail `VALIDATION_FAILED` on `field: 'amount'`.
 - **Stacks + `raw: true`** requires `extras.srcPublicKey` (above).
+- **Tron payout floor.** A bridge to Tron fails `VALIDATION_FAILED` on `field: 'amount'` (`context.reason: 'mpc-payout-below-minimum'`) when the post-partner-fee delivered amount is at or below `MpcRelayPayoutMinimums`; pre-check with `getUnmetMpcPayoutMinimum`.
 - Amount must be `> 0n`; both chain keys must be registered spoke chains; both tokens must be supported on their chain and share a vault.
 
 ## Routing the spoke deposit through the backend
