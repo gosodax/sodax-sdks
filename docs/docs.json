@@ -80,14 +80,6 @@
         ]
       },
       {
-        "tab": "Solutions",
-        "pages": ["swap/index", "money-market/index", "bridge/index", "yield/index"]
-      },
-      {
-        "tab": "Widget",
-        "pages": ["widget/index"]
-      },
-      {
         "tab": "API",
         "pages": [
           "developers/http-api/index",
@@ -96,6 +88,14 @@
           "developers/http-api/oracle",
           "developers/http-api/stats"
         ]
+      },
+      {
+        "tab": "Solutions",
+        "pages": ["swap/index", "money-market/index", "bridge/index", "yield/index"]
+      },
+      {
+        "tab": "Widget",
+        "pages": ["widget/index"]
       },
       {
         "tab": "SDK",
