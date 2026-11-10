@@ -56,7 +56,7 @@ A leaked API key lets someone else make API calls attributed to your organisatio
 
 ## Who can create one
 
-Keys belong to an organisation, not to a person. You need a partner portal account that is a member of one.
+Keys belong to an organisation, not to a person. You need a [partner portal](https://portal.sodax.com) account that is a member of one.
 
 | Role in the organisation | See the key list | Create a key | Revoke a key |
 | --- | --- | --- | --- |
@@ -70,7 +70,7 @@ Members see each key's name, its non-secret prefix, its permissions and when it 
 
 **The full key is displayed exactly once, at the moment you create it.** It is stored as a SHA-256 hash, so it cannot be shown again, recovered, or emailed to you. If you navigate away before copying it, that key is unusable and the only fix is to revoke it and create another. Have somewhere to paste it before you click Create.
 
-1. Open the **API keys** panel in the partner portal and choose your organisation.
+1. Open the **API keys** panel in the [partner portal](https://portal.sodax.com) and choose your organisation.
 2. Enter a name, up to 64 characters — for example `production` or `staging-worker`.
 3. Click **Create key**.
 4. Copy the full key from the panel and store it (see [Where to put it](#where-to-put-it) and [API key good practices](/developers/how-to/api-key-good-practices)).

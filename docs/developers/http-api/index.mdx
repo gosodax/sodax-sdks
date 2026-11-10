@@ -5,7 +5,11 @@ icon: server
 description: "Public SODAX HTTP surfaces for partners — base URLs, route prefixes, conventions, and which API to use."
 ---
 
-Use this section when integrating over raw HTTP (any language). Prefer a [solution hub](/introduction) when you already know the outcome (Swap, Yield, …). For TypeScript end-to-end flows (create intent → relay → settle), use the [SDK functional modules](/developers/packages/foundation/sdk/functional-modules).
+<Card title="Get your API key" icon="key" href="https://portal.sodax.com" horizontal arrow>
+  Create a key in the partner portal and send it as `x-api-key` from your server.
+</Card>
+
+Use this section when integrating over raw HTTP (any language). This is the recommended starting point for new integrations. Prefer a [solution hub](/introduction) when you already know the outcome (Swap, Yield, …). For TypeScript end-to-end flows (create intent → relay → settle), use the [SDK functional modules](/developers/packages/foundation/sdk/functional-modules).
 
 <CardGroup cols={2}>
   <Card title="Swap API" icon="rotate" href="/developers/http-api/swaps">
