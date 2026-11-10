@@ -75,7 +75,7 @@
           {
             "group": "How SODAX works",
             "icon": "gears",
-            "pages": ["home/why-sodax", "home/how-execution-works", "home/sdk-stack"]
+            "pages": ["home/why-sodax", "home/how-execution-works", "home/api"]
           }
         ]
       },
@@ -499,6 +499,10 @@
     ]
   },
   "redirects": [
+    {
+      "source": "/home/sdk-stack",
+      "destination": "/home/api"
+    },
     {
       "source": "/resources/changelog",
       "destination": "/resources/product-updates"
