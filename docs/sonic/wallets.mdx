@@ -8,6 +8,10 @@ Welcoming cross-network users means supporting the wallets they already use. On 
 
 Sonic needs nothing beyond a standard EVM account. The user's hub wallet, which holds their money market positions, is derived from their address by SODAX's contracts, with no separate deployment transaction for the user to sign. See [Hub wallets](/sonic/money-market#hub-wallets).
 
+<Note>
+  Using the HTTP API? You sign and broadcast the intent transaction yourself (see the [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll)), so these wallet packages are optional. This page covers SDK wallet integration.
+</Note>
+
 ## React apps: `@sodax/wallet-sdk-react`
 
 The React package wraps each chain family's native wallet SDK (wagmi for EVM networks, including Sonic) behind a uniform connector interface with a single persisted store.

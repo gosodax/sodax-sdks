@@ -8,6 +8,10 @@ Welcoming cross-network users means supporting the wallets they already use. On 
 
 Robinhood Chain is permissionless, so the account needs no registration or special key type, and users pay gas in ETH. Robinhood's sequencer does exclude transactions associated with sanctioned addresses; see [Differences from Ethereum](https://docs.robinhood.com/chain/differences-from-ethereum).
 
+<Note>
+  Using the HTTP API? You sign and broadcast the intent transaction yourself (see the [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll)), so these wallet packages are optional. This page covers SDK wallet integration.
+</Note>
+
 ## React apps: `@sodax/wallet-sdk-react`
 
 The React package wraps each chain family's native wallet SDK (wagmi for EVM networks, including Robinhood Chain) behind a uniform connector interface with a single persisted store. Its wagmi config already includes Robinhood Chain.

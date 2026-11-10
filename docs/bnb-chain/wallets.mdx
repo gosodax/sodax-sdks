@@ -8,6 +8,10 @@ Welcoming cross-network users means supporting the wallets they already use. On 
 
 There are no BNB Chain-specific account requirements: any EVM account works.
 
+<Note>
+  Using the HTTP API? You sign and broadcast the intent transaction yourself (see the [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll)), so these wallet packages are optional. This page covers SDK wallet integration.
+</Note>
+
 ## React apps: `@sodax/wallet-sdk-react`
 
 The React package wraps each chain family's native wallet SDK (wagmi for EVM networks, including BNB Chain) behind a uniform connector interface with a single persisted store.
