@@ -8,16 +8,16 @@ description: "HTTP reference for SODAX leveraged yield vaults — list vaults, q
 Deposit into looped LST strategies (e.g. `lsodaWEETH`) and exit via the solver. A deposit or withdraw **is** an intent-based swap under the hood; this is the vault-shaped HTTP surface.
 
 <Note>
-Every route on this page is live on production (`https://api.sodax.com`). The [SDK leverage yield
-module](/developers/packages/foundation/sdk/functional-modules/leverage_yield) remains the
-recommended path for product integrations — it handles the intent, relay and settlement lifecycle
-for you — but the HTTP surface is fully available if you need it directly.
+Every route on this page is live on production (`https://api.sodax.com`) and callable from any
+language. TypeScript teams can use the [SDK leverage yield
+module](/developers/packages/foundation/sdk/functional-modules/leverage_yield) instead, which runs the
+intent, relay and settlement lifecycle for you.
 </Note>
 
 | Path | Role |
 |------|------|
 | **HTTP** (this page) | `https://api.sodax.com/v1/leverage-yield/*` |
-| **SDK (recommended for full UX)** | `sodax.leverageYield` ([SDK docs](/developers/packages/foundation/sdk/functional-modules/leverage_yield)) |
+| **SDK orchestrator** | `sodax.leverageYield` ([SDK docs](/developers/packages/foundation/sdk/functional-modules/leverage_yield)) |
 | **Swaps HTTP** | Shared submit-tx / fee / intent lifecycle patterns — see [Swaps](/developers/http-api/swaps) |
 
 ## Base URL
