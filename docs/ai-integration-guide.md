@@ -5,7 +5,7 @@ icon: robot
 ---
 
 <Note>
-  This guide is for teams integrating with the **TypeScript SDK** (`@sodax/sdk`). Building with the HTTP API instead? See the [HTTP API overview](/developers/http-api) — no skills bundle needed.
+  The skills bundle teaches the **TypeScript packages** (`@sodax/*`). Building on the HTTP API from another language? Start at the [HTTP API overview](/developers/http-api); the [Builders MCP](/builders-mcp) below still gives your agent live quotes and doc search.
 </Note>
 
 SODAX ships agent-native documentation as [`@sodax/skills`](https://github.com/gosodax/sodax-sdks/tree/main/packages/skills) — five skills: four mode-gated ones (one per `@sodax/*` SDK package, each bundling `integration/knowledge/` for new v2 code and `migration-v1-to-v2/knowledge/` for v1→v2 porting), plus the cross-cutting `sodax-build` front-door skill for when you haven't picked a package yet. The goal is v2-correct code on the first try instead of stale training-data APIs.
