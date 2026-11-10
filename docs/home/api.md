@@ -19,18 +19,20 @@ The HTTP API is the main path for new integrations. It works from any language o
   <Card title="Oracle API" icon="chart-line" href="/developers/http-api/oracle">
     USD price candles and live solver prices.
   </Card>
-  <Card title="Stats API" icon="chart-bar" href="/developers/http-api/stats">
+  <Card title="Stats API" icon="chart-simple" href="/developers/http-api/stats">
     Networks, partners, assets, filled-intent volume and SODA supply.
   </Card>
 </CardGroup>
 
-A swap over REST goes **quote** → **build intent** → sign and broadcast it on the source chain → **submit-tx** → poll **status**. The [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll) walks through each call.
+Base URLs and shared conventions are on the [HTTP API overview](/developers/http-api).
+
+A swap over REST goes **quote** → **approve** if needed → **build intent** → sign and broadcast it on the source chain → **submit-tx** → poll **status**. The [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll) walks through each call.
 
 [Get an API key →](/developers/how-to/api-keys)
 
 ## Advanced: open-source SDK
 
-The TypeScript SDK is built for teams that want full end-to-end TypeScript control — custom wallet integration, raw module access, or non-REST flows. It hits the same SODAX execution layer as the HTTP API.
+The TypeScript SDK is built for teams that want full end-to-end TypeScript control — custom wallet integration, raw module access, or features the HTTP API does not cover, such as lend/borrow and staking. It hits the same SODAX execution layer as the HTTP API.
 
 ### 1. Foundation: @sodax/sdk
 
@@ -59,6 +61,6 @@ Manages connecting user wallets across heterogeneous networks (EVM, SVM, and non
 
 ### 3. Experience layer: @sodax/dapp-kit
 
-The highest-level layer. An opinionated set of UI components, hooks, and utilities built on the layers below. Automatically wires @sodax/wallet-sdk for connection and @sodax/sdk for execution.
+The highest-level layer. React hooks, providers, and utilities that wrap @sodax/sdk with React Query. Pair it with @sodax/wallet-sdk-react for wallet connection.
 
 [Full SDK reference →](/developers/packages)
