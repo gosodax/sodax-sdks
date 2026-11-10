@@ -3,10 +3,6 @@ title: "FAQ"
 icon: comment-question
 ---
 
-<Note>
-  Integrating with the **HTTP API**? The questions below are mostly about SDK behaviour. For API-specific guidance see the [HTTP API overview](/developers/http-api) and [API keys](/developers/how-to/api-keys).
-</Note>
-
 #### 1. Which chains does SODAX support?
 
 SODAX runs on a hub-and-spoke network of **mainnet** chains. Sonic is the hub; spokes span EVM chains (<span data-sodax-config="chain-names" data-type="EVM" data-exclude="sonic">Arbitrum, Avalanche, Base, BNB Chain, Ethereum, Hedera, Hyper, Kaia, LightLink, Optimism, Polygon, Redbelly, Robinhood Chain</span>) and non-EVM chains (<span data-sodax-config="chain-names" data-type="non-EVM">Bitcoin, ICON, Injective, Near, Solana, Stacks, Stellar, SUI</span>) — both lists read live from the backend config API. Reference any chain via `ChainKeys.*`, which — together with the backend config — is the source of truth. The legacy `*_CHAIN_ID` constants were **removed in v2**; see [Chain ID migration](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/CHAIN_ID_MIGRATION.md) for the mapping.
