@@ -1,4 +1,4 @@
-import { PARTNER_PORTAL_URL } from '../lib/appId';
+import { appIdSignupUrl } from '../lib/appId';
 import { useState } from 'react';
 import type { SwapFlow } from '../hooks/useSwapFlow';
 import { chainName, executableFamilies } from '../lib/chains';
@@ -158,6 +158,15 @@ export function SetupPanel({ flow }: { flow: SwapFlow }) {
     <section className="card setup-card">
       <h3>Set up your swap</h3>
       <p className="muted small">Choose the starting trade and what your users can change.</p>
+      {!flow.validAppId && (
+        <p className="alert" role="status">
+          The widget needs an app ID to quote and swap. It is free:{' '}
+          <a href={appIdSignupUrl('builder')} target="_blank" rel="noreferrer">
+            create one in the SODAX partner portal ↗
+          </a>
+          , set your fee there, and paste the ID below.
+        </p>
+      )}
       <label className="brand-cell">
         App ID
         <input
@@ -170,7 +179,7 @@ export function SetupPanel({ flow }: { flow: SwapFlow }) {
       </label>
       <p className="muted small">
         From the Swap widget tab in the{' '}
-        <a href={PARTNER_PORTAL_URL} target="_blank" rel="noreferrer">
+        <a href={appIdSignupUrl('builder')} target="_blank" rel="noreferrer">
           SODAX partner portal ↗
         </a>
         . Your fee and fee receiver are set there and apply to every swap through your widget.

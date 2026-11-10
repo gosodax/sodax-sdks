@@ -1,4 +1,6 @@
 import { EXCHANGE_URL } from '../config';
+import { appIdSignupUrl } from '../lib/appId';
+import { initialUrl } from '../lib/initialUrl';
 import type { SwapFlow } from '../hooks/useSwapFlow';
 import type { TokenChoice } from '../lib/chains';
 import { WalletControls, WalletButton } from './WalletControls';
@@ -260,6 +262,14 @@ export function SwapPanel({ flow }: { flow: SwapFlow }) {
           <PrimaryAction flow={flow} />
           <div className="action-message" role="status" aria-live="polite">
             {message && <p className="alert">{message}</p>}
+            {!flow.validAppId && (
+              <p className="muted small">
+                Running this widget on your site?{' '}
+                <a href={appIdSignupUrl(initialUrl.embed ? 'embed' : 'builder')} target="_blank" rel="noreferrer">
+                  Get a free app ID ↗
+                </a>
+              </p>
+            )}
           </div>
           {/* Our attribution, not our reassurance: the host page tells its own users about custody. */}
           <p className="muted small action-note">

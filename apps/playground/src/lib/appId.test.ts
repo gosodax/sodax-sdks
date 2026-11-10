@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchWidgetFeeConfig, isAppId } from './appId';
+import { appIdSignupUrl, fetchWidgetFeeConfig, isAppId } from './appId';
 
 describe('isAppId', () => {
   it.each(['wgt_0123456789abcdef01234567'])('accepts %s', value => {
@@ -44,5 +44,18 @@ describe('fetchWidgetFeeConfig', () => {
     await expect(fetchWidgetFeeConfig('wgt_0123456789abcdef01234567')).resolves.toBeNull();
     respond(503);
     await expect(fetchWidgetFeeConfig('wgt_0123456789abcdef01234567')).rejects.toThrow('503');
+  });
+});
+
+describe('appIdSignupUrl', () => {
+  it('links to the portal login with the widget UTMs for each placement', () => {
+    const builder = new URL(appIdSignupUrl('builder'));
+    expect(`${builder.origin}${builder.pathname}`).toBe('https://portal.sodax.com/login');
+    expect(Object.fromEntries(builder.searchParams)).toEqual({
+      utm_source: 'sodax_widget',
+      utm_medium: 'widget_builder',
+      utm_campaign: 'widget_app_id',
+    });
+    expect(new URL(appIdSignupUrl('embed')).searchParams.get('utm_medium')).toBe('widget_embed');
   });
 });
