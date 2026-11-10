@@ -19,7 +19,7 @@ Start with the **HTTP API**: it works from any language with no SDK to install. 
 
 Prefer TypeScript end to end? [Your first swap with the SDK](/quickstart) covers the same flow with `@sodax/sdk`.
 
-### Pick a solution
+## Pick a solution
 
 Inside each hub you choose the **HTTP API** or the **open-source SDK**.
 
@@ -38,7 +38,7 @@ Inside each hub you choose the **HTTP API** or the **open-source SDK**.
   </Card>
 </CardGroup>
 
-### Or start from your context
+## Or start from your context
 
 <CardGroup cols={2}>
   <Card title="Solana quickstart" icon="sun" href="/solana/quickstart">
