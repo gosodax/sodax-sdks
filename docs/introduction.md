@@ -1,15 +1,15 @@
 ---
 title: "Get Started"
 description: >-
-  Get your free API key and make your first HTTP API call, then pick a solution
+  Get your API key and make your first HTTP API call, then pick a solution
   or a network guide. The open-source SDK is there when you want typed TypeScript flows.
 icon: signs-post
 ---
 
-Start with the **HTTP API**: it works from any language and needs no packages. Get a key, make your first swap over REST, then pick a solution.
+Start with the **HTTP API**: it works from any language with no SDK to install. Get a key, make your first swap over REST, then pick a solution.
 
 <CardGroup cols={2}>
-  <Card title="Get your free API key" icon="key" href="https://portal.sodax.com" horizontal arrow>
+  <Card title="Get your API key" icon="key" href="https://portal.sodax.com" horizontal arrow>
     Create a key in the partner portal and send it as `x-api-key` from your server.
   </Card>
   <Card title="Your first API swap" icon="bolt" href="/developers/http-api/swaps#bot-flow-create-submit-tx-poll" horizontal arrow>
