@@ -45,6 +45,7 @@ Send `x-api-key` from your server, never from a browser: a key in front-end code
 |--------|---------|------|
 | `/v1/swaps/*` | Swaps API — quote, build intent, submit-tx, status | No key enforced yet (rate-limited writes) — see [API keys](/developers/how-to/api-keys) |
 | `/v1/leverage-yield/*` | Leveraged yield vaults over HTTP | No key enforced yet (same pattern as swaps) — see [API keys](/developers/how-to/api-keys) |
+| `/v1/bridge/*` | Bridge API — tokens, allowance, approve, build intent, submit-tx, status | Portal key as `x-api-key` — see the [`@sodax/bridge-api` key notes](https://github.com/gosodax/sodax-sdks/blob/main/packages/bridge-api/README.md#api-key) |
 | `/v1/be/oracle/*` | USD OHLC price candles for charts | Unauthenticated `GET` |
 | `/v1/be/solver/*` | Solver volume / orderbook / intent journal reads | Unauthenticated `GET` |
 | `/v1/be/config/*` | Chains, tokens, hub assets | Unauthenticated `GET` |
@@ -143,6 +144,7 @@ Partner monetization uses a per-request `partnerFee` object on quote/create-inte
 | Show “networks / partners / volume / supply” on a site | [Stats](/developers/http-api/stats) |
 | Run swaps from a bot or non-TS stack | [Swaps API](/developers/http-api/swaps) |
 | Deposit into leverage vaults over HTTP | [Leverage yield](/developers/http-api/leverage) |
+| Move assets between networks without a swap | [Bridge hub](/bridge) (`/v1/bridge/*`) |
 | Activate a new Stellar account | [Stellar sponsoring](/developers/how-to/stellar-sponsoring-getting-started) (`/v1/sponsorships/*`, API key) |
 | Full wallet + multi-chain UX in React | [`@sodax/sdk`](/developers/packages/foundation/sdk) + [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) |
 

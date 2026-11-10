@@ -7,25 +7,25 @@ icon: book
 
 Task guides for common integration work. For product pickers, start from a [solution hub](/introduction). Network-specific onboarding lives under [Get Started](/introduction#or-start-from-your-context).
 
-**Most guides here use `@sodax/sdk`.** Where a task also has an HTTP path, the card says which one you are getting — and the [Swap hub](/swap) puts the two side by side if you have not picked yet.
+**Start with the HTTP API.** It works from any language: create an [API key](/developers/how-to/api-keys), then follow the HTTP swap flow. Most other guides use `@sodax/sdk` for TypeScript integrations, and the [Swap hub](/swap) puts the two paths side by side.
 
 ## Task guides
 
 <CardGroup cols={2}>
-  <Card title="Make a swap (SDK)" icon="repeat" href="/developers/how-to/how_to_make_a_swap">
-    Init, quote, execute, and error handling in TypeScript.
-  </Card>
   <Card title="Make a swap (HTTP)" icon="server" href="/developers/http-api/swaps#bot-flow-create-submit-tx-poll">
-    The same flow over REST, from any language.
-  </Card>
-  <Card title="Integrate Leverage Yield" icon="money-bill-trend-up" href="/developers/how-to/integrate_leverage_yield">
-    Deposit into and withdraw from LST vaults, over the SDK or the HTTP API.
+    Quote, build the intent, sign and broadcast it, then submit-tx and poll status, from any language.
   </Card>
   <Card title="API keys" icon="key" href="/developers/how-to/api-keys">
     Create, deploy and rotate a partner portal key.
   </Card>
   <Card title="API key good practices" icon="lock" href="/developers/how-to/api-key-good-practices">
     Keep the key off the client, with a worked backend proxy for browser dApps.
+  </Card>
+  <Card title="Make a swap (SDK)" icon="repeat" href="/developers/how-to/how_to_make_a_swap">
+    Init, quote, execute, and error handling in TypeScript.
+  </Card>
+  <Card title="Integrate Leverage Yield" icon="money-bill-trend-up" href="/developers/how-to/integrate_leverage_yield">
+    Deposit into and withdraw from LST vaults, over the SDK or the HTTP API.
   </Card>
   <Card title="Payout wallet" icon="wallet" href="/developers/how-to/payout-wallet">
     Set the address your partner fees are paid to, and claim them.
