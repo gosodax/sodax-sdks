@@ -29,6 +29,8 @@ pnpm check:ai-dev-files
   restored record.
 - `lib/analytics.ts`: GA4 event vocabulary and the tag policy that keeps partner frames opt-in.
 - `lib/widgetSettings.ts`, `lib/urlState.ts`: validated public embed configuration.
+- `lib/appId.ts`: the partner portal app ID. It is required, sent as `x-widget-app-id` on every swaps
+  call, and selects the partner fee, which is read from the API and never set by the URL or env.
 - `lib/brand.ts`, `hooks/useBrand.ts`: theme validation and derived semantic styles.
 - `lib/presets.ts`: named starting brands, declared as query strings and parsed by `readBrand`.
 - `views/SwapView.tsx`, `components/SetupPanel.tsx`: compact widget and Setup/Appearance/Integrate builder.

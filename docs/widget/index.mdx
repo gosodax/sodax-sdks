@@ -44,12 +44,21 @@ Three consequences worth reading before you paste anything:
   [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) instead.
 - **Quoting never needs a wallet.** Visitors see live prices before connecting, so the widget is
   useful on a page where most people are logged out.
+- **Your fee lives in the partner portal.** The embed URL carries only your `appId`; the fee and fee
+  receiver behind it are read from your portal settings on every quote, so nobody can change them by
+  editing the link. Changes apply within 60 seconds. These settings apply to the widget only, not to
+  swaps your app makes through the SDK or API.
 - **Swaps are real and on mainnet.** There is no test mode. The preview in the builder moves real
   funds, and the review dialog says so before anyone confirms.
 
 ## Quickstart
 
 <Steps>
+  <Step title="Get your app ID">
+    In the [SODAX partner portal](https://portal.sodax.com/portal), open **Swap widget**, set your fee
+    (0 to 1%) and the Sonic address that receives it, and save. That gives you an app ID. The widget
+    does not run without one.
+  </Step>
   <Step title="Configure it">
     Open the [builder](https://widget.sodax.com), set your pair and restrictions, and brand it.
   </Step>
@@ -112,7 +121,7 @@ minus the panel's inline comments, which this page covers in prose. The listener
 
 ```html HTML
 <iframe
-  src="https://widget.sodax.com/?embed=1"
+  src="https://widget.sodax.com/?embed=1&appId=YOUR_APP_ID"
   title="SODAX swap"
   width="480"
   height="760"
@@ -146,7 +155,7 @@ import { useEffect, useRef } from 'react';
 type SwapStatus = 'started' | 'submitted' | 'completed' | 'failed';
 type SodaxSwapWidgetProps = { src?: string; height?: number; onSwapStatus?: (status: SwapStatus) => void };
 
-export function SodaxSwapWidget({ src = 'https://widget.sodax.com/?embed=1', height = 760, onSwapStatus }: SodaxSwapWidgetProps) {
+export function SodaxSwapWidget({ src = 'https://widget.sodax.com/?embed=1&appId=YOUR_APP_ID', height = 760, onSwapStatus }: SodaxSwapWidgetProps) {
   const frame = useRef<HTMLIFrameElement>(null);
   useEffect(() => {
     const onMessage = (event: MessageEvent<unknown>) => {
@@ -202,6 +211,7 @@ opens on. Unknown values are discarded rather than guessed at.
 
 | Parameter | Value |
 | --- | --- |
+| `appId` | Required. Your app ID from the partner portal's **Swap widget** tab; it selects your fee |
 | `embed` | `1` renders the widget alone, without the builder |
 | `srcChain`, `dstChain` | Chain keys, resolved against the live token list |
 | `srcToken`, `dstToken` | Token symbols, resolved within the chosen chain |
@@ -217,7 +227,7 @@ A lock filters the side down to exactly the chain and token it was given, so it 
 next to `embed=1` and a pair. On its own it matches nothing and the side lists no assets at all:
 
 ```
-https://widget.sodax.com/?embed=1&srcChain=0x2105.base&srcToken=USDC&lockSrc=1&dstChain=solana
+https://widget.sodax.com/?embed=1&appId=YOUR_APP_ID&srcChain=0x2105.base&srcToken=USDC&lockSrc=1&dstChain=solana
 ```
 
 That URL fixes the user on Base USDC and leaves them free to pick anything on the destination side.

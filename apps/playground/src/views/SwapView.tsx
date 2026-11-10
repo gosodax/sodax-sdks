@@ -39,7 +39,8 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
   // row. Only the side-by-side layout uses it; stacked, the widget's own height decides.
   const [builderCard, builderHeight] = useContentHeight<HTMLDivElement>();
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const { srcChain, dstChain, srcToken, dstToken, amount, slippagePercent, partnerFee, brand, widget } = flow;
+  const { srcChain, dstChain, srcToken, dstToken, amount, slippagePercent, partnerFee, brand, widget, validAppId } =
+    flow;
 
   useEffect(() => () => clearTimeout(confirmTimer.current), []);
 
@@ -47,7 +48,7 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
     if (!srcChain || !dstChain || !srcToken || !dstToken || !flow.isAmountValid || !flow.isSlippageValid)
       return undefined;
     const state = { srcChain, dstChain, srcToken, dstToken, amount, slippagePercent, partnerFee };
-    const settings = { ...state, slippage: slippagePercent, widget };
+    const settings = { ...state, slippage: slippagePercent, widget, appId: validAppId };
     const url = embedUrl(embedOrigin, { ...settings, brand });
     return {
       snippets: buildSnippets(state, url),
@@ -66,6 +67,7 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
     widget,
     flow.isAmountValid,
     flow.isSlippageValid,
+    validAppId,
   ]);
 
   // Clearing the pending timer first: without it the earlier button's timer ends this confirmation.

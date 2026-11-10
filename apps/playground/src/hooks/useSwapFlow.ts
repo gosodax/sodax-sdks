@@ -7,9 +7,10 @@ import {
   useSwapsApiQuote,
   useSwapsApiTokens,
 } from '@sodax/dapp-kit';
+import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatUnits } from 'viem';
-import { DEFAULT_AMOUNT, DEFAULT_PAIR, DEFAULT_SLIPPAGE_PERCENT, deploymentFeeInput, deploymentFee } from '../config';
+import { DEFAULT_AMOUNT, DEFAULT_PAIR, DEFAULT_SLIPPAGE_PERCENT } from '../config';
 import { useExecution } from './useExecution';
 import {
   type PairDimensions,
@@ -21,7 +22,8 @@ import {
 } from '../lib/analytics';
 import { pickChain, pickToken, readSwapAssets, tokensOn } from '../lib/assets';
 import type { Brand } from '../lib/brand';
-import { feeAmountOf } from '../lib/fee';
+import { APP_ID_HEADER, fetchWidgetFeeConfig, isAppId } from '../lib/appId';
+import { type FeeState, feeAmountOf, readPartnerFee } from '../lib/fee';
 import { parseAmount } from '../lib/format';
 import { initialUrl } from '../lib/initialUrl';
 import { assetGroups } from '../lib/pickerOptions';
@@ -56,7 +58,21 @@ export function useSwapFlow({ brand }: SwapFlowOptions) {
   const [dstToken, setDstToken] = useState<XToken>();
   const [amount, setAmount] = useState(seed.amount ?? DEFAULT_AMOUNT);
   const [slippagePercent, setSlippagePercent] = useState(seed.slippage ?? DEFAULT_SLIPPAGE_PERCENT);
-  const partnerFeeInput = deploymentFeeInput;
+  const [appId, setAppId] = useState(seed.appId ?? '');
+  const trimmedAppId = appId.trim();
+  const validAppId = isAppId(trimmedAppId) ? trimmedAppId : undefined;
+
+  useEffect(() => {
+    sodax.api.setHeaders({ [APP_ID_HEADER]: validAppId ?? '' });
+  }, [sodax, validAppId]);
+
+  const feeConfigQuery = useQuery({
+    queryKey: ['widget-fee-config', validAppId],
+    queryFn: ({ signal }) => fetchWidgetFeeConfig(validAppId as string, signal),
+    enabled: validAppId !== undefined,
+    staleTime: 60_000,
+    retry: false,
+  });
 
   // Seeded once, when the token list first arrives: a chain key or a symbol in the URL is a string
   // until there is a live list to resolve it against, and the list is what the app trusts.
@@ -130,6 +146,7 @@ export function useSwapFlow({ brand }: SwapFlowOptions) {
       embed: initialUrl.embed,
       brand,
       widget,
+      appId: validAppId,
     };
     const search = initialUrl.embed ? toSearch(state) : toBrowserSearch(state, URL_DEFAULTS);
     const url = search ? `${window.location.pathname}?${search}` : window.location.pathname;
@@ -137,7 +154,7 @@ export function useSwapFlow({ brand }: SwapFlowOptions) {
     try {
       window.history.replaceState(null, '', url);
     } catch {}
-  }, [srcChain, dstChain, srcToken, dstToken, amount, slippagePercent, brand, widget]);
+  }, [srcChain, dstChain, srcToken, dstToken, amount, slippagePercent, brand, widget, validAppId]);
 
   const groups = useMemo(() => assetGroups(assets.choices), [assets]);
   const sourceNetworks = useMemo(() => [...new Set(sourceChoices.map(choice => choice.chain))], [sourceChoices]);
@@ -165,7 +182,22 @@ export function useSwapFlow({ brand }: SwapFlowOptions) {
     [amount, srcToken],
   );
 
-  const feeState = deploymentFee;
+  const feeState = useMemo<FeeState>(() => {
+    if (!trimmedAppId) return { kind: 'invalid', message: 'Add your app ID from the SODAX partner portal.' };
+    if (!validAppId) return { kind: 'invalid', message: 'That app ID is not valid. Copy it from the partner portal.' };
+    if (feeConfigQuery.isPending) return { kind: 'invalid', message: 'Loading your fee settings…' };
+    if (feeConfigQuery.isError) return { kind: 'invalid', message: (feeConfigQuery.error as Error).message };
+    const config = feeConfigQuery.data;
+    if (!config) return { kind: 'invalid', message: 'Unknown app ID. Check it in the partner portal.' };
+    return readPartnerFee({ address: config.feeReceiver, bps: String(config.feeBps) });
+  }, [
+    trimmedAppId,
+    validAppId,
+    feeConfigQuery.isPending,
+    feeConfigQuery.isError,
+    feeConfigQuery.error,
+    feeConfigQuery.data,
+  ]);
   const partnerFee = feeState.kind === 'set' ? feeState.fee : undefined;
 
   // Display only. The API applies the fee itself, once, before quoting — subtracting it from
@@ -329,7 +361,9 @@ export function useSwapFlow({ brand }: SwapFlowOptions) {
     setAmount,
     slippagePercent,
     setSlippagePercent,
-    partnerFeeInput,
+    appId,
+    setAppId,
+    validAppId,
     partnerFee,
     partnerFeeError: feeState.kind === 'invalid' ? feeState.message : undefined,
     partnerFeeAmount: feeAmount !== undefined && srcToken ? formatUnits(feeAmount, srcToken.decimals) : '',
