@@ -103,13 +103,13 @@ The swap tools let the agent make a swap the user asks for. The server never sig
     `sodax_swap_track` takes the quote's `quoteId` and the swap transaction's hash. It checks the
     transaction on chain, submits the swap, and reports its progress. Nothing submits the swap until
     this call, so the agent makes it right after sending, before the quote's `expiresAt`, and again
-    while the result asks it to. A first call after `expiresAt` relays the deposit for a refund
+    while the result asks it to. A first call after `expiresAt` starts the deposit's refund
     instead, but only for a limited time; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#swapping)
     has the window and what happens after it.
   </Step>
 </Steps>
 
-Swaps start on an EVM chain other than the hub (Sonic) for now; the quote says so when a source chain isn't supported. When the quote can't match a token, `sodax_resolve_token` looks it up and returns the match, or the candidates for the user to pick; the agent never guesses a token or an address. The quote doesn't check balances, so `sodax_get_balance` reads a wallet's balance when the user isn't sure they hold enough. `sodax_swap_cancel` cancels a submitted swap that hasn't been filled: the first call returns the cancel transaction for the user's wallet, and a second call with its hash relays it.
+Not every supported chain can start a swap yet; the quote says so when a source chain isn't supported. When the quote can't match a token, `sodax_resolve_token` looks it up and returns the match, or the candidates for the user to pick; the agent never guesses a token or an address. The quote doesn't check balances, so `sodax_get_balance` reads a wallet's balance when the user isn't sure they hold enough. `sodax_swap_cancel` cancels a submitted swap that hasn't been filled: the first call returns the cancel transaction for the user's wallet, and a second call with its hash completes the cancel.
 
 ### Profiles
 
