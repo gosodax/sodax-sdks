@@ -4,11 +4,11 @@ description: "EVM wallets on Ethereum, and every other network's wallets through
 icon: wallet
 ---
 
+import HttpApiWalletsNote from '/snippets/http-api-wallets-note.mdx';
+
 Welcoming cross-network users means supporting the wallets they already use. On Ethereum, that is any EVM wallet that can sign on Ethereum mainnet (chain ID 1), such as MetaMask or Rabby. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
 
-<Note>
-  Using the HTTP API? You sign and broadcast the intent transaction yourself (see the [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll)), so these wallet packages are optional. This page covers SDK wallet integration.
-</Note>
+<HttpApiWalletsNote />
 
 ## React apps: `@sodax/wallet-sdk-react`
 

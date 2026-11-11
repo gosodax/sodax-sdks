@@ -1,7 +1,7 @@
 ---
-title: API
-sidebarTitle: API
-description: Integrate SODAX from any language over the HTTP API.
+title: API & SDK
+sidebarTitle: API & SDK
+description: Integrate SODAX from any language over the HTTP API, or in TypeScript with the SDK.
 icon: server
 ---
 
