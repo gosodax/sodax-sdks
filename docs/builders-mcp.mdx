@@ -69,7 +69,7 @@ For the swap tools, send your key in an `x-api-key` header:
 
 In Claude Code: `claude mcp add --transport http sodax-builders https://builders.sodax.com/mcp --header "x-api-key: <your SODAX API key>"`.
 
-The server sends the key only on its own calls to the SODAX data, solver and Swaps APIs, and ignores a value that isn't a SODAX API key.
+The key is a secret: put it in your client's user-level config, not a project file you commit. The server sends it only on its own calls to the SODAX data, solver and Swaps APIs.
 
 An SSE endpoint is available at `https://builders.sodax.com/sse` for clients that do not speak streamable HTTP. SSE clients send `x-api-key` on the stream and on every message.
 
@@ -85,7 +85,7 @@ The landing page at [builders.sodax.com](https://builders.sodax.com/) lists ever
 
 ## Swaps
 
-The swap tools let the agent make a swap the user asks for. The server never signs or moves funds: the user's own wallet signs and sends every transaction.
+The swap tools let the agent make a swap the user asks for. The server never signs, so the agent also needs a wallet tool that can switch chains and send the quote's transactions from the user's wallet; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#swapping) lists what that tool must do.
 
 <Steps>
   <Step title="Quote">
@@ -97,7 +97,7 @@ The swap tools let the agent make a swap the user asks for. The server never sig
   </Step>
   <Step title="Confirm and send">
     The agent shows the user the amounts. Once they confirm, the user's wallet signs and sends each
-    transaction in order.
+    transaction in order, each confirmed before the next.
   </Step>
   <Step title="Track">
     `sodax_swap_track` takes the quote's `quoteId` and the swap transaction's hash. It checks the
@@ -117,11 +117,11 @@ A connection picks its tools with `?profile=<name>` on the URL or the `x-sodax-p
 
 | Profile | Tools |
 |---|---|
-| `all` (default) | The live-system and documentation tools, plus the swap tools when you send an API key |
+| `all` (default) | The live-system and documentation tools, plus the swap tools when you send a SODAX API key |
 | `builder` | The live-system and documentation tools |
-| `swap` | The swap tools only; needs an API key |
+| `swap` | The swap tools only; refuses a connection without a SODAX API key |
 
-The [server's README](https://github.com/gosodax/builders-sodax-mcp-server#profiles) has the rest: stdio settings, the errors a bad setting returns, and the swap tools' safety rules.
+The [server's README](https://github.com/gosodax/builders-sodax-mcp-server#profiles) has the stdio settings and the errors a bad setting returns, and the swap tools' [safety rules](https://github.com/gosodax/builders-sodax-mcp-server#safety).
 
 ### Partner fee
 
@@ -137,7 +137,7 @@ They solve different halves of the same problem, and they compose.
 | Gives the agent | Live data, doc search, and swaps it makes for a user | v2-correct API shapes, patterns, anti-patterns |
 | Best at | "What tokens can I swap from Base today?" · "Swap 5 USDC from Arbitrum to Base for me" · "Why did this intent fail?" | Writing and porting `@sodax/*` code |
 | Needs a network call | Yes | No |
-| Setup | One config block, plus an API key for swaps | `npx skills@latest add gosodax/sodax-sdks/packages/skills` |
+| Setup | One config block, plus an API key and a wallet tool for swaps | `npx skills@latest add gosodax/sodax-sdks/packages/skills` |
 
 Install both. Skills keep the generated code correct; the MCP keeps the values in it real. A swap the user wants made now is the MCP's job; swaps inside your own app are the SDK's, written with the skills.
 
@@ -151,7 +151,7 @@ Once it is wired, ask in plain language:
 
 > "Swap 5 USDC on Arbitrum to USDC on Base. My wallet is `0x…`."
 
-The last one needs an API key. The agent quotes it, shows you the amounts, and once your wallet has sent the transactions, tracks the swap from its hash.
+The last one needs an API key and a wallet tool (see [Swaps](#swaps)). The agent quotes it, shows you the amounts, and once your wallet has sent the transactions, tracks the swap from its hash.
 
 The solver quote tool prices a pair without a key, with one wrinkle worth knowing: it quotes **hub-chain (Sonic) assets**, so the agent resolves the pair through the oracle tool first rather than passing a Solana or Base token address straight in. The swap quote takes tokens as the user names them.
 

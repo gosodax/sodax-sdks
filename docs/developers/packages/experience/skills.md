@@ -40,12 +40,13 @@ After install, your agent picks based on what you're building. Quick guide:
 | You're building | Load these skills (mode) |
 |---|---|
 | Not sure what to build yet / not a developer | `sodax-build` — it interviews you, writes a product brief, and names the skill to load next |
+| Nothing — you want the agent to swap or read live SODAX data now | No skill — use the [Builders MCP](https://docs.sodax.com/builders-mcp) |
 | Backend / Node app (no React) using `@sodax/sdk` | `sodax-sdk` (integration) + `sodax-wallet-sdk-core` (integration; if signing) |
 | React dapp using `@sodax/dapp-kit` | `sodax-dapp-kit` (integration) + `sodax-wallet-sdk-react` (integration; always) + `sodax-sdk` (integration; for any unwrapped operations) |
 | React app calling the SDK directly (no `dapp-kit`) | `sodax-sdk` (integration) + `sodax-wallet-sdk-react` (integration) |
 | **Porting v1 code** | Same skills, switched to migration mode (each SKILL.md mode-gates by consumer signal). |
 
-`AGENTS.md` says the same thing in router form — your agent reads it first and picks.
+`AGENTS.md` is the full router, with per-feature rows — your agent reads it first and picks.
 
 ## Why this exists
 

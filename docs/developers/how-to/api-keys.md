@@ -18,7 +18,7 @@ Two reasons, one of which matters today and one of which matters soon.
 So the useful thing to do now is create a key, deploy it, and forget about it. The switch then costs you nothing.
 
 <Note>
-  **A key is not enforced anywhere yet, so you cannot test that yours works.** Requests with no key, and requests with a wrong or revoked key, are both served normally today. Do not read a `200` as evidence your key is valid — check the prefix against the portal instead.
+  **The SODAX APIs don't enforce a key yet, so you cannot test that yours works.** Requests with no key, and requests with a wrong or revoked key, are both served normally today. Do not read a `200` as evidence your key is valid — check the prefix against the portal instead. The [Builders MCP](/builders-mcp)'s swap tools do need a key today, but they check only its format.
 </Note>
 
 ## What a key does and doesn't cover
@@ -31,6 +31,7 @@ Key checking is per route, and only the routes that make the backend *do* someth
 | `POST /v1/leverage-yield/*` | **Wired, currently off.** Same scopes as swaps — the two APIs share one vocabulary. |
 | `GET /v1/swaps/*` and `GET /v1/leverage-yield/*` | **No.** Token lists, deadlines, fee reads, intent lookups and status polls are public reads and carry no scope. |
 | `/v1/be/*`, `/v1/a/*`, `/v1/intent/*` | **No, by design.** The data, Sonic and solver APIs are deliberately not wired for key checking. |
+| [Builders MCP](/builders-mcp) swap tools | **Yes, today, by format only.** The MCP server serves them only to a connection whose key looks like a portal key; it doesn't check that the key is live. |
 | `/v1/sponsorships/*` — Stellar sponsoring | **Yes, enforced today.** But *not* with a portal key — see [Sponsoring keys are separate](#sponsoring-keys-are-separate). |
 
 Enforcement has three states per deployment — off, monitor, and enforce. Monitor runs the identical check and records the outcome without rejecting anything; a route only moves to enforce after a period of monitoring shows no legitimate traffic arriving without a key. Rollback is a return to monitor.
