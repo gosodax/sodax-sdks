@@ -1,6 +1,6 @@
 import { DEFAULT_API_BASE_URL } from '@sodax/dapp-kit';
 
-/** Matches the IDs the SODAX partner portal issues; the swaps API rejects widget requests without one. */
+/** Matches the IDs the SODAX dev portal issues; the swaps API rejects widget requests without one. */
 export const APP_ID_PATTERN = /^wgt_[0-9a-f]{24}$/;
 
 export const APP_ID_HEADER = 'x-widget-app-id';
@@ -24,6 +24,22 @@ export type WidgetFeeConfig = { appId: string; feeBps: number; feeReceiver: stri
 
 export function isAppId(value: string): boolean {
   return APP_ID_PATTERN.test(value);
+}
+
+/** The partner's own ID, or undefined. SODAX's preview ID never counts, so it cannot reach an export. */
+export function partnerAppId(value: string, previewId: string | undefined): string | undefined {
+  const id = value.trim();
+  return isAppId(id) && id !== previewId ? id : undefined;
+}
+
+/** The ID sent to the swaps API: the partner's, else the preview ID inside the builder's own preview only. */
+export function requestAppId(
+  partnerId: string | undefined,
+  previewId: string | undefined,
+  inBuilderPreview: boolean,
+): string | undefined {
+  if (partnerId) return partnerId;
+  return inBuilderPreview && previewId && isAppId(previewId) ? previewId : undefined;
 }
 
 export async function fetchWidgetFeeConfig(appId: string, signal?: AbortSignal): Promise<WidgetFeeConfig | null> {

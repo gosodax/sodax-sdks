@@ -10,7 +10,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatUnits } from 'viem';
-import { DEFAULT_AMOUNT, DEFAULT_PAIR, DEFAULT_SLIPPAGE_PERCENT } from '../config';
+import { DEFAULT_AMOUNT, DEFAULT_PAIR, DEFAULT_SLIPPAGE_PERCENT, previewAppId } from '../config';
 import { useExecution } from './useExecution';
 import {
   type PairDimensions,
@@ -22,10 +22,10 @@ import {
 } from '../lib/analytics';
 import { pickChain, pickToken, readSwapAssets, tokensOn } from '../lib/assets';
 import type { Brand } from '../lib/brand';
-import { APP_ID_HEADER, fetchWidgetFeeConfig, isAppId } from '../lib/appId';
+import { APP_ID_HEADER, fetchWidgetFeeConfig, partnerAppId, requestAppId } from '../lib/appId';
 import { type FeeState, feeAmountOf, readPartnerFee } from '../lib/fee';
 import { parseAmount } from '../lib/format';
-import { initialUrl } from '../lib/initialUrl';
+import { inBuilderPreview, initialUrl } from '../lib/initialUrl';
 import { assetGroups } from '../lib/pickerOptions';
 import { toBrowserSearch, toSearch } from '../lib/urlState';
 
@@ -60,11 +60,12 @@ export function useSwapFlow({ brand }: SwapFlowOptions) {
   const [slippagePercent, setSlippagePercent] = useState(seed.slippage ?? DEFAULT_SLIPPAGE_PERCENT);
   const [appId, setAppId] = useState(seed.appId ?? '');
   const trimmedAppId = appId.trim();
-  const validAppId = isAppId(trimmedAppId) ? trimmedAppId : undefined;
+  const validAppId = partnerAppId(trimmedAppId, previewAppId);
+  const sentAppId = requestAppId(validAppId, previewAppId, inBuilderPreview);
 
   useEffect(() => {
-    sodax.api.setHeaders({ [APP_ID_HEADER]: validAppId ?? '' });
-  }, [sodax, validAppId]);
+    sodax.api.setHeaders({ [APP_ID_HEADER]: sentAppId ?? '' });
+  }, [sodax, sentAppId]);
 
   const feeConfigQuery = useQuery({
     queryKey: ['widget-fee-config', validAppId],
@@ -183,15 +184,18 @@ export function useSwapFlow({ brand }: SwapFlowOptions) {
   );
 
   const feeState = useMemo<FeeState>(() => {
-    if (!trimmedAppId) return { kind: 'invalid', message: 'Add your app ID from the SODAX partner portal.' };
-    if (!validAppId) return { kind: 'invalid', message: 'That app ID is not valid. Copy it from the partner portal.' };
+    if (!sentAppId && !trimmedAppId) return { kind: 'invalid', message: 'This widget needs an app ID.' };
+    if (!sentAppId) return { kind: 'invalid', message: 'That app ID is not valid. Copy it from the dev portal.' };
+    // SODAX's preview ID charges no fee, so there is nothing to look up.
+    if (!validAppId) return { kind: 'none' };
     if (feeConfigQuery.isPending) return { kind: 'invalid', message: 'Loading your fee settings…' };
     if (feeConfigQuery.isError) return { kind: 'invalid', message: (feeConfigQuery.error as Error).message };
     const config = feeConfigQuery.data;
-    if (!config) return { kind: 'invalid', message: 'Unknown app ID. Check it in the partner portal.' };
+    if (!config) return { kind: 'invalid', message: 'Unknown app ID. Check it in the dev portal.' };
     return readPartnerFee({ address: config.feeReceiver, bps: String(config.feeBps) });
   }, [
     trimmedAppId,
+    sentAppId,
     validAppId,
     feeConfigQuery.isPending,
     feeConfigQuery.isError,

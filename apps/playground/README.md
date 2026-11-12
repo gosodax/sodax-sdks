@@ -96,6 +96,7 @@ and a full transaction-history list are not provided.
 | --- | --- |
 | `VITE_EMBED_ORIGIN` | Stable origin for the hosted widget. Set this before distributing copied embeds. |
 | `VITE_SWAPS_API_KEY` | Optional API key, sent through the SDK. It is public once bundled and every portal key carries the same scopes, so use a key dedicated to this app — see [API key good practices](https://docs.sodax.com/developers/how-to/api-key-good-practices). |
+| `VITE_PREVIEW_APP_ID` | SODAX's own 0% fee app ID. Lets the builder's preview quote and swap before a partner adds an app ID; the widget refuses it outside that preview and never exports it. Unset means the preview waits for the partner's ID. |
 | `VITE_WALLETCONNECT_PROJECT_ID` | Enables the EVM WalletConnect connector; configure allowed origins in its dashboard. |
 | `VITE_SOLANA_RPC_URL` | Overrides the built-in Solana mainnet endpoint used for both SDK balance reads and wallet signing/broadcast. Optional. Configure allowed origins and public-key restrictions with your RPC provider. |
 | `VITE_GTM_ID` | Optional analytics container. Unset means no analytics container loads. |
@@ -154,7 +155,7 @@ the names. Keep the attribute when moving the iframe into your own markup.
 
 | Parameters | Values |
 | --- | --- |
-| `appId` | Required. The partner portal app ID; it selects the partner fee and is sent as `x-widget-app-id` |
+| `appId` | Required. The dev portal app ID; it selects the partner fee and is sent as `x-widget-app-id` |
 | `srcChain`, `dstChain` | SDK chain keys, resolved against the live token list |
 | `srcToken`, `dstToken` | Token symbols resolved within the chosen chain |
 | `amount`, `slippage` | Decimal amount and percentage tolerance |
@@ -167,7 +168,7 @@ the names. Keep the attribute when moving the iframe into your own markup.
 
 Unknown chain names are discarded. Restrictions control this UI, not access to the public API.
 A configured restriction with no currently listed assets cannot execute a swap. Fee settings come
-from the partner portal behind `appId`, never from other URL parameters.
+from the dev portal behind `appId`, never from other URL parameters.
 
 A `surface` with no `theme` decides the theme itself, and both themes derive from it. Every link
 this builder writes spells out that implied `theme` as well, because the pre-paint script in

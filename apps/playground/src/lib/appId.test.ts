@@ -1,5 +1,37 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appIdSignupUrl, fetchWidgetFeeConfig, isAppId } from './appId';
+import { appIdSignupUrl, fetchWidgetFeeConfig, isAppId, partnerAppId, requestAppId } from './appId';
+
+const PARTNER = 'wgt_0123456789abcdef01234567';
+const PREVIEW = 'wgt_fedcba9876543210fedcba98';
+
+describe('partnerAppId', () => {
+  it('accepts a well-formed partner ID, trimmed', () => {
+    expect(partnerAppId(` ${PARTNER} `, PREVIEW)).toBe(PARTNER);
+  });
+
+  it('never counts the preview ID or a malformed one as the partner’s', () => {
+    expect(partnerAppId(PREVIEW, PREVIEW)).toBeUndefined();
+    expect(partnerAppId('wgt_123', PREVIEW)).toBeUndefined();
+    expect(partnerAppId('', PREVIEW)).toBeUndefined();
+  });
+});
+
+describe('requestAppId', () => {
+  it('sends the partner ID wherever the widget runs', () => {
+    expect(requestAppId(PARTNER, PREVIEW, false)).toBe(PARTNER);
+    expect(requestAppId(PARTNER, PREVIEW, true)).toBe(PARTNER);
+  });
+
+  it('falls back to the preview ID inside the builder preview only', () => {
+    expect(requestAppId(undefined, PREVIEW, true)).toBe(PREVIEW);
+    expect(requestAppId(undefined, PREVIEW, false)).toBeUndefined();
+  });
+
+  it('sends nothing when the preview ID is unset or malformed', () => {
+    expect(requestAppId(undefined, undefined, true)).toBeUndefined();
+    expect(requestAppId(undefined, 'not-an-id', true)).toBeUndefined();
+  });
+});
 
 describe('isAppId', () => {
   it.each(['wgt_0123456789abcdef01234567'])('accepts %s', value => {

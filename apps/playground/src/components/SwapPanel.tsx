@@ -1,6 +1,6 @@
+import { useId, useState } from 'react';
 import { EXCHANGE_URL } from '../config';
 import { appIdSignupUrl } from '../lib/appId';
-import { initialUrl } from '../lib/initialUrl';
 import type { SwapFlow } from '../hooks/useSwapFlow';
 import type { TokenChoice } from '../lib/chains';
 import { WalletControls, WalletButton } from './WalletControls';
@@ -8,6 +8,39 @@ import { SwapReview } from './SwapReview';
 import { formatTokenAmount } from '../lib/format';
 import { AssetPicker } from './AssetPicker';
 import { AssetPanel, FlipButton } from './AssetPanel';
+
+/** A toggle rather than `<details>`: its row stays laid out while hidden, so opening it never moves the action. */
+function SlippageSettings({ flow }: { flow: SwapFlow }) {
+  const [open, setOpen] = useState(false);
+  const rowId = useId();
+  return (
+    <div className="disclosure swap-details">
+      <button
+        type="button"
+        className="disclosure-toggle"
+        aria-expanded={open}
+        aria-controls={rowId}
+        onClick={() => setOpen(!open)}
+      >
+        Slippage settings · {flow.slippagePercent}%
+      </button>
+      <label className="row-between slippage-row" id={rowId} data-open={open}>
+        <span className="muted">Slippage tolerance</span>
+        <span className="slippage">
+          <input
+            className="input slip"
+            aria-label="Slippage tolerance, percent"
+            inputMode="decimal"
+            value={flow.slippagePercent}
+            disabled={!!flow.execution.phase || !!flow.execution.review || !!flow.execution.activity}
+            onChange={event => flow.setSlippagePercent(event.target.value)}
+          />
+          %
+        </span>
+      </label>
+    </div>
+  );
+}
 
 /** Display precision only — `title` keeps the exact value one hover away. */
 function Amount({ value, symbol }: { value: string; symbol: string | undefined }) {
@@ -237,23 +270,7 @@ export function SwapPanel({ flow }: { flow: SwapFlow }) {
             <span>Confirmed in your wallet</span>
           </div>
         </section>
-        <details className="disclosure swap-details">
-          <summary>Slippage settings · {flow.slippagePercent}%</summary>
-          <label className="row-between">
-            <span className="muted">Slippage tolerance</span>
-            <span className="slippage">
-              <input
-                className="input slip"
-                aria-label="Slippage tolerance, percent"
-                inputMode="decimal"
-                value={flow.slippagePercent}
-                disabled={!!flow.execution.phase || !!flow.execution.review || !!flow.execution.activity}
-                onChange={event => flow.setSlippagePercent(event.target.value)}
-              />
-              %
-            </span>
-          </label>
-        </details>
+        <SlippageSettings flow={flow} />
         {flow.execution.balanceError && (
           <p className="muted small">Balance unavailable. Check your balance and network fees in your wallet.</p>
         )}
@@ -261,13 +278,17 @@ export function SwapPanel({ flow }: { flow: SwapFlow }) {
         <div className="action-dock">
           <PrimaryAction flow={flow} />
           <div className="action-message" role="status" aria-live="polite">
-            {message && <p className="alert">{message}</p>}
-            {!flow.validAppId && (
-              <p className="muted small">
-                Running this widget on your site?{' '}
-                <a href={appIdSignupUrl(initialUrl.embed ? 'embed' : 'builder')} target="_blank" rel="noreferrer">
-                  Get a free app ID ↗
-                </a>
+            {message && (
+              <p className="alert">
+                {message}
+                {flow.partnerFeeError && !flow.appId.trim() && (
+                  <>
+                    {' '}
+                    <a href={appIdSignupUrl('embed')} target="_blank" rel="noreferrer">
+                      Create one for free ↗
+                    </a>
+                  </>
+                )}
               </p>
             )}
           </div>

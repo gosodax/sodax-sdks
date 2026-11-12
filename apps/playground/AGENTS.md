@@ -29,8 +29,8 @@ pnpm check:ai-dev-files
   restored record.
 - `lib/analytics.ts`: GA4 event vocabulary and the tag policy that keeps partner frames opt-in.
 - `lib/widgetSettings.ts`, `lib/urlState.ts`: validated public embed configuration.
-- `lib/appId.ts`: the partner portal app ID. It is required, sent as `x-widget-app-id` on every swaps
-  call, and selects the partner fee, which is read from the API and never set by the URL or env.
+- `lib/appId.ts`: the partner's portal app ID, sent as `x-widget-app-id` on every swaps call; it picks the
+  fee. Only the builder preview falls back to `VITE_PREVIEW_APP_ID`, which no export or partner frame accepts.
 - `lib/brand.ts`, `hooks/useBrand.ts`: theme validation and derived semantic styles.
 - `lib/presets.ts`: named starting brands, declared as query strings and parsed by `readBrand`.
 - `views/SwapView.tsx`, `components/SetupPanel.tsx`: compact widget and Setup/Appearance/Integrate builder.
@@ -170,13 +170,8 @@ pnpm check:ai-dev-files
   Centre a list that can overflow with `safe center`, or its first rows land where no scroll reaches.
   It opens inside the frame the host gives the widget, so an exported embed reserves `EMBED_MIN_HEIGHT`
   and its resize handler never drops below it; the widget's ground fills the surplus. The builder's
-  preview answers to the Setup card instead: `useContentHeight` measures that card and keeps the last
-  measurement once it unmounts, so the frame ends level with it on Appearance and Integrate too rather
-  than resizing per tab. The studio column is the viewport, never the card, so sizing the frame to the
-  column is what once left its border hanging below the widget. Both are carried as custom properties
-  because which one applies is a layout question: `--widget-height` floors the stacked layouts,
-  `--builder-height` sets the side-by-side one, capped at the column. Its header gap and caption
-  margin are load-bearing — they are the height the frame reaches the card with.
+  preview is as tall as the widget reports (`--widget-height`); its column scrolls past a taller one.
+  The slippage row stays laid out while closed, so opening it never moves or clips the action.
 - Stacked, the preview precedes the builder in the markup and the actions follow it: a partner
   opening the page narrow came to see the widget, not to scroll a Setup card to reach it. The
   side-by-side layout places all four children of `.app-main` explicitly rather than reordering

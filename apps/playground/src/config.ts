@@ -13,6 +13,9 @@ export const embedOrigin =
 /** Optional per-deployment quota on the swaps API. Anything in a Vite bundle is public. */
 export const swapsApiKey = env.VITE_SWAPS_API_KEY;
 
+/** SODAX's own app ID, used only by the builder's preview until a partner adds theirs. Never exported. */
+export const previewAppId = env.VITE_PREVIEW_APP_ID?.trim() || undefined;
+
 /** GTM container, as on sodax.com. Unset, and nothing loads and nothing is pushed. */
 export const gtmId = env.VITE_GTM_ID;
 
@@ -25,14 +28,14 @@ export const DEFAULT_SLIPPAGE_PERCENT = '0.5';
 export const DEFAULT_AMOUNT = '0.1';
 
 /**
- * ETH on Base → TSLAx on Solana: one EVM leg, one non-EVM leg, and a tokenized equity. Both sides resolve against the loaded token list, so a delisted default
+ * ETH on Base → USDC on Solana: one EVM leg, one non-EVM leg, on a pair with a live route. Both sides resolve against the loaded token list, so a delisted default
  * falls back to that chain's first asset rather than breaking the form.
  */
 export const DEFAULT_PAIR = {
   srcChain: ChainKeys.BASE_MAINNET,
   srcSymbol: 'ETH',
   dstChain: ChainKeys.SOLANA_MAINNET,
-  dstSymbol: 'TSLAx',
+  dstSymbol: 'USDC',
 } as const;
 
 /** Fallback for routes without an in-widget execution path. */

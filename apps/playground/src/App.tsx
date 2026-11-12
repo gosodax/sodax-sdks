@@ -62,8 +62,6 @@ export default function App() {
         <main className="app-main">
           <SwapView flow={flow} brandControls={brand} />
         </main>
-
-        <footer className="app-footer muted small">Built with SODAX. Non-custodial swaps across networks.</footer>
       </div>
     </div>
   );

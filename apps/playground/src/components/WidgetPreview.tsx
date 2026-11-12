@@ -7,14 +7,11 @@ export function WidgetPreview({
   setupUrl,
   brand,
   mobile,
-  matchHeight,
   onBusy,
 }: {
   setupUrl: string;
   brand: Brand;
   mobile: boolean;
-  /** The builder card's height, which the side-by-side layout ends the frame level with. */
-  matchHeight: number | undefined;
   onBusy: (busy: boolean) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
@@ -63,12 +60,8 @@ export function WidgetPreview({
   useEffect(() => {
     if (loaded) frame.current?.contentWindow?.postMessage({ type: 'sodax:preview-brand', search }, origin);
   }, [search, loaded, origin]);
-  // Both carried as properties rather than heights, because which one applies is a layout question:
-  // stacked, the widget's own height wins; side by side, the card beside it does.
-  const sizing: CSSProperties & Record<'--widget-height' | '--builder-height', string> = {
-    '--widget-height': `${height}px`,
-    '--builder-height': matchHeight === undefined ? '100%' : `${matchHeight}px`,
-  };
+  // A property rather than a height: stacked it floors the frame, side by side it sets it.
+  const sizing: CSSProperties & Record<'--widget-height', string> = { '--widget-height': `${height}px` };
   return (
     <div className={`preview-frame${mobile ? ' preview-frame-mobile' : ''}`} style={sizing}>
       {!loaded && (
