@@ -177,6 +177,6 @@ See [Hub Wallet Abstraction](/developers/technical-overview/hub-wallet-abstracti
 
 #### 22. Can my AI agent query SODAX docs directly instead of web-searching?
 
-Yes, two ways. This documentation site hosts an auto-generated MCP server at `docs.sodax.com/mcp` that exposes a search tool over these pages — add it to your agent's MCP config, or use the "Add to \[agent]" option in the contextual menu on any page. For more than doc search, add the [Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`): it gives the agent live chains, tokens, quotes, money market rates, intent lookups **and** these docs over one endpoint, plus swaps for a user once you send a SODAX API key.
+Yes, two ways. This documentation site hosts an auto-generated MCP server at `docs.sodax.com/mcp` that exposes a search tool over these pages — add it to your agent's MCP config, or use the "Add to \[agent]" option in the contextual menu on any page. For more than doc search, add the [Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`): it gives the agent live chains, tokens, quotes, money market rates, intent lookups **and** these docs over one endpoint, plus swaps for a user once you send a SODAX API key (those are [not production ready yet](/builders-mcp#swaps)).
 
 See [Builders MCP](/builders-mcp) and [AI Integration](/ai-integration-guide).

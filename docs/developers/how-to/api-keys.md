@@ -31,7 +31,7 @@ Key checking is per route, and only the routes that make the backend *do* someth
 | `POST /v1/leverage-yield/*` | **Wired, currently off.** Same scopes as swaps — the two APIs share one vocabulary. |
 | `GET /v1/swaps/*` and `GET /v1/leverage-yield/*` | **No.** Token lists, deadlines, fee reads, intent lookups and status polls are public reads and carry no scope. |
 | `/v1/be/*`, `/v1/a/*`, `/v1/intent/*` | **No, by design.** The data, Sonic and solver APIs are deliberately not wired for key checking. |
-| [Builders MCP](/builders-mcp) swap tools | **Yes, today, by format only.** The MCP server serves them only to a connection whose key looks like a portal key; it doesn't check that the key is live. |
+| [Builders MCP](/builders-mcp) swap tools (not production ready yet) | **Yes, today, by format only.** The MCP server serves them only to a connection whose key looks like a portal key; it doesn't check that the key is live. |
 | `/v1/sponsorships/*` — Stellar sponsoring | **Yes, enforced today.** But *not* with a portal key — see [Sponsoring keys are separate](#sponsoring-keys-are-separate). |
 
 Enforcement has three states per deployment — off, monitor, and enforce. Monitor runs the identical check and records the outcome without rejecting anything; a route only moves to enforce after a period of monitoring shows no legitimate traffic arriving without a key. Rollback is a return to monitor.
