@@ -1,6 +1,6 @@
 ---
 title: "Builders MCP"
-description: "Give your AI coding agent live access to the SODAX System (chains, tokens, real quotes, money market rates, intent history and these docs) over one MCP endpoint, plus swap tools that are in development and not production ready yet."
+description: "Give your AI coding agent live SODAX data, quotes and docs over one MCP endpoint, plus swap tools that are not production ready yet."
 icon: plug
 ---
 
@@ -86,9 +86,10 @@ The landing page at [builders.sodax.com](https://builders.sodax.com/) lists ever
 
 <Warning>
   The swap tools are in development and not production ready: don't use them in a production
-  environment or build a product on them. `https://builders.sodax.com` doesn't serve them yet; its
-  `/api` lists them once they ship. A swap moves real funds on mainnet, so test with a wallet holding
-  only what you mean to swap.
+  environment or build a product on them. `https://builders.sodax.com` doesn't serve them, profiles
+  or the partner fee yet, and ignores the `x-api-key` header; its `/api` lists the swap tools and
+  `profiles` once they ship. A swap moves real funds on mainnet, so test with a wallet holding only
+  what you mean to swap.
 </Warning>
 
 The swap tools let the agent make a swap the user asks for. The agent also needs a wallet tool that can switch chains and send the quote's transactions from the user's wallet; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#swapping) lists what that tool must do.
@@ -157,7 +158,7 @@ Once it is wired, ask in plain language:
 
 > "Swap 5 USDC on Arbitrum to USDC on Base. My wallet is `0x…`."
 
-The last one needs an API key and a wallet tool (see [Swaps](#swaps)).
+The last one needs an API key and a wallet tool, and the swap tools are not production ready yet (see [Swaps](#swaps)).
 
 The solver quote tool prices a pair without a key, with one wrinkle worth knowing: it quotes **hub-chain (Sonic) assets**, so the agent resolves the pair through the oracle tool first rather than passing a Solana or Base token address straight in. The swap quote takes tokens as the user names them.
 
