@@ -8,6 +8,7 @@ import { SwapPanel } from '../components/SwapPanel';
 import { embedOrigin } from '../config';
 import type { BrandControls } from '../hooks/useBrand';
 import type { SwapFlow } from '../hooks/useSwapFlow';
+import { appIdSignupUrl } from '../lib/appId';
 import { buildSnippets } from '../lib/snippet';
 import { embedUrl, toSearch } from '../lib/urlState';
 import { trackSnippetCopied } from '../lib/analytics';
@@ -220,11 +221,14 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
               </p>
               {configured && validAppId ? (
                 <CodePanel snippets={configured.snippets} initialId="embed" />
+              ) : validAppId ? (
+                <p className="alert">Choose available assets and valid amounts in Setup to generate code.</p>
               ) : (
                 <p className="alert">
-                  {validAppId
-                    ? 'Choose available assets and valid amounts in Setup to generate code.'
-                    : 'Add your app ID in Setup to get your code.'}
+                  Add your app ID in Setup to get your code. No ID yet?{' '}
+                  <a href={appIdSignupUrl('builder')} target="_blank" rel="noreferrer">
+                    Create one for free ↗
+                  </a>
                 </p>
               )}
               <details className="disclosure">

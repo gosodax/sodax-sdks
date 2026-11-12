@@ -41,6 +41,9 @@ export const DEFAULT_PAIR = {
 /** Fallback for routes without an in-widget execution path. */
 export const EXCHANGE_URL = 'https://www.sodax.com/exchange/swap';
 
+/** Untagged on purpose: docs share this app's GA4 property, where a UTM would overwrite the visit's source. */
+export const DOCS_URL = 'https://docs.sodax.com/widget';
+
 export const walletConnectProjectId = env.VITE_WALLETCONNECT_PROJECT_ID;
 // The SDK's packaged Solana endpoint refuses browser traffic with 403, which reads as an empty
 // balance and a failed swap; a deployment overrides this with its own keyed provider.
