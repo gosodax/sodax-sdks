@@ -154,6 +154,7 @@ the names. Keep the attribute when moving the iframe into your own markup.
 
 | Parameters | Values |
 | --- | --- |
+| `appId` | Required. The partner portal app ID; it selects the partner fee and is sent as `x-widget-app-id` |
 | `srcChain`, `dstChain` | SDK chain keys, resolved against the live token list |
 | `srcToken`, `dstToken` | Token symbols resolved within the chosen chain |
 | `amount`, `slippage` | Decimal amount and percentage tolerance |
@@ -165,8 +166,8 @@ the names. Keep the attribute when moving the iframe into your own markup.
 | `radius`, `font`, `density` | Supported values from `src/lib/brand.ts` |
 
 Unknown chain names are discarded. Restrictions control this UI, not access to the public API.
-A configured restriction with no currently listed assets cannot execute a swap. Fee settings are
-never taken from URL parameters.
+A configured restriction with no currently listed assets cannot execute a swap. Fee settings come
+from the partner portal behind `appId`, never from other URL parameters.
 
 A `surface` with no `theme` decides the theme itself, and both themes derive from it. Every link
 this builder writes spells out that implied `theme` as well, because the pre-paint script in

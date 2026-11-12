@@ -268,6 +268,7 @@ Your page can send `{ type: 'sodax:theme', theme: 'light' | 'dark' | 'auto' }` b
 | Symptom | Fix |
 | --- | --- |
 | Wallet does not appear in the frame | Keep `allow="ethereum; solana; clipboard-write"` on the `<iframe>`. Brave requires it; if the wallet still will not attach, users have the **Open in a new tab** fallback |
+| The widget asks for an app ID or says it is unknown | Add `appId` to the embed URL, copied exactly from the partner portal's **Swap widget** tab |
 | The widget does not load at all | Add `https://widget.sodax.com` to your `frame-src` if you send a Content Security Policy |
 | Content is clipped or scrolls inside the frame | Reserve at least 760px of height and add the resize listener, which grows the frame up to 1600px |
 | The theme flashes on first paint | Set `theme` alongside `surface`. With `surface` alone the first paint uses the visitor's stored theme, then flips |
