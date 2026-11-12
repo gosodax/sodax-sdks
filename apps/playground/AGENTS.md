@@ -80,8 +80,7 @@ pnpm check:ai-dev-files
   out (`failedAtStep`, `failureReason`) is support's detail and the widget does not show it.
 - Treat local storage as untrusted and optional. Do not store credentials or private keys. The
   activity record contains public transaction details; do not send those through analytics.
-- Integrator fees come from the partner portal settings behind the app ID, not the URL, env or a
-  visitor-editable input.
+- Integrator fees come from the portal settings behind the app ID, never the URL, env or a visitor.
   The same fee must reach the quote and intent exactly once. Invalid configuration blocks execution.
 - Adding a wallet family requires its signing path, destination preparation, balance behavior and
   recovery tests. Bitcoin trading wallets and destination account preparation are distinct flows.
