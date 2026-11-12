@@ -1,6 +1,6 @@
 ---
 title: "Builders MCP"
-description: "Give your AI coding agent live access to the SODAX System (chains, tokens, real quotes, money market rates, intent history and these docs) over one MCP endpoint, and let it quote and track swaps for your users."
+description: "Give your AI coding agent live access to the SODAX System (chains, tokens, real quotes, money market rates, intent history and these docs) over one MCP endpoint, plus swap tools that are in development and not production ready yet."
 icon: plug
 ---
 
@@ -52,7 +52,7 @@ VS Code keys servers under `servers` instead:
 }
 ```
 
-For the swap tools, send your key in an `x-api-key` header, so they need a client that can set one (VS Code takes the same `headers` under `servers`):
+For the swap tools ([not production ready yet](#swaps)), send your key in an `x-api-key` header, so they need a client that can set one (VS Code takes the same `headers` under `servers`):
 
 ```json
 {
@@ -87,7 +87,8 @@ The landing page at [builders.sodax.com](https://builders.sodax.com/) lists ever
 <Warning>
   The swap tools are in development and not production ready: don't use them in a production
   environment or build a product on them. `https://builders.sodax.com` doesn't serve them yet; its
-  `/api` lists them once they ship.
+  `/api` lists them once they ship. A swap moves real funds on mainnet, so test with a wallet holding
+  only what you mean to swap.
 </Warning>
 
 The swap tools let the agent make a swap the user asks for. The agent also needs a wallet tool that can switch chains and send the quote's transactions from the user's wallet; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#swapping) lists what that tool must do.
