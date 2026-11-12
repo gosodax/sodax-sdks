@@ -13,9 +13,8 @@ https://builders.sodax.com/mcp
 The data and docs tools need no API key; the swap tools need one ([API keys](/developers/how-to/api-keys)). Landing page and per-client notes: [builders.sodax.com](https://builders.sodax.com/).
 
 <Note>
-  The MCP never holds a wallet key and never signs. Every tool that touches a transaction either returns
-  it unsigned for the user's wallet, or works from one the wallet has **already signed**: your code or
-  the user's wallet still signs every transaction.
+  The MCP never holds a wallet key and never signs: every tool that touches a transaction either returns
+  it unsigned for the user's wallet or takes one the wallet has **already signed**.
 </Note>
 
 ## Add it to your agent
@@ -40,7 +39,7 @@ Most clients take the same JSON:
 | **VS Code / Copilot** | `.vscode/mcp.json` — its own schema, below |
 | **ChatGPT, Claude Desktop, Windsurf, Cline, Goose, Roo Code, Gemini** | Listed as compatible on [builders.sodax.com](https://builders.sodax.com/) — check the client's own MCP config format |
 
-VS Code keys servers under `servers` and wants the transport named:
+VS Code keys servers under `servers` instead:
 
 ```json
 {
@@ -53,7 +52,7 @@ VS Code keys servers under `servers` and wants the transport named:
 }
 ```
 
-For the swap tools, send your key in an `x-api-key` header:
+For the swap tools, send your key in an `x-api-key` header, so they need a client that can set one (VS Code takes the same `headers` under `servers`):
 
 ```json
 {
@@ -69,9 +68,9 @@ For the swap tools, send your key in an `x-api-key` header:
 
 In Claude Code: `claude mcp add --transport http sodax-builders https://builders.sodax.com/mcp --header "x-api-key: <your SODAX API key>"`.
 
-The key is a secret: put it in your client's user-level config, not a project file you commit. The server sends it only on its own calls to the SODAX data, solver and Swaps APIs.
+The key is a secret: put it in your own client's user-level config, never in a project file you commit or a config you hand to your users. The server sends it only on its own calls to the SODAX data, solver and Swaps APIs.
 
-An SSE endpoint is available at `https://builders.sodax.com/sse` for clients that do not speak streamable HTTP. SSE clients send `x-api-key` on the stream and on every message.
+An SSE endpoint is available at `https://builders.sodax.com/sse`, with `"type": "sse"`, for clients that do not speak streamable HTTP. SSE clients send `x-api-key` on the stream and on every message.
 
 ## What it gives the agent
 
@@ -81,11 +80,11 @@ The landing page at [builders.sodax.com](https://builders.sodax.com/) lists ever
 
 **Documentation tools**: search and full-page reads over docs.sodax.com, plus tools to list, check and refresh them.
 
-**Swap tools**, with an API key: resolve a token on a chain, read a wallet's balance, quote a swap, then submit and track it, or cancel it. See [Swaps](#swaps).
+**Swap tools**: resolve a token on a chain, read a wallet's balance, quote a swap, then submit and track it, or cancel it.
 
 ## Swaps
 
-The swap tools let the agent make a swap the user asks for. The server never signs, so the agent also needs a wallet tool that can switch chains and send the quote's transactions from the user's wallet; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#swapping) lists what that tool must do.
+The swap tools let the agent make a swap the user asks for. The agent also needs a wallet tool that can switch chains and send the quote's transactions from the user's wallet; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server/blob/master/README.md#swapping) lists what that tool must do.
 
 <Steps>
   <Step title="Quote">
@@ -104,12 +103,12 @@ The swap tools let the agent make a swap the user asks for. The server never sig
     checks the transaction on chain, submits the swap, and reports its progress. Nothing submits the swap until
     this call, so the agent makes it right after sending, before the quote's `expiresAt`, and again
     while the result asks it to. A first call after `expiresAt` starts the deposit's refund
-    instead, but only for a limited time; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#swapping)
+    instead, but only for a limited time; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server/blob/master/README.md#swapping)
     has the window and what happens after it.
   </Step>
 </Steps>
 
-Not every supported chain can start a swap yet; the quote says so when a source chain isn't supported. When the quote can't match a token, `sodax_resolve_token` looks it up and returns the match, or the candidates for the user to pick; the agent never guesses a token or an address. The quote doesn't check balances, so `sodax_get_balance` reads a wallet's balance when the user isn't sure they hold enough. `sodax_swap_cancel` cancels a submitted swap that hasn't been filled: the first call returns the cancel transaction for the user's wallet, and a second call with its hash completes the cancel.
+Not every supported chain can start a swap; a quote from one that can't names the chains that can. When the quote can't match a token, `sodax_resolve_token` looks it up and returns the match, or the candidates for the user to pick; the agent never guesses a token or an address. The quote doesn't check balances, so `sodax_get_balance` reads a wallet's balance when the user isn't sure they hold enough. `sodax_swap_cancel` cancels a submitted swap that hasn't been filled: the first call returns the cancel transaction for the user's wallet, and a second call with its hash relays it. The swap tools' [safety rules](https://github.com/gosodax/builders-sodax-mcp-server/blob/master/README.md#safety) are in the server's README.
 
 ### Profiles
 
@@ -121,11 +120,11 @@ A connection picks its tools with `?profile=<name>` on the URL or the `x-sodax-p
 | `builder` | The live-system and documentation tools |
 | `swap` | The swap tools only; refuses a connection without a SODAX API key |
 
-The [server's README](https://github.com/gosodax/builders-sodax-mcp-server#profiles) has the stdio settings and the errors a bad setting returns, and the swap tools' [safety rules](https://github.com/gosodax/builders-sodax-mcp-server#safety).
+The [server's README](https://github.com/gosodax/builders-sodax-mcp-server/blob/master/README.md#profiles) has the stdio settings and the errors a bad setting returns.
 
 ### Partner fee
 
-A builder can take a fee on the swaps its agent quotes: add `?partnerAddress=<EVM address>&partnerFeeBps=<basis points>` to the URL, or send the `x-sodax-partner-address` and `x-sodax-partner-fee-bps` headers. Set both or neither; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#partner-fee) has the allowed range and the error a bad value gets. The fee is taken from the amount the user sends and is part of the quote. It is never a tool input, so the agent can't change it.
+A builder can take a fee on the swaps its agent quotes: add `?partnerAddress=<EVM address>&partnerFeeBps=<basis points>` to the URL, or send the `x-sodax-partner-address` and `x-sodax-partner-fee-bps` headers. Set both or neither; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server/blob/master/README.md#partner-fee) has the allowed range and the error a bad value gets. The fee is taken from the amount the user sends and is part of the quote. It is never a tool input, so the agent can't change it.
 
 ## MCP or `@sodax/skills`?
 
@@ -151,7 +150,7 @@ Once it is wired, ask in plain language:
 
 > "Swap 5 USDC on Arbitrum to USDC on Base. My wallet is `0x…`."
 
-The last one needs an API key and a wallet tool (see [Swaps](#swaps)). The agent quotes it, shows you the amounts, and once your wallet has sent the transactions, tracks the swap from its hash.
+The last one needs an API key and a wallet tool (see [Swaps](#swaps)).
 
 The solver quote tool prices a pair without a key, with one wrinkle worth knowing: it quotes **hub-chain (Sonic) assets**, so the agent resolves the pair through the oracle tool first rather than passing a Solana or Base token address straight in. The swap quote takes tokens as the user names them.
 

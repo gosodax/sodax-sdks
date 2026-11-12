@@ -18,7 +18,7 @@ Two reasons, one of which matters today and one of which matters soon.
 So the useful thing to do now is create a key, deploy it, and forget about it. The switch then costs you nothing.
 
 <Note>
-  **The SODAX APIs don't enforce a key yet, so you cannot test that yours works.** Requests with no key, and requests with a wrong or revoked key, are both served normally today. Do not read a `200` as evidence your key is valid — check the prefix against the portal instead. The [Builders MCP](/builders-mcp)'s swap tools do need a key today, but they check only its format.
+  **The SODAX APIs don't enforce a key yet, so you cannot test that yours works.** Requests with no key, and requests with a wrong or revoked key, are both served normally today. Do not read a `200` as evidence your key is valid — check the prefix against the portal instead.
 </Note>
 
 ## What a key does and doesn't cover
