@@ -4,11 +4,11 @@ description: "EVM wallets on Kaia, and every other network's wallets through one
 icon: wallet
 ---
 
+import HttpApiWalletsNote from '/snippets/http-api-wallets-note.mdx';
+
 Welcoming cross-network users means supporting the wallets they already use. On Kaia, SODAX works through the EVM: any wallet that can sign Ethereum-format transactions on Kaia mainnet (chain ID 8217), such as MetaMask. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
 
-<Note>
-  Using the HTTP API? You sign and broadcast the intent transaction yourself (see the [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll)), so these wallet packages are optional. This page covers SDK wallet integration.
-</Note>
+<HttpApiWalletsNote />
 
 ## Account requirements
 

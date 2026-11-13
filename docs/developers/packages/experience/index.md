@@ -1,8 +1,8 @@
 ---
 title: "3. The Experience Layer"
 description: >-
-  The fastest way to build with SODAX. This is an opinionated collection of UI
-  components, hooks, and utilities that leverages the layers below it.
+  The highest-level layer: React hooks, providers, and utilities that wrap
+  @sodax/sdk with React Query.
 icon: browser
 ---
 
