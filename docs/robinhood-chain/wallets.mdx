@@ -22,6 +22,7 @@ pnpm add @sodax/wallet-sdk-react
 
 Mount the provider with the chains you serve. Robinhood Chain is an entry under `EVM`, alongside any other EVM network you support:
 
+{/* example: robinhood-chain/wallet-config.tsx#wallet-config */}
 ```tsx
 import { SodaxWalletProvider, type SodaxWalletConfig } from '@sodax/wallet-sdk-react';
 import { ChainKeys } from '@sodax/types';
@@ -38,6 +39,7 @@ const config: SodaxWalletConfig = {
 
 Then connect and read accounts with the same three hooks for every chain family:
 
+{/* example: robinhood-chain/EvmConnect.tsx#evm-connect */}
 ```tsx
 import { useXConnectors, useXConnect, useXAccount } from '@sodax/wallet-sdk-react';
 
@@ -49,7 +51,9 @@ function EvmConnect() {
   if (account.address) return <p>Connected: {account.address}</p>;
 
   return connectors.map(c => (
-    <button key={c.id} onClick={() => connect(c)}>{c.name}</button>
+    <button key={c.id} type="button" onClick={() => connect(c)}>
+      {c.name}
+    </button>
   ));
 }
 ```
@@ -64,6 +68,7 @@ One EVM connection covers every EVM network, so the wallet may be on a different
 
 The viem version SODAX's packages depend on has no Robinhood Chain definition. `@sodax/wallet-sdk-core` (and `@sodax/sdk`) export one, so you do not have to write it yourself:
 
+{/* example: robinhood-chain/viem-chain.ts#viem-chain */}
 ```typescript
 import { robinhoodChain } from '@sodax/wallet-sdk-core';
 
@@ -77,12 +82,13 @@ Add it to the `chains` of the viem clients or wagmi config you pass to `EvmWalle
 
 Outside React, construct the provider from `@sodax/wallet-sdk-core` directly. With a private key it resolves the chain definition from `ChainKeys.ROBINHOOD_MAINNET` for you:
 
+{/* example: robinhood-chain/private-key-provider.ts#private-key-provider */}
 ```typescript
 import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
 import { ChainKeys } from '@sodax/sdk';
 
 const walletProvider = new EvmWalletProvider({
-  privateKey: '0x…', // private key of the Robinhood Chain account
+  privateKey, // private key of the Robinhood Chain account; keep it out of source control
   chainId: ChainKeys.ROBINHOOD_MAINNET,
   rpcUrl: 'https://rpc.mainnet.chain.robinhood.com', // rate-limited: use a provider endpoint in production
 });

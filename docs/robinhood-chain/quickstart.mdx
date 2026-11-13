@@ -26,17 +26,19 @@ npm install @sodax/sdk @sodax/wallet-sdk-core
 Robinhood Chain uses the same `EvmWalletProvider` as every other EVM network, keyed by `ChainKeys.ROBINHOOD_MAINNET`.
 
 <CodeGroup>
+  {/* example: robinhood-chain/private-key-provider.ts#private-key-provider */}
   ```typescript Private key (scripts / bots)
   import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
   import { ChainKeys } from '@sodax/sdk';
 
   const walletProvider = new EvmWalletProvider({
-    privateKey: '0x…', // private key of the Robinhood Chain account
+    privateKey, // private key of the Robinhood Chain account; keep it out of source control
     chainId: ChainKeys.ROBINHOOD_MAINNET,
     rpcUrl: 'https://rpc.mainnet.chain.robinhood.com', // rate-limited: use a provider endpoint in production
   });
   ```
 
+  {/* example: robinhood-chain/browser-extension-provider.ts#browser-extension-provider */}
   ```typescript Browser extension (dApps)
   import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
 
@@ -55,6 +57,7 @@ If you build those viem clients yourself, use the `robinhoodChain` definition fr
 
 Token addresses and decimals come from the SDK config, so you never hard-code them.
 
+{/* example: robinhood-chain/quickstart.ts#tokens */}
 ```typescript
 import { Sodax, ChainKeys, type XToken } from '@sodax/sdk';
 
@@ -77,6 +80,7 @@ This list comes from your installed SDK. For Stock Tokens, see [Stock Tokens](/r
 
 `swap()` runs the full lifecycle: it creates the intent on Robinhood Chain, verifies the transaction landed, relays it to the hub, and notifies the solver to fill on the destination network.
 
+{/* example: robinhood-chain/quickstart.ts#swap */}
 ```typescript
 import type { SolverIntentQuoteRequest } from '@sodax/sdk';
 
@@ -112,7 +116,7 @@ const swapResult = await sodax.swaps.swap({
     srcChainKey: ChainKeys.ROBINHOOD_MAINNET,
     dstChainKey: ChainKeys.BASE_MAINNET,
     srcAddress: await walletProvider.getWalletAddress(),
-    dstAddress: '0x...', // recipient on Base
+    dstAddress: recipientOnBase,
     solver: '0x0000000000000000000000000000000000000000',
     data: '0x',
   },
