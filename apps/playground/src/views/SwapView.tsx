@@ -7,8 +7,8 @@ import { WidgetPreview } from '../components/WidgetPreview';
 import { SwapPanel } from '../components/SwapPanel';
 import { embedOrigin } from '../config';
 import type { BrandControls } from '../hooks/useBrand';
-import { useContentHeight } from '../hooks/useContentHeight';
 import type { SwapFlow } from '../hooks/useSwapFlow';
+import { appIdSignupUrl } from '../lib/appId';
 import { buildSnippets } from '../lib/snippet';
 import { embedUrl, toSearch } from '../lib/urlState';
 import { trackSnippetCopied } from '../lib/analytics';
@@ -35,19 +35,23 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
   const [notice, setNotice] = useState('');
   const [shareFallback, setShareFallback] = useState('');
   const [previewBusy, setPreviewBusy] = useState(false);
-  // Setup's height, held across every tab: the preview ends level with it so the pair reads as one
-  // row. Only the side-by-side layout uses it; stacked, the widget's own height decides.
-  const [builderCard, builderHeight] = useContentHeight<HTMLDivElement>();
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const { srcChain, dstChain, srcToken, dstToken, amount, slippagePercent, partnerFee, brand, widget } = flow;
+  const appIdInput = useRef<HTMLInputElement>(null);
+  const [appIdRequest, setAppIdRequest] = useState(0);
+  const { srcChain, dstChain, srcToken, dstToken, amount, slippagePercent, partnerFee, brand, widget, validAppId } =
+    flow;
 
   useEffect(() => () => clearTimeout(confirmTimer.current), []);
+  // Runs after the Setup tab has rendered, so the field exists to take the focus.
+  useEffect(() => {
+    if (appIdRequest) appIdInput.current?.focus();
+  }, [appIdRequest]);
 
   const configured = useMemo(() => {
     if (!srcChain || !dstChain || !srcToken || !dstToken || !flow.isAmountValid || !flow.isSlippageValid)
       return undefined;
     const state = { srcChain, dstChain, srcToken, dstToken, amount, slippagePercent, partnerFee };
-    const settings = { ...state, slippage: slippagePercent, widget };
+    const settings = { ...state, slippage: slippagePercent, widget, appId: validAppId };
     const url = embedUrl(embedOrigin, { ...settings, brand });
     return {
       snippets: buildSnippets(state, url),
@@ -66,6 +70,7 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
     widget,
     flow.isAmountValid,
     flow.isSlippageValid,
+    validAppId,
   ]);
 
   // Clearing the pending timer first: without it the earlier button's timer ends this confirmation.
@@ -88,6 +93,11 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
     }
   };
   const copy = async () => {
+    if (!validAppId) {
+      setPanel('setup');
+      setAppIdRequest(count => count + 1);
+      return;
+    }
     const snippet = configured?.snippets.find(item => item.id === 'embed');
     if (!snippet) return;
     try {
@@ -105,7 +115,7 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
     <>
       <div className="studio-heading">
         <h2>Build your swap widget.</h2>
-        <p className="muted">Set the trade, make it yours, and embed it in your app.</p>
+        <p className="muted">Non-custodial swaps across networks. Set the trade, style it, embed it.</p>
       </div>
       {/* Its own row rather than the heading's trailing half: stacked, the widget leads and these
           follow it, which it cannot do from inside the heading above both columns. */}
@@ -165,7 +175,6 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
               setupUrl={configured.preview}
               brand={brand}
               mobile={mobile}
-              matchHeight={builderHeight}
               onBusy={setPreviewBusy}
             />
           ) : (
@@ -181,11 +190,12 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
           )}
         </div>
         <p className="preview-caption muted small">
-          Swaps in this preview use real funds. Your exported starting trade is set in Setup.
+          Swaps in the preview use real funds. Only Setup changes your embed.
         </p>
       </div>
       <div className="build-column">
-        <fieldset className="segmented builder-tabs" aria-label="Widget configuration">
+        <fieldset className="segmented builder-tabs" aria-label="Widget configuration" data-tab={panel}>
+          <span className="tab-pill" aria-hidden="true" />
           {Object.entries(PANELS).map(([key, label]) => (
             <button
               type="button"
@@ -201,25 +211,25 @@ export function SwapView({ flow, brandControls }: { flow: SwapFlow; brandControl
           ))}
         </fieldset>
         <fieldset className="builder-controls" disabled={previewBusy && panel !== 'integrate'}>
-          {/* Only Setup is measured, and the wrapper exists to measure it: the preview keeps that one
-              height on every tab rather than resizing as a partner moves between them. */}
-          {panel === 'setup' && (
-            <div className="builder-measure" ref={builderCard}>
-              <SetupPanel flow={flow} />
-            </div>
-          )}
+          {panel === 'setup' && <SetupPanel flow={flow} appIdInput={appIdInput} appIdRequested={appIdRequest > 0} />}
           {panel === 'appearance' && <BrandBar controls={brandControls} />}
           {panel === 'integrate' && (
             <section className="card integration-card">
               <h3>Add it to your app</h3>
               <p className="muted small">
-                Take the HTML or React embed, or hand the prompt to your coding agent — each installs the hosted widget
-                with its own wallet connection, and no SODAX package.
+                Copy the HTML or React embed, or give the prompt to your coding agent. No SODAX package to install.
               </p>
-              {configured ? (
+              {configured && validAppId ? (
                 <CodePanel snippets={configured.snippets} initialId="embed" />
-              ) : (
+              ) : validAppId ? (
                 <p className="alert">Choose available assets and valid amounts in Setup to generate code.</p>
+              ) : (
+                <p className="alert">
+                  Add your app ID in Setup to get your code. No ID yet?{' '}
+                  <a href={appIdSignupUrl('builder')} target="_blank" rel="noreferrer">
+                    Create one for free ↗
+                  </a>
+                </p>
               )}
               <details className="disclosure">
                 <summary>Wallet connection &amp; compatibility</summary>

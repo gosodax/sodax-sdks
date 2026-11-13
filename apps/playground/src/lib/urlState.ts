@@ -1,5 +1,6 @@
 import { readWidgetSettings, type WidgetSettings } from './widgetSettings';
 import type { ChainKey, XToken } from '@sodax/dapp-kit';
+import { APP_ID_PATTERN } from './appId';
 import { type Brand, readBrand, writeBrand } from './brand';
 
 /**
@@ -7,7 +8,8 @@ import { type Brand, readBrand, writeBrand } from './brand';
  * a specific pair instead of always the default one.
  *
  * The partner fee is deliberately **not** in here. It is the one field that redirects money, and a
- * crafted link would set it on a page a reader may never scroll to the form of.
+ * crafted link would set it on a page a reader may never scroll to the form of. The link carries only
+ * the portal `appId`; the fee comes from the partner's portal settings behind it.
  */
 export type UrlState = {
   widget?: WidgetSettings;
@@ -22,6 +24,8 @@ export type UrlState = {
   embed: boolean;
   /** How the widget should look. Validated to a closed shape by `readBrand`, never a raw string. */
   brand: Brand;
+  /** The partner's portal app ID. The fee it selects is set in the portal, never by the link. */
+  appId: string | undefined;
 };
 
 export type UrlStateSource = {
@@ -36,6 +40,7 @@ export type UrlStateSource = {
   embed?: boolean;
   /** Kept for the same reason, and it is what makes the copied embed snippet carry the styling. */
   brand?: Brand;
+  appId?: string;
 };
 
 const DECIMAL = /^\d{1,30}(\.\d{0,30})?$/;
@@ -63,11 +68,13 @@ export function readUrlState(search: string): UrlState {
     slippage: matching(DECIMAL, params.get('slippage')),
     embed: params.get('embed') === '1',
     brand: readBrand(search),
+    appId: matching(APP_ID_PATTERN, params.get('appId')),
   };
 }
 
 export function toSearch(state: UrlStateSource): string {
   const params = new URLSearchParams();
+  if (state.appId) params.set('appId', state.appId);
   params.set('srcChain', state.srcChain);
   params.set('dstChain', state.dstChain);
   if (state.srcToken) params.set('srcToken', state.srcToken.symbol);

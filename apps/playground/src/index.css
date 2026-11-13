@@ -800,12 +800,6 @@ code,
 }
 
 /* Inside the stage, not under it: the stage runs off the bottom of the viewport. */
-.app-footer {
-  flex: none;
-  margin: auto 0 0;
-  text-wrap: pretty;
-}
-
 .card {
   background: var(--surface-card);
   border: 1px solid var(--border-subtle);
@@ -832,16 +826,19 @@ code,
   margin-top: auto;
 }
 
+/* One caption line kept empty or not, so a message appearing does not push the card taller. */
 .action-message {
-  margin: var(--space-8) 0;
-}
-
-.action-message:empty {
+  min-height: calc(var(--text-caption) * 1.5);
   margin: var(--space-8) 0;
 }
 
 .action-message .alert {
   margin: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  text-align: center;
+  text-wrap: pretty;
 }
 
 .action-note {
@@ -1117,6 +1114,15 @@ code,
 .input:focus-visible {
   outline: 2px solid var(--border-strong);
   outline-offset: -2px;
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--alert-fg);
+  outline-color: var(--alert-fg);
+}
+
+.field-error {
+  color: var(--alert-fg);
 }
 
 /* The UA default is ~54% of the text colour, which falls under 4.5:1 on these surfaces. */
@@ -2059,6 +2065,50 @@ code,
   outline-offset: 2px;
 }
 
+/* The summary's look on a button, for a disclosure whose content must keep its space while closed. */
+.disclosure-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  border: 0;
+  background: none;
+  color: var(--text-body);
+  font: inherit;
+  font-size: var(--text-body-small);
+  font-weight: 500;
+  cursor: pointer;
+}
+.disclosure-toggle::before {
+  content: "";
+  border-style: solid;
+  border-width: 4px 0 4px 6px;
+  border-color: transparent transparent transparent var(--text-muted);
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.disclosure-toggle[aria-expanded="true"]::before {
+  transform: rotate(90deg);
+}
+.disclosure-toggle:hover {
+  color: var(--accent);
+}
+.disclosure-toggle:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+}
+.slippage-row {
+  transition:
+    opacity 200ms cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s 200ms;
+}
+.slippage-row[data-open="false"] {
+  opacity: 0;
+  visibility: hidden;
+}
+.slippage-row[data-open="true"] {
+  transition-delay: 0s;
+}
+
 .disclosure p {
   margin: var(--space-8) 0;
 }
@@ -2380,6 +2430,10 @@ code,
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+}
+
+/* Only a swatch label opens something on click; text and dropdown cells must not promise one. */
+.brand-cell:has(.brand-swatch) {
   cursor: pointer;
 }
 
@@ -2465,6 +2519,7 @@ body:has(.app-embed) {
 }
 .studio-heading p {
   margin: 4px 0;
+  font-size: var(--text-body-small);
 }
 .studio-action-group {
   display: flex;
@@ -2506,21 +2561,59 @@ body:has(.app-embed) {
 .build-column {
   gap: 16px;
 }
-.builder-tabs {
-  padding: 4px;
-  border-radius: 12px;
-  background: var(--surface-inset);
-}
-/* The inset is the group's own edge; outlining every tab inside it reads as a border in a border. */
-.builder-tabs .btn {
-  flex: 1;
-  border-color: transparent;
-}
 .segmented .btn[aria-pressed="true"] {
   background: var(--surface-card);
   color: var(--text-heading);
   border-color: var(--border-strong);
   box-shadow: 0 2px 6px var(--logo-shadow);
+}
+/* The dev portal's view toggle: one pill slides under the tabs rather than each tab lighting up. */
+.builder-tabs {
+  position: relative;
+  padding: 2px;
+  gap: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+.builder-tabs .btn,
+.builder-tabs .btn:hover:not(:disabled) {
+  position: relative;
+  flex: 1;
+  height: 32px;
+  padding: 0 14px;
+  border-color: transparent;
+  background: transparent;
+  font-weight: 400;
+  transition: color 300ms;
+}
+.builder-tabs .btn[aria-pressed="true"],
+.builder-tabs .btn[aria-pressed="true"]:hover:not(:disabled) {
+  color: var(--cta-fg);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+/* Sized for three equal tabs: (padding box - side padding - two gaps) / 3. */
+.tab-pill {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 12px) / 3);
+  border-radius: var(--radius-pill);
+  background: var(--cta-bg);
+  transition: transform 300ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.builder-tabs[data-tab="appearance"] .tab-pill {
+  transform: translateX(calc(100% + 4px));
+}
+.builder-tabs[data-tab="integrate"] .tab-pill {
+  transform: translateX(calc(200% + 8px));
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-pill {
+    transition: none;
+  }
 }
 .setup-card,
 .integration-card,
@@ -2586,6 +2679,39 @@ body:has(.app-embed) {
 .advanced-toggle {
   margin-top: 16px;
   align-self: flex-start;
+}
+/* The dev portal's motion: a new screen rises 8px into place, a section opens height and fade together. */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.builder-controls > * {
+  animation: panel-in 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    grid-template-rows 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 300ms cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s 300ms;
+}
+.collapse[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+.collapse-body {
+  min-height: 0;
+  overflow: hidden;
+}
+.collapse-body > .brand-grid {
+  padding-top: 14px;
 }
 .preview-column {
   position: sticky;
@@ -2748,32 +2874,30 @@ body:has(.app-embed) {
   .preview-caption {
     flex: none;
   }
-  /* No block padding: it comes off the height the frame is allowed, and the frame is trying to end
-     level with a card that answers to no such inset. */
+  /* Sized by the frame, so the caption sits right under it; it scrolls once the column is shorter. */
   .preview-canvas {
-    flex: 1;
+    flex: 0 1 auto;
     min-height: 0;
     padding-block: 0;
     overflow-y: auto;
     scrollbar-width: thin;
   }
-  /* Ends level with the builder's card rather than with the column, which is the viewport here and
-     would leave the frame's border far below it. Capped at the column, which scrolls past that. */
+  /* As tall as the widget reports, eased so a growing widget does not jump the frame. */
   .preview-frame {
     flex: none;
-    height: min(var(--builder-height, 100%), 100%);
+    height: var(--widget-height, 680px);
+    transition: height 300ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   .preview-frame iframe {
     min-height: 0;
   }
   /* Both headers are 44px, so matching this to the build column's gap starts the frame on the same
-     line as the card. The caption gives up its margin for the same reason: it is height the frame
-     is trying to reach the card with, and the column has none to spare. */
+     line as the card. */
   .preview-toolbar {
     margin-bottom: 16px;
   }
   .preview-caption {
-    margin: 0;
+    margin: 12px 0 0;
   }
 }
 @media (width < 1181px) {
@@ -2880,6 +3004,7 @@ body:has(.app-embed) {
     position: sticky;
     top: 0;
     z-index: 2;
+    background: var(--surface-card);
   }
 }
 /* A phone spends its fold on whatever sits above the widget, so the lead and the width presets go.
@@ -2897,5 +3022,18 @@ body:has(.app-embed) {
   }
   .preview-frame {
     max-width: none;
+  }
+}
+
+/* Last, so it outranks every rule above that animates. */
+@media (prefers-reduced-motion: reduce) {
+  .builder-controls > * {
+    animation: none;
+  }
+  .collapse,
+  .preview-frame,
+  .slippage-row,
+  .disclosure-toggle::before {
+    transition: none;
   }
 }

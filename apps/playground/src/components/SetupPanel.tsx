@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { appIdSignupUrl } from '../lib/appId';
+import { type Ref, useState } from 'react';
 import type { SwapFlow } from '../hooks/useSwapFlow';
 import { chainName, executableFamilies } from '../lib/chains';
 import { canExecute } from '../lib/execution';
@@ -152,11 +153,45 @@ function SideSettings({ flow, source }: { flow: SwapFlow; source: boolean }) {
   );
 }
 
-export function SetupPanel({ flow }: { flow: SwapFlow }) {
+export function SetupPanel({
+  flow,
+  appIdInput,
+  appIdRequested,
+}: {
+  flow: SwapFlow;
+  appIdInput?: Ref<HTMLInputElement>;
+  appIdRequested?: boolean;
+}) {
+  const appIdMissing = !!appIdRequested && !flow.appId.trim();
   return (
     <section className="card setup-card">
       <h3>Set up your swap</h3>
       <p className="muted small">Choose the starting trade and what your users can change.</p>
+      <label className="brand-cell">
+        App ID (required)
+        <input
+          ref={appIdInput}
+          className="input"
+          aria-invalid={appIdMissing}
+          placeholder="wgt_…"
+          spellCheck={false}
+          value={flow.appId}
+          onChange={event => flow.setAppId(event.target.value)}
+        />
+      </label>
+      {flow.appId.trim() && !flow.validAppId ? (
+        <p className="alert" role="status">
+          That app ID is not valid. Copy it from the dev portal.
+        </p>
+      ) : (
+        <p className={appIdMissing ? 'small field-error' : 'muted small'}>
+          {appIdMissing && 'Add your app ID to copy the embed. '}Create one for free in the{' '}
+          <a href={appIdSignupUrl('builder')} target="_blank" rel="noreferrer">
+            {appIdMissing ? 'dev portal ↗' : 'SODAX dev portal ↗'}
+          </a>
+          {!appIdMissing && ', where you also set your fee.'}
+        </p>
+      )}
       <SideSettings flow={flow} source />
       <SideSettings flow={flow} source={false} />
       <div className="setup-pair">
@@ -185,10 +220,10 @@ export function SetupPanel({ flow }: { flow: SwapFlow }) {
         </p>
       )}
       <details className="disclosure">
-        <summary>Execution coverage</summary>
+        <summary>Which networks swap in the widget</summary>
         <p className="muted small">
-          In-widget execution: {executableFamilies()}. Other networks open the SODAX exchange to select and complete the
-          trade.
+          Swaps on {executableFamilies()} complete in the widget. Networks marked Quote only send users to the SODAX
+          exchange to finish the trade.
         </p>
       </details>
     </section>

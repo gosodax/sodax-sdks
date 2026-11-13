@@ -15,7 +15,7 @@ This is the embed the builder generates, minus the optional listener script:
 
 ```html
 <iframe
-  src="https://widget.sodax.com/?embed=1"
+  src="https://widget.sodax.com/?embed=1&appId=YOUR_APP_ID"
   title="SODAX swap"
   width="480"
   height="760"
@@ -28,6 +28,7 @@ This is the embed the builder generates, minus the optional listener script:
 
 That is a complete swap integration. A few things your page owns:
 
+- **An app ID** from the [SODAX partner portal](https://portal.sodax.com/login?utm_source=sodax_widget&utm_medium=widget_docs&utm_campaign=widget_app_id). It sets your fee and the widget does not run without one.
 - **A slot at least 760px tall.**
 - **The `allow` attribute.** Brave exposes wallet providers to a third-party frame only when the host page grants those features. Other browsers ignore the names, so keeping it costs nothing.
 - **A `frame-src` entry** if you send a Content Security Policy: `frame-src https://widget.sodax.com;`
@@ -65,7 +66,7 @@ The configuration surface covers three jobs.
 **Restrictions and locks.** `allowedSrc` and `allowedDst` take comma-separated chain keys. `allowedSrcTokens` and `allowedDstTokens` take `chainKey:symbol` entries. `lockSrc=1` or `lockDst=1` pins a side to the pair already in the URL, which is how you build a deposit-only widget or one that always sells your token:
 
 ```
-https://widget.sodax.com/?embed=1&srcChain=0x2105.base&srcToken=USDC&lockSrc=1&dstChain=solana
+https://widget.sodax.com/?embed=1&appId=YOUR_APP_ID&srcChain=0x2105.base&srcToken=USDC&lockSrc=1&dstChain=solana
 ```
 
 That URL fixes the user on Base USDC and leaves the destination open. A lock needs its companion parameters: `lockSrc` requires both `srcChain` and `srcToken`.
