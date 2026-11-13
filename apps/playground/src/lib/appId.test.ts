@@ -80,9 +80,9 @@ describe('fetchWidgetFeeConfig', () => {
 });
 
 describe('appIdSignupUrl', () => {
-  it('links to the portal login with the widget UTMs for each placement', () => {
+  it('links to the portal widget page with the widget UTMs for each placement', () => {
     const builder = new URL(appIdSignupUrl('builder'));
-    expect(`${builder.origin}${builder.pathname}`).toBe('https://portal.sodax.com/login');
+    expect(`${builder.origin}${builder.pathname}`).toBe('https://portal.sodax.com/widget');
     expect(Object.fromEntries(builder.searchParams)).toEqual({
       utm_source: 'sodax_widget',
       utm_medium: 'widget_builder',
