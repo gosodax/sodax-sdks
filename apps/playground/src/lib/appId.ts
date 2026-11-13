@@ -5,8 +5,8 @@ export const APP_ID_PATTERN = /^wgt_[0-9a-f]{24}$/;
 
 export const APP_ID_HEADER = 'x-widget-app-id';
 
-/** The portal's `/portal` redirects a signed-out visitor to `/login` without the query, so link to `/login`. */
-const PARTNER_PORTAL_SIGNUP_URL = 'https://portal.sodax.com/login';
+/** The portal's `/widget` link keeps the `utm_*` query through sign-in and sign-up and opens the Swap widget tab. */
+const PARTNER_PORTAL_SIGNUP_URL = 'https://portal.sodax.com/widget';
 
 export type AppIdLinkPlacement = 'builder' | 'embed';
 
