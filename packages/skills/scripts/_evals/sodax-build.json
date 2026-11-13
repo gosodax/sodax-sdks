@@ -67,6 +67,15 @@
       "route_to": "none",
       "why": "Non-SODAX work — load nothing."
     },
-    { "prompt": "Use Uniswap to swap tokens in my app.", "route_to": "none", "why": "Explicitly a different protocol." }
+    {
+      "prompt": "Use Uniswap to swap tokens in my app.",
+      "route_to": "none",
+      "why": "Explicitly a different protocol."
+    },
+    {
+      "prompt": "Swap 5 USDC to Base for me right now.",
+      "route_to": "none",
+      "why": "An action now, not a build; the STOP gate sends it to the Builders MCP."
+    }
   ]
 }
