@@ -1330,7 +1330,7 @@ export class SwapService {
    * @param _params - Swap action params including the source chain key, input token, amount, and wallet provider.
    * @returns A `Result` wrapping the chain-specific transaction return type (`TxReturnType<K, Raw>`).
    */
-  public async approve<K extends SpokeChainKey, Raw extends boolean>(
+  public async approve<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: SwapActionParams<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>>> {
     const { params } = _params;
@@ -1504,7 +1504,7 @@ export class SwapService {
    *   - `INTENT_CREATION_FAILED` — spoke-side intent creation/deposit failed.
    *   - `UNKNOWN` — defensive fallback.
    */
-  public async createIntent<K extends SpokeChainKey, Raw extends boolean>(
+  public async createIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: SwapActionParams<K, Raw>,
   ): Promise<Result<CreateIntentResult<K, Raw>, SwapCreateIntentError>> {
     const { params, skipSimulation, extras } = _params;
@@ -1573,7 +1573,7 @@ export class SwapService {
       // deposits originate from the trading wallet, not the personal one.
       let walletAddress: string = personalAddress;
       if (isBitcoinChainKeyType(params.srcChainKey)) {
-        if (_params.raw === false) {
+        if (!_params.raw) {
           // Non-raw needs a provider to sign; only TRADING mode needs Bound auth (USER is self-custody).
           swapInvariant(
             isBitcoinWalletProviderType(_params.walletProvider),
@@ -1732,7 +1732,7 @@ export class SwapService {
    * @param _params - Limit order action params including intent parameters, chain key, and optional raw flag.
    * @returns A `Result` containing `CreateIntentResult<K, Raw>` — same structure as `createIntent()`.
    */
-  public async createLimitOrderIntent<K extends SpokeChainKey, Raw extends boolean>(
+  public async createLimitOrderIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: LimitOrderActionParams<K, Raw>,
   ): Promise<Result<CreateIntentResult<K, Raw>, SwapCreateIntentError>> {
     // Force deadline to 0n for limit orders. srcChain is preserved on params so K narrowing
@@ -1781,7 +1781,7 @@ export class SwapService {
    *   and wallet provider (required when `raw: false`).
    * @returns A `Result` wrapping the chain-specific transaction return type (`TxReturnType<K, Raw>`).
    */
-  public async createCancelIntent<K extends SpokeChainKey, Raw extends boolean>(
+  public async createCancelIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: CancelIntentActionParams<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>>> {
     const { params } = _params;

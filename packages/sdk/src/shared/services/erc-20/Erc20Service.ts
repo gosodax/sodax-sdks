@@ -220,7 +220,7 @@ export class Erc20Service {
    * @param spender - Spender address
    * @param provider - EVM Provider
    */
-  static async approve<Raw extends boolean>(params: Erc20ApproveParams<Raw>): Promise<TxReturnType<EvmChainKey, Raw>> {
+  static async approve<Raw extends boolean = false>(params: Erc20ApproveParams<Raw>): Promise<TxReturnType<EvmChainKey, Raw>> {
     const rawTx = {
       from: params.from,
       to: params.token,

@@ -268,7 +268,7 @@ export class StacksSpokeService {
   /**
    * Sends a message to the hub chain.
    */
-  public async sendMessage<Raw extends boolean>(
+  public async sendMessage<Raw extends boolean = false>(
     params: SendMessageParams<StacksChainKey, Raw>,
   ): Promise<TxReturnType<StacksChainKey, Raw>> {
     const dstRelayChainId = getIntentRelayChainId(params.dstChainKey);

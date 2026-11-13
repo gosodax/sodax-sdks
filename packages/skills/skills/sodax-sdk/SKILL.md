@@ -134,7 +134,7 @@ Apply in this order — type-level changes don't affect behavior; runtime patter
 | `Token` | `XToken` | type rename |
 | `AddressType` (BTC) | `BtcAddressType` | only at `@sodax/types` import sites |
 
-Then on every signed-call payload: drop `spokeProvider`, add `walletProvider`, add `raw: false` discriminator, rename `intentParams` → `params`. Plus add `srcChainKey` + `srcAddress` to every action params object (MM, staking, deposit, …).
+Then on every signed-call payload: drop `spokeProvider`, add `walletProvider` (`raw: false` is optional), rename `intentParams` → `params`. Plus add `srcChainKey` + `srcAddress` to every action params object (MM, staking, deposit, …).
 
 ### Top traps, DO NOT, verification
 

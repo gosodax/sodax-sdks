@@ -53,7 +53,7 @@
     "coverage": "vitest run --coverage",
     "dev": "tsup --watch",
     "ci": "pnpm run pretty && pnpm run build && pnpm run test",
-    "checkTs": "tsc --noEmit && node ../../scripts/check-tests-typechecked.mjs",
+    "checkTs": "tsc --noEmit && node ../../scripts/check-tests-typechecked.mjs && node ../../scripts/check-execution-mode.mjs",
     "pretty": "biome format . --write",
     "lint": "biome lint . --write",
     "size:check": "node ./scripts/size-check.mjs",

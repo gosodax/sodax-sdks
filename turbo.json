@@ -54,7 +54,11 @@
     },
     "checkTs": {
       "dependsOn": ["^checkTs"],
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/check-tests-typechecked.mjs"]
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/check-tests-typechecked.mjs",
+        "$TURBO_ROOT$/scripts/check-execution-mode.mjs"
+      ]
     },
     "checkTs:packages": {
       "dependsOn": ["^checkTs"],

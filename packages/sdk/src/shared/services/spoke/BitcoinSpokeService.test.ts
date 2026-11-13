@@ -270,7 +270,7 @@ describe('BitcoinSpokeService.getWalletBalance / getWalletBalances', () => {
       // Only the native BTC read hits the network; the Rune token never reaches fetch, so this
       // fails exactly one token of the batch and leaves a successful read behind.
       url.endsWith('/utxo')
-        ? (({ ok: false, statusText: 'Too Many Requests' }) as unknown as Response)
+        ? ({ ok: false, statusText: 'Too Many Requests' } as unknown as Response)
         : new Response(null, { status: 404 }),
     );
 
@@ -464,26 +464,27 @@ describe('BitcoinSpokeService.fundTradingWallet', () => {
 // =========================================================================
 
 describe('BitcoinSpokeService.encodeWithdrawalData', () => {
-  const sendMessageParams = <Raw extends boolean>(
-    overrides: Partial<SendMessageParams<typeof BTC, Raw>>,
-  ): SendMessageParams<typeof BTC, Raw> & { walletMode?: 'USER' | 'TRADING' } =>
-    ({
-      srcAddress: USER_ADDR,
-      srcChainKey: BTC,
-      dstChainKey: SONIC,
-      dstAddress: DST_ADDR,
-      payload: '0xdeadbeef' as Hex,
-      raw: false,
-      walletProvider: mockBtcProvider,
-      ...overrides,
-    }) as SendMessageParams<typeof BTC, Raw> & { walletMode?: 'USER' | 'TRADING' };
+  const sendMessageFields: Omit<SendMessageParams<typeof BTC, false>, 'raw' | 'walletProvider'> = {
+    srcAddress: USER_ADDR,
+    srcChainKey: BTC,
+    dstChainKey: SONIC,
+    dstAddress: DST_ADDR,
+    payload: '0xdeadbeef' as Hex,
+  };
+  const sendMessageParams = (
+    overrides: Partial<SendMessageParams<typeof BTC, false>> = {},
+  ): SendMessageParams<typeof BTC, false> => ({
+    ...sendMessageFields,
+    walletProvider: mockBtcProvider,
+    ...overrides,
+  });
 
   it('TRADING raw=true → substitutes srcAddress with trading address and returns JSON payload with no signature', async () => {
     vi.spyOn(btcSpoke.radfi, 'getTradingWallet').mockResolvedValueOnce({
       tradingAddress: TRADING_ADDR,
     } as never);
 
-    const result = await btcSpoke.encodeWithdrawalData(sendMessageParams<true>({ raw: true }));
+    const result = await btcSpoke.encodeWithdrawalData({ ...sendMessageFields, raw: true });
 
     expect(typeof result).toBe('string');
     const parsed = JSON.parse(result as unknown as string);
@@ -503,7 +504,7 @@ describe('BitcoinSpokeService.encodeWithdrawalData', () => {
     (mockBtcProvider.signBip322Message as ReturnType<typeof vi.fn>).mockResolvedValueOnce('EjQ=');
     (mockBtcProvider.getPublicKey as ReturnType<typeof vi.fn>).mockResolvedValueOnce('02abcdef');
 
-    const result = await btcSpoke.encodeWithdrawalData(sendMessageParams<false>({ raw: false }));
+    const result = await btcSpoke.encodeWithdrawalData(sendMessageParams());
 
     const parsed = JSON.parse(result as unknown as string);
     expect(parsed.signature).toBe('EjQ='); // browser wallets return base64 — passed through
@@ -522,9 +523,7 @@ describe('BitcoinSpokeService.encodeWithdrawalData', () => {
     (mockBtcProvider.signBip322Message as ReturnType<typeof vi.fn>).mockResolvedValueOnce('EjQ=');
     (mockBtcProvider.getPublicKey as ReturnType<typeof vi.fn>).mockResolvedValueOnce('02abcdef');
 
-    const result = await btcSpoke.encodeWithdrawalData(
-      sendMessageParams<false>({ raw: false, srcAddress: TAPROOT_ADDR }),
-    );
+    const result = await btcSpoke.encodeWithdrawalData(sendMessageParams({ srcAddress: TAPROOT_ADDR }));
 
     const parsed = JSON.parse(result as unknown as string);
     expect(parsed.signature).toBe('EjQ=');
@@ -545,7 +544,7 @@ describe('BitcoinSpokeService.encodeWithdrawalData', () => {
     (mockBtcProvider.getPublicKey as ReturnType<typeof vi.fn>).mockResolvedValueOnce('02abcdef');
 
     const result = await btcSpoke.encodeWithdrawalData(
-      sendMessageParams<false>({ raw: false, srcAddress: '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa' }),
+      sendMessageParams({ srcAddress: '1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa' }),
     );
 
     const parsed = JSON.parse(result as unknown as string);
@@ -561,7 +560,7 @@ describe('BitcoinSpokeService.encodeWithdrawalData', () => {
     // In TRADING mode a failed trading-wallet lookup must surface, not silently fall back to the
     // personal address — that would emit a payload whose src_address disagrees with the
     // trading-derived hub wallet the relay actually targets.
-    await expect(btcSpoke.encodeWithdrawalData(sendMessageParams<true>({ raw: true }))).rejects.toThrow('radfi 503');
+    await expect(btcSpoke.encodeWithdrawalData({ ...sendMessageFields, raw: true })).rejects.toThrow('radfi 503');
   });
 
   it('TRADING raw=false without getPublicKey support → throws (the relay needs the pubkey to verify)', async () => {
@@ -576,7 +575,7 @@ describe('BitcoinSpokeService.encodeWithdrawalData', () => {
     } as unknown as IBitcoinWalletProvider;
 
     await expect(
-      btcSpoke.encodeWithdrawalData(sendMessageParams<false>({ raw: false, walletProvider: providerWithoutPublicKey })),
+      btcSpoke.encodeWithdrawalData(sendMessageParams({ walletProvider: providerWithoutPublicKey })),
     ).rejects.toThrow('Wallet provider does not support getPublicKey');
   });
 
@@ -585,7 +584,7 @@ describe('BitcoinSpokeService.encodeWithdrawalData', () => {
       tradingAddress: TRADING_ADDR,
     } as never);
 
-    const result = await btcSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
+    const result = await btcSpoke.sendMessage({ ...sendMessageFields, raw: true });
     expect(typeof result).toBe('string');
     expect(() => JSON.parse(result as unknown as string)).not.toThrow();
   });

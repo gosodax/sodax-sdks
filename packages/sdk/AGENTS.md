@@ -50,6 +50,7 @@ Feature modules use service classes with constructor dependency injection.
 - Public operations that can fail should return `Result<T>` instead of throwing.
 - Treat input validation, guards, amount/decimal and address handling, and signing boundaries as correctness-critical: this is financial code, so don't weaken or bypass them, and cover changes with tests.
 - Preserve chain-key-first routing: request payload chain keys drive TypeScript narrowing and runtime spoke selection.
+- Dual-mode actions (`walletProvider` signs, `raw: true` returns the unsigned tx) take the mode through `WalletProviderSlot`, default `Raw` to `false`, and test it with `!x.raw` or `x.raw === true`, never `raw === false`: a signed call may omit `raw`. Add each new one to `src/shared/entities/Sodax.execution-mode.test.ts`. `scripts/check-execution-mode.mjs` (tail of `checkTs`) enforces the default and the comparison.
 - Use source-derived config through `ConfigService`; do not copy chain/token lists into code or agent docs.
 
 ## Errors And Results

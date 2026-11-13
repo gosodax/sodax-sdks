@@ -332,7 +332,7 @@ export class StellarSpokeService {
     return [priorityTransaction, simulation];
   }
 
-  public buildDepositCall<Raw extends boolean>(
+  public buildDepositCall<Raw extends boolean = false>(
     params: DepositParams<StellarChainKey, Raw>,
   ): xdr.Operation<Operation.InvokeHostFunction> {
     const contract = new Contract(this.config.getChainConfig(params.srcChainKey).addresses.assetManager);
@@ -348,7 +348,7 @@ export class StellarSpokeService {
     );
   }
 
-  public buildSendMessageCall<Raw extends boolean>(
+  public buildSendMessageCall<Raw extends boolean = false>(
     params: SendMessageParams<StellarChainKey, Raw>,
   ): xdr.Operation<Operation.InvokeHostFunction> {
     const connection = new Contract(this.chainConfig.addresses.connection);
@@ -362,7 +362,7 @@ export class StellarSpokeService {
     );
   }
 
-  public async sendMessage<Raw extends boolean>(
+  public async sendMessage<Raw extends boolean = false>(
     params: SendMessageParams<StellarChainKey, Raw>,
   ): Promise<TxReturnType<StellarChainKey, Raw>> {
     try {
@@ -648,7 +648,7 @@ export class StellarSpokeService {
    * @param raw - Whether to return the raw transaction data.
    * @returns The transaction result.
    */
-  public async requestTrustline<Raw extends boolean>(
+  public async requestTrustline<Raw extends boolean = false>(
     params: RequestTrustlineParams<StellarChainKey, Raw>,
   ): Promise<TxReturnType<StellarChainKey, Raw>> {
     try {
