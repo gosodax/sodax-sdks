@@ -143,6 +143,7 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
   STELLAR: { ..., providerManaged: false, discoverConnectors, ... },
   NEAR:    { ..., providerManaged: false, discoverConnectors, ... },
   STACKS:  { ..., providerManaged: false, ... },
+  TRON:    { ..., providerManaged: false, createActions, createWalletProvider },
 };
 ```
 
@@ -156,8 +157,8 @@ See [`ADDING_A_NEW_CHAIN.md`](https://github.com/gosodax/sodax-sdks/blob/main/pa
 
 ## Provider-managed vs non-provider chains
 
-| Property | Provider-managed (EVM/Solana/Sui) | Non-provider (Bitcoin/ICON/Injective/Stellar/NEAR/Stacks) |
-|----------|-----------------------------------|------------------------------------------------------------|
+| Property | Provider-managed (EVM/Solana/Sui) | Non-provider (Bitcoin/ICON/Injective/Stellar/NEAR/Stacks/Tron) |
+|----------|-----------------------------------|-----------------------------------------------------------------|
 | Native SDK | wagmi / @solana/wallet-adapter / @mysten/dapp-kit-react | sats-connect / icon-sdk-js / @injectivelabs/wallet-* / etc. |
 | React provider needed | Yes | No |
 | Connection-state writer | `<Hydrator>` component | Store side-effect inside `setXConnection()` |
@@ -267,7 +268,7 @@ We still don't *reimplement* reconnect for provider-managed chains — the Hydra
 
 Non-provider chains (ICON, Injective, Stellar) have no auto-reconnect — `reconnectXxx()` helpers in `useInitChainServices` re-call `connect()` on the previously persisted connector after hydration.
 
-**Bitcoin, NEAR, and Stacks** have **no reconnect helper at all** — they don't need one. The post-hydration restore loop re-fires `setXConnection` for every chain whose registry entry defines `createWalletProvider`, which rebuilds the non-persisted `walletProvider` from the persisted `XConnection`: Bitcoin via `BitcoinXConnector.recreateWalletProvider(xAccount)`, Stacks via `StacksXConnector.getProvider()` (a plain `window` lookup) plus the persisted address, and NEAR from `NearXService.walletSelector`. None of the three opens a popup or needs user action, and the persisted `xConnections` entry keeps `useXAccount` reporting connected across reloads. NEAR signing goes through the selector's connected wallet, so its session restore ultimately depends on `@hot-labs/near-connect`'s own `autoConnect: true` persistence rather than on anything this package stores.
+**Bitcoin, NEAR, Stacks, and Tron** have **no reconnect helper at all** — they don't need one. The post-hydration restore loop re-fires `setXConnection` for every chain whose registry entry defines `createWalletProvider`, which rebuilds the non-persisted `walletProvider` from the persisted `XConnection`: Bitcoin via `BitcoinXConnector.recreateWalletProvider(xAccount)`, Stacks via `StacksXConnector.getProvider()` (a plain `window` lookup) plus the persisted address, Tron from the persisted address, resolving the wallet through `TronXConnector.getProvider()` when it signs, and NEAR from `NearXService.walletSelector`. None of them opens a popup or needs user action, and the persisted `xConnections` entry keeps `useXAccount` reporting connected across reloads. NEAR signing goes through the selector's connected wallet, so its session restore ultimately depends on `@hot-labs/near-connect`'s own `autoConnect: true` persistence rather than on anything this package stores.
 
 ---
 

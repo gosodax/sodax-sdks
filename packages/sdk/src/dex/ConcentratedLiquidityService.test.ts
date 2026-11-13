@@ -211,6 +211,28 @@ afterEach(() => {
 // Simple delegations / pure helpers
 // =========================================================================
 
+// CL calls pay the hub wallet, and an MPC-relay message settles only on a release to its source chain.
+describe('ClService refuses an MPC-relay source before signing', () => {
+  const TRON = ChainKeys.TRON_MAINNET;
+
+  it.each([
+    ['executeSupplyLiquidity', () => cl.executeSupplyLiquidity({ params: supplyParams(TRON), raw: true })],
+    ['executeIncreaseLiquidity', () => cl.executeIncreaseLiquidity({ params: increaseParams(TRON), raw: true })],
+    ['executeDecreaseLiquidity', () => cl.executeDecreaseLiquidity({ params: decreaseParams(TRON), raw: true })],
+    ['executeClaimRewards', () => cl.executeClaimRewards({ params: claimParams(TRON), raw: true })],
+  ] as const)('%s', async (_, run) => {
+    const send = vi.spyOn(sodax.spoke, 'sendMessage');
+
+    const result = await run();
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({ code: 'VALIDATION_FAILED', feature: 'dex' });
+    expect(send).not.toHaveBeenCalled();
+    expect(mocks.getUserHubWalletAddress).not.toHaveBeenCalled();
+  });
+});
+
 describe('ClService.getPools', () => {
   it('returns whatever ConfigService.getDexPools returns', () => {
     const fakePools = [plainPoolKey] as never;

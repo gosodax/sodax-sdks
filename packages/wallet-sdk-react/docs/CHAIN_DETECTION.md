@@ -84,7 +84,7 @@ const groups = useChainGroups({ order: ORDER });
 // EVM first, then ICON, then SOLANA, then SUI; chains not in ORDER fall to the bottom alphabetically.
 ```
 
-Without `order`, groups follow the `enabledChains` array. `createChainServices` builds that array by walking the canonical `ChainTypeArr` from `@sodax/types` (ICON, EVM, INJECTIVE, SUI, STELLAR, SOLANA, STACKS, NEAR, BITCOIN) and keeping the chain types whose slot is present in config, so the default order is identical across reloads and does not depend on your config object's key order. Pass `order` when you want a different display order (e.g. hub-first).
+Without `order`, groups follow the `enabledChains` array. `createChainServices` builds that array by walking the canonical `ChainTypeArr` from `@sodax/types` and keeping the chain types whose slot is present in config, so the default order is identical across reloads and does not depend on your config object's key order. Pass `order` when you want a different display order (e.g. hub-first).
 
 ---
 
@@ -198,7 +198,7 @@ The compare function lives in [`utils/chainOrder.ts`](https://github.com/gosodax
 
 ```typescript
 const groups = useChainGroups({ order: ['EVM', 'ICON'] });
-// EVM → ICON → (alphabetical: BITCOIN, INJECTIVE, NEAR, SOLANA, STACKS, STELLAR, SUI)
+// EVM → ICON → the other enabled chains, alphabetically
 ```
 
 Pass `order` when you need an order other than the canonical `ChainTypeArr` order — for example a header chain list that renders hub-first.

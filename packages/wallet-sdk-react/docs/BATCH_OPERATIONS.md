@@ -271,7 +271,7 @@ return isInstalled ? (
 Reach for `useXConnect` / `useXDisconnect` directly when:
 
 - **You need a specific connector**, not a brand. The identifier matcher is intentionally fuzzy; `useXConnectors` lets you pick by exact `id`.
-- **Order is user-driven**, not registry-driven. The batch hooks iterate the canonical `ChainTypeArr` order from `@sodax/types` (`ICON`, `EVM`, `INJECTIVE`, `SUI`, `STELLAR`, `SOLANA`, `STACKS`, `NEAR`, `BITCOIN`) — not the declaration order of `chainRegistry` — so ICON is attempted first. If the user picked an explicit sequence in your UI, drive `useXConnect` from that sequence yourself.
+- **Order is user-driven**, not registry-driven. The batch hooks iterate the canonical `ChainTypeArr` order from `@sodax/types` — not the declaration order of `chainRegistry` — so ICON is attempted first. If the user picked an explicit sequence in your UI, drive `useXConnect` from that sequence yourself.
 - **You need cancellation**. Batch hooks have no cancel signal — drive `useXConnect` directly inside an `AbortController`-aware controller if you need to bail out.
 - **You only have one chain to operate on**. The batch concurrency guard adds no value for single-chain flows.
 

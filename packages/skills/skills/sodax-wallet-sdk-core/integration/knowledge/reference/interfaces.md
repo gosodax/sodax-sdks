@@ -129,6 +129,12 @@ Plus public fields (PK mode only): `account?: Account`, `rpcProvider?: JsonRpcPr
 
 ---
 
+## `ITronWalletProvider`
+
+Defined in [`tron.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/tron/tron.ts); `sendTransaction` and `signAndSendTransaction` are optional. Methods and the `signMessage` contract: [`../features/tron.md`](../features/tron.md).
+
+---
+
 ## Authoritative source
 
 These tables are summarised. For the full, current type-level signatures (including generics, branded types, and union narrowings) read:

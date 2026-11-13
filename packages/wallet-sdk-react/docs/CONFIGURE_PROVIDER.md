@@ -53,7 +53,7 @@ export function App({ children }: { children: React.ReactNode }) {
 }
 ```
 
-`SodaxWalletProvider` mounts the EVM (wagmi), Solana (`@solana/wallet-adapter-react`), and Sui (`@mysten/dapp-kit-react`) React providers conditionally based on which slots are present, then registers chain services for non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks).
+`SodaxWalletProvider` mounts the EVM (wagmi), Solana (`@solana/wallet-adapter-react`), and Sui (`@mysten/dapp-kit-react`) React providers conditionally based on which slots are present, then registers chain services for the other slots.
 
 ---
 
@@ -72,10 +72,11 @@ Top-level keys are `ChainType` strings — one slot per chain family. **Every sl
 | `BITCOIN` | (no React adapter) | — | `BitcoinRpcConfig & { defaults? }` per `BitcoinChainKey` |
 | `INJECTIVE` | (no React adapter) | — | `InjectiveRpcConfig & { defaults? }` per `InjectiveChainKey` |
 | `STACKS` | (no React adapter) | — | `StacksNetworkName \| (StacksNetworkLike & { defaults? })` |
+| `TRON` | (no React adapter) | — | `{ rpcUrl?, defaults? }` per `TronChainKey` |
 
-**Provider-managed vs non-provider** — EVM, Solana, and Sui need React context providers from their native SDKs (Hydrator components sync state into the Zustand store). The remaining six chains use direct browser-extension APIs and skip the React adapter layer; their actions are registered during `initChainServices()` after the provider mounts.
+**Provider-managed vs non-provider** — EVM, Solana, and Sui need React context providers from their native SDKs (Hydrator components sync state into the Zustand store). The other chain types use direct browser-extension APIs and skip the React adapter layer; their actions are registered during `initChainServices()` after the provider mounts.
 
-Every slot declares an optional `connectors?: IXConnector[]` array, but it only takes effect on the six non-provider slots (`ICON`, `NEAR`, `STELLAR`, `BITCOIN`, `INJECTIVE`, `STACKS`), where it replaces the default connectors registered by `chainRegistry`. `EVM`, `SOLANA`, and `SUI` ignore it — their connector lists are written by the Hydrators from wagmi, `@solana/wallet-adapter`, and `@mysten/dapp-kit-react`, so passing `connectors` there type-checks but has no effect. Supplied connectors must extend the abstract `XConnector` class; entries that only implement `IXConnector` are filtered out with a console warning.
+Every slot declares an optional `connectors?: IXConnector[]` array, but it only takes effect on slots whose [`chainRegistry.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-react/src/chainRegistry.ts) entry is `providerManaged: false`, where it replaces the default connectors registered by `chainRegistry`. `EVM`, `SOLANA`, and `SUI` ignore it — their connector lists are written by the Hydrators from wagmi, `@solana/wallet-adapter`, and `@mysten/dapp-kit-react`, so passing `connectors` there type-checks but has no effect. Supplied connectors must extend the abstract `XConnector` class; entries that only implement `IXConnector` are filtered out with a console warning.
 
 ---
 
@@ -210,6 +211,7 @@ The `defaults` field on each chain entry forwards directly to `wallet-sdk-core`'
 | `STACKS` | `StacksWalletDefaults` — `network`, `postConditionMode` |
 | `BITCOIN` | `BitcoinWalletDefaults` — `defaultFinalize` |
 | `NEAR` | `NearWalletDefaults` — `throwOnFailure`, `waitUntil`, `gasDefault`, `depositDefault` |
+| `TRON` | `TronWalletDefaults` — `rpcUrl` |
 
 Defaults merge **shallowly** — top-level keys only. Nested objects (e.g. `sendTransaction: { gas, maxFeePerGas }`) are replaced wholesale, not deep-merged. See [`packages/sdk/docs/WALLET_PROVIDERS.md`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/WALLET_PROVIDERS.md) for full per-chain config reference.
 

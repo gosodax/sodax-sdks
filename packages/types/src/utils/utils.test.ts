@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { ChainKeys } from '../chains/index.js';
-import { getEvmChainKeyByChainId } from './utils.js';
+import { getEvmChainKeyByChainId, getUnmetMpcPayoutMinimum } from './utils.js';
 
 describe('getEvmChainKeyByChainId', () => {
   it('maps wagmi chainId 42161 to ARBITRUM_MAINNET', () => {
@@ -29,5 +29,33 @@ describe('getEvmChainKeyByChainId', () => {
 
   it('returns undefined for missing chainId', () => {
     expect(getEvmChainKeyByChainId(undefined)).toBeUndefined();
+  });
+});
+
+describe('getUnmetMpcPayoutMinimum', () => {
+  const usdt = { chainKey: ChainKeys.TRON_MAINNET, symbol: 'USDT', decimals: 6 };
+  const trx = { chainKey: ChainKeys.TRON_MAINNET, symbol: 'TRX', decimals: 6 };
+
+  it('fails below and at the minimum, since the relay skips a release once fee >= amount', () => {
+    const unmet = { symbol: 'USDT', decimals: 6, minimum: 3_000_000n };
+    expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 2_999_999n })).toEqual(unmet);
+    expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3_000_000n })).toEqual(unmet);
+    expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3_000_001n })).toBeUndefined();
+    expect(getUnmetMpcPayoutMinimum({ token: trx, amount: 10_000_000n })?.minimum).toBe(10_000_000n);
+    expect(getUnmetMpcPayoutMinimum({ token: trx, amount: 10_000_001n })).toBeUndefined();
+  });
+
+  // A bridge form holds the source token's decimals: an 18-decimal 2 USDT must not read as huge.
+  it('compares an amount given in other decimals without rounding', () => {
+    expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 2n * 10n ** 18n, amountDecimals: 18 })).toBeDefined();
+    expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3n * 10n ** 18n, amountDecimals: 18 })).toBeDefined();
+    expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3n * 10n ** 18n + 1n, amountDecimals: 18 })).toBeUndefined();
+  });
+
+  it('passes a chain or token with no minimum', () => {
+    expect(
+      getUnmetMpcPayoutMinimum({ token: { ...usdt, chainKey: ChainKeys.ARBITRUM_MAINNET }, amount: 1n }),
+    ).toBeUndefined();
+    expect(getUnmetMpcPayoutMinimum({ token: { ...usdt, symbol: 'OTHER' }, amount: 1n })).toBeUndefined();
   });
 });

@@ -288,7 +288,7 @@ if (walletProvider.chainType === 'SOLANA') {
 }
 ```
 
-Supported values: `'EVM'`, `'BITCOIN'`, `'SOLANA'`, `'STELLAR'`, `'SUI'`, `'ICON'`, `'INJECTIVE'`, `'STACKS'`, `'NEAR'`.
+Supported values: the `ChainType` union (`'EVM'`, `'BITCOIN'`, …; full set in `ChainTypeArr`).
 
 This replaces v1's `provider instanceof EvmSpokeProvider` discrimination. Cross-bundle `instanceof` is fragile (different `@sodax/sdk` copies in dual ESM/CJS bundles can return false); the literal `chainType` field works regardless.
 

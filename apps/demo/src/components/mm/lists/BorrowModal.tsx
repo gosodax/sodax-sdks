@@ -1,5 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { PayoutMinimumNotice } from '@/components/shared/PayoutMinimumNotice';
+import { DeliverableLiquidityNotice } from '@/components/shared/DeliverableLiquidityNotice';
+import { useUnmetDeliverableLiquidity } from '@/hooks/useDeliverableLiquidity';
 import { TokenIcon } from '@/components/shared/TokenIcon';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -18,6 +21,8 @@ import {
   useUserReservesData,
   useSodaxContext,
   useNearStorageGate,
+  getUnmetMpcPayoutMinimum,
+  calculateFeeAmount,
 } from '@sodax/dapp-kit';
 import { buildMmDeliveryParams } from '@/lib/mmBtc';
 import { useBtcTradingBalance } from '@/hooks/useBtcTradingBalance';
@@ -36,7 +41,7 @@ import { logger } from '@/lib/logger';
 import { useReserveMetrics } from '@/hooks/useReserveMetrics';
 import { MAX_BORROW_SAFETY_MARGIN, ZERO_ADDRESS, AMOUNT_DISPLAY_DECIMALS } from '../constants';
 import { isUserReserveDataArray, isValidEvmAddress } from '../typeGuards';
-import { extractTxHash } from '@/lib/extractTxHash';
+import { settledTx } from '@/lib/extractTxHash';
 import { ErrorAlert } from '../ErrorAlert';
 import { getChainName } from '@/constants';
 import { ActionSuccessContent, type ActionSuccessData } from './ActionSuccessContent';
@@ -230,6 +235,19 @@ export function BorrowModal({
     deliveryTradingAddress,
   ]);
 
+  const unmetPayoutMinimum =
+    destinationToken && params?.amount
+      ? getUnmetMpcPayoutMinimum({ token: destinationToken, amount: params.amount })
+      : undefined;
+  // The vault pays out the borrow net of the partner fee.
+  const deliverable = useUnmetDeliverableLiquidity({
+    token: destinationToken,
+    amount:
+      params?.amount !== undefined
+        ? params.amount - calculateFeeAmount(params.amount, sodax.moneyMarket.partnerFee)
+        : undefined,
+  });
+
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: srcChainKey });
 
   const handleBorrow = async (): Promise<void> => {
@@ -244,7 +262,7 @@ export function BorrowModal({
         token,
         sourceChainId: srcChainKey,
         destinationChainId: dstChainKey,
-        txHash: extractTxHash(result),
+        ...settledTx(result, { srcChainKey, dstChainKey }),
       };
 
       if (inlineSuccess) {
@@ -417,6 +435,11 @@ export function BorrowModal({
           </p>
         )}
 
+        {unmetPayoutMinimum && <PayoutMinimumNotice unmet={unmetPayoutMinimum} chainKey={dstChainKey} />}
+        {deliverable.unmet !== undefined && destinationToken && (
+          <DeliverableLiquidityNotice available={deliverable.unmet} token={destinationToken} />
+        )}
+
         <DialogFooter className="w-full min-w-0 flex-col gap-2 sm:justify-start">
           {nearStorage.isNear && (nearStorage.isChecking || nearStorage.needsRegistration) && (
             <Button
@@ -452,8 +475,15 @@ export function BorrowModal({
               className="w-full"
               type="button"
               variant="default"
-              onClick={handleBorrow}
-              disabled={!params || !sourceWalletProvider || nearStorage.blocksAction}
+              onClick={() => void handleBorrow()}
+              disabled={
+                unmetPayoutMinimum !== undefined ||
+                deliverable.unmet !== undefined ||
+                deliverable.pending ||
+                !params ||
+                !sourceWalletProvider ||
+                nearStorage.blocksAction
+              }
             >
               Borrow {token.symbol}
             </Button>

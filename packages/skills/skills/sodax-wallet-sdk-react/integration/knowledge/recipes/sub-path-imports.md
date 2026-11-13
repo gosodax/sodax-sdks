@@ -93,5 +93,5 @@ pnpm checkTs
 
 # 2. Sub-path imports must resolve to a real chain folder
 grep -rnE "from '@sodax/wallet-sdk-react/xchains/[a-z]+'" <user-src>
-# Each match's <chain> must be one of: bitcoin, evm, icon, injective, near, solana, stacks, stellar, sui
+# Each match's <chain> must be a folder in node_modules/@sodax/wallet-sdk-react/dist/xchains/
 ```

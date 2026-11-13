@@ -50,6 +50,7 @@ The return type is conditional on the source chain's chain family. The concrete 
 | Bitcoin | `bigint` (`BitcoinGasEstimate`) | Fee in satoshis |
 | NEAR | `bigint` (`NearGasEstimate`) | Gas in yoctoNEAR |
 | Stacks | `FeeEstimateTransaction` | Object with `low`, `medium`, `high` tiers, each `{ fee: number, fee_rate: number }` |
+| Tron | `TronGasEstimate` | Object with `energy: bigint` and `bandwidth: bigint`; both `0n` for a `TronRawWithdraw`, which is signed off chain |
 
 The full type definitions are in `packages/types/src/common/common.ts`.
 

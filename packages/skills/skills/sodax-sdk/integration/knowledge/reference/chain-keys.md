@@ -26,6 +26,7 @@ The `ChainKey` type is the union of every `ChainKeys.*` value — the table belo
 | `NEAR_MAINNET` | `'near'` | NEAR | spoke | `<account>.near` / `<hex>` |
 | `STACKS_MAINNET` | `'stacks'` | STACKS | spoke | `SP…` / `ST…` |
 | `BITCOIN_MAINNET` | `'bitcoin'` | BITCOIN | spoke | `bc1…` / `1…` / `3…` |
+| `TRON_MAINNET` | `'tron'` | TRON | spoke | `T…` (base58check) |
 
 ### Notes
 
@@ -56,7 +57,9 @@ import {
   isStacksChainKeyType,
   isNearChainKeyType,
   isBitcoinChainKeyType,
+  isTronChainKeyType,
   isHubChainKeyType,
+  isMpcRelayChainKeyType, // settles through the MPC relay (Tron): ../chain-specifics.md § "Tron (MPC relay)"
 } from '@sodax/sdk';
 ```
 

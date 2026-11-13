@@ -36,7 +36,7 @@ If you're on `moduleResolution: 'node'` (legacy), upgrade to `'bundler'` or `'no
 
 ## 3. The wallet-provider contract
 
-Methods that sign and broadcast take a `walletProvider` parameter typed as the chain-specific `I*WalletProvider` interface (`IEvmWalletProvider`, `ISolanaWalletProvider`, `ISuiWalletProvider`, `IStellarWalletProvider`, `IIconWalletProvider`, `IInjectiveWalletProvider`, `IStacksWalletProvider`, `INearWalletProvider`, `IBitcoinWalletProvider`). All nine interfaces are exported from `@sodax/sdk`.
+Methods that sign and broadcast take a `walletProvider` parameter typed as the chain-specific `I*WalletProvider` interface (`IEvmWalletProvider`, `ISolanaWalletProvider`, `ISuiWalletProvider`, `IStellarWalletProvider`, `IIconWalletProvider`, `IInjectiveWalletProvider`, `IStacksWalletProvider`, `INearWalletProvider`, `IBitcoinWalletProvider`, `ITronWalletProvider`). All of them are exported from `@sodax/sdk`.
 
 `@sodax/sdk` does **not** ship implementations of these interfaces. Read methods (`sodax.config.*`, `sodax.bridge.getBridgeableAmount`, `sodax.staking.getStakingConfig`, etc.) and `raw: true` flows do not require a `walletProvider`.
 
@@ -45,7 +45,7 @@ Methods that sign and broadcast take a `walletProvider` parameter typed as the c
 Two options:
 
 1. **Implement the interface yourself.** Each `I*WalletProvider` is a small set of methods (`getWalletAddress`, plus chain-specific signing / broadcasting). Wrap whatever wallet abstraction your app already owns (`viem`'s `WalletClient` for EVM, `@solana/web3.js` keypairs for Solana, `@stellar/stellar-sdk` for Stellar, etc.) in an object literal that satisfies the interface.
-2. **Use `@sodax/wallet-sdk-core`** — a separate SODAX package (not part of `@sodax/sdk`, not a transitive dependency — install it separately) that ships ready-made `I*WalletProvider` implementations for all 9 chain families with both private-key (Node / scripts) and browser-extension (dApp) modes. Refer to that package's own documentation for usage.
+2. **Use `@sodax/wallet-sdk-core`** — a separate SODAX package (not part of `@sodax/sdk`, not a transitive dependency — install it separately) that ships ready-made `I*WalletProvider` implementations for every chain family with both private-key (Node / scripts) and browser-extension (dApp) modes. Refer to that package's own documentation for usage.
 
 Examples in this guide use TypeScript `declare const` placeholders so the surface stays Core-SDK-only — substitute your own object regardless of which option you chose.
 
@@ -97,7 +97,7 @@ const pools = sodax.dex.clService.getPools();   // synchronous in v2
 
 Chain-agnostic reads of the balances a user's own address holds — the SDK dispatches to the right
 chain family and reads the native coin or that chain's token standard (EVM erc20, Solana SPL, Sui
-coin, Soroban contract, IRC-2, NEP-141, SIP-010, Injective bank denom, Bitcoin UTXOs). Distinct from
+coin, Soroban contract, IRC-2, NEP-141, SIP-010, Injective bank denom, Bitcoin UTXOs, TRC-20). Distinct from
 `getDeposit`, which reads the protocol asset manager rather than the user.
 
 ```ts
