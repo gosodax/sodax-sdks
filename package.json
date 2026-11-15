@@ -43,7 +43,8 @@
     "pack:local": "node scripts/pack-local.mjs",
     "clean": "turbo clean && rm -rf node_modules dist .turbo && rm -rf apps/*/node_modules apps/*/dist apps/*/.turbo && rm -rf packages/*/node_modules packages/*/dist packages/*/.turbo",
     "prepare": "husky",
-    "check:sponsoring-contract": "node scripts/check-sponsoring-contract.mjs"
+    "check:sponsoring-contract": "node scripts/check-sponsoring-contract.mjs",
+    "check:api-surface": "turbo run check:api-surface --filter=./packages/*"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",

@@ -61,7 +61,8 @@
     "check:circular-deps": "madge --circular --exclude 'types/dist' $(find ./src -name '*.ts')",
     "check:knip": "knip",
     "prepublishOnly": "pnpm run ci",
-    "clean": "rm -rf node_modules && rm -rf dist && rm -rf .turbo"
+    "clean": "rm -rf node_modules && rm -rf dist && rm -rf .turbo",
+    "check:api-surface": "node ../../scripts/check-api-surface.mjs"
   },
   "dependencies": {
     "@bitcoinerlab/secp256k1": "^1.2.0",
