@@ -4,13 +4,13 @@ description: "EVM wallets on Avalanche, and every other network's wallets throug
 icon: wallet
 ---
 
+import HttpApiWalletsNote from '/snippets/http-api-wallets-note.mdx';
+
 Welcoming cross-network users means supporting the wallets they already use. On Avalanche, SODAX works with any wallet that can sign EVM transactions on the C-Chain (chain ID 43114), such as MetaMask. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
 
 Nothing about Avalanche wallets is SODAX-specific: a wallet connected to the C-Chain is all you need.
 
-<Note>
-  Using the HTTP API? You sign and broadcast the intent transaction yourself (see the [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll)), so these wallet packages are optional. This page covers SDK wallet integration.
-</Note>
+<HttpApiWalletsNote />
 
 ## React apps: `@sodax/wallet-sdk-react`
 

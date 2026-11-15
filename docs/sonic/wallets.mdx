@@ -4,13 +4,13 @@ description: "EVM wallets on Sonic, and every other network's wallets through on
 icon: wallet
 ---
 
+import HttpApiWalletsNote from '/snippets/http-api-wallets-note.mdx';
+
 Welcoming cross-network users means supporting the wallets they already use. On Sonic, that is any EVM wallet that can sign for Sonic mainnet (chain ID 146), such as MetaMask or Rabby. On the networks your users arrive from, it is Phantom, Suiet, Lobstr, and more. SODAX gives you both through one interface, so wallet plumbing never becomes the integration.
 
 Sonic needs nothing beyond a standard EVM account. The user's hub wallet, which holds their money market positions, is derived from their address by SODAX's contracts, with no separate deployment transaction for the user to sign. See [Hub wallets](/sonic/money-market#hub-wallets).
 
-<Note>
-  Using the HTTP API? You sign and broadcast the intent transaction yourself (see the [bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll)), so these wallet packages are optional. This page covers SDK wallet integration.
-</Note>
+<HttpApiWalletsNote />
 
 ## React apps: `@sodax/wallet-sdk-react`
 
