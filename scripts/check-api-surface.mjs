@@ -29,7 +29,7 @@ for (const [subpath, conditions] of Object.entries(exportsMap)) {
     const [prefix, suffix] = path.resolve(cwd, target).split('*');
     const matches = files.filter(f => f.startsWith(prefix) && f.endsWith(suffix)).sort();
     if (!matches.length) failBuild(`no declarations for ${subpath}`);
-    for (const file of matches) entries.push([subpath.replace('*', file.slice(prefix.length, -suffix.length)), file]);
+    for (const file of matches) entries.push([subpath.replaceAll('*', file.slice(prefix.length, -suffix.length)), file]);
   } else {
     const file = path.resolve(cwd, target);
     if (!existsSync(file)) failBuild(`missing ${target}`);
