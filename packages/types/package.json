@@ -55,7 +55,8 @@
     "check-exports": "attw --pack --ignore-rules=cjs-resolves-to-esm",
     "check:circular-deps": "madge --circular $(find ./src -name '*.ts')",
     "check:knip": "knip",
-    "clean": "rm -rf node_modules && rm -rf dist && rm -rf .turbo"
+    "clean": "rm -rf node_modules && rm -rf dist && rm -rf .turbo",
+    "check:api-surface": "node ../../scripts/check-api-surface.mjs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",

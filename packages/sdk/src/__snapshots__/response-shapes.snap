@@ -1,0 +1,2713 @@
+{
+  "backend.FillEventSchema": {
+    "object": {
+      "eventType": {
+        "literal": "intent-filled"
+      },
+      "intentState": {
+        "object": {
+          "remainingInput": "string"
+        }
+      },
+      "txHash": {
+        "pipe": [
+          "string",
+          {
+            "action": "non_empty"
+          }
+        ]
+      }
+    }
+  },
+  "backend.GetChainsResponseSchema": {
+    "array": "custom"
+  },
+  "backend.IntentEventTypeSchema": {
+    "object": {
+      "eventType": "string"
+    }
+  },
+  "backend.IntentResponseSchema": {
+    "object": {
+      "blockNumber": "number",
+      "chainId": "number",
+      "events": {
+        "array": "unknown"
+      },
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "number",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "number"
+        }
+      },
+      "intentHash": "string",
+      "logIndex": "number",
+      "open": "boolean",
+      "txHash": "string"
+    }
+  },
+  "backend.MoneyMarketAssetBorrowersSchema": {
+    "object": {
+      "borrowers": {
+        "array": "string"
+      },
+      "limit": "number",
+      "offset": "number",
+      "total": "number"
+    }
+  },
+  "backend.MoneyMarketAssetSchema": {
+    "object": {
+      "aTokenAddress": "string",
+      "blockNumber": "number",
+      "liquidityIndex": "string",
+      "liquidityRate": "string",
+      "reserveAddress": "string",
+      "stableBorrowRate": "string",
+      "symbol": "string",
+      "totalATokenBalance": "string",
+      "totalBorrowers": "number",
+      "totalSuppliers": "number",
+      "totalVariableDebtTokenBalance": "string",
+      "variableBorrowIndex": "string",
+      "variableBorrowRate": "string",
+      "variableDebtTokenAddress": "string"
+    }
+  },
+  "backend.MoneyMarketAssetsSchema": {
+    "array": {
+      "object": {
+        "aTokenAddress": "string",
+        "blockNumber": "number",
+        "liquidityIndex": "string",
+        "liquidityRate": "string",
+        "reserveAddress": "string",
+        "stableBorrowRate": "string",
+        "symbol": "string",
+        "totalATokenBalance": "string",
+        "totalBorrowers": "number",
+        "totalSuppliers": "number",
+        "totalVariableDebtTokenBalance": "string",
+        "variableBorrowIndex": "string",
+        "variableBorrowRate": "string",
+        "variableDebtTokenAddress": "string"
+      }
+    }
+  },
+  "backend.MoneyMarketAssetSuppliersSchema": {
+    "object": {
+      "limit": "number",
+      "offset": "number",
+      "suppliers": {
+        "array": "string"
+      },
+      "total": "number"
+    }
+  },
+  "backend.MoneyMarketBorrowersSchema": {
+    "object": {
+      "borrowers": {
+        "array": "string"
+      },
+      "limit": "number",
+      "offset": "number",
+      "total": "number"
+    }
+  },
+  "backend.MoneyMarketPositionSchema": {
+    "object": {
+      "positions": {
+        "array": {
+          "object": {
+            "aTokenAddress": "string",
+            "aTokenBalance": "string",
+            "blockNumber": "number",
+            "reserveAddress": "string",
+            "variableDebtTokenAddress": "string",
+            "variableDebtTokenBalance": "string"
+          }
+        }
+      },
+      "userAddress": "string"
+    }
+  },
+  "backend.OracleCandleIntervalSchema": {
+    "picklist": [
+      "1m",
+      "5m",
+      "1h",
+      "1d"
+    ]
+  },
+  "backend.OracleCandlesResponseSchema": {
+    "object": {
+      "candles": {
+        "array": {
+          "object": {
+            "close": "string",
+            "final": {
+              "optional": "boolean"
+            },
+            "high": "string",
+            "low": "string",
+            "open": "string",
+            "timestamp": "number"
+          }
+        }
+      },
+      "interval": {
+        "picklist": [
+          "1m",
+          "5m",
+          "1h",
+          "1d"
+        ]
+      },
+      "quote": "string",
+      "symbol": "string"
+    }
+  },
+  "backend.OracleMarketsResponseSchema": {
+    "object": {
+      "intervals": {
+        "array": {
+          "object": {
+            "key": "string",
+            "label": "string",
+            "seconds": "number"
+          }
+        }
+      },
+      "quote": "string",
+      "symbols": {
+        "array": "string"
+      }
+    }
+  },
+  "backend.OrderbookResponseSchema": {
+    "object": {
+      "data": {
+        "array": {
+          "object": {
+            "intentData": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "blockNumber": "number",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "number",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentHash": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "number",
+                "txHash": "string"
+              }
+            },
+            "intentState": {
+              "object": {
+                "exists": "boolean",
+                "pendingPayment": "boolean",
+                "receivedOutput": "string",
+                "remainingInput": "string"
+              }
+            }
+          }
+        }
+      },
+      "total": "number"
+    }
+  },
+  "backend.ReserveAssetsSchema": {
+    "array": "custom"
+  },
+  "backend.TokensByChainMapSchema": "custom",
+  "backend.TokensListSchema": {
+    "array": {
+      "object": {
+        "access": {
+          "optional": {
+            "picklist": [
+              "withdrawOnly",
+              "depositOnly"
+            ]
+          }
+        },
+        "address": "string",
+        "chainKey": "custom",
+        "decimals": "number",
+        "hubAsset": "custom",
+        "name": "string",
+        "symbol": "string",
+        "vault": "custom"
+      }
+    }
+  },
+  "backend.UserIntentsResponseSchema": {
+    "object": {
+      "items": {
+        "array": {
+          "object": {
+            "blockNumber": "number",
+            "chainId": "number",
+            "events": {
+              "array": "unknown"
+            },
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "number",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "number"
+              }
+            },
+            "intentHash": "string",
+            "logIndex": "number",
+            "open": "boolean",
+            "txHash": "string"
+          }
+        }
+      },
+      "limit": "number",
+      "offset": "number",
+      "total": "number"
+    }
+  },
+  "backend.XTokenSchema": {
+    "object": {
+      "access": {
+        "optional": {
+          "picklist": [
+            "withdrawOnly",
+            "depositOnly"
+          ]
+        }
+      },
+      "address": "string",
+      "chainKey": "custom",
+      "decimals": "number",
+      "hubAsset": "custom",
+      "name": "string",
+      "symbol": "string",
+      "vault": "custom"
+    }
+  },
+  "leverage.AllowanceCheckResponseSchema": {
+    "object": {
+      "valid": "boolean"
+    }
+  },
+  "leverage.DeadlineResponseSchema": {
+    "object": {
+      "deadline": "string"
+    }
+  },
+  "leverage.FeeResponseSchema": {
+    "object": {
+      "fee": "string"
+    }
+  },
+  "leverage.GasEstimateResponseSchema": {
+    "object": {
+      "gas": "unknown"
+    }
+  },
+  "leverage.GetLeverageVaultResponseSchema": {
+    "object": {
+      "asset": "string",
+      "borrowToken": "string",
+      "lsdSource": {
+        "optional": {
+          "object": {
+            "fallbackAprPct": "number",
+            "label": "string",
+            "poolId": "string"
+          }
+        }
+      },
+      "name": "string",
+      "vault": "string"
+    }
+  },
+  "leverage.GetLeverageVaultsResponseSchema": {
+    "array": {
+      "object": {
+        "asset": "string",
+        "borrowToken": "string",
+        "lsdSource": {
+          "optional": {
+            "object": {
+              "fallbackAprPct": "number",
+              "label": "string",
+              "poolId": "string"
+            }
+          }
+        },
+        "name": "string",
+        "vault": "string"
+      }
+    }
+  },
+  "leverage.IntentHashResponseSchema": {
+    "object": {
+      "hash": "string"
+    }
+  },
+  "leverage.IntentPacketResponseSchema": {
+    "object": {
+      "connSn": "number",
+      "dstAddress": "string",
+      "dstChainId": "number",
+      "dstTxHash": "string",
+      "payload": "string",
+      "signatures": {
+        "array": "string"
+      },
+      "srcAddress": "string",
+      "srcChainId": "number",
+      "srcTxHash": "string",
+      "status": "string"
+    }
+  },
+  "leverage.IntentResponseSchema": {
+    "object": {
+      "allowPartialFill": "boolean",
+      "creator": "string",
+      "data": "string",
+      "deadline": "string",
+      "dstAddress": "string",
+      "dstChain": "string",
+      "inputAmount": "string",
+      "inputToken": "string",
+      "intentId": "string",
+      "minOutputAmount": "string",
+      "outputToken": "string",
+      "solver": "string",
+      "srcAddress": "string",
+      "srcChain": "string"
+    }
+  },
+  "leverage.IntentStateResponseSchema": {
+    "object": {
+      "exists": "boolean",
+      "pendingPayment": "boolean",
+      "receivedOutput": "string",
+      "remainingInput": "string"
+    }
+  },
+  "leverage.LeverageYieldAprSchema": {
+    "object": {
+      "borrowAprRay": "string",
+      "leverageMultiplierWad": "string",
+      "netAprRay": "string",
+      "supplyAprRay": "string",
+      "targetLtvBps": "string"
+    }
+  },
+  "leverage.LeverageYieldEffectiveAprSchema": {
+    "object": {
+      "borrowAprRay": "string",
+      "effectiveNetAprRay": "string",
+      "effectiveSupplyAprRay": "string",
+      "leverageMultiplierWad": "string",
+      "lsdApr": {
+        "object": {
+          "aprRay": "string",
+          "label": "string",
+          "stale": "boolean"
+        }
+      },
+      "netAprRay": "string",
+      "supplyAprRay": "string",
+      "targetLtvBps": "string"
+    }
+  },
+  "leverage.LeverageYieldLsdAprSchema": {
+    "object": {
+      "aprRay": "string",
+      "label": "string",
+      "stale": "boolean"
+    }
+  },
+  "leverage.LeverageYieldPositionSchema": {
+    "object": {
+      "collateral": "string",
+      "debt": "string",
+      "healthFactor": "string",
+      "idleAsset": "string",
+      "ltv": "string"
+    }
+  },
+  "leverage.LsdSourceSchema": {
+    "object": {
+      "fallbackAprPct": "number",
+      "label": "string",
+      "poolId": "string"
+    }
+  },
+  "leverage.makeApproveResponseSchema(sonic)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "custom",
+            "from": "custom",
+            "to": "custom",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "custom",
+          "from": "custom",
+          "to": "custom",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeApproveResponseSchema(solana)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "string",
+            "from": "string",
+            "to": "string",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeApproveResponseSchema(sui)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "string",
+            "from": "custom",
+            "to": "string",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "custom",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeApproveResponseSchema(stellar)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "string",
+            "from": "string",
+            "to": "string",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeApproveResponseSchema(injective-1)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "from": "custom",
+            "signedDoc": {
+              "object": {
+                "accountNumber": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                },
+                "authInfoBytes": {
+                  "pipe": [
+                    {
+                      "record": {
+                        "key": "string",
+                        "value": {
+                          "pipe": [
+                            "number",
+                            {
+                              "action": "integer"
+                            },
+                            {
+                              "action": "min_value",
+                              "requirement": 0
+                            },
+                            {
+                              "action": "max_value",
+                              "requirement": 255
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "action": "transform"
+                    }
+                  ]
+                },
+                "bodyBytes": {
+                  "pipe": [
+                    {
+                      "record": {
+                        "key": "string",
+                        "value": {
+                          "pipe": [
+                            "number",
+                            {
+                              "action": "integer"
+                            },
+                            {
+                              "action": "min_value",
+                              "requirement": 0
+                            },
+                            {
+                              "action": "max_value",
+                              "requirement": 255
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "action": "transform"
+                    }
+                  ]
+                },
+                "chainId": "string"
+              }
+            },
+            "to": "custom"
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "from": "custom",
+          "signedDoc": {
+            "object": {
+              "accountNumber": {
+                "pipe": [
+                  "string",
+                  {
+                    "action": "regex",
+                    "requirement": "/^\\d+$/"
+                  },
+                  {
+                    "action": "to_bigint"
+                  }
+                ]
+              },
+              "authInfoBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "bodyBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "chainId": "string"
+            }
+          },
+          "to": "custom"
+        }
+      }
+    }
+  },
+  "leverage.makeApproveResponseSchema(0x1.icon)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "record": {
+            "key": "string",
+            "value": {
+              "union": [
+                "string",
+                "custom"
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "record": {
+          "key": "string",
+          "value": {
+            "union": [
+              "string",
+              "custom"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeApproveResponseSchema(stacks)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "estimatedLength": {
+              "optional": "number"
+            },
+            "payload": "string"
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "estimatedLength": {
+            "optional": "number"
+          },
+          "payload": "string"
+        }
+      }
+    }
+  },
+  "leverage.makeApproveResponseSchema(near)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "params": {
+              "object": {
+                "args": "custom",
+                "contractId": "string",
+                "deposit": {
+                  "optional": {
+                    "pipe": [
+                      "string",
+                      {
+                        "action": "regex",
+                        "requirement": "/^\\d+$/"
+                      },
+                      {
+                        "action": "to_bigint"
+                      }
+                    ]
+                  }
+                },
+                "gas": {
+                  "optional": {
+                    "pipe": [
+                      "string",
+                      {
+                        "action": "regex",
+                        "requirement": "/^\\d+$/"
+                      },
+                      {
+                        "action": "to_bigint"
+                      }
+                    ]
+                  }
+                },
+                "method": "string"
+              }
+            },
+            "signerId": "string"
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "params": {
+            "object": {
+              "args": "custom",
+              "contractId": "string",
+              "deposit": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "gas": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "method": "string"
+            }
+          },
+          "signerId": "string"
+        }
+      }
+    }
+  },
+  "leverage.makeApproveResponseSchema(bitcoin)": {
+    "object": {
+      "resetTx": {
+        "optional": "custom"
+      },
+      "tx": "custom"
+    }
+  },
+  "leverage.makeApproveResponseSchema(not-a-real-chain)": {
+    "object": {
+      "resetTx": {
+        "optional": "custom"
+      },
+      "tx": "custom"
+    }
+  },
+  "leverage.makeCancelIntentResponseSchema(sonic)": {
+    "object": {
+      "tx": {
+        "object": {
+          "data": "custom",
+          "from": "custom",
+          "to": "custom",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeCancelIntentResponseSchema(solana)": {
+    "object": {
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeCancelIntentResponseSchema(sui)": {
+    "object": {
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "custom",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeCancelIntentResponseSchema(stellar)": {
+    "object": {
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeCancelIntentResponseSchema(injective-1)": {
+    "object": {
+      "tx": {
+        "object": {
+          "from": "custom",
+          "signedDoc": {
+            "object": {
+              "accountNumber": {
+                "pipe": [
+                  "string",
+                  {
+                    "action": "regex",
+                    "requirement": "/^\\d+$/"
+                  },
+                  {
+                    "action": "to_bigint"
+                  }
+                ]
+              },
+              "authInfoBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "bodyBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "chainId": "string"
+            }
+          },
+          "to": "custom"
+        }
+      }
+    }
+  },
+  "leverage.makeCancelIntentResponseSchema(0x1.icon)": {
+    "object": {
+      "tx": {
+        "record": {
+          "key": "string",
+          "value": {
+            "union": [
+              "string",
+              "custom"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeCancelIntentResponseSchema(stacks)": {
+    "object": {
+      "tx": {
+        "object": {
+          "estimatedLength": {
+            "optional": "number"
+          },
+          "payload": "string"
+        }
+      }
+    }
+  },
+  "leverage.makeCancelIntentResponseSchema(near)": {
+    "object": {
+      "tx": {
+        "object": {
+          "params": {
+            "object": {
+              "args": "custom",
+              "contractId": "string",
+              "deposit": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "gas": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "method": "string"
+            }
+          },
+          "signerId": "string"
+        }
+      }
+    }
+  },
+  "leverage.makeCancelIntentResponseSchema(bitcoin)": {
+    "object": {
+      "tx": "custom"
+    }
+  },
+  "leverage.makeCancelIntentResponseSchema(not-a-real-chain)": {
+    "object": {
+      "tx": "custom"
+    }
+  },
+  "leverage.makeCreateIntentResponseSchema(sonic)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "custom",
+          "from": "custom",
+          "to": "custom",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeCreateIntentResponseSchema(solana)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeCreateIntentResponseSchema(sui)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "custom",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeCreateIntentResponseSchema(stellar)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeCreateIntentResponseSchema(injective-1)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "from": "custom",
+          "signedDoc": {
+            "object": {
+              "accountNumber": {
+                "pipe": [
+                  "string",
+                  {
+                    "action": "regex",
+                    "requirement": "/^\\d+$/"
+                  },
+                  {
+                    "action": "to_bigint"
+                  }
+                ]
+              },
+              "authInfoBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "bodyBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "chainId": "string"
+            }
+          },
+          "to": "custom"
+        }
+      }
+    }
+  },
+  "leverage.makeCreateIntentResponseSchema(0x1.icon)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "record": {
+          "key": "string",
+          "value": {
+            "union": [
+              "string",
+              "custom"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeCreateIntentResponseSchema(stacks)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "estimatedLength": {
+            "optional": "number"
+          },
+          "payload": "string"
+        }
+      }
+    }
+  },
+  "leverage.makeCreateIntentResponseSchema(near)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "params": {
+            "object": {
+              "args": "custom",
+              "contractId": "string",
+              "deposit": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "gas": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "method": "string"
+            }
+          },
+          "signerId": "string"
+        }
+      }
+    }
+  },
+  "leverage.makeCreateIntentResponseSchema(bitcoin)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": "custom"
+    }
+  },
+  "leverage.makeCreateIntentResponseSchema(not-a-real-chain)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": "custom"
+    }
+  },
+  "leverage.makeQuoteResponseSchema(sonic)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "data": "custom",
+                "from": "custom",
+                "to": "custom",
+                "value": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeQuoteResponseSchema(solana)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "data": "string",
+                "from": "string",
+                "to": "string",
+                "value": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeQuoteResponseSchema(sui)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "data": "string",
+                "from": "custom",
+                "to": "string",
+                "value": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeQuoteResponseSchema(stellar)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "data": "string",
+                "from": "string",
+                "to": "string",
+                "value": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeQuoteResponseSchema(injective-1)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "from": "custom",
+                "signedDoc": {
+                  "object": {
+                    "accountNumber": {
+                      "pipe": [
+                        "string",
+                        {
+                          "action": "regex",
+                          "requirement": "/^\\d+$/"
+                        },
+                        {
+                          "action": "to_bigint"
+                        }
+                      ]
+                    },
+                    "authInfoBytes": {
+                      "pipe": [
+                        {
+                          "record": {
+                            "key": "string",
+                            "value": {
+                              "pipe": [
+                                "number",
+                                {
+                                  "action": "integer"
+                                },
+                                {
+                                  "action": "min_value",
+                                  "requirement": 0
+                                },
+                                {
+                                  "action": "max_value",
+                                  "requirement": 255
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "action": "transform"
+                        }
+                      ]
+                    },
+                    "bodyBytes": {
+                      "pipe": [
+                        {
+                          "record": {
+                            "key": "string",
+                            "value": {
+                              "pipe": [
+                                "number",
+                                {
+                                  "action": "integer"
+                                },
+                                {
+                                  "action": "min_value",
+                                  "requirement": 0
+                                },
+                                {
+                                  "action": "max_value",
+                                  "requirement": 255
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "action": "transform"
+                        }
+                      ]
+                    },
+                    "chainId": "string"
+                  }
+                },
+                "to": "custom"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeQuoteResponseSchema(0x1.icon)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "record": {
+                "key": "string",
+                "value": {
+                  "union": [
+                    "string",
+                    "custom"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeQuoteResponseSchema(stacks)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "estimatedLength": {
+                  "optional": "number"
+                },
+                "payload": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeQuoteResponseSchema(near)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "params": {
+                  "object": {
+                    "args": "custom",
+                    "contractId": "string",
+                    "deposit": {
+                      "optional": {
+                        "pipe": [
+                          "string",
+                          {
+                            "action": "regex",
+                            "requirement": "/^\\d+$/"
+                          },
+                          {
+                            "action": "to_bigint"
+                          }
+                        ]
+                      }
+                    },
+                    "gas": {
+                      "optional": {
+                        "pipe": [
+                          "string",
+                          {
+                            "action": "regex",
+                            "requirement": "/^\\d+$/"
+                          },
+                          {
+                            "action": "to_bigint"
+                          }
+                        ]
+                      }
+                    },
+                    "method": "string"
+                  }
+                },
+                "signerId": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeQuoteResponseSchema(bitcoin)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": "custom"
+          }
+        }
+      }
+    }
+  },
+  "leverage.makeQuoteResponseSchema(not-a-real-chain)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": "custom"
+          }
+        }
+      }
+    }
+  },
+  "leverage.MaxWithdrawResponseSchema": {
+    "object": {
+      "maxWithdraw": "string"
+    }
+  },
+  "leverage.PreviewDepositResponseSchema": {
+    "object": {
+      "shares": "string"
+    }
+  },
+  "leverage.PreviewRedeemResponseSchema": {
+    "object": {
+      "assets": "string"
+    }
+  },
+  "leverage.PreviewWithdrawResponseSchema": {
+    "object": {
+      "shares": "string"
+    }
+  },
+  "leverage.rawTxSchemaForChainKey(sonic)": {
+    "object": {
+      "data": "custom",
+      "from": "custom",
+      "to": "custom",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "leverage.rawTxSchemaForChainKey(solana)": {
+    "object": {
+      "data": "string",
+      "from": "string",
+      "to": "string",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "leverage.rawTxSchemaForChainKey(sui)": {
+    "object": {
+      "data": "string",
+      "from": "custom",
+      "to": "string",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "leverage.rawTxSchemaForChainKey(stellar)": {
+    "object": {
+      "data": "string",
+      "from": "string",
+      "to": "string",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "leverage.rawTxSchemaForChainKey(injective-1)": {
+    "object": {
+      "from": "custom",
+      "signedDoc": {
+        "object": {
+          "accountNumber": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          },
+          "authInfoBytes": {
+            "pipe": [
+              {
+                "record": {
+                  "key": "string",
+                  "value": {
+                    "pipe": [
+                      "number",
+                      {
+                        "action": "integer"
+                      },
+                      {
+                        "action": "min_value",
+                        "requirement": 0
+                      },
+                      {
+                        "action": "max_value",
+                        "requirement": 255
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "action": "transform"
+              }
+            ]
+          },
+          "bodyBytes": {
+            "pipe": [
+              {
+                "record": {
+                  "key": "string",
+                  "value": {
+                    "pipe": [
+                      "number",
+                      {
+                        "action": "integer"
+                      },
+                      {
+                        "action": "min_value",
+                        "requirement": 0
+                      },
+                      {
+                        "action": "max_value",
+                        "requirement": 255
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "action": "transform"
+              }
+            ]
+          },
+          "chainId": "string"
+        }
+      },
+      "to": "custom"
+    }
+  },
+  "leverage.rawTxSchemaForChainKey(0x1.icon)": {
+    "record": {
+      "key": "string",
+      "value": {
+        "union": [
+          "string",
+          "custom"
+        ]
+      }
+    }
+  },
+  "leverage.rawTxSchemaForChainKey(stacks)": {
+    "object": {
+      "estimatedLength": {
+        "optional": "number"
+      },
+      "payload": "string"
+    }
+  },
+  "leverage.rawTxSchemaForChainKey(near)": {
+    "object": {
+      "params": {
+        "object": {
+          "args": "custom",
+          "contractId": "string",
+          "deposit": {
+            "optional": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          },
+          "gas": {
+            "optional": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          },
+          "method": "string"
+        }
+      },
+      "signerId": "string"
+    }
+  },
+  "leverage.rawTxSchemaForChainKey(bitcoin)": "custom",
+  "leverage.rawTxSchemaForChainKey(not-a-real-chain)": "custom",
+  "leverage.RelayExtraDataResponseSchema": {
+    "object": {
+      "address": "string",
+      "payload": "string"
+    }
+  },
+  "leverage.ShareBalanceResponseSchema": {
+    "object": {
+      "balance": "string"
+    }
+  },
+  "leverage.StatusResponseSchema": {
+    "object": {
+      "fillTxHash": {
+        "optional": "string"
+      },
+      "status": {
+        "picklist": [
+          -1,
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    }
+  },
+  "leverage.SubmitIntentResponseSchema": {
+    "object": {
+      "result": "unknown"
+    }
+  },
+  "leverage.SubmitTxResponseSchema": {
+    "object": {
+      "data": {
+        "object": {
+          "message": "string",
+          "status": {
+            "picklist": [
+              "inserted",
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "success": "boolean"
+    }
+  },
+  "leverage.SubmitTxStatusResponseSchema": {
+    "object": {
+      "data": {
+        "object": {
+          "abandonedAt": {
+            "optional": "string"
+          },
+          "failedAtStep": {
+            "optional": {
+              "picklist": [
+                "pending",
+                "relaying",
+                "relayed",
+                "posting_execution",
+                "posted_execution",
+                "solved",
+                "failed"
+              ]
+            }
+          },
+          "failureReason": {
+            "optional": "string"
+          },
+          "intentCancelled": {
+            "optional": "boolean"
+          },
+          "operation": {
+            "optional": {
+              "picklist": [
+                "swap",
+                "leverage_deposit",
+                "leverage_withdraw"
+              ]
+            }
+          },
+          "processingAttempts": "number",
+          "relayedForRefundAt": {
+            "optional": "string"
+          },
+          "result": {
+            "optional": {
+              "object": {
+                "dstIntentTxHash": "string",
+                "fillTxHash": {
+                  "optional": "string"
+                },
+                "intent_hash": {
+                  "optional": "string"
+                },
+                "packetData": {
+                  "optional": {
+                    "object": {
+                      "conn_sn": "number",
+                      "dst_address": "string",
+                      "dst_chain_id": "number",
+                      "dst_tx_hash": "string",
+                      "payload": "string",
+                      "signatures": {
+                        "array": "string"
+                      },
+                      "src_address": "string",
+                      "src_chain_id": "number",
+                      "src_tx_hash": "string",
+                      "status": {
+                        "picklist": [
+                          "pending",
+                          "validating",
+                          "executing",
+                          "executed"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "srcChainKey": "string",
+          "status": {
+            "picklist": [
+              "pending",
+              "relaying",
+              "relayed",
+              "posting_execution",
+              "posted_execution",
+              "solved",
+              "failed"
+            ]
+          },
+          "txHash": "string",
+          "userMessage": {
+            "optional": "string"
+          }
+        }
+      },
+      "success": "boolean"
+    }
+  },
+  "leverage.VaultAssetResponseSchema": {
+    "object": {
+      "asset": "string"
+    }
+  },
+  "leverage.VaultTotalAssetsResponseSchema": {
+    "object": {
+      "totalAssets": "string"
+    }
+  },
+  "sponsoring.StellarSponsorConfigSchema": {
+    "object": {
+      "maxPerOperationFeeStroops": "string",
+      "maxTimeboundSeconds": "number",
+      "maxTotalFeeStroops": "string",
+      "minPerOperationFeeStroops": "string",
+      "minTotalFeeStroops": "string",
+      "networkPassphrase": "string",
+      "operationCount": "number",
+      "recommendedPerOperationFeeStroops": "string",
+      "requiredStartingBalance": "string",
+      "sponsorAccount": "string"
+    }
+  },
+  "sponsoring.StellarSponsoredAccountResponseSchema": {
+    "variant": [
+      {
+        "object": {
+          "alreadyActive": {
+            "literal": false
+          },
+          "hash": "string"
+        }
+      },
+      {
+        "object": {
+          "alreadyActive": {
+            "literal": true
+          },
+          "hash": "null"
+        }
+      }
+    ],
+    "key": "alreadyActive"
+  }
+}

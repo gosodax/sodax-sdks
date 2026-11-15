@@ -42,7 +42,8 @@
     "checkTs": "tsc --noEmit && node ../../scripts/check-tests-typechecked.mjs",
     "check-exports": "attw --pack --profile esm-only",
     "check:knip": "knip",
-    "lint": "biome lint . --write"
+    "lint": "biome lint . --write",
+    "check:api-surface": "node ../../scripts/check-api-surface.mjs"
   },
   "dependencies": {
     "@sodax/sdk": "workspace:*",

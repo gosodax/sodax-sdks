@@ -1,0 +1,1331 @@
+{
+  "schemas.BridgeableAmountResponseSchema": {
+    "object": {
+      "limit": {
+        "object": {
+          "amount": "string",
+          "decimals": "number",
+          "type": {
+            "picklist": [
+              "DEPOSIT_LIMIT",
+              "WITHDRAWAL_LIMIT"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.BridgeableCheckResponseSchema": {
+    "object": {
+      "bridgeable": "boolean"
+    }
+  },
+  "schemas.BridgeAllowanceCheckResponseSchema": {
+    "object": {
+      "valid": "boolean"
+    }
+  },
+  "schemas.BridgeFeeResponseSchema": {
+    "object": {
+      "fee": "string"
+    }
+  },
+  "schemas.BridgeSubmitTxResponseSchema": {
+    "object": {
+      "data": {
+        "object": {
+          "message": "string",
+          "status": {
+            "picklist": [
+              "inserted",
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "success": "boolean"
+    }
+  },
+  "schemas.BridgeSubmitTxStatusResponseSchema": {
+    "object": {
+      "data": {
+        "object": {
+          "abandonedAt": {
+            "optional": "string"
+          },
+          "failedAtStep": {
+            "optional": "string"
+          },
+          "failureReason": {
+            "optional": "string"
+          },
+          "processingAttempts": "number",
+          "result": {
+            "optional": {
+              "object": {
+                "dstIntentTxHash": "string",
+                "packetData": {
+                  "optional": {
+                    "object": {
+                      "conn_sn": "number",
+                      "dst_address": "string",
+                      "dst_chain_id": "number",
+                      "dst_tx_hash": "string",
+                      "payload": "string",
+                      "signatures": {
+                        "array": "string"
+                      },
+                      "src_address": "string",
+                      "src_chain_id": "number",
+                      "src_tx_hash": "string",
+                      "status": {
+                        "picklist": [
+                          "pending",
+                          "validating",
+                          "executing",
+                          "executed"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "srcChainKey": "string",
+          "status": "string",
+          "txHash": "string",
+          "userMessage": {
+            "optional": "string"
+          }
+        }
+      },
+      "success": "boolean"
+    }
+  },
+  "schemas.BridgeTokensByChainResponseSchema": {
+    "array": {
+      "object": {
+        "address": "string",
+        "chainKey": "string",
+        "decimals": "number",
+        "hubAsset": "string",
+        "name": "string",
+        "symbol": "string",
+        "vault": "string"
+      }
+    }
+  },
+  "schemas.BridgeTokensResponseSchema": {
+    "record": {
+      "key": "string",
+      "value": {
+        "array": {
+          "object": {
+            "address": "string",
+            "chainKey": "string",
+            "decimals": "number",
+            "hubAsset": "string",
+            "name": "string",
+            "symbol": "string",
+            "vault": "string"
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeBridgeApproveResponseSchema(sonic)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "custom",
+            "from": "custom",
+            "to": "custom",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "custom",
+          "from": "custom",
+          "to": "custom",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeBridgeApproveResponseSchema(solana)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "string",
+            "from": "string",
+            "to": "string",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeBridgeApproveResponseSchema(sui)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "string",
+            "from": "custom",
+            "to": "string",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "custom",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeBridgeApproveResponseSchema(stellar)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "string",
+            "from": "string",
+            "to": "string",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeBridgeApproveResponseSchema(injective-1)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "from": "custom",
+            "signedDoc": {
+              "object": {
+                "accountNumber": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                },
+                "authInfoBytes": {
+                  "pipe": [
+                    {
+                      "record": {
+                        "key": "string",
+                        "value": {
+                          "pipe": [
+                            "number",
+                            {
+                              "action": "integer"
+                            },
+                            {
+                              "action": "min_value",
+                              "requirement": 0
+                            },
+                            {
+                              "action": "max_value",
+                              "requirement": 255
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "action": "transform"
+                    }
+                  ]
+                },
+                "bodyBytes": {
+                  "pipe": [
+                    {
+                      "record": {
+                        "key": "string",
+                        "value": {
+                          "pipe": [
+                            "number",
+                            {
+                              "action": "integer"
+                            },
+                            {
+                              "action": "min_value",
+                              "requirement": 0
+                            },
+                            {
+                              "action": "max_value",
+                              "requirement": 255
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "action": "transform"
+                    }
+                  ]
+                },
+                "chainId": "string"
+              }
+            },
+            "to": "custom"
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "from": "custom",
+          "signedDoc": {
+            "object": {
+              "accountNumber": {
+                "pipe": [
+                  "string",
+                  {
+                    "action": "regex",
+                    "requirement": "/^\\d+$/"
+                  },
+                  {
+                    "action": "to_bigint"
+                  }
+                ]
+              },
+              "authInfoBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "bodyBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "chainId": "string"
+            }
+          },
+          "to": "custom"
+        }
+      }
+    }
+  },
+  "schemas.makeBridgeApproveResponseSchema(0x1.icon)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "record": {
+            "key": "string",
+            "value": {
+              "union": [
+                "string",
+                "custom"
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "record": {
+          "key": "string",
+          "value": {
+            "union": [
+              "string",
+              "custom"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeBridgeApproveResponseSchema(stacks)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "estimatedLength": {
+              "optional": "number"
+            },
+            "payload": "string"
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "estimatedLength": {
+            "optional": "number"
+          },
+          "payload": "string"
+        }
+      }
+    }
+  },
+  "schemas.makeBridgeApproveResponseSchema(near)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "params": {
+              "object": {
+                "args": "custom",
+                "contractId": "string",
+                "deposit": {
+                  "optional": {
+                    "pipe": [
+                      "string",
+                      {
+                        "action": "regex",
+                        "requirement": "/^\\d+$/"
+                      },
+                      {
+                        "action": "to_bigint"
+                      }
+                    ]
+                  }
+                },
+                "gas": {
+                  "optional": {
+                    "pipe": [
+                      "string",
+                      {
+                        "action": "regex",
+                        "requirement": "/^\\d+$/"
+                      },
+                      {
+                        "action": "to_bigint"
+                      }
+                    ]
+                  }
+                },
+                "method": "string"
+              }
+            },
+            "signerId": "string"
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "params": {
+            "object": {
+              "args": "custom",
+              "contractId": "string",
+              "deposit": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "gas": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "method": "string"
+            }
+          },
+          "signerId": "string"
+        }
+      }
+    }
+  },
+  "schemas.makeBridgeApproveResponseSchema(bitcoin)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "string",
+            "from": "string",
+            "to": "string",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeBridgeApproveResponseSchema(not-a-real-chain)": {
+    "object": {
+      "resetTx": {
+        "optional": "custom"
+      },
+      "tx": "custom"
+    }
+  },
+  "schemas.makeCreateBridgeIntentResponseSchema(sonic)": {
+    "object": {
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "custom",
+          "from": "custom",
+          "to": "custom",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCreateBridgeIntentResponseSchema(solana)": {
+    "object": {
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCreateBridgeIntentResponseSchema(sui)": {
+    "object": {
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "custom",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCreateBridgeIntentResponseSchema(stellar)": {
+    "object": {
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCreateBridgeIntentResponseSchema(injective-1)": {
+    "object": {
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "from": "custom",
+          "signedDoc": {
+            "object": {
+              "accountNumber": {
+                "pipe": [
+                  "string",
+                  {
+                    "action": "regex",
+                    "requirement": "/^\\d+$/"
+                  },
+                  {
+                    "action": "to_bigint"
+                  }
+                ]
+              },
+              "authInfoBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "bodyBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "chainId": "string"
+            }
+          },
+          "to": "custom"
+        }
+      }
+    }
+  },
+  "schemas.makeCreateBridgeIntentResponseSchema(0x1.icon)": {
+    "object": {
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "record": {
+          "key": "string",
+          "value": {
+            "union": [
+              "string",
+              "custom"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCreateBridgeIntentResponseSchema(stacks)": {
+    "object": {
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "estimatedLength": {
+            "optional": "number"
+          },
+          "payload": "string"
+        }
+      }
+    }
+  },
+  "schemas.makeCreateBridgeIntentResponseSchema(near)": {
+    "object": {
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "params": {
+            "object": {
+              "args": "custom",
+              "contractId": "string",
+              "deposit": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "gas": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "method": "string"
+            }
+          },
+          "signerId": "string"
+        }
+      }
+    }
+  },
+  "schemas.makeCreateBridgeIntentResponseSchema(bitcoin)": {
+    "object": {
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCreateBridgeIntentResponseSchema(not-a-real-chain)": {
+    "object": {
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": "custom"
+    }
+  },
+  "rawTx.EvmRawTxSchema": {
+    "object": {
+      "data": "custom",
+      "from": "custom",
+      "to": "custom",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "rawTx.InjectiveRawTxSchema": {
+    "object": {
+      "from": "custom",
+      "signedDoc": {
+        "object": {
+          "accountNumber": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          },
+          "authInfoBytes": {
+            "pipe": [
+              {
+                "record": {
+                  "key": "string",
+                  "value": {
+                    "pipe": [
+                      "number",
+                      {
+                        "action": "integer"
+                      },
+                      {
+                        "action": "min_value",
+                        "requirement": 0
+                      },
+                      {
+                        "action": "max_value",
+                        "requirement": 255
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "action": "transform"
+              }
+            ]
+          },
+          "bodyBytes": {
+            "pipe": [
+              {
+                "record": {
+                  "key": "string",
+                  "value": {
+                    "pipe": [
+                      "number",
+                      {
+                        "action": "integer"
+                      },
+                      {
+                        "action": "min_value",
+                        "requirement": 0
+                      },
+                      {
+                        "action": "max_value",
+                        "requirement": 255
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "action": "transform"
+              }
+            ]
+          },
+          "chainId": "string"
+        }
+      },
+      "to": "custom"
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(sonic)": {
+    "object": {
+      "data": "custom",
+      "from": "custom",
+      "to": "custom",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(solana)": {
+    "object": {
+      "data": "string",
+      "from": "string",
+      "to": "string",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(sui)": {
+    "object": {
+      "data": "string",
+      "from": "custom",
+      "to": "string",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(stellar)": {
+    "object": {
+      "data": "string",
+      "from": "string",
+      "to": "string",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(injective-1)": {
+    "object": {
+      "from": "custom",
+      "signedDoc": {
+        "object": {
+          "accountNumber": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          },
+          "authInfoBytes": {
+            "pipe": [
+              {
+                "record": {
+                  "key": "string",
+                  "value": {
+                    "pipe": [
+                      "number",
+                      {
+                        "action": "integer"
+                      },
+                      {
+                        "action": "min_value",
+                        "requirement": 0
+                      },
+                      {
+                        "action": "max_value",
+                        "requirement": 255
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "action": "transform"
+              }
+            ]
+          },
+          "bodyBytes": {
+            "pipe": [
+              {
+                "record": {
+                  "key": "string",
+                  "value": {
+                    "pipe": [
+                      "number",
+                      {
+                        "action": "integer"
+                      },
+                      {
+                        "action": "min_value",
+                        "requirement": 0
+                      },
+                      {
+                        "action": "max_value",
+                        "requirement": 255
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "action": "transform"
+              }
+            ]
+          },
+          "chainId": "string"
+        }
+      },
+      "to": "custom"
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(0x1.icon)": {
+    "record": {
+      "key": "string",
+      "value": {
+        "union": [
+          "string",
+          "custom"
+        ]
+      }
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(stacks)": {
+    "object": {
+      "estimatedLength": {
+        "optional": "number"
+      },
+      "payload": "string"
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(near)": {
+    "object": {
+      "params": {
+        "object": {
+          "args": "custom",
+          "contractId": "string",
+          "deposit": {
+            "optional": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          },
+          "gas": {
+            "optional": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          },
+          "method": "string"
+        }
+      },
+      "signerId": "string"
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(bitcoin)": {
+    "object": {
+      "data": "string",
+      "from": "string",
+      "to": "string",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(not-a-real-chain)": "custom"
+}
