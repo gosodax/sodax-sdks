@@ -33,7 +33,7 @@ v2 cross-chain mutation methods return `TxHashPair = { srcChainTxHash, dstChainT
 + const { srcChainTxHash, dstChainTxHash } = result.value;
 ```
 
-Same `TxHashPair` shape as every other cross-chain mutation in v2.
+Same `TxHashPair` shape as every other cross-chain mutation in v2, except `borrow` / `withdraw` (and `dex.assetService.withdraw`) from Tron: see [`ai-rules.md`](../../../integration/knowledge/ai-rules.md).
 
 ### Everything else
 

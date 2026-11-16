@@ -252,6 +252,12 @@ See [`features/stacks.md`](./features/stacks.md).
 
 ---
 
+## Tron
+
+[`TronWalletProvider.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/TronWalletProvider.test.ts) constructs both modes; see [`features/tron.md`](./features/tron.md).
+
+---
+
 ## Next steps
 
 After construction:

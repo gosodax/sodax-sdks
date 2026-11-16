@@ -9,6 +9,8 @@ import {
 } from '../guards.js';
 import { canonicalizeBitcoinAddress, isValidBitcoinAddress } from '../entities/btc/btc-utils.js';
 import type { ConfigService } from '../config/ConfigService.js';
+import { SodaxError } from '../../errors/SodaxError.js';
+import type { SodaxErrorContext } from '../../errors/codes.js';
 import {
   type SpokeChainKey,
   type Hex,
@@ -20,8 +22,11 @@ import {
   FEE_PERCENTAGE_SCALE,
   type PartnerFee,
   type QuoteType,
+  getUnmetMpcPayoutMinimum,
+  type SodaxFeature,
 } from '@sodax/types';
-import { hexToBytes, isAddress, toHex } from 'viem';
+import { formatUnits, hexToBytes, isAddress, toHex } from 'viem';
+import { tronHashToBase58, tronIdentityBytes, tronRecipientBytes } from '../services/spoke/tron-utils.js';
 import { bcs } from '@mysten/sui/bcs';
 import { PublicKey } from '@solana/web3.js';
 import { Address as StellarAddress, xdr } from '@stellar/stellar-sdk';
@@ -149,6 +154,46 @@ export function BigIntToHex(value: bigint): Hex {
   return `0x${value.toString(16)}`;
 }
 
+/**
+ * Refuses a payout at or below its {@link MpcRelayPayoutMinimums} entry, before anything is signed: the relay
+ * takes its release fee from the payout and releases nothing once the fee reaches it, after the hub has burned it.
+ */
+export function assertMpcPayoutAboveMinimum({
+  feature,
+  token,
+  amount,
+  amountDecimals,
+  context,
+}: {
+  feature: SodaxFeature;
+  token: Pick<XToken, 'chainKey' | 'symbol' | 'decimals'>;
+  amount: bigint;
+  /** Decimals `amount` is in, when not the token's own. */
+  amountDecimals?: number;
+  context?: Partial<SodaxErrorContext>;
+}): void {
+  const unmet = getUnmetMpcPayoutMinimum({ token, amount, amountDecimals });
+  if (!unmet) return;
+  throw new SodaxError(
+    'VALIDATION_FAILED',
+    `A ${unmet.symbol} payout to ${token.chainKey} must be greater than ${formatUnits(unmet.minimum, unmet.decimals)} ${unmet.symbol}: the relay's release fee comes out of it`,
+    { feature, context: { phase: 'validate', ...context, reason: 'mpc-payout-below-minimum' } },
+  );
+}
+
+/**
+ * Recipient bytes for a hub release — the `to` an `AssetManager.transfer` pays out to.
+ *
+ * This is NOT {@link encodeAddress}, which produces the withdrawal-auth identity / hub-wallet salt.
+ * Tron's release reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so its recipient is the
+ * left-padded word; the bare identity mis-decodes. The chain type picks the encoding, never the relay
+ * a chain settles through; every other type keeps {@link encodeAddress}.
+ */
+export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): Hex {
+  if (getChainType(spokeChainId) === 'TRON') return tronRecipientBytes(address);
+  return encodeAddress(spokeChainId, address);
+}
+
 export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex {
   const chainType = getChainType(spokeChainId);
   switch (chainType) {
@@ -183,6 +228,9 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
     case 'INJECTIVE':
       invariant(isValidInjectiveAddress(address), `Invalid Injective address: ${address}`);
       return toHex(Buffer.from(address, 'utf-8'));
+    case 'TRON':
+      // Tron's hub-wallet identity is the 20-byte address hash: base58 payload without the 0x41 byte.
+      return tronIdentityBytes(address);
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);
@@ -250,6 +298,15 @@ export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex):
     case 'NEAR':
     case 'INJECTIVE':
       return Buffer.from(hexToBytes(encoded)).toString('utf8');
+    case 'TRON': {
+      // Accepts the 20-byte identity and the padded `encodeRecipient` word intents store as srcAddress.
+      const hash = encoded.replace(/^0x/, '').toLowerCase();
+      if (hash.length === 64) {
+        invariant(hash.startsWith('0'.repeat(24)), `Invalid Tron recipient word: ${encoded}`);
+        return tronHashToBase58(hash.slice(24));
+      }
+      return tronHashToBase58(hash);
+    }
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);

@@ -83,7 +83,7 @@ Follow in order. Skipping `ai-rules.md` is the most common cause of agents rever
 3. For your feature, read [`integration/knowledge/features/`](./integration/knowledge/features/) — `swap.md`, `money-market.md`, `staking.md`, `bridge.md`, `dex.md`, `leverage-yield.md`, `migration.md`, `partner.md`, `recovery.md`, `sponsoring.md`, `backend-api.md`, `swaps-api.md`, `bridge-api.md`, `leverage-yield-api.md`.
 4. For specific patterns (init, raw vs signed, chain narrowing, gas, testing, errors, logging), read [`integration/knowledge/recipes/`](./integration/knowledge/recipes/).
 5. Lookups (chain keys, error codes, public API surface, wallet provider types, glossary) → [`integration/knowledge/reference/`](./integration/knowledge/reference/).
-6. Non-EVM quirks (Stellar trustline, BTC PSBT, Solana PDA, ICON, NEAR) → [`integration/knowledge/chain-specifics.md`](./integration/knowledge/chain-specifics.md).
+6. Non-EVM quirks (Stellar trustline, BTC PSBT, Solana PDA, ICON, NEAR, Tron MPC relay) → [`integration/knowledge/chain-specifics.md`](./integration/knowledge/chain-specifics.md).
 
 ### v2 in one minute
 

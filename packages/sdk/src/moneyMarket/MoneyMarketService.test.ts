@@ -23,8 +23,10 @@ import {
   type IStellarWalletProvider,
   type Result,
   type SpokeChainKey,
+  tronSupportedTokens,
 } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
+import type { MpcWithdrawalSettlement, TxHashPair } from '../shared/types/types.js';
 import { SodaxError } from '../errors/SodaxError.js';
 import { decodeFunctionData, keccak256, stringToBytes } from 'viem';
 import { poolAbi } from '../shared/abis/pool.abi.js';
@@ -59,6 +61,7 @@ import {
   type MoneyMarketWithdrawActionParams,
   type MoneyMarketWithdrawParams,
 } from './MoneyMarketService.js';
+import { TRON_TEST_ADDRESS, TRON_TEST_RECIPIENT_WORD } from '../shared/services/spoke/tron-test-fixtures.js';
 
 // --- test fixtures --------------------------------------------------------
 //
@@ -77,6 +80,10 @@ const USER_ROUTER = '0x3333333333333333333333333333333333333333' as Address;
 const SAMPLE_EVM_TOKEN = '0x2170Ed0880ac9A755fd29B2688956BD959F933F8' as Address;
 const SAMPLE_USER_ADDRESS = '0x4444444444444444444444444444444444444444' as Address;
 const SAMPLE_DST_ADDRESS = '0x5555555555555555555555555555555555555555' as Address;
+
+// A Tron account and the two encodings it has on the hub. `encodeAddress` yields the bare 20-byte
+// identity (what derives the hub wallet); `encodeRecipient` left-pads it to a 32-byte word, which is
+// what AssetManager.transfer expects as the delivery address.
 
 // Wallet provider fakes — shape-only; the bodies are never invoked at runtime because
 // every spoke method that would touch them is stubbed.
@@ -1493,6 +1500,27 @@ describe('MoneyMarketService.createBorrowIntent', () => {
       expect(call?.walletProvider).toBe(mockEvmProvider);
     });
 
+    it('on a Tron destination: pads the recipient to 32 bytes for the asset-manager transfer', async () => {
+      const buildSpy = vi.spyOn(sodax.moneyMarket, 'buildBorrowData').mockReturnValueOnce('0xborrow-data');
+      vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xsend-hash' });
+
+      const result = await sodax.moneyMarket.createBorrowIntent({
+        raw: false,
+        params: {
+          ...borrowParams(ChainKeys.BSC_MAINNET),
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstAddress: TRON_TEST_ADDRESS,
+        },
+        walletProvider: mockEvmProvider,
+      });
+
+      expect(result.ok).toBe(true);
+      // An MPC-relay recipient reaches AssetManager.transfer as a 32-byte word (12 zero bytes then
+      // the 20-byte account), not the bare identity form used to derive the hub wallet. The bare
+      // form is still accepted on-chain, so getting this wrong delivers funds to a dead address.
+      expect(buildSpy.mock.calls[0]?.[1]).toBe(TRON_TEST_RECIPIENT_WORD);
+    });
+
     it('on Bitcoin source: derives the hub wallet from the trading address but passes the personal srcAddress', async () => {
       const TRADING = 'bc1p-trading-wallet';
       const getEffSpy = vi.spyOn(sodax.spoke.bitcoin, 'getEffectiveWalletAddress').mockResolvedValue(TRADING);
@@ -1764,6 +1792,31 @@ describe('MoneyMarketService.borrow', () => {
       expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledTimes(1);
     });
 
+    // The intent relay never delivers to Tron; the MPC relay releases once the hub tx is notified.
+    it('on hub with a Tron target: settles the release on the MPC relay, not the intent relay', async () => {
+      vi.spyOn(sodax.moneyMarket, 'createBorrowIntent').mockResolvedValueOnce({
+        ok: true,
+        value: { tx: '0xhub-tx', relayData: { address: HUB_WALLET, payload: '0x' } },
+      });
+      const release = vi
+        .spyOn(sodax.spoke, 'settleHubRelease')
+        .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xhub-tx', dstChainTxHash: 'TronPayout' } });
+
+      const result = await sodax.moneyMarket.borrow({
+        raw: false,
+        params: {
+          ...borrowParams(ChainKeys.SONIC_MAINNET),
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstAddress: TRON_TEST_ADDRESS,
+        },
+        walletProvider: mockEvmProvider,
+      });
+
+      expect(release).toHaveBeenCalledWith('0xhub-tx', ChainKeys.TRON_MAINNET, expect.anything());
+      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
+      expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xhub-tx', dstChainTxHash: 'TronPayout' } });
+    });
+
     it('on EVM spoke: relays the packet', async () => {
       vi.spyOn(sodax.moneyMarket, 'createBorrowIntent').mockResolvedValueOnce({
         ok: true,
@@ -1925,6 +1978,27 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
       const call = sendSpy.mock.calls[0]?.[0];
       expect(call?.payload).toBe('0xwithdraw-data');
       expect(call?.raw).toBe(false);
+    });
+
+    it('on a Tron destination: pads the recipient to 32 bytes for the asset-manager transfer', async () => {
+      const buildSpy = vi.spyOn(sodax.moneyMarket, 'buildWithdrawData').mockReturnValueOnce('0xwithdraw-data');
+      vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xsend-hash' });
+
+      const result = await sodax.moneyMarket.createWithdrawIntent({
+        raw: false,
+        params: {
+          ...withdrawParams(ChainKeys.BSC_MAINNET),
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstAddress: TRON_TEST_ADDRESS,
+        },
+        walletProvider: mockEvmProvider,
+      });
+
+      expect(result.ok).toBe(true);
+      // An MPC-relay recipient reaches AssetManager.transfer as a 32-byte word (12 zero bytes then
+      // the 20-byte account), not the bare identity form used to derive the hub wallet. The bare
+      // form is still accepted on-chain, so getting this wrong delivers funds to a dead address.
+      expect(buildSpy.mock.calls[0]?.[1]).toBe(TRON_TEST_RECIPIENT_WORD);
     });
 
     it('on Bitcoin source: derives the hub wallet from the trading address but passes the personal srcAddress', async () => {
@@ -3314,5 +3388,140 @@ describe('buildBorrowData / buildWithdrawData — remaining branch coverage', ()
     );
 
     expect(data.startsWith('0x')).toBe(true);
+  });
+});
+
+// =========================================================================
+// hub-only actions still verify the source tx (they return before `settle`, which verifies spokes)
+// =========================================================================
+
+describe('MoneyMarketService — hub-only actions verify the source tx', () => {
+  const HUB = ChainKeys.SONIC_MAINNET;
+  const intent = {
+    ok: true as const,
+    value: { tx: '0xhub-tx', relayData: { address: HUB_WALLET, payload: '0x' as const } },
+  };
+
+  const cases = [
+    {
+      action: 'supply',
+      stub: () => vi.spyOn(sodax.moneyMarket, 'createSupplyIntent').mockResolvedValueOnce(intent),
+      run: () => sodax.moneyMarket.supply({ raw: false, params: supplyParams(HUB), walletProvider: mockEvmProvider }),
+    },
+    {
+      action: 'borrow',
+      stub: () => vi.spyOn(sodax.moneyMarket, 'createBorrowIntent').mockResolvedValueOnce(intent),
+      run: () => sodax.moneyMarket.borrow({ raw: false, params: borrowParams(HUB), walletProvider: mockEvmProvider }),
+    },
+    {
+      action: 'withdraw',
+      stub: () => vi.spyOn(sodax.moneyMarket, 'createWithdrawIntent').mockResolvedValueOnce(intent),
+      run: () =>
+        sodax.moneyMarket.withdraw({ raw: false, params: withdrawParams(HUB), walletProvider: mockEvmProvider }),
+    },
+    {
+      action: 'repay',
+      stub: () => vi.spyOn(sodax.moneyMarket, 'createRepayIntent').mockResolvedValueOnce(intent),
+      run: () => sodax.moneyMarket.repay({ raw: false, params: repayParams(HUB), walletProvider: mockEvmProvider }),
+    },
+  ];
+
+  it.each(cases)('$action: verifies the hub tx and surfaces a verification failure', async ({ action, stub, run }) => {
+    stub();
+    const verifyError = new Error('VERIFY_FAILED');
+    const verifySpy = vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValueOnce({ ok: false, error: verifyError });
+
+    const result = await run();
+
+    expect(verifySpy).toHaveBeenCalledWith({ txHash: '0xhub-tx', chainKey: HUB });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('TX_VERIFICATION_FAILED');
+    expect(result.error.cause).toBe(verifyError);
+    expect(result.error.context?.action).toBe(action);
+    expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
+  });
+});
+
+describe('MoneyMarketService — outbound result by source chain', () => {
+  type Settled<K extends SpokeChainKey> = Extract<
+    Awaited<ReturnType<typeof sodax.moneyMarket.borrow<K>>>,
+    { ok: true }
+  >['value'];
+
+  // A withdraw-auth has no Tron tx, so its tracking id never fills a tx-hash field.
+  it('types a borrow from Tron as a withdraw-auth settlement and any other as a tx pair', () => {
+    expectTypeOf<Settled<typeof ChainKeys.TRON_MAINNET>>().toEqualTypeOf<MpcWithdrawalSettlement>();
+    expectTypeOf<Settled<typeof ChainKeys.ARBITRUM_MAINNET>>().toEqualTypeOf<TxHashPair>();
+    expectTypeOf<Settled<SpokeChainKey>>().toEqualTypeOf<TxHashPair | MpcWithdrawalSettlement>();
+  });
+});
+
+describe('MoneyMarketService — small payout to an MPC-relay chain', () => {
+  const usdt = {
+    address: tronSupportedTokens.USDT.address,
+    chainKey: ChainKeys.TRON_MAINNET,
+    symbol: 'USDT',
+    decimals: 6,
+  };
+
+  const setup = () => {
+    vi.spyOn(sodax.config, 'getMoneyMarketToken').mockReturnValue(usdt as never);
+    vi.spyOn(sodax.config, 'isMoneyMarketSupportedToken').mockReturnValue(true);
+    vi.spyOn(sodax.moneyMarket, 'buildWithdrawData').mockReturnValue('0xwithdraw-data');
+    return vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValue({ ok: true, value: '0xsend-hash' });
+  };
+  const run = (method: 'createBorrowIntent' | 'createWithdrawIntent', amount: bigint, raw: boolean) =>
+    sodax.moneyMarket[method]({
+      raw,
+      ...(raw ? {} : { walletProvider: mockEvmProvider }),
+      params: {
+        ...borrowParams(ChainKeys.BSC_MAINNET),
+        action: method === 'createBorrowIntent' ? 'borrow' : 'withdraw',
+        token: usdt.address,
+        amount,
+        dstChainKey: ChainKeys.TRON_MAINNET,
+        dstAddress: TRON_TEST_ADDRESS,
+      },
+    } as never);
+  const cases = [
+    ['createBorrowIntent', false],
+    ['createBorrowIntent', true],
+    ['createWithdrawIntent', false],
+    ['createWithdrawIntent', true],
+  ] as const;
+
+  it.each(cases)('%s (raw: %s) refuses the minimum before signing', async (method, raw) => {
+    const send = setup();
+
+    const result = await run(method, 3_000_000n, raw);
+
+    if (result.ok) throw new Error('expected a refusal');
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.reason).toBe('mpc-payout-below-minimum');
+    expect(result.error.message).toContain('must be greater than 3 USDT');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each(cases)('%s (raw: %s) sends above it', async (method, raw) => {
+    const send = setup();
+
+    expect((await run(method, 3_000_001n, raw)).ok).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('checks a borrow on what it pays out after the partner fee', async () => {
+    const send = setup();
+    vi.spyOn(sodax.moneyMarket, 'partnerFee', 'get').mockReturnValue({
+      address: '0x9999999999999999999999999999999999999999',
+      percentage: 1_000,
+    });
+
+    // 10% off 3.1 USDT leaves 2.79, under the 3 USDT floor; off 3.4 USDT it leaves 3.06.
+    const refused = await run('createBorrowIntent', 3_100_000n, true);
+    if (refused.ok) throw new Error('expected a refusal');
+    expect(refused.error.context?.reason).toBe('mpc-payout-below-minimum');
+    expect((await run('createBorrowIntent', 3_400_000n, true)).ok).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });

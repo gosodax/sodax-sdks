@@ -4,7 +4,7 @@ Lookup tables and inventories. Each file is focused on one domain — token-chea
 
 | File | Contents |
 |---|---|
-| [`chain-keys.md`](chain-keys.md) | All 20 `ChainKeys.*` values × chain family × address-type mapping. Chain-family helper functions. Type aliases (`ChainKey`, `SpokeChainKey`, `EvmChainKey`, `HubChainKey`). |
+| [`chain-keys.md`](chain-keys.md) | `ChainKeys.*` values × chain family × address-type mapping. Chain-family helper functions. Type aliases (`ChainKey`, `SpokeChainKey`, `EvmChainKey`, `HubChainKey`). |
 | [`wallet-providers.md`](wallet-providers.md) | `I*WalletProvider` interfaces per chain family. `chainType` discriminant. `GetWalletProviderType<K>`. `IWalletProvider` broad union. Implementation source (consumer's own, or `@sodax/wallet-sdk-core` separate package). |
 | [`error-codes.md`](error-codes.md) | The 13 unified `SodaxErrorCode` values + meanings + retry guidance + common context fields. The 9 `SodaxFeature` tags (8 domain + `'backend'` for the HTTP-client layer). The `SodaxPhase` orchestration tags. Per-method narrow code unions for every public method on every service. |
 | [`public-api.md`](public-api.md) | What `@sodax/sdk` barrel exports. Import-rule contract (root-only, no deep imports, types re-exported from `@sodax/types`). |

@@ -74,7 +74,7 @@ The chain config is no longer something the consumer constructs — it's loaded 
 + if (getChainType(chainKey) === 'EVM') { /* … */ }
 ```
 
-`getChainType(chainKey)` (from `@sodax/sdk`) returns `'EVM' | 'BITCOIN' | 'SOLANA' | 'STELLAR' | 'SUI' | 'ICON' | 'INJECTIVE' | 'STACKS' | 'NEAR'` and is the canonical chain-family discriminator.
+`getChainType(chainKey)` (from `@sodax/sdk`) returns a `ChainType` (`'EVM' | 'BITCOIN' | …`; full set in `ChainTypeArr`) and is the canonical chain-family discriminator.
 
 Family-level helper guards (`isEvmChainKeyType`, `isBitcoinChainKeyType`, `isSolanaChainKeyType`, etc.) are also exported from `@sodax/sdk` for cases where you want a typed boolean.
 

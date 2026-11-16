@@ -25,8 +25,9 @@ sodax.bridge.buildApproveTxs<K>(action: BridgeParams<K, true>): Promise<Result<A
 sodax.bridge.isAllowanceValid<K, Raw>(args): Promise<Result<boolean, SodaxError>>;
 
 // Routes from the source tx to whichever source can answer — the backend record while it is in
-// play, else the delivered relay packet. Covers a bridge the client-side fallback completed.
-sodax.bridge.getDetailedStatus({ srcChainKey, srcTxHash }, config?): Promise<Result<DetailedBridgeStatus, SodaxError>>;
+// play, else the delivered relay packet (an MPC-relay leg: its deposit or release record; from Tron to
+// another spoke, with dstChainKey, the hub-to-spoke packet). Covers a bridge the client-side fallback completed.
+sodax.bridge.getDetailedStatus({ srcChainKey, srcTxHash, dstChainKey? }, config?): Promise<Result<DetailedBridgeStatus, SodaxError>>;
 
 sodax.bridge.getBridgeableAmount(from: XToken, to: XToken): Promise<Result<BridgeLimit, SodaxError>>;
 sodax.bridge.getBridgeableTokens(from: SpokeChainKey, to: SpokeChainKey, token: string): Result<XToken[], SodaxError>;
@@ -91,11 +92,12 @@ const result = await sodax.bridge.bridge({
 
 - **Native BTC dust limit (`BITCOIN_DUST_SATS` = 546 sats).** Native BTC is denominated in satoshis, and outputs below the dust limit are unspendable/rejected by nodes. Bitcoin as **source**: `amount >= 546`. Bitcoin as **destination**: the *post-fee delivered* amount must clear 546 — the partner fee is deducted on the hub in 18-dp vault units, so a percentage fee or a wei-denominated fixed `PartnerFee.amount` can push a nominally valid `amount` under the limit. Both fail `VALIDATION_FAILED` on `field: 'amount'`.
 - **Stacks + `raw: true`** requires `extras.srcPublicKey` (above).
+- **Tron payout floor.** A bridge to Tron fails `VALIDATION_FAILED` on `field: 'amount'` (`context.reason: 'mpc-payout-below-minimum'`) when the post-partner-fee delivered amount is at or below `MpcRelayPayoutMinimums`; pre-check with `getUnmetMpcPayoutMinimum`.
 - Amount must be `> 0n`; both chain keys must be registered spoke chains; both tokens must be supported on their chain and share a vault.
 
 ## Routing the spoke deposit through the backend
 
-`bridge()` routes the spoke-deposit through the backend Bridge API by default (`bridge.useBackendSubmitTx`, default ON) — `sodax.api.bridge` relays server-side and falls back to the client-side relay on any non-success — safe because re-relaying is idempotent. Set `new Sodax({ bridge: { useBackendSubmitTx: false } })` to force the client-side path. As with swaps, the SDK does not verify the deposit on-chain before handing it over — the backend verifies itself, so `verifyTxHash` runs on the client-side path only. `timeout` (defaults to `DEFAULT_RELAY_TX_TIMEOUT`) is a PER-ATTEMPT budget, same terms as swaps: the backend attempt gets it and the fallback relay gets a fresh one starting after verification, so neither a stalled backend nor a slow confirmation shortens the fallback. Worst case is `createBridgeIntent + timeout + verification + max(timeout, RELAY_FALLBACK_FLOOR_MS)` — intent creation and verification (the source chain's `pollingConfig.maxTimeoutMs`) are not bounded by `timeout`. Bridge has no post-execution term. See [`bridge-api.md`](bridge-api.md).
+`bridge()` routes the spoke-deposit through the backend Bridge API by default (`bridge.useBackendSubmitTx`, default ON; a bridge to or from Tron always settles client-side) — `sodax.api.bridge` relays server-side and falls back to the client-side relay on any non-success — safe because re-relaying is idempotent. Set `new Sodax({ bridge: { useBackendSubmitTx: false } })` to force the client-side path. As with swaps, the SDK does not verify the deposit on-chain before handing it over — the backend verifies itself, so `verifyTxHash` runs on the client-side path only. `timeout` (defaults to `DEFAULT_RELAY_TX_TIMEOUT`) is a PER-ATTEMPT budget, same terms as swaps: the backend attempt gets it and the fallback relay gets a fresh one starting after verification, so neither a stalled backend nor a slow confirmation shortens the fallback. Worst case is `createBridgeIntent + timeout + verification + max(timeout, RELAY_FALLBACK_FLOOR_MS)` — intent creation and verification (the source chain's `pollingConfig.maxTimeoutMs`) are not bounded by `timeout`. Bridge has no post-execution term. See [`bridge-api.md`](bridge-api.md).
 
 ## Common call shapes
 
@@ -205,7 +207,7 @@ if (result.ok) {
 | Method | Success type |
 |---|---|
 | `bridge` | `TxHashPair` |
-| `createBridgeIntent` | `IntentTxResult<K, Raw>` = `{ tx: TxReturnType<K, Raw>, relayData }` |
+| `createBridgeIntent` | `IntentTxResult<K, Raw>` = `{ tx, relayData }` |
 | `approve` | `TxReturnType<K, Raw>` |
 | `buildApproveTxs` | `ApprovalTxs<K> = { approveTx, resetTx? }` |
 | `isAllowanceValid` | `boolean` |

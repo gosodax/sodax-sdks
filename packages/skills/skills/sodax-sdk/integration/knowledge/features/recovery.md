@@ -12,10 +12,10 @@ Access: `sodax.recovery`. Service class: `RecoveryService`. Feature tag for erro
 sodax.recovery.fetchHubAssetBalances(args): Promise<Result<HubAssetBalance[], SodaxError>>;
 
 // Mutation: withdraw a single hub asset back to a spoke chain.
-// Returns a single chain-specific tx hash (a TxReturnType) when raw: false — not a tx-pair.
+// Returns a single chain-specific tx hash when raw: false — not a tx-pair; from Tron, the relay's trackingId.
 sodax.recovery.withdrawHubAsset<K extends SpokeChainKey, Raw extends boolean>(
   action: WithdrawHubAssetAction<K, Raw>,
-): Promise<Result<TxReturnType<K, Raw>, SodaxError>>;
+): Promise<Result<SendMessageReturnType<K, Raw>, SodaxError>>;
 ```
 
 ## Common call shape

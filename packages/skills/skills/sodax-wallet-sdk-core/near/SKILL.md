@@ -47,7 +47,7 @@ Granular skill for `NearWalletProvider` — the low-level NEAR wallet for backen
 
 ## Related skills (same family)
 
-Sibling chain skills follow the same shape — evm, solana, sui, bitcoin, stellar, icon, injective, stacks. For multi-chain or undecided work, load the broad [`sodax-wallet-sdk-core` skill](../SKILL.md).
+Sibling chain skills follow the same shape — evm, solana, sui, bitcoin, stellar, icon, injective, stacks, tron. For multi-chain or undecided work, load the broad [`sodax-wallet-sdk-core` skill](../SKILL.md).
 
 ## Passing the provider into the SDK (different package family)
 

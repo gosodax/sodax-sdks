@@ -5,6 +5,8 @@ import {
   HttpRelayError,
   RELAY_REQUEST_TIMEOUT_MS,
 } from '../shared/services/intentRelay/IntentRelayApiService.js';
+import type { DepositRecord } from '../shared/services/mpcRelay/MpcRelayApiService.js';
+import type { SpokeService } from '../shared/services/spoke/SpokeService.js';
 import type { PacketData } from '../shared/types/relay-types.js';
 import { IntentEventTypeSchema } from './backendApiSchemas.js';
 import type { IntentResponse } from './BackendApiService.js';
@@ -145,4 +147,88 @@ export async function resolveDeliveredPacket(params: {
   }
 
   return { ok: true, packet: delivered };
+}
+
+/** The hub tx a source tx delivered, or why it could not be read — shaped like {@link DeliveredPacketResult}. */
+export type DeliveredHubTxResult = { ok: true; hubTxHash: string } | { ok: false; cause: unknown; budgetable: boolean };
+
+/** An MPC-relay deposit that reached the hub, or why it has not — shaped like {@link DeliveredPacketResult}. */
+export type MintedDepositResult =
+  | { ok: true; deposit: DepositRecord; hubTxHash: string }
+  | { ok: false; cause: unknown; budgetable: boolean };
+
+/**
+ * The deposit record of an MPC-relay source tx once the hub mint is recorded, or `undefined` when the
+ * chain rides the intent relay. An MPC-relay chain never produces an intent-relay packet.
+ *
+ * An unminted deposit is the same ambiguous miss as an undelivered packet: the relay answers an
+ * unknown deposit as `pending` rather than a 404, so a stuck and an in-flight deposit look alike.
+ */
+export async function resolveMintedMpcDeposit(params: {
+  srcChainKey: SpokeChainKey;
+  srcTxHash: string;
+  backendAnswered: boolean;
+  spoke: SpokeService;
+}): Promise<MintedDepositResult | undefined> {
+  const deposit = await params.spoke.getMpcRelayDeposit(params.srcChainKey, params.srcTxHash);
+  if (!deposit) return undefined;
+  if (!deposit.ok) return { ok: false, cause: deposit.error, budgetable: false };
+
+  const { status, txs } = deposit.value;
+  const hubMint = txs?.hubMint?.hash;
+  if ((status === 'minted' || status === 'swept') && hubMint) {
+    return { ok: true, deposit: deposit.value, hubTxHash: hubMint };
+  }
+  return {
+    ok: false,
+    cause: new Error(`mpc relay has not minted this deposit on the hub yet (status: ${status})`),
+    budgetable: params.backendAnswered,
+  };
+}
+
+/** A release to an MPC-relay chain that was paid out, or why it has not been — shaped like {@link MintedDepositResult}. */
+export type PaidHubReleaseResult =
+  | { ok: true; release: DepositRecord }
+  | { ok: false; cause: unknown; budgetable: boolean };
+
+/**
+ * The record of the release a hub tx sends to an MPC-relay chain once `txs.release` holds the payout tx,
+ * or `undefined` when it sends none. The intent relay has no packet for such a leg, since the hub emits
+ * a `BridgeRequest` rather than a message, so this is the only source that can answer for it.
+ *
+ * An unpaid release is the same ambiguous miss as an undelivered packet: the relay answers an unknown
+ * release as `pending`, and its `status` never names a release at all.
+ */
+export async function resolvePaidHubRelease(params: {
+  hubTxHash: string;
+  backendAnswered: boolean;
+  spoke: SpokeService;
+}): Promise<PaidHubReleaseResult | undefined> {
+  const release = await params.spoke.getHubRelease(params.hubTxHash);
+  if (!release) return undefined;
+  if (!release.ok) return { ok: false, cause: release.error, budgetable: false };
+  if (release.value.txs?.release?.hash) return { ok: true, release: release.value };
+  return {
+    ok: false,
+    cause: new Error(`mpc relay has not paid out the release from hub tx ${params.hubTxHash} yet`),
+    budgetable: params.backendAnswered,
+  };
+}
+
+/**
+ * The hub tx a non-hub source tx delivered: the minted deposit record on an MPC-relay chain
+ * ({@link resolveMintedMpcDeposit}), the delivered packet ({@link resolveDeliveredPacket}) on any other.
+ */
+export async function resolveDeliveredHubTxHash(params: {
+  srcChainKey: SpokeChainKey;
+  srcTxHash: string;
+  relayerApiEndpoint: HttpUrl;
+  backendAnswered: boolean;
+  spoke: SpokeService;
+}): Promise<DeliveredHubTxResult> {
+  const minted = await resolveMintedMpcDeposit(params);
+  if (minted) return minted.ok ? { ok: true, hubTxHash: minted.hubTxHash } : minted;
+
+  const delivered = await resolveDeliveredPacket(params);
+  return delivered.ok ? { ok: true, hubTxHash: delivered.packet.dst_tx_hash } : delivered;
 }

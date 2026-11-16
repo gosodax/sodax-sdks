@@ -13,7 +13,7 @@ import {
   parseEventLogs,
 } from 'viem';
 import { Erc20Service } from '../shared/services/erc-20/Erc20Service.js';
-import { calculatePercentageFeeAmount, encodeAddress, randomUint256 } from '../shared/utils/shared-utils.js';
+import { calculatePercentageFeeAmount, encodeRecipient, randomUint256 } from '../shared/utils/shared-utils.js';
 import { encodeContractCalls } from '../shared/utils/evm-utils.js';
 import { isPartnerFeeAmount, isPartnerFeePercentage } from '../shared/guards.js';
 import {
@@ -125,8 +125,8 @@ export class EvmSolverService {
       allowPartialFill: createIntentParams.allowPartialFill,
       srcChain: getIntentRelayChainId(createIntentParams.srcChainKey),
       dstChain: getIntentRelayChainId(createIntentParams.dstChainKey),
-      srcAddress: encodeAddress(createIntentParams.srcChainKey, createIntentParams.srcAddress),
-      dstAddress: encodeAddress(createIntentParams.dstChainKey, dstAddress),
+      srcAddress: encodeRecipient(createIntentParams.srcChainKey, createIntentParams.srcAddress),
+      dstAddress: encodeRecipient(createIntentParams.dstChainKey, dstAddress),
       solver: createIntentParams.solver ?? '0x0000000000000000000000000000000000000000',
       data: intentData, // fee amount will be deducted from the input amount; may also carry delivery data
     } satisfies Intent;

@@ -137,6 +137,31 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
   const [sourceAmount, setSourceAmount] = useState<string>('');
   const [intentOrderPayload, setIntentOrderPayload] = useState<CreateIntentParams | undefined>(undefined);
   const supportedSpokeChains = sodax.config.getSupportedSpokeChains();
+  // Only chains the selected environment can actually swap. A chain listed in one environment but
+  // not the other (Tron is staging-only) otherwise resolves to an undefined token.
+  const swappableChains = useMemo(
+    () => supportedSpokeChains.filter(chain => getSolverTokens(chain).length > 0),
+    [supportedSpokeChains, getSolverTokens],
+  );
+
+  // Switching environment can strand a selection on a chain the new one cannot swap, so re-seed
+  // both legs from the tokens that environment actually offers.
+  useEffect(() => {
+    for (const [leg, set] of [
+      [src, setSrc],
+      [dst, setDst],
+    ] as const) {
+      const tokens = getSolverTokens(leg.chain);
+      const fallbackChain = swappableChains[0];
+      if (tokens.length === 0 && fallbackChain) {
+        const token = getSolverTokens(fallbackChain)[0];
+        if (token) set({ chain: fallbackChain, token });
+      } else if (tokens.length > 0 && !tokens.some(t => t.symbol === leg.token?.symbol)) {
+        const token = tokens[0];
+        if (token) set(prev => ({ ...prev, token }));
+      }
+    }
+  }, [getSolverTokens, swappableChains, src, dst]);
   const [open, setOpen] = useState(false);
   // A failed setup action (activation, trustline, storage); a failed swap lands in the lifecycle state.
   const [actionError, setActionError] = useState<string | null>(null);
@@ -170,11 +195,13 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
   };
 
   const onSrcChainChange = (chainId: SpokeChainKey) => {
-    setSrc({ chain: chainId, token: getSolverTokens(chainId)[0] });
+    const token = getSolverTokens(chainId)[0];
+    if (token) setSrc({ chain: chainId, token });
   };
 
   const onDestChainChange = (chainId: SpokeChainKey) => {
-    setDst({ chain: chainId, token: getSolverTokens(chainId)[0] });
+    const token = getSolverTokens(chainId)[0];
+    if (token) setDst({ chain: chainId, token });
   };
 
   // Balance fetching- Fetch source token balance for the connected wallet
@@ -424,7 +451,7 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
       <CardContent className="space-y-4">
         <div className="space-y-2">
           <SelectChain
-            chainList={supportedSpokeChains}
+            chainList={swappableChains}
             value={src.chain}
             setChain={onSrcChainChange}
             placeholder={'Select source chain'}
@@ -485,7 +512,7 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
         </div>
         <div className="space-y-2">
           <SelectChain
-            chainList={supportedSpokeChains}
+            chainList={swappableChains}
             value={dst.chain}
             setChain={onDestChainChange}
             placeholder={'Select destination chain'}

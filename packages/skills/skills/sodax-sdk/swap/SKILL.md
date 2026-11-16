@@ -36,7 +36,7 @@ Read in order. Skipping `ai-rules.md` is the most common cause of agents reverti
    - Signed one-shot → [`../integration/knowledge/recipes/signed-tx-flow.md`](../integration/knowledge/recipes/signed-tx-flow.md)
    - Backend step-by-step → [`../integration/knowledge/recipes/raw-tx-flow.md`](../integration/knowledge/recipes/raw-tx-flow.md) + [`../integration/knowledge/recipes/backend-server-init.md`](../integration/knowledge/recipes/backend-server-init.md)
 4. Error handling for swap-specific codes (`INTENT_CREATION_FAILED`, `EXECUTION_FAILED`, `RELAY_TIMEOUT`, solver-side `EXTERNAL_API_ERROR`) → [`../integration/knowledge/recipes/result-and-errors.md`](../integration/knowledge/recipes/result-and-errors.md) and [`../integration/knowledge/reference/error-codes.md`](../integration/knowledge/reference/error-codes.md).
-5. Cross-chain destination quirks (Stellar trustline, BTC PSBT, Solana PDA) → [`../integration/knowledge/chain-specifics.md`](../integration/knowledge/chain-specifics.md).
+5. Chain quirks (Stellar trustline, BTC PSBT, Solana PDA, Tron MPC relay) → [`../integration/knowledge/chain-specifics.md`](../integration/knowledge/chain-specifics.md).
 6. Reading swap status → [`../integration/knowledge/features/swap.md`](../integration/knowledge/features/swap.md) § Reading swap status. Default to `getDetailedStatus({ srcChainKey, srcTxHash })` (works whichever completion path ran) and collapse it with `summarizeSwapStatus`.
 
 ### Swap-specific anti-patterns

@@ -17,6 +17,7 @@ import type {
   NearRawTransactionReceipt,
   StacksRawTransactionReceipt,
   BitcoinRawTransactionReceipt,
+  TronRawTransactionReceipt,
   ChainType,
   GetAddressType,
   EvmSpokeOnlyChainKey,
@@ -24,6 +25,8 @@ import type {
   EvmChainKey,
   WalletProviderSlot,
 } from '@sodax/types';
+import type { RelayExtraData } from './relay-types.js';
+
 type OptionalSkipSimulation = { skipSimulation?: boolean };
 
 /*
@@ -151,7 +154,9 @@ export type GetTxReceiptType<C extends SpokeChainKey | ChainType> =
                   ? StacksRawTransactionReceipt
                   : GetChainType<C> extends 'BITCOIN'
                     ? BitcoinRawTransactionReceipt
-                    : unknown;
+                    : GetChainType<C> extends 'TRON'
+                      ? TronRawTransactionReceipt
+                      : unknown;
 
 export type TxStatus = 'success' | 'failure' | 'timeout';
 export type WaitForTxReceiptParams<C extends SpokeChainKey> = {
@@ -286,3 +291,29 @@ export type RawDestinationParams = {
   dstChainKey: SpokeChainKey;
   dstAddress: string;
 };
+
+/**
+ * Direction of the settlement a feature waits on: `inbound` is spoke→hub, `outbound` hub→spoke. The
+ * two are not symmetric per chain family; {@link SpokeService.settle} owns that behaviour.
+ */
+export type SettlementDirection = 'inbound' | 'outbound';
+
+export type SettleParams<
+  K extends SpokeChainKey = SpokeChainKey,
+  D extends SettlementDirection = SettlementDirection,
+> = {
+  chainKey: K;
+  /** What `create*Intent` returned: the spoke tx hash, or an MPC tracking id for a Tron withdrawal. */
+  tx: string;
+  direction: D;
+  relayData: RelayExtraData;
+  timeout?: number;
+  /**
+   * Spoke the action pays out to, when it ends in a transfer off the hub; omit when it ends on the hub.
+   * Drives the destination leg, which an MPC-relay chain or an MPC-produced hub tx needs driven here.
+   */
+  dstChainKey?: SpokeChainKey;
+};
+
+/** Why a settlement failed. `phase` lets a feature map it onto its own errors. */
+export type SettlementFailure = { phase: 'verification' | 'relay'; cause: unknown };
