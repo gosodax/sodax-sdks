@@ -95,6 +95,27 @@ describe('resolveAnalytics — robustness & laziness', () => {
     });
     expect(() => a.emit('swap', 'swap', 'start')).not.toThrow();
   });
+
+  it('absorbs a rejection from an async tracker so it never becomes an unhandled rejection', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    try {
+      // `AnalyticsTracker` returns `void`, which TypeScript lets an `async` function satisfy — and most
+      // collectors are a `fetch`, so a rejected promise is the realistic failure, not a sync throw.
+      const a = resolveAnalytics({
+        tracker: async () => {
+          throw new Error('collector down');
+        },
+      });
+      expect(() => a.emit('swap', 'swap', 'start')).not.toThrow();
+      // Node reports an unhandled rejection after the microtask queue drains; wait one macrotask.
+      await new Promise(resolve => setTimeout(resolve, 0));
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+    }
+    expect(unhandled).toEqual([]);
+  });
 });
 
 describe('resolveAnalytics — trackResult', () => {
