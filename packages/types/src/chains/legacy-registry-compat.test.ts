@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ChainKeys, spokeChainConfig } from './chains.js';
+import { ChainKeys, hubConfig, spokeChainConfig } from './chains.js';
 import {
   HubVaultSymbols,
   LsodaTokens,
@@ -433,12 +433,60 @@ describe('legacy production swap sequences are unchanged prefixes', () => {
   });
 });
 
-describe('Sonic money market is untouched by the equity vaults', () => {
-  it('supported tokens match the merge base exactly, all 28 legacy vaults included', () => {
-    expect(identify(moneyMarketSupportedTokens[ChainKeys.SONIC_MAINNET])).toEqual(LEGACY_MONEY_MARKET_SONIC);
+// Money market equity reserves, appended after the legacy lists in this order.
+const MONEY_MARKET_EQUITY_SYMBOLS = [
+  'AAPL',
+  'MSFT',
+  'NVDA',
+  'GOOGL',
+  'AMZN',
+  'META',
+  'TSLA',
+  'SPCX',
+  'SPY',
+  'QQQ',
+  'GLD',
+] as const satisfies readonly (typeof EQUITY_SYMBOLS)[number][];
+
+const moneyMarketEquityIds = (registry: Record<(typeof EQUITY_SYMBOLS)[number], XToken>): string[] =>
+  MONEY_MARKET_EQUITY_SYMBOLS.map(symbol => `${symbol}:${registry[symbol].address}`);
+
+describe('money market keeps its legacy lists and appends only the listed equity reserves', () => {
+  it('Sonic supported tokens: all 28 legacy entries unchanged, then the equity vaults', () => {
+    expect(identify(moneyMarketSupportedTokens[ChainKeys.SONIC_MAINNET])).toEqual([
+      ...LEGACY_MONEY_MARKET_SONIC,
+      ...moneyMarketEquityIds(SodaTokens),
+    ]);
   });
 
-  it('reserve assets match the merge base exactly', () => {
-    expect([...moneyMarketReserveAssets]).toEqual(LEGACY_MONEY_MARKET_RESERVE_ASSETS);
+  it('reserve assets: legacy reserves unchanged, then the equity vaults', () => {
+    // hubConfig.bnUSD is appended after the hub vaults, so it stays last.
+    expect(LEGACY_MONEY_MARKET_RESERVE_ASSETS.at(-1)).toBe(hubConfig.bnUSD);
+    expect([...moneyMarketReserveAssets]).toEqual([
+      ...LEGACY_MONEY_MARKET_RESERVE_ASSETS.slice(0, -1),
+      ...MONEY_MARKET_EQUITY_SYMBOLS.map(symbol => SodaTokens[symbol].address),
+      hubConfig.bnUSD,
+    ]);
+  });
+
+  it.each([
+    ['Robinhood', ChainKeys.ROBINHOOD_MAINNET, robinhoodSupportedTokens],
+    ['Stellar', ChainKeys.STELLAR_MAINNET, stellarSupportedTokens],
+    ['Hedera', ChainKeys.HEDERA_MAINNET, hederaSupportedTokens],
+  ] as const)('%s ends with the equity tokens, each backed by its money market vault', (_name, chainKey, registry) => {
+    const ids = identify(moneyMarketSupportedTokens[chainKey]);
+    expect(ids.slice(-MONEY_MARKET_EQUITY_SYMBOLS.length)).toEqual(moneyMarketEquityIds(registry));
+    for (const symbol of MONEY_MARKET_EQUITY_SYMBOLS) {
+      expect(registry[symbol].vault).toBe(SodaTokens[symbol].address);
+    }
+  });
+
+  it('only the listed equity symbols reach the money market', () => {
+    const listed = new Set<string>(MONEY_MARKET_EQUITY_SYMBOLS);
+    const unlisted = EQUITY_SYMBOLS.filter(symbol => !listed.has(symbol));
+    const reserves = new Set(moneyMarketReserveAssets.map(address => address.toLowerCase()));
+    for (const symbol of unlisted) {
+      expect(reserves.has(SodaTokens[symbol].address.toLowerCase())).toBe(false);
+    }
   });
 });
