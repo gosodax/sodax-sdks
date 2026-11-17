@@ -140,6 +140,10 @@ test also needs a one-line why-comment on or just above it — the same guard sc
 for new casts, with pre-existing undocumented ones grandfathered per file in
 `scripts/test-cast-comment-baseline.json`, which may only shrink (`--update-baseline` regenerates it).
 
+Results are strongly typed and narrowed at the call site
+([ADR 0001](../../adr/0001-typed-and-narrowed-public-surface.md)): a source file that exports a function
+or a public method gets a `<file>.type.test.ts` beside it that asserts each result type.
+
 `build` runs `scripts/verify-dist-exports.mjs` after `tsup`, asserting every file named in
 `package.json#exports` was actually emitted. `tsup` runs with `clean: true` and writes JS about ten
 seconds before declarations, so a build that dies in that window leaves a `dist/` with runtime output
