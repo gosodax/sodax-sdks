@@ -46,7 +46,7 @@ Tickers are added over time, so read the list from the SDK rather than hard-codi
 
 Read addresses from `@sodax/sdk` in code rather than copying them from a page. Each ticker is priced by its Robinhood Chain Chainlink feed where one exists, otherwise by Robinhood's own price API.
 
-Stocks are swap assets only. They are not money-market reserves, so users cannot supply them, borrow against them or use them as collateral.
+Some stocks and ETFs are also money-market reserves; [Money Market on Robinhood Chain](/robinhood-chain/money-market) lists them. Users can supply them from Robinhood Chain, Stellar, Hedera or Sonic and borrow other assets against them; borrowing the stocks themselves is disabled. Every other stock is a swap asset only.
 
 ## Choose a path {#choose-a-path}
 

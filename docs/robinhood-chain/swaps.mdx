@@ -51,7 +51,7 @@ const quoteResult = await sodax.swaps.getQuote({
 
 ## Stock Tokens {#stock-tokens}
 
-The live config lists Robinhood Stock Tokens on Robinhood Chain for swaps, and marks each with `isRwa: true`. They are swap-only: none of them is in the money market list.
+The live config lists Robinhood Stock Tokens on Robinhood Chain for swaps, and marks each with `isRwa: true`. Some of them are also money market collateral; see [Money Market on Robinhood Chain](/robinhood-chain/money-market). The rest are swap-only.
 
 - **SDK support**: `getQuote` and `swap` reject a Stock Token your installed SDK does not list, so upgrade `@sodax/sdk` if you see that error.
 - **Token standard**: Stock Tokens are standard ERC-20s with 18 decimals, issued by Robinhood Assets (Jersey) Limited, so they follow the same approval flow as any ERC-20.
