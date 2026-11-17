@@ -28,7 +28,7 @@ declare const evm: IEvmWalletProvider;
 declare const isRaw: boolean;
 declare const dep: Flat<DepositParams<NEAR, false>>;
 declare const msg: Flat<SendMessageParams<NEAR, false>>;
-declare const stacksMsg: Flat<SendMessageParams<STACKS, false>>;
+declare const stacksKey: STACKS;
 
 describe('NearSpokeService', () => {
   it('deposit and sendMessage: string signed, NearRawTransaction raw, both for a runtime boolean', () => {
@@ -58,7 +58,7 @@ describe('NearSpokeService', () => {
       // @ts-expect-error — NEAR needs a NEAR wallet provider.
       svc.sendMessage({ ...msg, walletProvider: evm }),
       // @ts-expect-error — only NEAR chain keys are accepted.
-      svc.sendMessage({ ...stacksMsg, raw: true }),
+      svc.sendMessage({ ...msg, srcChainKey: stacksKey, raw: true }),
     ];
     expectTypeOf(invalid).toBeFunction();
   });

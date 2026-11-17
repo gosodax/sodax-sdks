@@ -32,7 +32,7 @@ declare const solana: ISolanaWalletProvider;
 declare const evm: IEvmWalletProvider;
 declare const dep: Flat<DepositParams<SOLANA, false>>;
 declare const msg: Flat<SendMessageParams<SOLANA, false>>;
-declare const btcDep: Flat<DepositParams<BITCOIN, false>>;
+declare const btcKey: BITCOIN;
 
 describe('SolanaSpokeService', () => {
   it('deposit and sendMessage: string signed, SolanaRawTransaction raw, both for a runtime boolean', () => {
@@ -62,7 +62,7 @@ describe('SolanaSpokeService', () => {
       // @ts-expect-error — Solana needs a Solana wallet provider.
       svc.deposit({ ...dep, walletProvider: evm }),
       // @ts-expect-error — only Solana chain keys are accepted.
-      svc.deposit({ ...btcDep, raw: true }),
+      svc.deposit({ ...dep, srcChainKey: btcKey, raw: true }),
     ];
     expectTypeOf(invalid).toBeFunction();
   });

@@ -28,7 +28,7 @@ declare const injective: IInjectiveWalletProvider;
 declare const evm: IEvmWalletProvider;
 declare const dep: Flat<DepositParams<INJECTIVE, false>>;
 declare const msg: Flat<SendMessageParams<INJECTIVE, false>>;
-declare const suiDep: Flat<DepositParams<SUI, false>>;
+declare const suiKey: SUI;
 
 describe('InjectiveSpokeService', () => {
   it('deposit and sendMessage: string signed, InjectiveRawTransaction raw, both for a runtime boolean', () => {
@@ -58,7 +58,7 @@ describe('InjectiveSpokeService', () => {
       // @ts-expect-error — Injective needs an Injective wallet provider.
       svc.deposit({ ...dep, walletProvider: evm }),
       // @ts-expect-error — only Injective chain keys are accepted.
-      svc.deposit({ ...suiDep, raw: true }),
+      svc.deposit({ ...dep, srcChainKey: suiKey, raw: true }),
     ];
     expectTypeOf(invalid).toBeFunction();
   });

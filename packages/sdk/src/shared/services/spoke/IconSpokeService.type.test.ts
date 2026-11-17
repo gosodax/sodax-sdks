@@ -27,7 +27,7 @@ declare const icon: IIconWalletProvider;
 declare const evm: IEvmWalletProvider;
 declare const dep: Flat<DepositParams<ICON, false>>;
 declare const msg: Flat<SendMessageParams<ICON, false>>;
-declare const bscMsg: Flat<SendMessageParams<BSC, false>>;
+declare const bscKey: BSC;
 
 describe('IconSpokeService', () => {
   it('deposit and sendMessage: Hex signed, IconRawTransaction raw, both for a runtime boolean', () => {
@@ -57,7 +57,7 @@ describe('IconSpokeService', () => {
       // @ts-expect-error — ICON needs an ICON wallet provider.
       svc.deposit({ ...dep, walletProvider: evm }),
       // @ts-expect-error — only ICON chain keys are accepted.
-      svc.sendMessage({ ...bscMsg, raw: true }),
+      svc.sendMessage({ ...msg, srcChainKey: bscKey, raw: true }),
     ];
     expectTypeOf(invalid).toBeFunction();
   });

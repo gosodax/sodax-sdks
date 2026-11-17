@@ -30,7 +30,7 @@ declare const btc: IBitcoinWalletProvider;
 declare const evm: IEvmWalletProvider;
 declare const dep: Flat<DepositParams<BITCOIN, false>>;
 declare const msg: Flat<SendMessageParams<BITCOIN, false>>;
-declare const bscMsg: Flat<SendMessageParams<BSC, false>>;
+declare const bscKey: BSC;
 
 describe('BitcoinSpokeService', () => {
   it('deposit, sendMessage and encodeWithdrawalData: string signed, BitcoinRawTransaction | string raw', () => {
@@ -68,7 +68,7 @@ describe('BitcoinSpokeService', () => {
       // @ts-expect-error — Bitcoin needs a Bitcoin wallet provider.
       svc.sendMessage({ ...msg, walletProvider: evm }),
       // @ts-expect-error — only Bitcoin chain keys are accepted.
-      svc.encodeWithdrawalData({ ...bscMsg, raw: true }),
+      svc.encodeWithdrawalData({ ...msg, srcChainKey: bscKey, raw: true }),
       // @ts-expect-error — walletMode is 'USER' or 'TRADING'.
       svc.sendMessage({ ...msg, raw: true, walletMode: 'HOT' }),
     ];

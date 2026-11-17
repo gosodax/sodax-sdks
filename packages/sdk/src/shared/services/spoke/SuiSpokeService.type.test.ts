@@ -31,7 +31,7 @@ declare const sui: ISuiWalletProvider;
 declare const evm: IEvmWalletProvider;
 declare const dep: Flat<DepositParams<SUI, false>>;
 declare const msg: Flat<SendMessageParams<SUI, false>>;
-declare const solanaMsg: Flat<SendMessageParams<SOLANA, false>>;
+declare const solanaKey: SOLANA;
 
 describe('SuiSpokeService', () => {
   it('deposit and sendMessage: string signed, SuiRawTransaction raw, both for a runtime boolean', () => {
@@ -61,7 +61,7 @@ describe('SuiSpokeService', () => {
       // @ts-expect-error — Sui needs a Sui wallet provider.
       svc.sendMessage({ ...msg, walletProvider: evm }),
       // @ts-expect-error — only Sui chain keys are accepted.
-      svc.sendMessage({ ...solanaMsg, raw: true }),
+      svc.sendMessage({ ...msg, srcChainKey: solanaKey, raw: true }),
     ];
     expectTypeOf(invalid).toBeFunction();
   });

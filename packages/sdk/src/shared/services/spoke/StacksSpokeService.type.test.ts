@@ -28,7 +28,7 @@ declare const stacks: IStacksWalletProvider;
 declare const sui: ISuiWalletProvider;
 declare const dep: Flat<DepositParams<STACKS, false>>;
 declare const msg: Flat<SendMessageParams<STACKS, false>>;
-declare const nearDep: Flat<DepositParams<NEAR, false>>;
+declare const nearKey: NEAR;
 
 describe('StacksSpokeService', () => {
   it('deposit and sendMessage: string signed, StacksRawTransaction raw, both for a runtime boolean', () => {
@@ -58,7 +58,7 @@ describe('StacksSpokeService', () => {
       // @ts-expect-error — Stacks needs a Stacks wallet provider.
       svc.sendMessage({ ...msg, walletProvider: sui }),
       // @ts-expect-error — only Stacks chain keys are accepted.
-      svc.deposit({ ...nearDep, raw: true }),
+      svc.deposit({ ...dep, srcChainKey: nearKey, raw: true }),
     ];
     expectTypeOf(invalid).toBeFunction();
   });

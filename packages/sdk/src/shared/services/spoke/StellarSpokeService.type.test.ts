@@ -31,7 +31,7 @@ declare const evm: IEvmWalletProvider;
 declare const dep: Flat<DepositParams<STELLAR, false>>;
 declare const msg: Flat<SendMessageParams<STELLAR, false>>;
 declare const trust: Flat<RequestTrustlineParams<STELLAR, false>>;
-declare const iconDep: Flat<DepositParams<ICON, false>>;
+declare const iconKey: ICON;
 
 describe('StellarSpokeService', () => {
   it('deposit, sendMessage and requestTrustline: string signed, StellarRawTransaction raw', () => {
@@ -72,7 +72,7 @@ describe('StellarSpokeService', () => {
       // @ts-expect-error — Stellar needs a Stellar wallet provider.
       svc.deposit({ ...dep, walletProvider: evm }),
       // @ts-expect-error — only Stellar chain keys are accepted.
-      svc.deposit({ ...iconDep, raw: true }),
+      svc.deposit({ ...dep, srcChainKey: iconKey, raw: true }),
     ];
     expectTypeOf(invalid).toBeFunction();
   });
