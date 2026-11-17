@@ -147,3 +147,10 @@ in a test file, with pre-existing undocumented casts grandfathered in this packa
 Results are strongly typed and narrowed at the call site
 ([ADR 0001](../../adr/0001-typed-and-narrowed-public-surface.md)): a source file that exports a function
 or a public method gets a `<file>.type.test.ts` beside it that asserts each result type.
+`scripts/check-type-tests.mjs` (repo root, the tail of `checkTs`) fails when an exported hook or function has
+none; a deliberate gap goes in `scripts/type-test-exemptions.json` with its reason. A type test never
+calls a hook: read its type (`ReturnType<typeof useFoo>`, `Parameters<typeof useFoo>[0]`), and lock a
+chain with an instantiation expression (`typeof useFoo<K>`) where the variables only arrive at
+`mutate()`. Pin a query hook's params and data, a mutation hook's variables and result. Put a
+`@ts-expect-error` inside an expression that is used: above an unused `const`, the unused-local error
+satisfies it and the invalid call goes unchecked.
