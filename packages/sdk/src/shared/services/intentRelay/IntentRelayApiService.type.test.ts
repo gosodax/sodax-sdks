@@ -18,6 +18,7 @@ import type {
 
 describe('IntentRelayApiService', () => {
   it('each relay action resolves to its own response', () => {
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<typeof submitTransaction>>().toEqualTypeOf<Promise<Result<SubmitTxResponse>>>();
     expectTypeOf<SubmitTxResponse>().toEqualTypeOf<{ success: boolean; message: string }>();
     expectTypeOf<ReturnType<typeof getTransactionPackets>>().toEqualTypeOf<

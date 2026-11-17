@@ -70,9 +70,11 @@ type Family = {
 };
 // Columns of every matrix row: [walletProvider, raw: false, raw: true, runtime boolean].
 type Modes<Hash, Raw, E> = [Result<Hash, E>, Result<Hash, E>, Result<Raw, E>, Result<Hash | Raw, E>];
-type AwaitAll<T extends readonly unknown[]> = { -readonly [I in keyof T]: Awaited<T[I]> };
+// Unwraps only an exact Promise, so a sync or `X | Promise<X>` result fails the row it is in.
+type Unpromise<P> = [P] extends [Promise<infer V>] ? V : 'not a Promise';
+type AwaitAll<T extends readonly unknown[]> = { -readonly [I in keyof T]: Unpromise<T[I]> };
 type Settled<T extends Record<string, readonly unknown[]>> = { -readonly [F in keyof T]: AwaitAll<T[F]> };
-type Unwrapped<T> = { -readonly [F in keyof T]: Awaited<T[F]> };
+type Unwrapped<T> = { -readonly [F in keyof T]: Unpromise<T[F]> };
 type Intented<Tx> = { tx: Tx; relayData: RelayExtraData };
 
 declare const bridge: BridgeService;

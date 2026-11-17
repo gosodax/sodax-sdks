@@ -98,6 +98,7 @@ describe('BitcoinSpokeService', () => {
     expectTypeOf<ReturnType<BitcoinSpokeService['fetchUTXOs']>>().toEqualTypeOf<Promise<BitcoinUTXO[]>>();
     expectTypeOf<ReturnType<BitcoinSpokeService['fetchRawTransaction']>>().toEqualTypeOf<Promise<string>>();
     expectTypeOf<ReturnType<BitcoinSpokeService['signAndBroadcastTransaction']>>().toEqualTypeOf<Promise<string>>();
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<BitcoinSpokeService['waitForTransactionReceipt']>>().toEqualTypeOf<
       Promise<Result<Receipt<BitcoinRawTransactionReceipt>>>
     >();

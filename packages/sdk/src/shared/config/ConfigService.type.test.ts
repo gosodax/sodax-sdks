@@ -72,7 +72,7 @@ const relayIdGuard = (id: bigint) => {
 
 describe('ConfigService type contract', () => {
   it('initialize resolves to Result<void>', () => {
-    // Error side is `Error | unknown` (= unknown): the catch-all passes the caught value through.
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<R<'initialize'>>().toEqualTypeOf<Promise<Result<void>>>();
     expectTypeOf<R<'isInitialized'>>().toEqualTypeOf<boolean>();
   });

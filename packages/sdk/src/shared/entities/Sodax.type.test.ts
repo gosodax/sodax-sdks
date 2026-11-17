@@ -21,7 +21,7 @@ import type { Sodax } from './Sodax.js';
 
 describe('Sodax type contract', () => {
   it('initialize resolves to Result<void>', () => {
-    // Error side is `Error | unknown` (= unknown): ConfigService.initialize passes the caught value through.
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<Sodax['initialize']>>().toEqualTypeOf<Promise<Result<void>>>();
   });
 

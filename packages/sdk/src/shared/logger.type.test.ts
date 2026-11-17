@@ -23,4 +23,17 @@ describe('logger type contract', () => {
     expectTypeOf(consoleLogger).toEqualTypeOf<SodaxLogger>();
     expectTypeOf(silentLogger).toEqualTypeOf<SodaxLogger>();
   });
+
+  it('preset members keep the SodaxLogger method signatures', () => {
+    type Log = (message: string, data?: Record<string, unknown>) => void;
+    type LogError = (message: string, error?: unknown, data?: Record<string, unknown>) => void;
+    expectTypeOf(consoleLogger.debug).toEqualTypeOf<Log>();
+    expectTypeOf(consoleLogger.info).toEqualTypeOf<Log>();
+    expectTypeOf(consoleLogger.warn).toEqualTypeOf<Log>();
+    expectTypeOf(consoleLogger.error).toEqualTypeOf<LogError>();
+    expectTypeOf(silentLogger.debug).toEqualTypeOf<Log>();
+    expectTypeOf(silentLogger.info).toEqualTypeOf<Log>();
+    expectTypeOf(silentLogger.warn).toEqualTypeOf<Log>();
+    expectTypeOf(silentLogger.error).toEqualTypeOf<LogError>();
+  });
 });

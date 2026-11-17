@@ -7,8 +7,8 @@ import type { IconAddress, JsonRpcPayloadResponse, Result } from '../../../index
 import { requestAddress, requestJsonRpc, requestSigning } from './HanaWalletConnector.js';
 
 describe('HanaWalletConnector type contract', () => {
-  // Error side is `Error | unknown` (= unknown): the extension's rejection reason is passed through.
   it('pins each request result', () => {
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf(requestAddress).returns.toEqualTypeOf<Promise<Result<IconAddress>>>();
     expectTypeOf(requestSigning).returns.toEqualTypeOf<Promise<Result<string>>>();
     expectTypeOf(requestJsonRpc).returns.toEqualTypeOf<Promise<Result<JsonRpcPayloadResponse>>>();

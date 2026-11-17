@@ -83,6 +83,7 @@ describe('Permit2Service', () => {
   });
 
   it('reads pin Result<AllowanceInfo> / Result<boolean>', () => {
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<typeof Permit2Service.getAllowance>>().toEqualTypeOf<Promise<Result<AllowanceInfo>>>();
     expectTypeOf<AllowanceInfo>().toEqualTypeOf<{ amount: bigint; expiration: number; nonce: number }>();
     expectTypeOf<ReturnType<typeof Permit2Service.isAllowanceValid>>().toEqualTypeOf<Promise<Result<boolean>>>();

@@ -18,5 +18,9 @@ describe('generateUserReserveSummary', () => {
   it('keeps the reserve type of the input', () => {
     expectTypeOf<ReturnType<typeof summarizePlain>>().toEqualTypeOf<UserReserveSummaryResponse>();
     expectTypeOf<ReturnType<typeof summarizeTagged>>().toEqualTypeOf<UserReserveSummaryResponse<TaggedReserve>>();
+    expectTypeOf<
+      ReturnType<typeof summarizePlain>['userReserve']['reserve']
+    >().toEqualTypeOf<FormatReserveUSDResponse>();
+    expectTypeOf<ReturnType<typeof summarizeTagged>['userReserve']['reserve']>().toEqualTypeOf<TaggedReserve>();
   });
 });

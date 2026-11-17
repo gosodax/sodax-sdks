@@ -6,6 +6,7 @@ import {
   isSponsoringConfigError,
   isSponsoringLookupError,
   isSponsoringOrchestrationError,
+  sponsoringInvariant,
 } from './errors.js';
 
 declare const lookupError: SodaxError<'LOOKUP_FAILED'>;
@@ -37,5 +38,13 @@ describe('sponsoring/errors', () => {
     expectTypeOf(isSponsoringLookupError).guards.toEqualTypeOf<
       SodaxError<'VALIDATION_FAILED' | 'LOOKUP_FAILED' | 'UNKNOWN'>
     >();
+  });
+
+  it('sponsoringInvariant narrows its condition', () => {
+    const narrowed = (value: string | null | undefined) => {
+      sponsoringInvariant(value, 'missing');
+      return value;
+    };
+    expectTypeOf<ReturnType<typeof narrowed>>().toEqualTypeOf<string>();
   });
 });

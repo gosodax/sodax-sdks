@@ -14,9 +14,14 @@ import type {
   IconAddress,
   IconChainKey,
   IEvmWalletProvider,
+  IIconWalletProvider,
+  IInjectiveWalletProvider,
+  INearWalletProvider,
   InjectiveChainKey,
   ISolanaWalletProvider,
+  IStacksWalletProvider,
   IStellarWalletProvider,
+  ISuiWalletProvider,
   IWalletProvider,
   JsonRpcPayloadResponse,
   NearChainKey,
@@ -82,12 +87,25 @@ type BSC = typeof ChainKeys.BSC_MAINNET;
 type SONIC = typeof ChainKeys.SONIC_MAINNET;
 type STELLAR = typeof ChainKeys.STELLAR_MAINNET;
 type SOLANA = typeof ChainKeys.SOLANA_MAINNET;
+type ICON = typeof ChainKeys.ICON_MAINNET;
+type SUI = typeof ChainKeys.SUI_MAINNET;
+type INJECTIVE = typeof ChainKeys.INJECTIVE_MAINNET;
+type NEAR = typeof ChainKeys.NEAR_MAINNET;
+type STACKS = typeof ChainKeys.STACKS_MAINNET;
+type BITCOIN = typeof ChainKeys.BITCOIN_MAINNET;
 type ApprovableKey = SONIC | BSC | STELLAR;
 
 declare const anyKey: SpokeChainKey;
 declare const bscKey: BSC;
 declare const stellarKey: STELLAR;
 declare const solanaKey: SOLANA;
+declare const sonicKey: SONIC;
+declare const iconKey: ICON;
+declare const suiChainKey: SUI;
+declare const injectiveKey: INJECTIVE;
+declare const nearKey: NEAR;
+declare const stacksKey: STACKS;
+declare const bitcoinKey: BITCOIN;
 declare const approveParams: SpokeApproveParams<ApprovableKey, false>;
 declare const approveParamsRaw: SpokeApproveParams<ApprovableKey, true>;
 declare const wallet: IWalletProvider | undefined;
@@ -118,6 +136,34 @@ const walletForStellar = () => {
 };
 const walletForSolana = () => {
   if (isUndefinedOrValidWalletProviderForChainKey(solanaKey, wallet)) return wallet;
+  throw new Error('unreachable');
+};
+const walletForSonic = () => {
+  if (isUndefinedOrValidWalletProviderForChainKey(sonicKey, wallet)) return wallet;
+  throw new Error('unreachable');
+};
+const walletForIcon = () => {
+  if (isUndefinedOrValidWalletProviderForChainKey(iconKey, wallet)) return wallet;
+  throw new Error('unreachable');
+};
+const walletForSui = () => {
+  if (isUndefinedOrValidWalletProviderForChainKey(suiChainKey, wallet)) return wallet;
+  throw new Error('unreachable');
+};
+const walletForInjective = () => {
+  if (isUndefinedOrValidWalletProviderForChainKey(injectiveKey, wallet)) return wallet;
+  throw new Error('unreachable');
+};
+const walletForNear = () => {
+  if (isUndefinedOrValidWalletProviderForChainKey(nearKey, wallet)) return wallet;
+  throw new Error('unreachable');
+};
+const walletForStacks = () => {
+  if (isUndefinedOrValidWalletProviderForChainKey(stacksKey, wallet)) return wallet;
+  throw new Error('unreachable');
+};
+const walletForBitcoin = () => {
+  if (isUndefinedOrValidWalletProviderForChainKey(bitcoinKey, wallet)) return wallet;
   throw new Error('unreachable');
 };
 const invalidCalls = () => [
@@ -193,6 +239,13 @@ describe('guards type contract', () => {
     expectTypeOf<ReturnType<typeof walletForBsc>>().toEqualTypeOf<IEvmWalletProvider | undefined>();
     expectTypeOf<ReturnType<typeof walletForStellar>>().toEqualTypeOf<IStellarWalletProvider | undefined>();
     expectTypeOf<ReturnType<typeof walletForSolana>>().toEqualTypeOf<ISolanaWalletProvider | undefined>();
+    expectTypeOf<ReturnType<typeof walletForSonic>>().toEqualTypeOf<IEvmWalletProvider | undefined>();
+    expectTypeOf<ReturnType<typeof walletForIcon>>().toEqualTypeOf<IIconWalletProvider | undefined>();
+    expectTypeOf<ReturnType<typeof walletForSui>>().toEqualTypeOf<ISuiWalletProvider | undefined>();
+    expectTypeOf<ReturnType<typeof walletForInjective>>().toEqualTypeOf<IInjectiveWalletProvider | undefined>();
+    expectTypeOf<ReturnType<typeof walletForNear>>().toEqualTypeOf<INearWalletProvider | undefined>();
+    expectTypeOf<ReturnType<typeof walletForStacks>>().toEqualTypeOf<IStacksWalletProvider | undefined>();
+    expectTypeOf<ReturnType<typeof walletForBitcoin>>().toEqualTypeOf<IBitcoinWalletProvider | undefined>();
   });
 
   it('rejects inputs outside the guard domain', () => {

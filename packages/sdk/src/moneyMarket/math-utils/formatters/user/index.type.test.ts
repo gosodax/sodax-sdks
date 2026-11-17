@@ -48,6 +48,12 @@ describe('user summary formatters', () => {
   it('formatUserSummary keeps the formatted reserve type', () => {
     expectTypeOf<ReturnType<typeof summaryPlain>>().toEqualTypeOf<FormatUserSummaryResponse>();
     expectTypeOf<ReturnType<typeof summaryTagged>>().toEqualTypeOf<FormatUserSummaryResponse<TaggedReserve>>();
+    expectTypeOf<
+      ReturnType<typeof summaryPlain>['userReservesData'][number]['reserve']
+    >().toEqualTypeOf<FormatReserveUSDResponse>();
+    expectTypeOf<
+      ReturnType<typeof summaryTagged>['userReservesData'][number]['reserve']
+    >().toEqualTypeOf<TaggedReserve>();
   });
 
   it('formatUserSummaryAndIncentives keeps the formatted reserve type and adds the incentives', () => {
@@ -55,5 +61,11 @@ describe('user summary formatters', () => {
     expectTypeOf<ReturnType<typeof incentivesTagged>>().toEqualTypeOf<
       FormatUserSummaryAndIncentivesResponse<TaggedReserve>
     >();
+    expectTypeOf<
+      ReturnType<typeof incentivesPlain>['userReservesData'][number]['reserve']
+    >().toEqualTypeOf<FormatReserveUSDResponse>();
+    expectTypeOf<
+      ReturnType<typeof incentivesTagged>['userReservesData'][number]['reserve']
+    >().toEqualTypeOf<TaggedReserve>();
   });
 });

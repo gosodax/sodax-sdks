@@ -91,8 +91,11 @@ type Family = {
   bitcoin: [string, BitcoinRawTransaction | string];
 };
 // Columns of every matrix row: [walletProvider, raw: false, raw: true, runtime boolean].
+// Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
 type Modes<Hash, Raw> = [Result<Hash>, Result<Hash>, Result<Raw>, Result<Hash | Raw>];
-type AwaitAll<T extends readonly unknown[]> = { -readonly [I in keyof T]: Awaited<T[I]> };
+// Unwraps only an exact Promise, so a sync or `X | Promise<X>` result fails the row it is in.
+type Unpromise<P> = [P] extends [Promise<infer V>] ? V : 'not a Promise';
+type AwaitAll<T extends readonly unknown[]> = { -readonly [I in keyof T]: Unpromise<T[I]> };
 type Settled<T extends Record<string, readonly unknown[]>> = { -readonly [F in keyof T]: AwaitAll<T[F]> };
 type Created<Tx> = { tx: Tx; intent: Intent & FeeAmount; relayData: RelayExtraData };
 
@@ -558,7 +561,7 @@ const estimateGasRows = () =>
     bitcoin: swaps.estimateGas({ tx: bitcoinTx, chainKey: k.bitcoin }),
   }) as const;
 
-type Unwrapped<T> = { -readonly [F in keyof T]: Awaited<T[F]> };
+type Unwrapped<T> = { -readonly [F in keyof T]: Unpromise<T[F]> };
 
 describe('SwapService — chain- and mode-generic actions', () => {
   it('approve: hash per family when signed, unsigned tx with raw: true, both for a runtime boolean', () => {
@@ -596,6 +599,7 @@ describe('SwapService — chain- and mode-generic actions', () => {
   });
 
   it('isAllowanceValid: a boolean in every family and mode', () => {
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     type B = Result<boolean>;
     expectTypeOf<Settled<ReturnType<typeof isAllowanceValidRows>>>().toEqualTypeOf<{
       sonic: [B, B, B, B];
@@ -606,6 +610,7 @@ describe('SwapService — chain- and mode-generic actions', () => {
   });
 
   it('buildApproveTxs: the chain’s unsigned reset/approve pair', () => {
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<Unwrapped<ReturnType<typeof buildApproveTxsRows>>>().toEqualTypeOf<{
       [F in keyof Family]: Result<{ readonly resetTx?: Family[F][1]; readonly approveTx: Family[F][1] }>;
     }>();
@@ -678,6 +683,7 @@ describe('SwapService — chain- and mode-generic actions', () => {
         swaps.cancelLimitOrder({ params: c.sonic, walletProvider: w.evm }),
         swaps.cancelLimitOrder({ params: c.stacks, walletProvider: w.stacks }),
       ] as const;
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     type Pair = Result<TxHashPair>;
     expectTypeOf<Settled<{ r: ReturnType<typeof cancels> }>['r']>().toEqualTypeOf<[Pair, Pair, Pair, Pair]>();
   });

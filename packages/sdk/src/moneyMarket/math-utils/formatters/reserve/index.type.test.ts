@@ -5,6 +5,7 @@ import type { ReservesIncentiveDataHumanized } from '../incentive/types.js';
 import {
   type FormatReserveResponse,
   type FormatReserveUSDResponse,
+  type ReserveData,
   type ReserveDataWithPrice,
   type formatReserve,
   type formatReserveUSD,
@@ -49,6 +50,6 @@ describe('reserve formatters', () => {
 
   it('rejects reserves without a market reference price', () => {
     // @ts-expect-error — formatReserves needs `priceInMarketReferenceCurrency` on every reserve
-    formatReserves<{ id: string }>;
+    formatReserves<ReserveData>;
   });
 });

@@ -51,6 +51,7 @@ describe('Erc4626Service', () => {
   });
 
   it('reads pin Result<Address> / Result<bigint>', () => {
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<typeof Erc4626Service.getAsset>>().toEqualTypeOf<Promise<Result<Address>>>();
     type Big = Promise<Result<bigint>>;
     expectTypeOf<ReturnType<typeof Erc4626Service.getTotalAssets>>().toEqualTypeOf<Big>();

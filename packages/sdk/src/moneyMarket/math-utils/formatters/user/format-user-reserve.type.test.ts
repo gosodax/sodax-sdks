@@ -18,5 +18,7 @@ describe('formatUserReserve', () => {
   it('keeps the reserve type of the input', () => {
     expectTypeOf<ReturnType<typeof formatPlain>>().toEqualTypeOf<ComputedUserReserve>();
     expectTypeOf<ReturnType<typeof formatTagged>>().toEqualTypeOf<ComputedUserReserve<TaggedReserve>>();
+    expectTypeOf<ReturnType<typeof formatPlain>['reserve']>().toEqualTypeOf<FormatReserveUSDResponse>();
+    expectTypeOf<ReturnType<typeof formatTagged>['reserve']>().toEqualTypeOf<TaggedReserve>();
   });
 });

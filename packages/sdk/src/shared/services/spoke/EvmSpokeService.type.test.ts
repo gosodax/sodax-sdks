@@ -67,6 +67,7 @@ describe('EvmSpokeService', () => {
     expectTypeOf<ReturnType<EvmSpokeService['getPublicClient']>>().toEqualTypeOf<PublicClient<HttpTransport>>();
     expectTypeOf<ReturnType<EvmSpokeService['constructPublicClient']>>().toEqualTypeOf<PublicClient<HttpTransport>>();
     expectTypeOf<ReturnType<EvmSpokeService['estimateGas']>>().toEqualTypeOf<Promise<bigint>>();
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<EvmSpokeService['isAllowanceValid']>>().toEqualTypeOf<Promise<Result<boolean>>>();
     expectTypeOf<ReturnType<EvmSpokeService['getDeposit']>>().toEqualTypeOf<Promise<bigint>>();
     expectTypeOf<ReturnType<EvmSpokeService['getWalletBalance']>>().toEqualTypeOf<Promise<bigint>>();

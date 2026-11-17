@@ -33,6 +33,7 @@ import type {
 import type { BackendApiService } from './BackendApiService.js';
 
 type Svc = BackendApiService;
+// Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
 type R<T> = Promise<Result<T>>;
 type Err<P> = Awaited<P> extends infer U ? (U extends { ok: false; error: infer E } ? E : never) : never;
 
@@ -89,8 +90,7 @@ describe('BackendApiService', () => {
   });
 
   it('failure side', () => {
-    // Declared `Result<T>` widens the error to `unknown`, though the service only produces
-    // `SodaxError<'EXTERNAL_API_ERROR'>` (reported for tightening).
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<Err<ReturnType<Svc['getIntentByHash']>>>().toBeUnknown();
   });
 });

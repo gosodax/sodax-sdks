@@ -45,8 +45,11 @@ type Family = {
   bitcoin: [string, BitcoinRawTransaction | string];
 };
 // Columns of every matrix row: [walletProvider, raw: false, raw: true, runtime boolean].
+// Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
 type Modes<Hash, Raw> = [Result<Hash>, Result<Hash>, Result<Raw>, Result<Hash | Raw>];
-type AwaitAll<T extends readonly unknown[]> = { -readonly [I in keyof T]: Awaited<T[I]> };
+// Unwraps only an exact Promise, so a sync or `X | Promise<X>` result fails the row it is in.
+type Unpromise<P> = [P] extends [Promise<infer V>] ? V : 'not a Promise';
+type AwaitAll<T extends readonly unknown[]> = { -readonly [I in keyof T]: Unpromise<T[I]> };
 type Settled<T extends Record<string, readonly unknown[]>> = { -readonly [F in keyof T]: AwaitAll<T[F]> };
 
 declare const recovery: RecoveryService;
@@ -180,6 +183,7 @@ describe('RecoveryService', () => {
   });
 
   it('fetchHubAssetBalances returns the non-zero hub balances', () => {
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<RecoveryService['fetchHubAssetBalances']>>().toEqualTypeOf<
       Promise<Result<HubAssetBalance[]>>
     >();

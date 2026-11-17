@@ -57,7 +57,7 @@ describe('IconSpokeService', () => {
       // @ts-expect-error — ICON needs an ICON wallet provider.
       svc.deposit({ ...dep, walletProvider: evm }),
       // @ts-expect-error — only ICON chain keys are accepted.
-      svc.sendMessage({ ...bscMsg, walletProvider: evm }),
+      svc.sendMessage({ ...bscMsg, raw: true }),
     ];
     expectTypeOf(invalid).toBeFunction();
   });
@@ -71,6 +71,7 @@ describe('IconSpokeService', () => {
       encodedToken: Hex;
       encodedSrcAddress: Hex;
     }>();
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<IconSpokeService['waitForTransactionReceipt']>>().toEqualTypeOf<
       Promise<Result<Receipt<IconTransactionResult>>>
     >();

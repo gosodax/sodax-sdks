@@ -63,7 +63,7 @@ type Fam = {
   // Bitcoin's raw type already includes the hash string.
   bitcoin: [string, BitcoinRawTransaction | string];
 };
-// The service returns `Result<T>`, whose error defaults to `unknown`.
+// Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
 type Approve<T> = Promise<Result<T, unknown>>;
 type Intent<T> = Promise<Result<{ tx: T; relayData: RelayExtraData }, unknown>>;
 type ApproveMatrix = { readonly [N in keyof Fam]: readonly [Approve<Fam[N][0]>, Approve<Fam[N][1]>] };

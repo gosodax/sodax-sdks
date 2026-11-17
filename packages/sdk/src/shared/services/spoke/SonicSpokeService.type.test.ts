@@ -88,6 +88,7 @@ describe('SonicSpokeService', () => {
   });
 
   it('reads and receipts pin one result type', () => {
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<SonicSpokeService['isAllowanceValid']>>().toEqualTypeOf<Promise<Result<boolean>>>();
     expectTypeOf<ReturnType<SonicSpokeService['estimateGas']>>().toEqualTypeOf<Promise<bigint>>();
     expectTypeOf<ReturnType<SonicSpokeService['getUserRouter']>>().toEqualTypeOf<Promise<HubAddress>>();

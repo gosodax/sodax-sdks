@@ -94,6 +94,7 @@ describe('NearSpokeService', () => {
     expectTypeOf<ReturnType<NearSpokeService['isStorageRegistered']>>().toEqualTypeOf<Promise<boolean>>();
     expectTypeOf<ReturnType<NearSpokeService['getLimit']>>().toEqualTypeOf<Promise<bigint>>();
     expectTypeOf<ReturnType<NearSpokeService['getAvailable']>>().toEqualTypeOf<Promise<bigint>>();
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<NearSpokeService['waitForTransactionReceipt']>>().toEqualTypeOf<
       Promise<Result<Receipt<NearRawTransactionReceipt>>>
     >();
