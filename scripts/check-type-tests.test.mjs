@@ -44,6 +44,11 @@ test('lists exported functions, function-valued consts and public class methods'
   );
 });
 
+test('lists the public methods of a class expression, and a method with a quoted name', () => {
+  assert.deepEqual(callables('export const S = class {\n  run() {}\n  private hidden() {}\n};'), ['S.run']);
+  assert.deepEqual(callables('export class S {\n  "run"() {}\n}'), ['S.run']);
+});
+
 test('lists a const whose type is callable, however it is built', () => {
   const factory = 'const make = (code: number) => (error: unknown) => code > 0;\n';
   assert.deepEqual(callables(`${factory}export const isX = make(1);`), ['isX']);
@@ -62,6 +67,8 @@ test('lists the function members of an exported object literal', () => {
 test('lists functions exported through an export list or a default export, by their public name', () => {
   assert.deepEqual(callables('function a() {}\nconst b = () => 1;\nexport { a, b as renamed };'), ['a', 'renamed']);
   assert.deepEqual(callables('function a() {}\nexport default a;'), ['a']);
+  assert.deepEqual(callables('export default function foo() {}'), ['foo']);
+  assert.deepEqual(callables('export default class K {\n  run() {}\n}'), ['K.run']);
 });
 
 test('lists an overloaded function or method once', () => {
@@ -82,6 +89,7 @@ test('ignores what a caller cannot call', () => {
   );
   assert.deepEqual(callables('export const n = 1;\nexport const o = { n: 1 };\nexport type T = () => void;'), []);
   assert.deepEqual(callables("export { x } from './x.js';\nexport * from './y.js';"), []);
+  assert.deepEqual(callables('function f() {}\nfunction g() {}\nexport type { f };\nexport { type g };'), []);
 });
 
 test('reads names from code and string literals, not from comments or imports', () => {

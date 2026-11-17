@@ -29,21 +29,30 @@ export const publicCallables = (ts, checker, sf) => {
   const isCallable = (symbol, at) => checker.getTypeOfSymbolAtLocation(symbol, at).getCallSignatures().length > 0;
   const isPublic = member =>
     member.name !== undefined &&
-    ts.isIdentifier(member.name) &&
+    (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name)) &&
     (ts.getCombinedModifierFlags(member) & (ts.ModifierFlags.Private | ts.ModifierFlags.Protected)) === 0;
   const unwrap = node =>
     node && (ts.isAsExpression(node) || ts.isSatisfiesExpression(node) || ts.isParenthesizedExpression(node))
       ? unwrap(node.expression)
       : node;
+  const isTypeOnly = exported =>
+    exported.declarations?.some(d => ts.isExportSpecifier(d) && (d.isTypeOnly || d.parent.parent.isTypeOnly));
+  const classOf = decl => {
+    if (ts.isClassDeclaration(decl)) return decl;
+    const initializer = ts.isVariableDeclaration(decl) ? unwrap(decl.initializer) : undefined;
+    return initializer && ts.isClassExpression(initializer) ? initializer : undefined;
+  };
 
   const names = [];
   for (const exported of checker.getExportsOfModule(moduleSymbol)) {
     const symbol = exported.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
     const decl = symbol.valueDeclaration;
-    if (!decl || decl.getSourceFile() !== sf) continue;
-    const name = exported.getName() === 'default' ? symbol.getName() : exported.getName();
-    if (ts.isClassDeclaration(decl)) {
-      for (const member of decl.members) {
+    if (!decl || decl.getSourceFile() !== sf || isTypeOnly(exported)) continue;
+    // A default export is asserted under the name it was declared with.
+    const name = exported.getName() === 'default' ? (decl.name?.text ?? 'default') : exported.getName();
+    const cls = classOf(decl);
+    if (cls) {
+      for (const member of cls.members) {
         if (!isPublic(member)) continue;
         const callable =
           ts.isMethodDeclaration(member) || (ts.isPropertyDeclaration(member) && isCallable(member.symbol, member));
