@@ -407,6 +407,8 @@ Borrow tokens from the money market pool. Borrowed tokens can be delivered to a 
 1. `borrow`: Executes the spoke-side message, relays to the hub, and waits for the relay to settle.
 2. `createBorrowIntent`: Builds (and optionally broadcasts) only the spoke-side transaction without waiting for the relay.
 
+Both read the token's reserve on the hub first. If the pool cannot lend it (borrowing disabled, as for collateral-only reserves, or the reserve is frozen or paused), they return `VALIDATION_FAILED` with `context.field: 'token'` and send nothing. To hide the option up front, check `borrowingEnabled` in the reserve data.
+
 ```typescript
 import { type MoneyMarketBorrowParams, DEFAULT_RELAY_TX_TIMEOUT, ChainKeys } from '@sodax/sdk';
 

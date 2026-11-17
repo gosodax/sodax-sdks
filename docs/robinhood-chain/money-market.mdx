@@ -12,7 +12,7 @@ Fragmented money markets mean lower capital efficiency and worse rates. The SODA
 
 Four actions, all through `sodax.moneyMarket`: `supply`, `borrow`, `withdraw`, `repay`. Each has a complete one-call form (handles the relay end-to-end) and a `create*Intent` form when you want the transaction only.
 
-The assets that work in the money market from Robinhood Chain are a subset of the Robinhood Chain swap list. They include eleven Stock Tokens (AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA, SPCX, SPY, QQQ and GLD) that users can supply as collateral and borrow other assets against. Borrowing a Stock Token is disabled on the pool, so a borrow of one fails on the hub; check `borrowingEnabled` in the reserve data before you offer borrowing for an asset. The other Stock Tokens are swap-only. Read the list at runtime, as below, or see [Networks & Assets](/robinhood-chain/networks-and-assets).
+The assets that work in the money market from Robinhood Chain are a subset of the Robinhood Chain swap list. They include eleven Stock Tokens (AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA, SPCX, SPY, QQQ and GLD) that users can supply as collateral and borrow other assets against. Borrowing a Stock Token is disabled on the pool, so the SDK rejects a borrow of one with `VALIDATION_FAILED` before sending anything; check `borrowingEnabled` in the reserve data to hide the option. The other Stock Tokens are swap-only. Read the list at runtime, as below, or see [Networks & Assets](/robinhood-chain/networks-and-assets).
 
 ## Supply from Robinhood Chain
 
