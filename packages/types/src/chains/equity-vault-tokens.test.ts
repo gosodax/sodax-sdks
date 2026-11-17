@@ -17,8 +17,8 @@ import {
 } from '../swap/swap.js';
 import { moneyMarketReserveAssets, moneyMarketSupportedTokens } from '../moneyMarket/moneyMarket.js';
 
-// The Robinhood tokenized equities are swap-only: canonical vaults and production solver
-// assets on four chains, deliberately absent from the money market. A `SodaTokens` entry is
+// The Robinhood tokenized equities: canonical vaults and production solver assets on four chains,
+// of which only MONEY_MARKET_EQUITY_SYMBOLS are money-market reserves. A `SodaTokens` entry is
 // not evidence of money-market support, so this matrix pins both halves of that split.
 const EQUITY_SYMBOLS = [
   'SPCX',
@@ -154,7 +154,7 @@ const MONEY_MARKET_EQUITY_SYMBOLS = new Set<string>([
   'SPY',
   'QQQ',
   'GLD',
-]);
+] satisfies EquitySymbol[]);
 
 describe('only the listed equity vaults are money-market assets', () => {
   const unlisted = EQUITY_SYMBOLS.filter(symbol => !MONEY_MARKET_EQUITY_SYMBOLS.has(symbol));
@@ -169,11 +169,6 @@ describe('only the listed equity vaults are money-market assets', () => {
     expect(moneyMarketReserveAssets.map(address => address.toLowerCase())).toContain(
       SodaTokens.sodaETH.address.toLowerCase(),
     );
-  });
-
-  it('every listed symbol is a known equity vault', () => {
-    const known = new Set<string>(EQUITY_SYMBOLS);
-    expect([...MONEY_MARKET_EQUITY_SYMBOLS].filter(symbol => !known.has(symbol))).toEqual([]);
   });
 
   for (const [chainKey, tokens] of Object.entries(moneyMarketSupportedTokens) as [SpokeChainKey, readonly XToken[]][]) {

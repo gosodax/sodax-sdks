@@ -3,6 +3,21 @@ import type { Address } from '../shared/shared.js';
 import { type XToken, SodaTokens } from '../chains/tokens.js';
 import { spokeChainConfig, ChainKeys, type SpokeChainKey, hubConfig } from '../chains/chains.js';
 
+// Robinhood Stock Tokens listed as collateral on every chain that has them; the pool has borrowing disabled for them.
+const moneyMarketEquitySymbols = [
+  'AAPL',
+  'MSFT',
+  'NVDA',
+  'GOOGL',
+  'AMZN',
+  'META',
+  'TSLA',
+  'SPCX',
+  'SPY',
+  'QQQ',
+  'GLD',
+] as const;
+
 // Hub vaults the money market lends against, and the source of `moneyMarketReserveAssets`.
 // Membership is an explicit opt-in: a new SodaTokens entry is not a reserve asset until listed here.
 const moneyMarketHubVaults = [
@@ -34,18 +49,7 @@ const moneyMarketHubVaults = [
   SodaTokens.sodaJITOSOL,
   SodaTokens.sodaUSDS,
   SodaTokens.sodaUSSD,
-  // Robinhood Stock Tokens: reserves you can supply and use as collateral; borrowing them is disabled.
-  SodaTokens.AAPL,
-  SodaTokens.MSFT,
-  SodaTokens.NVDA,
-  SodaTokens.GOOGL,
-  SodaTokens.AMZN,
-  SodaTokens.META,
-  SodaTokens.TSLA,
-  SodaTokens.SPCX,
-  SodaTokens.SPY,
-  SodaTokens.QQQ,
-  SodaTokens.GLD,
+  ...moneyMarketEquitySymbols.map(symbol => SodaTokens[symbol]),
 ] as const satisfies XToken[];
 
 // currently supported spoke chain tokens for money market
@@ -169,17 +173,7 @@ export const moneyMarketSupportedTokens = {
     spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.HYPE,
     spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.NEAR,
     spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.USDS,
-    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.AAPL,
-    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.MSFT,
-    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.NVDA,
-    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.GOOGL,
-    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.AMZN,
-    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.META,
-    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.TSLA,
-    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.SPCX,
-    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.SPY,
-    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.QQQ,
-    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.GLD,
+    ...moneyMarketEquitySymbols.map(symbol => spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens[symbol]),
   ] as const satisfies XToken[],
   [ChainKeys.SUI_MAINNET]: [
     spokeChainConfig[ChainKeys.SUI_MAINNET].supportedTokens.SUI,
@@ -275,34 +269,14 @@ export const moneyMarketSupportedTokens = {
     spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.NEAR,
     spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.USDS,
     spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.XLM,
-    spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.AAPL,
-    spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.MSFT,
-    spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.NVDA,
-    spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.GOOGL,
-    spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.AMZN,
-    spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.META,
-    spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.TSLA,
-    spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.SPCX,
-    spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.SPY,
-    spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.QQQ,
-    spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.GLD,
+    ...moneyMarketEquitySymbols.map(symbol => spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens[symbol]),
   ] as const satisfies XToken[],
   [ChainKeys.ROBINHOOD_MAINNET]: [
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.ETH,
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.bnUSD,
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.SODA,
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.USDG,
-    spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.AAPL,
-    spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.MSFT,
-    spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.NVDA,
-    spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.GOOGL,
-    spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.AMZN,
-    spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.META,
-    spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.TSLA,
-    spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.SPCX,
-    spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.SPY,
-    spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.QQQ,
-    spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.GLD,
+    ...moneyMarketEquitySymbols.map(symbol => spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens[symbol]),
   ] as const satisfies XToken[],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
