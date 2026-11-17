@@ -25,7 +25,9 @@ out when their code stopped compiling without a cast, or kept compiling over a w
 2. **Narrowed on usage.** A function whose result depends on what the caller passes returns the type
    that matches the call, inferred from the arguments, with no type arguments and no cast. Typical
    inputs are the chain or chain family, the execution mode, the wallet provider and a variant of the
-   params. A call that cannot be valid is a compile error rather than a wide result.
+   params. A call that cannot be valid is a compile error rather than a wide result. Where the input
+   only arrives after the call (a mutation hook receives its variables at `mutate`), the caller locks
+   it once with a type argument on the hook, and the default is the full union.
 3. **The one exception.** A function whose result type does not depend on its inputs has nothing to
    narrow. It is still strongly typed under point 1.
 4. **Verified by type tests.** Each source file with exported functions or public methods has a type
