@@ -15,6 +15,7 @@ import type {
   IStellarWalletProvider,
   ISuiWalletProvider,
   IWalletProvider,
+  MoneyMarketApproveActionParams,
   MoneyMarketParams,
   SpokeChainKey,
 } from '@sodax/sdk';
@@ -104,5 +105,11 @@ describe('useMMApprove', () => {
     expectTypeOf(wrongWallet).toBeFunction();
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
+  });
+
+  it('spells the variables as the SDK action params without `raw`', () => {
+    expectTypeOf<UseMMApproveVars>().toEqualTypeOf<Omit<MoneyMarketApproveActionParams<SpokeChainKey, false>, 'raw'>>();
+    expectTypeOf<UseMMApproveVars<BSC>>().toEqualTypeOf<Omit<MoneyMarketApproveActionParams<BSC, false>, 'raw'>>();
+    expectTypeOf<UseMMApproveVars<ICON>>().toEqualTypeOf<Omit<MoneyMarketApproveActionParams<ICON, false>, 'raw'>>();
   });
 });

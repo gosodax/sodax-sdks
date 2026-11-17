@@ -9,6 +9,7 @@ import type {
   IIconWalletProvider,
   IInjectiveWalletProvider,
   INearWalletProvider,
+  InstantUnstakeAction,
   InstantUnstakeParams,
   ISolanaWalletProvider,
   IStacksWalletProvider,
@@ -104,5 +105,11 @@ describe('useInstantUnstake', () => {
     expectTypeOf(wrongWallet).toBeFunction();
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
+  });
+
+  it('spells the variables as the SDK action params without `raw`', () => {
+    expectTypeOf<UseInstantUnstakeVars>().toEqualTypeOf<Omit<InstantUnstakeAction<SpokeChainKey, false>, 'raw'>>();
+    expectTypeOf<UseInstantUnstakeVars<BSC>>().toEqualTypeOf<Omit<InstantUnstakeAction<BSC, false>, 'raw'>>();
+    expectTypeOf<UseInstantUnstakeVars<ICON>>().toEqualTypeOf<Omit<InstantUnstakeAction<ICON, false>, 'raw'>>();
   });
 });

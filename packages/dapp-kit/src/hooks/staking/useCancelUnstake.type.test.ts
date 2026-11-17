@@ -3,6 +3,7 @@
  * variables' `walletProvider` and `params` to that chain, and with no type argument they span every chain.
  */
 import type {
+  CancelUnstakeAction,
   CancelUnstakeParams,
   ChainKeys,
   IBitcoinWalletProvider,
@@ -104,5 +105,11 @@ describe('useCancelUnstake', () => {
     expectTypeOf(wrongWallet).toBeFunction();
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
+  });
+
+  it('spells the variables as the SDK action params without `raw`', () => {
+    expectTypeOf<UseCancelUnstakeVars>().toEqualTypeOf<Omit<CancelUnstakeAction<SpokeChainKey, false>, 'raw'>>();
+    expectTypeOf<UseCancelUnstakeVars<BSC>>().toEqualTypeOf<Omit<CancelUnstakeAction<BSC, false>, 'raw'>>();
+    expectTypeOf<UseCancelUnstakeVars<ICON>>().toEqualTypeOf<Omit<CancelUnstakeAction<ICON, false>, 'raw'>>();
   });
 });

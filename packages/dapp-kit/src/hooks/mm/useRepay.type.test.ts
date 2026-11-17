@@ -14,6 +14,7 @@ import type {
   IStellarWalletProvider,
   ISuiWalletProvider,
   IWalletProvider,
+  MoneyMarketRepayActionParams,
   MoneyMarketRepayParams,
   SpokeChainKey,
   TxHashPair,
@@ -104,5 +105,11 @@ describe('useRepay', () => {
     expectTypeOf(wrongWallet).toBeFunction();
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
+  });
+
+  it('spells the variables as the SDK action params without `raw`', () => {
+    expectTypeOf<UseRepayVars>().toEqualTypeOf<Omit<MoneyMarketRepayActionParams<SpokeChainKey, false>, 'raw'>>();
+    expectTypeOf<UseRepayVars<BSC>>().toEqualTypeOf<Omit<MoneyMarketRepayActionParams<BSC, false>, 'raw'>>();
+    expectTypeOf<UseRepayVars<ICON>>().toEqualTypeOf<Omit<MoneyMarketRepayActionParams<ICON, false>, 'raw'>>();
   });
 });

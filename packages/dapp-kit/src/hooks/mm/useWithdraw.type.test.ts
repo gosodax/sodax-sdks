@@ -14,6 +14,7 @@ import type {
   IStellarWalletProvider,
   ISuiWalletProvider,
   IWalletProvider,
+  MoneyMarketWithdrawActionParams,
   MoneyMarketWithdrawParams,
   SpokeChainKey,
   TxHashPair,
@@ -104,5 +105,11 @@ describe('useWithdraw', () => {
     expectTypeOf(wrongWallet).toBeFunction();
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
+  });
+
+  it('spells the variables as the SDK action params without `raw`', () => {
+    expectTypeOf<UseWithdrawVars>().toEqualTypeOf<Omit<MoneyMarketWithdrawActionParams<SpokeChainKey, false>, 'raw'>>();
+    expectTypeOf<UseWithdrawVars<BSC>>().toEqualTypeOf<Omit<MoneyMarketWithdrawActionParams<BSC, false>, 'raw'>>();
+    expectTypeOf<UseWithdrawVars<ICON>>().toEqualTypeOf<Omit<MoneyMarketWithdrawActionParams<ICON, false>, 'raw'>>();
   });
 });

@@ -16,6 +16,7 @@ import type {
   IWalletProvider,
   SpokeChainKey,
   TxHashPair,
+  UnstakeAction,
   UnstakeParams,
 } from '@sodax/sdk';
 import { describe, expectTypeOf, it } from 'vitest';
@@ -104,5 +105,11 @@ describe('useUnstake', () => {
     expectTypeOf(wrongWallet).toBeFunction();
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
+  });
+
+  it('spells the variables as the SDK action params without `raw`', () => {
+    expectTypeOf<UseUnstakeVars>().toEqualTypeOf<Omit<UnstakeAction<SpokeChainKey, false>, 'raw'>>();
+    expectTypeOf<UseUnstakeVars<BSC>>().toEqualTypeOf<Omit<UnstakeAction<BSC, false>, 'raw'>>();
+    expectTypeOf<UseUnstakeVars<ICON>>().toEqualTypeOf<Omit<UnstakeAction<ICON, false>, 'raw'>>();
   });
 });

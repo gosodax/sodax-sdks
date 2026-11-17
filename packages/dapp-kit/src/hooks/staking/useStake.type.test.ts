@@ -15,6 +15,7 @@ import type {
   ISuiWalletProvider,
   IWalletProvider,
   SpokeChainKey,
+  StakeAction,
   StakeParams,
   TxHashPair,
 } from '@sodax/sdk';
@@ -104,5 +105,11 @@ describe('useStake', () => {
     expectTypeOf(wrongWallet).toBeFunction();
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
+  });
+
+  it('spells the variables as the SDK action params without `raw`', () => {
+    expectTypeOf<UseStakeVars>().toEqualTypeOf<Omit<StakeAction<SpokeChainKey, false>, 'raw'>>();
+    expectTypeOf<UseStakeVars<BSC>>().toEqualTypeOf<Omit<StakeAction<BSC, false>, 'raw'>>();
+    expectTypeOf<UseStakeVars<ICON>>().toEqualTypeOf<Omit<StakeAction<ICON, false>, 'raw'>>();
   });
 });

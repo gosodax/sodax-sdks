@@ -13,6 +13,16 @@ describe('nextNotFoundStreak', () => {
   });
 });
 
+describe('NotFoundStreakState', () => {
+  it('holds the poll identity, the last seen update and the streak', () => {
+    expectTypeOf<NotFoundStreakState>().toEqualTypeOf<{
+      pollKey: string | undefined;
+      seenUpdates: number;
+      consecutiveNotFound: number;
+    }>();
+  });
+});
+
 describe('advanceNotFoundStreak', () => {
   it('returns the next streak state', () => {
     expectTypeOf<Parameters<typeof advanceNotFoundStreak>>().toEqualTypeOf<

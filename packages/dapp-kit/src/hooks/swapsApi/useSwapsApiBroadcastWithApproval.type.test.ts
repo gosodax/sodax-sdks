@@ -49,6 +49,11 @@ describe('useSwapsApiBroadcastWithApproval', () => {
     expectTypeOf<ReturnType<typeof useSwapsApiBroadcastWithApproval>>().toEqualTypeOf<
       SafeUseMutationResult<SwapsApiBroadcastWithApprovalResult, Error, UseSwapsApiBroadcastWithApprovalVars>
     >();
+    expectTypeOf<SwapsApiBroadcastWithApprovalResult>().toEqualTypeOf<{
+      txHash: Hash;
+      approvalStrategy: Exclude<ApprovalStrategy, 'not-required'>;
+      approval?: ApprovalHashes;
+    }>();
     expectTypeOf<NonNullable<ReturnType<typeof useSwapsApiBroadcastWithApproval>['data']>>().toEqualTypeOf<{
       txHash: Hash;
       approvalStrategy: Exclude<ApprovalStrategy, 'not-required'>;

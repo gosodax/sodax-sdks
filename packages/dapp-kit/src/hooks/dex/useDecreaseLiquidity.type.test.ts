@@ -5,6 +5,7 @@
 import type {
   ChainKeys,
   ClDecreaseLiquidityParams,
+  ClLiquidityDecreaseLiquidityAction,
   IBitcoinWalletProvider,
   IEvmWalletProvider,
   IIconWalletProvider,
@@ -104,5 +105,17 @@ describe('useDecreaseLiquidity', () => {
     expectTypeOf(wrongWallet).toBeFunction();
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
+  });
+
+  it('spells the variables as the SDK action params without `raw`', () => {
+    expectTypeOf<UseDecreaseLiquidityVars>().toEqualTypeOf<
+      Omit<ClLiquidityDecreaseLiquidityAction<SpokeChainKey, false>, 'raw'>
+    >();
+    expectTypeOf<UseDecreaseLiquidityVars<BSC>>().toEqualTypeOf<
+      Omit<ClLiquidityDecreaseLiquidityAction<BSC, false>, 'raw'>
+    >();
+    expectTypeOf<UseDecreaseLiquidityVars<ICON>>().toEqualTypeOf<
+      Omit<ClLiquidityDecreaseLiquidityAction<ICON, false>, 'raw'>
+    >();
   });
 });

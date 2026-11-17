@@ -14,6 +14,7 @@ import type {
   IStellarWalletProvider,
   ISuiWalletProvider,
   IWalletProvider,
+  MoneyMarketBorrowActionParams,
   MoneyMarketBorrowParams,
   SpokeChainKey,
   TxHashPair,
@@ -104,5 +105,11 @@ describe('useBorrow', () => {
     expectTypeOf(wrongWallet).toBeFunction();
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
+  });
+
+  it('spells the variables as the SDK action params without `raw`', () => {
+    expectTypeOf<UseBorrowVars>().toEqualTypeOf<Omit<MoneyMarketBorrowActionParams<SpokeChainKey, false>, 'raw'>>();
+    expectTypeOf<UseBorrowVars<BSC>>().toEqualTypeOf<Omit<MoneyMarketBorrowActionParams<BSC, false>, 'raw'>>();
+    expectTypeOf<UseBorrowVars<ICON>>().toEqualTypeOf<Omit<MoneyMarketBorrowActionParams<ICON, false>, 'raw'>>();
   });
 });

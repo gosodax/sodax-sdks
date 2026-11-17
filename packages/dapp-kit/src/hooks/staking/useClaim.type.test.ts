@@ -4,6 +4,7 @@
  */
 import type {
   ChainKeys,
+  ClaimAction,
   ClaimParams,
   IBitcoinWalletProvider,
   IEvmWalletProvider,
@@ -104,5 +105,11 @@ describe('useClaim', () => {
     expectTypeOf(wrongWallet).toBeFunction();
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
+  });
+
+  it('spells the variables as the SDK action params without `raw`', () => {
+    expectTypeOf<UseClaimVars>().toEqualTypeOf<Omit<ClaimAction<SpokeChainKey, false>, 'raw'>>();
+    expectTypeOf<UseClaimVars<BSC>>().toEqualTypeOf<Omit<ClaimAction<BSC, false>, 'raw'>>();
+    expectTypeOf<UseClaimVars<ICON>>().toEqualTypeOf<Omit<ClaimAction<ICON, false>, 'raw'>>();
   });
 });

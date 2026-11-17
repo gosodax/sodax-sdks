@@ -4,6 +4,8 @@
  */
 import type {
   ChainKeys,
+  ClIncreaseLiquidityParams,
+  ClSupplyParams,
   IBitcoinWalletProvider,
   IEvmWalletProvider,
   IIconWalletProvider,
@@ -40,6 +42,12 @@ type Vars<K extends SpokeChainKey> = Parameters<Hook<K>['mutateAsync']>[0];
 type Data<K extends SpokeChainKey> = Awaited<ReturnType<Hook<K>['mutateAsync']>>;
 type Wallet<K extends SpokeChainKey> = Vars<K>['walletProvider'];
 type Params<K extends SpokeChainKey> = Vars<K>['params'];
+type SupplyParams<K extends SpokeChainKey> = Omit<ClSupplyParams<SpokeChainKey>, 'srcChainKey' | 'srcAddress'> &
+  Omit<ClIncreaseLiquidityParams<SpokeChainKey>, 'srcChainKey' | 'srcAddress' | 'tokenId'> & {
+    tokenId?: string | bigint;
+    positionId?: string | null;
+    isValidPosition?: boolean;
+  } & { srcChainKey: K; srcAddress: string };
 
 describe('useSupplyLiquidity', () => {
   it('takes mutation options typed by its data and variables', () => {
@@ -138,5 +146,23 @@ describe('useSupplyLiquidity', () => {
     expectTypeOf(wrongWallet).toBeFunction();
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
+  });
+
+  it("spells the variables as the chain-agnostic supply params, the chain's wallet provider and a timeout", () => {
+    expectTypeOf<UseSupplyLiquidityVars>().toEqualTypeOf<{
+      params: SupplyParams<SpokeChainKey>;
+      walletProvider: IWalletProvider;
+      timeout?: number;
+    }>();
+    expectTypeOf<UseSupplyLiquidityVars<BSC>>().toEqualTypeOf<{
+      params: SupplyParams<BSC>;
+      walletProvider: IEvmWalletProvider;
+      timeout?: number;
+    }>();
+    expectTypeOf<UseSupplyLiquidityVars<ICON>>().toEqualTypeOf<{
+      params: SupplyParams<ICON>;
+      walletProvider: IIconWalletProvider;
+      timeout?: number;
+    }>();
   });
 });

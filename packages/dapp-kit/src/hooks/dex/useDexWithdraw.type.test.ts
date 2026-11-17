@@ -3,6 +3,7 @@
  * variables' `walletProvider` and `params` to that chain, and with no type argument they span every chain.
  */
 import type {
+  AssetWithdrawAction,
   ChainKeys,
   CreateAssetWithdrawParams,
   IBitcoinWalletProvider,
@@ -104,5 +105,11 @@ describe('useDexWithdraw', () => {
     expectTypeOf(wrongWallet).toBeFunction();
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
+  });
+
+  it('spells the variables as the SDK action params without `raw`', () => {
+    expectTypeOf<UseDexWithdrawVars>().toEqualTypeOf<Omit<AssetWithdrawAction<SpokeChainKey, false>, 'raw'>>();
+    expectTypeOf<UseDexWithdrawVars<BSC>>().toEqualTypeOf<Omit<AssetWithdrawAction<BSC, false>, 'raw'>>();
+    expectTypeOf<UseDexWithdrawVars<ICON>>().toEqualTypeOf<Omit<AssetWithdrawAction<ICON, false>, 'raw'>>();
   });
 });

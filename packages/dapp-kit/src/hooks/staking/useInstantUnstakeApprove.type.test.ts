@@ -109,4 +109,19 @@ describe('useInstantUnstakeApprove', () => {
     expectTypeOf(wrongChain).toBeFunction();
     expectTypeOf(raw).toBeFunction();
   });
+
+  it("spells the variables as the SDK params without `action`, plus the chain's wallet provider", () => {
+    expectTypeOf<UseInstantUnstakeApproveVars>().toEqualTypeOf<{
+      params: Omit<InstantUnstakeParams<SpokeChainKey>, 'action'>;
+      walletProvider: IWalletProvider;
+    }>();
+    expectTypeOf<UseInstantUnstakeApproveVars<BSC>>().toEqualTypeOf<{
+      params: Omit<InstantUnstakeParams<BSC>, 'action'>;
+      walletProvider: IEvmWalletProvider;
+    }>();
+    expectTypeOf<UseInstantUnstakeApproveVars<ICON>>().toEqualTypeOf<{
+      params: Omit<InstantUnstakeParams<ICON>, 'action'>;
+      walletProvider: IIconWalletProvider;
+    }>();
+  });
 });
