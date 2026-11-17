@@ -57,7 +57,8 @@
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/scripts/check-tests-typechecked.mjs",
-        "$TURBO_ROOT$/scripts/check-execution-mode.mjs"
+        "$TURBO_ROOT$/scripts/check-execution-mode.mjs",
+        "$TURBO_ROOT$/scripts/check-type-tests.mjs"
       ]
     },
     "checkTs:packages": {
