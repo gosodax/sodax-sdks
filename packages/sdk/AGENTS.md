@@ -143,6 +143,11 @@ for new casts, with pre-existing undocumented ones grandfathered per file in
 Results are strongly typed and narrowed at the call site
 ([ADR 0001](../../adr/0001-typed-and-narrowed-public-surface.md)): a source file that exports a function
 or a public method gets a `<file>.type.test.ts` beside it that asserts each result type.
+`scripts/check-type-tests.mjs` (repo root, the tail of `checkTs`) fails when an exported function has none; a
+deliberate gap goes in `scripts/type-test-exemptions.json` with its reason. Vitest runs these files too
+and a `declare const` does not exist at runtime, so keep assertions in type positions or never-invoked
+functions. Put a `@ts-expect-error` inside an expression that is used: above an unused `const`, the
+unused-local error satisfies it and the invalid call goes unchecked.
 
 `build` runs `scripts/verify-dist-exports.mjs` after `tsup`, asserting every file named in
 `package.json#exports` was actually emitted. `tsup` runs with `clean: true` and writes JS about ten
