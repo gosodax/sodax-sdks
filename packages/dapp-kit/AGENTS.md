@@ -143,3 +143,7 @@ shared `scripts/check-tests-typechecked.mjs` (repo root, the tail of `checkTs`) 
 future exclude hides them again. It also requires a one-line why-comment on every `as unknown as`
 in a test file, with pre-existing undocumented casts grandfathered in this package's
 `scripts/test-cast-comment-baseline.json`, which may only shrink.
+
+Results are strongly typed and narrowed at the call site
+([ADR 0001](../../adr/0001-typed-and-narrowed-public-surface.md)): a source file that exports a function
+or a public method gets a `<file>.type.test.ts` beside it that asserts each result type.
