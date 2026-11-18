@@ -1,8 +1,7 @@
 /**
  * Compile-time contract: ClService liquidity actions type their result by the source chain family and
  * execution mode; signed orchestrations resolve to a `TxHashPair`; hub reads and the static math
- * helpers return fixed types. Single-step methods carry the dex error unions (codes spelled out); the
- * orchestrations keep the untyped `Result` default (`unknown`), pinned as such.
+ * helpers return fixed types. Errors are the untyped `Result` default (`unknown`), pinned as such.
  */
 import { describe, expectTypeOf, it } from 'vitest';
 import type {
@@ -39,7 +38,6 @@ import type {
   PoolSpokeAssets,
   RelayExtraData,
   Result,
-  SodaxError,
   SolanaRawTransaction,
   StacksRawTransaction,
   StellarRawTransaction,
@@ -75,11 +73,9 @@ type Fam = {
   // Bitcoin's raw type already includes the hash string.
   bitcoin: [string, BitcoinRawTransaction | string];
 };
-type IntentErr = SodaxError<'USER_REJECTED' | 'VALIDATION_FAILED' | 'INTENT_CREATION_FAILED' | 'UNKNOWN'>;
-type LookupErr = SodaxError<'VALIDATION_FAILED' | 'LOOKUP_FAILED' | 'UNKNOWN'>;
-type Intent<T> = Promise<Result<{ tx: T; relayData: RelayExtraData }, IntentErr>>;
+// Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+type Intent<T> = Promise<Result<{ tx: T; relayData: RelayExtraData }, unknown>>;
 type IntentMatrix = { readonly [N in keyof Fam]: readonly [Intent<Fam[N][0]>, Intent<Fam[N][1]>] };
-// Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
 type Pair = Promise<Result<TxHashPair, unknown>>;
 
 declare const svc: ClService;
@@ -322,17 +318,15 @@ describe('ClService', () => {
   it('hub reads and builders return their fixed types', () => {
     expectTypeOf<ReturnType<ClService['getAssetsForPool']>>().toEqualTypeOf<PoolSpokeAssets>();
     expectTypeOf<ReturnType<ClService['getMintPositionEvent']>>().toEqualTypeOf<
-      Promise<Result<ClMintPositionEventLog, LookupErr>>
+      Promise<Result<ClMintPositionEventLog, unknown>>
     >();
     expectTypeOf<ReturnType<ClService['permit2Approve']>>().toEqualTypeOf<EvmContractCall[]>();
     expectTypeOf<ReturnType<ClService['getPoolRewardConfig']>>().toEqualTypeOf<
-      Promise<Result<PoolRewardConfig, LookupErr>>
+      Promise<Result<PoolRewardConfig, unknown>>
     >();
     expectTypeOf<ReturnType<ClService['getPools']>>().toEqualTypeOf<PoolKey[]>();
-    expectTypeOf<ReturnType<ClService['getPoolData']>>().toEqualTypeOf<Promise<Result<PoolData, LookupErr>>>();
-    expectTypeOf<ReturnType<ClService['getPositionInfo']>>().toEqualTypeOf<
-      Promise<Result<ClPositionInfo, LookupErr>>
-    >();
+    expectTypeOf<ReturnType<ClService['getPoolData']>>().toEqualTypeOf<Promise<Result<PoolData, unknown>>>();
+    expectTypeOf<ReturnType<ClService['getPositionInfo']>>().toEqualTypeOf<Promise<Result<ClPositionInfo, unknown>>>();
   });
 
   it('static liquidity math returns bigints', () => {

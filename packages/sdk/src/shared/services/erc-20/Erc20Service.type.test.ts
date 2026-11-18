@@ -53,7 +53,7 @@ describe('Erc20Service', () => {
   it('isAllowanceValid resolves to Result<boolean> for spoke and hub EVM chains', () => {
     const rows = () =>
       [Erc20Service.isAllowanceValid(bscAllowance), Erc20Service.isAllowanceValid(sonicAllowance)] as const;
-    // Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<typeof rows>>().toEqualTypeOf<
       readonly [Promise<Result<boolean>>, Promise<Result<boolean>>]
     >();

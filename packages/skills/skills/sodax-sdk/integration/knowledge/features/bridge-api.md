@@ -2,7 +2,7 @@
 
 Typed HTTP client for the backend **Bridge API** (`/bridge/*`). Reachable as `sodax.api.bridge`
 (`sodax.api` is an alias for `sodax.backendApi`; `.bridge` is the `BridgeApiService` instance). One method
-per endpoint. Every method returns `Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>` — it **never throws** — and every
+per endpoint. Every method returns `Promise<Result<T>>` — it **never throws** — and every
 response is validated at runtime against a valibot schema, so a backend contract drift surfaces as
 `{ ok: false }` rather than an untyped object.
 

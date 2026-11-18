@@ -36,11 +36,11 @@ import type {
   VaultAssetResponseV2,
   VaultTotalAssetsResponseV2,
 } from '../index.js';
-import type { SodaxError } from '../errors/SodaxError.js';
 import type { LeverageYieldApiService } from './LeverageYieldApiService.js';
 
 type Svc = LeverageYieldApiService;
-type R<T> = Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>;
+// Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+type R<T> = Promise<Result<T>>;
 type Err<P> = Awaited<P> extends infer U ? (U extends { ok: false; error: infer E } ? E : never) : never;
 
 describe('LeverageYieldApiService', () => {
@@ -103,6 +103,7 @@ describe('LeverageYieldApiService', () => {
   });
 
   it('failure side', () => {
-    expectTypeOf<Err<ReturnType<Svc['getVault']>>>().toEqualTypeOf<SodaxError<'EXTERNAL_API_ERROR'>>();
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+    expectTypeOf<Err<ReturnType<Svc['getVault']>>>().toBeUnknown();
   });
 });

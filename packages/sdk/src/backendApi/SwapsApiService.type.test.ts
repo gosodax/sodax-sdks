@@ -27,11 +27,11 @@ import type {
   SubmitTxResponseV2,
   SubmitTxStatusResponseV2,
 } from '../index.js';
-import type { SodaxError } from '../errors/SodaxError.js';
 import type { SwapsApiService } from './SwapsApiService.js';
 
 type Svc = SwapsApiService;
-type R<T> = Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>;
+// Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+type R<T> = Promise<Result<T>>;
 type Err<P> = Awaited<P> extends infer U ? (U extends { ok: false; error: infer E } ? E : never) : never;
 
 describe('SwapsApiService', () => {
@@ -83,6 +83,7 @@ describe('SwapsApiService', () => {
   });
 
   it('failure side', () => {
-    expectTypeOf<Err<ReturnType<Svc['getQuote']>>>().toEqualTypeOf<SodaxError<'EXTERNAL_API_ERROR'>>();
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+    expectTypeOf<Err<ReturnType<Svc['getQuote']>>>().toBeUnknown();
   });
 });

@@ -29,7 +29,7 @@ type Unpromise<P> = [P] extends [Promise<infer V>] ? V : 'not a Promise';
 type AwaitAll<T extends readonly unknown[]> = { -readonly [I in keyof T]: Unpromise<T[I]> };
 type Settled<T extends Record<string, readonly unknown[]>> = { -readonly [F in keyof T]: AwaitAll<T[F]> };
 // Columns: [walletProvider, raw: false, raw: true, runtime boolean]; the hub is EVM.
-// Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
+// Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
 type HubModes = [Result<Hex>, Result<Hex>, Result<EvmRawTransaction>, Result<Hex | EvmRawTransaction>];
 
 declare const feeClaim: PartnerFeeClaimService;
@@ -90,7 +90,7 @@ describe('PartnerFeeClaimService — hub actions', () => {
 
   it('swap is signed-only and returns the auto-swap result', () => {
     const call = () => feeClaim.swap({ params: swapP, walletProvider: evm });
-    // Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<typeof call>>().toEqualTypeOf<Promise<Result<IntentAutoSwapResult>>>();
     expectTypeOf<IntentAutoSwapResult>().toEqualTypeOf<{
       srcTxHash: Hex;

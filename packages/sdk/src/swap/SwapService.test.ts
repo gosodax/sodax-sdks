@@ -1934,10 +1934,9 @@ describe('SwapService.getStatus', () => {
   ])('%s', async (_label, configured, expected) => {
     const s = configured === undefined ? new Sodax() : new Sodax({ api: { timeout: configured } });
     mocks.solverGetStatus.mockResolvedValueOnce({ ok: true, value: { status: SolverIntentStatusCode.NOT_FOUND } });
-    const lookup = vi.spyOn(s.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({
-      ok: false,
-      error: new SodaxError('EXTERNAL_API_ERROR', 'down', { feature: 'backend' }),
-    });
+    const lookup = vi
+      .spyOn(s.backendApi, 'getIntentByTxHash')
+      .mockResolvedValueOnce({ ok: false, error: new Error('down') });
 
     await s.swaps.getStatus(request);
 
@@ -1951,7 +1950,7 @@ describe('SwapService.getStatus', () => {
     mocks.solverGetStatus.mockResolvedValueOnce(solverError);
     vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({
       ok: false,
-      error: new SodaxError('EXTERNAL_API_ERROR', 'down', { feature: 'backend' }),
+      error: new Error('down'),
     });
 
     expect(await sodax.swaps.getStatus(request)).toBe(solverError);
@@ -1963,7 +1962,7 @@ describe('SwapService.getStatus', () => {
     mocks.solverGetStatus.mockResolvedValueOnce({ ok: true, value: { status: SolverIntentStatusCode.NOT_FOUND } });
     vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({
       ok: false,
-      error: new SodaxError('EXTERNAL_API_ERROR', 'down', { feature: 'backend' }),
+      error: new Error('down'),
     });
 
     const result = await sodax.swaps.getStatus(request);
@@ -2196,10 +2195,7 @@ describe('SwapService.getDetailedStatus', () => {
     noRecord();
     packets(delivered);
     solverSays(SolverIntentStatusCode.NOT_FOUND);
-    vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({
-      ok: false,
-      error: new SodaxError('EXTERNAL_API_ERROR', 'x', { feature: 'backend' }),
-    });
+    vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({ ok: false, error: new Error('x') });
 
     const result = await sodax.swaps.getDetailedStatus(key);
 
@@ -2292,7 +2288,7 @@ describe('SwapService.getDetailedStatus', () => {
   });
 
   // Unlike an unverified NOT_FOUND, an in-flight answer spends no budget, so it stays a plain read.
-  it.each<[string, SodaxError<'EXTERNAL_API_ERROR'>]>([
+  it.each<[string, Error]>([
     [
       '404',
       new SodaxError('EXTERNAL_API_ERROR', 'not found', {
@@ -2300,7 +2296,7 @@ describe('SwapService.getDetailedStatus', () => {
         context: { api: 'backend', status: 404 },
       }),
     ],
-    ['outage', new SodaxError('EXTERNAL_API_ERROR', 'down', { feature: 'backend' })],
+    ['outage', new Error('down')],
   ])('leaves an in-flight answer standing when the journal read fails with %s', async (_label, error) => {
     noRecord();
     packets(delivered);
@@ -2498,10 +2494,7 @@ describe('SwapService.getDetailedStatus', () => {
     noRecord();
     packets(delivered);
     mocks.solverGetStatus.mockResolvedValueOnce({ ok: false, error: { detail: { code: -999, message: 'down' } } });
-    vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({
-      ok: false,
-      error: new SodaxError('EXTERNAL_API_ERROR', 'x', { feature: 'backend' }),
-    });
+    vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({ ok: false, error: new Error('x') });
     const solverDown = await sodax.swaps.getDetailedStatus(key);
     expect(!solverDown.ok && isSodaxError(solverDown.error) && solverDown.error.context?.reason).toBeUndefined();
   });
@@ -2520,10 +2513,7 @@ describe('SwapService.getDetailedStatus', () => {
     record({ status: 'failed', failureReason: 'relay timed out' });
     packets(delivered);
     mocks.solverGetStatus.mockResolvedValueOnce({ ok: false, error: { detail: { code: -999, message: 'down' } } });
-    vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({
-      ok: false,
-      error: new SodaxError('EXTERNAL_API_ERROR', 'x', { feature: 'backend' }),
-    });
+    vi.spyOn(sodax.swaps.backendApi, 'getIntentByTxHash').mockResolvedValueOnce({ ok: false, error: new Error('x') });
 
     const result = await sodax.swaps.getDetailedStatus(key);
 

@@ -245,8 +245,7 @@ export type BackendApiServiceOptions = {
  *   and paginated borrower/supplier lists.
  * - **Oracle** — USD OHLC candle discovery and reads for charting.
  *
- * All public methods return
- * `Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>` — they never throw. On network
+ * All public methods return `Promise<Result<T>>` — they never throw. On network
  * failure, timeout, non-2xx HTTP response, or unexpected response shape the
  * returned Result has `ok: false` with a canonical `SodaxError<'EXTERNAL_API_ERROR'>`
  * (`feature: 'backend'`, `context.api: 'backend'`) in the `error` field; the
@@ -404,10 +403,7 @@ export class BackendApiService implements IConfigApiV1 {
    * cannot survive JSON validation (`getRelayChainIdMap`). `ConfigService` version-gates and falls
    * back to packaged defaults, so it relies on no response-shape guarantee from these endpoints.
    */
-  private async requestUnvalidated<T>(
-    endpoint: string,
-    config: RequestConfig,
-  ): Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  private async requestUnvalidated<T>(endpoint: string, config: RequestConfig): Promise<Result<T>> {
     try {
       const value = await this.send<T>(endpoint, config);
       return { ok: true, value };
@@ -427,10 +423,7 @@ export class BackendApiService implements IConfigApiV1 {
    * @returns `Result<IntentResponse>` — on success, the full intent details including
    *   open/closed state, token amounts, and any fill events.
    */
-  public async getIntentByTxHash(
-    txHash: string,
-    config?: RequestOverrideConfig,
-  ): Promise<Result<IntentResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  public async getIntentByTxHash(txHash: string, config?: RequestOverrideConfig): Promise<Result<IntentResponse>> {
     return this.request(`/intent/tx/${txHash}`, { ...config, method: 'GET' }, schemas.IntentResponseSchema);
   }
 
@@ -440,10 +433,7 @@ export class BackendApiService implements IConfigApiV1 {
    * @param intentHash - The unique identifier derived from the intent's on-chain data.
    * @returns `Result<IntentResponse>` — on success, the full intent details.
    */
-  public async getIntentByHash(
-    intentHash: string,
-    config?: RequestOverrideConfig,
-  ): Promise<Result<IntentResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  public async getIntentByHash(intentHash: string, config?: RequestOverrideConfig): Promise<Result<IntentResponse>> {
     return this.request(`/intent/${intentHash}`, { ...config, method: 'GET' }, schemas.IntentResponseSchema);
   }
 
@@ -459,7 +449,7 @@ export class BackendApiService implements IConfigApiV1 {
   public async getOrderbook(
     params: { offset: string; limit: string },
     config?: RequestOverrideConfig,
-  ): Promise<Result<OrderbookResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<OrderbookResponse>> {
     const queryParams = new URLSearchParams();
     queryParams.append('offset', params.offset);
     queryParams.append('limit', params.limit);
@@ -494,7 +484,7 @@ export class BackendApiService implements IConfigApiV1 {
       offset?: string;
     },
     config?: RequestOverrideConfig,
-  ): Promise<Result<UserIntentsResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<UserIntentsResponse>> {
     const { userAddress, startDate, endDate, limit, offset } = params;
     const queryParams = new URLSearchParams();
     if (startDate) queryParams.append('startDate', new Date(startDate).toISOString());
@@ -524,7 +514,7 @@ export class BackendApiService implements IConfigApiV1 {
   public async getMoneyMarketPosition(
     userAddress: string,
     config?: RequestOverrideConfig,
-  ): Promise<Result<MoneyMarketPosition, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<MoneyMarketPosition>> {
     return this.request(
       `/moneymarket/position/${userAddress}`,
       { ...config, method: 'GET' },
@@ -538,9 +528,7 @@ export class BackendApiService implements IConfigApiV1 {
    * @returns `Result<MoneyMarketAsset[]>` — on success, an array of reserve
    *   snapshots including interest rates, liquidity indices, and participant counts.
    */
-  public async getAllMoneyMarketAssets(
-    config?: RequestOverrideConfig,
-  ): Promise<Result<MoneyMarketAsset[], SodaxError<'EXTERNAL_API_ERROR'>>> {
+  public async getAllMoneyMarketAssets(config?: RequestOverrideConfig): Promise<Result<MoneyMarketAsset[]>> {
     return this.request('/moneymarket/asset/all', { ...config, method: 'GET' }, schemas.MoneyMarketAssetsSchema);
   }
 
@@ -554,7 +542,7 @@ export class BackendApiService implements IConfigApiV1 {
   public async getMoneyMarketAsset(
     reserveAddress: string,
     config?: RequestOverrideConfig,
-  ): Promise<Result<MoneyMarketAsset, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<MoneyMarketAsset>> {
     return this.request(
       `/moneymarket/asset/${reserveAddress}`,
       { ...config, method: 'GET' },
@@ -575,7 +563,7 @@ export class BackendApiService implements IConfigApiV1 {
     reserveAddress: string,
     params: { offset: string; limit: string },
     config?: RequestOverrideConfig,
-  ): Promise<Result<MoneyMarketAssetBorrowers, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<MoneyMarketAssetBorrowers>> {
     const queryParams = new URLSearchParams();
     queryParams.append('offset', params.offset);
     queryParams.append('limit', params.limit);
@@ -599,7 +587,7 @@ export class BackendApiService implements IConfigApiV1 {
     reserveAddress: string,
     params: { offset: string; limit: string },
     config?: RequestOverrideConfig,
-  ): Promise<Result<MoneyMarketAssetSuppliers, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<MoneyMarketAssetSuppliers>> {
     const queryParams = new URLSearchParams();
     queryParams.append('offset', params.offset);
     queryParams.append('limit', params.limit);
@@ -621,7 +609,7 @@ export class BackendApiService implements IConfigApiV1 {
   public async getAllMoneyMarketBorrowers(
     params: { offset: string; limit: string },
     config?: RequestOverrideConfig,
-  ): Promise<Result<MoneyMarketBorrowers, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<MoneyMarketBorrowers>> {
     const queryParams = new URLSearchParams();
     queryParams.append('offset', params.offset);
     queryParams.append('limit', params.limit);
@@ -642,9 +630,7 @@ export class BackendApiService implements IConfigApiV1 {
    *
    * @returns `Result<OracleMarketsResponse>` — on success, `{ quote, intervals, symbols }`.
    */
-  public async getOracleMarkets(
-    config?: RequestOverrideConfig,
-  ): Promise<Result<OracleMarketsResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  public async getOracleMarkets(config?: RequestOverrideConfig): Promise<Result<OracleMarketsResponse>> {
     return this.request('/oracle/markets', { ...config, method: 'GET' }, schemas.OracleMarketsResponseSchema);
   }
 
@@ -668,7 +654,7 @@ export class BackendApiService implements IConfigApiV1 {
   public async getOracleCandles(
     params: { symbol: string; interval: OracleCandleInterval; from: number; to: number },
     config?: RequestOverrideConfig,
-  ): Promise<Result<OracleCandlesResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<OracleCandlesResponse>> {
     const queryParams = new URLSearchParams();
     queryParams.append('symbol', params.symbol);
     queryParams.append('interval', params.interval);
@@ -691,9 +677,7 @@ export class BackendApiService implements IConfigApiV1 {
    * @returns `Result<GetAllConfigApiResponse>` — on success, `{ version?, config }` where
    *   `config` is the current `SodaxConfig` used by all SDK services.
    */
-  public async getAllConfig(
-    config?: RequestOverrideConfig,
-  ): Promise<Result<GetAllConfigApiResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  public async getAllConfig(config?: RequestOverrideConfig): Promise<Result<GetAllConfigApiResponse>> {
     return this.requestUnvalidated<GetAllConfigApiResponse>('/config/all', { ...config, method: 'GET' });
   }
 
@@ -707,9 +691,7 @@ export class BackendApiService implements IConfigApiV1 {
    * @returns `Result<GetChainsApiResponse>` — on success, a readonly array of
    *   `SpokeChainKey` strings (e.g. `["ethereum", "arbitrum", "solana", …]`).
    */
-  public async getChains(
-    config?: RequestOverrideConfig,
-  ): Promise<Result<GetChainsApiResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  public async getChains(config?: RequestOverrideConfig): Promise<Result<GetChainsApiResponse>> {
     return this.request('/config/spoke/chains', { ...config, method: 'GET' }, schemas.GetChainsResponseSchema);
   }
 
@@ -722,9 +704,7 @@ export class BackendApiService implements IConfigApiV1 {
    * @returns `Result<GetSwapTokensApiResponse>` — on success, a map from each
    *   supported spoke chain key to its list of swappable `XToken` definitions.
    */
-  public async getSwapTokens(
-    config?: RequestOverrideConfig,
-  ): Promise<Result<GetSwapTokensApiResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  public async getSwapTokens(config?: RequestOverrideConfig): Promise<Result<GetSwapTokensApiResponse>> {
     return this.request('/config/swap/tokens', { ...config, method: 'GET' }, schemas.TokensByChainMapSchema);
   }
 
@@ -740,7 +720,7 @@ export class BackendApiService implements IConfigApiV1 {
   public async getSwapTokensByChainId(
     chainId: SpokeChainKey,
     config?: RequestOverrideConfig,
-  ): Promise<Result<GetSwapTokensByChainIdApiResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<GetSwapTokensByChainIdApiResponse>> {
     return this.request(`/config/swap/${chainId}/tokens`, { ...config, method: 'GET' }, schemas.TokensListSchema);
   }
 
@@ -753,9 +733,7 @@ export class BackendApiService implements IConfigApiV1 {
    * @returns `Result<GetMoneyMarketTokensApiResponse>` — on success, a map from
    *   each supported spoke chain key to its list of money-market `XToken` definitions.
    */
-  public async getMoneyMarketTokens(
-    config?: RequestOverrideConfig,
-  ): Promise<Result<GetMoneyMarketTokensApiResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  public async getMoneyMarketTokens(config?: RequestOverrideConfig): Promise<Result<GetMoneyMarketTokensApiResponse>> {
     return this.request('/config/money-market/tokens', { ...config, method: 'GET' }, schemas.TokensByChainMapSchema);
   }
 
@@ -772,7 +750,7 @@ export class BackendApiService implements IConfigApiV1 {
    */
   public async getMoneyMarketReserveAssets(
     config?: RequestOverrideConfig,
-  ): Promise<Result<GetMoneyMarketReserveAssetsApiResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<GetMoneyMarketReserveAssetsApiResponse>> {
     return this.request(
       '/config/money-market/reserve-assets',
       { ...config, method: 'GET' },
@@ -793,7 +771,7 @@ export class BackendApiService implements IConfigApiV1 {
   public async getMoneyMarketTokensByChainId(
     chainId: SpokeChainKey,
     config?: RequestOverrideConfig,
-  ): Promise<Result<GetMoneyMarketTokensByChainIdApiResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<GetMoneyMarketTokensByChainIdApiResponse>> {
     return this.request(
       `/config/money-market/${chainId}/tokens`,
       { ...config, method: 'GET' },
@@ -812,9 +790,7 @@ export class BackendApiService implements IConfigApiV1 {
    * @returns `Result<GetRelayChainIdMapApiResponse>` — on success, an
    *   `IntentRelayChainIdMap` record mapping each spoke chain key to its relay chain ID.
    */
-  public async getRelayChainIdMap(
-    config?: RequestOverrideConfig,
-  ): Promise<Result<GetRelayChainIdMapApiResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  public async getRelayChainIdMap(config?: RequestOverrideConfig): Promise<Result<GetRelayChainIdMapApiResponse>> {
     return this.requestUnvalidated<GetRelayChainIdMapApiResponse>('/config/relay/chain-id-map', {
       ...config,
       method: 'GET',
@@ -832,9 +808,7 @@ export class BackendApiService implements IConfigApiV1 {
    * @returns `Result<GetSpokeChainConfigApiResponse>` — on success, the full
    *   `SpokeChainConfigMap` for all currently enabled spoke chains.
    */
-  public async getSpokeChainConfig(
-    config?: RequestOverrideConfig,
-  ): Promise<Result<GetSpokeChainConfigApiResponse, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  public async getSpokeChainConfig(config?: RequestOverrideConfig): Promise<Result<GetSpokeChainConfigApiResponse>> {
     return this.requestUnvalidated<GetSpokeChainConfigApiResponse>('/config/spoke/all-chains-configs', {
       ...config,
       method: 'GET',

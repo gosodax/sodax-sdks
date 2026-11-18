@@ -72,7 +72,7 @@ describe('StacksSpokeService', () => {
     expectTypeOf<ReturnType<StacksSpokeService['getDeposit']>>().toEqualTypeOf<Promise<bigint>>();
     expectTypeOf<ReturnType<StacksSpokeService['getWalletBalance']>>().toEqualTypeOf<Promise<bigint>>();
     expectTypeOf<ReturnType<StacksSpokeService['getWalletBalances']>>().toEqualTypeOf<Promise<WalletBalanceMap>>();
-    // Known gap against ADR 0001: never returns ok: false; a never error would break callers that narrow it.
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<StacksSpokeService['waitForTransactionReceipt']>>().toEqualTypeOf<
       Promise<Result<Receipt<StacksRawTransactionReceipt>>>
     >();

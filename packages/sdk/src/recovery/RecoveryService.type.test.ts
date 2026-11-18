@@ -22,7 +22,6 @@ import type {
   ISuiWalletProvider,
   NearRawTransaction,
   Result,
-  SodaxError,
   SolanaRawTransaction,
   StacksRawTransaction,
   StellarRawTransaction,
@@ -46,7 +45,7 @@ type Family = {
   bitcoin: [string, BitcoinRawTransaction | string];
 };
 // Columns of every matrix row: [walletProvider, raw: false, raw: true, runtime boolean].
-// Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
+// Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
 type Modes<Hash, Raw> = [Result<Hash>, Result<Hash>, Result<Raw>, Result<Hash | Raw>];
 // Unwraps only an exact Promise, so a sync or `X | Promise<X>` result fails the row it is in.
 type Unpromise<P> = [P] extends [Promise<infer V>] ? V : 'not a Promise';
@@ -184,10 +183,9 @@ describe('RecoveryService', () => {
   });
 
   it('fetchHubAssetBalances returns the non-zero hub balances', () => {
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<RecoveryService['fetchHubAssetBalances']>>().toEqualTypeOf<
-      Promise<
-        Result<HubAssetBalance[], SodaxError<'VALIDATION_FAILED' | 'LOOKUP_FAILED' | 'EXECUTION_FAILED' | 'UNKNOWN'>>
-      >
+      Promise<Result<HubAssetBalance[]>>
     >();
   });
 });

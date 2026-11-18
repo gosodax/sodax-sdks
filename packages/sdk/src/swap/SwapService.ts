@@ -1783,7 +1783,7 @@ export class SwapService {
    */
   public async createCancelIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: CancelIntentActionParams<K, Raw>,
-  ): Promise<Result<TxReturnType<K, Raw>, SwapCreateIntentError>> {
+  ): Promise<Result<TxReturnType<K, Raw>>> {
     const { params } = _params;
 
     try {

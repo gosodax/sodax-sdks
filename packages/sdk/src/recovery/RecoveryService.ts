@@ -8,7 +8,7 @@ import type { SendMessageParams } from '../shared/types/spoke-types.js';
 import { encodeAddress } from '../shared/index.js';
 import { SodaxError, isSodaxError } from '../errors/SodaxError.js';
 import { lookupFailed } from '../errors/wrappers.js';
-import { type RecoveryError, recoveryInvariant } from './errors.js';
+import { recoveryInvariant } from './errors.js';
 
 export type HubAssetBalance = {
   /** The original token address on the spoke chain (key for the SDK's spoke→hub asset map). */
@@ -95,7 +95,7 @@ export class RecoveryService {
   public async fetchHubAssetBalances({
     chainKey,
     srcAddress,
-  }: FetchHubAssetBalancesParams): Promise<Result<HubAssetBalance[], RecoveryError>> {
+  }: FetchHubAssetBalancesParams): Promise<Result<HubAssetBalance[]>> {
     try {
       const chainConfig = this.config.spokeChainConfig[chainKey];
       recoveryInvariant(chainConfig, `Unknown spoke chain key: ${chainKey}`, {

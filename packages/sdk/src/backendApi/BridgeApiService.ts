@@ -34,8 +34,7 @@ import { isAuthStatus } from '../errors/guards.js';
 import { consoleLogger } from '../shared/logger.js';
 
 /**
- * {@link IBridgeApiV2} with every method's return wrapped in
- * `Result<T, SodaxError<'EXTERNAL_API_ERROR'>>` and an
+ * {@link IBridgeApiV2} with every method's return wrapped in `Result<T>` and an
  * optional trailing `RequestOverrideConfig`. `BridgeApiService` implements this
  * (rather than `IBridgeApiV2` directly) because it never throws — like
  * `SwapsApiService`, it returns `{ ok: false }` on failure instead of
@@ -44,7 +43,7 @@ import { consoleLogger } from '../shared/logger.js';
  */
 type ResultifiedBridgeApiV2 = {
   [K in keyof IBridgeApiV2]: IBridgeApiV2[K] extends (...args: infer A) => Promise<infer R>
-    ? (...args: [...A, config?: RequestOverrideConfig]) => Promise<Result<R, SodaxError<'EXTERNAL_API_ERROR'>>>
+    ? (...args: [...A, config?: RequestOverrideConfig]) => Promise<Result<R>>
     : never;
 };
 
@@ -91,8 +90,7 @@ export function toCreateBridgeIntentParamsV2(
  * This service adds the SDK conventions on top: `Result<T>` (it never throws), a `SodaxLogger`,
  * config resolution, and per-call `RequestOverrideConfig`.
  *
- * All public methods return
- * `Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>`. On network failure, timeout, non-2xx HTTP
+ * All public methods return `Promise<Result<T>>`. On network failure, timeout, non-2xx HTTP
  * response, or response-shape validation failure, the returned Result has `ok: false` with a
  * canonical `SodaxError<'EXTERNAL_API_ERROR'>` (`feature: 'backend'`, `context.api: 'bridge'`,
  * `context.endpoint`); the underlying `BridgeApiError` is preserved on `error.cause`.
@@ -226,9 +224,7 @@ export class BridgeApiService implements ResultifiedBridgeApiV2 {
    *
    * @returns `Result<GetBridgeTokensResponseV2>` — map of chain key → token list.
    */
-  public async getTokens(
-    config?: RequestOverrideConfig,
-  ): Promise<Result<GetBridgeTokensResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  public async getTokens(config?: RequestOverrideConfig): Promise<Result<GetBridgeTokensResponseV2>> {
     return this.toResult('/bridge/tokens', c => c.getTokens(), config);
   }
 
@@ -241,7 +237,7 @@ export class BridgeApiService implements ResultifiedBridgeApiV2 {
   public async getTokensByChain(
     chainKey: string,
     config?: RequestOverrideConfig,
-  ): Promise<Result<GetBridgeTokensByChainResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<GetBridgeTokensByChainResponseV2>> {
     return this.toResult(`/bridge/tokens/${chainKey}`, c => c.getTokensByChain(chainKey), config);
   }
 
@@ -257,7 +253,7 @@ export class BridgeApiService implements ResultifiedBridgeApiV2 {
   public async checkAllowance(
     body: CreateBridgeIntentParamsV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<BridgeAllowanceCheckResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<BridgeAllowanceCheckResponseV2>> {
     return this.toResult('/bridge/allowance/check', c => c.checkAllowance(body), config);
   }
 
@@ -270,7 +266,7 @@ export class BridgeApiService implements ResultifiedBridgeApiV2 {
   public async approve(
     body: CreateBridgeIntentParamsV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<BridgeApproveResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<BridgeApproveResponseV2>> {
     return this.toResult('/bridge/approve', c => c.approve(body), config);
   }
 
@@ -282,7 +278,7 @@ export class BridgeApiService implements ResultifiedBridgeApiV2 {
   public async createBridgeIntent(
     body: CreateBridgeIntentParamsV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<CreateBridgeIntentResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<CreateBridgeIntentResponseV2>> {
     return this.toResult('/bridge/intents', c => c.createBridgeIntent(body), config);
   }
 
@@ -299,7 +295,7 @@ export class BridgeApiService implements ResultifiedBridgeApiV2 {
   public async submitTx(
     body: BridgeSubmitTxRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<BridgeSubmitTxResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<BridgeSubmitTxResponseV2>> {
     return this.toResult('/bridge/submit-tx', c => c.submitTx(body), config);
   }
 
@@ -311,7 +307,7 @@ export class BridgeApiService implements ResultifiedBridgeApiV2 {
   public async getSubmitTxStatus(
     query: BridgeSubmitTxStatusQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<BridgeSubmitTxStatusResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<BridgeSubmitTxStatusResponseV2>> {
     return this.toResult('/bridge/submit-tx/status', c => c.getSubmitTxStatus(query), config);
   }
 
@@ -327,10 +323,7 @@ export class BridgeApiService implements ResultifiedBridgeApiV2 {
    *
    * @returns `Result<BridgeFeeResponseV2>` — `{ fee }` (decimal string).
    */
-  public async getFee(
-    body: BridgeFeeRequestV2,
-    config?: RequestOverrideConfig,
-  ): Promise<Result<BridgeFeeResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  public async getFee(body: BridgeFeeRequestV2, config?: RequestOverrideConfig): Promise<Result<BridgeFeeResponseV2>> {
     return this.toResult('/bridge/fee', c => c.getFee(body), config);
   }
 
@@ -343,7 +336,7 @@ export class BridgeApiService implements ResultifiedBridgeApiV2 {
   public async getBridgeableAmount(
     body: BridgeQuoteRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<BridgeableAmountResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<BridgeableAmountResponseV2>> {
     return this.toResult('/bridge/bridgeable-amount', c => c.getBridgeableAmount(body), config);
   }
 
@@ -356,7 +349,7 @@ export class BridgeApiService implements ResultifiedBridgeApiV2 {
   public async isBridgeable(
     body: BridgeQuoteRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<BridgeableCheckResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
+  ): Promise<Result<BridgeableCheckResponseV2>> {
     return this.toResult('/bridge/bridgeable/check', c => c.isBridgeable(body), config);
   }
 

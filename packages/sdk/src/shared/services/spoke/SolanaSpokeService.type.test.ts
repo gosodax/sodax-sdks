@@ -75,7 +75,7 @@ describe('SolanaSpokeService', () => {
     expectTypeOf<ReturnType<SolanaSpokeService['getWalletBalance']>>().toEqualTypeOf<Promise<bigint>>();
     expectTypeOf<ReturnType<SolanaSpokeService['getWalletBalances']>>().toEqualTypeOf<Promise<WalletBalanceMap>>();
     expectTypeOf<ReturnType<SolanaSpokeService['buildV0Txn']>>().toEqualTypeOf<Promise<SolanaSerializedTransaction>>();
-    // Known gap against ADR 0001: never returns ok: false; a never error would break callers that narrow it.
+    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
     expectTypeOf<ReturnType<SolanaSpokeService['waitForTransactionReceipt']>>().toEqualTypeOf<
       Promise<Result<Receipt<SolanaRawTransactionReceipt>>>
     >();

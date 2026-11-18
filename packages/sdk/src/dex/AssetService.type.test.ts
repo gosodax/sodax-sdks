@@ -1,8 +1,7 @@
 /**
  * Compile-time contract: AssetService wrap/unwrap actions type their result by the source chain
  * family and execution mode; signed orchestrations resolve to a `TxHashPair`. Every chain family is
- * accepted. Single-step methods carry the dex error unions (codes spelled out); the orchestrations and
- * `isAllowanceValid` keep the untyped `Result` default (`unknown`), pinned as such.
+ * accepted. Errors are the untyped `Result` default (`unknown`), pinned as such.
  */
 import { describe, expectTypeOf, it } from 'vitest';
 import type {
@@ -29,7 +28,6 @@ import type {
   NearRawTransaction,
   RelayExtraData,
   Result,
-  SodaxError,
   SolanaRawTransaction,
   StacksRawTransaction,
   StellarRawTransaction,
@@ -65,11 +63,9 @@ type Fam = {
   // Bitcoin's raw type already includes the hash string.
   bitcoin: [string, BitcoinRawTransaction | string];
 };
-type ApproveErr = SodaxError<'USER_REJECTED' | 'VALIDATION_FAILED' | 'APPROVE_FAILED' | 'UNKNOWN'>;
-type IntentErr = SodaxError<'USER_REJECTED' | 'VALIDATION_FAILED' | 'INTENT_CREATION_FAILED' | 'UNKNOWN'>;
-type LookupErr = SodaxError<'VALIDATION_FAILED' | 'LOOKUP_FAILED' | 'UNKNOWN'>;
-type Approve<T> = Promise<Result<T, ApproveErr>>;
-type Intent<T> = Promise<Result<{ tx: T; relayData: RelayExtraData }, IntentErr>>;
+// Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+type Approve<T> = Promise<Result<T, unknown>>;
+type Intent<T> = Promise<Result<{ tx: T; relayData: RelayExtraData }, unknown>>;
 type ApproveMatrix = { readonly [N in keyof Fam]: readonly [Approve<Fam[N][0]>, Approve<Fam[N][1]>] };
 type IntentMatrix = { readonly [N in keyof Fam]: readonly [Intent<Fam[N][0]>, Intent<Fam[N][1]>] };
 
@@ -244,7 +240,6 @@ describe('AssetService', () => {
         svc.isAllowanceValid({ params: dep.stellar, raw: true }),
         svc.isAllowanceValid({ params: dep.icon, walletProvider: wallet.icon }),
       ] as const;
-    // Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
     type R = Promise<Result<boolean, unknown>>;
     expectTypeOf<ReturnType<typeof calls>>().toEqualTypeOf<readonly [R, R, R, R]>();
   });
@@ -259,7 +254,6 @@ describe('AssetService', () => {
         svc.withdraw({ params: wd.icon, walletProvider: wallet.icon }),
         svc.withdraw({ params: wd.solana, walletProvider: wallet.solana }),
       ] as const;
-    // Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
     type R = Promise<Result<TxHashPair, unknown>>;
     expectTypeOf<ReturnType<typeof calls>>().toEqualTypeOf<readonly [R, R, R, R, R, R]>();
   });
@@ -268,9 +262,9 @@ describe('AssetService', () => {
     expectTypeOf<ReturnType<AssetService['isSodaAsXSodaInPool']>>().toEqualTypeOf<boolean>();
     expectTypeOf<ReturnType<AssetService['getTokenWrapAction']>>().toEqualTypeOf<Promise<EvmContractCall[]>>();
     expectTypeOf<ReturnType<AssetService['getTokenUnwrapAction']>>().toEqualTypeOf<Promise<EvmContractCall[]>>();
-    expectTypeOf<ReturnType<AssetService['getWrappedAmount']>>().toEqualTypeOf<Promise<Result<bigint, LookupErr>>>();
-    expectTypeOf<ReturnType<AssetService['getUnwrappedAmount']>>().toEqualTypeOf<Promise<Result<bigint, LookupErr>>>();
-    expectTypeOf<ReturnType<AssetService['getDeposit']>>().toEqualTypeOf<Promise<Result<bigint, LookupErr>>>();
+    expectTypeOf<ReturnType<AssetService['getWrappedAmount']>>().toEqualTypeOf<Promise<Result<bigint, unknown>>>();
+    expectTypeOf<ReturnType<AssetService['getUnwrappedAmount']>>().toEqualTypeOf<Promise<Result<bigint, unknown>>>();
+    expectTypeOf<ReturnType<AssetService['getDeposit']>>().toEqualTypeOf<Promise<Result<bigint, unknown>>>();
   });
 
   it('rejects wrong wallets and modes', () => {

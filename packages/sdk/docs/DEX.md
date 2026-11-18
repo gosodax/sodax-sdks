@@ -120,7 +120,7 @@ the same way.
 
 Supported chain types: Stellar, EVM spoke chains, hub chain (Sonic). Returns an error for other chain types where no approval is needed or supported.
 
-**Returns:** `Promise<Result<TxReturnType<K, Raw>, DexApproveError>>`
+**Returns:** `Promise<Result<TxReturnType<K, Raw>>>`
 
 **Note**: For Stellar-based operations:
 - **Source Chain (Stellar)**: `approve` requests trustlines automatically.
@@ -150,7 +150,7 @@ Builds and broadcasts the spoke-side transaction that wraps tokens into the pool
 
 Supports both `raw: true` (unsigned tx payload) and `raw: false` (signed broadcast).
 
-**Returns:** `Promise<Result<IntentTxResult<K, Raw>, DexCreateIntentError>>`
+**Returns:** `Promise<Result<IntentTxResult<K, Raw>>>`
 
 **Example:**
 ```typescript
@@ -205,7 +205,7 @@ Builds and broadcasts the spoke-side transaction that unwraps StatATokens back t
 
 Supports both `raw: true` and `raw: false`.
 
-**Returns:** `Promise<Result<IntentTxResult<K, Raw>, DexCreateIntentError>>`
+**Returns:** `Promise<Result<IntentTxResult<K, Raw>>>`
 
 ### withdraw
 
@@ -251,7 +251,7 @@ const isSodaDeposit = sodax.dex.assetService.isSodaAsXSodaInPool({
 
 Fetches the user's current DEX deposit balance (in StatAToken shares) for a given pool token, by deriving their hub wallet address from their spoke-chain address.
 
-**Signature:** `getDeposit(poolToken: Address, walletAddress: Address, chainKey: SpokeChainKey): Promise<Result<bigint, DexError>>`
+**Signature:** `getDeposit(poolToken: Address, walletAddress: Address, chainKey: SpokeChainKey): Promise<Result<bigint>>`
 
 **Example:**
 ```typescript
@@ -272,8 +272,8 @@ Convert between underlying asset amounts and ERC-4626 share amounts for any Stat
 
 **Signatures:**
 ```typescript
-getWrappedAmount(dexToken: Address, assetAmount: bigint): Promise<Result<bigint, DexError>>
-getUnwrappedAmount(dexToken: Address, shareAmount: bigint): Promise<Result<bigint, DexError>>
+getWrappedAmount(dexToken: Address, assetAmount: bigint): Promise<Result<bigint>>
+getUnwrappedAmount(dexToken: Address, shareAmount: bigint): Promise<Result<bigint>>
 ```
 
 **Example:**
@@ -322,7 +322,7 @@ Builds and broadcasts the spoke-side transaction that opens a new CL position. E
 
 Supports both `raw: true` and `raw: false`.
 
-**Returns:** `Promise<Result<IntentTxResult<K, Raw>, DexCreateIntentError>>`
+**Returns:** `Promise<Result<IntentTxResult<K, Raw>>>`
 
 ### supplyLiquidity
 
@@ -358,7 +358,7 @@ if (result.ok) {
 
 Waits for the hub transaction receipt and extracts the NFT `tokenId` assigned to a newly minted position from the `MintPosition` event log.
 
-**Signature:** `getMintPositionEvent(hubTxHash: Hash): Promise<Result<ClMintPositionEventLog, DexError>>`
+**Signature:** `getMintPositionEvent(hubTxHash: Hash): Promise<Result<ClMintPositionEventLog>>`
 
 **Example:**
 ```typescript
@@ -594,14 +594,12 @@ export type IntentTxResult<K extends SpokeChainKey, Raw extends boolean> = {
 
 ## Error Handling
 
-All async public methods return `Promise<Result<T, E>>`. The single-step methods declare `E` as
-`DexApproveError`, `DexCreateIntentError` or `DexError` (see [Codes per method](#codes-per-method));
-`isAllowanceValid` and the relay-waiting variants keep the default `Error | unknown`:
+All async public methods return `Promise<Result<T>>`:
 
 ```typescript
-type Result<T, E = Error | unknown> =
+type Result<T> =
   | { ok: true; value: T }
-  | { ok: false; error: E };
+  | { ok: false; error: Error | unknown };
 ```
 
 ### Two contracts coexist

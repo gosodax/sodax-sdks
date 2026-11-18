@@ -76,7 +76,7 @@ type NEAR = typeof ChainKeys.NEAR_MAINNET;
 type BITCOIN = typeof ChainKeys.BITCOIN_MAINNET;
 
 type Flat<A> = Omit<A, 'raw' | 'walletProvider'>;
-// Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
+// Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
 type PR<T> = Promise<Result<T>>;
 type Pair<Signed, Raw> = readonly [PR<Signed>, PR<Raw>];
 type Receipt<R> = { status: 'success'; receipt: R } | { error: Error; status: 'failure' | 'timeout' };
