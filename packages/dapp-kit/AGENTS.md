@@ -127,6 +127,18 @@ pnpm --filter @sodax/skills check:ai
 
 `README.md` is generated into the docs.sodax.com Mintlify site, so its hook-reference links must be absolute `https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/…` URLs — a relative `src/…` link 404s on the published page. Gate: `pnpm check:doc-links`.
 
+## Type Tests
+
+`scripts/check-type-tests.mjs` (repo root, the tail of `checkTs`) fails when an exported hook or function has
+no assertion in the `<file>.type.test.ts` beside its source; a deliberate gap goes in
+`scripts/type-test-exemptions.json` with its reason. A type test never calls a hook: read its type
+(`ReturnType<typeof useFoo>`, `Parameters<typeof useFoo>[0]`), and lock a chain with an instantiation
+expression (`typeof useFoo<K>`) where the variables only arrive at `mutate()`. Pin a query hook's params
+and data, a mutation hook's variables and result, and write each expected type out from `@sodax/sdk` and
+React Query types, never from an alias the hook's own file declares, or widening the source widens both
+sides. Put a `@ts-expect-error` inside an expression that is used: above an unused `const`, the
+unused-local error satisfies it and the invalid call goes unchecked.
+
 ## Build And Tests
 
 ```bash
