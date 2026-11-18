@@ -95,6 +95,30 @@ export function xrpCurrencyCode(symbol: string): string {
 }
 
 /**
+ * The XRPL (currency, issuer) an XRPL token resolves to.
+ *
+ * Two address forms exist:
+ *  - issuer only (`rMxCK…`): the original form, used by tokens whose issuer issues just one token
+ *    (RLUSD, USDC). The currency is derived from the symbol, see {@link xrpCurrencyCode}.
+ *  - `<40-hex currency>:<issuer>`: for issuers that issue SEVERAL tokens (the Robinhood stocks all
+ *    share one issuer), so an issuer-only address could not tell them apart. The currency is explicit,
+ *    which also keeps tickers of 3 characters or fewer (GME, IBM) on the 160-bit code they were
+ *    issued with instead of being read as a standard currency. This is the same shape as the relay's
+ *    `XRP_TOKEN_MAP` key (`CURRENCY:ISSUER`).
+ */
+export function xrpTokenRef(token: { address: string; symbol: string }): { currency: string; issuer: string } {
+  const sep = token.address.indexOf(':');
+  if (sep === -1) return { currency: xrpCurrencyCode(token.symbol), issuer: token.address };
+  const currency = token.address.slice(0, sep).toUpperCase();
+  const issuer = token.address.slice(sep + 1);
+  if (!/^[0-9A-F]{40}$/.test(currency) || currency.startsWith('00')) {
+    throw new Error(`XRPL token address "${token.address}": the currency before ':' must be 40 hex characters not starting with 00`);
+  }
+  decodeAccountId(issuer); // throws on anything that is not a valid classic address
+  return { currency, issuer };
+}
+
+/**
  * Inverse of {@link xrpIdentityBytes}: a 20-byte AccountID (0x-hex) back to its classic `r…`
  * address. Used when decoding a hub-side identity back into something a user can read or pay.
  */

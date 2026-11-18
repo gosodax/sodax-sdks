@@ -206,6 +206,45 @@ describe('XrpXService.getBalance — failure handling', () => {
   });
 });
 
+// The Robinhood stocks share ONE issuer, so their address is `<40-hex currency>:<issuer>` and the
+// currency must come from that address, not from the symbol (3-letter tickers would turn into a
+// standard currency) and not from the issuer alone (which cannot tell stocks apart).
+describe('XrpXService.getBalance — tokens that share an issuer', () => {
+  const STOCK_ISSUER = 'rhQeeggWNoaN6ttBEaSqLPJZekFYBvPxtn';
+  const asciiHex = (s: string) => Buffer.from(s, 'ascii').toString('hex').toUpperCase().padEnd(40, '0');
+  const stock = (symbol: string) =>
+    token({ symbol, address: `${asciiHex(symbol)}:${STOCK_ISSUER}`, decimals: 8, name: symbol });
+  const lines = {
+    account_lines: {
+      lines: [
+        { currency: asciiHex('SPCX'), account: STOCK_ISSUER, balance: '7' },
+        { currency: asciiHex('NVDA'), account: STOCK_ISSUER, balance: '2.5' },
+        { currency: asciiHex('GME'), account: STOCK_ISSUER, balance: '0.00000001' },
+      ],
+    },
+  };
+
+  it('reads the line for the stock asked about, not another stock of the same issuer', async () => {
+    stubRippled(lines);
+    const svc = XrpXService.getInstance();
+
+    expect(await svc.getBalance(USER, stock('NVDA'))).toBe(250_000_000n); // 2.5 at 8 decimals
+    expect(await svc.getBalance(USER, stock('SPCX'))).toBe(700_000_000n);
+  });
+
+  it('reads a 3-letter ticker under its 160-bit code, not the standard 3-char code', async () => {
+    stubRippled(lines);
+
+    expect(await XrpXService.getInstance().getBalance(USER, stock('GME'))).toBe(1n);
+  });
+
+  it('reports zero for a stock the holder has no line for', async () => {
+    stubRippled(lines);
+
+    expect(await XrpXService.getInstance().getBalance(USER, stock('UPS'))).toBe(0n);
+  });
+});
+
 describe('XrpXService — endpoint', () => {
   it('queries the configured rpcUrl', async () => {
     stubRippled({ account_info: { account_data: { Balance: '1' } } });

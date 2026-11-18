@@ -17,6 +17,17 @@ function currencyCode(symbol: string): string {
     .toUpperCase();
 }
 
+/**
+ * The XRPL (currency, issuer) of a token. An issuer that issues several tokens (the Robinhood stocks)
+ * uses the address `<40-hex currency>:<issuer>`; every other token keeps the issuer-only address and
+ * derives the currency from its symbol. Mirrors `xrpTokenRef` in the sdk, kept local for the same reason.
+ */
+export function xrpTokenRef(token: { address: string; symbol: string }): { currency: string; issuer: string } {
+  const sep = token.address.indexOf(':');
+  if (sep === -1) return { currency: currencyCode(token.symbol), issuer: token.address };
+  return { currency: token.address.slice(0, sep).toUpperCase(), issuer: token.address.slice(sep + 1) };
+}
+
 export class XrpXService extends XService {
   private static instance: XrpXService;
 
@@ -66,8 +77,8 @@ export class XrpXService extends XService {
         'account_lines',
         { account: address, ledger_index: 'validated' },
       );
-      const wanted = currencyCode(xToken.symbol);
-      const line = lines?.lines?.find(l => l.currency === wanted && l.account === xToken.address);
+      const { currency: wanted, issuer } = xrpTokenRef(xToken);
+      const line = lines?.lines?.find(l => l.currency === wanted && l.account === issuer);
       if (!line) return 0n;
       // IOU balances are decimal strings; scale to base units so every chain returns the same shape.
       const [whole = '0', frac = ''] = line.balance.split('.');
