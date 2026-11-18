@@ -76,7 +76,8 @@ import type { SodaxError } from '../errors/SodaxError.js';
 import { consoleLogger } from '../shared/logger.js';
 
 /**
- * {@link ILeverageYieldApiV2} with every method's return wrapped in `Result<T>` and an
+ * {@link ILeverageYieldApiV2} with every method's return wrapped in
+ * `Result<T, SodaxError<'EXTERNAL_API_ERROR'>>` and an
  * optional trailing `RequestOverrideConfig`. `LeverageYieldApiService` implements this
  * (rather than `ILeverageYieldApiV2` directly) because it never throws — it returns
  * `{ ok: false }` on failure instead of `Promise<T>` rejection. Mirrors
@@ -84,7 +85,7 @@ import { consoleLogger } from '../shared/logger.js';
  */
 type ResultifiedLeverageYieldApiV2 = {
   [K in keyof ILeverageYieldApiV2]: ILeverageYieldApiV2[K] extends (...args: infer A) => Promise<infer R>
-    ? (...args: [...A, config?: RequestOverrideConfig]) => Promise<Result<R>>
+    ? (...args: [...A, config?: RequestOverrideConfig]) => Promise<Result<R, SodaxError<'EXTERNAL_API_ERROR'>>>
     : never;
 };
 
@@ -98,7 +99,8 @@ type ResultifiedLeverageYieldApiV2 = {
  * shapes and schemas; the vault registry, vault reads, and separate deposit/withdraw
  * create-intent (and quote) endpoints are leverage-yield-specific.
  *
- * All public methods return `Promise<Result<T>>` — they never throw. On network failure,
+ * All public methods return
+ * `Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>` — they never throw. On network failure,
  * timeout, non-2xx HTTP response, or response-shape validation failure, the returned Result
  * has `ok: false` with a canonical `SodaxError<'EXTERNAL_API_ERROR'>` (`feature: 'backend'`,
  * `context.api: 'leverageYield'`); the underlying failure is preserved on `error.cause`.
@@ -214,7 +216,9 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
    *
    * @returns `Result<GetLeverageVaultsResponseV2>` — array of vault descriptors.
    */
-  public async getVaults(config?: RequestOverrideConfig): Promise<Result<GetLeverageVaultsResponseV2>> {
+  public async getVaults(
+    config?: RequestOverrideConfig,
+  ): Promise<Result<GetLeverageVaultsResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request('/leverage-yield/vaults', { method: 'GET' }, schemas.GetLeverageVaultsResponseSchema, config);
   }
 
@@ -223,7 +227,10 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
    *
    * @returns `Result<GetLeverageVaultResponseV2>` — the vault descriptor.
    */
-  public async getVault(name: string, config?: RequestOverrideConfig): Promise<Result<GetLeverageVaultResponseV2>> {
+  public async getVault(
+    name: string,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<GetLeverageVaultResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       `/leverage-yield/vaults/${name}`,
       { method: 'GET' },
@@ -241,7 +248,10 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
    *
    * @returns `Result<VaultAssetResponseV2>` — `{ asset }`.
    */
-  public async getAsset(query: VaultQueryV2, config?: RequestOverrideConfig): Promise<Result<VaultAssetResponseV2>> {
+  public async getAsset(
+    query: VaultQueryV2,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<VaultAssetResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/asset', { vault: query.vault }),
       { method: 'GET' },
@@ -258,7 +268,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async getPosition(
     query: VaultQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<LeverageYieldPositionV2>> {
+  ): Promise<Result<LeverageYieldPositionV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/position', { vault: query.vault }),
       { method: 'GET' },
@@ -272,7 +282,10 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
    *
    * @returns `Result<LeverageYieldAprV2>` — RAY-denominated rates as decimal strings.
    */
-  public async getApr(query: VaultQueryV2, config?: RequestOverrideConfig): Promise<Result<LeverageYieldAprV2>> {
+  public async getApr(
+    query: VaultQueryV2,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<LeverageYieldAprV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/apr', { vault: query.vault }),
       { method: 'GET' },
@@ -289,7 +302,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async getEffectiveApr(
     query: VaultQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<LeverageYieldEffectiveAprV2>> {
+  ): Promise<Result<LeverageYieldEffectiveAprV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/apr/effective', { vault: query.vault }),
       { method: 'GET' },
@@ -303,7 +316,10 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
    *
    * @returns `Result<LeverageYieldLsdAprV2>` — `{ aprRay, label, stale }`.
    */
-  public async getLsdApr(query: VaultQueryV2, config?: RequestOverrideConfig): Promise<Result<LeverageYieldLsdAprV2>> {
+  public async getLsdApr(
+    query: VaultQueryV2,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<LeverageYieldLsdAprV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/apr/lsd', { vault: query.vault }),
       { method: 'GET' },
@@ -320,7 +336,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async getTotalAssets(
     query: VaultQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<VaultTotalAssetsResponseV2>> {
+  ): Promise<Result<VaultTotalAssetsResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/total-assets', { vault: query.vault }),
       { method: 'GET' },
@@ -337,7 +353,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async previewDeposit(
     query: VaultAssetsQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<PreviewDepositResponseV2>> {
+  ): Promise<Result<PreviewDepositResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/preview/deposit', { vault: query.vault, assets: query.assets }),
       { method: 'GET' },
@@ -354,7 +370,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async previewWithdraw(
     query: VaultAssetsQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<PreviewWithdrawResponseV2>> {
+  ): Promise<Result<PreviewWithdrawResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/preview/withdraw', { vault: query.vault, assets: query.assets }),
       { method: 'GET' },
@@ -371,7 +387,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async previewRedeem(
     query: VaultSharesQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<PreviewRedeemResponseV2>> {
+  ): Promise<Result<PreviewRedeemResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/preview/redeem', { vault: query.vault, shares: query.shares }),
       { method: 'GET' },
@@ -388,7 +404,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async getShareBalance(
     query: VaultOwnerQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<ShareBalanceResponseV2>> {
+  ): Promise<Result<ShareBalanceResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/share-balance', { vault: query.vault, owner: query.owner }),
       { method: 'GET' },
@@ -406,7 +422,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async getMaxWithdraw(
     query: VaultOwnerQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<MaxWithdrawResponseV2>> {
+  ): Promise<Result<MaxWithdrawResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/max-withdraw', { vault: query.vault, owner: query.owner }),
       { method: 'GET' },
@@ -430,7 +446,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
     body: LeverageYieldDepositQuoteRequestV2,
     query?: QuoteQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<QuoteResponseV2>> {
+  ): Promise<Result<QuoteResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     const endpoint = query?.includeTxData
       ? '/leverage-yield/quote/deposit?includeTxData=true'
       : '/leverage-yield/quote/deposit';
@@ -454,7 +470,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
     body: LeverageYieldWithdrawQuoteRequestV2,
     query?: QuoteQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<QuoteResponseV2>> {
+  ): Promise<Result<QuoteResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     const endpoint = query?.includeTxData
       ? '/leverage-yield/quote/withdraw?includeTxData=true'
       : '/leverage-yield/quote/withdraw';
@@ -475,7 +491,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async getDeadline(
     query?: DeadlineQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<DeadlineResponseV2>> {
+  ): Promise<Result<DeadlineResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     const params: Record<string, string> = {};
     if (query?.offsetSeconds !== undefined) params.offsetSeconds = String(query.offsetSeconds);
     return this.request(
@@ -499,7 +515,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async checkAllowance(
     body: CreateDepositIntentParamsV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<AllowanceCheckResponseV2>> {
+  ): Promise<Result<AllowanceCheckResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       '/leverage-yield/allowance/check',
       { method: 'POST', body: toJsonBody(body) },
@@ -516,7 +532,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async approve(
     body: CreateDepositIntentParamsV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<ApproveResponseV2>> {
+  ): Promise<Result<ApproveResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     const txSchema = rawTxSchemaForChainKey(body.srcChainKey);
     return this.request(
       '/leverage-yield/approve',
@@ -534,7 +550,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async createDepositIntent(
     body: CreateDepositIntentParamsV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<CreateIntentResponseV2>> {
+  ): Promise<Result<CreateIntentResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     const txSchema = rawTxSchemaForChainKey(body.srcChainKey);
     return this.request(
       '/leverage-yield/intents/deposit',
@@ -553,7 +569,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async createWithdrawIntent(
     body: CreateWithdrawIntentParamsV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<CreateIntentResponseV2>> {
+  ): Promise<Result<CreateIntentResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     const txSchema = rawTxSchemaForChainKey(body.srcChainKey);
     return this.request(
       '/leverage-yield/intents/withdraw',
@@ -575,7 +591,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async submitIntent(
     body: SubmitIntentRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<SubmitIntentResponseV2>> {
+  ): Promise<Result<SubmitIntentResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       '/leverage-yield/intents/submit',
       { method: 'POST', body: toJsonBody(body) },
@@ -589,7 +605,10 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
    *
    * @returns `Result<StatusResponseV2>` — `{ status, fillTxHash? }`.
    */
-  public async getStatus(body: StatusRequestV2, config?: RequestOverrideConfig): Promise<Result<StatusResponseV2>> {
+  public async getStatus(
+    body: StatusRequestV2,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<StatusResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       '/leverage-yield/intents/status',
       { method: 'POST', body: toJsonBody(body) },
@@ -607,7 +626,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async cancelIntent(
     body: CancelIntentRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<CancelIntentResponseV2>> {
+  ): Promise<Result<CancelIntentResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     const txSchema = rawTxSchemaForChainKey(body.srcChainKey);
     return this.request(
       '/leverage-yield/intents/cancel',
@@ -625,7 +644,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async getIntentHash(
     body: IntentHashRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<IntentHashResponseV2>> {
+  ): Promise<Result<IntentHashResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       '/leverage-yield/intents/hash',
       { method: 'POST', body: toJsonBody({ ...body, intent: LeverageYieldApiService.toWireIntent(body.intent) }) },
@@ -642,7 +661,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async getSolvedIntentPacket(
     body: IntentPacketRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<IntentPacketResponseV2>> {
+  ): Promise<Result<IntentPacketResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       '/leverage-yield/intents/packet',
       { method: 'POST', body: toJsonBody(body) },
@@ -660,7 +679,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async getIntentSubmitTxExtraData(
     body: IntentExtraDataRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<IntentExtraDataResponseV2>> {
+  ): Promise<Result<IntentExtraDataResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     const normalized = body.intent ? { ...body, intent: LeverageYieldApiService.toWireIntent(body.intent) } : body;
     return this.request(
       '/leverage-yield/intents/extra-data',
@@ -675,7 +694,10 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
    *
    * @returns `Result<IntentStateV2>` — `{ exists, remainingInput, receivedOutput, pendingPayment }`.
    */
-  public async getFilledIntent(txHash: string, config?: RequestOverrideConfig): Promise<Result<IntentStateV2>> {
+  public async getFilledIntent(
+    txHash: string,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<IntentStateV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       `/leverage-yield/intents/${txHash}/fill`,
       { method: 'GET' },
@@ -689,7 +711,10 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
    *
    * @returns `Result<GetIntentResponseV2>` — the decoded intent (bigint fields as decimal strings).
    */
-  public async getIntent(txHash: string, config?: RequestOverrideConfig): Promise<Result<GetIntentResponseV2>> {
+  public async getIntent(
+    txHash: string,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<GetIntentResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(`/leverage-yield/intents/${txHash}`, { method: 'GET' }, schemas.IntentResponseSchema, config);
   }
 
@@ -705,7 +730,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async estimateGas(
     body: GasEstimateRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<GasEstimateResponseV2>> {
+  ): Promise<Result<GasEstimateResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       '/leverage-yield/gas/estimate',
       { method: 'POST', body: toJsonBody(body) },
@@ -719,7 +744,10 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
    *
    * @returns `Result<FeeResponseV2>` — `{ fee }` (decimal string).
    */
-  public async getPartnerFee(query: FeeQueryV2, config?: RequestOverrideConfig): Promise<Result<FeeResponseV2>> {
+  public async getPartnerFee(
+    query: FeeQueryV2,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<FeeResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/fees/partner', { amount: query.amount }),
       { method: 'GET' },
@@ -733,7 +761,10 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
    *
    * @returns `Result<FeeResponseV2>` — `{ fee }` (decimal string).
    */
-  public async getSolverFee(query: FeeQueryV2, config?: RequestOverrideConfig): Promise<Result<FeeResponseV2>> {
+  public async getSolverFee(
+    query: FeeQueryV2,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<FeeResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/fees/solver', { amount: query.amount }),
       { method: 'GET' },
@@ -756,7 +787,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async submitTx(
     body: LeverageYieldSubmitTxRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<SubmitTxResponseV2>> {
+  ): Promise<Result<SubmitTxResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       '/leverage-yield/submit-tx',
       { method: 'POST', body: toJsonBody({ ...body, intent: LeverageYieldApiService.toWireIntent(body.intent) }) },
@@ -773,7 +804,7 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   public async getSubmitTxStatus(
     query: SubmitTxStatusQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<SubmitTxStatusResponseV2>> {
+  ): Promise<Result<SubmitTxStatusResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.request(
       this.withQuery('/leverage-yield/submit-tx/status', { txHash: query.txHash, srcChainKey: query.srcChainKey }),
       { method: 'GET' },

@@ -209,7 +209,10 @@ describe('swap execution', () => {
   });
   it('retains the broadcast when the relay is unavailable', async () => {
     const { deps, calls } = setup();
-    vi.mocked(deps.api.submitTx).mockResolvedValue({ ok: false, error: new Error('Offline') });
+    vi.mocked(deps.api.submitTx).mockResolvedValue({
+      ok: false,
+      error: new SodaxError('EXTERNAL_API_ERROR', 'Offline', { feature: 'backend' }),
+    });
     await expect(executeSwap(body, deps)).rejects.toThrow('Offline');
     expect(calls).toEqual(['sign', 'save']);
     expect(deps.onBroadcast).toHaveBeenCalledWith(expect.objectContaining({ txHash: '0x1234' }), intent);

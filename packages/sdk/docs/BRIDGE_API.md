@@ -6,7 +6,7 @@ Typed HTTP client for the backend **Bridge API** (`/bridge/*`). Reached on the `
 
 It mirrors `IBridgeApiV2` (from `@sodax/types`) one method per endpoint. Every method:
 
-- returns `Promise<Result<T>>` — it **never throws**;
+- returns `Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>` — it **never throws**;
 - validates the JSON response at runtime against a valibot schema (a contract drift is surfaced as
   `{ ok: false }`, not returned untyped);
 - accepts an optional trailing `RequestOverrideConfig` (`{ baseURL?, timeout?, headers?, apiKey? }`) for

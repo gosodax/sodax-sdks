@@ -4,7 +4,7 @@ The `BackendApiService` provides a comprehensive HTTP client for the SODAX backe
 
 The service is automatically instantiated when you create a `Sodax` instance and is available as `sodax.backendApi`.
 
-All public methods return `Promise<Result<T>>` — they never throw. On network failure, timeout, or a non-2xx HTTP response the returned `Result` has `ok: false` with a descriptive `Error` in the `error` field.
+All public methods return `Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>` — they never throw. On network failure, timeout, a non-2xx HTTP response or an unexpected response shape the returned `Result` has `ok: false` with a `SodaxError<'EXTERNAL_API_ERROR'>` (`feature: 'backend'`) in the `error` field.
 
 ## Table of Contents
 
@@ -163,7 +163,7 @@ const DEFAULT_BACKEND_API_HEADERS = {
 
 ## Result\<T\> and Error Handling
 
-All public methods return `Promise<Result<T>>`, defined as:
+All public methods return `Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>`, where `Result` is defined as:
 
 ```typescript
 type Result<T, E = Error | unknown> =
@@ -341,7 +341,7 @@ payload). See [`BRIDGE_API.md`](https://github.com/gosodax/sodax-sdks/blob/main/
 [`@sodax/bridge-api`](https://github.com/gosodax/sodax-sdks/tree/main/packages/bridge-api) client —
 the same split as `sodax.api.swaps` over `@sodax/swaps-api` — so the wire behaviour below is shared by both:
 
-- **Errors.** Every method returns `Result<T>` and never throws. A failure carries
+- **Errors.** Every method returns `Result<T, SodaxError<'EXTERNAL_API_ERROR'>>` and never throws. A failure carries
   `SodaxError<'EXTERNAL_API_ERROR'>` with `feature: 'backend'`, `context.api: 'bridge'` and
   `context.endpoint`; `error.cause` is the underlying `BridgeApiError`, whose `code`
   (`NETWORK_ERROR` | `TIMEOUT_ERROR` | `HTTP_ERROR` | `PARSE_ERROR` | `VALIDATION_ERROR`) is mirrored on
@@ -784,7 +784,7 @@ These methods implement `IConfigApiV1` and are consumed internally by `ConfigSer
 | `getRelayChainIdMap()` | `GET /config/relay/chain-id-map` | `GetRelayChainIdMapApiResponse` — `SpokeChainKey → relay chain ID` map |
 | `getSpokeChainConfig()` | `GET /config/spoke/all-chains-configs` | `GetSpokeChainConfigApiResponse` — full `SpokeChainConfigMap` |
 
-All methods accept an optional `RequestOverrideConfig` as their last argument and return `Promise<Result<T>>`.
+All methods accept an optional `RequestOverrideConfig` as their last argument and return `Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>`.
 
 ## Utility Methods
 

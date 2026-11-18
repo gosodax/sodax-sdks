@@ -91,7 +91,7 @@ describe('SuiSpokeService', () => {
     expectTypeOf<ReturnType<SuiSpokeService['getWalletBalances']>>().toEqualTypeOf<Promise<WalletBalanceMap>>();
     expectTypeOf<ReturnType<SuiSpokeService['fetchAssetManagerAddress']>>().toEqualTypeOf<Promise<string>>();
     expectTypeOf<ReturnType<SuiSpokeService['fetchLatestAssetManagerPackageId']>>().toEqualTypeOf<Promise<string>>();
-    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+    // Known gap against ADR 0001: never returns ok: false; a never error would break callers that narrow it.
     expectTypeOf<ReturnType<SuiSpokeService['waitForTransactionReceipt']>>().toEqualTypeOf<
       Promise<Result<Receipt<SuiRawTransactionReceipt>>>
     >();

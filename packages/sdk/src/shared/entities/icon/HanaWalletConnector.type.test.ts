@@ -8,7 +8,7 @@ import { requestAddress, requestJsonRpc, requestSigning } from './HanaWalletConn
 
 describe('HanaWalletConnector type contract', () => {
   it('pins each request result', () => {
-    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+    // Known gap against ADR 0001: never returns ok: false; a never error would break callers that narrow it.
     expectTypeOf(requestAddress).returns.toEqualTypeOf<Promise<Result<IconAddress>>>();
     expectTypeOf(requestSigning).returns.toEqualTypeOf<Promise<Result<string>>>();
     expectTypeOf(requestJsonRpc).returns.toEqualTypeOf<Promise<Result<JsonRpcPayloadResponse>>>();

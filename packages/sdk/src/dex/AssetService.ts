@@ -43,7 +43,14 @@ import { encodeFunctionData, erc20Abi, isAddress } from 'viem';
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import { stataTokenFactoryAbi } from '../shared/abis/stataTokenFactory.abi.js';
 import { approveFailed, intentCreationFailed, lookupFailed } from '../errors/wrappers.js';
-import { dexInvariant, isDexApproveError, isDexCreateIntentError } from './errors.js';
+import {
+  type DexApproveError,
+  type DexCreateIntentError,
+  type DexError,
+  dexInvariant,
+  isDexApproveError,
+  isDexCreateIntentError,
+} from './errors.js';
 
 export type CreateAssetWithdrawParams<K extends SpokeChainKey> = {
   srcChainKey: K;
@@ -193,12 +200,12 @@ export class AssetService {
    * - **Other chains**: returns an error — approval is not supported or not needed.
    *
    * @param _params - Deposit action parameters including the asset address and amount to approve.
-   * @returns `Result<TxReturnType<K, Raw>>` — the transaction hash (when `raw` is `false`)
+   * @returns `Result<TxReturnType<K, Raw>, DexApproveError>` — the transaction hash (when `raw` is `false`)
    *   or the unsigned transaction bytes (when `raw` is `true`).
    */
   public async approve<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: AssetDepositAction<K, Raw>,
-  ): Promise<Result<TxReturnType<K, Raw>>> {
+  ): Promise<Result<TxReturnType<K, Raw>, DexApproveError>> {
     const { params } = _params;
 
     try {
@@ -293,12 +300,12 @@ export class AssetService {
    *
    * @param _params - Deposit action parameters including the original asset address,
    *   amount, target pool token (StatAToken), and optional destination override.
-   * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
+   * @returns `Result<IntentTxResult<K, Raw>, DexCreateIntentError>` — on success, contains the spoke-chain tx
    *   and relay data for cross-chain packet tracking.
    */
   public async executeDeposit<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: AssetDepositAction<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>>> {
+  ): Promise<Result<IntentTxResult<K, Raw>, DexCreateIntentError>> {
     const { params, skipSimulation } = _params;
     try {
       invariant(params.amount > 0n, 'Amount must be greater than 0');
@@ -377,12 +384,12 @@ export class AssetService {
    *
    * @param _params - Withdraw action parameters including the asset address, amount
    *   (in StatAToken shares), pool token address, and optional destination override.
-   * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
+   * @returns `Result<IntentTxResult<K, Raw>, DexCreateIntentError>` — on success, contains the spoke-chain tx
    *   and relay data for cross-chain packet tracking.
    */
   public async executeWithdraw<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: AssetWithdrawAction<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>>> {
+  ): Promise<Result<IntentTxResult<K, Raw>, DexCreateIntentError>> {
     const { params, skipSimulation } = _params;
     try {
       invariant(params.amount > 0n, 'Amount must be greater than 0');
@@ -719,9 +726,9 @@ export class AssetService {
    *
    * @param dexToken - The ERC-4626 token (StatAToken) address on the hub chain.
    * @param assetAmount - The amount of underlying assets to convert.
-   * @returns `Result<bigint>` — the equivalent share amount.
+   * @returns `Result<bigint, DexError>` — the equivalent share amount.
    */
-  public async getWrappedAmount(dexToken: Address, assetAmount: bigint): Promise<Result<bigint>> {
+  public async getWrappedAmount(dexToken: Address, assetAmount: bigint): Promise<Result<bigint, DexError>> {
     try {
       const shares = await Erc4626Service.convertToShares(dexToken, assetAmount, this.hubProvider.publicClient);
       if (!shares.ok) return { ok: false, error: lookupFailed('dex', 'getWrappedAmount', shares.error) };
@@ -739,9 +746,9 @@ export class AssetService {
    *
    * @param dexToken - The ERC-4626 token (StatAToken) address on the hub chain.
    * @param shareAmount - The number of shares to convert.
-   * @returns `Result<bigint>` — the equivalent underlying asset amount.
+   * @returns `Result<bigint, DexError>` — the equivalent underlying asset amount.
    */
-  public async getUnwrappedAmount(dexToken: Address, shareAmount: bigint): Promise<Result<bigint>> {
+  public async getUnwrappedAmount(dexToken: Address, shareAmount: bigint): Promise<Result<bigint, DexError>> {
     try {
       const assetAmount = await Erc4626Service.convertToAssets(dexToken, shareAmount, this.hubProvider.publicClient);
       if (!assetAmount.ok) return { ok: false, error: lookupFailed('dex', 'getUnwrappedAmount', assetAmount.error) };
@@ -761,13 +768,13 @@ export class AssetService {
    * @param poolToken - The pool token (StatAToken) address on the hub chain.
    * @param walletAddress - The user's address on their spoke chain.
    * @param chainKey - The spoke chain key used to derive the hub wallet address.
-   * @returns `Result<bigint>` — the StatAToken share balance of the user's hub wallet.
+   * @returns `Result<bigint, DexError>` — the StatAToken share balance of the user's hub wallet.
    */
   public async getDeposit(
     poolToken: Address,
     walletAddress: Address,
     chainKey: SpokeChainKey,
-  ): Promise<Result<bigint>> {
+  ): Promise<Result<bigint, DexError>> {
     try {
       const hubwallet = await this.hubProvider.getUserHubWalletAddress(walletAddress, chainKey);
       const value = await this.hubProvider.publicClient.readContract({

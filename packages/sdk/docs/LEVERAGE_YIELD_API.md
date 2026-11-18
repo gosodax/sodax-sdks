@@ -6,7 +6,7 @@ facade as `sodax.api.leverageYield` — `sodax.api` is an alias for `sodax.backe
 
 It mirrors `ILeverageYieldApiV2` (from `@sodax/types`) one method per endpoint (33 total). Every method:
 
-- returns `Promise<Result<T>>` — it **never throws**;
+- returns `Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>` — it **never throws**;
 - validates the JSON response at runtime against a valibot schema (a contract drift is surfaced as
   `{ ok: false }`, not returned untyped);
 - accepts an optional trailing `RequestOverrideConfig` (`{ baseURL?, timeout?, headers?, apiKey? }`) for

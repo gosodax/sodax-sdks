@@ -2,7 +2,7 @@
 
 Typed HTTP client for the backend **Swaps API** (`/swaps/*`). Reachable as `sodax.api.swaps`
 (`sodax.api` is an alias for `sodax.backendApi`; `.swaps` is the `SwapsApiService` instance). One method
-per endpoint (21 total). Every method returns `Promise<Result<T>>` — it **never throws** — and every
+per endpoint (21 total). Every method returns `Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>` — it **never throws** — and every
 response is validated at runtime against a valibot schema, so a backend contract drift surfaces as
 `{ ok: false }` rather than an untyped object.
 

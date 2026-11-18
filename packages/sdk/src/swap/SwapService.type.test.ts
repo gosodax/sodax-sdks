@@ -91,8 +91,14 @@ type Family = {
   bitcoin: [string, BitcoinRawTransaction | string];
 };
 // Columns of every matrix row: [walletProvider, raw: false, raw: true, runtime boolean].
-// Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+// Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
 type Modes<Hash, Raw> = [Result<Hash>, Result<Hash>, Result<Raw>, Result<Hash | Raw>];
+type CancelModes<Hash, Raw> = [
+  Result<Hash, SwapCreateIntentError>,
+  Result<Hash, SwapCreateIntentError>,
+  Result<Raw, SwapCreateIntentError>,
+  Result<Hash | Raw, SwapCreateIntentError>,
+];
 // Unwraps only an exact Promise, so a sync or `X | Promise<X>` result fails the row it is in.
 type Unpromise<P> = [P] extends [Promise<infer V>] ? V : 'not a Promise';
 type AwaitAll<T extends readonly unknown[]> = { -readonly [I in keyof T]: Unpromise<T[I]> };
@@ -594,12 +600,12 @@ describe('SwapService — chain- and mode-generic actions', () => {
 
   it('createCancelIntent: hash per family when signed, unsigned tx with raw: true', () => {
     expectTypeOf<Settled<ReturnType<typeof createCancelIntentRows>>>().toEqualTypeOf<{
-      [F in keyof Family]: Modes<Family[F][0], Family[F][1]>;
+      [F in keyof Family]: CancelModes<Family[F][0], Family[F][1]>;
     }>();
   });
 
   it('isAllowanceValid: a boolean in every family and mode', () => {
-    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+    // Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
     type B = Result<boolean>;
     expectTypeOf<Settled<ReturnType<typeof isAllowanceValidRows>>>().toEqualTypeOf<{
       sonic: [B, B, B, B];
@@ -610,7 +616,7 @@ describe('SwapService — chain- and mode-generic actions', () => {
   });
 
   it('buildApproveTxs: the chain’s unsigned reset/approve pair', () => {
-    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+    // Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
     expectTypeOf<Unwrapped<ReturnType<typeof buildApproveTxsRows>>>().toEqualTypeOf<{
       [F in keyof Family]: Result<{ readonly resetTx?: Family[F][1]; readonly approveTx: Family[F][1] }>;
     }>();
@@ -683,7 +689,7 @@ describe('SwapService — chain- and mode-generic actions', () => {
         swaps.cancelLimitOrder({ params: c.sonic, walletProvider: w.evm }),
         swaps.cancelLimitOrder({ params: c.stacks, walletProvider: w.stacks }),
       ] as const;
-    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+    // Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
     type Pair = Result<TxHashPair>;
     expectTypeOf<Settled<{ r: ReturnType<typeof cancels> }>['r']>().toEqualTypeOf<[Pair, Pair, Pair, Pair]>();
   });

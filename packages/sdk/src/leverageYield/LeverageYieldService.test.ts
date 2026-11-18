@@ -1424,7 +1424,7 @@ describe('LeverageYieldService.vaultSwap — backend submit-tx (useBackendSubmit
   /** A `getSubmitTxStatus` success Result; only the fields a given test exercises need supplying. */
   const statusEnvelope = (
     data: Partial<SubmitTxStatusDataV2> & Pick<SubmitTxStatusDataV2, 'status'>,
-  ): Result<SubmitTxStatusResponseV2> => ({
+  ): Result<SubmitTxStatusResponseV2, SodaxError<'EXTERNAL_API_ERROR'>> => ({
     ok: true,
     value: {
       success: true,
@@ -2174,7 +2174,10 @@ describe('LeverageYieldService.getDetailedStatus', () => {
     backendFails('not found', 404);
     packets(delivered);
     solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
-    vi.spyOn(sodaxDS.api, 'getIntentByTxHash').mockResolvedValueOnce({ ok: false, error: new Error('down') });
+    vi.spyOn(sodaxDS.api, 'getIntentByTxHash').mockResolvedValueOnce({
+      ok: false,
+      error: new SodaxError('EXTERNAL_API_ERROR', 'down', { feature: 'backend' }),
+    });
     expect(solverStatusOf(await sodaxDS.leverageYield.getDetailedStatus(key))?.status).toBe(
       SolverIntentStatusCode.STARTED_NOT_FINISHED,
     );

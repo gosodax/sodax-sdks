@@ -13,7 +13,7 @@ import {
 } from '../shared/index.js';
 import { SodaxError, isSodaxError } from '../errors/SodaxError.js';
 import { intentCreationFailed, lookupFailed } from '../errors/wrappers.js';
-import { dexInvariant, isDexCreateIntentError } from './errors.js';
+import { type DexCreateIntentError, type DexError, dexInvariant, isDexCreateIntentError } from './errors.js';
 import type { MintPositionEventLog } from '../swap/EvmSolverService.js';
 import type {
   Address,
@@ -360,13 +360,13 @@ export class ClService {
    *
    * @param _params - Action parameters including pool key, tick range, desired liquidity,
    *   maximum token amounts, and current `sqrtPriceX96`.
-   * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
+   * @returns `Result<IntentTxResult<K, Raw>, DexCreateIntentError>` — on success, contains the spoke-chain tx
    *   (hash or raw bytes depending on `raw`) and the relay data needed to track the
    *   cross-chain packet.
    */
   public async executeSupplyLiquidity<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: ClSupplyAction<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>>> {
+  ): Promise<Result<IntentTxResult<K, Raw>, DexCreateIntentError>> {
     const { params, skipSimulation } = _params;
     try {
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
@@ -461,10 +461,10 @@ export class ClService {
    * transaction receipt and extracts that id from the event log.
    *
    * @param hubTxHash - The transaction hash on the hub chain (Sonic) where the mint was executed.
-   * @returns `Result<ClMintPositionEventLog>` — on success, contains `{ tokenId }` (the NFT
+   * @returns `Result<ClMintPositionEventLog, DexError>` — on success, contains `{ tokenId }` (the NFT
    *   token ID of the newly minted position).
    */
-  public async getMintPositionEvent(hubTxHash: Hash): Promise<Result<ClMintPositionEventLog>> {
+  public async getMintPositionEvent(hubTxHash: Hash): Promise<Result<ClMintPositionEventLog, DexError>> {
     try {
       const receipt = await this.hubProvider.publicClient.waitForTransactionReceipt({ hash: hubTxHash });
       const logs: MintPositionEventLog[] = parseEventLogs({
@@ -513,12 +513,12 @@ export class ClService {
    *
    * @param _params - Action parameters including the NFT `tokenId`, pool key, tick range,
    *   additional liquidity amount, and maximum token amounts.
-   * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
+   * @returns `Result<IntentTxResult<K, Raw>, DexCreateIntentError>` — on success, contains the spoke-chain tx
    *   and relay data for cross-chain packet tracking.
    */
   public async executeIncreaseLiquidity<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: ClLiquidityIncreaseLiquidityAction<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>>> {
+  ): Promise<Result<IntentTxResult<K, Raw>, DexCreateIntentError>> {
     const { params, skipSimulation } = _params;
     try {
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
@@ -605,12 +605,12 @@ export class ClService {
    *
    * @param _params - Action parameters including the NFT `tokenId`, pool key, liquidity to
    *   remove, and minimum token amounts (slippage protection).
-   * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
+   * @returns `Result<IntentTxResult<K, Raw>, DexCreateIntentError>` — on success, contains the spoke-chain tx
    *   and relay data for cross-chain packet tracking.
    */
   public async executeDecreaseLiquidity<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: ClLiquidityDecreaseLiquidityAction<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>>> {
+  ): Promise<Result<IntentTxResult<K, Raw>, DexCreateIntentError>> {
     const { params, skipSimulation } = _params;
     try {
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
@@ -933,10 +933,13 @@ export class ClService {
    *
    * @param poolKey - The pool key; its `hooks` field must be a non-zero address.
    * @param publicClient - A viem public client connected to the hub chain (Sonic).
-   * @returns `Result<PoolRewardConfig>` — on success, contains the reward token address,
+   * @returns `Result<PoolRewardConfig, DexError>` — on success, contains the reward token address,
    *   reward rate per second, and the timestamp of the last position-affecting action.
    */
-  public async getPoolRewardConfig(poolKey: PoolKey, publicClient: PublicClient): Promise<Result<PoolRewardConfig>> {
+  public async getPoolRewardConfig(
+    poolKey: PoolKey,
+    publicClient: PublicClient,
+  ): Promise<Result<PoolRewardConfig, DexError>> {
     try {
       const hookAddress = poolKey.hooks;
 
@@ -1002,12 +1005,12 @@ export class ClService {
    * without actually removing any liquidity.
    *
    * @param _params - Action parameters including the NFT `tokenId`, pool key, and tick range.
-   * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
+   * @returns `Result<IntentTxResult<K, Raw>, DexCreateIntentError>` — on success, contains the spoke-chain tx
    *   and relay data for cross-chain packet tracking.
    */
   public async executeClaimRewards<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: ClLiquidityClaimRewardsAction<K, Raw>,
-  ): Promise<Result<IntentTxResult<K, Raw>>> {
+  ): Promise<Result<IntentTxResult<K, Raw>, DexCreateIntentError>> {
     const { params, skipSimulation } = _params;
     try {
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
@@ -1291,11 +1294,11 @@ export class ClService {
    *
    * @param poolKey - The pool key identifying the CL pool on the hub chain.
    * @param publicClient - A viem public client connected to the hub chain (Sonic).
-   * @returns `Result<PoolData>` — on success, contains current price, tick, liquidity,
+   * @returns `Result<PoolData, DexError>` — on success, contains current price, tick, liquidity,
    *   fee tiers, token metadata with optional StatAToken enrichment, and optional
    *   reward configuration. `isActive` is `true` when `sqrtPriceX96 > 0`.
    */
-  public async getPoolData(poolKey: PoolKey<'CL'>, publicClient: PublicClient): Promise<Result<PoolData>> {
+  public async getPoolData(poolKey: PoolKey<'CL'>, publicClient: PublicClient): Promise<Result<PoolData, DexError>> {
     try {
       // Get pool ID
       const poolId = getPoolId(poolKey);
@@ -1421,11 +1424,11 @@ export class ClService {
    *
    * @param tokenId - The NFT token ID assigned to the position at mint time.
    * @param publicClient - A viem public client connected to the hub chain (Sonic).
-   * @returns `Result<ClPositionInfo>` — on success, contains tick range, liquidity,
+   * @returns `Result<ClPositionInfo, DexError>` — on success, contains tick range, liquidity,
    *   current token amounts, tick-boundary prices, unclaimed fees, and optional
    *   underlying amounts for StatAToken pools.
    */
-  public async getPositionInfo(tokenId: bigint, publicClient: PublicClient): Promise<Result<ClPositionInfo>> {
+  public async getPositionInfo(tokenId: bigint, publicClient: PublicClient): Promise<Result<ClPositionInfo, DexError>> {
     try {
       // Read position data from the position manager using PancakeSwap SDK ABI
       const positionData = await publicClient.readContract({

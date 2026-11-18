@@ -90,7 +90,7 @@ describe('InjectiveSpokeService', () => {
       Promise<InjectiveExecuteResponse>
     >();
     expectTypeOf<ReturnType<InjectiveSpokeService['setOwner']>>().toEqualTypeOf<Promise<InjectiveExecuteResponse>>();
-    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+    // Known gap against ADR 0001: never returns ok: false; a never error would break callers that narrow it.
     expectTypeOf<ReturnType<InjectiveSpokeService['waitForTransactionReceipt']>>().toEqualTypeOf<
       Promise<Result<Receipt<InjectiveRawTransactionReceipt>>>
     >();

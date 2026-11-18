@@ -54,7 +54,8 @@ import { isAuthStatus } from '../errors/guards.js';
 import { consoleLogger } from '../shared/logger.js';
 
 /**
- * {@link ISwapsApiV2} with every method's return wrapped in `Result<T>` and an
+ * {@link ISwapsApiV2} with every method's return wrapped in
+ * `Result<T, SodaxError<'EXTERNAL_API_ERROR'>>` and an
  * optional trailing `RequestOverrideConfig`. `SwapsApiService` implements this
  * (rather than `ISwapsApiV2` directly) because it never throws — like
  * `BackendApiService`, it returns `{ ok: false }` on failure instead of
@@ -63,7 +64,7 @@ import { consoleLogger } from '../shared/logger.js';
  */
 type ResultifiedSwapsApiV2 = {
   [K in keyof ISwapsApiV2]: ISwapsApiV2[K] extends (...args: infer A) => Promise<infer R>
-    ? (...args: [...A, config?: RequestOverrideConfig]) => Promise<Result<R>>
+    ? (...args: [...A, config?: RequestOverrideConfig]) => Promise<Result<R, SodaxError<'EXTERNAL_API_ERROR'>>>
     : never;
 };
 
@@ -75,7 +76,8 @@ type ResultifiedSwapsApiV2 = {
  * This service adds the SDK conventions on top: `Result<T>` (it never throws), a `SodaxLogger`,
  * `SwapsApiConfig`/`ApiConfig` resolution, and per-call `RequestOverrideConfig`.
  *
- * All public methods return `Promise<Result<T>>`. On network failure, timeout, non-2xx HTTP
+ * All public methods return
+ * `Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>`. On network failure, timeout, non-2xx HTTP
  * response, or response-shape validation failure, the returned Result has `ok: false` with a
  * canonical `SodaxError<'EXTERNAL_API_ERROR'>` (`feature: 'backend'`, `context.api: 'swaps'`,
  * `context.endpoint`); the underlying `SwapsApiError` is preserved on `error.cause`.
@@ -211,7 +213,9 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   // ──────────────────────────────────────────────────────────────────────
 
   /** Fetch all supported swap tokens grouped by SpokeChainKey. */
-  public async getTokens(config?: RequestOverrideConfig): Promise<Result<GetSwapTokensResponseV2>> {
+  public async getTokens(
+    config?: RequestOverrideConfig,
+  ): Promise<Result<GetSwapTokensResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/tokens', c => c.getTokens(), config);
   }
 
@@ -219,7 +223,7 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   public async getTokensByChain(
     chainKey: string,
     config?: RequestOverrideConfig,
-  ): Promise<Result<GetSwapTokensByChainResponseV2>> {
+  ): Promise<Result<GetSwapTokensByChainResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult(`/swaps/tokens/${chainKey}`, c => c.getTokensByChain(chainKey), config);
   }
 
@@ -235,7 +239,7 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
     body: QuoteRequestV2,
     query?: QuoteQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<QuoteResponseV2>> {
+  ): Promise<Result<QuoteResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/quote', c => c.getQuote(body, query), config);
   }
 
@@ -243,7 +247,7 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   public async getDeadline(
     query?: DeadlineQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<DeadlineResponseV2>> {
+  ): Promise<Result<DeadlineResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/deadline', c => c.getDeadline(query), config);
   }
 
@@ -255,12 +259,15 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   public async checkAllowance(
     body: CreateIntentParamsV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<AllowanceCheckResponseV2>> {
+  ): Promise<Result<AllowanceCheckResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/allowance/check', c => c.checkAllowance(body), config);
   }
 
   /** Build an unsigned token-approval transaction for the source token. */
-  public async approve(body: CreateIntentParamsV2, config?: RequestOverrideConfig): Promise<Result<ApproveResponseV2>> {
+  public async approve(
+    body: CreateIntentParamsV2,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<ApproveResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/approve', c => c.approve(body), config);
   }
 
@@ -268,7 +275,7 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   public async createIntent(
     body: CreateIntentParamsV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<CreateIntentResponseV2>> {
+  ): Promise<Result<CreateIntentResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/intents', c => c.createIntent(body), config);
   }
 
@@ -280,12 +287,15 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   public async submitIntent(
     body: SubmitIntentRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<SubmitIntentResponseV2>> {
+  ): Promise<Result<SubmitIntentResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/intents/submit', c => c.submitIntent(body), config);
   }
 
   /** Poll the solver for intent execution status. */
-  public async getStatus(body: StatusRequestV2, config?: RequestOverrideConfig): Promise<Result<StatusResponseV2>> {
+  public async getStatus(
+    body: StatusRequestV2,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<StatusResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/intents/status', c => c.getStatus(body), config);
   }
 
@@ -293,7 +303,7 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   public async cancelIntent(
     body: CancelIntentRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<CancelIntentResponseV2>> {
+  ): Promise<Result<CancelIntentResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult(
       '/swaps/intents/cancel',
       c => c.cancelIntent({ ...body, intent: SwapsApiService.toWireIntent(body.intent) }),
@@ -305,7 +315,7 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   public async getIntentHash(
     body: IntentHashRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<IntentHashResponseV2>> {
+  ): Promise<Result<IntentHashResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult(
       '/swaps/intents/hash',
       c => c.getIntentHash({ ...body, intent: SwapsApiService.toWireIntent(body.intent) }),
@@ -317,7 +327,7 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   public async getSolvedIntentPacket(
     body: IntentPacketRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<IntentPacketResponseV2>> {
+  ): Promise<Result<IntentPacketResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/intents/packet', c => c.getSolvedIntentPacket(body), config);
   }
 
@@ -325,18 +335,24 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   public async getIntentSubmitTxExtraData(
     body: IntentExtraDataRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<IntentExtraDataResponseV2>> {
+  ): Promise<Result<IntentExtraDataResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     const normalized = body.intent ? { ...body, intent: SwapsApiService.toWireIntent(body.intent) } : body;
     return this.toResult('/swaps/intents/extra-data', c => c.getIntentSubmitTxExtraData(normalized), config);
   }
 
   /** Get the on-chain fill state for an intent by its hub-chain tx hash. */
-  public async getFilledIntent(txHash: string, config?: RequestOverrideConfig): Promise<Result<IntentStateV2>> {
+  public async getFilledIntent(
+    txHash: string,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<IntentStateV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult(`/swaps/intents/${txHash}/fill`, c => c.getFilledIntent(txHash), config);
   }
 
   /** Look up an Intent struct by its hub-chain creation tx hash. */
-  public async getIntent(txHash: string, config?: RequestOverrideConfig): Promise<Result<GetIntentResponseV2>> {
+  public async getIntent(
+    txHash: string,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<GetIntentResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult(`/swaps/intents/${txHash}`, c => c.getIntent(txHash), config);
   }
 
@@ -348,7 +364,7 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   public async createLimitOrderIntent(
     body: CreateLimitOrderParamsV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<CreateLimitOrderResponseV2>> {
+  ): Promise<Result<CreateLimitOrderResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/limit-orders', c => c.createLimitOrderIntent(body), config);
   }
 
@@ -356,17 +372,23 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   public async estimateGas(
     body: GasEstimateRequestV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<GasEstimateResponseV2>> {
+  ): Promise<Result<GasEstimateResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/gas/estimate', c => c.estimateGas(body), config);
   }
 
   /** Compute the partner fee for a given input amount. */
-  public async getPartnerFee(query: FeeQueryV2, config?: RequestOverrideConfig): Promise<Result<FeeResponseV2>> {
+  public async getPartnerFee(
+    query: FeeQueryV2,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<FeeResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/fees/partner', c => c.getPartnerFee(query), config);
   }
 
   /** Compute the protocol (solver) fee for a given input amount. */
-  public async getSolverFee(query: FeeQueryV2, config?: RequestOverrideConfig): Promise<Result<FeeResponseV2>> {
+  public async getSolverFee(
+    query: FeeQueryV2,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<FeeResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/fees/solver', c => c.getSolverFee(query), config);
   }
 
@@ -377,7 +399,10 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   /** Submit a swap transaction to be processed (relay, post-execution, etc.). Idempotent on `(txHash, srcChainKey)`.
    *  Response is immediate after successful submission. Use getSubmitTxStatus to poll the status of the submission.
    */
-  public async submitTx(body: SubmitTxRequestV2, config?: RequestOverrideConfig): Promise<Result<SubmitTxResponseV2>> {
+  public async submitTx(
+    body: SubmitTxRequestV2,
+    config?: RequestOverrideConfig,
+  ): Promise<Result<SubmitTxResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult(
       '/swaps/submit-tx',
       c => c.submitTx({ ...body, intent: SwapsApiService.toWireIntent(body.intent) }),
@@ -389,7 +414,7 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
   public async getSubmitTxStatus(
     query: SubmitTxStatusQueryV2,
     config?: RequestOverrideConfig,
-  ): Promise<Result<SubmitTxStatusResponseV2>> {
+  ): Promise<Result<SubmitTxStatusResponseV2, SodaxError<'EXTERNAL_API_ERROR'>>> {
     return this.toResult('/swaps/submit-tx/status', c => c.getSubmitTxStatus(query), config);
   }
 

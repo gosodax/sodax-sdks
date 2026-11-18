@@ -67,11 +67,12 @@ describe('EvmSpokeService', () => {
     expectTypeOf<ReturnType<EvmSpokeService['getPublicClient']>>().toEqualTypeOf<PublicClient<HttpTransport>>();
     expectTypeOf<ReturnType<EvmSpokeService['constructPublicClient']>>().toEqualTypeOf<PublicClient<HttpTransport>>();
     expectTypeOf<ReturnType<EvmSpokeService['estimateGas']>>().toEqualTypeOf<Promise<bigint>>();
-    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+    // Known gap against ADR 0001: the error is a caught value returned as thrown, so it is unknown.
     expectTypeOf<ReturnType<EvmSpokeService['isAllowanceValid']>>().toEqualTypeOf<Promise<Result<boolean>>>();
     expectTypeOf<ReturnType<EvmSpokeService['getDeposit']>>().toEqualTypeOf<Promise<bigint>>();
     expectTypeOf<ReturnType<EvmSpokeService['getWalletBalance']>>().toEqualTypeOf<Promise<bigint>>();
     expectTypeOf<ReturnType<EvmSpokeService['getWalletBalances']>>().toEqualTypeOf<Promise<WalletBalanceMap>>();
+    // Known gap against ADR 0001: never returns ok: false; a never error would break callers that narrow it.
     expectTypeOf<ReturnType<EvmSpokeService['waitForTransactionReceipt']>>().toEqualTypeOf<
       Promise<Result<Receipt<EvmRawTransactionReceipt>>>
     >();

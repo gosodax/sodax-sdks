@@ -103,7 +103,7 @@ describe('StellarSpokeService', () => {
     expectTypeOf<ReturnType<StellarSpokeService['hasSufficientTrustline']>>().toEqualTypeOf<Promise<boolean>>();
     expectTypeOf<ReturnType<StellarSpokeService['estimateGas']>>().toEqualTypeOf<Promise<bigint>>();
     expectTypeOf<ReturnType<StellarSpokeService['getDeposit']>>().toEqualTypeOf<Promise<bigint>>();
-    // Known gap against ADR 0001: declared as plain Result<T>, so the error is unknown.
+    // Known gap against ADR 0001: never returns ok: false; a never error would break callers that narrow it.
     expectTypeOf<ReturnType<StellarSpokeService['waitForTransactionReceipt']>>().toEqualTypeOf<
       Promise<Result<Receipt<StellarSorobanTransactionReceipt>>>
     >();

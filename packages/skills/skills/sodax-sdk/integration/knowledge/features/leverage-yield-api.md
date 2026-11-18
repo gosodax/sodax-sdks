@@ -3,7 +3,7 @@
 Typed HTTP client for the backend **Leverage Yield API** (`/leverage-yield/*`). Reachable as
 `sodax.api.leverageYield` (`sodax.api` is an alias for `sodax.backendApi`; `.leverageYield` is the
 `LeverageYieldApiService` instance). One method per endpoint (33 total). Every method returns
-`Promise<Result<T>>` — it **never throws** — and every response is validated at runtime against a valibot
+`Promise<Result<T, SodaxError<'EXTERNAL_API_ERROR'>>>` — it **never throws** — and every response is validated at runtime against a valibot
 schema, so a backend contract drift surfaces as `{ ok: false }` rather than an untyped object.
 
 Access: `sodax.api.leverageYield`. Service class: `LeverageYieldApiService`. **Errors:** every failure
