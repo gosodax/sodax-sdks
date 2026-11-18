@@ -173,7 +173,6 @@ export function hasActiveOverrides(settings: SodaxSettings): boolean {
 const swapsApiBaseUrlEnv: unknown = import.meta.env.VITE_SWAPS_API_BASE_URL;
 export const envSwapsApiBaseUrl: HttpUrl | undefined = isHttpUrl(swapsApiBaseUrlEnv) ? swapsApiBaseUrlEnv : undefined;
 
-export const DEFAULT_BRIDGE_API_BASE_URL = 'https://canary-api.sodax.com/v1' as HttpUrl;
 const bridgeApiBaseUrlEnv: unknown = import.meta.env.VITE_BRIDGE_API_BASE_URL;
 export const envBridgeApiBaseUrl: HttpUrl | undefined = isHttpUrl(bridgeApiBaseUrlEnv)
   ? bridgeApiBaseUrlEnv
@@ -206,6 +205,11 @@ export function effectiveSwapsApiBaseUrl(settings: SodaxSettings): HttpUrl {
  */
 export function effectiveLeverageYieldApiBaseUrl(settings: SodaxSettings): HttpUrl {
   return settings.leverageYieldApiBaseUrl ?? envLeverageYieldApiBaseUrl ?? settings.apiBaseUrl ?? DEFAULT_API_BASE_URL;
+}
+
+/** The Bridge API host the showcase page calls, same precedence as the swaps and leverage-yield ones. */
+export function effectiveBridgeApiBaseUrl(settings: SodaxSettings): HttpUrl {
+  return settings.bridgeApiBaseUrl ?? envBridgeApiBaseUrl ?? settings.apiBaseUrl ?? DEFAULT_API_BASE_URL;
 }
 
 /** The `x-api-key` the SDK sends, so a direct client authenticates with the same credential. */

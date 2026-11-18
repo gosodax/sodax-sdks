@@ -8,7 +8,7 @@ EVM Owner: [0x36BB43bED1338Ab7D9F07e06bF5e330D4FdBfd6f](https://sonicscan.org/ad
 
 Lightlink Owner: [0xa5178EfEf61c1877B664269bAedE296e1f451B6a](https://phoenix.lightlink.io/address/0xa5178EfEf61c1877B664269bAedE296e1f451B6a)
 
-HyperEVM Owner: [0x9eD17ecBB8c94f1bE13D4BcC676d346d9779A132](https://liquidscan.io/address/0x9eD17ecBB8c94f1bE13D4BcC676d346d9779A132)
+HyperEVM Owner: [0x9eD17ecBB8c94f1bE13D4BcC676d346d9779A132](https://hyperevmscan.io/address/0x9eD17ecBB8c94f1bE13D4BcC676d346d9779A132)
 
 Solana multisig: [5eJYXYhqxsTgBZmp7CJkoBQpRe2bEWnQZdT3iwaqh715](https://app.squads.so/squads/5eJYXYhqxsTgBZmp7CJkoBQpRe2bEWnQZdT3iwaqh715/home)
 
@@ -200,7 +200,7 @@ Each row is the token on that spoke chain; its Sonic hub asset and shared vault 
 | RDDT | [0x05b37Fb53A299a1b874A619e1c4C404D52C36F4C](https://robinhoodchain.blockscout.com/address/0x05b37Fb53A299a1b874A619e1c4C404D52C36F4C) | [0x0000000000000000000000000000000000a567dd](https://hashscan.io/mainnet/contract/0x0000000000000000000000000000000000a567dd) | [CCL6EU763SIZW4LWKZHRMM5HF75GHLWNFLL7TVMFN42ZL35UYEEPGZJ6](https://stellar.expert/explorer/public/contract/CCL6EU763SIZW4LWKZHRMM5HF75GHLWNFLL7TVMFN42ZL35UYEEPGZJ6) |
 | GLD | [0xC9a981FEE1F9DEc688bb123ccDeCc63D0deBFC4e](https://robinhoodchain.blockscout.com/address/0xC9a981FEE1F9DEc688bb123ccDeCc63D0deBFC4e) | [0x0000000000000000000000000000000000a567ef](https://hashscan.io/mainnet/contract/0x0000000000000000000000000000000000a567ef) | [CB7ZOXYL3NZMO4J3WRG6DVQDS5VYABSKLH4SF6FEYHVEXTNYAPXZI4DC](https://stellar.expert/explorer/public/contract/CB7ZOXYL3NZMO4J3WRG6DVQDS5VYABSKLH4SF6FEYHVEXTNYAPXZI4DC) |
 
-> **Not money-market collateral.** These vaults are swap-side only — they are not money-market reserves, so they cannot be supplied, borrowed against, or used as collateral. Appearing in the vault registry above is not evidence of feature support: swap and money market each keep their own list, and the backend config API, not this page, decides what is live. For current swap membership see [Swaps: compatible assets](/developers/deployments/swaps-compatible-assets).
+> **Money-market collateral for a subset only.** Some of these vaults are money-market reserves: users can supply them and use them as collateral, but borrowing them is disabled. [Money Market on Robinhood Chain](/robinhood-chain/money-market) lists which. Every other vault in this table is swap-side only and cannot be supplied, borrowed against, or used as collateral. Appearing in the vault registry above is not evidence of feature support: swap and money market each keep their own list, and the backend config API, not this page, decides what is live. For current swap membership see [Swaps: compatible assets](/developers/deployments/swaps-compatible-assets).
 
 > **Trading support (for now).** Each equity is paired only against **USDG** on Robinhood Chain, so every route hops through USDG. The best-supported swaps today are **a native or stablecoin asset ↔ an equity** — e.g. `S`, `USDC`, `USDT`, or `ETH` into a stock, and a stock back out to `USDC`/`S`. **Stock-to-stock swaps may be limited:** they route `stock → USDG → stock`, only quote above a small minimum size, and spoke-to-spoke pairs (e.g. a Hedera stock → another Hedera stock) can exceed the router's multi-hop depth and return "no path". If a direct stock-to-stock quote fails, route through a stable or native asset instead.
 

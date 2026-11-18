@@ -13,6 +13,10 @@ not select a solver endpoint. `isSwapSupportedToken` accepts both tiers, so do n
 use it to establish production readiness. Query the list for the environment the
 integration targets instead of hardcoding symbols.
 
+These lists, and the tokens `sodax.swaps` accepts, are bundled with the installed `@sodax/sdk`.
+For a token the backend lists after that release, use `sodax.api.swaps` end to end
+([`swaps-api.md`](swaps-api.md)); `initialize()` does not add tokens.
+
 A production promotion retains staging availability through `getStagingSolverTokens`.
 Do not treat absence from `stagingSwapSupportedTokens` as absence from staging;
 production tokens are supplied by the union accessor.
@@ -79,7 +83,7 @@ sodax.swaps.getApprovalStrategy<K extends SpokeChainKey>(
 sodax.swaps.getSwapSpeedTier(params: { srcToken: XToken; dstToken: XToken }): SwapSpeedTierResult;
 //   Synchronous, offline, no Result wrapper — estimates settlement speed from SDK config alone
 //   (no network / on-chain / backend call). SwapSpeedTierResult = { tier: 'fast'|'normal'|'slow', estimatedSeconds }.
-//   A token whose `vault` is a money-market reserve (sodaAsset) settles faster; an Ethereum leg adds a fixed penalty.
+//   A token whose `vault` is a non-RWA money-market reserve (sodaAsset) settles faster; an Ethereum leg adds a fixed penalty.
 //   Safe to call synchronously while rendering a quote (e.g. an ETA badge next to the output amount).
 
 sodax.swaps.getStatus(
@@ -275,7 +279,7 @@ const { quoted_amount } = quote.value;   // bigint output amount in dst-token un
 ```ts
 const inputToken  = sodax.config.findSupportedTokenBySymbol(ChainKeys.ARBITRUM_MAINNET, 'USDC');
 const outputToken = sodax.config.findSupportedTokenBySymbol(ChainKeys.STELLAR_MAINNET,  'XLM');
-if (!inputToken || !outputToken) throw new Error('Token missing from config — did you call sodax.config.initialize()?');
+if (!inputToken || !outputToken) throw new Error('Token not bundled with this @sodax/sdk version');
 
 const result = await sodax.swaps.swap({
   params: {

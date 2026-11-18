@@ -28,17 +28,13 @@ const supplyResult = await sodax.moneyMarket.supply({
 
 SDK includes predefined configurations of supported chains, tokens and other relevant information for the client to consume. All configurations are accessible through the `config` property of the Sodax instance (`sodax.config`), or through service-specific properties for convenience.
 
-**IMPORTANT**: If you want dynamic (backend API based - contains latest tokens) configuration, make sure to initialize the instance before usage:
-```typescript
-await sodax.config.initialize();
-```
-By default, configuration from the specific SDK version you are using is used.
+The configuration is the one bundled with the SDK version you are using. `sodax.config.initialize()` currently returns success without fetching anything, so it does not add tokens listed after your release; see [Configure SDK](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#where-supported-tokens-come-from).
 
 ```typescript
 import { Sodax, ChainKeys, type SpokeChainKey, type Address } from '@sodax/sdk';
 
 const sodax = new Sodax();
-await sodax.config.initialize(); // Initialize for dynamic config (optional)
+await sodax.config.initialize(); // optional; adds no tokens
 
 // All supported spoke chains (general config)
 const spokeChains: SpokeChainKey[] = sodax.config.getSupportedSpokeChains();
@@ -410,6 +406,8 @@ Borrow tokens from the money market pool. Borrowed tokens can be delivered to a 
 
 1. `borrow`: Executes the spoke-side message, relays to the hub, and waits for the relay to settle.
 2. `createBorrowIntent`: Builds (and optionally broadcasts) only the spoke-side transaction without waiting for the relay.
+
+Both read the token's reserve on the hub first. If the pool cannot lend it (borrowing disabled, as for collateral-only reserves, or the reserve is frozen or paused), they return `VALIDATION_FAILED` with `context.field: 'token'` and send nothing. To hide the option up front, check `borrowingEnabled` in the reserve data.
 
 ```typescript
 import { type MoneyMarketBorrowParams, DEFAULT_RELAY_TX_TIMEOUT, ChainKeys } from '@sodax/sdk';

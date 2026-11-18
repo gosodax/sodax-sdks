@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ChainKeys, spokeChainConfig } from './chains.js';
+import { ChainKeys, hubConfig, spokeChainConfig } from './chains.js';
 import {
   HubVaultSymbols,
   LsodaTokens,
@@ -279,6 +279,7 @@ const LEGACY_SWAP_ROBINHOOD: readonly string[] = [
   'USDG:0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168',
 ];
 
+// HBAR left the money market (#574): the lending pool has no HBAR reserve.
 const LEGACY_MONEY_MARKET_SONIC: readonly string[] = [
   'S:0x0000000000000000000000000000000000000000',
   'WETH:0x50c42dEAcD8Fc9773493ED674b675bE577f2634b',
@@ -312,7 +313,6 @@ const LEGACY_MONEY_MARKET_SONIC: readonly string[] = [
   'KAIA:0xD7d41b5f803b6A40F8A6eAa34E459A4564e39891',
   'STX:0x1Fbe5229e9d189F26bEE77E5bFa24309FdA90483',
   'sUSDS:0x243b0c26c8b38793908d7C64e8510f21B19B4613',
-  'HBAR:0x3BB956cc8922E1Ba4148dc10eD1b4Fa19aa599c4',
   'JitoSOL:0xe1bad4400d947Bc4fa66f9c0A143D800002083a0',
   'USDS:0xA3AeFa2BAfEAB479c4Aca6024A16906bbC75566e',
   'sodaUSSD:0xb780e09576C2667ba9F5B80FbAb2e6b8A0a21e37',
@@ -344,11 +344,56 @@ const LEGACY_MONEY_MARKET_RESERVE_ASSETS: readonly string[] = [
   '0xD7d41b5f803b6A40F8A6eAa34E459A4564e39891',
   '0x1Fbe5229e9d189F26bEE77E5bFa24309FdA90483',
   '0x243b0c26c8b38793908d7C64e8510f21B19B4613',
-  '0x3BB956cc8922E1Ba4148dc10eD1b4Fa19aa599c4',
   '0xe1bad4400d947Bc4fa66f9c0A143D800002083a0',
   '0xA3AeFa2BAfEAB479c4Aca6024A16906bbC75566e',
   '0xb780e09576C2667ba9F5B80FbAb2e6b8A0a21e37',
   '0xE801CA34E19aBCbFeA12025378D19c4FBE250131',
+];
+
+const LEGACY_MONEY_MARKET_ROBINHOOD: readonly string[] = [
+  'ETH:0x0000000000000000000000000000000000000000',
+  'bnUSD:0x3cd95C469be0EDFD12Bd4F3a4436B132B7908DF4',
+  'SODA:0xA256dd181C3f6E5eC68C6869f5D50a712d47212e',
+  'USDG:0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168',
+];
+
+const LEGACY_MONEY_MARKET_STELLAR: readonly string[] = [
+  'XLM:CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA',
+  'bnUSD:CD6YBFFWMU2UJHX2NGRJ7RN76IJVTCC7MRA46DUBXNB7E6W7H7JRJ2CX',
+  'SODA:CAH5LKJC2ZB4RVUVEVL2QWJWNJLHQE2UF767ILLQ5EQ4O3OURR2XIUGM',
+  'USDC:CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75',
+  'sodaETH:CDK5EWVTZLGSLI6D5OSES7XUKWZUKBXDRNOWUVDNPP5RJRP5EYWCW7SL',
+  'sodaBTC:CD6XWBW74YVFDQQYUM2GALCULMA5MAWGP6NTCWF3ZYXP4Z7MEVY4JKBX',
+  'sodaBNB:CCXTXZAFLVNTMORVWYB6BGL7YEW3U3ONDAL2FGBRGDUQH7AGANVQPRS6',
+  'ETH:CCC6TZWLAHZT2NRVEEOZRPVLUKWVJVKZ3TM347DCCO2QBWNAA5MHROSJ',
+  'BTC:CBSKI7SY2AP6IIN7IBROZP2CJES67ARMHQYZWT7A7PKH67KGDK2DIRMA',
+  'BNB:CC6C3QCSK3WYM2ZENQ5MHA3QPNAKYOZFAGWH5PPU3MVDE3C2YNS7CHMF',
+  'SOL:CB5YRZTKA37DND672WZZXI3BQ66P4PQEJ6VQA3TDG2YLUAGADBP2VCUR',
+  'SUI:CBAIKWGVYLCCXGW3CSIXE7JCNNVLBAA6UWMOHMEI5FO4UEXB3BZBMT2W',
+  'AVAX:CC246EHXEDAC7ASKQ7SIFAJCBVDTV35EH4I75KM4ZELVRH5YJFRABWIW',
+  'INJ:CATSVDWZE26QQLX552CMFJHO2MXDEXM7NSW32WP5FU2FFURNAFEUQSAO',
+  'POL:CBEFOLE2WVJDQ2O2S3HHV6VTUE5RU4DTLSMMRBSB4AWGJPXBWFKK2PKW',
+  'HYPE:CDOQFNKW6B3PBPTLNRQSQVAYUA7HFWGGR7TB5BC5PMZ4HU2M2XGPMGTE',
+  'NEAR:CCOJZW4X77T4DNJLV7F6DWKTHDWUS7MRFBZP6BZXT3ZYQFMYDVFVS4EK',
+  'USDS:CC552JLYIJROE24VZFSMO7GBKQOOIQ6R52E3VQSQYC7NMFYAVMC7GQHS',
+];
+
+const LEGACY_MONEY_MARKET_HEDERA: readonly string[] = [
+  'bnUSD:0x0000000000000000000000000000000000a0286a',
+  'SODA:0x0000000000000000000000000000000000a02869',
+  'USDC:0x000000000000000000000000000000000006f89a',
+  'ETH:0x0000000000000000000000000000000000a4e7fa',
+  'BTC:0x0000000000000000000000000000000000a4e800',
+  'BNB:0x0000000000000000000000000000000000a4e801',
+  'SOL:0x0000000000000000000000000000000000a4e802',
+  'SUI:0x0000000000000000000000000000000000a4e803',
+  'AVAX:0x0000000000000000000000000000000000a4e804',
+  'INJ:0x0000000000000000000000000000000000a4e805',
+  'POL:0x0000000000000000000000000000000000a4e806',
+  'HYPE:0x0000000000000000000000000000000000a4e808',
+  'NEAR:0x0000000000000000000000000000000000a4e809',
+  'USDS:0x0000000000000000000000000000000000a4e80a',
+  'XLM:0x0000000000000000000000000000000000a4e810',
 ];
 
 // Plain swap tokens listed after the equities (sodax-solver-v2#1063).
@@ -434,12 +479,50 @@ describe('legacy production swap sequences are unchanged prefixes', () => {
   });
 });
 
-describe('Sonic money market is untouched by the equity vaults', () => {
-  it('supported tokens match the merge base exactly, all 29 legacy vaults included', () => {
-    expect(identify(moneyMarketSupportedTokens[ChainKeys.SONIC_MAINNET])).toEqual(LEGACY_MONEY_MARKET_SONIC);
+// Money market equity reserves, appended after the legacy lists in this order.
+const MONEY_MARKET_EQUITY_SYMBOLS = [
+  'AAPL',
+  'MSFT',
+  'NVDA',
+  'GOOGL',
+  'AMZN',
+  'META',
+  'TSLA',
+  'SPCX',
+  'SPY',
+  'QQQ',
+  'GLD',
+] as const satisfies readonly (typeof EQUITY_SYMBOLS)[number][];
+
+const moneyMarketEquityIds = (registry: Record<(typeof EQUITY_SYMBOLS)[number], XToken>): string[] =>
+  MONEY_MARKET_EQUITY_SYMBOLS.map(symbol => `${symbol}:${registry[symbol].address}`);
+
+describe('money market keeps its legacy lists and appends only the listed equity reserves', () => {
+  it('Sonic supported tokens: all 28 legacy entries unchanged, then the equity vaults', () => {
+    expect(identify(moneyMarketSupportedTokens[ChainKeys.SONIC_MAINNET])).toEqual([
+      ...LEGACY_MONEY_MARKET_SONIC,
+      ...moneyMarketEquityIds(SodaTokens),
+    ]);
   });
 
-  it('reserve assets match the merge base exactly', () => {
-    expect([...moneyMarketReserveAssets]).toEqual(LEGACY_MONEY_MARKET_RESERVE_ASSETS);
+  it('reserve assets: legacy reserves unchanged, then the equity vaults', () => {
+    // hubConfig.bnUSD is appended after the hub vaults, so it stays last.
+    expect(LEGACY_MONEY_MARKET_RESERVE_ASSETS.at(-1)).toBe(hubConfig.bnUSD);
+    expect([...moneyMarketReserveAssets]).toEqual([
+      ...LEGACY_MONEY_MARKET_RESERVE_ASSETS.slice(0, -1),
+      ...MONEY_MARKET_EQUITY_SYMBOLS.map(symbol => SodaTokens[symbol].address),
+      hubConfig.bnUSD,
+    ]);
+  });
+
+  it.each([
+    ['Robinhood', ChainKeys.ROBINHOOD_MAINNET, robinhoodSupportedTokens, LEGACY_MONEY_MARKET_ROBINHOOD],
+    ['Stellar', ChainKeys.STELLAR_MAINNET, stellarSupportedTokens, LEGACY_MONEY_MARKET_STELLAR],
+    ['Hedera', ChainKeys.HEDERA_MAINNET, hederaSupportedTokens, LEGACY_MONEY_MARKET_HEDERA],
+  ] as const)('%s: legacy entries unchanged, then the equity tokens backed by their money market vaults', (_name, chainKey, registry, legacy) => {
+    expect(identify(moneyMarketSupportedTokens[chainKey])).toEqual([...legacy, ...moneyMarketEquityIds(registry)]);
+    for (const symbol of MONEY_MARKET_EQUITY_SYMBOLS) {
+      expect(registry[symbol].vault).toBe(SodaTokens[symbol].address);
+    }
   });
 });

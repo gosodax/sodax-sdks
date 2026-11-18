@@ -4858,10 +4858,7 @@ export const robinhoodSupportedTokens = {
     vault: SodaTokens.sodaUSDC.address,
   },
   // Tokenized stocks, ETFs and commodity ETPs — Robinhood's own "<Company> •
-  // Robinhood Token" product. No dedicated Sonic vault exists for any of these
-  // yet, so `vault` mirrors `hubAsset` (same convention as the Solana xStock
-  // entries). DJT, GLD and RDDT are intentionally omitted — no Chainlink price
-  // feed exists for them, so the solver cannot price or swap them.
+  // Robinhood Token" product. Each `vault` is that equity's Sonic vault in `SodaTokens`.
   SPCX: {
     symbol: 'SPCX',
     isRwa: true,

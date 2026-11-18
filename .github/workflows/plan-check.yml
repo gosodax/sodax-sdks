@@ -16,8 +16,9 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  issues: write
-  pull-requests: read
+  # Reads the linked issues; commenting on a pull request needs `pull-requests: write`.
+  issues: read
+  pull-requests: write
 
 jobs:
   main:
@@ -87,23 +88,35 @@ jobs:
               }
             }
 
-            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number });
-            const sticky = comments.find((c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(STICKY));
+            // The comment only explains the findings, so failing to write it must not fail an advisory run.
+            const syncSticky = async (body) => {
+              try {
+                const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number: pr.number });
+                const sticky = comments.find((c) => c.user?.login === 'github-actions[bot]' && c.body?.includes(STICKY));
+                if (!body) {
+                  if (sticky) await github.rest.issues.deleteComment({ owner, repo, comment_id: sticky.id });
+                } else if (sticky) await github.rest.issues.updateComment({ owner, repo, comment_id: sticky.id, body });
+                else await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+              } catch (error) {
+                core.warning(`Could not update the plan-check comment: ${error.message}`);
+              }
+            };
+
             if (findings.length === 0) {
-              if (sticky) await github.rest.issues.deleteComment({ owner, repo, comment_id: sticky.id });
+              await syncSticky(null);
               core.info('Spec and plan in order.');
               return;
             }
 
             for (const f of findings) core.warning(f);
-            const body = [
-              STICKY,
-              '### Spec and plan check',
-              ...findings.map((f) => `- ${f}`),
-              '',
-              `See [.github/issue-workflow.md](${context.serverUrl}/${owner}/${repo}/blob/main/.github/issue-workflow.md). A human applies \`no-plan\` for trivial work.`,
-            ].join('\n');
-            if (sticky) await github.rest.issues.updateComment({ owner, repo, comment_id: sticky.id, body });
-            else await github.rest.issues.createComment({ owner, repo, issue_number: pr.number, body });
+            await syncSticky(
+              [
+                STICKY,
+                '### Spec and plan check',
+                ...findings.map((f) => `- ${f}`),
+                '',
+                `See [.github/issue-workflow.md](${context.serverUrl}/${owner}/${repo}/blob/main/.github/issue-workflow.md). A human applies \`no-plan\` for trivial work.`,
+              ].join('\n'),
+            );
 
             if (process.env.PLAN_ENFORCE === 'true') core.setFailed('Spec and plan check failed (PLAN_ENFORCE is on).');

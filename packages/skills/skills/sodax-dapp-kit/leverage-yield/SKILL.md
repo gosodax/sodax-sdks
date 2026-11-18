@@ -19,6 +19,7 @@ Granular skill for the leverage-yield hooks of `@sodax/dapp-kit` v2. queryKey/mu
 3. **Approval?** `useLeverageYieldVaultSwapWithApproval` folds the deposit's approval in (one EIP-5792 batch when the wallet can), labelled with `useLeverageYieldApprovalStrategy`. The two-step alternative approves the spoke `inputToken` via the swap-domain `useSwapApprove` / `useSwapAllowance`. Withdraw needs no approval (`hubWalletSwap: true`).
 4. **Which vaults?** No hook — read the registry with `useSodaxContext().sodax.leverageYield.listVaults()` (synchronous, wrap in `useMemo`) and pass each entry's `vault` address to the hooks.
 5. **Which reads?** `useLeverageYieldEffectiveApr` (headline APR), `useLeverageYieldPosition` (LTV/health), `useLeverageYieldTotalAssets` (TVL), `useLeverageYieldPreviewRedeem` (price-per-share), `useLeverageYieldShareBalances` (per-chain balances — returns an array).
+6. **Tokens newer than the installed SDK?** The vault hooks quote and build against the tokens bundled with `@sodax/sdk`. For input or output tokens the backend lists after that release, use the `useLeverageYieldApi*` hooks (the [`auxiliary-services`](../auxiliary-services/SKILL.md) skill) with tokens from `useSwapsApiTokens`.
 
 ### Step 1b — leverage positions
 

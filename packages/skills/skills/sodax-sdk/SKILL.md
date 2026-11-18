@@ -54,6 +54,7 @@ This skill documents the **SDK call sites** — what to import, how to construct
 
 - **Wallet provider implementations** (`IEvmWalletProvider`, `ISolanaWalletProvider`, etc.) → **load the `sodax-wallet-sdk-core` skill** (integration mode). It ships ready-made provider classes for all 9 chain families, both private-key (Node / scripts) and browser-extension modes. This skill only treats wallet providers as a contract (`declare const evmWallet: IEvmWalletProvider`).
 - **React hooks wrapping the SDK** → **load the `sodax-dapp-kit` skill** instead of this one.
+- **Making a swap for the user now, or reading live SODAX data, with no code to write** → the [Builders MCP](https://docs.sodax.com/builders-mcp), no skill; its swap tools are not production ready yet. Come back to this skill once the task is writing code.
 - **Browser wallet connectivity** (connect / disconnect / chain switching for React apps) → **load the `sodax-wallet-sdk-react` skill**.
 
 ### App-layer concerns the SDK is intentionally silent on
@@ -91,7 +92,7 @@ Follow in order. Skipping `ai-rules.md` is the most common cause of agents rever
 2. **Every async public method returns `Result<T>`.** Branch on `result.ok`. No throws across service boundaries. Sub-Result forwarding is the default: `if (!sub.ok) return sub`.
 3. **Errors are `SodaxError<C>`.** A single class with a closed 13-code reason vocabulary plus a `feature` field. The pair `(feature, code)` is your discriminator. Use `isSodaxError(e)` (not bare `instanceof`).
 4. **Signed vs raw is a discriminated union.** `WalletProviderSlot<K, Raw>` enforces at compile time: `{ raw: false, walletProvider }` for signing, `{ raw: true }` for unsigned-tx building. Mixing them is a TypeScript error.
-5. **Config is dynamic; overrides only land on `sodax.config`.** Always read via `sodax.config.*` (e.g. `sodax.config.spokeChainConfig[chainKey]`). Direct imports of `spokeChainConfig` / `sodaxConfig` from `@sodax/types` / `@sodax/sdk` are packaged-default snapshots and silently miss both `await sodax.config.initialize()` updates and `new Sodax(config)` overrides.
+5. **Overrides only land on `sodax.config`; tokens come from the installed version.** Always read via `sodax.config.*` (e.g. `sodax.config.spokeChainConfig[chainKey]`). Direct imports of `spokeChainConfig` / `sodaxConfig` from `@sodax/types` / `@sodax/sdk` are packaged-default snapshots and silently miss `new Sodax(config)` overrides. Feature services accept only tokens bundled with the installed `@sodax/sdk`; for newer ones see [`recipes/initialize-sodax.md`](integration/knowledge/recipes/initialize-sodax.md) § "Where supported tokens come from".
 
 ### Top traps, conventions, verification
 

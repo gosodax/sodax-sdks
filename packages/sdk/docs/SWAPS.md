@@ -39,6 +39,8 @@ const supportedTokens: readonly XToken[] = sodax.swaps.getSupportedSwapTokensByC
 const allTokens: Record<SpokeChainKey, readonly XToken[]> = sodax.swaps.getSupportedSwapTokens();
 ```
 
+These lists, and the tokens `sodax.swaps` accepts, are the ones bundled with your `@sodax/sdk` version. For a token listed after your release, see [Where supported tokens come from](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#where-supported-tokens-come-from).
+
 ### Production and staging token lists
 
 `getSupportedSolverTokens(chainKey)` returns production tokens.
@@ -568,7 +570,7 @@ console.log(tier); // 'fast' | 'normal' | 'slow'
 console.log(estimatedSeconds); // e.g. 15
 ```
 
-`estimatedSeconds` is the source of truth; `tier` is bucketed from it. The rules: a fast base (15s) applies when **either** token's `vault` is a money-market reserve, otherwise the base is 35s; an Ethereum leg on either side adds a fixed penalty. The check is on `XToken.vault`, not `XToken.hubAsset` — the two differ for most tokens, and only the vault is a reserve address. See `estimateSwapSpeedTier` in the SDK source for the exact constants.
+`estimatedSeconds` is the source of truth; `tier` is bucketed from it. The rules: a fast base (15s) applies when **either** token's `vault` is a money-market reserve that is not a real-world asset (tokenized stock vaults are collateral-only reserves and do not count), otherwise the base is 35s; an Ethereum leg on either side adds a fixed penalty. The check is on `XToken.vault`, not `XToken.hubAsset` — the two differ for most tokens, and only the vault is a reserve address. See `estimateSwapSpeedTier` in the SDK source for the exact constants.
 
 ---
 

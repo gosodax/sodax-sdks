@@ -23,6 +23,7 @@ import {
   type IStellarWalletProvider,
   type Result,
   type SpokeChainKey,
+  type XToken,
 } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { SodaxError } from '../errors/SodaxError.js';
@@ -59,6 +60,7 @@ import {
   type MoneyMarketWithdrawActionParams,
   type MoneyMarketWithdrawParams,
 } from './MoneyMarketService.js';
+import type { ReserveDataLegacy } from './MoneyMarketTypes.js';
 
 // --- test fixtures --------------------------------------------------------
 //
@@ -77,6 +79,48 @@ const USER_ROUTER = '0x3333333333333333333333333333333333333333' as Address;
 const SAMPLE_EVM_TOKEN = '0x2170Ed0880ac9A755fd29B2688956BD959F933F8' as Address;
 const SAMPLE_USER_ADDRESS = '0x4444444444444444444444444444444444444444' as Address;
 const SAMPLE_DST_ADDRESS = '0x5555555555555555555555555555555555555555' as Address;
+const SAMPLE_BORROW_VAULT = '0x6666666666666666666666666666666666666666' as Address;
+
+// Aave v3 ReserveConfiguration flag bits.
+const RESERVE_ACTIVE = 1n << 56n;
+const RESERVE_FROZEN = 1n << 57n;
+const RESERVE_BORROWING_ENABLED = 1n << 58n;
+const RESERVE_PAUSED = 1n << 60n;
+const BORROWABLE_RESERVE = RESERVE_ACTIVE | RESERVE_BORROWING_ENABLED;
+
+const reserveData = (configuration: bigint): ReserveDataLegacy => ({
+  configuration,
+  liquidityIndex: 0n,
+  currentLiquidityRate: 0n,
+  variableBorrowIndex: 0n,
+  currentVariableBorrowRate: 0n,
+  currentStableBorrowRate: 0n,
+  lastUpdateTimestamp: 0,
+  id: 0,
+  aTokenAddress: SAMPLE_DST_ADDRESS,
+  stableDebtTokenAddress: SAMPLE_DST_ADDRESS,
+  variableDebtTokenAddress: SAMPLE_DST_ADDRESS,
+  interestRateStrategyAddress: SAMPLE_DST_ADDRESS,
+  accruedToTreasury: 0n,
+  unbacked: 0n,
+  isolationModeTotalDebt: 0n,
+});
+
+const BORROW_DST_TOKEN = {
+  symbol: 'TKN',
+  name: 'Token',
+  decimals: 18,
+  address: '0xaaaa000000000000000000000000000000000000',
+  chainKey: ChainKeys.BSC_MAINNET,
+  hubAsset: SAMPLE_BORROW_VAULT,
+  vault: SAMPLE_BORROW_VAULT,
+} satisfies XToken;
+
+// Borrow's invariants need a known dst token whose reserve the pool can lend.
+const stubBorrowableDstToken = (): void => {
+  vi.spyOn(sodax.config, 'getMoneyMarketToken').mockReturnValue(BORROW_DST_TOKEN);
+  vi.spyOn(sodax.moneyMarket.data, 'getReserveData').mockResolvedValue(reserveData(BORROWABLE_RESERVE));
+};
 
 // Wallet provider fakes — shape-only; the bodies are never invoked at runtime because
 // every spoke method that would touch them is stubbed.
@@ -1459,13 +1503,7 @@ describe('MoneyMarketService.supply', () => {
 // `needsRelay` calculation: relay is only skipped when both src AND target are the hub.
 
 describe('MoneyMarketService.createBorrowIntent', () => {
-  // Default: pretend the dst token lookup succeeds. Borrow's invariant requires it.
-  beforeEach(() => {
-    vi.spyOn(sodax.config, 'getMoneyMarketToken').mockReturnValue({
-      address: '0xaaaa000000000000000000000000000000000000' as Address,
-      decimals: 18,
-    } as never);
-  });
+  beforeEach(stubBorrowableDstToken);
 
   describe('happy paths', () => {
     it('on EVM spoke (BSC): builds borrow data and sends message to the hub', async () => {
@@ -1567,6 +1605,75 @@ describe('MoneyMarketService.createBorrowIntent', () => {
       if (!result.ok) expect(String(result.error)).toMatch(/Money market token not found/);
     });
 
+    it.each([
+      ['borrowing disabled', RESERVE_ACTIVE],
+      ['frozen', BORROWABLE_RESERVE | RESERVE_FROZEN],
+      ['paused', BORROWABLE_RESERVE | RESERVE_PAUSED],
+      ['not a pool reserve', 0n],
+    ])('rejects before sending anything when the reserve is %s', async (_name, configuration) => {
+      vi.spyOn(sodax.moneyMarket.data, 'getReserveData').mockResolvedValueOnce(reserveData(configuration));
+      const sendSpy = vi.spyOn(sodax.spoke, 'sendMessage');
+
+      const result = await sodax.moneyMarket.createBorrowIntent({
+        raw: false,
+        params: borrowParams(ChainKeys.BSC_MAINNET),
+        walletProvider: mockEvmProvider,
+      });
+
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: 'VALIDATION_FAILED',
+          message:
+            'TKN cannot be borrowed: its money-market reserve is inactive, frozen, paused or has borrowing disabled',
+        },
+      });
+      expect(sendSpy).not.toHaveBeenCalled();
+    });
+
+    // Configuration words read from the Sonic lending pool, independent of the bit constants above.
+    it.each([
+      ['AAPL (borrowing off)', 7237005577332262213973186568751985011659028938317238155654854946153592264560n, false],
+      ['LL (frozen)', 7237005577332262213973186568751985260883462776716331137789786111811354361856n, false],
+      ['bnUSDd', 365354519770431488n, true],
+      ['sodaUSDC', 7237005577332262213973186568751985094729963303420508151871565085374345649484n, true],
+    ])('decodes the live pool configuration of %s', async (_name, configuration, borrowable) => {
+      vi.spyOn(sodax.moneyMarket.data, 'getReserveData').mockResolvedValueOnce(reserveData(configuration));
+      vi.spyOn(sodax.moneyMarket, 'buildBorrowData').mockReturnValueOnce('0xborrow-data');
+      vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xsend-hash' });
+
+      const result = await sodax.moneyMarket.createBorrowIntent({
+        raw: false,
+        params: borrowParams(ChainKeys.BSC_MAINNET),
+        walletProvider: mockEvmProvider,
+      });
+
+      expect(result.ok).toBe(borrowable);
+    });
+
+    it.each([
+      ['the token vault reserve', SAMPLE_BORROW_VAULT, SAMPLE_BORROW_VAULT],
+      [
+        'the bnUSD debt reserve, not the bnUSD vault reserve that has borrowing off',
+        sodax.config.moneyMarket.bnUSDVault,
+        sodax.config.moneyMarket.bnUSD,
+      ],
+    ])('checks %s', async (_name, vault, reserve) => {
+      vi.spyOn(sodax.config, 'getMoneyMarketToken').mockReturnValueOnce({ ...BORROW_DST_TOKEN, vault });
+      const reserveSpy = vi.spyOn(sodax.moneyMarket.data, 'getReserveData');
+      vi.spyOn(sodax.moneyMarket, 'buildBorrowData').mockReturnValueOnce('0xborrow-data');
+      vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xsend-hash' });
+
+      const result = await sodax.moneyMarket.createBorrowIntent({
+        raw: false,
+        params: borrowParams(ChainKeys.BSC_MAINNET),
+        walletProvider: mockEvmProvider,
+      });
+
+      expect(result.ok).toBe(true);
+      expect(reserveSpy).toHaveBeenCalledWith(reserve);
+    });
+
     it('rejects empty token', async () => {
       const result = await sodax.moneyMarket.createBorrowIntent({
         raw: false,
@@ -1635,12 +1742,7 @@ describe('MoneyMarketService.createBorrowIntent', () => {
 });
 
 describe('MoneyMarketService.createBorrowIntent (raw: true)', () => {
-  beforeEach(() => {
-    vi.spyOn(sodax.config, 'getMoneyMarketToken').mockReturnValue({
-      address: '0xaaaa000000000000000000000000000000000000' as Address,
-      decimals: 18,
-    } as never);
-  });
+  beforeEach(stubBorrowableDstToken);
 
   it('returns the raw transaction without walletProvider', async () => {
     vi.spyOn(sodax.moneyMarket, 'buildBorrowData').mockReturnValueOnce('0xborrow-data');

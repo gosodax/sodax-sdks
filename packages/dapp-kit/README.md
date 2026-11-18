@@ -361,6 +361,10 @@ Typed wrappers over the backend Bridge API v2 — one `useBridgeApi*` hook per e
 
 See [`src/hooks/bridgeApi/`](https://github.com/gosodax/sodax-sdks/tree/main/packages/dapp-kit/src/hooks/bridgeApi) for the full set (tokens, allowance, approve, create intent, fee, bridgeable amount, bridgeable pair).
 
+### API approvals wait for the API to see them
+
+The API reads the chain through its own RPC, which can trail the node that confirmed an approve by a few blocks. So once the approval lands, `useSwapsApiApproveAndBroadcast`, `useBridgeApiApproveAndBroadcast`, `useLeverageYieldApiApproveAndBroadcast` and the sequential path of `useSwapsApiBroadcastWithApproval` re-check the API's allowance for up to about 15 seconds before invalidating the allowance query. Without that wait, a stale `valid: false` would re-enable Approve after a successful approval. The hooks resolve after the wait either way, so read the allowance query rather than treating success as `valid`.
+
 ### API-key failures are terminal
 
 Every retrying `useSwapsApi*`, `useLeverageYieldApi*` and `useBridgeApi*` hook defaults `retry` to [`retryUnlessAuthFailure()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/retryUnlessAuthFailure.ts): transport blips retry up to 3 times, a `401`/`403` never replays. `useSwapsApiStatus`, `useSwapsApiSubmitTxStatus`, `useLeverageYieldApiSubmitTxStatus` and `useBridgeApiSubmitTxStatus` stop their 1s poll on a rejected key too, since `retry` bounds attempts within a tick rather than the interval — so a bad key surfaces once, on `error`, instead of re-requesting forever. Override either through `queryOptions` / `mutationOptions`.

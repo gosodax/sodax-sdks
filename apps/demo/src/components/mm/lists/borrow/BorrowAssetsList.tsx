@@ -78,6 +78,12 @@ export function BorrowAssetsList({ initialChainId }: BorrowAssetsListProps): JSX
     );
   }, [sodax, allMoneyMarketAssets, selectedChainId]);
 
+  // Collateral-only reserves keep their row so existing debt stays repayable; only Borrow is disabled.
+  const borrowingEnabledReserves = useMemo(
+    () => new Set(formattedReserves?.filter(r => r.borrowingEnabled).map(r => r.underlyingAsset)),
+    [formattedReserves],
+  );
+
   // On Bitcoin the wallet balance shown is the Bound Exchange trading wallet, not the personal wallet.
   const { isBitcoin, tradingBalanceSats } = useBtcTradingBalance({ chainId: selectedChainId });
 
@@ -244,7 +250,7 @@ export function BorrowAssetsList({ initialChainId }: BorrowAssetsListProps): JSX
                       <BorrowAssetsListItem
                         key={`${asset.chainId}-${asset.address}-${index}`}
                         token={asset.token}
-                        disabled={!hasCollateral}
+                        disabled={!hasCollateral || !borrowingEnabledReserves.has(asset.vault.toLowerCase())}
                         walletBalance={
                           isBitcoin && asset.token?.chainKey === selectedChainId
                             ? // BTC funds live in the trading wallet (8-decimal sats), not the personal wallet
