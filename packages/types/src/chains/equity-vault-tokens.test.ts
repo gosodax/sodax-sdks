@@ -6,6 +6,7 @@ import {
   hederaSupportedTokens,
   robinhoodSupportedTokens,
   stellarSupportedTokens,
+  xrpSupportedTokens,
   type XToken,
 } from './tokens.js';
 import {
@@ -168,5 +169,74 @@ describe('equity vaults are not money-market assets', () => {
     const reserves = new Set(moneyMarketReserveAssets.map(address => address.toLowerCase()));
     const offenders = EQUITY_SYMBOLS.filter(symbol => reserves.has(SodaTokens[symbol].address.toLowerCase()));
     expect(offenders).toEqual([]);
+  });
+});
+
+// The XRPL stocks are STAGING-ONLY swap tokens (the production solver does not price them yet). They share ONE
+// issuer, so an issuer-only address could not name a single stock: each carries `<40-hex currency>:<issuer>`.
+describe('XRPL Robinhood stocks', () => {
+  const STOCK_ISSUER = 'rhQeeggWNoaN6ttBEaSqLPJZekFYBvPxtn';
+  const xrpChain = ChainKeys.XRP_MAINNET;
+  const asciiHex = (s: string) => Buffer.from(s, 'ascii').toString('hex').toUpperCase().padEnd(40, '0');
+  // Only asset ids up to 0x000a are live: the XRP executor's token map covers these seven for now, and the other 39
+  // stocks are commented out in tokens.ts / swap.ts. Add a symbol here when its entry is uncommented.
+  const LIVE = ['NVDA', 'SPCX', 'GME', 'DJT', 'RDDT', 'MSTR', 'AAPL'] as const satisfies readonly EquitySymbol[];
+  const stock = (symbol: (typeof LIVE)[number]): XToken => xrpSupportedTokens[symbol];
+
+  it('registers exactly the live stocks and no other equity yet', () => {
+    const registered = (EQUITY_SYMBOLS as readonly string[]).filter(symbol => symbol in xrpSupportedTokens);
+    expect([...registered].sort()).toEqual([...LIVE].sort());
+  });
+
+  it('are registered under their own symbol, flagged RWA, and point at the Sonic vault', () => {
+    for (const symbol of LIVE) {
+      const token = stock(symbol);
+      expect(token.symbol, symbol).toBe(symbol);
+      expect(token.chainKey, symbol).toBe(xrpChain);
+      expect(token.isRwa, symbol).toBe(true);
+      expect(token.decimals, symbol).toBe(8);
+      expect(token.vault, symbol).toBe(SodaTokens[symbol].address);
+      expect(spokeChainConfig[xrpChain].supportedTokens[symbol], symbol).toBe(token);
+    }
+  });
+
+  it('each has a unique <currency>:<issuer> address, with the ticker as its 160-bit currency', () => {
+    const addresses = LIVE.map(symbol => stock(symbol).address);
+    expect(new Set(addresses).size).toBe(LIVE.length);
+    for (const symbol of LIVE) {
+      expect(stock(symbol).address, symbol).toBe(`${asciiHex(symbol)}:${STOCK_ISSUER}`);
+    }
+  });
+
+  it('have distinct hub assets, none shared with another XRPL token', () => {
+    const hubAssets = Object.values(xrpSupportedTokens).map(token => token.hubAsset.toLowerCase());
+    expect(new Set(hubAssets).size).toBe(hubAssets.length);
+  });
+
+  it('are staging-only: in the staging list and its accessor, not in production', () => {
+    for (const symbol of LIVE) {
+      const token = stock(symbol);
+      expect(stagingSwapSupportedTokens[xrpChain], symbol).toContain(token);
+      expect(getStagingSolverTokens(xrpChain), symbol).toContain(token);
+      expect(swapSupportedTokens[xrpChain], symbol).not.toContain(token);
+      expect(getSupportedSolverTokens(xrpChain), symbol).not.toContain(token);
+    }
+  });
+
+  it('pass swap validation case-insensitively, and the production XRPL assets are untouched', () => {
+    for (const symbol of LIVE) {
+      const { address } = stock(symbol);
+      expect(isSwapSupportedToken(xrpChain, address), symbol).toBe(true);
+      expect(isSwapSupportedToken(xrpChain, address.toLowerCase()), symbol).toBe(true);
+    }
+    expect(swapSupportedTokens[xrpChain].map(token => token.symbol)).toEqual(['XRP', 'RLUSD', 'USDC']);
+  });
+
+  it('are not money-market assets', () => {
+    const addresses = new Set(LIVE.map(symbol => stock(symbol).address.toLowerCase()));
+    const offenders = (moneyMarketSupportedTokens[xrpChain] ?? []).filter(token =>
+      addresses.has(token.address.toLowerCase()),
+    );
+    expect(offenders.map(token => token.symbol)).toEqual([]);
   });
 });
