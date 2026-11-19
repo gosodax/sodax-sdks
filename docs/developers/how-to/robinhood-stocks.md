@@ -55,7 +55,7 @@ Some stocks and ETFs are also money-market reserves; [Money Market on Robinhood 
 | | Swap | Bridge |
 | --- | --- | --- |
 | Use when | A user buys a stock with another token, or sells a stock for another token | A user moves the same stock from one network to another, for example Hedera to Robinhood Chain |
-| HTTP API | [Swaps API](/developers/http-api/swaps) | [Bridge API](/developers/packages/foundation/bridge-api) — send `x-api-key` from your server; get one at [portal.sodax.com](https://portal.sodax.com) |
+| HTTP API | [Swaps API](/developers/http-api/swaps) | [Bridge: HTTP API](#bridge-http) |
 | SDK | `sodax.swaps` | `sodax.bridge` |
 | React | `useQuote`, `useSwap` and related hooks | `useBridge` and related hooks |
 | Who fills it | A solver on the SODAX marketplace | No solver. The hub moves the asset through the shared vault |
@@ -64,14 +64,13 @@ Some stocks and ETFs are also money-market reserves; [Money Market on Robinhood 
 
 For HTTP and SDK alike:
 
-- A SODAX API key, kept on your server and sent as `x-api-key` on bridge calls. See [API keys](/developers/how-to/api-keys).
-- RPC access to broadcast signed transactions on the source chain. The HTTP API builds the unsigned `tx`; you sign and broadcast it.
+- A SODAX API key from [portal.sodax.com](https://portal.sodax.com), kept on your server and sent as `x-api-key` on swap `POST` calls and on bridge calls. See [API keys](/developers/how-to/api-keys).
+- A wallet on the network your user starts from, with enough of the native token to pay network fees (HBAR on Hedera, XLM on Stellar, ETH on Robinhood Chain)
+- RPC access to the networks you use; a dedicated node provider is better in production
 
 For the TypeScript SDK path, additionally:
 
-- The `@sodax/sdk` package installed, plus `@sodax/wallet-sdk-core` (or `@sodax/wallet-sdk-react` in a React app) for wallet providers
-- A wallet on the network your user starts from, with enough of the native token to pay network fees (HBAR on Hedera, XLM on Stellar, ETH on Robinhood Chain)
-- RPC URLs for the networks you use. The SDK's defaults are in `spokeChainConfig`; a dedicated node provider is better in production
+- The `@sodax/sdk` package installed, plus `@sodax/wallet-sdk-core` (or `@sodax/wallet-sdk-react` in a React app) for wallet providers. The SDK's default RPC URLs are in `spokeChainConfig`
 
 SODAX is mainnet-only, so test with small amounts. See [Is SODAX on Testnet?](/developers/how-to/testnet).
 
@@ -83,12 +82,14 @@ The swap flow over HTTP uses the same endpoints as any other token. For the full
 
 #### Find the stock tokens {#find-stocks-http}
 
-`GET /v1/swaps/tokens` returns all supported swap tokens grouped by chain key. Filter on `isRwa: true` to get the tokenized equities. The `isRwa` field is returned by the live API; it is absent from the OpenAPI schema at [api.sodax.com/v1/swaps/docs](https://api.sodax.com/v1/swaps/docs).
+`GET /v1/swaps/tokens` returns the swap tokens grouped by chain key. Keep the `robinhood`, `hedera` and `stellar` groups, then the tokens with `isRwa: true`; `isRwa` alone is not specific to Robinhood stocks.
 
 ```bash
-# All stock tokens on Hedera
-curl -s 'https://api.sodax.com/v1/swaps/tokens/hedera' \
-  | jq '[.[] | select(.isRwa == true) | {symbol, address, decimals, chainKey}]'
+curl -s 'https://api.sodax.com/v1/swaps/tokens' | jq '
+  [to_entries[]
+   | select(.key | IN("robinhood", "hedera", "stellar"))
+   | .value[] | select(.isRwa == true)
+   | {chainKey, symbol, address, decimals}]'
 ```
 
 Use the `address` and `chainKey` values in the quote and intent calls below.
@@ -100,9 +101,13 @@ The stock-specific flow is identical to any other token swap; stock tokens use n
 1. **Quote** — `POST /v1/swaps/quote` with the source and destination token addresses and `quoteType: "exact_input"`.
 2. **Apply slippage** to `quotedAmount` on the client side. Never pass `0` as `minOutputAmount`.
 3. **Check allowance** — `POST /v1/swaps/allowance/check`.
-4. **Approve** — `POST /v1/swaps/approve` if allowance is insufficient.
-5. **Build the intent tx** — `POST /v1/swaps/intents`. Sign and broadcast the returned `tx` on the source chain.
-6. **Submit and track** — `POST /v1/swaps/submit-tx` with the broadcast `txHash`, then poll `GET /v1/swaps/submit-tx/status` until `solved` or `failed`.
+4. **Approve** — `POST /v1/swaps/approve` if allowance is insufficient. With a Stellar source, steps 3 and 4 check and set up the trustline instead.
+5. **Build the intent tx** — `POST /v1/swaps/intents`, with a `deadline` from `GET /v1/swaps/deadline` (`"0"` makes a limit order that never expires). Sign and broadcast the returned `tx` on the source chain, and wait for the receipt.
+6. **Submit and track** — `POST /v1/swaps/submit-tx` with the `txHash`, the `intent` from step 5 and `relayData.payload` (the hex string, not the object), as in the [Swaps bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll). Then poll `GET /v1/swaps/submit-tx/status` until `solved` or `failed`.
+
+<Note>
+  Prepare the destination before you swap. A Stellar recipient needs a trustline for the token: use `sodax.spoke.stellar.requestTrustline` from `@sodax/sdk`, or any Stellar SDK's `ChangeTrust` operation (see [Stellar trustline](/developers/how-to/stellar_trustline#destination-chain-trustline-flow-manual)). A Hedera recipient must associate the token (see [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera)). There is no HTTP endpoint for either.
+</Note>
 
 ### Using TypeScript (SDK) {#swap-sdk}
 
@@ -186,7 +191,7 @@ console.log('Minimum AAPL out, in its smallest unit:', minOutputAmount);
 
 To sell, swap the two tokens round: the stock is `token_src` and a stablecoin or native token is `token_dst`. The source and destination can be on different networks, for example USDC on Arbitrum into AAPL on Hedera.
 
-#### Steps 3–6: Approve, execute and track
+#### Steps 3 to 6: Approve, execute and track
 
 Build `CreateIntentParams` from the quote, then approve, swap and track exactly as in [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap#step-4-check-token-allowance). The only stock-specific parts are the token addresses and the chain keys.
 
@@ -237,24 +242,24 @@ Because every token is backed 1:1, a user holding a stock on Hedera can bridge i
 
 ### HTTP API {#bridge-http}
 
-Get a partner key at [portal.sodax.com](https://portal.sodax.com) and send it as `x-api-key` from your server on every bridge request. Never send the key from a browser; proxy bridge calls through your server and attach the key there — see [API key good practices](/developers/how-to/api-key-good-practices). For the client package reference see [`@sodax/bridge-api`](/developers/packages/foundation/bridge-api).
+The base URL is `https://api.sodax.com/v1/bridge`. Send your `x-api-key` from your server on every bridge request; never from a browser — see [API key good practices](/developers/how-to/api-key-good-practices). Request and response bodies are typed in [`backendBridgeApiV2.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/backend/backendBridgeApiV2.ts), and [`@sodax/bridge-api`](/developers/packages/foundation/bridge-api) is the TypeScript client.
 
 The bridge flow over HTTP:
 
-1. **Check capacity** — `POST /v1/bridge/bridgeable-amount` with `srcChainKey`, `dstChainKey`, `inputToken` and `outputToken`. The limit carries its own `decimals`; cross-multiply to compare, as in the TypeScript example below.
-2. **Confirm the pair** — `POST /v1/bridge/bridgeable/check` with the same fields.
+1. **Confirm the pair** — `POST /v1/bridge/bridgeable/check` with `srcChainKey`, `dstChainKey`, `inputToken` and `outputToken`.
+2. **Check capacity** — `POST /v1/bridge/bridgeable-amount` with the same fields. The limit carries its own `decimals`; cross-multiply to compare, as in the TypeScript example below.
 3. **Check allowance** — `POST /v1/bridge/allowance/check`.
-4. **Approve** — `POST /v1/bridge/approve` if needed.
-5. **Build the bridge intent tx** — `POST /v1/bridge/intents`. Sign and broadcast the returned `tx` on the source chain.
-6. **Submit and track** — `POST /v1/bridge/submit-tx` with the broadcast `txHash` and the full `relayData` envelope from step 5, then poll `GET /v1/bridge/submit-tx/status` until `executed` or `failed`.
+4. **Approve** — `POST /v1/bridge/approve` if needed. With a Stellar source, steps 3 and 4 check and set up the trustline instead.
+5. **Build the bridge intent tx** — `POST /v1/bridge/intents`. Sign and broadcast the returned `tx` on the source chain, and wait for the receipt.
+6. **Submit and track** — `POST /v1/bridge/submit-tx` with the `txHash`, `srcChainKey`, `walletAddress` and the whole `relayData` object from step 5 (unlike swaps). Then poll `GET /v1/bridge/submit-tx/status` until `executed` or `failed`.
 
 <Note>
-  When Stellar is the destination, set up the trustline with the wallet SDK before bridging (see [Stellar trustline](/developers/how-to/stellar_trustline#destination-chain-trustline-flow-manual)). There is no HTTP endpoint for this step.
+  Prepare a Stellar or Hedera destination first, as in the [swap note](#swap-http-steps): a trustline on Stellar, a token association on Hedera.
 </Note>
 
 ### Using TypeScript (SDK) {#bridge-sdk}
 
-`sodax.bridge.bridge()` moves the stock through its shared [vault token](/developers/technical-overview/vault-token) on Sonic in one call.
+Set up `Sodax` and a wallet provider as in [Swap: TypeScript (SDK)](#swap-sdk). `sodax.bridge.bridge()` moves the stock through its shared [vault token](/developers/technical-overview/vault-token) on Sonic in one call.
 
 The steps are:
 
@@ -385,7 +390,7 @@ You can also read the same balances in a block explorer: [HashScan](https://hash
 1. **Route through a stablecoin or native token.** Each stock trades only against USDG on Robinhood Chain, so every route passes through USDG. The best-supported swaps are a stablecoin or native token into a stock (for example `USDC`, `USDT`, `ETH` or `S`), and a stock back out to `USDC` or `S`.
 2. **Stock-to-stock swaps may fail.** They route stock → USDG → stock and only quote above a small minimum size. A stock on one spoke into another stock on a spoke (for example Hedera AAPL into Hedera NVDA) can need more hops than the router allows and return "no path". Sell into a stablecoin first, then buy.
 3. **Mind the decimals.** The same stock has 18 decimals on Robinhood Chain, 8 on Hedera and 7 on Stellar. Amounts are always in the source token's smallest unit, so read `decimals` from the token object.
-4. **Tickers are added over time.** Over HTTP, `GET /v1/swaps/tokens` and `GET /v1/bridge/tokens` return the current live set. With the SDK, `sodax.swaps.getSupportedSwapTokensByChainId(chainKey).filter(isRealWorldAsset)` and `sodax.bridge.getBridgeableTokens` return the tokens bundled with your `@sodax/sdk` version; a stock listed after your release needs an SDK update, or the backend API path: list tokens with `sodax.api.swaps.getTokens()` or `sodax.api.bridge.getTokens()` and run the flow through `sodax.api.swaps` or `sodax.api.bridge` (see [Where supported tokens come from](/developers/how-to/configure_sdk#where-supported-tokens-come-from)). Appearing in the vault registry is not proof that a feature is live.
+4. **Tickers are added over time.** Over HTTP, `GET /v1/swaps/tokens` and `GET /v1/bridge/tokens` return the current live set. With the SDK, `sodax.swaps.getSupportedSwapTokensByChainId(chainKey).filter(isRealWorldAsset)` and `sodax.bridge.getBridgeableTokens` return the tokens bundled with your `@sodax/sdk` version, and `sodax.swaps` and `sodax.bridge` accept only those. A stock listed after your release needs an SDK update, or the backend API path: list tokens with `sodax.api.swaps.getTokens()` or `sodax.api.bridge.getTokens()` and run the flow through `sodax.api.swaps` or `sodax.api.bridge` (see [Where supported tokens come from](/developers/how-to/configure_sdk#where-supported-tokens-come-from)). `isRealWorldAsset` also knows only the bundled tokens, so classify a newer one by `isRwa` in the raw `GET /v1/swaps/tokens/:chainKey` response. Appearing in the vault registry is not proof that a feature is live.
 5. **Check the bridge limit before you bridge.** `POST /v1/bridge/bridgeable-amount` (HTTP) or `sodax.bridge.getBridgeableAmount` (SDK) returns the most that can move right now. Disable the action, or cap the amount, when the user asks for more.
 6. **Stellar needs a trustline to receive.** When Stellar is the destination, check and create the trustline before you swap or bridge. When Stellar is the source, `isAllowanceValid` and `approve` handle it.
 7. **Hedera token association.** Neither the API nor the SDK associates tokens for you on Hedera destinations, so check the recipient and have the user associate first. See [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera).
@@ -407,7 +412,7 @@ Install the [`@sodax/skills`](/ai-integration-guide) bundle before you start the
 
 #### 1. Which stocks are live, and on which networks?
 
-Every ticker is live on Robinhood Chain, Hedera and Stellar, with one vault token per ticker on Sonic. Read the list from `GET /v1/swaps/tokens` over HTTP or from the SDK (see [Live tickers and networks](#live-tickers)); every ticker and address is in [Mainnet deployments](/developers/deployments/mainnet#robinhood-tokenized-equities).
+Every ticker is live on Robinhood Chain, Hedera and Stellar, with one vault token per ticker on Sonic. Read the list over HTTP, filtered as in [Find the stock tokens](#find-stocks-http), or from the SDK; every ticker and address is in [Mainnet deployments](/developers/deployments/mainnet#robinhood-tokenized-equities).
 
 #### 2. Is every Hedera stock token backed 1:1?
 
