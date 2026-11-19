@@ -11,15 +11,31 @@ For failures, use the [money-market error reference](/developers/packages/founda
 
 ## Supported assets
 
-<span data-sodax-config="count" data-metric="money-market-tokens">79</span> assets work in the money market across all networks. The count and the tables below are read live from the backend config API, `GET https://api.sodax.com/v2/be/config/all`, so they show what the backend serves, not what an SDK release lists.
+<span data-sodax-config="count" data-metric="money-market-tokens">79</span> token symbols work in the money market across all networks. The count and the tables below are read live from the backend config API, `GET https://api.sodax.com/v2/be/config/all`, so they show what the backend serves, not what an SDK release lists.
 
 ### Stock Tokens
 
-These Robinhood Stock Tokens are money-market collateral: AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA, SPCX, SPY, QQQ and GLD. Users can supply them and borrow other assets against them, but nobody can borrow a Stock Token. The tables below show every network that carries them. For how the SDK rejects such a borrow and how to hide the option in your UI, see [Borrow Tokens](/developers/packages/foundation/sdk/functional-modules/money_market#borrow-tokens).
+These Robinhood Stock Tokens are money-market collateral: AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA, SPCX, SPY, QQQ and GLD. Users can supply them and borrow other assets against them, but borrowing a Stock Token is disabled on the pool. They can be supplied as collateral from Robinhood Chain, Stellar, Hedera and Sonic. The tables below show every network that carries them. For how the SDK rejects such a borrow and how to hide the option in your UI, see [Borrow Tokens](/developers/packages/foundation/sdk/functional-modules/money_market#borrow-tokens).
 
 ### Assets by network
 
-Network guides that have a Networks & Assets page, for example [Robinhood Chain](/robinhood-chain/networks-and-assets), show that network's money-market assets beside its swap tokens.
+Each network's Networks & Assets page shows its money-market assets beside its swap tokens:
+
+- [Arbitrum](/arbitrum/networks-and-assets)
+- [Avalanche](/avalanche/networks-and-assets)
+- [Base](/base/networks-and-assets)
+- [BNB Chain](/bnb-chain/networks-and-assets)
+- [Ethereum](/ethereum/networks-and-assets)
+- [Hedera](/hedera/networks-and-assets)
+- [HyperEVM](/hyperevm/networks-and-assets)
+- [Kaia](/kaia/networks-and-assets)
+- [LightLink](/lightlink/networks-and-assets)
+- [Optimism](/optimism/networks-and-assets)
+- [Polygon](/polygon/networks-and-assets)
+- [Redbelly](/redbelly/networks-and-assets)
+- [Robinhood Chain](/robinhood-chain/networks-and-assets)
+- [Solana](/solana/networks-and-assets)
+- [Sonic](/sonic/networks-and-assets)
 
 <div data-sodax-config="money-market-tokens">
   Live asset list loads from the config API. If it has not appeared, read `config.moneyMarket.supportedTokens` from [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
