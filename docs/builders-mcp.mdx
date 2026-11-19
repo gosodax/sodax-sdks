@@ -1,10 +1,10 @@
 ---
 title: "Builders MCP"
-description: "Give your AI coding agent live SODAX data, quotes and docs over one MCP endpoint, plus swap tools that are not production ready yet."
+description: "Give your AI coding agent live SODAX data, quotes and docs over one MCP endpoint, plus swap tools for swaps the user's own wallet signs."
 icon: plug
 ---
 
-The **SODAX Builders MCP** is a hosted [Model Context Protocol](https://modelcontextprotocol.io) server. Point an MCP-capable agent at it and the agent stops guessing: it can read the live chain and token lists, pull a real quote, look up an intent, and search these docs while it writes your integration. With a SODAX API key it can also make a swap for the user it is helping, without writing code, though the swap tools are [not production ready yet](#swaps).
+The **SODAX Builders MCP** is a hosted [Model Context Protocol](https://modelcontextprotocol.io) server. Point an MCP-capable agent at it and the agent stops guessing: it can read the live chain and token lists, pull a real quote, look up an intent, and search these docs while it writes your integration. With a SODAX API key it can also make a swap for the user it is helping, without writing code, and the server [checks each swap](#what-the-server-checks-before-the-user-signs) before the user's wallet signs it.
 
 ```
 https://builders.sodax.com/mcp
@@ -52,7 +52,7 @@ VS Code keys servers under `servers` instead:
 }
 ```
 
-For the swap tools ([not production ready yet](#swaps)), send your key in an `x-api-key` header, so they need a client that can set one (VS Code takes the same `headers` under `servers`):
+For the swap tools, send your key in an `x-api-key` header, so they need a client that can set one (VS Code takes the same `headers` under `servers`):
 
 ```json
 {
@@ -72,11 +72,13 @@ The key is a secret: put it in your own client's user-level config, never in a p
 
 An SSE endpoint is available at `https://builders.sodax.com/sse`, with `"type": "sse"`, for clients that do not speak streamable HTTP. SSE clients send `x-api-key` on the stream and on every message.
 
+Requests are rate limited per client IP (HTTP 429 with `Retry-After`), and every MCP response carries an `X-Request-Id` header to quote when you report a problem; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#errors-and-limits) has the limits.
+
 ## What it gives the agent
 
 The landing page at [builders.sodax.com](https://builders.sodax.com/) lists every tool, and `https://builders.sodax.com/api` returns the running server's list as JSON.
 
-**Live-system tools**: network and asset configuration (supported chains, chain configs, swap tokens, hub assets, relay chain-id map), intents and solver reads (quotes, orderbook, intent lookup, oracle prices), intent relay (submit and inspect packets), AMM pools and candles, money market reserves with their supply and borrow rates, user positions, partner receivers and fee summaries, and SODA supply. They cover the same public data as the [HTTP API](/developers/http-api), so the agent works from today's values rather than its training data. The lookups filtered by chain (swap tokens, hub assets, money market tokens, chain support) take a chain as the user names it: a name, ticker, key or EVM chain id. A tool with a `format` input answers in Markdown, or with `format: "json"` the data alone.
+**Live-system tools**: network and asset configuration (supported chains, chain configs, swap tokens, hub assets, relay chain-id map), intents and solver reads (quotes, orderbook, intent lookup, oracle prices), intent relay (submit and inspect packets), AMM pools and candles, money market reserves with their supply and borrow rates, user positions, partner receivers and fee summaries, and SODA supply. They cover the same public data as the [HTTP API](/developers/http-api), so the agent works from today's values rather than its training data. The lookups filtered by chain (swap tokens, hub assets, money market tokens, chain support) take a chain as the user names it: a name, ticker, key or EVM chain id. An ambiguous id is refused with the keys to pass instead. A tool with a `format` input answers in Markdown, or with `format: "json"` the data alone.
 
 **Documentation tools**: search and full-page reads over docs.sodax.com, plus tools to list, check and refresh them.
 
@@ -85,14 +87,16 @@ The landing page at [builders.sodax.com](https://builders.sodax.com/) lists ever
 ## Swaps
 
 <Warning>
-  The swap tools are in development and not production ready: don't use them in a production
-  environment or build a product on them. `https://builders.sodax.com` doesn't serve them, profiles
-  or the partner fee yet, and ignores the `x-api-key` header; its `/api` lists the swap tools and
-  `profiles` once they ship. A swap moves real funds on mainnet, so test with a wallet holding only
-  what you mean to swap.
+  A swap moves real funds on mainnet, so test with a wallet holding only what you mean to swap.
 </Warning>
 
 The swap tools let the agent make a swap the user asks for. The agent also needs a wallet tool that can switch chains and send the prepared transactions from the user's wallet; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#swapping) lists what that tool must do.
+
+### What the server checks before the user signs
+
+Before `sodax_swap_prepare` hands the wallet anything to sign, the server checks that it is the swap the user asked for: the intent must match the request field by field (amounts, deadline, chains, tokens, sender, recipient, partner fee) and come from the user's own hub wallet. On an EVM chain the swap transaction must match, byte for byte, the one the SODAX SDK builds, and an approve may only let the swap contract spend the swap's amount; from a non-EVM chain the SDK builds the transaction on the server. A swap that fails a check is refused (`SWAP_MISMATCH`), never passed on, and so is an all-zero address or an EVM recipient of `0x…dEaD`. After the user sends, `sodax_swap_submit_and_track` submits only a transaction whose on-chain events show the prepared swap. The [server's README](https://github.com/gosodax/builders-sodax-mcp-server#safety) lists its other safety rules.
+
+### Make a swap
 
 <Steps>
   <Step title="Price">
@@ -102,7 +106,7 @@ The swap tools let the agent make a swap the user asks for. The agent also needs
   </Step>
   <Step title="Prepare">
     Once the user is ready to sign, `sodax_swap_prepare` takes the same plus the user's wallet as
-    `fromAddress` (and `toAddress` when the destination isn't EVM), and optionally the slippage. It
+    `fromAddress` (and `toAddress` unless both chains are EVM), and optionally the slippage. It
     returns the transactions to send: an approve when one is needed, with what it lets the swap
     contract spend, after a reset to zero for tokens that require it, then the swap. From a non-EVM
     chain there is one step: that chain family's unsigned transaction. It also returns the least the
@@ -117,13 +121,14 @@ The swap tools let the agent make a swap the user asks for. The agent also needs
     `sodax_swap_submit_and_track` takes the prepared quote's `quoteId` and the swap transaction's hash. It
     checks the transaction on chain, submits the swap, and reports its progress. Nothing submits the swap until
     this call, so the agent makes it right after sending, before the quote's `expiresAt`, and again
-    while the result asks it to. A first call after `expiresAt` starts the deposit's refund
-    instead, but only for a limited time; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#swapping)
-    has the window and what happens after it.
+    while the result asks it to. A first call after `expiresAt` starts the deposit's refund instead,
+    within a window the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#swapping)
+    gives. From Sonic nothing is relayed: the swap transaction creates the intent on the hub, and an
+    expired one is refunded there unless a solver filled it first.
   </Step>
 </Steps>
 
-Not every supported chain can start a swap; a price from one that can't names the chains that can. When either tool can't match a token, `sodax_resolve_token` looks it up and returns the match, or the candidates for the user to pick; the agent never guesses a token or an address. Neither checks balances, so `sodax_get_balance` reads a wallet's balance when the user isn't sure they hold enough. `sodax_swap_cancel` cancels a submitted swap that hasn't been filled: the first call returns the cancel transaction for the user's wallet, and a second call with its hash relays it. The swap tools' [safety rules](https://github.com/gosodax/builders-sodax-mcp-server#safety) are in the server's README. Every swap tool result carries a `requestId`: when a swap needs help, the user gives it, with the transaction hashes, to the SODAX team on [Discord](https://www.sodax.com/discord).
+Not every supported chain can start a swap; a price from one that can't names the chains that can. When either tool can't match a token, `sodax_resolve_token` looks it up and returns the match, or the candidates for the user to pick; the agent never guesses a token or an address. Neither checks balances, so `sodax_get_balance` reads a wallet's balance when the user isn't sure they hold enough. `sodax_swap_cancel` cancels a swap that hasn't been filled: the first call returns the cancel transaction for the user's wallet, and a second call with its hash relays it, or, from Sonic, confirms it on the hub. Every swap tool result carries a `requestId`: when a swap needs help, the user gives it, with the transaction hashes, to the SODAX team on [Discord](https://www.sodax.com/discord).
 
 ### Profiles
 
@@ -165,7 +170,9 @@ Once it is wired, ask in plain language:
 
 > "Swap 5 USDC on Arbitrum to USDC on Base. My wallet is `0x…`."
 
-The last one needs an API key and a wallet tool, and the swap tools are not production ready yet (see [Swaps](#swaps)).
+> "Swap 10 USDC on Solana to USDC on Base. My Solana wallet is `…`, send it to `0x…` on Base."
+
+The swaps need an API key and a wallet tool that can send on the source chain (see [Swaps](#swaps)).
 
 The solver quote tool prices a pair without a key, with one wrinkle worth knowing: it quotes **hub-chain (Sonic) assets**, so the agent resolves the pair through the oracle tool first rather than passing a Solana or Base token address straight in. The swap tools take tokens as the user names them.
 
