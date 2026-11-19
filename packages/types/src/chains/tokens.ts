@@ -139,6 +139,7 @@ export const HubVaultSymbols = [
   'GLD',
   'sodaADA',
   'sodaZEC',
+  'ANT',
 ] as const;
 
 export type HubVaultSymbol = (typeof HubVaultSymbols)[number];
@@ -882,6 +883,16 @@ export const SodaTokens = {
     chainKey: ChainKeys.SONIC_MAINNET,
     hubAsset: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
     vault: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
+  },
+  ANT: {
+    symbol: 'ANT',
+    isRwa: true,
+    name: 'Anthropic • Robinhood Token',
+    decimals: 18,
+    address: '0xtodo_soda_ant_vault',
+    chainKey: ChainKeys.SONIC_MAINNET,
+    hubAsset: '0xtodo_soda_ant_vault',
+    vault: '0xtodo_soda_ant_vault',
   },
 } as const satisfies Record<HubVaultSymbol, XToken>;
 
@@ -5354,6 +5365,16 @@ export const robinhoodSupportedTokens = {
     chainKey: ChainKeys.ROBINHOOD_MAINNET,
     hubAsset: '0x4318e2fb5192256106e624565a64b6bb1c41e807',
     vault: '0x4318e2fb5192256106e624565a64b6bb1c41e807',
+  },
+  ANT: {
+    symbol: 'ANT',
+    isRwa: true,
+    name: 'Anthropic',
+    decimals: 18,
+    address: '0xbbB6c29bCc3a1028A2B54310DF73F4F7A3bcB373',
+    chainKey: ChainKeys.ROBINHOOD_MAINNET,
+    hubAsset: '0xtodo_ant_hub_asset',
+    vault: SodaTokens.ANT.address,
   },
 } as const satisfies Record<string, XToken>;
 

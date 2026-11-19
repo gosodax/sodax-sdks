@@ -94,6 +94,10 @@ For API responses using `xChainId`, pass it as `chainKey` alongside the token's
 on-chain `address`. Resolve each chain/address before grouping directory rows;
 keep feature support and UI visibility filters separate from classification.
 
+Not every Robinhood ticker has a Hedera or Stellar spoke: ANT (Anthropic) is
+listed on Robinhood Chain and its Sonic vault only, so build per-chain lists from
+`getSupportedSolverTokens(chainKey)` rather than assuming one ticker set.
+
 `tokenLogo(symbol)` serves shared PNGs from the SDK repository's `main` branch.
 Robinhood equity/ETF entries use the Robinhood mark; xStocks retain their own
 artwork. Image replacements become available after merge, subject to caching,

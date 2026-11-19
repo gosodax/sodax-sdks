@@ -399,6 +399,8 @@ const LEGACY_MONEY_MARKET_HEDERA: readonly string[] = [
 // Plain swap tokens listed after the equities (sodax-solver-v2#1063).
 const STELLAR_APPENDED = ['EURC:CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV'];
 const ROBINHOOD_APPENDED = ['PONS:0x39dBED3a2bd333467115dE45665cC57F813C4571'];
+// Equity vaults listed after the four-chain batch: Robinhood + Sonic only (ANT, Anthropic).
+const SONIC_APPENDED_VAULTS = ['ANT'] as const;
 
 const keysOf = (ids: readonly string[]): string[] => ids.map(id => id.slice(0, id.indexOf(':')));
 
@@ -455,6 +457,7 @@ describe('legacy production swap sequences are unchanged prefixes', () => {
       ...LEGACY_SWAP_SONIC_PREFIX,
       ...identify(Object.values(LsodaTokens)),
       ...equityIds(SodaTokens),
+      ...identify(SONIC_APPENDED_VAULTS.map(symbol => SodaTokens[symbol])),
     ]);
   });
 

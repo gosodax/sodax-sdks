@@ -92,6 +92,7 @@ export const swapSupportedTokens = {
     SodaTokens.DJT,
     SodaTokens.RDDT,
     SodaTokens.GLD,
+    SodaTokens.ANT,
   ] as const satisfies XToken[],
   [ChainKeys.AVALANCHE_MAINNET]: [
     spokeChainConfig[ChainKeys.AVALANCHE_MAINNET].supportedTokens.AVAX,
@@ -578,6 +579,7 @@ export const swapSupportedTokens = {
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.AI,
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.CASHCAT,
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.TAO,
+    spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.ANT,
   ] as const satisfies XToken[],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
