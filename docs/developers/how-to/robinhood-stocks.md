@@ -22,7 +22,7 @@ Use this guide to add Robinhood tokenized stocks to your app with SODAX. Your us
 
 ## What it is {#what-it-is}
 
-Robinhood issues tokenized stocks, ETFs and commodity funds on its own network, Robinhood Chain. Each one is an ordinary token named "Company name - Robinhood Token", for example "Apple - Robinhood Token" (AAPL). SODAX makes the same stocks available on Hedera and Stellar, so your users can hold and trade them without leaving the network they already use.
+Robinhood Assets (Jersey) Limited issues tokenized stocks, ETFs and commodity funds on Robinhood's own network, Robinhood Chain. Each one is an ordinary token named "Company name - Robinhood Token", for example "Apple - Robinhood Token" (AAPL). SODAX makes the same stocks available on Hedera and Stellar, so your users can hold and trade them without leaving the network they already use.
 
 SODAX uses a hub-and-spoke design. Sonic is the hub, where the core contracts run. Every other network is a spoke that holds assets locally. For background, read [Hub and spoke: how SODAX works](/resources/blog/hub-and-spoke).
 
@@ -362,7 +362,7 @@ Yes. Every stock token on Hedera is backed 1:1 by the real Robinhood token, lock
 
 #### 3. What stops unbacked minting?
 
-New stock tokens on Hedera are only issued against Robinhood tokens locked in the SODAX contract on Robinhood Chain, and anyone can check that backing on-chain (see question 2 and [Verify backing on-chain](#verify-backing)).
+The supply of each Hedera stock token is created in advance and held by the SODAX SpokeAssetManager on Hedera (see [What it is](#what-it-is)); what users hold is the part released from that contract. The locked Robinhood tokens sit in the SODAX contract on Robinhood Chain, and anyone can compare the two on-chain (see question 2 and [Verify backing on-chain](#verify-backing)).
 
 #### 4. What is the path back to Robinhood Chain for Hedera holders?
 
@@ -370,7 +370,7 @@ Because every token is backed 1:1, anyone holding a stock on Hedera can bridge i
 
 #### 5. What happens if the SODAX vault on Robinhood Chain were frozen?
 
-SODAX screens wallet addresses against sanctions lists before swaps and bridges, and is verified on the platforms that require it. Robinhood makes these assets available through liquidity providers, and SODAX sources the assets from them. A freeze would hurt Robinhood's own chain and product, so SODAX considers it very unlikely.
+SODAX screens wallet addresses against sanctions lists before swaps and bridges, and is verified on the platforms that require it. The guide does not document screening for Stock Tokens used as money-market collateral. Robinhood makes these assets available through liquidity providers, and SODAX sources the assets from them. A freeze would hurt Robinhood's own chain and product, so SODAX considers it very unlikely.
 
 #### 6. What fees apply?
 
