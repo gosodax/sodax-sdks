@@ -5,7 +5,7 @@
     "access": "public"
   },
   "version": "2.0.0-rc.17",
-  "description": "Sodax Common Types",
+  "description": "Shared SODAX type definitions, constants and configuration for @sodax/* SDK packages and applications",
   "main": "dist/index.js",
   "homepage": "https://docs.sodax.com/developers/packages",
   "bugs": {

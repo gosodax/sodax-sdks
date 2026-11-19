@@ -6,7 +6,7 @@
   },
   "license": "MIT",
   "version": "2.0.0-rc.17",
-  "description": "Wallet SDK of Sodax",
+  "description": "React hooks and wallet connection layer for the SODAX cross-chain ecosystem, built on @sodax/wallet-sdk-core",
   "keywords": [
     "sodax",
     "wallet",
