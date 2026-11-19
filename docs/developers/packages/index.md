@@ -39,5 +39,5 @@ Sitting above the core SDK, this package manages the complexity of connecting us
 
 **3. The Experience Layer:** [dapp-kit](/developers/packages/experience/dapp-kit)
 
-The highest-level layer. A React hooks library that wraps `@sodax/sdk` with React Query into feature-organized hooks.
+The highest-level layer. A React hooks library, with `SodaxProvider` (the required outermost wrapper) and utils, that wraps `@sodax/sdk` with React Query into feature-organized hooks.
 Used alongside [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) for wallet connection (no direct dependency — shared types come from `@sodax/sdk`).
