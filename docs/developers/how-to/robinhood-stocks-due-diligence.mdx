@@ -1,7 +1,7 @@
 ---
 title: "Robinhood stocks: due diligence"
 sidebarTitle: "Stocks due diligence"
-description: "Answers for partners and wallets reviewing Robinhood stock tokens on SODAX: who issues them, how custody works, geo restrictions, audits and liquidity."
+description: "Answers for partners and wallets reviewing Robinhood stock tokens on SODAX: who issues them, who holds the backing tokens and whether swaps are custodial, geo restrictions, audits and liquidity."
 icon: shield-halved
 ---
 
@@ -17,13 +17,13 @@ The underlying Stock Tokens are issued by Robinhood Assets (Jersey) Limited. The
 
 Robinhood describes Stock Tokens as "tokenised debt securities" that give economic exposure to the underlying shares and ETFs but no legal or beneficial rights in them; see its [Stock Tokens documentation](https://docs.robinhood.com/chain/stock-tokens).
 
-The Hedera tokens are backed 1:1 by the original Robinhood tokens locked on Robinhood Chain, and anyone can check that on-chain; see [Verify backing on-chain](/developers/how-to/robinhood-stocks#verify-backing). The Stellar tokens are wrapped from the same locked tokens, but the published on-chain check covers Hedera only, so this page does not state that the Stellar backing is verified. A holder can bridge back to the same stock on Robinhood Chain through the [bridge path](/developers/how-to/robinhood-stocks#bridge-path), up to the bridge limit at that moment. How the backing works is in [What it is](/developers/how-to/robinhood-stocks#what-it-is).
+The locked Robinhood tokens on Robinhood Chain back the Hedera and Stellar tokens together. The published script in [Verify backing on-chain](/developers/how-to/robinhood-stocks#verify-backing) covers Hedera only, so a passing check does not prove full backing on its own, and this page does not state that the Stellar backing is verified. A holder can bridge back to the same stock on Robinhood Chain through the [bridge path](/developers/how-to/robinhood-stocks#bridge-path), up to the bridge limit at that moment. How the backing works is in [What it is](/developers/how-to/robinhood-stocks#what-it-is).
 
 #### Are swaps custodial?
 
 Swaps are non-custodial: users sign from their own wallets. The Robinhood tokens backing the wrapped tokens are held in SODAX protocol contracts.
 
-#### How are the geo restrictions enforced?
+#### Who is responsible for the geo restrictions?
 
 Robinhood's [Stock Tokens documentation](https://docs.robinhood.com/chain/stock-tokens) states that Stock Tokens may not be offered, sold, or delivered in the United States or to U.S. persons, and that offers and sales are restricted in other jurisdictions; the list is on Robinhood's [restricted jurisdictions page](https://docs.robinhood.com/rhj/restricted-jurisdictions). Review those terms for your product; this page does not restate them. Wallet addresses are screened against sanctions lists before swaps and bridges execute (section 6.2 of the [SODAX API Terms](https://www.sodax.com/api-terms)). This page covers swaps and bridges; the screening scope for Stock Tokens used as money-market collateral is not documented here.
 
@@ -35,7 +35,7 @@ The published reports are on the [Audits](/developers/audits) page, with the PDF
 
 #### Who provides the liquidity, and how deep is it?
 
-Liquidity comes from the existing Robinhood Chain market for each stock, where every stock trades against USDG, and solvers fill SODAX swaps from it. SODAX does not run separate liquidity pools on Hedera or Stellar. Swap depth is bounded by those Robinhood Chain pools and by solver fills and minimum sizes (see [Gotchas](/developers/how-to/robinhood-stocks#gotchas)). Bridge capacity is a separate limit: transfers are capped by the source token's deposit limit and by the vault's reserve of the destination token, and `sodax.bridge.getBridgeableAmount` returns how much can move right now. How each ticker is priced is in [Live tickers and networks](/developers/how-to/robinhood-stocks#live-tickers).
+Liquidity comes from the existing Robinhood Chain market for each stock, where every stock trades against USDG, and solvers fill SODAX swaps from it. SODAX does not run separate liquidity pools on Hedera or Stellar. Swap depth is bounded by those Robinhood Chain pools and by solver fills (see [Gotchas](/developers/how-to/robinhood-stocks#gotchas)). Minimum sizes apply to stock-to-stock swaps. Network-to-network bridges are a separate limit: what can move is bounded by the remaining deposit capacity, and `sodax.bridge.getBridgeableAmount` returns how much can move right now. How each ticker is priced is in [Live tickers and networks](/developers/how-to/robinhood-stocks#live-tickers).
 
 #### Where are the other stock questions answered?
 
