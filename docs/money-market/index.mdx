@@ -9,6 +9,22 @@ Supply collateral from any spoke network and borrow against it. The money market
 Start with the [supply example](/developers/packages/foundation/sdk/functional-modules/money_market#supply-tokens), including its allowance check, then follow [borrowing](/developers/packages/foundation/sdk/functional-modules/money_market#borrow-tokens) if your app needs it.
 For failures, use the [money-market error reference](/developers/packages/foundation/sdk/functional-modules/money_market#error-handling).
 
+## Supported assets
+
+<span data-sodax-config="count" data-metric="money-market-tokens">79</span> assets work in the money market across all networks. The count and the tables below are read live from the backend config API, `GET https://api.sodax.com/v2/be/config/all`, so they show what the backend serves, not what an SDK release lists.
+
+### Stock Tokens
+
+These Robinhood Stock Tokens are money-market collateral: AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA, SPCX, SPY, QQQ and GLD. Users can supply them and borrow other assets against them, but nobody can borrow a Stock Token. The tables below show every network that carries them. For how the SDK rejects such a borrow and how to hide the option in your UI, see [Borrow Tokens](/developers/packages/foundation/sdk/functional-modules/money_market#borrow-tokens).
+
+### Assets by network
+
+Network guides that have a Networks & Assets page, for example [Robinhood Chain](/robinhood-chain/networks-and-assets), show that network's money-market assets beside its swap tokens.
+
+<div data-sodax-config="money-market-tokens">
+  Live asset list loads from the config API. If it has not appeared, read `config.moneyMarket.supportedTokens` from [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
+</div>
+
 ## Integration reference
 
 <CardGroup cols={2}>
