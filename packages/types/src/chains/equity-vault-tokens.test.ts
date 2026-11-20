@@ -67,6 +67,7 @@ const EQUITY_SYMBOLS = [
   'DJT',
   'RDDT',
   'GLD',
+  'ANT',
 ] as const;
 
 type EquitySymbol = (typeof EQUITY_SYMBOLS)[number];
