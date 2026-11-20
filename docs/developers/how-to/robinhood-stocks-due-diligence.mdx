@@ -7,15 +7,15 @@ icon: clipboard-check
 
 ## Who this page is for
 
-Wallets, exchanges and partners who review Robinhood stock tokens before offering them through SODAX. The integration steps are in [Add Robinhood stocks to your app](/developers/how-to/robinhood-stocks); this page answers the due diligence questions that come before it.
+This page is for wallets, exchanges and partners that review Robinhood stock tokens before offering them through SODAX. The integration steps are in [Add Robinhood stocks to your app](/developers/how-to/robinhood-stocks). This page answers the due diligence questions that come before it.
 
-## Questions
+## Due diligence answers
 
 #### Who issues the tokens, and what is SODAX's relationship to Robinhood?
 
-The underlying Stock Tokens are issued by Robinhood Assets (Jersey) Limited. The tokens on Hedera and Stellar are made available through the SODAX protocol, which wraps Robinhood tokens locked on Robinhood Chain. SODAX is independent of Robinhood and does not act on its behalf.
+Robinhood Assets (Jersey) Limited issues the underlying Stock Tokens. The tokens on Hedera and Stellar are made available through the SODAX protocol, which wraps Robinhood tokens locked on Robinhood Chain. SODAX is independent of Robinhood and does not act on its behalf.
 
-Robinhood describes Stock Tokens as "tokenised debt securities" that give economic exposure to the underlying shares and ETFs but no legal or beneficial rights in them; see its [Stock Tokens documentation](https://docs.robinhood.com/chain/stock-tokens).
+Robinhood describes Stock Tokens as "tokenised debt securities" that give economic exposure to the underlying shares and ETFs but no legal or beneficial rights in them. See its [Stock Tokens documentation](https://docs.robinhood.com/chain/stock-tokens).
 
 #### Are the tokens backed 1:1?
 
@@ -27,13 +27,13 @@ Swaps are non-custodial: users sign from their own wallets. The Robinhood tokens
 
 #### Who is responsible for the geo restrictions?
 
-Robinhood's [Stock Tokens documentation](https://docs.robinhood.com/chain/stock-tokens) states that Stock Tokens may not be offered, sold, or delivered in the United States or to U.S. persons, and that offers and sales are restricted in other jurisdictions; the list is on Robinhood's [restricted jurisdictions page](https://docs.robinhood.com/rhj/restricted-jurisdictions). Review those terms for your product; this page does not restate them.
+Robinhood's [Stock Tokens documentation](https://docs.robinhood.com/chain/stock-tokens) states that Stock Tokens may not be offered, sold, or delivered in the United States or to U.S. persons. It also states that offers and sales are restricted in other jurisdictions. The list is on Robinhood's [restricted jurisdictions page](https://docs.robinhood.com/rhj/restricted-jurisdictions). Review those terms for your product. This page does not restate them.
 
-Partners that offer stock tokens through SODAX are responsible for compliance under sections 6.3 and 6.5 of the [SODAX API Terms](https://www.sodax.com/api-terms): checking users' eligibility, blocking restricted jurisdictions, obtaining users' confirmation of eligibility and showing the issuer's notices. A partner that cannot do this must not offer stock tokens (section 6.5). A quote for a stock does not mean a trade is permitted for that user, and SODAX may tag these assets, require partners to opt in, or stop routing them at any time.
+Partners that offer stock tokens through SODAX are responsible for compliance under sections 6.3 and 6.5 of the [SODAX API Terms](https://www.sodax.com/api-terms). That means checking users' eligibility, blocking restricted jurisdictions, obtaining users' confirmation of eligibility and showing the issuer's notices. A partner that cannot do this must not offer stock tokens (section 6.5). A quote for a stock does not mean a trade is permitted for that user. SODAX may tag these assets, require partners to opt in, or stop routing them at any time.
 
 #### Are wallet addresses screened against sanctions lists?
 
-Yes. SODAX screens wallet addresses against sanctions lists before swaps and bridges execute; section 6.2 of the [SODAX API Terms](https://www.sodax.com/api-terms) covers swaps.
+Yes. SODAX screens wallet addresses against sanctions lists before swaps and bridges execute. Section 6.2 of the [SODAX API Terms](https://www.sodax.com/api-terms) covers swaps.
 
 #### Where are the audit reports?
 
@@ -41,7 +41,7 @@ The published reports are on the [Audits](/developers/audits) page, with the PDF
 
 #### Who provides the liquidity, and how deep is it?
 
-Liquidity comes from the existing Robinhood Chain market for each stock, where every stock trades against USDG (see [Gotchas](/developers/how-to/robinhood-stocks#gotchas)). Minimum sizes apply to stock-to-stock swaps. Network-to-network bridges have their own limit; see [`getBridgeableAmount`](/developers/packages/foundation/sdk/functional-modules/bridge#getbridgeableamount). How each ticker is priced is in [Live tickers and networks](/developers/how-to/robinhood-stocks#live-tickers).
+Liquidity comes from the existing Robinhood Chain market for each stock, where every stock trades against USDG (see [Gotchas](/developers/how-to/robinhood-stocks#gotchas)). Minimum sizes apply to stock-to-stock swaps. TODO: state the stock-to-stock swap minimum once SODAX publishes a number a builder can rely on. Network-to-network bridges have their own limit. See [`getBridgeableAmount`](/developers/packages/foundation/sdk/functional-modules/bridge#getbridgeableamount). How each ticker is priced is in [Live tickers and networks](/developers/how-to/robinhood-stocks#live-tickers).
 
 #### Where are the other stock questions answered?
 

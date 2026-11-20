@@ -409,19 +409,19 @@ Every ticker is live on Robinhood Chain, Hedera and Stellar, with one vault toke
 
 #### 2. Is every Hedera stock token backed 1:1?
 
-Yes. Every stock token on Hedera is backed 1:1 by the real Robinhood token, locked in the SODAX contract on Robinhood Chain. There is no separately published proof of reserves, but anyone can check the Hedera side on-chain. Compare the Hedera supply held outside the SODAX SpokeAssetManager on Hedera with what the same contract address holds of each token on Robinhood Chain. [Verify backing on-chain](#verify-backing) has a script that does this. It checks Hedera only, and the same locked tokens also back Stellar and Sonic, so a passing check does not prove full backing on its own.
+Yes. Every stock token on Hedera is backed 1:1 by the real Robinhood token, locked in the SODAX contract on Robinhood Chain. There is no separately published proof of reserves, but anyone can check the Hedera side on-chain. Compare the Hedera supply held outside the SODAX SpokeAssetManager on Hedera with what the same contract address holds of each token on Robinhood Chain. [Verify backing on-chain](#verify-backing) has a script that does this. It checks Hedera only. The same locked tokens also back Stellar and Sonic. A passing check does not prove full backing on its own.
 
 #### 3. How is the Hedera supply issued, and how can I check it?
 
-The supply of each Hedera stock token is created in advance and held by the SODAX SpokeAssetManager on Hedera (see [What it is](#what-it-is)); what users hold is the part released from that contract. The locked Robinhood tokens sit in the SODAX contract on Robinhood Chain, and anyone can compare the two on-chain (see question 2 and [Verify backing on-chain](#verify-backing)).
+The supply of each Hedera stock token is created in advance and held by the SODAX SpokeAssetManager on Hedera (see [What it is](#what-it-is)). Users hold only the tokens that the SpokeAssetManager has released from that supply. The locked Robinhood tokens sit in the SODAX contract on Robinhood Chain, and anyone can compare the two on-chain (see question 2 and [Verify backing on-chain](#verify-backing)).
 
 #### 4. What is the path back to Robinhood Chain for Hedera holders?
 
-Because every token is backed 1:1, anyone holding a stock on Hedera can bridge it back to Robinhood Chain, when the pair is supported and capacity allows, and receive the real Robinhood token. That depends on sanctions screening, Robinhood's restrictions and the bridge limit at that moment (see question 7). Builders can offer that bridge in their own app with SODAX. See the [Bridge path](#bridge-path).
+Because every token is backed 1:1, anyone holding a stock on Hedera can bridge it back to Robinhood Chain, when the pair is supported and capacity allows, and receive the real Robinhood token. At that moment, the bridge back depends on sanctions screening, Robinhood's restrictions and the bridge limit (see question 7). Builders can offer that bridge in their own app with SODAX. See the [Bridge path](#bridge-path).
 
 #### 5. What happens if the SODAX vault on Robinhood Chain were frozen?
 
-SODAX considers a freeze very unlikely: it screens wallet addresses against sanctions lists before swaps and bridges, and it sources the assets from the liquidity providers Robinhood makes them available through. SODAX has not published what a freeze would mean for holders.
+SODAX considers a freeze very unlikely for two reasons. It screens wallet addresses against sanctions lists before swaps and bridges. It also sources the assets from liquidity providers that Robinhood works with. SODAX has not published what a freeze would mean for holders.
 
 #### 6. What fees apply?
 
@@ -429,7 +429,7 @@ A stock swap pays the same fees as any SODAX swap ([swap fees](/developers/packa
 
 #### 7. Are there limits on how much can move?
 
-Yes. `POST /v1/bridge/bridgeable-amount` (HTTP) or `sodax.bridge.getBridgeableAmount` (SDK) returns the most that can be bridged right now, and stock-to-stock swaps only quote above a small minimum size.
+Yes. `POST /v1/bridge/bridgeable-amount` (HTTP) or `sodax.bridge.getBridgeableAmount` (SDK) returns the most that can be bridged right now. Stock-to-stock swaps only quote above a small minimum size. TODO: state the stock-to-stock swap minimum once SODAX publishes a number a builder can rely on.
 
 ## Related
 
