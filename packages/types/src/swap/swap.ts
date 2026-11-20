@@ -350,6 +350,7 @@ export const swapSupportedTokens = {
     spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.RDDT,
     spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.GLD,
     spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.EURC,
+    spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.ANT,
   ] as const satisfies XToken[],
   [ChainKeys.SUI_MAINNET]: [
     spokeChainConfig[ChainKeys.SUI_MAINNET].supportedTokens.SUI,
@@ -521,6 +522,7 @@ export const swapSupportedTokens = {
     spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.DJT,
     spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.RDDT,
     spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.GLD,
+    spokeChainConfig[ChainKeys.HEDERA_MAINNET].supportedTokens.ANT,
   ] as const satisfies XToken[],
   [ChainKeys.ROBINHOOD_MAINNET]: [
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.ETH,

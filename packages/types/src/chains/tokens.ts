@@ -889,10 +889,10 @@ export const SodaTokens = {
     isRwa: true,
     name: 'Anthropic • Robinhood Token',
     decimals: 18,
-    address: '0xtodo_soda_ant_vault',
+    address: '0x8357d42E4d9Dc67e2dc2A0056af1E25E788cFAf8',
     chainKey: ChainKeys.SONIC_MAINNET,
-    hubAsset: '0xtodo_soda_ant_vault',
-    vault: '0xtodo_soda_ant_vault',
+    hubAsset: '0x8357d42E4d9Dc67e2dc2A0056af1E25E788cFAf8',
+    vault: '0x8357d42E4d9Dc67e2dc2A0056af1E25E788cFAf8',
   },
 } as const satisfies Record<HubVaultSymbol, XToken>;
 
@@ -3500,6 +3500,16 @@ export const stellarSupportedTokens = {
     hubAsset: '0x93d5d2382f302fa78350c18b4df3ee0bd09b3945',
     vault: '0x93d5d2382f302fa78350c18b4df3ee0bd09b3945',
   },
+  ANT: {
+    symbol: 'ANT',
+    isRwa: true,
+    name: 'Anthropic',
+    decimals: 7,
+    address: 'CCGK5VR4BROZDQPYXEPQPQ6B67PBI2XUKO4V34R7QILXXO3Z2YMOT5AC',
+    chainKey: ChainKeys.STELLAR_MAINNET,
+    hubAsset: '0x6b973073E31fED82a928EA74f3B5303d093d9F54',
+    vault: SodaTokens.ANT.address,
+  },
 } as const satisfies Record<string, XToken>;
 
 export const suiSupportedTokens = {
@@ -4829,6 +4839,16 @@ export const hederaSupportedTokens = {
     hubAsset: '0x2A515DCe2ed73611B7ac2D63Aa1906A8D2c533EE',
     vault: SodaTokens.GLD.address,
   },
+  ANT: {
+    symbol: 'ANT',
+    isRwa: true,
+    name: 'Anthropic',
+    decimals: 8,
+    address: '0x0000000000000000000000000000000000a747a0',
+    chainKey: ChainKeys.HEDERA_MAINNET,
+    hubAsset: '0x0625153eacC1f8e97e915Cb77706DAbAb2aE8803',
+    vault: SodaTokens.ANT.address,
+  },
 } as const satisfies Record<string, XToken>;
 
 export const robinhoodSupportedTokens = {
@@ -5373,7 +5393,7 @@ export const robinhoodSupportedTokens = {
     decimals: 18,
     address: '0xbbB6c29bCc3a1028A2B54310DF73F4F7A3bcB373',
     chainKey: ChainKeys.ROBINHOOD_MAINNET,
-    hubAsset: '0xtodo_ant_hub_asset',
+    hubAsset: '0xabf273a314159b3fce5815529a9ae96ce8af4b88',
     vault: SodaTokens.ANT.address,
   },
 } as const satisfies Record<string, XToken>;
