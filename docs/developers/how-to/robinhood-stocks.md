@@ -429,7 +429,7 @@ A stock swap pays the same fees as any SODAX swap ([swap fees](/developers/packa
 
 #### 7. Are there limits on how much can move?
 
-Yes. `POST /v1/bridge/bridgeable-amount` (HTTP) or `sodax.bridge.getBridgeableAmount` (SDK) returns the most that can be bridged right now. Stock-to-stock swaps only quote above a small minimum size. TODO: state the stock-to-stock swap minimum once SODAX publishes a number a builder can rely on.
+Yes. `POST /v1/bridge/bridgeable-amount` (HTTP) or `sodax.bridge.getBridgeableAmount` (SDK) returns the most that can be bridged right now. Stock-to-stock swaps only quote above a small minimum size.
 
 ## Related
 
