@@ -19,11 +19,12 @@ Use this guide to add Robinhood tokenized stocks to your app with SODAX. Your us
 | The React flow | [dapp-kit hooks](#dapp-kit-hooks) |
 | Check the backing yourself | [Verify backing on-chain](#verify-backing) |
 | Why a quote or transfer fails | [Gotchas](#gotchas) |
-| Backing, keys, limits and the path back | [FAQ](#faq) |
+| Backing, limits and the path back | [FAQ](#faq) |
+| Issuer, geo restrictions, audits and liquidity, for partner due diligence | [Stocks due diligence](/developers/how-to/robinhood-stocks-due-diligence) |
 
 ## What it is {#what-it-is}
 
-Robinhood issues tokenized stocks, ETFs and commodity funds on its own network, Robinhood Chain. Each one is an ordinary token named "Company name - Robinhood Token", for example "Apple - Robinhood Token" (AAPL). SODAX makes the same stocks available on Hedera and Stellar, so your users can hold and trade them without leaving the network they already use.
+Robinhood Assets (Jersey) Limited issues tokenized stocks, ETFs and commodity funds on Robinhood's own network, Robinhood Chain. Each one is an ordinary token named "Company name - Robinhood Token", for example "Apple - Robinhood Token" (AAPL). SODAX makes the same stocks available on Hedera and Stellar, so your users can hold and trade them without leaving the network they already use.
 
 SODAX uses a hub-and-spoke design. Sonic is the hub, where the core contracts run. Every other network is a spoke that holds assets locally. For background, read [Hub and spoke: how SODAX works](/resources/blog/hub-and-spoke).
 
@@ -236,7 +237,7 @@ const status = await sodax.swaps.getDetailedStatus({
 
 ## Bridge path: move a stock back to Robinhood Chain {#bridge-path}
 
-Because every token is backed 1:1, a user holding a stock on Hedera can bridge it back to Robinhood Chain, when the pair is supported and capacity allows, and receive the real Robinhood token. You can offer that in your own app.
+Because every token is backed 1:1, a user holding a stock on Hedera can bridge it back to Robinhood Chain, when the pair is supported and capacity allows, and receive the real Robinhood token, up to the limit `POST /v1/bridge/bridgeable-amount` or `sodax.bridge.getBridgeableAmount` returns at that moment. You can offer that in your own app.
 
 ### HTTP API {#bridge-http}
 
@@ -374,7 +375,7 @@ console.log('Covers Hedera:', robinhoodLocked >= hederaCirculating * scale);
 You can also read the same balances in a block explorer: [HashScan](https://hashscan.io/mainnet/contract/0x0df73542cc68bdc01b361d231c60f726b0e0bc05) for Hedera and [Robinhood Chain Blockscout](https://robinhoodchain.blockscout.com/address/0x0df73542cC68bDC01b361d231c60F726B0e0bC05) for Robinhood Chain.
 
 <Note>
-  This script checks Hedera only. The same locked tokens also back that ticker on Stellar (7 decimals), so full backing means the locked balance covers the Hedera and Stellar circulating supply combined. A `true` here does not prove that on its own.
+  This script checks Hedera only. The same locked tokens also back that ticker on Stellar (7 decimals) and Sonic, so full backing means the locked balance covers the supply in users' hands on all three combined. A `true` here does not prove that on its own.
 </Note>
 
 ## Gotchas {#gotchas}
@@ -408,19 +409,19 @@ Every ticker is live on Robinhood Chain, Hedera and Stellar, with one vault toke
 
 #### 2. Is every Hedera stock token backed 1:1?
 
-Yes. Every stock token on Hedera is backed 1:1 by the real Robinhood token, locked in the SODAX contract on Robinhood Chain. There is no separately published proof of reserves, but anyone can verify the backing on-chain. Compare the Hedera supply held outside the SODAX SpokeAssetManager on Hedera with what the same contract address holds of each token on Robinhood Chain. [Verify backing on-chain](#verify-backing) has a script that does this.
+Yes. Every stock token on Hedera is backed 1:1 by the real Robinhood token, locked in the SODAX contract on Robinhood Chain. There is no separately published proof of reserves, but anyone can check the Hedera side on-chain. Compare the Hedera supply held outside the SODAX SpokeAssetManager on Hedera with what the same contract address holds of each token on Robinhood Chain. [Verify backing on-chain](#verify-backing) has a script that does this. It checks Hedera only. The same locked tokens also back Stellar and Sonic. A passing check does not prove full backing on its own.
 
-#### 3. Who controls the admin and supply key, and what stops unbacked minting?
+#### 3. How is the Hedera supply issued, and how can I check it?
 
-SODAX controls the admin and supply key. New stock tokens on Hedera are only issued against Robinhood tokens locked in the SODAX contract on Robinhood Chain, and anyone can check that backing on-chain (see question 2 and [Verify backing on-chain](#verify-backing)).
+The supply of each Hedera stock token is created in advance and held by the SODAX SpokeAssetManager on Hedera (see [What it is](#what-it-is)). Users hold only the tokens that the SpokeAssetManager has released from that supply. The locked Robinhood tokens sit in the SODAX contract on Robinhood Chain, and anyone can compare the two on-chain (see question 2 and [Verify backing on-chain](#verify-backing)).
 
 #### 4. What is the path back to Robinhood Chain for Hedera holders?
 
-Because every token is backed 1:1, anyone holding a stock on Hedera can bridge it back to Robinhood Chain, when the pair is supported and capacity allows, and receive the real Robinhood token. Builders can offer that bridge in their own app with SODAX. See the [Bridge path](#bridge-path).
+Because every token is backed 1:1, anyone holding a stock on Hedera can bridge it back to Robinhood Chain, when the pair is supported and capacity allows, and receive the real Robinhood token. At that moment, the bridge back depends on sanctions screening, Robinhood's restrictions and the bridge limit (see question 7). Builders can offer that bridge in their own app with SODAX. See the [Bridge path](#bridge-path).
 
 #### 5. What happens if the SODAX vault on Robinhood Chain were frozen?
 
-SODAX runs sanctions screening across its infrastructure and is verified on the platforms that require it. Robinhood makes these assets available through liquidity providers, and SODAX sources the assets from them. A freeze would hurt Robinhood's own chain and product, so SODAX considers it very unlikely.
+SODAX considers a freeze very unlikely for two reasons. It screens wallet addresses against sanctions lists before swaps and bridges. It also sources the assets from liquidity providers that Robinhood works with. SODAX has not published what a freeze would mean for holders.
 
 #### 6. What fees apply?
 
@@ -428,7 +429,7 @@ A stock swap pays the same fees as any SODAX swap ([swap fees](/developers/packa
 
 #### 7. Are there limits on how much can move?
 
-Yes. `POST /v1/bridge/bridgeable-amount` (HTTP) or `sodax.bridge.getBridgeableAmount` (SDK) returns the most that can be bridged right now, and stock-to-stock swaps only quote above a small minimum size.
+Yes. `POST /v1/bridge/bridgeable-amount` (HTTP) or `sodax.bridge.getBridgeableAmount` (SDK) returns the most that can be bridged right now. Stock-to-stock swaps only quote above a small minimum size.
 
 ## Related
 
