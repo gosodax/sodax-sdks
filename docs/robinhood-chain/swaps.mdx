@@ -19,6 +19,7 @@ From your side it is one SDK call. From your user's side it is one wallet prompt
 
 `swap()` does not approve the input token for you. ETH is the native token and needs no approval. Every ERC-20 token does: the allowance is checked against SODAX's asset manager on Robinhood Chain, so check it first and approve when it falls short.
 
+{/* example: robinhood-chain/swaps.ts#approvals */}
 ```typescript
 const allowance = await sodax.swaps.isAllowanceValid({ params, walletProvider });
 if (!allowance.ok) throw allowance.error;
@@ -36,14 +37,15 @@ if (!allowance.value) {
 
 The solver API quotes both directions:
 
+{/* example: robinhood-chain/swaps.ts#quote */}
 ```typescript
 const quoteResult = await sodax.swaps.getQuote({
-  token_src: usdg.address,            // token on Robinhood Chain
-  token_dst: usdc.address,            // token on the destination network
+  token_src: usdg.address, // token on Robinhood Chain
+  token_dst: usdc.address, // token on the destination network
   token_src_blockchain_id: ChainKeys.ROBINHOOD_MAINNET,
   token_dst_blockchain_id: ChainKeys.ARBITRUM_MAINNET,
   amount: 100n * 10n ** BigInt(usdg.decimals), // 100 USDG
-  quote_type: 'exact_input',          // the only supported quote type
+  quote_type: 'exact_input', // the only supported quote type
 });
 ```
 
