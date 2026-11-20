@@ -5,6 +5,8 @@ description: "Reach the users and liquidity of every SODAX network from your Opt
 icon: o
 ---
 
+import BuildersMcpNetworkIndex from '/snippets/builders-mcp-network-index.mdx';
+
 <Note>
   **No new contracts.** SODAX's Optimism spoke contracts are already live; integrate over the HTTP API from any language, or in TypeScript with the SDK. Your users sign ordinary EVM transactions on OP Mainnet, and SODAX coordinates cross-network execution, routing, and recovery behind the scenes.
 </Note>
@@ -42,22 +44,7 @@ Two SODAX modules are relevant to Optimism builders:
 | [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/optimism/wallets) |
 | [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
 
-## Scope and build with AI
-
-Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
-
-```json
-{
-  "mcpServers": {
-    "sodax-builders": {
-      "type": "http",
-      "url": "https://builders.sodax.com/mcp"
-    }
-  }
-}
-```
-
-Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [builders.sodax.com](https://builders.sodax.com/).
+<BuildersMcpNetworkIndex />
 
 ## In this section
 

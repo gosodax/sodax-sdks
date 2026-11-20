@@ -61,6 +61,6 @@ Manages connecting user wallets across heterogeneous networks (EVM, SVM, and non
 
 ### 3. Experience layer: @sodax/dapp-kit
 
-The highest-level layer. React hooks, providers, and utilities that wrap @sodax/sdk with React Query. Pair it with @sodax/wallet-sdk-react for wallet connection.
+The highest-level layer. A React hooks library, with `SodaxProvider` (the required outermost wrapper) and utils, that wraps `@sodax/sdk` with React Query into feature-organized hooks. Used alongside `@sodax/wallet-sdk-react` for wallet connection (no direct dependency — shared types come from `@sodax/sdk`).
 
 [Full SDK reference →](/developers/packages)
