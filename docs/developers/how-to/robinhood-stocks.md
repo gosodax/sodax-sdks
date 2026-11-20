@@ -324,7 +324,7 @@ console.log('Covers Hedera:', robinhoodLocked >= hederaCirculating * scale);
 You can also read the same balances in a block explorer: [HashScan](https://hashscan.io/mainnet/contract/0x0df73542cc68bdc01b361d231c60f726b0e0bc05) for Hedera and [Robinhood Chain Blockscout](https://robinhoodchain.blockscout.com/address/0x0df73542cC68bDC01b361d231c60F726B0e0bC05) for Robinhood Chain.
 
 <Note>
-  This script checks Hedera only. The same locked tokens also back that ticker on Stellar (7 decimals), so full backing means the locked balance covers the Hedera and Stellar circulating supply combined. A `true` here does not prove that on its own.
+  This script checks Hedera only. The same locked tokens also back that ticker on Stellar (7 decimals) and Sonic, so full backing means the locked balance covers the supply in users' hands on all three combined. A `true` here does not prove that on its own.
 </Note>
 
 ## Gotchas {#gotchas}
@@ -358,7 +358,7 @@ Every ticker is live on Robinhood Chain, Hedera and Stellar, with one vault toke
 
 #### 2. Is every Hedera stock token backed 1:1?
 
-Yes. Every stock token on Hedera is backed 1:1 by the real Robinhood token, locked in the SODAX contract on Robinhood Chain. There is no separately published proof of reserves, but anyone can verify the backing on-chain. Compare the Hedera supply held outside the SODAX SpokeAssetManager on Hedera with what the same contract address holds of each token on Robinhood Chain. [Verify backing on-chain](#verify-backing) has a script that does this. It checks Hedera only, and the same locked tokens also back Stellar, so a passing check does not prove full backing on its own.
+Yes. Every stock token on Hedera is backed 1:1 by the real Robinhood token, locked in the SODAX contract on Robinhood Chain. There is no separately published proof of reserves, but anyone can check the Hedera side on-chain. Compare the Hedera supply held outside the SODAX SpokeAssetManager on Hedera with what the same contract address holds of each token on Robinhood Chain. [Verify backing on-chain](#verify-backing) has a script that does this. It checks Hedera only, and the same locked tokens also back Stellar and Sonic, so a passing check does not prove full backing on its own.
 
 #### 3. How is the Hedera supply issued, and how can I check it?
 
@@ -366,11 +366,11 @@ The supply of each Hedera stock token is created in advance and held by the SODA
 
 #### 4. What is the path back to Robinhood Chain for Hedera holders?
 
-Because every token is backed 1:1, anyone holding a stock on Hedera can bridge it back to Robinhood Chain and receive the real Robinhood token, up to the bridge limit at that moment (see question 7). Builders can offer that bridge in their own app with SODAX. See the [Bridge path](#bridge-path).
+Because every token is backed 1:1, anyone holding a stock on Hedera can bridge it back to Robinhood Chain and receive the real Robinhood token. That depends on sanctions screening, Robinhood's restrictions and the bridge limit at that moment (see question 7). Builders can offer that bridge in their own app with SODAX. See the [Bridge path](#bridge-path).
 
 #### 5. What happens if the SODAX vault on Robinhood Chain were frozen?
 
-SODAX screens wallet addresses against sanctions lists before swaps and bridges, and is verified on the platforms that require it. Robinhood makes these assets available through liquidity providers, and SODAX sources the assets from them. A freeze would hurt Robinhood's own chain and product, so SODAX considers it very unlikely.
+SODAX considers a freeze very unlikely: it screens wallet addresses against sanctions lists before swaps and bridges, and it sources the assets from the liquidity providers Robinhood makes them available through. SODAX has not published what a freeze would mean for holders.
 
 #### 6. What fees apply?
 
