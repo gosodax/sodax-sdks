@@ -30,7 +30,7 @@ export * from './wallet/index.js';
  * sentinel for a stable release. Use {@link configVersionFor} and {@link formatConfigVersion} rather
  * than unpacking it by hand.
  */
-export const CONFIG_VERSION = 2030003; // 2.3.0-rc.3
+export const CONFIG_VERSION = 2030004; // 2.3.0-rc.4
 
 /** Highest rc slot, reserved for a stable release so it outranks every rc of the same triple. */
 const RC_STABLE = 99;
