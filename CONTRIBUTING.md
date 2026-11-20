@@ -288,8 +288,8 @@ and stays quiet:
 
 ## Issue reports
 
-Use the [issue templates](https://github.com/gosodax/sodax-sdks/issues/new/choose) (bug
-report, feature request, task, epic). A bug is a _demonstrable problem_ caused by the code in this
+Use the [issue templates](https://github.com/gosodax/sodax-sdks/issues/new/choose) (spec,
+bug report, epic, new chain, new token). A bug is a _demonstrable problem_ caused by the code in this
 repository. Good bug reports are extremely helpful — thank you!
 
 1. **Search the issues** — check whether it has already been reported.
