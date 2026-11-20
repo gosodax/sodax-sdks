@@ -68,7 +68,7 @@ export async function acceptAnyToken({
   const allowance = await sodax.swaps.isAllowanceValid({ params, walletProvider });
   if (!allowance.ok) throw allowance.error;
   if (!allowance.value) {
-    const approval = await sodax.swaps.approve<EvmChainKey, false>({ params, walletProvider });
+    const approval = await sodax.swaps.approve({ params, walletProvider });
     if (!approval.ok) throw approval.error;
     await walletProvider.waitForTransactionReceipt(approval.value);
   }

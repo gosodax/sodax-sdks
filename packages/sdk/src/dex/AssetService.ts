@@ -131,7 +131,7 @@ export class AssetService {
    *   (or approval is not required for the chain), `false` if an approval transaction
    *   is needed before depositing.
    */
-  public async isAllowanceValid<K extends SpokeChainKey, Raw extends boolean>(
+  public async isAllowanceValid<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: AssetDepositAction<K, Raw>,
   ): Promise<Result<boolean>> {
     const { params } = _params;
@@ -196,7 +196,7 @@ export class AssetService {
    * @returns `Result<TxReturnType<K, Raw>>` — the transaction hash (when `raw` is `false`)
    *   or the unsigned transaction bytes (when `raw` is `true`).
    */
-  public async approve<K extends SpokeChainKey, Raw extends boolean>(
+  public async approve<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: AssetDepositAction<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>>> {
     const { params } = _params;
@@ -296,7 +296,7 @@ export class AssetService {
    * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
    *   and relay data for cross-chain packet tracking.
    */
-  public async executeDeposit<K extends SpokeChainKey, Raw extends boolean>(
+  public async executeDeposit<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: AssetDepositAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>>> {
     const { params, skipSimulation } = _params;
@@ -380,7 +380,7 @@ export class AssetService {
    * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
    *   and relay data for cross-chain packet tracking.
    */
-  public async executeWithdraw<K extends SpokeChainKey, Raw extends boolean>(
+  public async executeWithdraw<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: AssetWithdrawAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>>> {
     const { params, skipSimulation } = _params;

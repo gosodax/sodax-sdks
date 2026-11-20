@@ -280,7 +280,7 @@ export class SolanaSpokeService {
    * @param raw - Whether to return the raw transaction data.
    * @returns The transaction result.
    */
-  public async sendMessage<Raw extends boolean>(
+  public async sendMessage<Raw extends boolean = false>(
     params: SendMessageParams<SolanaChainKey, Raw>,
   ): Promise<TxReturnType<SolanaChainKey, Raw>> {
     const dstRelayChainId = getIntentRelayChainId(params.dstChainKey);

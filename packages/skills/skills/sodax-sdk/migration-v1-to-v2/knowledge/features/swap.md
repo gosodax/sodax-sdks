@@ -6,8 +6,8 @@ Pair: [`features/swap.md`](../../../integration/knowledge/features/swap.md).
 
 ## TL;DR
 
-1. **Drop the `*SpokeProvider` argument.** Pass `walletProvider` directly into the SDK call payload alongside `params` and `raw: false`.
-2. **Add `raw: false` (or `raw: true`) to every call shape.** Without it, TypeScript can't pick a branch of `WalletProviderSlot` and rejects `walletProvider`.
+1. **Drop the `*SpokeProvider` argument.** Pass `walletProvider` directly into the SDK call payload alongside `params`.
+2. **Pick the mode by call shape.** `{ params, walletProvider }` signs and broadcasts (`raw: false` is optional); `{ params, raw: true }` returns the unsigned tx. Passing neither, or both, fails to compile.
 3. **Field renames on `CreateIntentParams<K>` and `CreateLimitOrderParams<K>`:**
    - `srcChain` → `srcChainKey`
    - `dstChain` → `dstChainKey`

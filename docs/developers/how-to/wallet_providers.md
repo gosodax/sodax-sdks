@@ -60,8 +60,8 @@ of a wallet provider at compile time:
 ```ts
 export type WalletProviderSlot<K extends SpokeChainKey | ChainType, Raw extends boolean = false> =
   Raw extends true
-    ? { raw: true; walletProvider?: never }
-    : { raw?: false; walletProvider: GetWalletProviderType<K> };
+    ? { raw: Raw; walletProvider?: never }
+    : { raw?: Raw; walletProvider: GetWalletProviderType<K> };
 ```
 
 Three rules enforced by TypeScript:
@@ -89,6 +89,17 @@ const result = await sodax.swaps.createIntent({
   walletProvider: evmWalletProvider,   // must be IEvmWalletProvider
 });
 ```
+
+Each method infers `Raw` from the argument, so the result is typed by mode without type arguments.
+Two patterns fail to compile:
+
+- **An inline ternary whose signed branch omits `raw`** (`c ? { params, raw: true } : { params, walletProvider }`):
+  `Raw` is inferred from the `raw: true` branch alone. Set `raw: false` on the signed branch, or
+  type the argument `SwapActionParams<K, boolean>`; the result is then the hash-or-raw-tx union.
+- **Casting an object literal to a params type with an unresolved `Raw`** (`{ …, raw: false,
+  walletProvider } as DepositParams<K, Raw>` inside a generic helper): TS2352, the literal is not
+  comparable to the generic slot. Type each object for its own mode (`DepositParams<K, false>` /
+  `DepositParams<K, true>`), or cast through `unknown` when the helper must stay generic.
 
 ---
 

@@ -22,7 +22,7 @@ const params: CreateIntentParams<typeof ChainKeys.HEDERA_MAINNET> = {
 
 const allowance = await sodax.swaps.isAllowanceValid({ params, walletProvider: hederaWalletProvider });
 if (allowance.ok && !allowance.value) {
-  const approve = await sodax.swaps.approve<typeof ChainKeys.HEDERA_MAINNET, false>({
+  const approve = await sodax.swaps.approve({
     params,
     walletProvider: hederaWalletProvider,
   });

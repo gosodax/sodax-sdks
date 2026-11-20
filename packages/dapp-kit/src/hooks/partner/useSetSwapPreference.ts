@@ -1,17 +1,13 @@
 // packages/dapp-kit/src/hooks/partner/useSetSwapPreference.ts
-import type { HubChainKey, SetSwapPreferenceAction, SpokeChainKey, TxReturnType } from '@sodax/sdk';
+import type { HubChainKey, SetSwapPreferenceAction, TxReturnType } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/**
- * Mutation variables for {@link useSetSwapPreference}. Generic over `K extends SpokeChainKey`
- * for compatibility with the SDK signature; at runtime the SDK enforces hub-only
- * (`isHubChainKeyType(srcChainKey)`).
- */
-export type UseSetSwapPreferenceVars<K extends SpokeChainKey = SpokeChainKey> = Omit<
+/** Mutation variables for {@link useSetSwapPreference}; `K` is the hub chain key, as in the SDK signature. */
+export type UseSetSwapPreferenceVars<K extends HubChainKey = HubChainKey> = Omit<
   SetSwapPreferenceAction<K, false>,
   'raw'
 >;
@@ -23,7 +19,7 @@ export type UseSetSwapPreferenceVars<K extends SpokeChainKey = SpokeChainKey> = 
  * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
  * `onError`, `retry`). Returns the unwrapped tx return value on success.
  */
-export function useSetSwapPreference<K extends SpokeChainKey = SpokeChainKey>({
+export function useSetSwapPreference<K extends HubChainKey = HubChainKey>({
   mutationOptions,
 }: MutationHookParams<TxReturnType<K, false>, UseSetSwapPreferenceVars<K>> = {}): SafeUseMutationResult<
   TxReturnType<K, false>,

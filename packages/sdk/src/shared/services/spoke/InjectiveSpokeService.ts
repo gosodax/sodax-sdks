@@ -359,7 +359,7 @@ export class InjectiveSpokeService {
    *   - {boolean} raw: The return type raw or just transaction hash.
    * @returns {Promise<TxReturnType<InjectiveChainKey, R>>} A promise that resolves to the transaction hash.
    */
-  async sendMessage<Raw extends boolean>(
+  async sendMessage<Raw extends boolean = false>(
     params: SendMessageParams<InjectiveChainKey, Raw>,
   ): Promise<TxReturnType<InjectiveChainKey, Raw>> {
     const { srcAddress: from, srcChainKey, dstChainKey, dstAddress, payload } = params;

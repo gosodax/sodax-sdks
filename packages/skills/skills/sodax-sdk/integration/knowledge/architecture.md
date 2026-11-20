@@ -267,34 +267,37 @@ Use these for runtime branching — the typed helpers are friendlier than ad-hoc
 The discriminated union that distinguishes signed-execution from raw-tx-building at compile time.
 
 ```ts
-type WalletProviderSlot<K extends ChainKey, Raw extends boolean> =
+type WalletProviderSlot<K extends SpokeChainKey | ChainType, Raw extends boolean = false> =
   Raw extends true
-    ? { raw: true; walletProvider?: never }
-    : { raw: false; walletProvider: GetWalletProviderType<K> };
+    ? { raw: Raw; walletProvider?: never }
+    : { raw?: Raw; walletProvider: GetWalletProviderType<K> };
 ```
 
 ### Three rules
 
 1. **`raw: true`** — `walletProvider` is **forbidden** (`?: never` rejects any value). The method returns a raw, unsigned tx payload (`TxReturnType<K, true>` — `EvmRawTransaction`, `SolanaRawTransaction`, etc.).
-2. **`raw: false`** — `walletProvider` is **required** and chain-narrowed via `GetWalletProviderType<K>`. The method signs and broadcasts; returns a tx hash (`TxReturnType<K, false>`).
-3. **Mandatory discriminator** — without `raw: true` or `raw: false` in the literal, TypeScript can't pick a branch. Forgetting the discriminator surfaces as: `Object literal may only specify known properties, and 'walletProvider' does not exist in type ...`.
+2. **`raw: false` or omitted** — `walletProvider` is **required** and chain-narrowed via `GetWalletProviderType<K>`. The method signs and broadcasts; returns a tx hash (`TxReturnType<K, false>`).
+3. **The result type follows the mode** — `Raw` is inferred from `raw` and defaults to `false`, so no type arguments are needed.
 
 ### Usage in service methods
 
 Every signed-execution method accepts `WalletProviderSlot<K, false>` (intersected into the action params type). Every raw-tx-building method accepts `WalletProviderSlot<K, true>` (sometimes both, via the `Raw extends boolean` generic).
 
 ```ts
-// Signed:
-sodax.swaps.createIntent({ params, raw: false, walletProvider });
+// Signed: result.value.tx is the tx hash. `raw: false` is optional.
+sodax.swaps.createIntent({ params, walletProvider });
 
-// Raw:
+// Raw: result.value.tx is the unsigned tx.
 sodax.swaps.createIntent({ params, raw: true });
 
 // Compile errors:
-sodax.swaps.createIntent({ params, walletProvider });          // missing 'raw'
+sodax.swaps.createIntent({ params });                            // neither walletProvider nor raw: true
 sodax.swaps.createIntent({ params, raw: true, walletProvider }); // walletProvider forbidden when raw: true
-sodax.swaps.createIntent({ params, raw: false });              // walletProvider required when raw: false
+sodax.swaps.createIntent({ params, raw: false });                // walletProvider required when raw: false
+sodax.swaps.createIntent({ params, raw: isRaw });                // a non-literal boolean picks no branch
 ```
+
+A mode known only at runtime goes through an argument typed `SwapActionParams<K, boolean>`, or a ternary that sets `raw: false` on its signed branch. `result.value.tx` is then the union `TxReturnType<K, boolean>`.
 
 ### When to pick which
 

@@ -50,7 +50,9 @@ Feature modules use service classes with constructor dependency injection.
 - Public operations that can fail should return `Result<T>` instead of throwing.
 - Treat input validation, guards, amount/decimal and address handling, and signing boundaries as correctness-critical: this is financial code, so don't weaken or bypass them, and cover changes with tests.
 - Preserve chain-key-first routing: request payload chain keys drive TypeScript narrowing and runtime spoke selection.
+- Dual-mode actions (`walletProvider` signs, `raw: true` returns the unsigned tx) take the mode through `WalletProviderSlot`, default `Raw` to `false`, and test it with `!x.raw` or `x.raw === true`, never `raw === false`: a signed call may omit `raw`. Add each new one to `src/shared/entities/Sodax.execution-mode.test.ts`. `scripts/check-execution-mode.mjs` (tail of `checkTs`) enforces the default and the comparison.
 - Use source-derived config through `ConfigService`; do not copy chain/token lists into code or agent docs.
+- Every exported function, guard and public method is asserted in the `<file>.type.test.ts` beside its source: `scripts/check-type-tests.mjs` (repo root, the tail of `checkTs`) fails otherwise, and a deliberate gap goes in `scripts/type-test-exemptions.json` with its reason. Write expected types out from public types, never from the unit under test or an alias its own file declares, or widening the source widens both sides. Vitest runs these files too, so keep `declare const` values in type positions or never-invoked functions, and put each `@ts-expect-error` inside a used expression, invalid for the stated reason only.
 
 ## Errors And Results
 
@@ -138,6 +140,10 @@ away without it is dead weight that can hide fixture drift; delete it. Every `as
 test also needs a one-line why-comment on or just above it — the same guard script enforces this
 for new casts, with pre-existing undocumented ones grandfathered per file in
 `scripts/test-cast-comment-baseline.json`, which may only shrink (`--update-baseline` regenerates it).
+
+Results are strongly typed and narrowed at the call site
+([ADR 0001](../../adr/0001-typed-and-narrowed-public-surface.md)): a source file that exports a function
+or a public method gets a `<file>.type.test.ts` beside it that asserts each result type.
 
 `build` runs `scripts/verify-dist-exports.mjs` after `tsup`, asserting every file named in
 `package.json#exports` was actually emitted. `tsup` runs with `clean: true` and writes JS about ten

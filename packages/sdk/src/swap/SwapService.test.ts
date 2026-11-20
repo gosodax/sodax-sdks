@@ -333,10 +333,10 @@ describe('SwapService types — method signatures reject mismatched walletProvid
   it('createIntentRaw rejects walletProvider — the raw twin has no such field', () => {
     const svc = sodax.swaps;
     if (false as boolean) {
-      // @ts-expect-error — walletProvider is forbidden when raw is true.
       void svc.createIntent({
         params: intentInput(ChainKeys.BSC_MAINNET),
         raw: true,
+        // @ts-expect-error — walletProvider is forbidden when raw is true.
         walletProvider: mockEvmProvider,
       });
     }
@@ -575,10 +575,10 @@ describe('SwapService.approve — narrows walletProvider from params.srcChain', 
   it('approveRaw takes no walletProvider', () => {
     if (false as boolean) {
       void svc.approve({ params: intentInput(ChainKeys.BSC_MAINNET), raw: true });
-      // @ts-expect-error — walletProvider is forbidden when raw is true.
       void svc.approve({
         params: intentInput(ChainKeys.BSC_MAINNET),
         raw: true,
+        // @ts-expect-error — walletProvider is forbidden when raw is true.
         walletProvider: mockEvmProvider,
       });
     }
@@ -658,10 +658,10 @@ describe('SwapService.createLimitOrder / createLimitOrderIntent — same narrowi
   it('createLimitOrderIntentRaw takes no walletProvider', () => {
     if (false as boolean) {
       void svc.createLimitOrderIntent({ params: intentInput(ChainKeys.BSC_MAINNET), raw: true });
-      // @ts-expect-error — walletProvider is forbidden when raw is true.
       void svc.createLimitOrderIntent({
         params: intentInput(ChainKeys.BSC_MAINNET),
         raw: true,
+        // @ts-expect-error — walletProvider is forbidden when raw is true.
         walletProvider: mockEvmProvider,
       });
     }
@@ -995,6 +995,22 @@ describe('SwapService.createIntent', () => {
       });
 
       expect(effectiveAddressSpy).toHaveBeenCalledWith('bc1qusersource');
+      expect(ensureRadfiSpy).toHaveBeenCalledWith(mockBitcoinProvider);
+    });
+
+    it('runs the same Bound Exchange setup when a signed Bitcoin call omits raw', async () => {
+      const svc = sodax.swaps;
+      mocks.getUserHubWalletAddress.mockResolvedValueOnce('0xhubwallet');
+      mocks.constructCreateIntentData.mockReturnValueOnce(['0xintentdata', makeIntent(ChainKeys.BITCOIN_MAINNET), 0n]);
+      vi.spyOn(svc.spoke, 'deposit').mockResolvedValueOnce({ ok: true, value: '0xdeposit-hash' });
+      vi.spyOn(svc.spoke.bitcoin, 'getEffectiveWalletAddress').mockImplementation(async (a: string) => a);
+      const ensureRadfiSpy = vi.spyOn(svc.spoke.bitcoin.radfi, 'ensureRadfiAccessToken').mockResolvedValue(undefined);
+
+      await svc.createIntent({
+        params: { ...intentInput(ChainKeys.BITCOIN_MAINNET), srcAddress: 'bc1qusersource' },
+        walletProvider: mockBitcoinProvider,
+      });
+
       expect(ensureRadfiSpy).toHaveBeenCalledWith(mockBitcoinProvider);
     });
 
