@@ -6,7 +6,7 @@
   },
   "license": "MIT",
   "version": "2.0.0-rc.17",
-  "description": "Wallet SDK of Sodax",
+  "description": "React hooks and wallet connection layer for the SODAX cross-chain ecosystem, built on @sodax/wallet-sdk-core",
   "keywords": [
     "sodax",
     "wallet",
@@ -15,7 +15,7 @@
     "multichain",
     "web3"
   ],
-  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/wallet-sdk-react",
+  "homepage": "https://docs.sodax.com/developers/packages/connection/wallet-sdk-react",
   "bugs": {
     "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
@@ -58,7 +58,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/gosodax/sodax-sdks"
+    "url": "git+https://github.com/gosodax/sodax-sdks.git",
+    "directory": "packages/wallet-sdk-react"
   },
   "scripts": {
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 tsup && tsup --config tsup.privy-dts.config.ts && node ../../scripts/verify-dist-exports.mjs && node scripts/check-privy-isolation.mjs",
