@@ -962,6 +962,29 @@ describe('LeverageYieldService.createVaultIntent', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it('refuses partial vault fills to Tron before signing above the payout floor', async () => {
+    const send = vi.spyOn(sodax.spoke, 'sendMessage');
+    const deposit = vi.spyOn(sodax.spoke, 'deposit');
+    const result = await sodax.leverageYield.createVaultIntent({
+      params: vaultIntentParams(ARBITRUM, {
+        inputToken: VAULT,
+        outputToken: tronSupportedTokens.USDT.address,
+        minOutputAmount: 3_000_001n,
+        allowPartialFill: true,
+        dstChainKey: ChainKeys.TRON_MAINNET,
+        dstAddress: TRON_TEST_ADDRESS,
+      }),
+      raw: true,
+      hubWalletSwap: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe('allowPartialFill');
+    expect(send).not.toHaveBeenCalled();
+    expect(deposit).not.toHaveBeenCalled();
+  });
+
   it('refuses a payout to Tron at the relay minimum before signing anything', async () => {
     const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
 

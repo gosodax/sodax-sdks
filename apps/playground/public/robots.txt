@@ -2,3 +2,10 @@
 # through search. Preview deployments share this file, so a branch build stays unindexed too.
 User-agent: *
 Disallow: /
+
+# Link-preview bots honour robots.txt; without this a shared widget link unfurls with no card.
+User-agent: Twitterbot
+User-agent: LinkedInBot
+User-agent: facebookexternalhit
+User-agent: Slackbot
+Allow: /

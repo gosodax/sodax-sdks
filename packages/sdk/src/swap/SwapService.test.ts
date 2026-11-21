@@ -1568,6 +1568,21 @@ describe('SwapService.getSwapSpeedTier', () => {
       estimatedSeconds: SPEED_TIER_SECONDS.sodaAsset,
     });
   });
+
+  it('does not count a stock vault as a sodaAsset even when it is a money-market reserve', () => {
+    const robinhood = spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens;
+    expect(sodax.config.isMoneyMarketReserveAsset(robinhood.AAPL.vault)).toBe(true);
+
+    expect(sodax.swaps.getSwapSpeedTier({ srcToken: robinhood.AAPL, dstToken: robinhood.GME })).toEqual({
+      tier: 'slow',
+      estimatedSeconds: SPEED_TIER_SECONDS.default,
+    });
+    // The stablecoin side is still a sodaAsset, so the common route keeps its fast tier.
+    expect(sodax.swaps.getSwapSpeedTier({ srcToken: robinhood.USDG, dstToken: robinhood.AAPL })).toEqual({
+      tier: 'fast',
+      estimatedSeconds: SPEED_TIER_SECONDS.sodaAsset,
+    });
+  });
 });
 
 describe('SwapService.getSupportedSwapTokens', () => {
@@ -1812,6 +1827,24 @@ describe('SwapService.getSolvedIntentPacket', () => {
 
 describe('SwapService.waitForIntentDelivery', () => {
   const RELEASE = { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: '0xfill', logIndex: 3 };
+
+  it('returns a hub fill without asking the relay packet API', async () => {
+    vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({
+      ok: true,
+      value: { status: 'success', receipt: {} },
+    });
+    const result = await sodax.swaps.waitForIntentDelivery({ chainId: ChainKeys.SONIC_MAINNET, fillTxHash: '0xfill' });
+    expect(result).toEqual({ ok: true, value: { source: 'hub', dstTxHash: '0xfill' } });
+    expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+  });
+
+  it('refuses a reverted hub fill', async () => {
+    const error = new Error('reverted');
+    vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({ ok: true, value: { status: 'failure', error } });
+    const result = await sodax.swaps.waitForIntentDelivery({ chainId: ChainKeys.SONIC_MAINNET, fillTxHash: '0xfill' });
+    expect(result).toEqual({ ok: false, error });
+    expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+  });
 
   it('returns the relay packet and its destination tx for an intent-relay destination', async () => {
     const packet = { dst_tx_hash: '0xdstTxHash' };

@@ -83,7 +83,7 @@ sodax.swaps.getApprovalStrategy<K extends SpokeChainKey>(
 sodax.swaps.getSwapSpeedTier(params: { srcToken: XToken; dstToken: XToken }): SwapSpeedTierResult;
 //   Synchronous, offline, no Result wrapper — estimates settlement speed from SDK config alone
 //   (no network / on-chain / backend call). SwapSpeedTierResult = { tier: 'fast'|'normal'|'slow', estimatedSeconds }.
-//   A token whose `vault` is a money-market reserve (sodaAsset) settles faster; an Ethereum leg adds a fixed penalty.
+//   A token whose `vault` is a non-RWA money-market reserve (sodaAsset) settles faster; an Ethereum leg adds a fixed penalty.
 //   Safe to call synchronously while rendering a quote (e.g. an ETA badge next to the output amount).
 
 sodax.swaps.getStatus(
@@ -96,7 +96,7 @@ sodax.swaps.getDetailedStatus(
 //   Routes to the backend submit-tx record or the solver. Does NOT define a new status vocabulary.
 
 sodax.swaps.waitForIntentDelivery({ chainId, fillTxHash, timeout? }): Promise<Result<IntentDelivery>>;
-//   After SOLVED: where the output landed (`dstTxHash`). To Tron, that is the release of the fill, which the solver notifies.
+//   After SOLVED: where the output landed (`dstTxHash`). On the hub, the fill tx itself; to Tron, the release of the fill, which the solver notifies.
 ```
 
 ## Approve and swap in one signature

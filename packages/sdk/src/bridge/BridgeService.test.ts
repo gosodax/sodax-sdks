@@ -1725,11 +1725,43 @@ describe('BridgeService.getDetailedStatus', () => {
         expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
       });
 
-      it('has no onward leg when the destination is the source chain', async () => {
+      it('waits for the release when the destination is the source chain', async () => {
         const result = await sodaxBE.bridge.getDetailedStatus({ ...tronKey, dstChainKey: ChainKeys.TRON_MAINNET });
 
-        invariant(result.ok && result.value.source === 'mpcRelay', 'expected the mpcRelay arm');
+        invariant(!result.ok, 'expected LOOKUP_FAILED');
+        expect(result.error.code).toBe('LOOKUP_FAILED');
+        expect(result.error.context).toMatchObject({
+          reason: DETAILED_STATUS_NOT_DELIVERED,
+          hubTxHash: DST_TX,
+          mpcRelay: true,
+        });
+        expect(sodaxBE.spoke.getHubRelease).toHaveBeenCalledWith(DST_TX);
         expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
+      });
+
+      it.each(['unpaid', 'failed'] as const)('keeps a %s Tron release pending after the hub mint', async state => {
+        vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce(
+          state === 'failed'
+            ? { ok: false, error: new Error('rpc down') }
+            : { ok: true, value: { depositId: 'release', status: 'submitted', createdAt: 0, txs: {} } },
+        );
+        const result = await sodaxBE.bridge.getDetailedStatus({ ...tronKey, dstChainKey: ChainKeys.TRON_MAINNET });
+        invariant(!result.ok, 'expected LOOKUP_FAILED');
+        expect(result.error.context).toMatchObject({ hubTxHash: DST_TX, mpcRelay: true });
+        expect(result.error.context?.reason).toBe(state === 'unpaid' ? DETAILED_STATUS_NOT_DELIVERED : undefined);
+      });
+
+      it('returns the paid release for a Tron-to-Tron bridge', async () => {
+        const release = {
+          depositId: 'release',
+          status: 'submitted',
+          createdAt: 0,
+          txs: { release: { chain: 'tron', hash: 'tronPayout', ts: 0 } },
+        } as const;
+        vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({ ok: true, value: release });
+        const result = await sodaxBE.bridge.getDetailedStatus({ ...tronKey, dstChainKey: ChainKeys.TRON_MAINNET });
+        expect(result).toEqual({ ok: true, value: { source: 'mpcRelay', data: release } });
+        expect(sodaxBE.spoke.getHubRelease).toHaveBeenCalledWith(DST_TX);
       });
 
       it('keeps the hub mint as the answer for a bridge to the hub', async () => {

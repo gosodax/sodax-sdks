@@ -173,3 +173,37 @@ describe('waitForHubRelease', () => {
     expect(mapRelayFailure(res.error, { feature: 'moneyMarket' }).code).toBe('RELAY_TIMEOUT');
   });
 });
+
+describe('MPC wait timeout normalization', () => {
+  it.each(['deposit', 'release', 'withdrawal'] as const)('uses the default budget for a NaN %s timeout', async kind => {
+    vi.useFakeTimers();
+    try {
+      stubStatuses([{ depositId: DEPOSIT_ID, trackingId: TRACKING_ID, status: 'submitted', txs: {} }]);
+      const options = { timeout: Number.NaN, pollIntervalMs: Number.NaN };
+      const result =
+        kind === 'deposit'
+          ? waitForDeposit(API, DEPOSIT_ID, options)
+          : kind === 'withdrawal'
+            ? waitForWithdrawal(API, TRACKING_ID, options)
+            : waitForHubRelease(
+                API,
+                { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: '0xfill', logIndex: 0 },
+                options,
+              );
+      let settled = false;
+      void result.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(299_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(settled).toBe(true);
+      const res = await result;
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.error).toMatchObject({ message: 'RELAY_TIMEOUT' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

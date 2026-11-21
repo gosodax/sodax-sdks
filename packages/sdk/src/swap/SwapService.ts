@@ -140,6 +140,7 @@ import {
   type XToken,
   HUB_CHAIN_KEY,
   isHubChainKey,
+  isRealWorldAsset,
   DEFAULT_RELAY_TX_TIMEOUT,
   DEFAULT_DEADLINE_OFFSET,
   type GetAddressType,
@@ -165,10 +166,11 @@ export type SwapResponse = {
 
 /** How {@link SwapService.swapWithApproval} gets the source token approved — see {@link ApprovalStrategy}. */
 /**
- * Where a solved intent's output landed: a relay packet's delivery, or, on an MPC-relay destination (Tron),
- * the release of the fill's hub tx. `dstTxHash` is the destination tx either way.
+ * Where a solved intent's output landed: the hub fill itself, a relay packet, or an MPC-relay release.
+ * `dstTxHash` is the transaction that pays the destination.
  */
 export type IntentDelivery =
+  | { source: 'hub'; dstTxHash: string }
   | { source: 'relay'; dstTxHash: string; packet: PacketData }
   | { source: 'mpcRelay'; dstTxHash: string; release: HubRelease };
 
@@ -2202,7 +2204,8 @@ export class SwapService {
    * Wait until a solved intent's output reaches its destination and return where it landed. The intent
    * relay delivers it to most chains, as the packet {@link getSolvedIntentPacket} returns. An MPC-relay
    * destination (Tron) is paid instead by a release of the fill's hub tx, which the solver notifies the MPC
-   * relay of: this submits the release as well, then waits for its payout.
+   * relay of: this submits the release as well, then waits for its payout. A hub (Sonic) destination is paid
+   * by the fill tx itself, so this only confirms that tx: the relay has no packet for it.
    *
    * @param chainId - The destination spoke chain key.
    * @param fillTxHash - The solver's fill transaction hash, from `getStatus.fill_tx_hash`.
@@ -2220,6 +2223,16 @@ export class SwapService {
     fillTxHash: string;
     timeout?: number;
   }): Promise<Result<IntentDelivery>> {
+    if (isHubChainKey(chainId)) {
+      const receipt = await this.spoke.waitForTxReceipt({
+        chainKey: chainId,
+        txHash: fillTxHash,
+        maxTimeoutMs: timeout,
+      });
+      if (!receipt.ok) return receipt;
+      if (receipt.value.status !== 'success') return { ok: false, error: receipt.value.error };
+      return { ok: true, value: { source: 'hub', dstTxHash: fillTxHash } };
+    }
     if (isMpcRelayChainKeyType(chainId)) {
       const release = await this.spoke.submitHubRelease({ hubTxHash: fillTxHash, dstChainKey: chainId });
       if (!release.ok) return { ok: false, error: release.error.cause };
@@ -2295,13 +2308,18 @@ export class SwapService {
    * Offline, rule-based estimate of how fast a `srcToken`→`dstToken` swap will settle.
    *
    * Derived purely from SDK config (no network / on-chain / backend call): tokens whose vault is a
-   * money-market-reserve sodaAsset settle faster, and an Ethereum leg adds a fixed penalty. See
-   * {@link estimateSwapSpeedTier} for the rules.
+   * money-market-reserve sodaAsset settle faster, and an Ethereum leg adds a fixed penalty. RWA vaults
+   * (tokenized stocks) are collateral-only reserves sourced through their own markets, so they never
+   * count as sodaAssets. See {@link estimateSwapSpeedTier} for the rules.
    *
    * @param params `{ srcToken, dstToken }` spoke token pair to estimate
    * @returns the estimated `tier` bucket and `estimatedSeconds`
    */
   public getSwapSpeedTier(params: SwapSpeedTierParams): SwapSpeedTierResult {
-    return estimateSwapSpeedTier(params, vault => this.config.isMoneyMarketReserveAsset(vault));
+    return estimateSwapSpeedTier(
+      params,
+      vault =>
+        this.config.isMoneyMarketReserveAsset(vault) && !isRealWorldAsset({ chainKey: HUB_CHAIN_KEY, address: vault }),
+    );
   }
 }

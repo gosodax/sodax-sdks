@@ -1,5 +1,7 @@
 import type { HttpUrl, MpcRelayChainKey, MpcWithdrawMessage, MpcWithdrawScheme, Result } from '@sodax/types';
 import { encodeAbiParameters, keccak256, type Hex } from 'viem';
+import { pollUntil } from '../../utils/pollUntil.js';
+import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
 import { invariant } from '../../utils/tiny-invariant.js';
 import { RELAY_ERROR_CODES } from '../intentRelay/IntentRelayApiService.js';
 
@@ -245,21 +247,20 @@ export async function waitForDeposit(
   depositId: string,
   options: WaitForDepositOptions = {},
 ): Promise<Result<DepositRecord>> {
-  const timeout = options.timeout ?? DEFAULT_DEPOSIT_TIMEOUT_MS;
-  const interval = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const deadline = Date.now() + timeout;
+  const timeout = resolveTimeoutMs(options.timeout, DEFAULT_DEPOSIT_TIMEOUT_MS);
+  const interval = resolveTimeoutMs(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS);
 
-  for (;;) {
-    // This loop is the retry: `getDeposit` reports failure in its Result, so `retry` would never fire.
-    const res = await getDeposit(apiUrl, depositId);
-    // `swept` is past `minted`; waiting only for `minted` would miss a deposit a sweep already passed.
-    const minted = res.ok && (res.value.status === 'minted' || res.value.status === 'swept');
-    if (minted && res.value.txs?.hubMint?.hash) return res;
-    if (Date.now() >= deadline) {
-      return { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for deposit ${depositId}`) };
-    }
-    await new Promise(r => setTimeout(r, interval));
-  }
+  const settled = await pollUntil(
+    async () => {
+      const res = await getDeposit(apiUrl, depositId);
+      // `swept` is past `minted`; waiting only for `minted` would miss a deposit a sweep already passed.
+      const minted = res.ok && (res.value.status === 'minted' || res.value.status === 'swept');
+      if (minted && res.value.txs?.hubMint?.hash) return res;
+      return undefined;
+    },
+    { timeoutMs: timeout, intervalMs: interval },
+  );
+  return settled ?? { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for deposit ${depositId}`) };
 }
 
 /**
@@ -272,19 +273,19 @@ export async function waitForHubRelease(
   release: HubRelease,
   options: WaitForDepositOptions = {},
 ): Promise<Result<DepositRecord>> {
-  const timeout = options.timeout ?? DEFAULT_DEPOSIT_TIMEOUT_MS;
-  const interval = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const deadline = Date.now() + timeout;
+  const timeout = resolveTimeoutMs(options.timeout, DEFAULT_DEPOSIT_TIMEOUT_MS);
+  const interval = resolveTimeoutMs(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS);
   const withdrawalId = toHubReleaseId(release);
 
-  for (;;) {
-    const res = await getDeposit(apiUrl, withdrawalId);
-    if (res.ok && res.value.txs?.release?.hash) return res;
-    if (Date.now() >= deadline) {
-      return { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for release ${withdrawalId}`) };
-    }
-    await new Promise(r => setTimeout(r, interval));
-  }
+  const settled = await pollUntil(
+    async () => {
+      const res = await getDeposit(apiUrl, withdrawalId);
+      if (res.ok && res.value.txs?.release?.hash) return res;
+      return undefined;
+    },
+    { timeoutMs: timeout, intervalMs: interval },
+  );
+  return settled ?? { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for release ${withdrawalId}`) };
 }
 
 /**
@@ -321,28 +322,27 @@ export async function waitForWithdrawal(
   trackingId: string,
   options: WaitForDepositOptions & { until?: WithdrawalSettledOn } = {},
 ): Promise<Result<WithdrawalRecord>> {
-  const timeout = options.timeout ?? DEFAULT_DEPOSIT_TIMEOUT_MS;
-  const interval = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-  const deadline = Date.now() + timeout;
+  const timeout = resolveTimeoutMs(options.timeout, DEFAULT_DEPOSIT_TIMEOUT_MS);
+  const interval = resolveTimeoutMs(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS);
 
-  for (;;) {
-    // The loop is the retry, as in `waitForDeposit`.
-    const res = await getWithdrawal(apiUrl, trackingId);
-    if (res.ok) {
-      if (res.value.status === 'released' && res.value.txs?.release?.hash) return res;
-      // `attested` and `released` are past `burned`, so they settle a `burned` wait too.
-      const pastBurn = res.value.status !== 'submitted' && res.value.status !== 'failed';
-      if (options.until === 'burned' && pastBurn && res.value.txs?.burn?.hash) return res;
-      if (res.value.status === 'failed') {
-        return {
-          ok: false,
-          error: new Error(`mpc-relay: withdrawal ${trackingId} failed: ${res.value.error ?? 'no reason given'}`),
-        };
+  const settled = await pollUntil<Result<WithdrawalRecord>>(
+    async () => {
+      const res = await getWithdrawal(apiUrl, trackingId);
+      if (res.ok) {
+        if (res.value.status === 'released' && res.value.txs?.release?.hash) return res;
+        // `attested` and `released` are past `burned`, so they settle a `burned` wait too.
+        const pastBurn = res.value.status !== 'submitted' && res.value.status !== 'failed';
+        if (options.until === 'burned' && pastBurn && res.value.txs?.burn?.hash) return res;
+        if (res.value.status === 'failed') {
+          return {
+            ok: false,
+            error: new Error(`mpc-relay: withdrawal ${trackingId} failed: ${res.value.error ?? 'no reason given'}`),
+          };
+        }
       }
-    }
-    if (Date.now() >= deadline) {
-      return { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for withdrawal ${trackingId}`) };
-    }
-    await new Promise(r => setTimeout(r, interval));
-  }
+      return undefined;
+    },
+    { timeoutMs: timeout, intervalMs: interval },
+  );
+  return settled ?? { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for withdrawal ${trackingId}`) };
 }

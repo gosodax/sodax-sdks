@@ -401,12 +401,8 @@ export class AssetService {
       invariant(params.asset.length > 0, 'Source asset is required');
       invariant(params.poolToken.length > 0, 'Pool token is required');
 
-      const [fromHubWallet, recipient] = params.dst
-        ? await Promise.all([
-            this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey),
-            this.hubProvider.getUserHubWalletAddress(params.dst.dstAddress, params.dst.dstChainKey),
-          ])
-        : [await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey), params.srcAddress];
+      const fromHubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
+      const recipient = params.dst?.dstAddress ?? params.srcAddress;
       const dstChainKey: SpokeChainKey = params.dst?.dstChainKey ?? params.srcChainKey;
 
       const calls = await this.getTokenUnwrapAction(
@@ -419,8 +415,8 @@ export class AssetService {
 
       const data = encodeContractCalls(calls);
       const coreParams = {
-        srcAddress: recipient as GetAddressType<K>,
-        srcChainKey: dstChainKey as K,
+        srcAddress: params.srcAddress,
+        srcChainKey: params.srcChainKey,
         dstChainKey: this.hubProvider.chainConfig.chain.key,
         dstAddress: fromHubWallet,
         payload: data,

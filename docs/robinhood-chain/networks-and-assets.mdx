@@ -29,7 +29,7 @@ Live in the [Money Market](/robinhood-chain/money-market) for supply, borrow, re
   Live token list loads from the config API: `config.moneyMarket.supportedTokens.robinhood` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).
 </div>
 
-ETH uses the zero address in these lists; every other entry is an ERC-20 contract address on Robinhood Chain. Stock Tokens carry `isRwa: true` in the config, and they are swap-only. To confirm that an address is a Robinhood Stock Token, Robinhood's [Token Contracts](https://docs.robinhood.com/chain/contracts) page is the canonical list. The Sonic vaults behind them are under [Robinhood Tokenized Equities](/developers/deployments/mainnet#robinhood-tokenized-equities).
+ETH uses the zero address in these lists; every other entry is an ERC-20 contract address on Robinhood Chain. Stock Tokens carry `isRwa: true` in the config. Some of them are money market collateral that cannot be borrowed (see [Money Market](/robinhood-chain/money-market)); the rest are swap-only. To confirm that an address is a Robinhood Stock Token, Robinhood's [Token Contracts](https://docs.robinhood.com/chain/contracts) page is the canonical list. The Sonic vaults behind them are under [Robinhood Tokenized Equities](/developers/deployments/mainnet#robinhood-tokenized-equities).
 
 ### What your installed SDK knows
 

@@ -1,5 +1,4 @@
 import { ChainKeys } from '@sodax/dapp-kit';
-import { readPartnerFee } from './lib/fee';
 
 const env = import.meta.env as Record<string, string | undefined>;
 
@@ -14,6 +13,9 @@ export const embedOrigin =
 /** Optional per-deployment quota on the swaps API. Anything in a Vite bundle is public. */
 export const swapsApiKey = env.VITE_SWAPS_API_KEY;
 
+/** SODAX's own app ID, used only by the builder's preview until a partner adds theirs. Never exported. */
+export const previewAppId = env.VITE_PREVIEW_APP_ID?.trim() || undefined;
+
 /** GTM container, as on sodax.com. Unset, and nothing loads and nothing is pushed. */
 export const gtmId = env.VITE_GTM_ID;
 
@@ -26,26 +28,24 @@ export const DEFAULT_SLIPPAGE_PERCENT = '0.5';
 export const DEFAULT_AMOUNT = '0.1';
 
 /**
- * ETH on Base → TSLAx on Solana: one EVM leg, one non-EVM leg, and a tokenized equity. Both sides resolve against the loaded token list, so a delisted default
+ * ETH on Base → USDC on Solana: one EVM leg, one non-EVM leg, on a pair with a live route. Both sides resolve against the loaded token list, so a delisted default
  * falls back to that chain's first asset rather than breaking the form.
  */
 export const DEFAULT_PAIR = {
   srcChain: ChainKeys.BASE_MAINNET,
   srcSymbol: 'ETH',
   dstChain: ChainKeys.SOLANA_MAINNET,
-  dstSymbol: 'TSLAx',
+  dstSymbol: 'USDC',
 } as const;
 
 /** Fallback for routes without an in-widget execution path. */
 export const EXCHANGE_URL = 'https://www.sodax.com/exchange/swap';
+
+/** Untagged on purpose: docs share this app's GA4 property, where a UTM would overwrite the visit's source. */
+export const DOCS_URL = 'https://docs.sodax.com/widget';
 
 export const walletConnectProjectId = env.VITE_WALLETCONNECT_PROJECT_ID;
 // The SDK's packaged Solana endpoint refuses browser traffic with 403, which reads as an empty
 // balance and a failed swap; a deployment overrides this with its own keyed provider.
 const SOLANA_FALLBACK_RPC_URL = 'https://solana-rpc.publicnode.com';
 export const solanaRpcUrl = env.VITE_SOLANA_RPC_URL?.trim() || SOLANA_FALLBACK_RPC_URL;
-export const deploymentFeeInput = {
-  address: env.VITE_PARTNER_FEE_RECIPIENT ?? '',
-  bps: env.VITE_PARTNER_FEE_BPS ?? '',
-};
-export const deploymentFee = readPartnerFee(deploymentFeeInput);

@@ -1087,6 +1087,11 @@ export class LeverageYieldService {
         ...baseCtx,
         field: 'srcChainKey',
       });
+      leverageYieldInvariant(
+        !isMpcRelayChainKey(params.dstChainKey) || params.allowPartialFill !== true,
+        'allowPartialFill is not supported for a vault swap to an MPC-relay chain',
+        { ...baseCtx, field: 'allowPartialFill' },
+      );
       leverageYieldInvariant(!isBitcoinChainKeyType(params.dstChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
         ...baseCtx,
         field: 'dstChainKey',
