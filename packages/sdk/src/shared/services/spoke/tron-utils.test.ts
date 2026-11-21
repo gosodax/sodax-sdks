@@ -34,6 +34,12 @@ describe('tronBase58ToHex', () => {
     expect(tronBase58ToHex(RESERVE_HEX)).toBe(RESERVE_HEX);
   });
 
+  it('rejects a non-canonical leading zero byte', () => {
+    expect(() => tronBase58ToHex('1TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d')).toThrow(
+      'invalid Tron address (expected 25 bytes with 0x41 version)',
+    );
+  });
+
   it('rejects invalid base58', () => {
     expect(() => tronBase58ToHex('0OIl-not-base58')).toThrow(/invalid base58/);
   });

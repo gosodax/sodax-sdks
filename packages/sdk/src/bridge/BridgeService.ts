@@ -1388,8 +1388,27 @@ export class BridgeService {
           };
         }
         const dst = params.dstChainKey;
-        // Like settle(): no onward leg to the hub or the source itself, and an MPC-relay leg is not a packet.
-        if (!dst || dst === params.srcChainKey || isHubChainKey(dst) || isMpcRelayChainKey(dst)) {
+        if (dst && isMpcRelayChainKey(dst)) {
+          const release = await resolvePaidHubRelease({
+            hubTxHash: minted.hubTxHash,
+            backendAnswered,
+            spoke: this.spoke,
+          });
+          if (release?.ok) return { ok: true, value: { source: 'mpcRelay', data: release.release } };
+          return {
+            ok: false,
+            error: this.detailedStatusLookupFailed(
+              release?.cause ?? new Error(`hub tx ${minted.hubTxHash} sends no MPC relay release`),
+              params,
+              {
+                reason: (release?.budgetable ?? backendAnswered) ? DETAILED_STATUS_NOT_DELIVERED : undefined,
+                hubTxHash: minted.hubTxHash,
+                mpcRelay: true,
+              },
+            ),
+          };
+        }
+        if (!dst || isHubChainKey(dst)) {
           return { ok: true, value: { source: 'mpcRelay', data: minted.deposit } };
         }
         // The MPC relay produced the hub mint, so its leg to the spoke lands only once someone relays it.

@@ -96,7 +96,7 @@ sodax.swaps.getDetailedStatus(
 //   Routes to the backend submit-tx record or the solver. Does NOT define a new status vocabulary.
 
 sodax.swaps.waitForIntentDelivery({ chainId, fillTxHash, timeout? }): Promise<Result<IntentDelivery>>;
-//   After SOLVED: where the output landed (`dstTxHash`). To Tron, that is the release of the fill, which the solver notifies.
+//   After SOLVED: where the output landed (`dstTxHash`). On the hub, the fill tx itself; to Tron, the release of the fill, which the solver notifies.
 ```
 
 ## Approve and swap in one signature

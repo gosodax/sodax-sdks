@@ -1826,6 +1826,24 @@ describe('SwapService.getSolvedIntentPacket', () => {
 describe('SwapService.waitForIntentDelivery', () => {
   const RELEASE = { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: '0xfill', logIndex: 3 };
 
+  it('returns a hub fill without asking the relay packet API', async () => {
+    vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({
+      ok: true,
+      value: { status: 'success', receipt: {} },
+    });
+    const result = await sodax.swaps.waitForIntentDelivery({ chainId: ChainKeys.SONIC_MAINNET, fillTxHash: '0xfill' });
+    expect(result).toEqual({ ok: true, value: { source: 'hub', dstTxHash: '0xfill' } });
+    expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+  });
+
+  it('refuses a reverted hub fill', async () => {
+    const error = new Error('reverted');
+    vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({ ok: true, value: { status: 'failure', error } });
+    const result = await sodax.swaps.waitForIntentDelivery({ chainId: ChainKeys.SONIC_MAINNET, fillTxHash: '0xfill' });
+    expect(result).toEqual({ ok: false, error });
+    expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+  });
+
   it('returns the relay packet and its destination tx for an intent-relay destination', async () => {
     const packet = { dst_tx_hash: '0xdstTxHash' };
     mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: true, value: packet });

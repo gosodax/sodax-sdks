@@ -46,10 +46,15 @@ describe('getUnmetMpcPayoutMinimum', () => {
   });
 
   // A bridge form holds the source token's decimals: an 18-decimal 2 USDT must not read as huge.
-  it('compares an amount given in other decimals without rounding', () => {
+  it('truncates to payout decimals before comparing the minimum', () => {
     expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 2n * 10n ** 18n, amountDecimals: 18 })).toBeDefined();
     expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3n * 10n ** 18n, amountDecimals: 18 })).toBeDefined();
-    expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3n * 10n ** 18n + 1n, amountDecimals: 18 })).toBeUndefined();
+    expect(
+      getUnmetMpcPayoutMinimum({ token: usdt, amount: 3_000_000_500_000_000_000n, amountDecimals: 18 }),
+    ).toBeDefined();
+    expect(
+      getUnmetMpcPayoutMinimum({ token: usdt, amount: 3_000_001_000_000_000_000n, amountDecimals: 18 }),
+    ).toBeUndefined();
   });
 
   it('passes a chain or token with no minimum', () => {

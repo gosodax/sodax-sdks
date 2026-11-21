@@ -1560,7 +1560,9 @@ export class SpokeService {
     const hubChainKey = this.hubProvider.chainConfig.chain.key;
     // The hub is not a destination leg, and a withdraw-auth back to its own MPC chain is released by that relay.
     const dstChainKey =
-      params.dstChainKey === hubChainKey || params.dstChainKey === chainKey ? undefined : params.dstChainKey;
+      params.dstChainKey === hubChainKey || (direction === 'outbound' && params.dstChainKey === chainKey)
+        ? undefined
+        : params.dstChainKey;
     const mpcDst = dstChainKey !== undefined && isMpcRelayChainKeyType(dstChainKey) ? dstChainKey : undefined;
 
     try {

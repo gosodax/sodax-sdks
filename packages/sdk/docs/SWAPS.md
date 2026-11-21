@@ -163,7 +163,7 @@ Only the two `timeout` terms are yours to tune. Opting out with `useBackendSubmi
 - `getIntentSubmitTxExtraData(params)` — Rebuild the relay extra data (`address` + `payload`) for a Solana/Bitcoin intent from a hub-chain tx hash or an `Intent`; byte-identical to the `relayData` that `createIntent` returned
 - `reconstructRelayData(intent)` — The same relay extra data, derived offline from a fully-populated `Intent` (no RPC call)
 - `getSolvedIntentPacket(params)` — Poll the relayer until a solved intent's fill packet arrives on the destination chain. An MPC-relay destination (Tron) has no packet, so this fails for one
-- `waitForIntentDelivery(params)` — Wait for a solved intent's output on any destination, returning `dstTxHash` with the relay packet, or on Tron with the release of the fill's hub tx, which it notifies the MPC relay of first
+- `waitForIntentDelivery(params)` — Wait for a solved intent's output on any destination, returning `dstTxHash` as the confirmed fill tx on the hub (Sonic), with the relay packet, or on Tron with the release of the fill's hub tx, which it notifies the MPC relay of first
 - `getIntentHash(intent)` — Compute the keccak256 hash of an intent (its on-chain ID)
 - `getStatus(request)` — Poll the solver API for current intent execution status
 - `getDetailedStatus(params)` — Read a swap's status from its **source-chain** tx hash; routes to the backend record or the solver, whichever can answer

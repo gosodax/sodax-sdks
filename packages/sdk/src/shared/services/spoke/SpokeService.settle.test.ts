@@ -401,6 +401,29 @@ describe('SpokeService.settle — destination legs', () => {
     expect(result).toEqual({ ok: true, value: { trackingId: TRACKING_ID, dstChainTxHash: HUB_TX } });
   });
 
+  it('releases an inbound Tron-to-Tron deposit from its hub mint', async () => {
+    vi.spyOn(spoke.tron, 'waitForDeposit').mockResolvedValue({
+      ok: true,
+      value: {
+        depositId: 'id',
+        status: 'minted',
+        createdAt: 0,
+        txs: { hubMint: { chain: 'sonic', hash: HUB_TX, ts: 0 } },
+      },
+    });
+    stubHubReceipt([bridgeRequest(0)]);
+    const release = stubRelease();
+    const result = await spoke.settle({
+      chainKey: TRON,
+      tx: SRC_TX,
+      direction: 'inbound',
+      dstChainKey: TRON,
+      relayData: RELAY_DATA,
+    });
+    expect(release).toHaveBeenCalledWith(expect.objectContaining({ hubTxHash: HUB_TX, dstChainKey: TRON }), undefined);
+    expect(result).toEqual({ ok: true, value: { srcChainTxHash: SRC_TX, dstChainTxHash: PAYOUT } });
+  });
+
   it('submits the hub mint of a Tron deposit to the intent relay when it pays out elsewhere', async () => {
     vi.spyOn(spoke.tron, 'waitForDeposit').mockResolvedValue({
       ok: true,
