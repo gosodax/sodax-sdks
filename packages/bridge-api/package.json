@@ -15,13 +15,14 @@
     "valibot",
     "multichain"
   ],
-  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/bridge-api",
+  "homepage": "https://docs.sodax.com/developers/packages/foundation/bridge-api",
   "bugs": {
     "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/gosodax/sodax-sdks"
+    "url": "git+https://github.com/gosodax/sodax-sdks.git",
+    "directory": "packages/bridge-api"
   },
   "type": "module",
   "main": "./dist/index.cjs",

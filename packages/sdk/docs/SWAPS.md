@@ -39,6 +39,8 @@ const supportedTokens: readonly XToken[] = sodax.swaps.getSupportedSwapTokensByC
 const allTokens: Record<SpokeChainKey, readonly XToken[]> = sodax.swaps.getSupportedSwapTokens();
 ```
 
+These lists, and the tokens `sodax.swaps` accepts, are the ones bundled with your `@sodax/sdk` version. For a token listed after your release, see [Where supported tokens come from](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#where-supported-tokens-come-from).
+
 ### Production and staging token lists
 
 `getSupportedSolverTokens(chainKey)` returns production tokens.
@@ -139,6 +141,7 @@ Each phase is bounded by a different thing:
 | ↳ any single backend request within it | `min(budget left in the attempt, api.timeout)` |
 | On-chain verification — client-side path only | the source chain's `pollingConfig.maxTimeoutMs` |
 | Relay wait — client-side path only, starts after verification | `max(timeout, RELAY_FALLBACK_FLOOR_MS)` |
+| ↳ each MPC-relay leg, added to the worst case below | at least [`TRON_SETTLEMENT_FLOOR_MS`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/TronSpokeService.ts) |
 | `postExecution` — solver notify, client-side path only | **not** bounded by `timeout` |
 
 Read the constants from source rather than memorising them: `DEFAULT_RELAY_TX_TIMEOUT`, `DEFAULT_BACKEND_API_TIMEOUT` and per-chain `pollingConfig` live in [`@sodax/types`](https://github.com/gosodax/sodax-sdks/tree/main/packages/types/src), and `RELAY_FALLBACK_FLOOR_MS` in [`IntentRelayApiService.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/intentRelay/IntentRelayApiService.ts). Verification timeouts differ widely by chain — Stacks alone is several times Sui's — so derive them per chain from `chains.ts`.
@@ -160,7 +163,7 @@ Only the two `timeout` terms are yours to tune. Opting out with `useBackendSubmi
 - `getIntentSubmitTxExtraData(params)` — Rebuild the relay extra data (`address` + `payload`) for a Solana/Bitcoin intent from a hub-chain tx hash or an `Intent`; byte-identical to the `relayData` that `createIntent` returned
 - `reconstructRelayData(intent)` — The same relay extra data, derived offline from a fully-populated `Intent` (no RPC call)
 - `getSolvedIntentPacket(params)` — Poll the relayer until a solved intent's fill packet arrives on the destination chain. An MPC-relay destination (Tron) has no packet, so this fails for one
-- `waitForIntentDelivery(params)` — Wait for a solved intent's output on any destination, returning `dstTxHash` with the relay packet, or on Tron with the release of the fill's hub tx, which it notifies the MPC relay of first
+- `waitForIntentDelivery(params)` — Wait for a solved intent's output on any destination, returning `dstTxHash` as the confirmed fill tx on the hub (Sonic), with the relay packet, or on Tron with the release of the fill's hub tx, which it notifies the MPC relay of first
 - `getIntentHash(intent)` — Compute the keccak256 hash of an intent (its on-chain ID)
 - `getStatus(request)` — Poll the solver API for current intent execution status
 - `getDetailedStatus(params)` — Read a swap's status from its **source-chain** tx hash; routes to the backend record or the solver, whichever can answer
@@ -569,7 +572,7 @@ console.log(tier); // 'fast' | 'normal' | 'slow'
 console.log(estimatedSeconds); // e.g. 15
 ```
 
-`estimatedSeconds` is the source of truth; `tier` is bucketed from it. The rules: a fast base (15s) applies when **either** token's `vault` is a money-market reserve, otherwise the base is 35s; an Ethereum leg on either side adds a fixed penalty. The check is on `XToken.vault`, not `XToken.hubAsset` — the two differ for most tokens, and only the vault is a reserve address. See `estimateSwapSpeedTier` in the SDK source for the exact constants.
+`estimatedSeconds` is the source of truth; `tier` is bucketed from it. The rules: a fast base (15s) applies when **either** token's `vault` is a money-market reserve that is not a real-world asset (tokenized stock vaults are collateral-only reserves and do not count), otherwise the base is 35s; an Ethereum leg on either side adds a fixed penalty. The check is on `XToken.vault`, not `XToken.hubAsset` — the two differ for most tokens, and only the vault is a reserve address. See `estimateSwapSpeedTier` in the SDK source for the exact constants.
 
 ---
 
@@ -965,7 +968,7 @@ const rawResult = await sodax.swaps.createLimitOrderIntent({
 
 **Important:** `cancelIntent` takes `{ params: CancelIntentParams<K>, walletProvider }` — not positional arguments. You must supply `srcChainKey` explicitly because `Intent.srcChain` is a bigint relay ID that cannot narrow to a `SpokeChainKey` at the type level.
 
-An intent from an MPC-relay source chain cannot be cancelled yet: `cancelIntent` confirms the cancel through the intent relay, which an MPC-relay chain does not use, so `createCancelIntent` refuses it before signing. Only its deadline can refund it, so `createIntent` refuses one with `deadline: 0n`, and with it a limit order from an MPC-relay chain.
+An intent from an MPC-relay source chain cannot be cancelled: `cancelIntent` confirms the cancel through the intent relay, which an MPC-relay chain does not use, so `createCancelIntent` refuses it before signing. Only its deadline can refund it ([once notified](#the-solver-answer-is-reconciled)), so `createIntent` refuses one with `deadline: 0n`, and with it a limit order from an MPC-relay chain.
 
 A payout to an MPC-relay chain (Tron) arrives less the relay's release fee, and nothing is released once that fee reaches the amount. So `createIntent` refuses, with `VALIDATION_FAILED` and `context.reason: 'mpc-payout-below-minimum'`, a `minOutputAmount` to Tron at or below `MpcRelayPayoutMinimums`, and a Tron-source `inputAmount` whose post-fee amount, the refund if the intent is cancelled, is at or below it. It also refuses `allowPartialFill` to or from Tron, since each fill or refund would pay out separately.
 
@@ -1284,7 +1287,7 @@ failing right now, so it stays retryable and does not consume a not-delivered bu
 
 ## Get Solved Intent Packet
 
-Poll the relayer until the solver's fill tx has been delivered to the destination chain. Call this after `getStatus` returns `SolverIntentStatusCode.SOLVED`.
+Poll the relayer until the solver's fill tx has been delivered to the destination chain. Call this after `getStatus` returns `SolverIntentStatusCode.SOLVED`. For a swap to an MPC-relay chain (Tron), use `waitForIntentDelivery` instead: it is paid by a release of the fill's hub tx, not a packet.
 
 ```typescript
 import { Sodax, ChainKeys, SolverIntentStatusCode } from '@sodax/sdk';

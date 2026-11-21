@@ -10,11 +10,11 @@
  *
  *   PRIVATE_KEY=<64-hex> [RELAY_URL=<ingest url>] node packages/sdk/e2e/tron-withdraw-sign-check.mjs
  *
- * Build the sdk first: `pnpm --filter=@sodax/sdk build`.
+ * Build the sdk and wallet-sdk-core first: `pnpm --filter=@sodax/sdk --filter=@sodax/wallet-sdk-core build`.
  */
-import { concat, keccak256, recoverAddress, toBytes } from 'viem';
-import { privateKeyToAccount, sign } from 'viem/accounts';
-import { computeSignedMessageHash, tronBase58ToHex, tronIdentityBytes } from '@sodax/sdk';
+import { concat, keccak256, recoverAddress, stringToBytes, toBytes } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { computeSignedMessageHash, tronIdentityBytes } from '@sodax/sdk';
 
 const PRIVATE_KEY = (process.env.PRIVATE_KEY ?? '').replace(/^0x/, '');
 if (!/^[0-9a-fA-F]{64}$/.test(PRIVATE_KEY)) throw new Error('set PRIVATE_KEY to a 64-hex key');
@@ -45,13 +45,9 @@ const toB58check = bytes => {
 const evm = privateKeyToAccount(`0x${PRIVATE_KEY}`).address;
 const senderTron = toB58check(Uint8Array.from([0x41, ...Buffer.from(evm.slice(2), 'hex')]));
 
-// Scheme-1 (Tron signMessageV2) signer: sign keccak256("\x19TRON Signed Message:\n32" ‖ hash).
-const TRON_PREFIX = '\x19TRON Signed Message:\n32';
-const signMessageScheme1 = async hash => {
-  const digest = keccak256(concat([toBytes(TRON_PREFIX), toBytes(hash)]));
-  const s = await sign({ hash: digest, privateKey: `0x${PRIVATE_KEY}` });
-  return { digest, sig: `0x${s.r.slice(2)}${s.s.slice(2)}${Number(s.yParity).toString(16).padStart(2, '0')}` };
-};
+// @sodax/sdk does not depend on wallet-sdk-core, so load its workspace build (`pnpm --filter=@sodax/wallet-sdk-core build`).
+const { TronWalletProvider } = await import(new URL('../../wallet-sdk-core/dist/index.mjs', import.meta.url).href);
+const walletProvider = new TronWalletProvider({ privateKey: `0x${PRIVATE_KEY}` });
 
 async function main() {
   const sender = tronIdentityBytes(senderTron); // 0x + 20-byte identity
@@ -69,7 +65,9 @@ async function main() {
   const hash = computeSignedMessageHash(message); // SDK
   log('message hash :', hash);
 
-  const { digest, sig } = await signMessageScheme1(hash);
+  const sig = await walletProvider.signMessage(hash);
+  // TIP-191 signs the lowercase 0x-hex text (66 characters), not the decoded hash bytes.
+  const digest = keccak256(concat([toBytes('\x19TRON Signed Message:\n66'), stringToBytes(hash.toLowerCase())]));
   log('signature    :', sig, `(${(sig.length - 2) / 2} bytes)`);
 
   // The relay's scheme-1 check: recover the signer from the TRON-prefixed digest → must equal identity.
@@ -102,12 +100,6 @@ async function main() {
         pollingConfig: { pollingIntervalMs: 3000, maxTimeoutMs: 120000 },
       }),
       logger: { debug: () => {}, error: console.error, log: console.log, warn: console.warn },
-    };
-    const walletProvider = {
-      chainType: 'TRON',
-      getWalletAddress: async () => senderTron,
-      signTransaction: async tx => tx,
-      signMessage: async h => (await signMessageScheme1(h)).sig,
     };
     const tron = new TronSpokeService(cfg);
     const trackingId = await tron.sendMessage({

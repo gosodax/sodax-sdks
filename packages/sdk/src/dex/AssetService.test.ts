@@ -7,7 +7,7 @@
  * spoke sendMessage commits to (fromHubWallet), exactly as executeDeposit already does.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChainKeys, type Address, type Hex, tronSupportedTokens } from '@sodax/types';
+import { ChainKeys, type Address, type Hex, tronSupportedTokens, xrpSupportedTokens } from '@sodax/types';
 import { pad, toEventSelector, toHex, type TransactionReceipt } from 'viem';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { isSodaxError } from '../errors/SodaxError.js';
@@ -54,6 +54,24 @@ describe('AssetService.executeWithdraw', () => {
     // relayData.address must match the hub destination the spoke message commits to.
     const sendArg = (sodax.spoke.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
     expect(sendArg.dstAddress).toBe(HUB_WALLET);
+  });
+
+  it('signs a non-Tron destination withdraw on the source chain', async () => {
+    const result = await asset.executeWithdraw({
+      params: {
+        srcChainKey: ChainKeys.BSC_MAINNET,
+        srcAddress: SRC_ADDRESS,
+        asset: ASSET,
+        poolToken: POOL_TOKEN,
+        amount: 1000n,
+        dst: { dstChainKey: ChainKeys.ARBITRUM_MAINNET, dstAddress: ASSET },
+      },
+      raw: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(sodax.spoke.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ srcChainKey: ChainKeys.BSC_MAINNET, srcAddress: SRC_ADDRESS }),
+    );
   });
 
   it('hands a Tron recipient to the AssetManager transfer as the 32-byte word the release reads', async () => {
@@ -111,6 +129,35 @@ describe('AssetService.executeWithdraw — payout to an MPC-relay chain', () => 
   it('sends a release above it', async () => {
     expect((await withdraw(3n * 10n ** 18n + 10n ** 12n)).ok).toBe(true);
     expect(sodax.spoke.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it('refuses a release to an XRPL account that cannot receive it', async () => {
+    const xrplAddress = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+    const xrplUsdc = xrpSupportedTokens.USDC.address;
+    vi.mocked(asset.getTokenUnwrapAction).mockRestore();
+    vi.spyOn(sodax.hubProvider.publicClient, 'readContract').mockResolvedValue(
+      '0x0000000000000000000000000000000000000000' as never,
+    );
+    const checkSpy = vi
+      .spyOn(sodax.spoke.xrp, 'checkDestination')
+      .mockResolvedValue({ ready: false, reason: 'no_trustline' });
+
+    const result = await asset.executeWithdraw({
+      params: {
+        srcChainKey: ChainKeys.XRP_MAINNET,
+        srcAddress: xrplAddress,
+        asset: xrplUsdc,
+        poolToken: POOL_TOKEN,
+        amount: 5n * 10n ** 18n,
+      },
+      raw: true,
+    });
+
+    if (result.ok || !isSodaxError(result.error)) throw new Error('expected a refusal');
+    expect(result.error.context?.reason).toBe('xrpl-no_trustline');
+    // 18-dp vault units in, USDC's 6 decimals out.
+    expect(checkSpy).toHaveBeenCalledWith({ address: xrplAddress, token: xrplUsdc, amount: 5_000_000n });
+    expect(sodax.spoke.sendMessage).not.toHaveBeenCalled();
   });
 });
 
@@ -193,7 +240,7 @@ describe('AssetService.withdraw — settled through the MPC relay seams', () => 
 
   it('releases a hub withdraw to Tron through a submitted release, keeping the hub tx as the source', async () => {
     const hubTx = `0x${'9'.repeat(64)}` as const;
-    vi.spyOn(asset, 'executeWithdraw').mockResolvedValue({ ok: true, value: { tx: hubTx, relayData: RELAY_DATA } });
+    vi.mocked(sodax.spoke.sendMessage).mockResolvedValue({ ok: true, value: hubTx });
     const bridgeRequest = {
       address: sodax.hubProvider.chainConfig.addresses.assetManager,
       logIndex: 1,
@@ -226,6 +273,16 @@ describe('AssetService.withdraw — settled through the MPC relay seams', () => 
       walletProvider: {} as never,
     });
 
+    expect(asset.getTokenUnwrapAction).toHaveBeenCalledWith(
+      ChainKeys.TRON_MAINNET,
+      ASSET,
+      1000n,
+      HUB_WALLET,
+      TRON_TEST_RECIPIENT_WORD,
+    );
+    expect(sodax.spoke.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ srcChainKey: ChainKeys.SONIC_MAINNET, srcAddress: SRC_ADDRESS }),
+    );
     expect(submit).toHaveBeenCalledWith(expect.objectContaining({ hubTxHash: hubTx, logIndex: 1 }));
     expect(result).toEqual({ ok: true, value: { srcChainTxHash: hubTx, dstChainTxHash: 'tronPayout' } });
   });

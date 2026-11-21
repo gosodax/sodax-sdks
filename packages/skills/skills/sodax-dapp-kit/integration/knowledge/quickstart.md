@@ -61,7 +61,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
 ## 3. Initialize the SDK (optional)
 
-For the latest tokens / chains / fee parameters from the backend:
+`sodax.config.initialize()` currently returns success without fetching anything, so this step is optional and adds no tokens:
 
 ```tsx
 import { useEffect } from 'react';
@@ -77,7 +77,7 @@ export function useInitializeSodax() {
 }
 ```
 
-Skipping this works — feature services fall back to packaged defaults — but you'll miss tokens / chains added after the SDK release.
+Tokens and chains come from the installed `@sodax/sdk` version. For tokens the backend lists after that release, use the `useSwapsApi*`, `useBridgeApi*` and `useLeverageYieldApi*` hooks (the `auxiliary-services` skill), which leave token validation to the backend.
 
 ## 4. Get a wallet provider
 

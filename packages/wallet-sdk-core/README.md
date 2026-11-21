@@ -269,7 +269,7 @@ const nearBrowser = new NearWalletProvider({
 
 ### Tron
 
-Tron discriminates by field presence. The private-key config has `privateKey`; the browser-extension config has the injected `tronWeb` plus `getProvider`, which returns the provider the wallet (e.g. TronLink) announces over TIP-6963. Signing uses the first TronWeb with an account (`getProvider()`, then `provider`, then the injected `tronWeb`); `getProvider` re-resolves the announced provider on every call, while a captured `provider` can go stale. Both configs refuse a transaction whose `txID` is not `sha256(raw_data_hex)`; the private-key config signs that hash. Node calls go to `endpoint`, then `defaults.rpcUrl`, then TronGrid. Both configs are constructed in [`TronWalletProvider.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/TronWalletProvider.test.ts).
+Tron discriminates by field presence: `privateKey`, or the wallet's `tronWeb` plus `getProvider` returning the provider it announces over TIP-6963. See [`tron/types.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/types.ts); both configs are constructed in [`TronWalletProvider.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/TronWalletProvider.test.ts).
 
 ## Defaults and merge semantics
 

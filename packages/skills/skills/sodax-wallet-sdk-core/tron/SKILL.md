@@ -1,6 +1,6 @@
 ---
 name: sodax-wallet-sdk-core-tron
-description: 'Granular skill for the @sodax/wallet-sdk-core v2 Tron wallet provider only — `TronWalletProvider` (no Tron SDK dependency: TronWeb is typed structurally and viem signs; browser-extension mode signs through the provider a wallet such as TronLink announces over TIP-6963). Use when a backend / Node script / CI / bot / non-React browser flow needs to instantiate a Tron provider directly and sign — e.g. "instantiate TronWalletProvider", "Tron private-key signing in Node", "TronLink signing outside React", "signMessageV2 withdrawal signature", "custom ITronWalletProvider". Covers integration (write new v2 code); Tron is new in v2, so there is no v1 code to migrate. Links into the parent sodax-wallet-sdk-core knowledge tree. For React dapps use the sodax-wallet-sdk-react skill instead (get the typed provider via useWalletProvider).'
+description: 'Granular skill for the @sodax/wallet-sdk-core v2 Tron wallet provider only — `TronWalletProvider` (no Tron SDK dependency: TronWeb is typed structurally and viem signs in private-key mode; browser-extension mode signs through the provider a wallet such as TronLink announces over TIP-6963). Use when a backend / Node script / CI / bot / non-React browser flow needs to instantiate a Tron provider directly and sign — e.g. "instantiate TronWalletProvider", "Tron private-key signing in Node", "TronLink signing outside React", "signMessageV2 withdrawal signature", "custom ITronWalletProvider". Covers integration (write new v2 code); Tron is new in v2, so there is no v1 code to migrate. Links into the parent sodax-wallet-sdk-core knowledge tree. For React dapps use the sodax-wallet-sdk-react skill instead (get the typed provider via useWalletProvider).'
 license: MIT
 metadata:
   version: '0.0.1'
@@ -32,7 +32,7 @@ Granular skill for `TronWalletProvider` — the low-level Tron wallet for backen
 - **Signing the raw hash bytes in a custom `signMessage`.** It must sign the hash's hex text (TronWeb `trx.signMessageV2`), or the signature recovers to a different address.
 - **Reading a `waitForTransactionReceipt` result as success.** It resolves once the tx is in a block, reverted or not; check the returned `receipt?.result`.
 - **Adding `tronweb` for the config types.** `TronWebLike` and `TronProviderLike` are exported from `@sodax/wallet-sdk-core`.
-- **Mixing PK + browser-extension fields.** Discriminated union — don't `as`.
+- **Mixing PK + browser-extension fields.** TypeScript accepts it and `privateKey` wins; pass one variant.
 
 ## Migration workflow (port v1 → v2)
 

@@ -26,16 +26,22 @@ export interface GemWalletLike {
   submitTransaction: (payload: {
     transaction: Record<string, unknown>;
   }) => Promise<{ result?: { hash?: string } } | undefined>;
+  /**
+   * `getNetwork()` → the ledger the wallet submits to. GemWallet also serves Testnet, Devnet and the Xahau
+   * ledger; when present, a submit anywhere but the XRPL Mainnet is refused.
+   */
+  getNetwork?: () => Promise<{ result?: { chain?: string; network?: string } } | undefined>;
 }
 
 /** Raw-key mode: signing happens locally via `xrpl`, for headless flows and tests. */
 export type PrivateKeyXrpWalletConfig = {
   /**
-   * 32-byte ed25519 seed/key as hex (with or without `0x`).
+   * The account's XRPL family seed (`sEd…`), or its 16 bytes of seed entropy as hex (with or without
+   * `0x`). Any other length is refused, since the derivation reads only 16 bytes of entropy.
    *
    * MUST be ed25519: the relay's withdraw-auth scheme 3 verifies an ed25519 signature and derives
    * the identity as `ripemd160(sha256(pubkey))`. A secp256k1 XRPL account has no supported scheme,
-   * so it can deposit and then never withdraw.
+   * so it can deposit and then never withdraw; the provider refuses one.
    */
   privateKey: string;
   endpoint?: string;

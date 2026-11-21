@@ -7,8 +7,16 @@ const getAddress = vi.fn();
 const getPublicKey = vi.fn();
 const signMessage = vi.fn();
 const submitTransaction = vi.fn();
+const getNetwork = vi.fn();
 
-vi.mock('@gemwallet/api', () => ({ isInstalled, getAddress, getPublicKey, signMessage, submitTransaction }));
+vi.mock('@gemwallet/api', () => ({
+  isInstalled,
+  getAddress,
+  getPublicKey,
+  signMessage,
+  submitTransaction,
+  getNetwork,
+}));
 
 const { XrpXConnector } = await import('./XrpXConnector.js');
 
@@ -94,7 +102,13 @@ describe('XrpXConnector.getGemWallet', () => {
     const gem = connector().getGemWallet();
 
     // `wallet-sdk-core` takes no `@gemwallet/api` dependency of its own — this is the seam.
-    expect(Object.keys(gem).sort()).toEqual(['getAddress', 'getPublicKey', 'signMessage', 'submitTransaction']);
+    expect(Object.keys(gem).sort()).toEqual([
+      'getAddress',
+      'getNetwork',
+      'getPublicKey',
+      'signMessage',
+      'submitTransaction',
+    ]);
   });
 
   it('forwards the hash and its hex flag to signMessage unchanged', async () => {
@@ -125,5 +139,29 @@ describe('XrpXConnector.getGemWallet', () => {
 
     expect(getAddress).toHaveBeenCalled();
     expect(getPublicKey).toHaveBeenCalled();
+  });
+});
+
+describe('XrpXConnector.detect', () => {
+  it("returns the extension's own answer, which is what sets the flag isInstalled reads", async () => {
+    isInstalled.mockResolvedValueOnce({ result: { isInstalled: false } });
+
+    expect(await XrpXConnector.detect()).toBe(false);
+    expect(await XrpXConnector.detect()).toBe(true);
+  });
+
+  it('reports not installed during server rendering, where there is no extension to ask', async () => {
+    vi.stubGlobal('window', undefined);
+
+    expect(await XrpXConnector.detect()).toBe(false);
+    expect(isInstalled).not.toHaveBeenCalled();
+  });
+});
+
+describe('XrpXConnector.getGemWallet — network', () => {
+  it('passes the wallet network through, so the provider can refuse a ledger other than the XRPL Mainnet', async () => {
+    getNetwork.mockResolvedValue({ result: { chain: 'XAHAU', network: 'Mainnet' } });
+
+    expect(await connector().getGemWallet().getNetwork?.()).toEqual({ result: { chain: 'XAHAU', network: 'Mainnet' } });
   });
 });

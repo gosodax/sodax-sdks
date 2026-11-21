@@ -17,8 +17,8 @@ import {
 } from '../swap/swap.js';
 import { moneyMarketReserveAssets, moneyMarketSupportedTokens } from '../moneyMarket/moneyMarket.js';
 
-// The Robinhood tokenized equities are swap-only: canonical vaults and production solver
-// assets on four chains, deliberately absent from the money market. A `SodaTokens` entry is
+// The Robinhood tokenized equities: canonical vaults and production solver assets on four chains,
+// of which only MONEY_MARKET_EQUITY_SYMBOLS are money-market reserves. A `SodaTokens` entry is
 // not evidence of money-market support, so this matrix pins both halves of that split.
 const EQUITY_SYMBOLS = [
   'SPCX',
@@ -45,6 +45,29 @@ const EQUITY_SYMBOLS = [
   'AMD',
   'INTC',
   'BABA',
+  'AMC',
+  'HIMS',
+  'LLY',
+  'COST',
+  'TTWO',
+  'RBLX',
+  'IBM',
+  'MRNA',
+  'LULU',
+  'SNAP',
+  'WYFI',
+  'RIVN',
+  'NFLX',
+  'BULL',
+  'QUBT',
+  'NET',
+  'SKHY',
+  'JNJ',
+  'UPS',
+  'DJT',
+  'RDDT',
+  'GLD',
+  'ANT',
 ] as const;
 
 type EquitySymbol = (typeof EQUITY_SYMBOLS)[number];
@@ -119,16 +142,30 @@ describe('equity vaults are production swap tokens on all four chains', () => {
   }
 });
 
-describe('equity vaults are not money-market assets', () => {
-  const equityAddresses = new Set(
-    EQUITY_CHAINS.flatMap(chainKey =>
-      EQUITY_SYMBOLS.map(symbol => representation(chainKey, symbol).address.toLowerCase()),
-    ),
+// The only equity vaults listed as money-market reserves (collateral, borrowing disabled).
+const MONEY_MARKET_EQUITY_SYMBOLS = new Set<string>([
+  'AAPL',
+  'MSFT',
+  'NVDA',
+  'GOOGL',
+  'AMZN',
+  'META',
+  'TSLA',
+  'SPCX',
+  'SPY',
+  'QQQ',
+  'GLD',
+] satisfies EquitySymbol[]);
+
+describe('only the listed equity vaults are money-market assets', () => {
+  const unlisted = EQUITY_SYMBOLS.filter(symbol => !MONEY_MARKET_EQUITY_SYMBOLS.has(symbol));
+  const unlistedAddresses = new Set(
+    EQUITY_CHAINS.flatMap(chainKey => unlisted.map(symbol => representation(chainKey, symbol).address.toLowerCase())),
   );
 
   it('has the lists it claims to check — otherwise every assertion below is vacuous', () => {
-    expect(equityAddresses.size).toBe(EQUITY_CHAINS.length * EQUITY_SYMBOLS.length);
-    expect(moneyMarketReserveAssets.length).toBeGreaterThan(0);
+    expect(unlisted.length).toBe(EQUITY_SYMBOLS.length - MONEY_MARKET_EQUITY_SYMBOLS.size);
+    expect(unlistedAddresses.size).toBe(EQUITY_CHAINS.length * unlisted.length);
     // A legacy vault is still a reserve asset, so absence below means absence, not an empty list.
     expect(moneyMarketReserveAssets.map(address => address.toLowerCase())).toContain(
       SodaTokens.sodaETH.address.toLowerCase(),
@@ -136,15 +173,15 @@ describe('equity vaults are not money-market assets', () => {
   });
 
   for (const [chainKey, tokens] of Object.entries(moneyMarketSupportedTokens) as [SpokeChainKey, readonly XToken[]][]) {
-    it(`${chainKey}: money-market list holds no equity representation`, () => {
-      const offenders = tokens.filter(token => equityAddresses.has(token.address.toLowerCase()));
+    it(`${chainKey}: money-market list holds no unlisted equity representation`, () => {
+      const offenders = tokens.filter(token => unlistedAddresses.has(token.address.toLowerCase()));
       expect(offenders.map(token => token.symbol)).toEqual([]);
     });
   }
 
-  it('moneyMarketReserveAssets holds no equity vault', () => {
+  it('moneyMarketReserveAssets holds every listed equity vault and no other', () => {
     const reserves = new Set(moneyMarketReserveAssets.map(address => address.toLowerCase()));
-    const offenders = EQUITY_SYMBOLS.filter(symbol => reserves.has(SodaTokens[symbol].address.toLowerCase()));
-    expect(offenders).toEqual([]);
+    const listed = EQUITY_SYMBOLS.filter(symbol => reserves.has(SodaTokens[symbol].address.toLowerCase()));
+    expect(new Set(listed)).toEqual(MONEY_MARKET_EQUITY_SYMBOLS);
   });
 });

@@ -5,15 +5,16 @@
     "access": "public"
   },
   "version": "2.0.0-rc.17",
-  "description": "Sodax Common Types",
+  "description": "Shared SODAX type definitions, constants and configuration for @sodax/* SDK packages and applications",
   "main": "dist/index.js",
-  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/types",
+  "homepage": "https://docs.sodax.com/developers/packages",
   "bugs": {
     "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/gosodax/sodax-sdks"
+    "url": "git+https://github.com/gosodax/sodax-sdks.git",
+    "directory": "packages/types"
   },
   "engines": {
     "node": ">=22.12.0"

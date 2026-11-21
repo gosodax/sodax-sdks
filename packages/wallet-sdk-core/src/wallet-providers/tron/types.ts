@@ -1,8 +1,8 @@
 import type { TronSignedTransaction, TronUnsignedTransaction } from '@sodax/types';
 
-/** Defaults applied to every call. Per-call options shallow-merge over these. */
+/** Provider defaults, read once in the constructor. */
 export type TronWalletDefaults = {
-  /** TronGrid-compatible RPC used for reads (receipt polling, balance). Default `https://api.trongrid.io`. */
+  /** TronGrid-compatible RPC for broadcast and reads. Default `https://api.trongrid.io`. */
   rpcUrl?: string;
 };
 
@@ -23,22 +23,25 @@ export interface TronWebLike {
 export type PrivateKeyTronWalletConfig = {
   /** 64-hex secp256k1 key (with or without `0x`). */
   privateKey: string;
-  /** TronGrid RPC used for signing tx builds, broadcast, and reads. */
+  /** TronGrid-compatible RPC for broadcast and reads; overrides `defaults.rpcUrl`. */
   endpoint?: string;
   defaults?: TronWalletDefaults;
 };
 
-/** The provider TIP-6963 announces. Its `tronWeb` is connected; the global one cannot sign. */
+/** The provider TIP-6963 announces. Its `tronWeb` is the connected one; the global one may have no account. */
 export interface TronProviderLike {
   request: (args: { method: string; params?: unknown }) => Promise<unknown>;
   /** The wallet's connected TronWeb, used for signing. */
   tronWeb?: TronWebLike;
 }
 
-/** Configuration for constructing a `TronWalletProvider` backed by a browser extension (TronLink). */
+/**
+ * Configuration for constructing a `TronWalletProvider` backed by a browser extension (TronLink). Pass `tronWeb`,
+ * `getProvider`, or both: `getProvider` alone still signs with a wallet discovered after construction.
+ */
 export type BrowserExtensionTronWalletConfig = {
   /** The injected TronWeb: the address fallback, and the signer when no announced provider's TronWeb has an account. */
-  tronWeb: TronWebLike;
+  tronWeb?: TronWebLike;
   /** The announced provider, used for signing. */
   provider?: TronProviderLike;
   /** Resolves the connected provider at call time; prefer it, since a captured one can be stale. */

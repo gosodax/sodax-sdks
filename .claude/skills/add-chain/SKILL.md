@@ -15,6 +15,7 @@ Confirm with the requester / contract / solver teams first:
 - Chain key + value, `chainId`, mainnet/testnet, explorer URLs; native wallet/signing model.
 - On-chain readiness: spoke contracts + hub assets/vaults deployed; the chain's token list.
 - Does the chain SDK need a `@sodax/libs` build workaround? Backend + solver recognition?
+- MPC-relay chain: relay chain id + withdraw scheme, relay API endpoint, reserve address, and the solver's release-fee cap per payout token.
 **Feature matrix — fill this BEFORE coding; implement ONLY the ✓ features.** Enable a feature only when its contract / backend / data source exists for the chain; if you can't confirm one, **ASK** — don't assume all (adds broken features) or just one (misses support):
 
 | swap | bridge | money market | staking | dex / CL | migration | partner fee | recovery |
@@ -80,15 +81,15 @@ Template: read a recent same-shape chain end-to-end (`Stacks`, `Near`, `Sui`, �
 
 ## 2b. MPC-relay chain (Tron-like) — §2 plus a different settlement
 The hub reaches the chain through the MPC relay, not the intent relay. Template: Tron (`TronSpokeService`, `shared/services/mpcRelay/`). On top of §2:
-- **types:** an entry in `MpcRelayChainMap` (`chains/chains.ts`: relay chain id + withdraw scheme). Keep the `RelayChainIdMap` entry as well: hub wallet derivation and the intent `srcChain` / `dstChain` still read it.
-- **sdk:** the spoke service implements `MpcRelaySettlement` and is routed in `SpokeService.getMpcRelayService`. Feature services settle through `SpokeService.settle`, never `relayTxAndWaitPacket`; a path `settle` cannot serve must refuse the chain before signing. Status readers use `SpokeService.getMpcRelayDeposit` where intent-relay chains read the delivered packet.
-- **Addresses:** encode an address that receives funds with `encodeRecipient`; `encodeAddress` is the identity form (hub wallet derivation, signing). They differ only on MPC-relay chains.
+- **types:** an entry in `MpcRelayChainMap` (`chains/chains.ts`: relay chain id + withdraw scheme), keeping the `RelayChainIdMap` entry (hub wallet derivation and the intent `srcChain` / `dstChain` still read it); a chain config extending `MpcRelayChainConfig` (`mpcRelayApiEndpoint`, `addresses.reserve`); and a `MpcRelayPayoutMinimums` entry sized to the solver's fee cap (its JSDoc says why).
+- **sdk:** the spoke service implements `MpcRelaySettlement`; add its case to `SpokeService.getMpcRelaySettlement`. The MPC leg goes through `SpokeService.settle` / `settleHubRelease` behind an `isMpcRelayChainKey` branch, and a path neither can serve must refuse the chain before signing. Joining `MpcRelayChainMap` flips every such branch (refusals, backend-submit bypass, delivery): run `rg -n isMpcRelayChainKey packages/sdk/src` and check each fits the chain. Status readers use `SpokeService.getMpcRelayDeposit` / `getHubRelease` where intent-relay chains read the delivered packet.
+- **Addresses:** encode an address that receives funds with `encodeRecipient`; `encodeAddress` is the identity form (hub wallet derivation, signing). `encodeRecipient` branches on chain type (`shared/utils/shared-utils.ts`): add a branch if the chain's release decodes `to` differently.
 
 ## 3. Bitcoin — the exception (don't generalize it)
 Bitcoin doesn't follow the non-EVM pattern: it uses a **custodial trading-wallet model (RadFi / Bound Exchange)** instead of direct spoke deposits, and has the heaviest dapp-kit footprint. **Don't apply §2** — read the existing Bitcoin integration directly if you ever touch it.
 
 ## Wallet integration (two layers — usually the hardest part)
-1. **Signer — `@sodax/wallet-sdk-core`:** a `<Chain>WalletProvider` extending `BaseWalletProvider`, implementing `I<Chain>WalletProvider` (sign / broadcast). EVM reuses the shared `EvmWalletProvider`.
+1. **Signer — `@sodax/wallet-sdk-core`:** a `<Chain>WalletProvider` extending `BaseWalletProvider`, implementing `I<Chain>WalletProvider` (sign / broadcast). EVM reuses the shared `EvmWalletProvider`. On an MPC-relay chain, `signMessage` must sign the digest as the chain's `withdrawScheme` expects (Tron: `ITronWalletProvider.signMessage` in `types/src/tron/tron.ts`, `TronWalletProvider.signMessage`).
 2. **Connect layer — `@sodax/wallet-sdk-react`:**
    - `xchains/<chain>/`: a `<Chain>XService` + the wallet connector(s). Pick the **connector registration shape** by the new chain's wallet model — per-wallet class (Bitcoin/Icon), one parameterized class (Injective/Stacks), or runtime discovery via an aggregator (Stellar/Near); see the `add-wallet-provider` skill's pattern table.
    - a `chainRegistry.ts` entry exposing `defaultConnectors`, `providerManaged`, `createWalletProvider` (builds the wallet-sdk-core provider from the connected service), and optional `createActions` / `discoverConnectors`; **plus a `<Chain>ChainEntry` in `types/config.ts`** (the wallet config typing — easy to miss).
@@ -107,6 +108,7 @@ Bitcoin doesn't follow the non-EVM pattern: it uses a **custodial trading-wallet
 - **Enumerate chains (must pass):** `sdk/src/e2e-tests/e2e.test.ts`, `types/.../tokens-dedup.test.ts` (tokens via `add-token`), `sdk/.../StakingService.test.ts`, and `apps/node/src/tests/bridge-limits.test.ts` (iterates chains via `test.each`).
 - **Cross-chain suite — add the chain where relevant:** `apps/node/src/tests/{mm-cross-chain,raw-spoke-provider,submit-swap-tx,estimate-gas,backend-api,bnusd-migration}.test.ts`.
 - **Chain-aware (add a case):** `wallet-sdk-react/src/chainRegistry.test.ts` (new `ChainType`), `sdk/src/shared/guards.test.ts` (if you add a chain-type guard).
+- **MPC-relay chain (add a case):** `SpokeService.settle.test.ts`, `MpcRelayApiService.test.ts`, `encode-recipient.test.ts`, `types/src/utils/utils.test.ts`, and the refusal tests (e.g. `StakingService.test.ts`).
 
 **C) Type layer = `checkTs`, not a runtime test.** The `common.ts` conditional-type branches, the `wallet/providers.ts` union, and `spoke-types.ts` have **no `.test` file** — `pnpm checkTs` is their coverage. (dapp-kit special hooks are mostly untested in the repo, so a test there is optional, not required.)
 

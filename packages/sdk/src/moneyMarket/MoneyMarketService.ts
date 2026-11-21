@@ -40,7 +40,6 @@ import {
   calculateFeeAmount,
   wrappedSonicAbi,
   isHubChainKeyType,
-  isXrpChainKeyType,
   isEvmSpokeOnlyChainKeyType,
   isStellarChainKeyType,
   isOptionalEvmWalletProviderType,
@@ -203,6 +202,16 @@ export type MoneyMarketServiceConstructorParams = {
   spoke: SpokeService;
   hubProvider: HubProvider;
 };
+
+// Aave v3 `ReserveConfiguration` flags the pool checks before a borrow.
+const RESERVE_ACTIVE = 1n << 56n;
+const RESERVE_FROZEN = 1n << 57n;
+const RESERVE_BORROWING_ENABLED = 1n << 58n;
+const RESERVE_PAUSED = 1n << 60n;
+
+const isReserveBorrowable = (configuration: bigint): boolean =>
+  (configuration & (RESERVE_ACTIVE | RESERVE_FROZEN | RESERVE_BORROWING_ENABLED | RESERVE_PAUSED)) ===
+  (RESERVE_ACTIVE | RESERVE_BORROWING_ENABLED);
 
 /**
  * Entry point for all SODAX money market operations: supply, borrow, withdraw, and repay.
@@ -841,9 +850,25 @@ export class MoneyMarketService {
         ...baseCtx,
         field: 'token',
       });
-      await this.assertXrpDestinationReady(dstChainKey, dstAddress, dstToken.address, params.amount, baseCtx);
-
       const encodedDstAddress = encodeRecipient(dstChainKey, dstAddress);
+      // What arrives is the amount after the partner fee, which must still clear an account-creating reserve.
+      const toHubAsset = this.config.getSpokeTokenFromOriginalAssetAddress(dstChainKey, dstToken.address);
+      await this.spoke.assertReleaseRecipientReady({
+        feature: 'moneyMarket',
+        chainKey: dstChainKey,
+        recipient: encodedDstAddress,
+        token: dstToken.address,
+        amount: toHubAsset ? this.borrowPayout(toHubAsset, dstToken, params.amount).translatedAmountOut : params.amount,
+        context: { ...baseCtx, field: 'dstAddress' },
+      });
+
+      const { configuration } = await this.data.getReserveData(this.getBorrowReserve(dstToken.vault));
+      mmInvariant(
+        isReserveBorrowable(configuration),
+        `${dstToken.symbol} cannot be borrowed: its money-market reserve is inactive, frozen, paused or has borrowing disabled`,
+        { ...baseCtx, field: 'token' },
+      );
+
       // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the
       // collateral/debt lives. srcAddress stays the personal address because `SpokeService.sendMessage`
       // resolves the effective address itself (unlike the deposit path used by supply/repay, which
@@ -1028,7 +1053,6 @@ export class MoneyMarketService {
         `Unsupported spoke chain (${dstChainKey}) token: ${params.token}`,
         { ...baseCtx, field: 'token' },
       );
-      await this.assertXrpDestinationReady(dstChainKey, dstAddress, params.token, params.amount, baseCtx);
       const dstToken = this.config.getMoneyMarketToken(dstChainKey, params.token);
       if (dstToken) {
         assertMpcPayoutAboveMinimum({
@@ -1040,6 +1064,14 @@ export class MoneyMarketService {
       }
 
       const encodedDstAddress = encodeRecipient(dstChainKey, dstAddress);
+      await this.spoke.assertReleaseRecipientReady({
+        feature: 'moneyMarket',
+        chainKey: dstChainKey,
+        recipient: encodedDstAddress,
+        token: params.token,
+        amount: params.amount,
+        context: { ...baseCtx, field: 'dstAddress' },
+      });
       // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the
       // collateral/debt lives. srcAddress stays the personal address because `SpokeService.sendMessage`
       // resolves the effective address itself (unlike the deposit path used by supply/repay, which
@@ -1297,28 +1329,6 @@ export class MoneyMarketService {
   // ==== build helpers (hub-side call encoding) ==========================================
 
   /**
-   * Refuse a withdraw or borrow to an XRPL destination that cannot receive the release. The relay
-   * treats that as a terminal failure after the hub has already burned the funds.
-   */
-  private async assertXrpDestinationReady(
-    dstChainKey: SpokeChainKey,
-    dstAddress: string,
-    token: string,
-    amount: bigint,
-    ctx: { srcChainKey: SpokeChainKey; dstChainKey?: SpokeChainKey; action: 'withdraw' | 'borrow' },
-  ): Promise<void> {
-    if (!isXrpChainKeyType(dstChainKey)) return;
-    const readiness = await this.spoke.xrp.checkDestination({ address: dstAddress, token, amount });
-    if (readiness.ready) return;
-    const reasons = {
-      account_not_found: `XRPL destination ${dstAddress} does not exist — fund it with the base reserve first`,
-      no_trustline: `XRPL destination ${dstAddress} has no trustline for ${token} — add the trustline first`,
-      trustline_limit: `XRPL destination ${dstAddress} trustline limit for ${token} is too low for this amount`,
-    } as const;
-    mmInvariant(false, reasons[readiness.reason], { ...ctx, field: 'dstAddress' });
-  }
-
-  /**
    * Encode the hub-side calldata for a supply operation.
    *
    * For non-vault tokens the encoded sequence is: ERC-20 approve → vault deposit → vault
@@ -1358,6 +1368,26 @@ export class MoneyMarketService {
     );
 
     return encodeContractCalls(calls);
+  }
+
+  /** What a borrow of `amount` pays out once the partner fee is taken, and the decimals it is paid in. */
+  private borrowPayout(toHubAsset: XToken, dstToken: XToken, amount: bigint) {
+    const translatedInAmount = EvmVaultTokenService.translateIncomingDecimals(toHubAsset.decimals, amount);
+    const feeAmount = calculateFeeAmount(translatedInAmount, this.partnerFee);
+    const amountOutDecimals = this.config.isSodaVaultHubAsset(toHubAsset.hubAsset)
+      ? toHubAsset.decimals
+      : dstToken.decimals;
+    const translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(
+      amountOutDecimals,
+      translatedInAmount - feeAmount,
+    );
+    return { translatedInAmount, feeAmount, amountOutDecimals, translatedAmountOut };
+  }
+
+  /** The pool reserve a borrow of `vault` draws on: bnUSD is borrowed from its debt reserve, then wrapped into the vault. */
+  private getBorrowReserve(vault: Address): Address {
+    const { bnUSD, bnUSDVault } = this.config.moneyMarket;
+    return vault.toLowerCase() === bnUSDVault.toLowerCase() ? bnUSD : vault;
   }
 
   /**
@@ -1403,46 +1433,33 @@ export class MoneyMarketService {
     const bnUSD = this.config.moneyMarket.bnUSD;
     const lendingPool = this.config.moneyMarket.lendingPool;
 
-    const translatedInAmount = EvmVaultTokenService.translateIncomingDecimals(toHubAsset.decimals, amount);
-    const feeAmount = calculateFeeAmount(translatedInAmount, this.partnerFee);
-    const calls: EvmContractCall[] = [];
+    const { translatedInAmount, feeAmount, amountOutDecimals, translatedAmountOut } = this.borrowPayout(
+      toHubAsset,
+      dstToken,
+      amount,
+    );
+    const calls: EvmContractCall[] = [
+      MoneyMarketService.encodeBorrow(
+        {
+          asset: this.getBorrowReserve(vaultAddress),
+          amount: translatedInAmount,
+          interestRateMode: 2n,
+          referralCode: 0,
+          onBehalfOf: fromHubAddress,
+        },
+        lendingPool,
+      ),
+    ];
 
     if (bnUSDVault.toLowerCase() === vaultAddress.toLowerCase()) {
-      calls.push(
-        MoneyMarketService.encodeBorrow(
-          {
-            asset: bnUSD,
-            amount: translatedInAmount,
-            interestRateMode: 2n,
-            referralCode: 0,
-            onBehalfOf: fromHubAddress,
-          },
-          lendingPool,
-        ),
-      );
       calls.push(Erc20Service.encodeApprove(bnUSD, bnUSDVault, translatedInAmount));
       calls.push(EvmVaultTokenService.encodeDeposit(bnUSDVault, bnUSD, translatedInAmount));
 
       if (this.partnerFee && feeAmount) {
         calls.push(Erc20Service.encodeTransfer(bnUSDVault, this.partnerFee.address, feeAmount));
       }
-    } else {
-      calls.push(
-        MoneyMarketService.encodeBorrow(
-          {
-            asset: vaultAddress,
-            amount: translatedInAmount,
-            interestRateMode: 2n,
-            referralCode: 0,
-            onBehalfOf: fromHubAddress,
-          },
-          lendingPool,
-        ),
-      );
-
-      if (this.partnerFee && feeAmount) {
-        calls.push(Erc20Service.encodeTransfer(vaultAddress, this.partnerFee.address, feeAmount));
-      }
+    } else if (this.partnerFee && feeAmount) {
+      calls.push(Erc20Service.encodeTransfer(vaultAddress, this.partnerFee.address, feeAmount));
     }
 
     if (!this.config.isSodaVaultHubAsset(assetAddress)) {
@@ -1450,11 +1467,6 @@ export class MoneyMarketService {
       calls.push(EvmVaultTokenService.encodeWithdraw(vaultAddress, assetAddress, translatedInAmount - feeAmount));
     }
 
-    const amountOutDecimals = this.config.isSodaVaultHubAsset(assetAddress) ? toHubAsset.decimals : dstToken.decimals;
-    const translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(
-      amountOutDecimals,
-      translatedInAmount - feeAmount,
-    );
     // Checked on what is paid out, after the partner fee.
     assertMpcPayoutAboveMinimum({
       feature: 'moneyMarket',

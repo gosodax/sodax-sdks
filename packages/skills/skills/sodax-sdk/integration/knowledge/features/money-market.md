@@ -15,8 +15,8 @@ aTokens (ERC4626 receipt tokens) live on the hub and represent the user's share 
 ```ts
 // Mutations
 sodax.moneyMarket.supply<K>(action): Promise<Result<TxHashPair, SodaxError>>;
-sodax.moneyMarket.borrow<K>(action): Promise<Result<TxHashPair, SodaxError>>;
-sodax.moneyMarket.withdraw<K>(action): Promise<Result<TxHashPair, SodaxError>>;
+sodax.moneyMarket.borrow<K>(action): Promise<Result<OutboundSettlement<K>, SodaxError>>;
+sodax.moneyMarket.withdraw<K>(action): Promise<Result<OutboundSettlement<K>, SodaxError>>;
 sodax.moneyMarket.repay<K>(action): Promise<Result<TxHashPair, SodaxError>>;
 
 // Intent creators (raw-tx variant)
@@ -114,6 +114,8 @@ await sodax.moneyMarket.borrow({
 
 Same-chain borrow: omit `dstChainKey` and `dstAddress`.
 
+Borrow reads the token's reserve on the hub first. When the pool cannot lend it (borrowing disabled on a collateral-only reserve, or the reserve is frozen or paused) it returns `VALIDATION_FAILED` with `context.field: 'token'` and sends nothing. Hide the option up front with `borrowingEnabled` from the reserve data.
+
 ### Repay (cross-chain — pay from a different chain than the debt)
 
 ```ts
@@ -152,7 +154,8 @@ The `action` field routes to the right token under the hood — relevant for rep
 
 | Method | Success type |
 |---|---|
-| `supply`, `borrow`, `withdraw`, `repay` | `TxHashPair` = `{ srcChainTxHash, dstChainTxHash }` |
+| `supply`, `repay` | `TxHashPair` = `{ srcChainTxHash, dstChainTxHash }` |
+| `borrow`, `withdraw` | `OutboundSettlement<K>`: `TxHashPair`, or from Tron `{ trackingId, dstChainTxHash }` |
 | `create*Intent` | `IntentTxResult<K, Raw>` = `{ tx, relayData }` |
 | `approve` | `TxReturnType<K, Raw>` |
 | `isAllowanceValid` | `boolean` |
@@ -162,7 +165,7 @@ The `action` field routes to the right token under the hood — relevant for rep
 | `getSupportedReserves` | `readonly Address[]` |
 | `buildSupplyData` / `buildBorrowData` / `buildWithdrawData` / `buildRepayData` | `Hex` (calldata for hub-side calls) |
 
-> Every cross-chain mutation across the SDK (bridge, staking, dex, migration, MM) returns `TxHashPair = { srcChainTxHash, dstChainTxHash }` — there is no array-form variant in v2.
+> Every cross-chain mutation across the SDK (bridge, staking, dex, migration, MM) returns an object (`TxHashPair`, or `OutboundSettlement<K>` above) — there is no array-form variant in v2.
 
 `approve` can send **two** transactions on a token that rejects a non-zero to non-zero allowance
 change (Ethereum USDT is the only listed one today): `approve(0)` is mined first, then the real

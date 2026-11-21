@@ -39,11 +39,13 @@ import {
   type SendMessageReturnType,
   type TronDepositReturnType,
   type TronSendMessageReturnType,
+  type XrpDepositReturnType,
+  type XrpSendMessageReturnType,
   isBitcoinChainKey,
   type Result,
 } from '@sodax/types';
 import type { WalletBalanceMap } from './balance-utils.js';
-import { encodeAddress, encodeTokenIdentifier } from '../../utils/shared-utils.js';
+import { encodeAddress, encodeTokenIdentifier, reverseEncodeAddress } from '../../utils/shared-utils.js';
 import { getEvmViemChain } from '../../utils/constant-utils.js';
 import { StacksSpokeService } from './StacksSpokeService.js';
 import { BitcoinSpokeService } from './BitcoinSpokeService.js';
@@ -56,7 +58,7 @@ import { IconSpokeService } from './IconSpokeService.js';
 import { EvmSpokeService } from './EvmSpokeService.js';
 import { InjectiveSpokeService } from './InjectiveSpokeService.js';
 import { TronSpokeService } from './TronSpokeService.js';
-import { XrpSpokeService } from './XrpSpokeService.js';
+import { XrpSpokeService, type XrpDestinationReadiness } from './XrpSpokeService.js';
 import { MonadSpokeService } from './MonadSpokeService.js';
 import {
   isHubChainKeyType,
@@ -76,7 +78,10 @@ import {
   isBitcoinChainKeyType,
   isEvmWalletProviderType,
   isUndefinedOrValidWalletProviderForChainKey,
+  isXrpChainKeyType,
 } from '../../guards.js';
+import type { SodaxErrorContext, SodaxFeature } from '../../../errors/codes.js';
+import { sodaxInvariant } from '../../../errors/invariant.js';
 import type { ConfigService } from '../../config/ConfigService.js';
 import type { EvmHubProvider } from '../../entities/EvmHubProvider.js';
 import type {
@@ -102,7 +107,7 @@ import type {
   SettlementFailure,
 } from '../../types/spoke-types.js';
 import type { MpcWithdrawalSettlement, Settlement, TxHashPair } from '../../types/types.js';
-import { relayTxAndWaitPacket } from '../intentRelay/IntentRelayApiService.js';
+import { relayTxAndWaitPacket, submitTransaction } from '../intentRelay/IntentRelayApiService.js';
 import type {
   DepositRecord,
   HubRelease,
@@ -176,6 +181,26 @@ function missingFarSideHash(detail: string): { ok: false; error: SettlementFailu
  * Important: you should always first handle hub chain id first (since it is evm type, it is also included in evm chain id set).
  * @namespace SodaxPublicUtils
  */
+
+/** Why an XRPL release to `address` would be refused, worded for whoever picked the destination. */
+function xrpRefusalMessage(
+  reason: Extract<XrpDestinationReadiness, { ready: false }>['reason'],
+  address: string,
+  token: string,
+): string {
+  const refusals = {
+    account_not_found: `XRPL destination ${address} does not exist — fund it with the XRP base reserve first (and add a trustline for an IOU)`,
+    destination_tag_required: `XRPL destination ${address} requires a destination tag, which a release cannot carry — use an account without one`,
+    deposit_auth: `XRPL destination ${address} has Deposit Authorization enabled and would refuse the release`,
+    issuer_frozen: `XRPL token ${token} is globally frozen by its issuer, so a release of it cannot be paid`,
+    issuer_transfer_fee: `XRPL token ${token} carries an issuer transfer fee, which a release cannot pay`,
+    no_trustline: `XRPL destination ${address} has no trustline for ${token} — add the trustline first`,
+    trustline_unauthorized: `XRPL destination ${address} trustline for ${token} is not yet authorized by the issuer`,
+    trustline_frozen: `XRPL destination ${address} trustline for ${token} is deep-frozen and cannot receive the release`,
+    trustline_limit: `XRPL destination ${address} trustline limit for ${token} is too low for this amount`,
+  } satisfies Record<typeof reason, string>;
+  return refusals[reason];
+}
 
 export class SpokeService {
   private readonly hubProvider: EvmHubProvider;
@@ -898,10 +923,9 @@ export class SpokeService {
         }
         case 'XRP': {
           // XRPL rides the MPC relay in memo mode — no on-chain asset-manager simulation applies.
-          const value = (await this.xrp.deposit(params as DepositParams<XrpChainKey, R>)) satisfies TxReturnType<
-            XrpChainKey,
-            R
-          > as DepositReturnType<K, R>;
+          const value = (await this.xrp.deposit(
+            params as DepositParams<XrpChainKey, R>,
+          )) satisfies XrpDepositReturnType<R> as DepositReturnType<K, R>;
           return { ok: true, value };
         }
         default: {
@@ -1293,10 +1317,9 @@ export class SpokeService {
           return { ok: true, value };
         }
         case 'XRP': {
-          const value = (await this.xrp.sendMessage(params as SendMessageParams<XrpChainKey, Raw>)) as TxReturnType<
-            XrpChainKey,
-            Raw
-          > as SendMessageReturnType<K, Raw>;
+          const value = (await this.xrp.sendMessage(
+            params as SendMessageParams<XrpChainKey, Raw>,
+          )) satisfies XrpSendMessageReturnType<Raw> as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         default: {
@@ -1465,6 +1488,25 @@ export class SpokeService {
     }
   }
 
+  /**
+   * Submit a hub tx to the intent relay so its message reaches the spoke it targets, without waiting. This is
+   * the leg after an MPC-relay deposit's hub mint, which no relay knows of, as {@link settle} drives it with a
+   * `dstChainKey`. Re-submitting is idempotent; `bridge.getDetailedStatus` with `dstChainKey` reads the delivery.
+   */
+  public async submitHubDelivery(hubTxHash: string): Promise<Result<void, SettlementFailure>> {
+    try {
+      const chainId = getIntentRelayChainId(this.hubProvider.chainConfig.chain.key).toString();
+      const submitted = await submitTransaction(
+        { action: 'submit', params: { chain_id: chainId, tx_hash: hubTxHash } },
+        this.config.relay.relayerApiEndpoint,
+      );
+      if (!submitted.ok) return { ok: false, error: { phase: 'relay', cause: submitted.error } };
+      return { ok: true, value: undefined };
+    } catch (error) {
+      return { ok: false, error: { phase: 'relay', cause: error } };
+    }
+  }
+
   /** One read of a release's record. It notifies nothing; the release is paid once `txs.release` is set. */
   public async getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>> {
     try {
@@ -1531,6 +1573,41 @@ export class SpokeService {
 
   private toHubRelease({ hubTxHash, logIndex, dstChainKey }: Omit<HubRelease, 'hubChainId'>): HubRelease {
     return { dstChainKey, hubChainId: String(this.hubProvider.chainConfig.chain.chainId), hubTxHash, logIndex };
+  }
+
+  /**
+   * Refuses a release its recipient would turn away, before anything is signed: the relay fails such a
+   * release terminally after the hub has already burned the funds. Only an XRPL account can refuse one
+   * today (see {@link XrpSpokeService.checkDestination}); every other chain passes.
+   *
+   * `recipient` is the release's `to` as `encodeRecipient` encodes it for the hub; `amount` (the least that
+   * arrives) and `maxAmount` (the most, default `amount`) are in the spoke token's decimals.
+   */
+  public async assertReleaseRecipientReady({
+    feature,
+    chainKey,
+    recipient,
+    token,
+    amount,
+    maxAmount,
+    context,
+  }: {
+    feature: SodaxFeature;
+    chainKey: SpokeChainKey;
+    recipient: Hex;
+    token: string;
+    amount: bigint;
+    maxAmount?: bigint;
+    context?: Partial<SodaxErrorContext>;
+  }): Promise<void> {
+    if (!isXrpChainKeyType(chainKey)) return;
+    const address = reverseEncodeAddress(chainKey, recipient);
+    const readiness = await this.xrp.checkDestination({ address, token, amount, maxAmount });
+    if (readiness.ready) return;
+    sodaxInvariant(false, xrpRefusalMessage(readiness.reason, address, token), {
+      feature,
+      context: { ...context, reason: `xrpl-${readiness.reason}` },
+    });
   }
 
   /** The MPC-relay settlement service for a chain, or `undefined` when it rides the intent relay. */
@@ -1625,7 +1702,9 @@ export class SpokeService {
     const hubChainKey = this.hubProvider.chainConfig.chain.key;
     // The hub is not a destination leg, and a withdraw-auth back to its own MPC chain is released by that relay.
     const dstChainKey =
-      params.dstChainKey === hubChainKey || params.dstChainKey === chainKey ? undefined : params.dstChainKey;
+      params.dstChainKey === hubChainKey || (direction === 'outbound' && params.dstChainKey === chainKey)
+        ? undefined
+        : params.dstChainKey;
     const mpcDst = dstChainKey !== undefined && isMpcRelayChainKeyType(dstChainKey) ? dstChainKey : undefined;
 
     try {

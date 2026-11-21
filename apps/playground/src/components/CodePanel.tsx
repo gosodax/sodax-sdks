@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { DOCS_URL } from '../config';
 import { trackSnippetCopied } from '../lib/analytics';
 import type { Snippet } from '../lib/snippet';
 import { CopyLabel } from './CopyLabel';
@@ -49,7 +50,7 @@ export function CodePanel({ snippets, initialId }: { snippets: Snippet[]; initia
           <button type="button" className="btn" onClick={copy}>
             <CopyLabel label="Copy" copied={copied} />
           </button>
-          <a className="btn btn-docs" href="https://docs.sodax.com/" target="_blank" rel="noreferrer">
+          <a className="btn btn-docs" href={`${DOCS_URL}#embed-it`} target="_blank" rel="noreferrer">
             Docs ↗
           </a>
         </div>

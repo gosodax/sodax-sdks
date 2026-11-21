@@ -18,6 +18,9 @@ DO / DO NOT / workflow / stop conditions for AI agents writing v2 dapp-kit code.
 
 ## DO
 
+- **DO** confirm a hook resolves against the installed `@sodax/dapp-kit` before building on it: these skills track `main`, which can be ahead of your release. If your dapp-kit has no `use*WithApproval` hook, use the allowance hook, the approve hook, then the plain action hook (a vault deposit approves through `useSwapAllowance` / `useSwapApprove`).
+- **DO** take the token list for a `useSwapsApi*` / `useBridgeApi*` / `useLeverageYieldApi*` flow from `useSwapsApiTokens` / `useBridgeApiTokens`. The feature hooks accept only tokens bundled with the installed `@sodax/sdk`, and `initialize()` adds none (the `sodax-sdk` skill, "Where supported tokens come from").
+
 - **DO** call dapp-kit's exported hooks (which wrap `useSafeMutation`). Never call React Query's `useMutation` directly inside a wrapper around a dapp-kit hook — consumers depend on `mutateAsyncSafe`.
 - **DO** branch on `mutateAsyncSafe`'s `Result.ok` for sequenced flows (`if (!hasAllowance) await approve(...); await action(...);`). User-rejects are modal, not exceptional.
 - **DO** use `ChainKeys.X_MAINNET` constants for chain identifiers. Never hard-code chain key strings (`'sonic'`, `'0xa4b1.arbitrum'`).
@@ -25,6 +28,7 @@ DO / DO NOT / workflow / stop conditions for AI agents writing v2 dapp-kit code.
 - **DO** preserve literal chain keys in generic positions where possible (e.g. `srcChainKey: ChainKeys.ETHEREUM_MAINNET as const`) — TypeScript narrowing flows from the literal, including the `walletProvider` parameter type.
 - **DO** use the canonical hook shape: queries take `{ params, queryOptions }`; mutations take only `{ mutationOptions }` and flow domain inputs through `mutate(vars)`.
 - **DO** compose `onSuccess` instead of replacing it: `mutationOptions: { onSuccess: (data, vars, ctx) => myExtra(...) }` runs AFTER dapp-kit's hook-owned invalidations.
+- **DO** branch on `isMpcRelayChainKeyType(chainKey)` for Tron: no approval, settlement can take minutes, payouts have a floor (`getUnmetMpcPayoutMinimum`), and some features refuse a Tron source. Details: the `sodax-sdk` skill (integration mode), `chain-specifics.md` § "Tron (MPC relay)".
 
 ## DO NOT
 

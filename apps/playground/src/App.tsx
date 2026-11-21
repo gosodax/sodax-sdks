@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { DOCS_URL } from './config';
 import { useEmbedMessages } from './hooks/useEmbedMessages';
 import { useEmbedSize } from './hooks/useEmbedSize';
 import { useBrand } from './hooks/useBrand';
@@ -51,7 +52,7 @@ export default function App() {
           SODAX <em>Widget</em>
         </h1>
         <p className="hero-note">
-          <a href="https://docs.sodax.com/" target="_blank" rel="noreferrer">
+          <a href={DOCS_URL} target="_blank" rel="noreferrer">
             Developer docs ↗
           </a>
         </p>
@@ -62,8 +63,6 @@ export default function App() {
         <main className="app-main">
           <SwapView flow={flow} brandControls={brand} />
         </main>
-
-        <footer className="app-footer muted small">Built with SODAX. Non-custodial swaps across networks.</footer>
       </div>
     </div>
   );

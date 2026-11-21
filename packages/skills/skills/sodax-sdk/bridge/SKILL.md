@@ -16,7 +16,7 @@ Granular skill for `BridgeService` — `sodax.bridge`. Feature tag: `'bridge'`.
 1. **New code or v1 → v2 port?**
 2. **Signed flow (frontend) or unsigned-tx (backend)?**
 3. **Need a bridgeable-amount precheck?** Vault deposit limits may cap the transfer; `getBridgeableAmount` (or equivalent) read tells you the cap before submitting.
-4. **One signature?** `bridgeWithApproval` folds the approval in (one EIP-5792 batch when the wallet can); `getApprovalStrategy` labels the button first. Plain `bridge()` expects the allowance to be set already.
+4. **One signature?** `bridgeWithApproval` folds the approval in (one EIP-5792 batch when the wallet can); `getApprovalStrategy` labels the button first. Plain `bridge()` expects the allowance to be set already; without `bridgeWithApproval`, set it with `isAllowanceValid()` + `approve()` first.
 5. **Source / destination chains** — confirm both are supported spoke chains, and the destination address format matches the chain (vd Stellar address starts with `G`, Solana base58, Bitcoin specific encodings).
 
 ## Integration workflow
@@ -26,12 +26,12 @@ Granular skill for `BridgeService` — `sodax.bridge`. Feature tag: `'bridge'`.
 3. Path-specific recipe:
    - Signed → [`../integration/knowledge/recipes/signed-tx-flow.md`](../integration/knowledge/recipes/signed-tx-flow.md)
    - Unsigned → [`../integration/knowledge/recipes/raw-tx-flow.md`](../integration/knowledge/recipes/raw-tx-flow.md)
-4. Destination-chain quirks (Stellar trustline, BTC PSBT, Solana PDA) → [`../integration/knowledge/chain-specifics.md`](../integration/knowledge/chain-specifics.md).
+4. Chain quirks (Stellar trustline, BTC PSBT, Solana PDA, Tron MPC relay) → [`../integration/knowledge/chain-specifics.md`](../integration/knowledge/chain-specifics.md).
 5. Errors (`feature: 'bridge'`) → [`../integration/knowledge/reference/error-codes.md`](../integration/knowledge/reference/error-codes.md).
 
 ### Bridge-specific anti-patterns
 
-- **Destructuring the return as an array or single hash.** v2 ALWAYS returns `{ srcChainTxHash, dstChainTxHash }` for cross-chain mutations — destructure by name.
+- **Destructuring the return as an array or single hash.** `bridge()` returns `{ srcChainTxHash, dstChainTxHash }` — destructure by name.
 - **Skipping the bridgeable-amount check.** Submitting an amount over the vault cap returns `EXECUTION_FAILED`; cheaper to check first.
 - **Reporting a bridge as lost, or calling `bridge()` again, on a post-broadcast failure.** `TX_VERIFICATION_FAILED` and the relay codes carry `error.context.srcTxHash` — the deposit is on-chain and may still deliver, so keep polling `getDetailedStatus` with it. A second `bridge()` is a second deposit. After `TX_SUBMIT_FAILED`, if no packet ever shows up, resubmit that same tx to the relay with `submitTransaction`.
 

@@ -238,7 +238,8 @@ export type MpcPayoutMinimum = { symbol: string; decimals: number; minimum: bigi
 /**
  * The minimum that paying `amount` of `token` out through the MPC relay fails to exceed, or `undefined` when it
  * clears {@link MpcRelayPayoutMinimums}. The SDK refuses such a payout before signing. An amount equal to the
- * minimum fails too, because the relay skips a release once fee >= amount.
+ * minimum fails too, because the relay skips a release once fee >= amount. `amount` is truncated to the payout
+ * token's decimals first, as delivery would.
  *
  * @param amountDecimals - The decimals `amount` is in, when not the payout token's (a bridge's source).
  */
@@ -253,7 +254,11 @@ export function getUnmetMpcPayoutMinimum({
 }): MpcPayoutMinimum | undefined {
   const minimum = MpcRelayPayoutMinimums[token.chainKey]?.[token.symbol];
   if (minimum === undefined) return undefined;
-  const clears = amount * 10n ** BigInt(token.decimals) > minimum * 10n ** BigInt(amountDecimals);
+  const delivered =
+    amountDecimals >= token.decimals
+      ? amount / 10n ** BigInt(amountDecimals - token.decimals)
+      : amount * 10n ** BigInt(token.decimals - amountDecimals);
+  const clears = delivered > minimum;
   return clears ? undefined : { symbol: token.symbol, decimals: token.decimals, minimum };
 }
 
