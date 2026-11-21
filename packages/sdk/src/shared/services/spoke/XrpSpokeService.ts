@@ -1,3 +1,5 @@
+import { pollUntil } from '../../utils/pollUntil.js';
+import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
 import { bytesToBigInt, isAddress, ripemd160, sha256, type Hex } from 'viem';
 import {
   ChainKeys,
@@ -175,9 +177,9 @@ export class XrpSpokeService implements MpcRelaySettlement {
    * read too — a node can answer headers and then stall the stream, which would otherwise hang a
    * polling loop with no upper bound.
    */
-  private async rpc<T>(method: string, params: Record<string, unknown>): Promise<T> {
+  private async rpc<T>(method: string, params: Record<string, unknown>, timeoutMs = XRP_RPC_TIMEOUT_MS): Promise<T> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), XRP_RPC_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(this.rpcUrl, {
         method: 'POST',
@@ -194,7 +196,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
       return body.result as T;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`xrpl rpc ${method}: timed out after ${XRP_RPC_TIMEOUT_MS}ms`);
+        throw new Error(`xrpl rpc ${method}: timed out after ${timeoutMs}ms`);
       }
       throw error;
     } finally {
@@ -278,10 +280,13 @@ export class XrpSpokeService implements MpcRelaySettlement {
 
     const submitted = await this.submitDeposit(hash);
     if (!submitted.ok) {
-      this.config.logger.warn('[XrpSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it', {
-        hash,
-        error: submitted.error,
-      });
+      this.config.logger.warn(
+        '[XrpSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it',
+        {
+          hash,
+          error: submitted.error,
+        },
+      );
     }
 
     return hash satisfies string as XrpDepositReturnType<R>;
@@ -417,7 +422,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
 
     try {
       return await waitForDeposit(this.relayApiUrl, toDepositId(this.chainId, hash), {
-        timeout: Math.max(timeout ?? 0, XRP_SETTLEMENT_FLOOR_MS),
+        timeout: Math.max(resolveTimeoutMs(timeout, 0), XRP_SETTLEMENT_FLOOR_MS),
         pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
       });
     } finally {
@@ -457,13 +462,22 @@ export class XrpSpokeService implements MpcRelaySettlement {
     const entry = Object.values(this.chainConfig.supportedTokens).find(t => t.address === token);
     if (!entry) throw new Error(`[XrpSpokeService.getDeposit] unknown XRPL token ${token}`);
     const currency = xrpCurrencyCode(entry.symbol);
-    const lines = await this.rpc<{ lines?: { currency: string; account: string; balance: string }[] }>(
-      'account_lines',
-      { account: srcAddress, ledger_index: 'validated' },
-    );
-    const line = lines.lines?.find(l => l.currency === currency && l.account === entry.address);
-    if (!line) return 0n;
-    return toBaseUnits(line.balance, entry.decimals);
+    let marker: unknown;
+    do {
+      const page = await this.rpc<{
+        lines?: { currency: string; account: string; balance: string }[];
+        marker?: unknown;
+      }>('account_lines', {
+        account: srcAddress,
+        peer: entry.address,
+        ledger_index: 'validated',
+        ...(marker === undefined ? {} : { marker }),
+      });
+      const line = page.lines?.find(l => l.currency === currency && l.account === entry.address);
+      if (line) return toBaseUnits(line.balance, entry.decimals);
+      marker = page.marker;
+    } while (marker !== undefined);
+    return 0n;
   }
 
   /** The user's own wallet balance of `token`, in smallest units — the same read as {@link getDeposit}. */
@@ -485,7 +499,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
 
   /**
    * Whether `address` can receive `amount` of `token` from a release, checked before the hub burns it.
-   * `amount` is what arrives, in the token's decimals.
+   * `amount` is what arrives, in the token's decimals; `maxAmount` (default `amount`) is the most that can
+   * arrive, which the trustline must have room for when a solver fill can exceed the minimum.
    *
    * Refused: a missing account, unless native XRP of at least the base reserve creates it; a required
    * destination tag; Deposit Authorization. For an IOU paid to anyone but its issuer (paying the issuer
@@ -496,8 +511,9 @@ export class XrpSpokeService implements MpcRelaySettlement {
     address: string;
     token: string;
     amount: bigint;
+    maxAmount?: bigint;
   }): Promise<XrpDestinationReadiness> {
-    const { address, token, amount } = params;
+    const { address, token, amount, maxAmount = amount } = params;
     const iou =
       token === this.chainConfig.nativeToken
         ? undefined
@@ -530,7 +546,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
       return { ready: false, reason: 'trustline_unauthorized' };
     }
     if (stateFlags & LSF_DEEP_FREEZE) return { ready: false, reason: 'trustline_frozen' };
-    if (toBaseUnits(line.balance, iou.decimals) + amount > toBaseUnits(line.limit, iou.decimals)) {
+    if (toBaseUnits(line.balance, iou.decimals, 'ceil') + maxAmount > toBaseUnits(line.limit, iou.decimals)) {
       return { ready: false, reason: 'trustline_limit' };
     }
     return { ready: true };
@@ -584,22 +600,12 @@ export class XrpSpokeService implements MpcRelaySettlement {
     };
   }
 
-  /**
-   * The fee the ledger will burn for a Payment, in drops.
-   *
-   * XRPL charges a flat per-transaction fee rather than metering execution, so there is no
-   * gas/limit pair to estimate — `server_info` reports the current base fee, which rises only
-   * when the network is under load. Returned as drops so the caller can compare it against the
-   * amount being sent.
-   */
+  /** The current open-ledger Payment fee in drops, falling back to the base fee when unavailable. */
   public async estimateGas(_params: EstimateGasParams<XrpChainKey>): Promise<XrpGasEstimate> {
-    const info = await this.rpc<{ info?: { validated_ledger?: { base_fee_xrp?: number } } }>('server_info', {});
-    const baseFeeXrp = info.info?.validated_ledger?.base_fee_xrp;
-    if (baseFeeXrp === undefined) {
-      // A node that cannot report its fee is not a node to build a transaction against.
-      throw new Error('[XrpSpokeService.estimateGas] server_info returned no base_fee_xrp');
-    }
-    return { fee: BigInt(Math.ceil(baseFeeXrp * 1_000_000)) };
+    const info = await this.rpc<{ drops?: { open_ledger_fee?: string; base_fee?: string } }>('fee', {});
+    const fee = info.drops?.open_ledger_fee ?? info.drops?.base_fee;
+    if (fee === undefined) throw new Error('[XrpSpokeService.estimateGas] fee returned no ledger fee');
+    return { fee: BigInt(fee) };
   }
 
   /**
@@ -701,7 +707,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
   ): Promise<Result<WithdrawalRecord>> {
     return waitForWithdrawal(this.relayApiUrl, trackingId, {
       until,
-      timeout: Math.max(timeout ?? 0, XRP_SETTLEMENT_FLOOR_MS),
+      timeout: Math.max(resolveTimeoutMs(timeout, 0), XRP_SETTLEMENT_FLOOR_MS),
       pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
     });
   }
@@ -735,7 +741,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     }, RENOTIFY_INTERVAL_MS);
     try {
       return await waitForHubRelease(this.relayApiUrl, release, {
-        timeout: Math.max(timeout ?? 0, XRP_SETTLEMENT_FLOOR_MS),
+        timeout: Math.max(resolveTimeoutMs(timeout, 0), XRP_SETTLEMENT_FLOOR_MS),
         pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
       });
     } finally {
@@ -753,30 +759,40 @@ export class XrpSpokeService implements MpcRelaySettlement {
     params: WaitForTxReceiptParams<XrpChainKey>,
   ): Promise<Result<WaitForTxReceiptReturnType<XrpChainKey>>> {
     const { txHash } = params;
-    const pollingIntervalMs = params.pollingIntervalMs ?? this.chainConfig.pollingConfig.pollingIntervalMs;
-    const maxTimeoutMs = params.maxTimeoutMs ?? this.chainConfig.pollingConfig.maxTimeoutMs;
-    const maxAttempts = Math.max(1, Math.round(maxTimeoutMs / pollingIntervalMs));
+    const pollingIntervalMs = resolveTimeoutMs(
+      params.pollingIntervalMs,
+      this.chainConfig.pollingConfig.pollingIntervalMs,
+    );
+    const maxTimeoutMs = resolveTimeoutMs(params.maxTimeoutMs, this.chainConfig.pollingConfig.maxTimeoutMs);
 
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        const tx = await this.rpc<XrpRawTransactionReceipt>('tx', {
-          transaction: txHash.replace(/^0x/, '').toUpperCase(),
-          binary: false,
-        });
-        // Only a VALIDATED ledger is final on XRPL; an unvalidated result can still change.
-        if (tx.validated) {
-          const result = tx.meta?.TransactionResult;
-          if (result && result !== 'tesSUCCESS') {
-            return { ok: true, value: { status: 'failure', error: new Error(`xrpl tx failed: ${result}`) } };
+    const settled = await pollUntil<WaitForTxReceiptReturnType<XrpChainKey>>(
+      async remainingMs => {
+        try {
+          const tx = await this.rpc<XrpRawTransactionReceipt>(
+            'tx',
+            {
+              transaction: txHash.replace(/^0x/, '').toUpperCase(),
+              binary: false,
+            },
+            Math.min(XRP_RPC_TIMEOUT_MS, remainingMs),
+          );
+          // Only a VALIDATED ledger is final on XRPL; an unvalidated result can still change.
+          if (tx.validated) {
+            const result = tx.meta?.TransactionResult;
+            if (result && result !== 'tesSUCCESS') {
+              return { status: 'failure', error: new Error(`xrpl tx failed: ${result}`) };
+            }
+            return { status: 'success', receipt: tx };
           }
-          return { ok: true, value: { status: 'success', receipt: tx } };
+        } catch (error) {
+          // `txnNotFound` is expected until the tx is in a ledger, so a poll error is not terminal.
+          this.config.logger.debug('[XrpSpokeService.waitForTransactionReceipt] poll error', { error });
         }
-      } catch (error) {
-        // `txnNotFound` is expected until the tx is in a ledger, so a poll error is not terminal.
-        this.config.logger.debug('[XrpSpokeService.waitForTransactionReceipt] poll error', { error });
-      }
-      await new Promise(r => setTimeout(r, pollingIntervalMs));
-    }
+        return undefined;
+      },
+      { timeoutMs: maxTimeoutMs, intervalMs: pollingIntervalMs },
+    );
+    if (settled !== undefined) return { ok: true, value: settled };
     return { ok: true, value: { status: 'timeout', error: new Error(`xrpl tx ${txHash} not validated in time`) } };
   }
 }
@@ -785,12 +801,14 @@ export class XrpSpokeService implements MpcRelaySettlement {
  * An XRPL decimal IOU amount in base units, truncated to `decimals`. rippled switches to
  * `<mantissa>e<exponent>` outside exponents -25..-5 (any value from 1e11, such as a large trustline limit).
  */
-function toBaseUnits(value: string, decimals: number): bigint {
+function toBaseUnits(value: string, decimals: number, rounding: 'truncate' | 'ceil' = 'truncate'): bigint {
   const match = /^(-?)(\d*)(?:\.(\d*))?(?:e([+-]?\d{1,3}))?$/i.exec(value);
   const [, sign = '', whole = '', frac = '', exponent = '0'] = match ?? [];
   if (!match || (whole === '' && frac === '')) throw new Error(`[XrpSpokeService] unreadable XRPL amount: ${value}`);
   const digits = BigInt(`${whole}${frac}` || '0');
   const shift = Number(exponent) - frac.length + decimals;
   const units = shift >= 0 ? digits * 10n ** BigInt(shift) : digits / 10n ** BigInt(-shift);
-  return sign === '-' ? -units : units;
+  const remainder = shift < 0 && digits % 10n ** BigInt(-shift) !== 0n;
+  if (sign === '-') return -units;
+  return units + (rounding === 'ceil' && remainder ? 1n : 0n);
 }

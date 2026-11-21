@@ -1,3 +1,4 @@
+import { SOLVED_PAYOUT_HEADROOM_FACTOR } from '../shared/utils/solved-payout.js';
 import { isHex } from 'viem';
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import {
@@ -1633,8 +1634,8 @@ export class SwapService {
           chainKey: params.dstChainKey,
           recipient: encodeRecipient(params.dstChainKey, params.dstAddress),
           token: outputTokenInfo.address,
-          // A fill can exceed the minimum, so the floor is all that can be checked before it lands.
           amount: params.minOutputAmount,
+          maxAmount: params.minOutputAmount * SOLVED_PAYOUT_HEADROOM_FACTOR,
           context: { ...baseCtx, field: 'dstAddress' },
         });
       }

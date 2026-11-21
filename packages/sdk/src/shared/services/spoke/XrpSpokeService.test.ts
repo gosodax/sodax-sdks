@@ -57,7 +57,7 @@ function stubRippled(overrides: Record<string, unknown> = {}) {
         account_lines: {
           lines: [{ currency: xrpCurrencyCode('RLUSD'), account: RLUSD_ISSUER, balance: '1.5' }],
         },
-        server_info: { info: { validated_ledger: { base_fee_xrp: 0.00001 } } },
+        fee: { drops: { base_fee: '10' } },
         tx: { hash: TX_HASH, validated: true, meta: { TransactionResult: 'tesSUCCESS' } },
         ...overrides,
       };
@@ -501,11 +501,7 @@ describe('XrpSpokeService — relay submit and read', () => {
 
     await xrp.waitForWithdrawal('0xtrack', undefined, 'burned');
 
-    expect(wait).toHaveBeenCalledWith(
-      expect.anything(),
-      '0xtrack',
-      expect.objectContaining({ until: 'burned' }),
-    );
+    expect(wait).toHaveBeenCalledWith(expect.anything(), '0xtrack', expect.objectContaining({ until: 'burned' }));
   });
 });
 
@@ -624,6 +620,14 @@ describe('XrpSpokeService.checkDestination', () => {
       expect(await check(USDC_ISSUER, 5_000_000n)).toEqual({ ready: false, reason: 'account_not_found' });
       // No amount of an IOU creates the account, so the reserve is not read for one.
       expect(callTo('server_state')).toBeUndefined();
+    });
+
+    it('creates the account only from the least that arrives, not the most', async () => {
+      stubRippled(missing);
+
+      expect(
+        await xrp.checkDestination({ address: SENDER, token: NATIVE_XRP, amount: 999_999n, maxAmount: 1_999_998n }),
+      ).toEqual({ ready: false, reason: 'account_not_found' });
     });
 
     it('does not guess a base reserve the node will not report', async () => {
@@ -796,10 +800,10 @@ describe('XrpSpokeService.estimateGas', () => {
     expect(estimate).toEqual({ fee: 10n });
   });
 
-  it('rounds a fractional drop up rather than truncating below the ledger minimum', async () => {
-    stubRippled({ server_info: { info: { validated_ledger: { base_fee_xrp: 0.0000125 } } } });
+  it('uses the loaded open-ledger fee ahead of the base fee', async () => {
+    stubRippled({ fee: { drops: { open_ledger_fee: '100', base_fee: '10' } } });
 
-    expect((await xrp.estimateGas(gasParams)).fee).toBe(13n);
+    expect((await xrp.estimateGas(gasParams)).fee).toBe(100n);
   });
 
   it('does not depend on the transaction, since the fee is flat rather than metered', async () => {
@@ -810,9 +814,9 @@ describe('XrpSpokeService.estimateGas', () => {
   });
 
   it('rejects a node that cannot report its fee', async () => {
-    stubRippled({ server_info: { info: {} } });
+    stubRippled({ fee: { drops: {} } });
 
-    await expect(xrp.estimateGas(gasParams)).rejects.toThrow(/no base_fee_xrp/);
+    await expect(xrp.estimateGas(gasParams)).rejects.toThrow(/no.*fee/);
   });
 });
 
@@ -1005,4 +1009,82 @@ describe('XrpSpokeService — node request budget', () => {
 
     expect(await xrp.getDeposit({ srcChainKey: XRP, srcAddress: SENDER, token })).toBe(0n);
   });
+});
+
+it('finds a balance trustline on page two filtered by issuer', async () => {
+  stubRippled({
+    account_lines: ({ peer, marker }: { peer?: string; marker?: string }) => {
+      expect(peer).toBe(RLUSD_ISSUER);
+      return marker === 'next'
+        ? { lines: [{ currency: xrpCurrencyCode('RLUSD'), account: RLUSD_ISSUER, balance: '2' }] }
+        : { lines: [], marker: 'next' };
+    },
+  });
+  expect(await xrp.getDeposit({ srcChainKey: XRP, srcAddress: SENDER, token: RLUSD_ISSUER })).toBe(2_000_000n);
+  expect(calls.filter(c => c.method === 'account_lines')).toHaveLength(2);
+});
+it('includes sub-base-unit balance dust in trustline capacity', async () => {
+  const issuer = spokeChainConfig[XRP].supportedTokens.USDC.address;
+  for (const balance of ['9.0000009', '9']) {
+    stubRippled({
+      account_lines: { lines: [{ currency: xrpCurrencyCode('USDC'), account: issuer, balance, limit: '10' }] },
+    });
+    expect(await xrp.checkDestination({ address: SENDER, token: issuer, amount: 1_000_000n })).toEqual(
+      balance === '9' ? { ready: true } : { ready: false, reason: 'trustline_limit' },
+    );
+  }
+});
+it('checks trustline room against maxAmount, the most a fill can pay', async () => {
+  const issuer = spokeChainConfig[XRP].supportedTokens.USDC.address;
+  stubRippled({
+    account_lines: { lines: [{ currency: xrpCurrencyCode('USDC'), account: issuer, balance: '0', limit: '100' }] },
+  });
+  const check = (maxAmount: bigint) =>
+    xrp.checkDestination({ address: SENDER, token: issuer, amount: 50_000_000n, maxAmount });
+  expect(await check(100_000_000n)).toEqual({ ready: true });
+  expect(await check(100_000_001n)).toEqual({ ready: false, reason: 'trustline_limit' });
+});
+it('bounds hanging tx RPCs by the receipt wall-clock budget', async () => {
+  vi.useFakeTimers();
+  try {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+          }),
+      ),
+    );
+    const start = Date.now();
+    let elapsed: number | undefined;
+    const pending = xrp
+      .waitForTransactionReceipt({ txHash: RELAY_HASH, chainKey: XRP, maxTimeoutMs: 20_000, pollingIntervalMs: 2_000 })
+      .then(result => {
+        elapsed = Date.now() - start;
+        return result;
+      });
+    await vi.advanceTimersByTimeAsync(22_000);
+    expect(elapsed).toBeDefined();
+    expect(elapsed).toBeLessThanOrEqual(22_000);
+    expect(await pending).toMatchObject({ ok: true, value: { status: 'timeout' } });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('normalizes NaN settlement timeouts to the floor for every relay wait', async () => {
+  const failure = { ok: false, error: new Error('stop') } as const;
+  const deposit = vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockResolvedValue(failure);
+  const withdrawal = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue(failure);
+  const release = vi.spyOn(MpcRelayApiService, 'waitForHubRelease').mockResolvedValue(failure);
+  await xrp.waitForDeposit(RELAY_HASH, Number.NaN);
+  await xrp.waitForWithdrawal('id', Number.NaN);
+  await xrp.waitForHubRelease({ dstChainKey: XRP, hubChainId: '146', hubTxHash: '0xhub', logIndex: 0 }, Number.NaN);
+  for (const spy of [deposit, withdrawal, release]) {
+    expect(spy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ timeout: 300_000 }),
+    );
+  }
 });

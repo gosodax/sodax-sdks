@@ -11,9 +11,9 @@ const NATIVE_XRP = '0x0000000000000000000000000000000000000000';
  */
 function currencyCode(symbol: string): string {
   if (symbol.length <= 3) return symbol;
-  const ascii = Buffer.from(symbol, 'ascii');
-  return Buffer.concat([ascii, Buffer.alloc(20 - ascii.length)])
-    .toString('hex')
+  return Array.from(new TextEncoder().encode(symbol), byte => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .padEnd(40, '0')
     .toUpperCase();
 }
 
@@ -62,19 +62,37 @@ export class XrpXService extends XService {
         return BigInt(info?.account_data?.Balance ?? 0);
       }
       // IOU: the balance lives on the trustline to the issuer, which is the token's `address`.
-      const lines = await this.rpc<{ lines?: { currency: string; account: string; balance: string }[] }>(
-        'account_lines',
-        { account: address, ledger_index: 'validated' },
-      );
       const wanted = currencyCode(xToken.symbol);
-      const line = lines?.lines?.find(l => l.currency === wanted && l.account === xToken.address);
-      if (!line) return 0n;
-      // IOU balances are decimal strings; scale to base units so every chain returns the same shape.
-      const [whole = '0', frac = ''] = line.balance.split('.');
-      return BigInt(whole + frac.padEnd(xToken.decimals, '0').slice(0, xToken.decimals));
+      let marker: unknown;
+      do {
+        const page = await this.rpc<{
+          lines?: { currency: string; account: string; balance: string }[];
+          marker?: unknown;
+        }>('account_lines', {
+          account: address,
+          peer: xToken.address,
+          ledger_index: 'validated',
+          ...(marker === undefined ? {} : { marker }),
+        });
+        const line = page?.lines?.find(l => l.currency === wanted && l.account === xToken.address);
+        if (line) return toBaseUnits(line.balance, xToken.decimals);
+        marker = page?.marker;
+      } while (marker !== undefined);
+      return 0n;
     } catch (error) {
       console.error('Error fetching XRPL balance:', error);
       return 0n;
     }
   }
+}
+
+// Mirrors toBaseUnits in the sdk; kept local because this package takes no sdk dependency, like currencyCode.
+function toBaseUnits(value: string, decimals: number): bigint {
+  const match = /^(-?)(\d*)(?:\.(\d*))?(?:e([+-]?\d{1,3}))?$/i.exec(value);
+  const [, sign = '', whole = '', frac = '', exponent = '0'] = match ?? [];
+  if (!match || (whole === '' && frac === '')) throw new Error(`Unreadable XRPL amount: ${value}`);
+  const digits = BigInt(`${whole}${frac}` || '0');
+  const shift = Number(exponent) - frac.length + decimals;
+  const units = shift >= 0 ? digits * 10n ** BigInt(shift) : digits / 10n ** BigInt(-shift);
+  return sign === '-' ? -units : units;
 }

@@ -13,6 +13,14 @@ describe('pollUntil', () => {
     expect(await result).toBeUndefined();
     expect(attempt).toHaveBeenCalledTimes(2);
   });
+  it('passes the remaining wall-clock budget to each attempt', async () => {
+    vi.useFakeTimers();
+    const attempt = vi.fn(async (_remainingMs: number) => undefined);
+    const pending = pollUntil(attempt, { timeoutMs: 100, intervalMs: 40 });
+    await vi.advanceTimersByTimeAsync(100);
+    await pending;
+    expect(attempt.mock.calls.map(([remaining]) => remaining)).toEqual([100, 60, 20, 0]);
+  });
   it('returns the first value', async () => {
     vi.useFakeTimers();
     const attempt = vi

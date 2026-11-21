@@ -1,3 +1,4 @@
+import { SOLVED_PAYOUT_HEADROOM_FACTOR } from '../shared/utils/solved-payout.js';
 import {
   type SpokeService,
   type SendMessageParams,
@@ -1139,6 +1140,7 @@ export class LeverageYieldService {
           recipient: encodeRecipient(params.dstChainKey, params.dstAddress),
           token: outputTokenInfo.address,
           amount: params.minOutputAmount,
+          maxAmount: params.minOutputAmount * SOLVED_PAYOUT_HEADROOM_FACTOR,
           context: { ...baseCtx, field: 'dstAddress' },
         });
       }

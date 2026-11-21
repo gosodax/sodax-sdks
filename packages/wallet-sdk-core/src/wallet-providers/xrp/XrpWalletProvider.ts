@@ -15,6 +15,10 @@ import type {
   XrpWalletDefaults,
 } from './types.js';
 
+const XRP_RPC_TIMEOUT_MS = 15_000;
+const XRP_RECEIPT_TIMEOUT_MS = 60_000;
+const XRP_POLL_INTERVAL_MS = 2_000;
+
 const DEFAULT_RPC = 'https://xrplcluster.com';
 
 export function isPrivateKeyXrpWalletConfig(config: XrpWalletConfig): config is PrivateKeyXrpWalletConfig {
@@ -168,7 +172,7 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
     const [info, ledger, fee] = await Promise.all([
       this.rpc<{ account_data?: { Sequence?: number } }>('account_info', {
         account: tx.Account,
-        ledger_index: 'validated',
+        ledger_index: 'current',
       }),
       this.rpc<{ ledger_current_index?: number }>('ledger_current', {}),
       this.rpc<{ drops?: { open_ledger_fee?: string } }>('fee', {}),
@@ -186,29 +190,43 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
 
   public async waitForTransactionReceipt(txHash: string): Promise<XrpRawTransactionReceipt> {
     const value = txHash.replace(/^0x/, '').toUpperCase();
-    for (let i = 0; i < 30; i++) {
+    const deadline = Date.now() + XRP_RECEIPT_TIMEOUT_MS;
+    while (Date.now() < deadline) {
       try {
-        const tx = await this.rpc<XrpRawTransactionReceipt>('tx', { transaction: value, binary: false });
+        const tx = await this.rpc<XrpRawTransactionReceipt>(
+          'tx',
+          { transaction: value, binary: false },
+          Math.min(XRP_RPC_TIMEOUT_MS, deadline - Date.now()),
+        );
         // Only a VALIDATED ledger is final on XRPL; an unvalidated result can still change.
         if (tx.validated) return tx;
       } catch {
         // `txnNotFound` until the transaction is in a ledger — expected, keep polling.
       }
-      await new Promise(r => setTimeout(r, 2000));
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await new Promise(r => setTimeout(r, Math.min(XRP_POLL_INTERVAL_MS, remaining)));
     }
     throw new Error(`xrpl tx ${txHash} not validated in time`);
   }
 
-  private async rpc<T>(method: string, params: Record<string, unknown>): Promise<T> {
-    const res = await fetch(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method, params: [params] }),
-    });
-    if (!res.ok) throw new Error(`xrpl rpc ${method}: ${res.status}`);
-    const body = (await res.json()) as { result?: T & { error?: string } };
-    if (!body.result) throw new Error(`xrpl rpc ${method}: no result`);
-    if (body.result.error) throw new Error(`xrpl rpc ${method}: ${body.result.error}`);
-    return body.result;
+  private async rpc<T>(method: string, params: Record<string, unknown>, timeoutMs = XRP_RPC_TIMEOUT_MS): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(this.rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method, params: [params] }),
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`xrpl rpc ${method}: ${res.status}`);
+      const body = (await res.json()) as { result?: T & { error?: string } };
+      if (!body.result) throw new Error(`xrpl rpc ${method}: no result`);
+      if (body.result.error) throw new Error(`xrpl rpc ${method}: ${body.result.error}`);
+      return body.result;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

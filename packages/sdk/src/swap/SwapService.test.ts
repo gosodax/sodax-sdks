@@ -3011,6 +3011,27 @@ describe('SwapService.createIntent — payouts through the MPC relay', () => {
       deadline: 1_700_000_000n,
     };
 
+    it.each([
+      99_000_000n,
+      50_000_000n,
+    ])('checks solved payout headroom for minimum %s before signing', async minOutputAmount => {
+      const s = new Sodax({ logger: 'silent' });
+      vi.spyOn(s.spoke.xrp, 'checkDestination').mockImplementation(async ({ amount, maxAmount = amount }) =>
+        maxAmount > 100_000_000n ? { ready: false, reason: 'trustline_limit' } : { ready: true },
+      );
+      const signing = vi.spyOn(s.spoke, 'deposit');
+      const pastValidation = vi
+        .spyOn(s.hubProvider, 'getUserHubWalletAddress')
+        .mockRejectedValue(new Error('past validation'));
+      const result = await s.swaps.createIntent({ params: { ...toXrpl, minOutputAmount }, raw: true });
+      if (minOutputAmount === 99_000_000n) {
+        invariant(!result.ok, 'expected refusal');
+        expect(result.error.context).toMatchObject({ reason: 'xrpl-trustline_limit' });
+        expect(pastValidation).not.toHaveBeenCalled();
+        expect(signing).not.toHaveBeenCalled();
+      } else expect(pastValidation).toHaveBeenCalled();
+    });
+
     const runXrpl = async (params: CreateIntentParams<SpokeChainKey>, readiness: XrpDestinationReadiness) => {
       const s = new Sodax({ logger: 'silent' });
       const checkSpy = vi.spyOn(s.spoke.xrp, 'checkDestination').mockResolvedValue(readiness);
@@ -3021,14 +3042,20 @@ describe('SwapService.createIntent — payouts through the MPC relay', () => {
       return { result, pastValidation, checkSpy };
     };
 
-    // A refund lands on the line the deposit just drew down, so it is checked for no extra room.
+    // A payout needs room for the most a fill can pay; a refund lands on the line the deposit just drew down,
+    // so it is checked for no extra room.
     it.each([
-      ['to', toXrpl, 'dstAddress', 5_000_000n],
-      ['from', fromXrpl, 'srcAddress', 0n],
-    ] as const)('refuses a swap %s an XRPL account that cannot receive its release', async (_, params, field, amount) => {
+      ['to', toXrpl, 'dstAddress', 5_000_000n, 10_000_000n],
+      ['from', fromXrpl, 'srcAddress', 0n, undefined],
+    ] as const)('refuses a swap %s an XRPL account that cannot receive its release', async (_, params, field, amount, maxAmount) => {
       const outcome = runXrpl(params, { ready: false, reason: 'no_trustline' });
       await expectRefused(outcome, field);
-      expect((await outcome).checkSpy).toHaveBeenCalledWith({ address: XRPL_ADDRESS, token: XRPL_USDC, amount });
+      expect((await outcome).checkSpy).toHaveBeenCalledWith({
+        address: XRPL_ADDRESS,
+        token: XRPL_USDC,
+        amount,
+        maxAmount,
+      });
     });
 
     it.each([

@@ -406,3 +406,50 @@ describe('XrpWalletProvider — endpoint selection', () => {
     expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe('https://d.example/rpc');
   });
 });
+
+it('signs with the current account sequence including queued transactions', async () => {
+  stubRippled();
+  const original = vi.mocked(fetch).getMockImplementation();
+  vi.mocked(fetch).mockImplementation(async (url, init) => {
+    const { method, params } = JSON.parse(String(init?.body)) as { method: string; params: [{ ledger_index: string }] };
+    if (method === 'account_info')
+      return new Response(
+        JSON.stringify({ result: { account_data: { Sequence: params[0].ledger_index === 'current' ? 79 : 77 } } }),
+      );
+    if (!original) throw new Error('missing fetch stub');
+    return original(url, init);
+  });
+  const provider = rawKeyProvider();
+  const signed = await provider.signTransaction({ ...payment, Account: await provider.getWalletAddress() });
+  expect(decode(signed.tx_blob)).toMatchObject({ Sequence: 79 });
+});
+it('bounds a stalled response body by the receipt wall-clock budget', async () => {
+  vi.useFakeTimers();
+  try {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = new ReadableStream({
+          start(controller) {
+            init.signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+          },
+        });
+        return new Response(body);
+      }),
+    );
+    let elapsed: number | undefined;
+    const start = Date.now();
+    const pending = rawKeyProvider()
+      .waitForTransactionReceipt(TX_HASH)
+      .catch((error: unknown) => {
+        elapsed = Date.now() - start;
+        return error;
+      });
+    await vi.advanceTimersByTimeAsync(62_000);
+    expect(elapsed).toBeDefined();
+    expect(elapsed).toBeLessThanOrEqual(62_000);
+    expect(await pending).toEqual(expect.objectContaining({ message: expect.stringMatching(/not validated in time/) }));
+  } finally {
+    vi.useRealTimers();
+  }
+});

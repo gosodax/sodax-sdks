@@ -1544,8 +1544,8 @@ export class SpokeService {
    * release terminally after the hub has already burned the funds. Only an XRPL account can refuse one
    * today (see {@link XrpSpokeService.checkDestination}); every other chain passes.
    *
-   * `recipient` is the release's `to` as `encodeRecipient` encodes it for the hub, and `amount` is in
-   * the spoke token's decimals.
+   * `recipient` is the release's `to` as `encodeRecipient` encodes it for the hub; `amount` (the least that
+   * arrives) and `maxAmount` (the most, default `amount`) are in the spoke token's decimals.
    */
   public async assertReleaseRecipientReady({
     feature,
@@ -1553,6 +1553,7 @@ export class SpokeService {
     recipient,
     token,
     amount,
+    maxAmount,
     context,
   }: {
     feature: SodaxFeature;
@@ -1560,11 +1561,12 @@ export class SpokeService {
     recipient: Hex;
     token: string;
     amount: bigint;
+    maxAmount?: bigint;
     context?: Partial<SodaxErrorContext>;
   }): Promise<void> {
     if (!isXrpChainKeyType(chainKey)) return;
     const address = reverseEncodeAddress(chainKey, recipient);
-    const readiness = await this.xrp.checkDestination({ address, token, amount });
+    const readiness = await this.xrp.checkDestination({ address, token, amount, maxAmount });
     if (readiness.ready) return;
     sodaxInvariant(false, xrpRefusalMessage(readiness.reason, address, token), {
       feature,
