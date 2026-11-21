@@ -72,10 +72,11 @@ describe('RWA metadata', () => {
     solanaSupportedTokens.SPCXx.symbol,
   ];
   const expectedByChain: Partial<Record<string, readonly string[]>> = {
-    [ChainKeys.ROBINHOOD_MAINNET]: equities,
-    [ChainKeys.SONIC_MAINNET]: equities,
-    [ChainKeys.STELLAR_MAINNET]: equities,
-    [ChainKeys.HEDERA_MAINNET]: equities,
+    // ANT (Anthropic) is listed after the equities on every equity spoke.
+    [ChainKeys.ROBINHOOD_MAINNET]: [...equities, robinhoodSupportedTokens.ANT.symbol],
+    [ChainKeys.SONIC_MAINNET]: [...equities, robinhoodSupportedTokens.ANT.symbol],
+    [ChainKeys.STELLAR_MAINNET]: [...equities, robinhoodSupportedTokens.ANT.symbol],
+    [ChainKeys.HEDERA_MAINNET]: [...equities, robinhoodSupportedTokens.ANT.symbol],
     [ChainKeys.SOLANA_MAINNET]: xstocks,
     [ChainKeys.ETHEREUM_MAINNET]: [ethereumSupportedTokens.PAXG.symbol, ethereumSupportedTokens.XAUt.symbol],
   };

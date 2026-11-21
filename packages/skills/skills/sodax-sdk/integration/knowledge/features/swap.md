@@ -83,7 +83,7 @@ sodax.swaps.getApprovalStrategy<K extends SpokeChainKey>(
 sodax.swaps.getSwapSpeedTier(params: { srcToken: XToken; dstToken: XToken }): SwapSpeedTierResult;
 //   Synchronous, offline, no Result wrapper — estimates settlement speed from SDK config alone
 //   (no network / on-chain / backend call). SwapSpeedTierResult = { tier: 'fast'|'normal'|'slow', estimatedSeconds }.
-//   A token whose `vault` is a money-market reserve (sodaAsset) settles faster; an Ethereum leg adds a fixed penalty.
+//   A token whose `vault` is a non-RWA money-market reserve (sodaAsset) settles faster; an Ethereum leg adds a fixed penalty.
 //   Safe to call synchronously while rendering a quote (e.g. an ETA badge next to the output amount).
 
 sodax.swaps.getStatus(

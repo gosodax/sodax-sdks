@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "SODAX Docs",
-  "description": "SODAX is non-custodial cross-network execution infrastructure (Sonic hub). Docs cover the open-source SDK and partner HTTP APIs for swaps, lending/borrowing, staking, bridging, and migration \u2014 SODAX routes and settles; solvers on the marketplace fill.",
+  "description": "SODAX is non-custodial cross-network execution infrastructure (Sonic hub). Docs cover the partner HTTP APIs and the open-source SDK for swaps, lending/borrowing, staking, bridging, and migration \u2014 SODAX routes and settles; solvers on the marketplace fill.",
   "logo": {
     "light": "/sodax-lockup-light.svg",
     "dark": "/sodax-lockup-dark.svg"
@@ -44,8 +44,8 @@
     ],
     "primary": {
       "type": "button",
-      "label": "SODAX Scan",
-      "href": "https://sodaxscan.com"
+      "label": "Get Your API Key",
+      "href": "https://portal.sodax.com"
     }
   },
   "navigation": {
@@ -75,17 +75,9 @@
           {
             "group": "How SODAX works",
             "icon": "gears",
-            "pages": ["home/why-sodax", "home/how-execution-works", "home/sdk-stack"]
+            "pages": ["home/why-sodax", "home/how-execution-works", "home/api"]
           }
         ]
-      },
-      {
-        "tab": "Solutions",
-        "pages": ["swap/index", "money-market/index", "bridge/index", "yield/index"]
-      },
-      {
-        "tab": "Widget",
-        "pages": ["widget/index"]
       },
       {
         "tab": "API",
@@ -96,6 +88,14 @@
           "developers/http-api/oracle",
           "developers/http-api/stats"
         ]
+      },
+      {
+        "tab": "Solutions",
+        "pages": ["swap/index", "money-market/index", "bridge/index", "yield/index"]
+      },
+      {
+        "tab": "Widget",
+        "pages": ["widget/index"]
       },
       {
         "tab": "SDK",
@@ -162,6 +162,7 @@
           "developers/how-to/how_to_make_a_swap",
           "developers/how-to/integrate_leverage_yield",
           "developers/how-to/robinhood-stocks",
+          "developers/how-to/robinhood-stocks-due-diligence",
           "developers/how-to/wallet-balances",
           "developers/how-to/migrate_swap_to_submit_tx",
           "developers/how-to/api-keys",
@@ -499,6 +500,10 @@
     ]
   },
   "redirects": [
+    {
+      "source": "/home/sdk-stack",
+      "destination": "/home/api"
+    },
     {
       "source": "/resources/changelog",
       "destination": "/resources/product-updates"
@@ -929,7 +934,7 @@
           },
           {
             "label": "Partner portal",
-            "href": "https://www.sodax.com/partner-dashboard"
+            "href": "https://portal.sodax.com"
           },
           {
             "label": "MiCA whitepaper",

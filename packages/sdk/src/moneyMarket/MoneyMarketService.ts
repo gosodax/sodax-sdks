@@ -203,6 +203,16 @@ export type MoneyMarketServiceConstructorParams = {
   hubProvider: HubProvider;
 };
 
+// Aave v3 `ReserveConfiguration` flags the pool checks before a borrow.
+const RESERVE_ACTIVE = 1n << 56n;
+const RESERVE_FROZEN = 1n << 57n;
+const RESERVE_BORROWING_ENABLED = 1n << 58n;
+const RESERVE_PAUSED = 1n << 60n;
+
+const isReserveBorrowable = (configuration: bigint): boolean =>
+  (configuration & (RESERVE_ACTIVE | RESERVE_FROZEN | RESERVE_BORROWING_ENABLED | RESERVE_PAUSED)) ===
+  (RESERVE_ACTIVE | RESERVE_BORROWING_ENABLED);
+
 /**
  * Entry point for all SODAX money market operations: supply, borrow, withdraw, and repay.
  *
@@ -842,6 +852,14 @@ export class MoneyMarketService {
       });
 
       const encodedDstAddress = encodeRecipient(dstChainKey, dstAddress);
+
+      const { configuration } = await this.data.getReserveData(this.getBorrowReserve(dstToken.vault));
+      mmInvariant(
+        isReserveBorrowable(configuration),
+        `${dstToken.symbol} cannot be borrowed: its money-market reserve is inactive, frozen, paused or has borrowing disabled`,
+        { ...baseCtx, field: 'token' },
+      );
+
       // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the
       // collateral/debt lives. srcAddress stays the personal address because `SpokeService.sendMessage`
       // resolves the effective address itself (unlike the deposit path used by supply/repay, which
@@ -1335,6 +1353,12 @@ export class MoneyMarketService {
     return encodeContractCalls(calls);
   }
 
+  /** The pool reserve a borrow of `vault` draws on: bnUSD is borrowed from its debt reserve, then wrapped into the vault. */
+  private getBorrowReserve(vault: Address): Address {
+    const { bnUSD, bnUSDVault } = this.config.moneyMarket;
+    return vault.toLowerCase() === bnUSDVault.toLowerCase() ? bnUSD : vault;
+  }
+
   /**
    * Encode the hub-side calldata for a borrow operation.
    *
@@ -1380,44 +1404,28 @@ export class MoneyMarketService {
 
     const translatedInAmount = EvmVaultTokenService.translateIncomingDecimals(toHubAsset.decimals, amount);
     const feeAmount = calculateFeeAmount(translatedInAmount, this.partnerFee);
-    const calls: EvmContractCall[] = [];
+    const calls: EvmContractCall[] = [
+      MoneyMarketService.encodeBorrow(
+        {
+          asset: this.getBorrowReserve(vaultAddress),
+          amount: translatedInAmount,
+          interestRateMode: 2n,
+          referralCode: 0,
+          onBehalfOf: fromHubAddress,
+        },
+        lendingPool,
+      ),
+    ];
 
     if (bnUSDVault.toLowerCase() === vaultAddress.toLowerCase()) {
-      calls.push(
-        MoneyMarketService.encodeBorrow(
-          {
-            asset: bnUSD,
-            amount: translatedInAmount,
-            interestRateMode: 2n,
-            referralCode: 0,
-            onBehalfOf: fromHubAddress,
-          },
-          lendingPool,
-        ),
-      );
       calls.push(Erc20Service.encodeApprove(bnUSD, bnUSDVault, translatedInAmount));
       calls.push(EvmVaultTokenService.encodeDeposit(bnUSDVault, bnUSD, translatedInAmount));
 
       if (this.partnerFee && feeAmount) {
         calls.push(Erc20Service.encodeTransfer(bnUSDVault, this.partnerFee.address, feeAmount));
       }
-    } else {
-      calls.push(
-        MoneyMarketService.encodeBorrow(
-          {
-            asset: vaultAddress,
-            amount: translatedInAmount,
-            interestRateMode: 2n,
-            referralCode: 0,
-            onBehalfOf: fromHubAddress,
-          },
-          lendingPool,
-        ),
-      );
-
-      if (this.partnerFee && feeAmount) {
-        calls.push(Erc20Service.encodeTransfer(vaultAddress, this.partnerFee.address, feeAmount));
-      }
+    } else if (this.partnerFee && feeAmount) {
+      calls.push(Erc20Service.encodeTransfer(vaultAddress, this.partnerFee.address, feeAmount));
     }
 
     if (!this.config.isSodaVaultHubAsset(assetAddress)) {

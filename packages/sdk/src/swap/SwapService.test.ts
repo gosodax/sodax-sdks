@@ -1566,6 +1566,21 @@ describe('SwapService.getSwapSpeedTier', () => {
       estimatedSeconds: SPEED_TIER_SECONDS.sodaAsset,
     });
   });
+
+  it('does not count a stock vault as a sodaAsset even when it is a money-market reserve', () => {
+    const robinhood = spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens;
+    expect(sodax.config.isMoneyMarketReserveAsset(robinhood.AAPL.vault)).toBe(true);
+
+    expect(sodax.swaps.getSwapSpeedTier({ srcToken: robinhood.AAPL, dstToken: robinhood.GME })).toEqual({
+      tier: 'slow',
+      estimatedSeconds: SPEED_TIER_SECONDS.default,
+    });
+    // The stablecoin side is still a sodaAsset, so the common route keeps its fast tier.
+    expect(sodax.swaps.getSwapSpeedTier({ srcToken: robinhood.USDG, dstToken: robinhood.AAPL })).toEqual({
+      tier: 'fast',
+      estimatedSeconds: SPEED_TIER_SECONDS.sodaAsset,
+    });
+  });
 });
 
 describe('SwapService.getSupportedSwapTokens', () => {

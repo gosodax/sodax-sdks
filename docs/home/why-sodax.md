@@ -4,7 +4,7 @@ description: What you can build, proof points, and ecosystem reach across networ
 icon: chart-line
 ---
 
-SODAX is a modular execution system. Integrate each SDK module on its own, or combine them.
+SODAX is a modular execution system. Start with the [HTTP API](/developers/http-api) from any language, or use the open-source SDK modules on their own or combined.
 
 ### What you can build
 
@@ -23,7 +23,7 @@ SODAX is a modular execution system. Integrate each SDK module on its own, or co
 ### Why it fits
 
 * **Execution beyond routing.** Routes move assets. SODAX routes and settles; solvers fill so swaps, borrows, and deposits can complete across networks.
-* **One SDK, modular usage.** Integrate @sodax/sdk once, then use only the modules you need.
+* **API first, modular usage.** Call the [HTTP API](/developers/http-api) from any language, or integrate `@sodax/sdk` and use only the modules you need.
 * **Built for real execution conditions.** Asynchronous by nature, with explicit timeouts and clear completion or failure handling.
 * **Your control preserved.** You keep ownership of user experience, pricing logic, and risk parameters.
 * **Proven in production.** Live cross-network flows across heterogeneous networks, settled by the protocol and filled by independent solvers.

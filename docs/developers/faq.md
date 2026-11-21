@@ -21,6 +21,22 @@ Sonic is the hub. All swap, lend, borrow, bridge and stake actions are coordinat
 
 Deep dives: [Technical Overview](/developers/technical-overview), [Asset Manager](/developers/technical-overview/asset-manager), [Generalized Messaging Protocol](/developers/technical-overview/generalized-messaging-protocol).
 
+### HTTP API
+
+#### Can I integrate without the SDK?
+
+Yes. The [HTTP API](/developers/http-api) covers swaps and leverage yield from any language, plus read endpoints for prices, stats and configuration. The money market's supply and borrow flows have no HTTP write endpoints, so those need [`@sodax/sdk`](/developers/packages/foundation/sdk/functional-modules/money_market).
+
+#### Do I need an API key?
+
+Create one in the [partner portal](https://portal.sodax.com) and send it from your server. [API keys](/developers/how-to/api-keys) covers what the key does, where it goes, and which routes check it.
+
+#### How do I track a swap over HTTP?
+
+After you broadcast the intent and call `submit-tx`, poll its status until it reaches a terminal state. [Poll status](/developers/http-api/swaps#4-poll-status) lists the states and what to do on failure.
+
+### SDK setup
+
 #### 4. Do I need to call `sodax.initialize()` before using the SDK?
 
 No. The constructor uses the config packaged with the SDK version you installed, and `initialize()` currently returns success without fetching anything, so it does not add tokens or chains listed after your release. Calling it is harmless.
@@ -159,6 +175,6 @@ See [Hub Wallet Abstraction](/developers/technical-overview/hub-wallet-abstracti
 
 #### 22. Can my AI agent query SODAX docs directly instead of web-searching?
 
-Yes, two ways. This documentation site hosts an auto-generated MCP server at `docs.sodax.com/mcp` that exposes a search tool over these pages — add it to your agent's MCP config, or use the "Add to \[agent]" option in the contextual menu on any page. For more than doc search, add the [Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`): 40 tools giving the agent live chains, tokens, quotes, money market rates, intent lookups **and** these docs, over one endpoint.
+Yes, two ways. This documentation site hosts an auto-generated MCP server at `docs.sodax.com/mcp` that exposes a search tool over these pages — add it to your agent's MCP config, or use the "Add to \[agent]" option in the contextual menu on any page. For more than doc search, add the [Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`): it gives the agent live chains, tokens, quotes, money market rates, intent lookups **and** these docs over one endpoint, plus swaps for a user once you send a SODAX API key (those are [not production ready yet](/builders-mcp#swaps)).
 
 See [Builders MCP](/builders-mcp) and [AI Integration](/ai-integration-guide).

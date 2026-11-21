@@ -139,6 +139,7 @@ import {
   type XToken,
   HUB_CHAIN_KEY,
   isHubChainKey,
+  isRealWorldAsset,
   DEFAULT_RELAY_TX_TIMEOUT,
   DEFAULT_DEADLINE_OFFSET,
   type GetAddressType,
@@ -2274,13 +2275,18 @@ export class SwapService {
    * Offline, rule-based estimate of how fast a `srcToken`→`dstToken` swap will settle.
    *
    * Derived purely from SDK config (no network / on-chain / backend call): tokens whose vault is a
-   * money-market-reserve sodaAsset settle faster, and an Ethereum leg adds a fixed penalty. See
-   * {@link estimateSwapSpeedTier} for the rules.
+   * money-market-reserve sodaAsset settle faster, and an Ethereum leg adds a fixed penalty. RWA vaults
+   * (tokenized stocks) are collateral-only reserves sourced through their own markets, so they never
+   * count as sodaAssets. See {@link estimateSwapSpeedTier} for the rules.
    *
    * @param params `{ srcToken, dstToken }` spoke token pair to estimate
    * @returns the estimated `tier` bucket and `estimatedSeconds`
    */
   public getSwapSpeedTier(params: SwapSpeedTierParams): SwapSpeedTierResult {
-    return estimateSwapSpeedTier(params, vault => this.config.isMoneyMarketReserveAsset(vault));
+    return estimateSwapSpeedTier(
+      params,
+      vault =>
+        this.config.isMoneyMarketReserveAsset(vault) && !isRealWorldAsset({ chainKey: HUB_CHAIN_KEY, address: vault }),
+    );
   }
 }

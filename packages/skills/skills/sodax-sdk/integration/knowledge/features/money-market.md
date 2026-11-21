@@ -114,6 +114,8 @@ await sodax.moneyMarket.borrow({
 
 Same-chain borrow: omit `dstChainKey` and `dstAddress`.
 
+Borrow reads the token's reserve on the hub first. When the pool cannot lend it (borrowing disabled on a collateral-only reserve, or the reserve is frozen or paused) it returns `VALIDATION_FAILED` with `context.field: 'token'` and sends nothing. Hide the option up front with `borrowingEnabled` from the reserve data.
+
 ### Repay (cross-chain — pay from a different chain than the debt)
 
 ```ts
