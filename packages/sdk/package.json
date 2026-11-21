@@ -6,20 +6,36 @@
   },
   "version": "2.0.0-rc.17",
   "license": "MIT",
-  "description": "Sodax SDK",
+  "description": "TypeScript SDK for SODAX cross-network DeFi: intent swaps, money market, bridging and staking across EVM, Solana, Sui, Stellar and other networks",
   "keywords": [
     "sodax",
     "sdk",
     "frontend",
-    "interface"
+    "interface",
+    "defi",
+    "cross-chain",
+    "multi-chain",
+    "swap",
+    "bridge",
+    "intents",
+    "money-market",
+    "lending",
+    "web3",
+    "evm",
+    "solana",
+    "sui",
+    "stellar",
+    "sonic",
+    "typescript"
   ],
-  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/sdk",
+  "homepage": "https://docs.sodax.com/developers/packages/foundation/sdk",
   "bugs": {
     "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/gosodax/sodax-sdks"
+    "url": "git+https://github.com/gosodax/sodax-sdks.git",
+    "directory": "packages/sdk"
   },
   "type": "module",
   "main": "./dist/index.cjs",
