@@ -139,6 +139,7 @@ export const HubVaultSymbols = [
   'GLD',
   'sodaADA',
   'sodaZEC',
+  'sodaZECv2',
   'sodaTRX',
   'ANT',
 ] as const;
@@ -879,6 +880,18 @@ export const SodaTokens = {
   sodaZEC: {
     symbol: 'sodaZEC',
     name: 'SODA ZEC',
+    decimals: 18,
+    address: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
+    chainKey: ChainKeys.SONIC_MAINNET,
+    hubAsset: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
+    vault: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
+  },
+  // The ZEC vault Zcash deposits into, and the money market's ZEC reserve. Read on Sonic 2026-11-22: it registers the
+  // Zcash (0x24312b2C…) and NEAR (0xEd5d71eE…) ZEC hub assets, and the lending pool lists it, not sodaZEC (0xf4af…).
+  // Neither vault registers Solana's ZEC hub asset (0xdfce…), so Solana ZEC stays on sodaZEC.
+  sodaZECv2: {
+    symbol: 'sodaZECv2',
+    name: 'SODA ZEC v2',
     decimals: 18,
     address: '0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
     chainKey: ChainKeys.SONIC_MAINNET,
@@ -2905,7 +2918,7 @@ export const xrpSupportedTokens = {
 } as const satisfies Record<string, XToken>;
 
 export const zcashSupportedTokens = {
-  // Native transparent ZEC (8 decimals), deposited into the sodaZEC vault.
+  // Native transparent ZEC (8 decimals), deposited into the sodaZECv2 vault.
   ZEC: {
     symbol: 'ZEC',
     name: 'Zcash',
@@ -2913,7 +2926,7 @@ export const zcashSupportedTokens = {
     address: '0x0000000000000000000000000000000000000000',
     chainKey: ChainKeys.ZCASH_MAINNET,
     hubAsset: '0x24312b2Cc7A56ADdD3a849Db5e9B81704D6B20af',
-    vault: SodaTokens.sodaZEC.address,
+    vault: SodaTokens.sodaZECv2.address,
   },
 } as const satisfies Record<string, XToken>;
 

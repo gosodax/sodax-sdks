@@ -13,6 +13,8 @@ import {
 } from '@sodax/types';
 import type { Hex } from 'viem';
 import type { ConfigService } from '../../config/ConfigService.js';
+import { pollUntil } from '../../utils/pollUntil.js';
+import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
 import { retry } from '../../utils/shared-utils.js';
 import type {
   DepositParams,
@@ -29,6 +31,7 @@ import {
   getDepositAddress,
   getWithdrawal,
   notify,
+  relayTimeout,
   submitWithdraw,
   toDepositId,
   toHubReleaseId,
@@ -68,8 +71,21 @@ const RENOTIFY_INTERVAL_MS = 30_000;
 const DEPOSIT_OUTPUT_INDEX = 0;
 
 /** How long to wait for the node to see a transaction a wallet broadcast through its own backend. */
-const OUTPUT_LOOKUP_ATTEMPTS = 12;
+const OUTPUT_LOOKUP_TIMEOUT_MS = 60_000;
 const OUTPUT_LOOKUP_INTERVAL_MS = 5_000;
+const FALLBACK_OUTPUT_INDICES = [0, 1];
+
+/** The JSON-RPC error code for a transaction the node does not know. */
+const RPC_INVALID_ADDRESS_OR_KEY = -5;
+
+class ZcashRpcError extends Error {
+  constructor(
+    method: string,
+    readonly rpcError: { code?: number; message?: string },
+  ) {
+    super(`zcash rpc ${method}: ${rpcError.message ?? rpcError.code}`);
+  }
+}
 
 /** A `getaddressutxos` entry. */
 type RpcUtxo = { txid: string; outputIndex: number; script: string; satoshis: number | string };
@@ -112,16 +128,21 @@ export class ZcashSpokeService implements MpcRelaySettlement {
     return getMpcRelayChainInfo(ChainKeys.ZCASH_MAINNET).chainId.toString();
   }
 
-  /** One Zcash JSON-RPC call, bounded by a timeout. Needs an endpoint with address indexing. */
-  private async rpc<T>(method: string, params: unknown[]): Promise<T> {
+  private requireRpcUrl(): string {
     const { rpcUrl } = this.chainConfig;
     if (!rpcUrl) {
       throw new Error(
         '[ZcashSpokeService] no Zcash RPC configured — set chains.zcash.rpcUrl to an endpoint with address indexing (getaddressutxos)',
       );
     }
+    return rpcUrl;
+  }
+
+  /** One Zcash JSON-RPC call, bounded by a timeout. Needs an endpoint with address indexing. */
+  private async rpc<T>(method: string, params: unknown[], timeoutMs = ZCASH_RPC_TIMEOUT_MS): Promise<T> {
+    const rpcUrl = this.requireRpcUrl();
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), ZCASH_RPC_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(rpcUrl, {
         method: 'POST',
@@ -130,12 +151,12 @@ export class ZcashSpokeService implements MpcRelaySettlement {
         signal: controller.signal,
       });
       const body = (await res.json()) as { result?: T; error?: { code?: number; message?: string } | null };
-      if (body.error) throw new Error(`zcash rpc ${method}: ${body.error.message ?? body.error.code}`);
+      if (body.error) throw new ZcashRpcError(method, body.error);
       if (!res.ok) throw new Error(`zcash rpc ${method}: ${res.status}`);
       return body.result as T;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`zcash rpc ${method}: timed out after ${ZCASH_RPC_TIMEOUT_MS}ms`);
+        throw new Error(`zcash rpc ${method}: timed out after ${timeoutMs}ms`);
       }
       throw error;
     } finally {
@@ -171,14 +192,14 @@ export class ZcashSpokeService implements MpcRelaySettlement {
    *
    * `Raw: true` returns the transfer descriptor (the derived deposit address and amount). `Raw: false` builds a
    * v5 transaction paying that address, has the wallet sign it, checks the signed bytes pay exactly the deposit
-   * address, broadcasts it, and notifies the relay — resolving to the txid. After broadcast, a failed notify
-   * warns and still resolves to the txid, so a retry cannot pay twice: `settle` re-notifies it, and a caller that
-   * does not settle notifies it with `spoke.submitMpcDeposit`.
+   * address, broadcasts it, and notifies the relay. A failed notify or output lookup still returns the txid.
+   * A payment mismatch throws an error with a `txHash` property.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<ZcashChainKey, R>,
   ): Promise<TxReturnType<ZcashChainKey, R>> {
     const { srcAddress, token, amount, data, to } = params;
+    if (!('raw' in params && params.raw)) this.requireRpcUrl();
 
     const addr = await getDepositAddress(this.relayApiUrl, srcAddress, this.chainId, data);
     if (!addr.ok) throw addr.error;
@@ -225,7 +246,7 @@ export class ZcashSpokeService implements MpcRelaySettlement {
 
     const submitted = await this.submitDeposit(txid);
     if (!submitted.ok) {
-      this.config.logger.warn('[ZcashSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it', {
+      this.config.logger.warn('[ZcashSpokeService.deposit] relay notify failed; re-notify to settle', {
         txid,
         error: submitted.error,
       });
@@ -233,7 +254,18 @@ export class ZcashSpokeService implements MpcRelaySettlement {
 
     if (!this.depositOutputs.has(txid)) {
       // The wallet chose the output order; the relay keys the deposit on the index that pays the deposit address.
-      const index = await this.findDepositOutput(txid, depositScript, amount);
+      const index = await this.findDepositOutput(txid, depositScript, amount).catch(error => {
+        this.config.logger.warn('[ZcashSpokeService.deposit] could not determine the deposit output', { txid, error });
+        return undefined;
+      });
+      if (index === null) {
+        throw Object.assign(
+          new Error(
+            `[ZcashSpokeService.deposit] transaction ${txid} does not pay exactly ${amount} to the deposit address`,
+          ),
+          { txHash: txid },
+        );
+      }
       if (index !== undefined) this.depositOutputs.set(txid, index);
     }
 
@@ -317,37 +349,40 @@ export class ZcashSpokeService implements MpcRelaySettlement {
   }
 
   /** The verbose transaction, or `undefined` while the node has not seen it yet. */
-  private async getTransaction(txid: string): Promise<ZcashRawTransactionReceipt | undefined> {
+  private async getTransaction(txid: string, timeoutMs?: number): Promise<ZcashRawTransactionReceipt | undefined> {
     try {
-      return await this.rpc<ZcashRawTransactionReceipt>('getrawtransaction', [txid, 1]);
+      return await this.rpc<ZcashRawTransactionReceipt>('getrawtransaction', [txid, 1], timeoutMs);
     } catch (error) {
-      this.config.logger.debug('[ZcashSpokeService] transaction not available yet', { txid, error });
-      return undefined;
+      if (error instanceof ZcashRpcError && error.rpcError.code === RPC_INVALID_ADDRESS_OR_KEY) return undefined;
+      throw error;
     }
   }
 
-  /**
-   * The index of the output paying exactly `amount` to `depositScript`, waiting briefly for the node to see a
-   * transaction the wallet broadcast elsewhere. `undefined` if it never shows up; throws if it shows up paying
-   * something else, since the relay would then mint nothing.
-   */
-  private async findDepositOutput(txid: string, depositScript: string, amount: bigint): Promise<number | undefined> {
-    for (let attempt = 0; attempt < OUTPUT_LOOKUP_ATTEMPTS; attempt++) {
-      const tx = await this.getTransaction(txid);
-      if (tx?.vout) {
+  /** Find the wallet's deposit output, returning `null` if the fetched transaction pays a different script or amount. */
+  private async findDepositOutput(txid: string, depositScript: string, amount: bigint): Promise<number | null> {
+    const index = await pollUntil(
+      async remainingMs => {
+        const tx = await this.getTransaction(txid, Math.min(ZCASH_RPC_TIMEOUT_MS, remainingMs));
+        if (!tx?.vout) return undefined;
         const output = tx.vout.find(
           o => o.scriptPubKey?.hex === depositScript && o.valueZat !== undefined && BigInt(o.valueZat) === amount,
         );
-        if (!output) {
-          throw new Error(
-            `[ZcashSpokeService.deposit] transaction ${txid} does not pay exactly ${amount} to the deposit address`,
-          );
-        }
-        return output.n;
-      }
-      await new Promise(r => setTimeout(r, OUTPUT_LOOKUP_INTERVAL_MS));
+        return output?.n ?? null;
+      },
+      { timeoutMs: OUTPUT_LOOKUP_TIMEOUT_MS, intervalMs: OUTPUT_LOOKUP_INTERVAL_MS },
+    );
+    if (index === undefined) throw new Error('Timed out looking up the Zcash deposit output');
+    return index;
+  }
+
+  private async getOutputIndices(txid: string, timeoutMs?: number): Promise<number[] | undefined> {
+    try {
+      const tx = await this.getTransaction(txid, timeoutMs);
+      return tx?.vout?.map(o => o.n);
+    } catch (error) {
+      this.config.logger.debug('[ZcashSpokeService] could not read transaction outputs', { txid, error });
+      return undefined;
     }
-    return undefined;
   }
 
   /**
@@ -362,7 +397,7 @@ export class ZcashSpokeService implements MpcRelaySettlement {
     }, RENOTIFY_INTERVAL_MS);
 
     const options = {
-      timeout: Math.max(timeout ?? 0, ZCASH_SETTLEMENT_FLOOR_MS),
+      timeout: Math.max(resolveTimeoutMs(timeout, 0), ZCASH_SETTLEMENT_FLOOR_MS),
       pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
     };
     try {
@@ -378,32 +413,33 @@ export class ZcashSpokeService implements MpcRelaySettlement {
 
   /**
    * Wait for a deposit whose output index is unknown — one a wallet built, or one made before a reload — by
-   * polling the relay record of every output of the transaction until one settles.
+   * polling the relay for the transaction's outputs, or indices 0 and 1 while the node cannot read it.
    */
   private async waitForAnyOutput(
     txid: string,
     timeout: number,
     pollIntervalMs: number,
   ): Promise<Result<DepositRecord>> {
-    const deadline = Date.now() + timeout;
     let indices: number[] | undefined;
-    for (;;) {
-      if (!indices) {
-        const outputs = (await this.getTransaction(txid))?.vout;
-        indices = outputs?.map(o => o.n);
-      }
-      for (const index of indices ?? []) {
-        const res = await getDeposit(this.relayApiUrl, toDepositId(this.chainId, txid, index));
-        if (res.ok && (res.value.status === 'minted' || res.value.status === 'swept')) {
-          this.depositOutputs.set(txid, index);
-          return res;
+    const settled = await pollUntil(
+      async remainingMs => {
+        indices ??= await this.getOutputIndices(txid, Math.min(ZCASH_RPC_TIMEOUT_MS, remainingMs));
+        for (const index of indices ?? FALLBACK_OUTPUT_INDICES) {
+          const res = await getDeposit(this.relayApiUrl, toDepositId(this.chainId, txid, index));
+          if (
+            res.ok &&
+            (res.value.status === 'minted' || res.value.status === 'swept') &&
+            res.value.txs?.hubMint?.hash
+          ) {
+            this.depositOutputs.set(txid, index);
+            return res;
+          }
         }
-      }
-      if (Date.now() >= deadline) {
-        return { ok: false, error: new Error(`mpc-relay: timed out waiting for deposit ${txid}`) };
-      }
-      await new Promise(r => setTimeout(r, pollIntervalMs));
-    }
+        return undefined;
+      },
+      { timeoutMs: timeout, intervalMs: resolveTimeoutMs(pollIntervalMs, OUTPUT_LOOKUP_INTERVAL_MS) },
+    );
+    return settled ?? { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for deposit ${txid}`) };
   }
 
   /**
@@ -417,14 +453,14 @@ export class ZcashSpokeService implements MpcRelaySettlement {
       const known = this.depositOutputs.get(txid);
       if (known !== undefined) return await getDeposit(this.relayApiUrl, toDepositId(this.chainId, txid, known));
 
-      const indices = (await this.getTransaction(txid))?.vout?.map(o => o.n) ?? [];
+      const indices = (await this.getOutputIndices(txid)) ?? FALLBACK_OUTPUT_INDICES;
       let found: Result<DepositRecord> | undefined;
       let failure: Result<DepositRecord> | undefined;
       for (const index of indices) {
         const res = await getDeposit(this.relayApiUrl, toDepositId(this.chainId, txid, index));
         if (!res.ok) {
           failure = res;
-        } else if (res.value.status === 'minted' || res.value.status === 'swept') {
+        } else if ((res.value.status === 'minted' || res.value.status === 'swept') && res.value.txs?.hubMint?.hash) {
           return res;
         } else {
           found ??= res;
@@ -515,7 +551,7 @@ export class ZcashSpokeService implements MpcRelaySettlement {
   ): Promise<Result<WithdrawalRecord>> {
     return waitForWithdrawal(this.relayApiUrl, trackingId, {
       until,
-      timeout: Math.max(timeout ?? 0, ZCASH_SETTLEMENT_FLOOR_MS),
+      timeout: Math.max(resolveTimeoutMs(timeout, 0), ZCASH_SETTLEMENT_FLOOR_MS),
       pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
     });
   }
@@ -549,7 +585,7 @@ export class ZcashSpokeService implements MpcRelaySettlement {
     }, RENOTIFY_INTERVAL_MS);
     try {
       return await waitForHubRelease(this.relayApiUrl, release, {
-        timeout: Math.max(timeout ?? 0, ZCASH_SETTLEMENT_FLOOR_MS),
+        timeout: Math.max(resolveTimeoutMs(timeout, 0), ZCASH_SETTLEMENT_FLOOR_MS),
         pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
       });
     } finally {
@@ -567,20 +603,23 @@ export class ZcashSpokeService implements MpcRelaySettlement {
     params: WaitForTxReceiptParams<ZcashChainKey>,
   ): Promise<Result<WaitForTxReceiptReturnType<ZcashChainKey>>> {
     const txid = canonicalTxid(params.txHash);
-    const pollingIntervalMs = params.pollingIntervalMs ?? this.chainConfig.pollingConfig.pollingIntervalMs;
-    const maxTimeoutMs = params.maxTimeoutMs ?? this.chainConfig.pollingConfig.maxTimeoutMs;
-    const maxAttempts = Math.max(1, Math.round(maxTimeoutMs / pollingIntervalMs));
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        const receipt = await this.rpc<ZcashRawTransactionReceipt>('getrawtransaction', [txid, 1]);
-        if ((receipt.confirmations ?? 0) > 0) return { ok: true, value: { status: 'success', receipt } };
-      } catch (error) {
-        // Not yet known to the node is expected right after broadcast.
-        this.config.logger.debug('[ZcashSpokeService.waitForTransactionReceipt] poll error', { error });
-      }
-      await new Promise(r => setTimeout(r, pollingIntervalMs));
-    }
+    const polling = this.chainConfig.pollingConfig;
+    const receipt = await pollUntil(
+      async remainingMs => {
+        try {
+          const tx = await this.getTransaction(txid, Math.min(ZCASH_RPC_TIMEOUT_MS, remainingMs));
+          return tx && (tx.confirmations ?? 0) > 0 ? tx : undefined;
+        } catch (error) {
+          this.config.logger.debug('[ZcashSpokeService.waitForTransactionReceipt] poll error', { error });
+          return undefined;
+        }
+      },
+      {
+        timeoutMs: resolveTimeoutMs(params.maxTimeoutMs, polling.maxTimeoutMs),
+        intervalMs: resolveTimeoutMs(params.pollingIntervalMs, polling.pollingIntervalMs),
+      },
+    );
+    if (receipt) return { ok: true, value: { status: 'success', receipt } };
     return { ok: true, value: { status: 'timeout', error: new Error(`zcash tx ${txid} not confirmed in time`) } };
   }
 }

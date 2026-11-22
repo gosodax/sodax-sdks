@@ -42,6 +42,7 @@ The package includes wallet provider implementations for:
 - Bitcoin ✅
 - Tron ✅
 - TON ✅
+- Zcash (transparent) ✅
 
 ## Public API surface
 
@@ -56,7 +57,7 @@ Internal utilities (e.g. `shallowMerge` in `src/utils/merge.ts`) are **not** exp
 
 All providers support two modes, but **the union discriminant depends on the provider**:
 
-- **Field presence (no `type` field in config)**: EVM, Solana, Sui, Near, Stacks, Icon, Injective, Tron, TON
+- **Field presence (no `type` field in config)**: EVM, Solana, Sui, Near, Stacks, Icon, Injective, Tron, TON, Zcash
 - **Explicit uppercase `type` field**: Bitcoin, Stellar (`'PRIVATE_KEY' | 'BROWSER_EXTENSION'`)
 
 ### EVM
@@ -298,6 +299,21 @@ transaction whose `validUntil` has passed and passes `validUntil` on as the tran
 ```ts
 const tonPk = new TonWalletProvider({ privateKey: process.env.TON_PRIVATE_KEY!, apiKey: process.env.TONCENTER_KEY });
 const tonBrowser = new TonWalletProvider({ tonConnect: tonConnectUI });
+```
+
+### Zcash
+
+Zcash (transparent only) discriminates by field presence: `privateKey` (a secp256k1 key; the SDK builds the v5
+transaction and the provider signs it with ZIP-244 digests through `signTransaction`), or `wallet` (a browser wallet such
+as Noir that builds and broadcasts the payment itself through `sendTransfer`). See
+[`zcash/types.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/zcash/types.ts).
+`getWalletAddress()` returns the mainnet `t1…` address, and `signMessage` returns the 65-byte compact `signmessage`
+signature a Zcash withdrawal is authorized with. Deposits also need the SDK's `chains.zcash.rpcUrl` set to an
+address-indexed node.
+
+```ts
+const zecPk = new ZcashWalletProvider({ privateKey: process.env.ZCASH_PRIVATE_KEY! });
+const zecBrowser = new ZcashWalletProvider({ wallet: noirAdapter });
 ```
 
 ## Defaults and merge semantics

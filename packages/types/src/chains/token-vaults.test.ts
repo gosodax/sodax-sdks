@@ -38,6 +38,11 @@ describe('ADA and ZEC vault feature membership', () => {
 
   it('uses the ZEC vault to back Solana ZEC without enabling hub swaps', () => {
     const token = SodaTokens.sodaZEC;
+    expect(token).toMatchObject({
+      address: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
+      hubAsset: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
+      vault: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
+    });
     expect(solanaSupportedTokens.ZEC.vault).toBe(token.address);
     expect(stagingSwapSupportedTokens[token.chainKey]).not.toContainEqual(token);
     expect(swapSupportedTokens[token.chainKey]).not.toContainEqual(token);
@@ -50,7 +55,9 @@ describe('ADA and ZEC vault feature membership', () => {
   });
 
   it('lists the ZEC vault as a money-market reserve, backing Zcash ZEC', () => {
-    const token = SodaTokens.sodaZEC;
+    const token = SodaTokens.sodaZECv2;
+    expect(moneyMarketReserveAssets).not.toContain(SodaTokens.sodaZEC.address);
+    expect(supportedTokensByChain[ChainKeys.SONIC_MAINNET].sodaZECv2).toBe(token);
     expect(moneyMarketSupportedTokens[token.chainKey]).toContainEqual(token);
     expect(moneyMarketReserveAssets).toContain(token.address);
     expect(zcashSupportedTokens.ZEC.vault).toBe(token.address);

@@ -347,7 +347,7 @@ export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex):
       // The identity encoding is the public key verbatim.
       return tonIdentityBytes(encoded);
     case 'ZCASH':
-      return zcashHashToAddress(encoded);
+      return zcashHashToAddress(mpcRelayIdentityHash(encoded, 'Zcash'));
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);

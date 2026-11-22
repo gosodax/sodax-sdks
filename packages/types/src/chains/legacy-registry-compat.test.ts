@@ -521,7 +521,7 @@ describe('money market keeps its legacy lists and appends only the listed equity
       ...LEGACY_MONEY_MARKET_SONIC,
       ...moneyMarketEquityIds(SodaTokens),
       // The ZEC vault, a reserve since Zcash joined as a money-market spoke.
-      'sodaZEC:0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
+      'sodaZECv2:0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
     ]);
   });
 

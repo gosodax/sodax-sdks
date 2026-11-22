@@ -50,7 +50,7 @@ const moneyMarketHubVaults = [
   SodaTokens.sodaUSDS,
   SodaTokens.sodaUSSD,
   ...moneyMarketEquitySymbols.map(symbol => SodaTokens[symbol]),
-  SodaTokens.sodaZEC,
+  SodaTokens.sodaZECv2,
 ] as const satisfies XToken[];
 
 // currently supported spoke chain tokens for money market
