@@ -1,7 +1,15 @@
 import 'dotenv/config';
 
 import { formatUnits, parseUnits, type Hex } from 'viem';
-import { Sodax, encodeContractCalls, encodeRecipient, spokeChainConfig, ChainKeys, tonWalletAddress } from '@sodax/sdk';
+import {
+  Sodax,
+  encodeContractCalls,
+  encodeRecipient,
+  spokeChainConfig,
+  ChainKeys,
+  tonWalletAddress,
+  moneyMarketSupportedTokens,
+} from '@sodax/sdk';
 import { TonWalletProvider } from '@sodax/wallet-sdk-core';
 
 /**
@@ -14,7 +22,7 @@ import { TonWalletProvider } from '@sodax/wallet-sdk-core';
  * Endpoints:
  *   hub        — print the public key, wallet address and derived hub wallet (no funds)
  *   deposit    — TON→hub: deposit TON (or USDT via --token), mint on the hub wallet  [spends funds]
- *   supply     — TON→hub: deposit + supply into the money market (USDT only)       [spends funds]
+ *   supply     — TON→hub: deposit + supply into the money market (defaults to USDT; supported reserves only)       [spends funds]
  *   intent     — TON→hub: deposit carrying an arbitrary hub payload (--data)       [spends funds]
  *   borrow     — hub→TON: sign a borrow authorization, relay releases to the key's wallet-v4R2 address
  *   withdraw   — hub→TON: sign a withdraw authorization, relay releases to the key's wallet-v4R2 address
@@ -35,7 +43,10 @@ const arg = (n: string, d?: string) => {
   const i = argv.indexOf(n);
   return i >= 0 ? argv[i + 1] : d;
 };
-const TOKEN = arg('--token', NATIVE_TON) as string;
+const TOKEN = arg(
+  '--token',
+  endpoint === 'supply' ? spokeChainConfig[TON].supportedTokens.USDT.address : NATIVE_TON,
+) as string;
 const DATA = (arg('--data', '0x') ?? '0x') as Hex;
 
 function resolveToken() {
@@ -69,7 +80,12 @@ async function main() {
       return;
 
     case 'balance': {
-      const balance = await ton.getDeposit({ srcChainKey: TON, srcAddress: PUBKEY, token: TOKEN });
+      const balance = await ton.getDeposit({
+        srcChainKey: TON,
+        srcAddress: PUBKEY,
+        token: TOKEN,
+        accountAddress: await walletProvider.getAccountAddress(),
+      });
       log('balance   :', `${formatUnits(balance, token.decimals)} ${token.symbol}`);
       return;
     }
@@ -77,6 +93,9 @@ async function main() {
     case 'deposit':
     case 'supply':
     case 'intent': {
+      if (endpoint === 'supply' && !moneyMarketSupportedTokens[TON].some(t => t.address === TOKEN)) {
+        throw new Error(`--token ${TOKEN} is not a supported TON money-market reserve`);
+      }
       // A plain deposit still needs an ENCODED empty call array, not a literal '0x'.
       const data: Hex =
         endpoint === 'supply'

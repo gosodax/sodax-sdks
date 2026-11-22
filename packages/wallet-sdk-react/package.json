@@ -94,7 +94,7 @@
     "@solana/web3.js": "catalog:",
     "@stellar/stellar-sdk": "catalog:",
     "@ton/core": "catalog:",
-    "@tonconnect/ui": "^2.0.11",
+    "@tonconnect/ui": "^2.4.4",
     "icon-sdk-js": "catalog:",
     "immer": "10.1.1",
     "near-api-js": "catalog:",

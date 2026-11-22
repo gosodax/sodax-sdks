@@ -59,6 +59,8 @@ export type GetDepositParams<ChainKey extends SpokeChainKey = SpokeChainKey> = {
   srcChainKey: ChainKey; // The chain key of the spoke (origin) chain
   srcAddress: GetAddressType<ChainKey>; // The address of the user on the spoke (origin) chain
   token: GetTokenAddressType<ChainKey>;
+  /** TON only: the wallet account to read (e.g. from ITonWalletProvider.getAccountAddress()); defaults to the public key's wallet-v4R2 address */
+  accountAddress?: string;
 };
 
 /**
@@ -84,6 +86,8 @@ export type GetBalanceParams<ChainKey extends SpokeChainKey = SpokeChainKey> = {
   srcChainKey: ChainKey; // The chain key of the spoke (origin) chain
   srcAddress: GetAddressType<ChainKey>; // The address of the user whose balance is read
   token: XToken; // The token to read the balance of
+  /** TON only: the wallet account to read (e.g. from ITonWalletProvider.getAccountAddress()); defaults to the public key's wallet-v4R2 address */
+  accountAddress?: string;
 };
 
 /**
@@ -105,6 +109,8 @@ export type GetBalancesParams<ChainKey extends SpokeChainKey = SpokeChainKey> = 
   srcChainKey: ChainKey; // The chain key of the spoke (origin) chain
   srcAddress: GetAddressType<ChainKey>; // The address of the user whose balances are read
   tokens: readonly XToken[]; // The tokens to read the balances of
+  /** TON only: the wallet account to read (e.g. from ITonWalletProvider.getAccountAddress()); defaults to the public key's wallet-v4R2 address */
+  accountAddress?: string;
 };
 
 export type DepositSimulationParams = {
@@ -229,18 +235,18 @@ export type SpokeIsAllowanceValidParamsOther<K extends OtherSpokeChainKey = Othe
 export type SpokeIsAllowanceValidParams<K extends SpokeChainKey = SpokeChainKey> = K extends MonadChainKey
   ? SpokeIsAllowanceValidParamsOther<K>
   : K extends EvmChainKey
-  ? K extends HubChainKey // handle case when EvmChainKey type is passed
-    ? SpokeIsAllowanceValidParamsHub<K>
-    : SpokeIsAllowanceValidParamsEvmSpoke<EvmSpokeOnlyChainKey>
-  : K extends HubChainKey
-    ? SpokeIsAllowanceValidParamsHub<K>
-    : K extends EvmSpokeOnlyChainKey
-      ? SpokeIsAllowanceValidParamsEvmSpoke<K>
-      : K extends StellarChainKey
-        ? SpokeIsAllowanceValidParamsStellar<K>
-        : K extends OtherSpokeChainKey
-          ? SpokeIsAllowanceValidParamsOther<K>
-          : never;
+    ? K extends HubChainKey // handle case when EvmChainKey type is passed
+      ? SpokeIsAllowanceValidParamsHub<K>
+      : SpokeIsAllowanceValidParamsEvmSpoke<EvmSpokeOnlyChainKey>
+    : K extends HubChainKey
+      ? SpokeIsAllowanceValidParamsHub<K>
+      : K extends EvmSpokeOnlyChainKey
+        ? SpokeIsAllowanceValidParamsEvmSpoke<K>
+        : K extends StellarChainKey
+          ? SpokeIsAllowanceValidParamsStellar<K>
+          : K extends OtherSpokeChainKey
+            ? SpokeIsAllowanceValidParamsOther<K>
+            : never;
 
 type SpokeApproveParamsCommon<K extends SpokeChainKey, Raw extends boolean> = {
   token: GetTokenAddressType<K>;

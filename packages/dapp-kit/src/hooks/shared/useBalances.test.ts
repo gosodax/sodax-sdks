@@ -43,6 +43,16 @@ describe('getBalancesQueryOptions', () => {
     ]);
   });
 
+  it('keys TON wallet balances by the account address and forwards it to the SDK', async () => {
+    const sodax = makeSodax({ ok: true, value: {} });
+    const inputs = { chainKey: 'ton' as const, tokens: [tokenA], address: '0xpubkey' };
+    const accountAddress = 'EQ-wallet';
+    const opts = getBalancesQueryOptions(sodax, { ...inputs, accountAddress });
+    expect(opts.queryKey).not.toEqual(getBalancesQueryOptions(sodax, inputs).queryKey);
+    await opts.queryFn();
+    expect(sodax.spoke.getWalletBalances).toHaveBeenCalledWith(expect.objectContaining({ accountAddress }));
+  });
+
   it('is disabled when chainKey is missing', () => {
     const opts = getBalancesQueryOptions(makeSodax({ ok: true, value: {} }), {
       chainKey: undefined,

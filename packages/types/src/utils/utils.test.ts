@@ -70,3 +70,9 @@ it('requires every MPC chain to declare its payout floors', () => {
     expect(Object.hasOwn(MpcRelayPayoutMinimums, key)).toBe(true);
   }
 });
+
+it('refuses a TON USDT payout at 3 USDT but permits one base unit more', () => {
+  const token = { chainKey: ChainKeys.TON_MAINNET, symbol: 'USDT', decimals: 6 };
+  expect(getUnmetMpcPayoutMinimum({ token, amount: 3_000_000n })?.minimum).toBe(3_000_000n);
+  expect(getUnmetMpcPayoutMinimum({ token, amount: 3_000_001n })).toBeUndefined();
+});

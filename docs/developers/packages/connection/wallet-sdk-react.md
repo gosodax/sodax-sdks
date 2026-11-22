@@ -10,7 +10,7 @@ React layer over [`@sodax/wallet-sdk-core`](https://github.com/gosodax/sodax-sdk
 
 - **Unified wallet connectivity** across every supported chain family
   - EVM (Sonic hub, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood, Monad) — EIP-6963 + WalletConnect
-  - Solana, Sui, Stellar, ICON, Injective, Bitcoin, NEAR, Stacks, Tron
+  - Solana, Sui, Stellar, ICON, Injective, Bitcoin, NEAR, Stacks, Tron, TON (TonConnect; set `TON.manifestUrl` to your app's `tonconnect-manifest.json`)
 - **Single-store state** — `useXAccount`, `useXConnection`, `useXAccounts` all read the same Zustand slice; persisted to `localStorage`
 - **Bridge to `@sodax/sdk`** — `useWalletProvider` returns a typed `IXxxWalletProvider` ready to plug into any SDK call
 - **Headless wallet modal** — `useWalletModal` state machine (chainSelect → walletSelect → connecting → success | error), render-agnostic

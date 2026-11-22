@@ -1,5 +1,5 @@
 import { type UseQueryResult, useQuery } from '@tanstack/react-query';
-import type { Sodax, SpokeChainKey, XToken } from '@sodax/sdk';
+import { ChainKeys, type Sodax, type SpokeChainKey, type XToken } from '@sodax/sdk';
 import { useSodaxContext } from './useSodaxContext.js';
 import { unwrapResult } from './unwrapResult.js';
 import type { ReadHookParams } from './types.js';
@@ -15,6 +15,8 @@ export interface BalancesInputs {
   chainKey: SpokeChainKey | undefined;
   tokens: readonly XToken[];
   address: string | undefined;
+  /** TON only: wallet account to read. Defaults to the public key’s wallet-v4R2 address. */
+  accountAddress?: string;
 }
 
 export type UseBalancesParams = ReadHookParams<Record<string, bigint>, BalancesInputs>;
@@ -26,14 +28,24 @@ const REFETCH_INTERVAL_MS = 5_000;
  * callers that compose their own `useQuery` wrapper. Takes the SDK instance explicitly (the hook
  * supplies it from context).
  */
-export function getBalancesQueryOptions(sodax: Sodax, { chainKey, tokens, address }: BalancesInputs) {
+export function getBalancesQueryOptions(sodax: Sodax, { chainKey, tokens, address, accountAddress }: BalancesInputs) {
+  const tonAccount = chainKey === ChainKeys.TON_MAINNET && accountAddress ? { accountAddress } : undefined;
   return {
     // Pair symbol + address: readable in devtools, unique on-chain (symbol alone can collide —
     // e.g. scam tokens copying a legitimate ticker).
-    queryKey: ['shared', 'balances', chainKey, tokens.map(t => [t.symbol, t.address] as const), address] as const,
+    queryKey: [
+      'shared',
+      'balances',
+      chainKey,
+      tokens.map(t => [t.symbol, t.address] as const),
+      address,
+      ...(tonAccount ? [tonAccount.accountAddress] : []),
+    ] as const,
     queryFn: async (): Promise<Record<string, bigint>> => {
       if (!chainKey || !address) return {};
-      return unwrapResult(await sodax.spoke.getWalletBalances({ srcChainKey: chainKey, srcAddress: address, tokens }));
+      return unwrapResult(
+        await sodax.spoke.getWalletBalances({ srcChainKey: chainKey, srcAddress: address, tokens, ...tonAccount }),
+      );
     },
     enabled: !!chainKey && !!address && tokens.length > 0,
     refetchInterval: REFETCH_INTERVAL_MS,
@@ -75,6 +87,7 @@ export function useBalances({ params, queryOptions }: UseBalancesParams = {}): U
       chainKey: params?.chainKey,
       tokens: params?.tokens ?? [],
       address: params?.address,
+      accountAddress: params?.accountAddress,
     }),
     ...queryOptions,
   });

@@ -810,6 +810,12 @@ Internal chain id (NID): `1953656686`
 Monad is in `ChainKeys` as `MONAD_MAINNET` (EVM network id `143`). It is EVM for wallets and addresses but has **no spoke contracts**: it settles through the MPC relay in address mode (relay id `48` in [`MpcRelayChainMap`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chains.ts)). A deposit is a plain transfer — native MON, or an ERC-20 `transfer` — to a deposit address the relay derives for that one payload and then sweeps; a withdrawal is authorized with an EIP-191 signature (scheme 0). A payout to Monad is released to the plain 20-byte recipient address, which must be a valid EIP-55 checksum address (or all lowercase). The solver prices no Monad release fee, so `MpcRelayPayoutMinimums` sets no payout floor for it. The money market lists USDC only; MON has no vault.
 </Note>
 
+### TON
+
+<Note>
+TON is in `ChainKeys` as `TON_MAINNET` (chain type `'TON'`). It has **no spoke contracts**: it settles through the MPC relay in memo mode (relay id `607`, withdraw scheme `5` in [`MpcRelayChainMap`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chains.ts)). A TON account is identified by its ed25519 **public key**, not its address, because a TON address hashes the wallet's StateInit and cannot be inverted. A deposit is a transfer to the relay's reserve wallet that carries the payload hash as its memo — the binary comment of a native TON transfer, or the `forward_payload` of a jetton transfer. The SDK then finds that transfer on chain by memo, sender and amount; if it is broadcast but not found in time, `deposit` throws `TonDepositNotFoundError`, whose `recovery` you pass to `sodax.spoke.ton.resumeDeposit` instead of sending again. A withdrawal is authorized with a TonConnect `signData` text envelope (scheme 5). The solver charges a live-priced TON USDT release fee (about 0.1 TON, capped at 3 USDT), so `MpcRelayPayoutMinimums` floors USDT payouts to TON at 3 USDT; native TON quotes 1:1 and has no floor. The money market lists USDT only; TON has no vault.
+</Note>
+
 ### XRP Ledger
 Hub chain ID: `66` — relay mode: **MPC**
 

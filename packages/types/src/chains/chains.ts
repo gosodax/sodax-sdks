@@ -134,6 +134,10 @@ export const MpcRelayPayoutMinimums: Partial<Record<ChainKey, Readonly<Record<st
   // no `priceReleaseFees`, so XAssetModule quotes its release 1:1. The solver models release fees only for Tron, TON,
   // Zcash and Cardano.
   [ChainKeys.MONAD_MAINNET]: {},
+  // TON USDT releases cost the relay ~0.1 TON (jetton transfer + recipient jetton-wallet deploy), priced live and capped
+  // at 3 USDT: `tonReleaseCosts[TON_USDT_ASSET].capUnits` in icon-project/sodax-solver-v2 onchain-modules/modules/
+  // liquidity/hub/asset/src/core/tonReleaseFee.ts. Native TON (GRAM) is absent there and quotes 1:1, so it has no floor.
+  [ChainKeys.TON_MAINNET]: { USDT: 3_000_000n },
 };
 
 export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey>(

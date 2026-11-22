@@ -133,10 +133,12 @@ export class TonWalletProvider extends BaseWalletProvider<TonWalletDefaults> imp
       return;
     }
     if (!this.keyPair || !this.client) throw new Error('[TonWalletProvider] no private key configured');
+    if (tx.validUntil <= Math.floor(Date.now() / 1000)) throw new Error('[TonWalletProvider] transaction expired');
     const contract = this.client.open(this.wallet());
     const seqno = await contract.getSeqno();
     await contract.sendTransfer({
       seqno,
+      timeout: tx.validUntil,
       secretKey: this.keyPair.secretKey,
       sendMode: SendMode.PAY_GAS_SEPARATELY + SendMode.IGNORE_ERRORS,
       messages: tx.messages.map(m => {
