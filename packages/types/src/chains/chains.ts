@@ -126,8 +126,8 @@ export const MpcRelayPayoutMinimums: Partial<Record<ChainKey, Readonly<Record<st
   // The relay deducts no XRPL release fee (solver quotes 1:1); XrpSpokeService.checkDestination checks the native account reserve.
   [ChainKeys.XRP_MAINNET]: {},
   // No floor: the solver serves Monad with EvmChainProvider (sodax-solver-v2 .../hub/asset/src/chains/evm.ts), which has
-  // no `priceReleaseFees`, so XAssetModule quotes its release 1:1. The solver models release fees only for Tron, TON,
-  // Zcash and Cardano.
+  // no `priceReleaseFees`, so XAssetModule quotes its release 1:1. The solver models release fees only for Tron, TON
+  // and Zcash.
   [ChainKeys.MONAD_MAINNET]: {},
 };
 
