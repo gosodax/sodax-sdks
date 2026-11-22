@@ -804,6 +804,12 @@ Internal chain id (NID): `1953656686`
 | USDT | `0x0728126428000000000000000000000000000002` | [0xA71E3e927BAf32eb5f1678a3b13c2fFfeE3973D7](https://sonicscan.org/address/0xA71E3e927BAf32eb5f1678a3b13c2fFfeE3973D7) |
 
 
+### Monad
+
+<Note>
+Monad is in `ChainKeys` as `MONAD_MAINNET` (EVM network id `143`). It is EVM for wallets and addresses but has **no spoke contracts**: it settles through the MPC relay in address mode (relay id `48` in [`MpcRelayChainMap`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chains.ts)). A deposit is a plain transfer — native MON, or an ERC-20 `transfer` — to a deposit address the relay derives for that one payload and then sweeps; a withdrawal is authorized with an EIP-191 signature (scheme 0). A payout to Monad is released to the plain 20-byte recipient address, which must be a valid EIP-55 checksum address (or all lowercase). The solver prices no Monad release fee, so `MpcRelayPayoutMinimums` sets no payout floor for it. The money market lists USDC only; MON has no vault.
+</Note>
+
 ### XRP Ledger
 Hub chain ID: `66` — relay mode: **MPC**
 

@@ -1054,6 +1054,10 @@ export class SpokeService {
       const chainType = getChainType(params.srcChainKey);
       switch (chainType) {
         case 'EVM': {
+          if (isMonadChainKeyType(params.srcChainKey)) {
+            const value = await this.monad.getWalletBalance(params as GetBalanceParams<MonadChainKey>);
+            return { ok: true, value };
+          }
           const value = await this.evm.getWalletBalance(params as GetBalanceParams<EvmSpokeOnlyChainKey>);
           return { ok: true, value };
         }
@@ -1133,6 +1137,10 @@ export class SpokeService {
       const chainType = getChainType(params.srcChainKey);
       switch (chainType) {
         case 'EVM': {
+          if (isMonadChainKeyType(params.srcChainKey)) {
+            const value = await this.monad.getWalletBalances(params as GetBalancesParams<MonadChainKey>);
+            return { ok: true, value };
+          }
           const value = await this.evm.getWalletBalances(params as GetBalancesParams<EvmSpokeOnlyChainKey>);
           return { ok: true, value };
         }

@@ -98,10 +98,8 @@ export type MpcRelayChainInfo = {
  * {@link RelayChainIdMap} for the other relay.
  *
  * Unlike that map this one is deliberately PARTIAL: membership is the definition. A chain in here
- * settles through the MPC relay (deposit paid to a shared reserve with a payload-hash memo, tracked
- * over the relay's REST API); every other chain rides the intent relay. Tron is the only member
- * today — XRP (`3`) and Aptos (`4`) settle the same way and join by being added here, which is also
- * why the scheme lives in the map rather than in a chain's spoke service.
+ * settles through the MPC relay and is tracked over its REST API. Tron, XRP and Monad are members;
+ * each entry defines its relay identity and withdrawal signature scheme.
  */
 export const MpcRelayChainMap = {
   [ChainKeys.TRON_MAINNET]: { chainId: 728126428n, withdrawScheme: 1 },
@@ -122,9 +120,14 @@ export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
  * once that fee reaches the amount, after the hub has already burned it. Sized to the fee cap the solver assumes.
  */
 export const MpcRelayPayoutMinimums: Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
+  // The relay's release fee is capped at 3 USDT / 10 TRX: `tronReleaseCosts[*].capUnits` in icon-project/sodax-solver-v2
+  // onchain-modules/modules/liquidity/hub/asset/src/core/tronReleaseFee.ts (ported from the relay's fee-api).
   [ChainKeys.TRON_MAINNET]: { USDT: 3_000_000n, TRX: 10_000_000n },
   // The relay deducts no XRPL release fee (solver quotes 1:1); XrpSpokeService.checkDestination checks the native account reserve.
   [ChainKeys.XRP_MAINNET]: {},
+  // No floor: the solver serves Monad with EvmChainProvider (sodax-solver-v2 .../hub/asset/src/chains/evm.ts), which has
+  // no `priceReleaseFees`, so XAssetModule quotes its release 1:1; the relay's fee-api prices only TRON release fees.
+  [ChainKeys.MONAD_MAINNET]: {},
 };
 
 export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey>(
