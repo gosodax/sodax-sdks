@@ -348,6 +348,10 @@ const LEGACY_MONEY_MARKET_RESERVE_ASSETS: readonly string[] = [
   '0xA3AeFa2BAfEAB479c4Aca6024A16906bbC75566e',
   '0xb780e09576C2667ba9F5B80FbAb2e6b8A0a21e37',
   '0xE801CA34E19aBCbFeA12025378D19c4FBE250131',
+];
+
+// Reserves added after the legacy snapshot was frozen, in the order they are appended.
+const APPENDED_MONEY_MARKET_RESERVE_ASSETS: readonly string[] = [
   // XRP vault, listed as a reserve by the XRP spoke.
   '0xb89B3a6633fb06CAB86b7d54e2f6913C51a73952',
 ];
@@ -520,13 +524,16 @@ describe('money market keeps its legacy lists and appends only the listed equity
   });
 
   it('reserve assets: legacy reserves unchanged, then the equity vaults', () => {
-    // hubConfig.bnUSD and then XRP's own-vault reserve are appended after the hub vaults, so they stay last.
-    const tail = [hubConfig.bnUSD, spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.XRP.vault];
-    expect(LEGACY_MONEY_MARKET_RESERVE_ASSETS.slice(-2)).toEqual(tail);
+    // hubConfig.bnUSD is appended after the hub vaults, so it stays last of the legacy list; later reserves follow it.
+    expect(LEGACY_MONEY_MARKET_RESERVE_ASSETS.at(-1)).toBe(hubConfig.bnUSD);
+    expect(APPENDED_MONEY_MARKET_RESERVE_ASSETS).toEqual([
+      spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.XRP.vault,
+    ]);
     expect([...moneyMarketReserveAssets]).toEqual([
-      ...LEGACY_MONEY_MARKET_RESERVE_ASSETS.slice(0, -2),
+      ...LEGACY_MONEY_MARKET_RESERVE_ASSETS.slice(0, -1),
       ...MONEY_MARKET_EQUITY_SYMBOLS.map(symbol => SodaTokens[symbol].address),
-      ...tail,
+      hubConfig.bnUSD,
+      ...APPENDED_MONEY_MARKET_RESERVE_ASSETS,
     ]);
   });
 

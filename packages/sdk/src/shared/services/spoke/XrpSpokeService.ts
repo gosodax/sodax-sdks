@@ -546,7 +546,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
       return { ready: false, reason: 'trustline_unauthorized' };
     }
     if (stateFlags & LSF_DEEP_FREEZE) return { ready: false, reason: 'trustline_frozen' };
-    if (toBaseUnits(line.balance, iou.decimals, 'ceil') + maxAmount > toBaseUnits(line.limit, iou.decimals)) {
+    if (maxAmount > trustlineRoom(line.limit, line.balance, iou.decimals)) {
       return { ready: false, reason: 'trustline_limit' };
     }
     return { ready: true };
@@ -801,14 +801,30 @@ export class XrpSpokeService implements MpcRelaySettlement {
  * An XRPL decimal IOU amount in base units, truncated to `decimals`. rippled switches to
  * `<mantissa>e<exponent>` outside exponents -25..-5 (any value from 1e11, such as a large trustline limit).
  */
-function toBaseUnits(value: string, decimals: number, rounding: 'truncate' | 'ceil' = 'truncate'): bigint {
+function toBaseUnits(value: string, decimals: number): bigint {
+  const { mantissa, exponent } = parseXrplDecimal(value);
+  const shift = exponent + decimals;
+  return shift >= 0 ? mantissa * 10n ** BigInt(shift) : mantissa / 10n ** BigInt(-shift);
+}
+
+/** `limit - balance` in base units, subtracted exactly and then floored, so dust in either value never adds room. */
+function trustlineRoom(limit: string, balance: string, decimals: number): bigint {
+  const parsedLimit = parseXrplDecimal(limit);
+  const parsedBalance = parseXrplDecimal(balance);
+  const exponent = Math.min(parsedLimit.exponent, parsedBalance.exponent);
+  const room =
+    parsedLimit.mantissa * 10n ** BigInt(parsedLimit.exponent - exponent) -
+    parsedBalance.mantissa * 10n ** BigInt(parsedBalance.exponent - exponent);
+  const shift = exponent + decimals;
+  if (shift >= 0) return room * 10n ** BigInt(shift);
+  const divisor = 10n ** BigInt(-shift);
+  return room / divisor - (room < 0n && room % divisor !== 0n ? 1n : 0n);
+}
+
+function parseXrplDecimal(value: string): { mantissa: bigint; exponent: number } {
   const match = /^(-?)(\d*)(?:\.(\d*))?(?:e([+-]?\d{1,3}))?$/i.exec(value);
   const [, sign = '', whole = '', frac = '', exponent = '0'] = match ?? [];
   if (!match || (whole === '' && frac === '')) throw new Error(`[XrpSpokeService] unreadable XRPL amount: ${value}`);
   const digits = BigInt(`${whole}${frac}` || '0');
-  const shift = Number(exponent) - frac.length + decimals;
-  const units = shift >= 0 ? digits * 10n ** BigInt(shift) : digits / 10n ** BigInt(-shift);
-  const remainder = shift < 0 && digits % 10n ** BigInt(-shift) !== 0n;
-  if (sign === '-') return -units;
-  return units + (rounding === 'ceil' && remainder ? 1n : 0n);
+  return { mantissa: sign === '-' ? -digits : digits, exponent: Number(exponent) - frac.length };
 }

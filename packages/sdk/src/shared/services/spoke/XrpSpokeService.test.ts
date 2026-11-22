@@ -1034,6 +1034,32 @@ it('includes sub-base-unit balance dust in trustline capacity', async () => {
     );
   }
 });
+it.each([
+  ['fits an exact payout under a fractional trustline limit', '9.0000009', '10.0000009'],
+  ['fits an exact payout under an exponent-notation trustline limit', '99999999999.0000009', '1.000000000000000009e11'],
+])('%s', async (_, balance, limit) => {
+  const issuer = spokeChainConfig[XRP].supportedTokens.USDC.address;
+  stubRippled({
+    account_lines: { lines: [{ currency: xrpCurrencyCode('USDC'), account: issuer, balance, limit }] },
+  });
+  for (const amount of [1_000_000n, 1_000_001n]) {
+    expect(await xrp.checkDestination({ address: SENDER, token: issuer, amount, maxAmount: amount })).toEqual(
+      amount === 1_000_000n ? { ready: true } : { ready: false, reason: 'trustline_limit' },
+    );
+  }
+});
+it('refuses a negative sub-base-unit trustline room even for a zero payout', async () => {
+  const issuer = spokeChainConfig[XRP].supportedTokens.USDC.address;
+  stubRippled({
+    account_lines: {
+      lines: [{ currency: xrpCurrencyCode('USDC'), account: issuer, balance: '10.0000009', limit: '10' }],
+    },
+  });
+  expect(await xrp.checkDestination({ address: SENDER, token: issuer, amount: 0n, maxAmount: 0n })).toEqual({
+    ready: false,
+    reason: 'trustline_limit',
+  });
+});
 it('checks trustline room against maxAmount, the most a fill can pay', async () => {
   const issuer = spokeChainConfig[XRP].supportedTokens.USDC.address;
   stubRippled({
