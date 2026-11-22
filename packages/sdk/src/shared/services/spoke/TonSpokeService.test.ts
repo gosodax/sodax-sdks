@@ -398,6 +398,7 @@ describe('SpokeService routing for TON', () => {
 describe('TON review regressions', () => {
   const hash = `0x${'cd'.repeat(32)}`;
   const recovery = {
+    broadcastId: 'first-broadcast',
     reserveAddress: RESERVE,
     memo: MEMO,
     sinceLt: '100',
@@ -434,7 +435,10 @@ describe('TON review regressions', () => {
     vi.useFakeTimers();
     stubToncenter();
     const pending = ton.deposit(depositParams(NATIVE_TON));
-    const result = expect(pending).rejects.toMatchObject({ name: 'TonDepositNotFoundError', recovery });
+    const result = expect(pending).rejects.toMatchObject({
+      name: 'TonDepositNotFoundError',
+      recovery: { ...recovery, broadcastId: expect.any(String) },
+    });
     await vi.advanceTimersByTimeAsync(120_000);
     await result;
     expect(sendTransaction).toHaveBeenCalledTimes(1);
@@ -494,6 +498,18 @@ describe('TON review regressions', () => {
     expect(new Set(cursors).size).toBeLessThanOrEqual(4);
   });
 
+  it('resumes deposits with identical transfer details to distinct hashes', async () => {
+    const olderHash = `0x${'de'.repeat(32)}`;
+    const olderHashBase64 = Buffer.from(olderHash.slice(2), 'hex').toString('base64');
+    stubToncenter({ txs: [nativeTx('300', MEMO), nativeTx('200', MEMO, olderHashBase64)] });
+
+    const secondRecovery = { ...recovery, broadcastId: 'second-broadcast' };
+    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
+    expect(await ton.resumeDeposit(secondRecovery, 1_000)).toBe(olderHash);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', hash);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', olderHash);
+  });
+
   it('resumes the same recovery twice and returns the hash it already claimed', async () => {
     stubToncenter({ txs: [nativeTx('200', MEMO)] });
     expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
@@ -504,7 +520,7 @@ describe('TON review regressions', () => {
   it('still refuses to hand a claimed hash to a different deposit', async () => {
     stubToncenter({ txs: [nativeTx('200', MEMO)] });
     expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
-    await expect(ton.resumeDeposit({ ...recovery, sinceLt: '150' }, 1_000)).rejects.toMatchObject({
+    await expect(ton.resumeDeposit({ ...recovery, broadcastId: 'second-broadcast' }, 1_000)).rejects.toMatchObject({
       name: 'TonDepositNotFoundError',
     });
   });
