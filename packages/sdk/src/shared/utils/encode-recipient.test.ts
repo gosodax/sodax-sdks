@@ -1,3 +1,4 @@
+import { getAddress } from 'viem';
 import { describe, expect, it, vi } from 'vitest';
 import { ChainKeys } from '@sodax/types';
 import { encodeAddress, encodeRecipient, reverseEncodeAddress } from './shared-utils.js';
@@ -80,7 +81,7 @@ describe('encodeRecipient / reverseEncodeAddress — XRP', () => {
 });
 
 describe('encodeRecipient — EVM MPC relay chains (Monad)', () => {
-  const MONAD_ADDRESS = '0x6Be3a4AfBD5983604385BCba71aaA3645918E2E2';
+  const MONAD_ADDRESS = getAddress('0x6be3a4afbd5983604385bcba71aaa3645918e2e2');
 
   it('returns the plain 20-byte address, not the padded word', () => {
     // The relay releases a padded word on Monad to the zero address (mainnet tx 0x1992cdac…234d).
@@ -98,4 +99,12 @@ describe('encodeRecipient — intent relay chains', () => {
     const evm = '0x1111111111111111111111111111111111111111';
     expect(encodeRecipient(ChainKeys.ARBITRUM_MAINNET, evm)).toBe(encodeAddress(ChainKeys.ARBITRUM_MAINNET, evm));
   });
+});
+
+it('validates the EIP-55 checksum before lowercasing a Monad recipient', () => {
+  const valid = getAddress('0x1468d3529032106291433b7e9e3026df1ff78f31');
+  const invalid = `${valid.slice(0, -1)}2`;
+  expect(() => encodeRecipient(ChainKeys.MONAD_MAINNET, invalid)).toThrow(/invalid EVM recipient/);
+  expect(encodeRecipient(ChainKeys.MONAD_MAINNET, valid)).toBe(valid.toLowerCase());
+  expect(encodeRecipient(ChainKeys.MONAD_MAINNET, valid.toLowerCase())).toBe(valid.toLowerCase());
 });

@@ -434,6 +434,19 @@ describe('TronSpokeService.deposit — broadcast failure', () => {
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
+  it('keeps the txID and notifies once after a truncated 200 broadcast reply', async () => {
+    stubTronGrid();
+    const answer = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (new URL(String(url)).pathname === '/wallet/broadcasthex') return new Response('{', { status: 200 });
+      if (!answer) throw new Error('no stub');
+      return answer(url, init);
+    });
+    const hash = await tron.deposit(depositParams(NATIVE_TRX));
+    expect(hash).toBe(signTransaction.mock.calls[0]?.[0].txID);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledOnce();
+  });
+
   it('hands the txID on after a 5xx, which a gateway can return for a request the node took', async () => {
     stubTronGrid();
     const fetchMock = vi.mocked(fetch);
@@ -927,19 +940,69 @@ describe('TronSpokeService.submitSignedWithdraw', () => {
   });
 });
 
+/** What `fetch` rejects with once its AbortSignal fires. */
+const abortError = () => Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
+
 describe('TronSpokeService — node request budget', () => {
   it('reports a stalled node as a timeout instead of hanging', async () => {
-    const abort = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => {
-        throw abort;
+        throw abortError();
       }),
     );
 
     await expect(
       tron.getDeposit({ srcChainKey: TRON, srcAddress: SENDER, token: NATIVE_TRX } as never),
     ).rejects.toThrow(/timed out after \d+ms/);
+  });
+});
+
+describe('TronSpokeService.waitForTransactionReceipt', () => {
+  const TX = `0x${'ab'.repeat(32)}`;
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('maps an included tx to a success receipt', async () => {
+    stubTronGrid({ '/wallet/gettransactioninfobyid': { blockNumber: 1, receipt: { result: 'SUCCESS' } } });
+
+    const result = await tron.waitForTransactionReceipt({ txHash: TX, chainKey: TRON });
+
+    expect(result).toMatchObject({ ok: true, value: { status: 'success' } });
+    expect(callTo('/wallet/gettransactioninfobyid')?.body).toEqual({ value: 'ab'.repeat(32) });
+  });
+
+  it('times out within one node call of maxTimeoutMs even when every call stalls', async () => {
+    vi.useFakeTimers();
+    // A node that never answers: each call ends only when the SDK aborts it.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: URL, init: { signal: AbortSignal }) =>
+          new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => reject(abortError()));
+          }),
+      ),
+    );
+
+    let settled = false;
+    const pending = tron
+      .waitForTransactionReceipt({ txHash: TX, chainKey: TRON, pollingIntervalMs: 3_000, maxTimeoutMs: 90_000 })
+      .finally(() => {
+        settled = true;
+      });
+
+    // Still retrying well into the window, not giving up after the first stalled call.
+    await vi.advanceTimersByTimeAsync(80_000);
+    expect(settled).toBe(false);
+    expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(1);
+
+    // The last poll starts at the deadline, so the wait ends once that call's own 15s budget runs out.
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(settled).toBe(true);
+    await expect(pending).resolves.toMatchObject({ ok: true, value: { status: 'timeout' } });
   });
 });
 
@@ -986,6 +1049,18 @@ describe('TronSpokeService.getDeposit', () => {
 describe('TronSpokeService wallet balances', () => {
   const { TRX, USDT: USDT_TOKEN } = spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens;
 
+  it('rejects a native account RPC error and counts the batch read as failed', async () => {
+    stubTronGrid({ '/wallet/getaccount': { Error: 'x' } });
+    await expect(tron.getWalletBalance({ srcChainKey: TRON, srcAddress: SENDER, token: TRX })).rejects.toThrow('x');
+    const result = await sodax.spoke.getWalletBalances({ srcChainKey: TRON, srcAddress: SENDER, tokens: [TRX] });
+    expect(result.ok).toBe(false);
+  });
+
+  it('reads an unactivated native account as zero', async () => {
+    stubTronGrid({ '/wallet/getaccount': {} });
+    await expect(tron.getWalletBalance({ srcChainKey: TRON, srcAddress: SENDER, token: TRX })).resolves.toBe(0n);
+  });
+
   it('routes a single-token read through SpokeService to the on-chain balance', async () => {
     stubTronGrid();
 
@@ -1004,5 +1079,34 @@ describe('TronSpokeService wallet balances', () => {
     });
 
     expect(result).toEqual({ ok: true, value: { [TRX.address]: 42n, [USDT_TOKEN.address]: 0x539n } });
+  });
+});
+
+describe('Tron settlement timeout normalization', () => {
+  it('raises a NaN deposit timeout to the chain floor', async () => {
+    const wait = vi
+      .spyOn(MpcRelayApiService, 'waitForDeposit')
+      .mockResolvedValue({ ok: false, error: new Error('timeout') });
+    await tron.waitForDeposit('a'.repeat(64), Number.NaN);
+    expect(wait).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.objectContaining({ timeout: 300_000 }),
+    );
+  });
+  it('raises a NaN withdrawal timeout to the chain floor', async () => {
+    const wait = vi
+      .spyOn(MpcRelayApiService, 'waitForWithdrawal')
+      .mockResolvedValue({ ok: false, error: new Error('timeout') });
+    await tron.waitForWithdrawal('tracking', Number.NaN);
+    expect(wait).toHaveBeenCalledWith(expect.anything(), 'tracking', expect.objectContaining({ timeout: 300_000 }));
+  });
+  it('raises a NaN release timeout to the chain floor', async () => {
+    const wait = vi
+      .spyOn(MpcRelayApiService, 'waitForHubRelease')
+      .mockResolvedValue({ ok: false, error: new Error('timeout') });
+    const release = { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: '0xfill', logIndex: 0 };
+    await tron.waitForHubRelease(release, Number.NaN);
+    expect(wait).toHaveBeenCalledWith(expect.anything(), release, expect.objectContaining({ timeout: 300_000 }));
   });
 });

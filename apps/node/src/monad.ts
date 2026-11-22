@@ -1,7 +1,14 @@
 import 'dotenv/config';
 
 import { formatUnits, parseUnits, type Hex } from 'viem';
-import { Sodax, encodeContractCalls, encodeRecipient, spokeChainConfig, ChainKeys } from '@sodax/sdk';
+import {
+  Sodax,
+  encodeContractCalls,
+  encodeRecipient,
+  spokeChainConfig,
+  moneyMarketSupportedTokens,
+  ChainKeys,
+} from '@sodax/sdk';
 import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
 
 /**
@@ -15,7 +22,7 @@ import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
  * Endpoints:
  *   hub        — print the derived hub wallet for the key (no funds)
  *   deposit    — Monad→hub: deposit MON (or USDC via --token), mint on the hub wallet  [spends funds]
- *   supply     — Monad→hub: deposit + supply into the money market (USDC only)         [spends funds]
+ *   supply     — Monad→hub: deposit + supply into the money market (USDC, the only reserve) [spends funds]
  *   intent     — Monad→hub: deposit carrying an arbitrary hub payload (--data)        [spends funds]
  *   borrow     — hub→Monad: sign a borrow authorization, relay releases to Monad
  *   withdraw   — hub→Monad: sign a withdraw authorization, relay releases to Monad
@@ -33,7 +40,10 @@ const arg = (n: string, d?: string) => {
   const i = argv.indexOf(n);
   return i >= 0 ? argv[i + 1] : d;
 };
-const TOKEN = arg('--token', NATIVE_MON) as Hex;
+const TOKEN = arg(
+  '--token',
+  endpoint === 'supply' ? spokeChainConfig[MONAD].supportedTokens.USDC.address : NATIVE_MON,
+) as Hex;
 const TO = arg('--to') as Hex | undefined; // recipient for withdraw/borrow (defaults to self)
 const DATA = (arg('--data', '0x') ?? '0x') as Hex;
 
@@ -74,6 +84,12 @@ async function main() {
     case 'deposit':
     case 'supply':
     case 'intent': {
+      if (
+        endpoint === 'supply' &&
+        !moneyMarketSupportedTokens[MONAD].some(t => t.address.toLowerCase() === TOKEN.toLowerCase())
+      ) {
+        throw new Error(`--token ${TOKEN} is not a supported Monad money-market reserve`);
+      }
       // A plain deposit still needs an ENCODED empty call array, not a literal '0x': the relay treats
       // non-empty bytes as the signal to deploy the user's hub wallet.
       const data: Hex =

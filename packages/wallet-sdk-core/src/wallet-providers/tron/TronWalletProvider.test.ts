@@ -147,9 +147,50 @@ describe('TronWalletProvider.signTransaction', () => {
     expect(tronWeb.trx.sign).not.toHaveBeenCalled();
   });
 
+  it('browser: built from getProvider alone, signs with a wallet discovered after construction', async () => {
+    let discovered: TronProviderLike | undefined;
+    const provider = new TronWalletProvider({ getProvider: () => discovered, address: TRON_ADDRESS });
+
+    await expect(provider.getWalletAddress()).resolves.toBe(TRON_ADDRESS);
+    await expect(provider.signTransaction(TX)).rejects.toThrow(
+      /no Tron wallet found to sign with\. Unlock it, or reconnect it/,
+    );
+
+    const live = makeTronWeb();
+    discovered = { request: vi.fn(), tronWeb: live };
+    await provider.signTransaction(TX);
+    expect(live.trx.sign).toHaveBeenCalledWith(TX);
+  });
+
+  it('browser: asks a wallet with no account for one, then signs, as after a reload or an unlock', async () => {
+    const tronWeb = makeTronWeb(false);
+    const request = vi.fn(async () => {
+      tronWeb.defaultAddress = { base58: TRON_ADDRESS };
+      return [TRON_ADDRESS];
+    });
+    const provider = new TronWalletProvider({ getProvider: () => ({ request, tronWeb }), address: TRON_ADDRESS });
+
+    await provider.signTransaction(TX);
+
+    expect(request).toHaveBeenCalledWith({ method: 'eth_requestAccounts' });
+    expect(tronWeb.trx.sign).toHaveBeenCalledWith(TX);
+  });
+
+  it('browser: passes on the wallet refusing to connect, without signing', async () => {
+    const tronWeb = makeTronWeb(false);
+    const rejected = Object.assign(new Error('User rejected'), { code: 4001 });
+    const provider = new TronWalletProvider({
+      getProvider: () => ({ request: vi.fn().mockRejectedValue(rejected), tronWeb }),
+      address: TRON_ADDRESS,
+    });
+
+    await expect(provider.signTransaction(TX)).rejects.toBe(rejected);
+    expect(tronWeb.trx.sign).not.toHaveBeenCalled();
+  });
+
   it('browser: tells the user to reconnect when no injected TronWeb has an account', async () => {
     const provider = new TronWalletProvider({ tronWeb: makeTronWeb(false), address: TRON_ADDRESS });
-    await expect(provider.signTransaction(TX)).rejects.toThrow(/not connected .* Reconnect/);
+    await expect(provider.signTransaction(TX)).rejects.toThrow(/locked or not connected\. Unlock it, or reconnect it/);
   });
 });
 

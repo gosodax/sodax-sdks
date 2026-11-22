@@ -8,6 +8,8 @@ import type { PacketData } from '../shared/types/relay-types.js';
 export type DetailedBridgeStatusKey = {
   srcChainKey: SpokeChainKey;
   srcTxHash: string;
+  /** The bridge's destination; see {@link DetailedBridgeStatus} for when it changes the answer. */
+  dstChainKey?: SpokeChainKey;
 };
 
 /**
@@ -23,7 +25,9 @@ export type DetailedBridgeStatusKey = {
  *
  * An MPC-relay leg has no packet, so its arm carries the relay's record, and is terminal too: from an
  * MPC-relay source it is the deposit, returned once `txs.hubMint` holds the hub settlement tx; to an
- * MPC-relay destination it is the release, returned once `txs.release` holds the payout tx.
+ * MPC-relay destination it is the release, returned once `txs.release` holds the payout tx. From an MPC-relay
+ * source to another spoke (`dstChainKey`), the relay arm answers instead with the hub-to-spoke packet: its
+ * `src_tx_hash` is the hub mint and its `dst_tx_hash` the payout.
  */
 export type DetailedBridgeStatus =
   | { source: 'backend'; data: BridgeSubmitTxStatusDataV2 }

@@ -22,6 +22,8 @@ const TRON_BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqr
 // Scheme-1 withdraw-auth prefix. 66, not 32: `signMessageV2` UTF-8 encodes a string argument, so it
 // signs the hash's hex text. The bridge's `tron_signmessagev2_digest` matches this.
 const TRON_MESSAGE_PREFIX = '\x19TRON Signed Message:\n66';
+/** How long to wait for the wallet to publish its account after it is asked for one. */
+const TRON_ACCOUNT_WAIT_MS = 2000;
 
 export function isPrivateKeyTronWalletConfig(config: TronWalletConfig): config is PrivateKeyTronWalletConfig {
   return 'privateKey' in config;
@@ -30,7 +32,7 @@ export function isPrivateKeyTronWalletConfig(config: TronWalletConfig): config i
 export function isBrowserExtensionTronWalletConfig(
   config: TronWalletConfig,
 ): config is BrowserExtensionTronWalletConfig {
-  return 'tronWeb' in config;
+  return 'tronWeb' in config || 'getProvider' in config;
 }
 
 const bufHex = (u: Uint8Array): string => Buffer.from(u).toString('hex');
@@ -116,18 +118,37 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
     return address;
   }
 
-  /** The connected TronWeb. A wallet injects several; only the one with an account can sign. */
-  private signer(): TronWebLike {
-    const connected = [this.getProvider?.()?.tronWeb, this.provider?.tronWeb, this.tronWeb].find(
+  /** The TronWeb that has an account. A wallet injects several; only that one can sign. */
+  private connectedTronWeb(): TronWebLike | undefined {
+    return [this.getProvider?.()?.tronWeb, this.provider?.tronWeb, this.tronWeb].find(
       tw => typeof tw?.defaultAddress?.base58 === 'string' && tw.defaultAddress.base58.length > 0,
     );
+  }
+
+  /**
+   * The connected TronWeb. With none, as after a page reload or while the wallet is locked, asks the wallet
+   * for its account first: an authorized site gets it back without a prompt, a locked wallet asks to unlock.
+   */
+  private async signer(): Promise<TronWebLike> {
+    const connected = this.connectedTronWeb();
     if (connected) return connected;
+    const provider = this.getProvider?.() ?? this.provider;
+    if (provider) {
+      await provider.request({ method: 'eth_requestAccounts' });
+      const deadline = Date.now() + TRON_ACCOUNT_WAIT_MS;
+      for (;;) {
+        const authorized = this.connectedTronWeb();
+        if (authorized) return authorized;
+        if (Date.now() >= deadline) break;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
     if (this.provider?.tronWeb ?? this.tronWeb) {
       throw new Error(
-        '[TronWalletProvider] the injected Tron wallet is not connected (no account on its TronWeb). Reconnect the wallet and retry.',
+        '[TronWalletProvider] the Tron wallet is locked or not connected. Unlock it, or reconnect it, and retry.',
       );
     }
-    throw new Error('[TronWalletProvider] no connected Tron wallet to sign with');
+    throw new Error('[TronWalletProvider] no Tron wallet found to sign with. Unlock it, or reconnect it, and retry.');
   }
 
   public async signTransaction(tx: TronUnsignedTransaction): Promise<TronSignedTransaction> {
@@ -141,7 +162,7 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
       const signature = `${s.r.slice(2)}${s.s.slice(2)}${Number(s.yParity).toString(16).padStart(2, '0')}`;
       return { ...tx, signature: [signature] };
     }
-    return this.signer().trx.sign(tx);
+    return (await this.signer()).trx.sign(tx);
   }
 
   public async signMessage(hash: `0x${string}`): Promise<`0x${string}`> {
@@ -158,7 +179,7 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
 
   /** Must be `trx.signMessageV2`: other APIs use a prefix the bridge's digest does not match. */
   private async signMessageViaWallet(hash: `0x${string}`): Promise<string> {
-    return this.signer().trx.signMessageV2(hash);
+    return (await this.signer()).trx.signMessageV2(hash);
   }
 
   public async waitForTransactionReceipt(txHash: string): Promise<TronRawTransactionReceipt> {

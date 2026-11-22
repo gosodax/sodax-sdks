@@ -6,21 +6,27 @@
   },
   "version": "2.0.0-rc.17",
   "license": "MIT",
-  "description": "Sodax Wallet SDK Core",
+  "description": "Framework-agnostic TypeScript wallet providers for the SODAX SDK: EVM, Solana, Sui, Stellar, Injective, ICON, NEAR, Stacks and Bitcoin",
   "keywords": [
     "sodax",
     "wallet",
     "sdk",
     "frontend",
-    "interface"
+    "interface",
+    "multi-chain",
+    "evm",
+    "solana",
+    "sui",
+    "web3"
   ],
-  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/wallet-sdk-core",
+  "homepage": "https://docs.sodax.com/developers/packages/connection/wallet-sdk-core",
   "bugs": {
     "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/gosodax/sodax-sdks"
+    "url": "git+https://github.com/gosodax/sodax-sdks.git",
+    "directory": "packages/wallet-sdk-core"
   },
   "type": "module",
   "main": "./dist/index.cjs",

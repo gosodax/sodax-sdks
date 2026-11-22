@@ -37,6 +37,7 @@ import {
   type SpokeChainKey,
   type SubmitTxStatusDataV2,
   tronSupportedTokens,
+  xrpSupportedTokens,
 } from '@sodax/types';
 import {
   ACCOUNT_UPGRADE_DECLINED,
@@ -144,6 +145,7 @@ vi.mock('./SolverApiService.js', () => ({
 }));
 import type { CancelIntentActionParams, CreateIntentParams, Intent, SwapActionParams } from './SwapService.js';
 import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
+import type { XrpDestinationReadiness } from '../shared/services/spoke/XrpSpokeService.js';
 
 // --- test fixtures --------------------------------------------------------
 //
@@ -1566,6 +1568,21 @@ describe('SwapService.getSwapSpeedTier', () => {
       estimatedSeconds: SPEED_TIER_SECONDS.sodaAsset,
     });
   });
+
+  it('does not count a stock vault as a sodaAsset even when it is a money-market reserve', () => {
+    const robinhood = spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens;
+    expect(sodax.config.isMoneyMarketReserveAsset(robinhood.AAPL.vault)).toBe(true);
+
+    expect(sodax.swaps.getSwapSpeedTier({ srcToken: robinhood.AAPL, dstToken: robinhood.GME })).toEqual({
+      tier: 'slow',
+      estimatedSeconds: SPEED_TIER_SECONDS.default,
+    });
+    // The stablecoin side is still a sodaAsset, so the common route keeps its fast tier.
+    expect(sodax.swaps.getSwapSpeedTier({ srcToken: robinhood.USDG, dstToken: robinhood.AAPL })).toEqual({
+      tier: 'fast',
+      estimatedSeconds: SPEED_TIER_SECONDS.sodaAsset,
+    });
+  });
 });
 
 describe('SwapService.getSupportedSwapTokens', () => {
@@ -1810,6 +1827,24 @@ describe('SwapService.getSolvedIntentPacket', () => {
 
 describe('SwapService.waitForIntentDelivery', () => {
   const RELEASE = { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: '0xfill', logIndex: 3 };
+
+  it('returns a hub fill without asking the relay packet API', async () => {
+    vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({
+      ok: true,
+      value: { status: 'success', receipt: {} },
+    });
+    const result = await sodax.swaps.waitForIntentDelivery({ chainId: ChainKeys.SONIC_MAINNET, fillTxHash: '0xfill' });
+    expect(result).toEqual({ ok: true, value: { source: 'hub', dstTxHash: '0xfill' } });
+    expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+  });
+
+  it('refuses a reverted hub fill', async () => {
+    const error = new Error('reverted');
+    vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({ ok: true, value: { status: 'failure', error } });
+    const result = await sodax.swaps.waitForIntentDelivery({ chainId: ChainKeys.SONIC_MAINNET, fillTxHash: '0xfill' });
+    expect(result).toEqual({ ok: false, error });
+    expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+  });
 
   it('returns the relay packet and its destination tx for an intent-relay destination', async () => {
     const packet = { dst_tx_hash: '0xdstTxHash' };
@@ -2954,6 +2989,81 @@ describe('SwapService.createIntent — payouts through the MPC relay', () => {
     ['to', toTron(3_000_001n)],
   ] as const)('passes a payout %s Tron above the minimum', async (_, params) => {
     expect((await run(params)).pastValidation).toHaveBeenCalled();
+  });
+
+  // An XRPL account can refuse a release outright, and a cancelled intent refunds its source.
+  describe('to or from XRPL', () => {
+    const XRPL_ADDRESS = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+    const XRPL_USDC = xrpSupportedTokens.USDC.address;
+    const toXrpl: CreateIntentParams<typeof ChainKeys.BSC_MAINNET> = {
+      ...intentInput(ChainKeys.BSC_MAINNET),
+      dstChainKey: ChainKeys.XRP_MAINNET,
+      outputToken: XRPL_USDC,
+      minOutputAmount: 5_000_000n,
+      dstAddress: XRPL_ADDRESS,
+    };
+    const fromXrpl: CreateIntentParams<typeof ChainKeys.XRP_MAINNET> = {
+      ...intentInput(ChainKeys.XRP_MAINNET),
+      inputToken: XRPL_USDC,
+      outputToken: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+      inputAmount: 5_000_000n,
+      srcAddress: XRPL_ADDRESS,
+      deadline: 1_700_000_000n,
+    };
+
+    it.each([
+      99_000_000n,
+      50_000_000n,
+    ])('checks solved payout headroom for minimum %s before signing', async minOutputAmount => {
+      const s = new Sodax({ logger: 'silent' });
+      vi.spyOn(s.spoke.xrp, 'checkDestination').mockImplementation(async ({ amount, maxAmount = amount }) =>
+        maxAmount > 100_000_000n ? { ready: false, reason: 'trustline_limit' } : { ready: true },
+      );
+      const signing = vi.spyOn(s.spoke, 'deposit');
+      const pastValidation = vi
+        .spyOn(s.hubProvider, 'getUserHubWalletAddress')
+        .mockRejectedValue(new Error('past validation'));
+      const result = await s.swaps.createIntent({ params: { ...toXrpl, minOutputAmount }, raw: true });
+      if (minOutputAmount === 99_000_000n) {
+        invariant(!result.ok, 'expected refusal');
+        expect(result.error.context).toMatchObject({ reason: 'xrpl-trustline_limit' });
+        expect(pastValidation).not.toHaveBeenCalled();
+        expect(signing).not.toHaveBeenCalled();
+      } else expect(pastValidation).toHaveBeenCalled();
+    });
+
+    const runXrpl = async (params: CreateIntentParams<SpokeChainKey>, readiness: XrpDestinationReadiness) => {
+      const s = new Sodax({ logger: 'silent' });
+      const checkSpy = vi.spyOn(s.spoke.xrp, 'checkDestination').mockResolvedValue(readiness);
+      const pastValidation = vi
+        .spyOn(s.hubProvider, 'getUserHubWalletAddress')
+        .mockRejectedValue(new Error('past validation'));
+      const result = await s.swaps.createIntent({ params, raw: true });
+      return { result, pastValidation, checkSpy };
+    };
+
+    // A payout needs room for the most a fill can pay; a refund lands on the line the deposit just drew down,
+    // so it is checked for no extra room.
+    it.each([
+      ['to', toXrpl, 'dstAddress', 5_000_000n, 10_000_000n],
+      ['from', fromXrpl, 'srcAddress', 0n, undefined],
+    ] as const)('refuses a swap %s an XRPL account that cannot receive its release', async (_, params, field, amount, maxAmount) => {
+      const outcome = runXrpl(params, { ready: false, reason: 'no_trustline' });
+      await expectRefused(outcome, field);
+      expect((await outcome).checkSpy).toHaveBeenCalledWith({
+        address: XRPL_ADDRESS,
+        token: XRPL_USDC,
+        amount,
+        maxAmount,
+      });
+    });
+
+    it.each([
+      ['to', toXrpl],
+      ['from', fromXrpl],
+    ] as const)('passes a swap %s an XRPL account that can receive its release', async (_, params) => {
+      expect((await runXrpl(params, { ready: true })).pastValidation).toHaveBeenCalled();
+    });
   });
 });
 

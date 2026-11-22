@@ -71,8 +71,10 @@ tokens API also exists; whether it enables tokens without a release is **unverif
 > must be a **hub reserve asset** — in `moneyMarketHubVaults` or `hubConfig.bnUSD`. If the `vault` is
 > new, the reserve data is missing and the token will not work in MM — that is a hub-vault change
 > **beyond add-token's scope**: stop and confirm with the requester. (More generally, a `vault` that is
-> a new hub vault rather than the token's own `hubAsset` must already exist — verify. xStocks and the
-> Robinhood tokenized equities reuse their `hubAsset` as the vault and are swap-only.)
+> a new hub vault rather than the token's own `hubAsset` must already exist — verify. xStocks reuse
+> their `hubAsset` as the vault and are swap-only. Robinhood tokenized equities point `vault` at their
+> `SodaTokens` vault, never at `hubAsset`; only the subset in `moneyMarketEquitySymbols`
+> (`packages/types/src/moneyMarket/moneyMarket.ts`) is in the money market, and the rest are swap-only.)
 
 > **Scope judgment:** the explicit choice is **swap, money market, or both** — usually more than one
 > (major assets/stables go in both; xStocks are the swap-only exception). **Partner-fee / recovery**

@@ -21,11 +21,29 @@ Sonic is the hub. All swap, lend, borrow, bridge and stake actions are coordinat
 
 Deep dives: [Technical Overview](/developers/technical-overview), [Asset Manager](/developers/technical-overview/asset-manager), [Generalized Messaging Protocol](/developers/technical-overview/generalized-messaging-protocol).
 
+### HTTP API
+
+#### Can I integrate without the SDK?
+
+Yes. The [HTTP API](/developers/http-api) covers swaps and leverage yield from any language, plus read endpoints for prices, stats and configuration. The money market's supply and borrow flows have no HTTP write endpoints, so those need [`@sodax/sdk`](/developers/packages/foundation/sdk/functional-modules/money_market).
+
+#### Do I need an API key?
+
+Create one in the [partner portal](https://portal.sodax.com) and send it from your server. [API keys](/developers/how-to/api-keys) covers what the key does, where it goes, and which routes check it.
+
+#### How do I track a swap over HTTP?
+
+After you broadcast the intent and call `submit-tx`, poll its status until it reaches a terminal state. [Poll status](/developers/http-api/swaps#4-poll-status) lists the states and what to do on failure.
+
+### SDK setup
+
 #### 4. Do I need to call `sodax.initialize()` before using the SDK?
 
-Not strictly. The constructor uses defaults packaged with the SDK version you installed. `await sodax.initialize()` fetches the latest tokens and chains from the backend API. Recommended for production, optional for prototypes. If it fails, the SDK falls back to packaged defaults rather than throwing.
+No. The constructor uses the config packaged with the SDK version you installed, and `initialize()` currently returns success without fetching anything, so it does not add tokens or chains listed after your release. Calling it is harmless.
 
-See [Configure SDK](/developers/how-to/configure_sdk).
+To use a token listed after your release, upgrade `@sodax/sdk`, or use the backend API clients (`sodax.api.swaps`, `sodax.api.bridge`, `sodax.api.leverageYield`), which leave token validation to the backend.
+
+See [Where supported tokens come from](/developers/how-to/configure_sdk#where-supported-tokens-come-from).
 
 #### 5. How do I override the hub RPC or contract addresses?
 
@@ -55,7 +73,7 @@ Per-module code tables: [Swaps](/developers/packages/foundation/sdk/functional-m
 
 #### 8. What should I do when a swap returns `RELAY_TIMEOUT`?
 
-The spoke transaction landed but the hub packet has not arrived within the timeout window. The relay may still complete. Persist the spoke tx hash and poll the relayer API. Do not re-submit from the user side.
+The spoke transaction landed but the hub packet has not arrived within the timeout window. The relay may still complete. Persist the spoke tx hash and poll `sodax.swaps.getDetailedStatus`, or the relayer API from an intent-relay chain. Do not re-submit from the user side.
 
 Error semantics: [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap), [Relayer API endpoints](/developers/deployments/relayer-api-endpoints).
 
@@ -87,7 +105,7 @@ Walkthrough with code: [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap
 
 #### 12. Can I cancel an intent?
 
-Yes. Call `cancelIntent(intent)` on the Intents contract. The caller must be the creator, or the deadline must have passed. Intents with pending fills cannot be cancelled. Limit orders (`deadline = 0`) always require manual cancellation.
+Yes, unless it comes from an MPC-relay chain (Tron): only its deadline refunds it, so it cannot be a limit order. Call `cancelIntent(intent)` on the Intents contract. The caller must be the creator, or the deadline must have passed. Intents with pending fills cannot be cancelled. Limit orders (`deadline = 0`) always require manual cancellation.
 
 Contract interface: [Intents](/developers/technical-overview/intents).
 
@@ -125,7 +143,7 @@ Return shape and examples per chain: [Estimate Gas](/developers/how-to/estimate_
 
 #### 17. Can I stake SODA from a non-EVM chain like Sui or Stellar?
 
-Yes. Every `StakingService` method accepts any `SpokeChainKey` as the source. If you pass `ChainKeys.SONIC_MAINNET`, the spoke and hub tx hashes are identical. Approval is required only on EVM spokes, the hub, and Stellar.
+Yes. Every `StakingService` method accepts any `SpokeChainKey` as the source except an MPC-relay chain (Tron). If you pass `ChainKeys.SONIC_MAINNET`, the spoke and hub tx hashes are identical. Approval is required only on EVM spokes, the hub, and Stellar.
 
 See [Staking](/developers/packages/foundation/sdk/functional-modules/staking).
 
@@ -157,6 +175,6 @@ See [Hub Wallet Abstraction](/developers/technical-overview/hub-wallet-abstracti
 
 #### 22. Can my AI agent query SODAX docs directly instead of web-searching?
 
-Yes, two ways. This documentation site hosts an auto-generated MCP server at `docs.sodax.com/mcp` that exposes a search tool over these pages — add it to your agent's MCP config, or use the "Add to \[agent]" option in the contextual menu on any page. For more than doc search, add the [Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`): 40 tools giving the agent live chains, tokens, quotes, money market rates, intent lookups **and** these docs, over one endpoint.
+Yes, two ways. This documentation site hosts an auto-generated MCP server at `docs.sodax.com/mcp` that exposes a search tool over these pages — add it to your agent's MCP config, or use the "Add to \[agent]" option in the contextual menu on any page. For more than doc search, add the [Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`): it gives the agent live chains, tokens, quotes, money market rates, intent lookups **and** these docs over one endpoint, plus swaps for a user once you send a SODAX API key (those are [not production ready yet](/builders-mcp#swaps)).
 
 See [Builders MCP](/builders-mcp) and [AI Integration](/ai-integration-guide).

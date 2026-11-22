@@ -1,3 +1,4 @@
+import { SOLVED_PAYOUT_HEADROOM_FACTOR } from '../shared/utils/solved-payout.js';
 import { isHex } from 'viem';
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import {
@@ -37,6 +38,7 @@ import {
   isStacksChainKeyType,
   isNativeBitcoinTransfer,
   assertMpcPayoutAboveMinimum,
+  encodeRecipient,
   isMpcRelayChainKeyType,
   RELAY_FALLBACK_FLOOR_MS,
 } from '../shared/index.js';
@@ -139,6 +141,7 @@ import {
   type XToken,
   HUB_CHAIN_KEY,
   isHubChainKey,
+  isRealWorldAsset,
   DEFAULT_RELAY_TX_TIMEOUT,
   DEFAULT_DEADLINE_OFFSET,
   type GetAddressType,
@@ -164,10 +167,11 @@ export type SwapResponse = {
 
 /** How {@link SwapService.swapWithApproval} gets the source token approved — see {@link ApprovalStrategy}. */
 /**
- * Where a solved intent's output landed: a relay packet's delivery, or, on an MPC-relay destination (Tron),
- * the release of the fill's hub tx. `dstTxHash` is the destination tx either way.
+ * Where a solved intent's output landed: the hub fill itself, a relay packet, or an MPC-relay release.
+ * `dstTxHash` is the transaction that pays the destination.
  */
 export type IntentDelivery =
+  | { source: 'hub'; dstTxHash: string }
   | { source: 'relay'; dstTxHash: string; packet: PacketData }
   | { source: 'mpcRelay'; dstTxHash: string; release: HubRelease };
 
@@ -736,6 +740,9 @@ export class SwapService {
    *   - `solverExecutionResponse` — solver acknowledgement (`{ answer: 'OK', intent_hash }`).
    *   - `intent` — the on-chain intent object that was created.
    *   - `intentDeliveryInfo` — source/destination chain keys, tx hashes, and user addresses.
+   *
+   *   A payout to an MPC-relay chain (Tron) is released once the solver notifies the relay of its fill;
+   *   {@link waitForIntentDelivery} waits for that payout.
    *
    *   On failure `result.error` is a {@link SodaxError} with one of:
    *   - `VALIDATION_FAILED` — input validation failed (propagated from `createIntent`).
@@ -1596,12 +1603,23 @@ export class SwapService {
           { ...baseCtx, field: 'deadline' },
         );
       }
+      // A cancelled or expired intent refunds the source, so the source is a release recipient too.
+      const refundAmount = params.inputAmount - calculateFeeAmount(params.inputAmount, partnerFee);
       if (inputTokenInfo) {
         assertMpcPayoutAboveMinimum({
           feature: 'swap',
           token: inputTokenInfo,
-          amount: params.inputAmount - calculateFeeAmount(params.inputAmount, partnerFee),
+          amount: refundAmount,
           context: { ...baseCtx, field: 'inputAmount' },
+        });
+        await this.spoke.assertReleaseRecipientReady({
+          feature: 'swap',
+          chainKey: params.srcChainKey,
+          recipient: encodeRecipient(params.srcChainKey, params.srcAddress),
+          token: inputTokenInfo.address,
+          // The deposit takes more off this line than a refund puts back, so it needs no room beyond today's.
+          amount: 0n,
+          context: { ...baseCtx, field: 'srcAddress' },
         });
       }
       if (outputTokenInfo) {
@@ -1610,6 +1628,15 @@ export class SwapService {
           token: outputTokenInfo,
           amount: params.minOutputAmount,
           context: { ...baseCtx, field: 'minOutputAmount' },
+        });
+        await this.spoke.assertReleaseRecipientReady({
+          feature: 'swap',
+          chainKey: params.dstChainKey,
+          recipient: encodeRecipient(params.dstChainKey, params.dstAddress),
+          token: outputTokenInfo.address,
+          amount: params.minOutputAmount,
+          maxAmount: params.minOutputAmount * SOLVED_PAYOUT_HEADROOM_FACTOR,
+          context: { ...baseCtx, field: 'dstAddress' },
         });
       }
       if (isStacksChainKeyType(params.srcChainKey) && _params.raw === true) {
@@ -2177,8 +2204,9 @@ export class SwapService {
   /**
    * Wait until a solved intent's output reaches its destination and return where it landed. The intent
    * relay delivers it to most chains, as the packet {@link getSolvedIntentPacket} returns. An MPC-relay
-   * destination (Tron) is paid instead by a release of the fill's hub tx, which the MPC relay learns of
-   * only when notified: this submits the release, then waits for its payout.
+   * destination (Tron) is paid instead by a release of the fill's hub tx, which the solver notifies the MPC
+   * relay of: this submits the release as well, then waits for its payout. A hub (Sonic) destination is paid
+   * by the fill tx itself, so this only confirms that tx: the relay has no packet for it.
    *
    * @param chainId - The destination spoke chain key.
    * @param fillTxHash - The solver's fill transaction hash, from `getStatus.fill_tx_hash`.
@@ -2196,6 +2224,16 @@ export class SwapService {
     fillTxHash: string;
     timeout?: number;
   }): Promise<Result<IntentDelivery>> {
+    if (isHubChainKey(chainId)) {
+      const receipt = await this.spoke.waitForTxReceipt({
+        chainKey: chainId,
+        txHash: fillTxHash,
+        maxTimeoutMs: timeout,
+      });
+      if (!receipt.ok) return receipt;
+      if (receipt.value.status !== 'success') return { ok: false, error: receipt.value.error };
+      return { ok: true, value: { source: 'hub', dstTxHash: fillTxHash } };
+    }
     if (isMpcRelayChainKeyType(chainId)) {
       const release = await this.spoke.submitHubRelease({ hubTxHash: fillTxHash, dstChainKey: chainId });
       if (!release.ok) return { ok: false, error: release.error.cause };
@@ -2271,13 +2309,18 @@ export class SwapService {
    * Offline, rule-based estimate of how fast a `srcToken`→`dstToken` swap will settle.
    *
    * Derived purely from SDK config (no network / on-chain / backend call): tokens whose vault is a
-   * money-market-reserve sodaAsset settle faster, and an Ethereum leg adds a fixed penalty. See
-   * {@link estimateSwapSpeedTier} for the rules.
+   * money-market-reserve sodaAsset settle faster, and an Ethereum leg adds a fixed penalty. RWA vaults
+   * (tokenized stocks) are collateral-only reserves sourced through their own markets, so they never
+   * count as sodaAssets. See {@link estimateSwapSpeedTier} for the rules.
    *
    * @param params `{ srcToken, dstToken }` spoke token pair to estimate
    * @returns the estimated `tier` bucket and `estimatedSeconds`
    */
   public getSwapSpeedTier(params: SwapSpeedTierParams): SwapSpeedTierResult {
-    return estimateSwapSpeedTier(params, vault => this.config.isMoneyMarketReserveAsset(vault));
+    return estimateSwapSpeedTier(
+      params,
+      vault =>
+        this.config.isMoneyMarketReserveAsset(vault) && !isRealWorldAsset({ chainKey: HUB_CHAIN_KEY, address: vault }),
+    );
   }
 }

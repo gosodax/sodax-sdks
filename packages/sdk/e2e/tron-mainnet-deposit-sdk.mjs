@@ -10,7 +10,7 @@
  */
 import { createPublicClient, http, sha256 } from 'viem';
 import { privateKeyToAccount, sign } from 'viem/accounts';
-import { TronSpokeService } from '@sodax/sdk';
+import { ChainKeys, Sodax, TronSpokeService } from '@sodax/sdk';
 
 // ---- live mainnet infra (matches spokeChainConfig[TRON_MAINNET] + CLAUDE.md) ----
 const RELAY = 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com';
@@ -131,12 +131,13 @@ async function main() {
   const tron = new TronSpokeService(cfg);
   log(`depositing ${AMOUNT_TRX} TRX (data=${DATA}) — mints wTRX to the derived hub wallet`);
 
+  const hubWallet = await new Sodax().hubProvider.getUserHubWalletAddress(sender, ChainKeys.TRON_MAINNET);
   const txHash = await tron.deposit({
     srcChainKey: 'tron',
     srcAddress: sender,
     token: '0x0000000000000000000000000000000000000000',
     amount: amountSun,
-    to: '0x0000000000000000000000000000000000000000',
+    to: hubWallet,
     data: DATA,
     walletProvider,
   });

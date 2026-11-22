@@ -4,6 +4,10 @@ description: "Ship v2-correct SODAX code from your AI coding agent using the @so
 icon: robot
 ---
 
+<Note>
+  The skills bundle teaches the **TypeScript packages** (`@sodax/*`). Building on the HTTP API from another language? Start at the [HTTP API overview](/developers/http-api); the [Builders MCP](/builders-mcp) below still gives your agent live quotes and doc search.
+</Note>
+
 SODAX ships agent-native documentation as [`@sodax/skills`](https://github.com/gosodax/sodax-sdks/tree/main/packages/skills) — five skills: four mode-gated ones (one per `@sodax/*` SDK package, each bundling `integration/knowledge/` for new v2 code and `migration-v1-to-v2/knowledge/` for v1→v2 porting), plus the cross-cutting `sodax-build` front-door skill for when you haven't picked a package yet. The goal is v2-correct code on the first try instead of stale training-data APIs.
 
 LLM training data drifts; public docs at [docs.sodax.com](https://docs.sodax.com) are for humans. Agents only use what you install or attach. For what’s in the bundle (skills, knowledge layout, routing table), see [packages/skills/README.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/skills/README.md).

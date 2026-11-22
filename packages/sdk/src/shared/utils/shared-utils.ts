@@ -202,7 +202,7 @@ export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): H
   if (getChainType(spokeChainId) === 'EVM') {
     // `encodeAddress` passes EVM input through unchecked, and a malformed recipient here is released
     // on-chain as-is, so validate before it reaches the hub.
-    if (!isAddress(address, { strict: false })) {
+    if (!isAddress(address)) {
       throw new Error(`[encodeRecipient] invalid EVM recipient for ${spokeChainId}: ${address}`);
     }
     return address.toLowerCase() as Hex;

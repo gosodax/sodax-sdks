@@ -28,17 +28,13 @@ const supplyResult = await sodax.moneyMarket.supply({
 
 SDK includes predefined configurations of supported chains, tokens and other relevant information for the client to consume. All configurations are accessible through the `config` property of the Sodax instance (`sodax.config`), or through service-specific properties for convenience.
 
-**IMPORTANT**: If you want dynamic (backend API based - contains latest tokens) configuration, make sure to initialize the instance before usage:
-```typescript
-await sodax.config.initialize();
-```
-By default, configuration from the specific SDK version you are using is used.
+The configuration is the one bundled with the SDK version you are using. `sodax.config.initialize()` currently returns success without fetching anything, so it does not add tokens listed after your release; see [Configure SDK](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#where-supported-tokens-come-from).
 
 ```typescript
 import { Sodax, ChainKeys, type SpokeChainKey, type Address } from '@sodax/sdk';
 
 const sodax = new Sodax();
-await sodax.config.initialize(); // Initialize for dynamic config (optional)
+await sodax.config.initialize(); // optional; adds no tokens
 
 // All supported spoke chains (general config)
 const spokeChains: SpokeChainKey[] = sodax.config.getSupportedSpokeChains();
@@ -411,7 +407,9 @@ Borrow tokens from the money market pool. Borrowed tokens can be delivered to a 
 1. `borrow`: Executes the spoke-side message, relays to the hub, and waits for the relay to settle.
 2. `createBorrowIntent`: Builds (and optionally broadcasts) only the spoke-side transaction without waiting for the relay.
 
-Each leg settles on the relay of the spoke it touches: a leg to or from an MPC-relay chain (Tron) on the MPC relay, every other leg on the intent relay. The hub-to-Tron leg is driven by the SDK, since that relay does not watch the hub, so `borrow` and `withdraw` to Tron resolve with the Tron payout tx as `dstChainTxHash`. A borrow or withdraw from Tron is a signed message with no Tron tx, so it resolves to `{ trackingId, dstChainTxHash }` instead of a tx pair (`OutboundSettlement`); one that pays out elsewhere resolves once the destination leg lands, not on a Tron release. `createBorrowIntent` / `createWithdrawIntent` alone leave that leg undriven. A borrow (after its partner fee) or withdraw paying out to Tron at or below `MpcRelayPayoutMinimums` fails with `VALIDATION_FAILED` (`context.reason: 'mpc-payout-below-minimum'`) before anything is signed, because the relay's release fee comes out of the payout and nothing is released once it reaches the amount; a UI can check first with `getUnmetMpcPayoutMinimum`.
+Each leg settles on the relay of the spoke it touches: a leg to or from an MPC-relay chain (Tron) on the MPC relay, every other leg on the intent relay. The hub-to-Tron leg is driven by the SDK, since that relay does not watch the hub, so `borrow` and `withdraw` to Tron resolve with the Tron payout tx as `dstChainTxHash`. A borrow or withdraw from Tron is a signed message with no Tron tx, so it resolves to `{ trackingId, dstChainTxHash }` instead of a tx pair (`OutboundSettlement`); one that pays out elsewhere resolves once the destination leg lands, not on a Tron release. `createBorrowIntent` / `createWithdrawIntent` alone leave that leg undriven: drive it with `sodax.spoke.settle` (`direction: 'outbound'`, with `dstChainKey`), as [`SpokeService.settle.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/SpokeService.settle.test.ts) shows. A borrow (after its partner fee) or withdraw paying out to Tron at or below `MpcRelayPayoutMinimums` fails with `VALIDATION_FAILED` (`context.reason: 'mpc-payout-below-minimum'`) before anything is signed, because the relay's release fee comes out of the payout and nothing is released once it reaches the amount; a UI can check first with `getUnmetMpcPayoutMinimum`.
+
+Both read the token's reserve on the hub first. If the pool cannot lend it (borrowing disabled, as for collateral-only reserves, or the reserve is frozen or paused), they return `VALIDATION_FAILED` with `context.field: 'token'` and send nothing. To hide the option up front, check `borrowingEnabled` in the reserve data.
 
 ```typescript
 import { type MoneyMarketBorrowParams, DEFAULT_RELAY_TX_TIMEOUT, ChainKeys } from '@sodax/sdk';
@@ -461,6 +459,8 @@ Withdraw previously supplied tokens from the money market pool. Withdrawn tokens
 
 1. `withdraw`: Executes the spoke-side message, relays to the hub, and waits for the relay to settle.
 2. `createWithdrawIntent`: Builds (and optionally broadcasts) only the spoke-side transaction without waiting for the relay.
+
+A withdraw to or from an MPC-relay chain (Tron) settles as [a borrow does](#borrow-tokens).
 
 ```typescript
 import { type MoneyMarketWithdrawParams, DEFAULT_RELAY_TX_TIMEOUT, ChainKeys } from '@sodax/sdk';

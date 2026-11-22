@@ -1,16 +1,27 @@
 ---
 title: "Get Started"
 description: >-
-  Pick a solution — Swap, Money Market, Bridge, or Yield — then follow the SDK
-  or HTTP API path. Or jump to a network guide.
+  Get your API key and make your first HTTP API call, then pick a solution
+  or a network guide. The open-source SDK is there when you want typed TypeScript flows.
 icon: signs-post
 ---
 
-Pick a solution first. Inside each hub you’ll choose the **HTTP API** or the **open-source SDK**.
+Start with the **HTTP API**: it works from any language with no SDK to install. Get a key, make your first swap over REST, then pick a solution.
 
-<Card title="Your first swap" icon="bolt" href="/quickstart" horizontal arrow>
-  Install → quote → execute on mainnet, then poll until it settles.
-</Card>
+<CardGroup cols={2}>
+  <Card title="Get your API key" icon="key" href="https://portal.sodax.com" horizontal arrow>
+    Create a key in the partner portal and send it as `x-api-key` from your server.
+  </Card>
+  <Card title="Your first API swap" icon="bolt" href="/developers/http-api/swaps#bot-flow-create-submit-tx-poll" horizontal arrow>
+    Quote, build the intent, submit, and poll until it settles.
+  </Card>
+</CardGroup>
+
+Prefer TypeScript end to end? [Your first swap with the SDK](/quickstart) covers the same flow with `@sodax/sdk`.
+
+## Pick a solution
+
+Inside each hub you choose the **HTTP API** or the **open-source SDK**.
 
 <CardGroup cols={2}>
   <Card title="Swap" icon="rotate" href="/swap">
@@ -27,7 +38,7 @@ Pick a solution first. Inside each hub you’ll choose the **HTTP API** or the *
   </Card>
 </CardGroup>
 
-### Or start from your context
+## Or start from your context
 
 <CardGroup cols={2}>
   <Card title="Solana quickstart" icon="sun" href="/solana/quickstart">

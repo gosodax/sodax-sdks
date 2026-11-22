@@ -92,7 +92,7 @@ You should **not** read the store directly. Use the public hooks. The store hook
 
 For EVM, available wallets are discovered via [EIP-6963](https://eips.ethereum.org/EIPS/eip-6963) — browser extensions broadcast their metadata and `useXConnectors({ xChainType: 'EVM' })` builds the list at runtime. No hardcoded wallet registry; new wallets installed by the user appear without an SDK update.
 
-Other chains ship a curated connector list (Bitcoin: Xverse / Unisat / OKX / Hana, Sui: dapp-kit's standard connectors, Solana: wallet-adapter's standard connectors, etc.). For each connector, `isInstalled` reflects whether the underlying extension/wallet is detected. `sortConnectors(list, { preferred })` puts installed connectors first — call it once in your render path; the result is stable per render.
+Tron discovers its wallet the same way over TIP-6963, falling back to `window.tron` / `window.tronLink`. Other chains ship a curated connector list (Bitcoin: Xverse / Unisat / OKX / Hana, Sui: dapp-kit's standard connectors, Solana: wallet-adapter's standard connectors, etc.). For each connector, `isInstalled` reflects whether the underlying extension/wallet is detected. `sortConnectors(list, { preferred })` puts installed connectors first — call it once in your render path; the result is stable per render.
 
 ---
 
