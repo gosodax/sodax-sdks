@@ -24,4 +24,4 @@ New public surface:
 
 TON is swap-supported in the **staging** solver environment only (TON and USDT). **Money market** lists USDT only: TON has no vault, so it cannot be a lending-pool reserve. Bridge, partner-fee and recovery include TON automatically.
 
-A TON deposit's hash is the reserve wallet's transaction, found by memo, sender and amount. If the transfer is broadcast but not found in time, `deposit` throws `TonDepositNotFoundError`; pass its `recovery` to `resumeDeposit` rather than sending again. `MpcRelayPayoutMinimums` floors USDT payouts to TON at 3 USDT, the cap of the solver's TON release fee; native TON has no floor.
+A TON deposit's hash is the reserve wallet's transaction, found by memo, sender and amount. If the transfer is broadcast but not found in time, `deposit` throws `TonDepositNotFoundError`; pass its `recovery` to `resumeDeposit` rather than sending again. Keep the whole `recovery`, including its per-broadcast `broadcastId`: two deposits with the same data, sender and amount resume to their own transfers. `MpcRelayPayoutMinimums` floors USDT payouts to TON at 3 USDT, the cap of the solver's TON release fee; native TON has no floor.
