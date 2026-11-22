@@ -20,6 +20,6 @@ New public surface:
 - `@sodax/wallet-sdk-core` — `ZcashWalletProvider` in raw-key mode (`signTransaction`) and browser-wallet mode (`sendTransfer`), plus `serializeZcashV5` and `zip244SignatureDigest`.
 - `@sodax/wallet-sdk-react` — `ZcashXService` and the Noir Wallet `ZcashXConnector`, wired into `chainRegistry` under the `ZCASH` config slot.
 
-ZEC is swap-supported in the **staging** solver environment only. **Money market:** ZEC is a reserve through the new `SodaTokens.sodaZECv2` vault (`0xf54339B1DF8D9CeBF69665FDF002310A4F2Fe9EE`), which registers the Zcash and NEAR ZEC hub assets and is listed by the lending pool. Zcash ZEC deposits into it. `SodaTokens.sodaZEC` is unchanged (`0xf4af…`, still Solana ZEC's vault).
+ZEC is swap-supported in the **staging** solver environment only. **Money market:** ZEC is a reserve through the new `SodaTokens.sodaZECv2` vault (`0xf54339B1DF8D9CeBF69665FDF002310A4F2Fe9EE`), which registers the Zcash and NEAR ZEC hub assets and is listed by the lending pool. Zcash ZEC deposits into it. `SodaTokens.sodaZEC` is unchanged (`0xf4af…`, the legacy, non-reserve ZEC vault kept for compatibility).
 
 `MpcRelayPayoutMinimums` floors ZEC payouts to Zcash at 0.001 ZEC. The relay deducts a live ZEC release fee (about 0.00015 ZEC).

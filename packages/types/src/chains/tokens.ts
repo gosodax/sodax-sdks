@@ -888,7 +888,8 @@ export const SodaTokens = {
   },
   // The ZEC vault Zcash deposits into, and the money market's ZEC reserve. Read on Sonic 2026-11-22: it registers the
   // Zcash (0x24312b2C…) and NEAR (0xEd5d71eE…) ZEC hub assets, and the lending pool lists it, not sodaZEC (0xf4af…).
-  // Neither vault registers Solana's ZEC hub asset (0xdfce…), so Solana ZEC stays on sodaZEC.
+  // sodaZEC is the legacy, non-reserve ZEC vault, kept for compatibility: it registers the Zcash (0x24312b2C…) and BSC
+  // (0x3155…) ZEC hub assets. Neither vault registers Solana's ZEC hub asset (0xdfce…).
   sodaZECv2: {
     symbol: 'sodaZECv2',
     name: 'SODA ZEC v2',
