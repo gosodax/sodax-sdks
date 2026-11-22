@@ -30,6 +30,7 @@ const BLANK = {
   slippage: undefined,
   embed: false,
   brand: NO_BRAND,
+  appId: undefined,
 };
 
 describe('readUrlState', () => {
@@ -202,6 +203,15 @@ describe('embedUrl', () => {
     expect(query.embed).toBe(true);
     expect(query.srcChain).toBe(SRC_CHAIN);
     expect(query.dstSymbol).toBe('WETH');
+  });
+
+  it('carries the partner app ID, and drops a malformed one', () => {
+    const appId = 'wgt_0123456789abcdef01234567';
+    const url = embedUrl('https://widget.sodax.com', { ...state, appId });
+
+    expect(readUrlState(url.slice(url.indexOf('?'))).appId).toBe(appId);
+    expect(readUrlState('?appId=wgt_nope').appId).toBeUndefined();
+    expect(readUrlState('?appId=<script>').appId).toBeUndefined();
   });
 
   // What makes the copy-paste story work: the visitor styles the widget and the snippet is the answer.

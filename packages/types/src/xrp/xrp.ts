@@ -1,3 +1,5 @@
+import type { MpcWithdrawMessage, MpcWithdrawScheme } from '../chains/chains.js';
+import type { Hex } from '../shared/shared.js';
 import type { ICoreWallet } from '../wallet/wallet.js';
 
 /**
@@ -51,7 +53,8 @@ export interface XrpSignedTransaction {
  * Structural raw-tx shape shared with the other spoke chains (see `RawTxReturnType`). `to` is the
  * MPC reserve the funds go to and `data` the memo to tag the Payment with, for both native XRP and
  * an IOU — `token` distinguishes them (the zero sentinel for native XRP), since an IOU Payment
- * carries a currency/issuer amount object rather than a drops string.
+ * carries a currency/issuer amount object rather than a drops string. `transaction` is that Payment,
+ * built: sign and submit it, then notify the relay of its hash.
  */
 export type XrpRawTransaction = {
   from: string;
@@ -59,13 +62,39 @@ export type XrpRawTransaction = {
   value: bigint;
   data: string;
   token: string;
+  transaction: XrpUnsignedTransaction;
+};
+
+/**
+ * Raw withdraw-auth: no XRPL transaction exists. Sign `digest` as a RAW ed25519 signature with
+ * {@link IXrpWalletProvider.signMessage}, then submit it with the account's `0xED` public key, which
+ * returns the withdrawal's trackingId.
+ */
+export type XrpRawWithdraw = {
+  message: MpcWithdrawMessage;
+  digest: Hex;
+  scheme: MpcWithdrawScheme;
 };
 
 export type XrpReturnType<Raw extends boolean> = Raw extends true
+  ? XrpRawTransaction | XrpRawWithdraw
+  : Raw extends false
+    ? string
+    : XrpRawTransaction | XrpRawWithdraw | string;
+
+/** What an XRPL deposit returns: the unsigned Payment in raw mode, else its tx hash. */
+export type XrpDepositReturnType<Raw extends boolean> = Raw extends true
   ? XrpRawTransaction
   : Raw extends false
     ? string
     : XrpRawTransaction | string;
+
+/** What an XRPL withdraw-auth (`sendMessage`) returns: the unsigned message in raw mode, else its trackingId. */
+export type XrpSendMessageReturnType<Raw extends boolean> = Raw extends true
+  ? XrpRawWithdraw
+  : Raw extends false
+    ? string
+    : XrpRawWithdraw | string;
 
 /** rippled `tx` response (the fields the relay/sdk actually read). */
 export type XrpRawTransactionReceipt = {

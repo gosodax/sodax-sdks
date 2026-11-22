@@ -135,7 +135,8 @@ if (!isApproved) await approve({ params: supplyParams, walletProvider });
 
 | Hook | Returns |
 |---|---|
-| `useSupply` / `useBorrow` / `useWithdraw` / `useRepay` | `SafeUseMutationResult<TxHashPair, Error, ...>` (`{ srcChainTxHash, dstChainTxHash }`); `useBorrow` / `useWithdraw` return `OutboundSettlement<K>`, which from Tron is `{ trackingId, dstChainTxHash }`: a withdraw-auth has no Tron tx, so never link `trackingId` to an explorer |
+| `useSupply` / `useRepay` | `SafeUseMutationResult<TxHashPair, Error, ...>` (`{ srcChainTxHash, dstChainTxHash }`) |
+| `useBorrow` / `useWithdraw` | `SafeUseMutationResult<OutboundSettlement<K>, Error, ...>`: `TxHashPair`, or from Tron `{ trackingId, dstChainTxHash }`. A withdraw-auth has no Tron tx, so never link `trackingId` to an explorer. For a non-literal `K`, narrow with `'trackingId' in data` |
 | `useMMApprove` | `SafeUseMutationResult<TxReturnType<K, false>, Error, ...>` — chain-keyed receipt union |
 | `useMMAllowance` | `UseQueryResult<boolean, Error>` — already unwrapped; for `borrow`/`withdraw` actions the query is `enabled: false` and `data` is `undefined` |
 | Reserve / position hooks | `UseQueryResult<TData, Error>` — already unwrapped; queries throw on SDK `!ok` |

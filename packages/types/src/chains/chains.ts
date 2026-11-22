@@ -102,10 +102,8 @@ export type MpcRelayChainInfo = {
  * {@link RelayChainIdMap} for the other relay.
  *
  * Unlike that map this one is deliberately PARTIAL: membership is the definition. A chain in here
- * settles through the MPC relay (deposit paid to a shared reserve with a payload-hash memo, tracked
- * over the relay's REST API); every other chain rides the intent relay. Tron is the only member
- * today — XRP (`3`) and Aptos (`4`) settle the same way and join by being added here, which is also
- * why the scheme lives in the map rather than in a chain's spoke service.
+ * settles through the MPC relay and is tracked over its REST API. Tron, XRP and Monad are members;
+ * each entry defines its relay identity and withdrawal signature scheme.
  */
 export const MpcRelayChainMap = {
   [ChainKeys.TRON_MAINNET]: { chainId: 728126428n, withdrawScheme: 1 },
@@ -132,7 +130,26 @@ export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
  * once that fee reaches the amount, after the hub has already burned it. Sized to the fee cap the solver assumes.
  */
 export const MpcRelayPayoutMinimums: Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
+  // The relay's release fee is capped at 3 USDT / 10 TRX: `tronReleaseCosts[*].capUnits` in icon-project/sodax-solver-v2
+  // onchain-modules/modules/liquidity/hub/asset/src/core/tronReleaseFee.ts (ported from the relay's fee-api).
   [ChainKeys.TRON_MAINNET]: { USDT: 3_000_000n, TRX: 10_000_000n },
+  // The relay deducts no XRPL release fee (solver quotes 1:1); XrpSpokeService.checkDestination checks the native account reserve.
+  [ChainKeys.XRP_MAINNET]: {},
+  // No floor: the solver serves Monad with EvmChainProvider (sodax-solver-v2 .../hub/asset/src/chains/evm.ts), which has
+  // no `priceReleaseFees`, so XAssetModule quotes its release 1:1. The solver models release fees only for Tron, TON,
+  // Zcash and Cardano.
+  [ChainKeys.MONAD_MAINNET]: {},
+  // TON USDT releases cost the relay ~0.1 TON (jetton transfer + recipient jetton-wallet deploy), priced live and capped
+  // at 3 USDT: `tonReleaseCosts[TON_USDT_ASSET].capUnits` in icon-project/sodax-solver-v2 onchain-modules/modules/
+  // liquidity/hub/asset/src/core/tonReleaseFee.ts. Native TON (GRAM) is absent there and quotes 1:1, so it has no floor.
+  [ChainKeys.TON_MAINNET]: { USDT: 3_000_000n },
+  // ZEC is not sized to its cap. The release fee is the relay's ZEC network fee, fetched live from the fee API in
+  // zatoshi (`getZcashReleaseFeeZec` in icon-project/sodax-solver-v2 onchain-modules/modules/liquidity/hub/asset/src/
+  // core/zcashFees.ts; ZIP-317 fallback 0.00015 ZEC). ZEC pays its own fee, so `computeZcashReleaseFee` returns that cost
+  // as is, and `zcashReleaseCaps` (1 ZEC, core/zcashReleaseFee.ts) is only a safety ceiling: a 1 ZEC floor would refuse
+  // ordinary payouts. 0.001 ZEC is ~6.7x the fallback fee (20 ZIP-317 logical actions at 5,000 zatoshi), so a payout
+  // just above it still clears a congested or many-input release and stays far above the transparent dust limit.
+  [ChainKeys.ZCASH_MAINNET]: { ZEC: 100_000n },
 };
 
 export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey>(
@@ -1342,9 +1359,124 @@ export const spokeChainConfig = {
         assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
       },
       {
+        assetCode: 'AMC',
+        contractId: 'CAEBWGQGYLLN3KHAGEW6VNDS7FQL3MAIDPMAU6P3AHHI5YW5VGOE72LL',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'HIMS',
+        contractId: 'CCCDVTRZNHCG52ZXSNTBLMZC2GQXMR3YZY7MZWQFQ3DAUF52LZD6N6SV',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'LLY',
+        contractId: 'CAR37LJDK2PHTO2NJKKYGHQGP2SY5QIM4WADLDYWGH3THY2O3XU53KI5',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'COST',
+        contractId: 'CBACMBV6OO6MB6S4NB4V7IPFKPOZCVL22GZG3QIRVUXDPT3B33PIQGUK',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'TTWO',
+        contractId: 'CCUIUDZ7ZDBVSOBJG2HO2TNUDLOUBMKZB46NMFKIKITOOUDUKSSOOUI2',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'RBLX',
+        contractId: 'CA7QG7YKEIZRO7CWBJOTZ3SSDSLPOZOGIJFFXHNYWFU5Q32ZHYISMUAS',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'IBM',
+        contractId: 'CAD7GTZSDJOMR7N66CQT7TX6253WW6UC25MBV7GTZWD2A4EEQD2F64DM',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'MRNA',
+        contractId: 'CB5DSRUATRWXLUTWBIYHBZ4NPUODQWBSM3K3LKSASXCVTPTINX5TGYR6',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'LULU',
+        contractId: 'CAOURCGE6GBFMP2NCP7IU2NFS4TTQTUD47OV65I25QUNE5K4D3U7HQ6G',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'SNAP',
+        contractId: 'CBZJXY6XMLMEAT6CGIWX7XWOYUZULCCZ37CPHLHR3XBV2FNI3WFIEHAT',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'WYFI',
+        contractId: 'CAGFLIVHJ3P7Z5LUC74SJY4FFILFO2C3NBHQUQYYDMMANAOV2BHLW6VQ',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'RIVN',
+        contractId: 'CDVW2KKRGBHWAMYXD5KFRC65XCNQ6QMPF27TCJGK56EB4DVO4BANRC3H',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'NFLX',
+        contractId: 'CB5REEJVITH4X6OKVK3DK7JOTTF66MNUGYTIVVWHVZ27LXF7YOWWGFMB',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'BULL',
+        contractId: 'CBEHZ6M6YMFFZRSYOKBOXOP3Y4WKTOLTFIQ4HLJ7SCTXL6GCOT7XSCJP',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'QUBT',
+        contractId: 'CAU6WBKWYDOEJMZLEJPKBSR7YG5FY7XIXNQH7FB6G4PJYBJHDZKERVOQ',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'NET',
+        contractId: 'CANVGKHGU2E4ZHWUQMDG54DHO6GAOGUZB6QFF5WCQN46ZISQV7AAL3PN',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'SKHY',
+        contractId: 'CBLDWO73ZGWFNWNHGN7JFNMOKIBUCPGSDNEJY2QS4LTDBJDUP52YA7IU',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'JNJ',
+        contractId: 'CBQNN6DIY2VSS75U5563LUWQLTVFKKPW3RQFRMIGTLMCN4QAOHAENMGY',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'UPS',
+        contractId: 'CCTOGJ6YDHLVGKEFFRIHH7CCLETLEEZV4YMQ3PL7SI23GEMGK5JK3SRB',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'DJT',
+        contractId: 'CBTD75GNN5MQ5O4HGGNDNPYVCJYSGGPU66J25WAM3CQ7GNOK6ZDC2YJX',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'RDDT',
+        contractId: 'CCL6EU763SIZW4LWKZHRMM5HF75GHLWNFLL7TVMFN42ZL35UYEEPGZJ6',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
+        assetCode: 'GLD',
+        contractId: 'CB7ZOXYL3NZMO4J3WRG6DVQDS5VYABSKLH4SF6FEYHVEXTNYAPXZI4DC',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
+      },
+      {
         assetCode: 'EURC',
         contractId: 'CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV',
         assetIssuer: 'GDHU6WRG4IEQXM5NZ4BMPKOXHW76MZM4Y2IEMFDVXBSDP6SJY4ITNPP2',
+      },
+      {
+        assetCode: 'ANT',
+        contractId: 'CCGK5VR4BROZDQPYXEPQPQ6B67PBI2XUKO4V34R7QILXXO3Z2YMOT5AC',
+        assetIssuer: 'GDYUTHY75A7WUZJQDPOP66FB32BOYGZRXHWTWO4Q6LQTANT5X3V5HNFA',
       },
     ],
     supportedTokens: stellarSupportedTokens,

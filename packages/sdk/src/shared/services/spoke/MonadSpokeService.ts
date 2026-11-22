@@ -3,6 +3,7 @@ import {
   type Hex,
   type HttpTransport,
   type PublicClient,
+  type TransactionReceipt,
   createPublicClient,
   encodeFunctionData,
   http,
@@ -20,11 +21,14 @@ import {
 import { erc20Abi } from '../../abis/index.js';
 import type { ConfigService } from '../../config/ConfigService.js';
 import { getEvmViemChain } from '../../utils/constant-utils.js';
+import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
 import { retry } from '../../utils/shared-utils.js';
 import type {
   DepositParams,
   EstimateGasParams,
   GetDepositParams,
+  GetBalanceParams,
+  GetBalancesParams,
   SendMessageParams,
   WaitForTxReceiptParams,
   WaitForTxReceiptReturnType,
@@ -47,6 +51,7 @@ import {
   type WithdrawalRecord,
   type WithdrawalSettledOn,
 } from '../mpcRelay/MpcRelayApiService.js';
+import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 import { computeSignedMessageHash, randomWithdrawNonce } from './mpc-message.js';
 
 /**
@@ -56,6 +61,8 @@ import { computeSignedMessageHash, randomWithdrawNonce } from './mpc-message.js'
  * hub tx, so the generic cross-chain timeout would give up mid-flight.
  */
 const MONAD_SETTLEMENT_FLOOR_MS = 300_000;
+/** How long a deposit waits for its transfer's receipt before notifying the relay anyway. */
+const MONAD_DEPOSIT_RECEIPT_TIMEOUT_MS = 60_000;
 
 /** How often to re-notify the relay while waiting for a deposit. */
 const RENOTIFY_INTERVAL_MS = 6_000;
@@ -110,10 +117,11 @@ export class MonadSpokeService implements MpcRelaySettlement {
    * Deposit MON or an ERC-20 into the hub via the MPC relay.
    *
    * `Raw: true` returns the unsigned transfer (no wallet needed). `Raw: false` registers the hub
-   * `data`, sends the transfer to the derived deposit address, waits for it to land, and notifies the
+   * `data`, sends the transfer to the derived deposit address, waits for its receipt, and notifies the
    * relay — resolving to the source tx hash. An ERC-20 deposit is a direct transfer, so it needs no
-   * allowance. After the transfer lands, a failed notify warns and still resolves to the hash, so a retry
-   * cannot send it twice: `settle` re-notifies it, and a caller that does not settle notifies it with
+   * allowance. An indeterminate receipt failure or a failed notify warns and still resolves to the hash;
+   * the relay is notified even if the receipt wait fails. A definite revert throws with the hash. A retry
+   * must not send it twice: `settle` re-notifies it, and a caller that does not settle notifies it with
    * `spoke.submitMpcDeposit`.
    */
   public async deposit<R extends boolean = false>(
@@ -155,21 +163,38 @@ export class MonadSpokeService implements MpcRelaySettlement {
       return rawTx satisfies EvmReturnType<true> as TxReturnType<MonadChainKey, R>;
     }
 
-    const txHash = await params.walletProvider.sendTransaction(rawTx);
+    const txHash = await params.walletProvider.sendTransaction(rawTx, {
+      expectedChainId: getEvmViemChain(ChainKeys.MONAD_MAINNET).id,
+    });
 
-    // Notify only a transfer that actually landed: a reverted ERC-20 transfer moved nothing, and the
-    // relay would record a deposit that never attests.
-    const receipt = await this.getPublicClient().waitForTransactionReceipt({ hash: txHash });
-    if (receipt.status !== 'success') {
+    let receipt: TransactionReceipt | undefined;
+    try {
+      receipt = await this.getPublicClient().waitForTransactionReceipt({
+        hash: txHash,
+        timeout: MONAD_DEPOSIT_RECEIPT_TIMEOUT_MS,
+      });
+    } catch (error) {
+      this.config.logger.warn(
+        '[MonadSpokeService.deposit] receipt wait failed; notifying the relay with the broadcast hash',
+        {
+          txHash,
+          error,
+        },
+      );
+    }
+    if (receipt && receipt.status !== 'success') {
       throw new Error(`[MonadSpokeService.deposit] deposit transfer ${txHash} reverted`);
     }
 
     const submitted = await this.submitDeposit(txHash);
     if (!submitted.ok) {
-      this.config.logger.warn('[MonadSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it', {
-        txHash,
-        error: submitted.error,
-      });
+      this.config.logger.warn(
+        '[MonadSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it',
+        {
+          txHash,
+          error: submitted.error,
+        },
+      );
     }
 
     return txHash satisfies Hex as TxReturnType<MonadChainKey, R>;
@@ -205,10 +230,13 @@ export class MonadSpokeService implements MpcRelaySettlement {
    * The relay's deposit id for `txHash`. A native send has no log and is keyed at index 0; an ERC-20
    * deposit is keyed by the block-level index of its `Transfer` log from a supported token.
    */
-  private async depositIdFor(txHash: string, { wait }: { wait: boolean }): Promise<string> {
+  private async depositIdFor(txHash: string, { waitMs }: { waitMs?: number }): Promise<string> {
     const client = this.getPublicClient();
     const hash = txHash as Hex;
-    const receipt = wait ? await client.waitForTransactionReceipt({ hash }) : await client.getTransactionReceipt({ hash });
+    const receipt =
+      waitMs === undefined
+        ? await client.getTransactionReceipt({ hash })
+        : await client.waitForTransactionReceipt({ hash, timeout: waitMs });
     const tokens = new Set(
       Object.values(this.chainConfig.supportedTokens)
         .map(t => t.address.toLowerCase())
@@ -232,9 +260,10 @@ export class MonadSpokeService implements MpcRelaySettlement {
     }, RENOTIFY_INTERVAL_MS);
 
     try {
-      const depositId = await this.depositIdFor(txHash, { wait: true });
+      const budgetMs = Math.max(resolveTimeoutMs(timeout, 0), MONAD_SETTLEMENT_FLOOR_MS);
+      const depositId = await this.depositIdFor(txHash, { waitMs: budgetMs });
       return await waitForDeposit(this.relayApiUrl, depositId, {
-        timeout: Math.max(timeout ?? 0, MONAD_SETTLEMENT_FLOOR_MS),
+        timeout: budgetMs,
         pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
       });
     } catch (error) {
@@ -247,7 +276,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
   /** The MPC relay's current record for a Monad deposit, read once. `txHash` is as for {@link waitForDeposit}. */
   public async getDepositRecord(txHash: string): Promise<Result<DepositRecord>> {
     try {
-      return await getDeposit(this.relayApiUrl, await this.depositIdFor(txHash, { wait: false }));
+      return await getDeposit(this.relayApiUrl, await this.depositIdFor(txHash, {}));
     } catch (error) {
       return { ok: false, error };
     }
@@ -268,6 +297,23 @@ export class MonadSpokeService implements MpcRelaySettlement {
       functionName: 'balanceOf',
       args: [params.srcAddress],
     });
+  }
+
+  /** The account's own balance of `token`, in smallest units: native MON, or `balanceOf` for an ERC-20. */
+  public async getWalletBalance(params: GetBalanceParams<MonadChainKey>): Promise<bigint> {
+    return this.getDeposit({
+      srcChainKey: params.srcChainKey,
+      srcAddress: params.srcAddress,
+      token: params.token.address as Address,
+    });
+  }
+
+  /** {@link getWalletBalance} for several tokens; a failed read is logged and left out, unless every read fails. */
+  public async getWalletBalances(params: GetBalancesParams<MonadChainKey>): Promise<WalletBalanceMap> {
+    const { srcChainKey, srcAddress, tokens } = params;
+    const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
+    await settleWalletBalances(collector, tokens, token => this.getWalletBalance({ srcChainKey, srcAddress, token }));
+    return collector.finish();
   }
 
   /** Gas for the deposit transfer, from the node. */
@@ -330,7 +376,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
   ): Promise<Result<WithdrawalRecord>> {
     return waitForWithdrawal(this.relayApiUrl, trackingId, {
       until,
-      timeout: Math.max(timeout ?? 0, MONAD_SETTLEMENT_FLOOR_MS),
+      timeout: Math.max(resolveTimeoutMs(timeout, 0), MONAD_SETTLEMENT_FLOOR_MS),
       pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
     });
   }
@@ -364,7 +410,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
     }, RENOTIFY_INTERVAL_MS);
     try {
       return await waitForHubRelease(this.relayApiUrl, release, {
-        timeout: Math.max(timeout ?? 0, MONAD_SETTLEMENT_FLOOR_MS),
+        timeout: Math.max(resolveTimeoutMs(timeout, 0), MONAD_SETTLEMENT_FLOOR_MS),
         pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
       });
     } finally {
@@ -385,7 +431,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
       const receipt = await this.getPublicClient().waitForTransactionReceipt({
         hash: params.txHash as Hex,
         pollingInterval: params.pollingIntervalMs,
-        timeout: params.maxTimeoutMs,
+        timeout: resolveTimeoutMs(params.maxTimeoutMs, MONAD_DEPOSIT_RECEIPT_TIMEOUT_MS),
       });
       if (receipt.status === 'reverted') {
         return { ok: true, value: { status: 'failure', error: new Error('Transaction reverted') } };

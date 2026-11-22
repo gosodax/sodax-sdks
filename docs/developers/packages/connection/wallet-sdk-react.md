@@ -9,8 +9,8 @@ React layer over [`@sodax/wallet-sdk-core`](https://github.com/gosodax/sodax-sdk
 ## Features
 
 - **Unified wallet connectivity** across every supported chain family
-  - EVM (Sonic hub, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood) — EIP-6963 + WalletConnect
-  - Solana, Sui, Stellar, ICON, Injective, Bitcoin, NEAR, Stacks, Tron
+  - EVM (Sonic hub, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood, Monad) — EIP-6963 + WalletConnect
+  - Solana, Sui, Stellar, ICON, Injective, Bitcoin, NEAR, Stacks, Tron, TON (TonConnect; set `TON.manifestUrl` to your app's `tonconnect-manifest.json`)
 - **Single-store state** — `useXAccount`, `useXConnection`, `useXAccounts` all read the same Zustand slice; persisted to `localStorage`
 - **Bridge to `@sodax/sdk`** — `useWalletProvider` returns a typed `IXxxWalletProvider` ready to plug into any SDK call
 - **Headless wallet modal** — `useWalletModal` state machine (chainSelect → walletSelect → connecting → success | error), render-agnostic
@@ -131,6 +131,10 @@ The full guide lives in [`docs/`](https://github.com/gosodax/sodax-sdks/tree/mai
 ### Solana balance batching
 
 Multi-token Solana balance reads batch the legacy SPL Token and Token-2022 associated-account candidates in requests of at most 100 accounts. Native SOL remains a separate balance request. If any of these RPC requests fails, `getBalances` rejects instead of reporting zero balances, so callers such as `useXBalances` surface an error and keep their last good data.
+
+### Stellar balance batching
+
+Stellar balance reads load the account from Horizon once per `getBalances` call. XLM and every token that wraps a classic asset are read from that response, and a classic asset without a trustline reads as zero without any request (its own issuer reads the maximum, as the asset contract reports). Only custom Soroban tokens are read by simulating `balance()`, one request each. If the account load or a simulation request fails, `getBalances` and `getBalance` reject instead of reporting zero balances. An account that has never been funded reads as zero for XLM and classic assets, while custom Soroban tokens are still simulated, since they can credit an address that has no account.
 
 ## AI agent docs
 

@@ -26,7 +26,7 @@ import {
   type Address,
   type Hex,
 } from 'viem';
-import { leverageYieldConfig, tronSupportedTokens } from '@sodax/types';
+import { leverageYieldConfig, tronSupportedTokens, xrpSupportedTokens } from '@sodax/types';
 // Import the barrel by relative path, not as `@sodax/sdk`. A self-referential package import
 // resolves through `package.json#exports` into `dist/`, which makes this unit test depend on a
 // build artifact — it then fails to resolve whenever `dist/` is absent or half-written, and turbo
@@ -962,6 +962,29 @@ describe('LeverageYieldService.createVaultIntent', () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
+  it('refuses partial vault fills to Tron before signing above the payout floor', async () => {
+    const send = vi.spyOn(sodax.spoke, 'sendMessage');
+    const deposit = vi.spyOn(sodax.spoke, 'deposit');
+    const result = await sodax.leverageYield.createVaultIntent({
+      params: vaultIntentParams(ARBITRUM, {
+        inputToken: VAULT,
+        outputToken: tronSupportedTokens.USDT.address,
+        minOutputAmount: 3_000_001n,
+        allowPartialFill: true,
+        dstChainKey: ChainKeys.TRON_MAINNET,
+        dstAddress: TRON_TEST_ADDRESS,
+      }),
+      raw: true,
+      hubWalletSwap: true,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe('allowPartialFill');
+    expect(send).not.toHaveBeenCalled();
+    expect(deposit).not.toHaveBeenCalled();
+  });
+
   it('refuses a payout to Tron at the relay minimum before signing anything', async () => {
     const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
 
@@ -981,6 +1004,69 @@ describe('LeverageYieldService.createVaultIntent', () => {
     if (result.ok) return;
     expect(result.error.code).toBe('VALIDATION_FAILED');
     expect(result.error.context?.field).toBe('minOutputAmount');
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    99_000_000n,
+    50_000_000n,
+  ])('checks vault solved payout headroom for minimum %s before signing', async minOutputAmount => {
+    vi.spyOn(sodax.spoke.xrp, 'checkDestination').mockImplementation(async ({ amount, maxAmount = amount }) =>
+      maxAmount > 100_000_000n ? { ready: false, reason: 'trustline_limit' } : { ready: true },
+    );
+    const signing = vi.spyOn(sodax.spoke, 'sendMessage');
+    const pastValidation = vi
+      .spyOn(sodax.hubProvider, 'getUserHubWalletAddress')
+      .mockRejectedValue(new Error('past validation'));
+    const result = await sodax.leverageYield.createVaultIntent({
+      params: vaultIntentParams(ARBITRUM, {
+        inputToken: VAULT,
+        outputToken: xrpSupportedTokens.USDC.address,
+        minOutputAmount,
+        dstChainKey: ChainKeys.XRP_MAINNET,
+        dstAddress: 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah',
+      }),
+      raw: true,
+      hubWalletSwap: true,
+    });
+    if (minOutputAmount === 99_000_000n) {
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.context).toMatchObject({ reason: 'xrpl-trustline_limit' });
+      expect(pastValidation).not.toHaveBeenCalled();
+      expect(signing).not.toHaveBeenCalled();
+    } else expect(pastValidation).toHaveBeenCalled();
+  });
+
+  it('refuses a payout to an XRPL account that cannot receive it before signing anything', async () => {
+    const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
+    const xrplAddress = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+    const checkSpy = vi
+      .spyOn(sodax.spoke.xrp, 'checkDestination')
+      .mockResolvedValue({ ready: false, reason: 'account_not_found' });
+
+    const result = await sodax.leverageYield.createVaultIntent({
+      params: vaultIntentParams(ARBITRUM, {
+        inputToken: VAULT,
+        outputToken: xrpSupportedTokens.USDC.address,
+        minOutputAmount: 5_000_000n,
+        dstChainKey: ChainKeys.XRP_MAINNET as SpokeChainKey,
+        dstAddress: xrplAddress,
+      }),
+      raw: true,
+      hubWalletSwap: true,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context).toMatchObject({ field: 'dstAddress', reason: 'xrpl-account_not_found' });
+    expect(checkSpy).toHaveBeenCalledWith({
+      address: xrplAddress,
+      token: xrpSupportedTokens.USDC.address,
+      amount: 5_000_000n,
+      maxAmount: 10_000_000n,
+    });
     expect(sendMessage).not.toHaveBeenCalled();
   });
 

@@ -86,6 +86,7 @@ import {
   useStacksXConnectors,
   type StacksProviderConfig,
 } from '@sodax/wallet-sdk-react/xchains/stacks';
+import { TronXConnector, TronXService } from '@sodax/wallet-sdk-react/xchains/tron';
 ```
 
 For the full list, see [`CONNECTORS.md`](./CONNECTORS.md#sub-path-imports--concrete-classes).

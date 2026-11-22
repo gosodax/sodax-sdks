@@ -12,6 +12,8 @@ import {
   type TxReturnType,
 } from '@sodax/types';
 import type { ConfigService } from '../../config/ConfigService.js';
+import { pollUntil } from '../../utils/pollUntil.js';
+import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
 import { retry } from '../../utils/shared-utils.js';
 import type {
   DepositParams,
@@ -47,7 +49,6 @@ import {
   buildJettonDepositBody,
   buildTonCommentBody,
   normalizeTonAddress,
-  parseJettonNotificationMemo,
   parseTonComment,
   tonIdentityBytes,
   tonWalletAddress,
@@ -80,8 +81,8 @@ const TON_VALID_WINDOW_SECS = 300;
 const JETTON_DEPOSIT_ATTACHED_NANOTON = 200_000_000n;
 const JETTON_DEPOSIT_FORWARD_NANOTON = 100_000_000n;
 
-/** How many times, and how often, to look for the reserve transaction a deposit produced. */
-const DEPOSIT_TX_POLL_ATTEMPTS = 40;
+/** Budget and interval for discovering the reserve transaction a deposit produced. */
+const DEPOSIT_TX_DISCOVERY_TIMEOUT_MS = 120_000;
 const DEPOSIT_TX_POLL_INTERVAL_MS = 3_000;
 
 type ToncenterTx = TonRawTransactionReceipt;
@@ -103,9 +104,27 @@ function memoOf(tx: ToncenterTx): string | null {
   try {
     const cell = Cell.fromBoc(Buffer.from(body, 'base64'))[0];
     if (!cell) return null;
-    return parseJettonNotificationMemo(cell) ?? parseTonComment(cell);
+    return parseTonComment(cell);
   } catch {
     return null;
+  }
+}
+
+/** Details needed to find a broadcast deposit without sending it again. */
+export type TonDepositRecovery = {
+  reserveAddress: string;
+  memo: string;
+  sinceLt: string;
+  sender: string;
+  amount: string;
+  token: string;
+};
+
+/** A deposit was broadcast but discovery timed out; resume with `recovery`. */
+export class TonDepositNotFoundError extends Error {
+  constructor(public readonly recovery: TonDepositRecovery) {
+    super(`[TonSpokeService] broadcast deposit with memo ${recovery.memo} was not found in time`);
+    this.name = 'TonDepositNotFoundError';
   }
 }
 
@@ -121,6 +140,9 @@ function memoOf(tx: ToncenterTx): string | null {
  */
 export class TonSpokeService implements MpcRelaySettlement {
   private readonly config: ConfigService;
+  private readonly claimedHashes = new Set<string>();
+  private readonly depositReserves = new Map<string, string>();
+  private readonly memoLocks = new Map<string, Promise<void>>();
 
   constructor(config: ConfigService) {
     this.config = config;
@@ -146,10 +168,13 @@ export class TonSpokeService implements MpcRelaySettlement {
   }
 
   /** One toncenter JSON-RPC call, bounded by a timeout and retried on toncenter's rate limit. */
-  private async rpc<T>(method: string, params: Record<string, unknown>): Promise<T> {
+  private async rpc<T>(method: string, params: Record<string, unknown>, timeoutMs = TON_RPC_TIMEOUT_MS): Promise<T> {
+    const deadline = Date.now() + timeoutMs;
     for (let attempt = 0; ; attempt++) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) throw new Error(`toncenter ${method}: timed out after ${timeoutMs}ms`);
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TON_RPC_TIMEOUT_MS);
+      const timer = setTimeout(() => controller.abort(), remainingMs);
       try {
         const res = await fetch(this.chainConfig.rpcUrl, {
           method: 'POST',
@@ -158,7 +183,7 @@ export class TonSpokeService implements MpcRelaySettlement {
           signal: controller.signal,
         });
         if (res.status === 429 && attempt < TON_RPC_RATE_LIMIT_RETRIES) {
-          await new Promise(r => setTimeout(r, 1_000 * 2 ** attempt));
+          await new Promise(r => setTimeout(r, Math.min(1_000 * 2 ** attempt, Math.max(0, deadline - Date.now()))));
           continue;
         }
         if (!res.ok) throw new Error(`toncenter ${method}: ${res.status}`);
@@ -167,7 +192,7 @@ export class TonSpokeService implements MpcRelaySettlement {
         return body.result;
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
-          throw new Error(`toncenter ${method}: timed out after ${TON_RPC_TIMEOUT_MS}ms`);
+          throw new Error(`toncenter ${method}: timed out after ${timeoutMs}ms`);
         }
         throw error;
       } finally {
@@ -199,24 +224,101 @@ export class TonSpokeService implements MpcRelaySettlement {
     return BigInt(txs[0]?.transaction_id.lt ?? '0');
   }
 
-  /**
-   * The hash of the reserve transaction carrying `memo`, newer than `sinceLt`. TonConnect does not return
-   * a transaction hash, and the relay keys a deposit on the reserve-side transaction, so it is found by
-   * memo. The baseline matters: a memo has no per-deposit nonce, so an older deposit can reuse it.
-   */
-  private async findReserveTx(reserve: string, memo: string, sinceLt: bigint): Promise<Hex> {
-    const want = memo.toLowerCase();
-    for (let attempt = 0; attempt < DEPOSIT_TX_POLL_ATTEMPTS; attempt++) {
-      const txs = await this.rpc<ToncenterTx[]>('getTransactions', { address: reserve, limit: 16 });
-      const match = txs.find(
-        tx => BigInt(tx.transaction_id.lt) > sinceLt && memoOf(tx)?.toLowerCase() === want && tx.transaction_id.hash,
-      );
-      if (match) return `0x${toHexHash(match.transaction_id.hash)}`;
-      await new Promise(r => setTimeout(r, DEPOSIT_TX_POLL_INTERVAL_MS));
+  private async withMemoLock<T>(memo: string, run: () => Promise<T>): Promise<T> {
+    const key = memo.toLowerCase();
+    const previous = this.memoLocks.get(key) ?? Promise.resolve();
+    let release = () => {};
+    const current = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    this.memoLocks.set(key, current);
+    await previous;
+    try {
+      return await run();
+    } finally {
+      release();
+      if (this.memoLocks.get(key) === current) this.memoLocks.delete(key);
     }
-    throw new Error(
-      `[TonSpokeService.deposit] deposit with memo ${memo} was sent but not found on the reserve in time`,
+  }
+
+  private matchesDeposit(tx: ToncenterTx, recovery: TonDepositRecovery): boolean {
+    const memo = recovery.memo.toLowerCase();
+    try {
+      if (this.isNative(recovery.token)) {
+        return (
+          normalizeTonAddress(tx.in_msg?.source ?? '') === normalizeTonAddress(recovery.sender) &&
+          BigInt(tx.in_msg?.value ?? '-1') === BigInt(recovery.amount) &&
+          memoOf(tx)?.toLowerCase() === memo
+        );
+      }
+      const body = tx.in_msg?.msg_data?.body;
+      if (!body) return false;
+      const slice = Cell.fromBoc(Buffer.from(body, 'base64'))[0]?.beginParse();
+      if (!slice || slice.loadUint(32) !== 0x7362d09c) return false;
+      slice.loadUintBig(64);
+      const amount = slice.loadCoins();
+      const sender = slice.loadAddress();
+      if (amount !== BigInt(recovery.amount) || !sender.equals(Address.parse(recovery.sender))) return false;
+      const payload = slice.loadBit() ? slice.loadRef() : slice.asCell();
+      return parseTonComment(payload)?.toLowerCase() === memo;
+    } catch {
+      return false;
+    }
+  }
+
+  private async findReserveTx(recovery: TonDepositRecovery, timeoutMs: number): Promise<Hex> {
+    const hash = await pollUntil(
+      async remainingMs => {
+        try {
+          const txs = await this.rpc<ToncenterTx[]>(
+            'getTransactions',
+            { address: recovery.reserveAddress, limit: 16 },
+            Math.min(TON_RPC_TIMEOUT_MS, remainingMs),
+          );
+          for (const tx of txs) {
+            if (
+              BigInt(tx.transaction_id.lt) <= BigInt(recovery.sinceLt) ||
+              !tx.transaction_id.hash ||
+              !this.matchesDeposit(tx, recovery)
+            )
+              continue;
+            const hash: Hex = `0x${toHexHash(tx.transaction_id.hash)}`;
+            if (this.claimedHashes.has(hash)) continue;
+            this.claimedHashes.add(hash);
+            this.depositReserves.set(hash, recovery.reserveAddress);
+            return hash;
+          }
+        } catch (error) {
+          this.config.logger.debug('[TonSpokeService.findReserveTx] poll error', { error });
+        }
+        return undefined;
+      },
+      { timeoutMs, intervalMs: DEPOSIT_TX_POLL_INTERVAL_MS },
     );
+    if (!hash) throw new TonDepositNotFoundError(recovery);
+    return hash;
+  }
+
+  private async notifyDiscoveredDeposit(txHash: Hex): Promise<Hex> {
+    const submitted = await this.submitDeposit(txHash);
+    if (!submitted.ok) {
+      this.config.logger.warn(
+        '[TonSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it',
+        {
+          txHash,
+          error: submitted.error,
+        },
+      );
+    }
+    return txHash;
+  }
+
+  /** Find and notify a broadcast deposit without sending funds again. */
+  public async resumeDeposit(recovery: TonDepositRecovery, timeoutMs?: number): Promise<string> {
+    const txHash = await this.withMemoLock(recovery.memo, () =>
+      this.findReserveTx(recovery, resolveTimeoutMs(timeoutMs, DEPOSIT_TX_DISCOVERY_TIMEOUT_MS)),
+    );
+    return this.notifyDiscoveredDeposit(txHash);
   }
 
   /**
@@ -227,6 +329,7 @@ export class TonSpokeService implements MpcRelaySettlement {
    * reserve transaction that carries the memo, and notifies the relay — resolving to that transaction hash.
    * Once the deposit has landed, a failed notify warns and still resolves to the hash, so a retry cannot send
    * it twice: `settle` re-notifies it, and a caller that does not settle notifies it with `spoke.submitMpcDeposit`.
+   * @throws {TonDepositNotFoundError} When broadcast succeeds but discovery times out. Use {@link resumeDeposit}.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<TonChainKey, R>,
@@ -287,26 +390,25 @@ export class TonSpokeService implements MpcRelaySettlement {
       } satisfies TonRawTransaction as TxReturnType<TonChainKey, R>;
     }
 
-    // Read the baseline BEFORE sending. Do not fall back to 0 on a failed read: with no per-deposit nonce
-    // in the memo, a zero baseline could match an older deposit and leave this one unnotified.
-    const sinceLt = await this.reserveLatestLt(reserveAddress);
-
-    await params.walletProvider.sendTransaction({
-      validUntil: Math.floor(Date.now() / 1000) + TON_VALID_WINDOW_SECS,
-      messages: [{ address: messageTo, amount: value.toString(), payload }],
-    });
-
-    const txHash = await this.findReserveTx(reserveAddress, memo, sinceLt);
-
-    const submitted = await this.submitDeposit(txHash);
-    if (!submitted.ok) {
-      this.config.logger.warn('[TonSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it', {
-        txHash,
-        error: submitted.error,
+    const txHash = await this.withMemoLock(memo, async () => {
+      const sinceLt = await this.reserveLatestLt(reserveAddress);
+      await params.walletProvider.sendTransaction({
+        validUntil: Math.floor(Date.now() / 1000) + TON_VALID_WINDOW_SECS,
+        messages: [{ address: messageTo, amount: value.toString(), payload }],
       });
-    }
-
-    return txHash satisfies string as TxReturnType<TonChainKey, R>;
+      return this.findReserveTx(
+        {
+          reserveAddress,
+          memo,
+          sinceLt: sinceLt.toString(),
+          sender,
+          amount: amount.toString(),
+          token,
+        },
+        DEPOSIT_TX_DISCOVERY_TIMEOUT_MS,
+      );
+    });
+    return (await this.notifyDiscoveredDeposit(txHash)) satisfies string as TxReturnType<TonChainKey, R>;
   }
 
   /**
@@ -358,7 +460,7 @@ export class TonSpokeService implements MpcRelaySettlement {
 
     try {
       return await waitForDeposit(this.relayApiUrl, toDepositId(this.chainId, txHash), {
-        timeout: Math.max(timeout ?? 0, TON_SETTLEMENT_FLOOR_MS),
+        timeout: Math.max(resolveTimeoutMs(timeout, 0), TON_SETTLEMENT_FLOOR_MS),
         pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
       });
     } finally {
@@ -372,11 +474,11 @@ export class TonSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * On-chain balance of `token` for the account's wallet-v4R2 address — nanotons for native TON, jetton
+   * On-chain balance of `token` for `accountAddress` (defaults to wallet-v4R2) — nanotons for native TON, jetton
    * base units for a jetton. TON memo-mode has no spoke asset manager, so this reads the holder directly.
    */
   public async getDeposit(params: GetDepositParams<TonChainKey>): Promise<bigint> {
-    const wallet = tonWalletAddress(params.srcAddress).toString();
+    const wallet = params.accountAddress ?? tonWalletAddress(params.srcAddress).toString();
     if (this.isNative(params.token)) {
       return BigInt(await this.rpc<string>('getAddressBalance', { address: wallet }));
     }
@@ -402,6 +504,7 @@ export class TonSpokeService implements MpcRelaySettlement {
       srcChainKey: params.srcChainKey,
       srcAddress: params.srcAddress,
       token: params.token.address,
+      accountAddress: params.accountAddress,
     });
   }
 
@@ -409,7 +512,9 @@ export class TonSpokeService implements MpcRelaySettlement {
   public async getWalletBalances(params: GetBalancesParams<TonChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
     const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
-    await settleWalletBalances(collector, tokens, token => this.getWalletBalance({ srcChainKey, srcAddress, token }));
+    await settleWalletBalances(collector, tokens, token =>
+      this.getWalletBalance({ srcChainKey, srcAddress, token, accountAddress: params.accountAddress }),
+    );
     return collector.finish();
   }
 
@@ -483,7 +588,7 @@ export class TonSpokeService implements MpcRelaySettlement {
   ): Promise<Result<WithdrawalRecord>> {
     return waitForWithdrawal(this.relayApiUrl, trackingId, {
       until,
-      timeout: Math.max(timeout ?? 0, TON_SETTLEMENT_FLOOR_MS),
+      timeout: Math.max(resolveTimeoutMs(timeout, 0), TON_SETTLEMENT_FLOOR_MS),
       pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
     });
   }
@@ -517,7 +622,7 @@ export class TonSpokeService implements MpcRelaySettlement {
     }, RENOTIFY_INTERVAL_MS);
     try {
       return await waitForHubRelease(this.relayApiUrl, release, {
-        timeout: Math.max(timeout ?? 0, TON_SETTLEMENT_FLOOR_MS),
+        timeout: Math.max(resolveTimeoutMs(timeout, 0), TON_SETTLEMENT_FLOOR_MS),
         pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
       });
     } finally {
@@ -539,22 +644,27 @@ export class TonSpokeService implements MpcRelaySettlement {
   ): Promise<Result<WaitForTxReceiptReturnType<TonChainKey>>> {
     const want = params.txHash.replace(/^0x/, '').toLowerCase();
     const pollingIntervalMs = params.pollingIntervalMs ?? this.chainConfig.pollingConfig.pollingIntervalMs;
-    const maxTimeoutMs = params.maxTimeoutMs ?? this.chainConfig.pollingConfig.maxTimeoutMs;
-    const maxAttempts = Math.max(1, Math.round(maxTimeoutMs / pollingIntervalMs));
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        const txs = await this.rpc<ToncenterTx[]>('getTransactions', {
-          address: this.chainConfig.addresses.reserve,
-          limit: 50,
-        });
-        const receipt = txs.find(tx => toHexHash(tx.transaction_id.hash) === want);
-        if (receipt) return { ok: true, value: { status: 'success', receipt } };
-      } catch (error) {
-        this.config.logger.debug('[TonSpokeService.waitForTransactionReceipt] poll error', { error });
-      }
-      await new Promise(r => setTimeout(r, pollingIntervalMs));
-    }
+    const maxTimeoutMs = resolveTimeoutMs(params.maxTimeoutMs, this.chainConfig.pollingConfig.maxTimeoutMs);
+    const receipt = await pollUntil(
+      async remainingMs => {
+        try {
+          const txs = await this.rpc<ToncenterTx[]>(
+            'getTransactions',
+            {
+              address: this.depositReserves.get(`0x${want}`) ?? this.chainConfig.addresses.reserve,
+              limit: 50,
+            },
+            Math.min(TON_RPC_TIMEOUT_MS, remainingMs),
+          );
+          return txs.find(tx => toHexHash(tx.transaction_id.hash) === want);
+        } catch (error) {
+          this.config.logger.debug('[TonSpokeService.waitForTransactionReceipt] poll error', { error });
+          return undefined;
+        }
+      },
+      { timeoutMs: maxTimeoutMs, intervalMs: pollingIntervalMs },
+    );
+    if (receipt) return { ok: true, value: { status: 'success', receipt } };
     return { ok: true, value: { status: 'timeout', error: new Error(`ton tx ${params.txHash} not indexed in time`) } };
   }
 }

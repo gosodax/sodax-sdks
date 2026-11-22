@@ -9,16 +9,14 @@
  *
  * Build the sdk first (`pnpm --filter=@sodax/sdk build`) so the import below resolves.
  */
-import { secp256k1 } from '@noble/curves/secp256k1.js';
-import { keccak_256 } from '@noble/hashes/sha3.js';
-import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js';
-import { TronSpokeService } from '@sodax/sdk';
+import { createPublicClient, http, sha256 } from 'viem';
+import { privateKeyToAccount, sign } from 'viem/accounts';
+import { TronSpokeService, tronIdentityBytes } from '@sodax/sdk';
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-const H = h => Uint8Array.from(Buffer.from(h.replace(/^0x/, ''), 'hex'));
 const hex = u => Buffer.from(u).toString('hex');
 const toB58 = bytes => {
-  const chk = nobleSha256(nobleSha256(bytes)).slice(0, 4);
+  const chk = sha256(sha256(bytes, 'bytes'), 'bytes').slice(0, 4);
   const full = Uint8Array.from([...bytes, ...chk]);
   let n = BigInt(`0x${hex(full)}`);
   let s = '';
@@ -33,7 +31,7 @@ const toB58 = bytes => {
   return s;
 };
 const privToTron = p =>
-  toB58(Uint8Array.from([0x41, ...keccak_256(secp256k1.getPublicKey(H(p), false).slice(1)).slice(12)]));
+  toB58(Uint8Array.from([0x41, ...Buffer.from(privateKeyToAccount(`0x${p}`).address.slice(2), 'hex')]));
 
 // ---- args / env ----
 const RELAY_URL = process.env.RELAY_URL;
@@ -87,8 +85,11 @@ const walletProvider = {
   chainType: 'TRON',
   getWalletAddress: async () => sender,
   signTransaction: async tx => {
-    const sig = secp256k1.sign(H(tx.txID), H(PRIVATE_KEY), { prehash: false, format: 'recovered' });
-    return { ...tx, signature: [hex(Uint8Array.from([...sig.slice(1), sig[0]]))] };
+    const sig = await sign({ hash: `0x${tx.txID}`, privateKey: `0x${PRIVATE_KEY}` });
+    return {
+      ...tx,
+      signature: [`${sig.r.slice(2)}${sig.s.slice(2)}${Number(sig.yParity).toString(16).padStart(2, '0')}`],
+    };
   },
   waitForTransactionReceipt: async () => ({ id: '' }),
 };
@@ -102,12 +103,27 @@ async function main() {
   log('relay           :', RELAY_URL);
   log(`depositing      : ${AMOUNT_TRX} TRX (data=${DATA})`);
 
+  const hub = createPublicClient({ transport: http('https://rpc.testnet.soniclabs.com') });
+  const hubWallet = await hub.readContract({
+    address: '0x103328BFB6321AD198D5dc4075a171f01c0472E5',
+    abi: [
+      {
+        type: 'function',
+        name: 'getDeployedAddress',
+        stateMutability: 'view',
+        inputs: [{ type: 'uint256' }, { type: 'bytes' }],
+        outputs: [{ type: 'address' }],
+      },
+    ],
+    functionName: 'getDeployedAddress',
+    args: [728126428n, tronIdentityBytes(sender)],
+  });
   const txHash = await tron.deposit({
     srcAddress: sender,
     srcChainKey: 'tron',
     token: testnetTronConfig.nativeToken,
     amount: BigInt(Math.round(AMOUNT_TRX * 1e6)),
-    to: '0x0000000000000000000000000000000000000000',
+    to: hubWallet,
     data: DATA,
     walletProvider,
   });

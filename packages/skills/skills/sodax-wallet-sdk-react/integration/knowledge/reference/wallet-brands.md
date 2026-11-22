@@ -19,7 +19,7 @@ The identifiers are **open**: any string works. The table below lists every bran
 | `'leather'` | Stacks | id `LeatherProvider` |
 | `'asigna'` | Stacks | id `AsignaProvider` |
 | `'fordefi'` | Stacks | id `FordefiProviders.UtxoProvider` |
-| `'tronlink'` | Tron | id `TronLink` |
+| `'tronlink'` | Tron | id `TronLink`, even when another TIP-6963 wallet answers |
 | `'solflare'`, `'backpack'`, `'coinbase'`, `'trust'`, `'ledger'`, … | Solana | Adapter names from `@solana/wallet-adapter-wallets` |
 | `'freighter'`, `'albedo'`, `'lobstr'`, `'xbull'`, … | Stellar | Names from `@creit.tech/stellar-wallets-kit` |
 

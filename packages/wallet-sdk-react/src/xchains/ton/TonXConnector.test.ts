@@ -21,6 +21,7 @@ const ui = {
       statusListener = undefined;
     };
   }),
+  onModalStateChange: vi.fn(() => () => {}),
   disconnect: vi.fn(async () => undefined),
   sendTransaction: vi.fn(async () => ({ boc: 'x' })),
   signData: vi.fn(async () => ({ signature: 'AA==', address: RAW_ADDRESS, timestamp: 1, domain: 'app.sodax.com' })),

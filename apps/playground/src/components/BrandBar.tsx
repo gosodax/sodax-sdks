@@ -52,6 +52,10 @@ const CHOICE_FIELDS = [
 
 const ROLES = ['surface', 'accent', 'button'] as const;
 
+/** Always shown; the rest open below them, so nothing already on screen moves. */
+const BASIC_FIELDS: readonly string[] = ['cta', 'surface', 'theme'];
+const isBasic = (field: { key: string }) => BASIC_FIELDS.includes(field.key);
+
 /** Surface, accent and button, overlapped so a preset reads as one mark at chip size. */
 function Swatch({ colors }: { colors: readonly (string | undefined)[] }) {
   return (
@@ -69,6 +73,58 @@ export function BrandBar({ controls }: { controls: BrandControls }) {
   const { brand, colors, notes, isBranded, update, apply, reset } = controls;
   const [advanced, setAdvanced] = useState(false);
   const active = activePreset(brand);
+
+  const colorCell = (field: (typeof COLOR_FIELDS)[number]) => (
+    <label className="brand-cell" key={field.key} title={field.hint}>
+      <span className="brand-label">{field.label}</span>
+      <span className="brand-control">
+        <input
+          type="color"
+          className="brand-swatch"
+          aria-label={field.label}
+          value={colors[field.key]}
+          onChange={event => update(field.key, readBrandField(field.key, event.target.value))}
+        />
+        <input
+          key={colors[field.key]}
+          className="input brand-hex"
+          aria-label={`${field.label} hex color`}
+          defaultValue={colors[field.key]}
+          maxLength={7}
+          onBlur={event => {
+            const value = readBrandField(field.key, event.target.value);
+            if (value) update(field.key, value);
+            else event.target.value = colors[field.key];
+          }}
+          onKeyDown={event => {
+            if (event.key === 'Enter') event.currentTarget.blur();
+          }}
+        />
+        {brand[field.key] && (
+          <button
+            type="button"
+            className="btn brand-clear"
+            onClick={() => update(field.key, undefined)}
+            aria-label={`Clear ${field.label.toLowerCase()}`}
+          >
+            Clear
+          </button>
+        )}
+      </span>
+    </label>
+  );
+
+  const choiceCell = (field: (typeof CHOICE_FIELDS)[number]) => (
+    <div className="brand-cell" key={field.key} title={field.hint}>
+      <span className="brand-label">{field.label}</span>
+      <Dropdown
+        label={field.label}
+        value={brand[field.key] ?? field.fallback}
+        options={Object.keys(field.choices).map(option => ({ value: option, label: option }))}
+        onChange={option => update(field.key, readBrandField(field.key, option))}
+      />
+    </div>
+  );
 
   return (
     <section className="brand-card card">
@@ -107,63 +163,23 @@ export function BrandBar({ controls }: { controls: BrandControls }) {
       </fieldset>
 
       <div className="brand-grid">
-        {COLOR_FIELDS.filter(field => advanced || field.key === 'cta' || field.key === 'surface').map(field => (
-          <label className="brand-cell" key={field.key} title={field.hint}>
-            <span className="brand-label">{field.label}</span>
-            <span className="brand-control">
-              <input
-                type="color"
-                className="brand-swatch"
-                aria-label={field.label}
-                value={colors[field.key]}
-                onChange={event => update(field.key, readBrandField(field.key, event.target.value))}
-              />
-              <input
-                key={colors[field.key]}
-                className="input brand-hex"
-                aria-label={`${field.label} hex color`}
-                defaultValue={colors[field.key]}
-                maxLength={7}
-                onBlur={event => {
-                  const value = readBrandField(field.key, event.target.value);
-                  if (value) update(field.key, value);
-                  else event.target.value = colors[field.key];
-                }}
-                onKeyDown={event => {
-                  if (event.key === 'Enter') event.currentTarget.blur();
-                }}
-              />
-              {brand[field.key] && (
-                <button
-                  type="button"
-                  className="btn brand-clear"
-                  onClick={() => update(field.key, undefined)}
-                  aria-label={`Clear ${field.label.toLowerCase()}`}
-                >
-                  Clear
-                </button>
-              )}
-            </span>
-          </label>
-        ))}
-
-        {CHOICE_FIELDS.filter(field => advanced || field.key === 'theme').map(field => (
-          <div className="brand-cell" key={field.key} title={field.hint}>
-            <span className="brand-label">{field.label}</span>
-            <Dropdown
-              label={field.label}
-              value={brand[field.key] ?? field.fallback}
-              options={Object.keys(field.choices).map(option => ({ value: option, label: option }))}
-              onChange={option => update(field.key, readBrandField(field.key, option))}
-            />
+        {COLOR_FIELDS.filter(isBasic).map(colorCell)}
+        {CHOICE_FIELDS.filter(isBasic).map(choiceCell)}
+      </div>
+      <div className="collapse" id="advanced-appearance" data-open={advanced}>
+        <div className="collapse-body">
+          <div className="brand-grid">
+            {COLOR_FIELDS.filter(field => !isBasic(field)).map(colorCell)}
+            {CHOICE_FIELDS.filter(field => !isBasic(field)).map(choiceCell)}
           </div>
-        ))}
+        </div>
       </div>
 
       <button
         className="btn advanced-toggle"
         type="button"
         aria-expanded={advanced}
+        aria-controls="advanced-appearance"
         onClick={() => setAdvanced(!advanced)}
       >
         {advanced ? 'Fewer options' : 'Advanced appearance'}

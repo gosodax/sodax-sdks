@@ -37,6 +37,7 @@ The package includes wallet provider implementations for:
 - Stacks ✅
 - Bitcoin ✅
 - Tron ✅
+- TON ✅
 
 ## Public API surface
 
@@ -51,7 +52,7 @@ Internal utilities (e.g. `shallowMerge` in `src/utils/merge.ts`) are **not** exp
 
 All providers support two modes, but **the union discriminant depends on the provider**:
 
-- **Field presence (no `type` field in config)**: EVM, Solana, Sui, Near, Stacks, Icon, Injective, Tron
+- **Field presence (no `type` field in config)**: EVM, Solana, Sui, Near, Stacks, Icon, Injective, Tron, TON
 - **Explicit uppercase `type` field**: Bitcoin, Stellar (`'PRIVATE_KEY' | 'BROWSER_EXTENSION'`)
 
 ### EVM
@@ -86,6 +87,14 @@ if (support !== 'unsupported') {
   const batchId = await evmBrowser.sendAtomicBatch([approveTx, transferTx], { expectedChainId: 8453 });
   const { status, receipts } = await evmBrowser.waitForBatch(batchId);
 }
+```
+
+To withdraw from Monad, which settles through the MPC relay, the provider signs the withdraw authorization with
+`signMessage(hash)`: EIP-191 `personal_sign` over the raw 32-byte hash. A Monad deposit is sent with
+`expectedChainId: 143`, so a wallet on another network rejects it before broadcasting.
+
+```ts
+const signature = await evmPk.signMessage(withdrawHash); // 0x… 65-byte signature
 ```
 
 `'ready'` means the wallet asks the user to upgrade the account (MetaMask: an EIP-7702 smart account) when the
@@ -269,7 +278,23 @@ const nearBrowser = new NearWalletProvider({
 
 ### Tron
 
-Tron discriminates by field presence. The private-key config has `privateKey`; the browser-extension config has the injected `tronWeb` plus `getProvider`, which returns the provider the wallet (e.g. TronLink) announces over TIP-6963. Signing uses the first TronWeb with an account (`getProvider()`, then `provider`, then the injected `tronWeb`); `getProvider` re-resolves the announced provider on every call, while a captured `provider` can go stale. Both configs refuse a transaction whose `txID` is not `sha256(raw_data_hex)`; the private-key config signs that hash. Node calls go to `endpoint`, then `defaults.rpcUrl`, then TronGrid. Both configs are constructed in [`TronWalletProvider.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/TronWalletProvider.test.ts).
+Tron discriminates by field presence: `privateKey`, or the wallet's `tronWeb` plus `getProvider` returning the provider it announces over TIP-6963. See [`tron/types.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/types.ts); both configs are constructed in [`TronWalletProvider.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/TronWalletProvider.test.ts).
+
+### TON
+
+TON discriminates by field presence: `privateKey` (a 32-byte ed25519 seed; signs locally and sends from the key's
+wallet-v4R2 address through toncenter), or `tonConnect` (a `TonConnectUI` instance; the wallet signs). See
+[`ton/types.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/ton/types.ts).
+
+`getWalletAddress()` returns the account's `0x`-prefixed ed25519 public key, which SODAX uses as the TON identity.
+`getAccountAddress()` returns the friendly address the wallet sends from; pass it as `accountAddress` when reading
+TON balances, since a TonConnect wallet need not be wallet-v4R2. In private-key mode, `sendTransaction` rejects a
+transaction whose `validUntil` has passed and passes `validUntil` on as the transfer's expiry.
+
+```ts
+const tonPk = new TonWalletProvider({ privateKey: process.env.TON_PRIVATE_KEY!, apiKey: process.env.TONCENTER_KEY });
+const tonBrowser = new TonWalletProvider({ tonConnect: tonConnectUI });
+```
 
 ## Defaults and merge semantics
 

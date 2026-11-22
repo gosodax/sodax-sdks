@@ -28,6 +28,7 @@ Walk the diff against each:
 - **Tests** — new behavior has meaningful tests beside it (flows, invariants, edge cases, chain/feature matrix); no `.only` / `.skip` (lint blocks these); a new EVM spoke is added to `TEST_CHAINS`.
 - **Established pattern** — token / chain / wallet / feature work used the matching skill (`add-token` / `add-chain` / `add-wallet-provider` / `add-feature`), not ad-hoc wiring.
 - **AI docs faithful** — public behavior, imports, signatures, examples, chains, or tokens changed ⇒ `packages/skills` updated (partner-agent surface, not Docs Drift) and `pnpm check:ai` green.
+- **Docs don't drift** — changed package docs follow the `.claude/skills/write-docs/` rules (no restated types or parameters, no unguarded volatile facts, no long pasted code). A change to a hand-written `docs/` page or `apps/docs-examples` is reviewed with `.claude/skills/review-docs/`.
 - **docs.sodax.com links** — in a doc generated into the Mintlify site under `docs/`, a relative link is only valid when the target lands in the same directory under the same name; anything else needs an absolute `sodax-sdks/blob/main/…` URL, never a `sodax-document` one.
 
 ## 4. Verdict

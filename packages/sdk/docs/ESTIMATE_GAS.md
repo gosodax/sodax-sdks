@@ -42,6 +42,7 @@ The return type is conditional on the source chain's chain family. The concrete 
 |---|---|---|
 | EVM (Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood) | `bigint` (`EvmGasEstimate`) | Gas units |
 | EVM hub (Sonic) | `bigint` (`EvmGasEstimate`) | Gas units |
+| Monad | `bigint` (`EvmGasEstimate`) | Gas units for the deposit transfer — a plain native send or ERC-20 `transfer` to the relay's deposit address, since Monad has no spoke contracts |
 | Solana | `number \| undefined` (`SolanaGasEstimate`) | Compute units; `undefined` if simulation unavailable |
 | Stellar | `bigint` (`StellarGasEstimate`) | Fee in stroops |
 | ICON | `bigint` (`IconGasEstimate`) | Step count |
@@ -50,8 +51,9 @@ The return type is conditional on the source chain's chain family. The concrete 
 | Bitcoin | `bigint` (`BitcoinGasEstimate`) | Fee in satoshis |
 | NEAR | `bigint` (`NearGasEstimate`) | Gas in yoctoNEAR |
 | Stacks | `FeeEstimateTransaction` | Object with `low`, `medium`, `high` tiers, each `{ fee: number, fee_rate: number }` |
-| Tron | `TronGasEstimate` | Object with `energy: bigint` and `bandwidth: bigint` — Tron prices a transaction in two staked resources rather than one gas number, so there is no single fee figure. `energy` is `0n` for a native TRX transfer, and both are `0n` for a `TronRawWithdraw`, which is signed off chain |
-| XRP Ledger | `XrpGasEstimate` | Object with `fee: bigint` — the flat per-transaction fee in drops. XRPL does not meter execution, so the estimate does not depend on the transaction |
+| Tron | `TronGasEstimate` | Object with `energy: bigint` and `bandwidth: bigint`; both `0n` for a `TronRawWithdraw`, which is signed off chain |
+| TON | `TonGasEstimate` | Object with `fee: bigint` — the nanoTON a deposit attaches beyond the amount: `0n` for native TON, a fixed 0.2 TON (forward + fees, mostly refunded) for a jetton. The wallet pays network fees on top; they are not metered here |
+| XRP Ledger | `XrpGasEstimate` | Object with `fee: bigint` — the per-transaction fee in drops: the current open-ledger fee (which rises under load), or the base fee when the node reports none. XRPL does not meter execution, so the estimate does not depend on the transaction |
 
 The full type definitions are in `packages/types/src/common/common.ts`.
 

@@ -56,7 +56,7 @@ const backendApi = sodax.backendApi;
 
 ### Initialization with `sodax.config`
 
-If you need dynamic chain/token config fetched from the backend, call `initialize()` on `ConfigService` after construction. `BackendApiService` is the underlying HTTP transport that `ConfigService` uses.
+`ConfigService.initialize()` does not fetch chain or token config from the backend today: it returns success and keeps the packaged config. To work with tokens the backend lists but your SDK version does not bundle, use the backend API clients; see [Configure SDK](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#where-supported-tokens-come-from).
 
 ```typescript
 const sodax = new Sodax();

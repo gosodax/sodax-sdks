@@ -17,15 +17,16 @@ import {
   type EvmRawTransaction,
 } from '@sodax/sdk';
 import { AtomicityNotSupportedError, AtomicReadyWalletRejectedUpgradeError, UserRejectedRequestError } from 'viem';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 const approve = vi.fn();
+const checkAllowance = vi.fn();
 const invalidateQueries = vi.fn();
 
 let captured: any;
 
 vi.mock('../shared/useSodaxContext.js', () => ({
-  useSodaxContext: () => ({ sodax: { api: { swaps: { approve } } } }),
+  useSodaxContext: () => ({ sodax: { api: { swaps: { approve, checkAllowance } } } }),
 }));
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries }) }));
 vi.mock('../shared/useSafeMutation.js', () => ({
@@ -117,6 +118,7 @@ const run = (vars: any) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  checkAllowance.mockResolvedValue({ ok: true, value: { valid: true } });
   approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX } });
 });
 
@@ -219,12 +221,37 @@ describe('useSwapsApiBroadcastWithApproval', () => {
     const calls: string[] = [];
     const walletProvider = batchWallet(calls, 'supported');
     walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
+    checkAllowance.mockImplementation(async () => {
+      calls.push('check');
+      return { ok: true, value: { valid: true } };
+    });
 
     const result = await run({ walletProvider, fallbackOnRefusal: true });
 
     expect(result.approvalStrategy).toBe('sequential');
-    expect(calls).toEqual(['send:0x02', 'wait:0xhash02', 'send:0x03']);
+    // The API must see the approval before the intent is sent, or its RPC lag re-offers Approve.
+    expect(calls).toEqual(['send:0x02', 'wait:0xhash02', 'check', 'send:0x03']);
     expect(approve).toHaveBeenCalledTimes(1);
+  });
+
+  it('still sends the intent once the wait gives up on an allowance check that hangs', async () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const calls: string[] = [];
+    const walletProvider = batchWallet(calls, 'supported');
+    walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
+    checkAllowance.mockImplementation(() => {
+      calls.push('check');
+      return new Promise(() => {});
+    });
+
+    const pending = run({ walletProvider, fallbackOnRefusal: true });
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await expect(pending).resolves.toMatchObject({ approvalStrategy: 'sequential' });
+    expect(calls).toEqual(['send:0x02', 'wait:0xhash02', 'check', 'send:0x03']);
   });
 
   it('keeps a ready wallet sequential when the account upgrade is not allowed', async () => {

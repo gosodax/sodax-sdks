@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Address } from '@ton/core';
 import { keyPairFromSeed, signVerify } from '@ton/crypto';
-import { WalletContractV4 } from '@ton/ton';
+import { WalletContractV4, TonClient } from '@ton/ton';
 import { sha256 } from 'viem';
 import { TonWalletProvider, tonSignDataMessage } from './TonWalletProvider.js';
 import type { TonConnectLike } from './types.js';
@@ -121,5 +121,27 @@ describe('TonWalletProvider — TonConnect', () => {
     await new TonWalletProvider({ tonConnect: tc }).sendTransaction(tx);
 
     expect(tc.sendTransaction).toHaveBeenCalledWith(tx);
+  });
+});
+
+describe('raw TON transaction expiry', () => {
+  it.each([0, 300])('honors validUntil with a %i second window', async seconds => {
+    const sendTransfer = vi.fn(async () => undefined);
+    const open = vi
+      .spyOn(TonClient.prototype, 'open')
+      .mockReturnValue({ getSeqno: async () => 1, sendTransfer } as never);
+    try {
+      const validUntil = Math.floor(Date.now() / 1000) + seconds;
+      const pending = rawKey().sendTransaction({ validUntil, messages: [] });
+      if (seconds === 0) {
+        await expect(pending).rejects.toThrow(/expired/);
+        expect(sendTransfer).not.toHaveBeenCalled();
+      } else {
+        await pending;
+        expect(sendTransfer).toHaveBeenCalledWith(expect.objectContaining({ timeout: validUntil }));
+      }
+    } finally {
+      open.mockRestore();
+    }
   });
 });

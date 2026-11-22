@@ -20,6 +20,7 @@ sodax.staking.unstake<K>(action: UnstakeAction<K, false>): Promise<Result<TxHash
 sodax.staking.instantUnstake<K>(action: InstantUnstakeAction<K, false>): Promise<Result<TxHashPair, SodaxError>>;
 sodax.staking.claim<K>(action: ClaimAction<K, false>): Promise<Result<TxHashPair, SodaxError>>;
 sodax.staking.cancelUnstake<K>(action: CancelUnstakeAction<K, false>): Promise<Result<TxHashPair, SodaxError>>;
+// every staking action refuses a Tron source
 
 sodax.staking.createStakeIntent<K, Raw>(...): Promise<Result<...>>;
 // + the 4 other createXxxIntent methods

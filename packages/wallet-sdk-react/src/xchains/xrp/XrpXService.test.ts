@@ -215,3 +215,40 @@ describe('XrpXService — endpoint', () => {
     expect(calls[0]?.url).toBe('https://custom.example/rpc');
   });
 });
+
+it('reads USDC without a global Buffer', async () => {
+  vi.stubGlobal('Buffer', undefined);
+  stubRippled({
+    account_lines: {
+      lines: [{ currency: '5553444300000000000000000000000000000000', account: RLUSD_ISSUER, balance: '2' }],
+    },
+  });
+  expect(await XrpXService.getInstance().getBalance(USER, token({ symbol: 'USDC', address: RLUSD_ISSUER }))).toBe(
+    2_000_000n,
+  );
+});
+it('converts exponent balances exactly', async () => {
+  stubRippled({
+    account_lines: { lines: [{ currency: RLUSD_CURRENCY, account: RLUSD_ISSUER, balance: '1000000000000000e-4' }] },
+  });
+  expect(await XrpXService.getInstance().getBalance(USER, RLUSD_TOKEN)).toBe(100_000_000_000_000_000n);
+});
+it('finds an issuer trustline on page two', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (_url: string, init: RequestInit) => {
+      const { params } = JSON.parse(String(init.body)) as { params: [{ peer?: string; marker?: string }] };
+      expect(params[0].peer).toBe(RLUSD_ISSUER);
+      return new Response(
+        JSON.stringify({
+          result:
+            params[0].marker === 'next'
+              ? { lines: [{ currency: RLUSD_CURRENCY, account: RLUSD_ISSUER, balance: '2' }] }
+              : { lines: [], marker: 'next' },
+        }),
+      );
+    }),
+  );
+  expect(await XrpXService.getInstance().getBalance(USER, RLUSD_TOKEN)).toBe(2_000_000n);
+  expect(fetch).toHaveBeenCalledTimes(2);
+});

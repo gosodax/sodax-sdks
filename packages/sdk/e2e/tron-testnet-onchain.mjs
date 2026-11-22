@@ -127,7 +127,7 @@ async function main() {
   const rawWithMemo = spliceMemo(created.raw_data_hex, memo); // SDK
   const txID = sha256(`0x${rawWithMemo}`).slice(2); // same as TronSpokeService
   const signed = await walletProvider.signTransaction({ txID, raw_data_hex: rawWithMemo, visible: true });
-  const envelope = assembleBroadcastHex(rawWithMemo, signed.signature[0]); // SDK
+  const envelope = assembleBroadcastHex({ rawHex: rawWithMemo, signatures: signed.signature }); // SDK
 
   const bc = await post('/wallet/broadcasthex', { transaction: envelope });
   if (!bc.result) throw new Error(`broadcast failed: ${JSON.stringify(bc)}`);
