@@ -155,43 +155,49 @@ export function assembleCardanoTx(bodyCbor: Uint8Array, witnessSet: Uint8Array, 
   return concat(Uint8Array.of(0x84), bodyCbor, witnessSet, Uint8Array.of(0xf5), auxiliaryData);
 }
 
-/** Require a valid witness for the deposit owner's payment key. */
-export function verifyCardanoPaymentWitness(witnessSet: Uint8Array, paymentHash: Uint8Array, txId: Uint8Array): void {
+function encodeCardanoPaymentWitness(key: Uint8Array, signature: Uint8Array): Uint8Array {
+  return concat(Uint8Array.of(0xa1, 0x00, 0xd9, 0x01, 0x02, 0x81, 0x82), bytes(key), bytes(signature));
+}
+
+/** Verify the single owner witness and return it in the same encoding used to size the fee. */
+export function verifyCardanoPaymentWitness(
+  witnessSet: Uint8Array,
+  paymentHash: Uint8Array,
+  txId: Uint8Array,
+): Uint8Array {
   const decoded = decodeCbor(witnessSet, true);
   const entry = decoded instanceof Map ? decoded.get(0n) : undefined;
   const witnesses = entry && typeof entry === 'object' && 'tag' in entry && entry.tag === 258 ? entry.value : entry;
-  const ownerHash = bytesToHex(paymentHash);
-  if (Array.isArray(witnesses)) {
-    for (const witness of witnesses) {
-      if (!Array.isArray(witness)) continue;
-      const [key, signature] = witness;
-      if (!(key instanceof Uint8Array) || key.length !== 32) continue;
-      if (bytesToHex(blake2b(key, { dkLen: 28 })) !== ownerHash) continue;
-      if (
-        signature instanceof Uint8Array &&
-        signature.length === 64 &&
-        verify(Buffer.from(txId), Buffer.from(signature), Buffer.from(key))
-      )
-        return;
-      throw new Error("[CardanoSpokeService.deposit] invalid signature for the owner's payment key");
-    }
+  if (decoded instanceof Map && (decoded.size > 1 || (Array.isArray(witnesses) && witnesses.length > 1))) {
+    throw new Error('[CardanoSpokeService.deposit] wallet returned a larger witness set than one key; not submitting');
   }
-  throw new Error("[CardanoSpokeService.deposit] witness set does not include the owner's payment key");
+
+  const [witness] = Array.isArray(witnesses) ? witnesses : [];
+  const [key, signature] = Array.isArray(witness) ? witness : [];
+  if (
+    !(key instanceof Uint8Array) ||
+    key.length !== 32 ||
+    bytesToHex(blake2b(key, { dkLen: 28 })) !== bytesToHex(paymentHash)
+  ) {
+    throw new Error("[CardanoSpokeService.deposit] witness set does not include the owner's payment key");
+  }
+  if (
+    !Array.isArray(witness) ||
+    witness.length !== 2 ||
+    !(signature instanceof Uint8Array) ||
+    signature.length !== 64 ||
+    !verify(Buffer.from(txId), Buffer.from(signature), Buffer.from(key))
+  ) {
+    throw new Error("[CardanoSpokeService.deposit] invalid signature for the owner's payment key");
+  }
+  return encodeCardanoPaymentWitness(key, signature);
 }
 
 /** An empty witness set, as the wallet is handed the unsigned transaction. */
 export const EMPTY_WITNESS_SET = Uint8Array.of(0xa0);
 
-/**
- * A witness set with one vkey witness of placeholder bytes, only to size the signed transaction for the fee.
- * It carries the set tag (258) that a wallet may omit, so a real witness is never larger and the fee is never short.
- */
-const SIZING_WITNESS_SET = concat(
-  Uint8Array.of(0xa1, 0x00, 0xd9, 0x01, 0x02, 0x81, 0x82, 0x58, 0x20),
-  new Uint8Array(32),
-  Uint8Array.of(0x58, 0x40),
-  new Uint8Array(64),
-);
+/** One placeholder witness, encoded the same way as the verified witness. */
+const SIZING_WITNESS_SET = encodeCardanoPaymentWitness(new Uint8Array(32), new Uint8Array(64));
 
 /** The minimum fee of a signed transaction of `signedSize` bytes. */
 export function cardanoMinFee(signedSize: number, params: Pick<CardanoProtocolParams, 'minFeeA' | 'minFeeB'>): bigint {

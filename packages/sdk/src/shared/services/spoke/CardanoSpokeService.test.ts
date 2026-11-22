@@ -294,6 +294,42 @@ describe('CardanoSpokeService.deposit', () => {
     expect(wallet.submitTransaction).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    ['tagged indefinite array', (hash: string) => `a100d901029f${ownerWitness(hash)}ff`],
+    ['tagged indefinite array and map', (hash: string) => `bf00d901029f${ownerWitness(hash)}ffff`],
+  ])('submits a valid %s in the sized encoding', async (_label, witnessSet) => {
+    const wallet = walletFor(witnessSet);
+
+    const txHash = await cardano.deposit(depositParams(wallet));
+
+    expect(signedByWallet).toContain(oneWitness(String(txHash)));
+    expect(wallet.submitTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('notifies the SDK hash and rethrows the original error when wallet submission fails', async () => {
+    const wallet = walletFor();
+    const failure = new Error('connection lost after sending');
+    wallet.submitTransaction.mockRejectedValueOnce(failure);
+
+    const error = await cardano.deposit(depositParams(wallet)).catch((error: unknown) => error);
+    const unsigned = wallet.signTransaction.mock.calls[0]?.[0];
+    if (!unsigned) throw new Error('wallet was not asked to sign');
+    const txHash = hashOfUnsigned(unsigned);
+
+    expect(error).toBe(failure);
+    expect(error).toMatchObject({ txHash, message: expect.stringMatching(/settle .* do not send again/i) });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '1815', txHash);
+  });
+
+  it('preserves a CIP-30 refusal without notifying the relay', async () => {
+    const wallet = walletFor();
+    const refusal = { code: 1, info: 'wallet refuses to send' };
+    wallet.submitTransaction.mockRejectedValueOnce(refusal);
+
+    await expect(cardano.deposit(depositParams(wallet))).rejects.toBe(refusal);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
   it('notifies the SDK hash and preserves both hashes on a mismatch', async () => {
     const submitted = 'cd'.repeat(32);
     const wallet = walletFor(oneWitness, submitted);

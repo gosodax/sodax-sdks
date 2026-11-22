@@ -444,6 +444,11 @@ The SDK reads UTXOs, the tip and the protocol parameters from Koios (`chains.car
 `https://api.koios.rest/api/v1`). Public Koios does not send CORS headers on its responses, so **a browser app must
 point `rpcUrl` at a CORS-enabled endpoint or its own proxy**; Node and backends can use the default.
 
+If wallet submission throws and the SDK cannot tell whether it broadcast the deposit, the SDK tries
+to notify the relay and attaches its computed hash to the error as `txHash`. If the wallet returns a
+different hash, the error also carries that hash as `walletTxHash`. Settle `txHash` and do not send
+the deposit again. An explicit CIP-30 refusal is returned unchanged without notifying the relay.
+
 ---
 
 ## 5. React integration: useWalletProvider

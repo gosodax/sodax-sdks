@@ -126,7 +126,8 @@ export class CardanoSpokeService implements MpcRelaySettlement {
    * payment, has the wallet sign it, submits it through the wallet, notifies the relay, and resolves to the tx
    * hash. After the wallet has submitted, a failed notify warns and still resolves to the hash, so a retry cannot
    * pay twice: `settle` re-notifies it, and a caller that does not settle notifies it with `spoke.submitMpcDeposit`.
-   * If the wallet reports a different hash, the error carries the SDK `txHash` for settlement and the `walletTxHash`.
+   * A submission error with an uncertain broadcast carries the SDK `txHash` for settlement.
+   * If the wallet reports a different hash, the error also carries `walletTxHash`.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<CardanoChainKey, R>,
@@ -220,9 +221,8 @@ export class CardanoSpokeService implements MpcRelaySettlement {
 
     const unsigned = assembleCardanoTx(built.bodyCbor, EMPTY_WITNESS_SET, built.auxiliaryData);
     const witnessSet = fromWalletHex(await walletProvider.signTransaction(toWalletHex(unsigned)));
-    verifyCardanoPaymentWitness(witnessSet, owner.paymentHash, built.txId);
-    const signed = assembleCardanoTx(built.bodyCbor, witnessSet, built.auxiliaryData);
-    // A wallet that adds more witnesses than the one sized for makes the fee short; the ledger would reject it.
+    const verifiedWitness = verifyCardanoPaymentWitness(witnessSet, owner.paymentHash, built.txId);
+    const signed = assembleCardanoTx(built.bodyCbor, verifiedWitness, built.auxiliaryData);
     const needed = cardanoMinFee(signed.length, protocolParams);
     if (built.body.fee < needed) {
       throw new Error(
@@ -231,7 +231,30 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     }
 
     const txHash = cardanoTxHash(built);
-    const submitted = canonicalTxHash(await walletProvider.submitTransaction(toWalletHex(signed)));
+    let submitted: string;
+    try {
+      submitted = canonicalTxHash(await walletProvider.submitTransaction(toWalletHex(signed)));
+    } catch (error) {
+      // CIP-30 TxSendError.Refused means the wallet declined to send the transaction.
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 1 &&
+        'info' in error &&
+        typeof error.info === 'string'
+      ) {
+        throw error;
+      }
+      await this.submitDeposit(txHash);
+      const guidance = `Settle txHash ${txHash} and do not send again.`;
+      const message = error instanceof Error ? `${error.message}. ${guidance}` : guidance;
+      const original =
+        typeof error === 'object' && error !== null && Object.isExtensible(error)
+          ? error
+          : new Error(guidance, { cause: error });
+      throw Object.assign(original, { txHash, message });
+    }
     const notified = await this.submitDeposit(txHash);
     if (submitted !== txHash) {
       const walletNotified = await this.submitDeposit(submitted);
@@ -255,7 +278,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
       this.config.logger.warn(
         '[CardanoSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it',
         {
-          txHash: submitted,
+          txHash,
           error: notified.error,
         },
       );
