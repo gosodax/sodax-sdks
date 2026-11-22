@@ -447,6 +447,68 @@ describe('TON review regressions', () => {
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', hash);
   });
 
+  /** toncenter's getTransactions over `txs` (newest first): pages of `limit`, starting at the lt/hash cursor. */
+  function stubPagedReserve(txs: ReturnType<typeof nativeTx>[]) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const { method, params } = JSON.parse(init.body) as Call;
+        calls.push({ method, params });
+        let result: unknown = [];
+        if (method === 'getTransactions') {
+          const start =
+            params.lt === undefined
+              ? 0
+              : txs.findIndex(t => t.transaction_id.lt === params.lt && t.transaction_id.hash === params.hash);
+          result = start < 0 ? [] : txs.slice(start, start + Number(params.limit));
+        }
+        // The service reads only `ok`, `status` and `json`; a full Response has nothing more to offer a test.
+        return { ok: true, status: 200, json: async () => ({ ok: true, result }) } as unknown as Response;
+      }),
+    );
+  }
+
+  const newerUnrelated = (count: number) =>
+    Array.from({ length: count }, (_, i) =>
+      nativeTx(
+        String(1000 - i),
+        `0x${'99'.repeat(32)}`,
+        Buffer.from(i.toString(16).padStart(64, '0'), 'hex').toString('base64'),
+      ),
+    );
+
+  it.each([15, 16, 40])('recovers a deposit behind %i newer reserve transactions', async count => {
+    stubPagedReserve([...newerUnrelated(count), nativeTx('200', MEMO), nativeTx('50', MEMO, 'old')]);
+    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
+  });
+
+  it('stops paging once it is past sinceLt', async () => {
+    vi.useFakeTimers();
+    stubPagedReserve([...newerUnrelated(40), nativeTx('90', MEMO)]);
+    const pending = ton.resumeDeposit(recovery, 1_000);
+    const result = expect(pending).rejects.toMatchObject({ name: 'TonDepositNotFoundError' });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await result;
+    const cursors = calls.filter(c => c.method === 'getTransactions').map(c => c.params.lt ?? 'head');
+    // One poll reads the head page and pages back until it reaches lt 90; nothing older is requested.
+    expect(new Set(cursors).size).toBeLessThanOrEqual(4);
+  });
+
+  it('resumes the same recovery twice and returns the hash it already claimed', async () => {
+    stubToncenter({ txs: [nativeTx('200', MEMO)] });
+    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
+    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledTimes(2);
+  });
+
+  it('still refuses to hand a claimed hash to a different deposit', async () => {
+    stubToncenter({ txs: [nativeTx('200', MEMO)] });
+    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
+    await expect(ton.resumeDeposit({ ...recovery, sinceLt: '150' }, 1_000)).rejects.toMatchObject({
+      name: 'TonDepositNotFoundError',
+    });
+  });
+
   it('serializes same-memo deposits and claims each hash once', async () => {
     const first = nativeTx('200', MEMO);
     const second = nativeTx('201', MEMO, Buffer.from('de'.repeat(32), 'hex').toString('base64'));

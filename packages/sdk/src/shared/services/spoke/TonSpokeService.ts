@@ -84,6 +84,8 @@ const JETTON_DEPOSIT_FORWARD_NANOTON = 100_000_000n;
 /** Budget and interval for discovering the reserve transaction a deposit produced. */
 const DEPOSIT_TX_DISCOVERY_TIMEOUT_MS = 120_000;
 const DEPOSIT_TX_POLL_INTERVAL_MS = 3_000;
+/** Reserve transactions read per toncenter page while scanning back to a deposit's `sinceLt`. */
+const RESERVE_TX_PAGE_SIZE = 16;
 
 type ToncenterTx = TonRawTransactionReceipt;
 
@@ -140,7 +142,8 @@ export class TonDepositNotFoundError extends Error {
  */
 export class TonSpokeService implements MpcRelaySettlement {
   private readonly config: ConfigService;
-  private readonly claimedHashes = new Set<string>();
+  /** Reserve tx hash → the deposit (recovery key) it was handed to, so a hash is never given to a second deposit. */
+  private readonly claimedHashes = new Map<string, string>();
   private readonly depositReserves = new Map<string, string>();
   private readonly memoLocks = new Map<string, Promise<void>>();
 
@@ -266,32 +269,78 @@ export class TonSpokeService implements MpcRelaySettlement {
     }
   }
 
-  private async findReserveTx(recovery: TonDepositRecovery, timeoutMs: number): Promise<Hex> {
+  /** Identifies one broadcast deposit, so resuming it again finds the hash it already claimed. */
+  private recoveryKey(recovery: TonDepositRecovery): string {
+    return [
+      normalizeTonAddress(recovery.reserveAddress),
+      recovery.memo.toLowerCase(),
+      recovery.sinceLt,
+      normalizeTonAddress(recovery.sender),
+      recovery.amount,
+      recovery.token.toLowerCase(),
+    ].join('|');
+  }
+
+  /**
+   * One scan of the reserve, newest first, paging back with toncenter's lt/hash cursor until it is past
+   * `recovery.sinceLt`: a busy reserve can take more than a page of transactions while a deposit is found.
+   */
+  private async scanReserve(
+    recovery: TonDepositRecovery,
+    key: string,
+    remainingMs: number,
+    reuseOwnClaim: boolean,
+  ): Promise<Hex | undefined> {
+    const deadline = Date.now() + remainingMs;
+    const sinceLt = BigInt(recovery.sinceLt);
+    let cursor: ToncenterTx['transaction_id'] | undefined;
+    for (;;) {
+      const page = await this.rpc<ToncenterTx[]>(
+        'getTransactions',
+        {
+          address: recovery.reserveAddress,
+          limit: RESERVE_TX_PAGE_SIZE,
+          ...(cursor ? { lt: cursor.lt, hash: cursor.hash } : {}),
+        },
+        Math.min(TON_RPC_TIMEOUT_MS, Math.max(0, deadline - Date.now())),
+      );
+      for (const tx of page) {
+        // toncenter starts a page AT the cursor, so its first entry repeats the previous page's last.
+        if (cursor && tx.transaction_id.lt === cursor.lt && tx.transaction_id.hash === cursor.hash) continue;
+        if (BigInt(tx.transaction_id.lt) <= sinceLt) continue;
+        if (!tx.transaction_id.hash || !this.matchesDeposit(tx, recovery)) continue;
+        const hash: Hex = `0x${toHexHash(tx.transaction_id.hash)}`;
+        const claimedBy = this.claimedHashes.get(hash);
+        if (claimedBy !== undefined && !(reuseOwnClaim && claimedBy === key)) continue;
+        this.claimedHashes.set(hash, key);
+        this.depositReserves.set(hash, recovery.reserveAddress);
+        return hash;
+      }
+      const last = page.at(-1)?.transaction_id;
+      const reachedSince = page.some(tx => BigInt(tx.transaction_id.lt) <= sinceLt);
+      if (
+        page.length < RESERVE_TX_PAGE_SIZE ||
+        reachedSince ||
+        !last ||
+        (cursor && last.lt === cursor.lt && last.hash === cursor.hash)
+      ) {
+        return undefined;
+      }
+      cursor = last;
+    }
+  }
+
+  /** `reuseOwnClaim` (resume only) lets the same recovery get back the hash it already claimed. */
+  private async findReserveTx(recovery: TonDepositRecovery, timeoutMs: number, reuseOwnClaim = false): Promise<Hex> {
+    const key = this.recoveryKey(recovery);
     const hash = await pollUntil(
       async remainingMs => {
         try {
-          const txs = await this.rpc<ToncenterTx[]>(
-            'getTransactions',
-            { address: recovery.reserveAddress, limit: 16 },
-            Math.min(TON_RPC_TIMEOUT_MS, remainingMs),
-          );
-          for (const tx of txs) {
-            if (
-              BigInt(tx.transaction_id.lt) <= BigInt(recovery.sinceLt) ||
-              !tx.transaction_id.hash ||
-              !this.matchesDeposit(tx, recovery)
-            )
-              continue;
-            const hash: Hex = `0x${toHexHash(tx.transaction_id.hash)}`;
-            if (this.claimedHashes.has(hash)) continue;
-            this.claimedHashes.add(hash);
-            this.depositReserves.set(hash, recovery.reserveAddress);
-            return hash;
-          }
+          return await this.scanReserve(recovery, key, remainingMs, reuseOwnClaim);
         } catch (error) {
           this.config.logger.debug('[TonSpokeService.findReserveTx] poll error', { error });
+          return undefined;
         }
-        return undefined;
       },
       { timeoutMs, intervalMs: DEPOSIT_TX_POLL_INTERVAL_MS },
     );
@@ -313,10 +362,13 @@ export class TonSpokeService implements MpcRelaySettlement {
     return txHash;
   }
 
-  /** Find and notify a broadcast deposit without sending funds again. */
+  /**
+   * Find and notify a broadcast deposit without sending funds again. Idempotent: resuming the same recovery again
+   * returns the hash it already found and re-notifies it.
+   */
   public async resumeDeposit(recovery: TonDepositRecovery, timeoutMs?: number): Promise<string> {
     const txHash = await this.withMemoLock(recovery.memo, () =>
-      this.findReserveTx(recovery, resolveTimeoutMs(timeoutMs, DEPOSIT_TX_DISCOVERY_TIMEOUT_MS)),
+      this.findReserveTx(recovery, resolveTimeoutMs(timeoutMs, DEPOSIT_TX_DISCOVERY_TIMEOUT_MS), true),
     );
     return this.notifyDiscoveredDeposit(txHash);
   }
