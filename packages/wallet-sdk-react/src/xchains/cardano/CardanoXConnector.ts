@@ -1,7 +1,7 @@
 import { cardanoAddressFromRawHex, type CardanoWalletLike } from '@sodax/wallet-sdk-core';
 import { XConnector } from '@/core/index.js';
 import type { XAccount } from '@/types/index.js';
-import { getLaceWallet, readCip30Api, readDataSignature, type Cip30Api } from './laceWallet.js';
+import { getLaceAddressHex, getLaceWallet, readCip30Api, readDataSignature, type Cip30Api } from './laceWallet.js';
 
 // Self-contained data URI — avoids cross-origin/CORS image fetches. A neutral mark; swap in Lace's own art if wanted.
 const LACE_ICON =
@@ -38,8 +38,7 @@ export class CardanoXConnector extends XConnector {
         `Lace is on network id ${networkId}, but SODAX runs on mainnet (id ${MAINNET_NETWORK_ID}); switch Lace to mainnet`,
       );
     }
-    const [used] = await api.getUsedAddresses();
-    const addressHex = (used ?? (await api.getChangeAddress())).replace(/^0x/i, '').toLowerCase();
+    const addressHex = await getLaceAddressHex(api);
     // Throws for a script, reward or testnet address: only a key-hash payment address can sign data.
     const address = cardanoAddressFromRawHex(addressHex);
     this.session = { api, addressHex, address };

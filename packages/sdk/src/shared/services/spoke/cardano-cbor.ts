@@ -1,7 +1,7 @@
 /**
  * The CBOR subset needed to read a CIP-30 `signData` result (COSE_Sign1 / COSE_Key): a strict decoder that
- * accepts only definite-length major types 0..5, tag 18 and the simple values false/true/null. Anything
- * else is refused, so a malformed wallet response fails here rather than at the relay.
+ * accepts definite-length major types 0..5, COSE tag 18, and the simple values false/true/null. Witness sets
+ * can opt into ledger set tag 258.
  */
 
 /** A decoded CBOR item. Integers are bigint so u64 and negative values never lose precision. */
@@ -61,7 +61,7 @@ function readLength(r: Reader, info: number): number {
   return Number(n);
 }
 
-function readItem(r: Reader, depth: number, top: boolean): CborValue {
+function readItem(r: Reader, depth: number, top: boolean, allowSetTag: boolean): CborValue {
   if (depth > MAX_DEPTH) throw new Error(`CBOR nesting deeper than ${MAX_DEPTH}`);
   const ib = r.byte();
   const major = ib >> 5;
@@ -78,27 +78,27 @@ function readItem(r: Reader, depth: number, top: boolean): CborValue {
     case 4: {
       const n = readLength(r, info);
       const out: CborValue[] = [];
-      for (let i = 0; i < n; i++) out.push(readItem(r, depth + 1, false));
+      for (let i = 0; i < n; i++) out.push(readItem(r, depth + 1, false, allowSetTag));
       return out;
     }
     case 5: {
       const n = readLength(r, info);
       const out = new Map<CborKey, CborValue>();
       for (let i = 0; i < n; i++) {
-        const k = readItem(r, depth + 1, false);
+        const k = readItem(r, depth + 1, false, allowSetTag);
         if (typeof k !== 'bigint' && typeof k !== 'string') {
           throw new Error('CBOR map key must be an integer or text');
         }
         if (out.has(k)) throw new Error(`duplicate CBOR map key ${String(k)}`);
-        out.set(k, readItem(r, depth + 1, false));
+        out.set(k, readItem(r, depth + 1, false, allowSetTag));
       }
       return out;
     }
     case 6: {
       const tag = readArg(r, info);
-      // COSE_Sign1 may carry its registered tag 18 at the top level only.
-      if (!top || tag !== 18n) throw new Error(`unsupported CBOR tag ${tag}`);
-      return { tag: 18, value: readItem(r, depth + 1, false) };
+      // COSE_Sign1 tag 18 is only valid at the top level.
+      if (!(top && tag === 18n) && !(allowSetTag && tag === 258n)) throw new Error(`unsupported CBOR tag ${tag}`);
+      return { tag: Number(tag), value: readItem(r, depth + 1, false, allowSetTag) };
     }
     default:
       if (ib === 0xf4) return false;
@@ -109,9 +109,9 @@ function readItem(r: Reader, depth: number, top: boolean): CborValue {
 }
 
 /** Decode exactly one CBOR item; trailing bytes are an error. */
-export function decodeCbor(buf: Uint8Array): CborValue {
+export function decodeCbor(buf: Uint8Array, allowSetTag = false): CborValue {
   const r = new Reader(buf);
-  const value = readItem(r, 0, true);
+  const value = readItem(r, 0, true, allowSetTag);
   if (!r.done) throw new Error(`${buf.length - r.pos} trailing bytes after the CBOR item`);
   return value;
 }

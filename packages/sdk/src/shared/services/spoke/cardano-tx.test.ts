@@ -104,6 +104,18 @@ describe('cardano deposit input selection', () => {
     expect(() => build([], V.amount)).toThrow(/0 lovelace in 0 UTXOs/);
   });
 
+  const minimum = cardanoMinUtxo({ address: reserve, lovelace: V.amount }, params.coinsPerUtxoByte);
+
+  it('rejects a deposit one lovelace below the reserve minimum', () => {
+    expect(() => build([...V.inputs], minimum - 1n)).toThrow(
+      `deposit ${minimum - 1n} lovelace is below the reserve output's min-UTXO ${minimum}`,
+    );
+  });
+
+  it('builds a deposit exactly at the reserve minimum', () => {
+    expect(build([...V.inputs], minimum).body.outputs[0]?.lovelace).toBe(minimum);
+  });
+
   it('refuses a non-positive amount', () => {
     expect(() => build([utxo(10_000_000n)], 0n)).toThrow(/must be positive/);
   });

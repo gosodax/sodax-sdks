@@ -11,7 +11,6 @@ import {
 } from '@sodax/types';
 import { bytesToHex, hexToBytes, isAddress, type Hex } from 'viem';
 import type { ConfigService } from '../../config/ConfigService.js';
-import { retry } from '../../utils/shared-utils.js';
 import type {
   DepositParams,
   EstimateGasParams,
@@ -22,6 +21,9 @@ import type {
   WaitForTxReceiptParams,
   WaitForTxReceiptReturnType,
 } from '../../types/spoke-types.js';
+import { pollUntil } from '../../utils/pollUntil.js';
+import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
+import { retry } from '../../utils/shared-utils.js';
 import {
   computePayloadHash,
   getDeposit,
@@ -49,7 +51,9 @@ import {
   assembleCardanoTx,
   buildCardanoDeposit,
   cardanoMinFee,
+  cardanoMinUtxo,
   cardanoTxHash,
+  verifyCardanoPaymentWitness,
 } from './cardano-tx.js';
 import {
   cardanoDepositMetadata,
@@ -122,6 +126,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
    * payment, has the wallet sign it, submits it through the wallet, notifies the relay, and resolves to the tx
    * hash. After the wallet has submitted, a failed notify warns and still resolves to the hash, so a retry cannot
    * pay twice: `settle` re-notifies it, and a caller that does not settle notifies it with `spoke.submitMpcDeposit`.
+   * If the wallet reports a different hash, the error carries the submitted `txHash` for settlement.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<CardanoChainKey, R>,
@@ -178,7 +183,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
         from: srcAddress,
         to: reserveAddress,
         value: amount,
-        data: memo,
+        data: memo.slice(2).toLowerCase(),
         token,
       } satisfies CardanoRawTransaction as TxReturnType<CardanoChainKey, R>;
     }
@@ -215,6 +220,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
 
     const unsigned = assembleCardanoTx(built.bodyCbor, EMPTY_WITNESS_SET, built.auxiliaryData);
     const witnessSet = fromWalletHex(await walletProvider.signTransaction(toWalletHex(unsigned)));
+    verifyCardanoPaymentWitness(witnessSet, owner.paymentHash, built.txId);
     const signed = assembleCardanoTx(built.bodyCbor, witnessSet, built.auxiliaryData);
     // A wallet that adds more witnesses than the one sized for makes the fee short; the ledger would reject it.
     const needed = cardanoMinFee(signed.length, protocolParams);
@@ -226,21 +232,28 @@ export class CardanoSpokeService implements MpcRelaySettlement {
 
     const txHash = cardanoTxHash(built);
     const submitted = canonicalTxHash(await walletProvider.submitTransaction(toWalletHex(signed)));
+    const notified = await this.submitDeposit(submitted);
     if (submitted !== txHash) {
-      throw new Error(`[CardanoSpokeService.deposit] wallet submitted tx ${submitted}, but the built tx is ${txHash}`);
+      throw Object.assign(
+        new Error(
+          `[CardanoSpokeService.deposit] wallet submitted tx ${submitted}, but the built tx is ${txHash}. Settle the submitted hash and do not retry.`,
+          {
+            cause: notified.ok ? undefined : notified.error,
+          },
+        ),
+        { txHash: submitted },
+      );
     }
-
-    const notified = await this.submitDeposit(txHash);
     if (!notified.ok) {
       this.config.logger.warn(
         '[CardanoSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it',
         {
-          txHash,
+          txHash: submitted,
           error: notified.error,
         },
       );
     }
-    return txHash satisfies string as TxReturnType<CardanoChainKey, R>;
+    return submitted satisfies string as TxReturnType<CardanoChainKey, R>;
   }
 
   /**
@@ -282,7 +295,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     }, RENOTIFY_INTERVAL_MS);
     try {
       return await waitForDeposit(this.relayApiUrl, toDepositId(this.chainId, hash, DEPOSIT_OUTPUT_INDEX), {
-        timeout: Math.max(timeout ?? 0, CARDANO_SETTLEMENT_FLOOR_MS),
+        timeout: Math.max(resolveTimeoutMs(timeout, 0), CARDANO_SETTLEMENT_FLOOR_MS),
         pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
       });
     } finally {
@@ -323,13 +336,15 @@ export class CardanoSpokeService implements MpcRelaySettlement {
    */
   public async estimateGas(_params: EstimateGasParams<CardanoChainKey>): Promise<CardanoGasEstimate> {
     const reserve = parseCardanoAddress(this.chainConfig.addresses.reserve);
+    const params = await this.koios.getProtocolParams();
+    const minimum = cardanoMinUtxo({ address: reserve.bytes, lovelace: 1_000_000n }, params.coinsPerUtxoByte);
     const built = buildCardanoDeposit({
       utxos: [{ txHash: '0'.repeat(64), index: 0, lovelace: 1_000_000_000_000n }],
       reserveAddress: reserve.bytes,
       changeAddress: new Uint8Array(57),
-      amount: 1_000_000n,
+      amount: minimum > 1_000_000n ? minimum : 1_000_000n,
       memoHex: `0x${'00'.repeat(32)}`,
-      params: await this.koios.getProtocolParams(),
+      params,
       ttlSlot: 0n,
     });
     return { fee: built.body.fee };
@@ -394,7 +409,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
   ): Promise<Result<WithdrawalRecord>> {
     return waitForWithdrawal(this.relayApiUrl, trackingId, {
       until,
-      timeout: Math.max(timeout ?? 0, CARDANO_SETTLEMENT_FLOOR_MS),
+      timeout: Math.max(resolveTimeoutMs(timeout, 0), CARDANO_SETTLEMENT_FLOOR_MS),
       pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
     });
   }
@@ -428,7 +443,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     }, RENOTIFY_INTERVAL_MS);
     try {
       return await waitForHubRelease(this.relayApiUrl, release, {
-        timeout: Math.max(timeout ?? 0, CARDANO_SETTLEMENT_FLOOR_MS),
+        timeout: Math.max(resolveTimeoutMs(timeout, 0), CARDANO_SETTLEMENT_FLOOR_MS),
         pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
       });
     } finally {
@@ -446,22 +461,24 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     params: WaitForTxReceiptParams<CardanoChainKey>,
   ): Promise<Result<WaitForTxReceiptReturnType<CardanoChainKey>>> {
     const txHash = canonicalTxHash(params.txHash);
-    const pollingIntervalMs = params.pollingIntervalMs ?? this.chainConfig.pollingConfig.pollingIntervalMs;
-    const maxTimeoutMs = params.maxTimeoutMs ?? this.chainConfig.pollingConfig.maxTimeoutMs;
-    const maxAttempts = Math.max(1, Math.round(maxTimeoutMs / pollingIntervalMs));
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        const depth = await this.koios.getTxDepth(txHash);
-        if (depth !== null) {
-          const receipt: CardanoRawTransactionReceipt = { tx_hash: txHash, num_confirmations: depth };
-          return { ok: true, value: { status: 'success', receipt } };
+    const polling = this.chainConfig.pollingConfig;
+    const receipt = await pollUntil(
+      async (remainingMs): Promise<CardanoRawTransactionReceipt | undefined> => {
+        if (remainingMs <= 0) return undefined;
+        try {
+          const depth = await this.koios.getTxDepth(txHash, remainingMs);
+          if (depth !== null) return { tx_hash: txHash, num_confirmations: depth };
+        } catch (error) {
+          this.config.logger.debug('[CardanoSpokeService.waitForTransactionReceipt] poll error', { error });
         }
-      } catch (error) {
-        this.config.logger.debug('[CardanoSpokeService.waitForTransactionReceipt] poll error', { error });
-      }
-      await new Promise(r => setTimeout(r, pollingIntervalMs));
-    }
+        return undefined;
+      },
+      {
+        intervalMs: resolveTimeoutMs(params.pollingIntervalMs, polling.pollingIntervalMs),
+        timeoutMs: resolveTimeoutMs(params.maxTimeoutMs, polling.maxTimeoutMs),
+      },
+    );
+    if (receipt) return { ok: true, value: { status: 'success', receipt } };
     return { ok: true, value: { status: 'timeout', error: new Error(`cardano tx ${txHash} not in a block in time`) } };
   }
 }

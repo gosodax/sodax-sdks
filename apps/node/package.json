@@ -49,7 +49,7 @@
     "checkTs": "tsc --noEmit",
     "pretty": "biome format . --write",
     "lint": "biome lint . --write",
-    "test": "true",
+    "test": "node --import tsx --test src/prompt-hidden.test.ts src/swap-cli.test.ts",
     "clean": "rm -rf node_modules && rm -rf dist && rm -rf .turbo "
   },
   "main": "dist/main.js",

@@ -64,7 +64,7 @@ export type KoiosClient = {
   /** Total lovelace held at `address`. */
   getBalance(address: string): Promise<bigint>;
   /** Blocks on top of the transaction's block (0 in the tip block), or `null` when it is not in a block. */
-  getTxDepth(txHash: string): Promise<number | null>;
+  getTxDepth(txHash: string, timeoutMs?: number): Promise<number | null>;
 };
 
 export function createKoiosClient(baseUrl: string): KoiosClient {
@@ -72,9 +72,15 @@ export function createKoiosClient(baseUrl: string): KoiosClient {
   if (base.length === 0)
     throw new Error('Cardano rpcUrl is empty: set a Koios base URL (https://…/api/v1) through the chain config');
 
-  async function call(method: 'GET' | 'POST', path: string, json?: unknown): Promise<unknown> {
+  async function call(
+    method: 'GET' | 'POST',
+    path: string,
+    json?: unknown,
+    timeout = KOIOS_TIMEOUT_MS,
+  ): Promise<unknown> {
+    const timeoutMs = Math.min(timeout, KOIOS_TIMEOUT_MS);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), KOIOS_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await fetch(`${base}${path}`, {
         method,
@@ -85,7 +91,7 @@ export function createKoiosClient(baseUrl: string): KoiosClient {
       if (!res.ok) fail(path, `HTTP ${res.status}`);
       return await res.json();
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') fail(path, `timed out after ${KOIOS_TIMEOUT_MS}ms`);
+      if (error instanceof Error && error.name === 'AbortError') fail(path, `timed out after ${timeoutMs}ms`);
       throw error;
     } finally {
       clearTimeout(timer);
@@ -152,8 +158,12 @@ export function createKoiosClient(baseUrl: string): KoiosClient {
       return asQuantity(asRow(rows[0], '/address_info', 'the address info').balance, '/address_info', 'balance');
     },
 
-    async getTxDepth(txHash) {
-      const rows = asArray(await call('POST', '/tx_status', { _tx_hashes: [txHash] }), '/tx_status', 'tx_status');
+    async getTxDepth(txHash, timeoutMs) {
+      const rows = asArray(
+        await call('POST', '/tx_status', { _tx_hashes: [txHash] }, timeoutMs),
+        '/tx_status',
+        'tx_status',
+      );
       const row = rows
         .map(item => asRow(item, '/tx_status', 'a status row'))
         .find(r => asTxHash(r.tx_hash, '/tx_status') === txHash);

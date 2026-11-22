@@ -1,6 +1,8 @@
-import { XService } from '@/core/XService.js';
 import type { XToken } from '@sodax/types';
-import { getLaceWallet, readCip30Api, readLovelace } from './laceWallet.js';
+import { cardanoAddressFromRawHex } from '@sodax/wallet-sdk-core';
+import { XService } from '@/core/XService.js';
+import { readCardanoUtxo } from './cardano-utxo.js';
+import { getLaceAddressHex, getLaceWallet, readCip30Api } from './laceWallet.js';
 
 export class CardanoXService extends XService {
   private static instance: CardanoXService;
@@ -37,12 +39,25 @@ export class CardanoXService extends XService {
     return BigInt(rows[0]?.balance ?? 0);
   }
 
-  /** Lace's own balance, read only when it has already approved this site, so a read never opens a prompt. */
-  private async walletBalance(): Promise<bigint> {
+  /** Sum UTXOs at the connected address when Lace has already approved this site. */
+  private async walletBalance(address: string): Promise<bigint> {
     const lace = getLaceWallet();
     if (!lace?.isEnabled || !(await lace.isEnabled())) return 0n;
     const api = readCip30Api(await lace.enable());
-    return (api && readLovelace(await api.getBalance())) ?? 0n;
+    if (!api || (await api.getNetworkId()) !== 1) return 0n;
+    const addressHex = await getLaceAddressHex(api);
+    const connected = cardanoAddressFromRawHex(addressHex);
+    const requested = address.toLowerCase();
+    if (requested.replace(/^0x/, '') !== addressHex && requested !== connected) {
+      return 0n;
+    }
+
+    let balance = 0n;
+    for (const utxo of (await api.getUtxos()) ?? []) {
+      const output = readCardanoUtxo(utxo);
+      if (output.address === addressHex) balance += output.lovelace;
+    }
+    return balance;
   }
 
   /**
@@ -54,7 +69,7 @@ export class CardanoXService extends XService {
   override async getBalance(address: string | undefined, _xToken: XToken): Promise<bigint> {
     if (!address) return 0n;
     try {
-      return this.rpcUrl ? await this.rpcBalance(this.rpcUrl, address) : await this.walletBalance();
+      return this.rpcUrl ? await this.rpcBalance(this.rpcUrl, address) : await this.walletBalance(address);
     } catch (error) {
       console.error('Error fetching Cardano balance:', error);
       return 0n;

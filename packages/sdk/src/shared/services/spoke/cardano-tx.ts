@@ -11,7 +11,9 @@
  *  - tx     = [body, witness set, true, auxiliary data].
  */
 import { blake2b } from '@noble/hashes/blake2b';
+import { verify } from '@stellar/stellar-sdk';
 import { bytesToHex, hexToBytes } from 'viem';
+import { decodeCbor } from './cardano-cbor.js';
 
 /** Validity window of a deposit: 2 hours, so a slow wallet or a congested network still lands it. */
 export const CARDANO_TTL_SECONDS = 7200;
@@ -153,6 +155,30 @@ export function assembleCardanoTx(bodyCbor: Uint8Array, witnessSet: Uint8Array, 
   return concat(Uint8Array.of(0x84), bodyCbor, witnessSet, Uint8Array.of(0xf5), auxiliaryData);
 }
 
+/** Require a valid witness for the deposit owner's payment key. */
+export function verifyCardanoPaymentWitness(witnessSet: Uint8Array, paymentHash: Uint8Array, txId: Uint8Array): void {
+  const decoded = decodeCbor(witnessSet, true);
+  const entry = decoded instanceof Map ? decoded.get(0n) : undefined;
+  const witnesses = entry && typeof entry === 'object' && 'tag' in entry && entry.tag === 258 ? entry.value : entry;
+  const ownerHash = bytesToHex(paymentHash);
+  if (Array.isArray(witnesses)) {
+    for (const witness of witnesses) {
+      if (!Array.isArray(witness)) continue;
+      const [key, signature] = witness;
+      if (!(key instanceof Uint8Array) || key.length !== 32) continue;
+      if (bytesToHex(blake2b(key, { dkLen: 28 })) !== ownerHash) continue;
+      if (
+        signature instanceof Uint8Array &&
+        signature.length === 64 &&
+        verify(Buffer.from(txId), Buffer.from(signature), Buffer.from(key))
+      )
+        return;
+      throw new Error("[CardanoSpokeService.deposit] invalid signature for the owner's payment key");
+    }
+  }
+  throw new Error("[CardanoSpokeService.deposit] witness set does not include the owner's payment key");
+}
+
 /** An empty witness set, as the wallet is handed the unsigned transaction. */
 export const EMPTY_WITNESS_SET = Uint8Array.of(0xa0);
 
@@ -226,8 +252,12 @@ export function buildCardanoDeposit(opts: {
 }): BuiltCardanoDeposit {
   const { utxos, reserveAddress, changeAddress, amount, memoHex, params, ttlSlot } = opts;
   if (amount <= 0n) throw new Error(`Cardano deposit amount must be positive, got ${amount} lovelace`);
-  const auxiliaryData = cardanoDepositAuxiliaryData(memoHex);
   const reserve: CardanoTxOutput = { address: reserveAddress, lovelace: amount };
+  const reserveMinimum = cardanoMinUtxo(reserve, params.coinsPerUtxoByte);
+  if (reserve.lovelace < reserveMinimum) {
+    throw new Error(`deposit ${reserve.lovelace} lovelace is below the reserve output's min-UTXO ${reserveMinimum}`);
+  }
+  const auxiliaryData = cardanoDepositAuxiliaryData(memoHex);
   const sorted = [...utxos].sort((a, b) => (b.lovelace > a.lovelace ? 1 : b.lovelace < a.lovelace ? -1 : 0));
 
   const chosen: CardanoUtxo[] = [];

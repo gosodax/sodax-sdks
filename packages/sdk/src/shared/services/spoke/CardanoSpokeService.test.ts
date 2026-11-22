@@ -1,5 +1,6 @@
 import { blake2b } from '@noble/hashes/blake2b';
 import { ChainKeys } from '@sodax/types';
+import { Keypair } from '@stellar/stellar-sdk';
 import { bytesToHex, hexToBytes, type Hex } from 'viem';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sodax } from '../../entities/Sodax.js';
@@ -15,7 +16,10 @@ const CARDANO = ChainKeys.CARDANO_MAINNET;
 const NATIVE_ADA = '0x0000000000000000000000000000000000000000';
 const HUB_WALLET = '0x1111111111111111111111111111111111111111' as Hex;
 const RESERVE = sodax.config.getChainConfig(CARDANO).addresses.reserve;
-const OWNER = CARDANO_ADDRESSES.baseMainnet.bech32;
+const depositSigner = Keypair.fromRawEd25519Seed(Buffer.alloc(32, 1));
+const OWNER = cardanoAddressFromRecipientBytes(
+  `0x61${bytesToHex(blake2b(depositSigner.rawPublicKey(), { dkLen: 28 })).slice(2)}`,
+);
 const AMOUNT = 5_000_000n;
 const MEMO = MpcRelayApiService.computePayloadHash(HUB_WALLET, '0x');
 const AUX_LENGTH = cardanoDepositAuxiliaryData(MEMO).length;
@@ -62,10 +66,11 @@ function stubKoios(): void {
   );
 }
 
-/** A witness set holding one vkey witness, as a wallet returns it (no set tag). */
-const ONE_WITNESS = `a1008182${`5820${'11'.repeat(32)}`}${`5840${'22'.repeat(64)}`}`;
-/** The same shape with two vkey witnesses: a wallet that adds a key the fee was not sized for. */
-const TWO_WITNESSES = `a1008282${`5820${'11'.repeat(32)}`}${`5840${'22'.repeat(64)}`}${`5820${'33'.repeat(32)}`}${`5840${'44'.repeat(64)}`}`;
+const ownerWitness = (hash: string) =>
+  `825820${depositSigner.rawPublicKey().toString('hex')}5840${depositSigner.sign(Buffer.from(hash, 'hex')).toString('hex')}`;
+const oneWitness = (hash: string) => `a100d9010281${ownerWitness(hash)}`;
+const otherWitness = `825820${'33'.repeat(32)}5840${'44'.repeat(64)}`;
+const twoWitnesses = (hash: string) => `a10082${ownerWitness(hash)}${otherWitness}`;
 
 /** The tx hash of an unsigned `[body, {}, true, aux]` transaction, as the wallet computes it. */
 function hashOfUnsigned(unsignedHex: string): string {
@@ -76,14 +81,14 @@ function hashOfUnsigned(unsignedHex: string): string {
 }
 
 let signedByWallet: string | undefined;
-const walletFor = (witness = ONE_WITNESS, submitted?: string) => {
+const walletFor = (witness: string | ((hash: string) => string) = oneWitness, submitted?: string) => {
   let unsignedHash = '';
   return {
     chainType: 'CARDANO',
     getWalletAddress: vi.fn(async () => OWNER),
     signTransaction: vi.fn(async (unsigned: string) => {
       unsignedHash = hashOfUnsigned(unsigned);
-      return witness;
+      return typeof witness === 'function' ? witness(unsignedHash) : witness;
     }),
     submitTransaction: vi.fn(async (signed: string) => {
       signedByWallet = signed;
@@ -108,7 +113,7 @@ const depositParams = (wallet: ReturnType<typeof walletFor>, extra: object = {})
 const registration = (overrides: object = {}) => ({
   ok: true as const,
   value: {
-    depositMethod: 'memo',
+    depositMethod: 'memo' as const,
     reserveAddress: RESERVE,
     memo: MEMO,
     payloadHash: MEMO,
@@ -158,9 +163,18 @@ describe('CardanoSpokeService.deposit', () => {
   it('returns the transfer descriptor in raw mode without reading the chain or touching the wallet', async () => {
     const wallet = walletFor();
 
+    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue(
+      registration({ memo: `0x${MEMO.slice(2).toUpperCase()}` }),
+    );
     const tx = await cardano.deposit(depositParams(wallet, { raw: true }));
 
-    expect(tx).toEqual({ from: OWNER, to: RESERVE, value: AMOUNT, data: MEMO, token: NATIVE_ADA });
+    expect(tx).toEqual({
+      from: OWNER,
+      to: RESERVE,
+      value: AMOUNT,
+      data: MEMO.slice(2).toLowerCase(),
+      token: NATIVE_ADA,
+    });
     expect(calls).toEqual([]);
     expect(wallet.signTransaction).not.toHaveBeenCalled();
   });
@@ -242,19 +256,40 @@ describe('CardanoSpokeService.deposit', () => {
   });
 
   it('refuses to submit when the wallet adds a witness the fee was not sized for', async () => {
-    const wallet = walletFor(TWO_WITNESSES);
+    const wallet = walletFor(twoWitnesses);
 
     await expect(cardano.deposit(depositParams(wallet))).rejects.toThrow(/larger witness set than one key/);
     expect(wallet.submitTransaction).not.toHaveBeenCalled();
   });
 
-  it('reports both hashes when the wallet submitted a different transaction than the one built', async () => {
-    const other = 'cd'.repeat(32);
-
-    await expect(cardano.deposit(depositParams(walletFor(ONE_WITNESS, other)))).rejects.toThrow(
-      new RegExp(`wallet submitted tx ${other}, but the built tx is [0-9a-f]{64}`),
+  it('rejects a deposit below the reserve minimum before signing', async () => {
+    const wallet = walletFor();
+    await expect(cardano.deposit(depositParams(wallet, { amount: 500_000n }))).rejects.toThrow(
+      /reserve output's min-UTXO/,
     );
-    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+    expect(wallet.signTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses to broadcast a witness from a different payment key', async () => {
+    const wallet = walletFor(`a10081${otherWitness}`);
+    await expect(cardano.deposit(depositParams(wallet))).rejects.toThrow(/owner's payment key/);
+    expect(wallet.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses an owner witness whose signature is for a different transaction', async () => {
+    const wallet = walletFor(() => oneWitness('00'.repeat(32)));
+    await expect(cardano.deposit(depositParams(wallet))).rejects.toThrow(/invalid signature/);
+    expect(wallet.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it('notifies the submitted hash and preserves it on a mismatch', async () => {
+    const submitted = 'cd'.repeat(32);
+
+    await expect(cardano.deposit(depositParams(walletFor(oneWitness, submitted)))).rejects.toMatchObject({
+      message: expect.stringMatching(/wallet submitted tx .*settle .* do not retry/i),
+      txHash: submitted,
+    });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '1815', submitted);
   });
 
   it('still resolves to the tx hash when the relay cannot be notified, leaving the re-notify to settlement', async () => {
@@ -322,6 +357,42 @@ describe('CardanoSpokeService reads', () => {
       ok: true,
       value: { status: 'success', receipt: { tx_hash: hash, num_confirmations: 3 } },
     });
+  });
+
+  it('caps a slow Koios request at the receipt deadline', async () => {
+    vi.useFakeTimers();
+    const hash = 'ab'.repeat(32);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async (_input: string, init: RequestInit) =>
+          new Promise<Response>((resolve, reject) => {
+            const timer = setTimeout(
+              () => resolve(new Response(JSON.stringify([{ tx_hash: hash, num_confirmations: 3 }]))),
+              5_000,
+            );
+            init.signal?.addEventListener('abort', () => {
+              clearTimeout(timer);
+              reject(new DOMException('Aborted', 'AbortError'));
+            });
+          }),
+      ),
+    );
+    const settled = vi.fn();
+    const pending = cardano
+      .waitForTransactionReceipt({
+        chainKey: CARDANO,
+        txHash: hash,
+        pollingIntervalMs: 100,
+        maxTimeoutMs: 1_000,
+      })
+      .then(settled);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(settled).toHaveBeenCalledWith(
+      expect.objectContaining({ value: expect.objectContaining({ status: 'timeout' }) }),
+    );
+    await pending;
   });
 
   it('reports a timeout, not a failure, when the transaction never reaches a block', async () => {
@@ -484,6 +555,27 @@ describe('CardanoSpokeService — relay submit and read', () => {
     expect(await cardano.getHubReleaseRecord(HUB_RELEASE)).toBe(record);
     expect((await cardano.getWithdrawalRecord('0xtrack')).ok).toBe(true);
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
+  it('uses the settlement floor for NaN across the relay waits', async () => {
+    const deposit = vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockResolvedValue(record);
+    const release = vi.spyOn(MpcRelayApiService, 'waitForHubRelease').mockResolvedValue(record);
+    const withdrawal = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
+      ok: true,
+      value: { trackingId: '0xtrack', status: 'burned' },
+    });
+
+    await cardano.waitForDeposit(HASH, Number.NaN);
+    await cardano.waitForHubRelease(HUB_RELEASE, Number.NaN);
+    await cardano.waitForWithdrawal('0xtrack', Number.NaN);
+
+    for (const wait of [deposit, release, withdrawal]) {
+      expect(wait).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ timeout: 900_000 }),
+      );
+    }
   });
 
   it('waitForWithdrawal passes the stage to stop on through to the relay poll, with the Cardano floor', async () => {

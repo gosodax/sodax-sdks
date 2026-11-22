@@ -39,6 +39,7 @@ The package includes wallet provider implementations for:
 - Tron ✅
 - TON ✅
 - Zcash (transparent) ✅
+- Cardano (CIP-30 wallets) ✅
 
 ## Public API surface
 
@@ -54,6 +55,7 @@ Internal utilities (e.g. `shallowMerge` in `src/utils/merge.ts`) are **not** exp
 All providers support two modes, but **the union discriminant depends on the provider**:
 
 - **Field presence (no `type` field in config)**: EVM, Solana, Sui, Near, Stacks, Icon, Injective, Tron, TON, Zcash
+- **Single mode**: Cardano (`wallet` only; there is no private-key mode)
 - **Explicit uppercase `type` field**: Bitcoin, Stellar (`'PRIVATE_KEY' | 'BROWSER_EXTENSION'`)
 
 ### EVM
@@ -310,6 +312,19 @@ address-indexed node.
 ```ts
 const zecPk = new ZcashWalletProvider({ privateKey: process.env.ZCASH_PRIVATE_KEY! });
 const zecBrowser = new ZcashWalletProvider({ wallet: noirAdapter });
+```
+
+### Cardano
+
+Cardano takes a `wallet`: a structural CIP-30 adapter (`getAddress`, `signTx`, `submitTx`, `signData`) over an
+injected wallet such as Lace, so the package takes no wallet dependency. There is no private-key mode. See
+[`cardano/types.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/cardano/types.ts).
+`getWalletAddress()` returns the bech32 `addr1…` key-hash payment address. The SDK builds the deposit itself; the
+wallet only signs and submits it, and `signData` returns the COSE_Sign1 and COSE_Key a Cardano withdrawal is
+authorized with. `cardanoAddressFromRawHex` turns the raw address hex CIP-30 returns into bech32.
+
+```ts
+const ada = new CardanoWalletProvider({ wallet: laceAdapter });
 ```
 
 ## Defaults and merge semantics

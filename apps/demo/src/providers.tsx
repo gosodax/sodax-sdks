@@ -31,7 +31,7 @@ const rpcConfig: RpcConfig = {
   [ChainKeys.TRON_MAINNET]: process.env.TRON_RPC_URL ?? 'https://api.trongrid.io',
   [ChainKeys.XRP_MAINNET]: process.env.XRP_RPC_URL ?? 'https://xrplcluster.com',
   [ChainKeys.TON_MAINNET]: process.env.TON_RPC_URL ?? 'https://toncenter.com/api/v2/jsonRPC',
-  // Public Koios sends no CORS headers on responses, so the dev server proxies it at `/__koios` (vite.config.ts).
+  // Public Koios sends no CORS headers on responses, so Vite and Vercel both proxy it at `/__koios`.
   [ChainKeys.CARDANO_MAINNET]: process.env.CARDANO_RPC_URL ?? `${window.location.origin}/__koios`,
   [ChainKeys.STELLAR_MAINNET]: {
     horizonRpcUrl: process.env.STELLAR_HORIZON_RPC_URL ?? 'https://horizon.stellar.org',

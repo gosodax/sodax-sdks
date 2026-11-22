@@ -1,19 +1,19 @@
 import 'dotenv/config';
 import {
-  Sodax,
   ChainKeys,
-  SolverIntentStatusCode,
   getChainType,
   type CreateIntentParams,
   type EvmChainKey,
+  type Sodax,
   type SolverIntentQuoteRequest,
   type SpokeChainKey,
   type XToken,
 } from '@sodax/sdk';
 import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
 import type { Hex } from '@sodax/types';
-import { createInterface } from 'node:readline';
 import { formatUnits, isAddress, parseUnits } from 'viem';
+import { promptHidden } from './prompt-hidden.js';
+import { createSwapSdk, settleSwap } from './swap-cli-sdk.js';
 
 const USAGE = `Swap between any two chains from the command line (EVM source chain).
 
@@ -34,7 +34,7 @@ Options:
   --deadline <seconds>     intent deadline, default 300
   --prompt-key             ask for the signer key with hidden input (overrides EVM_PRIVATE_KEY; never on the command line)
   --rpc <url>              source chain RPC override (default: the SDK's configured RPC)
-  --no-wait                do not poll the solver for the final status after sending
+  --no-wait                do not wait for solver fill or destination delivery after sending
 
 --execute signs and broadcasts on MAINNET with --prompt-key or EVM_PRIVATE_KEY from apps/node/.env. Use a dedicated test wallet.`;
 
@@ -52,21 +52,6 @@ type Options = {
 };
 
 class UsageError extends Error {}
-
-function promptHidden(question: string): Promise<string> {
-  return new Promise(resolve => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    const write = (rl as unknown as { _writeToOutput: (text: string) => void })._writeToOutput.bind(rl);
-    (rl as unknown as { _writeToOutput: (text: string) => void })._writeToOutput = text => {
-      if (text.startsWith(question)) write(text);
-    };
-    rl.question(question, answer => {
-      rl.close();
-      process.stdout.write('\n');
-      resolve(answer.trim());
-    });
-  });
-}
 
 const isHttpUrl = (value: string): value is `http${string}` => value.startsWith('http');
 
@@ -130,72 +115,47 @@ function resolveChain(input: string): SpokeChainKey {
   throw new UsageError(`Unknown chain "${input}". Known: ${Object.keys(ChainKeys).map(n => n.toLowerCase().replace(/_mainnet$/, '')).join(', ')}`);
 }
 
-function resolveToken(sodax: Sodax, spec: string): { chainKey: SpokeChainKey; token: XToken } {
-  const [chainPart, symbolPart, ...rest] = spec.split(':');
-  if (!chainPart || !symbolPart || rest.length > 0) throw new UsageError(`"${spec}" must look like <chain>:<TOKEN>, e.g. robinhood:USDG`);
-  const chainKey = resolveChain(chainPart);
-  const tokens: XToken[] = Object.values(sodax.config.spokeChainConfig[chainKey].supportedTokens);
-  const token = tokens.find(t => t.symbol.toLowerCase() === symbolPart.toLowerCase());
-  if (!token) {
-    throw new UsageError(`No token "${symbolPart}" on ${chainKey}. Known there: ${tokens.map(t => t.symbol).join(', ')}`);
+function parseTokenSpec(spec: string): { chainKey: SpokeChainKey; symbol: string } {
+  const [chainPart, symbol, ...rest] = spec.split(':');
+  if (!chainPart || !symbol || rest.length > 0) {
+    throw new UsageError(`"${spec}" must look like <chain>:<TOKEN>, e.g. robinhood:USDG`);
   }
-  return { chainKey, token };
+  return { chainKey: resolveChain(chainPart), symbol };
+}
+
+function resolveToken(sodax: Sodax, { chainKey, symbol }: ReturnType<typeof parseTokenSpec>): XToken {
+  const tokens: XToken[] = Object.values(sodax.config.spokeChainConfig[chainKey].supportedTokens);
+  const token = tokens.find(t => t.symbol.toLowerCase() === symbol.toLowerCase());
+  if (!token) {
+    throw new UsageError(`No token "${symbol}" on ${chainKey}. Known there: ${tokens.map(t => t.symbol).join(', ')}`);
+  }
+  return token;
 }
 
 function isEvmChainKey(chainKey: SpokeChainKey): chainKey is EvmChainKey {
   return getChainType(chainKey) === 'EVM';
 }
 
-const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
-
-/** Polls the solver until the intent is solved or fails; returns whether it ended solved. */
-async function waitForFill(sodax: Sodax, dstTxHash: string, maxAttempts = 60, intervalMs = 5000): Promise<boolean> {
-  let notFound = 0;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const status = await sodax.swaps.getStatus({ intent_tx_hash: dstTxHash as Hex });
-    if (status.ok) {
-      const { status: code, fill_tx_hash } = status.value;
-      if (code === SolverIntentStatusCode.SOLVED) {
-        console.log(`[${attempt}] Solved.${fill_tx_hash ? ` Fill tx: ${fill_tx_hash}` : ''}`);
-        return true;
-      }
-      if (code === SolverIntentStatusCode.FAILED) {
-        console.log(`[${attempt}] The solver reported the swap as FAILED.`);
-        return false;
-      }
-      if (code === SolverIntentStatusCode.NOT_FOUND && ++notFound >= 3) {
-        console.log(`[${attempt}] The solver has no record of this intent. Check the hub tx hash manually.`);
-        return false;
-      }
-      console.log(`[${attempt}] Still processing (solver status ${code})...`);
-    } else {
-      console.log(`[${attempt}] Status check failed, retrying:`, status.error);
-    }
-    await sleep(intervalMs);
-  }
-  console.log('Gave up waiting for a final status. The swap may still complete; check the hub tx hash.');
-  return false;
-}
-
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2));
 
-  const sodax = new Sodax();
-  await sodax.initialize();
-
-  const src = resolveToken(sodax, options.from);
-  const dst = resolveToken(sodax, options.to);
+  const src = parseTokenSpec(options.from);
+  const dst = parseTokenSpec(options.to);
   const srcChainKey = src.chainKey;
   const dstChainKey = dst.chainKey;
   if (!isEvmChainKey(srcChainKey)) {
     throw new UsageError(`This CLI signs with an EVM key, so the source must be an EVM chain; ${srcChainKey} is not.`);
   }
+  const sodax = createSwapSdk(srcChainKey, options.rpc);
+  await sodax.initialize();
+  const srcToken = resolveToken(sodax, src);
+  const dstToken = resolveToken(sodax, dst);
 
   let inputAmount: bigint;
   try {
-    inputAmount = parseUnits(options.amount, src.token.decimals);
+    inputAmount = parseUnits(options.amount, srcToken.decimals);
   } catch {
-    throw new UsageError(`--amount "${options.amount}" is not a number with at most ${src.token.decimals} decimals`);
+    throw new UsageError(`--amount "${options.amount}" is not a number with at most ${srcToken.decimals} decimals`);
   }
   if (inputAmount <= 0n) throw new UsageError('--amount must be greater than zero');
 
@@ -203,12 +163,12 @@ async function main(): Promise<number> {
   if (options.execute && !privateKey) throw new UsageError('--execute needs --prompt-key or EVM_PRIVATE_KEY in apps/node/.env');
   if (options.execute && !/^0x[0-9a-fA-F]{64}$/.test(privateKey ?? '')) throw new UsageError('The private key must be 0x followed by 64 hex characters');
 
-  console.log(`Swap ${options.amount} ${src.token.symbol} (${srcChainKey}) -> ${dst.token.symbol} (${dstChainKey})`);
+  console.log(`Swap ${options.amount} ${srcToken.symbol} (${srcChainKey}) -> ${dstToken.symbol} (${dstChainKey})`);
 
   // Step 1: quote.
   const quoteRequest: SolverIntentQuoteRequest = {
-    token_src: src.token.address,
-    token_dst: dst.token.address,
+    token_src: srcToken.address,
+    token_dst: dstToken.address,
     token_src_blockchain_id: srcChainKey,
     token_dst_blockchain_id: dstChainKey,
     amount: inputAmount,
@@ -221,8 +181,8 @@ async function main(): Promise<number> {
   }
   const quoted = quote.value.quoted_amount;
   const minOutput = (quoted * BigInt(Math.round((100 - options.slippagePct) * 100))) / 10_000n;
-  console.log(`Quote:        ${formatUnits(quoted, dst.token.decimals)} ${dst.token.symbol}`);
-  console.log(`Minimum out:  ${formatUnits(minOutput, dst.token.decimals)} ${dst.token.symbol} (${options.slippagePct}% slippage)`);
+  console.log(`Quote:        ${formatUnits(quoted, dstToken.decimals)} ${dstToken.symbol}`);
+  console.log(`Minimum out:  ${formatUnits(minOutput, dstToken.decimals)} ${dstToken.symbol} (${options.slippagePct}% slippage)`);
 
   if (!options.execute) {
     console.log('\nQuote only: nothing was signed or sent. Add --execute to swap for real.');
@@ -234,14 +194,14 @@ async function main(): Promise<number> {
   const walletAddress = await walletProvider.getWalletAddress();
   console.log(`Wallet:       ${walletAddress}`);
 
-  const balance = await sodax.spoke.getWalletBalance({ srcChainKey, srcAddress: walletAddress, token: src.token });
+  const balance = await sodax.spoke.getWalletBalance({ srcChainKey, srcAddress: walletAddress, token: srcToken });
   if (!balance.ok) {
     console.error('Could not read your balance, not sending:', balance.error);
     return 1;
   }
-  console.log(`Balance:      ${formatUnits(balance.value, src.token.decimals)} ${src.token.symbol}`);
+  console.log(`Balance:      ${formatUnits(balance.value, srcToken.decimals)} ${srcToken.symbol}`);
   if (balance.value < inputAmount) {
-    console.error(`Not enough ${src.token.symbol}: need ${options.amount}, have ${formatUnits(balance.value, src.token.decimals)}.`);
+    console.error(`Not enough ${srcToken.symbol}: need ${options.amount}, have ${formatUnits(balance.value, srcToken.decimals)}.`);
     return 1;
   }
 
@@ -257,8 +217,8 @@ async function main(): Promise<number> {
   }
 
   const params: CreateIntentParams<EvmChainKey> = {
-    inputToken: src.token.address,
-    outputToken: dst.token.address,
+    inputToken: srcToken.address,
+    outputToken: dstToken.address,
     inputAmount,
     minOutputAmount: minOutput,
     deadline: deadline.value,
@@ -309,7 +269,7 @@ async function main(): Promise<number> {
   console.log(`Hub tx:       ${intentDeliveryInfo.dstTxHash}`);
 
   if (!options.wait) return 0;
-  return (await waitForFill(sodax, intentDeliveryInfo.dstTxHash)) ? 0 : 1;
+  return settleSwap(sodax, dstChainKey, intentDeliveryInfo.dstTxHash);
 }
 
 try {

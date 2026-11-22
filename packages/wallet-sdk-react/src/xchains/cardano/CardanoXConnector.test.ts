@@ -2,7 +2,7 @@ import { CardanoWalletProvider } from '@sodax/wallet-sdk-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CardanoXConnector } from './CardanoXConnector.js';
 import { CardanoXService } from './CardanoXService.js';
-import { readLovelace } from './laceWallet.js';
+import { readCardanoUtxo } from './cardano-utxo.js';
 
 /**
  * Lace injects `window.cardano.lace`, a CIP-30 wallet: `enable()` resolves to the API. These tests pin the CIP-30
@@ -21,7 +21,7 @@ function stubLace(overrides: Record<string, unknown> = {}, wallet: Record<string
     getNetworkId: vi.fn(async () => 1),
     getUsedAddresses: vi.fn(async () => [ADDRESS_HEX]),
     getChangeAddress: vi.fn(async () => ADDRESS_HEX),
-    getBalance: vi.fn(async () => '1a02faf080'),
+    getUtxos: vi.fn(async () => [`82825820${'ab'.repeat(32)}0082581d${ADDRESS_HEX}1a02faf080`]),
     signTx: vi.fn(async (_tx: string, _partial?: boolean) => 'a100'),
     signData: vi.fn(async (_address: string, _payload: string): Promise<unknown> => SIGNED),
     submitTx: vi.fn(async (_tx: string) => 'ab'.repeat(32)),
@@ -177,11 +177,38 @@ describe('CardanoXService.getBalance', () => {
     const service = CardanoXService.getInstance();
     service.rpcUrl = undefined;
     stubLace();
-    // `1a02faf080` is the CBOR uint 50,000,000.
+    // The fixture contains a single UTXO holding 50,000,000 lovelace.
     expect(await service.getBalance(ADDRESS, token)).toBe(50_000_000n);
 
     stubLace({}, { isEnabled: vi.fn(async () => false) });
     expect(await service.getBalance(ADDRESS, token)).toBe(0n);
+  });
+
+  it('returns zero for an unrelated address without asking Lace for UTXOs', async () => {
+    const service = CardanoXService.getInstance();
+    service.rpcUrl = undefined;
+    const { api } = stubLace();
+    expect(await service.getBalance(SCRIPT_HEX, token)).toBe(0n);
+    expect(api.getUtxos).not.toHaveBeenCalled();
+  });
+
+  it('sums only the requested connected address across legacy and map outputs', async () => {
+    const service = CardanoXService.getInstance();
+    service.rpcUrl = undefined;
+    const other = `61${'12'.repeat(28)}`;
+    const input = `82825820${'ab'.repeat(32)}`;
+    stubLace({
+      getUsedAddresses: vi.fn(async () => [ADDRESS_HEX, other]),
+      getUtxos: vi.fn(async () => [
+        `${input}0082581d${ADDRESS_HEX}1903e8`,
+        `${input}01bf019f1907d0a0ff00581d${ADDRESS_HEX}ff`,
+        `${input}0282581d${other}190bb8`,
+      ]),
+    });
+
+    expect(await service.getBalance(ADDRESS, token)).toBe(3_000n);
+    expect(await service.getBalance(`0x${ADDRESS_HEX.toUpperCase()}`, token)).toBe(3_000n);
+    expect(await service.getBalance(other, token)).toBe(0n);
   });
 
   it('returns zero, not an error, when the read fails or there is no address', async () => {
@@ -197,7 +224,8 @@ describe('CardanoXService.getBalance', () => {
   });
 });
 
-describe('readLovelace', () => {
+describe('readCardanoUtxo', () => {
+  const prefix = `82825820${'ab'.repeat(32)}0082581d${ADDRESS_HEX}`;
   it.each([
     ['0a', 10n],
     ['1818', 24n],
@@ -207,10 +235,10 @@ describe('readLovelace', () => {
     // `[lovelace, multiasset]`: a wallet holding native tokens.
     ['821a02faf080a0', 50_000_000n],
   ])('reads %s as %s lovelace', (hex, expected) => {
-    expect(readLovelace(hex)).toBe(expected);
+    expect(readCardanoUtxo(prefix + hex)).toEqual({ address: ADDRESS_HEX, lovelace: expected });
   });
 
   it.each([['not hex'], [''], ['20'], ['a0'], ['19ff']])('refuses %j rather than guess', hex => {
-    expect(readLovelace(hex)).toBeUndefined();
+    expect(() => readCardanoUtxo(prefix + hex)).toThrow();
   });
 });
