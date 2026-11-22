@@ -126,7 +126,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
    * payment, has the wallet sign it, submits it through the wallet, notifies the relay, and resolves to the tx
    * hash. After the wallet has submitted, a failed notify warns and still resolves to the hash, so a retry cannot
    * pay twice: `settle` re-notifies it, and a caller that does not settle notifies it with `spoke.submitMpcDeposit`.
-   * If the wallet reports a different hash, the error carries the submitted `txHash` for settlement.
+   * If the wallet reports a different hash, the error carries the SDK `txHash` for settlement and the `walletTxHash`.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<CardanoChainKey, R>,
@@ -232,16 +232,23 @@ export class CardanoSpokeService implements MpcRelaySettlement {
 
     const txHash = cardanoTxHash(built);
     const submitted = canonicalTxHash(await walletProvider.submitTransaction(toWalletHex(signed)));
-    const notified = await this.submitDeposit(submitted);
+    const notified = await this.submitDeposit(txHash);
     if (submitted !== txHash) {
+      const walletNotified = await this.submitDeposit(submitted);
+      if (!walletNotified.ok) {
+        this.config.logger.warn('[CardanoSpokeService.deposit] wallet hash relay notify failed', {
+          walletTxHash: submitted,
+          error: walletNotified.error,
+        });
+      }
       throw Object.assign(
         new Error(
-          `[CardanoSpokeService.deposit] wallet submitted tx ${submitted}, but the built tx is ${txHash}. Settle the submitted hash and do not retry.`,
+          `[CardanoSpokeService.deposit] wallet submitted tx ${submitted}, but the built tx is ${txHash}. Settle txHash ${txHash} and do not send again.`,
           {
             cause: notified.ok ? undefined : notified.error,
           },
         ),
-        { txHash: submitted },
+        { txHash, walletTxHash: submitted },
       );
     }
     if (!notified.ok) {

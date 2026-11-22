@@ -1,7 +1,7 @@
 /**
  * The CBOR subset needed to read a CIP-30 `signData` result (COSE_Sign1 / COSE_Key): a strict decoder that
  * accepts definite-length major types 0..5, COSE tag 18, and the simple values false/true/null. Witness sets
- * can opt into ledger set tag 258.
+ * can opt into ledger set tag 258 and indefinite-length arrays and maps.
  */
 
 /** A decoded CBOR item. Integers are bigint so u64 and negative values never lose precision. */
@@ -40,6 +40,12 @@ class Reader {
     return out;
   }
 
+  consumeBreak(): boolean {
+    if (this.buf[this.pos] !== 0xff) return false;
+    this.pos++;
+    return true;
+  }
+
   get done(): boolean {
     return this.pos === this.buf.length;
   }
@@ -61,7 +67,17 @@ function readLength(r: Reader, info: number): number {
   return Number(n);
 }
 
-function readItem(r: Reader, depth: number, top: boolean, allowSetTag: boolean): CborValue {
+/** An array or map head's item count, or `undefined` for an indefinite one, which only witness sets may use. */
+function itemCount(r: Reader, info: number, witnessSet: boolean): number | undefined {
+  return witnessSet && info === 31 ? undefined : readLength(r, info);
+}
+
+/** Whether item `i` follows: below a definite count, or before the break (0xff) that ends an indefinite one. */
+function hasNext(r: Reader, i: number, count: number | undefined): boolean {
+  return count === undefined ? !r.consumeBreak() : i < count;
+}
+
+function readItem(r: Reader, depth: number, top: boolean, witnessSet: boolean): CborValue {
   if (depth > MAX_DEPTH) throw new Error(`CBOR nesting deeper than ${MAX_DEPTH}`);
   const ib = r.byte();
   const major = ib >> 5;
@@ -76,29 +92,29 @@ function readItem(r: Reader, depth: number, top: boolean, allowSetTag: boolean):
     case 3:
       return new TextDecoder('utf-8', { fatal: true }).decode(r.take(readLength(r, info)));
     case 4: {
-      const n = readLength(r, info);
+      const n = itemCount(r, info, witnessSet);
       const out: CborValue[] = [];
-      for (let i = 0; i < n; i++) out.push(readItem(r, depth + 1, false, allowSetTag));
+      for (let i = 0; hasNext(r, i, n); i++) out.push(readItem(r, depth + 1, false, witnessSet));
       return out;
     }
     case 5: {
-      const n = readLength(r, info);
+      const n = itemCount(r, info, witnessSet);
       const out = new Map<CborKey, CborValue>();
-      for (let i = 0; i < n; i++) {
-        const k = readItem(r, depth + 1, false, allowSetTag);
+      for (let i = 0; hasNext(r, i, n); i++) {
+        const k = readItem(r, depth + 1, false, witnessSet);
         if (typeof k !== 'bigint' && typeof k !== 'string') {
           throw new Error('CBOR map key must be an integer or text');
         }
         if (out.has(k)) throw new Error(`duplicate CBOR map key ${String(k)}`);
-        out.set(k, readItem(r, depth + 1, false, allowSetTag));
+        out.set(k, readItem(r, depth + 1, false, witnessSet));
       }
       return out;
     }
     case 6: {
       const tag = readArg(r, info);
       // COSE_Sign1 tag 18 is only valid at the top level.
-      if (!(top && tag === 18n) && !(allowSetTag && tag === 258n)) throw new Error(`unsupported CBOR tag ${tag}`);
-      return { tag: Number(tag), value: readItem(r, depth + 1, false, allowSetTag) };
+      if (!(top && tag === 18n) && !(witnessSet && tag === 258n)) throw new Error(`unsupported CBOR tag ${tag}`);
+      return { tag: Number(tag), value: readItem(r, depth + 1, false, witnessSet) };
     }
     default:
       if (ib === 0xf4) return false;
@@ -109,9 +125,9 @@ function readItem(r: Reader, depth: number, top: boolean, allowSetTag: boolean):
 }
 
 /** Decode exactly one CBOR item; trailing bytes are an error. */
-export function decodeCbor(buf: Uint8Array, allowSetTag = false): CborValue {
+export function decodeCbor(buf: Uint8Array, witnessSet = false): CborValue {
   const r = new Reader(buf);
-  const value = readItem(r, 0, true, allowSetTag);
+  const value = readItem(r, 0, true, witnessSet);
   if (!r.done) throw new Error(`${buf.length - r.pos} trailing bytes after the CBOR item`);
   return value;
 }

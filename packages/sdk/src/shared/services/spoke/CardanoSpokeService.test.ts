@@ -282,14 +282,34 @@ describe('CardanoSpokeService.deposit', () => {
     expect(wallet.submitTransaction).not.toHaveBeenCalled();
   });
 
-  it('notifies the submitted hash and preserves it on a mismatch', async () => {
-    const submitted = 'cd'.repeat(32);
-
-    await expect(cardano.deposit(depositParams(walletFor(oneWitness, submitted)))).rejects.toMatchObject({
-      message: expect.stringMatching(/wallet submitted tx .*settle .* do not retry/i),
-      txHash: submitted,
+  it.each(['array', 'inner array', 'map'])('submits a valid indefinite witness %s', async kind => {
+    const wallet = walletFor(hash => {
+      const witness = ownerWitness(hash);
+      if (kind === 'inner array') return `a100819f${witness.slice(2)}ff`;
+      if (kind === 'map') return `bf0081${witness}ff`;
+      return `a1009f${witness}ff`;
     });
-    expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '1815', submitted);
+
+    await expect(cardano.deposit(depositParams(wallet))).resolves.toMatch(/^[0-9a-f]{64}$/);
+    expect(wallet.submitTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('notifies the SDK hash and preserves both hashes on a mismatch', async () => {
+    const submitted = 'cd'.repeat(32);
+    const wallet = walletFor(oneWitness, submitted);
+    const pending = cardano.deposit(depositParams(wallet));
+    const error = await pending.catch((error: unknown) => error);
+    const unsigned = wallet.signTransaction.mock.calls[0]?.[0];
+    if (!unsigned) throw new Error('wallet was not asked to sign');
+    const txHash = hashOfUnsigned(unsigned);
+
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '1815', txHash);
+    expect(error).toMatchObject({
+      message: expect.stringMatching(/settle .* do not send again/i),
+      txHash,
+      walletTxHash: submitted,
+    });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '1815', submitted);
   });
 
   it('still resolves to the tx hash when the relay cannot be notified, leaving the re-notify to settlement', async () => {
