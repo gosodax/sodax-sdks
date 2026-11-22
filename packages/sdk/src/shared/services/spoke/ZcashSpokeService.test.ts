@@ -232,6 +232,19 @@ describe('ZcashSpokeService.deposit', () => {
 
     await expect(zcash.deposit(depositParams())).rejects.toThrow(/no Zcash RPC configured/);
   });
+
+  it('checks RPC configuration before requesting a deposit address or signing with a raw key', async () => {
+    vi.mocked(sodax.config.getChainConfig).mockReturnValue({
+      ...sodax.config.sodaxConfig.chains[ZCASH],
+      rpcUrl: '',
+    } as never);
+
+    await expect(zcash.deposit(depositParams())).rejects.toThrow(/no Zcash RPC configured/);
+    expect(MpcRelayApiService.getDepositAddress).not.toHaveBeenCalled();
+    expect(walletProvider.signTransaction).not.toHaveBeenCalled();
+    expect(rpcCalls).toEqual([]);
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
 describe('ZcashSpokeService.deposit — wallet that sends the payment itself', () => {
