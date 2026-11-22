@@ -75,8 +75,8 @@ const secondsToTier = (seconds: number): SwapSpeedTier => {
  *   (sodaAsset)?". It is queried with `XToken.vault`, not `XToken.hubAsset`: the reserve set is
  *   built from `moneyMarketHubVaults` addresses, so a hub asset only matches for the Sonic vault
  *   shares themselves, where `hubAsset === vault`. In the service this is wired to
- *   `config.isMoneyMarketReserveAsset`. The predicate is injected so this function stays pure and
- *   unit-testable without a ConfigService.
+ *   `config.isMoneyMarketReserveAsset`, excluding RWA vaults (collateral-only reserves). The predicate
+ *   is injected so this function stays pure and unit-testable without a ConfigService.
  *
  * The fast 15s base applies when either token is sodaAsset-related; otherwise the base is 35s.
  */

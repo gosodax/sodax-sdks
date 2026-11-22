@@ -28,7 +28,7 @@ export function tronBase58ToHex(addr: string): string {
   // A Tron address is 25 bytes (0x41 ‖ 20-byte hash ‖ 4-byte checksum); the leading 0x41 means no
   // leading zero bytes, so the big-integer form is exactly 50 hex chars.
   const h = n.toString(16).padStart(50, '0');
-  if (h.length !== 50 || !h.startsWith('41')) {
+  if (addr.startsWith('1') || h.length !== 50 || !h.startsWith('41')) {
     throw new Error(`invalid Tron address (expected 25 bytes with 0x41 version): ${addr}`);
   }
   const payload = h.slice(0, 42);

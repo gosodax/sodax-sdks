@@ -1,6 +1,6 @@
 import { XService } from '@/core/XService.js';
 import type { XToken } from '@sodax/types';
-import type { TonConnectLike } from '@sodax/wallet-sdk-core';
+import type { TonConnectUI } from '@tonconnect/ui';
 import { Address, beginCell, Cell } from '@ton/core';
 
 const DEFAULT_RPC = 'https://toncenter.com/api/v2/jsonRPC';
@@ -24,12 +24,8 @@ export class TonXService extends XService {
 
   public rpcUrl: string;
   public manifestUrl?: string;
-  private ui?: TonConnectLike & {
-    openModal: () => Promise<void>;
-    disconnect: () => Promise<void>;
-    onStatusChange: (cb: (wallet: unknown) => void, onError?: (err: unknown) => void) => () => void;
-    connectionRestored: Promise<boolean>;
-  };
+  private ui?: TonConnectUI;
+  private uiInitialization?: Promise<TonConnectUI>;
 
   private constructor(config?: TonXServiceConfig) {
     super('TON');
@@ -51,14 +47,24 @@ export class TonXService extends XService {
   public async tonConnect(): Promise<NonNullable<TonXService['ui']>> {
     if (this.ui) return this.ui;
     if (typeof window === 'undefined') throw new Error('[TonXService] TonConnect is only available in a browser');
-    if (!this.manifestUrl) {
+    const manifestUrl = this.manifestUrl;
+    if (!manifestUrl) {
       throw new Error(
         '[TonXService] set TON.manifestUrl in SodaxWalletConfig — TonConnect needs the dApp manifest URL',
       );
     }
-    const { TonConnectUI } = await import('@tonconnect/ui');
-    this.ui = new TonConnectUI({ manifestUrl: this.manifestUrl }) as unknown as NonNullable<TonXService['ui']>;
-    return this.ui;
+    if (!this.uiInitialization) {
+      this.uiInitialization = import('@tonconnect/ui')
+        .then(({ TonConnectUI }) => {
+          this.ui = new TonConnectUI({ manifestUrl });
+          return this.ui;
+        })
+        .catch(error => {
+          this.uiInitialization = undefined;
+          throw error;
+        });
+    }
+    return this.uiInitialization;
   }
 
   /** The TonConnect instance if it has already been created, without creating one. */

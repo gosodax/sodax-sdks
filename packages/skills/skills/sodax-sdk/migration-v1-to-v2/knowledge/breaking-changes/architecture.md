@@ -74,7 +74,7 @@ The chain config is no longer something the consumer constructs — it's loaded 
 + if (getChainType(chainKey) === 'EVM') { /* … */ }
 ```
 
-`getChainType(chainKey)` (from `@sodax/sdk`) returns `'EVM' | 'BITCOIN' | 'SOLANA' | 'STELLAR' | 'SUI' | 'ICON' | 'INJECTIVE' | 'STACKS' | 'NEAR'` and is the canonical chain-family discriminator.
+`getChainType(chainKey)` (from `@sodax/sdk`) returns a `ChainType` (`'EVM' | 'BITCOIN' | …`; full set in `ChainTypeArr`) and is the canonical chain-family discriminator.
 
 Family-level helper guards (`isEvmChainKeyType`, `isBitcoinChainKeyType`, `isSolanaChainKeyType`, etc.) are also exported from `@sodax/sdk` for cases where you want a typed boolean.
 
@@ -107,7 +107,7 @@ If your project's v1 wrapper code instantiated `*SpokeProvider` classes, don't t
 
 ### Static defaults — still exported, prefer the service API
 
-These v1 names still ship through `@sodax/sdk` (re-exported from `@sodax/types`), so a v1 `import { ... } from '@sodax/sdk'` will not break. Once you call `await sodax.config.initialize()`, the dynamic config from the backend supersedes the packaged defaults — read through the service API to see runtime updates (new tokens, fee parameters). Without `initialize()`, both paths return the same packaged values.
+These v1 names still ship through `@sodax/sdk` (re-exported from `@sodax/types`), so a v1 `import { ... } from '@sodax/sdk'` will not break. Both paths return packaged values (`initialize()` does not fetch backend config); the service API also reflects `new Sodax(config)` overrides, so prefer it.
 
 | v1 export | v2 status | Preferred v2 API |
 |---|---|---|
@@ -120,11 +120,11 @@ These v1 names still ship through `@sodax/sdk` (re-exported from `@sodax/types`)
 
 ### What replaces them
 
-`ConfigService` is a stateful service owned by `Sodax`. It loads chain/token config from the backend API on `await sodax.config.initialize()` and falls back to packaged defaults from `@sodax/types` if the backend is unreachable. After init, every lookup goes through the service:
+`ConfigService` is a stateful service owned by `Sodax`. It holds the packaged defaults from `@sodax/types` merged with constructor overrides (`initialize()` does not fetch backend config today), and every lookup goes through it:
 
 ```ts
 const sodax = new Sodax(/* optional config override */);
-await sodax.config.initialize();   // fetch from backend, fall back on failure
+await sodax.config.initialize();   // optional; adds no tokens
 
 // Token lookups
 const usdc = sodax.config.findSupportedTokenBySymbol(ChainKeys.ARBITRUM_MAINNET, 'USDC');

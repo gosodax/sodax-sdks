@@ -486,6 +486,29 @@ describe('SpokeService.settle — destination legs', () => {
     expect(result).toEqual({ ok: true, value: { trackingId: TRACKING_ID, dstChainTxHash: HUB_TX } });
   });
 
+  it('releases an inbound Tron-to-Tron deposit from its hub mint', async () => {
+    vi.spyOn(spoke.tron, 'waitForDeposit').mockResolvedValue({
+      ok: true,
+      value: {
+        depositId: 'id',
+        status: 'minted',
+        createdAt: 0,
+        txs: { hubMint: { chain: 'sonic', hash: HUB_TX, ts: 0 } },
+      },
+    });
+    stubHubReceipt([bridgeRequest(0)]);
+    const release = stubRelease();
+    const result = await spoke.settle({
+      chainKey: TRON,
+      tx: SRC_TX,
+      direction: 'inbound',
+      dstChainKey: TRON,
+      relayData: RELAY_DATA,
+    });
+    expect(release).toHaveBeenCalledWith(expect.objectContaining({ hubTxHash: HUB_TX, dstChainKey: TRON }), undefined);
+    expect(result).toEqual({ ok: true, value: { srcChainTxHash: SRC_TX, dstChainTxHash: PAYOUT } });
+  });
+
   it('submits the hub mint of a Tron deposit to the intent relay when it pays out elsewhere', async () => {
     vi.spyOn(spoke.tron, 'waitForDeposit').mockResolvedValue({
       ok: true,
@@ -551,6 +574,35 @@ describe('SpokeService.settle — destination legs', () => {
     expect(release).not.toHaveBeenCalled();
     expect(result.ok).toBe(false);
     expect(!result.ok && result.error.phase).toBe('relay');
+  });
+
+  describe('submitHubDelivery', () => {
+    it('submits the hub tx to the intent relay under the hub chain id, without waiting for the packet', async () => {
+      const submit = vi
+        .spyOn(IntentRelayApiService, 'submitTransaction')
+        .mockResolvedValue({ ok: true, value: { success: true, message: 'ok' } } as never);
+      const wait = vi.spyOn(IntentRelayApiService, 'relayTxAndWaitPacket');
+
+      const submitted = await spoke.submitHubDelivery(HUB_TX);
+
+      expect(submitted).toEqual({ ok: true, value: undefined });
+      expect(submit).toHaveBeenCalledWith(
+        { action: 'submit', params: { chain_id: '146', tx_hash: HUB_TX } },
+        sodax.config.relay.relayerApiEndpoint,
+      );
+      expect(wait).not.toHaveBeenCalled();
+    });
+
+    it('maps a refused submit onto the relay phase', async () => {
+      vi.spyOn(IntentRelayApiService, 'submitTransaction').mockResolvedValue({
+        ok: false,
+        error: new Error('SUBMIT_TX_FAILED'),
+      });
+
+      const submitted = await spoke.submitHubDelivery(HUB_TX);
+
+      expect(!submitted.ok && submitted.error.phase).toBe('relay');
+    });
   });
 
   describe('submitHubRelease and waitForHubRelease', () => {

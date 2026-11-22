@@ -261,7 +261,7 @@ export type MpcPayoutMinimum = { symbol: string; decimals: number; minimum: bigi
  * The minimum that paying `amount` of `token` out through the MPC relay fails to exceed, or `undefined` when it
  * clears {@link MpcRelayPayoutMinimums} and {@link MpcRelayPayoutFloors}. The SDK refuses such a payout before
  * signing. An amount equal to a minimum fails too, because the relay skips a release once fee >= amount; an amount
- * equal to a floor passes.
+ * equal to a floor passes. `amount` is truncated to the payout token's decimals first, as delivery would.
  *
  * @param amountDecimals - The decimals `amount` is in, when not the payout token's (a bridge's source).
  */
@@ -277,12 +277,13 @@ export function getUnmetMpcPayoutMinimum({
   const minimum = MpcRelayPayoutMinimums[token.chainKey]?.[token.symbol];
   const floor = MpcRelayPayoutFloors[token.chainKey]?.[token.symbol];
   if (minimum === undefined && floor === undefined) return undefined;
-  // Both sides scaled to the same decimals, so a bridge's 18-decimal source amount compares exactly.
-  const scaled = amount * 10n ** BigInt(token.decimals);
-  const scale = 10n ** BigInt(amountDecimals);
+  const delivered =
+    amountDecimals >= token.decimals
+      ? amount / 10n ** BigInt(amountDecimals - token.decimals)
+      : amount * 10n ** BigInt(token.decimals - amountDecimals);
   const { symbol, decimals } = token;
-  if (minimum !== undefined && scaled <= minimum * scale) return { symbol, decimals, minimum, inclusive: false };
-  if (floor !== undefined && scaled < floor * scale) return { symbol, decimals, minimum: floor, inclusive: true };
+  if (minimum !== undefined && delivered <= minimum) return { symbol, decimals, minimum, inclusive: false };
+  if (floor !== undefined && delivered < floor) return { symbol, decimals, minimum: floor, inclusive: true };
   return undefined;
 }
 

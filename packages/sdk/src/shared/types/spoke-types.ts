@@ -61,6 +61,8 @@ export type GetDepositParams<ChainKey extends SpokeChainKey = SpokeChainKey> = {
   srcChainKey: ChainKey; // The chain key of the spoke (origin) chain
   srcAddress: GetAddressType<ChainKey>; // The address of the user on the spoke (origin) chain
   token: GetTokenAddressType<ChainKey>;
+  /** TON only: the wallet account to read (e.g. from ITonWalletProvider.getAccountAddress()); defaults to the public key's wallet-v4R2 address */
+  accountAddress?: string;
 };
 
 /**
@@ -86,6 +88,8 @@ export type GetBalanceParams<ChainKey extends SpokeChainKey = SpokeChainKey> = {
   srcChainKey: ChainKey; // The chain key of the spoke (origin) chain
   srcAddress: GetAddressType<ChainKey>; // The address of the user whose balance is read
   token: XToken; // The token to read the balance of
+  /** TON only: the wallet account to read (e.g. from ITonWalletProvider.getAccountAddress()); defaults to the public key's wallet-v4R2 address */
+  accountAddress?: string;
 };
 
 /**
@@ -107,6 +111,8 @@ export type GetBalancesParams<ChainKey extends SpokeChainKey = SpokeChainKey> = 
   srcChainKey: ChainKey; // The chain key of the spoke (origin) chain
   srcAddress: GetAddressType<ChainKey>; // The address of the user whose balances are read
   tokens: readonly XToken[]; // The tokens to read the balances of
+  /** TON only: the wallet account to read (e.g. from ITonWalletProvider.getAccountAddress()); defaults to the public key's wallet-v4R2 address */
+  accountAddress?: string;
 };
 
 export type DepositSimulationParams = {

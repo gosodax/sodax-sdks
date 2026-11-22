@@ -9,13 +9,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Address, beginCell, Cell } from '@ton/core';
-import type { Hex } from '@sodax/types';
+import { tonSupportedTokens, type Hex } from '@sodax/types';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import { buildTonCommentBody, tonWalletAddress } from './ton-utils.js';
 
-const sodax = new Sodax();
-const ton = sodax.spoke.ton;
+let sodax = new Sodax();
+let ton = sodax.spoke.ton;
 
 const TON = 'ton' as const;
 const NATIVE_TON = '0x0000000000000000000000000000000000000000';
@@ -34,19 +34,23 @@ let calls: Call[];
 /** A toncenter transaction on the reserve, carrying `memo` as a native comment. */
 const nativeTx = (lt: string, memo: string, hash = RESERVE_TX_HASH) => ({
   transaction_id: { lt, hash },
-  in_msg: { msg_data: { text: Buffer.from(memo.slice(2), 'hex').toString('base64') } },
+  in_msg: {
+    source: SENDER_ADDRESS,
+    value: '2000000',
+    msg_data: { text: Buffer.from(memo.slice(2), 'hex').toString('base64') },
+  },
 });
 
 /** A toncenter transaction on the reserve carrying `memo` in a jetton transfer_notification. */
-const jettonTx = (lt: string, memo: string) => ({
-  transaction_id: { lt, hash: RESERVE_TX_HASH },
+const jettonTx = (lt: string, memo: string, amount = 2_000_000n, sender = SENDER_ADDRESS, hash = RESERVE_TX_HASH) => ({
+  transaction_id: { lt, hash },
   in_msg: {
     msg_data: {
       body: beginCell()
         .storeUint(0x7362d09c, 32)
         .storeUint(0n, 64)
-        .storeCoins(2_000_000n)
-        .storeAddress(Address.parse(SENDER_ADDRESS))
+        .storeCoins(amount)
+        .storeAddress(Address.parse(sender))
         .storeBit(1)
         .storeRef(buildTonCommentBody(memo))
         .endCell()
@@ -74,6 +78,8 @@ function stubToncenter(opts: { baselineLt?: string; txs?: unknown[] } = {}) {
             ['cell', { bytes: beginCell().storeAddress(SENDER_JETTON_WALLET).endCell().toBoc().toString('base64') }],
           ],
         };
+      } else if (method === 'getAddressState') {
+        result = 'uninitialized';
       } else if (method === 'getAddressBalance') {
         result = '1500000000';
       }
@@ -119,6 +125,8 @@ const sentMessage = (): SentMessage => {
 };
 
 beforeEach(() => {
+  sodax = new Sodax();
+  ton = sodax.spoke.ton;
   calls = [];
   vi.spyOn(MpcRelayApiService, 'getDepositAddress').mockResolvedValue({
     ok: true,
@@ -384,5 +392,259 @@ describe('TonSpokeService.getDeposit', () => {
 describe('SpokeService routing for TON', () => {
   it('resolves TON to its own service', () => {
     expect(sodax.spoke.getSpokeService(TON)).toBe(ton);
+  });
+});
+
+describe('TON review regressions', () => {
+  const hash = `0x${'cd'.repeat(32)}`;
+  const recovery = {
+    reserveAddress: RESERVE,
+    memo: MEMO,
+    sinceLt: '100',
+    sender: SENDER_ADDRESS,
+    amount: '2000000',
+    token: NATIVE_TON,
+  };
+
+  it('retries a transient discovery 503 after sending only once', async () => {
+    vi.useFakeTimers();
+    stubToncenter({ txs: [nativeTx('200', MEMO)] });
+    const fetchOk = fetch;
+    let failed = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        const call = JSON.parse(String(init.body)) as Call;
+        if (call.params.limit === 16 && !failed) {
+          failed = true;
+          return new Response('', { status: 503 });
+        }
+        return fetchOk(url, init);
+      }),
+    );
+    const pending = ton.deposit(depositParams(NATIVE_TON));
+    const result = expect(pending).resolves.toBe(hash);
+    await vi.runAllTimersAsync();
+    await result;
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves recovery after discovery times out without resending', async () => {
+    vi.useFakeTimers();
+    stubToncenter();
+    const pending = ton.deposit(depositParams(NATIVE_TON));
+    const result = expect(pending).rejects.toMatchObject({ name: 'TonDepositNotFoundError', recovery });
+    await vi.advanceTimersByTimeAsync(120_000);
+    await result;
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('resumes discovery and notification without sending', async () => {
+    stubToncenter({ txs: [nativeTx('200', MEMO)] });
+    expect(await ton.resumeDeposit(recovery)).toBe(hash);
+    expect(sendTransaction).not.toHaveBeenCalled();
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', hash);
+  });
+
+  /** toncenter's getTransactions over `txs` (newest first): pages of `limit`, starting at the lt/hash cursor. */
+  function stubPagedReserve(txs: ReturnType<typeof nativeTx>[]) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: { body: string }) => {
+        const { method, params } = JSON.parse(init.body) as Call;
+        calls.push({ method, params });
+        let result: unknown = [];
+        if (method === 'getTransactions') {
+          const start =
+            params.lt === undefined
+              ? 0
+              : txs.findIndex(t => t.transaction_id.lt === params.lt && t.transaction_id.hash === params.hash);
+          result = start < 0 ? [] : txs.slice(start, start + Number(params.limit));
+        }
+        // The service reads only `ok`, `status` and `json`; a full Response has nothing more to offer a test.
+        return { ok: true, status: 200, json: async () => ({ ok: true, result }) } as unknown as Response;
+      }),
+    );
+  }
+
+  const newerUnrelated = (count: number) =>
+    Array.from({ length: count }, (_, i) =>
+      nativeTx(
+        String(1000 - i),
+        `0x${'99'.repeat(32)}`,
+        Buffer.from(i.toString(16).padStart(64, '0'), 'hex').toString('base64'),
+      ),
+    );
+
+  it.each([15, 16, 40])('recovers a deposit behind %i newer reserve transactions', async count => {
+    stubPagedReserve([...newerUnrelated(count), nativeTx('200', MEMO), nativeTx('50', MEMO, 'old')]);
+    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
+  });
+
+  it('stops paging once it is past sinceLt', async () => {
+    vi.useFakeTimers();
+    stubPagedReserve([...newerUnrelated(40), nativeTx('90', MEMO)]);
+    const pending = ton.resumeDeposit(recovery, 1_000);
+    const result = expect(pending).rejects.toMatchObject({ name: 'TonDepositNotFoundError' });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await result;
+    const cursors = calls.filter(c => c.method === 'getTransactions').map(c => c.params.lt ?? 'head');
+    // One poll reads the head page and pages back until it reaches lt 90; nothing older is requested.
+    expect(new Set(cursors).size).toBeLessThanOrEqual(4);
+  });
+
+  it('resumes the same recovery twice and returns the hash it already claimed', async () => {
+    stubToncenter({ txs: [nativeTx('200', MEMO)] });
+    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
+    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledTimes(2);
+  });
+
+  it('still refuses to hand a claimed hash to a different deposit', async () => {
+    stubToncenter({ txs: [nativeTx('200', MEMO)] });
+    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
+    await expect(ton.resumeDeposit({ ...recovery, sinceLt: '150' }, 1_000)).rejects.toMatchObject({
+      name: 'TonDepositNotFoundError',
+    });
+  });
+
+  it('serializes same-memo deposits and claims each hash once', async () => {
+    const first = nativeTx('200', MEMO);
+    const second = nativeTx('201', MEMO, Buffer.from('de'.repeat(32), 'hex').toString('base64'));
+    second.in_msg.value = '3000000';
+    stubToncenter({ txs: [first, second] });
+    const hashes = await Promise.all([
+      ton.deposit(depositParams(NATIVE_TON)),
+      ton.deposit(depositParams(NATIVE_TON, { amount: 3_000_000n })),
+    ]);
+    expect(hashes).toEqual([hash, `0x${'de'.repeat(32)}`]);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores native transactions from another sender or amount', async () => {
+    const stranger = nativeTx('201', MEMO, Buffer.from('aa'.repeat(32), 'hex').toString('base64'));
+    stranger.in_msg.source = RESERVE;
+    const wrongAmount = nativeTx('202', MEMO, Buffer.from('bb'.repeat(32), 'hex').toString('base64'));
+    wrongAmount.in_msg.value = '1';
+    stubToncenter({ txs: [stranger, wrongAmount, nativeTx('203', MEMO)] });
+    expect(await ton.deposit(depositParams(NATIVE_TON))).toBe(hash);
+  });
+
+  it('finds receipts on the relay reserve, including a NaN timeout', async () => {
+    const rotatedReserve = `0:${'33'.repeat(32)}`;
+    const relayResult = await MpcRelayApiService.getDepositAddress('https://example.com', PUBKEY, '607', '0x');
+    if (!relayResult.ok || relayResult.value.depositMethod !== 'memo') throw new Error('expected a memo deposit');
+    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValueOnce({
+      ok: true,
+      value: { ...relayResult.value, reserveAddress: rotatedReserve },
+    });
+    stubToncenter({ txs: [nativeTx('200', MEMO)] });
+    await ton.deposit(depositParams(NATIVE_TON));
+    calls = [];
+    const result = await ton.waitForTransactionReceipt({ chainKey: TON, txHash: hash, maxTimeoutMs: Number.NaN });
+    expect(result).toMatchObject({ ok: true, value: { status: 'success' } });
+    expect(calls[0]?.params.address).toBe(rotatedReserve);
+  });
+
+  it('bounds a hanging receipt RPC by the remaining budget', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+          }),
+      ),
+    );
+    let settled = false;
+    const pending = ton.waitForTransactionReceipt({ chainKey: TON, txHash: hash, maxTimeoutMs: 100 }).then(result => {
+      settled = true;
+      return result;
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toBe(true);
+    expect(await pending).toMatchObject({ ok: true, value: { status: 'timeout' } });
+  });
+
+  it('uses the settlement floor for NaN timeouts', async () => {
+    const wait = vi
+      .spyOn(MpcRelayApiService, 'waitForWithdrawal')
+      .mockResolvedValue({ ok: true, value: { trackingId: '0x12', status: 'released' } });
+    await ton.waitForWithdrawal('x', Number.NaN);
+    expect(wait).toHaveBeenCalledWith(expect.anything(), 'x', expect.objectContaining({ timeout: 300_000 }));
+  });
+
+  it('reads the supplied account for native and jetton balances', async () => {
+    const accountAddress = Address.parse(RESERVE).toString();
+    stubToncenter();
+    await ton.getDeposit({ srcChainKey: TON, srcAddress: PUBKEY, token: NATIVE_TON, accountAddress });
+    expect(calls[0]?.params.address).toBe(accountAddress);
+    await ton.getDeposit({ srcChainKey: TON, srcAddress: PUBKEY, token: USDT_MASTER, accountAddress });
+    const stack = calls.find(c => c.method === 'runGetMethod')?.params.stack as [string, string][];
+    const cell = Cell.fromBoc(Buffer.from(stack[0]?.[1] ?? '', 'base64'))[0];
+    expect(cell?.beginParse().loadAddress().equals(Address.parse(accountAddress))).toBe(true);
+  });
+});
+
+describe('TON correlation and budget edge cases', () => {
+  it('rejects jetton notifications with another depositor or amount', async () => {
+    stubToncenter({
+      txs: [
+        jettonTx('201', MEMO, 2_000_000n, RESERVE, 'aa'.repeat(32)),
+        jettonTx('202', MEMO, 1n, SENDER_ADDRESS, 'bb'.repeat(32)),
+        jettonTx('203', MEMO),
+      ],
+    });
+    expect(await ton.deposit(depositParams(USDT_MASTER))).toBe(`0x${'cd'.repeat(32)}`);
+  });
+
+  it('holds the same-memo lock until discovery ends and skips a claimed hash', async () => {
+    stubToncenter({ txs: [nativeTx('200', MEMO), nativeTx('201', MEMO, 'de'.repeat(32))] });
+    const fetchOk = fetch;
+    let release = () => {};
+    const gate = new Promise<void>(resolve => {
+      release = resolve;
+    });
+    let polls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit) => {
+        const call = JSON.parse(String(init.body)) as Call;
+        if (call.params.limit === 16 && polls++ === 0) await gate;
+        return fetchOk(url, init);
+      }),
+    );
+    const first = ton.deposit(depositParams(NATIVE_TON));
+    const second = ton.deposit(depositParams(NATIVE_TON));
+    await vi.waitFor(() => expect(polls).toBe(1));
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    release();
+    expect(await Promise.all([first, second])).toEqual([`0x${'cd'.repeat(32)}`, `0x${'de'.repeat(32)}`]);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledTimes(2);
+  });
+
+  it('clamps rate-limit backoff to the receipt budget', async () => {
+    vi.useFakeTimers();
+    const rpc = vi.fn(async () => new Response('', { status: 429 }));
+    vi.stubGlobal('fetch', rpc);
+    let settled = false;
+    const pending = ton.waitForTransactionReceipt({ chainKey: TON, txHash: '0x12', maxTimeoutMs: 100 }).then(result => {
+      settled = true;
+      return result;
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(settled).toBe(true);
+    expect(await pending).toMatchObject({ ok: true, value: { status: 'timeout' } });
+    expect(rpc).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards accountAddress through both wallet balance helpers', async () => {
+    stubToncenter();
+    const token = tonSupportedTokens.TON;
+    await ton.getWalletBalance({ srcChainKey: TON, srcAddress: PUBKEY, token, accountAddress: RESERVE });
+    await ton.getWalletBalances({ srcChainKey: TON, srcAddress: PUBKEY, tokens: [token], accountAddress: RESERVE });
+    expect(calls.filter(c => c.method === 'getAddressBalance').map(c => c.params.address)).toEqual([RESERVE, RESERVE]);
   });
 });

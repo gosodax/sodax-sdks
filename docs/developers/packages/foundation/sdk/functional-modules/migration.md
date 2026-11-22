@@ -751,7 +751,7 @@ const sodax = new Sodax({
   },
 });
 
-await sodax.config.initialize(); // optional: fetch dynamic chain config from backend
+await sodax.config.initialize(); // optional; adds no tokens
 ```
 
 Default configuration:

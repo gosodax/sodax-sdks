@@ -398,12 +398,25 @@ describe.each(EVM_SPOKES)('StakingService — per-chain SODA lookup on srcChainK
 
 // Staking settles through the intent relay, which an MPC-relay chain does not use.
 describe('StakingService — MPC-relay source', () => {
-  it('refuses unstake and cancelUnstake from Tron before signing', async () => {
+  it('refuses every staking action from Tron before signing', async () => {
     const hubWallet = vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress');
     const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
+    const deposit = vi.spyOn(sodax.spoke, 'deposit');
     const srcChainKey = 'tron' as const satisfies SpokeChainKey;
 
     const results = [
+      await sodax.staking.createStakeIntent({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, amount: 1n, minReceive: 1n, action: 'stake' },
+      }),
+      await sodax.staking.isAllowanceValid({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, amount: 1n, minReceive: 1n, action: 'stake' },
+      }),
+      await sodax.staking.approve({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, amount: 1n, minReceive: 1n, action: 'stake' },
+      }),
       await sodax.staking.createUnstakeIntent({
         raw: true,
         params: { srcChainKey, srcAddress: SAMPLE_USER, amount: 1n, action: 'unstake' },
@@ -411,6 +424,14 @@ describe('StakingService — MPC-relay source', () => {
       await sodax.staking.createCancelUnstakeIntent({
         raw: true,
         params: { srcChainKey, srcAddress: SAMPLE_USER, requestId: 1n, action: 'cancelUnstake' },
+      }),
+      await sodax.staking.createInstantUnstakeIntent({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, amount: 1n, minAmount: 1n, action: 'instantUnstake' },
+      }),
+      await sodax.staking.createClaimIntent({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, requestId: 1n, amount: 1n, action: 'claim' },
       }),
     ];
 
@@ -421,5 +442,6 @@ describe('StakingService — MPC-relay source', () => {
     }
     expect(hubWallet).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(deposit).not.toHaveBeenCalled();
   });
 });

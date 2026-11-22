@@ -66,7 +66,7 @@ The package currently exposes only the root export (`@sodax/types`) and the DEX 
 | Hooks | shared hook types (`hooks`) |
 | Utilities | `DeepPartial`, `getChainType`, `getEvmChainKeyByChainId`, chain guard helpers, bnUSD token helpers |
 
-[^cfg]: `spokeChainConfig` and `sodaxConfig` (and the related `hubConfig`, etc.) are **packaged-default snapshots** frozen at SDK release time. They are safe to import at module scope, but **direct imports do NOT reflect overrides passed to `new Sodax(config)` or dynamic config loaded by `sodax.config.initialize()`** — those flow into the `ConfigService` only. Once a `Sodax` instance exists, prefer the instance-scope readers: `sodax.config.spokeChainConfig`, `sodax.config.getChainConfig(chainKey)`, `sodax.config.sodaxConfig`, `sodax.config.getHubChainConfig()`, etc. Mixing a static import with a custom-configured `Sodax` instance will silently fall back to defaults for any chain you customized.
+[^cfg]: `spokeChainConfig` and `sodaxConfig` (and the related `hubConfig`, etc.) are **packaged-default snapshots** frozen at SDK release time. They are safe to import at module scope, but **direct imports do NOT reflect overrides passed to `new Sodax(config)`** — those flow into the `ConfigService` only. Once a `Sodax` instance exists, prefer the instance-scope readers: `sodax.config.spokeChainConfig`, `sodax.config.getChainConfig(chainKey)`, `sodax.config.sodaxConfig`, `sodax.config.getHubChainConfig()`, etc. Mixing a static import with a custom-configured `Sodax` instance will silently fall back to defaults for any chain you customized.
 
 ## Wallet Providers
 

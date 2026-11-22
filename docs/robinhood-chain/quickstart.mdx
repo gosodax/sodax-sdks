@@ -4,11 +4,14 @@ description: "Install the SDK, wire up a Robinhood Chain wallet provider, and ex
 icon: bolt
 ---
 
+import HttpApiQuickstartNote from '/snippets/http-api-quickstart-note.mdx';
+import BuildersMcpQuickstartNote from '/snippets/builders-mcp-quickstart-note.mdx';
+
 This page takes you from zero to a cross-network swap sourced from Robinhood Chain. No new contracts, no approval for native ETH, one signed transaction for your user.
 
-<Note>
-  Building with an AI assistant? Add the [SODAX Builders MCP](/builders-mcp) (`https://builders.sodax.com/mcp`) to Claude, Cursor, or any MCP-capable tool and it can pull live token lists, real quotes, and these docs while it writes your integration.
-</Note>
+<BuildersMcpQuickstartNote />
+
+<HttpApiQuickstartNote />
 
 ## 1. Install
 
@@ -67,7 +70,7 @@ const eth = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.ROBIN
 const usdcBase = bySymbol(sodax.swaps.getSupportedSwapTokensByChainId(ChainKeys.BASE_MAINNET), 'USDC');
 ```
 
-In `@sodax/sdk` 2.1.0 the Robinhood Chain list holds ETH, bnUSD, SODA, and USDG. Stock Tokens arrive in the next release; see [Stock Tokens](/robinhood-chain/swaps#stock-tokens).
+This list comes from your installed SDK. For Stock Tokens, see [Stock Tokens](/robinhood-chain/swaps#stock-tokens).
 
 ## 4. Quote and swap
 

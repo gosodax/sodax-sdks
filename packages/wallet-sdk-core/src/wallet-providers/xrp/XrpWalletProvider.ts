@@ -1,4 +1,5 @@
-import { Wallet } from 'xrpl';
+import { deriveKeypair, sign } from 'ripple-keypairs';
+import { ECDSA, Wallet } from 'xrpl';
 import type {
   IXrpWalletProvider,
   XrpRawTransactionReceipt,
@@ -14,6 +15,10 @@ import type {
   XrpWalletDefaults,
 } from './types.js';
 
+const XRP_RPC_TIMEOUT_MS = 15_000;
+const XRP_RECEIPT_TIMEOUT_MS = 60_000;
+const XRP_POLL_INTERVAL_MS = 2_000;
+
 const DEFAULT_RPC = 'https://xrplcluster.com';
 
 export function isPrivateKeyXrpWalletConfig(config: XrpWalletConfig): config is PrivateKeyXrpWalletConfig {
@@ -22,6 +27,39 @@ export function isPrivateKeyXrpWalletConfig(config: XrpWalletConfig): config is 
 
 export function isGemWalletXrpWalletConfig(config: XrpWalletConfig): config is GemWalletXrpWalletConfig {
   return 'gemWallet' in config;
+}
+
+/**
+ * A local wallet from an XRPL family seed (`sEd…`) or 16 bytes of seed entropy as hex. Anything else is
+ * refused rather than read: `fromEntropy` keeps only the first 16 bytes, so a longer value would sign for
+ * an account other than the one its owner expects. The secret never appears in an error.
+ */
+function walletFromSecret(secret: string): Wallet {
+  let wallet: Wallet;
+  if (secret.startsWith('s')) {
+    let keypair: { publicKey: string; privateKey: string };
+    try {
+      // Not `Wallet.fromSeed`: it derives ed25519 whatever the seed encodes, i.e. another account.
+      keypair = deriveKeypair(secret);
+    } catch {
+      // The decoder's own message quotes the offending character of the seed.
+      throw new Error('XRPL privateKey is not a valid family seed');
+    }
+    wallet = new Wallet(keypair.publicKey, keypair.privateKey);
+  } else {
+    const hex = secret.replace(/^0x/i, '');
+    if (!/^[0-9a-fA-F]{32}$/.test(hex)) {
+      throw new Error(
+        `XRPL privateKey must be a family seed (s…) or 16 bytes of seed entropy as hex, got ${hex.length} hex characters — a 32-byte value used to be read as its first 16 bytes, so pass those to keep the same account`,
+      );
+    }
+    wallet = Wallet.fromEntropy(Buffer.from(hex, 'hex'), { algorithm: ECDSA.ed25519 });
+  }
+  // Scheme 3 verifies only ed25519, so a secp256k1 account could deposit and then never withdraw.
+  if (!wallet.publicKey.toUpperCase().startsWith('ED')) {
+    throw new Error('XRPL privateKey is a secp256k1 seed; withdrawals need an ed25519 (sEd…) account');
+  }
+  return wallet;
 }
 
 /**
@@ -50,10 +88,7 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
     this.rpcUrl = config.endpoint ?? this.defaults.rpcUrl ?? DEFAULT_RPC;
 
     if (isPrivateKeyXrpWalletConfig(config)) {
-      const seed = config.privateKey.replace(/^0x/i, '');
-      // `fromEntropy` derives an ed25519 keypair from 16/32 bytes of entropy. Explicitly ed25519:
-      // a secp256k1 XRPL account has no supported withdraw scheme and could never withdraw.
-      this.wallet = Wallet.fromEntropy(Buffer.from(seed, 'hex'), { algorithm: 'ed25519' as never });
+      this.wallet = walletFromSecret(config.privateKey);
       return;
     }
     if (isGemWalletXrpWalletConfig(config)) {
@@ -97,7 +132,6 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
     const hex = hash.replace(/^0x/, '').toUpperCase();
     if (this.wallet) {
       // `sign` over raw bytes; xrpl exposes the keypair's ed25519 signing directly.
-      const { sign } = await import('ripple-keypairs');
       return `0x${sign(hex, this.wallet.privateKey).toLowerCase()}`;
     }
     // `isHex`: sign the 32 decoded bytes, not the 64-character string.
@@ -120,6 +154,11 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
       const signed = this.wallet.sign(autofilled as never);
       return { tx_blob: signed.tx_blob, hash: signed.hash };
     }
+    // GemWallet submits to whichever ledger it is set to; on another, a deposit pays a reserve the relay never watches.
+    const network = (await this.gemWallet?.getNetwork?.())?.result;
+    if (network && (network.chain !== 'XRPL' || network.network !== 'Mainnet')) {
+      throw new Error(`GemWallet is set to ${network.chain} ${network.network} — switch it to the XRPL Mainnet`);
+    }
     // GemWallet submits as well as signs, so there is no blob to hand back — the hash it returns
     // is the settled identifier the caller needs.
     const res = await this.gemWallet?.submitTransaction({ transaction: tx as Record<string, unknown> });
@@ -133,7 +172,7 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
     const [info, ledger, fee] = await Promise.all([
       this.rpc<{ account_data?: { Sequence?: number } }>('account_info', {
         account: tx.Account,
-        ledger_index: 'validated',
+        ledger_index: 'current',
       }),
       this.rpc<{ ledger_current_index?: number }>('ledger_current', {}),
       this.rpc<{ drops?: { open_ledger_fee?: string } }>('fee', {}),
@@ -151,29 +190,43 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
 
   public async waitForTransactionReceipt(txHash: string): Promise<XrpRawTransactionReceipt> {
     const value = txHash.replace(/^0x/, '').toUpperCase();
-    for (let i = 0; i < 30; i++) {
+    const deadline = Date.now() + XRP_RECEIPT_TIMEOUT_MS;
+    while (Date.now() < deadline) {
       try {
-        const tx = await this.rpc<XrpRawTransactionReceipt>('tx', { transaction: value, binary: false });
+        const tx = await this.rpc<XrpRawTransactionReceipt>(
+          'tx',
+          { transaction: value, binary: false },
+          Math.min(XRP_RPC_TIMEOUT_MS, deadline - Date.now()),
+        );
         // Only a VALIDATED ledger is final on XRPL; an unvalidated result can still change.
         if (tx.validated) return tx;
       } catch {
         // `txnNotFound` until the transaction is in a ledger — expected, keep polling.
       }
-      await new Promise(r => setTimeout(r, 2000));
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      await new Promise(r => setTimeout(r, Math.min(XRP_POLL_INTERVAL_MS, remaining)));
     }
     throw new Error(`xrpl tx ${txHash} not validated in time`);
   }
 
-  private async rpc<T>(method: string, params: Record<string, unknown>): Promise<T> {
-    const res = await fetch(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ method, params: [params] }),
-    });
-    if (!res.ok) throw new Error(`xrpl rpc ${method}: ${res.status}`);
-    const body = (await res.json()) as { result?: T & { error?: string } };
-    if (!body.result) throw new Error(`xrpl rpc ${method}: no result`);
-    if (body.result.error) throw new Error(`xrpl rpc ${method}: ${body.result.error}`);
-    return body.result;
+  private async rpc<T>(method: string, params: Record<string, unknown>, timeoutMs = XRP_RPC_TIMEOUT_MS): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(this.rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ method, params: [params] }),
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`xrpl rpc ${method}: ${res.status}`);
+      const body = (await res.json()) as { result?: T & { error?: string } };
+      if (!body.result) throw new Error(`xrpl rpc ${method}: no result`);
+      if (body.result.error) throw new Error(`xrpl rpc ${method}: ${body.result.error}`);
+      return body.result;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

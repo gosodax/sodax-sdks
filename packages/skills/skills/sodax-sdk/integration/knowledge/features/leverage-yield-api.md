@@ -112,6 +112,10 @@ quote.value.quotedAmount;     // expected lsoda* shares, decimal string
 // Pass query `{ includeTxData: true }` (and srcAddress on the body) to also get `txData`.
 ```
 
+Take `tokenSrc` (and a withdraw's `outputToken`) from `sodax.api.swaps.getTokens()`, not from
+`getSupportedSolverTokens` or `sodax.config`: those list only the tokens bundled with the installed SDK,
+while this API accepts the tokens the backend supports.
+
 ### Create deposit intent
 
 ```ts
@@ -144,14 +148,45 @@ if (allowance.ok && !allowance.value.valid) {
 }
 ```
 
+### Approve and deposit in one signature
+
+When `checkAllowance` reports the allowance short, an EVM spoke source with an EIP-5792 wallet can send
+`[resetTx?, approve tx, deposit tx]` from `approve` and `createDepositIntent` as one atomic batch: one wallet
+prompt instead of two or three. This works because `createDepositIntent` builds the deposit without reading
+the allowance, and `approve` targets the spender that deposit pulls from. Finish with `submitTx` (see
+[Submit tx + poll status](#submit-tx--poll-status)), `operation: 'deposit'`, passing the deposit `txHash`,
+`srcChainKey`, `walletAddress`, the `intent` converted with `toIntentRequest`, and `relayData.payload`.
+Persist that body before the call, with the wire `intent` (decimal strings, so it survives
+`JSON.stringify`): once the deposit is out, a failed `submitTx` is retried on its own, never by running the
+flow again.
+
+The batch, refusal and unconfirmed-batch rules are the ones in
+[Approve and send the intent in one signature](./swaps-api.md#approve-and-send-the-intent-in-one-signature).
+Before waiting on the batch, persist from `onBatchSent` what a resume after a reload needs: the batch id,
+the batch's call count and the `submitTx` body except `txHash`. Resume an unconfirmed batch with
+`confirmApprovalBatch` and finish it with that state; while the batch may still land, never create the
+intent again or rerun the flow. A resume that returns `INTENT_CREATION_FAILED` with
+`context.reason: 'atomic-batch-failed'` means nothing landed: drop the saved state and run the flow again.
+After a refused batch, submit the `intent` and `relayData` of the deposit intent you created again. In
+React, no `sodax-dapp-kit` hook batches this flow: `useLeverageYieldApiApproveAndBroadcast` approves in its
+own prompts. The runnable flow is
+[`leverageYieldApiApprovalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/backendApi/leverageYieldApiApprovalBatch.test.ts): it asserts the
+batch order, the new intent after a refusal, a `submitTx` retry and both outcomes of a resume from the
+persisted state.
+That a hub source or a wallet that cannot batch stays sequential is asserted in
+[`approvalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/utils/approvalBatch.test.ts).
+
 ### Submit tx + poll status
 
+Sign and broadcast `tx` on `srcChainKey` first, as in [`swaps-api.md`](swaps-api.md) § "Sign and broadcast
+`tx`"; the returned hash is the `txHash` below.
+
 ```ts
-// `intent` here is the IntentRequestV2 (bigint fields) you hold from createDepositIntent/createWithdrawIntent.
+// Convert the create-intent `intent` (decimal strings) with `toIntentRequest`, as in swaps-api.md § "Submit tx + poll status".
 // `LeverageYieldSubmitTxRequestV2` is the swaps body PLUS a required `operation` discriminator, which the
 // backend needs to record the queued row as a vault deposit or withdrawal.
 const submit = await sodax.api.leverageYield.submitTx({
-  txHash, srcChainKey, walletAddress, intent,
+  txHash, srcChainKey, walletAddress, intent: toIntentRequest(intent),
   relayData: relayData.payload,   // string — the payload, not the RelayExtraData object
   operation: 'deposit',           // required: 'deposit' | 'withdraw'
 });
@@ -161,7 +196,7 @@ if (!submit.ok) return;
 const status = await sodax.api.leverageYield.getSubmitTxStatus({ txHash, srcChainKey });
 // A vault swap IS a solver swap, so terminal success is 'solved' — NOT the bridge API's 'executed'.
 if (status.ok && status.value.data.status === 'solved') { /* settled */ }
-// Lifecycle: 'pending' → 'relaying' → 'relayed' → 'posting_execution' → 'solved' | 'failed'.
+// Lifecycle: 'pending' → 'relaying' → 'relayed' → 'posting_execution' → 'posted_execution' → 'solved' | 'failed'.
 // A set `abandonedAt` is terminal too, even while `status` is still non-terminal.
 ```
 

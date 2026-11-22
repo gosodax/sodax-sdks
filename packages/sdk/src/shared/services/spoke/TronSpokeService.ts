@@ -15,6 +15,8 @@ import {
   type ITronWalletProvider,
 } from '@sodax/types';
 import type { ConfigService } from '../../config/ConfigService.js';
+import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
+import { pollUntil } from '../../utils/pollUntil.js';
 import { retry } from '../../utils/shared-utils.js';
 import type {
   DepositParams,
@@ -146,7 +148,11 @@ export class TronSpokeService implements MpcRelaySettlement {
       });
       if (res.status >= 500) throw new TronRpcUnanswered(`tron rpc ${path}: ${res.status}`);
       if (!res.ok) throw new Error(`tron rpc ${path}: ${res.status}`);
-      return (await res.json()) as T;
+      try {
+        return (await res.json()) as T;
+      } catch (error) {
+        throw new TronRpcUnanswered(`tron rpc ${path}: unreadable response`, { cause: error });
+      }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new TronRpcUnanswered(`tron rpc ${path}: timed out after ${TRON_RPC_TIMEOUT_MS}ms`);
@@ -410,7 +416,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     try {
       return await waitForDeposit(this.relayApiUrl, toDepositId(this.chainId, txHash), {
         // Never below what the chain physically needs — see TRON_SETTLEMENT_FLOOR_MS.
-        timeout: Math.max(timeout ?? 0, TRON_SETTLEMENT_FLOOR_MS),
+        timeout: Math.max(resolveTimeoutMs(timeout, 0), TRON_SETTLEMENT_FLOOR_MS),
         pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
       });
     } finally {
@@ -445,10 +451,11 @@ export class TronSpokeService implements MpcRelaySettlement {
       return BigInt(`0x${word}`);
     }
 
-    const acct = await this.rpc<{ balance?: number }>('/wallet/getaccount', {
+    const acct = await this.rpc<{ balance?: number; Error?: string }>('/wallet/getaccount', {
       address: tronBase58ToHex(params.srcAddress),
       visible: false,
     });
+    if (acct.Error !== undefined) throw new Error(`[TronSpokeService.getDeposit] getaccount failed: ${acct.Error}`);
     return BigInt(acct.balance ?? 0);
   }
 
@@ -602,7 +609,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     return waitForWithdrawal(this.relayApiUrl, trackingId, {
       until,
       // Never below what the chain physically needs — see TRON_SETTLEMENT_FLOOR_MS.
-      timeout: Math.max(timeout ?? 0, TRON_SETTLEMENT_FLOOR_MS),
+      timeout: Math.max(resolveTimeoutMs(timeout, 0), TRON_SETTLEMENT_FLOOR_MS),
       pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
     });
   }
@@ -636,7 +643,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     }, RENOTIFY_INTERVAL_MS);
     try {
       return await waitForHubRelease(this.relayApiUrl, release, {
-        timeout: Math.max(timeout ?? 0, TRON_SETTLEMENT_FLOOR_MS),
+        timeout: Math.max(resolveTimeoutMs(timeout, 0), TRON_SETTLEMENT_FLOOR_MS),
         pollIntervalMs: this.chainConfig.pollingConfig.pollingIntervalMs,
       });
     } finally {
@@ -654,29 +661,33 @@ export class TronSpokeService implements MpcRelaySettlement {
     params: WaitForTxReceiptParams<TronChainKey>,
   ): Promise<Result<WaitForTxReceiptReturnType<TronChainKey>>> {
     const { txHash } = params;
-    const pollingIntervalMs = params.pollingIntervalMs ?? this.chainConfig.pollingConfig.pollingIntervalMs;
-    const maxTimeoutMs = params.maxTimeoutMs ?? this.chainConfig.pollingConfig.maxTimeoutMs;
+    const { pollingConfig } = this.chainConfig;
+    const pollingIntervalMs = resolveTimeoutMs(params.pollingIntervalMs, pollingConfig.pollingIntervalMs);
+    const maxTimeoutMs = resolveTimeoutMs(params.maxTimeoutMs, pollingConfig.maxTimeoutMs);
     const value = txHash.replace(/^0x/, '');
-    const maxAttempts = Math.max(1, Math.round(maxTimeoutMs / pollingIntervalMs));
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        const info = await this.rpc<TronRawTransactionReceipt>('/wallet/gettransactioninfobyid', { value });
-        if (info.blockNumber) {
-          const reverted = info.receipt?.result && info.receipt.result !== 'SUCCESS';
-          if (reverted) {
-            return {
-              ok: true,
-              value: { status: 'failure', error: new Error(`tron tx reverted: ${info.receipt?.result}`) },
-            };
+    const settled = await pollUntil<Result<WaitForTxReceiptReturnType<TronChainKey>>>(
+      async () => {
+        try {
+          const info = await this.rpc<TronRawTransactionReceipt>('/wallet/gettransactioninfobyid', { value });
+          if (info.blockNumber) {
+            const reverted = info.receipt?.result && info.receipt.result !== 'SUCCESS';
+            if (reverted) {
+              return {
+                ok: true,
+                value: { status: 'failure', error: new Error(`tron tx reverted: ${info.receipt?.result}`) },
+              };
+            }
+            return { ok: true, value: { status: 'success', receipt: info } };
           }
-          return { ok: true, value: { status: 'success', receipt: info } };
+        } catch (error) {
+          this.config.logger.debug('[TronSpokeService.waitForTransactionReceipt] poll error', { error });
         }
-      } catch (error) {
-        this.config.logger.debug('[TronSpokeService.waitForTransactionReceipt] poll error', { error });
-      }
-      await new Promise(r => setTimeout(r, pollingIntervalMs));
-    }
-    return { ok: true, value: { status: 'timeout', error: new Error(`tron tx ${txHash} not confirmed in time`) } };
+        return undefined;
+      },
+      { timeoutMs: maxTimeoutMs, intervalMs: pollingIntervalMs },
+    );
+    return (
+      settled ?? { ok: true, value: { status: 'timeout', error: new Error(`tron tx ${txHash} not confirmed in time`) } }
+    );
   }
 }

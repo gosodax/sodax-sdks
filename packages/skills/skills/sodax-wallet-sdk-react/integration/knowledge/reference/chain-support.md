@@ -19,9 +19,11 @@ Each chain family is a top-level slot on `SodaxWalletConfig`:
 | `INJECTIVE` | Injective mainnet | (none) |
 | `NEAR` | NEAR mainnet | (none) |
 | `STACKS` | Stacks mainnet | (none) |
-| `TRON` | Tron mainnet | (none — TIP-6963 discovery preferring TronLink, falling back to `window.tron` / `window.tronLink`) |
+| `TRON` | Tron mainnet | (none) |
 
 EVM is the only family with multiple networks under one connection — wagmi maintains a single connection that spans every configured EVM network. See [`../architecture.md`](../architecture.md) § "EVM is one connection".
+
+Tron's `isInstalled` reads the wallet found by the TIP-6963 discovery that runs once per page, then `window.tron` / `window.tronLink`, taking the first one that can authorize. `connect()` runs discovery again before the same fallback. The connection does not follow an account switched in the wallet: reconnect after switching.
 
 ---
 

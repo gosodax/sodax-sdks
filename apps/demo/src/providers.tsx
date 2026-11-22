@@ -42,6 +42,13 @@ const rpcConfig: RpcConfig = {
   },
 };
 
+// Zcash deposits and balances need an address-indexed node, and the SDK packages none, so Zcash stays off without one.
+const zcashRpcUrlEnv: unknown = import.meta.env.VITE_ZCASH_RPC_URL;
+const zcashChains =
+  isHttpUrl(zcashRpcUrlEnv) && URL.canParse(zcashRpcUrlEnv)
+    ? { [ChainKeys.ZCASH_MAINNET]: { rpcUrl: zcashRpcUrlEnv } }
+    : undefined;
+
 // Read credentials through Vite-scoped env variables, not the inlined process environment.
 // The optional base URL includes any deployment prefix; the SDK appends the sponsoring path.
 // Swaps-API and instance-key env defaults live in `lib/sodaxSettings` (shared with the modal).
@@ -140,8 +147,8 @@ export default function Providers({ children, privy }: { children: ReactNode; pr
           [ChainKeys.TON_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.TON_MAINNET] },
         },
       },
-      // Zcash rides the MPC relay in address mode; Noir Wallet is its connector.
-      ZCASH: {},
+      // Zcash rides the MPC relay in address mode with Noir Wallet; offered only with an address-indexed RPC.
+      ...(zcashChains ? { ZCASH: { chains: zcashChains } } : {}),
       // Cardano rides the MPC relay in memo mode; Lace (CIP-30) is its connector and Koios supplies the UTXOs.
       CARDANO: {
         chains: {
@@ -219,6 +226,7 @@ export default function Providers({ children, privy }: { children: ReactNode; pr
         [ChainKeys.XRP_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.XRP_MAINNET] },
         [ChainKeys.TON_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.TON_MAINNET] },
         [ChainKeys.CARDANO_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.CARDANO_MAINNET] },
+        ...zcashChains,
       },
     };
   }, [solverEnvironment, sodaxSettings]);

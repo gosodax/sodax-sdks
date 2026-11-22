@@ -1,3 +1,4 @@
+import { SOLVED_PAYOUT_HEADROOM_FACTOR } from '../shared/utils/solved-payout.js';
 import {
   type SpokeService,
   type SendMessageParams,
@@ -220,7 +221,10 @@ const DETAILED_STATUS_SOLVER_TIMEOUT_MS = 5_000;
 export type PositionOrigin = {
   /** Chain the user funded from and is refunded on. */
   chainKey: SpokeChainKey;
-  /** The user's address on `chainKey`. */
+  /**
+   * The user's address on `chainKey`. An XRPL address must be able to receive the refund, which these
+   * synchronous builders cannot read: check it first with `sodax.spoke.xrp.checkDestination`.
+   */
   address: string;
   /**
    * Hub asset a cross-chain refund unwraps the reserve into. Required off-hub, since the
@@ -1084,6 +1088,11 @@ export class LeverageYieldService {
         ...baseCtx,
         field: 'srcChainKey',
       });
+      leverageYieldInvariant(
+        !isMpcRelayChainKey(params.dstChainKey) || params.allowPartialFill !== true,
+        'allowPartialFill is not supported for a vault swap to an MPC-relay chain',
+        { ...baseCtx, field: 'allowPartialFill' },
+      );
       leverageYieldInvariant(!isBitcoinChainKeyType(params.dstChainKey), VAULT_BITCOIN_UNSUPPORTED_MESSAGE, {
         ...baseCtx,
         field: 'dstChainKey',
@@ -1124,6 +1133,15 @@ export class LeverageYieldService {
           token: outputTokenInfo,
           amount: params.minOutputAmount,
           context: { ...baseCtx, field: 'minOutputAmount' },
+        });
+        await this.spoke.assertReleaseRecipientReady({
+          feature: 'leverageYield',
+          chainKey: params.dstChainKey,
+          recipient: encodeRecipient(params.dstChainKey, params.dstAddress),
+          token: outputTokenInfo.address,
+          amount: params.minOutputAmount,
+          maxAmount: params.minOutputAmount * SOLVED_PAYOUT_HEADROOM_FACTOR,
+          context: { ...baseCtx, field: 'dstAddress' },
         });
       }
       // derive users hub wallet address
@@ -1290,6 +1308,9 @@ export class LeverageYieldService {
    *   - `solverExecutionResponse` — solver acknowledgement (`{ answer: 'OK', intent_hash }`).
    *   - `intent` — the on-chain intent object that was created.
    *   - `intentDeliveryInfo` — source/destination chain keys, tx hashes, and user addresses.
+   *
+   *   A payout to an MPC-relay chain (Tron) is released once the solver notifies the relay of its fill;
+   *   `sodax.swaps.waitForIntentDelivery` waits for that payout.
    *
    *   On failure `result.error` carries one of the create-intent codes plus
    *   `TX_VERIFICATION_FAILED`, `TX_SUBMIT_FAILED`, `RELAY_TIMEOUT`, `RELAY_FAILED`,

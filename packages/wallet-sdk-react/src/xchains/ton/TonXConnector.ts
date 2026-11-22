@@ -24,27 +24,45 @@ export class TonXConnector extends XConnector {
     // A restored session is already connected; wait for the restore so it is not opened twice.
     await ui.connectionRestored;
     if (!ui.account) {
-      await new Promise<void>((resolve, reject) => {
-        const unsubscribe = ui.onStatusChange(
-          wallet => {
-            if (wallet) {
-              unsubscribe();
-              resolve();
-            }
-          },
-          error => {
-            unsubscribe();
-            reject(error instanceof Error ? error : new Error(String(error)));
-          },
-        );
-        ui.openModal().catch(error => {
-          unsubscribe();
+      const connected = await new Promise<boolean>((resolve, reject) => {
+        const cleanups: (() => void)[] = [];
+        let settled = false;
+        const cleanup = () => {
+          for (const unsubscribe of cleanups) unsubscribe();
+        };
+        const finish = (connected: boolean) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(connected);
+        };
+        const fail = (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
           reject(error instanceof Error ? error : new Error(String(error)));
-        });
+        };
+        const subscribe = (unsubscribe: () => void) => {
+          if (settled) unsubscribe();
+          else cleanups.push(unsubscribe);
+        };
+        subscribe(
+          ui.onStatusChange(wallet => {
+            if (wallet) finish(true);
+          }, fail),
+        );
+        subscribe(
+          ui.onModalStateChange(state => {
+            if (state.status === 'closed' && state.closeReason === 'action-cancelled' && !ui.account) finish(false);
+          }),
+        );
+        if (!settled) ui.openModal().catch(fail);
       });
+      if (!connected) return undefined;
     }
     const publicKey = ui.account?.publicKey;
     if (!publicKey) {
+      await ui.disconnect().catch(() => {});
       throw new Error(
         'The connected TON wallet did not expose its public key, which SODAX needs to identify the account.',
       );

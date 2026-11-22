@@ -66,7 +66,7 @@ Direct usage of `@sodax/wallet-sdk-core` is the right choice for:
 
 ### Top traps to avoid (integration)
 
-1. **Mixing the two config variants.** `PRIVATE_KEY` and `BROWSER_EXTENSION` are mutually exclusive. Each chain's `*WalletProviderConfig` is a discriminated union — TypeScript catches mixing, but only if you don't use `as`.
+1. **Mixing the two config variants.** `PRIVATE_KEY` and `BROWSER_EXTENSION` are mutually exclusive. Most configs pick their variant by field presence, so TypeScript accepts a mixed config; only a `type` field discriminates one, and only if you don't use `as`.
 2. **Adding viem / `@mysten/sui` / `@solana/web3.js` as a direct dep** when the type was importable from `@sodax/wallet-sdk-core`. See `integration/recipes/library-exports.md`.
 3. **Deep-importing `@sodax/wallet-sdk-core/wallet-providers/EvmWalletProvider`**. v1's flat layout is gone; use barrel imports.
 4. **Expecting `defaults` to deep-merge.** It doesn't — top-level keys overwrite wholesale.

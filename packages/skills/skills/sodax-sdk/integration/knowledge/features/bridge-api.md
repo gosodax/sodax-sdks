@@ -39,7 +39,7 @@ sodax.api.bridge.createBridgeIntent(body: CreateBridgeIntentParamsV2, config?): 
 sodax.api.bridge.submitTx(body: BridgeSubmitTxRequestV2, config?): Promise<Result<BridgeSubmitTxResponseV2>>;
 sodax.api.bridge.getSubmitTxStatus(query: BridgeSubmitTxStatusQueryV2, config?): Promise<Result<BridgeSubmitTxStatusResponseV2>>;
 
-// Discovery / quote — read-only (computable client-side via sodax.bridge.*; mirrored here for HTTP parity)
+// Discovery / quote — read-only. The local sodax.bridge.* reads accept only bundled tokens; these accept any listed one.
 sodax.api.bridge.getFee(body: BridgeFeeRequestV2, config?): Promise<Result<BridgeFeeResponseV2>>;
 sodax.api.bridge.getBridgeableAmount(body: BridgeQuoteRequestV2, config?): Promise<Result<BridgeableAmountResponseV2>>;
 sodax.api.bridge.isBridgeable(body: BridgeQuoteRequestV2, config?): Promise<Result<BridgeableCheckResponseV2>>;
@@ -64,10 +64,12 @@ Bridge is **vault-backed, not solver-based**, so the surface is smaller and a fe
   `dstAddress`), NOT the SDK-domain `srcToken`/`dstToken`/`amount`/`recipient`. The mapper
   `toCreateBridgeIntentParamsV2(params, extras?)` converts SDK-domain params (and serializes the `bigint`
   amount) to this wire DTO.
-- **Discovery quotes (`getFee` / `getBridgeableAmount` / `isBridgeable`) are computable client-side** — prefer
-  `sodax.bridge.getFee(...)` / `getBridgeableAmount(...)` / `isBridgeable({ from, to })` (no round-trip). They
-  *also* have backend endpoints (listed above), mirrored on this client for non-SDK HTTP callers / parity.
-  The token *list* is backend-served via `getTokens` / `getTokensByChain`.
+- **Discovery quotes (`getFee` / `getBridgeableAmount` / `isBridgeable`) also exist client-side** as
+  `sodax.bridge.getFee(...)` / `getBridgeableAmount(...)` / `isBridgeable({ from, to })`. The last two read the
+  config bundled with the installed SDK, so they fail or return `false` for tokens newer than that release; use
+  this client's versions for such tokens. `getFee` takes no token and works for any. Gate the action on `getBridgeableAmount`'s `limit.amount` being above
+  zero: the backend `isBridgeable` checks config only, and a zero-limit pair fails `createBridgeIntent` with
+  422. The token *list* is backend-served via `getTokens` / `getTokensByChain`.
 
 ## `approve` can return two transactions
 
@@ -79,7 +81,8 @@ zeroed.
 Broadcast `resetTx` first and wait for it to be mined, then broadcast `tx`. As separate transactions
 they cannot go out together: the approval is only valid once the reset has landed on-chain. An
 EIP-5792 atomic batch is different — it runs its calls in order, so it can carry both (the SDK's
-`bridgeWithApproval` does, see `bridge.md`). Submitting `tx` while a non-zero stale allowance
+`bridgeWithApproval` does, see `bridge.md`; for the API client, see
+[Approve and bridge in one signature](#approve-and-bridge-in-one-signature)). Submitting `tx` while a non-zero stale allowance
 remains is a guaranteed revert.
 
 ```ts
@@ -96,6 +99,30 @@ await sendTransaction(tx);
 The field is optional and absent for every other token, so ignoring it keeps existing behaviour —
 it just cannot rescue a wallet stuck on a guarded token.
 
+## Approve and bridge in one signature
+
+When `checkAllowance` reports the allowance short, an EVM spoke source with an EIP-5792 wallet can send
+`[resetTx?, approve tx, deposit tx]` from `approve` and `createBridgeIntent` as one atomic batch: one wallet
+prompt instead of two or three. This works because `/bridge/intents` builds the deposit without reading the
+allowance, and `/bridge/approve` targets the spender that deposit pulls from. Finish with `submitTx`
+(see [Submit tx + poll status](#submit-tx--poll-status)), passing the deposit `txHash`, `srcChainKey`,
+`walletAddress` and the full `relayData`. Persist that body before the call: once the deposit is out, a
+failed `submitTx` is retried on its own, never by running the flow again.
+
+The batch, refusal and unconfirmed-batch rules are the ones in
+[Approve and send the intent in one signature](./swaps-api.md#approve-and-send-the-intent-in-one-signature).
+Before waiting on the batch, persist from `onBatchSent` what a resume after a reload needs: the batch id,
+the batch's call count and the `submitTx` body except `txHash`. Resume an unconfirmed batch with
+`confirmApprovalBatch` and finish it with that state; while the batch may still land, never create the
+intent again or rerun the flow. A resume that returns `INTENT_CREATION_FAILED` with
+`context.reason: 'atomic-batch-failed'` means nothing landed: drop the saved state and run the flow again.
+After a refused batch, submit the `relayData` of the re-created intent. In React, no `sodax-dapp-kit` hook
+batches this flow: `useBridgeApiApproveAndBroadcast` approves in its own prompts. The runnable flow is
+[`bridgeApiApprovalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/backendApi/bridgeApiApprovalBatch.test.ts): it asserts the
+batch order, the refusal fallback, a `submitTx` retry and both outcomes of a resume from the persisted
+state. That a hub source or a wallet that cannot batch stays sequential is asserted in
+[`approvalBatch.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/utils/approvalBatch.test.ts).
+
 ## Common call shapes
 
 ### Allowance · approve · create intent (shared body)
@@ -108,6 +135,11 @@ const body = {
   inputAmount: '1000000',     // smallest unit, decimal string (SDK domain `amount`, bigint → string)
   srcAddress, dstAddress,     // dstAddress is the SDK domain `recipient`
 };
+
+// Gate on live capacity before any approval: a listed pair can have a zero (or negative) limit, and an
+// amount above the limit fails createBridgeIntent (422). `limit.decimals` is the limit's own unit.
+const bridgeable = await sodax.api.bridge.getBridgeableAmount({ srcChainKey, dstChainKey, inputToken, outputToken });
+if (!bridgeable.ok || BigInt(bridgeable.value.limit.amount) <= 0n) return;
 
 const allowance = await sodax.api.bridge.checkAllowance(body);
 if (allowance.ok && !allowance.value.valid) {
@@ -128,7 +160,8 @@ const { tx, relayData } = created.value;                   // no `intent`
 ### Submit tx + poll status
 
 ```ts
-// Sign + broadcast `tx` yourself, then hand the spoke tx hash back with the FULL relayData envelope.
+// Sign + broadcast `tx` per chain type (swaps-api.md § "Sign and broadcast `tx`"), then hand the spoke
+// tx hash back with the FULL relayData envelope.
 const submit = await sodax.api.bridge.submitTx({
   txHash, srcChainKey, walletAddress,
   relayData,                       // the whole { address, payload } object, NOT relayData.payload
@@ -141,6 +174,7 @@ if (status.ok && status.value.data.status === 'executed') {
   status.value.data.result?.dstIntentTxHash;   // destination tx hash (no intent_hash)
 }
 // Lifecycle: 'pending' → 'relaying' → 'relayed' → 'executed' | 'failed'.
+// Stop polling on 'executed', 'failed', or a set `data.abandonedAt` (processing budget exhausted).
 ```
 
 ## Per-call overrides & custom endpoint
@@ -161,6 +195,8 @@ move the whole backend (including bridge) to a custom host, use the `CustomApiCo
 
 `bridge.useBackendSubmitTx` (default `true`) routes the end-to-end `sodax.bridge.bridge()` through this
 API (`submit-tx` + status poll) with an automatic fall back to the client-side relay on any non-success.
+It still validates tokens against the installed SDK's bundled config before that, so it does not accept
+tokens newer than the release; for those, call this client end to end.
 Set `new Sodax({ bridge: { useBackendSubmitTx: false } })` to force the client-side path. Independent of
 `swaps.useBackendSubmitTx`. See [`bridge.md`](bridge.md) and the `CONFIGURE_SDK` doc.
 

@@ -412,6 +412,14 @@ new NearWalletProvider({
 
 `NearWalletDefaults` accepts: `throwOnFailure`, `waitUntil`, `gasDefault`, `depositDefault`.
 
+### Tron (`TronWalletProvider`)
+
+Private-key mode takes `privateKey`; browser-extension mode takes `getProvider`, which returns the provider the wallet
+announces over TIP-6963, and optionally the injected `tronWeb`. The shapes are in
+[`tron/types.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/types.ts).
+
+`TronWalletDefaults` accepts: `rpcUrl`.
+
 ---
 
 ### Cardano (`CardanoWalletProvider`)
@@ -541,10 +549,12 @@ Requirements for a valid custom implementation:
    `YourOptions & EvmSendTransactionOptions` to keep satisfying the interface.
 5. **EIP-5792 batch methods are optional** — `getAtomicBatchSupport`, `sendAtomicBatch` and
    `waitForBatch` let `swapWithApproval`, `bridgeWithApproval`, `vaultSwapWithApproval` and
-   `sendApprovalBatch` (the swaps API lane) send approve + deposit as one atomic batch. Omit all three and the SDK falls back to separate transactions. Implement them only together:
+   `sendApprovalBatch` (the backend API lanes) send approve + deposit as one atomic batch. Omit all three and the SDK falls back to separate transactions. Implement them only together:
    `getAtomicBatchSupport(chainId)` reports the wallet's `atomic` capability (`'supported'`, `'ready'`
    or `'unsupported'`), `sendAtomicBatch` must request atomic execution and send the batch for
    `options.expectedChainId` only, and `waitForBatch(batchId, { timeout })` resolves to the batch's receipts once
    it is terminal and throws if it is not by then. The SDK always passes a positive `timeout`, and reads the
    receipts as the batch's transaction when they all carry one hash (extra calls the wallet adds are fine), or —
    right after sending — as one per call in call order; any other shape is treated as unconfirmed.
+6. **Tron `signMessage` signs the hash's hex text, not its bytes** — see `ITronWalletProvider` in
+   [`tron.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/tron/tron.ts).

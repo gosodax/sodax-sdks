@@ -111,7 +111,7 @@ jobs:
         with:
           node-version: '24.x'
 
-      # These four scripts import only node: builtins, so they need no pnpm install.
+      # These five scripts import only node: builtins, so they need no pnpm install.
       - name: Doc link validation
         run: pnpm check:doc-links
 
@@ -121,11 +121,23 @@ jobs:
       - name: Generated docs page drift
         run: pnpm check:docs-pages
 
+      # On a pull request the allowlist is compared with the base commit's, so it can only shrink.
+      - name: Docs example drift
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            pnpm check:docs-examples --base "$BASE_SHA"
+          else
+            pnpm check:docs-examples
+          fi
+
       - name: AI dev file validation
         run: pnpm check:ai-dev-files
 
-      # The ~65 hand-written pages have no other check: check:doc-links reads mapped sources
-      # and check:docs-nav reads navigation, so neither opens them. `broken-links` is also the
+      # The hand-written pages' prose has no other check: check:doc-links reads mapped sources,
+      # check:docs-nav reads navigation and check:docs-examples reads only code fences. `broken-links` is also the
       # only check that catches a relative link, which resolves in preview and 404s in prod.
       - name: Mintlify build validation and broken links
         working-directory: docs

@@ -31,6 +31,10 @@ correct. The commands below are the gate.
 - **Body starts at `##`** — the H1 comes from frontmatter `title`. MDX comments are
   `{/* ... */}`; HTML comments break the page. Angle-bracket autolinks (`<https://…>`) are
   not valid MDX either; use `[text](url)`.
+- **Never paste TypeScript.** A `ts` / `tsx` / `typescript` fence on a hand-written page is
+  copied from a compiled region in `apps/docs-examples` through a `{/* example: <file>#<region> */}`
+  marker on the line above it; `pnpm docs:sync-examples` fills it and `pnpm check:docs-examples`
+  fails on pasted or stale code. Write pages with `.claude/skills/write-docs/`.
 - **Never edit a generated page.** A page carrying a `generatedFrom` frontmatter key comes from
   the package source that key names, listed in `scripts/docs-pages-map.json`; edit that source
   and run `pnpm docs:sync-pages`. `pnpm check:docs-pages` fails on drift.
@@ -54,13 +58,14 @@ correct. The commands below are the gate.
 ```bash
 pnpm check:docs-nav    # nav, redirects, must-not-break URLs   (CI runs this)
 pnpm check:docs-pages  # generated copies match their sources  (CI runs this)
+pnpm check:docs-examples # shown TypeScript matches its example (CI runs this)
 pnpm docs:validate     # mint validate + mint broken-links (needs the mint CLI)
 ```
 
-Run all three after any change under `docs/`. CI runs the same three in its `Docs site` job,
+Run all four after any change under `docs/`. CI runs the same four in its `Docs site` job,
 reaching `mint` through `pnpm dlx` at a pinned version because the CLI is not a repo
 dependency. `mint broken-links` is the only check that catches a relative link, and the only
-one that opens a hand-written page — do not wait for CI to find that for you.
+one that reads a hand-written page's prose — do not wait for CI to find that for you.
 
 ## Scope
 

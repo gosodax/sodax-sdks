@@ -214,7 +214,7 @@ export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): H
   if (getChainType(spokeChainId) === 'EVM') {
     // `encodeAddress` passes EVM input through unchecked, and a malformed recipient here is released
     // on-chain as-is, so validate before it reaches the hub.
-    if (!isAddress(address, { strict: false })) {
+    if (!isAddress(address)) {
       throw new Error(`[encodeRecipient] invalid EVM recipient for ${spokeChainId}: ${address}`);
     }
     return address.toLowerCase() as Hex;
@@ -361,7 +361,7 @@ export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex):
       // The identity encoding is the public key verbatim.
       return tonIdentityBytes(encoded);
     case 'ZCASH':
-      return zcashHashToAddress(encoded);
+      return zcashHashToAddress(mpcRelayIdentityHash(encoded, 'Zcash'));
     case 'CARDANO':
       // Only the raw recipient bytes decode: the 28-byte identity does not say which stake part its address had.
       return cardanoAddressFromRecipientBytes(encoded);

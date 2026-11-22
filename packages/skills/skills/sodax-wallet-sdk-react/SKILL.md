@@ -64,7 +64,7 @@ Pick this mode when the consumer is a React dapp that needs SODAX wallet connect
 - **`useXConnect` is a React Query mutation.** Pass an `IXConnector` to `mutate` / `mutateAsync`. For provider-managed chains (EVM/Solana/Sui), the resolved value is `undefined` — read the connected account via `useXAccount` after the mutation lands.
 - **Persisted connections.** Connections survive page reloads via `localStorage` (key `xwagmi-store`). Gate UI on hydration with `useConnectedChains().status === 'ready'` to avoid flicker.
 - **EVM is one connection across all networks.** wagmi covers every configured EVM network under one connector — `useChainGroups` / `useConnectedChains` report a single `EVM` row.
-- **Configurable chain opt-in.** `SodaxWalletProvider config` accepts a `SodaxWalletConfig` where top-level keys are `ChainType` slots (`EVM`, `SOLANA`, `SUI`, `BITCOIN`, `STELLAR`, `INJECTIVE`, `ICON`, `NEAR`, `STACKS`, `TRON`). Omit a slot to skip mounting that adapter; pass `{}` to mount with SDK defaults.
+- **Configurable chain opt-in.** `SodaxWalletProvider config` accepts a `SodaxWalletConfig` where top-level keys are `ChainType` slots (one per `ChainTypeArr` member in `@sodax/types`). Omit a slot to skip mounting that adapter; pass `{}` to mount with SDK defaults.
 - **Don't import concrete chain classes from the barrel.** `EvmXService`, `XverseXConnector`, etc. are **deep-import only** (`@sodax/wallet-sdk-react/xchains/<chain>`). The barrel only exports hooks, types, interfaces, and `SodaxWalletProvider`.
 
 ### Wallet modal primitives
