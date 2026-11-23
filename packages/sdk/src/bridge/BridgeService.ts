@@ -1193,8 +1193,10 @@ export class BridgeService {
   private resolveBridgeEndpointToken(chainKey: SpokeChainKey, token: string): XToken | undefined {
     const spokeToken = this.config.getSpokeTokenFromOriginalAssetAddress(chainKey, token);
     if (spokeToken) return spokeToken;
-    const hubToken = isHubChainKeyType(chainKey) ? this.config.getXTokenFromHubAsset(token) : undefined;
-    return hubToken ? { ...hubToken, chainKey, address: hubToken.hubAsset } : undefined;
+    if (!isHubChainKeyType(chainKey)) return undefined;
+    const hubToken = this.config.getXTokenFromHubAsset(token);
+    // The hub-asset index can store a spoke descriptor for the same asset.
+    return hubToken && { ...hubToken, chainKey, address: hubToken.hubAsset };
   }
 
   /**
@@ -1254,6 +1256,10 @@ export class BridgeService {
     dstToken: XToken,
     partnerFee: PartnerFee | undefined,
   ): Hex {
+    bridgeInvariant(dstToken.chainKey === params.dstChainKey, 'Payout token chain must match the destination chain', {
+      dstChainKey: params.dstChainKey,
+      field: 'dstToken',
+    });
     const calls: EvmContractCall[] = [];
     const { feeAmount, withdrawAmount, delivered } = this.computeBridgeAmounts(
       params.amount,
