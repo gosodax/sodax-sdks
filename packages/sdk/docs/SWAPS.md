@@ -323,6 +323,8 @@ A post-broadcast failure does not mean the swap failed: with backend submit-tx o
 it after `swap()` gives up. Read `error.context.srcTxHash` (with `srcChainKey`) and keep polling
 [`getDetailedStatus`](#get-detailed-status) rather than reporting the swap as lost.
 
+For `INTENT_CREATION_FAILED` with `context.srcTxHash` on an MPC-relay source, resume with that same deposit hash. Use the spoke's `waitForDeposit(srcTxHash)` to notify the relay and wait for the hub mint. When it succeeds, take `value.txs.hubMint.hash` and pass it to `sodax.swaps.postExecution({ intent_tx_hash: hubMintHash })`. Continue polling with the original source hash. Do not create another swap or deposit.
+
 Polling only reads, so it cannot fix one case: a failed solver notification (`EXECUTION_FAILED` /
 `EXTERNAL_API_ERROR` with `phase: 'postExecution'`). Unless the backend took the swap, nothing else notifies the
 solver, and the intent expires unfilled. Notify it again with the hub tx the error carries — the solver only
