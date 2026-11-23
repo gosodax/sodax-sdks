@@ -35,3 +35,5 @@ Also wires Tron into `GetTxReceiptType`, so `waitForTransactionReceipt` on `tron
 - MPC payout floors are keyed by token address within each chain. The SDK rejects payouts whose token address has no floor. For detailed bridge status from an MPC-relay source, pass the destination chain key to distinguish a completed hub-only bridge from an unfinished onward delivery.
 
 - Feature intent errors carry recovery identifiers in their context. Use `isIndeterminateOutcomeError` to recognize the underlying SDK error across module builds. A handle-only swap stays pending in dapp-kit without starting another payment.
+
+- `@sodax/types` exports `IndeterminateOutcomeError` and `isIndeterminateOutcomeError`. A relay HTTP 409 preserves the original tracking ID for polling. Non-raw withdrawals retry HTTP 429 with the same signed authorization, up to three total attempts. If all attempts are throttled, the SDK reports that nothing was queued, and callers may make a fresh feature call after backing off. Raw callers can replay the same signed authorization after 429.

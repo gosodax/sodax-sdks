@@ -165,7 +165,7 @@ The `action` field routes to the right token under the hood — relevant for rep
 | `getSupportedReserves` | `readonly Address[]` |
 | `buildSupplyData` / `buildBorrowData` / `buildWithdrawData` / `buildRepayData` | `Hex` (calldata for hub-side calls) |
 
-If `borrow` or `withdraw` returns `INTENT_CREATION_FAILED` with `error.context.trackingId`, poll that ID with `sodax.spoke.getMpcRelayWithdrawal({ chainKey, trackingId })` or settle it outbound using the ID as `tx`. Never call `borrow` or `withdraw` again to recover that attempt. A rejected replay leaves the original outcome unresolved. Keep polling the original ID.
+If `borrow` or `withdraw` returns `INTENT_CREATION_FAILED` with `error.context.trackingId`, read the original withdrawal with `sodax.spoke.getMpcRelayWithdrawal({ chainKey, trackingId })`. Polling only observes the MPC relay record. To drive settlement, call `sodax.spoke.settle({ chainKey, tx: trackingId, direction: 'outbound', dstChainKey, relayData })`. Use the original payout `dstChainKey` and `relayData` from the error context for a feature call, or from the original intent for a raw call. Keep tracking the original ID if a replay is rejected. Do not start another borrow or withdraw while the original outcome is unknown. A 429 on the SDK's own first submission queues nothing. The SDK retries the same authorization up to three total attempts. If all three replies are 429, it reports `withdraw rate limit retries exhausted; nothing was queued` without a tracking ID, and a fresh feature call is safe after backing off.
 
 > Every cross-chain mutation across the SDK (bridge, staking, dex, migration, MM) returns an object (`TxHashPair`, or `OutboundSettlement<K>` above) — there is no array-form variant in v2.
 

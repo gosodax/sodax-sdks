@@ -53,6 +53,7 @@ describe('submitWithdraw', () => {
     [200, '{'],
     [200, '{}'],
     [200, 'null'],
+    [409, '<html>conflict</html>'],
     [200, '{"accepted":true,"trackingId":42}'],
     [503, '{"accepted":false}'],
   ])('keeps the tracking ID for a %s response with body %s', async (status, body) => {
@@ -106,7 +107,6 @@ describe('submitWithdraw', () => {
   });
 
   it.each([
-    [409, '{"accepted":false,"error":"other conflict"}'],
     [400, 'invalid signature'],
     [200, '{"accepted":false,"error":"invalid signature"}'],
   ])('treats a %s response with body %s as a definite rejection', async (status, body) => {
@@ -117,7 +117,7 @@ describe('submitWithdraw', () => {
     const result = await submitWithdraw(API, request);
     if (result.ok) throw new Error('expected rejection');
     expect(result.error).not.toBeInstanceOf(IndeterminateOutcomeError);
-    expect(result.error).toMatchObject({ message: expect.stringMatching(/invalid signature|other conflict/) });
+    expect(result.error).toMatchObject({ message: expect.stringMatching(/invalid signature/) });
   });
 });
 

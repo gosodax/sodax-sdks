@@ -35,6 +35,7 @@ import {
   getWithdrawal,
   notify,
   submitWithdraw,
+  submitFreshWithdrawWithBackoff,
   toDepositId,
   toHubReleaseId,
   waitForDeposit,
@@ -538,7 +539,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     }
 
     const signature = await params.walletProvider.signMessage(withdraw.digest);
-    const trackingId = await this.submitSignedWithdraw({ withdraw, signature });
+    const trackingId = await submitFreshWithdrawWithBackoff(() => this.submitSignedWithdraw({ withdraw, signature }));
     return trackingId satisfies string as TronSendMessageReturnType<Raw>;
   }
 

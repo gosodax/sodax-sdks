@@ -904,7 +904,11 @@ export class MoneyMarketService {
         if (isMoneyMarketCreateIntentError(txResult.error)) return { ok: false, error: txResult.error };
         return {
           ok: false,
-          error: intentCreationFailed('moneyMarket', txResult.error, baseCtx),
+          error: intentCreationFailed('moneyMarket', txResult.error, {
+            ...baseCtx,
+            dstChainKey,
+            relayData: { address: fromHubWallet, payload },
+          }),
         };
       }
 
@@ -1099,7 +1103,11 @@ export class MoneyMarketService {
         if (isMoneyMarketCreateIntentError(txResult.error)) return { ok: false, error: txResult.error };
         return {
           ok: false,
-          error: intentCreationFailed('moneyMarket', txResult.error, baseCtx),
+          error: intentCreationFailed('moneyMarket', txResult.error, {
+            ...baseCtx,
+            dstChainKey,
+            relayData: { address: fromHubWallet, payload },
+          }),
         };
       }
 

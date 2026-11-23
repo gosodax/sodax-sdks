@@ -15,6 +15,7 @@
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import {
   ChainKeys,
+  IndeterminateOutcomeError,
   spokeChainConfig,
   type Address,
   type IBitcoinWalletProvider,
@@ -1741,7 +1742,10 @@ describe('MoneyMarketService.createBorrowIntent', () => {
 
     it('forwards a failure Result from spoke.sendMessage', async () => {
       vi.spyOn(sodax.moneyMarket, 'buildBorrowData').mockReturnValueOnce('0xborrow-data');
-      const sendError = new Error('SEND_FAILED');
+      const sendError = new IndeterminateOutcomeError('SEND_FAILED', {
+        cause: new Error('lost reply'),
+        trackingId: '0xoriginal',
+      });
       vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
 
       const result = await sodax.moneyMarket.createBorrowIntent({
@@ -1750,7 +1754,17 @@ describe('MoneyMarketService.createBorrowIntent', () => {
         walletProvider: mockEvmProvider,
       });
 
-      expect(result).toMatchObject({ ok: false, error: expect.objectContaining({ message: sendError.message }) });
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: 'INTENT_CREATION_FAILED',
+          context: {
+            trackingId: '0xoriginal',
+            dstChainKey: ChainKeys.BSC_MAINNET,
+            relayData: { address: expect.any(String), payload: '0xborrow-data' },
+          },
+        },
+      });
     });
 
     it('returns ok:false when spoke.sendMessage throws', async () => {
@@ -2186,7 +2200,10 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
   describe('propagates internal errors', () => {
     it('forwards a failure Result from spoke.sendMessage', async () => {
       vi.spyOn(sodax.moneyMarket, 'buildWithdrawData').mockReturnValueOnce('0xwithdraw-data');
-      const sendError = new Error('SEND_FAILED');
+      const sendError = new IndeterminateOutcomeError('SEND_FAILED', {
+        cause: new Error('lost reply'),
+        trackingId: '0xoriginal',
+      });
       vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
 
       const result = await sodax.moneyMarket.createWithdrawIntent({
@@ -2195,7 +2212,17 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
         walletProvider: mockEvmProvider,
       });
 
-      expect(result).toMatchObject({ ok: false, error: expect.objectContaining({ message: sendError.message }) });
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: 'INTENT_CREATION_FAILED',
+          context: {
+            trackingId: '0xoriginal',
+            dstChainKey: ChainKeys.BSC_MAINNET,
+            relayData: { address: expect.any(String), payload: '0xwithdraw-data' },
+          },
+        },
+      });
     });
 
     it('returns ok:false when spoke.sendMessage throws', async () => {
