@@ -18,7 +18,8 @@ import {
   type TronRawWithdraw,
   tronSupportedTokens,
 } from '@sodax/types';
-import { encodeAbiParameters, getAddress, keccak256, sha256 } from 'viem';
+import { encodeAbiParameters, getAddress, isHex, keccak256, sha256, toHex } from 'viem';
+import { IndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import {
@@ -447,6 +448,19 @@ describe('TronSpokeService.deposit — broadcast failure', () => {
     expect(MpcRelayApiService.notify).toHaveBeenCalledOnce();
   });
 
+  it.each(['{}', 'null'])('keeps the txID and notifies after a %s broadcast reply', async body => {
+    stubTronGrid();
+    const answer = vi.mocked(fetch).getMockImplementation();
+    vi.mocked(fetch).mockImplementation(async (url, init) => {
+      if (new URL(String(url)).pathname === '/wallet/broadcasthex') return new Response(body);
+      if (!answer) throw new Error('no stub');
+      return answer(url, init);
+    });
+    const hash = await tron.deposit(depositParams(NATIVE_TRX));
+    expect(hash).toBe(signTransaction.mock.calls[0]?.[0].txID);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.any(String), '728126428', hash);
+  });
+
   it('hands the txID on after a 5xx, which a gateway can return for a request the node took', async () => {
     stubTronGrid();
     const fetchMock = vi.mocked(fetch);
@@ -778,6 +792,41 @@ describe('TronSpokeService.sendMessage', () => {
     payload: '0xdeadbeef' as Hex,
     walletProvider,
   } as never;
+
+  it('recovers a withdraw accepted by the relay before the response was lost without signing again', async () => {
+    const lost = new TypeError('connection closed');
+    const relay = new Map<string, MpcWithdrawMessage>();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const path = new URL(url).pathname;
+        if (path === '/withdraw') {
+          const { message } = JSON.parse(String(init?.body));
+          const sender: unknown = message.sender;
+          if (!isHex(sender)) throw new Error('missing sender');
+          const nonceBytes = toHex(BigInt(message.nonce), { size: 8 }).slice(2);
+          const trackingId = keccak256(`${sender}${nonceBytes}`);
+          relay.set(trackingId, message);
+          throw lost;
+        }
+        const trackingId = path.split('/').at(-1) ?? '';
+        return relay.has(trackingId)
+          ? Response.json({ trackingId, status: 'submitted' })
+          : new Response(null, { status: 404 });
+      }),
+    );
+
+    const error = await tron.sendMessage(sendParams).catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(IndeterminateOutcomeError);
+    if (!(error instanceof IndeterminateOutcomeError) || !error.trackingId) throw new Error('missing tracking ID');
+    expect(error.cause).toBe(lost);
+    expect(await tron.getWithdrawalRecord(error.trackingId)).toMatchObject({
+      ok: true,
+      value: { status: 'submitted' },
+    });
+    expect(signMessage).toHaveBeenCalledOnce();
+    expect(relay.size).toBe(1);
+  });
 
   const nonceOf = (call: number) =>
     BigInt(vi.mocked(MpcRelayApiService.submitWithdraw).mock.calls[call]?.[1].message.nonce ?? '0');

@@ -332,9 +332,9 @@ export class TronSpokeService implements MpcRelaySettlement {
     if (signature.length === 0) throw new Error('[TronSpokeService.deposit] wallet returned no signature');
 
     const transaction = assembleBroadcastHex({ rawHex: unsigned.raw_data_hex, signatures: signature });
-    let broadcast: { result?: boolean; code?: string; message?: string };
+    let broadcast: { result?: boolean; code?: string; message?: string } | null;
     try {
-      broadcast = await this.rpc<{ result?: boolean; code?: string; message?: string }>('/wallet/broadcasthex', {
+      broadcast = await this.rpc<typeof broadcast>('/wallet/broadcasthex', {
         transaction,
       });
     } catch (error) {
@@ -345,10 +345,14 @@ export class TronSpokeService implements MpcRelaySettlement {
       this.config.logger.warn(`[TronSpokeService.deposit] broadcast of ${txID} got no answer`, { error });
       return txID;
     }
+    if (typeof broadcast?.result !== 'boolean' && !broadcast?.code && !broadcast?.message) {
+      this.config.logger.warn(`[TronSpokeService.deposit] broadcast of ${txID} returned no verdict`);
+      return txID;
+    }
     // The node already holds this signed tx, so it is on its way like an accepted one.
-    if (!broadcast.result && (broadcast.code ?? broadcast.message) !== 'DUP_TRANSACTION_ERROR') {
+    if (!broadcast?.result && (broadcast?.code ?? broadcast?.message) !== 'DUP_TRANSACTION_ERROR') {
       throw new Error(
-        `[TronSpokeService.deposit] broadcast of ${txID} failed: ${broadcast.code ?? broadcast.message ?? ''}`,
+        `[TronSpokeService.deposit] broadcast of ${txID} failed: ${broadcast?.code ?? broadcast?.message ?? ''}`,
       );
     }
     return txID;
@@ -538,7 +542,10 @@ export class TronSpokeService implements MpcRelaySettlement {
     return trackingId satisfies string as TronSendMessageReturnType<Raw>;
   }
 
-  /** Submit a raw withdraw-auth once signed. Resolves to the `trackingId` for {@link waitForWithdrawal}. */
+  /**
+   * Submit a raw withdraw-auth once signed. Resolves to the `trackingId` for {@link waitForWithdrawal}.
+   * On IndeterminateOutcomeError, poll that tracking ID or resubmit the same message and signature.
+   */
   public async submitSignedWithdraw({
     withdraw,
     signature,

@@ -9,8 +9,15 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChainKeys, type HttpUrl } from '@sodax/types';
+import { IndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { mapRelayFailure } from '../../../errors/relay-error-mapping.js';
-import { waitForDeposit, waitForHubRelease, waitForWithdrawal } from './MpcRelayApiService.js';
+import {
+  submitWithdraw,
+  type SubmitWithdrawRequest,
+  waitForDeposit,
+  waitForHubRelease,
+  waitForWithdrawal,
+} from './MpcRelayApiService.js';
 
 const API = 'https://relay.example' as HttpUrl;
 const DEPOSIT_ID = '728126428-abc-0';
@@ -32,6 +39,45 @@ function stubStatuses(bodies: Record<string, unknown>[]) {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe('submitWithdraw', () => {
+  const request = {
+    message: { to: '0x1234', data: '0x', nonce: '7', chainId: '728126428', sender: '0xabcd' },
+    signature: '0x1234',
+    scheme: 1,
+  } satisfies SubmitWithdrawRequest;
+
+  it.each([
+    [200, '{'],
+    [200, '{}'],
+    [200, 'null'],
+    [200, '{"accepted":true,"trackingId":42}'],
+    [503, '{"accepted":false}'],
+  ])('keeps the tracking ID for a %s response with body %s', async (status, body) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(body, { status })),
+    );
+    const result = await submitWithdraw(API, request);
+    if (result.ok) throw new Error('expected uncertain submission');
+    expect(result.error).toBeInstanceOf(IndeterminateOutcomeError);
+    expect(result.error).toMatchObject({ trackingId: expect.stringMatching(/^0x[0-9a-f]{64}$/) });
+  });
+
+  it.each([
+    [400, 'invalid signature'],
+    [200, '{"accepted":false,"error":"invalid signature"}'],
+  ])('treats a %s response with body %s as a definite rejection', async (status, body) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(body, { status })),
+    );
+    const result = await submitWithdraw(API, request);
+    if (result.ok) throw new Error('expected rejection');
+    expect(result.error).not.toBeInstanceOf(IndeterminateOutcomeError);
+    expect(result.error).toMatchObject({ message: expect.stringContaining('invalid signature') });
+  });
 });
 
 describe('waitForDeposit', () => {

@@ -12,6 +12,7 @@
  *   4. `cancelIntent` takes an explicit `srcChainKey` alongside `intent`; we assert at runtime
  *      that `getIntentRelayChainId(srcChainKey) === intent.srcChain` and throw on mismatch.
  */
+import { IndeterminateOutcomeError } from '../errors/IndeterminateOutcomeError.js';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import {
   ChainKeys,
@@ -2888,6 +2889,49 @@ describe('SwapService.createIntent — extras (partnerFee + srcPublicKey)', () =
     expect(result.ok).toBe(true);
     const depositCall = (svc.spoke.deposit as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0];
     expect(depositCall.accessToken).toBe(accessToken);
+  });
+
+  it('carries a known deposit hash through an intent failure for recovery', async () => {
+    const svc = sodax.swaps;
+    const chainKey = ChainKeys.BITCOIN_MAINNET;
+    const txHash = 'ab'.repeat(32);
+    const cause = Object.freeze(new Error('wallet response lost'));
+    const error = new IndeterminateOutcomeError('Deposit submission outcome is unknown', { cause, txHash });
+    mocks.getUserHubWalletAddress.mockResolvedValueOnce('0xhubwallet');
+    mocks.constructCreateIntentData.mockReturnValueOnce(['0xintentdata', makeIntent(chainKey), 0n]);
+    vi.spyOn(svc.spoke.bitcoin, 'getEffectiveWalletAddress').mockImplementation(async address => address);
+    const deposit = vi.spyOn(svc.spoke, 'deposit').mockResolvedValueOnce({ ok: false, error });
+
+    const result = await svc.createIntent({ params: intentInput(chainKey), raw: true });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'INTENT_CREATION_FAILED', context: { srcTxHash: txHash } },
+    });
+    invariant(!result.ok, 'expected a failed intent');
+    expect(result.error.cause).toBe(error);
+    expect(error.cause).toBe(cause);
+    expect(cause).not.toHaveProperty('txHash');
+
+    const status = {
+      txHash,
+      srcChainKey: chainKey,
+      status: 'solved',
+      processingAttempts: 1,
+      result: { dstIntentTxHash: '0xDST', intent_hash: '0xHASH' },
+    } as const;
+    const read = vi.spyOn(svc.backendApi.swaps, 'getSubmitTxStatus').mockResolvedValueOnce({
+      ok: true,
+      value: { success: true, data: status },
+    });
+    const srcTxHash = result.error.context?.srcTxHash;
+    if (typeof srcTxHash !== 'string') throw new Error('missing recovery hash');
+    expect(await svc.getDetailedStatus({ srcChainKey: chainKey, srcTxHash })).toEqual({
+      ok: true,
+      value: { source: 'backend', data: status },
+    });
+    expect(read).toHaveBeenCalledExactlyOnceWith({ srcChainKey: chainKey, txHash });
+    expect(deposit).toHaveBeenCalledOnce();
   });
 
   it('omits accessToken on the deposit params when extras.bound is absent (BitcoinSpokeService falls back to its radfi instance token)', async () => {

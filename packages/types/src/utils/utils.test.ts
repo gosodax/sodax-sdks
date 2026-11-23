@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ChainKeys } from '../chains/index.js';
+import { ChainKeys, tronSupportedTokens } from '../chains/index.js';
 import { getEvmChainKeyByChainId, getUnmetMpcPayoutMinimum } from './utils.js';
 
 describe('getEvmChainKeyByChainId', () => {
@@ -33,8 +33,7 @@ describe('getEvmChainKeyByChainId', () => {
 });
 
 describe('getUnmetMpcPayoutMinimum', () => {
-  const usdt = { chainKey: ChainKeys.TRON_MAINNET, symbol: 'USDT', decimals: 6 };
-  const trx = { chainKey: ChainKeys.TRON_MAINNET, symbol: 'TRX', decimals: 6 };
+  const { USDT: usdt, TRX: trx } = tronSupportedTokens;
 
   it('fails below and at the minimum, since the relay skips a release once fee >= amount', () => {
     const unmet = { symbol: 'USDT', decimals: 6, minimum: 3_000_000n };
@@ -61,6 +60,7 @@ describe('getUnmetMpcPayoutMinimum', () => {
     expect(
       getUnmetMpcPayoutMinimum({ token: { ...usdt, chainKey: ChainKeys.ARBITRUM_MAINNET }, amount: 1n }),
     ).toBeUndefined();
-    expect(getUnmetMpcPayoutMinimum({ token: { ...usdt, symbol: 'OTHER' }, amount: 1n })).toBeUndefined();
+    expect(getUnmetMpcPayoutMinimum({ token: { ...usdt, address: 'unlisted' }, amount: 1n })).toBeUndefined();
+    expect(getUnmetMpcPayoutMinimum({ token: { ...usdt, symbol: 'OTHER' }, amount: 1n })?.minimum).toBe(3_000_000n);
   });
 });

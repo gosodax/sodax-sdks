@@ -1,6 +1,6 @@
 // packages/sdk/src/recovery/RecoveryService.test.ts
 import { decodeAbiParameters, decodeFunctionData, parseAbiParameters, type Address, type Hex } from 'viem';
-import { ChainKeys, type AnalyticsEvent, type IconEoaAddress } from '@sodax/types';
+import { ChainKeys, type AnalyticsEvent, type IconEoaAddress, tronSupportedTokens } from '@sodax/types';
 import { describe, expect, it, vi } from 'vitest';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import type { HubProvider } from '../shared/types/types.js';
@@ -74,9 +74,7 @@ describe('RecoveryService.withdrawHubAsset — payout to an MPC-relay chain', ()
   it('refuses a release at the minimum before building the message', async () => {
     const config = {
       getSpokeTokenFromOriginalAssetAddress: vi.fn(() => ({
-        chainKey: ChainKeys.TRON_MAINNET,
-        symbol: 'TRX',
-        decimals: 6,
+        ...tronSupportedTokens.TRX,
         hubAsset: '0x0000000000000000000000000000000000002000',
       })),
       analytics: noopAnalytics,
@@ -106,10 +104,15 @@ describe('RecoveryService.withdrawHubAsset — payout to an MPC-relay chain', ()
 describe('RecoveryService.withdrawHubAsset — analytics', () => {
   const withdraw = async (srcChainKey: typeof ChainKeys.TRON_MAINNET | typeof ChainKeys.ICON_MAINNET) => {
     const events: AnalyticsEvent[] = [];
+    const token =
+      srcChainKey === ChainKeys.TRON_MAINNET
+        ? tronSupportedTokens.TRX.address
+        : '0x0000000000000000000000000000000000001000';
     const config = {
       getSpokeTokenFromOriginalAssetAddress: vi.fn(() => ({
         chainKey: srcChainKey,
-        symbol: 'USDT',
+        address: token,
+        symbol: srcChainKey === ChainKeys.TRON_MAINNET ? 'TRX' : 'USDT',
         decimals: 6,
         hubAsset: '0x0000000000000000000000000000000000002000',
       })),
@@ -131,7 +134,7 @@ describe('RecoveryService.withdrawHubAsset — analytics', () => {
     await recovery.withdrawHubAsset({
       raw: false,
       walletProvider: {} as never,
-      params: { srcChainKey, srcAddress, token: '0x0000000000000000000000000000000000001000', amount: 10_000_000n },
+      params: { srcChainKey, srcAddress, token, amount: 11_000_000n },
     });
     return events.find(event => event.phase === 'success')?.data;
   };

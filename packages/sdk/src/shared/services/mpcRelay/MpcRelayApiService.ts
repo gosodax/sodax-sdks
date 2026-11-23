@@ -1,5 +1,6 @@
 import type { HttpUrl, MpcRelayChainKey, MpcWithdrawMessage, MpcWithdrawScheme, Result } from '@sodax/types';
-import { encodeAbiParameters, keccak256, type Hex } from 'viem';
+import { concat, encodeAbiParameters, keccak256, toHex, type Hex } from 'viem';
+import { IndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { pollUntil } from '../../utils/pollUntil.js';
 import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
 import { invariant } from '../../utils/tiny-invariant.js';
@@ -136,28 +137,37 @@ const DEFAULT_DEPOSIT_TIMEOUT_MS = 300_000;
 /** Per-request budget, covering the body read: a stalled stream would otherwise hold a poll open. */
 const MPC_RELAY_REQUEST_TIMEOUT_MS = 15_000;
 
-async function getJson<T>(url: string, init?: RequestInit): Promise<Result<T>> {
+async function getJson<T>(
+  url: string,
+  init?: RequestInit,
+): Promise<{ ok: false; error: unknown; status?: number } | { ok: true; value: T }> {
+  let status: number | undefined;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MPC_RELAY_REQUEST_TIMEOUT_MS);
   try {
     const res = await fetch(url, { ...init, signal: controller.signal });
+    status = res.status;
     const text = await res.text();
     let json: unknown;
     try {
       json = JSON.parse(text);
     } catch {
-      return { ok: false, error: new Error(`mpc-relay: ${res.status} non-JSON: ${text.slice(0, 160)}`) };
+      return { ok: false, status, error: new Error(`mpc-relay: ${res.status} non-JSON: ${text.slice(0, 160)}`) };
     }
     if (!res.ok) {
       const err = (json as { error?: string })?.error ?? text.slice(0, 160);
-      return { ok: false, error: new Error(`mpc-relay: ${res.status} ${err}`) };
+      return { ok: false, status, error: new Error(`mpc-relay: ${res.status} ${err}`) };
     }
     return { ok: true, value: json as T };
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      return { ok: false, error: new Error(`mpc-relay: request timed out after ${MPC_RELAY_REQUEST_TIMEOUT_MS}ms`) };
+      return {
+        ok: false,
+        status,
+        error: new Error(`mpc-relay: request timed out after ${MPC_RELAY_REQUEST_TIMEOUT_MS}ms`, { cause: error }),
+      };
     }
-    return { ok: false, error };
+    return { ok: false, status, error };
   } finally {
     clearTimeout(timer);
   }
@@ -297,15 +307,33 @@ export async function submitWithdraw(
   request: SubmitWithdrawRequest,
 ): Promise<Result<SubmitWithdrawResponse>> {
   invariant(request.signature.length > 0, 'Invalid input parameters. signature empty');
-  const res = await getJson<SubmitWithdrawResponse>(`${apiUrl}/withdraw`, {
+  const trackingId = keccak256(concat([request.message.sender, toHex(BigInt(request.message.nonce), { size: 8 })]));
+  const indeterminate = (cause: unknown) => ({
+    ok: false as const,
+    error: new IndeterminateOutcomeError('mpc-relay: withdraw submission outcome is unknown', { trackingId, cause }),
+  });
+  const res = await getJson<SubmitWithdrawResponse | null>(`${apiUrl}/withdraw`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   });
-  if (res.ok && !res.value.accepted) {
+  if (!res.ok) {
+    if (res.status !== undefined && res.status >= 400 && res.status < 500) {
+      return { ok: false, error: res.error };
+    }
+    return indeterminate(res.error);
+  }
+  if (res.value?.accepted === false) {
     return { ok: false, error: new Error(`mpc-relay: withdraw rejected: ${res.value.error ?? 'unknown'}`) };
   }
-  return res;
+  if (
+    res.value?.accepted !== true ||
+    typeof res.value.trackingId !== 'string' ||
+    res.value.trackingId.toLowerCase() !== trackingId
+  ) {
+    return indeterminate(new Error('mpc-relay: withdraw reply has no matching acceptance'));
+  }
+  return { ok: true, value: { ...res.value, trackingId } };
 }
 
 export async function getWithdrawal(apiUrl: HttpUrl, trackingId: string): Promise<Result<WithdrawalRecord>> {

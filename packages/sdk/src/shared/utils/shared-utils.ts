@@ -23,6 +23,8 @@ import {
   type PartnerFee,
   type QuoteType,
   getUnmetMpcPayoutMinimum,
+  getMpcPayoutMinimum,
+  isMpcRelayChainKey,
   type SodaxFeature,
 } from '@sodax/types';
 import { formatUnits, hexToBytes, isAddress, toHex } from 'viem';
@@ -166,12 +168,18 @@ export function assertMpcPayoutAboveMinimum({
   context,
 }: {
   feature: SodaxFeature;
-  token: Pick<XToken, 'chainKey' | 'symbol' | 'decimals'>;
+  token: Pick<XToken, 'chainKey' | 'address' | 'symbol' | 'decimals'>;
   amount: bigint;
   /** Decimals `amount` is in, when not the token's own. */
   amountDecimals?: number;
   context?: Partial<SodaxErrorContext>;
 }): void {
+  if (isMpcRelayChainKey(token.chainKey) && getMpcPayoutMinimum(token) === undefined) {
+    throw new SodaxError('VALIDATION_FAILED', `No MPC relay payout minimum for ${token.address} on ${token.chainKey}`, {
+      feature,
+      context: { phase: 'validate', ...context, reason: 'mpc-payout-minimum-missing' },
+    });
+  }
   const unmet = getUnmetMpcPayoutMinimum({ token, amount, amountDecimals });
   if (!unmet) return;
   throw new SodaxError(
