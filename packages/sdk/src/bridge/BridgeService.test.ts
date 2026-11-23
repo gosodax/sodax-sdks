@@ -422,6 +422,26 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
     ).toThrow(/Payout token chain must match/);
   });
 
+  it('refuses a Tron token descriptor for a non-MPC destination', () => {
+    const token = tronSupportedTokens.USDT;
+    expect(() =>
+      sodax.bridge.buildBridgeData(
+        {
+          srcChainKey: ChainKeys.TRON_MAINNET,
+          srcAddress: TRON_TEST_ADDRESS,
+          srcToken: token.address,
+          dstChainKey: ARBITRUM,
+          dstToken: token.address,
+          recipient: FEE_ADDR,
+          amount: 4_000_000n,
+        },
+        token,
+        token,
+        undefined,
+      ),
+    ).toThrow(/Payout token chain must match/);
+  });
+
   it('charges the partner fee in 18-dp hub units, not the spoke token’s units', () => {
     const src = realToken(ARBITRUM, 'USDC');
     const dst = realToken(ChainKeys.SONIC_MAINNET, 'USDC');
@@ -505,8 +525,9 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
   it('targets the hub asset — never the spoke token address — for the fee on the no-deposit path', () => {
     const src = realToken(ARBITRUM, 'ARB'); // hubAsset === vault → no-deposit branch
     expect(src.hubAsset.toLowerCase()).toBe(src.vault.toLowerCase());
-    const dst = sodax.config.getXTokenFromHubAsset(src.hubAsset);
-    if (!dst) throw new Error('fixture missing: hub XToken for ARB hub asset');
+    const hubToken = sodax.config.getXTokenFromHubAsset(src.hubAsset);
+    if (!hubToken) throw new Error('fixture missing: hub XToken for ARB hub asset');
+    const dst = { ...hubToken, chainKey: ChainKeys.SONIC_MAINNET };
     const amount = 10n ** 18n;
 
     const data = sodax.bridge.buildBridgeData(
@@ -566,8 +587,9 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
     // encodeContractCalls, failing every fee-bearing Solana→hub bridge of a vault-asset token.
     const src = realToken(SOLANA, 'BONK');
     expect(src.hubAsset.toLowerCase()).toBe(src.vault.toLowerCase());
-    const dst = sodax.config.getXTokenFromHubAsset(src.hubAsset);
-    if (!dst) throw new Error('fixture missing: hub XToken for BONK hub asset');
+    const hubToken = sodax.config.getXTokenFromHubAsset(src.hubAsset);
+    if (!hubToken) throw new Error('fixture missing: hub XToken for BONK hub asset');
+    const dst = { ...hubToken, chainKey: ChainKeys.SONIC_MAINNET };
     const params = {
       srcChainKey: src.chainKey,
       srcAddress: 'GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi',

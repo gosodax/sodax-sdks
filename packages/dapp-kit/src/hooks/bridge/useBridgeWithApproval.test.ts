@@ -1,4 +1,4 @@
-import { ChainKeys, SodaxError } from '@sodax/sdk';
+import { ATOMIC_BATCH_UNCONFIRMED, ChainKeys, SodaxError } from '@sodax/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const VARS = {
@@ -34,6 +34,18 @@ beforeEach(() => {
 });
 
 describe('useBridgeWithApproval', () => {
+  it.each([
+    { batchId: 'batch-1' },
+    { reason: ATOMIC_BATCH_UNCONFIRMED },
+  ])('suppresses configured retries after an unconfirmed batch ($context)', context => {
+    useBridgeWithApproval({ mutationOptions: { retry: 3 } });
+    const error = new SodaxError('TX_VERIFICATION_FAILED', 'Batch was sent but not confirmed', {
+      feature: 'bridge',
+      context,
+    });
+    expect(captured.retry(0, error)).toBe(false);
+  });
+
   it('suppresses configured retries when the original source hash is known', () => {
     useBridgeWithApproval({ mutationOptions: { retry: 3 } });
     const error = new SodaxError('RELAY_TIMEOUT', 'Settlement pending', {
