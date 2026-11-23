@@ -991,10 +991,10 @@ export class BridgeService {
    * Submits the spoke-side deposit transaction that initiates a bridge transfer,
    * without waiting for the cross-chain relay to complete.
    *
-   * This is the first step of a bridge operation. After this call succeeds, you must
-   * relay the returned `relayData` to the hub (Sonic) via `relayTxAndWaitPacket` or
-   * the intent relay API to complete the transfer. The higher-level `bridge()` method
-   * does this automatically — use `createBridgeIntent()` only when you need manual relay control.
+   * For intent-relay sources, complete the transfer through the intent relay with
+   * the original transaction and returned relay data. For MPC-relay sources, call
+   * `spoke.settle` inbound with the original transaction, relay data and destination.
+   * The higher-level `bridge()` method handles this automatically.
    *
    * When `raw` is `true`, returns the encoded transaction without broadcasting (useful for
    * transaction simulation or batching). When `raw` is `false`, signs and submits the deposit

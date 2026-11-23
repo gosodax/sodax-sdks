@@ -105,7 +105,7 @@ Walkthrough with code: [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap
 
 #### 12. Can I cancel an intent?
 
-Yes, unless it comes from an MPC-relay chain (Tron): only its deadline refunds it, so it cannot be a limit order. Call `cancelIntent(intent)` on the Intents contract. The caller must be the creator, or the deadline must have passed. Intents with pending fills cannot be cancelled. Limit orders (`deadline = 0`) always require manual cancellation.
+Yes, unless it comes from an MPC-relay chain (Tron): hub cancellation follows expiry, so it cannot be a limit order. The corresponding MPC release must settle before the refund reaches the source chain. Call `cancelIntent(intent)` on the Intents contract. The caller must be the creator, or the deadline must have passed. Intents with pending fills cannot be cancelled. Limit orders (`deadline = 0`) always require manual cancellation.
 
 Contract interface: [Intents](/developers/technical-overview/intents).
 

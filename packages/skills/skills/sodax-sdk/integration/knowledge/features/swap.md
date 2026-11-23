@@ -30,12 +30,12 @@ asset. Canonical hub vault registration alone does not enable swaps or lending.
 1. **Build an intent** — `createIntent` signs a spoke transaction encoding the swap declaration.
 2. **Relay to hub** — handled internally; the spoke tx propagates to Sonic.
 3. **Solver fulfillment** — an off-chain solver picks up the intent and fills it on the destination chain.
-4. **Post-execution settlement** — `postExecution` finalizes the user's side once the solver completes.
+4. **Post-execution settlement** — `postExecution` notifies the solver after the intent is registered on Sonic.
 
 Two execution paths:
 
 - **`swap`** — full flow in one call. Wraps `createIntent` + relay + `postExecution`. Returns `SwapResponse` on success. By default uses a **backend-driven 2-step** variant (`swaps.useBackendSubmitTx`, default `true` — the backend relays + post-executes server-side; a Tron source always takes the client-side path); on any non-success it falls back to the client-side relay, returning the same `SwapResponse`. Set `new Sodax({ swaps: { useBackendSubmitTx: false } })` to force client-side only. The SDK does NOT verify the tx on-chain before handing it to the backend — the backend verifies itself, so `verifyTxHash` (and `TX_VERIFICATION_FAILED`) belong to the client-side path only. `timeout` (defaults to `DEFAULT_RELAY_TX_TIMEOUT`) is a PER-ATTEMPT budget, not end-to-end: the backend attempt (submit POST + status poll) gets it, and if that attempt does not complete the client-side relay wait gets a fresh one starting after verification — so neither a stalled backend nor a slow source-chain confirmation shortens the fallback, and raising `timeout` grows both. Each backend request is clamped to `min(budget left in the attempt, api.timeout)`; `api.timeout` is configurable (packaged default `DEFAULT_BACKEND_API_TIMEOUT`), and once the attempt's remainder drops below it a single stalled request can spend what is left — the clamp bounds a request by the attempt, it does not guarantee a retry. Worst case is `createIntent + timeout + verification + max(timeout, RELAY_FALLBACK_FLOOR_MS) + postExecution`; verification is bounded by the source chain's `pollingConfig.maxTimeoutMs` (varies widely — Stacks is several times Sui — read `chains.ts`, and it is a no-op on EVM), and intent creation and post-execution are not bounded by `timeout` at all.
-- **`createIntent` + backend submit** — break it apart for custom relay handling. `createIntent` returns `{ tx, intent, relayData }`; submit `relayData.payload` to the backend swap-tx endpoint via `sodax.api.swaps.submitTx`.
+- **`createIntent` + backend submit** — break it apart for custom relay handling. `createIntent` returns `{ tx, intent, relayData }`; for an intent-relay source, submit `relayData.payload` to the backend swap-tx endpoint via `sodax.api.swaps.submitTx`. For an MPC-relay source, use the same-hash settlement and solver notification described above.
 
 ## Public methods
 
@@ -52,8 +52,8 @@ sodax.swaps.createIntent<K extends SpokeChainKey, Raw extends boolean>(
 ): Promise<Result<CreateIntentResult<K, Raw>, SodaxError>>;
 
 sodax.swaps.postExecution(
-  args: { intent, relayData },
-): Promise<Result<SwapResponse, SodaxError>>;
+  args: { intent_tx_hash: Hex },
+): Promise<Result<SolverExecutionResponse, PostExecutionError>>;
 
 sodax.swaps.createLimitOrder<K, Raw>(
   action: LimitOrderActionParams<K, Raw>,
@@ -356,10 +356,10 @@ if (!result.ok) return;
 
 const { tx: spokeTxHash, intent, relayData } = result.value;
 //   tx is the spoke tx hash (TxReturnType<K, false>) for raw: false
-//   relayData is { address: Hex; payload: Hex }; submit relayData.payload to your backend
+//   relayData is { address: Hex; payload: Hex }; keep it for manual settlement
 ```
 
-### Backend submit-tx flow
+### Backend submit-tx flow for intent-relay sources
 
 Submitting is only the first half. `swap()` also polls to a terminal status and falls back to the client-side relay on any non-success — code that drives the steps itself must do both. Full recipe: [`../recipes/manual-submit-tx-with-fallback.md`](../recipes/manual-submit-tx-with-fallback.md).
 
@@ -429,7 +429,7 @@ Relaying a `createCancelIntent` tx yourself: on Solana pass `data: sodax.swaps.g
 |---|---|
 | `swap` | `SwapResponse` = `{ solverExecutionResponse, intent, intentDeliveryInfo }` |
 | `createIntent` | `CreateIntentResult<K, Raw>` = `{ tx: DepositReturnType<K, Raw>, intent: Intent & FeeAmount, relayData: RelayExtraData }` |
-| `postExecution` | `SwapResponse` |
+| `postExecution` | `SolverExecutionResponse` |
 | `createLimitOrder` / `createLimitOrderIntent` | Same as `createIntent` |
 | `cancelIntent` / `cancelLimitOrder` | `TxHashPair` = `{ srcChainTxHash, dstChainTxHash }` (not generic over `Raw`) |
 | `approve` | `TxReturnType<K, Raw>` |

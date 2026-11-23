@@ -420,7 +420,7 @@ await checkIntentStatus(sodax, intentDeliveryInfo.dstTxHash);
 - `NOT_FOUND (-1)`: Intent not found in the solver system (may appear immediately after creation). After 3 consecutive NOT_FOUND responses, polling stops.
 - `NOT_STARTED_YET (1)`: Intent is queued and waiting to be processed (continues polling)
 - `STARTED_NOT_FINISHED (2)`: Intent is currently being processed (continues polling)
-- `SOLVED (3)`: Swap completed successfully (includes `fill_tx_hash` when available) — **Terminal state**
+- `SOLVED (3)`: The solver filled the intent. For an MPC-relay destination, call `waitForIntentDelivery` to confirm the payout
 - `FAILED (4)`: Swap failed to complete — **Terminal state**
 
 **Polling Behavior**:
@@ -457,7 +457,7 @@ if (!swapResult.ok) {
 
     case 'TX_SUBMIT_FAILED':
       // CRITICAL: spoke tx landed but relay submission failed. Funds may be in flight.
-      // Persist the user's input + spoke tx hash and retry submission.
+      // Intent-relay source only: use the original source hash and relay data to resume submission.
       console.error('Relay submit failed:', error.context?.relayCode, error.cause);
       break;
 

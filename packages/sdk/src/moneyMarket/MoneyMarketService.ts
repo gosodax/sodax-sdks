@@ -802,7 +802,11 @@ export class MoneyMarketService {
                 relayData: txResult.value.relayData,
                 ...(isMpcRelayChainKey(srcChainKey)
                   ? { trackingId: txResult.value.tx }
-                  : { srcTxHash: txResult.value.tx }),
+                  : {
+                      srcTxHash: isBitcoinChainKeyType(srcChainKey)
+                        ? this.spoke.bitcoin.getOnDemandRelayIdentity(txResult.value.tx).pollTxHash
+                        : txResult.value.tx,
+                    }),
               }),
             };
           }
@@ -1021,7 +1025,11 @@ export class MoneyMarketService {
                 relayData: txResult.value.relayData,
                 ...(isMpcRelayChainKey(srcChainKey)
                   ? { trackingId: txResult.value.tx }
-                  : { srcTxHash: txResult.value.tx }),
+                  : {
+                      srcTxHash: isBitcoinChainKeyType(srcChainKey)
+                        ? this.spoke.bitcoin.getOnDemandRelayIdentity(txResult.value.tx).pollTxHash
+                        : txResult.value.tx,
+                    }),
               }),
             };
           }

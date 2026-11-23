@@ -315,7 +315,7 @@ export type SettleParams<
   relayData: RelayExtraData;
   timeout?: number;
   /**
-   * Spoke the action pays out to, when it ends in a transfer off the hub; omit when it ends on the hub.
+   * Payout chain. For outbound settlement from an MPC-relay chain, always pass the original payout chain, including Sonic.
    * Drives the destination leg, which an MPC-relay chain or an MPC-produced hub tx needs driven here.
    */
   dstChainKey?: SpokeChainKey;

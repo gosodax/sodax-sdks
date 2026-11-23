@@ -43,7 +43,7 @@ await sodax.swaps.createIntent({
 
 > **Note (Bitcoin):** even on the `raw: true` path, a Bitcoin TRADING intent makes a live Bound Exchange call to resolve the trading-wallet address (`getEffectiveWalletAddress`) before the PSBT is built. The unsigned PSBT is returned for you to sign offline, but the address lookup is **not** offline — Bound must be reachable, and a valid `accessToken` (per-action or seeded) is required for it.
 
-Submit the raw tx via your own signing infrastructure. Once you have the spoke tx hash, you'll typically need to manually call the relay to complete the cross-chain flow:
+Submit the raw tx via your own signing infrastructure. For an intent-relay source, use the original spoke hash and relay payload to complete the cross-chain flow:
 
 ```ts
 import { relayTxAndWaitPacket, type RelayExtraData } from '@sodax/sdk';
@@ -68,6 +68,25 @@ const relayResult = await relayTxAndWaitPacket({
 > **Note (Tron):** Tron settles through the MPC relay, so there is no intent-relay packet. A raw deposit returns a `TronRawTransaction`, typed as such for a literal chain key: the node-built transfer to the relay's reserve with the memo already in `raw_data_hex`, plus the decoded `raw_data` a browser wallet signs from, so keep both. It expires at `raw_data.expiration`; to sign later, move that first with `sodax.spoke.tron.extendExpiration({ tx, expiration })`. Sign and broadcast it (e.g. `signAndSendTransaction`, which throws on anything but success); after an unclear failure, settle its `txID` rather than rebuild, since a rebuilt tx is a second transfer if the first landed. Then call `sodax.spoke.settle({ chainKey: ChainKeys.TRON_MAINNET, tx: txID, direction: 'inbound', relayData })` with the `create*Intent` `relayData`, plus `dstChainKey` for a bridge to another spoke (else it stops at the hub mint). It notifies the relay, re-notifies until the deposit lands, and returns the hub mint (or that payout) hash as `dstChainTxHash`; to notify without waiting, call `sodax.spoke.submitMpcDeposit({ chainKey, txHash })` and read the record with `sodax.spoke.getMpcRelayDeposit`. A raw borrow or withdraw returns a `TronRawWithdraw` instead, since no Tron transaction exists: sign its `digest` with `signMessage`, pass it with the signature to `sodax.spoke.tron.submitSignedWithdraw({ withdraw, signature })`, and settle the returned trackingId with `direction: 'outbound'` and the chain it pays out to as `dstChainKey`, which resolves to `{ trackingId, dstChainTxHash }`, or read it once with `sodax.spoke.getMpcRelayWithdrawal`. Pinned in [`TronSpokeService.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/TronSpokeService.test.ts) and [`SpokeService.settle.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/SpokeService.settle.test.ts).
 
 > **Note (XRPL):** XRPL also settles through the MPC relay. A raw deposit returns an `XrpRawTransaction` whose `transaction` is the Payment to the relay's reserve with the memo attached and an IOU amount already scaled to the token's units: sign and submit it from the account it names, then settle its hash as for Tron (`direction: 'inbound'`). The SDK cannot check that signer here, and a withdrawal later needs it to hold the account's own ed25519 key. A raw borrow or withdraw returns an `XrpRawWithdraw`: sign its `digest` as a raw ed25519 signature (GemWallet: `signMessage` with its hex flag), pass it with the account's `0xED` public key to `sodax.spoke.xrp.submitSignedWithdraw({ withdraw, signature, publicKey })`, and settle the returned trackingId with `direction: 'outbound'`. Pinned in [`XrpSpokeService.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/XrpSpokeService.test.ts).
+
+For a swap created with `swaps.createIntent`, settle inbound to Sonic without a payout destination. Then notify the solver:
+
+```ts
+import { isHex } from 'viem';
+
+const settled = await sodax.spoke.settle({
+  chainKey: ChainKeys.TRON_MAINNET,
+  tx: txID,
+  direction: 'inbound',
+  relayData,
+});
+if (!settled.ok) throw settled.error; // Resume settlement with the same source hash.
+const hubMintHash = settled.value.dstChainTxHash;
+if (!isHex(hubMintHash)) throw new Error('Expected a hub mint hash');
+const notified = await sodax.swaps.postExecution({ intent_tx_hash: hubMintHash });
+if (!notified.ok) throw notified.error; // Repeat only the notification with this same hash.
+// Poll getDetailedStatus with the original source hash.
+```
 
 This pattern is rare. Prefer signed flow unless you have a specific reason to defer signing.
 
