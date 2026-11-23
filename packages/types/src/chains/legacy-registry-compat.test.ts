@@ -397,8 +397,14 @@ const LEGACY_MONEY_MARKET_HEDERA: readonly string[] = [
 ];
 
 // Plain swap tokens listed after the equities (sodax-solver-v2#1063).
-const STELLAR_APPENDED = ['EURC:CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV'];
+const STELLAR_APPENDED = [
+  'EURC:CDTKPWPLOURQA2SGTKTUQOWRCBZEORB4BWBOMJ3D3ZTQQSGE5F6JBQLV',
+  'ANT:CCGK5VR4BROZDQPYXEPQPQ6B67PBI2XUKO4V34R7QILXXO3Z2YMOT5AC',
+];
+const HEDERA_APPENDED = ['ANT:0x0000000000000000000000000000000000a747a0'];
 const ROBINHOOD_APPENDED = ['PONS:0x39dBED3a2bd333467115dE45665cC57F813C4571'];
+// Equity vaults listed after the four-chain batch (ANT, Anthropic), which is on every equity spoke.
+const SONIC_APPENDED_VAULTS = ['ANT'] as const;
 
 const keysOf = (ids: readonly string[]): string[] => ids.map(id => id.slice(0, id.indexOf(':')));
 
@@ -433,7 +439,11 @@ describe('legacy spoke registries are unchanged prefixes', () => {
   });
 
   it('hederaSupportedTokens', () => {
-    expect(Object.keys(hederaSupportedTokens)).toEqual([...LEGACY_HEDERA_TOKEN_KEYS, ...EQUITY_SYMBOLS]);
+    expect(Object.keys(hederaSupportedTokens)).toEqual([
+      ...LEGACY_HEDERA_TOKEN_KEYS,
+      ...EQUITY_SYMBOLS,
+      ...keysOf(HEDERA_APPENDED),
+    ]);
   });
 
   it('robinhoodSupportedTokens', () => {
@@ -455,6 +465,7 @@ describe('legacy production swap sequences are unchanged prefixes', () => {
       ...LEGACY_SWAP_SONIC_PREFIX,
       ...identify(Object.values(LsodaTokens)),
       ...equityIds(SodaTokens),
+      ...identify(SONIC_APPENDED_VAULTS.map(symbol => SodaTokens[symbol])),
     ]);
   });
 
@@ -470,6 +481,7 @@ describe('legacy production swap sequences are unchanged prefixes', () => {
     expect(identify(swapSupportedTokens[ChainKeys.HEDERA_MAINNET])).toEqual([
       ...LEGACY_SWAP_HEDERA,
       ...equityIds(hederaSupportedTokens),
+      ...HEDERA_APPENDED,
     ]);
   });
 
