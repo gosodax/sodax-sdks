@@ -828,6 +828,38 @@ describe('TronSpokeService.sendMessage', () => {
     expect(relay.size).toBe(1);
   });
 
+  it.each(['accepted', 'exhausted', 'lost reply'])('reuses one signed request after throttling (%s)', async outcome => {
+    const send = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (send.mock.calls.length === 1 || outcome === 'exhausted') {
+        return new Response(null, { status: 429 });
+      }
+      if (outcome === 'lost reply') throw new TypeError('connection closed on retry');
+      const { message } = JSON.parse(String(init?.body));
+      const sender: unknown = message.sender;
+      if (!isHex(sender)) throw new Error('missing sender');
+      const nonceBytes = toHex(BigInt(message.nonce), { size: 8 }).slice(2);
+      return Response.json({ accepted: true, trackingId: keccak256(`${sender}${nonceBytes}`) });
+    });
+    vi.stubGlobal('fetch', send);
+    const result = tron.sendMessage(sendParams);
+
+    if (outcome === 'accepted') {
+      await expect(result).resolves.toMatch(/^0x[0-9a-f]{64}$/);
+    } else if (outcome === 'exhausted') {
+      const error = await result.catch((cause: unknown) => cause);
+      expect(error).toMatchObject({ message: expect.stringContaining('nothing was queued') });
+      expect(isIndeterminateOutcomeError(error)).toBe(false);
+    } else {
+      await expect(result).rejects.toMatchObject({
+        name: 'IndeterminateOutcomeError',
+        trackingId: expect.stringMatching(/^0x[0-9a-f]{64}$/),
+      });
+    }
+    expect(signMessage).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledTimes(outcome === 'exhausted' ? 3 : 2);
+    expect(new Set(send.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
+  });
+
   const nonceOf = (call: number) =>
     BigInt(vi.mocked(MpcRelayApiService.submitWithdraw).mock.calls[call]?.[1].message.nonce ?? '0');
 

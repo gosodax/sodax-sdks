@@ -13,6 +13,7 @@
  */
 
 import type { SodaxFeature } from '@sodax/types';
+import type { RelayExtraData } from '../shared/types/relay-types.js';
 
 /**
  * Reason-only error codes. Each code answers "what kind of failure was this?", not
@@ -129,6 +130,7 @@ export type SodaxErrorContext = {
   srcChainKey?: string;
   srcTxHash?: string;
   trackingId?: string;
+  relayData?: RelayExtraData;
   recovery?: unknown;
   dstChainKey?: string;
   relayCode?: RelayCode;

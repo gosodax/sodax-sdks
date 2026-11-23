@@ -220,6 +220,13 @@ describe('XrpSpokeService.deposit — IOU', () => {
 });
 
 describe('XrpSpokeService.deposit — submit results', () => {
+  it('returns the original hash and notifies the relay for terQUEUED', async () => {
+    stubRippled({ submit: { engine_result: 'terQUEUED' } });
+
+    await expect(xrp.deposit(depositParams(NATIVE_XRP))).resolves.toBe(RELAY_HASH);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '66', RELAY_HASH);
+  });
+
   it('treats a tem* malformed-transaction verdict as definite and skips notify', async () => {
     stubRippled({ submit: { engine_result: 'temBAD_AMOUNT' } });
 
@@ -232,7 +239,6 @@ describe('XrpSpokeService.deposit — submit results', () => {
   it.each([
     'tecUNFUNDED_PAYMENT',
     'tefPAST_SEQ',
-    'terQUEUED',
     'terPRE_SEQ',
     'tec garbage',
     'tem garbage',

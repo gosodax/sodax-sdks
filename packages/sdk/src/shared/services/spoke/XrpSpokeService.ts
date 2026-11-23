@@ -36,6 +36,7 @@ import {
   getWithdrawal,
   notify,
   submitWithdraw,
+  submitFreshWithdrawWithBackoff,
   toDepositId,
   toHubReleaseId,
   waitForDeposit,
@@ -376,7 +377,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
       throw indeterminate(error);
     }
     const result = typeof submitted.engine_result === 'string' ? submitted.engine_result : undefined;
-    if (result === 'tesSUCCESS') return hash;
+    if (result === 'tesSUCCESS' || result === 'terQUEUED') return hash;
     const failure = new Error(`[XrpSpokeService.deposit] submit of ${hash} failed: ${result ?? 'unknown'}`);
     if (result && /^tem[A-Z][A-Z0-9_]*$/.test(result)) throw failure;
     throw indeterminate(failure);
@@ -643,7 +644,9 @@ export class XrpSpokeService implements MpcRelaySettlement {
       params.walletProvider.signMessage(withdraw.digest),
       params.walletProvider.getPublicKey(),
     ]);
-    const trackingId = await this.submitSignedWithdraw({ withdraw, signature, publicKey });
+    const trackingId = await submitFreshWithdrawWithBackoff(() =>
+      this.submitSignedWithdraw({ withdraw, signature, publicKey }),
+    );
     return trackingId satisfies string as XrpSendMessageReturnType<Raw>;
   }
 

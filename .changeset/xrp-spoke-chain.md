@@ -28,4 +28,4 @@ And wires XRPL into the per-family conditional types it was missing from, so `de
 
 An unanswered or provisional XRPL submit reply, including `tec*` or `tef*`, preserves the signed deposit hash in `IndeterminateOutcomeError` and still notifies the relay. Use that hash to recover the original deposit. GemWallet must confirm XRPL Mainnet before submission.
 
-GemWallet replies without a transaction hash expose an `XrpPaymentRecovery` handle. Reconcile the original payment before notifying or starting another deposit. Explicit wallet rejections remain definite.
+GemWallet replies without a transaction hash expose an `XrpPaymentRecovery` handle exported by `@sodax/types`. An XRPL `terQUEUED` submit result passes the original hash into settlement and still requires confirmation. Reconcile the original payment before notifying or starting another deposit. Explicit wallet rejections remain definite.

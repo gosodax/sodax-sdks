@@ -1,6 +1,6 @@
 import type { HttpUrl, MpcRelayChainKey, MpcWithdrawMessage, MpcWithdrawScheme, Result } from '@sodax/types';
 import { concat, encodeAbiParameters, keccak256, toHex, type Hex } from 'viem';
-import { IndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
+import { IndeterminateOutcomeError, isIndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { pollUntil } from '../../utils/pollUntil.js';
 import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
 import { invariant } from '../../utils/tiny-invariant.js';
@@ -140,7 +140,7 @@ const MPC_RELAY_REQUEST_TIMEOUT_MS = 15_000;
 async function getJson<T>(
   url: string,
   init?: RequestInit,
-): Promise<{ ok: false; error: unknown; status?: number; relayError?: string } | { ok: true; value: T }> {
+): Promise<{ ok: false; error: unknown; status?: number } | { ok: true; value: T }> {
   let status: number | undefined;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MPC_RELAY_REQUEST_TIMEOUT_MS);
@@ -162,7 +162,6 @@ async function getJson<T>(
       return {
         ok: false,
         status,
-        relayError,
         error: new Error(`mpc-relay: ${res.status} ${relayError ?? text.slice(0, 160)}`),
       };
     }
@@ -326,7 +325,7 @@ export async function submitWithdraw(
     body: JSON.stringify(request),
   });
   if (!res.ok) {
-    if (res.status === 409 && res.relayError === 'this signed message was already submitted') {
+    if (res.status === 409) {
       return {
         ok: false,
         error: new IndeterminateOutcomeError('mpc-relay: withdraw was already submitted; poll the tracking ID', {
@@ -364,6 +363,31 @@ export async function submitWithdraw(
     return indeterminate(new Error('mpc-relay: withdraw reply has no matching acceptance'));
   }
   return { ok: true, value: { ...res.value, trackingId } };
+}
+
+/** Retry only explicit throttles on a fresh, internally signed authorization. */
+export async function submitFreshWithdrawWithBackoff(submit: () => Promise<string>): Promise<string> {
+  for (const delayMs of [250, 500, 0]) {
+    try {
+      return await submit();
+    } catch (error) {
+      if (!isIndeterminateOutcomeError(error)) throw error;
+      const recovery = error.recovery;
+      if (
+        typeof recovery !== 'object' ||
+        recovery === null ||
+        !('kind' in recovery) ||
+        recovery.kind !== 'retry-same-withdraw'
+      ) {
+        throw error;
+      }
+      if (delayMs === 0) {
+        throw new Error('mpc-relay: withdraw rate limit retries exhausted; nothing was queued', { cause: error.cause });
+      }
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error('mpc-relay: withdraw retry loop ended unexpectedly');
 }
 
 export async function getWithdrawal(apiUrl: HttpUrl, trackingId: string): Promise<Result<WithdrawalRecord>> {
