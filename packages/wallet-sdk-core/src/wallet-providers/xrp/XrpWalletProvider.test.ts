@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { XrpUnsignedTransaction } from '@sodax/types';
+import { isIndeterminateOutcomeError, type XrpUnsignedTransaction } from '@sodax/types';
 import { generateSeed } from 'ripple-keypairs';
 import { decode } from 'xrpl';
 import { XrpWalletProvider, isGemWalletXrpWalletConfig, isPrivateKeyXrpWalletConfig } from './XrpWalletProvider.js';
@@ -316,13 +316,37 @@ describe('XrpWalletProvider.signTransaction — GemWallet', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('reports a submit that returns no hash', async () => {
-    const provider = new XrpWalletProvider({
-      gemWallet: gemWallet({ submitTransaction: vi.fn(async () => ({ result: {} })) }),
-      address: GEM_ADDRESS,
-    });
+  it('exposes a typed recovery handle when GemWallet returns no hash', async () => {
+    const reply = { type: 'response', result: {} } as const;
+    const gem = gemWallet({ submitTransaction: vi.fn(async () => reply) });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+    const tx = { ...payment, Memos: [{ Memo: { MemoData: 'ABCD' } }] };
 
-    await expect(provider.signTransaction(payment)).rejects.toThrow(/no transaction hash/);
+    const error = await provider.signTransaction(tx).catch((cause: unknown) => cause);
+
+    expect(isIndeterminateOutcomeError(error)).toBe(true);
+    expect(error).toMatchObject({
+      recovery: {
+        kind: 'xrp-payment',
+        account: tx.Account,
+        destination: tx.Destination,
+        amount: tx.Amount,
+        memo: 'ABCD',
+        attemptedAtMs: expect.any(Number),
+      },
+      cause: reply,
+    });
+    expect(gem.submitTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('preserves an explicit GemWallet rejection as a definite failure', async () => {
+    const gem = gemWallet({ submitTransaction: vi.fn(async () => ({ type: 'reject' as const })) });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    const error = await provider.signTransaction(payment).catch((cause: unknown) => cause);
+
+    expect(isIndeterminateOutcomeError(error)).toBe(false);
+    expect(error).toMatchObject({ message: expect.stringContaining('rejected by the user') });
   });
 });
 

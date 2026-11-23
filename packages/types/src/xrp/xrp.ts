@@ -41,6 +41,16 @@ export interface XrpUnsignedTransaction {
   [field: string]: unknown;
 }
 
+/** Identifies an XRP Ledger payment whose wallet reply did not include a hash. */
+export type XrpPaymentRecovery = {
+  readonly kind: 'xrp-payment';
+  readonly account: string;
+  readonly destination: string;
+  readonly memo?: string;
+  readonly amount: XrpAmount;
+  readonly attemptedAtMs: number;
+};
+
 /** A signed XRPL transaction blob ready to submit. */
 export interface XrpSignedTransaction {
   /** Hex-encoded signed transaction blob (`tx_blob`). */

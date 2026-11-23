@@ -165,6 +165,8 @@ The `action` field routes to the right token under the hood — relevant for rep
 | `getSupportedReserves` | `readonly Address[]` |
 | `buildSupplyData` / `buildBorrowData` / `buildWithdrawData` / `buildRepayData` | `Hex` (calldata for hub-side calls) |
 
+If `borrow` or `withdraw` returns `INTENT_CREATION_FAILED` with `error.context.trackingId`, poll that ID with `sodax.spoke.getMpcRelayWithdrawal({ chainKey, trackingId })` or settle it outbound using the ID as `tx`. Never call `borrow` or `withdraw` again to recover that attempt. A rejected replay leaves the original outcome unresolved. Keep polling the original ID.
+
 > Every cross-chain mutation across the SDK (bridge, staking, dex, migration, MM) returns an object (`TxHashPair`, or `OutboundSettlement<K>` above) — there is no array-form variant in v2.
 
 `approve` can send **two** transactions on a token that rejects a non-zero to non-zero allowance

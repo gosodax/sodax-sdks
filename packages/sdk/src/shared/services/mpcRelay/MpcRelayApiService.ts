@@ -140,7 +140,7 @@ const MPC_RELAY_REQUEST_TIMEOUT_MS = 15_000;
 async function getJson<T>(
   url: string,
   init?: RequestInit,
-): Promise<{ ok: false; error: unknown; status?: number } | { ok: true; value: T }> {
+): Promise<{ ok: false; error: unknown; status?: number; relayError?: string } | { ok: true; value: T }> {
   let status: number | undefined;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), MPC_RELAY_REQUEST_TIMEOUT_MS);
@@ -155,8 +155,16 @@ async function getJson<T>(
       return { ok: false, status, error: new Error(`mpc-relay: ${res.status} non-JSON: ${text.slice(0, 160)}`) };
     }
     if (!res.ok) {
-      const err = (json as { error?: string })?.error ?? text.slice(0, 160);
-      return { ok: false, status, error: new Error(`mpc-relay: ${res.status} ${err}`) };
+      const relayError =
+        typeof json === 'object' && json !== null && 'error' in json && typeof json.error === 'string'
+          ? json.error
+          : undefined;
+      return {
+        ok: false,
+        status,
+        relayError,
+        error: new Error(`mpc-relay: ${res.status} ${relayError ?? text.slice(0, 160)}`),
+      };
     }
     return { ok: true, value: json as T };
   } catch (error) {
@@ -318,6 +326,28 @@ export async function submitWithdraw(
     body: JSON.stringify(request),
   });
   if (!res.ok) {
+    if (res.status === 409 && res.relayError === 'this signed message was already submitted') {
+      return {
+        ok: false,
+        error: new IndeterminateOutcomeError('mpc-relay: withdraw was already submitted; poll the tracking ID', {
+          trackingId,
+          cause: res.error,
+        }),
+      };
+    }
+    if (res.status === 429) {
+      return {
+        ok: false,
+        error: new IndeterminateOutcomeError(
+          'mpc-relay: withdraw was rate limited; retry only the same signed bytes after backoff',
+          {
+            trackingId,
+            cause: res.error,
+            recovery: { kind: 'retry-same-withdraw' } as const,
+          },
+        ),
+      };
+    }
     if (res.status !== undefined && res.status >= 400 && res.status < 500) {
       return { ok: false, error: res.error };
     }

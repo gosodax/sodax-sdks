@@ -376,9 +376,9 @@ export class XrpSpokeService implements MpcRelaySettlement {
       throw indeterminate(error);
     }
     const result = typeof submitted.engine_result === 'string' ? submitted.engine_result : undefined;
-    if (result === 'tesSUCCESS' || result === 'terQUEUED') return hash;
+    if (result === 'tesSUCCESS') return hash;
     const failure = new Error(`[XrpSpokeService.deposit] submit of ${hash} failed: ${result ?? 'unknown'}`);
-    if (result && /^(tem|tec|tef)/.test(result) && result !== 'tefALREADY') throw failure;
+    if (result && /^tem[A-Z][A-Z0-9_]*$/.test(result)) throw failure;
     throw indeterminate(failure);
   }
 

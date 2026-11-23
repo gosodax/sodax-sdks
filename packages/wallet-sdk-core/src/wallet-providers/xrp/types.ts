@@ -25,7 +25,7 @@ export interface GemWalletLike {
   /** `submitTransaction({ transaction })` → submits a Payment and returns its hash. */
   submitTransaction: (payload: {
     transaction: Record<string, unknown>;
-  }) => Promise<{ result?: { hash?: string } } | undefined>;
+  }) => Promise<{ type?: 'response' | 'reject'; result?: { hash?: string } } | undefined>;
   /**
    * `getNetwork()` → the ledger the wallet submits to. GemWallet also serves Testnet, Devnet and the Xahau
    * ledger. Submission requires an explicit XRPL Mainnet result.

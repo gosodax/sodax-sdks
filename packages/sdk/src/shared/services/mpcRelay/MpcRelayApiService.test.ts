@@ -89,6 +89,24 @@ describe('submitWithdraw', () => {
   });
 
   it.each([
+    [409, 'this signed message was already submitted', undefined],
+    [429, 'rate limit exceeded', { kind: 'retry-same-withdraw' }],
+  ])('preserves the original tracking ID on HTTP %s', async (status, message, recovery) => {
+    const send = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error('lost reply'))
+      .mockResolvedValueOnce(Response.json({ accepted: false, error: message }, { status }));
+    vi.stubGlobal('fetch', send);
+    const first = await submitWithdraw(API, request);
+    const replay = await submitWithdraw(API, request);
+    if (first.ok || replay.ok || !isIndeterminateOutcomeError(first.error)) throw new Error('expected recovery errors');
+    expect(isIndeterminateOutcomeError(replay.error)).toBe(true);
+    expect(replay.error).toMatchObject({ trackingId: first.error.trackingId, recovery });
+    expect(send.mock.calls[0]?.[1]?.body).toBe(send.mock.calls[1]?.[1]?.body);
+  });
+
+  it.each([
+    [409, '{"accepted":false,"error":"other conflict"}'],
     [400, 'invalid signature'],
     [200, '{"accepted":false,"error":"invalid signature"}'],
   ])('treats a %s response with body %s as a definite rejection', async (status, body) => {
@@ -99,7 +117,7 @@ describe('submitWithdraw', () => {
     const result = await submitWithdraw(API, request);
     if (result.ok) throw new Error('expected rejection');
     expect(result.error).not.toBeInstanceOf(IndeterminateOutcomeError);
-    expect(result.error).toMatchObject({ message: expect.stringContaining('invalid signature') });
+    expect(result.error).toMatchObject({ message: expect.stringMatching(/invalid signature|other conflict/) });
   });
 });
 

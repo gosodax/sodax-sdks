@@ -4,8 +4,7 @@
  *
  * XRPL deposits ride the MPC relay in memo mode, like Tron, but the ledger-side shapes are what
  * matter here: an IOU Payment carries a currency/issuer amount OBJECT scaled to whole units while
- * native XRP carries a drops STRING, the memo is bare uppercase hex, and only `tesSUCCESS` and
- * `terQUEUED` count as an accept. Withdrawals use auth scheme 3 (raw ed25519 + submitted public key), which is the
+ * native XRP carries a drops STRING, the memo is bare uppercase hex, and submit reports preliminary verdicts. Withdrawals use auth scheme 3 (raw ed25519 + submitted public key), which is the
  * one structural difference from Tron's scheme 1.
  */
 
@@ -221,24 +220,22 @@ describe('XrpSpokeService.deposit — IOU', () => {
 });
 
 describe('XrpSpokeService.deposit — submit results', () => {
-  it('treats a tec* applied-but-failed result as a failure and does not notify', async () => {
-    stubRippled({ submit: { engine_result: 'tecUNFUNDED_PAYMENT', tx_json: { hash: TX_HASH } } });
+  it('treats a tem* malformed-transaction verdict as definite and skips notify', async () => {
+    stubRippled({ submit: { engine_result: 'temBAD_AMOUNT' } });
 
-    await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toThrow(
-      new RegExp(`submit of ${RELAY_HASH} failed: tecUNFUNDED_PAYMENT`),
-    );
+    const error = await xrp.deposit(depositParams(NATIVE_XRP)).catch((cause: unknown) => cause);
+    expect(error).toMatchObject({ message: expect.stringContaining('temBAD_AMOUNT') });
+    expect(error).not.toBeInstanceOf(IndeterminateOutcomeError);
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
-  it('accepts terQUEUED, which a later ledger usually applies, and notifies the relay', async () => {
-    stubRippled({ submit: { engine_result: 'terQUEUED', tx_json: { hash: TX_HASH } } });
-
-    expect(await xrp.deposit(depositParams(NATIVE_XRP))).toBe(RELAY_HASH);
-    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '66', RELAY_HASH);
-  });
-
   it.each([
+    'tecUNFUNDED_PAYMENT',
+    'tefPAST_SEQ',
+    'terQUEUED',
     'terPRE_SEQ',
+    'tec garbage',
+    'tem garbage',
     undefined,
     { toString: false },
   ])('notifies and exposes the hash when the verdict is %s', async engine_result => {
@@ -281,6 +278,16 @@ describe('XrpSpokeService.deposit — submit results', () => {
     await expect(xrp.deposit(depositParams(NATIVE_XRP))).resolves.toBe(
       '0x0c51f1f39d58c461731611827474f67fcf65895242b127b3d8d7b3b1b8c3d2fa',
     );
+  });
+
+  it('preserves a wallet recovery handle and waits for a hash before notifying', async () => {
+    stubRippled();
+    const recovery = { kind: 'xrp-payment', account: SENDER };
+    const error = new IndeterminateOutcomeError('wallet returned no hash', { cause: undefined, recovery });
+    signTransaction.mockRejectedValueOnce(error);
+
+    await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toBe(error);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
   it('uses the hash of a wallet that already submitted, without submitting again, and notifies', async () => {
