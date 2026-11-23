@@ -10,8 +10,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { encodeAbiParameters, keccak256 } from 'viem';
+import { concat, encodeAbiParameters, keccak256, toHex } from 'viem';
 import { ChainKeys, spokeChainConfig, type Hex, type XrpRawWithdraw } from '@sodax/types';
+import { IndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import { computeSignedMessageHash } from './mpc-message.js';
@@ -224,7 +225,7 @@ describe('XrpSpokeService.deposit — submit results', () => {
     stubRippled({ submit: { engine_result: 'tecUNFUNDED_PAYMENT', tx_json: { hash: TX_HASH } } });
 
     await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toThrow(
-      new RegExp(`submit of ${TX_HASH} failed: tecUNFUNDED_PAYMENT`),
+      new RegExp(`submit of ${RELAY_HASH} failed: tecUNFUNDED_PAYMENT`),
     );
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
@@ -236,36 +237,50 @@ describe('XrpSpokeService.deposit — submit results', () => {
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '66', RELAY_HASH);
   });
 
-  it('still treats the other ter* retry codes as a failure', async () => {
-    stubRippled({ submit: { engine_result: 'terPRE_SEQ', tx_json: { hash: TX_HASH } } });
+  it.each([
+    'terPRE_SEQ',
+    undefined,
+    { toString: false },
+  ])('notifies and exposes the hash when the verdict is %s', async engine_result => {
+    stubRippled({ submit: { engine_result } });
 
-    await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toThrow(/failed: terPRE_SEQ/);
-    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+    await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toMatchObject({
+      name: 'IndeterminateOutcomeError',
+      txHash: RELAY_HASH,
+    });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '66', RELAY_HASH);
   });
 
-  it('keeps the signed tx hash in the error when the submit call itself fails', async () => {
+  it.each([
+    [TX_HASH, RELAY_HASH],
+    ['', '0x0c51f1f39d58c461731611827474f67fcf65895242b127b3d8d7b3b1b8c3d2fa'],
+  ])('notifies with the locally known hash after a lost submit response', async (hash, expected) => {
     stubRippled();
+    vi.mocked(signTransaction).mockResolvedValueOnce({ tx_blob: '1200002280000000', hash });
     const fetchMock = vi.mocked(fetch);
     const answer = fetchMock.getMockImplementation();
+    const lost = new Error('connection closed after submit');
     fetchMock.mockImplementation(async (url, init) => {
-      const { method } = JSON.parse(String(init?.body)) as { method: string };
-      if (method === 'submit') throw new Error('aborted');
-      return answer ? answer(url, init) : Promise.reject(new Error('no stub'));
+      const { method } = JSON.parse(String(init?.body));
+      if (method === 'submit') throw lost;
+      if (!answer) throw new Error('no stub');
+      return answer(url, init);
     });
 
-    const failure = await xrp.deposit(depositParams(NATIVE_XRP)).catch((error: Error) => error);
-
-    // A signed blob may still land after a lost response; the hash is the only way to find it.
-    expect((failure as Error).message).toMatch(new RegExp(`submit of ${TX_HASH} failed or timed out`));
-    expect(((failure as Error).cause as Error).message).toMatch(/aborted/);
-    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+    const failure = await xrp.deposit(depositParams(NATIVE_XRP)).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(IndeterminateOutcomeError);
+    expect(failure).toMatchObject({ txHash: expected, cause: lost });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '66', expected);
+    expect(signTransaction).toHaveBeenCalledOnce();
   });
 
-  it('rejects a submit that reports success but returns no hash', async () => {
+  it('derives the hash before a successful submit without a returned hash', async () => {
     stubRippled({ submit: { engine_result: 'tesSUCCESS' } });
-    vi.mocked(signTransaction).mockResolvedValueOnce({ tx_blob: '1200002280000000' } as never);
+    vi.mocked(signTransaction).mockResolvedValueOnce({ tx_blob: '1200002280000000', hash: '' });
 
-    await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toThrow(/no transaction hash returned/);
+    await expect(xrp.deposit(depositParams(NATIVE_XRP))).resolves.toBe(
+      '0x0c51f1f39d58c461731611827474f67fcf65895242b127b3d8d7b3b1b8c3d2fa',
+    );
   });
 
   it('uses the hash of a wallet that already submitted, without submitting again, and notifies', async () => {
@@ -923,6 +938,26 @@ describe('XrpSpokeService.sendMessage', () => {
       });
     });
 
+    it('preserves the shared tracking ID after a lost withdraw response', async () => {
+      const withdraw = await buildRaw();
+      vi.mocked(MpcRelayApiService.submitWithdraw).mockRestore();
+      const lost = new Error('lost relay response');
+      const fetch = vi.fn(async () => {
+        throw lost;
+      });
+      vi.stubGlobal('fetch', fetch);
+
+      const failure = await xrp
+        .submitSignedWithdraw({ withdraw, signature: SIGNATURE, publicKey: PUBLIC_KEY })
+        .catch((error: unknown) => error);
+      const trackingId = keccak256(
+        concat([withdraw.message.sender, toHex(BigInt(withdraw.message.nonce), { size: 8 })]),
+      );
+      expect(failure).toBeInstanceOf(IndeterminateOutcomeError);
+      expect(failure).toMatchObject({ cause: lost, trackingId });
+      expect(fetch).toHaveBeenCalledOnce();
+    });
+
     // Each would fail at the relay or the contract with no clear reason, after the user has signed.
     it.each([
       ["a scheme that is not XRPL's", (w: XrpRawWithdraw) => ({ ...w, scheme: 1 as const }), PUBLIC_KEY],
@@ -980,17 +1015,26 @@ describe('XrpSpokeService.waitForTransactionReceipt', () => {
 
 describe('XrpSpokeService — node request budget', () => {
   it('reports a stalled node as a timeout instead of hanging', async () => {
-    const abort = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => {
-        throw abort;
-      }),
-    );
-
-    await expect(xrp.getDeposit({ srcChainKey: XRP, srcAddress: SENDER, token: NATIVE_XRP } as never)).rejects.toThrow(
-      /timed out after \d+ms/,
-    );
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          (_url, init?: RequestInit) =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
+                once: true,
+              });
+            }),
+        ),
+      );
+      const result = xrp.getDeposit({ srcChainKey: XRP, srcAddress: SENDER, token: NATIVE_XRP } as never);
+      const check = expect(result).rejects.toThrow(/timed out after \d+ms/);
+      await vi.runAllTimersAsync();
+      await check;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('surfaces a rippled error payload rather than treating it as a result', async () => {

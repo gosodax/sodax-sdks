@@ -1010,7 +1010,9 @@ describe('LeverageYieldService.createVaultIntent', () => {
   it.each([
     99_000_000n,
     50_000_000n,
+    49_999_999n,
   ])('checks vault solved payout headroom for minimum %s before signing', async minOutputAmount => {
+    vi.spyOn(sodax.leverageYield, 'getQuote').mockResolvedValue({ ok: true, value: { quoted_amount: 100_000_000n } });
     vi.spyOn(sodax.spoke.xrp, 'checkDestination').mockImplementation(async ({ amount, maxAmount = amount }) =>
       maxAmount > 100_000_000n ? { ready: false, reason: 'trustline_limit' } : { ready: true },
     );
@@ -1035,12 +1037,19 @@ describe('LeverageYieldService.createVaultIntent', () => {
       expect(result.error.context).toMatchObject({ reason: 'xrpl-trustline_limit' });
       expect(pastValidation).not.toHaveBeenCalled();
       expect(signing).not.toHaveBeenCalled();
+    } else if (minOutputAmount < 50_000_000n) {
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.context?.field).toBe('minOutputAmount');
+      expect(pastValidation).not.toHaveBeenCalled();
+      expect(signing).not.toHaveBeenCalled();
     } else expect(pastValidation).toHaveBeenCalled();
   });
 
   it('refuses a payout to an XRPL account that cannot receive it before signing anything', async () => {
     const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
     const xrplAddress = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+    vi.spyOn(sodax.leverageYield, 'getQuote').mockResolvedValue({ ok: true, value: { quoted_amount: 10_000_000n } });
     const checkSpy = vi
       .spyOn(sodax.spoke.xrp, 'checkDestination')
       .mockResolvedValue({ ready: false, reason: 'account_not_found' });

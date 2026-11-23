@@ -228,6 +228,12 @@ export function isMpcRelayChainKey(chainId: SpokeChainKey): boolean {
   return chainId in MpcRelayChainMap;
 }
 
+/** Look up the floor by token identity, independently of its display symbol. */
+export function getMpcPayoutMinimum(token: Pick<XToken, 'chainKey' | 'address'>): bigint | undefined {
+  const floors = MpcRelayPayoutMinimums[token.chainKey];
+  return floors && Object.hasOwn(floors, token.address) ? floors[token.address] : undefined;
+}
+
 /** The {@link MpcRelayPayoutMinimums} entry a payout fails to exceed; `minimum` is in `decimals`. */
 export type MpcPayoutMinimum = { symbol: string; decimals: number; minimum: bigint };
 
@@ -244,11 +250,11 @@ export function getUnmetMpcPayoutMinimum({
   amount,
   amountDecimals = token.decimals,
 }: {
-  token: Pick<XToken, 'chainKey' | 'symbol' | 'decimals'>;
+  token: Pick<XToken, 'chainKey' | 'address' | 'symbol' | 'decimals'>;
   amount: bigint;
   amountDecimals?: number;
 }): MpcPayoutMinimum | undefined {
-  const minimum = MpcRelayPayoutMinimums[token.chainKey]?.[token.symbol];
+  const minimum = getMpcPayoutMinimum(token);
   if (minimum === undefined) return undefined;
   const delivered =
     amountDecimals >= token.decimals

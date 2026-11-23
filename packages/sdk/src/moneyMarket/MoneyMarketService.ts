@@ -1561,12 +1561,15 @@ export class MoneyMarketService {
       calls.push(EvmVaultTokenService.encodeWithdraw(vaultAddress, assetAddress, translatedInAmount));
     }
 
-    let translatedAmountOut: bigint;
-    if (this.config.isSodaVaultHubAsset(assetAddress)) {
-      translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(toHubAsset.decimals, translatedInAmount);
-    } else {
-      translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(dstToken.decimals, translatedInAmount);
-    }
+    const amountOutDecimals = this.config.isSodaVaultHubAsset(assetAddress) ? toHubAsset.decimals : dstToken.decimals;
+    const translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(amountOutDecimals, translatedInAmount);
+    assertMpcPayoutAboveMinimum({
+      feature: 'moneyMarket',
+      token: dstToken,
+      amount: translatedAmountOut,
+      amountDecimals: amountOutDecimals,
+      context: { dstChainKey, action: 'withdraw', field: 'amount' },
+    });
 
     if (dstChainKey === this.hubProvider.chainConfig.chain.key) {
       if (

@@ -1670,13 +1670,23 @@ describe('BridgeService.getDetailedStatus', () => {
       const hubMint = { chain: 'sonic', hash: DST_TX, ts: 0 };
       deposit('minted', { hubMint });
 
-      const result = await sodaxBE.bridge.getDetailedStatus(tronKey);
+      const result = await sodaxBE.bridge.getDetailedStatus({ ...tronKey, dstChainKey: ChainKeys.SONIC_MAINNET });
 
       expect(result).toEqual({
         ok: true,
         value: { source: 'mpcRelay', data: { depositId: 'id', status: 'minted', createdAt: 0, txs: { hubMint } } },
       });
       expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
+    });
+
+    it('keeps a hub mint non-terminal when the destination is omitted', async () => {
+      recordNotFound();
+      deposit('minted', { hubMint: { chain: 'sonic', hash: DST_TX, ts: 0 } });
+
+      const result = await sodaxBE.bridge.getDetailedStatus(tronKey);
+
+      invariant(!result.ok, 'expected a non-terminal lookup');
+      expect(result.error.context).toMatchObject({ reason: DETAILED_STATUS_NOT_DELIVERED, hubTxHash: DST_TX });
     });
 
     describe('to another spoke', () => {
@@ -1971,18 +1981,18 @@ describe('BridgeService.createBridgeIntent — small payout to an MPC-relay chai
   const hubAsset = '0x2222222222222222222222222222222222222222' as Address;
   const src = { address: SAMPLE_TOKEN, chainKey: ARBITRUM, symbol: 'USDT', decimals: 18, hubAsset };
   const dst = {
-    address: tronSupportedTokens.USDT.address,
+    address: String(tronSupportedTokens.USDT.address),
     chainKey: ChainKeys.TRON_MAINNET,
     symbol: 'USDT',
     decimals: 6,
     hubAsset,
   };
 
-  const run = async (amount: bigint, partnerFee?: PartnerFee) => {
+  const run = async (amount: bigint, partnerFee?: PartnerFee, destination = dst) => {
     // Private, and the only seam that gives the two endpoints decimals that differ.
     const resolver = sodaxBE.bridge as unknown as { resolveBridgeEndpointToken: (chainKey: string) => unknown };
     vi.spyOn(resolver, 'resolveBridgeEndpointToken').mockImplementation(chainKey =>
-      chainKey === ChainKeys.TRON_MAINNET ? dst : src,
+      chainKey === ChainKeys.TRON_MAINNET ? destination : src,
     );
     const pastValidation = vi
       .spyOn(sodaxBE.hubProvider, 'getUserHubWalletAddress')
@@ -2002,6 +2012,17 @@ describe('BridgeService.createBridgeIntent — small payout to an MPC-relay chai
     expect(result.error.context?.reason).toBe('mpc-payout-below-minimum');
     expect(pastValidation).not.toHaveBeenCalled();
   };
+
+  it('refuses the floor even with a custom symbol on the same token', async () => {
+    expectRefused(await run(3n * 10n ** 18n, undefined, { ...dst, symbol: 'CUSTOM' }));
+  });
+
+  it('refuses a token address without a floor even when it uses the USDT symbol', async () => {
+    const { result, pastValidation } = await run(4n * 10n ** 18n, undefined, { ...dst, address: TRON_TEST_ADDRESS });
+    invariant(!result.ok, 'expected a refusal');
+    expect(result.error.context?.reason).toBe('mpc-payout-minimum-missing');
+    expect(pastValidation).not.toHaveBeenCalled();
+  });
 
   it('refuses the source amount converted to the payout decimals at the minimum', async () => {
     expectRefused(await run(3n * 10n ** 18n));

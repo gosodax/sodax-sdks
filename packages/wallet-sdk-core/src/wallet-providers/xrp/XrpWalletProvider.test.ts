@@ -59,6 +59,7 @@ function stubRippled(overrides: Record<string, unknown> = {}) {
 
 function gemWallet(overrides: Partial<GemWalletLike> = {}): GemWalletLike {
   return {
+    getNetwork: vi.fn(async () => ({ result: { chain: 'XRPL', network: 'Mainnet' } })),
     getAddress: vi.fn(async () => ({ result: { address: GEM_ADDRESS } })),
     getPublicKey: vi.fn(async () => ({ result: { publicKey: `ED${'11'.repeat(32)}` } })),
     signMessage: vi.fn(async () => ({ result: { signedMessage: 'CD'.repeat(64) } })),
@@ -267,6 +268,18 @@ describe('XrpWalletProvider.signTransaction — GemWallet network', () => {
     const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
 
     await expect(provider.signTransaction(payment)).rejects.toThrow(/switch it to the XRPL Mainnet/);
+    expect(gem.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    undefined,
+    async () => undefined,
+    async () => ({ result: { chain: 'XRPL' } }),
+  ])('refuses to submit without confirmed XRPL Mainnet', async getNetwork => {
+    const gem = gemWallet({ getNetwork });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    await expect(provider.signTransaction(payment)).rejects.toThrow(/did not confirm/);
     expect(gem.submitTransaction).not.toHaveBeenCalled();
   });
 

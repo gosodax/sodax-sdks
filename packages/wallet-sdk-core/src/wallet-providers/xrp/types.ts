@@ -28,7 +28,7 @@ export interface GemWalletLike {
   }) => Promise<{ result?: { hash?: string } } | undefined>;
   /**
    * `getNetwork()` → the ledger the wallet submits to. GemWallet also serves Testnet, Devnet and the Xahau
-   * ledger; when present, a submit anywhere but the XRPL Mainnet is refused.
+   * ledger. Submission requires an explicit XRPL Mainnet result.
    */
   getNetwork?: () => Promise<{ result?: { chain?: string; network?: string } } | undefined>;
 }

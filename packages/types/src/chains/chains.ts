@@ -112,14 +112,21 @@ export const MpcRelayChainMap = {
 export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
 
 /**
- * Floor for a payout through the MPC relay, by chain and token symbol, in the payout token's decimals: the SDK
+ * Floor for a payout through the MPC relay, by chain and token address, in the payout token's decimals: the SDK
  * refuses a payout at or below it. The relay deducts a live release fee from the payout, and releases nothing
  * once that fee reaches the amount, after the hub has already burned it. Sized to the fee cap the solver assumes.
  */
 export const MpcRelayPayoutMinimums: Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
-  [ChainKeys.TRON_MAINNET]: { USDT: 3_000_000n, TRX: 10_000_000n },
-  // The relay deducts no XRPL release fee (solver quotes 1:1); XrpSpokeService.checkDestination checks the native account reserve.
-  [ChainKeys.XRP_MAINNET]: {},
+  [ChainKeys.TRON_MAINNET]: {
+    [tronSupportedTokens.USDT.address]: 3_000_000n,
+    [tronSupportedTokens.TRX.address]: 10_000_000n,
+  },
+  // XRPL releases have no relay fee. Unknown issuer addresses still fail closed.
+  [ChainKeys.XRP_MAINNET]: {
+    [xrpSupportedTokens.XRP.address]: 0n,
+    [xrpSupportedTokens.USDC.address]: 0n,
+    [xrpSupportedTokens.RLUSD.address]: 0n,
+  },
 };
 
 export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey>(

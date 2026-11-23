@@ -3677,6 +3677,14 @@ describe('MoneyMarketService — small payout to an MPC-relay chain', () => {
     vault: tronSupportedTokens.USDT.vault,
   };
 
+  it.each(['buildBorrowData', 'buildWithdrawData'] as const)('%s checks the floor on direct calls', method => {
+    const service = new Sodax({ logger: 'silent' }).moneyMarket;
+    const build = (amount: bigint) =>
+      service[method](HUB_WALLET, SAMPLE_DST_ADDRESS, usdt.address, amount, ChainKeys.TRON_MAINNET);
+    expect(() => build(3_000_000n)).toThrow(/must be greater than 3 USDT/);
+    expect(build(3_000_001n)).toMatch(/^0x[0-9a-f]+$/i);
+  });
+
   const setup = () => {
     vi.spyOn(sodax.config, 'getMoneyMarketToken').mockReturnValue(usdt as never);
     vi.spyOn(sodax.moneyMarket.data, 'getReserveData').mockResolvedValue(reserveData(BORROWABLE_RESERVE));

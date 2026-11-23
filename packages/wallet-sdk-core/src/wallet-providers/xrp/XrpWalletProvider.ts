@@ -156,7 +156,10 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
     }
     // GemWallet submits to whichever ledger it is set to; on another, a deposit pays a reserve the relay never watches.
     const network = (await this.gemWallet?.getNetwork?.())?.result;
-    if (network && (network.chain !== 'XRPL' || network.network !== 'Mainnet')) {
+    if (!network?.chain || !network.network) {
+      throw new Error('GemWallet did not confirm the XRPL Mainnet');
+    }
+    if (network.chain !== 'XRPL' || network.network !== 'Mainnet') {
       throw new Error(`GemWallet is set to ${network.chain} ${network.network} — switch it to the XRPL Mainnet`);
     }
     // GemWallet submits as well as signs, so there is no blob to hand back — the hash it returns
