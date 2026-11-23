@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { concat, encodeAbiParameters, keccak256, toHex } from 'viem';
+import { concat, encodeAbiParameters, isHex, keccak256, toHex } from 'viem';
 import { ChainKeys, spokeChainConfig, type Hex, type XrpRawWithdraw } from '@sodax/types';
 import { IndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { Sodax } from '../../entities/Sodax.js';
@@ -73,10 +73,11 @@ function stubRippled(overrides: Record<string, unknown> = {}) {
 
 const signTransaction = vi.fn(async (_tx: Record<string, unknown>) => ({ tx_blob: '1200002280000000', hash: TX_HASH }));
 const getPublicKey = vi.fn(async (): Promise<Hex> => PUBLIC_KEY);
+const signMessage = vi.fn(async () => SIGNATURE);
 const walletProvider = {
   chainType: 'XRP',
   signTransaction,
-  signMessage: vi.fn(async () => SIGNATURE),
+  signMessage,
   getPublicKey,
 } as never;
 
@@ -872,6 +873,41 @@ describe('XrpSpokeService.sendMessage', () => {
 
     expect(submitCall(0)).toMatchObject({ scheme: 3, signature: SIGNATURE, publicKey: PUBLIC_KEY });
     expect(trackingId).toBe(MEMO);
+  });
+
+  it.each(['accepted', 'exhausted', 'lost reply'])('reuses one signed request after throttling (%s)', async outcome => {
+    vi.mocked(MpcRelayApiService.submitWithdraw).mockRestore();
+    signMessage.mockClear();
+    const send = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (send.mock.calls.length === 1 || outcome === 'exhausted') {
+        return new Response(null, { status: 429 });
+      }
+      if (outcome === 'lost reply') throw new TypeError('connection closed on retry');
+      const { message } = JSON.parse(String(init?.body));
+      const sender: unknown = message.sender;
+      if (!isHex(sender)) throw new Error('missing sender');
+      const trackingId = keccak256(concat([sender, toHex(BigInt(message.nonce), { size: 8 })]));
+      return Response.json({ accepted: true, trackingId });
+    });
+    vi.stubGlobal('fetch', send);
+    const result = xrp.sendMessage(sendParams);
+
+    if (outcome === 'accepted') {
+      await expect(result).resolves.toMatch(/^0x[0-9a-f]{64}$/);
+    } else if (outcome === 'exhausted') {
+      const error = await result.catch((cause: unknown) => cause);
+      expect(error).toMatchObject({ message: expect.stringContaining('nothing was queued') });
+      expect(error).not.toBeInstanceOf(IndeterminateOutcomeError);
+      expect(error).not.toHaveProperty('trackingId');
+    } else {
+      await expect(result).rejects.toMatchObject({
+        name: 'IndeterminateOutcomeError',
+        trackingId: expect.stringMatching(/^0x[0-9a-f]{64}$/),
+      });
+    }
+    expect(signMessage).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledTimes(outcome === 'exhausted' ? 3 : 2);
+    expect(new Set(send.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
   });
 
   it('identifies the sender by AccountID rather than public key', async () => {

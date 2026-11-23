@@ -41,7 +41,7 @@ const result = await sodax.recovery.withdrawHubAsset({
 
 ## When to use
 
-Recovery is a workaround for failed cross-chain operations. Best used **after** investigating why the original operation failed — relay timeouts may resolve on retry; structural failures need fixing first.
+Recovery is a workaround for failed cross-chain operations. Best used **after** investigating why the original operation failed — resume settlement using the original source hash or withdrawal tracking ID after a relay timeout. Resolve structural problems before attempting a new operation.
 
 ## Cross-references
 

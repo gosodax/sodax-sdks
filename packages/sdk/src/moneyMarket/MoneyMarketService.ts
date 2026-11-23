@@ -575,7 +575,12 @@ export class MoneyMarketService {
             relayData: txResult.value.relayData,
             timeout,
           });
-          if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
+          if (!settled.ok) {
+            return {
+              ok: false,
+              error: this.mapSettlementFailure(settled.error, { ...baseCtx, srcTxHash: txResult.value.tx }),
+            };
+          }
 
           return settled;
         } catch (error) {
@@ -728,7 +733,7 @@ export class MoneyMarketService {
    */
   private mapSettlementFailure(
     failure: SettlementFailure,
-    ctx: { action: string; srcChainKey: SpokeChainKey; dstChainKey?: SpokeChainKey },
+    ctx: { action: string; srcChainKey: SpokeChainKey; dstChainKey?: SpokeChainKey; srcTxHash?: string },
   ): MoneyMarketOrchestrationError {
     return failure.phase === 'verification'
       ? verifyFailed('moneyMarket', failure.cause, ctx)
@@ -1189,7 +1194,12 @@ export class MoneyMarketService {
             relayData: txResult.value.relayData,
             timeout,
           });
-          if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
+          if (!settled.ok) {
+            return {
+              ok: false,
+              error: this.mapSettlementFailure(settled.error, { ...baseCtx, srcTxHash: txResult.value.tx }),
+            };
+          }
 
           return settled;
         } catch (error) {

@@ -134,7 +134,7 @@ function SwapStatus({ srcChainKey, srcTxHash }: { srcChainKey: SpokeChainKey; sr
 
 Feed it `intentDeliveryInfo.srcChainKey` / `srcTxHash` on success. A `swap()` that fails **after** broadcast
 (verification, relay or postExecution failure) still carries them on `error.context.srcChainKey` /
-`error.context.srcTxHash` — keep polling, since the backend may still complete the swap.
+`error.context.srcTxHash`. For an intent-relay source whose deposit the backend accepted, keep polling. For an MPC-relay source whose settlement timed out or failed before solver notification, use the spoke's `waitForDeposit` with the original hash, then `postExecution` with the hub mint hash. Resume polling after notification succeeds. Do not send another deposit.
 
 ## One Hook for the Whole Form
 
@@ -202,7 +202,7 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
         <p>The destination Stellar account needs some XLM before it can add a trustline.</p>
       )}
       {state.kind === 'needsSetup' && state.reason === 'stellarCheckFailed' && <p>{stellar.error?.message}</p>}
-      {state.kind === 'pending' && !state.srcTxHash && <p>Recover the original transaction before retrying.</p>}
+      {state.kind === 'pending' && !state.srcTxHash && <p>Recover the original transaction without paying again.</p>}
       {state.kind === 'pending' && (
         <button type="button" onClick={reset}>
           Stop tracking

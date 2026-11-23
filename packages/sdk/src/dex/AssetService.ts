@@ -54,6 +54,7 @@ import {
 import { encodeFunctionData, erc20Abi, isAddress } from 'viem';
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import { stataTokenFactoryAbi } from '../shared/abis/stataTokenFactory.abi.js';
+import { mapRelayFailure } from '../errors/relay-error-mapping.js';
 import { approveFailed, intentCreationFailed, lookupFailed } from '../errors/wrappers.js';
 import { dexInvariant, isDexApproveError, isDexCreateIntentError } from './errors.js';
 
@@ -610,7 +611,18 @@ export class AssetService {
     params: SettleParams<K, D>,
   ): Promise<Result<Settlement<K, D>>> {
     const settled = await this.spoke.settle(params);
-    return settled.ok ? settled : { ok: false, error: settled.error.cause };
+    if (settled.ok) return settled;
+    const { cause } = settled.error;
+    if (params.direction === 'outbound') return { ok: false, error: cause };
+    return {
+      ok: false,
+      error: mapRelayFailure(cause, {
+        feature: 'dex',
+        action: 'deposit',
+        srcChainKey: params.chainKey,
+        srcTxHash: params.tx,
+      }),
+    };
   }
 
   /**
