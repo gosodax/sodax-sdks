@@ -73,7 +73,7 @@ These live in other tabs. They document a surface rather than walking a task.
   <Card title="Swaps API reference" icon="rotate" href="/developers/http-api/swaps">
     Every `/v1/swaps/*` route, plus the submit-tx walkthrough.
   </Card>
-  <Card title="Builders MCP" icon="plug" href="/builders-mcp">
+  <Card title="SODAX MCP" icon="plug" href="/sodax-mcp">
     Live chains, tokens, quotes and docs, inside your AI coding agent.
   </Card>
   <Card title="SDK modules" icon="cup-straw" href="/developers/packages/foundation/sdk/functional-modules">

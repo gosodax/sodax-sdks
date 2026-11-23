@@ -59,6 +59,9 @@ export const MUST_NOT_BREAK_URLS = [
   // GitBook served these from its own redirect table, which the cutover retires.
   '/developers/packages/sdk/swaps',
   '/developers/packages/sdk/money_market',
+  // The MCP pages before the server was renamed from Builders MCP to SODAX MCP.
+  '/builders-mcp',
+  '/resources/blog/builders-mcp-agent',
 ];
 
 // Supports the .gitignore subset Mintlify documents: "!" negation, "/" anchor and directory

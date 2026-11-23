@@ -340,7 +340,7 @@ You can also read the same balances in a block explorer: [HashScan](https://hash
 
 ## Build it with an AI agent {#ai-agents}
 
-Install the [`@sodax/skills`](/ai-integration-guide) bundle before you start the agent, and connect the [Builders MCP](/builders-mcp) so it can read live tokens and quotes. Then describe the task plainly, for example *"Add a stocks tab that lets a Hedera user buy AAPL with USDC using `@sodax/dapp-kit`"*. Check what the agent produces against the [Gotchas](#gotchas).
+Install the [`@sodax/skills`](/ai-integration-guide) bundle before you start the agent, and connect the [SODAX MCP](/sodax-mcp) so it can read live tokens and quotes. Then describe the task plainly, for example *"Add a stocks tab that lets a Hedera user buy AAPL with USDC using `@sodax/dapp-kit`"*. Check what the agent produces against the [Gotchas](#gotchas).
 
 | Skill | Use it for |
 | --- | --- |

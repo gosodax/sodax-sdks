@@ -38,16 +38,16 @@ Two SODAX modules are relevant to Base builders:
 | [HTTP API](/developers/http-api) | Swaps and leverage yield from any language, with no SDK to install. Get a key at [portal.sodax.com](https://portal.sodax.com) | [Swap bot flow](/developers/http-api/swaps#bot-flow-create-submit-tx-poll) |
 | [`@sodax/sdk`](/developers/packages/foundation/sdk) | Full control from any TypeScript backend or frontend | [Quickstart](/base/quickstart) |
 | [`@sodax/dapp-kit`](/developers/packages/experience/dapp-kit) + [`@sodax/wallet-sdk-react`](/developers/packages/connection/wallet-sdk-react) | React apps that want hooks and wallet connectivity out of the box | [Wallets](/base/wallets) |
-| [Builders MCP](/builders-mcp) | Building with AI agents against the full SODAX stack | See below |
+| [SODAX MCP](/sodax-mcp) | Building with AI agents against the full SODAX stack | See below |
 
 ## Scope and build with AI
 
-Point your AI coding assistant at the [SODAX Builders MCP](/builders-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+Point your AI coding assistant at the [SODAX MCP](/sodax-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
 
 ```json
 {
   "mcpServers": {
-    "sodax-builders": {
+    "sodax": {
       "type": "http",
       "url": "https://builders.sodax.com/mcp"
     }

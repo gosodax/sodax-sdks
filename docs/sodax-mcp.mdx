@@ -1,10 +1,10 @@
 ---
-title: "Builders MCP"
+title: "SODAX MCP"
 description: "Give your AI coding agent live SODAX data, quotes and docs over one MCP endpoint, plus swap tools for swaps the user's own wallet signs."
 icon: plug
 ---
 
-The **SODAX Builders MCP** is a hosted [Model Context Protocol](https://modelcontextprotocol.io) server. Point an MCP-capable agent at it and the agent stops guessing: it can read the live chain and token lists, pull a real quote, look up an intent, and search these docs while it writes your integration. With a SODAX API key it can also make a swap for the user it is helping, without writing code, and the server [checks each swap](#what-the-server-checks-before-the-user-signs) before the user's wallet signs it.
+The **SODAX MCP** is a hosted [Model Context Protocol](https://modelcontextprotocol.io) server. Point an MCP-capable agent at it and the agent stops guessing: it can read the live chain and token lists, pull a real quote, look up an intent, and search these docs while it writes your integration. With a SODAX API key it can also make a swap for the user it is helping, without writing code, and the server [checks each swap](#what-the-server-checks-before-the-user-signs) before the user's wallet signs it.
 
 ```
 https://builders.sodax.com/mcp
@@ -24,7 +24,7 @@ Most clients take the same JSON:
 ```json
 {
   "mcpServers": {
-    "sodax-builders": {
+    "sodax": {
       "type": "http",
       "url": "https://builders.sodax.com/mcp"
     }
@@ -34,7 +34,7 @@ Most clients take the same JSON:
 
 | Client | Where it goes |
 |---|---|
-| **Claude Code** | `claude mcp add --transport http sodax-builders https://builders.sodax.com/mcp` |
+| **Claude Code** | `claude mcp add --transport http sodax https://builders.sodax.com/mcp` |
 | **Cursor** | `.cursor/mcp.json` (project) or Settings → MCP (global) |
 | **VS Code / Copilot** | `.vscode/mcp.json` — its own schema, below |
 | **ChatGPT, Claude Desktop, Windsurf, Cline, Goose, Roo Code, Gemini** | Listed as compatible on [builders.sodax.com](https://builders.sodax.com/) — check the client's own MCP config format |
@@ -44,7 +44,7 @@ VS Code keys servers under `servers` instead:
 ```json
 {
   "servers": {
-    "sodax-builders": {
+    "sodax": {
       "type": "http",
       "url": "https://builders.sodax.com/mcp"
     }
@@ -57,7 +57,7 @@ For the swap tools, send your key in an `x-api-key` header, so they need a clien
 ```json
 {
   "mcpServers": {
-    "sodax-builders": {
+    "sodax": {
       "type": "http",
       "url": "https://builders.sodax.com/mcp",
       "headers": { "x-api-key": "<your SODAX API key>" }
@@ -66,13 +66,13 @@ For the swap tools, send your key in an `x-api-key` header, so they need a clien
 }
 ```
 
-In Claude Code: `claude mcp add --transport http --scope user sodax-builders https://builders.sodax.com/mcp --header "x-api-key: <your SODAX API key>"`.
+In Claude Code: `claude mcp add --transport http --scope user sodax https://builders.sodax.com/mcp --header "x-api-key: <your SODAX API key>"`.
 
 The key is a secret: put it in your own client's user-level config, never in a project file you commit or a config you hand to your users. The server sends it only on its own calls to the SODAX data, solver and Swaps APIs.
 
 An SSE endpoint is available at `https://builders.sodax.com/sse`, with `"type": "sse"`, for clients that do not speak streamable HTTP. SSE clients send `x-api-key` on the stream and on every message.
 
-Requests are rate limited per client IP (HTTP 429 with `Retry-After`), and every MCP response carries an `X-Request-Id` header to quote when you report a problem; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#errors-and-limits) has the limits.
+Requests are rate limited per client IP (HTTP 429 with `Retry-After`), and every MCP response carries an `X-Request-Id` header to quote when you report a problem; the [server's README](https://github.com/gosodax/sodax-mcp#errors-and-limits) has the limits.
 
 ## What it gives the agent
 
@@ -90,7 +90,7 @@ The landing page at [builders.sodax.com](https://builders.sodax.com/) lists ever
   A swap moves real funds on mainnet, so test with a wallet holding only what you mean to swap.
 </Warning>
 
-The swap tools let the agent make a swap the user asks for. The agent also needs a wallet tool that can switch chains, send the prepared transactions from the user's wallet (from a non-EVM chain, sign and send that family's raw transaction), and tell when each is confirmed; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#swapping) lists what that tool must do.
+The swap tools let the agent make a swap the user asks for. The agent also needs a wallet tool that can switch chains, send the prepared transactions from the user's wallet (from a non-EVM chain, sign and send that family's raw transaction), and tell when each is confirmed; the [server's README](https://github.com/gosodax/sodax-mcp#swapping) lists what that tool must do.
 
 ### What the server checks before the user signs
 
@@ -99,7 +99,7 @@ Before `sodax_swap_prepare` hands the wallet anything to sign, the server checks
 - The intent matches the request field by field (amounts, deadline, chains, tokens, sender, recipient, partner fee) and comes from the user's own hub wallet.
 - On an EVM chain, the swap transaction matches, byte for byte, the one the SODAX SDK builds, and an approve lets the swap contract spend only the swap's amount. From a non-EVM chain, the SDK builds the transaction on the server.
 
-An all-zero address, or an EVM recipient of `0x…dEaD`, is refused as an invalid address. After the user sends, `sodax_swap_submit_and_track` submits only a transaction whose on-chain events show the prepared swap. The [server's README](https://github.com/gosodax/builders-sodax-mcp-server#safety) lists its other safety rules.
+An all-zero address, or an EVM recipient of `0x…dEaD`, is refused as an invalid address. After the user sends, `sodax_swap_submit_and_track` submits only a transaction whose on-chain events show the prepared swap. The [server's README](https://github.com/gosodax/sodax-mcp#safety) lists its other safety rules.
 
 ### Make a swap
 
@@ -127,7 +127,7 @@ An all-zero address, or an EVM recipient of `0x…dEaD`, is refused as an invali
     checks the transaction on chain, submits the swap, and reports its progress. The agent makes it right
     after sending, before the quote's `expiresAt`, and again while the result asks it to: from any chain but
     Sonic nothing submits the swap until this call, and a first call after `expiresAt` starts the deposit's
-    refund instead, within a window the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#swapping)
+    refund instead, within a window the [server's README](https://github.com/gosodax/sodax-mcp#swapping)
     gives. From Sonic the swap transaction itself creates the intent on the hub, where a solver can fill it
     before this call, and an expired one is refunded there.
   </Step>
@@ -149,17 +149,17 @@ A connection picks its tools with `?profile=<name>` on the URL or the `x-sodax-p
 | `builder` | The live-system and documentation tools |
 | `swap` | The swap tools only; refuses a connection without a SODAX API key |
 
-The [server's README](https://github.com/gosodax/builders-sodax-mcp-server#profiles) has the stdio settings and the errors a bad setting returns.
+The [server's README](https://github.com/gosodax/sodax-mcp#profiles) has the stdio settings and the errors a bad setting returns.
 
 ### Partner fee
 
-A builder can take a fee on the swaps its agent quotes: add `?partnerAddress=<EVM address>&partnerFeeBps=<basis points>` to the URL, or send the `x-sodax-partner-address` and `x-sodax-partner-fee-bps` headers. Set both or neither; the [server's README](https://github.com/gosodax/builders-sodax-mcp-server#partner-fee) has the allowed range and the error a bad value gets. The fee is taken from the amount the user sends and is part of the quote. It is never a tool input, so the agent can't change it.
+A builder can take a fee on the swaps its agent quotes: add `?partnerAddress=<EVM address>&partnerFeeBps=<basis points>` to the URL, or send the `x-sodax-partner-address` and `x-sodax-partner-fee-bps` headers. Set both or neither; the [server's README](https://github.com/gosodax/sodax-mcp#partner-fee) has the allowed range and the error a bad value gets. The fee is taken from the amount the user sends and is part of the quote. It is never a tool input, so the agent can't change it.
 
 ## MCP or `@sodax/skills`?
 
 They solve different halves of the same problem, and they compose.
 
-| | **Builders MCP** | **[`@sodax/skills`](/ai-integration-guide)** |
+| | **SODAX MCP** | **[`@sodax/skills`](/ai-integration-guide)** |
 |---|---|---|
 | What it is | Hosted server the agent calls at runtime | Skill files installed into your repo |
 | Gives the agent | Live data, doc search, and swaps it makes for a user | v2-correct API shapes, patterns, anti-patterns |
