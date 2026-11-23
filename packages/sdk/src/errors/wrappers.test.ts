@@ -23,6 +23,8 @@ import {
 } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { SodaxError } from './SodaxError.js';
+import { SODAX_FEATURES } from './codes.js';
+import { IndeterminateOutcomeError, isIndeterminateOutcomeError } from './IndeterminateOutcomeError.js';
 import { approveFailed, intentCreationFailed, withErrorContext } from './wrappers.js';
 
 describe('intentCreationFailed (wallet rejection classification)', () => {
@@ -143,6 +145,36 @@ describe('intentCreationFailed (wallet rejection classification)', () => {
   it('does NOT classify undefined/null cause as USER_REJECTED', () => {
     expect(intentCreationFailed('swap', undefined).code).toBe('INTENT_CREATION_FAILED');
     expect(intentCreationFailed('swap', null).code).toBe('INTENT_CREATION_FAILED');
+  });
+});
+
+describe('intentCreationFailed recovery context', () => {
+  it.each(SODAX_FEATURES)('retains recovery details for %s', feature => {
+    const recovery = { deadline: 42 };
+    const original = new Error('User rejected the request');
+    const cause = Object.freeze(
+      new IndeterminateOutcomeError(original.message, {
+        cause: original,
+        txHash: '0x123',
+        trackingId: '0x456',
+        recovery,
+      }),
+    );
+    const error = intentCreationFailed(feature, cause, { field: 'amount' });
+    expect(error).toMatchObject({
+      code: 'INTENT_CREATION_FAILED',
+      feature,
+      context: { field: 'amount', srcTxHash: '0x123', trackingId: '0x456', recovery },
+    });
+    expect(error.cause).toBe(cause);
+    expect(error.context?.recovery).toBe(recovery);
+  });
+
+  it('recognizes the error shape without relying on the SDK class identity', () => {
+    const foreign = new Error('submit reply lost', { cause: undefined });
+    foreign.name = 'IndeterminateOutcomeError';
+    expect(isIndeterminateOutcomeError(foreign)).toBe(true);
+    expect(isIndeterminateOutcomeError(Object.assign(foreign, { trackingId: 5 }))).toBe(false);
   });
 });
 

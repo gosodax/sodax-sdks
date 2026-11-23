@@ -544,7 +544,8 @@ export class TronSpokeService implements MpcRelaySettlement {
 
   /**
    * Submit a raw withdraw-auth once signed. Resolves to the `trackingId` for {@link waitForWithdrawal}.
-   * On IndeterminateOutcomeError, poll that tracking ID or resubmit the same message and signature.
+   * On IndeterminateOutcomeError, poll the original tracking ID. A rejection on resubmission of the
+   * same message and signature does not determine the outcome of the first submission.
    */
   public async submitSignedWithdraw({
     withdraw,

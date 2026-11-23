@@ -1,4 +1,4 @@
-import { IndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
+import { IndeterminateOutcomeError, isIndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { pollUntil } from '../../utils/pollUntil.js';
 import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
 import { bytesToBigInt, bytesToHex, hexToBytes, isAddress, ripemd160, sha256, type Hex } from 'viem';
@@ -289,7 +289,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     try {
       hash = toRelayTxHash(await this.submitSigned(signed));
     } catch (error) {
-      if (!(error instanceof IndeterminateOutcomeError) || !error.txHash) throw error;
+      if (!isIndeterminateOutcomeError(error) || !error.txHash) throw error;
       uncertain = error;
       hash = error.txHash;
     }
@@ -651,7 +651,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
    * Submit a raw withdraw-auth once signed. Resolves to the `trackingId` for {@link waitForWithdrawal}.
    * An ed25519 signature cannot recover its signer, so the account's `0xED` public key rides along and the
    * contract checks `ripemd160(sha256(publicKey))` against the message's `sender`; a mismatch is refused here.
-   * On IndeterminateOutcomeError, poll its tracking ID or submit the same signed authorization again.
+   * On IndeterminateOutcomeError, poll the original tracking ID. A rejection on resubmission of the
+   * same message and signature does not determine the outcome of the first submission.
    */
   public async submitSignedWithdraw({
     withdraw,

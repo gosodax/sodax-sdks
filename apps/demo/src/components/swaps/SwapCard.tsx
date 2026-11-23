@@ -745,11 +745,15 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
             {state.kind === 'submitting' && <div>Swap in progress…</div>}
             {state.kind === 'pending' && (
               <>
-                <div>Swap in progress — source tx {state.srcTxHash}</div>
+                <div>
+                  {state.srcTxHash
+                    ? `Swap in progress — source tx ${state.srcTxHash}`
+                    : 'Swap may have been submitted. Recover the original transaction before retrying.'}
+                </div>
                 {state.error && (
                   <div className="text-amber-600">
-                    {formatMutationFailureMessage(state.error, 'Swap hit an error')} — it may still complete; still
-                    checking.
+                    {formatMutationFailureMessage(state.error, 'Swap hit an error')}
+                    {state.srcTxHash && ' — it may still complete.'}
                   </div>
                 )}
                 {/* The status read can stop polling without an error, so stopping is always on offer. */}

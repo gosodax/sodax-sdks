@@ -26,7 +26,7 @@ sodax.bridge.isAllowanceValid<K, Raw>(args): Promise<Result<boolean, SodaxError>
 
 // Routes from the source tx to whichever source can answer — the backend record while it is in
 // play, else the delivered relay packet (an MPC-relay leg: its deposit or release record; from Tron to
-// another spoke, with dstChainKey, the hub-to-spoke packet). Covers a bridge the client-side fallback completed.
+// another spoke, with dstChainKey, the hub-to-spoke packet). Pass Sonic for a hub-only bridge from an MPC-relay source.
 sodax.bridge.getDetailedStatus({ srcChainKey, srcTxHash, dstChainKey? }, config?): Promise<Result<DetailedBridgeStatus, SodaxError>>;
 
 sodax.bridge.getBridgeableAmount(from: XToken, to: XToken): Promise<Result<BridgeLimit, SodaxError>>;

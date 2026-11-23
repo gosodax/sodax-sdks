@@ -9,10 +9,11 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChainKeys, type HttpUrl } from '@sodax/types';
-import { IndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
+import { IndeterminateOutcomeError, isIndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { mapRelayFailure } from '../../../errors/relay-error-mapping.js';
 import {
   submitWithdraw,
+  getWithdrawal,
   type SubmitWithdrawRequest,
   waitForDeposit,
   waitForHubRelease,
@@ -63,6 +64,28 @@ describe('submitWithdraw', () => {
     if (result.ok) throw new Error('expected uncertain submission');
     expect(result.error).toBeInstanceOf(IndeterminateOutcomeError);
     expect(result.error).toMatchObject({ trackingId: expect.stringMatching(/^0x[0-9a-f]{64}$/) });
+  });
+
+  it('keeps tracking the original withdrawal when the same signed request is rejected on replay', async () => {
+    const send = vi.fn<typeof fetch>();
+    send.mockRejectedValueOnce(new TypeError('lost reply'));
+    send.mockResolvedValueOnce(new Response(null, { status: 400 }));
+    vi.stubGlobal('fetch', send);
+
+    const initial = await submitWithdraw(API, request);
+    if (initial.ok || !isIndeterminateOutcomeError(initial.error) || !initial.error.trackingId) {
+      throw new Error('expected the original tracking ID');
+    }
+    const trackingId = initial.error.trackingId;
+    expect((await submitWithdraw(API, request)).ok).toBe(false);
+    expect(send.mock.calls[0]?.[1]?.body).toBe(send.mock.calls[1]?.[1]?.body);
+    send.mockResolvedValueOnce(Response.json({ trackingId, status: 'submitted' }));
+
+    expect(await getWithdrawal(API, trackingId)).toMatchObject({
+      ok: true,
+      value: { trackingId, status: 'submitted' },
+    });
+    expect(send.mock.calls[2]?.[0]).toBe(`${API}/withdrawal/${trackingId}`);
   });
 
   it.each([

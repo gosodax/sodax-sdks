@@ -31,5 +31,7 @@ An MPC-relay source chain is refused before signing where the SDK could not conf
 
 Also wires Tron into `GetTxReceiptType`, so `waitForTransactionReceipt` on `tron` resolves to `TronRawTransactionReceipt` instead of `unknown`.
 
-- A lost MPC withdraw authorization response reports an `IndeterminateOutcomeError` with its original `trackingId`. Poll that identifier to recover, or submit the same signed authorization again if you retained it. Calling `sendMessage` again creates a fresh authorization.
+- A lost MPC withdraw authorization response reports an `IndeterminateOutcomeError` with its original `trackingId`. Poll that identifier to recover. If you replay the same signed authorization and the replay is rejected, keep polling the original ID. Calling `sendMessage` again creates a fresh authorization.
 - MPC payout floors are keyed by token address within each chain. The SDK rejects payouts whose token address has no floor. For detailed bridge status from an MPC-relay source, pass the destination chain key to distinguish a completed hub-only bridge from an unfinished onward delivery.
+
+- Feature intent errors carry recovery identifiers in their context. Use `isIndeterminateOutcomeError` to recognize the underlying SDK error across module builds. A handle-only swap stays pending in dapp-kit without starting another payment.

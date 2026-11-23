@@ -202,6 +202,7 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
         <p>The destination Stellar account needs some XLM before it can add a trustline.</p>
       )}
       {state.kind === 'needsSetup' && state.reason === 'stellarCheckFailed' && <p>{stellar.error?.message}</p>}
+      {state.kind === 'pending' && !state.srcTxHash && <p>Recover the original transaction before retrying.</p>}
       {state.kind === 'pending' && (
         <button type="button" onClick={reset}>
           Stop tracking

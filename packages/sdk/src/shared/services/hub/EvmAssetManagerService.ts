@@ -94,7 +94,8 @@ export class EvmAssetManagerService {
   }
 
   /**
-   * Withdraw tokens from the spoke chain.
+   * Encode a withdrawal without validating the payout floor. For MPC-relay destinations,
+   * validate the amount and token before signing these calls.
    * @param {EvmWithdrawAssetDataParams} params - Parameters for the withdrawal.
    * @param {EvmSpokeProvider} spokeProvider - The provider for the spoke chain.
    * @param {EvmHubProvider} hubProvider - The provider for the hub chain.

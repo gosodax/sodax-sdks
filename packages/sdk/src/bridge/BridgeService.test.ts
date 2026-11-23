@@ -383,6 +383,27 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
     return token;
   };
 
+  it('refuses a direct Tron bridge at the delivered floor and encodes one unit above it', () => {
+    const token = tronSupportedTokens.USDT;
+    const build = (amount: bigint) =>
+      sodax.bridge.buildBridgeData(
+        {
+          srcChainKey: ChainKeys.TRON_MAINNET,
+          srcAddress: TRON_TEST_ADDRESS,
+          srcToken: token.address,
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstToken: token.address,
+          recipient: TRON_TEST_ADDRESS,
+          amount,
+        },
+        token,
+        token,
+        undefined,
+      );
+    expect(() => build(3_000_000n)).toThrow(/must be greater than 3 USDT/);
+    expect(build(3_000_001n)).toMatch(/^0x[0-9a-f]+$/i);
+  });
+
   it('charges the partner fee in 18-dp hub units, not the spoke token’s units', () => {
     const src = realToken(ARBITRUM, 'USDC');
     const dst = realToken(ChainKeys.SONIC_MAINNET, 'USDC');

@@ -1300,6 +1300,14 @@ export class BridgeService {
         dstChainKey: params.dstChainKey,
         field: 'dstToken',
       });
+      if (isMpcRelayChainKey(params.dstChainKey)) {
+        assertMpcPayoutAboveMinimum({
+          feature: 'bridge',
+          token: dstToken,
+          amount: delivered,
+          context: { dstChainKey: params.dstChainKey, field: 'amount' },
+        });
+      }
       calls.push(
         EvmAssetManagerService.encodeTransfer(
           dstToken.hubAsset,

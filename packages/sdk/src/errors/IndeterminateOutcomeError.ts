@@ -12,3 +12,14 @@ export class IndeterminateOutcomeError<Recovery = unknown> extends Error {
     this.recovery = options.recovery;
   }
 }
+
+/** Identifies this error across separate SDK bundles. */
+export function isIndeterminateOutcomeError(error: unknown): error is IndeterminateOutcomeError {
+  return (
+    error instanceof Error &&
+    error.name === 'IndeterminateOutcomeError' &&
+    'cause' in error &&
+    (!('txHash' in error) || error.txHash === undefined || typeof error.txHash === 'string') &&
+    (!('trackingId' in error) || error.trackingId === undefined || typeof error.trackingId === 'string')
+  );
+}
