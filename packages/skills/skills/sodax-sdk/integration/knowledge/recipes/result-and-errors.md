@@ -13,7 +13,7 @@ if (!result.ok) {
   // Always isSodaxError-narrow before reading .feature / .code
   if (isSodaxError(result.error)) {
     if (result.error.code === 'RELAY_TIMEOUT') {
-      // retry strategy
+      // Resume settlement of the original transaction; do not repeat the call.
     } else if (result.error.feature === 'swap' && result.error.code === 'INTENT_CREATION_FAILED') {
       // input-error UX
     } else if (result.error.code === 'EXTERNAL_API_ERROR' && result.error.context?.api === 'solver') {

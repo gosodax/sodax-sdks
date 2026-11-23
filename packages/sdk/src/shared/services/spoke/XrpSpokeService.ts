@@ -204,7 +204,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
       return body.result as T;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`xrpl rpc ${method}: timed out after ${timeoutMs}ms`);
+        throw new Error(`xrpl rpc ${method}: timed out after ${timeoutMs}ms`, { cause: error });
       }
       throw error;
     } finally {

@@ -339,6 +339,19 @@ describe('XrpWalletProvider.signTransaction — GemWallet', () => {
     expect(gem.submitTransaction).toHaveBeenCalledOnce();
   });
 
+  it('retains the recovery handle and original exception when GemWallet submit throws', async () => {
+    const cause = new Error('wallet transport closed');
+    const gem = gemWallet({ submitTransaction: vi.fn().mockRejectedValue(cause) });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+    const error = await provider.signTransaction(payment).catch((failure: unknown) => failure);
+    expect(isIndeterminateOutcomeError(error)).toBe(true);
+    expect(error).toMatchObject({
+      recovery: { kind: 'xrp-payment', account: payment.Account, destination: payment.Destination },
+      cause,
+    });
+    expect(gem.submitTransaction).toHaveBeenCalledOnce();
+  });
+
   it('preserves an explicit GemWallet rejection as a definite failure', async () => {
     const gem = gemWallet({ submitTransaction: vi.fn(async () => ({ type: 'reject' as const })) });
     const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });

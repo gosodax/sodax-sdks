@@ -1,5 +1,5 @@
 import { encodeFunctionData, isAddress } from 'viem';
-import { mapRelayFailure } from '../errors/relay-error-mapping.js';
+import { mapRelayFailure, type MapRelayFailureCtx } from '../errors/relay-error-mapping.js';
 import {
   verifyFailed,
   intentCreationFailed,
@@ -68,6 +68,7 @@ import {
   type EvmSpokeOnlyChainKey,
   type StellarChainKey,
   type GetMoneyMarketTokensApiResponse,
+  isMpcRelayChainKey,
   DEFAULT_RELAY_TX_TIMEOUT,
   HUB_CHAIN_KEY,
   type SpokeExecActionParams,
@@ -733,7 +734,7 @@ export class MoneyMarketService {
    */
   private mapSettlementFailure(
     failure: SettlementFailure,
-    ctx: { action: string; srcChainKey: SpokeChainKey; dstChainKey?: SpokeChainKey; srcTxHash?: string },
+    ctx: Omit<MapRelayFailureCtx, 'feature'>,
   ): MoneyMarketOrchestrationError {
     return failure.phase === 'verification'
       ? verifyFailed('moneyMarket', failure.cause, ctx)
@@ -792,7 +793,19 @@ export class MoneyMarketService {
             timeout,
             dstChainKey: params.dstChainKey ?? srcChainKey,
           });
-          if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
+          if (!settled.ok) {
+            return {
+              ok: false,
+              error: this.mapSettlementFailure(settled.error, {
+                ...baseCtx,
+                dstChainKey: params.dstChainKey ?? srcChainKey,
+                relayData: txResult.value.relayData,
+                ...(isMpcRelayChainKey(srcChainKey)
+                  ? { trackingId: txResult.value.tx }
+                  : { srcTxHash: txResult.value.tx }),
+              }),
+            };
+          }
 
           return settled;
         } catch (error) {
@@ -999,7 +1012,19 @@ export class MoneyMarketService {
             timeout,
             dstChainKey: params.dstChainKey ?? srcChainKey,
           });
-          if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
+          if (!settled.ok) {
+            return {
+              ok: false,
+              error: this.mapSettlementFailure(settled.error, {
+                ...baseCtx,
+                dstChainKey: params.dstChainKey ?? srcChainKey,
+                relayData: txResult.value.relayData,
+                ...(isMpcRelayChainKey(srcChainKey)
+                  ? { trackingId: txResult.value.tx }
+                  : { srcTxHash: txResult.value.tx }),
+              }),
+            };
+          }
 
           return settled;
         } catch (error) {

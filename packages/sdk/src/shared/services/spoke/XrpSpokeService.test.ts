@@ -112,6 +112,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -285,6 +286,35 @@ describe('XrpSpokeService.deposit — submit results', () => {
     await expect(xrp.deposit(depositParams(NATIVE_XRP))).resolves.toBe(
       '0x0c51f1f39d58c461731611827474f67fcf65895242b127b3d8d7b3b1b8c3d2fa',
     );
+  });
+
+  it('preserves the underlying XRPL submit abort for recovery', async () => {
+    stubRippled();
+    const fetchMock = vi.mocked(fetch);
+    const answer = fetchMock.getMockImplementation();
+    const abort = new DOMException('request aborted', 'AbortError');
+    fetchMock.mockImplementation(async (url, init) => {
+      if (JSON.parse(String(init?.body)).method === 'submit') throw abort;
+      if (!answer) throw new Error('no stub');
+      return answer(url, init);
+    });
+    const error = await xrp.deposit(depositParams(NATIVE_XRP)).catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(IndeterminateOutcomeError);
+    if (!(error instanceof IndeterminateOutcomeError) || !(error.cause instanceof Error)) {
+      throw new Error('missing timeout cause');
+    }
+    expect(error.txHash).toBe(RELAY_HASH);
+    expect(error.cause.cause).toBe(abort);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '66', RELAY_HASH);
+  });
+
+  it('does not notify or resubmit after an explicit wallet refusal', async () => {
+    stubRippled();
+    const rejection = new Error('GemWallet transaction was rejected by the user');
+    signTransaction.mockRejectedValueOnce(rejection);
+    await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toBe(rejection);
+    expect(callTo('submit')).toBeUndefined();
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
   it('preserves a wallet recovery handle and waits for a hash before notifying', async () => {
@@ -878,6 +908,7 @@ describe('XrpSpokeService.sendMessage', () => {
   it.each(['accepted', 'exhausted', 'lost reply'])('reuses one signed request after throttling (%s)', async outcome => {
     vi.mocked(MpcRelayApiService.submitWithdraw).mockRestore();
     signMessage.mockClear();
+    vi.useFakeTimers();
     const send = vi.fn(async (_url: string, init?: RequestInit) => {
       if (send.mock.calls.length === 1 || outcome === 'exhausted') {
         return new Response(null, { status: 429 });
@@ -890,19 +921,28 @@ describe('XrpSpokeService.sendMessage', () => {
       return Response.json({ accepted: true, trackingId });
     });
     vi.stubGlobal('fetch', send);
-    const result = xrp.sendMessage(sendParams);
+    const result = xrp.sendMessage(sendParams).then(
+      value => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    await vi.runAllTimersAsync();
+    const settled = await result;
+    const body = JSON.parse(String(send.mock.calls[0]?.[1]?.body));
+    if (!isHex(body.message.sender)) throw new Error('missing sender');
+    const expected = keccak256(concat([body.message.sender, toHex(BigInt(body.message.nonce), { size: 8 })]));
 
     if (outcome === 'accepted') {
-      await expect(result).resolves.toMatch(/^0x[0-9a-f]{64}$/);
+      expect(settled).toEqual({ ok: true, value: expected });
     } else if (outcome === 'exhausted') {
-      const error = await result.catch((cause: unknown) => cause);
+      if (settled.ok) throw new Error('expected exhaustion');
+      const { error } = settled;
       expect(error).toMatchObject({ message: expect.stringContaining('nothing was queued') });
       expect(error).not.toBeInstanceOf(IndeterminateOutcomeError);
       expect(error).not.toHaveProperty('trackingId');
     } else {
-      await expect(result).rejects.toMatchObject({
-        name: 'IndeterminateOutcomeError',
-        trackingId: expect.stringMatching(/^0x[0-9a-f]{64}$/),
+      expect(settled).toMatchObject({
+        ok: false,
+        error: { name: 'IndeterminateOutcomeError', trackingId: expected },
       });
     }
     expect(signMessage).toHaveBeenCalledOnce();

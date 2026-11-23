@@ -119,7 +119,11 @@ export type XrpRawTransactionReceipt = {
 
 export interface IXrpWalletProvider extends ICoreWallet {
   readonly chainType: 'XRP';
-  /** Sign an unsigned XRPL Payment. The sdk builds the memo transfer; the wallet holds the key. */
+  /**
+   * Sign an unsigned XRPL Payment. A provider that also submits returns the original hash with an
+   * empty blob. On an ambiguous submit without a hash, throw an IndeterminateOutcomeError with an
+   * XrpPaymentRecovery handle so the caller can resolve the original Payment.
+   */
   signTransaction: (tx: XrpUnsignedTransaction) => Promise<XrpSignedTransaction>;
   /**
    * Sign the 32-byte withdrawal-auth message hash (scheme 3) as a RAW ed25519 signature — no
