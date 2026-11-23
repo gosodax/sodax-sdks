@@ -13,7 +13,7 @@ SODAX ships agent-native documentation as [`@sodax/skills`](https://github.com/g
 LLM training data drifts; public docs at [docs.sodax.com](https://docs.sodax.com) are for humans. Agents only use what you install or attach. For what’s in the bundle (skills, knowledge layout, routing table), see [packages/skills/README.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/skills/README.md).
 
 <Note>
-  **Optional: the [SODAX MCP](/sodax-mcp)** (`https://builders.sodax.com/mcp`). The skills are
+  **Optional: the [SODAX MCP](/sodax-mcp)** (`https://mcp.sodax.com/mcp`). The skills are
   enough to write correct code. The MCP adds live values while the agent works: supported chains and
   tokens, swap quotes, money market rates, intent lookups, and doc search. Its tools don't cover
   leverage-yield vaults, and the SDK reads vault data itself, so skip it for vault work.

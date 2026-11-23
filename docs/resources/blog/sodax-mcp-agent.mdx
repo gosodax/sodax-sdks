@@ -10,7 +10,7 @@ In May, SODAX [announced SDK V2](https://sodax.com/news/sodax-sdk-v2-brings-smoo
 The short version: add one URL to your agent's MCP config.
 
 ```
-https://builders.sodax.com/mcp
+https://mcp.sodax.com/mcp
 ```
 
 From that point the agent can read the live list of supported networks and swap tokens, pull a swap quote, inspect money market reserves and user positions, look up an intent by hash, and search the SODAX developer docs while it writes your code. None of that needs an API key; the [swap tools](/sodax-mcp#swaps) do.
@@ -28,7 +28,7 @@ Most MCP clients accept the same JSON block:
   "mcpServers": {
     "sodax": {
       "type": "http",
-      "url": "https://builders.sodax.com/mcp"
+      "url": "https://mcp.sodax.com/mcp"
     }
   }
 }
@@ -39,7 +39,7 @@ Most MCP clients accept the same JSON block:
     One command from your project root:
 
     ```bash
-    claude mcp add --transport http sodax https://builders.sodax.com/mcp
+    claude mcp add --transport http sodax https://mcp.sodax.com/mcp
     ```
   </Tab>
   <Tab title="Cursor">
@@ -53,14 +53,14 @@ Most MCP clients accept the same JSON block:
       "servers": {
         "sodax": {
           "type": "http",
-          "url": "https://builders.sodax.com/mcp"
+          "url": "https://mcp.sodax.com/mcp"
         }
       }
     }
     ```
   </Tab>
   <Tab title="Windsurf, ChatGPT and others">
-    Windsurf, ChatGPT, Claude Desktop, Cline, Goose and Roo Code are all listed as compatible on [builders.sodax.com](https://builders.sodax.com). Add `https://builders.sodax.com/mcp` using your client's own MCP config format. For clients that do not speak streamable HTTP, such as Gemini CLI, use the SSE endpoint instead: `https://builders.sodax.com/sse`.
+    Windsurf, ChatGPT, Claude Desktop, Cline, Goose and Roo Code are all listed as compatible on [mcp.sodax.com](https://mcp.sodax.com). Add `https://mcp.sodax.com/mcp` using your client's own MCP config format. For clients that do not speak streamable HTTP, such as Gemini CLI, use the SSE endpoint instead: `https://mcp.sodax.com/sse`.
   </Tab>
 </Tabs>
 

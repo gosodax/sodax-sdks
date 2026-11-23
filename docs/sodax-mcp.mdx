@@ -7,10 +7,10 @@ icon: plug
 The **SODAX MCP** is a hosted [Model Context Protocol](https://modelcontextprotocol.io) server. Point an MCP-capable agent at it and the agent stops guessing: it can read the live chain and token lists, pull a real quote, look up an intent, and search these docs while it writes your integration. With a SODAX API key it can also make a swap for the user it is helping, without writing code, and the server [checks each swap](#what-the-server-checks-before-the-user-signs) before the user's wallet signs it.
 
 ```
-https://builders.sodax.com/mcp
+https://mcp.sodax.com/mcp
 ```
 
-The data and docs tools need no API key; the swap tools need one ([API keys](/developers/how-to/api-keys)). Landing page and per-client notes: [builders.sodax.com](https://builders.sodax.com/).
+The data and docs tools need no API key; the swap tools need one ([API keys](/developers/how-to/api-keys)). Landing page and per-client notes: [mcp.sodax.com](https://mcp.sodax.com/).
 
 <Note>
   The MCP never holds a wallet key and never signs: every tool that touches a transaction either returns
@@ -26,7 +26,7 @@ Most clients take the same JSON:
   "mcpServers": {
     "sodax": {
       "type": "http",
-      "url": "https://builders.sodax.com/mcp"
+      "url": "https://mcp.sodax.com/mcp"
     }
   }
 }
@@ -34,10 +34,10 @@ Most clients take the same JSON:
 
 | Client | Where it goes |
 |---|---|
-| **Claude Code** | `claude mcp add --transport http sodax https://builders.sodax.com/mcp` |
+| **Claude Code** | `claude mcp add --transport http sodax https://mcp.sodax.com/mcp` |
 | **Cursor** | `.cursor/mcp.json` (project) or Settings → MCP (global) |
 | **VS Code / Copilot** | `.vscode/mcp.json` — its own schema, below |
-| **ChatGPT, Claude Desktop, Windsurf, Cline, Goose, Roo Code, Gemini** | Listed as compatible on [builders.sodax.com](https://builders.sodax.com/) — check the client's own MCP config format |
+| **ChatGPT, Claude Desktop, Windsurf, Cline, Goose, Roo Code, Gemini** | Listed as compatible on [mcp.sodax.com](https://mcp.sodax.com/) — check the client's own MCP config format |
 
 VS Code keys servers under `servers` instead:
 
@@ -46,7 +46,7 @@ VS Code keys servers under `servers` instead:
   "servers": {
     "sodax": {
       "type": "http",
-      "url": "https://builders.sodax.com/mcp"
+      "url": "https://mcp.sodax.com/mcp"
     }
   }
 }
@@ -59,24 +59,24 @@ For the swap tools, send your key in an `x-api-key` header, so they need a clien
   "mcpServers": {
     "sodax": {
       "type": "http",
-      "url": "https://builders.sodax.com/mcp",
+      "url": "https://mcp.sodax.com/mcp",
       "headers": { "x-api-key": "<your SODAX API key>" }
     }
   }
 }
 ```
 
-In Claude Code: `claude mcp add --transport http --scope user sodax https://builders.sodax.com/mcp --header "x-api-key: <your SODAX API key>"`.
+In Claude Code: `claude mcp add --transport http --scope user sodax https://mcp.sodax.com/mcp --header "x-api-key: <your SODAX API key>"`.
 
 The key is a secret: put it in your own client's user-level config, never in a project file you commit or a config you hand to your users. The server sends it only on its own calls to the SODAX data, solver and Swaps APIs.
 
-An SSE endpoint is available at `https://builders.sodax.com/sse`, with `"type": "sse"`, for clients that do not speak streamable HTTP. SSE clients send `x-api-key` on the stream and on every message.
+An SSE endpoint is available at `https://mcp.sodax.com/sse`, with `"type": "sse"`, for clients that do not speak streamable HTTP. SSE clients send `x-api-key` on the stream and on every message.
 
 Requests are rate limited per client IP (HTTP 429 with `Retry-After`), and every MCP response carries an `X-Request-Id` header to quote when you report a problem; the [server's README](https://github.com/gosodax/sodax-mcp#errors-and-limits) has the limits.
 
 ## What it gives the agent
 
-The landing page at [builders.sodax.com](https://builders.sodax.com/) lists every tool, and `https://builders.sodax.com/api` returns the running server's list as JSON.
+The landing page at [mcp.sodax.com](https://mcp.sodax.com/) lists every tool, and `https://mcp.sodax.com/api` returns the running server's list as JSON.
 
 **Live-system tools**: network and asset configuration (supported chains, chain configs, swap tokens, hub assets, relay chain-id map), intents and solver reads (quotes, orderbook, intent lookup, oracle prices), intent relay (submit and inspect packets), AMM pools and candles, money market reserves with their supply and borrow rates, user positions, partner receivers and fee summaries, and SODA supply. They cover the same public data as the [HTTP API](/developers/http-api), so the agent works from today's values rather than its training data. The lookups filtered by chain (swap tokens, hub assets, money market tokens, chain support) take a chain as the user names it: a name, ticker, key or EVM chain id. An ambiguous id is refused with the keys to pass instead. A tool with a `format` input answers in Markdown, or with `format: "json"` the data alone.
 
