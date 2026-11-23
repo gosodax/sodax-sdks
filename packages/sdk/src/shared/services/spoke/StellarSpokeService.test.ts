@@ -371,11 +371,7 @@ describe('CustomStellarAccount', () => {
 // =========================================================================
 
 describe('StellarSpokeService.getBalance', () => {
-  const stubAccount = () => ({
-    accountId: () => SRC_ADDR,
-    sequenceNumber: () => '100',
-    incrementSequenceNumber: () => undefined,
-  });
+  const stubAccount = () => new Account(SRC_ADDR, '100');
 
   it('returns the decoded bigint as a Number on a successful simulation with retval', async () => {
     vi.spyOn(stellarSpoke.sorobanServer, 'getNetwork').mockResolvedValueOnce(NETWORK_RESPONSE);
