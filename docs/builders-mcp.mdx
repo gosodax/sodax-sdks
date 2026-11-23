@@ -94,7 +94,12 @@ The swap tools let the agent make a swap the user asks for. The agent also needs
 
 ### What the server checks before the user signs
 
-Before `sodax_swap_prepare` hands the wallet anything to sign, the server checks that it is the swap the user asked for: the intent must match the request field by field (amounts, deadline, chains, tokens, sender, recipient, partner fee) and come from the user's own hub wallet. On an EVM chain the swap transaction must match, byte for byte, the one the SODAX SDK builds, and an approve may only let the swap contract spend the swap's amount; from a non-EVM chain the SDK builds the transaction on the server. A swap that fails a check is refused (`SWAP_MISMATCH`), never passed on. An all-zero address, or an EVM recipient of `0x…dEaD`, is refused as an invalid address. After the user sends, `sodax_swap_submit_and_track` submits only a transaction whose on-chain events show the prepared swap. The [server's README](https://github.com/gosodax/builders-sodax-mcp-server#safety) lists its other safety rules.
+Before `sodax_swap_prepare` hands the wallet anything to sign, the server checks that it is the swap the user asked for, and refuses a mismatch (`SWAP_MISMATCH`) instead of passing it on:
+
+- The intent matches the request field by field (amounts, deadline, chains, tokens, sender, recipient, partner fee) and comes from the user's own hub wallet.
+- On an EVM chain, the swap transaction matches, byte for byte, the one the SODAX SDK builds, and an approve lets the swap contract spend only the swap's amount. From a non-EVM chain, the SDK builds the transaction on the server.
+
+An all-zero address, or an EVM recipient of `0x…dEaD`, is refused as an invalid address. After the user sends, `sodax_swap_submit_and_track` submits only a transaction whose on-chain events show the prepared swap. The [server's README](https://github.com/gosodax/builders-sodax-mcp-server#safety) lists its other safety rules.
 
 ### Make a swap
 
@@ -128,7 +133,11 @@ Before `sodax_swap_prepare` hands the wallet anything to sign, the server checks
   </Step>
 </Steps>
 
-Not every supported chain can start a swap; a price from one that can't names the chains that can. When either tool can't match a token, `sodax_resolve_token` looks it up and returns the match, or the candidates for the user to pick; the agent never guesses a token or an address. Neither checks balances, so `sodax_get_balance` reads a wallet's balance when the user isn't sure they hold enough. `sodax_swap_cancel` cancels a swap that hasn't been filled, once it's submitted (from Sonic, as soon as its transaction is mined): the first call returns the cancel transaction for the user's wallet, and a second call with its hash relays it, or, from Sonic, confirms it on the hub. Every swap tool result carries a `nextStep` that tells the agent what to do next, and a `requestId`: when a swap needs help, the user gives it, with the transaction hashes, to the SODAX team on [Discord](https://www.sodax.com/discord).
+- **Chains:** a swap can start on Sonic, another EVM chain, Solana, Sui, Stellar, NEAR or Injective, and end on any SODAX swap chain. Bitcoin, Stacks and ICON can't start one; a price from them names the chains that can.
+- **Tokens:** when the price or prepare tool can't match a token, `sodax_resolve_token` looks it up and returns the match, or the candidates for the user to pick. The agent never guesses a token or an address.
+- **Balances:** neither tool checks them, so `sodax_get_balance` reads a wallet's balance when the user isn't sure they hold enough.
+- **Cancel:** `sodax_swap_cancel` cancels a swap that hasn't been filled, once it's submitted (from Sonic, as soon as its transaction is mined). The first call returns the cancel transaction for the user's wallet; a second call with its hash relays it, or, from Sonic, confirms it on the hub.
+- **Next step and help:** every swap tool result carries a `nextStep` that tells the agent what to do next, and a `requestId`. When a swap needs help, the user gives the `requestId` and the transaction hashes to the SODAX team on [Discord](https://www.sodax.com/discord).
 
 ### Profiles
 
