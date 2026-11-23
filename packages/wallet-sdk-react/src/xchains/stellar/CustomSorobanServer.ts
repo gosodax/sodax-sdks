@@ -1,11 +1,4 @@
-import {
-  type FeeBumpTransaction,
-  type Memo,
-  type MemoType,
-  type Operation,
-  rpc,
-  type Transaction,
-} from '@stellar/stellar-sdk';
+import { type FeeBumpTransaction, rpc, type Transaction } from '@stellar/stellar-sdk';
 
 class CustomSorobanServer extends rpc.Server {
   private readonly customHeaders: Record<string, string>;
@@ -17,9 +10,7 @@ class CustomSorobanServer extends rpc.Server {
     this.customHeaders = customHeaders;
   }
 
-  override async simulateTransaction(
-    tx: Transaction<Memo<MemoType>, Operation[]>,
-  ): Promise<rpc.Api.SimulateTransactionResponse> {
+  override async simulateTransaction(tx: Transaction): Promise<rpc.Api.SimulateTransactionResponse> {
     const requestOptions = {
       method: 'POST',
       headers: {

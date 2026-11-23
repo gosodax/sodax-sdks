@@ -3,9 +3,6 @@ import {
   Asset,
   Contract,
   type Horizon,
-  type Memo,
-  type MemoType,
-  type Operation,
   rpc,
   TimeoutInfinite,
   type Transaction,
@@ -46,7 +43,7 @@ export const getTrustlineBalances = (
 };
 
 export const simulateTx = (
-  tx: Transaction<Memo<MemoType>, Operation[]>,
+  tx: Transaction,
   server: CustomSorobanServer,
 ): Promise<rpc.Api.SimulateTransactionResponse> => server.simulateTransaction(tx);
 

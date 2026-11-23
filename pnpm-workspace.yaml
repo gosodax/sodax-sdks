@@ -51,7 +51,7 @@ catalog:
   "@mysten/sui": "2.23.2"
   "@mysten/wallet-standard": "0.21.13"
   "@mysten/dapp-kit-react": "2.1.15"
-  "@stellar/stellar-sdk": "15.1.0"
+  "@stellar/stellar-sdk": "16.4.0"
   "@injectivelabs/sdk-ts": "1.18.14"
   "@injectivelabs/networks": "1.18.14"
   "@injectivelabs/ts-types": "1.18.14"
