@@ -2,11 +2,13 @@
 import type { Result } from '@sodax/sdk';
 import {
   useMutation,
+  useQueryClient,
   type MutateOptions,
   type UseMutationOptions,
   type UseMutationResult,
 } from '@tanstack/react-query';
 import { useCallback } from 'react';
+import { retryBeforeSubmission } from './retryBeforeSubmission.js';
 
 /**
  * Return shape of every dapp-kit mutation hook. Extends `UseMutationResult` with one extra
@@ -54,7 +56,12 @@ export async function toResult<T>(promise: Promise<T>): Promise<Result<T>> {
 export function useSafeMutation<TData, TError, TVars, TContext = unknown>(
   options: UseMutationOptions<TData, TError, TVars, TContext>,
 ): SafeUseMutationResult<TData, TError, TVars, TContext> {
-  const mutation = useMutation<TData, TError, TVars, TContext>(options);
+  const queryClient = useQueryClient();
+  const { retry } = queryClient.defaultMutationOptions(options);
+  const mutation = useMutation<TData, TError, TVars, TContext>({
+    ...options,
+    retry: retryBeforeSubmission(retry),
+  });
   const { mutateAsync } = mutation;
   const mutateAsyncSafe = useCallback(
     (vars: TVars, opts?: MutateOptions<TData, TError, TVars, TContext>): Promise<Result<TData>> =>
