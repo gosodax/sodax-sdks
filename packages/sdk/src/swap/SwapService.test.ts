@@ -12,6 +12,7 @@
  *   4. `cancelIntent` takes an explicit `srcChainKey` alongside `intent`; we assert at runtime
  *      that `getIntentRelayChainId(srcChainKey) === intent.srcChain` and throw on mismatch.
  */
+import { IndeterminateOutcomeError } from '../errors/IndeterminateOutcomeError.js';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import {
   ChainKeys,
@@ -2892,6 +2893,49 @@ describe('SwapService.createIntent — extras (partnerFee + srcPublicKey)', () =
     expect(depositCall.accessToken).toBe(accessToken);
   });
 
+  it('carries a known deposit hash through an intent failure for recovery', async () => {
+    const svc = sodax.swaps;
+    const chainKey = ChainKeys.BITCOIN_MAINNET;
+    const txHash = 'ab'.repeat(32);
+    const cause = Object.freeze(new Error('wallet response lost'));
+    const error = new IndeterminateOutcomeError('Deposit submission outcome is unknown', { cause, txHash });
+    mocks.getUserHubWalletAddress.mockResolvedValueOnce('0xhubwallet');
+    mocks.constructCreateIntentData.mockReturnValueOnce(['0xintentdata', makeIntent(chainKey), 0n]);
+    vi.spyOn(svc.spoke.bitcoin, 'getEffectiveWalletAddress').mockImplementation(async address => address);
+    const deposit = vi.spyOn(svc.spoke, 'deposit').mockResolvedValueOnce({ ok: false, error });
+
+    const result = await svc.createIntent({ params: intentInput(chainKey), raw: true });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'INTENT_CREATION_FAILED', context: { srcTxHash: txHash } },
+    });
+    invariant(!result.ok, 'expected a failed intent');
+    expect(result.error.cause).toBe(error);
+    expect(error.cause).toBe(cause);
+    expect(cause).not.toHaveProperty('txHash');
+
+    const status = {
+      txHash,
+      srcChainKey: chainKey,
+      status: 'solved',
+      processingAttempts: 1,
+      result: { dstIntentTxHash: '0xDST', intent_hash: '0xHASH' },
+    } as const;
+    const read = vi.spyOn(svc.backendApi.swaps, 'getSubmitTxStatus').mockResolvedValueOnce({
+      ok: true,
+      value: { success: true, data: status },
+    });
+    const srcTxHash = result.error.context?.srcTxHash;
+    if (typeof srcTxHash !== 'string') throw new Error('missing recovery hash');
+    expect(await svc.getDetailedStatus({ srcChainKey: chainKey, srcTxHash })).toEqual({
+      ok: true,
+      value: { source: 'backend', data: status },
+    });
+    expect(read).toHaveBeenCalledExactlyOnceWith({ srcChainKey: chainKey, txHash });
+    expect(deposit).toHaveBeenCalledOnce();
+  });
+
   it('omits accessToken on the deposit params when extras.bound is absent (BitcoinSpokeService falls back to its radfi instance token)', async () => {
     const svc = sodax.swaps;
     mocks.getUserHubWalletAddress.mockResolvedValueOnce('0xhubwallet');
@@ -3016,6 +3060,7 @@ describe('SwapService.createIntent — payouts through the MPC relay', () => {
       50_000_000n,
     ])('checks solved payout headroom for minimum %s before signing', async minOutputAmount => {
       const s = new Sodax({ logger: 'silent' });
+      vi.spyOn(s.swaps, 'getQuote').mockResolvedValue({ ok: true, value: { quoted_amount: 100_000_000n } });
       vi.spyOn(s.spoke.xrp, 'checkDestination').mockImplementation(async ({ amount, maxAmount = amount }) =>
         maxAmount > 100_000_000n ? { ready: false, reason: 'trustline_limit' } : { ready: true },
       );
@@ -3032,8 +3077,33 @@ describe('SwapService.createIntent — payouts through the MPC relay', () => {
       } else expect(pastValidation).toHaveBeenCalled();
     });
 
+    it('refuses a minimum one unit below half the current quote before checking the trustline or signing', async () => {
+      const s = new Sodax({ logger: 'silent' });
+      const quote = vi
+        .spyOn(s.swaps, 'getQuote')
+        .mockResolvedValue({ ok: true, value: { quoted_amount: 10_000_001n } });
+      const check = vi.spyOn(s.spoke.xrp, 'checkDestination');
+      const deposit = vi.spyOn(s.spoke, 'deposit');
+
+      const result = await s.swaps.createIntent({ params: toXrpl, raw: true });
+
+      invariant(!result.ok, 'expected quote bound rejection');
+      expect(result.error.context?.field).toBe('minOutputAmount');
+      expect(result.error.message).toContain('at least half');
+      expect(quote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          token_dst: XRPL_USDC,
+          amount: toXrpl.inputAmount,
+          quote_type: 'exact_input',
+        }),
+      );
+      expect(check).not.toHaveBeenCalled();
+      expect(deposit).not.toHaveBeenCalled();
+    });
+
     const runXrpl = async (params: CreateIntentParams<SpokeChainKey>, readiness: XrpDestinationReadiness) => {
       const s = new Sodax({ logger: 'silent' });
+      vi.spyOn(s.swaps, 'getQuote').mockResolvedValue({ ok: true, value: { quoted_amount: 10_000_000n } });
       const checkSpy = vi.spyOn(s.spoke.xrp, 'checkDestination').mockResolvedValue(readiness);
       const pastValidation = vi
         .spyOn(s.hubProvider, 'getUserHubWalletAddress')

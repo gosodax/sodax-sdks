@@ -28,6 +28,7 @@ The `ChainKey` type is the union of every `ChainKeys.*` value — the table belo
 | `STACKS_MAINNET` | `'stacks'` | STACKS | spoke | `SP…` / `ST…` |
 | `BITCOIN_MAINNET` | `'bitcoin'` | BITCOIN | spoke | `bc1…` / `1…` / `3…` |
 | `TRON_MAINNET` | `'tron'` | TRON | spoke | `T…` (base58check) |
+| `XRP_MAINNET` | `'xrp'` | XRP | spoke | classic `r…` (base58check) |
 
 ### Notes
 

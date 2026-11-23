@@ -73,13 +73,13 @@ Per-module code tables: [Swaps](/developers/packages/foundation/sdk/functional-m
 
 #### 8. What should I do when a swap returns `RELAY_TIMEOUT`?
 
-The spoke transaction landed but the hub packet has not arrived within the timeout window. The relay may still complete. Persist the spoke tx hash and poll `sodax.swaps.getDetailedStatus`, or the relayer API from an intent-relay chain. Do not re-submit from the user side.
+For an intent-relay swap, persist the original source hash and poll `sodax.swaps.getDetailedStatus`. On an MPC-relay source, the backend submit-tx path is skipped. If `INTENT_CREATION_FAILED`, `RELAY_TIMEOUT` or another settlement failure carries `context.srcTxHash`, use the spoke's `waitForDeposit(srcTxHash)` to notify the relay and wait for the hub mint. On timeout, back off and repeat the wait with the same source hash. Once the result is successful and `value.txs?.hubMint?.hash` is a hex hash (check with viem's `isHex`), call `sodax.swaps.postExecution({ intent_tx_hash: hubMintHash })`. Check the returned Result and retry a failed notification with the same hub hash. After notification succeeds, poll `getDetailedStatus` using the original source hash. Do not create another swap or deposit.
 
 Error semantics: [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap), [Relayer API endpoints](/developers/deployments/relayer-api-endpoints).
 
 #### 9. What does `TX_SUBMIT_FAILED` mean?
 
-The critical case. The spoke tx landed but the relay submission itself failed. Funds may be in flight. Persist the user's input plus spoke tx hash and retry submission against the relay API. Do not retry the user-facing transaction.
+The critical case. The spoke tx landed but the relay submission itself failed. Funds may be in flight. For an intent-relay submission, resubmit the existing hash and required original relay data. On an MPC source, resume the same deposit, including solver notification for a swap. Do not retry the user-facing transaction.
 
 Full code reference: [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap).
 

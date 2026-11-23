@@ -7,10 +7,20 @@
  */
 
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
-import { decodeFunctionData, encodeEventTopics, pad, recoverMessageAddress, type Hex } from 'viem';
+import {
+  concat,
+  decodeFunctionData,
+  encodeEventTopics,
+  isHex,
+  keccak256,
+  pad,
+  recoverMessageAddress,
+  toHex,
+  type Hex,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import type { SpokeServiceType } from './SpokeService.js';
-import { spokeChainConfig } from '@sodax/types';
+import { IndeterminateOutcomeError, spokeChainConfig } from '@sodax/types';
 import { Sodax } from '../../entities/Sodax.js';
 import { erc20Abi } from '../../abis/index.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
@@ -86,11 +96,54 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   vi.clearAllMocks();
   vi.restoreAllMocks();
 });
 
 describe('MonadSpokeService.deposit', () => {
+  it.each([
+    'bad-address',
+    NATIVE_MON,
+  ])('rejects invalid relay deposit address %s in raw and signed modes', async depositAddress => {
+    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue({
+      ok: true,
+      value: {
+        depositMethod: 'address',
+        depositAddress,
+        payloadHash: TX_HASH,
+        path: 'm/0',
+        hubWallet: HUB_WALLET,
+      },
+    });
+    await expect(monad.deposit(depositParams(NATIVE_MON))).rejects.toThrow(/invalid deposit address/);
+    await expect(monad.deposit(depositParams(NATIVE_MON, { raw: true }))).rejects.toThrow(/invalid deposit address/);
+    expect(sendTransaction).not.toHaveBeenCalled();
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unsupported token before resolving a relay address', async () => {
+    await expect(monad.deposit(depositParams(HUB_WALLET))).rejects.toThrow(/unsupported token/);
+    expect(MpcRelayApiService.getDepositAddress).not.toHaveBeenCalled();
+    expect(sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('notifies with the original signed hash when the broadcast response is lost', async () => {
+    const cause = new Error('lost RPC reply');
+    const failure = new IndeterminateOutcomeError('deposit broadcast unknown', { cause, txHash: TX_HASH });
+    sendTransaction.mockRejectedValueOnce(failure);
+    await expect(monad.deposit(depositParams(USDC))).rejects.toBe(failure);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '48', TX_HASH);
+    expect(sendTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('does not notify when the wallet definitively refuses the send', async () => {
+    const refusal = new Error('User rejected the request');
+    sendTransaction.mockRejectedValueOnce(refusal);
+    await expect(monad.deposit(depositParams(USDC))).rejects.toBe(refusal);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+  });
+
   it('sends native MON straight to the derived deposit address, not the reserve', async () => {
     const tx = await monad.deposit({ ...(depositParams(NATIVE_MON) as object), raw: true } as never);
 
@@ -267,6 +320,17 @@ describe('MonadSpokeService.waitForDeposit', () => {
     expect(wait.mock.calls[0]?.[1]).toBe(`48-${TX_HASH}-7`);
   });
 
+  it('refuses to guess a deposit id when a batch contains multiple supported transfers', async () => {
+    receipt = { status: 'success', logs: [usdcTransferLog(7), usdcTransferLog(8)] };
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockResolvedValue(settled);
+    const result = await monad.waitForDeposit(TX_HASH);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { message: expect.stringContaining('multiple supported Transfer logs') },
+    });
+    expect(wait).not.toHaveBeenCalled();
+  });
+
   it('ignores a Transfer log from a token Monad does not support', async () => {
     receipt = { status: 'success', logs: [usdcTransferLog(3, '0x3333333333333333333333333333333333333333')] };
     const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockResolvedValue(settled);
@@ -321,6 +385,45 @@ describe('MonadSpokeService.sendMessage', () => {
     expect(submitCall(0)).toMatchObject({ scheme: 0 });
     expect(submitCall(0)?.message).toMatchObject({ chainId: '48', sender: SENDER.toLowerCase(), to: HUB_WALLET });
     expect(submitCall(0)).not.toHaveProperty('publicKey');
+  });
+
+  it.each(['accepted', 'exhausted', 'lost reply'])('first 429 through sendMessage: %s', async outcome => {
+    vi.useFakeTimers();
+    vi.mocked(MpcRelayApiService.submitWithdraw).mockRestore();
+    const lost = new Error('lost relay reply');
+    const send = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (send.mock.calls.length === 1 || outcome === 'exhausted') return new Response(null, { status: 429 });
+      if (outcome === 'lost reply') throw lost;
+      const { message } = JSON.parse(String(init?.body));
+      const sender: unknown = message.sender;
+      if (!isHex(sender)) throw new Error('missing sender');
+      const trackingId = keccak256(concat([sender, toHex(BigInt(message.nonce), { size: 8 })]));
+      return Response.json({ accepted: true, trackingId });
+    });
+    vi.stubGlobal('fetch', send);
+    const pending = monad.sendMessage(sendParams()).then(
+      value => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    const request = JSON.parse(String(send.mock.calls[0]?.[1]?.body));
+    const trackingId = keccak256(concat([SENDER, toHex(BigInt(request.message.nonce), { size: 8 })]));
+    if (outcome === 'accepted') {
+      expect(result).toEqual({ ok: true, value: trackingId });
+    } else if (outcome === 'lost reply') {
+      expect(result).toMatchObject({
+        ok: false,
+        error: { name: 'IndeterminateOutcomeError', cause: lost, trackingId },
+      });
+    } else {
+      if (result.ok) throw new Error('expected throttling exhaustion');
+      expect(result.error).toMatchObject({ message: expect.stringContaining('nothing was queued') });
+      expect(result.error).not.toHaveProperty('trackingId');
+    }
+    expect(signMessage).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledTimes(outcome === 'exhausted' ? 3 : 2);
+    expect(new Set(send.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
   });
 
   it('produces a signature the relay recovers to the sender, exactly as scheme 0 verifies it', async () => {
@@ -397,7 +500,10 @@ describe('SpokeService routing for Monad', () => {
 describe('Monad review regressions', () => {
   it('requires the Monad network when broadcasting a deposit', async () => {
     await monad.deposit(depositParams(NATIVE_MON));
-    expect(sendTransaction).toHaveBeenCalledWith(expect.anything(), { expectedChainId: 143 });
+    expect(sendTransaction).toHaveBeenCalledWith(expect.anything(), {
+      expectedChainId: 143,
+      preserveDepositOutcome: true,
+    });
   });
 
   it('rejects a mismatched wallet network before receipt polling', async () => {
@@ -412,12 +518,17 @@ describe('Monad review regressions', () => {
         }),
       ),
     ).rejects.toThrow('wrong network');
-    expect(wrongNetwork).toHaveBeenCalledWith(expect.anything(), { expectedChainId: 143 });
+    expect(wrongNetwork).toHaveBeenCalledWith(expect.anything(), {
+      expectedChainId: 143,
+      preserveDepositOutcome: true,
+    });
     expect(publicClient.waitForTransactionReceipt).not.toHaveBeenCalled();
   });
 
   it('preserves the broadcast hash and notifies once when receipt polling fails', async () => {
-    const warn = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => undefined);
+    const warn = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {
+      throw new Error('custom logger failed');
+    });
     publicClient.waitForTransactionReceipt.mockRejectedValueOnce(new Error('RPC timeout'));
     await expect(monad.deposit(depositParams(USDC))).resolves.toBe(TX_HASH);
     expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '48', TX_HASH);

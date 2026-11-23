@@ -26,7 +26,7 @@ sodax.bridge.isAllowanceValid<K, Raw>(args): Promise<Result<boolean, SodaxError>
 
 // Routes from the source tx to whichever source can answer — the backend record while it is in
 // play, else the delivered relay packet (an MPC-relay leg: its deposit or release record; from Tron to
-// another spoke, with dstChainKey, the hub-to-spoke packet). Covers a bridge the client-side fallback completed.
+// another spoke, with dstChainKey, the hub-to-spoke packet). Pass Sonic for a hub-only bridge from an MPC-relay source.
 sodax.bridge.getDetailedStatus({ srcChainKey, srcTxHash, dstChainKey? }, config?): Promise<Result<DetailedBridgeStatus, SodaxError>>;
 
 sodax.bridge.getBridgeableAmount(from: XToken, to: XToken): Promise<Result<BridgeLimit, SodaxError>>;
@@ -241,7 +241,9 @@ different contract on the hub.
 | `isAllowanceValid` | `VALIDATION_FAILED`, `ALLOWANCE_CHECK_FAILED`, `UNKNOWN` | n/a |
 | `getBridgeableAmount`, `getBridgeableTokens` | `VALIDATION_FAILED`, `LOOKUP_FAILED`, `UNKNOWN` | `method: 'getBridgeableAmount' \| 'getBridgeableTokens'` |
 
-**A `bridge()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED` and the relay codes set `error.context.srcTxHash` (plus `srcChainKey`). The deposit is on-chain and the bridge may still complete — a slow relay can deliver late, and on the default backend path the backend keeps working after `bridge()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the bridge as lost or retrying `bridge()`. Failures before the broadcast carry no `srcTxHash`. After `TX_SUBMIT_FAILED`, if the backend did not take the deposit (submit-tx off or rejected) nothing else submits it: when no packet ever shows up, resubmit the same tx with `submitTransaction({ action: 'submit', params: { chain_id, tx_hash } }, relayerApiEndpoint)` — the relay ignores a tx it already has. A Solana or Bitcoin source also needs the original `relayData`, which `bridge()` does not return.
+For a bridge between intent-relay chains, poll `getDetailedStatus` with the original `context.srcTxHash`. If backend submit-tx accepted it, processing may continue after the SDK returns. After `TX_SUBMIT_FAILED`, if no packet appears and the backend did not accept the deposit, resubmit the same tx to the intent relay. A Solana or Bitcoin source also needs the original `relayData`.
+
+A bridge with an MPC-relay end skips the backend. After a failure with `context.srcTxHash`, keep the original hash and destination. For an MPC source, use the source spoke's deposit wait, for example `sodax.spoke.tron.waitForDeposit(srcTxHash)`, and read `value.txs?.hubMint?.hash` as `hubTxHash`. If the source is Sonic, `hubTxHash` is the original source hash. For an intent-relay spoke source, resume the original inbound transfer with `relayTxAndWaitPacket` and use the delivered packet's `dst_tx_hash` as `hubTxHash`. If a Solana deposit never reached the intent relay, pass the original `relayData` (retained in the post-broadcast settlement error context or from the original `createBridgeIntent`) as `data`, with the original `srcTxHash`. Never create another deposit to reconstruct it. For an MPC destination, notify the hub release with `sodax.spoke.submitHubRelease({ hubTxHash, dstChainKey })` before polling. For delivery from an MPC source to an intent-relay destination, submit the existing hub delivery with `sodax.spoke.submitHubDelivery(hubTxHash)`. A hub-only bridge needs no destination submission. Poll `getDetailedStatus` with the original hash and `dstChainKey` (Sonic for a hub-only bridge). Do not call `bridge()` again.
 
 ## Cross-references
 

@@ -54,6 +54,16 @@ export type EvmRawTransactionReceipt = {
 export type EvmSendTransactionOptions = {
   // Refuse to send unless the wallet's active chain id matches; without it the tx goes to whatever chain the wallet is on.
   expectedChainId?: number;
+  /** Keep the original deposit identifier if the broadcast response is indeterminate. */
+  preserveDepositOutcome?: boolean;
+};
+
+/** Transfer details for recovering a wallet deposit for which no hash was returned. */
+export type EvmDepositRecovery = {
+  readonly kind: 'evm-deposit';
+  readonly chainId: number;
+  readonly transaction: EvmRawTransaction;
+  readonly attemptedAtMs: number;
 };
 
 /**

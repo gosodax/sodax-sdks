@@ -896,6 +896,7 @@ export class BridgeService {
       dstChainKey: params.dstChainKey,
       action: 'bridge',
       srcTxHash: created.tx,
+      relayData: created.relayData,
     };
 
     const settled = await this.spoke.settle({
@@ -1300,6 +1301,14 @@ export class BridgeService {
         dstChainKey: params.dstChainKey,
         field: 'dstToken',
       });
+      if (isMpcRelayChainKey(params.dstChainKey)) {
+        assertMpcPayoutAboveMinimum({
+          feature: 'bridge',
+          token: dstToken,
+          amount: delivered,
+          context: { dstChainKey: params.dstChainKey, field: 'amount' },
+        });
+      }
       calls.push(
         EvmAssetManagerService.encodeTransfer(
           dstToken.hubAsset,
@@ -1325,8 +1334,8 @@ export class BridgeService {
    *
    * 1. Read the backend record; return it while it is still in play. A bridge with an MPC-relay end skips this:
    *    the backend never holds one.
-   * 2. From an MPC-relay source, return the relay's deposit record once minted on the hub, or, for a non-hub
-   *    `dstChainKey`, the hub-to-spoke packet once it lands.
+   * 2. From an MPC-relay source, use `dstChainKey` to check the final leg. A hub mint answers for the
+   *    hub destination. Without the destination key, the hub mint stays non-terminal.
    * 3. Otherwise return the delivered relay packet, which is terminal by construction.
    * 4. A bridge paying out on an MPC-relay chain has no packet for that leg, so it answers from the
    *    relay's release record instead, once the payout tx is recorded.
@@ -1416,7 +1425,17 @@ export class BridgeService {
             ),
           };
         }
-        if (!dst || isHubChainKey(dst)) {
+        if (!dst) {
+          return {
+            ok: false,
+            error: this.detailedStatusLookupFailed(new Error('MPC relay bridge status requires dstChainKey'), params, {
+              reason: DETAILED_STATUS_NOT_DELIVERED,
+              hubTxHash: minted.hubTxHash,
+              mpcRelay: true,
+            }),
+          };
+        }
+        if (isHubChainKey(dst)) {
           return { ok: true, value: { source: 'mpcRelay', data: minted.deposit } };
         }
         // The MPC relay produced the hub mint, so its leg to the spoke lands only once someone relays it.

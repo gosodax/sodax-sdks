@@ -15,12 +15,12 @@ New public surface:
 
 - `@sodax/types` — `MonadChainKey`, `MonadSpokeChainConfig`, `isMonadChainKey`, and the `monad` entries in `spokeChainConfig`, `supportedTokensByChain` (native MON, USDC), `RelayChainIdMap` and `MpcRelayChainMap`. `IEvmWalletProvider` gains an **optional** `signMessage(hash)`, required only to withdraw from Monad, so existing providers stay valid.
 - `@sodax/sdk` — `sodax.spoke.monad` (`MonadSpokeService`), `isMonadChainKeyType`, and `randomWithdrawNonce` / `MAX_SAFE_NONCE`, the withdraw-auth nonce every MPC-relay chain now shares. `DepositAddressResponse` is now a union discriminated by `depositMethod`: memo mode carries `reserveAddress` and `memo`, address mode carries `depositAddress`.
-- `@sodax/wallet-sdk-core` — `EvmWalletProvider.signMessage` and Monad in `getEvmViemChain`.
+- `@sodax/wallet-sdk-core` — `EvmWalletProvider.signMessage` and Monad in `getEvmViemChain`. The opt-in `preserveDepositOutcome` EVM send option keeps a locally signed hash or an `EvmDepositRecovery` handle when submission is uncertain.
 - `@sodax/wallet-sdk-react` — Monad in the wagmi config.
 
 A Monad **recipient** — swap `dstAddress`, money-market borrow/withdraw, bridge and recovery — is the plain 20-byte address, not the 32-byte word Tron and XRP use: `encodeRecipient` returns it lowercased and rejects a malformed address, including a mixed-case address whose EIP-55 checksum is wrong.
 
-A Monad deposit is sent with `expectedChainId: 143`, so a wallet on another network rejects it before broadcasting. Once broadcast, a deposit whose receipt wait fails still notifies the relay and resolves to the tx hash, so a retry cannot pay twice; only a definite revert throws. `MonadSpokeService` has `getWalletBalance` and `getWalletBalances`, like every other spoke service, and `MpcRelayPayoutMinimums` declares an empty floor for Monad: the solver prices no Monad release fee.
+A Monad deposit is sent with `expectedChainId: 143`, so a wallet on another network rejects it before broadcasting. A failed receipt wait still notifies the relay with the original hash. The wallet provider preserves a locally signed hash on an ambiguous broadcast response, or returns an EVM recovery handle if the browser wallet returns no hash. Resolve and settle the original transfer. Withdraw throttling retries use the same signed request. `MonadSpokeService` has `getWalletBalance` and `getWalletBalances`, like every other spoke service, and `MpcRelayPayoutMinimums` declares an empty floor for Monad: the solver prices no Monad release fee.
 
 Monad is swap-supported in the **staging** solver environment only (MON and USDC). **Money market** lists USDC only: MON has no vault, so it cannot be a lending-pool reserve. Bridge, partner-fee and recovery include Monad automatically.
 

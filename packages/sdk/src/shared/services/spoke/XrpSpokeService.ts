@@ -1,6 +1,7 @@
+import { IndeterminateOutcomeError, isIndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { pollUntil } from '../../utils/pollUntil.js';
 import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
-import { isAddress, ripemd160, sha256, type Hex } from 'viem';
+import { bytesToHex, hexToBytes, isAddress, ripemd160, sha256, type Hex } from 'viem';
 import {
   ChainKeys,
   getMpcRelayChainInfo,
@@ -35,6 +36,7 @@ import {
   getWithdrawal,
   notify,
   submitWithdraw,
+  submitFreshWithdrawWithBackoff,
   toDepositId,
   toHubReleaseId,
   waitForDeposit,
@@ -91,6 +93,12 @@ async function orIfMissing<T>(read: Promise<T>, fallback: T): Promise<T> {
     if (error instanceof Error && /actNotFound|entryNotFound/.test(error.message)) return fallback;
     throw error;
   }
+}
+
+async function signedBlobHash(blob: string): Promise<Hex> {
+  const bytes = new Uint8Array(hexToBytes(`0x54584E00${blob}`));
+  const digest = await globalThis.crypto.subtle.digest('SHA-512', bytes);
+  return bytesToHex(new Uint8Array(digest, 0, 32));
 }
 
 /** XRPL reports bare uppercase hex; the relay keys XRPL on the 0x-prefixed lowercase form (per chain: Tron's key is bare hex). */
@@ -183,7 +191,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
       return body.result as T;
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`xrpl rpc ${method}: timed out after ${timeoutMs}ms`);
+        throw new Error(`xrpl rpc ${method}: timed out after ${timeoutMs}ms`, { cause: error });
       }
       throw error;
     } finally {
@@ -197,7 +205,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
    * `Raw: true` returns the unsigned transfer descriptor (no wallet needed). `Raw: false` registers
    * the hub `data`, builds the memo Payment, signs it with the wallet provider, submits it, and
    * notifies the relay — resolving to the source tx hash. After signing, a definite submit failure
-   * throws; a failed notify warns and still resolves to the hash, so a retry cannot pay twice. `settle`
+   * throws. An uncertain submit notifies and throws an IndeterminateOutcomeError carrying the hash.
+   * A failed notify after an accepted submit still resolves to the hash. `settle`
    * re-notifies it; a caller that does not settle notifies it with `spoke.submitMpcDeposit`.
    *
    * Both token kinds ride the same memo mechanism: `Memos` is a transaction-level field, so it
@@ -268,7 +277,15 @@ export class XrpSpokeService implements MpcRelaySettlement {
     // rejects a transaction that pins them, and a raw-key provider has xrpl.js do the same. Filling
     // them here would mean racing the wallet for the account's Sequence.
     const signed = await walletProvider.signTransaction(unsigned);
-    const hash = toRelayTxHash(await this.submitSigned(signed));
+    let hash: string;
+    let uncertain: IndeterminateOutcomeError | undefined;
+    try {
+      hash = toRelayTxHash(await this.submitSigned(signed));
+    } catch (error) {
+      if (!isIndeterminateOutcomeError(error) || !error.txHash) throw error;
+      uncertain = error;
+      hash = error.txHash;
+    }
 
     const submitted = await this.submitDeposit(hash);
     if (!submitted.ok) {
@@ -281,6 +298,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
       );
     }
 
+    if (uncertain) throw uncertain;
     return hash satisfies string as XrpDepositReturnType<R>;
   }
 
@@ -337,27 +355,24 @@ export class XrpSpokeService implements MpcRelaySettlement {
       return signed.hash;
     }
 
-    // The blob is signed, so a lost or provisional submit response does not prove it missed the
-    // ledger (a ter* result can still apply later); keep the hash in the error so it can be looked up.
-    let submitted: { engine_result?: string; tx_json?: { hash?: string } };
+    // XRPL transaction ID is SHA-512Half of the transaction-ID prefix and signed bytes.
+    const blob = signed.tx_blob;
+    if (!/^(?:[0-9a-f]{2})+$/i.test(blob)) throw new Error('[XrpSpokeService.deposit] invalid signed blob');
+    const hash = toRelayTxHash(signed.hash || (await signedBlobHash(blob)));
+    const indeterminate = (cause: unknown) =>
+      new IndeterminateOutcomeError('[XrpSpokeService.deposit] submit outcome is unknown', { txHash: hash, cause });
+
+    let submitted: { engine_result?: unknown };
     try {
-      submitted = await this.rpc<{ engine_result?: string; tx_json?: { hash?: string } }>('submit', {
-        tx_blob: signed.tx_blob,
-      });
+      submitted = await this.rpc<{ engine_result?: unknown }>('submit', { tx_blob: blob });
     } catch (error) {
-      throw new Error(`[XrpSpokeService.deposit] submit of ${signed.hash ?? 'unknown tx'} failed or timed out`, {
-        cause: error,
-      });
+      throw indeterminate(error);
     }
-    // terQUEUED is held for a later ledger and usually applies; tec* codes are applied-but-failed and
-    // other ter*/tem* are rejections, so anything else would notify the relay about a tx that never moved funds.
-    if (submitted.engine_result !== 'tesSUCCESS' && submitted.engine_result !== 'terQUEUED') {
-      const txHash = signed.hash ?? submitted.tx_json?.hash ?? 'unknown tx';
-      throw new Error(`[XrpSpokeService.deposit] submit of ${txHash} failed: ${submitted.engine_result ?? 'unknown'}`);
-    }
-    const hash = signed.hash ?? submitted.tx_json?.hash;
-    if (!hash) throw new Error('[XrpSpokeService.deposit] submitted but no transaction hash returned');
-    return hash;
+    const result = typeof submitted.engine_result === 'string' ? submitted.engine_result : undefined;
+    if (result === 'tesSUCCESS' || result === 'terQUEUED') return hash;
+    const failure = new Error(`[XrpSpokeService.deposit] submit of ${hash} failed: ${result ?? 'unknown'}`);
+    if (result && /^tem[A-Z][A-Z0-9_]*$/.test(result)) throw failure;
+    throw indeterminate(failure);
   }
 
   /**
@@ -621,7 +636,9 @@ export class XrpSpokeService implements MpcRelaySettlement {
       params.walletProvider.signMessage(withdraw.digest),
       params.walletProvider.getPublicKey(),
     ]);
-    const trackingId = await this.submitSignedWithdraw({ withdraw, signature, publicKey });
+    const trackingId = await submitFreshWithdrawWithBackoff(() =>
+      this.submitSignedWithdraw({ withdraw, signature, publicKey }),
+    );
     return trackingId satisfies string as XrpSendMessageReturnType<Raw>;
   }
 
@@ -629,6 +646,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
    * Submit a raw withdraw-auth once signed. Resolves to the `trackingId` for {@link waitForWithdrawal}.
    * An ed25519 signature cannot recover its signer, so the account's `0xED` public key rides along and the
    * contract checks `ripemd160(sha256(publicKey))` against the message's `sender`; a mismatch is refused here.
+   * On IndeterminateOutcomeError, poll the original tracking ID. A rejection on resubmission of the
+   * same message and signature does not determine the outcome of the first submission.
    */
   public async submitSignedWithdraw({
     withdraw,

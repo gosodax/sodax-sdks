@@ -115,20 +115,26 @@ export const MpcRelayChainMap = {
 export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
 
 /**
- * Floor for a payout through the MPC relay, by chain and token symbol, in the payout token's decimals: the SDK
+ * Floor for a payout through the MPC relay, by chain and token address, in the payout token's decimals: the SDK
  * refuses a payout at or below it. The relay deducts a live release fee from the payout, and releases nothing
  * once that fee reaches the amount, after the hub has already burned it. Sized to the fee cap the solver assumes.
  */
 export const MpcRelayPayoutMinimums: Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
-  // The relay's release fee is capped at 3 USDT / 10 TRX: `tronReleaseCosts[*].capUnits` in icon-project/sodax-solver-v2
-  // onchain-modules/modules/liquidity/hub/asset/src/core/tronReleaseFee.ts (ported from the relay's fee-api).
-  [ChainKeys.TRON_MAINNET]: { USDT: 3_000_000n, TRX: 10_000_000n },
-  // The relay deducts no XRPL release fee (solver quotes 1:1); XrpSpokeService.checkDestination checks the native account reserve.
-  [ChainKeys.XRP_MAINNET]: {},
-  // No floor: the solver serves Monad with EvmChainProvider (sodax-solver-v2 .../hub/asset/src/chains/evm.ts), which has
-  // no `priceReleaseFees`, so XAssetModule quotes its release 1:1. The solver models release fees only for Tron, TON
-  // and Zcash.
-  [ChainKeys.MONAD_MAINNET]: {},
+  [ChainKeys.TRON_MAINNET]: {
+    [tronSupportedTokens.USDT.address]: 3_000_000n,
+    [tronSupportedTokens.TRX.address]: 10_000_000n,
+  },
+  // XRPL releases have no relay fee. Unknown issuer addresses still fail closed.
+  [ChainKeys.XRP_MAINNET]: {
+    [xrpSupportedTokens.XRP.address]: 0n,
+    [xrpSupportedTokens.USDC.address]: 0n,
+    [xrpSupportedTokens.RLUSD.address]: 0n,
+  },
+  // Monad releases are quoted 1:1. Explicit zero floors still reject unknown token addresses.
+  [ChainKeys.MONAD_MAINNET]: {
+    [monadSupportedTokens.MON.address.toLowerCase()]: 0n,
+    [monadSupportedTokens.USDC.address.toLowerCase()]: 0n,
+  },
 };
 
 export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey>(

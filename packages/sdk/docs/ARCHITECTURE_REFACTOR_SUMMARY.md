@@ -229,7 +229,7 @@ Use `isSodaxError` rather than `instanceof SodaxError`, which is not bundle-safe
 
 ## Concept 6: Error convention
 
-Most public failures are a `SodaxError<C>` (the exceptions are called out on each module's page — DEX relay legs and the Recovery spoke leg return the underlying error unchanged): a string-literal `code`, the originating `feature`, a structured `context`, and an ES2022 `cause` chain. Check `isSodaxError(error)` before reading `error.code`, and never discriminate on `error.message` — the message is human-readable and may change.
+Most public failures are a `SodaxError<C>` (the exceptions are called out on each module's page — DEX intent-relay legs and the Recovery spoke leg return the underlying error unchanged): a string-literal `code`, the originating `feature`, a structured `context`, and an ES2022 `cause` chain. Check `isSodaxError(error)` before reading `error.code`, and never discriminate on `error.message` — the message is human-readable and may change.
 
 ```ts
 new SodaxError('INTENT_CREATION_FAILED', 'Intent creation failed', {

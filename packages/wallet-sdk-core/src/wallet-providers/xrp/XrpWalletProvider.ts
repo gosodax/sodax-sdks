@@ -1,10 +1,12 @@
 import { deriveKeypair, sign } from 'ripple-keypairs';
 import { ECDSA, Wallet } from 'xrpl';
-import type {
-  IXrpWalletProvider,
-  XrpRawTransactionReceipt,
-  XrpSignedTransaction,
-  XrpUnsignedTransaction,
+import {
+  IndeterminateOutcomeError,
+  type IXrpWalletProvider,
+  type XrpPaymentRecovery,
+  type XrpRawTransactionReceipt,
+  type XrpSignedTransaction,
+  type XrpUnsignedTransaction,
 } from '@sodax/types';
 import { BaseWalletProvider } from '../BaseWalletProvider.js';
 import type {
@@ -156,14 +158,33 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
     }
     // GemWallet submits to whichever ledger it is set to; on another, a deposit pays a reserve the relay never watches.
     const network = (await this.gemWallet?.getNetwork?.())?.result;
-    if (network && (network.chain !== 'XRPL' || network.network !== 'Mainnet')) {
+    if (!network?.chain || !network.network) {
+      throw new Error('GemWallet did not confirm the XRPL Mainnet');
+    }
+    if (network.chain !== 'XRPL' || network.network !== 'Mainnet') {
       throw new Error(`GemWallet is set to ${network.chain} ${network.network} — switch it to the XRPL Mainnet`);
     }
     // GemWallet submits as well as signs, so there is no blob to hand back — the hash it returns
     // is the settled identifier the caller needs.
-    const res = await this.gemWallet?.submitTransaction({ transaction: tx as Record<string, unknown> });
+    const recovery = {
+      kind: 'xrp-payment',
+      account: tx.Account,
+      destination: tx.Destination,
+      memo: tx.Memos?.[0]?.Memo.MemoData,
+      amount: typeof tx.Amount === 'string' ? tx.Amount : { ...tx.Amount },
+      attemptedAtMs: Date.now(),
+    } satisfies XrpPaymentRecovery;
+    const indeterminate = (cause: unknown) =>
+      new IndeterminateOutcomeError('GemWallet returned no transaction hash', { cause, recovery });
+    let res: Awaited<ReturnType<GemWalletLike['submitTransaction']>>;
+    try {
+      res = await this.gemWallet?.submitTransaction({ transaction: tx });
+    } catch (error) {
+      throw indeterminate(error);
+    }
+    if (res?.type === 'reject') throw new Error('GemWallet transaction was rejected by the user');
     const hash = res?.result?.hash;
-    if (!hash) throw new Error('GemWallet returned no transaction hash');
+    if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/i.test(hash)) throw indeterminate(res);
     return { tx_blob: '', hash };
   }
 

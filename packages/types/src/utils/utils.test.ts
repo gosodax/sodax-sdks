@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { ChainKeys, MpcRelayChainMap, MpcRelayPayoutMinimums } from '../chains/index.js';
-import { getEvmChainKeyByChainId, getUnmetMpcPayoutMinimum } from './utils.js';
+import {
+  ChainKeys,
+  MpcRelayChainMap,
+  MpcRelayPayoutMinimums,
+  monadSupportedTokens,
+  tronSupportedTokens,
+  xrpSupportedTokens,
+} from '../chains/index.js';
+import { getEvmChainKeyByChainId, getMpcPayoutMinimum, getUnmetMpcPayoutMinimum } from './utils.js';
 
 describe('getEvmChainKeyByChainId', () => {
   it('maps wagmi chainId 42161 to ARBITRUM_MAINNET', () => {
@@ -33,8 +40,11 @@ describe('getEvmChainKeyByChainId', () => {
 });
 
 describe('getUnmetMpcPayoutMinimum', () => {
-  const usdt = { chainKey: ChainKeys.TRON_MAINNET, symbol: 'USDT', decimals: 6 };
-  const trx = { chainKey: ChainKeys.TRON_MAINNET, symbol: 'TRX', decimals: 6 };
+  it.each(Object.values(xrpSupportedTokens))('declares a zero floor for $symbol', token => {
+    expect(MpcRelayPayoutMinimums[token.chainKey]?.[token.address]).toBe(0n);
+    expect(getUnmetMpcPayoutMinimum({ token, amount: 1n })).toBeUndefined();
+  });
+  const { USDT: usdt, TRX: trx } = tronSupportedTokens;
 
   it('fails below and at the minimum, since the relay skips a release once fee >= amount', () => {
     const unmet = { symbol: 'USDT', decimals: 6, minimum: 3_000_000n };
@@ -61,7 +71,8 @@ describe('getUnmetMpcPayoutMinimum', () => {
     expect(
       getUnmetMpcPayoutMinimum({ token: { ...usdt, chainKey: ChainKeys.ARBITRUM_MAINNET }, amount: 1n }),
     ).toBeUndefined();
-    expect(getUnmetMpcPayoutMinimum({ token: { ...usdt, symbol: 'OTHER' }, amount: 1n })).toBeUndefined();
+    expect(getUnmetMpcPayoutMinimum({ token: { ...usdt, address: 'unlisted' }, amount: 1n })).toBeUndefined();
+    expect(getUnmetMpcPayoutMinimum({ token: { ...usdt, symbol: 'OTHER' }, amount: 1n })?.minimum).toBe(3_000_000n);
   });
 });
 
@@ -69,4 +80,15 @@ it('requires every MPC chain to declare its payout floors', () => {
   for (const key of Object.keys(MpcRelayChainMap)) {
     expect(Object.hasOwn(MpcRelayPayoutMinimums, key)).toBe(true);
   }
+});
+
+describe('Monad payout floor identity', () => {
+  it('covers each Monad payout token with a zero floor independent of EVM address casing', () => {
+    for (const token of Object.values(monadSupportedTokens)) {
+      expect(getMpcPayoutMinimum(token)).toBe(0n);
+      expect(getMpcPayoutMinimum({ ...token, address: token.address.toLowerCase() })).toBe(0n);
+      expect(getMpcPayoutMinimum({ ...token, address: `0x${token.address.slice(2).toUpperCase()}` })).toBe(0n);
+    }
+    expect(getMpcPayoutMinimum({ chainKey: ChainKeys.MONAD_MAINNET, address: `0x${'ab'.repeat(20)}` })).toBeUndefined();
+  });
 });

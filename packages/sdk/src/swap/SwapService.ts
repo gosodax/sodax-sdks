@@ -36,6 +36,7 @@ import {
   type RelayExtraData,
   type TxHashPair,
   isStacksChainKeyType,
+  isXrpChainKeyType,
   isNativeBitcoinTransfer,
   assertMpcPayoutAboveMinimum,
   encodeRecipient,
@@ -1629,6 +1630,30 @@ export class SwapService {
           amount: params.minOutputAmount,
           context: { ...baseCtx, field: 'minOutputAmount' },
         });
+        if (
+          isXrpChainKeyType(params.dstChainKey) &&
+          outputTokenInfo.address !== this.config.getChainConfig(params.dstChainKey).nativeToken
+        ) {
+          const quote = await this.getQuote({
+            token_src: params.inputToken,
+            token_src_blockchain_id: params.srcChainKey,
+            token_dst: params.outputToken,
+            token_dst_blockchain_id: params.dstChainKey,
+            amount: params.inputAmount,
+            quote_type: 'exact_input',
+            partnerFee,
+          });
+          swapInvariant(
+            quote.ok && quote.value.quoted_amount > 0n,
+            'A current exact-input quote is required for an XRPL issued-token destination',
+            { ...baseCtx, field: 'minOutputAmount' },
+          );
+          swapInvariant(
+            params.minOutputAmount * SOLVED_PAYOUT_HEADROOM_FACTOR >= quote.value.quoted_amount,
+            'minOutputAmount must be at least half the current quote for an XRPL issued-token destination',
+            { ...baseCtx, field: 'minOutputAmount' },
+          );
+        }
         await this.spoke.assertReleaseRecipientReady({
           feature: 'swap',
           chainKey: params.dstChainKey,

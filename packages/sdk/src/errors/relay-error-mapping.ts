@@ -10,7 +10,7 @@
  */
 
 import { RELAY_ERROR_CODES } from '../shared/services/intentRelay/IntentRelayApiService.js';
-import type { SodaxErrorCode, SodaxFeature, SodaxPhase } from './codes.js';
+import type { SodaxErrorCode, SodaxErrorContext, SodaxFeature, SodaxPhase } from './codes.js';
 import { SodaxError } from './SodaxError.js';
 
 /**
@@ -21,14 +21,14 @@ import { SodaxError } from './SodaxError.js';
  */
 export type RelayWrappedErrorCode = Extract<SodaxErrorCode, 'RELAY_TIMEOUT' | 'TX_SUBMIT_FAILED' | 'RELAY_FAILED'>;
 
-export type MapRelayFailureCtx = {
+export type MapRelayFailureCtx = Pick<SodaxErrorContext, 'trackingId' | 'relayData'> & {
   /** The producing feature. Required so the mapped error carries a feature tag. */
   feature: SodaxFeature;
   /** The feature-level operation in flight (e.g. `'supply'`, `'stake'`, `'migrateBaln'`). */
   action?: string;
   srcChainKey?: string;
   dstChainKey?: string;
-  /** The broadcast source tx, so a caller can keep reading status after a post-broadcast failure. */
+  /** The original broadcast source tx, used to resume an existing operation. */
   srcTxHash?: string;
   /**
    * Phase override. Defaults to `'relay'`. Set to `'destinationExecution'` for migration's
@@ -53,6 +53,8 @@ export function mapRelayFailure(error: unknown, ctx: MapRelayFailureCtx): SodaxE
     srcChainKey: ctx.srcChainKey,
     dstChainKey: ctx.dstChainKey,
     ...(ctx.srcTxHash !== undefined && { srcTxHash: ctx.srcTxHash }),
+    ...(ctx.trackingId !== undefined && { trackingId: ctx.trackingId }),
+    ...(ctx.relayData !== undefined && { relayData: ctx.relayData }),
   };
 
   if (message === RELAY_ERROR_CODES.RELAY_TIMEOUT) {

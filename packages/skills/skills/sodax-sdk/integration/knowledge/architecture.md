@@ -396,7 +396,7 @@ if (!result.ok && isSodaxError(result.error)) {
     /* show "couldn't build supply" */
   }
   if (result.error.code === 'RELAY_TIMEOUT') {
-    /* retry */
+    /* resume settlement of the original transaction; do not repeat the call */
   }
 }
 ```

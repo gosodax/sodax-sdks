@@ -15,6 +15,7 @@
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import {
   ChainKeys,
+  IndeterminateOutcomeError,
   spokeChainConfig,
   type Address,
   type IBitcoinWalletProvider,
@@ -1494,6 +1495,7 @@ describe('MoneyMarketService.supply', () => {
       expect(result.error.cause).toBe(relayError);
       expect(result.error.context?.relayCode).toBe('RELAY_TIMEOUT');
       expect(result.error.context?.action).toBe('supply');
+      expect(result.error.context?.srcTxHash).toBe('0xtx');
     });
 
     it('returns ok:false when createSupplyIntent throws (outer catch)', async () => {
@@ -1815,7 +1817,10 @@ describe('MoneyMarketService.createBorrowIntent', () => {
 
     it('forwards a failure Result from spoke.sendMessage', async () => {
       vi.spyOn(sodax.moneyMarket, 'buildBorrowData').mockReturnValueOnce('0xborrow-data');
-      const sendError = new Error('SEND_FAILED');
+      const sendError = new IndeterminateOutcomeError('SEND_FAILED', {
+        cause: new Error('lost reply'),
+        trackingId: '0xoriginal',
+      });
       vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
 
       const result = await sodax.moneyMarket.createBorrowIntent({
@@ -1824,7 +1829,17 @@ describe('MoneyMarketService.createBorrowIntent', () => {
         walletProvider: mockEvmProvider,
       });
 
-      expect(result).toMatchObject({ ok: false, error: expect.objectContaining({ message: sendError.message }) });
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: 'INTENT_CREATION_FAILED',
+          context: {
+            trackingId: '0xoriginal',
+            dstChainKey: ChainKeys.BSC_MAINNET,
+            relayData: { address: expect.any(String), payload: '0xborrow-data' },
+          },
+        },
+      });
     });
 
     it('returns ok:false when spoke.sendMessage throws', async () => {
@@ -2300,7 +2315,10 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
   describe('propagates internal errors', () => {
     it('forwards a failure Result from spoke.sendMessage', async () => {
       vi.spyOn(sodax.moneyMarket, 'buildWithdrawData').mockReturnValueOnce('0xwithdraw-data');
-      const sendError = new Error('SEND_FAILED');
+      const sendError = new IndeterminateOutcomeError('SEND_FAILED', {
+        cause: new Error('lost reply'),
+        trackingId: '0xoriginal',
+      });
       vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
 
       const result = await sodax.moneyMarket.createWithdrawIntent({
@@ -2309,7 +2327,17 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
         walletProvider: mockEvmProvider,
       });
 
-      expect(result).toMatchObject({ ok: false, error: expect.objectContaining({ message: sendError.message }) });
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: 'INTENT_CREATION_FAILED',
+          context: {
+            trackingId: '0xoriginal',
+            dstChainKey: ChainKeys.BSC_MAINNET,
+            relayData: { address: expect.any(String), payload: '0xwithdraw-data' },
+          },
+        },
+      });
     });
 
     it('returns ok:false when spoke.sendMessage throws', async () => {
@@ -2981,6 +3009,7 @@ describe('MoneyMarketService.repay', () => {
       expect(result.error.code).toBe('RELAY_TIMEOUT');
       expect(result.error.cause).toBe(relayError);
       expect(result.error.context?.action).toBe('repay');
+      expect(result.error.context?.srcTxHash).toBe('0xtx');
     });
 
     it('returns ok:false when createRepayIntent throws (outer catch)', async () => {
@@ -3660,6 +3689,32 @@ describe('MoneyMarketService — hub-only actions verify the source tx', () => {
 });
 
 describe('MoneyMarketService — outbound result by source chain', () => {
+  it.each([
+    ['borrow', ChainKeys.TRON_MAINNET],
+    ['withdraw', ChainKeys.TRON_MAINNET],
+    ['borrow', ChainKeys.XRP_MAINNET],
+    ['withdraw', ChainKeys.XRP_MAINNET],
+  ] as const)('%s on %s keeps its original tracking ID on a settlement timeout', async (action, chainKey) => {
+    const trackingId = '0xoriginal';
+    const relayData = { address: HUB_WALLET, payload: '0x01' } as const;
+    const intent = { ok: true, value: { tx: trackingId, relayData } } as const;
+    const walletProvider = {} as never;
+    const cause = new Error('RELAY_TIMEOUT');
+    vi.spyOn(sodax.spoke, 'settle').mockResolvedValueOnce({ ok: false, error: { phase: 'relay', cause } });
+    const intentMethod = action === 'borrow' ? 'createBorrowIntent' : 'createWithdrawIntent';
+    vi.spyOn(sodax.moneyMarket, intentMethod).mockResolvedValueOnce(intent);
+    const result =
+      action === 'borrow'
+        ? await sodax.moneyMarket.borrow({ raw: false, params: borrowParams(chainKey), walletProvider })
+        : await sodax.moneyMarket.withdraw({ raw: false, params: withdrawParams(chainKey), walletProvider });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'RELAY_TIMEOUT', cause, context: { trackingId, srcChainKey: chainKey, relayData } },
+    });
+    if (result.ok) throw new Error('expected settlement failure');
+    expect(result.error.context).not.toHaveProperty('srcTxHash');
+  });
+
   type Settled<K extends SpokeChainKey> = Extract<
     Awaited<ReturnType<typeof sodax.moneyMarket.borrow<K>>>,
     { ok: true }
@@ -3681,6 +3736,14 @@ describe('MoneyMarketService — small payout to an MPC-relay chain', () => {
     decimals: 6,
     vault: tronSupportedTokens.USDT.vault,
   };
+
+  it.each(['buildBorrowData', 'buildWithdrawData'] as const)('%s checks the floor on direct calls', method => {
+    const service = new Sodax({ logger: 'silent' }).moneyMarket;
+    const build = (amount: bigint) =>
+      service[method](HUB_WALLET, SAMPLE_DST_ADDRESS, usdt.address, amount, ChainKeys.TRON_MAINNET);
+    expect(() => build(3_000_000n)).toThrow(/must be greater than 3 USDT/);
+    expect(build(3_000_001n)).toMatch(/^0x[0-9a-f]+$/i);
+  });
 
   const setup = () => {
     vi.spyOn(sodax.config, 'getMoneyMarketToken').mockReturnValue(usdt as never);
