@@ -55,6 +55,7 @@ import { EvmSolverService } from './EvmSolverService.js';
 import { HookService } from './HookService.js';
 import { IntentDataService } from './IntentDataService.js';
 import { Sodax } from '../index.js';
+import { tronSupportedTokens } from '@sodax/types';
 import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
 
 // --- fixtures -------------------------------------------------------------
@@ -216,13 +217,48 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     expect(intent.dstAddress).toBe(DST_USER);
   });
 
+  it.each([
+    [true, 3_000_001n, 'allowPartialFill'],
+    [false, 3_000_000n, 'minOutputAmount'],
+  ] as const)('rejects invalid MPC payout parameters (%s, %s)', (allowPartialFill, minOutputAmount, field) => {
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(tronSupportedTokens.USDT);
+    expect(() =>
+      EvmSolverService.constructCreateIntentData(
+        {
+          ...baseParams(),
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstAddress: TRON_TEST_ADDRESS,
+          outputToken: tronSupportedTokens.USDT.address,
+          minOutputAmount,
+          allowPartialFill,
+        },
+        HUB_WALLET,
+        mockConfig,
+        undefined,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: 'VALIDATION_FAILED',
+        context: expect.objectContaining({ field }),
+      }),
+    );
+  });
+
   it('encodes an MPC-relay (Tron) dstAddress as the 32-byte recipient word, not the 20-byte identity', () => {
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
       .mockReturnValueOnce(hubInputXToken)
-      .mockReturnValueOnce(hubOutputXToken);
+      .mockReturnValueOnce(tronSupportedTokens.USDT);
 
     const [, intent] = EvmSolverService.constructCreateIntentData(
-      { ...baseParams(), dstChainKey: ChainKeys.TRON_MAINNET, dstAddress: TRON_TEST_ADDRESS },
+      {
+        ...baseParams(),
+        dstChainKey: ChainKeys.TRON_MAINNET,
+        dstAddress: TRON_TEST_ADDRESS,
+        outputToken: tronSupportedTokens.USDT.address,
+        minOutputAmount: 3_000_001n,
+      },
       HUB_WALLET,
       mockConfig,
       undefined,

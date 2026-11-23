@@ -369,7 +369,7 @@ import { useIsMutating } from '@tanstack/react-query';
 
 const { mutateAsync: swap, isError, error } = useSwap({
   mutationOptions: {
-    retry: 5,
+    retry: false, // Resume the original source hash after a post-broadcast failure.
     onError: err => toast.error(err.message),
     onSuccess: swapResponse => {
       // Runs AFTER dapp-kit's xBalances invalidations — only on confirmed success.

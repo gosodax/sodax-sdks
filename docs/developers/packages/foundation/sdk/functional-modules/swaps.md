@@ -820,7 +820,7 @@ The `swap` method is the recommended way to perform a complete cross-chain swap.
 
 1. Calls `createIntent` to submit the intent transaction on the source spoke chain
 2. **Backend attempt** (default, `swaps.useBackendSubmitTx`): hands the broadcast tx to `sodax.api.swaps.submitTx` — which verifies, relays and post-executes server-side — then polls submit-tx status until the intent is `solved`
-3. **On any non-success, falls back** to the fully client-side path: verifies the spoke transaction landed on-chain, then for non-hub source chains submits the spoke tx to the relayer and waits for the relay packet to land on the hub (Sonic), then calls `postExecution` to notify the solver, triggering it to fill the intent
+3. **On any non-success, falls back** to the fully client-side path: verifies the spoke transaction landed on-chain, then for intent-relay spokes submits the original tx and waits for its packet on Sonic. For MPC-relay sources, the client settles the original deposit to Sonic through the source spoke, then calls `postExecution` to notify the solver, triggering it to fill the intent
 
 Both paths return an identical `SwapResponse`. See [Backend 2-step submit](#backend-2-step-submit) for the flag, the fallback conditions and why re-relaying is safe.
 
@@ -907,7 +907,7 @@ const createIntentResult = await sodax.swaps.createIntent({
 if (createIntentResult.ok) {
   const { tx: rawTx, intent, relayData } = createIntentResult.value;
   // rawTx is EvmRawTransaction: { from, to, value, data }
-  // relayData is RelayExtraData: { address, payload } — needed for submitIntent
+  // Keep the returned relayData for manual settlement. submitIntent is for intent-relay sources only.
   console.log('Raw tx:', rawTx);
 }
 ```
@@ -1053,7 +1053,9 @@ if (cancelRelayData.ok) {
 
 ## Submit Intent to Relay API
 
-Called automatically by `swap` — but only on its **fallback** path; the backend attempt relays server-side instead. Use this manually if you called `createIntent` separately. If you are orchestrating the steps yourself, try `sodax.api.swaps.submitTx` first and keep this as your fallback — see [Migrate a manual swap to the backend submit-tx flow](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md).
+For intent-relay sources only. Called automatically by `swap` on its **fallback** path; the backend attempt relays server-side instead. Use this manually if you called `createIntent` separately. If you are orchestrating the steps yourself, try `sodax.api.swaps.submitTx` first and keep this as your fallback — see [Migrate a manual swap to the backend submit-tx flow](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md).
+
+For an MPC-relay source, settle inbound with `sodax.spoke.settle({ chainKey: srcChainKey, tx: spokeTxHash, direction: 'inbound', relayData })`. Keep the original signed transaction's hash and relay data. Once `settle` succeeds, check `dstChainTxHash` with viem's `isHex`, then call `sodax.swaps.postExecution({ intent_tx_hash: dstChainTxHash })`. Check its Result before polling the original source hash. Resume the same settlement on timeout.
 
 ```typescript
 import type { IntentRelayRequest } from '@sodax/sdk';
@@ -1274,7 +1276,7 @@ Both payloads are already documented — the submit-tx record in [SWAPS_API.md](
 The solver is not the last word on its own intents, so any answer short of `SOLVED` or `FAILED` is checked against the backend's durable intent record (`sodax.api.getIntentByTxHash`):
 
 - **A fill that consumed the remainder reads `SOLVED`**, with that fill's tx as `fill_tx_hash`. The solver keeps intent state in memory, so after a restart it answers `NOT_FOUND` for intents it already filled.
-- **A cancel with nothing filled reads `FAILED`.** Expired intents are cancelled on the hub and refunded, and the solver can keep reporting one as in flight (`1` or `2`) long after — a poller would never stop. Its funds are already back, so do not offer the user a cancel. From an MPC-relay source (Tron), the relay pays that refund only once the cancel's hub tx is notified: call `sodax.spoke.settleHubRelease(hubTxHash, srcChainKey)` with the `txHash` of the record's `intent-cancelled` event.
+- **A cancel with nothing filled reads `FAILED`.** Expired intents are cancelled on the hub and refunded, and the solver can keep reporting one as in flight (`1` or `2`) long after — a poller would never stop. Do not offer another cancel. A hub cancellation establishes the refund on Sonic; a payout to an MPC-relay source completes only after the corresponding release. From an MPC-relay source (Tron), the relay pays that refund only once the cancel's hub tx is notified: call `sodax.spoke.settleHubRelease(hubTxHash, srcChainKey)` with the `txHash` of the record's `intent-cancelled` event.
 - **Anything else leaves the solver's answer standing**, including a cancel after a partial fill (it is neither solved nor failed) and a record that cannot be read right now; the next poll asks again.
 
 `getStatus` keeps its narrower check: it reads the record only behind a `NOT_FOUND` or a failed request, and only for a fill — never a cancel.

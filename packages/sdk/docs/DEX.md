@@ -1,7 +1,7 @@
 <!-- packages/sdk/docs/DEX.md -->
 # DEX (Concentrated Liquidity)
 
-> **Error handling conventions:** DEX has a **mixed** contract. Everything except the relay leg returns a typed `SodaxError` with `feature: 'dex'` — discriminate on `error.code`. Relay failures are the exception: DEX is the only feature module that does not run them through `mapRelayFailure`, so they surface as a plain `Error` whose `.message` is one of `RELAY_ERROR_CODES`. See [Error Handling](#error-handling) below before writing any branching.
+> **Error handling conventions:** DEX uses typed `SodaxError` for feature errors and MPC settlement failures. The intent-relay leg still returns its plain relay error. See [Error Handling](#error-handling) for both shapes.
 
 The DEX portion of the SDK provides helpers for asset wrapping/deposits and concentrated liquidity (CL) operations.
 All DEX features are accessible through the `dex` property of a `Sodax` instance.
@@ -605,7 +605,7 @@ type Result<T> =
 ### Two contracts coexist
 
 DEX feature errors carry `feature: 'dex'`, a `code` and `context`. Asset deposits and withdrawals
-on an MPC-relay source also wrap settlement failures as typed relay errors. The intent-relay
+on an MPC-relay source, and withdrawals releasing to an MPC-relay destination after a hub burn, wrap settlement failures as typed relay errors. The intent-relay
 leg still forwards its raw relay error, whose message is `SUBMIT_TX_FAILED`, `RELAY_TIMEOUT` or
 `RELAY_POLLING_FAILED`.
 
@@ -713,9 +713,7 @@ These helpers throw rather than returning a `Result`, so wrap them in `try`/`cat
 
 ### `context` fields
 
-DEX populates `phase` (`validate` | `intentCreation` | `approve` | `lookup`), `method` (on
-`LOOKUP_FAILED`), and `method` (on lookup failures). It does **not** set `relayCode` —
-that field only exists on modules whose relay failures go through `mapRelayFailure`.
+DEX feature errors carry the failing phase. Typed MPC settlement errors carry `relayCode` and the original settlement identifiers available at that phase.
 
 ## Usage Flow
 
@@ -739,3 +737,13 @@ see which of them need an approval and which return a position `tokenId`.
 There is no backend counterpart in
 [`apps/node`](https://github.com/gosodax/sodax-sdks/tree/main/apps/node) for the DEX module
 yet.
+
+
+### Resume a DEX withdrawal to an MPC-relay chain
+
+If an MPC-relay source fails with `context.trackingId`, call `sodax.spoke.settle` with
+`chainKey: context.srcChainKey`, `tx: context.trackingId`, `direction: 'outbound'`,
+and the original `context.relayData` and `context.dstChainKey`. If settlement instead
+failed after the hub burn and exposes `context.hubTxHash`, call
+`sodax.spoke.settleHubRelease(context.hubTxHash, context.dstChainKey)`. On timeout,
+resume the same settlement with those identifiers. Do not call `withdraw` again.
