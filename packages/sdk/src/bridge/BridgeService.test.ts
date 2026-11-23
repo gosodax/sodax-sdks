@@ -48,6 +48,7 @@ import {
   DEFAULT_RELAY_TX_TIMEOUT,
   getIntentRelayChainId,
   tronSupportedTokens,
+  monadSupportedTokens,
   xrpSupportedTokens,
 } from '@sodax/types';
 import { RELAY_FALLBACK_FLOOR_MS } from '../shared/services/intentRelay/IntentRelayApiService.js';
@@ -383,6 +384,19 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
     return token;
   };
 
+  it('discovers the hub asset for native MON and refuses to invent a vault limit', async () => {
+    const mon = monadSupportedTokens.MON;
+    const wrapped = { ...mon, chainKey: ChainKeys.SONIC_MAINNET, address: mon.hubAsset };
+    const result = sodax.bridge.getBridgeableTokens(mon.chainKey, wrapped.chainKey, mon.address);
+    expect(result).toMatchObject({ ok: true, value: [wrapped] });
+    expect(sodax.bridge.isBridgeable({ from: mon, to: wrapped })).toBe(true);
+    expect(sodax.bridge.isBridgeable({ from: wrapped, to: mon })).toBe(true);
+    await expect(sodax.bridge.getBridgeableAmount(mon, wrapped)).resolves.toMatchObject({
+      ok: false,
+      error: { cause: expect.objectContaining({ message: expect.stringContaining('No vault limit') }) },
+    });
+  });
+
   it('refuses a direct Tron bridge at the delivered floor and encodes one unit above it', () => {
     const token = tronSupportedTokens.USDT;
     const build = (amount: bigint) =>
@@ -402,6 +416,26 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
       );
     expect(() => build(3_000_000n)).toThrow(/must be greater than 3 USDT/);
     expect(build(3_000_001n)).toMatch(/^0x[0-9a-f]+$/i);
+  });
+
+  it('refuses a destination token descriptor from the wrong chain', () => {
+    const token = tronSupportedTokens.USDT;
+    expect(() =>
+      sodax.bridge.buildBridgeData(
+        {
+          srcChainKey: ChainKeys.TRON_MAINNET,
+          srcAddress: TRON_TEST_ADDRESS,
+          srcToken: token.address,
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstToken: token.address,
+          recipient: TRON_TEST_ADDRESS,
+          amount: 4_000_000n,
+        },
+        token,
+        { ...token, chainKey: ARBITRUM },
+        undefined,
+      ),
+    ).toThrow(/Payout token chain must match/);
   });
 
   it('charges the partner fee in 18-dp hub units, not the spoke token’s units', () => {

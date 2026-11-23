@@ -51,7 +51,12 @@ const publicClient = {
 
 const sendTransaction = vi.fn(async () => TX_HASH);
 const signMessage = vi.fn(async () => `0x${'cd'.repeat(65)}` as Hex);
-const walletProvider = { chainType: 'EVM', sendTransaction, signMessage } as never;
+const walletProvider = {
+  chainType: 'EVM',
+  sendTransaction,
+  signMessage,
+  getWalletAddress: async () => SENDER,
+} as never;
 
 const depositParams = (token: string, extra: object = {}) =>
   ({
@@ -506,6 +511,14 @@ describe('Monad review regressions', () => {
     });
   });
 
+  it('rejects a mismatched wallet account before sending', async () => {
+    const other = { chainType: 'EVM', sendTransaction, getWalletAddress: async () => DEPOSIT_ADDRESS };
+    await expect(monad.deposit(depositParams(NATIVE_MON, { walletProvider: other }))).rejects.toThrow(
+      /wallet account does not match/,
+    );
+    expect(sendTransaction).not.toHaveBeenCalled();
+  });
+
   it('rejects a mismatched wallet network before receipt polling', async () => {
     const wrongNetwork = vi.fn(async (_tx: unknown, options?: { expectedChainId?: number }) => {
       if (options?.expectedChainId !== undefined && options.expectedChainId !== 1) throw new Error('wrong network');
@@ -514,7 +527,7 @@ describe('Monad review regressions', () => {
     await expect(
       monad.deposit(
         depositParams(NATIVE_MON, {
-          walletProvider: { chainType: 'EVM', sendTransaction: wrongNetwork },
+          walletProvider: { chainType: 'EVM', sendTransaction: wrongNetwork, getWalletAddress: async () => SENDER },
         }),
       ),
     ).rejects.toThrow('wrong network');

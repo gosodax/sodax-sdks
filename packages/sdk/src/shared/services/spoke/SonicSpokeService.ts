@@ -1,3 +1,4 @@
+import { assertMpcSwapRoute, assertMonadSwapProductionRoute } from '../../utils/shared-utils.js';
 import {
   type Address,
   createPublicClient,
@@ -288,12 +289,15 @@ export class SonicSpokeService {
     const inputToken = createIntentParams.inputToken as Address;
     const srcAddress = createIntentParams.srcAddress as Address;
 
-    const outputToken = isSonicChainKey(createIntentParams.dstChainKey)
-      ? (createIntentParams.outputToken as `0x${string}`)
-      : hubProvider.config.getSpokeTokenFromOriginalAssetAddress(
-          createIntentParams.dstChainKey,
-          createIntentParams.outputToken,
-        )?.hubAsset;
+    const { dstChainKey } = createIntentParams;
+    const outputTokenInfo = isSonicChainKey(dstChainKey)
+      ? undefined
+      : hubProvider.config.getSpokeTokenFromOriginalAssetAddress(dstChainKey, createIntentParams.outputToken);
+    const outputToken = isSonicChainKey(dstChainKey)
+      ? (createIntentParams.outputToken as Address)
+      : outputTokenInfo?.hubAsset;
+    assertMonadSwapProductionRoute(solverConfig.solverApiEndpoint, createIntentParams);
+    assertMpcSwapRoute({ ...createIntentParams, outputToken: outputTokenInfo });
 
     invariant(
       inputToken,

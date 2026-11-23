@@ -592,7 +592,20 @@ export class AssetService {
           relayerApiEndpoint: this.relayerApiEndpoint,
           timeout: timeout,
         });
-        if (!packetResult.ok) return packetResult;
+        if (!packetResult.ok) {
+          if (!isMpcRelayChainKey(dstChainKey)) return packetResult;
+          return {
+            ok: false,
+            error: mapRelayFailure(packetResult.error, {
+              feature: 'dex',
+              action: 'withdraw',
+              srcChainKey: params.srcChainKey,
+              dstChainKey,
+              srcTxHash: tx,
+              relayData,
+            }),
+          };
+        }
 
         hubTxHash = packetResult.value.dst_tx_hash;
       } else {
@@ -788,6 +801,7 @@ export class AssetService {
     } else {
       assertMpcPayoutAboveMinimum({
         feature: 'dex',
+        dstChainKey: dstChainKey,
         token: assetConfig,
         amount: translatedAmount,
         context: { dstChainKey, field: 'amount' },

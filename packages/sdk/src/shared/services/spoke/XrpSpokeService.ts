@@ -276,10 +276,10 @@ export class XrpSpokeService implements MpcRelaySettlement {
     // Sequence/Fee/LastLedgerSequence are deliberately left to the wallet: GemWallet autofills and
     // rejects a transaction that pins them, and a raw-key provider has xrpl.js do the same. Filling
     // them here would mean racing the wallet for the account's Sequence.
-    const signed = await walletProvider.signTransaction(unsigned);
     let hash: string;
     let uncertain: IndeterminateOutcomeError | undefined;
     try {
+      const signed = await walletProvider.signTransaction(unsigned);
       hash = toRelayTxHash(await this.submitSigned(signed));
     } catch (error) {
       if (!isIndeterminateOutcomeError(error) || !error.txHash) throw error;
@@ -289,7 +289,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
 
     const submitted = await this.submitDeposit(hash);
     if (!submitted.ok) {
-      this.config.logger.warn(
+      this.warnWithoutInterruptingDeposit(
         '[XrpSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it',
         {
           hash,
@@ -300,6 +300,14 @@ export class XrpSpokeService implements MpcRelaySettlement {
 
     if (uncertain) throw uncertain;
     return hash satisfies string as XrpDepositReturnType<R>;
+  }
+
+  private warnWithoutInterruptingDeposit(...args: Parameters<ConfigService['logger']['warn']>): void {
+    try {
+      this.config.logger.warn(...args);
+    } catch {
+      // Settlement must retain its hash even if a caller's logger throws.
+    }
   }
 
   /**
@@ -358,7 +366,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     // XRPL transaction ID is SHA-512Half of the transaction-ID prefix and signed bytes.
     const blob = signed.tx_blob;
     if (!/^(?:[0-9a-f]{2})+$/i.test(blob)) throw new Error('[XrpSpokeService.deposit] invalid signed blob');
-    const hash = toRelayTxHash(signed.hash || (await signedBlobHash(blob)));
+    const hash = toRelayTxHash(await signedBlobHash(blob));
     const indeterminate = (cause: unknown) =>
       new IndeterminateOutcomeError('[XrpSpokeService.deposit] submit outcome is unknown', { txHash: hash, cause });
 
@@ -409,7 +417,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
   private warnOnUnknownReserve(reserveAddress: string): void {
     const expected = this.chainConfig.addresses.reserve;
     if (reserveAddress !== expected) {
-      this.config.logger.warn(
+      this.warnWithoutInterruptingDeposit(
         `[XrpSpokeService] MPC relay returned reserve ${reserveAddress}, chain config expects ${expected} — paying the relay's address, but the config may be stale (XRPL shards its reserve across lanes)`,
       );
     }

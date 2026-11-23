@@ -343,7 +343,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     }
     const code = typeof broadcast?.code === 'string' ? broadcast.code : undefined;
     const message = typeof broadcast?.message === 'string' ? broadcast.message : undefined;
-    if (typeof broadcast?.result !== 'boolean' && !code && !message) {
+    if (typeof broadcast?.result !== 'boolean' && !code && message !== 'DUP_TRANSACTION_ERROR') {
       this.warnWithoutInterruptingDeposit(`[TronSpokeService.deposit] broadcast of ${txID} returned no verdict`);
       return txID;
     }

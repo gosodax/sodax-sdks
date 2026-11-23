@@ -89,6 +89,10 @@ describe('Monad payout floor identity', () => {
       expect(getMpcPayoutMinimum({ ...token, address: token.address.toLowerCase() })).toBe(0n);
       expect(getMpcPayoutMinimum({ ...token, address: `0x${token.address.slice(2).toUpperCase()}` })).toBe(0n);
     }
+    const { USDC } = monadSupportedTokens;
+    const lower = USDC.address.toLowerCase();
+    expect(USDC.address).not.toBe(lower);
+    expect(getMpcPayoutMinimum({ ...USDC, address: lower })).toBe(getMpcPayoutMinimum(USDC));
     expect(getMpcPayoutMinimum({ chainKey: ChainKeys.MONAD_MAINNET, address: `0x${'ab'.repeat(20)}` })).toBeUndefined();
   });
 });

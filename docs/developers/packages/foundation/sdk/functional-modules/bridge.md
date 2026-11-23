@@ -298,7 +298,7 @@ if (!result.ok && result.error.context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
 
 Submits the spoke-side deposit transaction that initiates a bridge transfer, without waiting for the cross-chain relay to complete.
 
-This is the first step of a bridge operation. For intent-relay sources, relay the original transaction and returned `relayData` to Sonic via `relayTxAndWaitPacket` or the intent relay API. For MPC-relay sources, use `sodax.spoke.settle({ chainKey: srcChainKey, tx: srcTxHash, direction: 'inbound', relayData, dstChainKey })` with the original transaction, returned relay data and destination. The higher-level `bridge()` method does this automatically — use `createBridgeIntent()` only when you need manual relay control.
+This is the first step of a bridge operation. For routes without an MPC leg, use the intent relay as applicable. When either end uses the MPC relay, use `sodax.spoke.settle({ chainKey: srcChainKey, tx: srcTxHash, direction: 'inbound', relayData, dstChainKey })` with the original transaction, returned relay data and destination. The higher-level `bridge()` method does this automatically — use `createBridgeIntent()` only when you need manual relay control.
 
 When `raw` is `true`, returns the encoded transaction without broadcasting (useful for simulation or batching). When `raw` is `false`, signs and submits the deposit transaction via the provided wallet provider.
 

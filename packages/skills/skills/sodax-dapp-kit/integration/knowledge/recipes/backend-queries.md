@@ -170,6 +170,8 @@ const { data } = useBackendIntentByTxHash({
 
 ## Submit a Swap Tx
 
+The backend submission and status hooks below only apply to intent-relay sources. On an MPC source, settle the original deposit to Sonic and call `sodax.swaps.postExecution` with the hub mint hash before polling.
+
 `useSwapsApiSubmitTx` is a mutation hook. The `request` is a `SubmitTxRequestV2`; per-call config (e.g. backend base URL) flows through `mutate(vars)`, and TanStack Query knobs through the optional `mutationOptions` slot:
 
 ```tsx

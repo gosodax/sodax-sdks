@@ -413,6 +413,8 @@ Borrow tokens from the money market pool. Borrowed tokens can be delivered to a 
 
 If `borrow` or `withdraw` returns `INTENT_CREATION_FAILED` with `error.context.trackingId`, read the original withdrawal with `sodax.spoke.getMpcRelayWithdrawal({ chainKey, trackingId })`. Polling only observes the MPC relay record. To drive settlement, call `sodax.spoke.settle({ chainKey, tx: trackingId, direction: 'outbound', dstChainKey, relayData })`. Use the original payout `dstChainKey` and `relayData` from the error context for a feature call, or from the original intent for a raw call. Keep tracking the original ID if a replay is rejected. Do not start another borrow or withdraw while the original outcome is unknown. A 429 on the SDK's own first submission queues nothing. The SDK retries the same authorization up to three total attempts. If all three replies are 429, it reports `withdraw rate limit retries exhausted; nothing was queued` without a tracking ID, and a fresh feature call is safe after backing off.
 
+For Bitcoin on-demand borrow and withdraw, a settlement error's `context.srcTxHash` is the derived `od:` ID for polling. Keep the separately held authorization for any legitimate resubmission.
+
 If an MPC borrow or withdrawal fails during settlement, the error also carries `context.trackingId`, `dstChainKey` and `relayData` for the same outbound settlement call. Do not repeat the feature call.
 
 After an MPC-relay supply or repay settlement failure with `context.srcTxHash`, wait for the existing deposit's hub mint (for Tron, call `sodax.spoke.tron.waitForDeposit(srcTxHash)`). On timeout, repeat that wait with the same hash after backing off. Do not call supply or repay again for that deposit.
@@ -749,7 +751,7 @@ If you were on the previous CODE-string-on-`error.message` pattern (or the older
 ### Best practices
 
 1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Funds may be in flight; preserve the original source hash and relay data, then resume settlement of that transaction. Do not repeat the feature call.
-2. **Handle `RELAY_TIMEOUT` gracefully**. Resume settlement using the original transaction hash or derived relay ID for an intent-relay source, or the withdrawal tracking ID for an MPC-relay source. Do not repeat the original feature call to recover a pending operation.
+2. **Handle `RELAY_TIMEOUT` gracefully**. Resume settlement using the original transaction hash or derived relay ID for an intent-relay source, the original source hash for an MPC-relay supply or repay, or the withdrawal tracking ID for an MPC-relay borrow or withdrawal. Do not repeat the original feature call to recover a pending operation.
 3. **Discriminate `RELAY_FAILED` via `context.relayCode`**. `'RELAY_POLLING_FAILED'` (polling outage — packet status unknown) needs different UX from generic `'UNKNOWN'`.
 4. **Use `error.cause` for forensics**. Every wrapped error preserves the original on `cause`. Loggers walk it automatically.
 5. **Use `JSON.stringify(error)` for logging**. The `toJSON()` method handles bigint coercion + cause-chain truncation safely.

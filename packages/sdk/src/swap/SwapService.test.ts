@@ -1,3 +1,4 @@
+import { monadSupportedTokens } from '@sodax/types';
 /**
  * Tests for the strongly-typed SwapService public API.
  *
@@ -4136,7 +4137,7 @@ describe('SwapService.swap — backend 2-step (useBackendSubmitTx)', () => {
     const submitSpy = vi.spyOn(sodaxBE.api.swaps, 'submitTx');
     const settleSpy = vi
       .spyOn(sodaxBE.spoke, 'settle')
-      .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: '0xHUBMINT' } });
+      .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: '0xbeef' } });
     mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK' } });
 
     const result = await sodaxBE.swaps.swap({
@@ -4148,6 +4149,21 @@ describe('SwapService.swap — backend 2-step (useBackendSubmitTx)', () => {
     expect(result.ok).toBe(true);
     expect(submitSpy).not.toHaveBeenCalled();
     expect(settleSpy).toHaveBeenCalledWith(expect.objectContaining({ chainKey: ChainKeys.TRON_MAINNET }));
+  });
+
+  it('keeps the source hash when an MPC relay returns a malformed hub hash', async () => {
+    stubCreatedAndVerified(ChainKeys.TRON_MAINNET);
+    vi.spyOn(sodaxBE.spoke, 'settle').mockResolvedValueOnce({
+      ok: true,
+      value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: 'not-a-hash' },
+    });
+    const result = await sodaxBE.swaps.swap({
+      params: intentInput(ChainKeys.TRON_MAINNET),
+      raw: false,
+      walletProvider: mockTronProvider,
+    });
+    expect(result).toMatchObject({ ok: false, error: { code: 'RELAY_FAILED', context: { srcTxHash: '0xspokeTx' } } });
+    expect(mocks.solverPostExecution).not.toHaveBeenCalled();
   });
 
   it('on backend "solved", returns a SwapResponse reconstructed from the backend (no client-side relay)', async () => {
@@ -5625,5 +5641,54 @@ describe('SwapService.useBackendSubmitTx — deprecated forms', () => {
   it('keeps the deprecated types assignable', () => {
     expectTypeOf<SwapsClientOptions>().toEqualTypeOf<NonNullable<SodaxOptions['swapsOptions']>>();
     expectTypeOf<SwapServiceConstructorParams['useBackendSubmitTx']>().toEqualTypeOf<boolean | undefined>();
+  });
+});
+
+describe('Monad swap settlement policy', () => {
+  it('refuses the production route before signing', async () => {
+    const deposit = vi.spyOn(sodax.spoke, 'deposit');
+    const token = monadSupportedTokens.USDC.address;
+    const result = await sodax.swaps.createIntent({
+      params: {
+        ...intentInput(ChainKeys.MONAD_MAINNET),
+        inputToken: token,
+        dstChainKey: ChainKeys.MONAD_MAINNET,
+        outputToken: token,
+      },
+      raw: true,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'VALIDATION_FAILED', message: expect.stringContaining('production solver') },
+    });
+    expect(deposit).not.toHaveBeenCalled();
+  });
+
+  it('reopens status from the original Monad hash without sending again', async () => {
+    const source = '0x1234';
+    const hub = '0xbeef';
+    const deposit = vi.spyOn(sodax.spoke, 'deposit');
+    vi.spyOn(sodax.api.swaps, 'getSubmitTxStatus').mockResolvedValue({
+      ok: false,
+      error: new Error('No record'),
+    } as never);
+    const read = vi.spyOn(sodax.spoke, 'getMpcRelayDeposit').mockResolvedValue({
+      ok: true,
+      value: {
+        depositId: 'test',
+        status: 'minted',
+        createdAt: null,
+        txs: { hubMint: { chain: 'sonic', hash: hub, ts: 0 } },
+      },
+    });
+    mocks.solverGetStatus.mockResolvedValueOnce({ ok: true, value: { status: SolverIntentStatusCode.SOLVED } });
+    await expect(
+      sodax.swaps.getDetailedStatus({
+        srcChainKey: ChainKeys.MONAD_MAINNET,
+        srcTxHash: source,
+      }),
+    ).resolves.toMatchObject({ ok: true, value: { source: 'solver', dstTxHash: hub } });
+    expect(read).toHaveBeenCalledWith(ChainKeys.MONAD_MAINNET, source);
+    expect(deposit).not.toHaveBeenCalled();
   });
 });

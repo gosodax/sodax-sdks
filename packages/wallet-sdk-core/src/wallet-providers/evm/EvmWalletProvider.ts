@@ -268,7 +268,10 @@ export class EvmWalletProvider extends BaseWalletProvider<EvmWalletDefaults> imp
       error instanceof ChainMismatchError ||
       error instanceof InsufficientFundsError ||
       error instanceof IntrinsicGasTooLowError ||
-      (typeof error === 'object' && error !== null && 'code' in error && error.code === 4001);
+      (typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error.code === 4001 || error.code === 'ACTION_REJECTED'));
     return isDefinite(cause) || (cause instanceof BaseError && isDefinite(cause.walk(isDefinite)));
   }
 

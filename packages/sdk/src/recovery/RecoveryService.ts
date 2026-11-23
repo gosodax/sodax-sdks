@@ -201,6 +201,7 @@ export class RecoveryService {
             const context = { action: 'withdrawHubAsset', srcChainKey: params.srcChainKey } as const;
             assertMpcPayoutAboveMinimum({
               feature: 'recovery',
+              dstChainKey: params.srcChainKey,
               token,
               amount: params.amount,
               context: { ...context, field: 'amount' },

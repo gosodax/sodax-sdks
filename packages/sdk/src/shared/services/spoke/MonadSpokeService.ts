@@ -179,6 +179,9 @@ export class MonadSpokeService implements MpcRelaySettlement {
       return rawTx satisfies EvmReturnType<true> as TxReturnType<MonadChainKey, R>;
     }
 
+    if (!isAddressEqual(await params.walletProvider.getWalletAddress(), srcAddress)) {
+      throw new Error('[MonadSpokeService.deposit] wallet account does not match the source address');
+    }
     let txHash: Hex;
     try {
       txHash = await params.walletProvider.sendTransaction(rawTx, {
@@ -287,6 +290,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
   public async waitForDeposit(txHash: string, timeout?: number): Promise<Result<DepositRecord>> {
     // `/notify` accepts a tx before it is confirmed and never re-checks, so a notification sent right
     // after the transfer can land too early. Re-notifying is idempotent.
+    void notify(this.relayApiUrl, this.chainId, txHash);
     const renotify = setInterval(() => {
       void notify(this.relayApiUrl, this.chainId, txHash);
     }, RENOTIFY_INTERVAL_MS);

@@ -3722,6 +3722,8 @@ describe('MoneyMarketService — outbound result by source chain', () => {
     ['withdraw', ChainKeys.TRON_MAINNET],
     ['borrow', ChainKeys.XRP_MAINNET],
     ['withdraw', ChainKeys.XRP_MAINNET],
+    ['borrow', ChainKeys.MONAD_MAINNET],
+    ['withdraw', ChainKeys.MONAD_MAINNET],
   ] as const)('%s on %s keeps its original tracking ID on a settlement timeout', async (action, chainKey) => {
     const trackingId = '0xoriginal';
     const relayData = { address: HUB_WALLET, payload: '0x01' } as const;
