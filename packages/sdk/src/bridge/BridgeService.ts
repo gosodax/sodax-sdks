@@ -896,6 +896,7 @@ export class BridgeService {
       dstChainKey: params.dstChainKey,
       action: 'bridge',
       srcTxHash: created.tx,
+      relayData: created.relayData,
     };
 
     const settled = await this.spoke.settle({

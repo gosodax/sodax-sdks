@@ -226,7 +226,7 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 swap lands in `state`:
 
 - before anything was sent → `failed`, and `next()` starts over;
-- after the source tx was sent → `pending` with `error` set, because the backend may still complete it. It stays
+- after the source tx was sent → `pending` with `error` set, while the original outcome is unresolved. An intent-relay deposit accepted by the backend may still complete. An MPC source needs the same-hash settlement and solver notification above. The attempt stays
   `pending` until the status read answers `solved` or `failed`. The read can stop polling without an error (after its
   budget of ambiguous reads), so keep a "stop tracking" `reset()` reachable throughout `pending`; it cancels nothing
   on-chain;

@@ -175,6 +175,8 @@ approval, so the user signs twice. The returned value is unchanged — one hash,
 transaction's. Detection simulates the approval, so never gate on a token list. Full note: "ERC-20
 approval can take two transactions" in [`architecture.md`](../architecture.md).
 
+If an MPC borrow or withdrawal fails during settlement, resume with its original `context.trackingId`, `dstChainKey` and `relayData`. Do not repeat the feature call.
+
 After an MPC-relay supply or repay settlement failure with `context.srcTxHash`, wait for the existing deposit's hub mint with the spoke's `waitForDeposit(srcTxHash)`. On timeout, repeat that wait with the same hash after backing off. Do not call supply or repay again for that deposit.
 
 ## Error codes

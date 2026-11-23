@@ -613,14 +613,16 @@ export class AssetService {
     const settled = await this.spoke.settle(params);
     if (settled.ok) return settled;
     const { cause } = settled.error;
-    if (params.direction === 'outbound') return { ok: false, error: cause };
     return {
       ok: false,
       error: mapRelayFailure(cause, {
         feature: 'dex',
-        action: 'deposit',
         srcChainKey: params.chainKey,
-        srcTxHash: params.tx,
+        dstChainKey: params.dstChainKey,
+        relayData: params.relayData,
+        ...(params.direction === 'outbound'
+          ? { action: 'withdraw', trackingId: params.tx }
+          : { action: 'deposit', srcTxHash: params.tx }),
       }),
     };
   }

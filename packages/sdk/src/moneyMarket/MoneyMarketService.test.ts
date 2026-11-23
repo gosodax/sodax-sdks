@@ -3575,6 +3575,31 @@ describe('MoneyMarketService — hub-only actions verify the source tx', () => {
 });
 
 describe('MoneyMarketService — outbound result by source chain', () => {
+  it.each([
+    'borrow',
+    'withdraw',
+  ] as const)('%s keeps its original tracking ID on a settlement timeout', async action => {
+    const chainKey = ChainKeys.TRON_MAINNET;
+    const trackingId = '0xoriginal';
+    const relayData = { address: HUB_WALLET, payload: '0x01' } as const;
+    const intent = { ok: true, value: { tx: trackingId, relayData } } as const;
+    const walletProvider = {} as never;
+    const cause = new Error('RELAY_TIMEOUT');
+    vi.spyOn(sodax.spoke, 'settle').mockResolvedValueOnce({ ok: false, error: { phase: 'relay', cause } });
+    const intentMethod = action === 'borrow' ? 'createBorrowIntent' : 'createWithdrawIntent';
+    vi.spyOn(sodax.moneyMarket, intentMethod).mockResolvedValueOnce(intent);
+    const result =
+      action === 'borrow'
+        ? await sodax.moneyMarket.borrow({ raw: false, params: borrowParams(chainKey), walletProvider })
+        : await sodax.moneyMarket.withdraw({ raw: false, params: withdrawParams(chainKey), walletProvider });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'RELAY_TIMEOUT', cause, context: { trackingId, srcChainKey: chainKey, relayData } },
+    });
+    if (result.ok) throw new Error('expected settlement failure');
+    expect(result.error.context).not.toHaveProperty('srcTxHash');
+  });
+
   type Settled<K extends SpokeChainKey> = Extract<
     Awaited<ReturnType<typeof sodax.moneyMarket.borrow<K>>>,
     { ok: true }

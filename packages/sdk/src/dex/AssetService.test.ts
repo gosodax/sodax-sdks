@@ -168,6 +168,23 @@ describe('AssetService deposit/withdraw from an MPC-relay source', () => {
     expect(result).toEqual({ ok: true, value: SETTLED });
   });
 
+  it('preserves the original withdrawal ID and cause when settlement times out', async () => {
+    const trackingId = `0x${'e'.repeat(64)}`;
+    const cause = new Error('RELAY_TIMEOUT');
+    vi.spyOn(asset, 'executeWithdraw').mockResolvedValue({
+      ok: true,
+      value: { tx: trackingId, relayData: RELAY_DATA },
+    });
+    vi.spyOn(sodax.spoke, 'settle').mockResolvedValue({ ok: false, error: { phase: 'relay', cause } });
+    const result = await asset.withdraw({ params, raw: false, walletProvider: {} as never });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'RELAY_TIMEOUT', cause, context: { srcChainKey: ChainKeys.TRON_MAINNET, trackingId } },
+    });
+    if (result.ok || !isSodaxError(result.error)) throw new Error('expected settlement failure');
+    expect(result.error.context).not.toHaveProperty('srcTxHash');
+  });
+
   it('preserves the original deposit hash and cause when settlement times out', async () => {
     const cause = new Error('RELAY_TIMEOUT');
     vi.spyOn(asset, 'executeDeposit').mockResolvedValue({ ok: true, value: { tx: TRON_TX, relayData: RELAY_DATA } });

@@ -798,6 +798,7 @@ describe('BridgeService.bridge — integration error-path coverage', () => {
     expect(result.error.context?.srcChainKey).toBe(BSC);
     expect(result.error.context?.dstChainKey).toBe(ARBITRUM);
     expect(result.error.context?.srcTxHash).toBe('0xspokeTxHash');
+    expect(result.error.context?.relayData).toEqual({ address: HUB_WALLET, payload: '0x' });
     // Relay must not have been called.
     expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
   });

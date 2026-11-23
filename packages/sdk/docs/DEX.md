@@ -604,12 +604,10 @@ type Result<T> =
 
 ### Two contracts coexist
 
-Almost every DEX failure is a `SodaxError` carrying `feature: 'dex'`, a `code`, and a `context`
-object. The exception is the **relay leg**: DEX is the only feature module that does not pass relay
-failures through `mapRelayFailure`, so the relay-waiting variants (`deposit`, `withdraw`,
-`supplyLiquidity`, `increaseLiquidity`, `decreaseLiquidity`, `claimRewards`) forward the relay layer's
-own error unchanged — a plain `Error` whose `.message` is one of `RELAY_ERROR_CODES`:
-`SUBMIT_TX_FAILED`, `RELAY_TIMEOUT`, `RELAY_POLLING_FAILED`.
+DEX feature errors carry `feature: 'dex'`, a `code` and `context`. Asset deposits and withdrawals
+on an MPC-relay source also wrap settlement failures as typed relay errors. The intent-relay
+leg still forwards its raw relay error, whose message is `SUBMIT_TX_FAILED`, `RELAY_TIMEOUT` or
+`RELAY_POLLING_FAILED`.
 
 Handle both shapes:
 
@@ -625,6 +623,11 @@ if (!result.ok) {
       case "USER_REJECTED":         /* wallet popup dismissed */ break;
       case "VALIDATION_FAILED":     /* bad input, see error.context.field */ break;
       case "INTENT_CREATION_FAILED":/* build/sign/broadcast failed */ break;
+      case "RELAY_TIMEOUT":
+      case "RELAY_FAILED":
+        // Resume the original deposit using context.srcTxHash, e.g. with
+        // sodax.spoke.tron.waitForDeposit(srcTxHash). Do not call deposit again.
+        break;
       default:                      /* UNKNOWN */ break;
     }
     console.error(result.error.context, result.error.cause);
@@ -636,12 +639,10 @@ if (!result.ok) {
 }
 ```
 
-The distinction matters operationally. All three relay codes mean the source-chain transaction
-landed and only cross-chain delivery is unresolved, so the response is to keep polling or to
-reconcile, not to resubmit.
-
-Ordering the `isSodaxError` check first also keeps this code correct if DEX later routes relay
-failures through `mapRelayFailure`: the relay branch simply stops being reached.
+For an MPC deposit, use `context.srcTxHash` to resume the same deposit. For an MPC withdrawal,
+use `context.trackingId` to read the relay record or resume outbound settlement with the
+original `dstChainKey` and `relayData`. Do not repeat the deposit or withdrawal call. For an
+intent-relay error, recover or resubmit the existing transaction through that relay.
 
 ### Guards
 
@@ -663,7 +664,7 @@ arrives as `USER_REJECTED` rather than the generic failure code for that phase.
 | --- | --- | --- |
 | `assetService.approve` | `USER_REJECTED`, `VALIDATION_FAILED`, `APPROVE_FAILED`, `UNKNOWN` | `isDexApproveError` |
 | `assetService.executeDeposit` / `executeWithdraw` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` | `isDexCreateIntentError` |
-| `assetService.deposit` / `withdraw` | the above **plus** a raw relay `Error` | both, plus the `instanceof Error` fallback |
+| `assetService.deposit` / `withdraw` | the above plus `RELAY_TIMEOUT`, `RELAY_FAILED`, or a raw intent-relay `Error` | both, plus the `instanceof Error` fallback |
 | `assetService.getWrappedAmount` / `getUnwrappedAmount` / `getDeposit` | `LOOKUP_FAILED`, `UNKNOWN` | `isDexError` |
 | `assetService.isAllowanceValid` | **untyped** — see below | none |
 | `clService.executeSupplyLiquidity` / `executeIncreaseLiquidity` / `executeDecreaseLiquidity` / `executeClaimRewards` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` | `isDexCreateIntentError` |

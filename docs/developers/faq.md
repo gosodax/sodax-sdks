@@ -79,7 +79,7 @@ Error semantics: [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap), [Re
 
 #### 9. What does `TX_SUBMIT_FAILED` mean?
 
-The critical case. The spoke tx landed but the relay submission itself failed. Funds may be in flight. Persist the user's input plus spoke tx hash and retry submission against the relay API. Do not retry the user-facing transaction.
+The critical case. The spoke tx landed but the relay submission itself failed. Funds may be in flight. For an intent-relay submission, resubmit the existing hash and required original relay data. On an MPC source, resume the same deposit, including solver notification for a swap. Do not retry the user-facing transaction.
 
 Full code reference: [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap).
 
