@@ -53,3 +53,5 @@ Granular skill for `BridgeService` — `sodax.bridge`. Feature tag: `'bridge'`.
 - [`../recovery/SKILL.md`](../recovery/SKILL.md) — `RecoveryService` for stuck assets on the hub.
 
 For multi-feature tasks, load the broad [`sodax-sdk` skill](../SKILL.md).
+
+When either end uses the MPC relay, settle with `sodax.spoke.settle` using the original transaction, `relayData`, inbound direction and the original destination.

@@ -38,7 +38,11 @@ export function useWithdraw<K extends SpokeChainKey = SpokeChainKey>({
   return useSafeMutation<OutboundSettlement<K>, Error, UseWithdrawVars<K>>({
     mutationKey: ['mm', 'withdraw'],
     ...mutationOptions,
-    retry: retryBeforeSubmission(mutationOptions?.retry),
+    retry: retryBeforeSubmission(
+      mutationOptions?.retry ??
+        queryClient.getMutationDefaults?.(mutationOptions?.mutationKey ?? ['mm', 'withdraw'])?.retry ??
+        queryClient.getDefaultOptions?.().mutations?.retry,
+    ),
     mutationFn: async vars => unwrapResult(await sodax.moneyMarket.withdraw({ ...vars, raw: false })),
     onSuccess: async (data, vars, ctx) => {
       const { params } = vars;

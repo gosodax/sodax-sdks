@@ -5,6 +5,7 @@ import { useSodaxContext } from '../shared/useSodaxContext.js';
 import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
+import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
 /**
@@ -37,6 +38,11 @@ export function useWithdrawHubAsset<K extends SpokeChainKey = SpokeChainKey>({
   return useSafeMutation<SendMessageReturnType<K, false>, Error, UseWithdrawHubAssetVars<K>>({
     mutationKey: ['recovery', 'withdrawHubAsset'],
     ...mutationOptions,
+    retry: retryBeforeSubmission(
+      mutationOptions?.retry ??
+        queryClient.getMutationDefaults?.(mutationOptions?.mutationKey ?? ['recovery', 'withdrawHubAsset'])?.retry ??
+        queryClient.getDefaultOptions?.().mutations?.retry,
+    ),
     mutationFn: async vars => unwrapResult(await sodax.recovery.withdrawHubAsset<K, false>({ ...vars, raw: false })),
     onSuccess: async (data, vars, ctx) => {
       const { params } = vars;

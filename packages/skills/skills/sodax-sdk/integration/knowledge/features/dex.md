@@ -197,3 +197,8 @@ and the original `context.relayData` and `context.dstChainKey`. If settlement in
 failed after the hub burn and exposes `context.hubTxHash`, call
 `sodax.spoke.settleHubRelease(context.hubTxHash, context.dstChainKey)`. On timeout,
 resume the same settlement with those identifiers. Do not call `withdraw` again.
+
+For an intent-relay source paying an MPC destination, a first-leg relay failure keeps
+`context.srcTxHash`, `context.relayData` and both chain keys. Call `sodax.spoke.settle`
+with those original fields and `direction: 'outbound'`. It resumes the first leg
+and then releases the hub burn to the destination. Do not send another withdrawal.

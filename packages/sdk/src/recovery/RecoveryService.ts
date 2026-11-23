@@ -199,6 +199,7 @@ export class RecoveryService {
           if (token) {
             assertMpcPayoutAboveMinimum({
               feature: 'recovery',
+              dstChainKey: params.srcChainKey,
               token,
               amount: params.amount,
               context: { action: 'withdrawHubAsset', srcChainKey: params.srcChainKey, field: 'amount' },

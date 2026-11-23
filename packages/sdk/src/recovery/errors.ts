@@ -11,13 +11,14 @@ export type RecoveryAction = 'withdrawHubAsset';
 
 export type RecoveryErrorCode = Extract<
   SodaxErrorCode,
-  'VALIDATION_FAILED' | 'LOOKUP_FAILED' | 'EXECUTION_FAILED' | 'UNKNOWN'
+  'INTENT_CREATION_FAILED' | 'VALIDATION_FAILED' | 'LOOKUP_FAILED' | 'EXECUTION_FAILED' | 'UNKNOWN'
 >;
 
 export type RecoveryError = SodaxError<RecoveryErrorCode>;
 
 const RECOVERY_CODES: ReadonlySet<RecoveryErrorCode> = new Set([
   'VALIDATION_FAILED',
+  'INTENT_CREATION_FAILED',
   'LOOKUP_FAILED',
   'EXECUTION_FAILED',
   'UNKNOWN',

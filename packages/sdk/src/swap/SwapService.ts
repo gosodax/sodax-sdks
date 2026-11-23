@@ -37,6 +37,7 @@ import {
   isStacksChainKeyType,
   isNativeBitcoinTransfer,
   assertMpcPayoutAboveMinimum,
+  assertMpcSwapRoute,
   isMpcRelayChainKeyType,
   RELAY_FALLBACK_FLOOR_MS,
 } from '../shared/index.js';
@@ -1171,6 +1172,16 @@ export class SwapService {
       dstIntentTxHash = settled.value.dstChainTxHash;
     }
 
+    if (isMpcRelayChainKey(srcChainKey) && !isHex(dstIntentTxHash)) {
+      return {
+        ok: false,
+        error: mapRelayFailure(new Error('MPC relay returned an invalid hub mint hash'), {
+          feature: 'swap',
+          ...txCtx,
+        }),
+      };
+    }
+
     const postExecResult = await this.postExecution({
       intent_tx_hash: dstIntentTxHash as `0x${string}`,
     });
@@ -1584,37 +1595,13 @@ export class SwapService {
           { ...baseCtx, field: 'minOutputAmount' },
         );
       }
-      // On an MPC-relay chain the destination's output and a cancelled intent's refund to the source each pay
-      // out less the relay's release fee; partial fills would split them into smaller payouts.
-      if (isMpcRelayChainKey(params.srcChainKey) || isMpcRelayChainKey(params.dstChainKey)) {
-        swapInvariant(
-          !params.allowPartialFill,
-          'allowPartialFill is not supported for a swap to or from an MPC-relay chain',
-          { ...baseCtx, field: 'allowPartialFill' },
-        );
-      }
-      // `cancelIntent` cannot reach an MPC-relay source, so only its deadline can refund the intent.
-      if (isMpcRelayChainKey(params.srcChainKey)) {
-        swapInvariant(
-          params.deadline > 0n,
-          'An intent from an MPC-relay chain needs a deadline: it cannot be cancelled, so a limit order would hold its funds until filled',
-          { ...baseCtx, field: 'deadline' },
-        );
-      }
+      assertMpcSwapRoute({ ...params, outputToken: outputTokenInfo });
       if (inputTokenInfo) {
         assertMpcPayoutAboveMinimum({
           feature: 'swap',
           token: inputTokenInfo,
           amount: params.inputAmount - calculateFeeAmount(params.inputAmount, partnerFee),
           context: { ...baseCtx, field: 'inputAmount' },
-        });
-      }
-      if (outputTokenInfo) {
-        assertMpcPayoutAboveMinimum({
-          feature: 'swap',
-          token: outputTokenInfo,
-          amount: params.minOutputAmount,
-          context: { ...baseCtx, field: 'minOutputAmount' },
         });
       }
       if (isStacksChainKeyType(params.srcChainKey) && _params.raw === true) {

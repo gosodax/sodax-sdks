@@ -402,6 +402,26 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
     expect(build(3_000_001n)).toMatch(/^0x[0-9a-f]+$/i);
   });
 
+  it('refuses a destination token descriptor from the wrong chain', () => {
+    const token = tronSupportedTokens.USDT;
+    expect(() =>
+      sodax.bridge.buildBridgeData(
+        {
+          srcChainKey: ChainKeys.TRON_MAINNET,
+          srcAddress: TRON_TEST_ADDRESS,
+          srcToken: token.address,
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstToken: token.address,
+          recipient: TRON_TEST_ADDRESS,
+          amount: 4_000_000n,
+        },
+        token,
+        { ...token, chainKey: ARBITRUM },
+        undefined,
+      ),
+    ).toThrow(/Payout token chain must match/);
+  });
+
   it('charges the partner fee in 18-dp hub units, not the spoke token’s units', () => {
     const src = realToken(ARBITRUM, 'USDC');
     const dst = realToken(ChainKeys.SONIC_MAINNET, 'USDC');

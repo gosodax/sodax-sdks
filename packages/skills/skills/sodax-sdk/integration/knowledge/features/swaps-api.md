@@ -33,7 +33,8 @@ sodax.api.swaps.checkAllowance(body: CreateIntentParamsV2, config?): Promise<Res
 sodax.api.swaps.approve(body: CreateIntentParamsV2, config?): Promise<Result<ApproveResponseV2>>;
 sodax.api.swaps.createIntent(body: CreateIntentParamsV2, config?): Promise<Result<CreateIntentResponseV2>>;
 
-// Intent lifecycle: submit · status · cancel · hash · packet · extra-data · fill · get
+// Intent-relay lifecycle: submit · status · cancel · hash · packet · extra-data · fill · get
+// MPC-source deposits settle through the spoke and notify the solver after the hub mint.
 sodax.api.swaps.submitIntent(body: SubmitIntentRequestV2, config?): Promise<Result<SubmitIntentResponseV2>>;
 sodax.api.swaps.getStatus(body: StatusRequestV2, config?): Promise<Result<StatusResponseV2>>;
 sodax.api.swaps.cancelIntent(body: CancelIntentRequestV2, config?): Promise<Result<CancelIntentResponseV2>>;

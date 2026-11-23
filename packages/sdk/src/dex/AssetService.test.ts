@@ -261,6 +261,40 @@ describe('AssetService.withdraw — settled through the MPC relay seams', () => 
     });
   });
 
+  it('keeps the existing intent-relay transaction when the first leg to Tron fails', async () => {
+    const tx = '0x1234';
+    const relayData = { address: HUB_WALLET, payload: '0x01' } as const;
+    vi.spyOn(asset, 'executeWithdraw').mockResolvedValue({ ok: true, value: { tx, relayData } });
+    vi.spyOn(IntentRelayApiService, 'relayTxAndWaitPacket').mockResolvedValue({
+      ok: false,
+      error: new Error('RELAY_TIMEOUT'),
+    });
+    const release = vi.spyOn(sodax.spoke, 'settleHubRelease');
+    const result = await asset.withdraw({
+      params: {
+        ...tronParams,
+        srcChainKey: ChainKeys.ARBITRUM_MAINNET,
+        srcAddress: SRC_ADDRESS,
+        dst: { dstChainKey: ChainKeys.TRON_MAINNET, dstAddress: TRON_TEST_ADDRESS },
+      },
+      raw: false,
+      walletProvider: {} as never,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'RELAY_TIMEOUT',
+        context: {
+          srcTxHash: tx,
+          srcChainKey: ChainKeys.ARBITRUM_MAINNET,
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          relayData,
+        },
+      },
+    });
+    expect(release).not.toHaveBeenCalled();
+  });
+
   it('keeps the burn hash when a Tron release after a hub withdrawal times out', async () => {
     const hubTxHash = '0xburn';
     vi.mocked(sodax.spoke.sendMessage).mockResolvedValue({ ok: true, value: hubTxHash });

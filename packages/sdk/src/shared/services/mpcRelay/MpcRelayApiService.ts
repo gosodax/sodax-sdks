@@ -225,7 +225,12 @@ export async function notify(
     body: JSON.stringify({ chain_id: chainId, tx_hash: txHash, ...(type ? { type } : {}) }),
   });
   if (res.ok && res.value?.accepted !== true) {
-    return { ok: false, error: new Error(`mpc-relay: notify rejected: ${res.value?.error ?? 'unknown'}`) };
+    return {
+      ok: false,
+      error: new Error(
+        `mpc-relay: notify rejected: ${typeof res.value?.error === 'string' ? res.value.error : 'unknown'}`,
+      ),
+    };
   }
   return res;
 }

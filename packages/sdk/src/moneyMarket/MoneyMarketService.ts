@@ -1090,6 +1090,7 @@ export class MoneyMarketService {
       if (dstToken) {
         assertMpcPayoutAboveMinimum({
           feature: 'moneyMarket',
+          dstChainKey: dstChainKey,
           token: dstToken,
           amount: params.amount,
           context: { ...baseCtx, field: 'amount' },
@@ -1492,6 +1493,7 @@ export class MoneyMarketService {
     // Checked on what is paid out, after the partner fee.
     assertMpcPayoutAboveMinimum({
       feature: 'moneyMarket',
+      dstChainKey: dstChainKey,
       token: dstToken,
       amount: translatedAmountOut,
       amountDecimals: amountOutDecimals,
@@ -1587,6 +1589,7 @@ export class MoneyMarketService {
     const translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(amountOutDecimals, translatedInAmount);
     assertMpcPayoutAboveMinimum({
       feature: 'moneyMarket',
+      dstChainKey: dstChainKey,
       token: dstToken,
       amount: translatedAmountOut,
       amountDecimals: amountOutDecimals,

@@ -991,9 +991,9 @@ export class BridgeService {
    * Submits the spoke-side deposit transaction that initiates a bridge transfer,
    * without waiting for the cross-chain relay to complete.
    *
-   * For intent-relay sources, complete the transfer through the intent relay with
-   * the original transaction and returned relay data. For MPC-relay sources, call
-   * `spoke.settle` inbound with the original transaction, relay data and destination.
+   * When either end uses the MPC relay, call `spoke.settle` inbound with
+   * the original transaction, returned relay data and destination. For other routes,
+   * complete the transfer through the intent relay as applicable.
    * The higher-level `bridge()` method handles this automatically.
    *
    * When `raw` is `true`, returns the encoded transaction without broadcasting (useful for
@@ -1078,6 +1078,7 @@ export class BridgeService {
         const { delivered } = this.computeBridgeAmounts(params.amount, srcToken, dstToken, partnerFee);
         assertMpcPayoutAboveMinimum({
           feature: 'bridge',
+          dstChainKey: params.dstChainKey,
           token: dstToken,
           amount: delivered,
           context: { ...baseCtx, field: 'amount' },
@@ -1296,6 +1297,7 @@ export class BridgeService {
       if (isMpcRelayChainKey(params.dstChainKey)) {
         assertMpcPayoutAboveMinimum({
           feature: 'bridge',
+          dstChainKey: params.dstChainKey,
           token: dstToken,
           amount: delivered,
           context: { dstChainKey: params.dstChainKey, field: 'amount' },

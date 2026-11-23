@@ -2958,6 +2958,12 @@ export class LeverageYieldService {
     origin: PositionOrigin,
     method: string,
   ): Result<{ chainId: bigint; address: Hex; asset: Address }, LeverageYieldLookupError> {
+    if (isMpcRelayChainKey(origin.chainKey)) {
+      return {
+        ok: false,
+        error: lookupFailed('leverageYield', method, new Error('MPC relay refund origins are unsupported')),
+      };
+    }
     // Unmapped keys come back undefined rather than throwing, and the failure then surfaces from
     // inside viem as "Cannot convert undefined to a BigInt" — say what is actually wrong instead.
     const chainId = getIntentRelayChainId(origin.chainKey);

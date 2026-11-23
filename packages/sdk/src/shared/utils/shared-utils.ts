@@ -165,6 +165,7 @@ export function assertMpcPayoutAboveMinimum({
   token,
   amount,
   amountDecimals,
+  dstChainKey = token.chainKey,
   context,
 }: {
   feature: SodaxFeature;
@@ -172,9 +173,16 @@ export function assertMpcPayoutAboveMinimum({
   amount: bigint;
   /** Decimals `amount` is in, when not the token's own. */
   amountDecimals?: number;
+  dstChainKey?: SpokeChainKey;
   context?: Partial<SodaxErrorContext>;
 }): void {
-  if (isMpcRelayChainKey(token.chainKey) && getMpcPayoutMinimum(token) === undefined) {
+  if ((isMpcRelayChainKey(dstChainKey) || isMpcRelayChainKey(token.chainKey)) && token.chainKey !== dstChainKey) {
+    throw new SodaxError('VALIDATION_FAILED', 'Payout token chain must match the destination chain', {
+      feature,
+      context: { phase: 'validate', ...context, dstChainKey, field: 'dstToken' },
+    });
+  }
+  if (isMpcRelayChainKey(dstChainKey) && getMpcPayoutMinimum(token) === undefined) {
     throw new SodaxError('VALIDATION_FAILED', `No MPC relay payout minimum for ${token.address} on ${token.chainKey}`, {
       feature,
       context: { phase: 'validate', ...context, reason: 'mpc-payout-minimum-missing' },
@@ -200,6 +208,57 @@ export function assertMpcPayoutAboveMinimum({
 export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): Hex {
   if (getChainType(spokeChainId) === 'TRON') return tronRecipientBytes(address);
   return encodeAddress(spokeChainId, address);
+}
+
+/** Validates MPC swap legs before encoding or signing a new intent. */
+export function assertMpcSwapRoute({
+  srcChainKey,
+  dstChainKey,
+  deadline,
+  allowPartialFill,
+  outputToken,
+  minOutputAmount,
+}: {
+  srcChainKey: SpokeChainKey;
+  dstChainKey: SpokeChainKey;
+  deadline: bigint;
+  allowPartialFill: boolean;
+  outputToken?: Parameters<typeof assertMpcPayoutAboveMinimum>[0]['token'];
+  minOutputAmount: bigint;
+}): void {
+  const source = isMpcRelayChainKey(srcChainKey);
+  const destination = isMpcRelayChainKey(dstChainKey);
+  const context = { phase: 'validate' as const, srcChainKey, dstChainKey };
+  if ((source || destination) && allowPartialFill) {
+    throw new SodaxError(
+      'VALIDATION_FAILED',
+      'allowPartialFill is not supported for a swap to or from an MPC-relay chain',
+      {
+        feature: 'swap',
+        context: { ...context, field: 'allowPartialFill' },
+      },
+    );
+  }
+  if (source && deadline <= 0n) {
+    throw new SodaxError('VALIDATION_FAILED', 'An intent from an MPC-relay chain needs a deadline', {
+      feature: 'swap',
+      context: { ...context, field: 'deadline' },
+    });
+  }
+  if (!destination) return;
+  if (!outputToken) {
+    throw new SodaxError('VALIDATION_FAILED', 'MPC relay destination token is unsupported', {
+      feature: 'swap',
+      context: { ...context, field: 'outputToken' },
+    });
+  }
+  assertMpcPayoutAboveMinimum({
+    feature: 'swap',
+    token: outputToken,
+    amount: minOutputAmount,
+    dstChainKey,
+    context: { ...context, field: 'minOutputAmount' },
+  });
 }
 
 export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex {

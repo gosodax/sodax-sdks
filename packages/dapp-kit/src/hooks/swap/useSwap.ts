@@ -30,7 +30,11 @@ export function useSwap<K extends SpokeChainKey = SpokeChainKey>({
   return useSafeMutation<SwapResponse, Error, UseSwapVars<K>>({
     mutationKey: ['swap'],
     ...mutationOptions,
-    retry: retryBeforeSubmission(mutationOptions?.retry),
+    retry: retryBeforeSubmission(
+      mutationOptions?.retry ??
+        queryClient.getMutationDefaults?.(mutationOptions?.mutationKey ?? ['swap'])?.retry ??
+        queryClient.getDefaultOptions?.().mutations?.retry,
+    ),
     mutationFn: async vars => unwrapResult(await sodax.swaps.swap({ ...vars, raw: false })),
     onSuccess: async (data, vars, ctx) => {
       invalidateBalances(queryClient, vars.params.srcChainKey, vars.params.dstChainKey);
