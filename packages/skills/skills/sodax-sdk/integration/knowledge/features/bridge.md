@@ -133,7 +133,7 @@ const result = await sodax.bridge.createBridgeIntent({
 
 if (!result.ok) return;
 const { tx, relayData } = result.value;
-// For MPC-relay sources, settle the original tx inbound with relayData and dstChainKey.
+// When either end uses the MPC relay, settle the original tx inbound with relayData and dstChainKey.
 // For a Solana source, retain relayData for resubmission of the original deposit.
 ```
 

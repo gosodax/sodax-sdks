@@ -266,6 +266,35 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     expect(intent.srcAddress).toBe(SRC_USER);
   });
 
+  it.each([
+    [0n, false, 'deadline'],
+    [1n, true, 'allowPartialFill'],
+  ] as const)('rejects invalid MPC source swap parameters (%s, %s)', (deadline, allowPartialFill, field) => {
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(tronSupportedTokens.USDT)
+      .mockReturnValueOnce(hubOutputXToken);
+    expect(() =>
+      EvmSolverService.constructCreateIntentData(
+        {
+          ...baseParams(),
+          srcChainKey: ChainKeys.TRON_MAINNET,
+          srcAddress: TRON_TEST_ADDRESS,
+          inputToken: tronSupportedTokens.USDT.address,
+          deadline,
+          allowPartialFill,
+        },
+        HUB_WALLET,
+        mockConfig,
+        undefined,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: 'VALIDATION_FAILED',
+        context: expect.objectContaining({ field }),
+      }),
+    );
+  });
+
   it('encodes a Tron srcAddress as the recipient word, since a cancel refunds to it', () => {
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
       .mockReturnValueOnce(hubInputXToken)

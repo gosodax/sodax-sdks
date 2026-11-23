@@ -413,6 +413,8 @@ Borrow tokens from the money market pool. Borrowed tokens can be delivered to a 
 
 If `borrow` or `withdraw` returns `INTENT_CREATION_FAILED` with `error.context.trackingId`, read the original withdrawal with `sodax.spoke.getMpcRelayWithdrawal({ chainKey, trackingId })`. Polling only observes the MPC relay record. To drive settlement, call `sodax.spoke.settle({ chainKey, tx: trackingId, direction: 'outbound', dstChainKey, relayData })`. Use the original payout `dstChainKey` and `relayData` from the error context for a feature call, or from the original intent for a raw call. Keep tracking the original ID if a replay is rejected. Do not start another borrow or withdraw while the original outcome is unknown. A 429 on the SDK's own first submission queues nothing. The SDK retries the same authorization up to three total attempts. If all three replies are 429, it reports `withdraw rate limit retries exhausted; nothing was queued` without a tracking ID, and a fresh feature call is safe after backing off.
 
+For Bitcoin on-demand borrow and withdraw, a settlement error's `context.srcTxHash` is the derived `od:` ID for polling. Keep the separately held authorization for any legitimate resubmission.
+
 If an MPC borrow or withdrawal fails during settlement, the error also carries `context.trackingId`, `dstChainKey` and `relayData` for the same outbound settlement call. Do not repeat the feature call.
 
 After an MPC-relay supply or repay settlement failure with `context.srcTxHash`, wait for the existing deposit's hub mint (for Tron, call `sodax.spoke.tron.waitForDeposit(srcTxHash)`). On timeout, repeat that wait with the same hash after backing off. Do not call supply or repay again for that deposit.

@@ -31,7 +31,7 @@ const RESERVE = 'rbtWzBnJB84fKuVCg2qbKKX4EUtCWVik7';
 const HUB_WALLET = '0x1111111111111111111111111111111111111111' as Hex;
 // Derived independently of the SDK helper, matching the relay's computePayloadHash for `data: '0x'`.
 const MEMO = keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'bytes' }], [HUB_WALLET, '0x']));
-const TX_HASH = 'A'.repeat(64);
+const TX_HASH = '0C51F1F39D58C461731611827474F67FCF65895242B127B3D8D7B3B1B8C3D2FA';
 /** `TX_HASH` in the 0x-prefixed lowercase form the relay keys XRPL deposits on. */
 const RELAY_HASH = `0x${TX_HASH.toLowerCase()}`;
 const SIGNATURE = `0x${'ab'.repeat(64)}` as Hex;
@@ -258,6 +258,7 @@ describe('XrpSpokeService.deposit — submit results', () => {
 
   it.each([
     [TX_HASH, RELAY_HASH],
+    ['A'.repeat(64), RELAY_HASH],
     ['', '0x0c51f1f39d58c461731611827474f67fcf65895242b127b3d8d7b3b1b8c3d2fa'],
   ])('notifies with the locally known hash after a lost submit response', async (hash, expected) => {
     stubRippled();
@@ -277,6 +278,17 @@ describe('XrpSpokeService.deposit — submit results', () => {
     expect(failure).toMatchObject({ txHash: expected, cause: lost });
     expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '66', expected);
     expect(signTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('notifies the original hash when the wallet itself reports an uncertain submission', async () => {
+    const error = new IndeterminateOutcomeError('wallet reply lost', {
+      cause: new Error('disconnected'),
+      txHash: RELAY_HASH,
+    });
+    signTransaction.mockRejectedValueOnce(error);
+    await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toBe(error);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '66', RELAY_HASH);
+    expect(callTo('submit')).toBeUndefined();
   });
 
   it('derives the hash before a successful submit without a returned hash', async () => {
@@ -480,6 +492,10 @@ describe('XrpSpokeService.deposit — notify failure', () => {
     // The retry waits between attempts; on real timers that is seconds and times out under load.
     vi.useFakeTimers();
     stubRippled();
+    signTransaction.mockResolvedValueOnce({ tx_blob: '', hash: TX_HASH });
+    const warn = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {
+      throw new Error('logger unavailable');
+    });
     vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
 
     const pending = xrp.deposit(depositParams(NATIVE_XRP));
@@ -488,7 +504,8 @@ describe('XrpSpokeService.deposit — notify failure', () => {
     vi.useRealTimers();
 
     // The funds are already in the reserve: the hash is what settlement waits on and re-notifies.
-    expect(hash).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(hash).toBe(RELAY_HASH);
+    expect(warn).toHaveBeenCalled();
     // Notifying twice is harmless, so the transient failure is retried before handing over.
     expect(vi.mocked(MpcRelayApiService.notify).mock.calls.length).toBeGreaterThan(1);
   });

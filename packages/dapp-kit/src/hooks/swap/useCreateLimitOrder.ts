@@ -1,8 +1,10 @@
+import { useQueryClient } from '@tanstack/react-query';
 // packages/dapp-kit/src/hooks/swap/useCreateLimitOrder.ts
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import type { LimitOrderActionParams, SpokeChainKey, SwapResponse } from '@sodax/sdk';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
+import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
 /**
@@ -29,10 +31,16 @@ export function useCreateLimitOrder<K extends SpokeChainKey = SpokeChainKey>({
   UseCreateLimitOrderVars<K>
 > {
   const { sodax } = useSodaxContext();
+  const queryClient = useQueryClient();
 
   return useSafeMutation<SwapResponse, Error, UseCreateLimitOrderVars<K>>({
     mutationKey: ['swap', 'limitOrder', 'create'],
     ...mutationOptions,
+    retry: retryBeforeSubmission(
+      mutationOptions?.retry ??
+        queryClient.getMutationDefaults?.(mutationOptions?.mutationKey ?? ['swap', 'limitOrder', 'create'])?.retry ??
+        queryClient.getDefaultOptions?.().mutations?.retry,
+    ),
     mutationFn: async vars => unwrapResult(await sodax.swaps.createLimitOrder({ ...vars, raw: false })),
   });
 }

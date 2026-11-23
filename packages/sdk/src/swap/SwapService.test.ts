@@ -4136,7 +4136,7 @@ describe('SwapService.swap — backend 2-step (useBackendSubmitTx)', () => {
     const submitSpy = vi.spyOn(sodaxBE.api.swaps, 'submitTx');
     const settleSpy = vi
       .spyOn(sodaxBE.spoke, 'settle')
-      .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: '0xHUBMINT' } });
+      .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: '0xbeef' } });
     mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK' } });
 
     const result = await sodaxBE.swaps.swap({
@@ -4148,6 +4148,21 @@ describe('SwapService.swap — backend 2-step (useBackendSubmitTx)', () => {
     expect(result.ok).toBe(true);
     expect(submitSpy).not.toHaveBeenCalled();
     expect(settleSpy).toHaveBeenCalledWith(expect.objectContaining({ chainKey: ChainKeys.TRON_MAINNET }));
+  });
+
+  it('keeps the source hash when an MPC relay returns a malformed hub hash', async () => {
+    stubCreatedAndVerified(ChainKeys.TRON_MAINNET);
+    vi.spyOn(sodaxBE.spoke, 'settle').mockResolvedValueOnce({
+      ok: true,
+      value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: 'not-a-hash' },
+    });
+    const result = await sodaxBE.swaps.swap({
+      params: intentInput(ChainKeys.TRON_MAINNET),
+      raw: false,
+      walletProvider: mockTronProvider,
+    });
+    expect(result).toMatchObject({ ok: false, error: { code: 'RELAY_FAILED', context: { srcTxHash: '0xspokeTx' } } });
+    expect(mocks.solverPostExecution).not.toHaveBeenCalled();
   });
 
   it('on backend "solved", returns a SwapResponse reconstructed from the backend (no client-side relay)', async () => {

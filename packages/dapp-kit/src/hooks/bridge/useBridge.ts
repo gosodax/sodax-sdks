@@ -30,7 +30,11 @@ export function useBridge<K extends SpokeChainKey = SpokeChainKey>({
   return useSafeMutation<TxHashPair, Error, UseBridgeVars<K>>({
     mutationKey: ['bridge'],
     ...mutationOptions,
-    retry: retryBeforeSubmission(mutationOptions?.retry),
+    retry: retryBeforeSubmission(
+      mutationOptions?.retry ??
+        queryClient.getMutationDefaults?.(mutationOptions?.mutationKey ?? ['bridge'])?.retry ??
+        queryClient.getDefaultOptions?.().mutations?.retry,
+    ),
     mutationFn: async vars => unwrapResult(await sodax.bridge.bridge({ ...vars, raw: false })),
     onSuccess: async (data, vars, ctx) => {
       invalidateBalances(queryClient, vars.params.srcChainKey, vars.params.dstChainKey);

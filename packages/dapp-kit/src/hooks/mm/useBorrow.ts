@@ -38,7 +38,11 @@ export function useBorrow<K extends SpokeChainKey = SpokeChainKey>({
   return useSafeMutation<OutboundSettlement<K>, Error, UseBorrowVars<K>>({
     mutationKey: ['mm', 'borrow'],
     ...mutationOptions,
-    retry: retryBeforeSubmission(mutationOptions?.retry),
+    retry: retryBeforeSubmission(
+      mutationOptions?.retry ??
+        queryClient.getMutationDefaults?.(mutationOptions?.mutationKey ?? ['mm', 'borrow'])?.retry ??
+        queryClient.getDefaultOptions?.().mutations?.retry,
+    ),
     mutationFn: async vars => unwrapResult(await sodax.moneyMarket.borrow({ ...vars, raw: false })),
     onSuccess: async (data, vars, ctx) => {
       const { params } = vars;
