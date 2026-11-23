@@ -1,4 +1,3 @@
-import { IndeterminateOutcomeError } from '../errors/IndeterminateOutcomeError.js';
 import { isHex } from 'viem';
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import {
@@ -1722,10 +1721,7 @@ export class SwapService {
         }
         return {
           ok: false,
-          error: intentCreationFailed('swap', txResult.error, {
-            ...baseCtx,
-            srcTxHash: txResult.error instanceof IndeterminateOutcomeError ? txResult.error.txHash : undefined,
-          }),
+          error: intentCreationFailed('swap', txResult.error, baseCtx),
         };
       }
 
@@ -1745,10 +1741,7 @@ export class SwapService {
       if (isSwapCreateIntentError(error)) return { ok: false, error };
       return {
         ok: false,
-        error: intentCreationFailed('swap', error, {
-          ...baseCtx,
-          srcTxHash: error instanceof IndeterminateOutcomeError ? error.txHash : undefined,
-        }),
+        error: intentCreationFailed('swap', error, baseCtx),
       };
     }
   }

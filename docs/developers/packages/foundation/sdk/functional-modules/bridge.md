@@ -546,9 +546,11 @@ A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 
 
 A bridge **to** an MPC-relay chain has no packet for that leg either, because the hub emits a `BridgeRequest` for that relay rather than an intent-relay message. Its arm is that relay's release record, returned once `txs.release` holds the payout tx; until then it is the same budgetable miss, with `context.hubTxHash` once the first leg has reached the hub. Read `txs.release`, not `status`, which follows the deposit ladder and never names a release. This read does not notify the relay, so a release nobody notified stays a miss; `sodax.spoke.submitHubRelease({ hubTxHash, dstChainKey })` notifies it. A spoke-source packet is checked against its hub tx's receipt first, so a release is found even without `dstChainKey`. While the release cannot be confirmed (the receipt or the relay record cannot be read), the read keeps retrying, unless a `dstChainKey` off the MPC relay rules it out: then the packet answers.
 
+`buildBridgeData` checks the delivered MPC-relay payout after fee and decimal conversion. The lower-level `EvmAssetManagerService.withdrawAssetData` only encodes the call. Direct callers must validate their payout before signing.
+
 For an MPC-relay source, pass `dstChainKey` to check delivery. If omitted, the hub mint alone returns a non-terminal lookup miss with `context.hubTxHash`. Pass the Sonic chain key for a bridge that ends at the hub.
 
-If Tron withdraw authorization throws an `IndeterminateOutcomeError`, use its `trackingId` to look up the existing authorization. If you built and signed the raw authorization yourself, you can resubmit the same message and signature through `submitSignedWithdraw`. Starting a new `sendMessage` call signs a fresh authorization.
+If Tron withdraw authorization throws an `IndeterminateOutcomeError`, use its `trackingId` to look up the existing authorization. If you retained the signed authorization and resubmit it through `submitSignedWithdraw`, a rejection only describes the replay. Keep polling the original ID. The relay's duplicate-nonce reply still needs confirmation from its owner. Starting a new `sendMessage` call signs a fresh authorization.
 
 Every payload is already documented — the submit-tx record in [BRIDGE_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md), the relay packet as `PacketData`, the MPC relay's record as `DepositRecord`. Nothing is translated between them, so no field is dropped and no status is reinterpreted.
 

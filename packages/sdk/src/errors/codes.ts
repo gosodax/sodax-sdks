@@ -127,6 +127,9 @@ export type SodaxErrorContext = {
   action?: string;
   phase?: SodaxPhase;
   srcChainKey?: string;
+  srcTxHash?: string;
+  trackingId?: string;
+  recovery?: unknown;
   dstChainKey?: string;
   relayCode?: RelayCode;
   api?: 'solver' | 'backend' | 'swaps' | 'leverageYield' | 'sponsoring' | 'bridge';

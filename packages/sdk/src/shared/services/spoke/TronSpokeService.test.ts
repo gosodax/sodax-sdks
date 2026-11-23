@@ -19,7 +19,7 @@ import {
   tronSupportedTokens,
 } from '@sodax/types';
 import { encodeAbiParameters, getAddress, isHex, keccak256, sha256, toHex } from 'viem';
-import { IndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
+import { IndeterminateOutcomeError, isIndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import {
@@ -818,7 +818,7 @@ describe('TronSpokeService.sendMessage', () => {
 
     const error = await tron.sendMessage(sendParams).catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(IndeterminateOutcomeError);
-    if (!(error instanceof IndeterminateOutcomeError) || !error.trackingId) throw new Error('missing tracking ID');
+    if (!isIndeterminateOutcomeError(error) || !error.trackingId) throw new Error('missing tracking ID');
     expect(error.cause).toBe(lost);
     expect(await tron.getWithdrawalRecord(error.trackingId)).toMatchObject({
       ok: true,
