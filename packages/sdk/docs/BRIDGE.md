@@ -367,14 +367,14 @@ console.log('Fee:', feeAmount.toString(), previewed.toString());
 ### getBridgeableAmount
 
 Returns the maximum amount that can currently be bridged between two tokens, covering each vault step the hub runs for the transfer:
-- **Deposit**: runs for a spoke source, and for a hub source that is not a vault token. Constrained by the vault's remaining deposit capacity for the source token (`DEPOSIT_LIMIT`).
-- **Withdrawal**: runs for a spoke destination, and for a hub destination that is not a vault token (for example plain USDT on Sonic). Constrained by the vault's reserve of the destination token (`WITHDRAWAL_LIMIT`).
+- **Deposit**: runs unless the source is the vault token itself (for example sodaUSDT on Sonic). Constrained by the vault's remaining deposit capacity for the source token (`DEPOSIT_LIMIT`), floored at `0n` when the reserve already exceeds the cap.
+- **Withdrawal**: runs unless the destination is the vault token itself, so it also runs for a plain Sonic token such as USDT. Constrained by the vault's reserve of the destination token (`WITHDRAWAL_LIMIT`).
 
-When both steps run, the lower of the two is returned, normalised to a common unit for the comparison; the returned `type` indicates which side is the binding constraint. A bridge into plain USDT on Sonic can therefore be capped well below the source deposit capacity when the vault holds little Sonic USDT.
+When both steps run, the lower of the two is returned, normalised to a common unit for the comparison; the returned `type` indicates which side is the binding constraint. A bridge into plain USDT on Sonic can therefore be capped well below the source deposit capacity when the vault holds little Sonic USDT. When both ends share a hub asset (for example S → wS on Sonic), the deposit tops up the reserve the withdrawal draws from, so only the deposit limit applies.
 
 A `DEPOSIT_LIMIT` is expressed in the source token's units and a `WITHDRAWAL_LIMIT` in the destination token's, so compare against `amount` using the returned `decimals`, not the source token's.
 
-Returns `{ amount: 0n, type: 'DEPOSIT_LIMIT' }` when a deposit runs and the source token is not yet supported by the vault.
+Returns `{ amount: 0n, type: 'DEPOSIT_LIMIT' }` when a deposit runs and the source token is not yet supported by the vault. Fails with `VALIDATION_FAILED` when neither step runs (a vault token sent as itself), since no vault limits that transfer.
 
 **Parameters:**
 - `from`: `XToken` — source token (chain key + address) to bridge from

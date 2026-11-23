@@ -32,7 +32,7 @@ Granular skill for `BridgeService` — `sodax.bridge`. Feature tag: `'bridge'`.
 ### Bridge-specific anti-patterns
 
 - **Destructuring the return as an array or single hash.** v2 ALWAYS returns `{ srcChainTxHash, dstChainTxHash }` for cross-chain mutations — destructure by name.
-- **Skipping the bridgeable-amount check.** Submitting an amount over the vault cap fails at intent creation (`INTENT_CREATION_FAILED`) once the hub simulation rejects it; cheaper to check first.
+- **Skipping the bridgeable-amount check.** Submitting an amount over the vault cap fails at intent creation (`INTENT_CREATION_FAILED`) when the hub simulation runs. With `skipSimulation: true`, or in Bitcoin USER mode where simulation is always skipped, the deposit lands and the hub execution fails afterwards, so check first.
 - **Reporting a bridge as lost, or calling `bridge()` again, on a post-broadcast failure.** `TX_VERIFICATION_FAILED` and the relay codes carry `error.context.srcTxHash` — the deposit is on-chain and may still deliver, so keep polling `getDetailedStatus` with it. A second `bridge()` is a second deposit. After `TX_SUBMIT_FAILED`, if no packet ever shows up, resubmit that same tx to the relay with `submitTransaction`.
 
 ## Migration workflow (v1 → v2)

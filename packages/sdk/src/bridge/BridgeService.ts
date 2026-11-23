@@ -1365,19 +1365,23 @@ export class BridgeService {
   /**
    * Returns the maximum amount that can currently be bridged between two tokens, covering each
    * vault step the hub runs for the transfer:
-   * - Deposit: runs for a spoke source, and for a hub source that is not a vault token. Constrained
-   *   by the vault's remaining deposit capacity for the source token (`DEPOSIT_LIMIT`).
-   * - Withdrawal: runs for a spoke destination, and for a hub destination that is not a vault token
-   *   (e.g. plain USDT on Sonic). Constrained by the vault's reserve of the destination token
+   * - Deposit: runs unless the source is the vault token itself (e.g. sodaUSDT on Sonic). Constrained
+   *   by the vault's remaining deposit capacity for the source token (`DEPOSIT_LIMIT`), floored at 0
+   *   when the reserve already exceeds the cap.
+   * - Withdrawal: runs unless the destination is the vault token itself, so it also runs for a plain
+   *   Sonic token such as USDT. Constrained by the vault's reserve of the destination token
    *   (`WITHDRAWAL_LIMIT`).
    *
    * When both steps run, the lower of the two is returned, normalised to a common unit for the
-   * comparison; `type` indicates which side is the binding constraint. A `DEPOSIT_LIMIT` is in the
-   * source token's units and a `WITHDRAWAL_LIMIT` in the destination token's, so read `decimals`
-   * off the result rather than assuming the source token's.
+   * comparison; `type` indicates which side is the binding constraint. When both ends share a hub
+   * asset (e.g. S → wS on Sonic) the deposit tops up the reserve the withdrawal draws from, so only
+   * the deposit limit applies. A `DEPOSIT_LIMIT` is in the source token's units and a
+   * `WITHDRAWAL_LIMIT` in the destination token's, so read `decimals` off the result rather than
+   * assuming the source token's.
    *
    * Returns `{ amount: 0n, type: 'DEPOSIT_LIMIT' }` when a deposit runs and the source token is not
-   * yet supported by the vault (`isSupported` is false).
+   * yet supported by the vault (`isSupported` is false). Fails with a validation error when neither
+   * step runs (a vault token sent as itself), since no vault limits that transfer.
    *
    * @param from - Source `XToken` (chain key + address) to bridge from.
    * @param to - Destination `XToken` (chain key + address) to bridge to.
@@ -1387,8 +1391,8 @@ export class BridgeService {
   public async getBridgeableAmount(from: XToken, to: XToken): Promise<Result<BridgeLimit, BridgeLookupError>> {
     const baseCtx = { srcChainKey: from.chainKey, dstChainKey: to.chainKey };
     try {
-      const fromToken = this.config.getSpokeTokenFromOriginalAssetAddress(from.chainKey, from.address);
-      const toToken = this.config.getSpokeTokenFromOriginalAssetAddress(to.chainKey, to.address);
+      const fromToken = this.resolveBridgeEndpointToken(from.chainKey, from.address);
+      const toToken = this.resolveBridgeEndpointToken(to.chainKey, to.address);
 
       bridgeInvariant(fromToken, `Token not found for token ${from.address} on chain ${from.chainKey}`, {
         ...baseCtx,
@@ -1401,6 +1405,15 @@ export class BridgeService {
       bridgeInvariant(this.isBridgeable({ from, to }), `Tokens ${from.address} and ${to.address} are not bridgeable`, {
         ...baseCtx,
       });
+
+      // Same rule buildBridgeData encodes: a vault token is neither deposited nor withdrawn.
+      const deposits = !this.config.isSodaVaultHubAsset(fromToken.hubAsset);
+      const withdraws = !this.config.isSodaVaultHubAsset(toToken.hubAsset);
+      bridgeInvariant(
+        deposits || withdraws,
+        `No vault step runs between ${from.address} and ${to.address}, so no vault limit applies`,
+        baseCtx,
+      );
 
       const [tokenInfos, reserves] = await Promise.all([
         EvmVaultTokenService.getTokenInfos(
@@ -1416,10 +1429,6 @@ export class BridgeService {
       bridgeInvariant(fromTokenInfo, 'From token info not found', { ...baseCtx, field: 'from' });
       bridgeInvariant(toTokenInfo, 'To token info not found', { ...baseCtx, field: 'to' });
 
-      // Hub-side tokens follow buildBridgeData: only a non-vault token is deposited or withdrawn.
-      const deposits = !isHubChainKey(from.chainKey) || !this.config.isSodaVaultHubAsset(fromToken.hubAsset);
-      const withdraws = !isHubChainKey(to.chainKey) || !this.config.isSodaVaultHubAsset(toToken.hubAsset);
-
       if (deposits && !fromTokenInfo.isSupported) {
         return {
           ok: true,
@@ -1431,18 +1440,19 @@ export class BridgeService {
         };
       }
 
-      const depositLimit = (): BridgeLimit => ({
-        amount: fromTokenInfo.maxDeposit - this.findTokenBalanceInReserves(reserves, from),
-        decimals: fromTokenInfo.decimals,
-        type: 'DEPOSIT_LIMIT',
-      });
+      const depositLimit = (): BridgeLimit => {
+        const room = fromTokenInfo.maxDeposit - this.findTokenBalanceInReserves(reserves, from);
+        return { amount: room > 0n ? room : 0n, decimals: fromTokenInfo.decimals, type: 'DEPOSIT_LIMIT' };
+      };
       const withdrawalLimit = (): BridgeLimit => ({
         amount: this.findTokenBalanceInReserves(reserves, to),
         decimals: toTokenInfo.decimals,
         type: 'WITHDRAWAL_LIMIT',
       });
 
-      if (!withdraws) return { ok: true, value: depositLimit() };
+      // With a shared hub asset the deposit funds the withdrawal, so the reserve never binds.
+      const sameHubAsset = fromToken.hubAsset.toLowerCase() === toToken.hubAsset.toLowerCase();
+      if (!withdraws || sameHubAsset) return { ok: true, value: depositLimit() };
       if (!deposits) return { ok: true, value: withdrawalLimit() };
 
       const deposit = depositLimit();
@@ -1490,8 +1500,8 @@ export class BridgeService {
       }
 
       // Get hub asset info for both source and destination assets
-      const srcToken = this.config.getSpokeTokenFromOriginalAssetAddress(from.chainKey, from.address);
-      const dstToken = this.config.getSpokeTokenFromOriginalAssetAddress(to.chainKey, to.address);
+      const srcToken = this.resolveBridgeEndpointToken(from.chainKey, from.address);
+      const dstToken = this.resolveBridgeEndpointToken(to.chainKey, to.address);
 
       // Check if both assets are supported and have vault information
       bridgeInvariant(srcToken, `Token not found for token ${from.address} on chain ${from.chainKey}`, {
@@ -1596,7 +1606,7 @@ export class BridgeService {
    * @throws When the token is not found in config or not present in the reserves snapshot.
    */
   public findTokenBalanceInReserves(reserves: VaultReserves, token: XToken): bigint {
-    const hubAsset = this.config.getSpokeTokenFromOriginalAssetAddress(token.chainKey, token.address);
+    const hubAsset = this.resolveBridgeEndpointToken(token.chainKey, token.address);
     bridgeInvariant(hubAsset, `Token not found for token ${token.address} on chain ${token.chainKey}`, {
       srcChainKey: token.chainKey,
       field: 'token',

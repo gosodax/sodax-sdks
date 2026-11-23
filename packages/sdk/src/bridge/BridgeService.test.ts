@@ -2198,4 +2198,42 @@ describe('BridgeService.getBridgeableAmount — vault steps on the hub', () => {
     balances[key(bscUsdt)] = 200_000n * 10n ** 18n;
     expect(await sodax.bridge.getBridgeableAmount(arbUsdt, bscUsdt)).toEqual(limit(ARB_ROOM, 6, 'DEPOSIT_LIMIT'));
   });
+
+  it('floors the deposit room at 0 when the reserve is already over the cap', async () => {
+    infos[key(arbUsdt)] = info(6, ARB_RESERVE - 1n);
+    expect(await sodax.bridge.getBridgeableAmount(arbUsdt, sodaUsdt)).toEqual(limit(0n, 6, 'DEPOSIT_LIMIT'));
+    infos[key(sonicUsdt)] = info(6, SONIC_USDT_RESERVE - 1n);
+    expect(await sodax.bridge.getBridgeableAmount(sonicUsdt, arbUsdt)).toEqual(limit(0n, 6, 'DEPOSIT_LIMIT'));
+  });
+
+  it('only checks the deposit room when both ends share a hub asset', async () => {
+    expect(await sodax.bridge.getBridgeableAmount(sonicUsdt, sonicUsdt)).toEqual(
+      limit(500_000_000_000n - SONIC_USDT_RESERVE, 6, 'DEPOSIT_LIMIT'),
+    );
+    expect(await sodax.bridge.getBridgeableAmount(arbUsdt, arbUsdt)).toEqual(limit(ARB_ROOM, 6, 'DEPOSIT_LIMIT'));
+  });
+
+  it('rejects a vault token sent as itself without reading the vault', async () => {
+    const result = await sodax.bridge.getBridgeableAmount(sodaUsdt, sodaUsdt);
+    expect(!result.ok && result.error.code).toBe('VALIDATION_FAILED');
+    expect(!result.ok && result.error.message).toContain('No vault step runs');
+    expect(EvmVaultTokenService.getVaultReserves).not.toHaveBeenCalled();
+  });
+
+  it('resolves a hub asset held on Sonic the way bridge() does', async () => {
+    const btc = realToken(BTC, 'BTC');
+    const sonicBtc = { ...btc, chainKey: ChainKeys.SONIC_MAINNET, address: btc.hubAsset };
+    const BTC_CAP = 1_000_000_000n;
+    const BTC_RESERVE = 250_000_000n;
+    vi.spyOn(EvmVaultTokenService, 'getTokenInfos').mockResolvedValue([info(8, BTC_CAP), info(8, BTC_CAP)]);
+    const reservesSpy = vi
+      .spyOn(EvmVaultTokenService, 'getVaultReserves')
+      .mockResolvedValue({ tokens: [btc.hubAsset], balances: [BTC_RESERVE] });
+
+    expect(sodax.bridge.isBridgeable({ from: sonicBtc, to: btc })).toBe(true);
+    expect(await sodax.bridge.getBridgeableAmount(sonicBtc, btc)).toEqual(
+      limit(BTC_CAP - BTC_RESERVE, 8, 'DEPOSIT_LIMIT'),
+    );
+    expect(reservesSpy.mock.calls[0]?.[0]).toBe(btc.vault);
+  });
 });

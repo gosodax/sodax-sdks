@@ -172,7 +172,7 @@ Internally `bridge()` branches on `isHubChainKeyType(srcChainKey)` and uses the 
 
 ### Bridgeable-amount check
 
-Covers each vault step the hub runs: the deposit limit when the source is a spoke token or a plain (non-vault) Sonic token, and the vault's reserve of the destination when the destination is a spoke token or a plain Sonic token (for example USDT on Sonic). When both apply it returns the lower one and `type` says which binds; a `DEPOSIT_LIMIT` is in source-token units and a `WITHDRAWAL_LIMIT` in destination-token units. Pass the source and destination tokens as full `XToken` objects (each carries its own `chainKey`):
+Covers each vault step the hub runs: the deposit limit (floored at `0n`) unless the source is the vault token itself, and the vault's reserve of the destination unless the destination is the vault token itself, so a plain Sonic token such as USDT is capped by that reserve. When both apply it returns the lower one and `type` says which binds; when both ends share a hub asset (for example S → wS) only the deposit limit applies. A `DEPOSIT_LIMIT` is in source-token units and a `WITHDRAWAL_LIMIT` in destination-token units. Pass the source and destination tokens as full `XToken` objects (each carries its own `chainKey`):
 
 ```ts
 const result = await sodax.bridge.getBridgeableAmount(USDC_ARBITRUM, USDC_STELLAR);
