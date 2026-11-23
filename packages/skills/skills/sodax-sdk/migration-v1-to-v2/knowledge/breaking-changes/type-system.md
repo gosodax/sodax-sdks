@@ -128,18 +128,18 @@ This is what allows v2 to demand the chain-correct wallet provider at compile ti
 ### `WalletProviderSlot<K, Raw>` — the discriminator
 
 ```ts
-// Conceptual; lives in @sodax/types/common
-export type WalletProviderSlot<K extends ChainKey, Raw extends boolean> =
+// Lives in @sodax/types/common
+export type WalletProviderSlot<K extends SpokeChainKey | ChainType, Raw extends boolean = false> =
   Raw extends true
-    ? { raw: true; walletProvider?: never }
-    : { raw: false; walletProvider: GetWalletProviderType<K> };
+    ? { raw: Raw; walletProvider?: never }
+    : { raw?: Raw; walletProvider: GetWalletProviderType<K> };
 ```
 
 Three rules enforced at compile time:
 
 1. **`raw: true`** — `walletProvider` is **forbidden** (`?: never` rejects any value). The method returns a raw, unsigned tx payload. Use for sign-elsewhere flows.
-2. **`raw: false`** — `walletProvider` is **required** and chain-narrowed. The method signs and broadcasts; returns a tx hash.
-3. **No overlap** — TypeScript can't pick a branch unless the discriminator field is present. Forgetting `raw: false` is the #1 v2 typecheck error after migration.
+2. **`raw: false` or omitted** — `walletProvider` is **required** and chain-narrowed. The method signs and broadcasts; returns a tx hash.
+3. **The result type follows the mode** — `Raw` is inferred from `raw` and defaults to `false`, so no type arguments are needed. A call with neither `walletProvider` nor `raw: true` fails to compile.
 
 ### Migration mechanics
 

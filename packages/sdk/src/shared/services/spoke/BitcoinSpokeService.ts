@@ -252,7 +252,7 @@ export class BitcoinSpokeService {
    * @param {boolean} raw - Whether to return raw PSBT or transaction hash
    * @returns {Promise<TxReturnType<BitcoinSpokeProviderType, R>>} Transaction hash or raw PSBT
    */
-  public async sendMessage<Raw extends boolean>(
+  public async sendMessage<Raw extends boolean = false>(
     params: SendMessageParams<BitcoinChainKey, Raw> & { walletMode?: WalletMode },
   ): Promise<TxReturnType<BitcoinChainKey, Raw>> {
     return (await this.encodeWithdrawalData(params)) satisfies TxReturnType<BitcoinChainKey, Raw>;
@@ -659,7 +659,7 @@ export class BitcoinSpokeService {
     return await response.text();
   }
 
-  public async encodeWithdrawalData<Raw extends boolean>(
+  public async encodeWithdrawalData<Raw extends boolean = false>(
     params: SendMessageParams<BitcoinChainKey, Raw> & { walletMode?: WalletMode },
   ): Promise<TxReturnType<BitcoinChainKey, Raw>> {
     const { srcAddress: from, srcChainKey, dstChainKey, payload: data, walletMode = 'TRADING' } = params;

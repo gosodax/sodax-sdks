@@ -231,7 +231,7 @@ export class SuiSpokeService {
     return { tx, assetManager };
   }
 
-  public async sendMessage<Raw extends boolean>(
+  public async sendMessage<Raw extends boolean = false>(
     params: SendMessageParams<SuiChainKey, Raw>,
   ): Promise<TxReturnType<SuiChainKey, Raw>> {
     const { srcAddress: from, srcChainKey, dstChainKey, dstAddress, payload } = params;

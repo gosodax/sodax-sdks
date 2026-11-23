@@ -280,7 +280,7 @@ export class MigrationService {
    * @returns The submitted transaction hash (`Raw extends false`) or the unsigned transaction
    *   object (`Raw extends true`) for the approval call, wrapped in a `Result`.
    */
-  public async approve<K extends SpokeChainKey, Raw extends boolean>(
+  public async approve<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: IcxRevertMigrationAction<Raw> | UnifiedBnUSDMigrateAction<K, Raw>,
     action: MigrationAction,
   ): Promise<Result<TxReturnType<K, Raw>, MigrationApproveError>> {
@@ -864,7 +864,7 @@ export class MigrationService {
    *   (depending on `raw`), and `relayData` contains the hub wallet address and encoded payload
    *   for relay.
    */
-  async createMigrateBalnIntent<Raw extends boolean>(
+  async createMigrateBalnIntent<Raw extends boolean = false>(
     _params: BalnMigrateAction<Raw>,
   ): Promise<Result<IntentTxResult<IconChainKey, Raw>, MigrationCreateIntentError>> {
     const { params, skipSimulation } = _params;
@@ -943,7 +943,7 @@ export class MigrationService {
    *   object (depending on `raw`), and `relayData` contains the hub wallet address and encoded
    *   payload for relay.
    */
-  async createMigratebnUSDIntent<K extends SpokeChainKey, Raw extends boolean>(
+  async createMigratebnUSDIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: UnifiedBnUSDMigrateAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, MigrationCreateIntentError>> {
     const { params, unchecked, skipSimulation } = _params;
@@ -1116,7 +1116,7 @@ export class MigrationService {
    *   (depending on `raw`), and `relayData` contains the hub wallet address and encoded payload
    *   for relay.
    */
-  async createMigrateIcxToSodaIntent<Raw extends boolean>(
+  async createMigrateIcxToSodaIntent<Raw extends boolean = false>(
     _params: IcxMigrateAction<Raw>,
   ): Promise<Result<IntentTxResult<IconChainKey, Raw>, MigrationCreateIntentError>> {
     const { params, skipSimulation } = _params;
@@ -1230,7 +1230,7 @@ export class MigrationService {
    *   (depending on `raw`), and `relayData` contains the hub wallet address and encoded payload
    *   for relay.
    */
-  async createRevertSodaToIcxMigrationIntent<Raw extends boolean>(
+  async createRevertSodaToIcxMigrationIntent<Raw extends boolean = false>(
     _params: IcxRevertMigrationAction<Raw>,
   ): Promise<Result<IntentTxResult<SonicChainKey, Raw>, MigrationCreateIntentError>> {
     const { params, skipSimulation } = _params;

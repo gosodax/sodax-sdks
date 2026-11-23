@@ -27,7 +27,7 @@ DO / DO NOT / workflow / stop conditions for AI agents porting v1 `@sodax/sdk` c
   - `Token` → `XToken`.
   - `AddressType` → `BtcAddressType` (only at `@sodax/types` import sites).
 - **DO** add `srcChainKey` + `srcAddress` to every action params object (every `MoneyMarketSupplyParams`, `StakeParams`, `CreateAssetDepositParams`, etc. now requires both).
-- **DO** add the `raw: false` (or `raw: true`) discriminator to every signed call shape that previously took `{ intentParams, spokeProvider }`. Also rename `intentParams` → `params` and drop `spokeProvider` in favor of `walletProvider`.
+- **DO** pick the mode on every call shape that previously took `{ intentParams, spokeProvider }`: `walletProvider` to sign (`raw: false` is optional), or `raw: true` for an unsigned tx. Also rename `intentParams` → `params` and drop `spokeProvider` in favor of `walletProvider`.
 - **DO** convert v1 `try/catch` to `result.ok` branching last — touching every call site is the biggest commit, easiest to do once the type-level changes settled.
 - **DO** treat the `Result<T>` ↔ `try/catch` migration as the *highest-leverage* change. If you stop early, ensure result branching is at least in place even if the surrounding error UX is rough.
 

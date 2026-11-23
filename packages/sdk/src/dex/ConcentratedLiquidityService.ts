@@ -364,7 +364,7 @@ export class ClService {
    *   (hash or raw bytes depending on `raw`) and the relay data needed to track the
    *   cross-chain packet.
    */
-  public async executeSupplyLiquidity<K extends SpokeChainKey, Raw extends boolean>(
+  public async executeSupplyLiquidity<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: ClSupplyAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>>> {
     const { params, skipSimulation } = _params;
@@ -516,7 +516,7 @@ export class ClService {
    * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
    *   and relay data for cross-chain packet tracking.
    */
-  public async executeIncreaseLiquidity<K extends SpokeChainKey, Raw extends boolean>(
+  public async executeIncreaseLiquidity<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: ClLiquidityIncreaseLiquidityAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>>> {
     const { params, skipSimulation } = _params;
@@ -608,7 +608,7 @@ export class ClService {
    * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
    *   and relay data for cross-chain packet tracking.
    */
-  public async executeDecreaseLiquidity<K extends SpokeChainKey, Raw extends boolean>(
+  public async executeDecreaseLiquidity<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: ClLiquidityDecreaseLiquidityAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>>> {
     const { params, skipSimulation } = _params;
@@ -1005,7 +1005,7 @@ export class ClService {
    * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
    *   and relay data for cross-chain packet tracking.
    */
-  public async executeClaimRewards<K extends SpokeChainKey, Raw extends boolean>(
+  public async executeClaimRewards<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: ClLiquidityClaimRewardsAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>>> {
     const { params, skipSimulation } = _params;

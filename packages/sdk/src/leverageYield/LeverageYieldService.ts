@@ -1048,7 +1048,7 @@ export class LeverageYieldService {
    *   precondition), `INTENT_CREATION_FAILED` (spoke-side creation/deposit failed) or
    *   `UNKNOWN` (defensive fallback).
    */
-  public async createVaultIntent<K extends SpokeChainKey, Raw extends boolean>(
+  public async createVaultIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: VaultSwapActionParams<K, Raw>,
   ): Promise<Result<CreateVaultIntentResult<K, Raw>, LeverageYieldCreateIntentError>> {
     // Per-intent partnerFee override beats the effective leverage-yield fee (per-feature override,

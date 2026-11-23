@@ -421,7 +421,7 @@ export class MoneyMarketService {
    * @returns The broadcast transaction result on success (`raw: false`), or unsigned transaction
    *   data (`raw: true`), keyed to the source chain type.
    */
-  public async approve<K extends SpokeChainKey, Raw extends boolean>(
+  public async approve<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: MoneyMarketApproveActionParams<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>, MoneyMarketApproveError>> {
     const { params, walletProvider } = _params;
@@ -624,7 +624,7 @@ export class MoneyMarketService {
    * @returns The spoke transaction result (hash or raw calldata) plus `relayData` required to
    *   trigger the hub-side execution via {@link relayTxAndWaitPacket}.
    */
-  public async createSupplyIntent<K extends SpokeChainKey, Raw extends boolean>(
+  public async createSupplyIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: MoneyMarketSupplyActionParams<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, MoneyMarketCreateIntentError>> {
     const { params, walletProvider } = _params;
@@ -861,7 +861,7 @@ export class MoneyMarketService {
    * @returns The spoke transaction result (hash or raw calldata) plus `relayData` required to
    *   trigger the hub-side borrow execution via {@link relayTxAndWaitPacket}.
    */
-  public async createBorrowIntent<K extends SpokeChainKey, Raw extends boolean>(
+  public async createBorrowIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: MoneyMarketBorrowActionParams<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, MoneyMarketCreateIntentError>> {
     const { params, walletProvider } = _params;
@@ -1079,7 +1079,7 @@ export class MoneyMarketService {
    * @returns The spoke transaction result (hash or raw calldata) plus `relayData` required to
    *   trigger the hub-side withdrawal via {@link relayTxAndWaitPacket}.
    */
-  public async createWithdrawIntent<K extends SpokeChainKey, Raw extends boolean>(
+  public async createWithdrawIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: MoneyMarketWithdrawActionParams<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, MoneyMarketCreateIntentError>> {
     const { params, walletProvider } = _params;
@@ -1269,7 +1269,7 @@ export class MoneyMarketService {
    * @returns The spoke transaction result (hash or raw calldata) plus `relayData` required to
    *   trigger the hub-side repayment via {@link relayTxAndWaitPacket}.
    */
-  public async createRepayIntent<K extends SpokeChainKey, Raw extends boolean>(
+  public async createRepayIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: MoneyMarketRepayActionParams<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, MoneyMarketCreateIntentError>> {
     const { params, walletProvider } = _params;

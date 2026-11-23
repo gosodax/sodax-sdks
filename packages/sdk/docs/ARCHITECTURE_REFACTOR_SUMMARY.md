@@ -120,16 +120,16 @@ await sodax.config.initialize(); // fetch dynamic config from backend; falls bac
 The discriminated union lives in [`packages/types/src/common/common.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/common/common.ts):
 
 ```ts
-export type WalletProviderSlot<K extends SpokeChainKey | ChainType, Raw extends boolean> =
+export type WalletProviderSlot<K extends SpokeChainKey | ChainType, Raw extends boolean = false> =
   Raw extends true
-    ? { raw: true; walletProvider?: never }
-    : { raw: false; walletProvider: GetWalletProviderType<K> };
+    ? { raw: Raw; walletProvider?: never }
+    : { raw?: Raw; walletProvider: GetWalletProviderType<K> };
 ```
 
 Three rules enforced at compile time:
 
 1. **`raw: true`** → `walletProvider` is **forbidden** (`?: never` rejects any value). Returns a raw tx payload — `TxReturnType<K, true>`, e.g. `EvmRawTransaction`, `SolanaRawTransaction`.
-2. **`raw: false`** → `walletProvider` is **required**, chain-narrowed via `GetWalletProviderType<K>` (e.g. `IEvmWalletProvider` for `ChainKeys.ETHEREUM_MAINNET`). Signs/broadcasts, returns a tx hash — `TxReturnType<K, false>`.
+2. **`raw: false` or omitted** → `walletProvider` is **required**, chain-narrowed via `GetWalletProviderType<K>` (e.g. `IEvmWalletProvider` for `ChainKeys.ETHEREUM_MAINNET`). Signs/broadcasts, returns a tx hash — `TxReturnType<K, false>`.
 3. **Chain narrowing flows from `K`** — when the caller passes a literal chain key, `K` is preserved so `GetWalletProviderType<K>` resolves to the exact interface, not a broad union.
 
 Service methods include this slot via intersection, e.g.:

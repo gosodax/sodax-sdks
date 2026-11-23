@@ -207,7 +207,7 @@ export class StakingService {
    * @param _params - Typed action params union including the action discriminant, source chain, address, and amount.
    * @returns `{ ok: true, value: true }` when allowance is sufficient; `{ ok: false, error }` on failure or unsupported action.
    */
-  public async isAllowanceValid<K extends SpokeChainKey, Raw extends boolean>(
+  public async isAllowanceValid<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: StakingParamsUnion<K, Raw>,
   ): Promise<Result<boolean, StakingAllowanceCheckError>> {
     const { params } = _params;
@@ -280,7 +280,7 @@ export class StakingService {
    * @param _params - Typed action params including `raw` flag and a chain-appropriate wallet provider.
    * @returns The approval transaction hash (or raw call data when `raw: true`), wrapped in `Result`.
    */
-  public async approve<K extends SpokeChainKey, Raw extends boolean>(
+  public async approve<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: StakingParamsUnion<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>, StakingApproveError>> {
     const { params } = _params;
@@ -484,7 +484,7 @@ export class StakingService {
    * @param _params - Stake action params; set `raw: true` to receive ABI-encoded call data instead of broadcasting.
    * @returns `IntentTxResult` containing the spoke tx result and `relayData` (hub wallet address + encoded payload).
    */
-  async createStakeIntent<K extends SpokeChainKey, Raw extends boolean>(
+  async createStakeIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: StakeAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, StakingCreateIntentError>> {
     const { params, skipSimulation } = _params;
@@ -659,7 +659,7 @@ export class StakingService {
    * @param _params - Unstake action params; set `raw: true` to receive ABI-encoded call data instead of broadcasting.
    * @returns `IntentTxResult` containing the spoke tx result and `relayData` (hub wallet address + encoded payload).
    */
-  async createUnstakeIntent<K extends SpokeChainKey, Raw extends boolean>(
+  async createUnstakeIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: UnstakeAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, StakingCreateIntentError>> {
     const { params } = _params;
@@ -831,7 +831,7 @@ export class StakingService {
    * @param _params - Instant unstake action params; set `raw: true` to receive ABI-encoded call data instead of broadcasting.
    * @returns `IntentTxResult` containing the spoke tx result and `relayData` (hub wallet address + encoded payload).
    */
-  async createInstantUnstakeIntent<K extends SpokeChainKey, Raw extends boolean>(
+  async createInstantUnstakeIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: InstantUnstakeAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, StakingCreateIntentError>> {
     const { params } = _params;
@@ -1018,7 +1018,7 @@ export class StakingService {
    * @param _params - Claim action params; set `raw: true` to receive ABI-encoded call data instead of broadcasting.
    * @returns `IntentTxResult` containing the spoke tx result and `relayData` (hub wallet address + encoded payload).
    */
-  async createClaimIntent<K extends SpokeChainKey, Raw extends boolean>(
+  async createClaimIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: ClaimAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, StakingCreateIntentError>> {
     const { params } = _params;
@@ -1212,7 +1212,7 @@ export class StakingService {
    * @param _params - Cancel-unstake action params; set `raw: true` to receive ABI-encoded call data instead of broadcasting.
    * @returns `IntentTxResult` containing the spoke tx result and `relayData` (hub wallet address + encoded payload).
    */
-  async createCancelUnstakeIntent<K extends SpokeChainKey, Raw extends boolean>(
+  async createCancelUnstakeIntent<K extends SpokeChainKey, Raw extends boolean = false>(
     _params: CancelUnstakeAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, StakingCreateIntentError>> {
     const { params } = _params;

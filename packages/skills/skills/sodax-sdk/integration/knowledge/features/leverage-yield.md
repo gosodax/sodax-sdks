@@ -155,7 +155,7 @@ const allowance = await sodax.swaps.isAllowanceValid({ params: built.value.param
 if (!allowance.ok) return;
 if (!allowance.value) {
   // Pin the chain so the result narrows to an EVM tx hash.
-  const approval = await sodax.swaps.approve<typeof srcChainKey, false>({
+  const approval = await sodax.swaps.approve({
     params: { ...built.value.params, srcChainKey },
     walletProvider,
   });

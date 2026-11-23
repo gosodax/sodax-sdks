@@ -285,7 +285,7 @@ export class EvmSpokeService {
    * @param {boolean} raw - The return type raw or just transaction hash
    * @returns {Promise<TxReturnType<EvmSpokeProviderType, R>>} A promise that resolves to the transaction hash.
    */
-  public async sendMessage<Raw extends boolean>(
+  public async sendMessage<Raw extends boolean = false>(
     params: SendMessageParams<EvmSpokeOnlyChainKey, Raw>,
   ): Promise<TxReturnType<EvmSpokeOnlyChainKey, Raw>> {
     const { srcAddress: from, srcChainKey, dstChainKey, dstAddress, payload } = params;
