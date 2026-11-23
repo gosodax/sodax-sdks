@@ -63,7 +63,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup && node ../../scripts/verify-dist-exports.mjs",
+    "build": "tsup && node ../../scripts/verify-dist-exports.mjs && node verify-outcome-guard.mjs",
     "test": "vitest run --exclude ./src/e2e-tests",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "coverage": "vitest run --coverage",

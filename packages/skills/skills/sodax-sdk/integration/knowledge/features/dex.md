@@ -187,3 +187,13 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 
 - v1 → v2 DEX migration: [`features/dex.md`](../../../migration-v1-to-v2/knowledge/features/dex.md).
 - The hub-side `EvmHubProvider.publicClient` is what `getPoolData` / `getPositionInfo` use internally — consumers can pass `sodax.hubProvider.publicClient`.
+
+
+### Resume a DEX withdrawal to an MPC-relay chain
+
+If an MPC-relay source fails with `context.trackingId`, call `sodax.spoke.settle` with
+`chainKey: context.srcChainKey`, `tx: context.trackingId`, `direction: 'outbound'`,
+and the original `context.relayData` and `context.dstChainKey`. If settlement instead
+failed after the hub burn and exposes `context.hubTxHash`, call
+`sodax.spoke.settleHubRelease(context.hubTxHash, context.dstChainKey)`. On timeout,
+resume the same settlement with those identifiers. Do not call `withdraw` again.

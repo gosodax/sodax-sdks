@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
+import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 
 /**
  * Mutation variables for {@link useBridge}. Generic over `K extends SpokeChainKey` (defaults to
@@ -29,6 +30,7 @@ export function useBridge<K extends SpokeChainKey = SpokeChainKey>({
   return useSafeMutation<TxHashPair, Error, UseBridgeVars<K>>({
     mutationKey: ['bridge'],
     ...mutationOptions,
+    retry: retryBeforeSubmission(mutationOptions?.retry),
     mutationFn: async vars => unwrapResult(await sodax.bridge.bridge({ ...vars, raw: false })),
     onSuccess: async (data, vars, ctx) => {
       invalidateBalances(queryClient, vars.params.srcChainKey, vars.params.dstChainKey);

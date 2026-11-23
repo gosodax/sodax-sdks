@@ -49,3 +49,12 @@ Recovery is a workaround for failed cross-chain operations. Best used **after** 
 - Partner-fee handling (separate service): [`./partner.md`](partner.md).
 - Backend HTTP client (separate service): [`./backend-api.md`](backend-api.md).
 - Error model context fields: [`../reference/`](../reference/) § 3.
+
+
+### Resume an uncertain MPC withdrawal
+
+If `withdrawHubAsset` reports `INTENT_CREATION_FAILED` with `context.trackingId`,
+keep the original authorization. Call `sodax.spoke.settle` with the original
+`srcChainKey`, the tracking ID as `tx`, `direction: 'outbound'` and the original
+`dstChainKey` and `relayData` from context. Do not call `withdrawHubAsset` again
+while that authorization is unresolved.

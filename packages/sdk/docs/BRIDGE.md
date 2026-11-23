@@ -294,7 +294,7 @@ if (!result.ok && result.error.context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
 
 Submits the spoke-side deposit transaction that initiates a bridge transfer, without waiting for the cross-chain relay to complete.
 
-This is the first step of a bridge operation. After this call succeeds you must relay the returned `relayData` to the hub (Sonic) via `relayTxAndWaitPacket` or the intent relay API to complete the transfer. The higher-level `bridge()` method does this automatically — use `createBridgeIntent()` only when you need manual relay control.
+This is the first step of a bridge operation. For intent-relay sources, relay the original transaction and returned `relayData` to Sonic via `relayTxAndWaitPacket` or the intent relay API. For MPC-relay sources, use `sodax.spoke.settle({ chainKey: srcChainKey, tx: srcTxHash, direction: 'inbound', relayData, dstChainKey })` with the original transaction, returned relay data and destination. The higher-level `bridge()` method does this automatically — use `createBridgeIntent()` only when you need manual relay control.
 
 When `raw` is `true`, returns the encoded transaction without broadcasting (useful for simulation or batching). When `raw` is `false`, signs and submits the deposit transaction via the provided wallet provider.
 
@@ -797,7 +797,7 @@ If you were on the previous CODE-on-`error.message` pattern (or the older `Bridg
 
 ### Best practices
 
-1. **On the intent-relay submission path, handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Never start a new bridge for the same transfer: that is a second deposit. Poll `getDetailedStatus` with `error.context.srcTxHash` — if the backend took the deposit, it still relays it. If no packet ever shows up (backend submit-tx off, or the backend rejected the submit), nothing else will submit it: resubmit **the same tx** to the relay, which ignores a tx it already has. An EVM source needs only the hash; a Solana or Bitcoin source also needs the original `relayData`, which `bridge()` does not return.
+1. **On the intent-relay submission path, handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Never start a new bridge for the same transfer: that is a second deposit. Poll `getDetailedStatus` with `error.context.srcTxHash` — if the backend took the deposit, it still relays it. If no packet ever shows up (backend submit-tx off, or the backend rejected the submit), nothing else will submit it: resubmit **the same tx** to the relay, which ignores a tx it already has. An EVM source needs only the hash; a Solana or Bitcoin source also needs the original `relayData`, from the settlement error context or the original `createBridgeIntent()` result.
 
    ```typescript
    import { getIntentRelayChainId, submitTransaction } from '@sodax/sdk';

@@ -129,6 +129,7 @@ export type SodaxErrorContext = {
   phase?: SodaxPhase;
   srcChainKey?: string;
   srcTxHash?: string;
+  hubTxHash?: string;
   trackingId?: string;
   relayData?: RelayExtraData;
   recovery?: unknown;

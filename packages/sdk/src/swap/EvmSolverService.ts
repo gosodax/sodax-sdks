@@ -13,7 +13,12 @@ import {
   parseEventLogs,
 } from 'viem';
 import { Erc20Service } from '../shared/services/erc-20/Erc20Service.js';
-import { calculatePercentageFeeAmount, encodeRecipient, randomUint256 } from '../shared/utils/shared-utils.js';
+import {
+  assertMpcPayoutAboveMinimum,
+  calculatePercentageFeeAmount,
+  encodeRecipient,
+  randomUint256,
+} from '../shared/utils/shared-utils.js';
 import { encodeContractCalls } from '../shared/utils/evm-utils.js';
 import { isPartnerFeeAmount, isPartnerFeePercentage } from '../shared/guards.js';
 import {
@@ -24,11 +29,13 @@ import {
   type IntentData,
   type IntentState,
 } from '../shared/types/intent-types.js';
+import { swapInvariant } from './errors.js';
 import { HookService } from './HookService.js';
 import { IntentDataService } from './IntentDataService.js';
 import {
   getIntentRelayChainId,
   isHubChainKey,
+  isMpcRelayChainKey,
   type Hash,
   type Hex,
   type SolverConfig,
@@ -92,10 +99,30 @@ export class EvmSolverService {
           ?.hubAsset
       : (createIntentParams.inputToken as `0x${string}`);
 
-    const outputToken = !isHubChainKey(createIntentParams.dstChainKey)
-      ? config.getSpokeTokenFromOriginalAssetAddress(createIntentParams.dstChainKey, createIntentParams.outputToken)
-          ?.hubAsset
-      : (createIntentParams.outputToken as `0x${string}`);
+    const { dstChainKey, minOutputAmount, allowPartialFill } = createIntentParams;
+    const outputTokenInfo = isHubChainKey(dstChainKey)
+      ? undefined
+      : config.getSpokeTokenFromOriginalAssetAddress(dstChainKey, createIntentParams.outputToken);
+    const outputToken = isHubChainKey(dstChainKey)
+      ? (createIntentParams.outputToken as Address)
+      : outputTokenInfo?.hubAsset;
+
+    if (isMpcRelayChainKey(dstChainKey)) {
+      swapInvariant(!allowPartialFill, 'Partial fills are unsupported for MPC relay destinations', {
+        dstChainKey,
+        field: 'allowPartialFill',
+      });
+      swapInvariant(outputTokenInfo, 'MPC relay destination token is unsupported', {
+        dstChainKey,
+        field: 'outputToken',
+      });
+      assertMpcPayoutAboveMinimum({
+        feature: 'swap',
+        token: outputTokenInfo,
+        amount: minOutputAmount,
+        context: { dstChainKey, field: 'minOutputAmount' },
+      });
+    }
 
     invariant(
       inputToken,

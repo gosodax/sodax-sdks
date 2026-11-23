@@ -21,7 +21,7 @@ import { SodaxError } from './SodaxError.js';
  */
 export type RelayWrappedErrorCode = Extract<SodaxErrorCode, 'RELAY_TIMEOUT' | 'TX_SUBMIT_FAILED' | 'RELAY_FAILED'>;
 
-export type MapRelayFailureCtx = Pick<SodaxErrorContext, 'trackingId' | 'relayData'> & {
+export type MapRelayFailureCtx = Pick<SodaxErrorContext, 'trackingId' | 'relayData' | 'hubTxHash'> & {
   /** The producing feature. Required so the mapped error carries a feature tag. */
   feature: SodaxFeature;
   /** The feature-level operation in flight (e.g. `'supply'`, `'stake'`, `'migrateBaln'`). */
@@ -52,6 +52,7 @@ export function mapRelayFailure(error: unknown, ctx: MapRelayFailureCtx): SodaxE
     action: ctx.action,
     srcChainKey: ctx.srcChainKey,
     dstChainKey: ctx.dstChainKey,
+    ...(ctx.hubTxHash !== undefined && { hubTxHash: ctx.hubTxHash }),
     ...(ctx.srcTxHash !== undefined && { srcTxHash: ctx.srcTxHash }),
     ...(ctx.trackingId !== undefined && { trackingId: ctx.trackingId }),
     ...(ctx.relayData !== undefined && { relayData: ctx.relayData }),

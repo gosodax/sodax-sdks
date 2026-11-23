@@ -437,7 +437,17 @@ export class AssetService {
 
       const txResult = await this.spoke.sendMessage(sendMessageParams);
 
-      if (!txResult.ok) return { ok: false, error: intentCreationFailed('dex', txResult.error) };
+      if (!txResult.ok) {
+        return {
+          ok: false,
+          error: intentCreationFailed('dex', txResult.error, {
+            action: 'withdraw',
+            srcChainKey: params.srcChainKey,
+            dstChainKey: params.dst?.dstChainKey ?? params.srcChainKey,
+            relayData: { address: fromHubWallet, payload: data },
+          }),
+        };
+      }
 
       return {
         ok: true,
@@ -593,7 +603,20 @@ export class AssetService {
       // No relay watches the hub for an MPC-relay chain, so its release is driven from here.
       if (isMpcRelayChainKey(dstChainKey)) {
         const released = await this.spoke.settleHubRelease(hubTxHash, dstChainKey, timeout);
-        if (!released.ok) return { ok: false, error: released.error.cause };
+        if (!released.ok) {
+          return {
+            ok: false,
+            error: mapRelayFailure(released.error.cause, {
+              feature: 'dex',
+              action: 'withdraw',
+              srcChainKey: params.srcChainKey,
+              dstChainKey,
+              srcTxHash: tx,
+              hubTxHash,
+              relayData,
+            }),
+          };
+        }
         return { ok: true, value: settled(released.value.dstChainTxHash) };
       }
       return { ok: true, value: settled(hubTxHash) };

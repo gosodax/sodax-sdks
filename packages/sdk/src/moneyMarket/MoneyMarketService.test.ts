@@ -3684,6 +3684,34 @@ describe('MoneyMarketService — hub-only actions verify the source tx', () => {
 });
 
 describe('MoneyMarketService — outbound result by source chain', () => {
+  it.each(['borrow', 'withdraw'] as const)('%s keeps only the Bitcoin relay ID on timeout', async action => {
+    const chainKey = ChainKeys.BITCOIN_MAINNET;
+    const signature = 'private-authorization-fixture';
+    const tx = JSON.stringify({ payload_hex: '0x1234', signature });
+    const relayData = { address: HUB_WALLET, payload: '0x01' } as const;
+    const intent = { ok: true, value: { tx, relayData } } as const;
+    const walletProvider = {} as never;
+    vi.spyOn(sodax.spoke, 'settle').mockResolvedValueOnce({
+      ok: false,
+      error: { phase: 'relay', cause: new Error('RELAY_TIMEOUT') },
+    });
+    vi.spyOn(
+      sodax.moneyMarket,
+      action === 'borrow' ? 'createBorrowIntent' : 'createWithdrawIntent',
+    ).mockResolvedValueOnce(intent);
+    const result =
+      action === 'borrow'
+        ? await sodax.moneyMarket.borrow({ raw: false, params: borrowParams(chainKey), walletProvider })
+        : await sodax.moneyMarket.withdraw({ raw: false, params: withdrawParams(chainKey), walletProvider });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'RELAY_TIMEOUT', context: { srcTxHash: expect.stringMatching(/^od:[a-f0-9]{64}$/) } },
+    });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(signature);
+    expect(serialized).not.toContain('payload_hex');
+  });
+
   it.each([
     ['borrow', ChainKeys.TRON_MAINNET],
     ['withdraw', ChainKeys.TRON_MAINNET],

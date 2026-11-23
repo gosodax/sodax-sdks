@@ -46,7 +46,7 @@ export class EvmAssetManagerService {
   /**
    * Encodes a transfer transaction for an asset.
    * @param token - The address of the token.
-   * @param to - The hex encoded address (encodeAddress) to transfer the token to.
+   * @param to - The hex encoded recipient (encodeRecipient) to transfer the token to.
    * @param amount - The amount of the token to transfer.
    * @param assetManager
    * @returns The encoded contract call.

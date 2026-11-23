@@ -55,6 +55,7 @@ import { EvmSolverService } from './EvmSolverService.js';
 import { HookService } from './HookService.js';
 import { IntentDataService } from './IntentDataService.js';
 import { Sodax } from '../index.js';
+import { tronSupportedTokens, xrpSupportedTokens } from '@sodax/types';
 import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
 
 // --- fixtures -------------------------------------------------------------
@@ -217,23 +218,48 @@ describe('EvmSolverService.constructCreateIntentData', () => {
   });
 
   it.each([
-    { chainKey: ChainKeys.TRON_MAINNET, address: 'TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow' },
-    { chainKey: ChainKeys.XRP_MAINNET, address: 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah' },
-  ])('encodes an MPC-relay ($chainKey) dstAddress as the 32-byte recipient word, not the 20-byte identity', ({
-    chainKey,
-    address,
-  }) => {
+    [true, 3_000_001n, 'allowPartialFill'],
+    [false, 3_000_000n, 'minOutputAmount'],
+  ] as const)('rejects invalid MPC payout parameters (%s, %s)', (allowPartialFill, minOutputAmount, field) => {
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
       .mockReturnValueOnce(hubInputXToken)
-      .mockReturnValueOnce(hubOutputXToken);
+      .mockReturnValueOnce(tronSupportedTokens.USDT);
+    expect(() =>
+      EvmSolverService.constructCreateIntentData(
+        {
+          ...baseParams(),
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstAddress: TRON_TEST_ADDRESS,
+          outputToken: tronSupportedTokens.USDT.address,
+          minOutputAmount,
+          allowPartialFill,
+        },
+        HUB_WALLET,
+        mockConfig,
+        undefined,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: 'VALIDATION_FAILED',
+        context: expect.objectContaining({ field }),
+      }),
+    );
+  });
 
+  it.each([
+    { token: tronSupportedTokens.USDT, address: TRON_TEST_ADDRESS, minOutputAmount: 3_000_001n },
+    { token: xrpSupportedTokens.XRP, address: 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah', minOutputAmount: 1n },
+  ])('encodes the recipient word for $token.chainKey above the payout floor', ({ token, address, minOutputAmount }) => {
+    const chainKey = token.chainKey;
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(token);
     const [, intent] = EvmSolverService.constructCreateIntentData(
-      { ...baseParams(), dstChainKey: chainKey, dstAddress: address },
+      { ...baseParams(), dstChainKey: chainKey, dstAddress: address, outputToken: token.address, minOutputAmount },
       HUB_WALLET,
       mockConfig,
       undefined,
     );
-
     const identity = encodeAddress(chainKey, address);
     expect(intent.dstAddress).toBe(encodeRecipient(chainKey, address));
     expect(intent.dstAddress).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
