@@ -1,48 +1,59 @@
 ---
-title: "Robinhood stocks: due diligence"
-sidebarTitle: "Stocks due diligence"
-description: "Answers for partners and wallets reviewing Robinhood stock tokens on SODAX: who issues them, how they are backed, whether swaps are custodial, geo restrictions, sanctions screening, audits and liquidity."
+title: "Robinhood stocks due diligence"
+sidebarTitle: "Robinhood stocks due diligence"
+description: "Answers for partners and wallets reviewing Robinhood stock tokens on SODAX, on every network they are on: who issues them, how they are backed, who controls the token contracts, whether swaps are custodial, geo restrictions, sanctions screening, audits and liquidity."
 icon: clipboard-check
+keywords: ["robinhood", "robinhood stocks", "robinhood stock tokens", "due diligence", "issuer", "geo restrictions", "restricted jurisdictions", "sanctions", "audits", "liquidity"]
+boost: 3
 ---
 
 ## Who this page is for
 
-This page is for wallets, exchanges and partners that review Robinhood stock tokens before offering them through SODAX. The integration steps are in [Add Robinhood stocks to your app](/developers/how-to/robinhood-stocks). This page answers the due diligence questions that come before it.
+This page is for wallets, exchanges and partners that review Robinhood stock tokens before offering them through SODAX. The answers apply on every network the stocks are on. The integration steps are in [Add Robinhood stocks to your app](/developers/how-to/robinhood-stocks). Backing per network, the path back to Robinhood Chain, fees and limits are in the [Robinhood stocks FAQ](/developers/how-to/robinhood-stocks-faq).
 
 ## Due diligence answers
 
-#### Who issues the tokens, and what is SODAX's relationship to Robinhood?
+#### Who issues the tokens, and what is SODAX's relationship to Robinhood? {#issuer}
 
-Robinhood Assets (Jersey) Limited issues the underlying Stock Tokens. The tokens on Hedera and Stellar are made available through the SODAX protocol, which wraps Robinhood tokens locked on Robinhood Chain. SODAX is independent of Robinhood and does not act on its behalf.
+Robinhood Assets (Jersey) Limited issues the underlying Stock Tokens on Robinhood Chain. On every other network the stocks are on, SODAX issues the tokens, which wrap Robinhood tokens locked on Robinhood Chain. SODAX's development is supported by the ICON Foundation, a Swiss foundation. SODAX is independent of Robinhood and does not act on its behalf. To confirm that an address is a Robinhood Stock Token on Robinhood Chain, Robinhood's [Token Contracts](https://docs.robinhood.com/chain/contracts) page is the canonical list.
 
 Robinhood describes Stock Tokens as "tokenised debt securities" that give economic exposure to the underlying shares and ETFs but no legal or beneficial rights in them. See its [Stock Tokens documentation](https://docs.robinhood.com/chain/stock-tokens).
 
-#### Are the tokens backed 1:1?
+#### Are the tokens backed 1:1? {#backing}
 
-Yes. For each stock, the SODAX SpokeAssetManager on Robinhood Chain holds one Robinhood token for every token users hold on Hedera, Stellar and Sonic combined. The published script in [Verify backing on-chain](/developers/how-to/robinhood-stocks#verify-backing) checks Hedera only, so on its own it does not cover the Stellar and Sonic supply. A holder can bridge back to the same stock on Robinhood Chain through the [bridge path](/developers/how-to/robinhood-stocks#bridge-path), up to the bridge limit at that moment. How the backing works is in [What it is](/developers/how-to/robinhood-stocks#what-it-is).
+Yes, on every network. For each stock, the SODAX SpokeAssetManager on Robinhood Chain holds one Robinhood token for every token users hold on all the other networks combined. The Robinhood stocks FAQ explains [how the supply works on each network](/developers/how-to/robinhood-stocks-faq#supply) and [how to check the backing on-chain](/developers/how-to/robinhood-stocks-faq#check-backing).
 
-#### Are swaps custodial?
+#### How is the supply on other networks tied to the lock on Robinhood Chain? {#tied-to-lock}
+
+Tokens move between networks only through the SODAX [Asset Manager](/developers/technical-overview/asset-manager). The SpokeAssetManager on the source network locks the tokens, and the hub on Sonic mints the matching hub asset. Going out, the hub burns it, and the destination network's SpokeAssetManager releases tokens to the recipient within its withdrawal rate limit. A spoke releases tokens only on a verified message from the hub. On Hedera, the supply of each stock token is created in advance and held by the SpokeAssetManager, and users receive tokens when it releases them. The token's supply key can also mint new supply to the treasury account, so check both balances when you verify the backing. See [How is the supply issued on each network?](/developers/how-to/robinhood-stocks-faq#supply)
+
+#### Who controls the token contracts? {#token-controls}
+
+- **Robinhood Chain:** the tokens are issued and governed by Robinhood, not SODAX. See Robinhood's [Stock Tokens](https://docs.robinhood.com/chain/stock-tokens) page for their controls.
+- **Hedera:** the stock tokens use Hedera's native token service (HTS). They have no KYC, freeze, wipe or pause keys. Each token does have an admin key, which can update or delete the token, and a supply key, which can mint new supply. The supply type is infinite. You can read the keys and treasury for each token from the Hedera mirror node (`/api/v1/tokens/<token id>`).
+- **Stellar:** each stock is a classic Stellar asset with a Stellar Asset Contract. The issuer account for each ticker is in the Stellar spoke config (`trustlineConfigs` in [`chains.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chains.ts)). Its authorization flags (`auth_required`, `auth_revocable`, `auth_clawback_enabled`) are off. The issuer account is a multisig and can issue more of the asset. You can check the flags and signers on any Stellar explorer.
+- **Sonic:** each ticker is a vault token. The vault has an owner that controls its token configuration and rate limits, and the rate limits apply to mints, burns and transfers ([Vault Token](/developers/technical-overview/vault-token)).
+
+SODAX holds the admin and upgrade keys for its side of the flow on every network: the SpokeAssetManager on each network, the Hedera admin and supply keys, the Stellar issuer account and the Sonic vault owner. Partners integrating SODAX deploy no contracts and hold no admin key for any part of the flow.
+
+#### Are swaps custodial? {#custody}
 
 Swaps are non-custodial: users sign from their own wallets. The Robinhood tokens backing the wrapped tokens are held in SODAX protocol contracts.
 
-#### Who is responsible for the geo restrictions?
+#### Who is responsible for the geo restrictions? {#geo-restrictions}
 
 Robinhood's [Stock Tokens documentation](https://docs.robinhood.com/chain/stock-tokens) states that Stock Tokens may not be offered, sold, or delivered in the United States or to U.S. persons. It also states that offers and sales are restricted in other jurisdictions. The list is on Robinhood's [restricted jurisdictions page](https://docs.robinhood.com/rhj/restricted-jurisdictions). Review those terms for your product. This page does not restate them.
 
-Partners that offer stock tokens through SODAX are responsible for compliance under sections 6.3 and 6.5 of the [SODAX API Terms](https://www.sodax.com/api-terms). That means checking users' eligibility, blocking restricted jurisdictions, obtaining users' confirmation of eligibility and showing the issuer's notices. A partner that cannot do this must not offer stock tokens (section 6.5). A quote for a stock does not mean a trade is permitted for that user. SODAX may tag these assets, require partners to opt in, or stop routing them at any time.
+Partners that offer stock tokens through SODAX are responsible for compliance under sections 6.3 and 6.5 of the [SODAX API Terms](https://www.sodax.com/api-terms), on whichever network they offer them. That means checking users' eligibility, blocking restricted jurisdictions, obtaining users' confirmation of eligibility and showing the issuer's notices. A partner that cannot do this must not offer stock tokens (section 6.5). A quote for a stock does not mean a trade is permitted for that user. SODAX may tag these assets, require partners to opt in, or stop routing them at any time.
 
-#### Are wallet addresses screened against sanctions lists?
+#### Are wallet addresses screened against sanctions lists? {#sanctions}
 
 Yes. SODAX screens wallet addresses against sanctions lists before swaps and bridges execute. Section 6.2 of the [SODAX API Terms](https://www.sodax.com/api-terms) covers swaps.
 
-#### Where are the audit reports?
+#### Where are the audit reports? {#audits}
 
-The published reports are on the [Audits](/developers/audits) page, with the PDFs in the [sodax-sdks Audits folder](https://github.com/gosodax/sodax-sdks/tree/main/Audits). Hedera and Robinhood Chain run the same EVM spoke contracts as the other EVM networks SODAX supports. Adding them was not new contract code, so there is no separate audit for these two networks. The Stellar contracts are covered by the Soroban report on that page.
+The published reports are on the [Audits](/developers/audits) page, with the PDFs in the [sodax-sdks Audits folder](https://github.com/gosodax/sodax-sdks/tree/main/Audits). Robinhood Chain and Hedera run the same audited EVM spoke contracts as the other EVM networks SODAX supports, and adding them needed no code changes on SODAX's side. So there is no separate audit for these two networks: the [Collaborative (Aug 2025)](https://github.com/gosodax/sodax-sdks/blob/main/Audits/2025.08.01%20-%20Final%20-%20Sodax%20Collaborative%20Audit%20Report%201754078902%20(1)%20(1).pdf) report covers that code. Its scope lists the SpokeAssetManager and its withdrawal rate limit, and the hub Asset Manager and asset token. The Stellar contracts are covered by the Soroban report on that page.
 
-#### Who provides the liquidity, and how deep is it?
+#### Who provides the liquidity, and how deep is it? {#liquidity}
 
-Liquidity comes from the existing Robinhood Chain market for each stock, where every stock trades against USDG (see [Gotchas](/developers/how-to/robinhood-stocks#gotchas)). Minimum sizes apply to stock-to-stock swaps. Network-to-network bridges have their own limit. See [`getBridgeableAmount`](/developers/packages/foundation/sdk/functional-modules/bridge#getbridgeableamount). How each ticker is priced is in [Live tickers and networks](/developers/how-to/robinhood-stocks#live-tickers).
-
-#### Where are the other stock questions answered?
-
-Fees, limits, the path back to Robinhood Chain and what happens if the vault were frozen are in the [Robinhood stocks FAQ](/developers/how-to/robinhood-stocks#faq).
+On every network, liquidity comes from the existing Robinhood Chain market for each stock, where every stock trades against USDG (see [Gotchas](/developers/how-to/robinhood-stocks#gotchas)). That market is the Uniswap pools on Robinhood Chain, and solvers use them to fill each swap. For a ticker's depth and the price impact of a given order size, look up its pools on [Uniswap](https://app.uniswap.org/explore/pools) with Robinhood Chain selected. Minimum sizes apply to stock-to-stock swaps. Network-to-network bridges have their own limit. See [`getBridgeableAmount`](/developers/packages/foundation/sdk/functional-modules/bridge#getbridgeableamount). How each ticker is priced is in [Live tickers and networks](/developers/how-to/robinhood-stocks#live-tickers).
