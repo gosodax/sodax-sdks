@@ -39,7 +39,7 @@ All of these methods return `Promise<Result<T>>`. They route relay failures thro
 | `RELAY_POLLING_FAILED` | `RELAY_FAILED` | `RELAY_POLLING_FAILED` |
 | anything else | `RELAY_FAILED` | `UNKNOWN` |
 
-Raw `error.message` matching applies only where nothing maps the failure: the `sodax.dex.*` relay legs, and the exported helpers `relayTxAndWaitPacket`, `submitTransaction` and `waitUntilIntentExecuted` when a consumer calls them directly. Those still carry the `RELAY_ERROR_CODES` strings on `error.message`.
+Raw `error.message` matching applies only where nothing maps the failure: the `sodax.dex.*` intent-relay legs, and the exported helpers `relayTxAndWaitPacket`, `submitTransaction` and `waitUntilIntentExecuted` when a consumer calls them directly. Those still carry the `RELAY_ERROR_CODES` strings on `error.message`.
 
 ---
 
