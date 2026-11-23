@@ -137,35 +137,14 @@ export class StellarSpokeService {
     this.baseFee = this.chainConfig.baseFee;
   }
 
+  /**
+   * Get the asset manager's holding of a token, as a `number`. Same read as {@link getDeposit},
+   * which returns the lossless `bigint`; prefer that one.
+   * @param {GetDepositParams<StellarChainKey>} params - The chain key, user address, and token.
+   * @returns {Promise<number>} The asset manager's balance of the token in smallest units.
+   */
   public async getBalance(params: GetDepositParams<StellarChainKey>): Promise<number> {
-    const contract = new Contract(this.config.getChainConfig(params.srcChainKey).addresses.assetManager);
-    const [network, sourceAccount] = await Promise.all([
-      this.sorobanServer.getNetwork(),
-      this.sorobanServer.getAccount(params.srcAddress),
-    ]);
-
-    const tx = new TransactionBuilder(sourceAccount, {
-      fee: this.baseFee,
-      networkPassphrase: network.passphrase,
-    })
-      .addOperation(contract.call('get_token_balance', nativeToScVal(params.srcAddress, { type: 'address' })))
-      .setTimeout(TimeoutInfinite)
-      .build();
-
-    const result = await this.sorobanServer.simulateTransaction(tx);
-
-    // Also throws on restore responses — invalid for read-only balance simulation
-    if (!rpc.Api.isSimulationSuccess(result)) {
-      throw new Error('Failed to simulate transaction');
-    }
-
-    const resultValue = result.result;
-
-    if (resultValue) {
-      return Number(scValToBigInt(resultValue.retval));
-    }
-
-    throw new Error('result undefined');
+    return Number(await this.getDeposit(params));
   }
 
   /**
@@ -725,13 +704,23 @@ export class StellarSpokeService {
   }
 
   /**
-   * Get the balance of the token in the spoke chain asset manager.
-   * @param token - The address of the token to get the balance of.
-   * @param spokeProvider - The spoke provider.
-   * @returns The balance of the token.
+   * Get the balance of the token in the spoke chain asset manager: the token contract's `balance`
+   * for the asset-manager address. `srcAddress` only sources the simulation's account.
+   * @param {GetDepositParams<StellarChainKey>} params - The chain key, user address, and token.
+   * @returns {Promise<bigint>} The asset manager's balance of the token in smallest units.
    */
   public async getDeposit(params: GetDepositParams<StellarChainKey>): Promise<bigint> {
-    return BigInt(await this.getBalance(params));
+    const { srcChainKey, srcAddress, token } = params;
+    const [network, sourceAccount] = await Promise.all([
+      this.sorobanServer.getNetwork(),
+      this.sorobanServer.getAccount(srcAddress),
+    ]);
+    return this.simulateTokenBalance(
+      token,
+      this.config.getChainConfig(srcChainKey).addresses.assetManager,
+      new CustomStellarAccount({ account_id: sourceAccount.accountId(), sequence: sourceAccount.sequenceNumber() }),
+      network.passphrase,
+    );
   }
 
   public async waitForTransactionReceipt(
