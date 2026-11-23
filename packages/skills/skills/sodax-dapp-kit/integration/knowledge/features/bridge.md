@@ -32,6 +32,8 @@ useGetBridgeableAmount({ params: { from: XToken, to: XToken }, queryOptions });
 useGetBridgeableTokens({ params: { from: SpokeChainKey, to: SpokeChainKey, token: string }, queryOptions });
 ```
 
+For a bridge with an MPC-relay end, recover the original transfer before relying on status polling. Use the original deposit hash and destination, re-notify the source deposit if needed, and submit any missing hub delivery or release as described in the SDK bridge guide.
+
 `use*Approve` is unchanged and still resolves to one transaction hash, but the SDK may send **two**
 transactions on a token that rejects a non-zero to non-zero allowance change (Ethereum USDT today) —
 the user signs twice and the hash is the **last** one's. An `isPending`-driven "Approving…" should say
