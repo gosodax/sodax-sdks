@@ -454,7 +454,8 @@ if (!swapResult.ok) {
 
     case 'RELAY_TIMEOUT':
       // Spoke transaction was submitted but the hub packet did not arrive within timeout.
-      // The relay may still complete — poll the relayer API.
+      // Intent-relay source: poll status by the original hash. MPC-relay source:
+      // wait for that deposit, notify the solver with the hub mint, then poll status.
       console.error('Relay timed out. Cause:', error.cause);
       break;
 
@@ -500,7 +501,7 @@ is an additional repository example. It executes on mainnet and reads its privat
 
 ## Next Steps
 
-- **Recovery**: Follow the [failed-swap recovery guidance](https://github.com/gosodax/sodax-sdks/blob/main/docs/developers/faq.md) before retrying a transaction that may have already been submitted
+- **Recovery**: Follow the [failed-swap recovery guidance](https://github.com/gosodax/sodax-sdks/blob/main/docs/developers/faq.md) to resume an existing transaction without sending it again
 - Learn more about swap configuration and advanced features in [SWAPS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md)
 - Explore other SDK features like [Money Market](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MONEY_MARKET.md), [Bridge](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE.md), and [Staking](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STAKING.md)
 - Check the [README.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/README.md) for general SDK usage and configuration

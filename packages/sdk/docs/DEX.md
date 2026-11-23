@@ -727,6 +727,8 @@ that field only exists on modules whose relay failures go through `mapRelayFailu
 7. **Manage position** using `increaseLiquidity` / `decreaseLiquidity` / `claimRewards`
 8. **Withdraw** using `assetService.withdraw()` to unwrap StatATokens back to the original asset
 
+When an MPC-relay deposit's settlement fails, the SDK returns a structured error with `context.srcTxHash`. Resume the existing deposit using the spoke's `waitForDeposit(srcTxHash)` until the hub mint is available. Do not call deposit again for that transfer.
+
 ## Runnable example
 
 [`apps/demo`](https://github.com/gosodax/sodax-sdks/tree/main/apps/demo/src/pages/dex) —

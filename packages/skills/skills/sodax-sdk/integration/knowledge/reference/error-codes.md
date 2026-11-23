@@ -10,7 +10,7 @@ All 14 codes the SDK can emit. Each error is `SodaxError<C>` where `C` is one of
 | `EXECUTION_FAILED` | Orchestrator-level catch-all (multi-step op didn't complete). | `action`, `phase: 'execution'` or `'postExecution'` | Sometimes — inspect cause. |
 | `TX_VERIFICATION_FAILED` | Spoke `verifyTxHash` returned false / threw. | `phase: 'verify'`, `srcChainKey` | Sometimes — RPC / indexer issue is transient. |
 | `TX_SUBMIT_FAILED` | Spoke tx landed; relay POST submit failed. | `phase: 'submit'`, `relayCode: 'SUBMIT_TX_FAILED'` | Yes — relay submit is retryable; backoff and re-run with the same payload. |
-| `RELAY_TIMEOUT` | Destination packet didn't reach `executed` within timeout. | `phase: 'relay'`, `srcChainKey`, `dstChainKey`, `relayCode: 'RELAY_TIMEOUT'` | Yes — increase timeout or re-poll; the spoke tx already landed. |
+| `RELAY_TIMEOUT` | Destination packet didn't reach `executed` within timeout. | `phase: 'relay'`, `srcChainKey`, `dstChainKey`, `relayCode: 'RELAY_TIMEOUT'` | Resume the existing settlement. For an MPC swap source, wait for the same deposit, notify the solver with the hub mint hash, then poll. Never send a new deposit to recover a timed-out one. |
 | `RELAY_FAILED` | Relay polling outage / unrecognised relay error. | `phase: 'relay'`, `relayCode` | Yes — exponential backoff. |
 | `APPROVE_FAILED` | Token approval call failed. | `phase: 'approve'` | Sometimes — gas / RPC issues are retryable. |
 | `ALLOWANCE_CHECK_FAILED` | Reading on-chain allowance failed. | `phase: 'allowanceCheck'` | Yes — read-only retry is cheap. |

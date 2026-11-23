@@ -724,11 +724,9 @@ The exported narrow types are `BridgeOrchestrationError` (for `bridge`), `Bridge
 }
 ```
 
-A post-broadcast failure does not mean the bridge failed: the deposit is on-chain, a slow relay may still deliver,
-and with backend submit-tx on the backend keeps working on it after `bridge()` gives up. Read `error.context.srcTxHash` (with `srcChainKey`)
-and keep polling [`getDetailedStatus`](#get-detailed-status) rather than reporting the bridge as lost. Failures
-before the broadcast (`VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `USER_REJECTED`) carry no `srcTxHash` — the
-SDK has no tx hash to give for them.
+If backend submit-tx accepted a bridge between intent-relay chains, it may keep processing after `bridge()` returns an error. Poll `getDetailedStatus` with the original source hash.
+
+A bridge with an MPC-relay end skips the backend. After a failure with `context.srcTxHash`, keep the original hash and destination. For an MPC source, wait for the hub mint with the spoke's `waitForDeposit(srcTxHash)`. For an intent-relay source, recover the same inbound transfer through the intent relay. For an MPC destination, notify the hub release with `sodax.spoke.submitHubRelease({ hubTxHash, dstChainKey })` before polling. For delivery from an MPC source to an intent-relay destination, submit the existing hub delivery with `sodax.spoke.submitHubDelivery(hubTxHash)`. A hub-only bridge needs no destination submission. Poll `getDetailedStatus` with the original hash and `dstChainKey` (Sonic for a hub-only bridge). Do not call `bridge()` again.
 
 ### Discrimination example
 
@@ -766,7 +764,7 @@ if (!result.ok) {
 
     case 'RELAY_TIMEOUT':
       // Relay packet didn't confirm in time. Don't call bridge() again — that is a second deposit.
-      // Keep polling getDetailedStatus with error.context.srcTxHash.
+      // Recover the existing transfer using the steps above and the original hash.
       break;
 
     case 'RELAY_FAILED':
@@ -803,7 +801,7 @@ If you were on the previous CODE-on-`error.message` pattern (or the older `Bridg
 
 ### Best practices
 
-1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Never start a new bridge for the same transfer: that is a second deposit. Poll `getDetailedStatus` with `error.context.srcTxHash` — if the backend took the deposit, it still relays it. If no packet ever shows up (backend submit-tx off, or the backend rejected the submit), nothing else will submit it: resubmit **the same tx** to the relay, which ignores a tx it already has. An EVM source needs only the hash; a Solana or Bitcoin source also needs the original `relayData`, which `bridge()` does not return.
+1. **On the intent-relay submission path, handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Never start a new bridge for the same transfer: that is a second deposit. Poll `getDetailedStatus` with `error.context.srcTxHash` — if the backend took the deposit, it still relays it. If no packet ever shows up (backend submit-tx off, or the backend rejected the submit), nothing else will submit it: resubmit **the same tx** to the relay, which ignores a tx it already has. An EVM source needs only the hash; a Solana or Bitcoin source also needs the original `relayData`, which `bridge()` does not return.
 
    ```typescript
    import { getIntentRelayChainId, submitTransaction } from '@sodax/sdk';
@@ -814,7 +812,7 @@ If you were on the previous CODE-on-`error.message` pattern (or the older `Bridg
      sodax.config.relay.relayerApiEndpoint,
    );
    ```
-2. **Handle `RELAY_TIMEOUT` gracefully**. The spoke tx succeeded; the relay just didn't deliver in time. Poll `getDetailedStatus` with `error.context.srcTxHash` instead of starting a new bridge.
+2. **Handle `RELAY_TIMEOUT` gracefully**. Resume the existing transfer with `error.context.srcTxHash` and the chain-specific steps above. Polling does not submit a missing MPC release.
 3. **Discriminate `RELAY_FAILED` via `context.relayCode`**. `'RELAY_POLLING_FAILED'` (polling outage — packet status unknown) needs different UX from generic `'UNKNOWN'`.
 4. **Use `error.cause` for forensics**. Every wrapped error preserves the original on `cause`. Loggers walk it automatically.
 5. **Use `JSON.stringify(error)` for logging**. The `toJSON()` method handles bigint coercion + cause-chain truncation safely.

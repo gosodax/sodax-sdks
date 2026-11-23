@@ -1461,6 +1461,7 @@ describe('MoneyMarketService.supply', () => {
       expect(result.error.cause).toBe(relayError);
       expect(result.error.context?.relayCode).toBe('RELAY_TIMEOUT');
       expect(result.error.context?.action).toBe('supply');
+      expect(result.error.context?.srcTxHash).toBe('0xtx');
     });
 
     it('returns ok:false when createSupplyIntent throws (outer catch)', async () => {
@@ -2894,6 +2895,7 @@ describe('MoneyMarketService.repay', () => {
       expect(result.error.code).toBe('RELAY_TIMEOUT');
       expect(result.error.cause).toBe(relayError);
       expect(result.error.context?.action).toBe('repay');
+      expect(result.error.context?.srcTxHash).toBe('0xtx');
     });
 
     it('returns ok:false when createRepayIntent throws (outer catch)', async () => {
