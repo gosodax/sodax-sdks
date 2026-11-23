@@ -36,6 +36,8 @@ import type {
   EvmRawTransaction,
   IEvmWalletProvider,
   SpokeChainKey,
+  BridgeLimit,
+  TokenInfo,
 } from '@sodax/types';
 import { ChainKeys, DEFAULT_BACKEND_API_TIMEOUT, DEFAULT_RELAY_TX_TIMEOUT, getIntentRelayChainId } from '@sodax/types';
 import { RELAY_FALLBACK_FLOOR_MS } from '../shared/services/intentRelay/IntentRelayApiService.js';
@@ -360,13 +362,14 @@ const stacksRawBridgeInput = (extras?: { srcPublicKey?: string }): BridgeParams<
 // silently desynchronizing the guard from what the hub calls withdraw.
 // =========================================================================
 
+const realToken = (chainKey: SpokeChainKey, symbol: string) => {
+  const token = sodax.config.findSupportedTokenBySymbol(chainKey, symbol);
+  if (!token) throw new Error(`fixture missing: ${symbol} on ${chainKey}`);
+  return token;
+};
+
 describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
   const FEE_ADDR = '0x6666666666666666666666666666666666666666' as Address;
-  const realToken = (chainKey: SpokeChainKey, symbol: string) => {
-    const token = sodax.config.findSupportedTokenBySymbol(chainKey, symbol);
-    if (!token) throw new Error(`fixture missing: ${symbol} on ${chainKey}`);
-    return token;
-  };
 
   it('charges the partner fee in 18-dp hub units, not the spoke token’s units', () => {
     const src = realToken(ARBITRUM, 'USDC');
@@ -2083,5 +2086,116 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
       expect(!result.ok && result.error.code).toBe('VALIDATION_FAILED');
       expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('BridgeService.getBridgeableAmount — vault steps on the hub', () => {
+  const arbUsdt = realToken(ARBITRUM, 'USDT');
+  const bscUsdt = realToken(BSC, 'USDT');
+  const sonicUsdt = realToken(ChainKeys.SONIC_MAINNET, 'USDT');
+  const sodaUsdt = realToken(ChainKeys.SONIC_MAINNET, 'sodaUSDT');
+  const key = (token: typeof arbUsdt) => token.hubAsset.toLowerCase();
+
+  // Mainnet values from 2026-11-23.
+  const ARB_CAP = 100_000_000_000n;
+  const ARB_RESERVE = 2_728_893_255n;
+  const ARB_ROOM = ARB_CAP - ARB_RESERVE;
+  const SONIC_USDT_RESERVE = 80_249_988n;
+  const BSC_RESERVE = 14_676n * 10n ** 18n;
+
+  let infos: Record<string, TokenInfo>;
+  let balances: Record<string, bigint>;
+
+  const info = (decimals: number, maxDeposit: bigint, isSupported = true): TokenInfo => ({
+    decimals,
+    depositFee: 0n,
+    withdrawalFee: 0n,
+    maxDeposit,
+    isSupported,
+  });
+  const limit = (amount: bigint, decimals: number, type: BridgeLimit['type']) => ({
+    ok: true,
+    value: { amount, decimals, type },
+  });
+
+  beforeEach(() => {
+    infos = {
+      [key(arbUsdt)]: info(6, ARB_CAP),
+      [key(bscUsdt)]: info(18, 50_000n * 10n ** 18n),
+      [key(sonicUsdt)]: info(6, 500_000_000_000n),
+      [key(sodaUsdt)]: info(18, 0n, false),
+    };
+    balances = {
+      [key(arbUsdt)]: ARB_RESERVE,
+      [key(bscUsdt)]: BSC_RESERVE,
+      [key(sonicUsdt)]: SONIC_USDT_RESERVE,
+    };
+    const expectUsdtVault = (vault: Address) => {
+      if (vault.toLowerCase() !== sodaUsdt.vault.toLowerCase()) throw new Error(`read from unexpected vault ${vault}`);
+    };
+    vi.spyOn(EvmVaultTokenService, 'getTokenInfos').mockImplementation(async (vault, tokens) => {
+      expectUsdtVault(vault);
+      return tokens.map(t => {
+        const found = infos[t.toLowerCase()];
+        if (!found) throw new Error(`no token info stub for ${t}`);
+        return found;
+      });
+    });
+    vi.spyOn(EvmVaultTokenService, 'getVaultReserves').mockImplementation(async vault => {
+      expectUsdtVault(vault);
+      return { tokens: Object.keys(balances) as Address[], balances: Object.values(balances) };
+    });
+  });
+
+  it('caps a bridge into plain USDT on Sonic at the vault’s Sonic USDT reserve', async () => {
+    expect(await sodax.bridge.getBridgeableAmount(arbUsdt, sonicUsdt)).toEqual(
+      limit(SONIC_USDT_RESERVE, 6, 'WITHDRAWAL_LIMIT'),
+    );
+  });
+
+  it('returns the deposit room into plain USDT on Sonic when the reserve is larger', async () => {
+    balances[key(sonicUsdt)] = 200_000_000_000n;
+    expect(await sodax.bridge.getBridgeableAmount(arbUsdt, sonicUsdt)).toEqual(limit(ARB_ROOM, 6, 'DEPOSIT_LIMIT'));
+  });
+
+  it('only checks the deposit room for a bridge into the vault token on Sonic', async () => {
+    expect(await sodax.bridge.getBridgeableAmount(arbUsdt, sodaUsdt)).toEqual(limit(ARB_ROOM, 6, 'DEPOSIT_LIMIT'));
+  });
+
+  it('caps a bridge out of plain USDT on Sonic at its deposit room when that is lower', async () => {
+    infos[key(sonicUsdt)] = info(6, 1_000_000_000n);
+    expect(await sodax.bridge.getBridgeableAmount(sonicUsdt, arbUsdt)).toEqual(
+      limit(1_000_000_000n - SONIC_USDT_RESERVE, 6, 'DEPOSIT_LIMIT'),
+    );
+  });
+
+  it('caps a bridge out of plain USDT on Sonic at the destination reserve when that is lower', async () => {
+    expect(await sodax.bridge.getBridgeableAmount(sonicUsdt, arbUsdt)).toEqual(
+      limit(ARB_RESERVE, 6, 'WITHDRAWAL_LIMIT'),
+    );
+  });
+
+  it('returns 0 for a bridge out of plain USDT on Sonic when the vault does not accept it', async () => {
+    infos[key(sonicUsdt)] = info(6, 500_000_000_000n, false);
+    expect(await sodax.bridge.getBridgeableAmount(sonicUsdt, arbUsdt)).toEqual(limit(0n, 6, 'DEPOSIT_LIMIT'));
+  });
+
+  it('returns 0 for a spoke source the vault does not accept', async () => {
+    infos[key(arbUsdt)] = info(6, ARB_CAP, false);
+    expect(await sodax.bridge.getBridgeableAmount(arbUsdt, sonicUsdt)).toEqual(limit(0n, 6, 'DEPOSIT_LIMIT'));
+  });
+
+  it('only checks the destination reserve for a bridge out of the vault token on Sonic', async () => {
+    expect(await sodax.bridge.getBridgeableAmount(sodaUsdt, arbUsdt)).toEqual(
+      limit(ARB_RESERVE, 6, 'WITHDRAWAL_LIMIT'),
+    );
+  });
+
+  it('compares spoke-to-spoke limits across decimals and returns the lower one', async () => {
+    expect(await sodax.bridge.getBridgeableAmount(arbUsdt, bscUsdt)).toEqual(
+      limit(BSC_RESERVE, 18, 'WITHDRAWAL_LIMIT'),
+    );
+    balances[key(bscUsdt)] = 200_000n * 10n ** 18n;
+    expect(await sodax.bridge.getBridgeableAmount(arbUsdt, bscUsdt)).toEqual(limit(ARB_ROOM, 6, 'DEPOSIT_LIMIT'));
   });
 });

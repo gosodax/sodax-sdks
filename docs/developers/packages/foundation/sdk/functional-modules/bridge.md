@@ -11,8 +11,8 @@ The `BridgeService` class, reachable via `sodax.bridge`, orchestrates cross-chai
 Bridging works by depositing tokens into a spoke vault on the source chain, which triggers a cross-chain message relayed to the Sonic hub. The hub then performs vault transformations (deposit/withdraw) and forwards the tokens to the destination chain via the asset manager.
 
 Three transfer directions are supported:
-- **Spoke → Hub** — deposit into hub vault
-- **Hub → Spoke** — withdrawal from hub vault
+- **Spoke → Hub** — deposit into hub vault, plus a withdrawal when the destination is a plain Sonic token rather than the vault token
+- **Hub → Spoke** — withdrawal from hub vault, plus a deposit when the source is a plain Sonic token rather than the vault token
 - **Spoke → Spoke** — deposit on source + withdraw on destination
 
 > **Backend Bridge API.** For the typed HTTP client over the backend `/bridge/*` routes (`sodax.api.bridge`
@@ -370,14 +370,15 @@ console.log('Fee:', feeAmount.toString(), previewed.toString());
 
 ### getBridgeableAmount
 
-Returns the maximum amount that can currently be bridged between two tokens, taking into account both deposit capacity on the source side and withdrawal liquidity on the destination side.
+Returns the maximum amount that can currently be bridged between two tokens, covering each vault step the hub runs for the transfer:
+- **Deposit**: runs for a spoke source, and for a hub source that is not a vault token. Constrained by the vault's remaining deposit capacity for the source token (`DEPOSIT_LIMIT`).
+- **Withdrawal**: runs for a spoke destination, and for a hub destination that is not a vault token (for example plain USDT on Sonic). Constrained by the vault's reserve of the destination token (`WITHDRAWAL_LIMIT`).
 
-The limit type depends on the transfer direction:
-- **Spoke → Hub**: constrained by the source vault's remaining deposit capacity (`DEPOSIT_LIMIT`).
-- **Hub → Spoke**: constrained by the asset manager balance on the destination spoke (`WITHDRAWAL_LIMIT`).
-- **Spoke → Spoke**: the minimum of the deposit capacity (source) and the asset manager balance (destination), normalised to a common unit. The returned `type` indicates which side is the binding constraint.
+When both steps run, the lower of the two is returned, normalised to a common unit for the comparison; the returned `type` indicates which side is the binding constraint. A bridge into plain USDT on Sonic can therefore be capped well below the source deposit capacity when the vault holds little Sonic USDT.
 
-Returns `{ amount: 0n, type: 'DEPOSIT_LIMIT' }` when the source token is not yet supported by the vault.
+A `DEPOSIT_LIMIT` is expressed in the source token's units and a `WITHDRAWAL_LIMIT` in the destination token's, so compare against `amount` using the returned `decimals`, not the source token's.
+
+Returns `{ amount: 0n, type: 'DEPOSIT_LIMIT' }` when a deposit runs and the source token is not yet supported by the vault.
 
 **Parameters:**
 - `from`: `XToken` — source token (chain key + address) to bridge from

@@ -76,7 +76,6 @@ import {
 } from '@sodax/types';
 import { encodeFunctionData } from 'viem';
 import type { ConfigService } from '../shared/config/ConfigService.js';
-import BigNumber from 'bignumber.js';
 import {
   lookupFailed,
   verifyFailed,
@@ -1364,19 +1363,21 @@ export class BridgeService {
   }
 
   /**
-   * Returns the maximum amount that can currently be bridged between two tokens,
-   * taking into account both deposit capacity on the source side and withdrawal liquidity
-   * on the destination side.
+   * Returns the maximum amount that can currently be bridged between two tokens, covering each
+   * vault step the hub runs for the transfer:
+   * - Deposit: runs for a spoke source, and for a hub source that is not a vault token. Constrained
+   *   by the vault's remaining deposit capacity for the source token (`DEPOSIT_LIMIT`).
+   * - Withdrawal: runs for a spoke destination, and for a hub destination that is not a vault token
+   *   (e.g. plain USDT on Sonic). Constrained by the vault's reserve of the destination token
+   *   (`WITHDRAWAL_LIMIT`).
    *
-   * The limit type depends on the transfer direction:
-   * - Spoke → Hub: constrained by the source vault's remaining deposit capacity (`DEPOSIT_LIMIT`).
-   * - Hub → Spoke: constrained by the asset manager balance on the destination spoke (`WITHDRAWAL_LIMIT`).
-   * - Spoke → Spoke: the minimum of the deposit capacity (source) and the asset manager balance
-   *   (destination), normalised to a common unit for comparison. The returned `type` indicates
-   *   which side is the binding constraint.
+   * When both steps run, the lower of the two is returned, normalised to a common unit for the
+   * comparison; `type` indicates which side is the binding constraint. A `DEPOSIT_LIMIT` is in the
+   * source token's units and a `WITHDRAWAL_LIMIT` in the destination token's, so read `decimals`
+   * off the result rather than assuming the source token's.
    *
-   * Returns `{ amount: 0n, type: 'DEPOSIT_LIMIT' }` when the source token is not yet supported
-   * by the vault (i.e. `isSupported` is false on a non-hub source chain).
+   * Returns `{ amount: 0n, type: 'DEPOSIT_LIMIT' }` when a deposit runs and the source token is not
+   * yet supported by the vault (`isSupported` is false).
    *
    * @param from - Source `XToken` (chain key + address) to bridge from.
    * @param to - Destination `XToken` (chain key + address) to bridge to.
@@ -1401,7 +1402,6 @@ export class BridgeService {
         ...baseCtx,
       });
 
-      // we need to check the max deposit of the token on the from chain and the asset manager balance on the to chain
       const [tokenInfos, reserves] = await Promise.all([
         EvmVaultTokenService.getTokenInfos(
           fromToken.vault,
@@ -1416,8 +1416,11 @@ export class BridgeService {
       bridgeInvariant(fromTokenInfo, 'From token info not found', { ...baseCtx, field: 'from' });
       bridgeInvariant(toTokenInfo, 'To token info not found', { ...baseCtx, field: 'to' });
 
-      // if the from token to be deposited is not supported, we return 0
-      if (from.chainKey !== this.hubProvider.chainConfig.chain.key && !fromTokenInfo.isSupported) {
+      // Hub-side tokens follow buildBridgeData: only a non-vault token is deposited or withdrawn.
+      const deposits = !isHubChainKey(from.chainKey) || !this.config.isSodaVaultHubAsset(fromToken.hubAsset);
+      const withdraws = !isHubChainKey(to.chainKey) || !this.config.isSodaVaultHubAsset(toToken.hubAsset);
+
+      if (deposits && !fromTokenInfo.isSupported) {
         return {
           ok: true,
           value: {
@@ -1428,47 +1431,26 @@ export class BridgeService {
         };
       }
 
-      // spoke -> hub, we need to check the max deposit of the token on the from chain
-      if (!isHubChainKey(from.chainKey) && isHubChainKey(to.chainKey)) {
-        const fromTokenDepositedAmount = this.findTokenBalanceInReserves(reserves, from);
-        const availableDeposit = fromTokenInfo.maxDeposit - fromTokenDepositedAmount;
+      const depositLimit = (): BridgeLimit => ({
+        amount: fromTokenInfo.maxDeposit - this.findTokenBalanceInReserves(reserves, from),
+        decimals: fromTokenInfo.decimals,
+        type: 'DEPOSIT_LIMIT',
+      });
+      const withdrawalLimit = (): BridgeLimit => ({
+        amount: this.findTokenBalanceInReserves(reserves, to),
+        decimals: toTokenInfo.decimals,
+        type: 'WITHDRAWAL_LIMIT',
+      });
 
-        return {
-          ok: true,
-          value: {
-            amount: availableDeposit,
-            decimals: fromTokenInfo.decimals,
-            type: 'DEPOSIT_LIMIT',
-          },
-        };
-      }
+      if (!withdraws) return { ok: true, value: depositLimit() };
+      if (!deposits) return { ok: true, value: withdrawalLimit() };
 
-      // hub -> spoke, we need to check the asset manager balance on the to chain
-      if (isHubChainKey(from.chainKey) && !isHubChainKey(to.chainKey)) {
-        return {
-          ok: true,
-          value: {
-            amount: this.findTokenBalanceInReserves(reserves, to),
-            decimals: toTokenInfo.decimals,
-            type: 'WITHDRAWAL_LIMIT',
-          },
-        };
-      }
-
-      // spoke -> spoke, we need to check the deposit available on the from chain and the withdrawable asset manager balance on the to chain
-      const fromTokenDepositedAmount = this.findTokenBalanceInReserves(reserves, from);
-      const availableDeposit = fromTokenInfo.maxDeposit - fromTokenDepositedAmount;
-      const assetManagerBalance = this.findTokenBalanceInReserves(reserves, to);
-      const availableDepositNormalised = BigNumber(availableDeposit).shiftedBy(-fromTokenInfo.decimals);
-      const assetManagerBalanceNormalised = BigNumber(assetManagerBalance).shiftedBy(-toTokenInfo.decimals);
-
-      // return the minimum of the deposit available and the withdrawable asset manager balance
-      return {
-        ok: true,
-        value: availableDepositNormalised.isLessThan(assetManagerBalanceNormalised)
-          ? { amount: availableDeposit, decimals: fromTokenInfo.decimals, type: 'DEPOSIT_LIMIT' }
-          : { amount: assetManagerBalance, decimals: toTokenInfo.decimals, type: 'WITHDRAWAL_LIMIT' },
-      };
+      const deposit = depositLimit();
+      const withdrawal = withdrawalLimit();
+      // Exact cross-multiplied comparison: the two limits can be in different decimals.
+      const depositIsLower =
+        deposit.amount * 10n ** BigInt(withdrawal.decimals) < withdrawal.amount * 10n ** BigInt(deposit.decimals);
+      return { ok: true, value: depositIsLower ? deposit : withdrawal };
     } catch (error) {
       this.config.logger.error('getBridgeableAmount failed', error);
       if (isBridgeLookupError(error)) return { ok: false, error };
@@ -1606,7 +1588,7 @@ export class BridgeService {
    * Resolves the token to its hub asset address via config, then finds the matching index
    * in `reserves.tokens` (case-insensitive) and returns the corresponding balance from
    * `reserves.balances`. Used by `getBridgeableAmount()` to determine deposit capacity
-   * and asset manager withdrawal liquidity.
+   * and the vault's reserve of the destination token.
    *
    * @param reserves - Vault reserve snapshot containing parallel `tokens` and `balances` arrays.
    * @param token - `XToken` whose on-chain balance should be retrieved from the reserves.
