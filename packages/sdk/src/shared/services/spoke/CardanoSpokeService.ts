@@ -229,9 +229,10 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     const verifiedWitness = verifyCardanoPaymentWitness(witnessSet, owner.paymentHash, built.txId);
     const signed = assembleCardanoTx(built.bodyCbor, verifiedWitness, built.auxiliaryData);
     const needed = cardanoMinFee(signed.length, protocolParams);
+    // Invariant: the verified witness is re-encoded at the size the fee was priced for.
     if (built.body.fee < needed) {
       throw new Error(
-        `[CardanoSpokeService.deposit] wallet returned a larger witness set than one key: fee ${built.body.fee} < ${needed} lovelace; not submitting`,
+        `[CardanoSpokeService.deposit] signed tx needs fee ${needed} lovelace but was built with ${built.body.fee}; not submitting`,
       );
     }
 
@@ -251,7 +252,13 @@ export class CardanoSpokeService implements MpcRelaySettlement {
       ) {
         throw error;
       }
-      await this.submitDeposit(txHash);
+      const notifiedAfterThrow = await this.submitDeposit(txHash);
+      if (!notifiedAfterThrow.ok) {
+        this.config.logger.warn('[CardanoSpokeService.deposit] relay notify failed after a wallet submit error', {
+          txHash,
+          error: notifiedAfterThrow.error,
+        });
+      }
       throw new IndeterminateOutcomeError(`Settle txHash ${txHash} and do not send again.`, { cause: error, txHash });
     }
     const notified = await this.submitDeposit(txHash);

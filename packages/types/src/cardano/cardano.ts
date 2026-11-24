@@ -70,7 +70,11 @@ export interface ICardanoWalletProvider extends ICoreWallet {
    * wallet's witness set (hex CBOR), which the sdk attaches to the transaction.
    */
   signTransaction: (unsignedTx: string) => Promise<string>;
-  /** CIP-30 `submitTx`: broadcasts a signed transaction (hex CBOR) and resolves to its tx hash. */
+  /**
+   * CIP-30 `submitTx`: broadcasts a signed transaction (hex CBOR) and resolves to its tx hash. A wallet that declines
+   * before broadcasting must reject with the CIP-30 refusal `{ code: 1, info: string }`; any other rejection is
+   * treated as a possible broadcast.
+   */
   submitTransaction: (signedTx: string) => Promise<string>;
   /** CIP-30 `signData(address, payload)` over the withdraw-auth payload (scheme 7), returned unchanged. */
   signData: (payload: `0x${string}`) => Promise<CardanoDataSignature>;

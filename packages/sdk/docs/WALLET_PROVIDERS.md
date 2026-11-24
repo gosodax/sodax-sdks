@@ -445,9 +445,11 @@ The SDK reads UTXOs, the tip and the protocol parameters from Koios (`chains.car
 point `rpcUrl` at a CORS-enabled endpoint or its own proxy**; Node and backends can use the default.
 
 If wallet submission throws and the SDK cannot tell whether it broadcast the deposit, the SDK tries
-to notify the relay and attaches its computed hash to the error as `txHash`. If the wallet returns a
-different hash, the error also carries that hash as `walletTxHash`. Settle `txHash` and do not send
-the deposit again. An explicit CIP-30 refusal is returned unchanged without notifying the relay.
+to notify the relay and throws an `IndeterminateOutcomeError` carrying its computed hash as `txHash`.
+If the wallet instead returns a hash that differs from the one the SDK built, the SDK notifies both
+and throws with the built hash as `txHash` and the wallet's as `walletTxHash`. In either case, settle
+`txHash` and do not send the deposit again. An explicit CIP-30 refusal (`{ code: 1, info }`) is
+rethrown unchanged without notifying the relay; `sodax.spoke.deposit` returns it as `{ ok: false, error }`.
 
 ---
 

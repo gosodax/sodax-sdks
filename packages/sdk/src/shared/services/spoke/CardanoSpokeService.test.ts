@@ -331,6 +331,30 @@ describe('CardanoSpokeService.deposit', () => {
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '1815', txHash);
   });
 
+  it('warns and keeps the SDK hash when wallet submission and the relay notify both fail', async () => {
+    vi.useFakeTimers();
+    const relayError = new Error('relay 503');
+    vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: relayError });
+    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
+    const failure = new Error('connection lost');
+    const wallet = walletFor();
+    wallet.submitTransaction.mockRejectedValueOnce(failure);
+
+    const pending = cardano.deposit(depositParams(wallet)).catch((error: unknown) => error);
+    await vi.runAllTimersAsync();
+    const error = await pending;
+    const unsigned = wallet.signTransaction.mock.calls[0]?.[0];
+    if (!unsigned) throw new Error('wallet was not asked to sign');
+    const txHash = hashOfUnsigned(unsigned);
+
+    expect(error).toBeInstanceOf(IndeterminateOutcomeError);
+    expect(error).toMatchObject({ cause: failure, txHash });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/relay notify failed after a wallet submit error/), {
+      txHash,
+      error: expect.anything(),
+    });
+  });
+
   it('signs and submits a deposit of exactly 400 ADA', async () => {
     koios.utxos = [utxoRow(0, 410_000_000n)];
     const wallet = walletFor();
