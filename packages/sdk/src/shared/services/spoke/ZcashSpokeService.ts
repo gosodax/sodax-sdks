@@ -195,13 +195,19 @@ export class ZcashSpokeService implements MpcRelaySettlement {
    * `Raw: true` returns the transfer descriptor (the derived deposit address and amount). `Raw: false` builds a
    * v5 transaction paying that address, has the wallet sign it, checks the signed bytes pay exactly the deposit
    * address, broadcasts it, and notifies the relay. A failed notify or output lookup still returns the txid.
-   * A payment mismatch throws an error with a `txHash` property.
+   * A payment mismatch throws `IndeterminateOutcomeError` carrying the txid.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<ZcashChainKey, R>,
   ): Promise<TxReturnType<ZcashChainKey, R>> {
     const { srcAddress, token, amount, data, to } = params;
-    if (!('raw' in params && params.raw)) this.requireRpcUrl();
+    if (!('raw' in params && params.raw)) {
+      this.requireRpcUrl();
+      // A browser wallet pays from its active account, which must be the one the deposit is derived for.
+      if ((await params.walletProvider.getWalletAddress()) !== srcAddress) {
+        throw new Error('[ZcashSpokeService.deposit] wallet account does not match the source address');
+      }
+    }
 
     const addr = await getDepositAddress(this.relayApiUrl, srcAddress, this.chainId, data);
     if (!addr.ok) throw addr.error;
@@ -261,15 +267,21 @@ export class ZcashSpokeService implements MpcRelaySettlement {
     if (!this.depositOutputs.has(txid)) {
       // The wallet chose the output order; the relay keys the deposit on the index that pays the deposit address.
       const index = await this.findDepositOutput(txid, depositScript, amount).catch(error => {
-        this.config.logger.warn('[ZcashSpokeService.deposit] could not determine the deposit output', { txid, error });
+        try {
+          this.config.logger.warn('[ZcashSpokeService.deposit] could not determine the deposit output', {
+            txid,
+            error,
+          });
+        } catch {
+          // Logging must not discard the known transaction ID.
+        }
         return undefined;
       });
       if (index === null) {
-        throw Object.assign(
-          new Error(
-            `[ZcashSpokeService.deposit] transaction ${txid} does not pay exactly ${amount} to the deposit address`,
-          ),
-          { txHash: txid },
+        // The wallet has already paid: surface the txid as a recovery handle so callers never pay twice.
+        throw new IndeterminateOutcomeError(
+          `[ZcashSpokeService.deposit] transaction ${txid} does not pay exactly ${amount} to the deposit address`,
+          { cause: undefined, txHash: txid },
         );
       }
       if (index !== undefined) this.depositOutputs.set(txid, index);
