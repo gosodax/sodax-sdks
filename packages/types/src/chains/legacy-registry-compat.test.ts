@@ -516,14 +516,16 @@ const moneyMarketEquityIds = (registry: Record<(typeof EQUITY_SYMBOLS)[number], 
   MONEY_MARKET_EQUITY_SYMBOLS.map(symbol => `${symbol}:${registry[symbol].address}`);
 
 describe('money market keeps its legacy lists and appends only the listed equity reserves', () => {
-  it('Sonic supported tokens: all 28 legacy entries unchanged, then the equity vaults', () => {
+  it('Sonic supported tokens: all 28 legacy entries unchanged, then the equity vaults and the ZEC vault', () => {
     expect(identify(moneyMarketSupportedTokens[ChainKeys.SONIC_MAINNET])).toEqual([
       ...LEGACY_MONEY_MARKET_SONIC,
       ...moneyMarketEquityIds(SodaTokens),
+      // The ZEC vault, a reserve since Zcash joined as a money-market spoke.
+      'sodaZECv2:0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
     ]);
   });
 
-  it('reserve assets: legacy reserves unchanged, then the equity vaults', () => {
+  it('reserve assets: legacy reserves unchanged, then the equity vaults and the ZEC vault', () => {
     // hubConfig.bnUSD is appended after the hub vaults, so it stays last of the legacy list; later reserves follow it.
     expect(LEGACY_MONEY_MARKET_RESERVE_ASSETS.at(-1)).toBe(hubConfig.bnUSD);
     expect(APPENDED_MONEY_MARKET_RESERVE_ASSETS).toEqual([
@@ -532,6 +534,7 @@ describe('money market keeps its legacy lists and appends only the listed equity
     expect([...moneyMarketReserveAssets]).toEqual([
       ...LEGACY_MONEY_MARKET_RESERVE_ASSETS.slice(0, -1),
       ...MONEY_MARKET_EQUITY_SYMBOLS.map(symbol => SodaTokens[symbol].address),
+      '0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
       hubConfig.bnUSD,
       ...APPENDED_MONEY_MARKET_RESERVE_ASSETS,
     ]);

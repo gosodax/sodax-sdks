@@ -272,7 +272,7 @@ export async function getDeposit(apiUrl: HttpUrl, depositId: string): Promise<Re
 }
 
 /** A wait that ran out, in the intent relay's vocabulary so `mapRelayFailure` reports `RELAY_TIMEOUT`. */
-function relayTimeout(detail: string): Error {
+export function relayTimeout(detail: string): Error {
   return new Error(RELAY_ERROR_CODES.RELAY_TIMEOUT, { cause: new Error(detail) });
 }
 

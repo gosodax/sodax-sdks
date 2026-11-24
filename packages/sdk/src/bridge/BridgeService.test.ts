@@ -398,6 +398,27 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
     });
   });
 
+  it('enforces the ZEC floor and the bridge destination chain', () => {
+    const token = realToken(ChainKeys.ZCASH_MAINNET, 'ZEC');
+    const address = 't1TFab5a31gE6bxzatfs1KSqiportHDCE3X';
+    const params = {
+      srcChainKey: ChainKeys.ZCASH_MAINNET,
+      srcAddress: address,
+      srcToken: token.address,
+      dstChainKey: ChainKeys.ZCASH_MAINNET,
+      dstToken: token.address,
+      recipient: address,
+      amount: 100_000n,
+    };
+    expect(() => sodax.bridge.buildBridgeData(params, token, token, undefined)).toThrow(/greater than 0.001 ZEC/);
+    expect(sodax.bridge.buildBridgeData({ ...params, amount: 100_001n }, token, token, undefined)).toMatch(
+      /^0x[0-9a-f]+$/i,
+    );
+    expect(() => sodax.bridge.buildBridgeData({ ...params, dstChainKey: ARBITRUM }, token, token, undefined)).toThrow(
+      /Payout token chain must match/,
+    );
+  });
+
   it('discovers the hub asset for native TON and refuses to invent a vault limit', async () => {
     const ton = tonSupportedTokens.TON;
     const wrapped = { ...ton, chainKey: ChainKeys.SONIC_MAINNET, address: ton.hubAsset };

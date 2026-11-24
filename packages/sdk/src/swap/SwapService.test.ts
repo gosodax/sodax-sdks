@@ -20,6 +20,7 @@ import {
   arbitrumSupportedTokens,
   monadSupportedTokens,
   tonSupportedTokens,
+  zcashSupportedTokens,
   type MpcRelayChainKey,
   getIntentRelayChainId,
   spokeChainConfig,
@@ -5658,6 +5659,7 @@ describe('Production solver routing', () => {
     [ChainKeys.XRP_MAINNET]: 'unlisted-xrp-token',
     [ChainKeys.MONAD_MAINNET]: monadSupportedTokens.USDC.address,
     [ChainKeys.TON_MAINNET]: tonSupportedTokens.TON.address,
+    [ChainKeys.ZCASH_MAINNET]: zcashSupportedTokens.ZEC.address,
   } satisfies Record<MpcRelayChainKey, string>;
 
   it.each(

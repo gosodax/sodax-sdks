@@ -11,7 +11,8 @@ import { StellarXService } from './xchains/stellar/index.js';
 import { TonXConnector, TonXService } from './xchains/ton/index.js';
 import { TronXConnector } from './xchains/tron/index.js';
 import { XrpXConnector } from './xchains/xrp/index.js';
-import { TronWalletProvider } from '@sodax/wallet-sdk-core';
+import { ZcashXConnector, ZcashXService } from './xchains/zcash/index.js';
+import { TronWalletProvider, ZcashWalletProvider } from '@sodax/wallet-sdk-core';
 
 type CtorOpts = { defaults?: unknown };
 
@@ -97,6 +98,45 @@ describe('createChainServices', () => {
     const { createWalletProvider } = getChainEntry('TON');
     if (!createWalletProvider) throw new Error('expected TON wallet provider factory');
     expect(createWalletProvider(service, makeStore())).toBeUndefined();
+  });
+
+  it('registers ZCASH as a connector-managed chain with its configured RPC and the Noir connector', () => {
+    const config: SodaxWalletConfig = {
+      ZCASH: { chains: { [ChainKeys.ZCASH_MAINNET]: { rpcUrl: 'https://zcash.example/rpc' } } },
+    };
+    const result = createChainServices(config, makeStore(config));
+    expect(result.enabledChains).toEqual(['ZCASH']);
+    expect(result.xServices.ZCASH).toBeInstanceOf(ZcashXService);
+    expect(result.xServices.ZCASH).toMatchObject({ rpcUrl: 'https://zcash.example/rpc' });
+    expect(result.xConnectorsByChain.ZCASH).toHaveLength(1);
+    expect(result.xConnectorsByChain.ZCASH?.[0]).toBeInstanceOf(ZcashXConnector);
+  });
+
+  it('builds a Zcash provider only for a connected Noir account', () => {
+    const connector = new ZcashXConnector();
+    const service = ZcashXService.getInstance();
+    service.setXConnectors([connector]);
+    const { createWalletProvider } = getChainEntry('ZCASH');
+    if (!createWalletProvider) throw new Error('expected ZCASH wallet provider factory');
+    const connectedStore = (xConnectorId: string): StoreAccessor =>
+      vi.fn(() => ({
+        xConnections: {
+          ZCASH: {
+            xAccount: { address: 't1UYsZVJkLPeMjxEtACvSxfWuNmddpWfxzs', xChainType: 'ZCASH' as const },
+            xConnectorId,
+          },
+        },
+        xConnectorsByChain: {},
+        xServices: {},
+        setXConnectors: vi.fn(),
+        unsetXConnection: vi.fn(),
+        setWalletProvider: vi.fn(),
+        walletConfig: undefined,
+      }));
+
+    expect(createWalletProvider(service, makeStore())).toBeUndefined();
+    expect(createWalletProvider(service, connectedStore('unknown-connector'))).toBeUndefined();
+    expect(createWalletProvider(service, connectedStore(connector.id))).toBeInstanceOf(ZcashWalletProvider);
   });
 
   it('only initializes chains listed in config', () => {

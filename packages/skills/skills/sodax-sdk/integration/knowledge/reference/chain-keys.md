@@ -19,6 +19,7 @@ The `ChainKey` type is the union of every `ChainKeys.*` value — the table belo
 | `HEDERA_MAINNET` | `'hedera'` | EVM | spoke | `0x${string}` |
 | `MONAD_MAINNET` | `'monad'` | EVM | spoke (MPC relay) | `0x${string}` |
 | `TON_MAINNET` | `'ton'` | TON | spoke (MPC relay) | 32-byte ed25519 public key `0x${string}` (not a TON address) |
+| `ZCASH_MAINNET` | `'zcash'` | ZCASH | spoke (MPC relay) | transparent `t1…` address (string) |
 | `ROBINHOOD_MAINNET` | `'robinhood'` | EVM | spoke | `0x${string}` |
 | `SOLANA_MAINNET` | `'solana'` | SOLANA | spoke | base58 PublicKey string |
 | `SUI_MAINNET` | `'sui'` | SUI | spoke | `0x${string}` (32-byte) |

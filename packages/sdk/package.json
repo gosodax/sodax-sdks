@@ -80,6 +80,7 @@
     "clean": "rm -rf node_modules && rm -rf dist && rm -rf .turbo"
   },
   "dependencies": {
+    "@noble/hashes": "^1.8.0",
     "@bitcoinerlab/secp256k1": "^1.2.0",
     "@coral-xyz/anchor": "0.30.1",
     "@injectivelabs/networks": "catalog:",

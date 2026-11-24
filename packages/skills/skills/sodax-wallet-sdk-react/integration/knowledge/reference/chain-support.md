@@ -20,6 +20,7 @@ Each chain family is a top-level slot on `SodaxWalletConfig`:
 | `NEAR` | NEAR mainnet | (none) |
 | `STACKS` | Stacks mainnet | (none) |
 | `TRON` | Tron mainnet | (none) |
+| `ZCASH` | Zcash mainnet (transparent ZEC) | (none — Noir Wallet extension) |
 
 EVM is the only family with multiple networks under one connection — wagmi maintains a single connection that spans every configured EVM network. See [`../architecture.md`](../architecture.md) § "EVM is one connection".
 
@@ -41,6 +42,7 @@ Tron's `isInstalled` reads the wallet found by the TIP-6963 discovery that runs 
 | `NEAR` | `connectors?, chains` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }` |
 | `STACKS` | preset name (string) **or** `StacksNetworkLike & { defaults?, connectors? }` | `'mainnet'` / `'testnet'` preset accepted |
 | `TRON` | `connectors?, chains?` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }` |
+| `ZCASH` | `connectors?, chains?` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }`; SDK deposits also need an address-indexed RPC in the SDK's `chains.zcash.rpcUrl` |
 
 The single source of truth for the per-chain shape is `ChainMeta` in `src/types/config.ts` — `SodaxWalletConfig`, `ChainEntry<K>`, `WalletDefaultsByKey<K>` derive from it.
 

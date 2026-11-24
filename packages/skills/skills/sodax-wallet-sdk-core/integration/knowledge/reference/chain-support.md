@@ -41,6 +41,7 @@ Chain families and spoke chain keys this package can sign for. Keys live in `@so
 | NEAR      | `NearWalletProvider`      | `ChainKeys.NEAR_MAINNET` |
 | Stacks    | `StacksWalletProvider`    | `ChainKeys.STACKS_MAINNET` |
 | Tron      | `TronWalletProvider`      | `ChainKeys.TRON_MAINNET` |
+| Zcash     | `ZcashWalletProvider`     | `ChainKeys.ZCASH_MAINNET` |
 
 ---
 
@@ -60,6 +61,7 @@ Run-time deps each provider pulls in. See [`../recipes/library-exports.md`](../r
 | `NearWalletProvider`      | `near-api-js`, `@hot-labs/near-connect` |
 | `StacksWalletProvider`    | `@stacks/transactions`, `@stacks/connect`, `@stacks/network` |
 | `TronWalletProvider`      | `viem` (no Tron SDK: TronWeb is typed structurally) |
+| `ZcashWalletProvider`     | `viem`, `@noble/hashes`, `@bitcoinerlab/secp256k1` (browser mode wraps a structurally typed wallet such as Noir) |
 
 ---
 

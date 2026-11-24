@@ -103,3 +103,18 @@ it('validates the EIP-55 checksum before lowercasing a Monad recipient', () => {
   expect(encodeRecipient(ChainKeys.MONAD_MAINNET, valid)).toBe(valid.toLowerCase());
   expect(encodeRecipient(ChainKeys.MONAD_MAINNET, valid.toLowerCase())).toBe(valid.toLowerCase());
 });
+
+describe('reverseEncodeAddress — Zcash', () => {
+  const address = 't1UYsZVJkLPeMjxEtACvSxfWuNmddpWfxzs';
+
+  it('decodes the padded recipient word back to the transparent address', () => {
+    expect(reverseEncodeAddress(ChainKeys.ZCASH_MAINNET, encodeRecipient(ChainKeys.ZCASH_MAINNET, address))).toBe(
+      address,
+    );
+  });
+
+  it('rejects nonzero recipient padding', () => {
+    const dirty = `0x01${encodeRecipient(ChainKeys.ZCASH_MAINNET, address).slice(4)}` as const;
+    expect(() => reverseEncodeAddress(ChainKeys.ZCASH_MAINNET, dirty)).toThrow(/Invalid Zcash recipient word/);
+  });
+});

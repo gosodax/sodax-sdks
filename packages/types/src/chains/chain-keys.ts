@@ -14,6 +14,7 @@ export const ChainTypeArr = [
   'TRON',
   'XRP',
   'TON',
+  'ZCASH',
 ] as const;
 
 export const ChainKeys = {
@@ -43,6 +44,7 @@ export const ChainKeys = {
   XRP_MAINNET: 'xrp',
   MONAD_MAINNET: 'monad',
   TON_MAINNET: 'ton',
+  ZCASH_MAINNET: 'zcash',
 } as const;
 
 export type ChainKey = (typeof ChainKeys)[keyof typeof ChainKeys];

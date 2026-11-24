@@ -7,6 +7,7 @@ import {
   type MpcRelayChainKey,
   supportedTokensByChain,
   tonSupportedTokens,
+  zcashSupportedTokens,
   tronSupportedTokens,
   xrpSupportedTokens,
 } from '../chains/index.js';
@@ -115,4 +116,11 @@ it('applies the TON payout floors by token address', () => {
   expect(getMpcPayoutMinimum(TON)).toBe(0n);
   expect(getUnmetMpcPayoutMinimum({ token: USDT, amount: 3_000_000n })?.minimum).toBe(3_000_000n);
   expect(getUnmetMpcPayoutMinimum({ token: USDT, amount: 3_000_001n })).toBeUndefined();
+});
+
+it('requires a Zcash native payout to exceed 100,000 zatoshis', () => {
+  const token = zcashSupportedTokens.ZEC;
+  expect(getMpcPayoutMinimum(token)).toBe(100_000n);
+  expect(getUnmetMpcPayoutMinimum({ token, amount: 100_000n })?.minimum).toBe(100_000n);
+  expect(getUnmetMpcPayoutMinimum({ token, amount: 100_001n })).toBeUndefined();
 });

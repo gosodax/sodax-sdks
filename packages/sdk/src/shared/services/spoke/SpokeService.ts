@@ -26,6 +26,7 @@ import {
   type XrpChainKey,
   type MonadChainKey,
   type TonChainKey,
+  type ZcashChainKey,
   getChainType,
   type EvmSpokeOnlyChainKey,
   ChainTypeArr,
@@ -62,6 +63,7 @@ import { TronSpokeService } from './TronSpokeService.js';
 import { XrpSpokeService, type XrpDestinationReadiness } from './XrpSpokeService.js';
 import { MonadSpokeService } from './MonadSpokeService.js';
 import { TonSpokeService } from './TonSpokeService.js';
+import { ZcashSpokeService } from './ZcashSpokeService.js';
 import {
   isHubChainKeyType,
   isNearChainKeyType,
@@ -135,7 +137,8 @@ export type SpokeServiceType =
   | TronSpokeService
   | XrpSpokeService
   | MonadSpokeService
-  | TonSpokeService;
+  | TonSpokeService
+  | ZcashSpokeService;
 
 export type GetSpokeServiceType<C extends SpokeChainKey> = C extends EvmSpokeOnlyChainKey
   ? EvmSpokeService
@@ -165,7 +168,9 @@ export type GetSpokeServiceType<C extends SpokeChainKey> = C extends EvmSpokeOnl
                           ? MonadSpokeService
                           : C extends TonChainKey
                             ? TonSpokeService
-                            : SpokeServiceType;
+                            : C extends ZcashChainKey
+                              ? ZcashSpokeService
+                              : SpokeServiceType;
 
 export type SpokeServiceConstructorParams = {
   config: ConfigService;
@@ -225,6 +230,7 @@ export class SpokeService {
   public readonly xrp: XrpSpokeService;
   public readonly monad: MonadSpokeService;
   public readonly ton: TonSpokeService;
+  public readonly zcash: ZcashSpokeService;
 
   public constructor({ config, hubProvider }: SpokeServiceConstructorParams) {
     this.config = config;
@@ -243,6 +249,7 @@ export class SpokeService {
     this.xrp = new XrpSpokeService(this.config);
     this.monad = new MonadSpokeService(this.config);
     this.ton = new TonSpokeService(this.config);
+    this.zcash = new ZcashSpokeService(this.config);
   }
 
   public getSpokeService<C extends SpokeChainKey>(chainKey: C): GetSpokeServiceType<C> {
@@ -292,6 +299,9 @@ export class SpokeService {
       }
       case 'TON': {
         return this.ton satisfies GetSpokeServiceType<TonChainKey> as GetSpokeServiceType<C>;
+      }
+      case 'ZCASH': {
+        return this.zcash satisfies GetSpokeServiceType<ZcashChainKey> as GetSpokeServiceType<C>;
       }
       default: {
         const exhaustiveCheck: never = chainType; // The never type is used to ensure that the default case is exhaustive
@@ -686,6 +696,12 @@ export class SpokeService {
           )) satisfies GetEstimateGasReturnType<TonChainKey> as GetEstimateGasReturnType<C>;
           return { ok: true, value };
         }
+        case 'ZCASH': {
+          const value = (await this.zcash.estimateGas(
+            params as EstimateGasParams<ZcashChainKey>,
+          )) satisfies GetEstimateGasReturnType<ZcashChainKey> as GetEstimateGasReturnType<C>;
+          return { ok: true, value };
+        }
         default: {
           const exhaustiveCheck: never = chainType;
           this.config.logger.debug('Unhandled exhaustive case', { value: exhaustiveCheck });
@@ -952,6 +968,14 @@ export class SpokeService {
           > as DepositReturnType<K, R>;
           return { ok: true, value };
         }
+        case 'ZCASH': {
+          // Zcash rides the MPC relay in address mode — no on-chain asset-manager simulation applies.
+          const value = (await this.zcash.deposit(params as DepositParams<ZcashChainKey, R>)) satisfies TxReturnType<
+            ZcashChainKey,
+            R
+          > as DepositReturnType<K, R>;
+          return { ok: true, value };
+        }
         default: {
           const exhaustiveCheck: never = chainType;
           this.config.logger.debug('Unhandled exhaustive case', { value: exhaustiveCheck });
@@ -1051,6 +1075,10 @@ export class SpokeService {
           const value = await this.ton.getDeposit(params as GetDepositParams<TonChainKey>);
           return { ok: true, value };
         }
+        case 'ZCASH': {
+          const value = await this.zcash.getDeposit(params as GetDepositParams<ZcashChainKey>);
+          return { ok: true, value };
+        }
         default: {
           const exhaustiveCheck: never = chainType;
           this.config.logger.debug('Unhandled exhaustive case', { value: exhaustiveCheck });
@@ -1132,6 +1160,10 @@ export class SpokeService {
         }
         case 'TON': {
           const value = await this.ton.getWalletBalance(params as GetBalanceParams<TonChainKey>);
+          return { ok: true, value };
+        }
+        case 'ZCASH': {
+          const value = await this.zcash.getWalletBalance(params as GetBalanceParams<ZcashChainKey>);
           return { ok: true, value };
         }
         default: {
@@ -1219,6 +1251,10 @@ export class SpokeService {
         }
         case 'TON': {
           const value = await this.ton.getWalletBalances(params as GetBalancesParams<TonChainKey>);
+          return { ok: true, value };
+        }
+        case 'ZCASH': {
+          const value = await this.zcash.getWalletBalances(params as GetBalancesParams<ZcashChainKey>);
           return { ok: true, value };
         }
         default: {
@@ -1372,6 +1408,12 @@ export class SpokeService {
             TonChainKey,
             Raw
           > as SendMessageReturnType<K, Raw>;
+          return { ok: true, value };
+        }
+        case 'ZCASH': {
+          const value = (await this.zcash.sendMessage(
+            params as SendMessageParams<ZcashChainKey, Raw>,
+          )) as TxReturnType<ZcashChainKey, Raw> as SendMessageReturnType<K, Raw>;
           return { ok: true, value };
         }
         default: {
@@ -1675,6 +1717,8 @@ export class SpokeService {
         return this.xrp;
       case 'TON':
         return this.ton;
+      case 'ZCASH':
+        return this.zcash;
       case 'EVM':
         if (isMonadChainKeyType(chainKey)) return this.monad;
         throw new Error(`[SpokeService.settle] no MPC relay settlement service for chain ${chainKey}`);
@@ -1941,6 +1985,11 @@ export class SpokeService {
           return (await this.ton.waitForTransactionReceipt(
             effectiveParams as WaitForTxReceiptParams<TonChainKey>,
           )) satisfies Result<WaitForTxReceiptReturnType<TonChainKey>> as Result<WaitForTxReceiptReturnType<C>>;
+        }
+        case 'ZCASH': {
+          return (await this.zcash.waitForTransactionReceipt(
+            effectiveParams as WaitForTxReceiptParams<ZcashChainKey>,
+          )) satisfies Result<WaitForTxReceiptReturnType<ZcashChainKey>> as Result<WaitForTxReceiptReturnType<C>>;
         }
         default: {
           const exhaustiveCheck: never = chainType;
