@@ -55,6 +55,7 @@ import {
   type ApprovalStrategy,
 } from '../shared/utils/approvalBatch.js';
 import {
+  ChainKeys,
   type SpokeChainKey,
   type XToken,
   type Hex,
@@ -896,6 +897,7 @@ export class BridgeService {
       dstChainKey: params.dstChainKey,
       action: 'bridge',
       srcTxHash: created.tx,
+      relayData: created.relayData,
     };
 
     const settled = await this.spoke.settle({
@@ -990,10 +992,10 @@ export class BridgeService {
    * Submits the spoke-side deposit transaction that initiates a bridge transfer,
    * without waiting for the cross-chain relay to complete.
    *
-   * This is the first step of a bridge operation. After this call succeeds, you must
-   * relay the returned `relayData` to the hub (Sonic) via `relayTxAndWaitPacket` or
-   * the intent relay API to complete the transfer. The higher-level `bridge()` method
-   * does this automatically — use `createBridgeIntent()` only when you need manual relay control.
+   * When either end uses the MPC relay, call `spoke.settle` inbound with
+   * the original transaction, returned relay data and destination. For other routes,
+   * complete the transfer through the intent relay as applicable.
+   * The higher-level `bridge()` method handles this automatically.
    *
    * When `raw` is `true`, returns the encoded transaction without broadcasting (useful for
    * transaction simulation or batching). When `raw` is `false`, signs and submits the deposit
@@ -1077,6 +1079,7 @@ export class BridgeService {
         const { delivered } = this.computeBridgeAmounts(params.amount, srcToken, dstToken, partnerFee);
         assertMpcPayoutAboveMinimum({
           feature: 'bridge',
+          dstChainKey: params.dstChainKey,
           token: dstToken,
           amount: delivered,
           context: { ...baseCtx, field: 'amount' },
@@ -1190,7 +1193,10 @@ export class BridgeService {
   private resolveBridgeEndpointToken(chainKey: SpokeChainKey, token: string): XToken | undefined {
     const spokeToken = this.config.getSpokeTokenFromOriginalAssetAddress(chainKey, token);
     if (spokeToken) return spokeToken;
-    return isHubChainKeyType(chainKey) ? this.config.getXTokenFromHubAsset(token) : undefined;
+    if (!isHubChainKeyType(chainKey)) return undefined;
+    const hubToken = this.config.getXTokenFromHubAsset(token);
+    // The hub-asset index can store a spoke descriptor for the same asset.
+    return hubToken && { ...hubToken, chainKey, address: hubToken.hubAsset };
   }
 
   /**
@@ -1250,6 +1256,10 @@ export class BridgeService {
     dstToken: XToken,
     partnerFee: PartnerFee | undefined,
   ): Hex {
+    bridgeInvariant(dstToken.chainKey === params.dstChainKey, 'Payout token chain must match the destination chain', {
+      dstChainKey: params.dstChainKey,
+      field: 'dstToken',
+    });
     const calls: EvmContractCall[] = [];
     const { feeAmount, withdrawAmount, delivered } = this.computeBridgeAmounts(
       params.amount,
@@ -1300,6 +1310,15 @@ export class BridgeService {
         dstChainKey: params.dstChainKey,
         field: 'dstToken',
       });
+      if (isMpcRelayChainKey(params.dstChainKey)) {
+        assertMpcPayoutAboveMinimum({
+          feature: 'bridge',
+          dstChainKey: params.dstChainKey,
+          token: dstToken,
+          amount: delivered,
+          context: { dstChainKey: params.dstChainKey, field: 'amount' },
+        });
+      }
       calls.push(
         EvmAssetManagerService.encodeTransfer(
           dstToken.hubAsset,
@@ -1325,8 +1344,8 @@ export class BridgeService {
    *
    * 1. Read the backend record; return it while it is still in play. A bridge with an MPC-relay end skips this:
    *    the backend never holds one.
-   * 2. From an MPC-relay source, return the relay's deposit record once minted on the hub, or, for a non-hub
-   *    `dstChainKey`, the hub-to-spoke packet once it lands.
+   * 2. From an MPC-relay source, use `dstChainKey` to check the final leg. A hub mint answers for the
+   *    hub destination. Without the destination key, the hub mint stays non-terminal.
    * 3. Otherwise return the delivered relay packet, which is terminal by construction.
    * 4. A bridge paying out on an MPC-relay chain has no packet for that leg, so it answers from the
    *    relay's release record instead, once the payout tx is recorded.
@@ -1416,7 +1435,17 @@ export class BridgeService {
             ),
           };
         }
-        if (!dst || isHubChainKey(dst)) {
+        if (!dst) {
+          return {
+            ok: false,
+            error: this.detailedStatusLookupFailed(new Error('MPC relay bridge status requires dstChainKey'), params, {
+              reason: DETAILED_STATUS_NOT_DELIVERED,
+              hubTxHash: minted.hubTxHash,
+              mpcRelay: true,
+            }),
+          };
+        }
+        if (isHubChainKey(dst)) {
           return { ok: true, value: { source: 'mpcRelay', data: minted.deposit } };
         }
         // The MPC relay produced the hub mint, so its leg to the spoke lands only once someone relays it.
@@ -1526,8 +1555,8 @@ export class BridgeService {
   public async getBridgeableAmount(from: XToken, to: XToken): Promise<Result<BridgeLimit, BridgeLookupError>> {
     const baseCtx = { srcChainKey: from.chainKey, dstChainKey: to.chainKey };
     try {
-      const fromToken = this.config.getSpokeTokenFromOriginalAssetAddress(from.chainKey, from.address);
-      const toToken = this.config.getSpokeTokenFromOriginalAssetAddress(to.chainKey, to.address);
+      const fromToken = this.resolveBridgeEndpointToken(from.chainKey, from.address);
+      const toToken = this.resolveBridgeEndpointToken(to.chainKey, to.address);
 
       bridgeInvariant(fromToken, `Token not found for token ${from.address} on chain ${from.chainKey}`, {
         ...baseCtx,
@@ -1540,6 +1569,22 @@ export class BridgeService {
       bridgeInvariant(this.isBridgeable({ from, to }), `Tokens ${from.address} and ${to.address} are not bridgeable`, {
         ...baseCtx,
       });
+
+      if (
+        (from.chainKey === ChainKeys.MONAD_MAINNET || to.chainKey === ChainKeys.MONAD_MAINNET) &&
+        toToken.vault.toLowerCase() === toToken.hubAsset.toLowerCase() &&
+        fromToken.vault.toLowerCase() === fromToken.hubAsset.toLowerCase()
+      ) {
+        return {
+          ok: false,
+          error: lookupFailed(
+            'bridge',
+            'getBridgeableAmount',
+            new Error('No vault limit is available for the native MON route'),
+            baseCtx,
+          ),
+        };
+      }
 
       // we need to check the max deposit of the token on the from chain and the asset manager balance on the to chain
       const [tokenInfos, reserves] = await Promise.all([
@@ -1648,8 +1693,8 @@ export class BridgeService {
       }
 
       // Get hub asset info for both source and destination assets
-      const srcToken = this.config.getSpokeTokenFromOriginalAssetAddress(from.chainKey, from.address);
-      const dstToken = this.config.getSpokeTokenFromOriginalAssetAddress(to.chainKey, to.address);
+      const srcToken = this.resolveBridgeEndpointToken(from.chainKey, from.address);
+      const dstToken = this.resolveBridgeEndpointToken(to.chainKey, to.address);
 
       // Check if both assets are supported and have vault information
       bridgeInvariant(srcToken, `Token not found for token ${from.address} on chain ${from.chainKey}`, {
@@ -1690,13 +1735,23 @@ export class BridgeService {
   ): Result<XToken[], BridgeLookupError> {
     const baseCtx = { srcChainKey: from, dstChainKey: to };
     try {
-      const srcToken = this.config.getSpokeTokenFromOriginalAssetAddress(from, token);
+      const srcToken = this.resolveBridgeEndpointToken(from, token);
       bridgeInvariant(srcToken, `Token not found for token ${token} on chain ${from}`, { ...baseCtx, field: 'token' });
 
-      return {
-        ok: true,
-        value: this.filterTokensWithSameVault(this.config.spokeChainConfig[to].supportedTokens, to, srcToken),
-      };
+      const destinations = this.filterTokensWithSameVault(
+        this.config.spokeChainConfig[to].supportedTokens,
+        to,
+        srcToken,
+      );
+      if (
+        isHubChainKeyType(to) &&
+        from === ChainKeys.MONAD_MAINNET &&
+        srcToken.vault.toLowerCase() === srcToken.hubAsset.toLowerCase() &&
+        !destinations.some(candidate => candidate.address.toLowerCase() === srcToken.hubAsset.toLowerCase())
+      ) {
+        destinations.push({ ...srcToken, address: srcToken.hubAsset, chainKey: to });
+      }
+      return { ok: true, value: destinations };
     } catch (error) {
       if (isBridgeLookupError(error)) return { ok: false, error };
       return {
@@ -1727,7 +1782,7 @@ export class BridgeService {
     const bridgeableTokens: XToken[] = [];
 
     for (const token of Object.values(tokens)) {
-      const dstToken = this.config.getSpokeTokenFromOriginalAssetAddress(to, token.address);
+      const dstToken = this.resolveBridgeEndpointToken(to, token.address);
 
       if (dstToken && srcToken && dstToken.vault.toLowerCase() === srcToken.vault.toLowerCase()) {
         bridgeableTokens.push({

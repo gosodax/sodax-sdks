@@ -1,6 +1,6 @@
 import { erc20Abi, isAddress, type Address } from 'viem';
 import type { GetAddressType, Result, SpokeChainKey, SpokeExecActionParams, SendMessageReturnType } from '@sodax/types';
-import { isMpcRelayChainKey } from '@sodax/types';
+import { isIndeterminateOutcomeError, isMpcRelayChainKey } from '@sodax/types';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import type { HubProvider } from '../shared/types/types.js';
 import type { SpokeService } from '../shared/services/spoke/SpokeService.js';
@@ -8,7 +8,7 @@ import { EvmAssetManagerService } from '../shared/services/hub/EvmAssetManagerSe
 import type { SendMessageParams } from '../shared/types/spoke-types.js';
 import { assertMpcPayoutAboveMinimum, encodeRecipient } from '../shared/index.js';
 import { SodaxError, isSodaxError } from '../errors/SodaxError.js';
-import { lookupFailed } from '../errors/wrappers.js';
+import { intentCreationFailed, lookupFailed } from '../errors/wrappers.js';
 import { recoveryInvariant } from './errors.js';
 
 export type HubAssetBalance = {
@@ -201,6 +201,7 @@ export class RecoveryService {
             const context = { action: 'withdrawHubAsset', srcChainKey: params.srcChainKey } as const;
             assertMpcPayoutAboveMinimum({
               feature: 'recovery',
+              dstChainKey: params.srcChainKey,
               token,
               amount: params.amount,
               context: { ...context, field: 'amount' },
@@ -242,7 +243,20 @@ export class RecoveryService {
               } satisfies SendMessageParams<K, false>);
 
           const txResult = await this.spoke.sendMessage(sendMessageParams);
-          if (!txResult.ok) return txResult;
+          if (!txResult.ok) {
+            if (isIndeterminateOutcomeError(txResult.error)) {
+              return {
+                ok: false,
+                error: intentCreationFailed('recovery', txResult.error, {
+                  action: 'withdrawHubAsset',
+                  srcChainKey: params.srcChainKey,
+                  dstChainKey: params.srcChainKey,
+                  relayData: { address: hubWallet, payload },
+                }),
+              };
+            }
+            return txResult;
+          }
 
           return {
             ok: true,

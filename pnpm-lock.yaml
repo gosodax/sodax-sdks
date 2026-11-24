@@ -839,6 +839,9 @@ importers:
 
   packages/sdk:
     dependencies:
+      '@noble/hashes':
+        specifier: ^1.8.0
+        version: 1.8.0
       '@bitcoinerlab/secp256k1':
         specifier: ^1.2.0
         version: 1.2.0

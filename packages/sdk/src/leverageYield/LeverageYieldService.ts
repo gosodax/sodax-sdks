@@ -14,6 +14,7 @@ import {
   isHubChainKeyType,
   isEvmSpokeOnlyChainKeyType,
   isStellarChainKeyType,
+  isXrpChainKeyType,
   isEvmWalletProviderType,
   isOptionalEvmWalletProviderType,
   isOptionalStellarWalletProviderType,
@@ -1134,6 +1135,30 @@ export class LeverageYieldService {
           amount: params.minOutputAmount,
           context: { ...baseCtx, field: 'minOutputAmount' },
         });
+        if (
+          isXrpChainKeyType(params.dstChainKey) &&
+          outputTokenInfo.address !== this.config.getChainConfig(params.dstChainKey).nativeToken
+        ) {
+          const quote = await this.getQuote({
+            token_src: params.inputToken,
+            token_src_blockchain_id: inputTokenChainKey,
+            token_dst: params.outputToken,
+            token_dst_blockchain_id: params.dstChainKey,
+            amount: params.inputAmount,
+            quote_type: 'exact_input',
+            partnerFee,
+          });
+          leverageYieldInvariant(
+            quote.ok && quote.value.quoted_amount > 0n,
+            'A current exact-input quote is required for an XRPL issued-token destination',
+            { ...baseCtx, field: 'minOutputAmount' },
+          );
+          leverageYieldInvariant(
+            params.minOutputAmount * SOLVED_PAYOUT_HEADROOM_FACTOR >= quote.value.quoted_amount,
+            'minOutputAmount must be at least half the current quote for an XRPL issued-token destination',
+            { ...baseCtx, field: 'minOutputAmount' },
+          );
+        }
         await this.spoke.assertReleaseRecipientReady({
           feature: 'leverageYield',
           chainKey: params.dstChainKey,
@@ -2971,6 +2996,12 @@ export class LeverageYieldService {
     origin: PositionOrigin,
     method: string,
   ): Result<{ chainId: bigint; address: Hex; asset: Address }, LeverageYieldLookupError> {
+    if (isMpcRelayChainKey(origin.chainKey)) {
+      return {
+        ok: false,
+        error: lookupFailed('leverageYield', method, new Error('MPC relay refund origins are unsupported')),
+      };
+    }
     // Unmapped keys come back undefined rather than throwing, and the failure then surfaces from
     // inside viem as "Cannot convert undefined to a BigInt" — say what is actually wrong instead.
     const chainId = getIntentRelayChainId(origin.chainKey);

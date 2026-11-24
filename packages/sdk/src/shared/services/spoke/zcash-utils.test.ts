@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ChainKeys } from '@sodax/types';
 import { encodeAddress, encodeRecipient, reverseEncodeAddress } from '../../utils/shared-utils.js';
 import {
+  inspectZcashV5Deposit,
   parseZcashV5Outputs,
   zcashHashToAddress,
   zcashIdentityBytes,
@@ -47,6 +48,13 @@ describe('address encoding for Zcash', () => {
 });
 
 describe('parseZcashV5Outputs', () => {
+  it('derives the ZIP-244 display transaction ID from the signed wire bytes', () => {
+    // Expected value computed independently from the ZIP-244 digest tree using Python hashlib.
+    expect(inspectZcashV5Deposit(MAINNET_TX).txid).toBe(
+      '3b12e2647c354dbabf81cd526995b023499e6ead65566e01d4accb527c43364d',
+    );
+  });
+
   it('reads the outputs of a real mainnet transaction', () => {
     expect(parseZcashV5Outputs(MAINNET_TX)).toEqual([
       { value: 1_001_180n, scriptPubKey: '76a9148fce32d0d1961dc116556396b151aa5cdeed88ee88ac' },

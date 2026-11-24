@@ -2,6 +2,8 @@
 
 `sodax.swaps.swap()` already does this internally: it creates the intent, tries the backend submit-tx path, and on **any** non-success falls back to the client-side relay. Prefer `swap()` unless the consumer must own each step (a bot that persists every transition, a backend with its own signing boundary, a UI that reports phases).
 
+This recipe applies to intent-relay sources. MPC-relay sources skip backend submit-tx. Resume an MPC deposit with its existing hash using the recovery steps in the swap feature guide.
+
 When they do own the steps, reproduce **both** paths. The orchestration helpers behind `swap()` are package-internal — `SwapService.submitTx` and `SwapService.fallbackSwapSteps` are private, and the attempt budget and poll loop are not exported — so the loop is hand-written from the public pieces below.
 
 Bindings shared by every step below:

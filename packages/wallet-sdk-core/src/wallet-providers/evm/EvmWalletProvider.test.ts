@@ -7,6 +7,7 @@ import {
   createWalletClient,
   createPublicClient,
   http,
+  keccak256,
   recoverMessageAddress,
   WaitForCallsStatusTimeoutError,
   type GetCallsStatusReturnType,
@@ -279,6 +280,50 @@ describe('EvmWalletProvider', () => {
 
       expect(spy).toHaveBeenCalledWith(expect.objectContaining(RAW_TX));
       expect(spy).toHaveBeenCalledWith(expect.not.objectContaining({ expectedChainId: sonic.id }));
+    });
+
+    it('retains the signed EVM deposit hash across a lost raw broadcast reply', async () => {
+      const config = makeBrowserExtensionConfig();
+      const provider = new EvmWalletProvider(config);
+      const lost = new Error('connection closed during broadcast');
+      const serializedTransaction = '0x02abcdef' as const;
+      vi.spyOn(config.walletClient, 'prepareTransactionRequest').mockResolvedValue({
+        ...RAW_TX,
+        chainId: sonic.id,
+      });
+      const sign = vi.spyOn(config.walletClient, 'signTransaction').mockResolvedValue(serializedTransaction);
+      const broadcast = vi.spyOn(config.walletClient, 'sendRawTransaction').mockRejectedValue(lost);
+
+      await expect(provider.sendTransaction(RAW_TX, { preserveDepositOutcome: true })).rejects.toMatchObject({
+        name: 'IndeterminateOutcomeError',
+        cause: lost,
+        txHash: keccak256(serializedTransaction),
+      });
+      expect(sign).toHaveBeenCalledOnce();
+      expect(broadcast).toHaveBeenCalledExactlyOnceWith({ serializedTransaction });
+    });
+
+    it('keeps a browser deposit pending on a missing response and does not reinterpret refusal', async () => {
+      const config = makeConnectedWalletConfig();
+      const provider = new EvmWalletProvider(config);
+      const refused = Object.assign(new Error('user refused'), { code: 4001 });
+      const lost = new Error('wallet channel closed');
+      const send = vi
+        .spyOn(config.walletClient, 'sendTransaction')
+        .mockRejectedValueOnce(refused)
+        .mockRejectedValueOnce(lost);
+      await expect(provider.sendTransaction(RAW_TX, { preserveDepositOutcome: true })).rejects.toBe(refused);
+      await expect(provider.sendTransaction(RAW_TX, { preserveDepositOutcome: true })).rejects.toMatchObject({
+        name: 'IndeterminateOutcomeError',
+        cause: lost,
+        recovery: { kind: 'evm-deposit', chainId: sonic.id, transaction: RAW_TX },
+      });
+      send.mockResolvedValueOnce('0x');
+      await expect(provider.sendTransaction(RAW_TX, { preserveDepositOutcome: true })).rejects.toMatchObject({
+        name: 'IndeterminateOutcomeError',
+        recovery: { kind: 'evm-deposit', chainId: sonic.id, transaction: RAW_TX },
+      });
+      expect(send).toHaveBeenCalledTimes(3);
     });
 
     it('skips the chain check entirely when expectedChainId is not passed', async () => {

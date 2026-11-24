@@ -35,6 +35,7 @@ import {
   getWithdrawal,
   notify,
   submitWithdraw,
+  submitFreshWithdrawWithBackoff,
   toDepositId,
   toHubReleaseId,
   waitForDeposit,
@@ -216,7 +217,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     const txID = await this.signAndBroadcast({ walletProvider: params.walletProvider, unsigned });
     const submitted = await this.submitDeposit(txID);
     if (!submitted.ok) {
-      this.config.logger.warn(
+      this.warnWithoutInterruptingDeposit(
         '[TronSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it',
         {
           txID,
@@ -327,9 +328,9 @@ export class TronSpokeService implements MpcRelaySettlement {
     if (signature.length === 0) throw new Error('[TronSpokeService.deposit] wallet returned no signature');
 
     const transaction = assembleBroadcastHex({ rawHex: unsigned.raw_data_hex, signatures: signature });
-    let broadcast: { result?: boolean; code?: string; message?: string };
+    let broadcast: { result?: boolean; code?: string; message?: string } | null;
     try {
-      broadcast = await this.rpc<{ result?: boolean; code?: string; message?: string }>('/wallet/broadcasthex', {
+      broadcast = await this.rpc<typeof broadcast>('/wallet/broadcasthex', {
         transaction,
       });
     } catch (error) {
@@ -337,16 +338,28 @@ export class TronSpokeService implements MpcRelaySettlement {
         throw new Error(`[TronSpokeService.deposit] broadcast of ${txID} failed`, { cause: error });
       }
       // No answer does not prove the signed tx missed the chain: hand its txID on for settlement to find.
-      this.config.logger.warn(`[TronSpokeService.deposit] broadcast of ${txID} got no answer`, { error });
+      this.warnWithoutInterruptingDeposit(`[TronSpokeService.deposit] broadcast of ${txID} got no answer`, { error });
+      return txID;
+    }
+    const code = typeof broadcast?.code === 'string' ? broadcast.code : undefined;
+    const message = typeof broadcast?.message === 'string' ? broadcast.message : undefined;
+    if (typeof broadcast?.result !== 'boolean' && !code && message !== 'DUP_TRANSACTION_ERROR') {
+      this.warnWithoutInterruptingDeposit(`[TronSpokeService.deposit] broadcast of ${txID} returned no verdict`);
       return txID;
     }
     // The node already holds this signed tx, so it is on its way like an accepted one.
-    if (!broadcast.result && (broadcast.code ?? broadcast.message) !== 'DUP_TRANSACTION_ERROR') {
-      throw new Error(
-        `[TronSpokeService.deposit] broadcast of ${txID} failed: ${broadcast.code ?? broadcast.message ?? ''}`,
-      );
+    if (!broadcast?.result && (code ?? message) !== 'DUP_TRANSACTION_ERROR') {
+      throw new Error(`[TronSpokeService.deposit] broadcast of ${txID} failed: ${code ?? message ?? ''}`);
     }
     return txID;
+  }
+
+  private warnWithoutInterruptingDeposit(...args: Parameters<ConfigService['logger']['warn']>): void {
+    try {
+      this.config.logger.warn(...args);
+    } catch {
+      // A caller's logger must not prevent settlement with the original deposit hash.
+    }
   }
 
   /**
@@ -356,7 +369,7 @@ export class TronSpokeService implements MpcRelaySettlement {
   private warnOnUnknownReserve(reserveAddress: string): void {
     const expected = this.chainConfig.addresses.reserve;
     if (reserveAddress !== expected) {
-      this.config.logger.warn(
+      this.warnWithoutInterruptingDeposit(
         `[TronSpokeService] MPC relay returned reserve ${reserveAddress}, chain config expects ${expected} — paying the relay's address, but the config may be stale`,
       );
     }
@@ -529,11 +542,15 @@ export class TronSpokeService implements MpcRelaySettlement {
     }
 
     const signature = await params.walletProvider.signMessage(withdraw.digest);
-    const trackingId = await this.submitSignedWithdraw({ withdraw, signature });
+    const trackingId = await submitFreshWithdrawWithBackoff(() => this.submitSignedWithdraw({ withdraw, signature }));
     return trackingId satisfies string as TronSendMessageReturnType<Raw>;
   }
 
-  /** Submit a raw withdraw-auth once signed. Resolves to the `trackingId` for {@link waitForWithdrawal}. */
+  /**
+   * Submit a raw withdraw-auth once signed. Resolves to the `trackingId` for {@link waitForWithdrawal}.
+   * On IndeterminateOutcomeError, poll the original tracking ID. A rejection on resubmission of the
+   * same message and signature does not determine the outcome of the first submission.
+   */
   public async submitSignedWithdraw({
     withdraw,
     signature,

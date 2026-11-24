@@ -1,5 +1,6 @@
 import {
   ChainKeys,
+  IndeterminateOutcomeError,
   getMpcRelayChainInfo,
   type Result,
   type TxReturnType,
@@ -33,6 +34,7 @@ import {
   notify,
   relayTimeout,
   submitWithdraw,
+  submitFreshWithdrawWithBackoff,
   toDepositId,
   toHubReleaseId,
   waitForDeposit,
@@ -49,7 +51,7 @@ import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } f
 import { computeSignedMessageHash, randomWithdrawNonce } from './mpc-message.js';
 import {
   ZCASH_DUST_ZATOSHIS,
-  parseZcashV5Outputs,
+  inspectZcashV5Deposit,
   zcashIdentityBytes,
   zcashP2pkhScript,
   zcashZip317Fee,
@@ -246,10 +248,14 @@ export class ZcashSpokeService implements MpcRelaySettlement {
 
     const submitted = await this.submitDeposit(txid);
     if (!submitted.ok) {
-      this.config.logger.warn('[ZcashSpokeService.deposit] relay notify failed; re-notify to settle', {
-        txid,
-        error: submitted.error,
-      });
+      try {
+        this.config.logger.warn('[ZcashSpokeService.deposit] relay notify failed; re-notify to settle', {
+          txid,
+          error: submitted.error,
+        });
+      } catch {
+        // Logging must not discard the known transaction ID.
+      }
     }
 
     if (!this.depositOutputs.has(txid)) {
@@ -334,18 +340,34 @@ export class ZcashSpokeService implements MpcRelaySettlement {
 
     // Check the bytes that will be broadcast, not the transaction that was requested: a wallet that pays the
     // wrong script or amount would lose funds, and a bad signature is caught by the node anyway.
-    const outputs = parseZcashV5Outputs(signedHex);
+    const { outputs, txid } = inspectZcashV5Deposit(signedHex);
     const deposit = outputs[DEPOSIT_OUTPUT_INDEX];
     if (!deposit || deposit.scriptPubKey !== depositScript || deposit.value !== amount) {
       throw new Error(
         `[ZcashSpokeService.deposit] signed transaction does not pay exactly ${amount} to ${depositAddress}`,
       );
     }
-    if (outputs.slice(1).some(o => o.scriptPubKey !== changeScript)) {
+    if (
+      outputs.length !== unsigned.outputs.length ||
+      (change > 0n && (outputs[1]?.scriptPubKey !== changeScript || outputs[1].value !== change))
+    ) {
       throw new Error('[ZcashSpokeService.deposit] signed transaction pays an unexpected output');
     }
 
-    return canonicalTxid(await this.rpc<string>('sendrawtransaction', [signedHex]));
+    try {
+      const broadcast = await this.rpc<unknown>('sendrawtransaction', [signedHex]);
+      if (typeof broadcast === 'string' && canonicalTxid(broadcast) === txid) return txid;
+      throw new Error('[ZcashSpokeService.deposit] broadcast did not report the signed transaction ID');
+    } catch (cause) {
+      // RPC_DESERIALIZATION_ERROR means the node could not accept the submitted bytes.
+      if (cause instanceof ZcashRpcError && cause.rpcError.code === -22) throw cause;
+      this.depositOutputs.set(txid, DEPOSIT_OUTPUT_INDEX);
+      await this.submitDeposit(txid);
+      throw new IndeterminateOutcomeError('[ZcashSpokeService.deposit] broadcast was not confirmed', {
+        cause,
+        txHash: txid,
+      });
+    }
   }
 
   /** The verbose transaction, or `undefined` while the node has not seen it yet. */
@@ -525,14 +547,18 @@ export class ZcashSpokeService implements MpcRelaySettlement {
 
     const signature = await params.walletProvider.signMessage(computeSignedMessageHash(message));
 
-    const res = await submitWithdraw(this.relayApiUrl, {
+    const request = {
       message: { ...message, nonce: message.nonce.toString(), chainId: message.chainId.toString() },
       signature,
       scheme: getMpcRelayChainInfo(ChainKeys.ZCASH_MAINNET).withdrawScheme,
+    };
+    const trackingId = await submitFreshWithdrawWithBackoff(async () => {
+      const res = await submitWithdraw(this.relayApiUrl, request);
+      if (!res.ok) throw res.error;
+      return res.value.trackingId;
     });
-    if (!res.ok) throw res.error;
 
-    return res.value.trackingId satisfies string as TxReturnType<ZcashChainKey, Raw>;
+    return trackingId satisfies string as TxReturnType<ZcashChainKey, Raw>;
   }
 
   /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */

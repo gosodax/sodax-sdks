@@ -86,7 +86,7 @@ v1 mutation hooks often had no default `mutationKey` — consumers set one in `m
   const { mutateAsync: swap } = useSwap({
     mutationOptions: {
 -     mutationKey: ['swap'],   // already the default in v2
-      retry: 5,
+      retry: false, // Resume the original source hash after a post-broadcast failure.
     },
   });
 ```

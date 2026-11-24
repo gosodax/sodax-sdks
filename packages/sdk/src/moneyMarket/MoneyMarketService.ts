@@ -1,5 +1,5 @@
 import { encodeFunctionData, isAddress } from 'viem';
-import { mapRelayFailure } from '../errors/relay-error-mapping.js';
+import { mapRelayFailure, type MapRelayFailureCtx } from '../errors/relay-error-mapping.js';
 import {
   verifyFailed,
   intentCreationFailed,
@@ -68,6 +68,7 @@ import {
   type EvmSpokeOnlyChainKey,
   type StellarChainKey,
   type GetMoneyMarketTokensApiResponse,
+  isMpcRelayChainKey,
   DEFAULT_RELAY_TX_TIMEOUT,
   HUB_CHAIN_KEY,
   type SpokeExecActionParams,
@@ -575,7 +576,12 @@ export class MoneyMarketService {
             relayData: txResult.value.relayData,
             timeout,
           });
-          if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
+          if (!settled.ok) {
+            return {
+              ok: false,
+              error: this.mapSettlementFailure(settled.error, { ...baseCtx, srcTxHash: txResult.value.tx }),
+            };
+          }
 
           return settled;
         } catch (error) {
@@ -728,7 +734,7 @@ export class MoneyMarketService {
    */
   private mapSettlementFailure(
     failure: SettlementFailure,
-    ctx: { action: string; srcChainKey: SpokeChainKey; dstChainKey?: SpokeChainKey },
+    ctx: Omit<MapRelayFailureCtx, 'feature'>,
   ): MoneyMarketOrchestrationError {
     return failure.phase === 'verification'
       ? verifyFailed('moneyMarket', failure.cause, ctx)
@@ -787,7 +793,23 @@ export class MoneyMarketService {
             timeout,
             dstChainKey: params.dstChainKey ?? srcChainKey,
           });
-          if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
+          if (!settled.ok) {
+            return {
+              ok: false,
+              error: this.mapSettlementFailure(settled.error, {
+                ...baseCtx,
+                dstChainKey: params.dstChainKey ?? srcChainKey,
+                relayData: txResult.value.relayData,
+                ...(isMpcRelayChainKey(srcChainKey)
+                  ? { trackingId: txResult.value.tx }
+                  : {
+                      srcTxHash: isBitcoinChainKeyType(srcChainKey)
+                        ? this.spoke.bitcoin.getOnDemandRelayIdentity(txResult.value.tx).pollTxHash
+                        : txResult.value.tx,
+                    }),
+              }),
+            };
+          }
 
           return settled;
         } catch (error) {
@@ -913,7 +935,11 @@ export class MoneyMarketService {
         if (isMoneyMarketCreateIntentError(txResult.error)) return { ok: false, error: txResult.error };
         return {
           ok: false,
-          error: intentCreationFailed('moneyMarket', txResult.error, baseCtx),
+          error: intentCreationFailed('moneyMarket', txResult.error, {
+            ...baseCtx,
+            dstChainKey,
+            relayData: { address: fromHubWallet, payload },
+          }),
         };
       }
 
@@ -990,7 +1016,23 @@ export class MoneyMarketService {
             timeout,
             dstChainKey: params.dstChainKey ?? srcChainKey,
           });
-          if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
+          if (!settled.ok) {
+            return {
+              ok: false,
+              error: this.mapSettlementFailure(settled.error, {
+                ...baseCtx,
+                dstChainKey: params.dstChainKey ?? srcChainKey,
+                relayData: txResult.value.relayData,
+                ...(isMpcRelayChainKey(srcChainKey)
+                  ? { trackingId: txResult.value.tx }
+                  : {
+                      srcTxHash: isBitcoinChainKeyType(srcChainKey)
+                        ? this.spoke.bitcoin.getOnDemandRelayIdentity(txResult.value.tx).pollTxHash
+                        : txResult.value.tx,
+                    }),
+              }),
+            };
+          }
 
           return settled;
         } catch (error) {
@@ -1057,6 +1099,7 @@ export class MoneyMarketService {
       if (dstToken) {
         assertMpcPayoutAboveMinimum({
           feature: 'moneyMarket',
+          dstChainKey: dstChainKey,
           token: dstToken,
           amount: params.amount,
           context: { ...baseCtx, field: 'amount' },
@@ -1116,7 +1159,11 @@ export class MoneyMarketService {
         if (isMoneyMarketCreateIntentError(txResult.error)) return { ok: false, error: txResult.error };
         return {
           ok: false,
-          error: intentCreationFailed('moneyMarket', txResult.error, baseCtx),
+          error: intentCreationFailed('moneyMarket', txResult.error, {
+            ...baseCtx,
+            dstChainKey,
+            relayData: { address: fromHubWallet, payload },
+          }),
         };
       }
 
@@ -1181,7 +1228,12 @@ export class MoneyMarketService {
             relayData: txResult.value.relayData,
             timeout,
           });
-          if (!settled.ok) return { ok: false, error: this.mapSettlementFailure(settled.error, baseCtx) };
+          if (!settled.ok) {
+            return {
+              ok: false,
+              error: this.mapSettlementFailure(settled.error, { ...baseCtx, srcTxHash: txResult.value.tx }),
+            };
+          }
 
           return settled;
         } catch (error) {
@@ -1470,6 +1522,7 @@ export class MoneyMarketService {
     // Checked on what is paid out, after the partner fee.
     assertMpcPayoutAboveMinimum({
       feature: 'moneyMarket',
+      dstChainKey: dstChainKey,
       token: dstToken,
       amount: translatedAmountOut,
       amountDecimals: amountOutDecimals,
@@ -1561,12 +1614,16 @@ export class MoneyMarketService {
       calls.push(EvmVaultTokenService.encodeWithdraw(vaultAddress, assetAddress, translatedInAmount));
     }
 
-    let translatedAmountOut: bigint;
-    if (this.config.isSodaVaultHubAsset(assetAddress)) {
-      translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(toHubAsset.decimals, translatedInAmount);
-    } else {
-      translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(dstToken.decimals, translatedInAmount);
-    }
+    const amountOutDecimals = this.config.isSodaVaultHubAsset(assetAddress) ? toHubAsset.decimals : dstToken.decimals;
+    const translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(amountOutDecimals, translatedInAmount);
+    assertMpcPayoutAboveMinimum({
+      feature: 'moneyMarket',
+      dstChainKey: dstChainKey,
+      token: dstToken,
+      amount: translatedAmountOut,
+      amountDecimals: amountOutDecimals,
+      context: { dstChainKey, action: 'withdraw', field: 'amount' },
+    });
 
     if (dstChainKey === this.hubProvider.chainConfig.chain.key) {
       if (

@@ -7,11 +7,15 @@ import {
   createPublicClient,
   encodeFunctionData,
   http,
+  isAddress,
+  isAddressEqual,
+  zeroAddress,
   parseEventLogs,
 } from 'viem';
 import {
   ChainKeys,
   getMpcRelayChainInfo,
+  isIndeterminateOutcomeError,
   type EvmReturnType,
   type MonadChainKey,
   type MonadSpokeChainConfig,
@@ -38,6 +42,7 @@ import {
   getDepositAddress,
   getWithdrawal,
   notify,
+  submitFreshWithdrawWithBackoff,
   submitWithdraw,
   toDepositId,
   toHubReleaseId,
@@ -120,14 +125,22 @@ export class MonadSpokeService implements MpcRelaySettlement {
    * `data`, sends the transfer to the derived deposit address, waits for its receipt, and notifies the
    * relay — resolving to the source tx hash. An ERC-20 deposit is a direct transfer, so it needs no
    * allowance. An indeterminate receipt failure or a failed notify warns and still resolves to the hash;
-   * the relay is notified even if the receipt wait fails. A definite revert throws with the hash. A retry
-   * must not send it twice: `settle` re-notifies it, and a caller that does not settle notifies it with
-   * `spoke.submitMpcDeposit`.
+   * the relay is notified even if the receipt wait fails. A definite revert throws with the hash.
+   * An ambiguous broadcast with a known signed hash notifies the relay and preserves the typed error.
+   * Resume the existing deposit via settlement or `spoke.submitMpcDeposit`.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<MonadChainKey, R>,
   ): Promise<TxReturnType<MonadChainKey, R>> {
     const { srcAddress, token, amount, data, to } = params;
+
+    if (
+      !Object.values(this.chainConfig.supportedTokens).some(
+        entry => entry.address.toLowerCase() === token.toLowerCase(),
+      )
+    ) {
+      throw new Error(`[MonadSpokeService.deposit] unsupported token ${token}`);
+    }
 
     const addr = await getDepositAddress(this.relayApiUrl, srcAddress, this.chainId, data);
     if (!addr.ok) throw addr.error;
@@ -137,6 +150,9 @@ export class MonadSpokeService implements MpcRelaySettlement {
       );
     }
     const { depositAddress, hubWallet } = addr.value;
+    if (!isAddress(depositAddress) || isAddressEqual(depositAddress, zeroAddress)) {
+      throw new Error('[MonadSpokeService.deposit] relay returned an invalid deposit address');
+    }
 
     // The relay derives the receiving hub wallet from `srcAddress` rather than taking `to`, so `to`
     // is an assertion: a mismatch means the identity encoding drifted from the relay's.
@@ -147,7 +163,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
     }
 
     const rawTx: EvmReturnType<true> = this.isNative(token)
-      ? { from: srcAddress, to: depositAddress as Address, value: amount, data: '0x' }
+      ? { from: srcAddress, to: depositAddress, value: amount, data: '0x' }
       : {
           from: srcAddress,
           to: token as Address,
@@ -155,7 +171,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
           data: encodeFunctionData({
             abi: erc20Abi,
             functionName: 'transfer',
-            args: [depositAddress as Address, amount],
+            args: [depositAddress, amount],
           }),
         };
 
@@ -163,9 +179,21 @@ export class MonadSpokeService implements MpcRelaySettlement {
       return rawTx satisfies EvmReturnType<true> as TxReturnType<MonadChainKey, R>;
     }
 
-    const txHash = await params.walletProvider.sendTransaction(rawTx, {
-      expectedChainId: getEvmViemChain(ChainKeys.MONAD_MAINNET).id,
-    });
+    if (!isAddressEqual(await params.walletProvider.getWalletAddress(), srcAddress)) {
+      throw new Error('[MonadSpokeService.deposit] wallet account does not match the source address');
+    }
+    let txHash: Hex;
+    try {
+      txHash = await params.walletProvider.sendTransaction(rawTx, {
+        expectedChainId: getEvmViemChain(ChainKeys.MONAD_MAINNET).id,
+        preserveDepositOutcome: true,
+      });
+    } catch (error) {
+      if (isIndeterminateOutcomeError(error) && error.txHash) {
+        await this.submitDeposit(error.txHash);
+      }
+      throw error;
+    }
 
     let receipt: TransactionReceipt | undefined;
     try {
@@ -174,13 +202,10 @@ export class MonadSpokeService implements MpcRelaySettlement {
         timeout: MONAD_DEPOSIT_RECEIPT_TIMEOUT_MS,
       });
     } catch (error) {
-      this.config.logger.warn(
-        '[MonadSpokeService.deposit] receipt wait failed; notifying the relay with the broadcast hash',
-        {
-          txHash,
-          error,
-        },
-      );
+      this.warnDeposit('[MonadSpokeService.deposit] receipt wait failed; notifying the relay with the broadcast hash', {
+        txHash,
+        error,
+      });
     }
     if (receipt && receipt.status !== 'success') {
       throw new Error(`[MonadSpokeService.deposit] deposit transfer ${txHash} reverted`);
@@ -188,16 +213,21 @@ export class MonadSpokeService implements MpcRelaySettlement {
 
     const submitted = await this.submitDeposit(txHash);
     if (!submitted.ok) {
-      this.config.logger.warn(
-        '[MonadSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it',
-        {
-          txHash,
-          error: submitted.error,
-        },
-      );
+      this.warnDeposit('[MonadSpokeService.deposit] relay notify failed; settle or submitMpcDeposit re-notifies it', {
+        txHash,
+        error: submitted.error,
+      });
     }
 
     return txHash satisfies Hex as TxReturnType<MonadChainKey, R>;
+  }
+
+  private warnDeposit(message: string, context: { txHash: Hex; error: unknown }): void {
+    try {
+      this.config.logger.warn(message, context);
+    } catch {
+      // Custom logging must not interrupt settlement of a broadcast deposit.
+    }
   }
 
   /**
@@ -242,10 +272,15 @@ export class MonadSpokeService implements MpcRelaySettlement {
         .map(t => t.address.toLowerCase())
         .filter(a => !this.isNative(a)),
     );
-    const transfer = parseEventLogs({ abi: erc20Abi, eventName: 'Transfer', logs: receipt.logs }).find(log =>
+    const transfers = parseEventLogs({ abi: erc20Abi, eventName: 'Transfer', logs: receipt.logs }).filter(log =>
       tokens.has(log.address.toLowerCase()),
     );
-    return toDepositId(this.chainId, txHash, transfer?.logIndex ?? 0);
+    if (transfers.length > 1) {
+      throw new Error(
+        `[MonadSpokeService] deposit ${txHash} has multiple supported Transfer logs; use its relay log index`,
+      );
+    }
+    return toDepositId(this.chainId, txHash, transfers[0]?.logIndex ?? 0);
   }
 
   /**
@@ -255,6 +290,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
   public async waitForDeposit(txHash: string, timeout?: number): Promise<Result<DepositRecord>> {
     // `/notify` accepts a tx before it is confirmed and never re-checks, so a notification sent right
     // after the transfer can land too early. Re-notifying is idempotent.
+    void notify(this.relayApiUrl, this.chainId, txHash);
     const renotify = setInterval(() => {
       void notify(this.relayApiUrl, this.chainId, txHash);
     }, RENOTIFY_INTERVAL_MS);
@@ -350,14 +386,18 @@ export class MonadSpokeService implements MpcRelaySettlement {
 
     const signature = await walletProvider.signMessage(computeSignedMessageHash(message));
 
-    const res = await submitWithdraw(this.relayApiUrl, {
+    const request = {
       message: { ...message, nonce: message.nonce.toString(), chainId: message.chainId.toString() },
       signature,
       scheme: getMpcRelayChainInfo(ChainKeys.MONAD_MAINNET).withdrawScheme,
+    };
+    const trackingId = await submitFreshWithdrawWithBackoff(async () => {
+      const res = await submitWithdraw(this.relayApiUrl, request);
+      if (!res.ok) throw res.error;
+      return res.value.trackingId;
     });
-    if (!res.ok) throw res.error;
 
-    return res.value.trackingId satisfies string as TxReturnType<MonadChainKey, Raw>;
+    return trackingId satisfies string as TxReturnType<MonadChainKey, Raw>;
   }
 
   /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */

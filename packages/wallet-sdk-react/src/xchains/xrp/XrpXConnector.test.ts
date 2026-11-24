@@ -130,6 +130,13 @@ describe('XrpXConnector.getGemWallet', () => {
     expect(submitTransaction).toHaveBeenCalledWith({ transaction });
   });
 
+  it('passes explicit GemWallet refusal through to the wallet provider', async () => {
+    const refusal = { type: 'reject' } as const;
+    submitTransaction.mockResolvedValueOnce(refusal);
+    const transaction = { TransactionType: 'Payment', Account: ADDRESS };
+    await expect(connector().getGemWallet().submitTransaction({ transaction })).resolves.toBe(refusal);
+  });
+
   it('delegates address and public-key reads to the API', async () => {
     getPublicKey.mockResolvedValue({ result: { publicKey: `ED${'11'.repeat(32)}` } });
     const gem = connector().getGemWallet();

@@ -7,12 +7,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Hex } from 'viem';
+import { concat, keccak256, toHex, type Hex } from 'viem';
 import { ChainKeys, type Result, type ZcashUnsignedTransaction } from '@sodax/types';
 import { mapRelayFailure } from '../../../errors/relay-error-mapping.js';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
-import { zcashIdentityBytes, zcashP2pkhScript, zcashZip317Fee } from './zcash-utils.js';
+import { inspectZcashV5Deposit, zcashIdentityBytes, zcashP2pkhScript, zcashZip317Fee } from './zcash-utils.js';
 
 const sodax = new Sodax();
 const zcash = sodax.spoke.zcash;
@@ -52,6 +52,7 @@ type RpcCall = { method: string; params: unknown[] };
 let rpcCalls: RpcCall[];
 let rpcResults: Record<string, unknown>;
 let signed: ZcashUnsignedTransaction | undefined;
+let broadcastError: Error | undefined;
 
 const walletProvider = {
   chainType: 'ZCASH',
@@ -79,11 +80,11 @@ const utxo = (txid: string, satoshis: number) => ({ txid, outputIndex: 1, script
 
 beforeEach(() => {
   signed = undefined;
+  broadcastError = undefined;
   rpcCalls = [];
   rpcResults = {
     getblockchaininfo: { consensus: { nextblock: '4dec4df0' } },
     getaddressutxos: [utxo('11'.repeat(32), 400_000), utxo('22'.repeat(32), 2_000_000)],
-    sendrawtransaction: TXID.toUpperCase(),
   };
 
   const realConfig = sodax.config.getChainConfig(ZCASH);
@@ -93,6 +94,10 @@ beforeEach(() => {
     vi.fn(async (_url: string, init: { body: string }) => {
       const { method, params } = JSON.parse(init.body) as RpcCall;
       rpcCalls.push({ method, params });
+      if (method === 'sendrawtransaction') {
+        if (broadcastError) throw broadcastError;
+        return Response.json({ result: inspectZcashV5Deposit(String(params[0])).txid.toUpperCase(), error: null });
+      }
       return new Response(JSON.stringify({ result: rpcResults[method], error: null }));
     }),
   );
@@ -134,7 +139,8 @@ describe('ZcashSpokeService.deposit', () => {
   it('pays the deposit address at output 0, returns change to the sender and notifies with the bare txid', async () => {
     const txid = await zcash.deposit(depositParams());
 
-    expect(txid).toBe(TXID);
+    const sent = rpcCalls.find(c => c.method === 'sendrawtransaction');
+    expect(txid).toBe(inspectZcashV5Deposit(String(sent?.params[0])).txid);
     // The largest UTXO covers amount + fee alone.
     expect(signed?.inputs.map(i => i.txid)).toEqual(['22'.repeat(32)]);
     expect(signed?.consensusBranchId).toBe(0x4dec4df0);
@@ -143,7 +149,20 @@ describe('ZcashSpokeService.deposit', () => {
       { value: 2_000_000n - AMOUNT - zcashZip317Fee(1, 2), scriptPubKey: zcashP2pkhScript(SENDER) },
     ]);
     expect(rpcCalls.find(c => c.method === 'getaddressutxos')?.params).toEqual([{ addresses: [SENDER] }]);
-    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '133', TXID);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '133', txid);
+  });
+
+  it('notifies the locally derived txid when the broadcast response is lost', async () => {
+    broadcastError = new Error('connection lost after broadcast');
+    const result: unknown = await zcash.deposit(depositParams()).catch((error: unknown) => error);
+    const sent = rpcCalls.filter(call => call.method === 'sendrawtransaction');
+    expect(sent).toHaveLength(1);
+    const bytes = String(sent[0]?.params[0]);
+    const { txid } = inspectZcashV5Deposit(bytes);
+    expect(result).toMatchObject({ name: 'IndeterminateOutcomeError', txHash: txid, cause: broadcastError });
+    expect(JSON.stringify(result)).not.toContain(bytes);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '133', txid);
+    expect(walletProvider.signTransaction).toHaveBeenCalledOnce();
   });
 
   it('adds inputs until they cover the amount and the fee', async () => {
@@ -220,7 +239,8 @@ describe('ZcashSpokeService.deposit', () => {
     await vi.runAllTimersAsync();
 
     // The funds are already on chain: the txid is what settlement waits on and re-notifies.
-    expect(await pending).toBe(TXID);
+    const sent = rpcCalls.find(call => call.method === 'sendrawtransaction');
+    expect(await pending).toBe(inspectZcashV5Deposit(String(sent?.params[0])).txid);
     expect(vi.mocked(MpcRelayApiService.notify).mock.calls.length).toBeGreaterThan(1);
   });
 
@@ -351,13 +371,13 @@ describe('ZcashSpokeService.deposit — wallet that sends the payment itself', (
 describe('ZcashSpokeService.waitForDeposit', () => {
   it('keys a deposit this service built on the bare lowercase txid and output 0', async () => {
     const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockResolvedValue(settledDeposit);
-    await zcash.deposit(depositParams());
+    const txid = await zcash.deposit(depositParams());
 
-    await zcash.waitForDeposit(`0x${TXID.toUpperCase()}`, Number.NaN);
+    await zcash.waitForDeposit(`0x${txid.toUpperCase()}`, Number.NaN);
 
     expect(wait.mock.calls[0]?.[2]?.timeout).toBe(900_000);
 
-    expect(wait.mock.calls[0]?.[1]).toBe(`133-${TXID}-0`);
+    expect(wait.mock.calls[0]?.[1]).toBe(`133-${txid}-0`);
   });
 
   it('probes outputs 0 and 1 while the node has not seen the transaction', async () => {
@@ -406,12 +426,14 @@ describe('ZcashSpokeService.waitForDeposit', () => {
   });
 
   it('re-notifies the relay while waiting, and stops once the wait settles', async () => {
+    const txid = await zcash.deposit(depositParams());
     vi.useFakeTimers();
     let settle: (value: Result<MpcRelayApiService.DepositRecord>) => void = () => undefined;
     vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockReturnValue(new Promise(resolve => (settle = resolve)));
     const notifySpy = vi.mocked(MpcRelayApiService.notify);
 
-    const pending = zcash.waitForDeposit(TXID);
+    notifySpy.mockClear();
+    const pending = zcash.waitForDeposit(txid);
     await vi.advanceTimersByTimeAsync(65_000);
     expect(notifySpy.mock.calls.length).toBeGreaterThanOrEqual(2);
 
@@ -450,12 +472,12 @@ describe('ZcashSpokeService — relay submit and read', () => {
   });
 
   it('getDepositRecord reads a deposit this instance made by its known output index, without fetching the tx', async () => {
-    await zcash.deposit(depositParams());
+    const txid = await zcash.deposit(depositParams());
     rpcCalls = [];
     const read = vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(settledDeposit);
 
-    expect(await zcash.getDepositRecord(TXID)).toBe(settledDeposit);
-    expect(read.mock.calls[0]?.[1]).toBe(`133-${TXID}-0`);
+    expect(await zcash.getDepositRecord(txid)).toBe(settledDeposit);
+    expect(read.mock.calls[0]?.[1]).toBe(`133-${txid}-0`);
     expect(rpcCalls).toEqual([]);
   });
 
@@ -574,6 +596,45 @@ describe('ZcashSpokeService.sendMessage', () => {
       const nonce = BigInt(submitCall(i)?.message.nonce ?? '0');
       expect(BigInt(Number(nonce))).toBe(nonce);
     }
+  });
+
+  it.each(['accepted', 'exhausted', 'lost reply'])('first 429 through sendMessage: %s', async outcome => {
+    vi.useFakeTimers();
+    vi.mocked(MpcRelayApiService.submitWithdraw).mockRestore();
+    const lost = new Error('lost relay reply');
+    const sender = zcashIdentityBytes(SENDER);
+    const send = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (send.mock.calls.length === 1 || outcome === 'exhausted') return new Response(null, { status: 429 });
+      if (outcome === 'lost reply') throw lost;
+      const { message } = JSON.parse(String(init?.body));
+      const trackingId = keccak256(concat([sender, toHex(BigInt(message.nonce), { size: 8 })]));
+      return Response.json({ accepted: true, trackingId });
+    });
+    vi.stubGlobal('fetch', send);
+    const pending = zcash.sendMessage(sendParams()).then(
+      value => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    vi.useRealTimers();
+    const request = JSON.parse(String(send.mock.calls[0]?.[1]?.body));
+    const trackingId = keccak256(concat([sender, toHex(BigInt(request.message.nonce), { size: 8 })]));
+    if (outcome === 'accepted') {
+      expect(result).toEqual({ ok: true, value: trackingId });
+    } else if (outcome === 'lost reply') {
+      expect(result).toMatchObject({
+        ok: false,
+        error: { name: 'IndeterminateOutcomeError', cause: lost, trackingId },
+      });
+    } else {
+      if (result.ok) throw new Error('expected throttling exhaustion');
+      expect(result.error).toMatchObject({ message: expect.stringContaining('nothing was queued') });
+      expect(result.error).not.toHaveProperty('trackingId');
+    }
+    expect(walletProvider.signMessage).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledTimes(outcome === 'exhausted' ? 3 : 2);
+    expect(new Set(send.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
   });
 
   it('refuses raw mode, which has no spoke transaction to return', async () => {

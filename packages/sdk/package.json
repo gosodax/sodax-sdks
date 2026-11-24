@@ -63,7 +63,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup && node ../../scripts/verify-dist-exports.mjs",
+    "build": "tsup && node ../../scripts/verify-dist-exports.mjs && node verify-outcome-guard.mjs",
     "test": "vitest run --exclude ./src/e2e-tests",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "coverage": "vitest run --coverage",
@@ -80,6 +80,7 @@
     "clean": "rm -rf node_modules && rm -rf dist && rm -rf .turbo"
   },
   "dependencies": {
+    "@noble/hashes": "^1.8.0",
     "@bitcoinerlab/secp256k1": "^1.2.0",
     "@coral-xyz/anchor": "0.30.1",
     "@injectivelabs/networks": "catalog:",

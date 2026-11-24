@@ -1,14 +1,8 @@
 import { getAddress } from 'viem';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { ChainKeys } from '@sodax/types';
 import { encodeAddress, encodeRecipient, reverseEncodeAddress } from './shared-utils.js';
 import { tronBase58ToHex } from '../services/spoke/tron-utils.js';
-
-// Every chain counts as MPC-relayed here: relay membership must not choose the recipient encoding.
-vi.mock('@sodax/types', async importOriginal => ({
-  ...(await importOriginal<typeof import('@sodax/types')>()),
-  isMpcRelayChainKey: () => true,
-}));
 
 /**
  * A Tron release reads its recipient from `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so the
@@ -96,7 +90,8 @@ describe('encodeRecipient — EVM MPC relay chains (Monad)', () => {
 
 describe('encodeRecipient — intent relay chains', () => {
   it('leaves a non-MPC chain encoding untouched', () => {
-    const evm = '0x1111111111111111111111111111111111111111';
+    const evm = getAddress('0x6be3a4afbd5983604385bcba71aaa3645918e2e2');
+    expect(evm).not.toBe(evm.toLowerCase());
     expect(encodeRecipient(ChainKeys.ARBITRUM_MAINNET, evm)).toBe(encodeAddress(ChainKeys.ARBITRUM_MAINNET, evm));
   });
 });

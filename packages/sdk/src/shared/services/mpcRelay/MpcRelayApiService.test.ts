@@ -9,8 +9,16 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChainKeys, type HttpUrl } from '@sodax/types';
+import { IndeterminateOutcomeError, isIndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { mapRelayFailure } from '../../../errors/relay-error-mapping.js';
-import { waitForDeposit, waitForHubRelease, waitForWithdrawal } from './MpcRelayApiService.js';
+import {
+  submitWithdraw,
+  getWithdrawal,
+  type SubmitWithdrawRequest,
+  waitForDeposit,
+  waitForHubRelease,
+  waitForWithdrawal,
+} from './MpcRelayApiService.js';
 
 const API = 'https://relay.example' as HttpUrl;
 const DEPOSIT_ID = '728126428-abc-0';
@@ -32,6 +40,85 @@ function stubStatuses(bodies: Record<string, unknown>[]) {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+describe('submitWithdraw', () => {
+  const request = {
+    message: { to: '0x1234', data: '0x', nonce: '7', chainId: '728126428', sender: '0xabcd' },
+    signature: '0x1234',
+    scheme: 1,
+  } satisfies SubmitWithdrawRequest;
+
+  it.each([
+    [200, '{'],
+    [200, '{}'],
+    [200, 'null'],
+    [409, '<html>conflict</html>'],
+    [200, '{"accepted":true,"trackingId":42}'],
+    [503, '{"accepted":false}'],
+  ])('keeps the tracking ID for a %s response with body %s', async (status, body) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(body, { status })),
+    );
+    const result = await submitWithdraw(API, request);
+    if (result.ok) throw new Error('expected uncertain submission');
+    expect(result.error).toBeInstanceOf(IndeterminateOutcomeError);
+    expect(result.error).toMatchObject({ trackingId: expect.stringMatching(/^0x[0-9a-f]{64}$/) });
+  });
+
+  it('keeps tracking the original withdrawal when the same signed request is rejected on replay', async () => {
+    const send = vi.fn<typeof fetch>();
+    send.mockRejectedValueOnce(new TypeError('lost reply'));
+    send.mockResolvedValueOnce(new Response(null, { status: 400 }));
+    vi.stubGlobal('fetch', send);
+
+    const initial = await submitWithdraw(API, request);
+    if (initial.ok || !isIndeterminateOutcomeError(initial.error) || !initial.error.trackingId) {
+      throw new Error('expected the original tracking ID');
+    }
+    const trackingId = initial.error.trackingId;
+    expect((await submitWithdraw(API, request)).ok).toBe(false);
+    expect(send.mock.calls[0]?.[1]?.body).toBe(send.mock.calls[1]?.[1]?.body);
+    send.mockResolvedValueOnce(Response.json({ trackingId, status: 'submitted' }));
+
+    expect(await getWithdrawal(API, trackingId)).toMatchObject({
+      ok: true,
+      value: { trackingId, status: 'submitted' },
+    });
+    expect(send.mock.calls[2]?.[0]).toBe(`${API}/withdrawal/${trackingId}`);
+  });
+
+  it.each([
+    [409, 'this signed message was already submitted', undefined],
+    [429, 'rate limit exceeded', { kind: 'retry-same-withdraw' }],
+  ])('preserves the original tracking ID on HTTP %s', async (status, message, recovery) => {
+    const send = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new Error('lost reply'))
+      .mockResolvedValueOnce(Response.json({ accepted: false, error: message }, { status }));
+    vi.stubGlobal('fetch', send);
+    const first = await submitWithdraw(API, request);
+    const replay = await submitWithdraw(API, request);
+    if (first.ok || replay.ok || !isIndeterminateOutcomeError(first.error)) throw new Error('expected recovery errors');
+    expect(isIndeterminateOutcomeError(replay.error)).toBe(true);
+    expect(replay.error).toMatchObject({ trackingId: first.error.trackingId, recovery });
+    expect(send.mock.calls[0]?.[1]?.body).toBe(send.mock.calls[1]?.[1]?.body);
+  });
+
+  it.each([
+    [400, 'invalid signature'],
+    [200, '{"accepted":false,"error":"invalid signature"}'],
+  ])('treats a %s response with body %s as a definite rejection', async (status, body) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(body, { status })),
+    );
+    const result = await submitWithdraw(API, request);
+    if (result.ok) throw new Error('expected rejection');
+    expect(result.error).not.toBeInstanceOf(IndeterminateOutcomeError);
+    expect(result.error).toMatchObject({ message: expect.stringMatching(/invalid signature/) });
+  });
 });
 
 describe('waitForDeposit', () => {

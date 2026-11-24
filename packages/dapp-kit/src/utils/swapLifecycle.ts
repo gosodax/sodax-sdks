@@ -27,7 +27,8 @@ export type SwapSetupReason =
  * - `checking` — waiting before anything can be done: a gate or the approval strategy is still reading, or a
  *   setup tx (activation, trustline, NEAR storage) is in flight or its check is refreshing.
  * - `submitting` — the swap call is in flight: signing, and on the default backend path settlement too.
- * - `pending` — the source tx is on-chain and its status is being read. `error` is set when the swap call
+ * - `pending` — the source tx status is being read, or a recovery handle is waiting for identification.
+ *   `error` is set when the swap call
  *   failed after broadcast, or when the status read cannot recover (a rejected API key); the swap may
  *   still complete either way. The read can also stop polling without an error (after its budget of
  *   ambiguous reads), so keep `reset()` reachable here.
@@ -43,6 +44,7 @@ export type SwapLifecycleState =
   | { kind: 'ready'; approvalStrategy: SwapApprovalStrategy }
   | { kind: 'submitting' }
   | { kind: 'pending'; srcChainKey: SpokeChainKey; srcTxHash: string; error?: Error }
+  | { kind: 'pending'; srcChainKey: SpokeChainKey; srcTxHash?: never; recovery: unknown; error: Error }
   | { kind: 'unconfirmed'; batchId: string; callCount?: number; error: Error }
   | { kind: 'settled'; srcChainKey: SpokeChainKey; srcTxHash: string; fillTxHash?: Hex }
   | { kind: 'failed'; error: Error; srcChainKey?: SpokeChainKey; srcTxHash?: string };
@@ -60,6 +62,7 @@ export type SwapAttempt =
   | { phase: 'none' }
   | { phase: 'submitting' }
   | { phase: 'broadcast'; srcChainKey: SpokeChainKey; srcTxHash: string; error?: Error }
+  | { phase: 'recovering'; srcChainKey: SpokeChainKey; recovery: unknown; error: Error }
   | { phase: 'unconfirmed'; batchId: string; callCount?: number; error: Error }
   | { phase: 'failed'; error: Error };
 
@@ -112,7 +115,9 @@ export function toSwapAttempt(mutation: SwapAttemptSource, intentParams: CreateI
   if (mutation.status === 'idle' || !attempted) return { phase: 'none' };
   const attempt = toFinishedAttempt(mutation, attempted);
   const mayStillLand =
-    attempt.phase === 'unconfirmed' || (attempt.phase === 'broadcast' && attempt.error !== undefined);
+    attempt.phase === 'unconfirmed' ||
+    attempt.phase === 'recovering' ||
+    (attempt.phase === 'broadcast' && attempt.error !== undefined);
   if (mayStillLand || (intentParams && isSameIntent(attempted, intentParams))) return attempt;
   return { phase: 'none' };
 }
@@ -126,6 +131,9 @@ function toFinishedAttempt(mutation: SwapAttemptSource, attempted: CreateIntentP
   const context = isSodaxError(error) ? error.context : undefined;
   if (typeof context?.srcTxHash === 'string') {
     return { phase: 'broadcast', srcChainKey: attempted.srcChainKey, srcTxHash: context.srcTxHash, error };
+  }
+  if (context?.recovery !== undefined) {
+    return { phase: 'recovering', srcChainKey: attempted.srcChainKey, recovery: context.recovery, error };
   }
   if (context?.reason === ATOMIC_BATCH_UNCONFIRMED && typeof context.batchId === 'string') {
     return typeof context.callCount === 'number'
@@ -151,6 +159,10 @@ export function resolveSwapLifecycle(inputs: SwapLifecycleInputs): SwapLifecycle
     }
     const error = attempt.error ?? inputs.statusError;
     return error ? { kind: 'pending', srcChainKey, srcTxHash, error } : { kind: 'pending', srcChainKey, srcTxHash };
+  }
+  if (attempt.phase === 'recovering') {
+    const { srcChainKey, recovery, error } = attempt;
+    return { kind: 'pending', srcChainKey, recovery, error };
   }
   if (attempt.phase === 'unconfirmed') {
     const { batchId, callCount, error } = attempt;

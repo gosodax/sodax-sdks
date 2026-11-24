@@ -12,7 +12,9 @@ import type { ConfigService } from '../config/ConfigService.js';
 import { SodaxError } from '../../errors/SodaxError.js';
 import type { SodaxErrorContext } from '../../errors/codes.js';
 import {
+  ChainKeys,
   type SpokeChainKey,
+  getSupportedSolverTokens,
   type Hex,
   type XToken,
   getChainType,
@@ -23,6 +25,7 @@ import {
   type PartnerFee,
   type QuoteType,
   getUnmetMpcPayoutMinimum,
+  getMpcPayoutMinimum,
   isMpcRelayChainKey,
   type SodaxFeature,
 } from '@sodax/types';
@@ -167,15 +170,29 @@ export function assertMpcPayoutAboveMinimum({
   token,
   amount,
   amountDecimals,
+  dstChainKey = token.chainKey,
   context,
 }: {
   feature: SodaxFeature;
-  token: Pick<XToken, 'chainKey' | 'symbol' | 'decimals'>;
+  token: Pick<XToken, 'chainKey' | 'address' | 'symbol' | 'decimals'>;
   amount: bigint;
   /** Decimals `amount` is in, when not the token's own. */
   amountDecimals?: number;
+  dstChainKey?: SpokeChainKey;
   context?: Partial<SodaxErrorContext>;
 }): void {
+  if ((isMpcRelayChainKey(dstChainKey) || isMpcRelayChainKey(token.chainKey)) && token.chainKey !== dstChainKey) {
+    throw new SodaxError('VALIDATION_FAILED', 'Payout token chain must match the destination chain', {
+      feature,
+      context: { phase: 'validate', ...context, dstChainKey, field: 'dstToken' },
+    });
+  }
+  if (isMpcRelayChainKey(dstChainKey) && getMpcPayoutMinimum(token) === undefined) {
+    throw new SodaxError('VALIDATION_FAILED', `No MPC relay payout minimum for ${token.address} on ${token.chainKey}`, {
+      feature,
+      context: { phase: 'validate', ...context, reason: 'mpc-payout-minimum-missing' },
+    });
+  }
   const unmet = getUnmetMpcPayoutMinimum({ token, amount, amountDecimals });
   if (!unmet) return;
   throw new SodaxError(
@@ -203,7 +220,7 @@ export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): H
   if (getChainType(spokeChainId) === 'EVM') {
     // `encodeAddress` passes EVM input through unchecked, and a malformed recipient here is released
     // on-chain as-is, so validate before it reaches the hub.
-    if (!isAddress(address)) {
+    if (!isAddress(address) || /^0x0{40}$/i.test(address)) {
       throw new Error(`[encodeRecipient] invalid EVM recipient for ${spokeChainId}: ${address}`);
     }
     return address.toLowerCase() as Hex;
@@ -221,6 +238,82 @@ function mpcRelayIdentityHash(encoded: string, label: string): string {
   if (hash.length !== 64) return hash;
   invariant(hash.startsWith('0'.repeat(24)), `Invalid ${label} recipient word: ${encoded}`);
   return hash.slice(24);
+}
+
+/** The production solver does not accept staging-only Monad tokens. */
+export function assertMonadSwapProductionRoute(
+  endpoint: string,
+  params: { srcChainKey: SpokeChainKey; dstChainKey: SpokeChainKey; inputToken: string; outputToken: string },
+): void {
+  if (params.srcChainKey !== ChainKeys.MONAD_MAINNET && params.dstChainKey !== ChainKeys.MONAD_MAINNET) return;
+  if (new URL(endpoint).origin !== 'https://api.sodax.com') return;
+  for (const [chainKey, token] of [
+    [params.srcChainKey, params.inputToken],
+    [params.dstChainKey, params.outputToken],
+  ] as const) {
+    if (chainKey !== ChainKeys.MONAD_MAINNET) continue;
+    if (getSupportedSolverTokens(chainKey).some(entry => entry.address.toLowerCase() === token.toLowerCase())) continue;
+    throw new SodaxError('VALIDATION_FAILED', 'This Monad swap token is unavailable on the production solver', {
+      feature: 'swap',
+      context: {
+        phase: 'validate',
+        srcChainKey: params.srcChainKey,
+        dstChainKey: params.dstChainKey,
+        field: 'chainKey',
+      },
+    });
+  }
+}
+
+/** Validates MPC swap legs before encoding or signing a new intent. */
+export function assertMpcSwapRoute({
+  srcChainKey,
+  dstChainKey,
+  deadline,
+  allowPartialFill,
+  outputToken,
+  minOutputAmount,
+}: {
+  srcChainKey: SpokeChainKey;
+  dstChainKey: SpokeChainKey;
+  deadline: bigint;
+  allowPartialFill: boolean;
+  outputToken?: Parameters<typeof assertMpcPayoutAboveMinimum>[0]['token'];
+  minOutputAmount: bigint;
+}): void {
+  const source = isMpcRelayChainKey(srcChainKey);
+  const destination = isMpcRelayChainKey(dstChainKey);
+  const context = { phase: 'validate' as const, srcChainKey, dstChainKey };
+  if ((source || destination) && allowPartialFill) {
+    throw new SodaxError(
+      'VALIDATION_FAILED',
+      'allowPartialFill is not supported for a swap to or from an MPC-relay chain',
+      {
+        feature: 'swap',
+        context: { ...context, field: 'allowPartialFill' },
+      },
+    );
+  }
+  if (source && deadline <= 0n) {
+    throw new SodaxError('VALIDATION_FAILED', 'An intent from an MPC-relay chain needs a deadline', {
+      feature: 'swap',
+      context: { ...context, field: 'deadline' },
+    });
+  }
+  if (!destination) return;
+  if (!outputToken) {
+    throw new SodaxError('VALIDATION_FAILED', 'MPC relay destination token is unsupported', {
+      feature: 'swap',
+      context: { ...context, field: 'outputToken' },
+    });
+  }
+  assertMpcPayoutAboveMinimum({
+    feature: 'swap',
+    token: outputToken,
+    amount: minOutputAmount,
+    dstChainKey,
+    context: { ...context, field: 'minOutputAmount' },
+  });
 }
 
 export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex {

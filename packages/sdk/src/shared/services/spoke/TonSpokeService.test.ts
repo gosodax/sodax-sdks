@@ -9,9 +9,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Address, beginCell, Cell } from '@ton/core';
-import { tonSupportedTokens, type Hex } from '@sodax/types';
+import { isIndeterminateOutcomeError, tonSupportedTokens, type Hex } from '@sodax/types';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
+import { concat, keccak256, toHex } from 'viem';
+import { computePayloadHash } from '../mpcRelay/MpcRelayApiService.js';
 import { buildTonCommentBody, tonWalletAddress } from './ton-utils.js';
 
 let sodax = new Sodax();
@@ -23,9 +25,10 @@ const USDT_MASTER = 'EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs';
 const PUBKEY = `0x${'07'.repeat(32)}` as Hex;
 const RESERVE = '0:2a7f65800a2ebe06fa227e7f29cd188d5c3e39d0566d8646c8c73104417a6a97';
 const HUB_WALLET = '0x1111111111111111111111111111111111111111' as Hex;
-const MEMO = `0x${'ab'.repeat(32)}` as Hex;
+const MEMO = computePayloadHash(HUB_WALLET, '0x');
 const SENDER_ADDRESS = tonWalletAddress(PUBKEY).toString({ bounceable: false });
 const SENDER_JETTON_WALLET = tonWalletAddress(`0x${'09'.repeat(32)}`);
+const RESERVE_JETTON_WALLET = tonWalletAddress(`0x${'08'.repeat(32)}`);
 const RESERVE_TX_HASH = Buffer.from('cd'.repeat(32), 'hex').toString('base64');
 
 type Call = { method: string; params: Record<string, unknown> };
@@ -45,6 +48,7 @@ const nativeTx = (lt: string, memo: string, hash = RESERVE_TX_HASH) => ({
 const jettonTx = (lt: string, memo: string, amount = 2_000_000n, sender = SENDER_ADDRESS, hash = RESERVE_TX_HASH) => ({
   transaction_id: { lt, hash },
   in_msg: {
+    source: RESERVE_JETTON_WALLET.toString(),
     msg_data: {
       body: beginCell()
         .storeUint(0x7362d09c, 32)
@@ -75,7 +79,22 @@ function stubToncenter(opts: { baselineLt?: string; txs?: unknown[] } = {}) {
         result = {
           exit_code: 0,
           stack: [
-            ['cell', { bytes: beginCell().storeAddress(SENDER_JETTON_WALLET).endCell().toBoc().toString('base64') }],
+            [
+              'cell',
+              {
+                bytes: beginCell()
+                  .storeAddress(
+                    JSON.stringify(params.stack).includes(
+                      beginCell().storeAddress(Address.parse(RESERVE)).endCell().toBoc().toString('base64'),
+                    )
+                      ? RESERVE_JETTON_WALLET
+                      : SENDER_JETTON_WALLET,
+                  )
+                  .endCell()
+                  .toBoc()
+                  .toString('base64'),
+              },
+            ],
           ],
         };
       } else if (method === 'getAddressState') {
@@ -89,21 +108,22 @@ function stubToncenter(opts: { baselineLt?: string; txs?: unknown[] } = {}) {
   );
 }
 
-type SentMessage = { messages: { address: string; amount: string; payload: string }[] };
+type SentMessage = { validUntil: number; messages: { address: string; amount: string; payload: string }[] };
 const sendTransaction = vi.fn(async (_tx: SentMessage) => undefined);
+const signMessage = vi.fn(async () => ({
+  signature: `0x${'ef'.repeat(64)}` as Hex,
+  workchain: 0,
+  addressHash: `0x${'22'.repeat(32)}` as Hex,
+  domain: 'app.sodax.com',
+  timestamp: 1789300000,
+  payloadType: 'txt' as const,
+}));
 const walletProvider = {
   chainType: 'TON',
   getWalletAddress: vi.fn(async () => PUBKEY),
   getAccountAddress: vi.fn(async () => SENDER_ADDRESS),
   sendTransaction,
-  signMessage: vi.fn(async () => ({
-    signature: `0x${'ef'.repeat(64)}` as Hex,
-    workchain: 0,
-    addressHash: `0x${'22'.repeat(32)}` as Hex,
-    domain: 'app.sodax.com',
-    timestamp: 1789300000,
-    payloadType: 'txt' as const,
-  })),
+  signMessage,
 } as never;
 
 const depositParams = (token: string, extra: object = {}) =>
@@ -150,6 +170,55 @@ afterEach(() => {
 });
 
 describe('TonSpokeService.deposit', () => {
+  it.each([true, false])('rejects a relay memo mismatch before returning or sending (raw=%s)', async raw => {
+    const relay = await MpcRelayApiService.getDepositAddress('https://example.com', PUBKEY, '607', '0x');
+    if (!relay.ok || relay.value.depositMethod !== 'memo') throw new Error('expected a memo deposit');
+    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValueOnce({
+      ok: true,
+      value: { ...relay.value, memo: `0x${'00'.repeat(32)}` },
+    });
+    await expect(ton.deposit(depositParams(NATIVE_TON, { raw }))).rejects.toThrow(/memo does not match/);
+    expect(sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('recovers from a lost response after the wallet accepted the original send', async () => {
+    stubToncenter({ txs: [nativeTx('200', MEMO)] });
+    const cause = new Error('wallet response lost');
+    sendTransaction.mockRejectedValueOnce(cause);
+
+    const error: unknown = await ton.deposit(depositParams(NATIVE_TON)).catch((error: unknown) => error);
+    expect(isIndeterminateOutcomeError(error)).toBe(true);
+    expect(error).toMatchObject({
+      cause,
+      txHash: undefined,
+      recovery: { broadcastId: expect.any(String), validUntil: sentMessage().validUntil, sinceLt: '100' },
+    });
+    if (!isIndeterminateOutcomeError(error) || !error.recovery) throw new Error('expected TON deposit recovery');
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+    // The test asserted the recovery came from TonSpokeService.deposit above.
+    const txHash = await ton.resumeDeposit(error.recovery as import('./TonSpokeService.js').TonDepositRecovery);
+    expect(txHash).toBe(`0x${'cd'.repeat(32)}`);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', txHash);
+    expect(sendTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('does not treat an explicit wallet refusal as an indeterminate send', async () => {
+    stubToncenter();
+    const refusal = Object.assign(new Error('rejected'), { name: 'UserRejectsError' });
+    sendTransaction.mockRejectedValueOnce(refusal);
+    await expect(ton.deposit(depositParams(NATIVE_TON))).rejects.toBe(refusal);
+  });
+
+  it('ignores a matching notification from a different source address', async () => {
+    const other = jettonTx('201', MEMO, 2_000_000n, SENDER_ADDRESS, 'aa'.repeat(32));
+    other.in_msg.source = SENDER_JETTON_WALLET.toString();
+    stubToncenter({ txs: [other, jettonTx('200', MEMO)] });
+    const txHash = await ton.deposit(depositParams(USDT_MASTER));
+    expect(txHash).toBe(`0x${'cd'.repeat(32)}`);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledOnce();
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', txHash);
+  });
+
   it('registers the deposit under the PUBLIC KEY, which is the relay identity', async () => {
     stubToncenter({ txs: [nativeTx('200', MEMO)] });
 
@@ -371,6 +440,43 @@ describe('TonSpokeService.sendMessage', () => {
     expect(BigInt(Number(nonce))).toBe(nonce);
   });
 
+  it.each(['accepted', 'exhausted', 'lost reply'])('first 429 through sendMessage: %s', async outcome => {
+    vi.useFakeTimers();
+    vi.mocked(MpcRelayApiService.submitWithdraw).mockRestore();
+    const lost = new Error('lost relay reply');
+    const send = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (send.mock.calls.length === 1 || outcome === 'exhausted') return new Response(null, { status: 429 });
+      if (outcome === 'lost reply') throw lost;
+      const { message } = JSON.parse(String(init?.body));
+      const trackingId = keccak256(concat([PUBKEY, toHex(BigInt(message.nonce), { size: 8 })]));
+      return Response.json({ accepted: true, trackingId });
+    });
+    vi.stubGlobal('fetch', send);
+    const pending = ton.sendMessage(sendParams).then(
+      value => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    const request = JSON.parse(String(send.mock.calls[0]?.[1]?.body));
+    const trackingId = keccak256(concat([PUBKEY, toHex(BigInt(request.message.nonce), { size: 8 })]));
+    if (outcome === 'accepted') {
+      expect(result).toEqual({ ok: true, value: trackingId });
+    } else if (outcome === 'lost reply') {
+      expect(result).toMatchObject({
+        ok: false,
+        error: { name: 'IndeterminateOutcomeError', cause: lost, trackingId },
+      });
+    } else {
+      if (result.ok) throw new Error('expected throttling exhaustion');
+      expect(result.error).toMatchObject({ message: expect.stringContaining('nothing was queued') });
+      expect(result.error).not.toHaveProperty('trackingId');
+    }
+    expect(signMessage).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledTimes(outcome === 'exhausted' ? 3 : 2);
+    expect(new Set(send.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
+  });
+
   it('refuses raw mode, which has no spoke transaction to return', async () => {
     await expect(ton.sendMessage({ ...(sendParams as object), raw: true } as never)).rejects.toThrow(
       /raw mode is not supported/,
@@ -405,6 +511,7 @@ describe('TON review regressions', () => {
     sender: SENDER_ADDRESS,
     amount: '2000000',
     token: NATIVE_TON,
+    validUntil: 1_789_300_000,
   };
 
   it('retries a transient discovery 503 after sending only once', async () => {
@@ -436,8 +543,8 @@ describe('TON review regressions', () => {
     stubToncenter();
     const pending = ton.deposit(depositParams(NATIVE_TON));
     const result = expect(pending).rejects.toMatchObject({
-      name: 'TonDepositNotFoundError',
-      recovery: { ...recovery, broadcastId: expect.any(String) },
+      name: 'IndeterminateOutcomeError',
+      recovery: { ...recovery, broadcastId: expect.any(String), validUntil: expect.any(Number) },
     });
     await vi.advanceTimersByTimeAsync(120_000);
     await result;
@@ -490,7 +597,7 @@ describe('TON review regressions', () => {
     vi.useFakeTimers();
     stubPagedReserve([...newerUnrelated(40), nativeTx('90', MEMO)]);
     const pending = ton.resumeDeposit(recovery, 1_000);
-    const result = expect(pending).rejects.toMatchObject({ name: 'TonDepositNotFoundError' });
+    const result = expect(pending).rejects.toMatchObject({ name: 'IndeterminateOutcomeError' });
     await vi.advanceTimersByTimeAsync(2_000);
     await result;
     const cursors = calls.filter(c => c.method === 'getTransactions').map(c => c.params.lt ?? 'head');
@@ -521,7 +628,7 @@ describe('TON review regressions', () => {
     stubToncenter({ txs: [nativeTx('200', MEMO)] });
     expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
     await expect(ton.resumeDeposit({ ...recovery, broadcastId: 'second-broadcast' }, 1_000)).rejects.toMatchObject({
-      name: 'TonDepositNotFoundError',
+      name: 'IndeterminateOutcomeError',
     });
   });
 
