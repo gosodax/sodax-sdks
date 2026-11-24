@@ -407,6 +407,14 @@ Borrow tokens from the money market pool. Borrowed tokens can be delivered to a 
 1. `borrow`: Executes the spoke-side message, relays to the hub, and waits for the relay to settle.
 2. `createBorrowIntent`: Builds (and optionally broadcasts) only the spoke-side transaction without waiting for the relay.
 
+If `borrow` or `withdraw` returns `INTENT_CREATION_FAILED` with `error.context.trackingId`, read the original withdrawal with `sodax.spoke.getMpcRelayWithdrawal({ chainKey, trackingId })`. Polling only observes the MPC relay record. To drive settlement, call `sodax.spoke.settle({ chainKey, tx: trackingId, direction: 'outbound', dstChainKey, relayData })`. Use the original payout `dstChainKey` and `relayData` from the error context for a feature call, or from the original intent for a raw call. Keep tracking the original ID if a replay is rejected. Do not start another borrow or withdraw while the original outcome is unknown. A 429 on the SDK's own first submission queues nothing. The SDK retries the same authorization up to three total attempts. If all three replies are 429, it reports `withdraw rate limit retries exhausted; nothing was queued` without a tracking ID, and a fresh feature call is safe after backing off.
+
+For Bitcoin on-demand borrow and withdraw, a settlement error's `context.srcTxHash` is the derived `od:` ID for polling. Keep the separately held authorization for any legitimate resubmission.
+
+If an MPC borrow or withdrawal fails during settlement, the error also carries `context.trackingId`, `dstChainKey` and `relayData` for the same outbound settlement call. Do not repeat the feature call.
+
+After an MPC-relay supply or repay settlement failure with `context.srcTxHash`, wait for the existing deposit's hub mint (for Tron, call `sodax.spoke.tron.waitForDeposit(srcTxHash)`). On timeout, repeat that wait with the same hash after backing off. Do not call supply or repay again for that deposit.
+
 Each leg settles on the relay of the spoke it touches: a leg to or from an MPC-relay chain (Tron) on the MPC relay, every other leg on the intent relay. The hub-to-Tron leg is driven by the SDK, since that relay does not watch the hub, so `borrow` and `withdraw` to Tron resolve with the Tron payout tx as `dstChainTxHash`. A borrow or withdraw from Tron is a signed message with no Tron tx, so it resolves to `{ trackingId, dstChainTxHash }` instead of a tx pair (`OutboundSettlement`); one that pays out elsewhere resolves once the destination leg lands, not on a Tron release. `createBorrowIntent` / `createWithdrawIntent` alone leave that leg undriven: drive it with `sodax.spoke.settle` (`direction: 'outbound'`, with `dstChainKey`), as [`SpokeService.settle.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/SpokeService.settle.test.ts) shows. A borrow (after its partner fee) or withdraw paying out to Tron at or below `MpcRelayPayoutMinimums` fails with `VALIDATION_FAILED` (`context.reason: 'mpc-payout-below-minimum'`) before anything is signed, because the relay's release fee comes out of the payout and nothing is released once it reaches the amount; a UI can check first with `getUnmetMpcPayoutMinimum`.
 
 Both read the token's reserve on the hub first. If the pool cannot lend it (borrowing disabled, as for collateral-only reserves, or the reserve is frozen or paused), they return `VALIDATION_FAILED` with `context.field: 'token'` and send nothing. To hide the option up front, check `borrowingEnabled` in the reserve data.
@@ -660,7 +668,7 @@ if (!result.ok) {
       break;
 
     case 'RELAY_TIMEOUT':
-      // Relay packet didn't confirm in time. Check intent status and retry with longer timeout.
+      // Relay packet didn't confirm in time. Resume settlement with the original hash or tracking ID.
       break;
 
     case 'RELAY_FAILED':
@@ -738,8 +746,8 @@ If you were on the previous CODE-string-on-`error.message` pattern (or the older
 
 ### Best practices
 
-1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Funds may be in flight; persist the user's input and retry.
-2. **Handle `RELAY_TIMEOUT` gracefully**. The spoke tx succeeded; the relay just didn't deliver in time. Check on-chain status before retrying.
+1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Funds may be in flight; preserve the original source hash and relay data, then resume settlement of that transaction. Do not repeat the feature call.
+2. **Handle `RELAY_TIMEOUT` gracefully**. Resume settlement using the original transaction hash or derived relay ID for an intent-relay source, the original source hash for an MPC-relay supply or repay, or the withdrawal tracking ID for an MPC-relay borrow or withdrawal. Do not repeat the original feature call to recover a pending operation.
 3. **Discriminate `RELAY_FAILED` via `context.relayCode`**. `'RELAY_POLLING_FAILED'` (polling outage — packet status unknown) needs different UX from generic `'UNKNOWN'`.
 4. **Use `error.cause` for forensics**. Every wrapped error preserves the original on `cause`. Loggers walk it automatically.
 5. **Use `JSON.stringify(error)` for logging**. The `toJSON()` method handles bigint coercion + cause-chain truncation safely.

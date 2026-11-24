@@ -3,7 +3,8 @@
  * checks withdrawals against, the ZIP-317 fee, and a parser for signed v5 transactions so a deposit can
  * be checked before it is broadcast. Signing (the ZIP-244 digest) lives in the wallet provider.
  */
-import { bytesToHex, hexToBytes, ripemd160, sha256, type Hex } from 'viem';
+import { blake2b } from '@noble/hashes/blake2b';
+import { bytesToHex, concatBytes, hexToBytes, ripemd160, sha256, type Hex } from 'viem';
 
 /** P2PKH version prefix of a mainnet transparent `t1…` address. */
 export const ZCASH_MAINNET_P2PKH_PREFIX = '1cb8';
@@ -94,7 +95,8 @@ export interface ZcashParsedOutput {
  * The transparent outputs of a signed v5 transaction. Used to check what a wallet actually signed — the
  * bytes that will be broadcast — rather than trusting the transaction that was requested.
  */
-export function parseZcashV5Outputs(txHex: string): ZcashParsedOutput[] {
+function parseZcashV5(txHex: string) {
+  if (!/^(?:0x)?(?:[0-9a-fA-F]{2})+$/.test(txHex)) throw new Error('[zcash] invalid transaction hex');
   const bytes = hexToBytes(txHex.startsWith('0x') ? (txHex as Hex) : `0x${txHex}`);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = 0;
@@ -112,23 +114,31 @@ export function parseZcashV5Outputs(txHex: string): ZcashParsedOutput[] {
       offset += 2;
       return v;
     }
-    return u32();
+    if (first === 0xfe) return u32();
+    throw new Error('[zcash] unsupported compact size');
   };
 
   const header = u32();
   if ((header & 0x7fffffff) !== 5)
     throw new Error(`[zcash] expected a v5 transaction, got version ${header & 0x7fffffff}`);
-  offset += 16; // versionGroupId, consensusBranchId, lockTime, expiryHeight
+  if (header !== 0x80000005 || u32() !== 0x26a7270a) throw new Error('[zcash] invalid v5 header');
+  offset += 12; // consensusBranchId, lockTime, expiryHeight
 
   const inputCount = compactSize();
+  const prevouts: Uint8Array[] = [];
+  const sequences: Uint8Array[] = [];
   for (let i = 0; i < inputCount; i++) {
+    prevouts.push(bytes.subarray(offset, offset + 36));
     offset += 36; // outpoint
     // Read the length first: `offset += compactSize()` would read `offset` before the call advances it.
     const scriptSigLength = compactSize();
-    offset += scriptSigLength + 4; // scriptSig, then sequence
+    offset += scriptSigLength;
+    sequences.push(bytes.subarray(offset, offset + 4));
+    offset += 4;
   }
 
   const outputCount = compactSize();
+  const encodedOutputsStart = offset;
   const outputs: ZcashParsedOutput[] = [];
   for (let i = 0; i < outputCount; i++) {
     const value = view.getBigUint64(offset, true);
@@ -137,5 +147,45 @@ export function parseZcashV5Outputs(txHex: string): ZcashParsedOutput[] {
     outputs.push({ value, scriptPubKey: bytesToHex(bytes.subarray(offset, offset + scriptLength)).slice(2) });
     offset += scriptLength;
   }
-  return outputs;
+  return {
+    bytes,
+    prevouts,
+    sequences,
+    outputs,
+    encodedOutputs: bytes.subarray(encodedOutputsStart, offset),
+    shieldedBundles: bytes.subarray(offset),
+  };
+}
+
+export function parseZcashV5Outputs(txHex: string): ZcashParsedOutput[] {
+  return parseZcashV5(txHex).outputs;
+}
+
+/** Parse the signed wire bytes and compute its transparent-only ZIP-244 txid in RPC display order. */
+export function inspectZcashV5Deposit(txHex: string): { outputs: ZcashParsedOutput[]; txid: string } {
+  const { bytes, prevouts, sequences, outputs, encodedOutputs, shieldedBundles } = parseZcashV5(txHex);
+  if (shieldedBundles.length !== 3 || shieldedBundles.some(byte => byte !== 0)) {
+    throw new Error('[zcash] expected an unshielded v5 transaction with no trailing bytes');
+  }
+  const tag = (name: string) => new TextEncoder().encode(name);
+  const hash = (data: Uint8Array, personalization: Uint8Array) => blake2b(data, { dkLen: 32, personalization });
+  const empty = new Uint8Array();
+  const transparent =
+    prevouts.length || outputs.length
+      ? concatBytes([
+          hash(concatBytes(prevouts), tag('ZTxIdPrevoutHash')),
+          hash(concatBytes(sequences), tag('ZTxIdSequencHash')),
+          hash(encodedOutputs, tag('ZTxIdOutputsHash')),
+        ])
+      : empty;
+  const digest = hash(
+    concatBytes([
+      hash(bytes.subarray(0, 20), tag('ZTxIdHeadersHash')),
+      hash(transparent, tag('ZTxIdTranspaHash')),
+      hash(empty, tag('ZTxIdSaplingHash')),
+      hash(empty, tag('ZTxIdOrchardHash')),
+    ]),
+    concatBytes([tag('ZcashTxHash_'), bytes.subarray(8, 12)]),
+  );
+  return { outputs, txid: bytesToHex(digest.reverse()).slice(2) };
 }

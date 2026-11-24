@@ -33,7 +33,7 @@ Granular skill for `BridgeService` — `sodax.bridge`. Feature tag: `'bridge'`.
 
 - **Destructuring the return as an array or single hash.** `bridge()` returns `{ srcChainTxHash, dstChainTxHash }` — destructure by name.
 - **Skipping the bridgeable-amount check.** Submitting an amount over the vault cap returns `EXECUTION_FAILED`; cheaper to check first.
-- **Reporting a bridge as lost, or calling `bridge()` again, on a post-broadcast failure.** `TX_VERIFICATION_FAILED` and the relay codes carry `error.context.srcTxHash` — the deposit is on-chain and may still deliver, so keep polling `getDetailedStatus` with it. A second `bridge()` is a second deposit. After `TX_SUBMIT_FAILED`, if no packet ever shows up, resubmit that same tx to the relay with `submitTransaction`.
+- **Repeating a bridge after a post-broadcast failure.** Keep `error.context.srcTxHash`. For an intent-relay bridge, poll `getDetailedStatus`; if the relay submission failed, resubmit the same deposit to the intent relay with its original data. For a bridge with an MPC-relay end, follow [same-hash bridge recovery](../integration/knowledge/features/bridge.md) to drive any missing deposit or hub leg before polling. Do not call `bridge()` again.
 
 ## Migration workflow (v1 → v2)
 
@@ -53,3 +53,5 @@ Granular skill for `BridgeService` — `sodax.bridge`. Feature tag: `'bridge'`.
 - [`../recovery/SKILL.md`](../recovery/SKILL.md) — `RecoveryService` for stuck assets on the hub.
 
 For multi-feature tasks, load the broad [`sodax-sdk` skill](../SKILL.md).
+
+When either end uses the MPC relay, settle with `sodax.spoke.settle` using the original transaction, `relayData`, inbound direction and the original destination.

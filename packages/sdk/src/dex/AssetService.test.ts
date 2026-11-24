@@ -7,7 +7,14 @@
  * spoke sendMessage commits to (fromHubWallet), exactly as executeDeposit already does.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChainKeys, type Address, type Hex, tronSupportedTokens, xrpSupportedTokens } from '@sodax/types';
+import {
+  ChainKeys,
+  type Address,
+  type Hex,
+  tronSupportedTokens,
+  xrpSupportedTokens,
+  IndeterminateOutcomeError,
+} from '@sodax/types';
 import { pad, toEventSelector, toHex, type TransactionReceipt } from 'viem';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { isSodaxError } from '../errors/SodaxError.js';
@@ -197,19 +204,50 @@ describe('AssetService deposit/withdraw from an MPC-relay source', () => {
     expect(result).toEqual({ ok: true, value: SETTLED });
   });
 
-  it('returns the relay cause when settlement fails', async () => {
+  it('preserves the original withdrawal ID and cause when settlement times out', async () => {
+    const trackingId = `0x${'e'.repeat(64)}`;
+    const cause = new Error('RELAY_TIMEOUT');
+    vi.spyOn(asset, 'executeWithdraw').mockResolvedValue({
+      ok: true,
+      value: { tx: trackingId, relayData: RELAY_DATA },
+    });
+    vi.spyOn(sodax.spoke, 'settle').mockResolvedValue({ ok: false, error: { phase: 'relay', cause } });
+    const result = await asset.withdraw({ params, raw: false, walletProvider: {} as never });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'RELAY_TIMEOUT', cause, context: { srcChainKey: ChainKeys.TRON_MAINNET, trackingId } },
+    });
+    if (result.ok || !isSodaxError(result.error)) throw new Error('expected settlement failure');
+    expect(result.error.context).not.toHaveProperty('srcTxHash');
+  });
+
+  it('preserves the original deposit hash and cause when settlement times out', async () => {
     const cause = new Error('RELAY_TIMEOUT');
     vi.spyOn(asset, 'executeDeposit').mockResolvedValue({ ok: true, value: { tx: TRON_TX, relayData: RELAY_DATA } });
     vi.spyOn(sodax.spoke, 'settle').mockResolvedValue({ ok: false, error: { phase: 'relay', cause } });
 
     const result = await asset.deposit({ params, raw: false, walletProvider: {} as never });
 
-    expect(result).toEqual({ ok: false, error: cause });
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'RELAY_TIMEOUT',
+        cause,
+        context: { srcChainKey: ChainKeys.TRON_MAINNET, srcTxHash: TRON_TX },
+      },
+    });
   });
 });
 
 // Below `settle`: only the relay seams are stubbed, so the result shape is what a caller really gets.
 describe('AssetService.withdraw — settled through the MPC relay seams', () => {
+  const tronParams = {
+    srcChainKey: ChainKeys.TRON_MAINNET,
+    srcAddress: TRON_TEST_ADDRESS,
+    asset: tronSupportedTokens.USDT.address,
+    poolToken: POOL_TOKEN,
+    amount: 1000n,
+  } as const;
   const RELAY_DATA = { address: HUB_WALLET, payload: '0x01' as Hex };
 
   it('returns the relay trackingId, never a source tx, for a withdraw from Tron', async () => {
@@ -236,6 +274,93 @@ describe('AssetService.withdraw — settled through the MPC relay seams', () => 
     });
 
     expect(result).toEqual({ ok: true, value: { trackingId, dstChainTxHash: 'tronRelease' } });
+  });
+
+  it('keeps the original authorization and payout details on an indeterminate Tron withdrawal', async () => {
+    const trackingId = '0xoriginal';
+    vi.mocked(sodax.spoke.sendMessage).mockResolvedValue({
+      ok: false,
+      error: new IndeterminateOutcomeError('lost reply', { trackingId, cause: new Error('connection lost') }),
+    });
+    const result = await asset.withdraw({ params: tronParams, raw: false, walletProvider: {} as never });
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'INTENT_CREATION_FAILED',
+        context: {
+          trackingId,
+          srcChainKey: ChainKeys.TRON_MAINNET,
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          relayData: { address: HUB_WALLET, payload: expect.any(String) },
+        },
+      },
+    });
+  });
+
+  it('keeps the existing intent-relay transaction when the first leg to Tron fails', async () => {
+    const tx = '0x1234';
+    const relayData = { address: HUB_WALLET, payload: '0x01' } as const;
+    vi.spyOn(asset, 'executeWithdraw').mockResolvedValue({ ok: true, value: { tx, relayData } });
+    vi.spyOn(IntentRelayApiService, 'relayTxAndWaitPacket').mockResolvedValue({
+      ok: false,
+      error: new Error('RELAY_TIMEOUT'),
+    });
+    const release = vi.spyOn(sodax.spoke, 'settleHubRelease');
+    const result = await asset.withdraw({
+      params: {
+        ...tronParams,
+        srcChainKey: ChainKeys.ARBITRUM_MAINNET,
+        srcAddress: SRC_ADDRESS,
+        dst: { dstChainKey: ChainKeys.TRON_MAINNET, dstAddress: TRON_TEST_ADDRESS },
+      },
+      raw: false,
+      walletProvider: {} as never,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'RELAY_TIMEOUT',
+        context: {
+          srcTxHash: tx,
+          srcChainKey: ChainKeys.ARBITRUM_MAINNET,
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          relayData,
+        },
+      },
+    });
+    expect(release).not.toHaveBeenCalled();
+  });
+
+  it('keeps the burn hash when a Tron release after a hub withdrawal times out', async () => {
+    const hubTxHash = '0xburn';
+    vi.mocked(sodax.spoke.sendMessage).mockResolvedValue({ ok: true, value: hubTxHash });
+    vi.spyOn(sodax.spoke, 'settleHubRelease').mockResolvedValue({
+      ok: false,
+      error: { phase: 'relay', cause: new Error('RELAY_TIMEOUT') },
+    });
+    const result = await asset.withdraw({
+      params: {
+        ...tronParams,
+        srcChainKey: ChainKeys.SONIC_MAINNET,
+        srcAddress: SRC_ADDRESS,
+        asset: ASSET,
+        dst: { dstChainKey: ChainKeys.TRON_MAINNET, dstAddress: TRON_TEST_ADDRESS },
+      },
+      raw: false,
+      walletProvider: {} as never,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: 'RELAY_TIMEOUT',
+        context: {
+          srcTxHash: hubTxHash,
+          hubTxHash,
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          relayData: { address: HUB_WALLET, payload: expect.any(String) },
+        },
+      },
+    });
   });
 
   it('releases a hub withdraw to Tron through a submitted release, keeping the hub tx as the source', async () => {

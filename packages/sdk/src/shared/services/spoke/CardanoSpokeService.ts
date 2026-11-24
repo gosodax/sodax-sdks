@@ -6,6 +6,7 @@ import {
   type CardanoSpokeChainConfig,
   ChainKeys,
   getMpcRelayChainInfo,
+  IndeterminateOutcomeError,
   type Result,
   type TxReturnType,
 } from '@sodax/types';
@@ -30,6 +31,7 @@ import {
   getDepositAddress,
   getWithdrawal,
   notify,
+  submitFreshWithdrawWithBackoff,
   submitWithdraw,
   toDepositId,
   toHubReleaseId,
@@ -139,6 +141,9 @@ export class CardanoSpokeService implements MpcRelaySettlement {
       );
     }
     if (amount <= 0n) throw new Error(`[CardanoSpokeService.deposit] amount must be positive, got ${amount} lovelace`);
+    if (amount > 400_000_000n) {
+      throw new Error('[CardanoSpokeService.deposit] amount exceeds the 400 ADA single-deposit cap');
+    }
     // Refuses anything but a mainnet key-hash payment address before an ADA moves.
     const owner = parseCardanoAddress(srcAddress);
 
@@ -247,13 +252,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
         throw error;
       }
       await this.submitDeposit(txHash);
-      const guidance = `Settle txHash ${txHash} and do not send again.`;
-      const message = error instanceof Error ? `${error.message}. ${guidance}` : guidance;
-      const original =
-        typeof error === 'object' && error !== null && Object.isExtensible(error)
-          ? error
-          : new Error(guidance, { cause: error });
-      throw Object.assign(original, { txHash, message });
+      throw new IndeterminateOutcomeError(`Settle txHash ${txHash} and do not send again.`, { cause: error, txHash });
     }
     const notified = await this.submitDeposit(txHash);
     if (submitted !== txHash) {
@@ -265,13 +264,14 @@ export class CardanoSpokeService implements MpcRelaySettlement {
         });
       }
       throw Object.assign(
-        new Error(
+        new IndeterminateOutcomeError(
           `[CardanoSpokeService.deposit] wallet submitted tx ${submitted}, but the built tx is ${txHash}. Settle txHash ${txHash} and do not send again.`,
           {
             cause: notified.ok ? undefined : notified.error,
+            txHash,
           },
         ),
-        { txHash, walletTxHash: submitted },
+        { walletTxHash: submitted },
       );
     }
     if (!notified.ok) {
@@ -412,15 +412,18 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     // Fails here, with a specific reason, rather than at the relay if the wallet signed the wrong payload or key.
     const fields = cardanoSignDataFields(dataSignature, messageHash, sender);
 
-    const res = await submitWithdraw(this.relayApiUrl, {
+    const request = {
       message: { ...message, nonce: message.nonce.toString(), chainId: message.chainId.toString() },
       signature: fields.signature,
       scheme: getMpcRelayChainInfo(ChainKeys.CARDANO_MAINNET).withdrawScheme,
       cardanoSignData: fields.cardanoSignData,
+    };
+    const trackingId = await submitFreshWithdrawWithBackoff(async () => {
+      const res = await submitWithdraw(this.relayApiUrl, request);
+      if (!res.ok) throw res.error;
+      return res.value.trackingId;
     });
-    if (!res.ok) throw res.error;
-
-    return res.value.trackingId satisfies string as TxReturnType<CardanoChainKey, Raw>;
+    return trackingId satisfies string as TxReturnType<CardanoChainKey, Raw>;
   }
 
   /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */

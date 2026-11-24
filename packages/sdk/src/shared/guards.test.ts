@@ -36,6 +36,13 @@ describe('guards', () => {
     });
   });
 
+  it('accepts a TON public key as a raw destination and excludes TON from EVM-only config', () => {
+    expect(isRawDestinationParams({ dstChainKey: ChainKeys.TON_MAINNET, dstAddress: `0x${'12'.repeat(32)}` })).toBe(
+      true,
+    );
+    expect(isEvmSpokeChainConfig(spokeChainConfig[ChainKeys.TON_MAINNET])).toBe(false);
+  });
+
   describe('isJsonRpcPayloadResponse', () => {
     it('requires numeric id and string result', () => {
       expect(isJsonRpcPayloadResponse({ id: 1, result: 'ok' })).toBe(true);

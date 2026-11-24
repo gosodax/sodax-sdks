@@ -13,7 +13,13 @@ import {
   parseEventLogs,
 } from 'viem';
 import { Erc20Service } from '../shared/services/erc-20/Erc20Service.js';
-import { calculatePercentageFeeAmount, encodeRecipient, randomUint256 } from '../shared/utils/shared-utils.js';
+import {
+  assertMpcSwapRoute,
+  assertProductionSwapRoute,
+  calculatePercentageFeeAmount,
+  encodeRecipient,
+  randomUint256,
+} from '../shared/utils/shared-utils.js';
 import { encodeContractCalls } from '../shared/utils/evm-utils.js';
 import { isPartnerFeeAmount, isPartnerFeePercentage } from '../shared/guards.js';
 import {
@@ -92,10 +98,16 @@ export class EvmSolverService {
           ?.hubAsset
       : (createIntentParams.inputToken as `0x${string}`);
 
-    const outputToken = !isHubChainKey(createIntentParams.dstChainKey)
-      ? config.getSpokeTokenFromOriginalAssetAddress(createIntentParams.dstChainKey, createIntentParams.outputToken)
-          ?.hubAsset
-      : (createIntentParams.outputToken as `0x${string}`);
+    const { dstChainKey } = createIntentParams;
+    const outputTokenInfo = isHubChainKey(dstChainKey)
+      ? undefined
+      : config.getSpokeTokenFromOriginalAssetAddress(dstChainKey, createIntentParams.outputToken);
+    const outputToken = isHubChainKey(dstChainKey)
+      ? (createIntentParams.outputToken as Address)
+      : outputTokenInfo?.hubAsset;
+
+    assertProductionSwapRoute(config.solver.solverApiEndpoint, createIntentParams);
+    assertMpcSwapRoute({ ...createIntentParams, outputToken: outputTokenInfo });
 
     invariant(
       inputToken,

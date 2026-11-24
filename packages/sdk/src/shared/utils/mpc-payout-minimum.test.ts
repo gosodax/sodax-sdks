@@ -1,12 +1,10 @@
-import { ChainKeys } from '@sodax/types';
+import { arbitrumSupportedTokens, cardanoSupportedTokens, tronSupportedTokens, type XToken } from '@sodax/types';
 import { describe, expect, it } from 'vitest';
 import { isSodaxError } from '../../index.js';
 import { assertMpcPayoutAboveMinimum } from './shared-utils.js';
 
-const run = (
-  token: { chainKey: (typeof ChainKeys)[keyof typeof ChainKeys]; symbol: string; decimals: number },
-  amount: bigint,
-) => assertMpcPayoutAboveMinimum({ feature: 'bridge', token, amount, context: { action: 'bridge' } });
+const run = (token: Pick<XToken, 'chainKey' | 'address' | 'symbol' | 'decimals'>, amount: bigint) =>
+  assertMpcPayoutAboveMinimum({ feature: 'bridge', token, amount, context: { action: 'bridge' } });
 
 const catchError = (fn: () => void): unknown => {
   try {
@@ -18,8 +16,8 @@ const catchError = (fn: () => void): unknown => {
 };
 
 describe('assertMpcPayoutAboveMinimum', () => {
-  const ada = { chainKey: ChainKeys.CARDANO_MAINNET, symbol: 'ADA', decimals: 6 };
-  const usdt = { chainKey: ChainKeys.TRON_MAINNET, symbol: 'USDT', decimals: 6 };
+  const ada = cardanoSupportedTokens.ADA;
+  const usdt = tronSupportedTokens.USDT;
 
   it('refuses a Cardano payout below 1 ADA, saying it must be at least 1 ADA and why', () => {
     const error = catchError(() => run(ada, 999_999n));
@@ -48,6 +46,6 @@ describe('assertMpcPayoutAboveMinimum', () => {
   });
 
   it('does not touch a chain with no minimum', () => {
-    expect(() => run({ chainKey: ChainKeys.ARBITRUM_MAINNET, symbol: 'USDT', decimals: 6 }, 1n)).not.toThrow();
+    expect(() => run(arbitrumSupportedTokens.USDT, 1n)).not.toThrow();
   });
 });

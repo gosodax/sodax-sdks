@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { XrpUnsignedTransaction } from '@sodax/types';
+import { isIndeterminateOutcomeError, type XrpUnsignedTransaction } from '@sodax/types';
 import { generateSeed } from 'ripple-keypairs';
 import { decode } from 'xrpl';
 import { XrpWalletProvider, isGemWalletXrpWalletConfig, isPrivateKeyXrpWalletConfig } from './XrpWalletProvider.js';
@@ -59,6 +59,7 @@ function stubRippled(overrides: Record<string, unknown> = {}) {
 
 function gemWallet(overrides: Partial<GemWalletLike> = {}): GemWalletLike {
   return {
+    getNetwork: vi.fn(async () => ({ result: { chain: 'XRPL', network: 'Mainnet' } })),
     getAddress: vi.fn(async () => ({ result: { address: GEM_ADDRESS } })),
     getPublicKey: vi.fn(async () => ({ result: { publicKey: `ED${'11'.repeat(32)}` } })),
     signMessage: vi.fn(async () => ({ result: { signedMessage: 'CD'.repeat(64) } })),
@@ -270,6 +271,18 @@ describe('XrpWalletProvider.signTransaction — GemWallet network', () => {
     expect(gem.submitTransaction).not.toHaveBeenCalled();
   });
 
+  it.each([
+    undefined,
+    async () => undefined,
+    async () => ({ result: { chain: 'XRPL' } }),
+  ])('refuses to submit without confirmed XRPL Mainnet', async getNetwork => {
+    const gem = gemWallet({ getNetwork });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    await expect(provider.signTransaction(payment)).rejects.toThrow(/did not confirm/);
+    expect(gem.submitTransaction).not.toHaveBeenCalled();
+  });
+
   it('submits on the XRPL Mainnet', async () => {
     const gem = gemWallet({ getNetwork: vi.fn(async () => ({ result: { chain: 'XRPL', network: 'Mainnet' } })) });
     const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
@@ -303,13 +316,50 @@ describe('XrpWalletProvider.signTransaction — GemWallet', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('reports a submit that returns no hash', async () => {
-    const provider = new XrpWalletProvider({
-      gemWallet: gemWallet({ submitTransaction: vi.fn(async () => ({ result: {} })) }),
-      address: GEM_ADDRESS,
-    });
+  it('exposes a typed recovery handle when GemWallet returns no hash', async () => {
+    const reply = { type: 'response', result: {} } as const;
+    const gem = gemWallet({ submitTransaction: vi.fn(async () => reply) });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+    const tx = { ...payment, Memos: [{ Memo: { MemoData: 'ABCD' } }] };
 
-    await expect(provider.signTransaction(payment)).rejects.toThrow(/no transaction hash/);
+    const error = await provider.signTransaction(tx).catch((cause: unknown) => cause);
+
+    expect(isIndeterminateOutcomeError(error)).toBe(true);
+    expect(error).toMatchObject({
+      recovery: {
+        kind: 'xrp-payment',
+        account: tx.Account,
+        destination: tx.Destination,
+        amount: tx.Amount,
+        memo: 'ABCD',
+        attemptedAtMs: expect.any(Number),
+      },
+      cause: reply,
+    });
+    expect(gem.submitTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('retains the recovery handle and original exception when GemWallet submit throws', async () => {
+    const cause = new Error('wallet transport closed');
+    const gem = gemWallet({ submitTransaction: vi.fn().mockRejectedValue(cause) });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+    const error = await provider.signTransaction(payment).catch((failure: unknown) => failure);
+    expect(isIndeterminateOutcomeError(error)).toBe(true);
+    expect(error).toMatchObject({
+      recovery: { kind: 'xrp-payment', account: payment.Account, destination: payment.Destination },
+      cause,
+    });
+    expect(gem.submitTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('preserves an explicit GemWallet rejection as a definite failure', async () => {
+    const gem = gemWallet({ submitTransaction: vi.fn(async () => ({ type: 'reject' as const })) });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    const error = await provider.signTransaction(payment).catch((cause: unknown) => cause);
+
+    expect(isIndeterminateOutcomeError(error)).toBe(false);
+    expect(error).toMatchObject({ message: expect.stringContaining('rejected by the user') });
   });
 });
 

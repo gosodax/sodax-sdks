@@ -130,44 +130,38 @@ export const MpcRelayChainMap = {
 export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
 
 /**
- * Floor for a payout through the MPC relay, by chain and token symbol, in the payout token's decimals: the SDK
+ * Floor for a payout through the MPC relay, by chain and token address, in the payout token's decimals: the SDK
  * refuses a payout at or below it. The relay deducts a live release fee from the payout, and releases nothing
  * once that fee reaches the amount, after the hub has already burned it. Sized to the fee cap the solver assumes.
  */
 export const MpcRelayPayoutMinimums: Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
-  // The relay's release fee is capped at 3 USDT / 10 TRX: `tronReleaseCosts[*].capUnits` in icon-project/sodax-solver-v2
-  // onchain-modules/modules/liquidity/hub/asset/src/core/tronReleaseFee.ts (ported from the relay's fee-api).
-  [ChainKeys.TRON_MAINNET]: { USDT: 3_000_000n, TRX: 10_000_000n },
-  // The relay deducts no XRPL release fee (solver quotes 1:1); XrpSpokeService.checkDestination checks the native account reserve.
-  [ChainKeys.XRP_MAINNET]: {},
-  // No floor: the solver serves Monad with EvmChainProvider (sodax-solver-v2 .../hub/asset/src/chains/evm.ts), which has
-  // no `priceReleaseFees`, so XAssetModule quotes its release 1:1. The solver models release fees only for Tron, TON
-  // and Zcash.
-  [ChainKeys.MONAD_MAINNET]: {},
-  // TON USDT releases cost the relay ~0.1 TON (jetton transfer + recipient jetton-wallet deploy), priced live and capped
-  // at 3 USDT: `tonReleaseCosts[TON_USDT_ASSET].capUnits` in icon-project/sodax-solver-v2 onchain-modules/modules/
-  // liquidity/hub/asset/src/core/tonReleaseFee.ts. Native TON (GRAM) is absent there and quotes 1:1, so it has no floor.
-  [ChainKeys.TON_MAINNET]: { USDT: 3_000_000n },
-  // ZEC is not sized to its cap. The release fee is the relay's ZEC network fee, fetched live from the fee API in
-  // zatoshi (`getZcashReleaseFeeZec` in icon-project/sodax-solver-v2 onchain-modules/modules/liquidity/hub/asset/src/
-  // core/zcashFees.ts; ZIP-317 fallback 0.00015 ZEC). ZEC pays its own fee, so `computeZcashReleaseFee` returns that cost
-  // as is, and `zcashReleaseCaps` (1 ZEC, core/zcashReleaseFee.ts) is only a safety ceiling: a 1 ZEC floor would refuse
-  // ordinary payouts. 0.001 ZEC is ~6.7x the fallback fee (20 ZIP-317 logical actions at 5,000 zatoshi), so a payout
-  // just above it still clears a congested or many-input release and stays far above the transparent dust limit.
-  [ChainKeys.ZCASH_MAINNET]: { ZEC: 100_000n },
-  // No release fee: icon-project/sodax-solver-v2 onchain-modules/modules/liquidity/hub/asset/src/chains/cardano.ts has
-  // no `priceReleaseFees`, so releases quote 1:1. The contract's 1 ADA minimum is in MpcRelayPayoutFloors below.
-  [ChainKeys.CARDANO_MAINNET]: {},
+  [ChainKeys.TRON_MAINNET]: {
+    [tronSupportedTokens.USDT.address]: 3_000_000n,
+    [tronSupportedTokens.TRX.address]: 10_000_000n,
+  },
+  // XRPL releases have no relay fee. Unknown issuer addresses still fail closed.
+  [ChainKeys.XRP_MAINNET]: {
+    [xrpSupportedTokens.XRP.address]: 0n,
+    [xrpSupportedTokens.USDC.address]: 0n,
+    [xrpSupportedTokens.RLUSD.address]: 0n,
+  },
+  // Monad releases are quoted 1:1. Explicit zero floors still reject unknown token addresses.
+  [ChainKeys.MONAD_MAINNET]: {
+    [monadSupportedTokens.MON.address.toLowerCase()]: 0n,
+    [monadSupportedTokens.USDC.address.toLowerCase()]: 0n,
+  },
+  // USDT is capped at 3 USDT by the relay release-fee model. Native TON has no release fee.
+  [ChainKeys.TON_MAINNET]: {
+    [tonSupportedTokens.TON.address]: 0n,
+    [tonSupportedTokens.USDT.address]: 3_000_000n,
+  },
+  [ChainKeys.ZCASH_MAINNET]: { [zcashSupportedTokens.ZEC.address]: 100_000n },
+  [ChainKeys.CARDANO_MAINNET]: { [cardanoSupportedTokens.ADA.address]: 0n },
 };
 
-/**
- * Smallest payout the MPC relay releases, by chain and token symbol, in the payout token's decimals: the SDK refuses
- * one below it. Unlike {@link MpcRelayPayoutMinimums} this is a floor the amount may equal, not a fee to exceed.
- */
+/** Smallest payout the relay releases, by chain and token address. The amount may equal this floor. */
 export const MpcRelayPayoutFloors: Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
-  // The contract refuses a Cardano release below 1 ADA (the min-UTXO of the largest recipient output, rounded up)
-  // after the hub has burned it. There is no release fee on Cardano.
-  [ChainKeys.CARDANO_MAINNET]: { ADA: 1_000_000n },
+  [ChainKeys.CARDANO_MAINNET]: { [cardanoSupportedTokens.ADA.address]: 1_000_000n },
 };
 
 export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey>(

@@ -424,7 +424,7 @@ await checkIntentStatus(sodax, intentDeliveryInfo.dstTxHash);
 - `NOT_FOUND (-1)`: Intent not found in the solver system (may appear immediately after creation). After 3 consecutive NOT_FOUND responses, polling stops.
 - `NOT_STARTED_YET (1)`: Intent is queued and waiting to be processed (continues polling)
 - `STARTED_NOT_FINISHED (2)`: Intent is currently being processed (continues polling)
-- `SOLVED (3)`: Swap completed successfully (includes `fill_tx_hash` when available) — **Terminal state**
+- `SOLVED (3)`: The solver filled the intent. For an MPC-relay destination, call `waitForIntentDelivery` to confirm the payout
 - `FAILED (4)`: Swap failed to complete — **Terminal state**
 
 **Polling Behavior**:
@@ -454,13 +454,14 @@ if (!swapResult.ok) {
 
     case 'RELAY_TIMEOUT':
       // Spoke transaction was submitted but the hub packet did not arrive within timeout.
-      // The relay may still complete — poll the relayer API.
+      // Intent-relay source: poll status by the original hash. MPC-relay source:
+      // wait for that deposit, notify the solver with the hub mint, then poll status.
       console.error('Relay timed out. Cause:', error.cause);
       break;
 
     case 'TX_SUBMIT_FAILED':
       // CRITICAL: spoke tx landed but relay submission failed. Funds may be in flight.
-      // Persist the user's input + spoke tx hash and retry submission.
+      // Intent-relay source only: use the original source hash and relay data to resume submission.
       console.error('Relay submit failed:', error.context?.relayCode, error.cause);
       break;
 
@@ -500,7 +501,7 @@ is an additional repository example. It executes on mainnet and reads its privat
 
 ## Next Steps
 
-- **Recovery**: Follow the [failed-swap recovery guidance](https://github.com/gosodax/sodax-sdks/blob/main/docs/developers/faq.md) before retrying a transaction that may have already been submitted
+- **Recovery**: Follow the [failed-swap recovery guidance](https://github.com/gosodax/sodax-sdks/blob/main/docs/developers/faq.md) to resume an existing transaction without sending it again
 - Learn more about swap configuration and advanced features in [SWAPS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/SWAPS.md)
 - Explore other SDK features like [Money Market](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MONEY_MARKET.md), [Bridge](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE.md), and [Staking](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/STAKING.md)
 - Check the [README.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/README.md) for general SDK usage and configuration

@@ -1,7 +1,7 @@
 import { blake2b } from '@noble/hashes/blake2b';
-import { ChainKeys } from '@sodax/types';
+import { ChainKeys, IndeterminateOutcomeError } from '@sodax/types';
 import { Keypair } from '@stellar/stellar-sdk';
-import { bytesToHex, hexToBytes, type Hex } from 'viem';
+import { bytesToHex, concat, hexToBytes, keccak256, toHex, type Hex } from 'viem';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
@@ -306,9 +306,12 @@ describe('CardanoSpokeService.deposit', () => {
     expect(wallet.submitTransaction).toHaveBeenCalledOnce();
   });
 
-  it('notifies the SDK hash and rethrows the original error when wallet submission fails', async () => {
+  it.each([
+    ['DOMException', new DOMException('connection lost', 'NetworkError')],
+    ['read-only Error', Object.defineProperty(new Error('connection lost'), 'message', { writable: false })],
+  ])('preserves the SDK hash and original %s when wallet submission fails', async (_label, failure) => {
     const wallet = walletFor();
-    const failure = new Error('connection lost after sending');
+    const originalMessage = Object.getOwnPropertyDescriptor(failure, 'message');
     wallet.submitTransaction.mockRejectedValueOnce(failure);
 
     const error = await cardano.deposit(depositParams(wallet)).catch((error: unknown) => error);
@@ -316,9 +319,34 @@ describe('CardanoSpokeService.deposit', () => {
     if (!unsigned) throw new Error('wallet was not asked to sign');
     const txHash = hashOfUnsigned(unsigned);
 
-    expect(error).toBe(failure);
-    expect(error).toMatchObject({ txHash, message: expect.stringMatching(/settle .* do not send again/i) });
+    expect(error).toBeInstanceOf(IndeterminateOutcomeError);
+    expect(error).not.toBe(failure);
+    expect(failure).not.toHaveProperty('txHash');
+    expect(Object.getOwnPropertyDescriptor(failure, 'message')).toEqual(originalMessage);
+    expect(error).toMatchObject({
+      cause: failure,
+      txHash,
+      message: expect.stringMatching(/settle .* do not send again/i),
+    });
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '1815', txHash);
+  });
+
+  it('signs and submits a deposit of exactly 400 ADA', async () => {
+    koios.utxos = [utxoRow(0, 410_000_000n)];
+    const wallet = walletFor();
+
+    await expect(cardano.deposit(depositParams(wallet, { amount: 400_000_000n }))).resolves.toMatch(/^[a-f0-9]{64}$/);
+    expect(wallet.signTransaction).toHaveBeenCalledOnce();
+    expect(wallet.submitTransaction).toHaveBeenCalledOnce();
+  });
+
+  it('refuses 400 ADA plus one lovelace before registration or signing', async () => {
+    const wallet = walletFor();
+
+    await expect(cardano.deposit(depositParams(wallet, { amount: 400_000_001n }))).rejects.toThrow(/400 ADA/);
+    expect(MpcRelayApiService.getDepositAddress).not.toHaveBeenCalled();
+    expect(wallet.signTransaction).not.toHaveBeenCalled();
+    expect(wallet.submitTransaction).not.toHaveBeenCalled();
   });
 
   it('preserves a CIP-30 refusal without notifying the relay', async () => {
@@ -552,6 +580,49 @@ describe('CardanoSpokeService.sendMessage', () => {
       /invalid hub wallet/,
     );
     expect(wallet.signData).not.toHaveBeenCalled();
+  });
+
+  it.each(['accepted', 'exhausted', 'lost reply'])('reuses the signed request after 429: %s', async outcome => {
+    vi.useFakeTimers();
+    const trackingIdOf = (body: string) => {
+      const { message } = JSON.parse(body);
+      return keccak256(concat([CARDANO_CIP8.paymentHash, toHex(BigInt(message.nonce), { size: 8 })]));
+    };
+    const lost = new Error('lost relay reply');
+    const send = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (send.mock.calls.length === 1 || outcome === 'exhausted') return new Response(null, { status: 429 });
+      if (outcome === 'lost reply') throw lost;
+      return Response.json({ accepted: true, trackingId: trackingIdOf(String(init?.body)) });
+    });
+    vi.stubGlobal('fetch', send);
+    const wallet = walletSigning();
+    const pending = cardano.sendMessage(messageParams(wallet)).then(
+      value => ({ ok: true, value }),
+      (error: unknown) => ({ ok: false, error }),
+    );
+
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    const bodies = send.mock.calls.map(([, init]) => String(init?.body));
+    expect(bodies).toHaveLength(outcome === 'exhausted' ? 3 : 2);
+    expect(new Set(bodies).size).toBe(1);
+    expect(wallet.signData).toHaveBeenCalledOnce();
+    const body = bodies[0];
+    if (body === undefined) throw new Error('withdraw request was not sent');
+    const trackingId = trackingIdOf(body);
+    if (outcome === 'accepted') expect(result).toEqual({ ok: true, value: trackingId });
+    if (outcome === 'lost reply') {
+      expect(result).toMatchObject({
+        ok: false,
+        error: { name: 'IndeterminateOutcomeError', cause: lost, trackingId },
+      });
+    }
+    if (outcome === 'exhausted') {
+      expect(result).toMatchObject({
+        ok: false,
+        error: { name: 'Error', message: expect.stringContaining('nothing was queued') },
+      });
+    }
   });
 
   it('surfaces a relay rejection', async () => {

@@ -53,6 +53,7 @@ import {
 import { encodeFunctionData, erc20Abi, isAddress } from 'viem';
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import { stataTokenFactoryAbi } from '../shared/abis/stataTokenFactory.abi.js';
+import { mapRelayFailure } from '../errors/relay-error-mapping.js';
 import { approveFailed, intentCreationFailed, lookupFailed } from '../errors/wrappers.js';
 import { dexInvariant, isDexApproveError, isDexCreateIntentError } from './errors.js';
 
@@ -435,7 +436,17 @@ export class AssetService {
 
       const txResult = await this.spoke.sendMessage(sendMessageParams);
 
-      if (!txResult.ok) return { ok: false, error: intentCreationFailed('dex', txResult.error) };
+      if (!txResult.ok) {
+        return {
+          ok: false,
+          error: intentCreationFailed('dex', txResult.error, {
+            action: 'withdraw',
+            srcChainKey: params.srcChainKey,
+            dstChainKey: params.dst?.dstChainKey ?? params.srcChainKey,
+            relayData: { address: fromHubWallet, payload: data },
+          }),
+        };
+      }
 
       return {
         ok: true,
@@ -581,7 +592,20 @@ export class AssetService {
           relayerApiEndpoint: this.relayerApiEndpoint,
           timeout: timeout,
         });
-        if (!packetResult.ok) return packetResult;
+        if (!packetResult.ok) {
+          if (!isMpcRelayChainKey(dstChainKey)) return packetResult;
+          return {
+            ok: false,
+            error: mapRelayFailure(packetResult.error, {
+              feature: 'dex',
+              action: 'withdraw',
+              srcChainKey: params.srcChainKey,
+              dstChainKey,
+              srcTxHash: tx,
+              relayData,
+            }),
+          };
+        }
 
         hubTxHash = packetResult.value.dst_tx_hash;
       } else {
@@ -591,7 +615,20 @@ export class AssetService {
       // No relay watches the hub for an MPC-relay chain, so its release is driven from here.
       if (isMpcRelayChainKey(dstChainKey)) {
         const released = await this.spoke.settleHubRelease(hubTxHash, dstChainKey, timeout);
-        if (!released.ok) return { ok: false, error: released.error.cause };
+        if (!released.ok) {
+          return {
+            ok: false,
+            error: mapRelayFailure(released.error.cause, {
+              feature: 'dex',
+              action: 'withdraw',
+              srcChainKey: params.srcChainKey,
+              dstChainKey,
+              srcTxHash: tx,
+              hubTxHash,
+              relayData,
+            }),
+          };
+        }
         return { ok: true, value: settled(released.value.dstChainTxHash) };
       }
       return { ok: true, value: settled(hubTxHash) };
@@ -609,7 +646,20 @@ export class AssetService {
     params: SettleParams<K, D>,
   ): Promise<Result<Settlement<K, D>>> {
     const settled = await this.spoke.settle(params);
-    return settled.ok ? settled : { ok: false, error: settled.error.cause };
+    if (settled.ok) return settled;
+    const { cause } = settled.error;
+    return {
+      ok: false,
+      error: mapRelayFailure(cause, {
+        feature: 'dex',
+        srcChainKey: params.chainKey,
+        dstChainKey: params.dstChainKey,
+        relayData: params.relayData,
+        ...(params.direction === 'outbound'
+          ? { action: 'withdraw', trackingId: params.tx }
+          : { action: 'deposit', srcTxHash: params.tx }),
+      }),
+    };
   }
 
   /**
@@ -751,6 +801,7 @@ export class AssetService {
     } else {
       assertMpcPayoutAboveMinimum({
         feature: 'dex',
+        dstChainKey: dstChainKey,
         token: assetConfig,
         amount: translatedAmount,
         context: { dstChainKey, field: 'amount' },

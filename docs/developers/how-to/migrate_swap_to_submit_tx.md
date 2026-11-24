@@ -4,6 +4,8 @@ icon: rotate
 generatedFrom: packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md
 ---
 
+This recipe applies to intent-relay sources. MPC-relay sources skip backend submit-tx and recover with the original deposit hash using the MPC recovery steps in the swap guide.
+
 `sodax.swaps.swap()` no longer runs a single linear pipeline. It creates the intent, then tries a
 **backend submit-tx attempt**, and on any non-success **falls back** to the client-side relay so the
 swap still completes.

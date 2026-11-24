@@ -25,7 +25,7 @@ See [`features/recovery.md`](../../../integration/knowledge/features/recovery.md
 
 ## Pitfalls
 
-1. **Recovery is not a replacement for real error handling.** Use it after investigating why the original cross-chain operation failed — relay timeouts may resolve on retry; structural failures need fixing first.
+1. **Recovery is not a replacement for real error handling.** Use it after investigating why the original cross-chain operation failed — resume settlement using the original source hash or withdrawal tracking ID after a relay timeout. Resolve structural problems before attempting a new operation.
 
 ## Cross-references
 

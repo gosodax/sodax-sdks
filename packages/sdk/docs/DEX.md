@@ -1,7 +1,7 @@
 <!-- packages/sdk/docs/DEX.md -->
 # DEX (Concentrated Liquidity)
 
-> **Error handling conventions:** DEX has a **mixed** contract. Everything except the relay leg returns a typed `SodaxError` with `feature: 'dex'` — discriminate on `error.code`. Relay failures are the exception: DEX is the only feature module that does not run them through `mapRelayFailure`, so they surface as a plain `Error` whose `.message` is one of `RELAY_ERROR_CODES`. See [Error Handling](#error-handling) below before writing any branching.
+> **Error handling conventions:** DEX uses typed `SodaxError` for feature errors and MPC settlement failures. The intent-relay leg still returns its plain relay error. See [Error Handling](#error-handling) for both shapes.
 
 The DEX portion of the SDK provides helpers for asset wrapping/deposits and concentrated liquidity (CL) operations.
 All DEX features are accessible through the `dex` property of a `Sodax` instance.
@@ -604,12 +604,10 @@ type Result<T> =
 
 ### Two contracts coexist
 
-Almost every DEX failure is a `SodaxError` carrying `feature: 'dex'`, a `code`, and a `context`
-object. The exception is the **relay leg**: DEX is the only feature module that does not pass relay
-failures through `mapRelayFailure`, so the relay-waiting variants (`deposit`, `withdraw`,
-`supplyLiquidity`, `increaseLiquidity`, `decreaseLiquidity`, `claimRewards`) forward the relay layer's
-own error unchanged — a plain `Error` whose `.message` is one of `RELAY_ERROR_CODES`:
-`SUBMIT_TX_FAILED`, `RELAY_TIMEOUT`, `RELAY_POLLING_FAILED`.
+DEX feature errors carry `feature: 'dex'`, a `code` and `context`. Asset deposits and withdrawals
+on an MPC-relay source, and withdrawals releasing to an MPC-relay destination after a hub burn, wrap settlement failures as typed relay errors. The intent-relay
+leg still forwards its raw relay error, whose message is `SUBMIT_TX_FAILED`, `RELAY_TIMEOUT` or
+`RELAY_POLLING_FAILED`.
 
 Handle both shapes:
 
@@ -625,6 +623,11 @@ if (!result.ok) {
       case "USER_REJECTED":         /* wallet popup dismissed */ break;
       case "VALIDATION_FAILED":     /* bad input, see error.context.field */ break;
       case "INTENT_CREATION_FAILED":/* build/sign/broadcast failed */ break;
+      case "RELAY_TIMEOUT":
+      case "RELAY_FAILED":
+        // Resume the original deposit using context.srcTxHash, e.g. with
+        // sodax.spoke.tron.waitForDeposit(srcTxHash). Do not call deposit again.
+        break;
       default:                      /* UNKNOWN */ break;
     }
     console.error(result.error.context, result.error.cause);
@@ -636,12 +639,10 @@ if (!result.ok) {
 }
 ```
 
-The distinction matters operationally. All three relay codes mean the source-chain transaction
-landed and only cross-chain delivery is unresolved, so the response is to keep polling or to
-reconcile, not to resubmit.
-
-Ordering the `isSodaxError` check first also keeps this code correct if DEX later routes relay
-failures through `mapRelayFailure`: the relay branch simply stops being reached.
+For an MPC deposit, use `context.srcTxHash` to resume the same deposit. For an MPC withdrawal,
+use `context.trackingId` to read the relay record or resume outbound settlement with the
+original `dstChainKey` and `relayData`. Do not repeat the deposit or withdrawal call. For an
+intent-relay error, recover or resubmit the existing transaction through that relay.
 
 ### Guards
 
@@ -663,7 +664,7 @@ arrives as `USER_REJECTED` rather than the generic failure code for that phase.
 | --- | --- | --- |
 | `assetService.approve` | `USER_REJECTED`, `VALIDATION_FAILED`, `APPROVE_FAILED`, `UNKNOWN` | `isDexApproveError` |
 | `assetService.executeDeposit` / `executeWithdraw` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` | `isDexCreateIntentError` |
-| `assetService.deposit` / `withdraw` | the above **plus** a raw relay `Error` | both, plus the `instanceof Error` fallback |
+| `assetService.deposit` / `withdraw` | the above plus `RELAY_TIMEOUT`, `RELAY_FAILED`, or a raw intent-relay `Error` on other routes | both, plus the `instanceof Error` fallback |
 | `assetService.getWrappedAmount` / `getUnwrappedAmount` / `getDeposit` | `LOOKUP_FAILED`, `UNKNOWN` | `isDexError` |
 | `assetService.isAllowanceValid` | **untyped** — see below | none |
 | `clService.executeSupplyLiquidity` / `executeIncreaseLiquidity` / `executeDecreaseLiquidity` / `executeClaimRewards` | `USER_REJECTED`, `VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `UNKNOWN` | `isDexCreateIntentError` |
@@ -712,9 +713,7 @@ These helpers throw rather than returning a `Result`, so wrap them in `try`/`cat
 
 ### `context` fields
 
-DEX populates `phase` (`validate` | `intentCreation` | `approve` | `lookup`), `method` (on
-`LOOKUP_FAILED`), and `method` (on lookup failures). It does **not** set `relayCode` —
-that field only exists on modules whose relay failures go through `mapRelayFailure`.
+DEX feature errors carry the failing phase. Typed MPC settlement errors carry `relayCode` and the original settlement identifiers available at that phase.
 
 ## Usage Flow
 
@@ -727,6 +726,8 @@ that field only exists on modules whose relay failures go through `mapRelayFailu
 7. **Manage position** using `increaseLiquidity` / `decreaseLiquidity` / `claimRewards`
 8. **Withdraw** using `assetService.withdraw()` to unwrap StatATokens back to the original asset
 
+When an MPC-relay deposit's settlement fails, the SDK returns a structured error with `context.srcTxHash`. Resume the existing deposit using the spoke's `waitForDeposit(srcTxHash)` until the hub mint is available. Do not call deposit again for that transfer.
+
 ## Runnable example
 
 [`apps/demo`](https://github.com/gosodax/sodax-sdks/tree/main/apps/demo/src/pages/dex) —
@@ -736,3 +737,18 @@ see which of them need an approval and which return a position `tokenId`.
 There is no backend counterpart in
 [`apps/node`](https://github.com/gosodax/sodax-sdks/tree/main/apps/node) for the DEX module
 yet.
+
+
+### Resume a DEX withdrawal to an MPC-relay chain
+
+If an MPC-relay source fails with `context.trackingId`, call `sodax.spoke.settle` with
+`chainKey: context.srcChainKey`, `tx: context.trackingId`, `direction: 'outbound'`,
+and the original `context.relayData` and `context.dstChainKey`. If settlement instead
+failed after the hub burn and exposes `context.hubTxHash`, call
+`sodax.spoke.settleHubRelease(context.hubTxHash, context.dstChainKey)`. On timeout,
+resume the same settlement with those identifiers. Do not call `withdraw` again.
+
+For an intent-relay source paying an MPC destination, a first-leg relay failure keeps
+`context.srcTxHash`, `context.relayData` and both chain keys. Call `sodax.spoke.settle`
+with those original fields and `direction: 'outbound'`. It resumes the first leg
+and then releases the hub burn to the destination. Do not send another withdrawal.
