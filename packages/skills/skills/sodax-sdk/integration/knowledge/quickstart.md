@@ -98,7 +98,7 @@ const pools = sodax.dex.clService.getPools();   // synchronous in v2
 Chain-agnostic reads of the balances a user's own address holds — the SDK dispatches to the right
 chain family and reads the native coin or that chain's token standard (EVM erc20, Solana SPL, Sui
 coin, Soroban contract, IRC-2, NEP-141, SIP-010, Injective bank denom, Bitcoin UTXOs, TRC-20). Distinct from
-`getDeposit`, which reads the protocol asset manager rather than the user.
+`getDeposit`, which reads the protocol asset manager rather than the user (on Tron it reads `srcAddress`).
 
 ```ts
 // @ai-snippets-skip

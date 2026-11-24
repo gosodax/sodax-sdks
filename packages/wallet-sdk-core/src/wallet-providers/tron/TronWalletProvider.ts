@@ -113,7 +113,7 @@ export class TronWalletProvider extends BaseWalletProvider<TronWalletDefaults> i
 
   public async getWalletAddress(): Promise<string> {
     if (this.privateKey) return privateKeyToTronAddress(this.privateKey);
-    const address = this.browserAddress ?? this.tronWeb?.defaultAddress?.base58;
+    const address = this.browserAddress ?? this.connectedTronWeb()?.defaultAddress?.base58;
     if (!address) throw new Error('Tron wallet not connected (no address)');
     return address;
   }

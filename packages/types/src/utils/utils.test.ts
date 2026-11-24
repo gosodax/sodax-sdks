@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { ChainKeys, tronSupportedTokens } from '../chains/index.js';
-import { getEvmChainKeyByChainId, getUnmetMpcPayoutMinimum } from './utils.js';
+import {
+  ChainKeys,
+  MpcRelayChainMap,
+  type MpcRelayChainKey,
+  supportedTokensByChain,
+  tronSupportedTokens,
+} from '../chains/index.js';
+import { getEvmChainKeyByChainId, getMpcPayoutMinimum, getUnmetMpcPayoutMinimum } from './utils.js';
 
 describe('getEvmChainKeyByChainId', () => {
   it('maps wagmi chainId 42161 to ARBITRUM_MAINNET', () => {
@@ -54,6 +60,16 @@ describe('getUnmetMpcPayoutMinimum', () => {
     expect(
       getUnmetMpcPayoutMinimum({ token: usdt, amount: 3_000_001_000_000_000_000n, amountDecimals: 18 }),
     ).toBeUndefined();
+  });
+
+  // The SDK refuses a payout of a token with no floor, so a token listed without one could never be paid out.
+  it('has a floor for every token of every MPC-relay chain', () => {
+    const missing = (Object.keys(MpcRelayChainMap) as MpcRelayChainKey[]).flatMap(chainKey =>
+      Object.values(supportedTokensByChain[chainKey])
+        .filter(token => getMpcPayoutMinimum(token) === undefined)
+        .map(token => `${chainKey}:${token.symbol}`),
+    );
+    expect(missing).toEqual([]);
   });
 
   it('passes a chain or token with no minimum', () => {

@@ -93,6 +93,9 @@ const TRON_MAX_EXPIRATION_MS = 24 * 60 * 60 * 1000;
 /** A 65-byte `r‖s‖v` placeholder — only its length matters when sizing a transaction. */
 const SIGNATURE_PLACEHOLDER = '00'.repeat(65);
 
+/** Bandwidth java-tron's `BandwidthProcessor` adds per contract on top of the signed size (`MAX_RESULT_SIZE_IN_TX`). */
+const TRON_RESULT_BYTES_PER_CONTRACT = 64n;
+
 /** A TronGrid constant call's outcome. It answers 200 for a failed call too, and marks a revert with a `message`. */
 type ConstantCallResult = { result?: { result?: boolean; message?: string } };
 
@@ -496,8 +499,9 @@ export class TronSpokeService implements MpcRelaySettlement {
 
   /**
    * Resource cost of a raw deposit: energy from a constant call replaying its TRC-20 transfer, bandwidth
-   * from its signed size. Tron charges these to staked resources, so there is no single fee number. TRX
-   * uses no energy, and a raw withdraw-auth is signed off chain, so it uses neither.
+   * from its signed size plus the per-contract result space the node adds. Tron charges these to staked
+   * resources, so there is no single fee number. TRX uses no energy, and a raw withdraw-auth is signed off
+   * chain, so it uses neither.
    */
   public async estimateGas(params: EstimateGasParams<TronChainKey>): Promise<TronGasEstimate> {
     const { tx } = params;
@@ -507,7 +511,9 @@ export class TronSpokeService implements MpcRelaySettlement {
     const call = readTrc20TransferCall(rawHex);
     const energy = call ? await this.estimateTrc20Energy(call) : 0n;
     const signed = assembleBroadcastHex({ rawHex, signatures: [SIGNATURE_PLACEHOLDER] });
-    return { energy, bandwidth: BigInt(signed.length / 2) } satisfies TronGasEstimate;
+    // A deposit carries exactly one contract; `readTrc20TransferCall` throws on any other count.
+    const bandwidth = BigInt(signed.length / 2) + TRON_RESULT_BYTES_PER_CONTRACT;
+    return { energy, bandwidth } satisfies TronGasEstimate;
   }
 
   /** Energy a TRC-20 `transfer` would consume, from a constant (non-broadcasting) call. */

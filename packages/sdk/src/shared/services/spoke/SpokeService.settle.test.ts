@@ -592,8 +592,13 @@ describe('SpokeService.settle — destination legs', () => {
 
     it('fails rather than guessing between two releases to the same chain', async () => {
       readReceipt([bridgeRequest(1), bridgeRequest(2)]);
+      const read = vi.spyOn(spoke.tron, 'getHubReleaseRecord').mockResolvedValue({
+        ok: true,
+        value: { depositId: 'id', status: 'minted', createdAt: null, txs: {} },
+      });
 
       expect((await spoke.getHubRelease(HUB_TX))?.ok).toBe(false);
+      expect(read).not.toHaveBeenCalled();
     });
 
     it('reports an unreadable receipt as a failure rather than rejecting', async () => {

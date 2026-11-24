@@ -61,8 +61,8 @@ export type GetDepositParams<ChainKey extends SpokeChainKey = SpokeChainKey> = {
 /**
  * Parameters for reading a user's own wallet balance of a single token on a spoke chain.
  *
- * Unlike {@link GetDepositParams} (which reads the protocol asset-manager holding and keys
- * the token by raw address), this reads the balance held by `srcAddress` itself. `token` is
+ * Unlike {@link GetDepositParams} (which reads the protocol asset-manager holding, `srcAddress` on Tron, and
+ * keys the token by raw address), this reads the balance held by `srcAddress` itself. `token` is
  * the full {@link XToken} so the reader can detect the native coin and resolve chain-specific
  * token identifiers (EVM erc20 address, Solana mint, Sui coinType, Soroban contract, …).
  *
