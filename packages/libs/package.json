@@ -89,7 +89,8 @@
     "check:no-duplicate-bundling": "node scripts/verify-no-duplicate-bundling.mjs",
     "check:dist-self-contained": "node scripts/verify-dist-self-contained.mjs",
     "check:runtime-smoke": "node scripts/verify-runtime-smoke.mjs",
-    "check:knip": "knip"
+    "check:knip": "knip",
+    "check:api-surface": "node ../../scripts/check-api-surface.mjs"
   },
   "peerDependencies": {
     "libsodium-wrappers-sumo": "^0.7.11"

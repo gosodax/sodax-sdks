@@ -72,7 +72,8 @@
     "test": "vitest run",
     "check:knip": "knip",
     "check:circular-deps": "madge --circular $(find ./src -name '*.ts' -o -name '*.tsx')",
-    "lint": "biome lint . --write"
+    "lint": "biome lint . --write",
+    "check:api-surface": "node ../../scripts/check-api-surface.mjs"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^1.7.5",

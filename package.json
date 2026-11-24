@@ -20,7 +20,7 @@
     "checkTs:packages": "turbo run checkTs:packages",
     "test": "pnpm test:release-scripts && pnpm test:ci-scripts && turbo run test --filter=!./apps/node",
     "test:release-scripts": "node --test scripts/config-version.test.mjs scripts/publish-dist-tag.test.mjs scripts/release.test.mjs scripts/check-doc-links.test.mjs scripts/check-docs-nav.test.mjs scripts/sync-docs-pages.test.mjs scripts/sync-docs-examples.test.mjs scripts/pack-local.test.mjs",
-    "test:ci-scripts": "node --test scripts/ai-drift-scope.test.mjs scripts/ai-drift-report.test.mjs scripts/check-docs-drift.test.mjs scripts/check-tests-typechecked.test.mjs scripts/check-swap-tokens-oracle.test.mjs",
+    "test:ci-scripts": "node --test scripts/ai-drift-scope.test.mjs scripts/ai-drift-report.test.mjs scripts/check-docs-drift.test.mjs scripts/check-tests-typechecked.test.mjs scripts/check-swap-tokens-oracle.test.mjs scripts/check-intent-hash-keying.test.mjs",
     "test:e2e": "turbo run test:e2e --filter=!./apps/node",
     "test:packages": "turbo run test:packages",
     "check:circular-deps": "turbo run check:circular-deps",
@@ -30,6 +30,7 @@
     "check:ai-dev-files": "node scripts/check-ai-dev-files.mjs",
     "check:doc-links": "node scripts/check-doc-links.mjs",
     "check:docs-nav": "node scripts/check-docs-nav.mjs",
+    "check:intent-hash-keying": "node scripts/check-intent-hash-keying.mjs",
     "check:swap-tokens-oracle": "node scripts/check-swap-tokens-oracle.mjs",
     "check:docs-pages": "node scripts/sync-docs-pages.mjs --check",
     "docs:sync-pages": "node scripts/sync-docs-pages.mjs",
@@ -42,7 +43,8 @@
     "pack:local": "node scripts/pack-local.mjs",
     "clean": "turbo clean && rm -rf node_modules dist .turbo && rm -rf apps/*/node_modules apps/*/dist apps/*/.turbo && rm -rf packages/*/node_modules packages/*/dist packages/*/.turbo",
     "prepare": "husky",
-    "check:sponsoring-contract": "node scripts/check-sponsoring-contract.mjs"
+    "check:sponsoring-contract": "node scripts/check-sponsoring-contract.mjs",
+    "check:api-surface": "turbo run check:api-surface --filter=./packages/*"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",

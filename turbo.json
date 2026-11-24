@@ -81,6 +81,10 @@
     },
     "check:knip": {
       "cache": false
+    },
+    "check:api-surface": {
+      "dependsOn": ["build"],
+      "inputs": ["dist/**", "api-surface.api.txt", "package.json", "$TURBO_ROOT$/scripts/check-api-surface.mjs"]
     }
   },
   "remoteCache": {

@@ -1,0 +1,2365 @@
+{
+  "schemas.AllowanceCheckResponseSchema": {
+    "object": {
+      "valid": "boolean"
+    }
+  },
+  "schemas.DeadlineResponseSchema": {
+    "object": {
+      "deadline": "string"
+    }
+  },
+  "schemas.FeeResponseSchema": {
+    "object": {
+      "fee": "string"
+    }
+  },
+  "schemas.GasEstimateResponseSchema": {
+    "object": {
+      "gas": "unknown"
+    }
+  },
+  "schemas.GetIntentResponseSchema": {
+    "object": {
+      "allowPartialFill": "boolean",
+      "creator": "string",
+      "data": "string",
+      "deadline": "string",
+      "dstAddress": "string",
+      "dstChain": "string",
+      "inputAmount": "string",
+      "inputToken": "string",
+      "intentId": "string",
+      "minOutputAmount": "string",
+      "outputToken": "string",
+      "solver": "string",
+      "srcAddress": "string",
+      "srcChain": "string"
+    }
+  },
+  "schemas.GetSwapTokensByChainResponseSchema": {
+    "array": {
+      "object": {
+        "address": "string",
+        "chainKey": "string",
+        "decimals": "number",
+        "hubAsset": "string",
+        "name": "string",
+        "symbol": "string",
+        "vault": "string"
+      }
+    }
+  },
+  "schemas.GetSwapTokensResponseSchema": {
+    "record": {
+      "key": "string",
+      "value": {
+        "array": {
+          "object": {
+            "address": "string",
+            "chainKey": "string",
+            "decimals": "number",
+            "hubAsset": "string",
+            "name": "string",
+            "symbol": "string",
+            "vault": "string"
+          }
+        }
+      }
+    }
+  },
+  "schemas.IntentExtraDataResponseSchema": {
+    "object": {
+      "address": "string",
+      "payload": "string"
+    }
+  },
+  "schemas.IntentHashResponseSchema": {
+    "object": {
+      "hash": "string"
+    }
+  },
+  "schemas.IntentPacketResponseSchema": {
+    "object": {
+      "connSn": "number",
+      "dstAddress": "string",
+      "dstChainId": "number",
+      "dstTxHash": "string",
+      "payload": "string",
+      "signatures": {
+        "array": "string"
+      },
+      "srcAddress": "string",
+      "srcChainId": "number",
+      "srcTxHash": "string",
+      "status": "string"
+    }
+  },
+  "schemas.IntentStateSchema": {
+    "object": {
+      "exists": "boolean",
+      "pendingPayment": "boolean",
+      "receivedOutput": "string",
+      "remainingInput": "string"
+    }
+  },
+  "schemas.makeApproveResponseSchema(sonic)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "custom",
+            "from": "custom",
+            "to": "custom",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "custom",
+          "from": "custom",
+          "to": "custom",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeApproveResponseSchema(solana)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "string",
+            "from": "string",
+            "to": "string",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeApproveResponseSchema(sui)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "string",
+            "from": "custom",
+            "to": "string",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "custom",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeApproveResponseSchema(stellar)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "data": "string",
+            "from": "string",
+            "to": "string",
+            "value": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeApproveResponseSchema(injective-1)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "from": "custom",
+            "signedDoc": {
+              "object": {
+                "accountNumber": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                },
+                "authInfoBytes": {
+                  "pipe": [
+                    {
+                      "record": {
+                        "key": "string",
+                        "value": {
+                          "pipe": [
+                            "number",
+                            {
+                              "action": "integer"
+                            },
+                            {
+                              "action": "min_value",
+                              "requirement": 0
+                            },
+                            {
+                              "action": "max_value",
+                              "requirement": 255
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "action": "transform"
+                    }
+                  ]
+                },
+                "bodyBytes": {
+                  "pipe": [
+                    {
+                      "record": {
+                        "key": "string",
+                        "value": {
+                          "pipe": [
+                            "number",
+                            {
+                              "action": "integer"
+                            },
+                            {
+                              "action": "min_value",
+                              "requirement": 0
+                            },
+                            {
+                              "action": "max_value",
+                              "requirement": 255
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "action": "transform"
+                    }
+                  ]
+                },
+                "chainId": "string"
+              }
+            },
+            "to": "custom"
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "from": "custom",
+          "signedDoc": {
+            "object": {
+              "accountNumber": {
+                "pipe": [
+                  "string",
+                  {
+                    "action": "regex",
+                    "requirement": "/^\\d+$/"
+                  },
+                  {
+                    "action": "to_bigint"
+                  }
+                ]
+              },
+              "authInfoBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "bodyBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "chainId": "string"
+            }
+          },
+          "to": "custom"
+        }
+      }
+    }
+  },
+  "schemas.makeApproveResponseSchema(0x1.icon)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "record": {
+            "key": "string",
+            "value": {
+              "union": [
+                "string",
+                "custom"
+              ]
+            }
+          }
+        }
+      },
+      "tx": {
+        "record": {
+          "key": "string",
+          "value": {
+            "union": [
+              "string",
+              "custom"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeApproveResponseSchema(stacks)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "estimatedLength": {
+              "optional": "number"
+            },
+            "payload": "string"
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "estimatedLength": {
+            "optional": "number"
+          },
+          "payload": "string"
+        }
+      }
+    }
+  },
+  "schemas.makeApproveResponseSchema(near)": {
+    "object": {
+      "resetTx": {
+        "optional": {
+          "object": {
+            "params": {
+              "object": {
+                "args": "custom",
+                "contractId": "string",
+                "deposit": {
+                  "optional": {
+                    "pipe": [
+                      "string",
+                      {
+                        "action": "regex",
+                        "requirement": "/^\\d+$/"
+                      },
+                      {
+                        "action": "to_bigint"
+                      }
+                    ]
+                  }
+                },
+                "gas": {
+                  "optional": {
+                    "pipe": [
+                      "string",
+                      {
+                        "action": "regex",
+                        "requirement": "/^\\d+$/"
+                      },
+                      {
+                        "action": "to_bigint"
+                      }
+                    ]
+                  }
+                },
+                "method": "string"
+              }
+            },
+            "signerId": "string"
+          }
+        }
+      },
+      "tx": {
+        "object": {
+          "params": {
+            "object": {
+              "args": "custom",
+              "contractId": "string",
+              "deposit": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "gas": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "method": "string"
+            }
+          },
+          "signerId": "string"
+        }
+      }
+    }
+  },
+  "schemas.makeApproveResponseSchema(bitcoin)": {
+    "object": {
+      "resetTx": {
+        "optional": "custom"
+      },
+      "tx": "custom"
+    }
+  },
+  "schemas.makeApproveResponseSchema(not-a-real-chain)": {
+    "object": {
+      "resetTx": {
+        "optional": "custom"
+      },
+      "tx": "custom"
+    }
+  },
+  "schemas.makeCancelIntentResponseSchema(sonic)": {
+    "object": {
+      "tx": {
+        "object": {
+          "data": "custom",
+          "from": "custom",
+          "to": "custom",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCancelIntentResponseSchema(solana)": {
+    "object": {
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCancelIntentResponseSchema(sui)": {
+    "object": {
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "custom",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCancelIntentResponseSchema(stellar)": {
+    "object": {
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCancelIntentResponseSchema(injective-1)": {
+    "object": {
+      "tx": {
+        "object": {
+          "from": "custom",
+          "signedDoc": {
+            "object": {
+              "accountNumber": {
+                "pipe": [
+                  "string",
+                  {
+                    "action": "regex",
+                    "requirement": "/^\\d+$/"
+                  },
+                  {
+                    "action": "to_bigint"
+                  }
+                ]
+              },
+              "authInfoBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "bodyBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "chainId": "string"
+            }
+          },
+          "to": "custom"
+        }
+      }
+    }
+  },
+  "schemas.makeCancelIntentResponseSchema(0x1.icon)": {
+    "object": {
+      "tx": {
+        "record": {
+          "key": "string",
+          "value": {
+            "union": [
+              "string",
+              "custom"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCancelIntentResponseSchema(stacks)": {
+    "object": {
+      "tx": {
+        "object": {
+          "estimatedLength": {
+            "optional": "number"
+          },
+          "payload": "string"
+        }
+      }
+    }
+  },
+  "schemas.makeCancelIntentResponseSchema(near)": {
+    "object": {
+      "tx": {
+        "object": {
+          "params": {
+            "object": {
+              "args": "custom",
+              "contractId": "string",
+              "deposit": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "gas": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "method": "string"
+            }
+          },
+          "signerId": "string"
+        }
+      }
+    }
+  },
+  "schemas.makeCancelIntentResponseSchema(bitcoin)": {
+    "object": {
+      "tx": "custom"
+    }
+  },
+  "schemas.makeCancelIntentResponseSchema(not-a-real-chain)": {
+    "object": {
+      "tx": "custom"
+    }
+  },
+  "schemas.makeCreateIntentResponseSchema(sonic)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "custom",
+          "from": "custom",
+          "to": "custom",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCreateIntentResponseSchema(solana)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCreateIntentResponseSchema(sui)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "custom",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCreateIntentResponseSchema(stellar)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "data": "string",
+          "from": "string",
+          "to": "string",
+          "value": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCreateIntentResponseSchema(injective-1)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "from": "custom",
+          "signedDoc": {
+            "object": {
+              "accountNumber": {
+                "pipe": [
+                  "string",
+                  {
+                    "action": "regex",
+                    "requirement": "/^\\d+$/"
+                  },
+                  {
+                    "action": "to_bigint"
+                  }
+                ]
+              },
+              "authInfoBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "bodyBytes": {
+                "pipe": [
+                  {
+                    "record": {
+                      "key": "string",
+                      "value": {
+                        "pipe": [
+                          "number",
+                          {
+                            "action": "integer"
+                          },
+                          {
+                            "action": "min_value",
+                            "requirement": 0
+                          },
+                          {
+                            "action": "max_value",
+                            "requirement": 255
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "action": "transform"
+                  }
+                ]
+              },
+              "chainId": "string"
+            }
+          },
+          "to": "custom"
+        }
+      }
+    }
+  },
+  "schemas.makeCreateIntentResponseSchema(0x1.icon)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "record": {
+          "key": "string",
+          "value": {
+            "union": [
+              "string",
+              "custom"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeCreateIntentResponseSchema(stacks)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "estimatedLength": {
+            "optional": "number"
+          },
+          "payload": "string"
+        }
+      }
+    }
+  },
+  "schemas.makeCreateIntentResponseSchema(near)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": {
+        "object": {
+          "params": {
+            "object": {
+              "args": "custom",
+              "contractId": "string",
+              "deposit": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "gas": {
+                "optional": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              },
+              "method": "string"
+            }
+          },
+          "signerId": "string"
+        }
+      }
+    }
+  },
+  "schemas.makeCreateIntentResponseSchema(bitcoin)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": "custom"
+    }
+  },
+  "schemas.makeCreateIntentResponseSchema(not-a-real-chain)": {
+    "object": {
+      "intent": {
+        "object": {
+          "allowPartialFill": "boolean",
+          "creator": "string",
+          "data": "string",
+          "deadline": "string",
+          "dstAddress": "string",
+          "dstChain": "string",
+          "inputAmount": "string",
+          "inputToken": "string",
+          "intentId": "string",
+          "minOutputAmount": "string",
+          "outputToken": "string",
+          "solver": "string",
+          "srcAddress": "string",
+          "srcChain": "string"
+        }
+      },
+      "relayData": {
+        "object": {
+          "address": "string",
+          "payload": "string"
+        }
+      },
+      "tx": "custom"
+    }
+  },
+  "schemas.makeQuoteResponseSchema(sonic)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "data": "custom",
+                "from": "custom",
+                "to": "custom",
+                "value": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeQuoteResponseSchema(solana)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "data": "string",
+                "from": "string",
+                "to": "string",
+                "value": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeQuoteResponseSchema(sui)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "data": "string",
+                "from": "custom",
+                "to": "string",
+                "value": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeQuoteResponseSchema(stellar)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "data": "string",
+                "from": "string",
+                "to": "string",
+                "value": {
+                  "pipe": [
+                    "string",
+                    {
+                      "action": "regex",
+                      "requirement": "/^\\d+$/"
+                    },
+                    {
+                      "action": "to_bigint"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeQuoteResponseSchema(injective-1)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "from": "custom",
+                "signedDoc": {
+                  "object": {
+                    "accountNumber": {
+                      "pipe": [
+                        "string",
+                        {
+                          "action": "regex",
+                          "requirement": "/^\\d+$/"
+                        },
+                        {
+                          "action": "to_bigint"
+                        }
+                      ]
+                    },
+                    "authInfoBytes": {
+                      "pipe": [
+                        {
+                          "record": {
+                            "key": "string",
+                            "value": {
+                              "pipe": [
+                                "number",
+                                {
+                                  "action": "integer"
+                                },
+                                {
+                                  "action": "min_value",
+                                  "requirement": 0
+                                },
+                                {
+                                  "action": "max_value",
+                                  "requirement": 255
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "action": "transform"
+                        }
+                      ]
+                    },
+                    "bodyBytes": {
+                      "pipe": [
+                        {
+                          "record": {
+                            "key": "string",
+                            "value": {
+                              "pipe": [
+                                "number",
+                                {
+                                  "action": "integer"
+                                },
+                                {
+                                  "action": "min_value",
+                                  "requirement": 0
+                                },
+                                {
+                                  "action": "max_value",
+                                  "requirement": 255
+                                }
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "action": "transform"
+                        }
+                      ]
+                    },
+                    "chainId": "string"
+                  }
+                },
+                "to": "custom"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeQuoteResponseSchema(0x1.icon)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "record": {
+                "key": "string",
+                "value": {
+                  "union": [
+                    "string",
+                    "custom"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeQuoteResponseSchema(stacks)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "estimatedLength": {
+                  "optional": "number"
+                },
+                "payload": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeQuoteResponseSchema(near)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": {
+              "object": {
+                "params": {
+                  "object": {
+                    "args": "custom",
+                    "contractId": "string",
+                    "deposit": {
+                      "optional": {
+                        "pipe": [
+                          "string",
+                          {
+                            "action": "regex",
+                            "requirement": "/^\\d+$/"
+                          },
+                          {
+                            "action": "to_bigint"
+                          }
+                        ]
+                      }
+                    },
+                    "gas": {
+                      "optional": {
+                        "pipe": [
+                          "string",
+                          {
+                            "action": "regex",
+                            "requirement": "/^\\d+$/"
+                          },
+                          {
+                            "action": "to_bigint"
+                          }
+                        ]
+                      }
+                    },
+                    "method": "string"
+                  }
+                },
+                "signerId": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeQuoteResponseSchema(bitcoin)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": "custom"
+          }
+        }
+      }
+    }
+  },
+  "schemas.makeQuoteResponseSchema(not-a-real-chain)": {
+    "object": {
+      "quotedAmount": "string",
+      "txData": {
+        "optional": {
+          "object": {
+            "intent": {
+              "object": {
+                "allowPartialFill": "boolean",
+                "creator": "string",
+                "data": "string",
+                "deadline": "string",
+                "dstAddress": "string",
+                "dstChain": "string",
+                "inputAmount": "string",
+                "inputToken": "string",
+                "intentId": "string",
+                "minOutputAmount": "string",
+                "outputToken": "string",
+                "solver": "string",
+                "srcAddress": "string",
+                "srcChain": "string"
+              }
+            },
+            "relayData": {
+              "object": {
+                "address": "string",
+                "payload": "string"
+              }
+            },
+            "tx": "custom"
+          }
+        }
+      }
+    }
+  },
+  "schemas.StatusResponseSchema": {
+    "object": {
+      "fillTxHash": {
+        "optional": "string"
+      },
+      "status": {
+        "picklist": [
+          -1,
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    }
+  },
+  "schemas.SubmitIntentResponseSchema": {
+    "object": {
+      "result": "unknown"
+    }
+  },
+  "schemas.SubmitTxResponseSchema": {
+    "object": {
+      "data": {
+        "object": {
+          "message": "string",
+          "status": {
+            "picklist": [
+              "inserted",
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "success": "boolean"
+    }
+  },
+  "schemas.SubmitTxStatusResponseSchema": {
+    "object": {
+      "data": {
+        "object": {
+          "abandonedAt": {
+            "optional": "string"
+          },
+          "failedAtStep": {
+            "optional": {
+              "picklist": [
+                "pending",
+                "relaying",
+                "relayed",
+                "posting_execution",
+                "posted_execution",
+                "solved",
+                "failed"
+              ]
+            }
+          },
+          "failureReason": {
+            "optional": "string"
+          },
+          "intentCancelled": {
+            "optional": "boolean"
+          },
+          "operation": {
+            "optional": {
+              "picklist": [
+                "swap",
+                "leverage_deposit",
+                "leverage_withdraw"
+              ]
+            }
+          },
+          "processingAttempts": "number",
+          "relayedForRefundAt": {
+            "optional": "string"
+          },
+          "result": {
+            "optional": {
+              "object": {
+                "dstIntentTxHash": "string",
+                "fillTxHash": {
+                  "optional": "string"
+                },
+                "intent_hash": {
+                  "optional": "string"
+                },
+                "packetData": {
+                  "optional": {
+                    "object": {
+                      "conn_sn": "number",
+                      "dst_address": "string",
+                      "dst_chain_id": "number",
+                      "dst_tx_hash": "string",
+                      "payload": "string",
+                      "signatures": {
+                        "array": "string"
+                      },
+                      "src_address": "string",
+                      "src_chain_id": "number",
+                      "src_tx_hash": "string",
+                      "status": {
+                        "picklist": [
+                          "pending",
+                          "validating",
+                          "executing",
+                          "executed"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "srcChainKey": "string",
+          "status": {
+            "picklist": [
+              "pending",
+              "relaying",
+              "relayed",
+              "posting_execution",
+              "posted_execution",
+              "solved",
+              "failed"
+            ]
+          },
+          "txHash": "string",
+          "userMessage": {
+            "optional": "string"
+          }
+        }
+      },
+      "success": "boolean"
+    }
+  },
+  "rawTx.EvmRawTxSchema": {
+    "object": {
+      "data": "custom",
+      "from": "custom",
+      "to": "custom",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "rawTx.InjectiveRawTxSchema": {
+    "object": {
+      "from": "custom",
+      "signedDoc": {
+        "object": {
+          "accountNumber": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          },
+          "authInfoBytes": {
+            "pipe": [
+              {
+                "record": {
+                  "key": "string",
+                  "value": {
+                    "pipe": [
+                      "number",
+                      {
+                        "action": "integer"
+                      },
+                      {
+                        "action": "min_value",
+                        "requirement": 0
+                      },
+                      {
+                        "action": "max_value",
+                        "requirement": 255
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "action": "transform"
+              }
+            ]
+          },
+          "bodyBytes": {
+            "pipe": [
+              {
+                "record": {
+                  "key": "string",
+                  "value": {
+                    "pipe": [
+                      "number",
+                      {
+                        "action": "integer"
+                      },
+                      {
+                        "action": "min_value",
+                        "requirement": 0
+                      },
+                      {
+                        "action": "max_value",
+                        "requirement": 255
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "action": "transform"
+              }
+            ]
+          },
+          "chainId": "string"
+        }
+      },
+      "to": "custom"
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(sonic)": {
+    "object": {
+      "data": "custom",
+      "from": "custom",
+      "to": "custom",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(solana)": {
+    "object": {
+      "data": "string",
+      "from": "string",
+      "to": "string",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(sui)": {
+    "object": {
+      "data": "string",
+      "from": "custom",
+      "to": "string",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(stellar)": {
+    "object": {
+      "data": "string",
+      "from": "string",
+      "to": "string",
+      "value": {
+        "pipe": [
+          "string",
+          {
+            "action": "regex",
+            "requirement": "/^\\d+$/"
+          },
+          {
+            "action": "to_bigint"
+          }
+        ]
+      }
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(injective-1)": {
+    "object": {
+      "from": "custom",
+      "signedDoc": {
+        "object": {
+          "accountNumber": {
+            "pipe": [
+              "string",
+              {
+                "action": "regex",
+                "requirement": "/^\\d+$/"
+              },
+              {
+                "action": "to_bigint"
+              }
+            ]
+          },
+          "authInfoBytes": {
+            "pipe": [
+              {
+                "record": {
+                  "key": "string",
+                  "value": {
+                    "pipe": [
+                      "number",
+                      {
+                        "action": "integer"
+                      },
+                      {
+                        "action": "min_value",
+                        "requirement": 0
+                      },
+                      {
+                        "action": "max_value",
+                        "requirement": 255
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "action": "transform"
+              }
+            ]
+          },
+          "bodyBytes": {
+            "pipe": [
+              {
+                "record": {
+                  "key": "string",
+                  "value": {
+                    "pipe": [
+                      "number",
+                      {
+                        "action": "integer"
+                      },
+                      {
+                        "action": "min_value",
+                        "requirement": 0
+                      },
+                      {
+                        "action": "max_value",
+                        "requirement": 255
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "action": "transform"
+              }
+            ]
+          },
+          "chainId": "string"
+        }
+      },
+      "to": "custom"
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(0x1.icon)": {
+    "record": {
+      "key": "string",
+      "value": {
+        "union": [
+          "string",
+          "custom"
+        ]
+      }
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(stacks)": {
+    "object": {
+      "estimatedLength": {
+        "optional": "number"
+      },
+      "payload": "string"
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(near)": {
+    "object": {
+      "params": {
+        "object": {
+          "args": "custom",
+          "contractId": "string",
+          "deposit": {
+            "optional": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          },
+          "gas": {
+            "optional": {
+              "pipe": [
+                "string",
+                {
+                  "action": "regex",
+                  "requirement": "/^\\d+$/"
+                },
+                {
+                  "action": "to_bigint"
+                }
+              ]
+            }
+          },
+          "method": "string"
+        }
+      },
+      "signerId": "string"
+    }
+  },
+  "rawTx.rawTxSchemaForChainKey(bitcoin)": "custom",
+  "rawTx.rawTxSchemaForChainKey(not-a-real-chain)": "custom"
+}
