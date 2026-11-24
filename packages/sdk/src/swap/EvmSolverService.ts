@@ -76,6 +76,9 @@ export class EvmSolverService {
    * The returned `Hex` payload is passed as the `data` field in a spoke deposit, so the hub
    * wallet abstraction executes both the approval and the intent creation atomically.
    *
+   * It validates MPC-relay routes and the destination payout floor, but not the floor on a refund to an
+   * MPC-relay source: callers building from one must check that, as `SwapService.createIntent` does.
+   *
    * @param createIntentParams - Source/destination tokens, amounts, chain keys, addresses, and optional solver.
    * @param creatorHubWalletAddress - The hub chain wallet address derived from the user's spoke address.
    * @param config - Used to resolve hub asset addresses and the intents contract address.
