@@ -5,7 +5,7 @@ icon: robot
 ---
 
 <Note>
-  The skills bundle teaches the **TypeScript packages** (`@sodax/*`). Building on the HTTP API from another language? Start at the [HTTP API overview](/developers/http-api); the [Builders MCP](/builders-mcp) below still gives your agent live quotes and doc search.
+  The skills bundle teaches the **TypeScript packages** (`@sodax/*`). Building on the HTTP API from another language? Start at the [HTTP API overview](/developers/http-api); the [SODAX MCP](/sodax-mcp) below still gives your agent live quotes and doc search.
 </Note>
 
 SODAX ships agent-native documentation as [`@sodax/skills`](https://github.com/gosodax/sodax-sdks/tree/main/packages/skills) — five skills: four mode-gated ones (one per `@sodax/*` SDK package, each bundling `integration/knowledge/` for new v2 code and `migration-v1-to-v2/knowledge/` for v1→v2 porting), plus the cross-cutting `sodax-build` front-door skill for when you haven't picked a package yet. The goal is v2-correct code on the first try instead of stale training-data APIs.
@@ -13,7 +13,7 @@ SODAX ships agent-native documentation as [`@sodax/skills`](https://github.com/g
 LLM training data drifts; public docs at [docs.sodax.com](https://docs.sodax.com) are for humans. Agents only use what you install or attach. For what’s in the bundle (skills, knowledge layout, routing table), see [packages/skills/README.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/skills/README.md).
 
 <Note>
-  **Optional: the [Builders MCP](/builders-mcp)** (`https://builders.sodax.com/mcp`). The skills are
+  **Optional: the [SODAX MCP](/sodax-mcp)** (`https://mcp.sodax.com/mcp`). The skills are
   enough to write correct code. The MCP adds live values while the agent works: supported chains and
   tokens, swap quotes, money market rates, intent lookups, and doc search. Its tools don't cover
   leverage-yield vaults, and the SDK reads vault data itself, so skip it for vault work.
@@ -117,6 +117,6 @@ For v1 → v2 ports, say something like “migrate my project to SODAX v2” —
 
 - Bundle overview: [packages/skills/README.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/skills/README.md)
 - Router (agents): [packages/skills/AGENTS.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/skills/AGENTS.md)
-- Live data for agents: [Builders MCP](/builders-mcp)
+- Live data for agents: [SODAX MCP](/sodax-mcp)
 
 Wrong output despite the skills? That’s a doc bug — [open an issue](https://github.com/gosodax/sodax-sdks/issues) with the prompt and what the agent generated.
