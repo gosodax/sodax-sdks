@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { ChainKeys } from '@sodax/types';
 import { encodeAddress, encodeRecipient, reverseEncodeAddress } from './shared-utils.js';
 import { tronBase58ToHex } from '../services/spoke/tron-utils.js';
+import { CARDANO_ADDRESSES, CARDANO_PAYMENT_HASH } from '../services/spoke/cardano-test-vectors.js';
 
 /**
  * A Tron release reads its recipient from `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so the
@@ -93,6 +94,39 @@ describe('encodeRecipient — intent relay chains', () => {
     const evm = getAddress('0x6be3a4afbd5983604385bcba71aaa3645918e2e2');
     expect(evm).not.toBe(evm.toLowerCase());
     expect(encodeRecipient(ChainKeys.ARBITRUM_MAINNET, evm)).toBe(encodeAddress(ChainKeys.ARBITRUM_MAINNET, evm));
+  });
+});
+
+describe('encodeAddress / encodeRecipient / reverseEncodeAddress — Cardano', () => {
+  const { enterpriseMainnet, baseMainnet } = CARDANO_ADDRESSES;
+
+  it('identifies an account by its 28-byte payment key hash, whatever its stake part', () => {
+    expect(encodeAddress(ChainKeys.CARDANO_MAINNET, enterpriseMainnet.bech32)).toBe(CARDANO_PAYMENT_HASH);
+    expect(encodeAddress(ChainKeys.CARDANO_MAINNET, baseMainnet.bech32)).toBe(CARDANO_PAYMENT_HASH);
+  });
+
+  it('pays a release to the full raw address, neither the key hash nor a padded word', () => {
+    expect(encodeRecipient(ChainKeys.CARDANO_MAINNET, enterpriseMainnet.bech32)).toBe(enterpriseMainnet.hex);
+    expect(encodeRecipient(ChainKeys.CARDANO_MAINNET, baseMainnet.bech32)).toBe(baseMainnet.hex);
+    expect(encodeRecipient(ChainKeys.CARDANO_MAINNET, baseMainnet.bech32)).toHaveLength(2 + 57 * 2);
+  });
+
+  it('decodes the raw recipient bytes back to the bech32 address', () => {
+    expect(
+      reverseEncodeAddress(ChainKeys.CARDANO_MAINNET, encodeRecipient(ChainKeys.CARDANO_MAINNET, baseMainnet.bech32)),
+    ).toBe(baseMainnet.bech32);
+  });
+
+  it('refuses to decode the key-hash identity, which does not say what stake part the address had', () => {
+    expect(() => reverseEncodeAddress(ChainKeys.CARDANO_MAINNET, CARDANO_PAYMENT_HASH)).toThrow(
+      /cannot be turned back/,
+    );
+  });
+
+  it('refuses a testnet recipient rather than pay a different network', () => {
+    expect(() => encodeRecipient(ChainKeys.CARDANO_MAINNET, CARDANO_ADDRESSES.enterpriseTestnet.bech32)).toThrow(
+      /not mainnet/,
+    );
   });
 });
 

@@ -12,12 +12,15 @@
  *   4. `cancelIntent` takes an explicit `srcChainKey` alongside `intent`; we assert at runtime
  *      that `getIntentRelayChainId(srcChainKey) === intent.srcChain` and throw on mismatch.
  */
+import { CARDANO_ADDRESSES } from '../shared/services/spoke/cardano-test-vectors.js';
 import { IndeterminateOutcomeError } from '../errors/IndeterminateOutcomeError.js';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import {
   ChainKeys,
   MpcRelayChainMap,
   arbitrumSupportedTokens,
+  cardanoSupportedTokens,
+  type ICardanoWalletProvider,
   monadSupportedTokens,
   tonSupportedTokens,
   zcashSupportedTokens,
@@ -2903,6 +2906,44 @@ describe('SwapService.createIntent — extras (partnerFee + srcPublicKey)', () =
     expect(depositCall.accessToken).toBe(accessToken);
   });
 
+  it('carries the Cardano deposit hash into the swap error context', async () => {
+    const chainKey = ChainKeys.CARDANO_MAINNET;
+    const txHash = 'ab'.repeat(32);
+    const failure = new IndeterminateOutcomeError('Cardano submission outcome is unknown', {
+      cause: new DOMException('wallet response lost', 'NetworkError'),
+      txHash,
+    });
+    const srcAddress = CARDANO_ADDRESSES.enterpriseMainnet.bech32;
+    const walletProvider: ICardanoWalletProvider = {
+      chainType: 'CARDANO',
+      getWalletAddress: vi.fn(async () => srcAddress),
+      signTransaction: vi.fn(),
+      submitTransaction: vi.fn(),
+      signData: vi.fn(),
+    };
+    mocks.getUserHubWalletAddress.mockResolvedValueOnce('0xhubwallet');
+    mocks.constructCreateIntentData.mockReturnValueOnce(['0xintentdata', makeIntent(chainKey), 0n]);
+    const deposit = vi.spyOn(sodax.spoke.cardano, 'deposit').mockRejectedValueOnce(failure);
+
+    const result = await sodax.swaps.createIntent({
+      params: {
+        ...intentInput(chainKey),
+        srcAddress,
+        inputToken: cardanoSupportedTokens.ADA.address,
+        inputAmount: 2_000_000n,
+        deadline: 1_700_000_000n,
+      },
+      raw: false,
+      walletProvider,
+    });
+
+    expect(deposit).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'INTENT_CREATION_FAILED', context: { srcTxHash: txHash }, cause: failure },
+    });
+  });
+
   it('carries a known deposit hash through an intent failure for recovery', async () => {
     const svc = sodax.swaps;
     const chainKey = ChainKeys.BITCOIN_MAINNET;
@@ -5660,6 +5701,7 @@ describe('Production solver routing', () => {
     [ChainKeys.MONAD_MAINNET]: monadSupportedTokens.USDC.address,
     [ChainKeys.TON_MAINNET]: tonSupportedTokens.TON.address,
     [ChainKeys.ZCASH_MAINNET]: zcashSupportedTokens.ZEC.address,
+    [ChainKeys.CARDANO_MAINNET]: cardanoSupportedTokens.ADA.address,
   } satisfies Record<MpcRelayChainKey, string>;
 
   it.each(

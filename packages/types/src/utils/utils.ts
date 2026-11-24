@@ -37,8 +37,11 @@ import {
   type TON_CHAIN_KEYS,
   ZCASH_CHAIN_KEYS_SET,
   type ZCASH_CHAIN_KEYS,
+  CARDANO_CHAIN_KEYS_SET,
+  type CARDANO_CHAIN_KEYS,
   MpcRelayChainMap,
   MpcRelayPayoutMinimums,
+  MpcRelayPayoutFloors,
   type MpcRelayChainInfo,
   type MpcRelayChainKey,
   baseChainInfo,
@@ -122,6 +125,10 @@ export function isTonChainKey(chainId: SpokeChainKey): boolean {
 
 export function isZcashChainKey(chainId: SpokeChainKey): boolean {
   return ZCASH_CHAIN_KEYS_SET.has(chainId as (typeof ZCASH_CHAIN_KEYS)[number]);
+}
+
+export function isCardanoChainKey(chainId: SpokeChainKey): boolean {
+  return CARDANO_CHAIN_KEYS_SET.has(chainId as (typeof CARDANO_CHAIN_KEYS)[number]);
 }
 
 export function isMonadChainKey(chainId: SpokeChainKey): boolean {
@@ -254,14 +261,17 @@ export function getMpcPayoutMinimum(token: Pick<XToken, 'chainKey' | 'address'>)
   return address !== undefined && Object.hasOwn(floors, address) ? floors[address] : undefined;
 }
 
-/** The {@link MpcRelayPayoutMinimums} entry a payout fails to exceed; `minimum` is in `decimals`. */
-export type MpcPayoutMinimum = { symbol: string; decimals: number; minimum: bigint };
+/**
+ * The {@link MpcRelayPayoutMinimums} or {@link MpcRelayPayoutFloors} entry a payout fails to meet; `minimum` is in
+ * `decimals`. `inclusive` is true for a floor the amount may equal, false for a minimum it must exceed.
+ */
+export type MpcPayoutMinimum = { symbol: string; decimals: number; minimum: bigint; inclusive: boolean };
 
 /**
  * The minimum that paying `amount` of `token` out through the MPC relay fails to exceed, or `undefined` when it
- * clears {@link MpcRelayPayoutMinimums}. The SDK refuses such a payout before signing. An amount equal to the
- * minimum fails too, because the relay skips a release once fee >= amount. `amount` is truncated to the payout
- * token's decimals first, as delivery would.
+ * clears {@link MpcRelayPayoutMinimums} and {@link MpcRelayPayoutFloors}. The SDK refuses such a payout before
+ * signing. An amount equal to a minimum fails too, because the relay skips a release once fee >= amount; an amount
+ * equal to a floor passes. `amount` is truncated to the payout token's decimals first, as delivery would.
  *
  * @param amountDecimals - The decimals `amount` is in, when not the payout token's (a bridge's source).
  */
@@ -275,13 +285,16 @@ export function getUnmetMpcPayoutMinimum({
   amountDecimals?: number;
 }): MpcPayoutMinimum | undefined {
   const minimum = getMpcPayoutMinimum(token);
-  if (minimum === undefined) return undefined;
+  const floor = MpcRelayPayoutFloors[token.chainKey]?.[token.address];
+  if (minimum === undefined && floor === undefined) return undefined;
   const delivered =
     amountDecimals >= token.decimals
       ? amount / 10n ** BigInt(amountDecimals - token.decimals)
       : amount * 10n ** BigInt(token.decimals - amountDecimals);
-  const clears = delivered > minimum;
-  return clears ? undefined : { symbol: token.symbol, decimals: token.decimals, minimum };
+  const { symbol, decimals } = token;
+  if (minimum !== undefined && delivered <= minimum) return { symbol, decimals, minimum, inclusive: false };
+  if (floor !== undefined && delivered < floor) return { symbol, decimals, minimum: floor, inclusive: true };
+  return undefined;
 }
 
 /**

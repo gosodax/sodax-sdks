@@ -1,4 +1,12 @@
-import type { HttpUrl, MpcRelayChainKey, MpcWithdrawMessage, MpcWithdrawScheme, Result } from '@sodax/types';
+import type {
+  CardanoDepositMetadata,
+  CardanoSignDataWire,
+  HttpUrl,
+  MpcRelayChainKey,
+  MpcWithdrawMessage,
+  MpcWithdrawScheme,
+  Result,
+} from '@sodax/types';
 import { concat, encodeAbiParameters, keccak256, toHex, type Hex } from 'viem';
 import { IndeterminateOutcomeError, isIndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { pollUntil } from '../../utils/pollUntil.js';
@@ -53,13 +61,15 @@ interface DepositAddressBase {
   hubWallet: Hex;
 }
 
-/** Memo mode (Tron, XRP): pay the shared reserve and tag the transfer with `memo`. */
+/** Memo mode (Tron, XRP, TON, Cardano): pay the shared reserve and tag the transfer with `memo`. */
 export interface MemoDepositAddressResponse extends DepositAddressBase {
   depositMethod: 'memo';
   /** The shared reserve the transfer pays. */
   reserveAddress: string;
   /** 32-byte hash to attach as the transfer memo — the same value as `payloadHash`. */
   memo: Hex;
+  /** Cardano only: the label-674 metadata the payment must attach, which carries `memo`. */
+  cardanoMetadata?: CardanoDepositMetadata;
 }
 
 /** Address mode (Monad): pay a deposit address derived for this one payload; the relay sweeps it. */
@@ -107,7 +117,7 @@ export interface SubmitWithdrawRequest {
   message: WithdrawMessagePayload;
   signature: Hex;
   scheme: WithdrawScheme;
-  /** Required only for schemes that can't recover the identity from the sig (2/3/4/5). */
+  /** Required only for schemes that can't recover the identity from the sig (2/3/4/5). Scheme 7 carries it in `cardanoSignData`. */
   publicKey?: Hex;
   /** The TonConnect `signData` envelope the signature binds — required for scheme 5 (TON). */
   tonSignData?: {
@@ -117,6 +127,8 @@ export interface SubmitWithdrawRequest {
     timestamp: number;
     payloadType: 'txt' | 'bin';
   };
+  /** The CIP-30 `signData` COSE_Sign1 and COSE_Key the signature binds — required for scheme 7 (Cardano). */
+  cardanoSignData?: CardanoSignDataWire;
 }
 
 export interface SubmitWithdrawResponse {

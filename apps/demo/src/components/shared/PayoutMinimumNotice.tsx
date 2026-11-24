@@ -8,11 +8,14 @@ import { WarningNotice } from './WarningNotice';
 export function PayoutMinimumNotice({ unmet, chainKey }: { unmet: MpcPayoutMinimum; chainKey: XToken['chainKey'] }) {
   return (
     <WarningNotice>
-      A payout to <strong>{getChainName(chainKey) || chainKey}</strong> must be greater than{' '}
+      A payout to <strong>{getChainName(chainKey) || chainKey}</strong> must be{' '}
+      {unmet.inclusive ? 'at least' : 'greater than'}{' '}
       <strong>
         {formatUnits(unmet.minimum, unmet.decimals)} {unmet.symbol}
       </strong>
-      . A variable relay fee comes out of it, and nothing is delivered once the fee reaches the amount.
+      .
+      {!unmet.inclusive &&
+        ' A variable relay fee comes out of it, and nothing is delivered once the fee reaches the amount.'}
     </WarningNotice>
   );
 }
