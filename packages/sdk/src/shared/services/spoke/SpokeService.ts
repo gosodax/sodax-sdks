@@ -984,7 +984,8 @@ export class SpokeService {
   }
 
   /**
-   * Get the balance of the token in the spoke chain asset manager.
+   * Get the balance of the token in the spoke chain asset manager. Tron and XRPL have no asset-manager read:
+   * their spokes return the balance `srcAddress` holds.
    * @param {Address} token - The address of the token to get the balance of.
    * @param {SpokeProviderType} spokeProvider - The spoke provider.
    * @returns {Promise<bigint>} The balance of the token.

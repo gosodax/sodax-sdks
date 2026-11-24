@@ -162,6 +162,15 @@ describe('TronWalletProvider.signTransaction', () => {
     expect(live.trx.sign).toHaveBeenCalledWith(TX);
   });
 
+  it('browser: built from getProvider alone, reads the address and balance from the discovered wallet', async () => {
+    const fetchMock = stubFetch({ '/wallet/getaccount': { balance: 7 } });
+    const provider = new TronWalletProvider({ getProvider: () => ({ request: vi.fn(), tronWeb: makeTronWeb() }) });
+
+    await expect(provider.getWalletAddress()).resolves.toBe(TRON_ADDRESS);
+    await expect(provider.getBalance()).resolves.toBe(7n);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).address).toBe(TRON_ADDRESS);
+  });
+
   it('browser: asks a wallet with no account for one, then signs, as after a reload or an unlock', async () => {
     const tronWeb = makeTronWeb(false);
     const request = vi.fn(async () => {

@@ -1997,6 +1997,19 @@ describe('BridgeService.getDetailedStatus', () => {
       expect(result.error.context?.hubTxHash).toBe(DST_TX);
     });
 
+    it('does not report a spoke-source bridge to an MPC-relay chain final when its hub tx sends no release', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce(undefined);
+
+      const result = await sodaxBE.bridge.getDetailedStatus({ ...key, dstChainKey: ChainKeys.TRON_MAINNET });
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(true);
+      expect(result.error.context?.hubTxHash).toBe(DST_TX);
+    });
+
     it('answers a spoke-source bridge from the release record once paid', async () => {
       recordNotFound();
       packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);

@@ -74,8 +74,8 @@ export class XrpXConnector extends XConnector {
       getAddress: () => getAddress(),
       getPublicKey: () => getPublicKey(),
       signMessage: (message: string, isHex?: boolean) => signMessage(message, isHex),
-      submitTransaction: (payload: { transaction: Record<string, unknown> }) => submitTransaction(payload as never),
+      submitTransaction: payload => submitTransaction(payload),
       getNetwork: () => getNetwork(),
-    } as GemWalletLike;
+    };
   }
 }
