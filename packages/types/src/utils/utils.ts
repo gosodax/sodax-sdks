@@ -31,6 +31,8 @@ import {
   type STACKS_CHAIN_KEYS,
   TRON_CHAIN_KEYS_SET,
   type TRON_CHAIN_KEYS,
+  XRP_CHAIN_KEYS_SET,
+  type XRP_CHAIN_KEYS,
   MpcRelayChainMap,
   MpcRelayPayoutMinimums,
   type MpcRelayChainInfo,
@@ -104,6 +106,10 @@ export function isStacksChainKey(chainId: SpokeChainKey): boolean {
 
 export function isTronChainKey(chainId: SpokeChainKey): boolean {
   return TRON_CHAIN_KEYS_SET.has(chainId as (typeof TRON_CHAIN_KEYS)[number]);
+}
+
+export function isXrpChainKey(chainId: SpokeChainKey): boolean {
+  return XRP_CHAIN_KEYS_SET.has(chainId as (typeof XRP_CHAIN_KEYS)[number]);
 }
 
 export function getChainType<K extends SpokeChainKey>(chainId: K): GetChainType<K> {

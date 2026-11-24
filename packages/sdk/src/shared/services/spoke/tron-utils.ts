@@ -3,7 +3,7 @@
  * mainnet paths and kept byte-identical to the NEAR contract / ingest encoders — any divergence
  * breaks signature recovery (withdrawal) or memo matching (deposit).
  */
-import { concat, keccak256, numberToHex, sha256, type Hex } from 'viem';
+import { numberToHex, sha256, type Hex } from 'viem';
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
@@ -293,31 +293,8 @@ export function tronHashToBase58(hashHex: string): string {
 }
 
 /**
- * Tron withdrawal recipient encoding: 12 zero-bytes ‖ 20-byte address hash (a left-padded 32-byte
- * word), matching the `AssetManager.transfer` recipient bytes the release expects.
+ * Re-exported from `mpc-message.ts`, which every MPC-relay chain shares — the hash is
+ * chain-agnostic and only the per-scheme digest wrapping differs. Kept exported here so existing
+ * Tron imports keep working.
  */
-export function tronRecipientBytes(base58Addr: string): Hex {
-  return `0x${tronAddressToWord(base58Addr)}`;
-}
-
-/** The signed withdraw-auth message (mirrors the NEAR contract's `SignedMessage`). */
-export interface SignedWalletMessage {
-  to: Hex; // hub wallet that executes `data`
-  data: Hex; // encoded hub-wallet calls (e.g. AssetManager.transfer to burn + release)
-  nonce: bigint; // any unused u64; replays are rejected on NEAR
-  chainId: bigint; // the SOURCE chain id (Tron = 728126428n), not the hub's
-  sender: Hex; // withdrawal-auth identity (tronIdentityBytes)
-}
-
-/**
- * keccak256(to ‖ data ‖ nonce_be8 ‖ chainId_be8 ‖ sender) — byte-identical to the contract's
- * `compute_message_hash`. The client signs the scheme-1 personal-sign digest of THIS hash: Tron
- * `signMessageV2` UTF-8 encodes its string argument (ethers `hashMessage` semantics), so what gets
- * signed is the 66-character `"0x"`-prefixed lowercase hex STRING of the hash under the
- * `"\x19TRON Signed Message:\n66"` prefix — not the 32 raw bytes.
- */
-export function computeSignedMessageHash(m: SignedWalletMessage): Hex {
-  return keccak256(
-    concat([m.to, m.data, numberToHex(m.nonce, { size: 8 }), numberToHex(m.chainId, { size: 8 }), m.sender]),
-  );
-}
+export { computeSignedMessageHash, type SignedWalletMessage } from './mpc-message.js';

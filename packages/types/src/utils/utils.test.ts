@@ -2,9 +2,11 @@ import { describe, it, expect } from 'vitest';
 import {
   ChainKeys,
   MpcRelayChainMap,
+  MpcRelayPayoutMinimums,
   type MpcRelayChainKey,
   supportedTokensByChain,
   tronSupportedTokens,
+  xrpSupportedTokens,
 } from '../chains/index.js';
 import { getEvmChainKeyByChainId, getMpcPayoutMinimum, getUnmetMpcPayoutMinimum } from './utils.js';
 
@@ -39,6 +41,10 @@ describe('getEvmChainKeyByChainId', () => {
 });
 
 describe('getUnmetMpcPayoutMinimum', () => {
+  it.each(Object.values(xrpSupportedTokens))('declares a zero floor for $symbol', token => {
+    expect(MpcRelayPayoutMinimums[token.chainKey]?.[token.address]).toBe(0n);
+    expect(getUnmetMpcPayoutMinimum({ token, amount: 1n })).toBeUndefined();
+  });
   const { USDT: usdt, TRX: trx } = tronSupportedTokens;
 
   it('fails below and at the minimum, since the relay skips a release once fee >= amount', () => {
@@ -79,4 +85,10 @@ describe('getUnmetMpcPayoutMinimum', () => {
     expect(getUnmetMpcPayoutMinimum({ token: { ...usdt, address: 'unlisted' }, amount: 1n })).toBeUndefined();
     expect(getUnmetMpcPayoutMinimum({ token: { ...usdt, symbol: 'OTHER' }, amount: 1n })?.minimum).toBe(3_000_000n);
   });
+});
+
+it('requires every MPC chain to declare its payout floors', () => {
+  for (const key of Object.keys(MpcRelayChainMap)) {
+    expect(Object.hasOwn(MpcRelayPayoutMinimums, key)).toBe(true);
+  }
 });

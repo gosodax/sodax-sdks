@@ -54,6 +54,31 @@ describe('reverseEncodeAddress — Tron', () => {
   });
 });
 
+const XRP_ADDRESS = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+
+describe('encodeRecipient / reverseEncodeAddress — XRP', () => {
+  it('left-pads the 20-byte AccountID into a 32-byte word, as the relay releases to it', () => {
+    const identity = encodeAddress(ChainKeys.XRP_MAINNET, XRP_ADDRESS);
+    const recipient = encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS);
+
+    expect(recipient).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
+  });
+
+  it('decodes both the identity and the padded recipient word back to the classic address', () => {
+    expect(reverseEncodeAddress(ChainKeys.XRP_MAINNET, encodeAddress(ChainKeys.XRP_MAINNET, XRP_ADDRESS))).toBe(
+      XRP_ADDRESS,
+    );
+    expect(reverseEncodeAddress(ChainKeys.XRP_MAINNET, encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS))).toBe(
+      XRP_ADDRESS,
+    );
+  });
+
+  it('rejects a 32-byte word whose padding is not zero', () => {
+    const dirty = `0x01${encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS).slice(4)}` as const;
+    expect(() => reverseEncodeAddress(ChainKeys.XRP_MAINNET, dirty)).toThrow(/Invalid XRP recipient word/);
+  });
+});
+
 describe('encodeRecipient — other chain types', () => {
   it('keeps the address encoding even when the chain settles through the MPC relay', () => {
     const evm = '0x1111111111111111111111111111111111111111';

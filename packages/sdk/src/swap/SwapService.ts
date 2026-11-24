@@ -1,3 +1,4 @@
+import { SOLVED_PAYOUT_HEADROOM_FACTOR } from '../shared/utils/solved-payout.js';
 import { isHex } from 'viem';
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import {
@@ -35,8 +36,10 @@ import {
   type RelayExtraData,
   type TxHashPair,
   isStacksChainKeyType,
+  isXrpChainKeyType,
   isNativeBitcoinTransfer,
   assertMpcPayoutAboveMinimum,
+  encodeRecipient,
   assertMpcSwapRoute,
   isMpcRelayChainKeyType,
   RELAY_FALLBACK_FLOOR_MS,
@@ -1596,12 +1599,57 @@ export class SwapService {
         );
       }
       assertMpcSwapRoute({ ...params, outputToken: outputTokenInfo });
+      const refundAmount = params.inputAmount - calculateFeeAmount(params.inputAmount, partnerFee);
       if (inputTokenInfo) {
         assertMpcPayoutAboveMinimum({
           feature: 'swap',
           token: inputTokenInfo,
-          amount: params.inputAmount - calculateFeeAmount(params.inputAmount, partnerFee),
+          amount: refundAmount,
           context: { ...baseCtx, field: 'inputAmount' },
+        });
+        await this.spoke.assertReleaseRecipientReady({
+          feature: 'swap',
+          chainKey: params.srcChainKey,
+          recipient: encodeRecipient(params.srcChainKey, params.srcAddress),
+          token: inputTokenInfo.address,
+          // The deposit takes more off this line than a refund puts back, so it needs no room beyond today's.
+          amount: 0n,
+          context: { ...baseCtx, field: 'srcAddress' },
+        });
+      }
+      if (outputTokenInfo) {
+        if (
+          isXrpChainKeyType(params.dstChainKey) &&
+          outputTokenInfo.address !== this.config.getChainConfig(params.dstChainKey).nativeToken
+        ) {
+          const quote = await this.getQuote({
+            token_src: params.inputToken,
+            token_src_blockchain_id: params.srcChainKey,
+            token_dst: params.outputToken,
+            token_dst_blockchain_id: params.dstChainKey,
+            amount: params.inputAmount,
+            quote_type: 'exact_input',
+            partnerFee,
+          });
+          swapInvariant(
+            quote.ok && quote.value.quoted_amount > 0n,
+            'A current exact-input quote is required for an XRPL issued-token destination',
+            { ...baseCtx, field: 'minOutputAmount' },
+          );
+          swapInvariant(
+            params.minOutputAmount * SOLVED_PAYOUT_HEADROOM_FACTOR >= quote.value.quoted_amount,
+            'minOutputAmount must be at least half the current quote for an XRPL issued-token destination',
+            { ...baseCtx, field: 'minOutputAmount' },
+          );
+        }
+        await this.spoke.assertReleaseRecipientReady({
+          feature: 'swap',
+          chainKey: params.dstChainKey,
+          recipient: encodeRecipient(params.dstChainKey, params.dstAddress),
+          token: outputTokenInfo.address,
+          amount: params.minOutputAmount,
+          maxAmount: params.minOutputAmount * SOLVED_PAYOUT_HEADROOM_FACTOR,
+          context: { ...baseCtx, field: 'dstAddress' },
         });
       }
       if (isStacksChainKeyType(params.srcChainKey) && _params.raw === true) {

@@ -53,7 +53,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup && node ../../scripts/verify-dist-exports.mjs",
+    "build": "tsup && node ../../scripts/verify-dist-exports.mjs && node verify-dist-load.mjs",
     "test": "vitest run --exclude ./src/tests/e2e",
     "test:e2e": "vitest run --passWithNoTests ./src/tests/e2e",
     "coverage": "vitest run --coverage",
@@ -87,8 +87,10 @@
     "ecpair": "^2.0.1",
     "icon-sdk-js": "catalog:",
     "near-api-js": "catalog:",
+    "ripple-keypairs": "^2.0.0",
     "secp256k1": "^5.0.1",
-    "viem": "catalog:"
+    "viem": "catalog:",
+    "xrpl": "^4.2.0"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",

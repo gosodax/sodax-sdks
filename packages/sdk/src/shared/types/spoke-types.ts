@@ -18,6 +18,7 @@ import type {
   StacksRawTransactionReceipt,
   BitcoinRawTransactionReceipt,
   TronRawTransactionReceipt,
+  XrpRawTransactionReceipt,
   ChainType,
   GetAddressType,
   EvmSpokeOnlyChainKey,
@@ -61,7 +62,7 @@ export type GetDepositParams<ChainKey extends SpokeChainKey = SpokeChainKey> = {
 /**
  * Parameters for reading a user's own wallet balance of a single token on a spoke chain.
  *
- * Unlike {@link GetDepositParams} (which reads the protocol asset-manager holding, `srcAddress` on Tron, and
+ * Unlike {@link GetDepositParams} (which reads the protocol asset-manager holding, `srcAddress` on Tron and XRPL, and
  * keys the token by raw address), this reads the balance held by `srcAddress` itself. `token` is
  * the full {@link XToken} so the reader can detect the native coin and resolve chain-specific
  * token identifiers (EVM erc20 address, Solana mint, Sui coinType, Soroban contract, …).
@@ -156,7 +157,9 @@ export type GetTxReceiptType<C extends SpokeChainKey | ChainType> =
                     ? BitcoinRawTransactionReceipt
                     : GetChainType<C> extends 'TRON'
                       ? TronRawTransactionReceipt
-                      : unknown;
+                      : GetChainType<C> extends 'XRP'
+                        ? XrpRawTransactionReceipt
+                        : unknown;
 
 export type TxStatus = 'success' | 'failure' | 'timeout';
 export type WaitForTxReceiptParams<C extends SpokeChainKey> = {

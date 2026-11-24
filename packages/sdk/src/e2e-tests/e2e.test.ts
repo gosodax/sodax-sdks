@@ -254,6 +254,7 @@ describe('e2e', () => {
     [ChainKeys.HEDERA_MAINNET]: [],
     [ChainKeys.ROBINHOOD_MAINNET]: [],
     [ChainKeys.TRON_MAINNET]: [],
+    [ChainKeys.XRP_MAINNET]: [],
   };
 
   it('Verify money market supported tokens as hub assets are contained in the Soda token vaults', async () => {

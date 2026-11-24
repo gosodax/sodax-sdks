@@ -1,3 +1,4 @@
+import { SOLVED_PAYOUT_HEADROOM_FACTOR } from '../shared/utils/solved-payout.js';
 import {
   type SpokeService,
   type SendMessageParams,
@@ -13,6 +14,7 @@ import {
   isHubChainKeyType,
   isEvmSpokeOnlyChainKeyType,
   isStellarChainKeyType,
+  isXrpChainKeyType,
   isEvmWalletProviderType,
   isOptionalEvmWalletProviderType,
   isOptionalStellarWalletProviderType,
@@ -220,7 +222,10 @@ const DETAILED_STATUS_SOLVER_TIMEOUT_MS = 5_000;
 export type PositionOrigin = {
   /** Chain the user funded from and is refunded on. */
   chainKey: SpokeChainKey;
-  /** The user's address on `chainKey`. */
+  /**
+   * The user's address on `chainKey`. An XRPL address must be able to receive the refund, which these
+   * synchronous builders cannot read: check it first with `sodax.spoke.xrp.checkDestination`.
+   */
   address: string;
   /**
    * Hub asset a cross-chain refund unwraps the reserve into. Required off-hub, since the
@@ -1129,6 +1134,39 @@ export class LeverageYieldService {
           token: outputTokenInfo,
           amount: params.minOutputAmount,
           context: { ...baseCtx, field: 'minOutputAmount' },
+        });
+        if (
+          isXrpChainKeyType(params.dstChainKey) &&
+          outputTokenInfo.address !== this.config.getChainConfig(params.dstChainKey).nativeToken
+        ) {
+          const quote = await this.getQuote({
+            token_src: params.inputToken,
+            token_src_blockchain_id: inputTokenChainKey,
+            token_dst: params.outputToken,
+            token_dst_blockchain_id: params.dstChainKey,
+            amount: params.inputAmount,
+            quote_type: 'exact_input',
+            partnerFee,
+          });
+          leverageYieldInvariant(
+            quote.ok && quote.value.quoted_amount > 0n,
+            'A current exact-input quote is required for an XRPL issued-token destination',
+            { ...baseCtx, field: 'minOutputAmount' },
+          );
+          leverageYieldInvariant(
+            params.minOutputAmount * SOLVED_PAYOUT_HEADROOM_FACTOR >= quote.value.quoted_amount,
+            'minOutputAmount must be at least half the current quote for an XRPL issued-token destination',
+            { ...baseCtx, field: 'minOutputAmount' },
+          );
+        }
+        await this.spoke.assertReleaseRecipientReady({
+          feature: 'leverageYield',
+          chainKey: params.dstChainKey,
+          recipient: encodeRecipient(params.dstChainKey, params.dstAddress),
+          token: outputTokenInfo.address,
+          amount: params.minOutputAmount,
+          maxAmount: params.minOutputAmount * SOLVED_PAYOUT_HEADROOM_FACTOR,
+          context: { ...baseCtx, field: 'dstAddress' },
         });
       }
       // derive users hub wallet address

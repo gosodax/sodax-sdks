@@ -327,6 +327,8 @@ On intent-relay sources, if backend submit-tx accepted the deposit, it may keep 
 
 On an MPC-relay source, the backend submit-tx path is skipped. If `INTENT_CREATION_FAILED`, `RELAY_TIMEOUT` or another settlement failure carries `context.srcTxHash`, use the source spoke's deposit wait (for Tron, `sodax.spoke.tron.waitForDeposit(srcTxHash)`) to notify the relay and wait for the hub mint. On timeout, back off and repeat the wait with the same source hash. Once the result is successful and `value.txs?.hubMint?.hash` is a hex hash (check with viem's `isHex`), call `sodax.swaps.postExecution({ intent_tx_hash: hubMintHash })`. Check the returned Result and retry a failed notification with the same hub hash. After notification succeeds, poll `getDetailedStatus` using the original source hash. Do not create another swap or deposit.
 
+GemWallet can return an `xrp-payment` recovery handle without a hash. Use XRP Ledger `account_tx` to find the original validated, successful Payment. Match the sending account, reserve destination, memo, and amount, using the attempt time to locate the relevant ledger range. For an initial search, inspect validated ledgers closed from one minute before to five minutes after `attemptedAtMs`. This limits the search only and cannot prove the Payment failed. If the range yields no unique match, stop automatic recovery and keep the attempt pending for operator reconciliation. Once you identify the original hash, follow the inbound settlement and solver notification steps above.
+
 A failed solver notification also requires action (`EXECUTION_FAILED` /
 `EXTERNAL_API_ERROR` with `phase: 'postExecution'`). Unless the backend took the swap, nothing else notifies the
 solver, and the intent expires unfilled. Notify it again with the hub tx the error carries — the solver only
@@ -670,6 +672,10 @@ if (result.ok) {
 `resetTx` is absent for every other token and for a wallet with nothing approved yet, so the common
 path is a single transaction. The transactions are named rather than ordered — there is no index to
 map and no way to broadcast them the wrong way round.
+
+### XRP Ledger Trustline
+
+For an XRP Ledger issued-token destination in a swap or leverage-yield vault swap, the SDK requests a current exact-input quote before building the intent. Set `minOutputAmount` to at least half that quote. The destination trustline must have room for twice `minOutputAmount`. A fill above that bound, or a trustline that changes before settlement, can still prevent the release.
 
 ### Stellar Trustline
 

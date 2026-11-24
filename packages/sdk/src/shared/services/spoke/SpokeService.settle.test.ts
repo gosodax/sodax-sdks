@@ -21,6 +21,7 @@ const spoke = sodax.spoke;
 const ARBITRUM = '0xa4b1.arbitrum' satisfies SpokeChainKey;
 const BITCOIN = 'bitcoin' satisfies SpokeChainKey;
 const TRON = 'tron' satisfies SpokeChainKey;
+const XRP = 'xrp' satisfies SpokeChainKey;
 
 /** Chains that must keep riding the intent relay, whatever the MPC list grows to. */
 const INTENT_ONLY: SpokeChainKey[] = [ARBITRUM, BITCOIN];
@@ -247,15 +248,23 @@ describe('SpokeService.settle — Tron MPC relay', () => {
 
   it('routes every chain listed as MPC-relay away from the intent relay', async () => {
     // The dispatch is driven by MpcRelayChainMap membership, not by naming Tron — so a chain added
-    // to that map (XRP, Aptos) settles through its relay service with no feature-code change.
+    // to that map settles through its relay service with no feature-code change. Adding a chain to
+    // the map without a service here fails this test rather than silently hitting the live relay.
+    const services: Record<MpcRelayChainKey, { waitForDeposit: (tx: string, timeout?: number) => unknown }> = {
+      tron: spoke.tron,
+      xrp: spoke.xrp,
+    };
     const relay = stubRelay();
-    vi.spyOn(spoke.tron, 'waitForDeposit').mockResolvedValue(
-      depositRecord({ hubMint: { chain: 'sonic', hash: HUB_MINT, ts: 0 } }),
-    );
+    for (const service of Object.values(services)) {
+      vi.spyOn(service, 'waitForDeposit').mockResolvedValue(
+        depositRecord({ hubMint: { chain: 'sonic', hash: HUB_MINT, ts: 0 } }),
+      );
+    }
 
     for (const chainKey of Object.keys(MpcRelayChainMap) as MpcRelayChainKey[]) {
+      expect(services[chainKey], `no MPC relay service wired for ${chainKey}`).toBeDefined();
       const result = await spoke.settle({ chainKey, tx: SRC_TX, direction: 'inbound', relayData: RELAY_DATA });
-      expect(result.ok).toBe(true);
+      expect(result.ok, `${chainKey} did not settle through its MPC relay service`).toBe(true);
     }
 
     expect(relay).not.toHaveBeenCalled();
@@ -272,6 +281,78 @@ describe('SpokeService.settle — Tron MPC relay', () => {
       direction: 'inbound',
       relayData: RELAY_DATA,
     });
+
+    expect(result).toEqual({ ok: false, error: { phase: 'relay', cause } });
+  });
+});
+
+describe('SpokeService.settle — XRP MPC relay', () => {
+  // XRPL rides the same MPC relay as Tron and differs only in the withdraw-auth scheme, which
+  // `settle` never sees. What is worth pinning here is the DISPATCH: `getMpcRelayService` is a
+  // switch on chain type, so a chain can sit in `MpcRelayChainMap` and still have no service —
+  // which throws at settlement time, after the deposit has already landed on ledger.
+  const HUB_MINT = '0xcccc000000000000000000000000000000000000000000000000000000000013';
+  const RELEASE = '0xdddd000000000000000000000000000000000000000000000000000000000014';
+  const TRACKING_ID = '0xeeee000000000000000000000000000000000000000000000000000000000015' as Hex;
+
+  const depositRecord = (txs: Record<string, { chain: string; hash: string; ts: number }>) =>
+    // A minimal record: settle reads only `txs`, so the rest of DepositRecord is left out.
+    ({ ok: true as const, value: { depositId: 'id', status: 'minted', createdAt: 0, txs } }) as unknown as Awaited<
+      ReturnType<typeof spoke.xrp.waitForDeposit>
+    >;
+
+  const withdrawalRecord = (txs: Record<string, { chain: string; hash: string; ts: number }>) =>
+    // A minimal record: settle reads only `txs`, so the rest of WithdrawalRecord is left out.
+    ({ ok: true as const, value: { trackingId: TRACKING_ID, status: 'released', txs } }) as unknown as Awaited<
+      ReturnType<typeof spoke.xrp.waitForWithdrawal>
+    >;
+
+  it('polls the XRPL deposit record for an inbound deposit and never touches the intent relay', async () => {
+    const relay = stubRelay();
+    const verify = vi.spyOn(spoke, 'verifyTxHash');
+    const waitForDeposit = vi
+      .spyOn(spoke.xrp, 'waitForDeposit')
+      .mockResolvedValue(depositRecord({ hubMint: { chain: 'sonic', hash: HUB_MINT, ts: 0 } }));
+
+    const result = await spoke.settle({
+      chainKey: XRP,
+      tx: SRC_TX,
+      direction: 'inbound',
+      relayData: RELAY_DATA,
+      timeout: 90_000,
+    });
+
+    expect(waitForDeposit).toHaveBeenCalledWith(SRC_TX, 90_000);
+    expect(relay).not.toHaveBeenCalled();
+    // The Payment was submitted and notified by the spoke service; there is nothing left to verify.
+    expect(verify).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, value: { srcChainTxHash: SRC_TX, dstChainTxHash: HUB_MINT } });
+  });
+
+  it('polls the withdrawal record for an outbound borrow/withdraw, keyed by the tracking id', async () => {
+    const relay = stubRelay();
+    const waitForWithdrawal = vi
+      .spyOn(spoke.xrp, 'waitForWithdrawal')
+      .mockResolvedValue(withdrawalRecord({ release: { chain: 'xrp', hash: RELEASE, ts: 0 } }));
+
+    const result = await spoke.settle({
+      chainKey: XRP,
+      tx: TRACKING_ID,
+      direction: 'outbound',
+      relayData: RELAY_DATA,
+      timeout: 90_000,
+    });
+
+    expect(waitForWithdrawal).toHaveBeenCalledWith(TRACKING_ID, 90_000, 'released');
+    expect(relay).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, value: { trackingId: TRACKING_ID, dstChainTxHash: RELEASE } });
+  });
+
+  it('maps an MPC relay failure onto the relay phase rather than throwing', async () => {
+    const cause = new Error('mpc-relay: deposit failed');
+    vi.spyOn(spoke.xrp, 'waitForDeposit').mockResolvedValue({ ok: false, error: cause });
+
+    const result = await spoke.settle({ chainKey: XRP, tx: SRC_TX, direction: 'inbound', relayData: RELAY_DATA });
 
     expect(result).toEqual({ ok: false, error: { phase: 'relay', cause } });
   });
