@@ -9,6 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { concat, keccak256, toHex, type Hex } from 'viem';
 import { ChainKeys, type Result, type ZcashUnsignedTransaction } from '@sodax/types';
+import { UserRejectsError } from '@tonconnect/sdk';
 import { mapRelayFailure } from '../../../errors/relay-error-mapping.js';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
@@ -150,6 +151,15 @@ describe('ZcashSpokeService.deposit', () => {
     ]);
     expect(rpcCalls.find(c => c.method === 'getaddressutxos')?.params).toEqual([{ addresses: [SENDER] }]);
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '133', txid);
+  });
+
+  it('preserves a wallet refusal without broadcasting or notifying the relay', async () => {
+    const refusal = new UserRejectsError('rejected');
+    walletProvider.signTransaction.mockRejectedValueOnce(refusal);
+
+    await expect(zcash.deposit(depositParams())).rejects.toBe(refusal);
+    expect(rpcCalls.some(call => call.method === 'sendrawtransaction')).toBe(false);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
   it('notifies the locally derived txid when the broadcast response is lost', async () => {
