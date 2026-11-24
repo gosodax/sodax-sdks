@@ -59,7 +59,7 @@ Inside each hub you choose the **HTTP API** or the **open-source SDK**.
   <Card title="AI coding agents" icon="robot" href="/ai-integration-guide">
     Install `@sodax/skills` so Cursor, Claude Code, and Copilot write v2-correct code.
   </Card>
-  <Card title="Builders MCP" icon="plug" href="/builders-mcp">
+  <Card title="SODAX MCP" icon="plug" href="/sodax-mcp">
     Live chains, tokens, quotes, and SDK docs for AI coding agents.
   </Card>
   <Card title="Talk to the team" icon="handshake" href="/contact">
