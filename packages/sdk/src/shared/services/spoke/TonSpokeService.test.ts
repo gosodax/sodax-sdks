@@ -9,6 +9,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Address, beginCell, Cell } from '@ton/core';
+import { UserRejectsError } from '@tonconnect/sdk';
 import { isIndeterminateOutcomeError, tonSupportedTokens, type Hex } from '@sodax/types';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
@@ -204,9 +205,10 @@ describe('TonSpokeService.deposit', () => {
 
   it('does not treat an explicit wallet refusal as an indeterminate send', async () => {
     stubToncenter();
-    const refusal = Object.assign(new Error('rejected'), { name: 'UserRejectsError' });
+    const refusal = new UserRejectsError('rejected');
     sendTransaction.mockRejectedValueOnce(refusal);
     await expect(ton.deposit(depositParams(NATIVE_TON))).rejects.toBe(refusal);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
   it('ignores a matching notification from a different source address', async () => {

@@ -96,6 +96,7 @@
     "@solana/web3.js": "catalog:",
     "@stellar/stellar-sdk": "catalog:",
     "@ton/core": "catalog:",
+    "@tonconnect/sdk": "3.4.1",
     "bignumber.js": "catalog:",
     "bitcoinjs-lib": "^6.1.5",
     "bn.js": "^5.2.1",

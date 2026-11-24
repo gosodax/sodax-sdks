@@ -1,4 +1,5 @@
 import { Address, beginCell, Cell } from '@ton/core';
+import { UserRejectsError } from '@tonconnect/sdk';
 import type { Hex } from 'viem';
 import {
   ChainKeys,
@@ -483,9 +484,10 @@ export class TonSpokeService implements MpcRelaySettlement {
         });
       } catch (cause) {
         if (
-          cause instanceof Error &&
-          (cause.name === 'UserRejectsError' ||
-            ('code' in cause && (cause.code === 4001 || cause.code === 'ACTION_REJECTED')))
+          cause instanceof UserRejectsError ||
+          (cause instanceof Error &&
+            (cause.name === 'UserRejectsError' ||
+              ('code' in cause && (cause.code === 4001 || cause.code === 'ACTION_REJECTED'))))
         ) {
           throw cause;
         }

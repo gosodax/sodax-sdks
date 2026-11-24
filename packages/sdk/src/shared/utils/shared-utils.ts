@@ -12,7 +12,6 @@ import type { ConfigService } from '../config/ConfigService.js';
 import { SodaxError } from '../../errors/SodaxError.js';
 import type { SodaxErrorContext } from '../../errors/codes.js';
 import {
-  ChainKeys,
   type SpokeChainKey,
   getSupportedSolverTokens,
   type Hex,
@@ -239,26 +238,29 @@ function mpcRelayIdentityHash(encoded: string, label: string): string {
   return hash.slice(24);
 }
 
-/** The production solver does not accept staging-only Monad tokens. */
-export function assertMonadSwapProductionRoute(
+export function assertProductionSwapRoute(
   endpoint: string,
   params: { srcChainKey: SpokeChainKey; dstChainKey: SpokeChainKey; inputToken: string; outputToken: string },
 ): void {
-  if (params.srcChainKey !== ChainKeys.MONAD_MAINNET && params.dstChainKey !== ChainKeys.MONAD_MAINNET) return;
   if (new URL(endpoint).origin !== 'https://api.sodax.com') return;
-  for (const [chainKey, token] of [
-    [params.srcChainKey, params.inputToken],
-    [params.dstChainKey, params.outputToken],
+  for (const [chainKey, token, field] of [
+    [params.srcChainKey, params.inputToken, 'inputToken'],
+    [params.dstChainKey, params.outputToken, 'outputToken'],
   ] as const) {
-    if (chainKey !== ChainKeys.MONAD_MAINNET) continue;
-    if (getSupportedSolverTokens(chainKey).some(entry => entry.address.toLowerCase() === token.toLowerCase())) continue;
-    throw new SodaxError('VALIDATION_FAILED', 'This Monad swap token is unavailable on the production solver', {
+    const supportedTokens = getSupportedSolverTokens(chainKey);
+    const isSupported = supportedTokens?.some(
+      entry =>
+        entry.address === token ||
+        (getChainType(chainKey) === 'EVM' && entry.address.toLowerCase() === token.toLowerCase()),
+    );
+    if (isSupported) continue;
+    throw new SodaxError('VALIDATION_FAILED', 'This swap token is unavailable on the production solver', {
       feature: 'swap',
       context: {
         phase: 'validate',
         srcChainKey: params.srcChainKey,
         dstChainKey: params.dstChainKey,
-        field: 'chainKey',
+        field,
       },
     });
   }

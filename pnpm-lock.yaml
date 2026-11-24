@@ -887,6 +887,9 @@ importers:
       '@ton/core':
         specifier: 'catalog:'
         version: 0.63.1(@ton/crypto@3.3.0)
+      '@tonconnect/sdk':
+        specifier: 3.4.1
+        version: 3.4.1
       bignumber.js:
         specifier: 'catalog:'
         version: 9.3.1
