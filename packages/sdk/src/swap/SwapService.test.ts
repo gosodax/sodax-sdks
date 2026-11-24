@@ -5697,6 +5697,23 @@ describe('Production solver routing', () => {
     }
     expect(deposit).not.toHaveBeenCalled();
   });
+
+  it('leaves production routes between non-MPC chains to the solver', async () => {
+    const production = new Sodax({ logger: 'silent' });
+    const pastValidation = vi
+      .spyOn(production.hubProvider, 'getUserHubWalletAddress')
+      .mockRejectedValue(new Error('past validation'));
+    const result = await production.swaps.createIntent({
+      params: {
+        ...intentInput(ChainKeys.ETHEREUM_MAINNET),
+        inputToken: spokeChainConfig[ChainKeys.ETHEREUM_MAINNET].supportedTokens.WBTC.address,
+        outputToken: arbitrumSupportedTokens.WBTC.address,
+      },
+      raw: true,
+    });
+    expect(result).toMatchObject({ ok: false, error: { message: expect.not.stringContaining('production solver') } });
+    expect(pastValidation).toHaveBeenCalled();
+  });
 });
 
 describe('Monad swap settlement policy', () => {

@@ -326,7 +326,7 @@ export type NearGasEstimate = bigint;
 export type TronGasEstimate = {
   /** Energy the contract call consumes. `0n` for a native TRX transfer, which uses none. */
   energy: bigint;
-  /** Bandwidth points consumed: the byte length of the signed transaction. */
+  /** Bandwidth points consumed: the byte length of the signed transaction plus 64 bytes of result space per contract. */
   bandwidth: bigint;
 };
 

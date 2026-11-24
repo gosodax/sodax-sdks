@@ -157,6 +157,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -490,11 +491,14 @@ describe('TronSpokeService.deposit — broadcast failure', () => {
 
 describe('TronSpokeService.deposit — notify failure', () => {
   it('still resolves to the broadcast tx hash, leaving the re-notify to settlement', async () => {
+    vi.useFakeTimers();
     stubTronGrid();
     vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay 503') });
 
     // The funds are already in the reserve: the hash is what settlement waits on and re-notifies.
-    await expect(tron.deposit(depositParams(NATIVE_TRX))).resolves.toMatch(/^[0-9a-f]{64}$/);
+    const deposited = expect(tron.deposit(depositParams(NATIVE_TRX))).resolves.toMatch(/^[0-9a-f]{64}$/);
+    await vi.runAllTimersAsync();
+    await deposited;
     expect(callTo('/wallet/broadcasthex')).toBeDefined();
     // Notifying twice is harmless, so the transient failure is retried before handing over.
     expect(vi.mocked(MpcRelayApiService.notify).mock.calls.length).toBeGreaterThan(1);
@@ -562,9 +566,12 @@ describe('TronSpokeService hub release: submit, read, wait', () => {
   });
 
   it('keeps the hub tx in the error when the relay cannot be notified', async () => {
+    vi.useFakeTimers();
     vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: new Error('relay down') });
 
-    const res = await tron.submitHubRelease(RELEASE);
+    const submitted = tron.submitHubRelease(RELEASE);
+    await vi.runAllTimersAsync();
+    const res = await submitted;
 
     expect(res.ok).toBe(false);
     expect(!res.ok && String(res.error)).toContain(RELEASE.hubTxHash);
@@ -724,8 +731,9 @@ describe('TronSpokeService.estimateGas', () => {
     const raw_data_hex = spliceMemo(raw, MEMO);
     return { txID: sha256(`0x${raw_data_hex}`).slice(2), raw_data_hex, raw_data: TRC20_RAW_DATA };
   };
+  // java-tron charges the signed size plus 64 bytes of result space per contract.
   const bandwidthOf = (raw: string) =>
-    BigInt(assembleBroadcastHex({ rawHex: spliceMemo(raw, MEMO), signatures: ['00'.repeat(65)] }).length / 2);
+    BigInt(assembleBroadcastHex({ rawHex: spliceMemo(raw, MEMO), signatures: ['00'.repeat(65)] }).length / 2) + 64n;
 
   it('replays the transfer for energy and sizes the given transaction for bandwidth, building nothing', async () => {
     stubTronGrid({ '/wallet/triggerconstantcontract': { result: { result: true }, energy_used: 31_895 } });

@@ -609,7 +609,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
       this.readAccountRoot(issuer),
     ]);
     return {
-      line: lines.lines?.find(l => l.currency === currency && l.account === issuer),
+      // The two reads can land on different ledgers; a line whose RippleState is gone no longer exists.
+      line: state.node && lines.lines?.find(l => l.currency === currency && l.account === issuer),
       stateFlags: state.node?.Flags ?? 0,
       issuer: issuerRoot ?? { flags: 0 },
     };

@@ -128,8 +128,10 @@ export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
  * Floor for a payout through the MPC relay, by chain and token address, in the payout token's decimals: the SDK
  * refuses a payout at or below it. The relay deducts a live release fee from the payout, and releases nothing
  * once that fee reaches the amount, after the hub has already burned it. Sized to the fee cap the solver assumes.
+ * Every {@link MpcRelayChainKey} must have an entry, and the SDK refuses a payout of a token its entry omits.
  */
-export const MpcRelayPayoutMinimums: Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
+export const MpcRelayPayoutMinimums: Readonly<Record<MpcRelayChainKey, Readonly<Record<string, bigint>>>> &
+  Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
   [ChainKeys.TRON_MAINNET]: {
     [tronSupportedTokens.USDT.address]: 3_000_000n,
     [tronSupportedTokens.TRX.address]: 10_000_000n,
