@@ -1,0 +1,16 @@
+## Scope and build with AI
+
+Point your AI coding assistant at the [SODAX MCP](/sodax-mcp) and it gains live access to the whole SODAX System: supported chains and tokens, real swap quotes, money market rates, intent history, and these docs. It works in Claude, Cursor, VS Code, Windsurf, and any other MCP-capable client.
+
+```json
+{
+  "mcpServers": {
+    "sodax": {
+      "type": "http",
+      "url": "https://mcp.sodax.com/mcp"
+    }
+  }
+}
+```
+
+Use it to scope before you commit: your assistant can read your own codebase, pull real quotes and token lists, and map exactly where SODAX fits in your product. Full tool list and per-client setup at [mcp.sodax.com](https://mcp.sodax.com/).

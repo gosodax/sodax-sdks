@@ -11,7 +11,7 @@ That endpoint, not an SDK release, is what makes a token swappable: an SDK versi
 Tokens are grouped by their spoke network. The first address is the token on that network; the second is its **hub asset address on Sonic**. Price data is available through the public [Oracle HTTP API](/developers/http-api/oracle).
 
 <Note>
-  Reading this from code or an agent? Do not scrape the page. Call the config API, or read `sodax.swaps.getSupportedSwapTokens()` from the SDK. [Builders MCP](/builders-mcp) hands the same live lists to an AI coding agent.
+  Reading this from code or an agent? Do not scrape the page. Call the config API, or read `sodax.swaps.getSupportedSwapTokens()` from the SDK. [SODAX MCP](/sodax-mcp) hands the same live lists to an AI coding agent.
 </Note>
 
 ## Supported swap tokens

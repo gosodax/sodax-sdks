@@ -2,7 +2,7 @@
 title: "VibeCode Saga: Swaps without Borders: a charity swap built in public"
 sidebarTitle: "Swaps without Borders"
 icon: hand-holding-heart
-description: "A two-week mainnet build on SODAX SDK V2 where 100% of the partner fee goes to a community-voted charity. One config object routes the fee, the Builders MCP got me to a mainnet swap in an afternoon, and the solver's own status API makes points unfarmable."
+description: "A two-week mainnet build on SODAX SDK V2 where 100% of the partner fee goes to a community-voted charity. One config object routes the fee, the SODAX MCP got me to a mainnet swap in an afternoon, and the solver's own status API makes points unfarmable."
 ---
 
 <iframe
@@ -39,9 +39,9 @@ Most swap apps hide the fee. This one is built around it, so the money path is t
 - **One dedicated wallet.** It is used only for charity fees, so every inflow is a fee and every outflow is a payout.
 - **Points only for real swaps.** The server asks the solver whether an intent executed before crediting anything. The client cannot self-confirm.
 
-## Scaffolded against the Builders MCP
+## Scaffolded against the SODAX MCP
 
-I pointed Claude Code at the [SODAX Builders MCP](https://builders.sodax.com/mcp) and asked for a cross-network swap component with partner fees. Going from `pnpm create next-app` to a working mainnet swap took one afternoon, and I read zero SDK docs outside the MCP that day.
+I pointed Claude Code at the [SODAX MCP](https://mcp.sodax.com/mcp) and asked for a cross-network swap component with partner fees. Going from `pnpm create next-app` to a working mainnet swap took one afternoon, and I read zero SDK docs outside the MCP that day.
 
 What the MCP handed over, per the Day 3 build log:
 
@@ -129,7 +129,7 @@ v1.0.2 added a "Recover stuck funds" panel. Because assets that do not reach the
 
 ## What made it easy
 
-- **The Builders MCP.** An afternoon from an empty Next.js app to a real mainnet swap, with the provider tree, hook shapes and intent fields served straight to my coding agent.
+- **The SODAX MCP.** An afternoon from an empty Next.js app to a real mainnet swap, with the provider tree, hook shapes and intent fields served straight to my coding agent.
 - **Partner fees as plain config.** One object routes 100% of the fee to the charity across swaps, bridge and money market.
 - **Readable fee accrual.** `fetchAssetsBalances` turns the hub basket into a live charity pot with one call.
 - **The wallet layer.** Eight ecosystems behind one hook shape.

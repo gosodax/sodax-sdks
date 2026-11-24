@@ -10,13 +10,13 @@ In May, SODAX [announced SDK V2](https://sodax.com/news/sodax-sdk-v2-brings-smoo
 The short version: add one URL to your agent's MCP config.
 
 ```
-https://builders.sodax.com/mcp
+https://mcp.sodax.com/mcp
 ```
 
-From that point the agent can read the live list of supported networks and swap tokens, pull a swap quote, inspect money market reserves and user positions, look up an intent by hash, and search the SODAX developer docs while it writes your code. None of that needs an API key; the [swap tools](/builders-mcp#swaps) do, and they're not production ready yet.
+From that point the agent can read the live list of supported networks and swap tokens, pull a swap quote, inspect money market reserves and user positions, look up an intent by hash, and search the SODAX developer docs while it writes your code. None of that needs an API key; the [swap tools](/sodax-mcp#swaps) do.
 
 <Note>
-  The Builders MCP never holds a wallet key and never signs. `sodax_relay_submit_tx` takes a transaction that is already signed and finalized and hands it to the intent relay, and the [swap tools](/builders-mcp#swaps) return unsigned transactions for the user's wallet.
+  The SODAX MCP never holds a wallet key and never signs. `sodax_relay_submit_tx` takes a transaction that is already signed and finalized and hands it to the intent relay, and the [swap tools](/sodax-mcp#swaps) return unsigned transactions for the user's wallet.
 </Note>
 
 ## Add it to your agent
@@ -26,9 +26,9 @@ Most MCP clients accept the same JSON block:
 ```json
 {
   "mcpServers": {
-    "sodax-builders": {
+    "sodax": {
       "type": "http",
-      "url": "https://builders.sodax.com/mcp"
+      "url": "https://mcp.sodax.com/mcp"
     }
   }
 }
@@ -39,7 +39,7 @@ Most MCP clients accept the same JSON block:
     One command from your project root:
 
     ```bash
-    claude mcp add --transport http sodax-builders https://builders.sodax.com/mcp
+    claude mcp add --transport http sodax https://mcp.sodax.com/mcp
     ```
   </Tab>
   <Tab title="Cursor">
@@ -51,16 +51,16 @@ Most MCP clients accept the same JSON block:
     ```json
     {
       "servers": {
-        "sodax-builders": {
+        "sodax": {
           "type": "http",
-          "url": "https://builders.sodax.com/mcp"
+          "url": "https://mcp.sodax.com/mcp"
         }
       }
     }
     ```
   </Tab>
   <Tab title="Windsurf, ChatGPT and others">
-    Windsurf, ChatGPT, Claude Desktop, Cline, Goose and Roo Code are all listed as compatible on [builders.sodax.com](https://builders.sodax.com). Add `https://builders.sodax.com/mcp` using your client's own MCP config format. For clients that do not speak streamable HTTP, such as Gemini CLI, use the SSE endpoint instead: `https://builders.sodax.com/sse`.
+    Windsurf, ChatGPT, Claude Desktop, Cline, Goose and Roo Code are all listed as compatible on [mcp.sodax.com](https://mcp.sodax.com). Add `https://mcp.sodax.com/mcp` using your client's own MCP config format. For clients that do not speak streamable HTTP, such as Gemini CLI, use the SSE endpoint instead: `https://mcp.sodax.com/sse`.
   </Tab>
 </Tabs>
 
@@ -87,7 +87,7 @@ Alongside the live data sit the documentation tools. They proxy search and full-
 
 The MCP is one of three pieces SODAX ships for agents. Each covers a different gap.
 
-**1. Builders MCP: live data and docs.** A hosted server the agent calls at runtime. It answers "which tokens can be swapped from Base today?" or "why did this intent fail?" with current values.
+**1. SODAX MCP: live data and docs.** A hosted server the agent calls at runtime. It answers "which tokens can be swapped from Base today?" or "why did this intent fail?" with current values.
 
 **2. `@sodax/skills`: version-locked SDK knowledge.** Skill files installed into your repo that teach the agent the right v2 API shapes, patterns and anti-patterns for `@sodax/sdk`, `@sodax/dapp-kit`, `@sodax/wallet-sdk-core` and `@sodax/wallet-sdk-react`. Training data drifts; these files match the SDK version you ship. Install them with the [skills CLI](https://github.com/vercel-labs/skills) from your repo root:
 
@@ -132,7 +132,7 @@ Here is how the agent can work through it with the tools above:
     It searches the docs through the MCP for the dapp-kit swap guide and follows today's version of it.
   </Step>
   <Step title="Get a real quote">
-    It resolves the pair to hub (Sonic) assets, as the [Builders MCP docs](/builders-mcp) describe, and calls `sodax_get_solver_quote`, giving you a real number to sanity-check before any code ships.
+    It resolves the pair to hub (Sonic) assets, as the [SODAX MCP docs](/sodax-mcp) describe, and calls `sodax_get_solver_quote`, giving you a real number to sanity-check before any code ships.
   </Step>
   <Step title="Write the code">
     It writes the page with the patterns the skill enforces, such as reading `result.ok` on Result-returning calls and discriminating on `error.code`.
@@ -144,19 +144,19 @@ Here is how the agent can work through it with the tools above:
 
 SODAX is mainnet-only, so that last step is a real swap. Start small.
 
-This workflow is already proven in the wild: the community app [Swaps without Borders](/resources/blog/vibecode-saga-swaps-without-borders) went from an empty Next.js app to a mainnet swap in an afternoon using the Builders MCP.
+This workflow is already proven in the wild: the community app [Swaps without Borders](/resources/blog/vibecode-saga-swaps-without-borders) went from an empty Next.js app to a mainnet swap in an afternoon using the SODAX MCP.
 
 ## Reference
 
 <CardGroup cols={2}>
-  <Card title="Builders MCP docs" icon="plug" href="/builders-mcp">
+  <Card title="SODAX MCP docs" icon="plug" href="/sodax-mcp">
     Client setup, tool overview and how the MCP pairs with skills.
   </Card>
   <Card title="AI Integration Guide" icon="robot" href="/ai-integration-guide">
     Every way to install and wire `@sodax/skills`.
   </Card>
-  <Card title="MCP server source" icon="github" href="https://github.com/gosodax/builders-sodax-mcp-server">
-    The open-source Builders MCP server.
+  <Card title="MCP server source" icon="github" href="https://github.com/gosodax/sodax-mcp">
+    The open-source SODAX MCP server.
   </Card>
   <Card title="SDK V2 announcement" icon="newspaper" href="https://sodax.com/news/sodax-sdk-v2-brings-smoother-cross-network-execution-with-agentic-support">
     The May 2026 launch post.
