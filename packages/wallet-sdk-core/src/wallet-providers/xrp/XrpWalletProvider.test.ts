@@ -15,7 +15,7 @@ import { decode } from 'xrpl';
 import { XrpWalletProvider, isGemWalletXrpWalletConfig, isPrivateKeyXrpWalletConfig } from './XrpWalletProvider.js';
 import type { GemWalletLike } from './types.js';
 
-// 16 bytes of seed entropy — `Wallet.fromEntropy` derives a deterministic ed25519 account from this.
+// 16 bytes of seed entropy — the provider derives a deterministic ed25519 account from this.
 const PRIVATE_KEY = `0x${'11'.repeat(16)}`;
 // PRIVATE_KEY's account, from ripple-keypairs' own derivation rather than the provider's.
 const PRIVATE_KEY_ADDRESS = 'raJ8s1YsReiYm53wEvZnnq2wveTDaEaSL4';

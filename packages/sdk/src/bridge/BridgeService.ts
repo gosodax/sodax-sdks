@@ -1500,6 +1500,17 @@ export class BridgeService {
           }),
         };
       }
+      // The packet reached the hub, but a hub tx with no release to the named MPC-relay chain is not a payout.
+      if (!release && delivered.ok && hubTxHash && dstOnMpcRelay) {
+        return {
+          ok: false,
+          error: this.detailedStatusLookupFailed(new Error(`hub tx ${hubTxHash} sends no MPC relay release`), params, {
+            reason: backendAnswered ? DETAILED_STATUS_NOT_DELIVERED : undefined,
+            hubTxHash,
+            mpcRelay: true,
+          }),
+        };
+      }
 
       if (!delivered.ok) {
         return {
