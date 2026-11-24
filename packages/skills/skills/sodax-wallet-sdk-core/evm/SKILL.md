@@ -9,13 +9,13 @@ metadata:
 
 # EVM (`wallet-sdk-core` granular skill)
 
-Granular skill for `EvmWalletProvider` — the low-level EVM wallet for backend / Node / non-React flows. One class covers all 14 SODAX EVM chains — the Sonic hub plus 13 EVM spoke chains — via `getEvmViemChain()`. Source-of-truth reference lives in the parent broad skill's knowledge tree; this file is the focused workflow only.
+Granular skill for `EvmWalletProvider` — the low-level EVM wallet for backend / Node / non-React flows. One class covers all 15 SODAX EVM chains — the Sonic hub plus 14 EVM spoke chains — via `getEvmViemChain()`. Source-of-truth reference lives in the parent broad skill's knowledge tree; this file is the focused workflow only.
 
 ## Step 1 — Clarify with user before coding
 
 1. **New code or v1 → v2 port?** New → § Integration. Port v1 → § Migration (almost always a no-op here).
 2. **Private-key or browser-extension config?** EVM discriminates by **field presence** (no `type`): PK = `{ privateKey, chainId, rpcUrl? }` (Node / CI / bots); browser-extension = `{ walletClient, publicClient }` (pre-built by wagmi / the consumer). Mutually exclusive — pick one.
-3. **Which chain?** One `EvmWalletProvider` covers all 14 EVM chains (the Sonic hub plus 13 EVM spokes) via `chainId: EvmChainKey` (`ChainKeys.SONIC_MAINNET`, …).
+3. **Which chain?** One `EvmWalletProvider` covers all 15 EVM chains (the Sonic hub plus 14 EVM spokes) via `chainId: EvmChainKey` (`ChainKeys.SONIC_MAINNET`, …).
 
 ## Integration workflow (new v2 code)
 
