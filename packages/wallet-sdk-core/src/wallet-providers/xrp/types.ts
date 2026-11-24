@@ -1,3 +1,5 @@
+import type { XrpUnsignedTransaction } from '@sodax/types';
+
 /** Defaults shared by both XRPL provider modes. */
 export type XrpWalletDefaults = {
   /** rippled JSON-RPC used for reads and submission. Default `https://xrplcluster.com`. */
@@ -24,7 +26,7 @@ export interface GemWalletLike {
   signMessage: (message: string, isHex?: boolean) => Promise<{ result?: { signedMessage?: string } } | undefined>;
   /** `submitTransaction({ transaction })` → submits a Payment and returns its hash. */
   submitTransaction: (payload: {
-    transaction: Record<string, unknown>;
+    transaction: XrpUnsignedTransaction;
   }) => Promise<{ type?: 'response' | 'reject'; result?: { hash?: string } } | undefined>;
   /**
    * `getNetwork()` → the ledger the wallet submits to. GemWallet also serves Testnet, Devnet and the Xahau

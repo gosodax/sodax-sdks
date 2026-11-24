@@ -1,5 +1,5 @@
-import { deriveKeypair, sign } from 'ripple-keypairs';
-import { ECDSA, Wallet } from 'xrpl';
+import { deriveKeypair, generateSeed, sign } from 'ripple-keypairs';
+import { Wallet } from 'xrpl';
 import {
   IndeterminateOutcomeError,
   type IXrpWalletProvider,
@@ -33,7 +33,7 @@ export function isGemWalletXrpWalletConfig(config: XrpWalletConfig): config is G
 
 /**
  * A local wallet from an XRPL family seed (`sEd…`) or 16 bytes of seed entropy as hex. Anything else is
- * refused rather than read: `fromEntropy` keeps only the first 16 bytes, so a longer value would sign for
+ * refused rather than read: seed derivation keeps only the first 16 bytes, so a longer value would sign for
  * an account other than the one its owner expects. The secret never appears in an error.
  */
 function walletFromSecret(secret: string): Wallet {
@@ -55,7 +55,9 @@ function walletFromSecret(secret: string): Wallet {
         `XRPL privateKey must be a family seed (s…) or 16 bytes of seed entropy as hex, got ${hex.length} hex characters — a 32-byte value used to be read as its first 16 bytes, so pass those to keep the same account`,
       );
     }
-    wallet = Wallet.fromEntropy(Buffer.from(hex, 'hex'), { algorithm: ECDSA.ed25519 });
+    // Node cannot detect xrpl's CommonJS `ECDSA` as a named ESM export, so importing it fails at load.
+    const keypair = deriveKeypair(generateSeed({ entropy: Buffer.from(hex, 'hex'), algorithm: 'ed25519' }));
+    wallet = new Wallet(keypair.publicKey, keypair.privateKey);
   }
   // Scheme 3 verifies only ed25519, so a secp256k1 account could deposit and then never withdraw.
   if (!wallet.publicKey.toUpperCase().startsWith('ED')) {
@@ -153,7 +155,7 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
   public async signTransaction(tx: XrpUnsignedTransaction): Promise<XrpSignedTransaction> {
     if (this.wallet) {
       const autofilled = await this.autofill(tx);
-      const signed = this.wallet.sign(autofilled as never);
+      const signed = this.wallet.sign(autofilled);
       return { tx_blob: signed.tx_blob, hash: signed.hash };
     }
     // GemWallet submits to whichever ledger it is set to; on another, a deposit pays a reserve the relay never watches.
