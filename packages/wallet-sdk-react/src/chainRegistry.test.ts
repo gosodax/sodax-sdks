@@ -8,6 +8,7 @@ import { InjectiveXService } from './xchains/injective/index.js';
 import { NearXService } from './xchains/near/NearXService.js';
 import { StacksXService } from './xchains/stacks/index.js';
 import { StellarXService } from './xchains/stellar/index.js';
+import { TonXConnector, TonXService } from './xchains/ton/index.js';
 import { TronXConnector } from './xchains/tron/index.js';
 import { XrpXConnector } from './xchains/xrp/index.js';
 import { TronWalletProvider } from '@sodax/wallet-sdk-core';
@@ -72,6 +73,32 @@ const getChainEntry = (key: string) => {
 };
 
 describe('createChainServices', () => {
+  it('registers TON as a connector-managed chain with its configured RPC and manifest', () => {
+    const config: SodaxWalletConfig = {
+      TON: {
+        chains: { [ChainKeys.TON_MAINNET]: { rpcUrl: 'https://ton.example/rpc' } },
+        manifestUrl: 'https://ton.example/tonconnect-manifest.json',
+      },
+    };
+    const store = makeStore(config);
+    const result = createChainServices(config, store);
+    expect(result.enabledChains).toEqual(['TON']);
+    expect(result.xServices.TON).toBeInstanceOf(TonXService);
+    expect(result.xServices.TON).toMatchObject({
+      rpcUrl: config.TON?.chains?.[ChainKeys.TON_MAINNET]?.rpcUrl,
+      manifestUrl: config.TON?.manifestUrl,
+    });
+    expect(result.xConnectorsByChain.TON).toHaveLength(1);
+    expect(result.xConnectorsByChain.TON?.[0]).toBeInstanceOf(TonXConnector);
+  });
+
+  it('does not construct a TON provider without a connected account', () => {
+    const service = TonXService.getInstance();
+    const { createWalletProvider } = getChainEntry('TON');
+    if (!createWalletProvider) throw new Error('expected TON wallet provider factory');
+    expect(createWalletProvider(service, makeStore())).toBeUndefined();
+  });
+
   it('only initializes chains listed in config', () => {
     const result = createChainServices({ EVM: {}, BITCOIN: {} }, makeStore());
 

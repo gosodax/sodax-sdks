@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ChainKeys,
   spokeChainConfig,
+  tronSupportedTokens,
   type Address,
   type Hex,
   type IEvmWalletProvider,
@@ -919,19 +920,38 @@ describe('SonicSpokeService.createSwapIntent (static)', () => {
       expect(intent.outputToken).toBe(hubAsset);
     });
 
+    it.each([
+      [false, 'minOutputAmount'],
+      [true, 'allowPartialFill'],
+    ] as const)('refuses invalid Tron payout parameters before building (%s)', async (allowPartialFill, field) => {
+      vi.spyOn(sodax.config, 'getSpokeTokenFromOriginalAssetAddress').mockReturnValueOnce(tronSupportedTokens.USDT);
+      await expect(
+        SonicSpokeService.createSwapIntent({
+          createIntentParams: baseCreateIntentParams(SONIC, {
+            dstChainKey: ChainKeys.TRON_MAINNET,
+            dstAddress: TRON_TEST_ADDRESS,
+            outputToken: tronSupportedTokens.USDT.address,
+            minOutputAmount: 3_000_000n,
+            allowPartialFill,
+          }),
+          creatorHubWalletAddress: HUB_WALLET,
+          solverConfig,
+          fee: undefined,
+          hubProvider: baseHubProvider,
+          raw: true,
+        }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', context: { field } });
+    });
+
     it('MPC-relay (Tron) dst: dstAddress is the 32-byte recipient word (12 zero bytes ‖ 20-byte hash)', async () => {
-      vi.spyOn(sodax.config, 'getSpokeTokenFromOriginalAssetAddress').mockReturnValueOnce({
-        symbol: 'X',
-        decimals: 18,
-        address: '0xb' as Address,
-        hubAsset: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Address,
-        // Only `hubAsset` is read, so a partial XToken stands in for the full config entry.
-      } as unknown as ReturnType<typeof sodax.config.getSpokeTokenFromOriginalAssetAddress>);
+      vi.spyOn(sodax.config, 'getSpokeTokenFromOriginalAssetAddress').mockReturnValueOnce(tronSupportedTokens.USDT);
 
       const [, intent] = await SonicSpokeService.createSwapIntent({
         createIntentParams: baseCreateIntentParams(SONIC, {
           dstChainKey: ChainKeys.TRON_MAINNET,
           dstAddress: TRON_TEST_ADDRESS,
+          outputToken: tronSupportedTokens.USDT.address,
+          minOutputAmount: 3_000_001n,
         }),
         creatorHubWalletAddress: HUB_WALLET,
         solverConfig,

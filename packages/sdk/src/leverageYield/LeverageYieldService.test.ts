@@ -35,7 +35,6 @@ import {
   ChainKeys,
   DEFAULT_BACKEND_API_TIMEOUT,
   DEFAULT_RELAY_TX_TIMEOUT,
-  encodeRecipient,
   getIntentRelayChainId,
   type IBitcoinWalletProvider,
   type IEvmWalletProvider,
@@ -1010,7 +1009,9 @@ describe('LeverageYieldService.createVaultIntent', () => {
   it.each([
     99_000_000n,
     50_000_000n,
+    49_999_999n,
   ])('checks vault solved payout headroom for minimum %s before signing', async minOutputAmount => {
+    vi.spyOn(sodax.leverageYield, 'getQuote').mockResolvedValue({ ok: true, value: { quoted_amount: 100_000_000n } });
     vi.spyOn(sodax.spoke.xrp, 'checkDestination').mockImplementation(async ({ amount, maxAmount = amount }) =>
       maxAmount > 100_000_000n ? { ready: false, reason: 'trustline_limit' } : { ready: true },
     );
@@ -1035,12 +1036,19 @@ describe('LeverageYieldService.createVaultIntent', () => {
       expect(result.error.context).toMatchObject({ reason: 'xrpl-trustline_limit' });
       expect(pastValidation).not.toHaveBeenCalled();
       expect(signing).not.toHaveBeenCalled();
+    } else if (minOutputAmount < 50_000_000n) {
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error.context?.field).toBe('minOutputAmount');
+      expect(pastValidation).not.toHaveBeenCalled();
+      expect(signing).not.toHaveBeenCalled();
     } else expect(pastValidation).toHaveBeenCalled();
   });
 
   it('refuses a payout to an XRPL account that cannot receive it before signing anything', async () => {
     const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
     const xrplAddress = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+    vi.spyOn(sodax.leverageYield, 'getQuote').mockResolvedValue({ ok: true, value: { quoted_amount: 10_000_000n } });
     const checkSpy = vi
       .spyOn(sodax.spoke.xrp, 'checkDestination')
       .mockResolvedValue({ ready: false, reason: 'account_not_found' });
@@ -3679,11 +3687,7 @@ describe('LeverageYieldService — MAX_POSITION_FEE_BPS on every create path', (
 });
 
 describe('LeverageYieldService — MPC-relay origin address', () => {
-  it('stores a Tron origin as the recipient word, since surpluses and cancel refunds pay it', () => {
-    const ORIGIN_ABI = parseAbi([
-      'function createPositionAndLeverage((address owner, address collateral, address borrowToken, uint8 eModeCategory, uint256 originChainId, bytes originAddress, address originAsset, address feeReceiver, uint16 feeBps) cfg, uint256 initialAssets, uint256 borrowAmount, uint256 minCollateralOut) returns (address)',
-    ]);
-
+  it('refuses a hot-wallet deposit that uses an MPC refund origin', () => {
     const result = sodaxWithFactory().leverageYield.buildCreatePositionAndLeverage({
       from: POSITION_OWNER,
       owner: POSITION_OWNER,
@@ -3696,12 +3700,7 @@ describe('LeverageYieldService — MPC-relay origin address', () => {
       minCollateralOut: 1n,
     });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const { args } = decodeFunctionData({ abi: ORIGIN_ABI, data: result.value.data });
-    expect((args[0] as { originAddress: Hex }).originAddress).toBe(
-      encodeRecipient(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS),
-    );
+    expect(result).toMatchObject({ ok: false, error: { code: 'LOOKUP_FAILED' } });
   });
 });
 

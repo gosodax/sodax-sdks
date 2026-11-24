@@ -139,6 +139,8 @@ To render it without switching on `source`, collapse it with `summarizeSwapStatu
 
 **Default to `useDetailedStatus`.** It is the only swap status read that answers for every completion path, and it takes the identifiers `swap()` hands back on success (`intentDeliveryInfo.srcChainKey` / `srcTxHash`) and on a post-broadcast failure (`error.context.srcChainKey` / `srcTxHash`).
 
+For an MPC-relay source that timed out before solver notification, first resume with the original deposit hash. Wait for the hub mint, notify the solver with that hub hash, then use `useDetailedStatus` with the original source hash. Do not invoke the swap mutation again to recover the attempt.
+
 That is what distinguishes it from `useSwapsApiSubmitTxStatus`, which reads the backend record directly — 404 when none exists, and a stale or abandoned record for a swap the client-side fallback completed. A swap whose relay packet has not landed has no hub tx hash and reads as `LOOKUP_FAILED`; that spends the same 40-read budget as a solver `NOT_FOUND`, so a swap nothing can resolve stops instead of polling forever. A dependency outage does **not** spend the budget — it keeps polling so the read recovers on its own.
 
 ### `useSwapWithApproval` — approve and swap in one signature

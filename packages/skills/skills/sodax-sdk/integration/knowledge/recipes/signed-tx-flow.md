@@ -27,7 +27,7 @@ const { tx, intent, relayData } = result.value;
 // tx: the spoke tx hash (string for EVM, base58 for Solana, …)
 ```
 
-For cross-chain mutations (`bridge.bridge`, `staking.stake`, `moneyMarket.supply/borrow/withdraw/repay`, `dex.deposit/withdraw/supplyLiquidity/…`, `migration.migratebnUSD/…`) the success value is `TxHashPair = { srcChainTxHash, dstChainTxHash }` — the spoke transaction hash on the source chain plus the relayed hub transaction hash (from Tron, see [`ai-rules.md`](../ai-rules.md)):
+For cross-chain mutations (`bridge.bridge`, `staking.stake`, `moneyMarket.supply/borrow/withdraw/repay`, `dex.deposit/withdraw/supplyLiquidity/…`, `migration.migratebnUSD/…`) the success value is `TxHashPair = { srcChainTxHash, dstChainTxHash }`, except that a borrow or withdrawal from an MPC-relay source uses `{ trackingId, dstChainTxHash }`. That authorization has no source transaction hash. The destination hash identifies the settled delivery:
 
 ```ts
 const result = await sodax.bridge.bridge({ params, raw: false, walletProvider });
@@ -35,7 +35,7 @@ if (!result.ok) return;
 const { srcChainTxHash, dstChainTxHash } = result.value;
 ```
 
-The same shape is used by every cross-chain mutation in v2 — there is no array-form variant. When the user is already on the hub, both fields hold the same hash.
+When an action ends on the same hub transaction that started it, the two hashes are the same. If settlement fails, use the original source hash or withdrawal tracking ID from the error context to resume the existing MPC operation. Do not repeat the signed feature call.
 
 ---
 

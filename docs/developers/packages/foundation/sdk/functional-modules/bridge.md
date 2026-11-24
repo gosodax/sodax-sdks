@@ -298,7 +298,7 @@ if (!result.ok && result.error.context?.reason === ATOMIC_BATCH_UNCONFIRMED) {
 
 Submits the spoke-side deposit transaction that initiates a bridge transfer, without waiting for the cross-chain relay to complete.
 
-This is the first step of a bridge operation. After this call succeeds you must relay the returned `relayData` to the hub (Sonic) via `relayTxAndWaitPacket` or the intent relay API to complete the transfer. The higher-level `bridge()` method does this automatically — use `createBridgeIntent()` only when you need manual relay control.
+This is the first step of a bridge operation. For routes without an MPC leg, use the intent relay as applicable. When either end uses the MPC relay, use `sodax.spoke.settle({ chainKey: srcChainKey, tx: srcTxHash, direction: 'inbound', relayData, dstChainKey })` with the original transaction, returned relay data and destination. The higher-level `bridge()` method does this automatically — use `createBridgeIntent()` only when you need manual relay control.
 
 When `raw` is `true`, returns the encoded transaction without broadcasting (useful for simulation or batching). When `raw` is `false`, signs and submits the deposit transaction via the provided wallet provider.
 
@@ -534,7 +534,7 @@ Sometimes there is **no record**, and it reads 404 — you opted out with `useBa
 The relay can answer for it, but only if you know to ask it, and with what. So the caller had to know which path ran and pick a source. This method makes that choice instead:
 
 1. Read the backend record; return it while it is still in play. A bridge from Tron, or to Tron with `dstChainKey`, skips this step: the backend never holds one.
-2. Otherwise return the delivered relay packet for the source tx — or, for an MPC-relay source, its relay deposit record (with a `dstChainKey` on another spoke, the hub-to-spoke packet).
+2. Otherwise check the delivered relay packet for the source tx. For an MPC-relay source, use `dstChainKey` to check the last leg from the hub mint.
 
 A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 2, and on the default path this is the *common* branch rather than an edge case: the record almost always exists, so abandonment — not a 404 — is what usually signals the fallback ran. It never self-heals, so keeping it would report `failed` for a bridge the fallback went on to complete. A `success: false` envelope takes step 2 as well — that is the wire contract's "no record found", whatever `data` carries. A transport or server error routes on too, so a transient backend outage does not fail a bridge the relay can still report on.
 
@@ -545,6 +545,12 @@ A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 
 **The MPC-relay arm.** An MPC-relay source never produces an intent-relay packet, so step 2 reads the relay's deposit record instead and returns it whole once `txs.hubMint` holds the hub settlement tx. Until then it is the same budgetable "not delivered" miss as an undelivered packet: the relay answers an unknown deposit as `pending`, so a stuck deposit and one in flight look alike. To another spoke the hub mint is only halfway, and the SDK call relays the rest: pass `dstChainKey` and the read waits for the hub-to-spoke packet, answering with it as the relay arm (`src_tx_hash` the hub mint, `dst_tx_hash` the payout), or with the miss plus `context.hubTxHash` until it lands. If the page closed before that leg was relayed, `sodax.spoke.submitHubDelivery(hubTxHash)` relays it.
 
 A bridge **to** an MPC-relay chain has no packet for that leg either, because the hub emits a `BridgeRequest` for that relay rather than an intent-relay message. Its arm is that relay's release record, returned once `txs.release` holds the payout tx; until then it is the same budgetable miss, with `context.hubTxHash` once the first leg has reached the hub. Read `txs.release`, not `status`, which follows the deposit ladder and never names a release. This read does not notify the relay, so a release nobody notified stays a miss; `sodax.spoke.submitHubRelease({ hubTxHash, dstChainKey })` notifies it. A spoke-source packet is checked against its hub tx's receipt first, so a release is found even without `dstChainKey`. While the release cannot be confirmed (the receipt or the relay record cannot be read), the read keeps retrying, unless a `dstChainKey` off the MPC relay rules it out: then the packet answers.
+
+`buildBridgeData` checks the delivered MPC-relay payout after fee and decimal conversion. The lower-level `EvmAssetManagerService.withdrawAssetData` only encodes the call. Direct callers must validate their payout before signing.
+
+For an MPC-relay source, pass `dstChainKey` to check delivery. If omitted, the hub mint alone returns a non-terminal lookup miss with `context.hubTxHash`. Pass the Sonic chain key for a bridge that ends at the hub.
+
+If Tron withdraw authorization throws an `IndeterminateOutcomeError`, use its `trackingId` to look up the existing authorization. If you retained the signed authorization and resubmit it through `submitSignedWithdraw`, a rejection only describes the replay. Keep polling the original ID. HTTP 409 means the relay already recorded the nonce. HTTP 429 means that request queued nothing. For a raw replay after 429, back off and resend the same signed bytes. Keep polling the original ID if an earlier submission was indeterminate. A fresh `sendMessage` signs a new authorization. If the SDK made the original submission and all three attempts got 429, it reports that nothing was queued and a fresh call is safe after backing off.
 
 Every payload is already documented — the submit-tx record in [BRIDGE_API.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/BRIDGE_API.md), the relay packet as `PacketData`, the MPC relay's record as `DepositRecord`. Nothing is translated between them, so no field is dropped and no status is reinterpreted.
 
@@ -718,11 +724,9 @@ The exported narrow types are `BridgeOrchestrationError` (for `bridge`), `Bridge
 }
 ```
 
-A post-broadcast failure does not mean the bridge failed: the deposit is on-chain, a slow relay may still deliver,
-and with backend submit-tx on the backend keeps working on it after `bridge()` gives up. Read `error.context.srcTxHash` (with `srcChainKey`)
-and keep polling [`getDetailedStatus`](#get-detailed-status) rather than reporting the bridge as lost. Failures
-before the broadcast (`VALIDATION_FAILED`, `INTENT_CREATION_FAILED`, `USER_REJECTED`) carry no `srcTxHash` — the
-SDK has no tx hash to give for them.
+If backend submit-tx accepted a bridge between intent-relay chains, it may keep processing after `bridge()` returns an error. Poll `getDetailedStatus` with the original source hash.
+
+A bridge with an MPC-relay end skips the backend. After a failure with `context.srcTxHash`, keep the original hash and destination. For an MPC source, use the source spoke's deposit wait, for example `sodax.spoke.tron.waitForDeposit(srcTxHash)`, and read `value.txs?.hubMint?.hash` as `hubTxHash`. If the source is Sonic, `hubTxHash` is the original source hash. For an intent-relay spoke source, resume the original inbound transfer with `relayTxAndWaitPacket` and use the delivered packet's `dst_tx_hash` as `hubTxHash`. If a Solana deposit never reached the intent relay, pass the original `relayData` (retained in the post-broadcast settlement error context or from the original `createBridgeIntent`) as `data`, with the original `srcTxHash`. Never create another deposit to reconstruct it. For an MPC destination, notify the hub release with `sodax.spoke.submitHubRelease({ hubTxHash, dstChainKey })` before polling. For delivery from an MPC source to an intent-relay destination, submit the existing hub delivery with `sodax.spoke.submitHubDelivery(hubTxHash)`. A hub-only bridge needs no destination submission. Poll `getDetailedStatus` with the original hash and `dstChainKey` (Sonic for a hub-only bridge). Do not call `bridge()` again.
 
 ### Discrimination example
 
@@ -760,7 +764,7 @@ if (!result.ok) {
 
     case 'RELAY_TIMEOUT':
       // Relay packet didn't confirm in time. Don't call bridge() again — that is a second deposit.
-      // Keep polling getDetailedStatus with error.context.srcTxHash.
+      // Recover the existing transfer using the steps above and the original hash.
       break;
 
     case 'RELAY_FAILED':
@@ -797,7 +801,7 @@ If you were on the previous CODE-on-`error.message` pattern (or the older `Bridg
 
 ### Best practices
 
-1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Never start a new bridge for the same transfer: that is a second deposit. Poll `getDetailedStatus` with `error.context.srcTxHash` — if the backend took the deposit, it still relays it. If no packet ever shows up (backend submit-tx off, or the backend rejected the submit), nothing else will submit it: resubmit **the same tx** to the relay, which ignores a tx it already has. An EVM source needs only the hash; a Solana or Bitcoin source also needs the original `relayData`, which `bridge()` does not return.
+1. **On the intent-relay submission path, handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Never start a new bridge for the same transfer: that is a second deposit. Poll `getDetailedStatus` with `error.context.srcTxHash` — if the backend took the deposit, it still relays it. If no packet ever shows up (backend submit-tx off, or the backend rejected the submit), nothing else will submit it: resubmit **the same tx** to the relay, which ignores a tx it already has. An EVM source needs only the hash; a Solana or Bitcoin source also needs the original `relayData`, from the settlement error context or the original `createBridgeIntent()` result.
 
    ```typescript
    import { getIntentRelayChainId, submitTransaction } from '@sodax/sdk';
@@ -808,7 +812,7 @@ If you were on the previous CODE-on-`error.message` pattern (or the older `Bridg
      sodax.config.relay.relayerApiEndpoint,
    );
    ```
-2. **Handle `RELAY_TIMEOUT` gracefully**. The spoke tx succeeded; the relay just didn't deliver in time. Poll `getDetailedStatus` with `error.context.srcTxHash` instead of starting a new bridge.
+2. **Handle `RELAY_TIMEOUT` gracefully**. Resume the existing transfer with `error.context.srcTxHash` and the chain-specific steps above. Polling does not submit a missing MPC release.
 3. **Discriminate `RELAY_FAILED` via `context.relayCode`**. `'RELAY_POLLING_FAILED'` (polling outage — packet status unknown) needs different UX from generic `'UNKNOWN'`.
 4. **Use `error.cause` for forensics**. Every wrapped error preserves the original on `cause`. Loggers walk it automatically.
 5. **Use `JSON.stringify(error)` for logging**. The `toJSON()` method handles bigint coercion + cause-chain truncation safely.

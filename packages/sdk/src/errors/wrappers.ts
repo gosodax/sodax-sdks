@@ -7,6 +7,7 @@
  */
 
 import type { SodaxErrorCode, SodaxErrorContext, SodaxFeature } from './codes.js';
+import { isIndeterminateOutcomeError } from './IndeterminateOutcomeError.js';
 import { isSodaxError, SodaxError } from './SodaxError.js';
 
 /** Extract `error.message` if `error` is an `Error`; otherwise return the fallback. */
@@ -160,11 +161,20 @@ export function intentCreationFailed(
   cause: unknown,
   context?: Ctx,
 ): SodaxError<'USER_REJECTED' | 'INTENT_CREATION_FAILED'> {
-  if (isWalletRejection(cause)) return userRejected(feature, cause, { phase: 'intentCreation', ...context });
+  const indeterminate = isIndeterminateOutcomeError(cause) ? cause : undefined;
+  if (!indeterminate && isWalletRejection(cause)) {
+    return userRejected(feature, cause, { phase: 'intentCreation', ...context });
+  }
   return new SodaxError('INTENT_CREATION_FAILED', messageOf(cause, 'Intent creation failed'), {
     feature,
     cause,
-    context: { phase: 'intentCreation', ...context },
+    context: {
+      phase: 'intentCreation',
+      ...context,
+      ...(indeterminate?.txHash !== undefined && { srcTxHash: indeterminate.txHash }),
+      ...(indeterminate?.trackingId !== undefined && { trackingId: indeterminate.trackingId }),
+      ...(indeterminate?.recovery !== undefined && { recovery: indeterminate.recovery }),
+    },
   });
 }
 

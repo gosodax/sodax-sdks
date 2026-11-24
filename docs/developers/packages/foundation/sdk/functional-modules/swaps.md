@@ -47,6 +47,8 @@ These lists, and the tokens `sodax.swaps` accepts, are the ones bundled with you
 
 ### Production and staging token lists
 
+Monad makes a direct transfer to the relay-derived deposit address. The swap does not use an asset-manager allowance on Monad. The production solver currently has no Monad routes.
+
 `getSupportedSolverTokens(chainKey)` returns production tokens.
 `getStagingSolverTokens(chainKey)` returns production tokens plus staging-only tokens.
 `stagingSwapSupportedTokens[chainKey]` contains only the staging additions. Selecting
@@ -323,11 +325,13 @@ function isSodaxError(e: unknown): e is SodaxError;
 }
 ```
 
-A post-broadcast failure does not mean the swap failed: with backend submit-tx on, the backend keeps working on
-it after `swap()` gives up. Read `error.context.srcTxHash` (with `srcChainKey`) and keep polling
-[`getDetailedStatus`](#get-detailed-status) rather than reporting the swap as lost.
+On intent-relay sources, if backend submit-tx accepted the deposit, it may keep processing after `swap()` returns an error. Keep polling `getDetailedStatus` with `error.context.srcTxHash` and `srcChainKey`.
 
-Polling only reads, so it cannot fix one case: a failed solver notification (`EXECUTION_FAILED` /
+On an MPC-relay source, the backend submit-tx path is skipped. If `INTENT_CREATION_FAILED`, `RELAY_TIMEOUT` or another settlement failure carries `context.srcTxHash`, use the source spoke's deposit wait (for Tron, `sodax.spoke.tron.waitForDeposit(srcTxHash)`) to notify the relay and wait for the hub mint. On timeout, back off and repeat the wait with the same source hash. Once the result is successful and `value.txs?.hubMint?.hash` is a hex hash (check with viem's `isHex`), call `sodax.swaps.postExecution({ intent_tx_hash: hubMintHash })`. Check the returned Result and retry a failed notification with the same hub hash. After notification succeeds, poll `getDetailedStatus` using the original source hash. Do not create another swap or deposit.
+
+GemWallet can return an `xrp-payment` recovery handle without a hash. Use XRP Ledger `account_tx` to find the original validated, successful Payment. Match the sending account, reserve destination, memo, and amount, using the attempt time to locate the relevant ledger range. For an initial search, inspect validated ledgers closed from one minute before to five minutes after `attemptedAtMs`. This limits the search only and cannot prove the Payment failed. If the range yields no unique match, stop automatic recovery and keep the attempt pending for operator reconciliation. Once you identify the original hash, follow the inbound settlement and solver notification steps above.
+
+A failed solver notification also requires action (`EXECUTION_FAILED` /
 `EXTERNAL_API_ERROR` with `phase: 'postExecution'`). Unless the backend took the swap, nothing else notifies the
 solver, and the intent expires unfilled. Notify it again with the hub tx the error carries — the solver only
 re-affirms an intent it already has — then keep polling:
@@ -369,7 +373,7 @@ if (!result.ok) {
       break;
 
     case 'RELAY_TIMEOUT':
-      // Relay packet didn't confirm in time. Check intent status and retry with longer timeout.
+      // Relay packet didn't confirm in time. Resume settlement with the original hash using the recovery steps above.
       break;
 
     case 'RELAY_FAILED':
@@ -671,6 +675,10 @@ if (result.ok) {
 path is a single transaction. The transactions are named rather than ordered — there is no index to
 map and no way to broadcast them the wrong way round.
 
+### XRP Ledger Trustline
+
+For an XRP Ledger issued-token destination in a swap or leverage-yield vault swap, the SDK requests a current exact-input quote before building the intent. Set `minOutputAmount` to at least half that quote. The destination trustline must have room for twice `minOutputAmount`. A fill above that bound, or a trustline that changes before settlement, can still prevent the release.
+
 ### Stellar Trustline
 
 For Stellar as the source chain, `isAllowanceValid` checks trustline balance sufficiency and `approve` adds/increases the trustline. For Stellar as the **destination** chain, frontends must manually establish trustlines before executing swaps. See `packages/sdk/docs/STELLAR_TRUSTLINE.md` for details.
@@ -820,7 +828,7 @@ The `swap` method is the recommended way to perform a complete cross-chain swap.
 
 1. Calls `createIntent` to submit the intent transaction on the source spoke chain
 2. **Backend attempt** (default, `swaps.useBackendSubmitTx`): hands the broadcast tx to `sodax.api.swaps.submitTx` — which verifies, relays and post-executes server-side — then polls submit-tx status until the intent is `solved`
-3. **On any non-success, falls back** to the fully client-side path: verifies the spoke transaction landed on-chain, then for non-hub source chains submits the spoke tx to the relayer and waits for the relay packet to land on the hub (Sonic), then calls `postExecution` to notify the solver, triggering it to fill the intent
+3. **On any non-success, falls back** to the fully client-side path: verifies the spoke transaction landed on-chain, then for intent-relay spokes submits the original tx and waits for its packet on Sonic. For MPC-relay sources, the client settles the original deposit to Sonic through the source spoke, then calls `postExecution` to notify the solver, triggering it to fill the intent
 
 Both paths return an identical `SwapResponse`. See [Backend 2-step submit](#backend-2-step-submit) for the flag, the fallback conditions and why re-relaying is safe.
 
@@ -907,7 +915,7 @@ const createIntentResult = await sodax.swaps.createIntent({
 if (createIntentResult.ok) {
   const { tx: rawTx, intent, relayData } = createIntentResult.value;
   // rawTx is EvmRawTransaction: { from, to, value, data }
-  // relayData is RelayExtraData: { address, payload } — needed for submitIntent
+  // Keep the returned relayData for manual settlement. submitIntent is for intent-relay sources only.
   console.log('Raw tx:', rawTx);
 }
 ```
@@ -1053,7 +1061,9 @@ if (cancelRelayData.ok) {
 
 ## Submit Intent to Relay API
 
-Called automatically by `swap` — but only on its **fallback** path; the backend attempt relays server-side instead. Use this manually if you called `createIntent` separately. If you are orchestrating the steps yourself, try `sodax.api.swaps.submitTx` first and keep this as your fallback — see [Migrate a manual swap to the backend submit-tx flow](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md).
+For intent-relay sources only. Called automatically by `swap` on its **fallback** path; the backend attempt relays server-side instead. Use this manually if you called `createIntent` separately. If you are orchestrating the steps yourself, try `sodax.api.swaps.submitTx` first and keep this as your fallback — see [Migrate a manual swap to the backend submit-tx flow](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/MIGRATE_SWAP_TO_SUBMIT_TX.md).
+
+For an MPC-relay source, settle inbound with `sodax.spoke.settle({ chainKey: srcChainKey, tx: spokeTxHash, direction: 'inbound', relayData })`. Keep the original signed transaction's hash and relay data. Once `settle` succeeds, check `dstChainTxHash` with viem's `isHex`, then call `sodax.swaps.postExecution({ intent_tx_hash: dstChainTxHash })`. Check its Result before polling the original source hash. Resume the same settlement on timeout.
 
 ```typescript
 import type { IntentRelayRequest } from '@sodax/sdk';
@@ -1274,7 +1284,7 @@ Both payloads are already documented — the submit-tx record in [SWAPS_API.md](
 The solver is not the last word on its own intents, so any answer short of `SOLVED` or `FAILED` is checked against the backend's durable intent record (`sodax.api.getIntentByTxHash`):
 
 - **A fill that consumed the remainder reads `SOLVED`**, with that fill's tx as `fill_tx_hash`. The solver keeps intent state in memory, so after a restart it answers `NOT_FOUND` for intents it already filled.
-- **A cancel with nothing filled reads `FAILED`.** Expired intents are cancelled on the hub and refunded, and the solver can keep reporting one as in flight (`1` or `2`) long after — a poller would never stop. Its funds are already back, so do not offer the user a cancel. From an MPC-relay source (Tron), the relay pays that refund only once the cancel's hub tx is notified: call `sodax.spoke.settleHubRelease(hubTxHash, srcChainKey)` with the `txHash` of the record's `intent-cancelled` event.
+- **A cancel with nothing filled reads `FAILED`.** Expired intents are cancelled on the hub and refunded, and the solver can keep reporting one as in flight (`1` or `2`) long after — a poller would never stop. Do not offer another cancel. A hub cancellation establishes the refund on Sonic; a payout to an MPC-relay source completes only after the corresponding release. From an MPC-relay source (Tron), the relay pays that refund only once the cancel's hub tx is notified: call `sodax.spoke.settleHubRelease(hubTxHash, srcChainKey)` with the `txHash` of the record's `intent-cancelled` event.
 - **Anything else leaves the solver's answer standing**, including a cancel after a partial fill (it is neither solved nor failed) and a record that cannot be read right now; the next poll asks again.
 
 `getStatus` keeps its narrower check: it reads the record only behind a `NOT_FOUND` or a failed request, and only for a fill — never a cancel.
@@ -1369,7 +1379,7 @@ if (!swapResult.ok) {
       break;
 
     case 'RELAY_TIMEOUT':
-      // Relay didn't confirm within the timeout. Check intent status; resubmit with longer timeout.
+      // Relay didn't confirm within the timeout. Resume settlement with the original hash. Do not call swap again.
       console.error('Underlying cause:', error.cause);
       break;
 
