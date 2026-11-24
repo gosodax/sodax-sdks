@@ -4,7 +4,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "2.3.0",
+  "version": "2.4.0-rc.1",
   "license": "MIT",
   "description": "Framework-agnostic TypeScript wallet providers for the SODAX SDK: EVM, Solana, Sui, Stellar, Injective, ICON, NEAR, Stacks and Bitcoin",
   "keywords": [
