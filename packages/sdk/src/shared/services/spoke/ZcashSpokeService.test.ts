@@ -8,9 +8,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { concat, keccak256, toHex, type Hex } from 'viem';
-import { ChainKeys, type Result, type ZcashUnsignedTransaction } from '@sodax/types';
+import { ChainKeys, isIndeterminateOutcomeError, type Result, type ZcashUnsignedTransaction } from '@sodax/types';
 import { UserRejectsError } from '@tonconnect/sdk';
 import { mapRelayFailure } from '../../../errors/relay-error-mapping.js';
+import { intentCreationFailed } from '../../../errors/wrappers.js';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import { inspectZcashV5Deposit, zcashIdentityBytes, zcashP2pkhScript, zcashZip317Fee } from './zcash-utils.js';
@@ -314,10 +315,15 @@ describe('ZcashSpokeService.deposit — wallet that sends the payment itself', (
     rpcResults.getrawtransaction = walletTx({ value: AMOUNT - 1n, script: DEPOSIT_SCRIPT });
     browserWallet.sendTransfer.mockResolvedValueOnce(`0x${'a1'.repeat(32)}`);
 
-    await expect(zcash.deposit(depositParams({ walletProvider: browserWallet }))).rejects.toMatchObject({
+    const error = await zcash.deposit(depositParams({ walletProvider: browserWallet })).catch(e => e);
+
+    expect(isIndeterminateOutcomeError(error)).toBe(true);
+    expect(error).toMatchObject({
       message: expect.stringContaining(`transaction ${'a1'.repeat(32)} does not pay exactly`),
       txHash: 'a1'.repeat(32),
     });
+    // The wallet already paid: the feature-level error must carry the recovery hash so callers do not pay again.
+    expect(intentCreationFailed('moneyMarket', error).context?.srcTxHash).toBe('a1'.repeat(32));
   });
 
   it('checks RPC configuration before requesting a deposit address or paying', async () => {
@@ -334,6 +340,17 @@ describe('ZcashSpokeService.deposit — wallet that sends the payment itself', (
     expect(browserWallet.sendTransfer).not.toHaveBeenCalled();
   });
 
+  it('refuses a wallet whose active account is not the source address before anything moves', async () => {
+    browserWallet.getWalletAddress.mockResolvedValueOnce(DEPOSIT_ADDRESS);
+
+    await expect(zcash.deposit(depositParams({ walletProvider: browserWallet }))).rejects.toThrow(
+      /wallet account does not match the source address/,
+    );
+    expect(MpcRelayApiService.getDepositAddress).not.toHaveBeenCalled();
+    expect(browserWallet.sendTransfer).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('warns and returns the txid promptly when the output lookup RPC fails', async () => {
     vi.useFakeTimers();
     const txid = 'ad'.repeat(32);
@@ -347,6 +364,20 @@ describe('ZcashSpokeService.deposit — wallet that sends the payment itself', (
     expect(finished).toHaveBeenCalledWith(txid);
     expect(warn).toHaveBeenCalled();
     await pending;
+  });
+
+  it('returns the txid when the output lookup fails and the logger throws', async () => {
+    vi.useFakeTimers();
+    const txid = 'ae'.repeat(32);
+    browserWallet.sendTransfer.mockResolvedValueOnce(txid);
+    vi.mocked(fetch).mockRejectedValue(new Error('RPC offline'));
+    vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {
+      throw new Error('logger down');
+    });
+    const pending = zcash.deposit(depositParams({ walletProvider: browserWallet }));
+
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(pending).resolves.toBe(txid);
   });
 
   it('still returns the txid when the node never sees the transaction, leaving the output to be found later', async () => {

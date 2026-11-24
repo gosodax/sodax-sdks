@@ -259,16 +259,24 @@ describe('SpokeService.settle — Tron MPC relay', () => {
       cardano: spoke.cardano,
     };
     const relay = stubRelay();
-    for (const service of Object.values(services)) {
-      vi.spyOn(service, 'waitForDeposit').mockResolvedValue(
-        depositRecord({ hubMint: { chain: 'sonic', hash: HUB_MINT, ts: 0 } }),
-      );
-    }
+    const spies = Object.values(services).map(service =>
+      vi
+        .spyOn(service, 'waitForDeposit')
+        .mockResolvedValue(depositRecord({ hubMint: { chain: 'sonic', hash: HUB_MINT, ts: 0 } })),
+    );
 
     for (const chainKey of Object.keys(MpcRelayChainMap) as MpcRelayChainKey[]) {
       expect(services[chainKey], `no MPC relay service wired for ${chainKey}`).toBeDefined();
+      for (const spy of spies) spy.mockClear();
       const result = await spoke.settle({ chainKey, tx: SRC_TX, direction: 'inbound', relayData: RELAY_DATA });
       expect(result.ok, `${chainKey} did not settle through its MPC relay service`).toBe(true);
+      // Every service returns the same record, so only the call itself proves which one settled.
+      for (const [key, service] of Object.entries(services)) {
+        expect(service.waitForDeposit, `${chainKey} settled through ${key}`).toHaveBeenCalledTimes(
+          key === chainKey ? 1 : 0,
+        );
+      }
+      expect(services[chainKey].waitForDeposit).toHaveBeenCalledWith(SRC_TX, undefined);
     }
 
     expect(relay).not.toHaveBeenCalled();
@@ -677,8 +685,13 @@ describe('SpokeService.settle — destination legs', () => {
 
     it('fails rather than guessing between two releases to the same chain', async () => {
       readReceipt([bridgeRequest(1), bridgeRequest(2)]);
+      const read = vi.spyOn(spoke.tron, 'getHubReleaseRecord').mockResolvedValue({
+        ok: true,
+        value: { depositId: 'id', status: 'minted', createdAt: null, txs: {} },
+      });
 
       expect((await spoke.getHubRelease(HUB_TX))?.ok).toBe(false);
+      expect(read).not.toHaveBeenCalled();
     });
 
     it('reports an unreadable receipt as a failure rather than rejecting', async () => {

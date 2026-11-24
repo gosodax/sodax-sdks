@@ -57,6 +57,7 @@ function stubRippled(overrides: Record<string, unknown> = {}) {
         account_lines: {
           lines: [{ currency: xrpCurrencyCode('RLUSD'), account: RLUSD_ISSUER, balance: '1.5' }],
         },
+        ledger_entry: { node: { Flags: 0 } },
         fee: { drops: { base_fee: '10' } },
         tx: { hash: TX_HASH, validated: true, meta: { TransactionResult: 'tesSUCCESS' } },
         ...overrides,
@@ -807,7 +808,7 @@ describe('XrpSpokeService.checkDestination', () => {
     expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'no_trustline' });
 
     stubRippled({ account_lines: usdcLine('0', '1000'), ledger_entry: entryNotFound });
-    expect(await check(USDC_ISSUER)).toEqual({ ready: true });
+    expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'no_trustline' });
   });
 
   it('accepts a trustline under an ordinary freeze, which can still receive', async () => {

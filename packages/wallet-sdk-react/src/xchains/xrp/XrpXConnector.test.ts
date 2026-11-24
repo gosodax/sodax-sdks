@@ -22,6 +22,8 @@ const { XrpXConnector } = await import('./XrpXConnector.js');
 
 const ADDRESS = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
 
+const PAYMENT = { TransactionType: 'Payment', Account: ADDRESS, Destination: ADDRESS, Amount: '1' } as const;
+
 const connector = () => new XrpXConnector();
 
 beforeEach(() => {
@@ -122,7 +124,7 @@ describe('XrpXConnector.getGemWallet', () => {
   });
 
   it('forwards a transaction payload unchanged to submitTransaction', async () => {
-    const transaction = { TransactionType: 'Payment', Account: ADDRESS };
+    const transaction = PAYMENT;
     submitTransaction.mockResolvedValue({ result: { hash: 'A'.repeat(64) } });
 
     await connector().getGemWallet().submitTransaction({ transaction });
@@ -133,7 +135,7 @@ describe('XrpXConnector.getGemWallet', () => {
   it('passes explicit GemWallet refusal through to the wallet provider', async () => {
     const refusal = { type: 'reject' } as const;
     submitTransaction.mockResolvedValueOnce(refusal);
-    const transaction = { TransactionType: 'Payment', Account: ADDRESS };
+    const transaction = PAYMENT;
     await expect(connector().getGemWallet().submitTransaction({ transaction })).resolves.toBe(refusal);
   });
 

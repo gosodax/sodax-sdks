@@ -5,6 +5,8 @@ import {
   MpcRelayChainMap,
   MpcRelayPayoutMinimums,
   monadSupportedTokens,
+  type MpcRelayChainKey,
+  supportedTokensByChain,
   tonSupportedTokens,
   zcashSupportedTokens,
   tronSupportedTokens,
@@ -85,6 +87,16 @@ describe('getUnmetMpcPayoutMinimum', () => {
       expect(getUnmetMpcPayoutMinimum({ token: ada, amount: 10n ** 18n - 1n, amountDecimals: 18 })).toEqual(unmet);
       expect(getUnmetMpcPayoutMinimum({ token: ada, amount: 10n ** 18n, amountDecimals: 18 })).toBeUndefined();
     });
+  });
+
+  // The SDK refuses a payout of a token with no floor, so a token listed without one could never be paid out.
+  it('has a floor for every token of every MPC-relay chain', () => {
+    const missing = (Object.keys(MpcRelayChainMap) as MpcRelayChainKey[]).flatMap(chainKey =>
+      Object.values(supportedTokensByChain[chainKey])
+        .filter(token => getMpcPayoutMinimum(token) === undefined)
+        .map(token => `${chainKey}:${token.symbol}`),
+    );
+    expect(missing).toEqual([]);
   });
 
   it('passes a chain or token with no minimum', () => {

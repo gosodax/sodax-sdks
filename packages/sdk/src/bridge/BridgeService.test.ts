@@ -49,6 +49,7 @@ import {
   getIntentRelayChainId,
   tronSupportedTokens,
   monadSupportedTokens,
+  tonSupportedTokens,
   xrpSupportedTokens,
 } from '@sodax/types';
 import { RELAY_FALLBACK_FLOOR_MS } from '../shared/services/intentRelay/IntentRelayApiService.js';
@@ -416,6 +417,23 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
     expect(() => sodax.bridge.buildBridgeData({ ...params, dstChainKey: ARBITRUM }, token, token, undefined)).toThrow(
       /Payout token chain must match/,
     );
+  });
+
+  it('discovers the hub asset for native TON and refuses to invent a vault limit', async () => {
+    const ton = tonSupportedTokens.TON;
+    const wrapped = { ...ton, chainKey: ChainKeys.SONIC_MAINNET, address: ton.hubAsset };
+    expect(sodax.bridge.getBridgeableTokens(ton.chainKey, wrapped.chainKey, ton.address)).toMatchObject({
+      ok: true,
+      value: [wrapped],
+    });
+    expect(sodax.bridge.getBridgeableTokens(wrapped.chainKey, ton.chainKey, wrapped.address)).toMatchObject({
+      ok: true,
+      value: [ton],
+    });
+    await expect(sodax.bridge.getBridgeableAmount(ton, wrapped)).resolves.toMatchObject({
+      ok: false,
+      error: { cause: expect.objectContaining({ message: expect.stringContaining('native TON route') }) },
+    });
   });
 
   it('checks the TON floor and destination descriptor before encoding a payout', () => {
@@ -1997,6 +2015,19 @@ describe('BridgeService.getDetailedStatus', () => {
       expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
       expect(result.error.context?.mpcRelay).toBe(true);
       // The first leg reached the hub, so the release gets a budget of its own.
+      expect(result.error.context?.hubTxHash).toBe(DST_TX);
+    });
+
+    it('does not report a spoke-source bridge to an MPC-relay chain final when its hub tx sends no release', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce(undefined);
+
+      const result = await sodaxBE.bridge.getDetailedStatus({ ...key, dstChainKey: ChainKeys.TRON_MAINNET });
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(true);
       expect(result.error.context?.hubTxHash).toBe(DST_TX);
     });
 
