@@ -43,6 +43,8 @@ These lists, and the tokens `sodax.swaps` accepts, are the ones bundled with you
 
 ### Production and staging token lists
 
+Monad makes a direct transfer to the relay-derived deposit address. The swap does not use an asset-manager allowance on Monad. The production solver currently has no Monad routes.
+
 `getSupportedSolverTokens(chainKey)` returns production tokens.
 `getStagingSolverTokens(chainKey)` returns production tokens plus staging-only tokens.
 `stagingSwapSupportedTokens[chainKey]` contains only the staging additions. Selecting

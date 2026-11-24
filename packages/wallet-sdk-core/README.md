@@ -88,6 +88,14 @@ if (support !== 'unsupported') {
 }
 ```
 
+To withdraw from Monad, which settles through the MPC relay, the provider signs the withdraw authorization with
+`signMessage(hash)`: EIP-191 `personal_sign` over the raw 32-byte hash. A Monad deposit is sent with
+`expectedChainId: 143`, so a wallet on another network rejects it before broadcasting.
+
+```ts
+const signature = await evmPk.signMessage(withdrawHash); // 0x… 65-byte signature
+```
+
 `'ready'` means the wallet asks the user to upgrade the account (MetaMask: an EIP-7702 smart account) when the
 first batch is sent.
 `waitForBatch` reads the batch status again after a failed read, within its timeout and up to three reads.

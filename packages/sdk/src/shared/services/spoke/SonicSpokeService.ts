@@ -1,4 +1,4 @@
-import { assertMpcSwapRoute } from '../../utils/shared-utils.js';
+import { assertMpcSwapRoute, assertMonadSwapProductionRoute } from '../../utils/shared-utils.js';
 import {
   type Address,
   createPublicClient,
@@ -296,6 +296,7 @@ export class SonicSpokeService {
     const outputToken = isSonicChainKey(dstChainKey)
       ? (createIntentParams.outputToken as Address)
       : outputTokenInfo?.hubAsset;
+    assertMonadSwapProductionRoute(solverConfig.solverApiEndpoint, createIntentParams);
     assertMpcSwapRoute({ ...createIntentParams, outputToken: outputTokenInfo });
 
     invariant(

@@ -42,6 +42,7 @@ The return type is conditional on the source chain's chain family. The concrete 
 |---|---|---|
 | EVM (Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood) | `bigint` (`EvmGasEstimate`) | Gas units |
 | EVM hub (Sonic) | `bigint` (`EvmGasEstimate`) | Gas units |
+| Monad | `bigint` (`EvmGasEstimate`) | Gas units for the deposit transfer — a plain native send or ERC-20 `transfer` to the relay's deposit address, since Monad has no spoke contracts |
 | Solana | `number \| undefined` (`SolanaGasEstimate`) | Compute units; `undefined` if simulation unavailable |
 | Stellar | `bigint` (`StellarGasEstimate`) | Fee in stroops |
 | ICON | `bigint` (`IconGasEstimate`) | Step count |

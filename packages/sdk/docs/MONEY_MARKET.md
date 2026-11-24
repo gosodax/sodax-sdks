@@ -747,7 +747,7 @@ If you were on the previous CODE-string-on-`error.message` pattern (or the older
 ### Best practices
 
 1. **Always handle `TX_SUBMIT_FAILED`**. Critical — the spoke tx landed but the relay submission failed. Funds may be in flight; preserve the original source hash and relay data, then resume settlement of that transaction. Do not repeat the feature call.
-2. **Handle `RELAY_TIMEOUT` gracefully**. Resume settlement using the original transaction hash or derived relay ID for an intent-relay source, or the withdrawal tracking ID for an MPC-relay source. Do not repeat the original feature call to recover a pending operation.
+2. **Handle `RELAY_TIMEOUT` gracefully**. Resume settlement using the original transaction hash or derived relay ID for an intent-relay source, the original source hash for an MPC-relay supply or repay, or the withdrawal tracking ID for an MPC-relay borrow or withdrawal. Do not repeat the original feature call to recover a pending operation.
 3. **Discriminate `RELAY_FAILED` via `context.relayCode`**. `'RELAY_POLLING_FAILED'` (polling outage — packet status unknown) needs different UX from generic `'UNKNOWN'`.
 4. **Use `error.cause` for forensics**. Every wrapped error preserves the original on `cause`. Loggers walk it automatically.
 5. **Use `JSON.stringify(error)` for logging**. The `toJSON()` method handles bigint coercion + cause-chain truncation safely.

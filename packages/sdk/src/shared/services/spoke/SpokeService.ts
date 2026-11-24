@@ -24,6 +24,7 @@ import {
   type SuiChainKey,
   type TronChainKey,
   type XrpChainKey,
+  type MonadChainKey,
   getChainType,
   type EvmSpokeOnlyChainKey,
   ChainTypeArr,
@@ -58,6 +59,7 @@ import { EvmSpokeService } from './EvmSpokeService.js';
 import { InjectiveSpokeService } from './InjectiveSpokeService.js';
 import { TronSpokeService } from './TronSpokeService.js';
 import { XrpSpokeService, type XrpDestinationReadiness } from './XrpSpokeService.js';
+import { MonadSpokeService } from './MonadSpokeService.js';
 import {
   isHubChainKeyType,
   isNearChainKeyType,
@@ -72,6 +74,7 @@ import {
   isStacksChainKeyType,
   isSuiChainKeyType,
   isMpcRelayChainKeyType,
+  isMonadChainKeyType,
   isBitcoinChainKeyType,
   isEvmWalletProviderType,
   isUndefinedOrValidWalletProviderForChainKey,
@@ -128,7 +131,8 @@ export type SpokeServiceType =
   | NearSpokeService
   | BitcoinSpokeService
   | TronSpokeService
-  | XrpSpokeService;
+  | XrpSpokeService
+  | MonadSpokeService;
 
 export type GetSpokeServiceType<C extends SpokeChainKey> = C extends EvmSpokeOnlyChainKey
   ? EvmSpokeService
@@ -154,7 +158,9 @@ export type GetSpokeServiceType<C extends SpokeChainKey> = C extends EvmSpokeOnl
                       ? TronSpokeService
                       : C extends XrpChainKey
                         ? XrpSpokeService
-                        : SpokeServiceType;
+                        : C extends MonadChainKey
+                          ? MonadSpokeService
+                          : SpokeServiceType;
 
 export type SpokeServiceConstructorParams = {
   config: ConfigService;
@@ -212,6 +218,7 @@ export class SpokeService {
   public readonly stacks: StacksSpokeService;
   public readonly tron: TronSpokeService;
   public readonly xrp: XrpSpokeService;
+  public readonly monad: MonadSpokeService;
 
   public constructor({ config, hubProvider }: SpokeServiceConstructorParams) {
     this.config = config;
@@ -228,6 +235,7 @@ export class SpokeService {
     this.stacks = new StacksSpokeService(this.config);
     this.tron = new TronSpokeService(this.config);
     this.xrp = new XrpSpokeService(this.config);
+    this.monad = new MonadSpokeService(this.config);
   }
 
   public getSpokeService<C extends SpokeChainKey>(chainKey: C): GetSpokeServiceType<C> {
@@ -239,6 +247,10 @@ export class SpokeService {
     const chainType = getChainType(chainKey);
     switch (chainType) {
       case 'EVM': {
+        // Monad is EVM for wallets but settles through the MPC relay, not an EVM spoke's contracts.
+        if (isMonadChainKeyType(chainKey)) {
+          return this.monad satisfies GetSpokeServiceType<MonadChainKey> as GetSpokeServiceType<C>;
+        }
         return this.evm satisfies GetSpokeServiceType<EvmSpokeOnlyChainKey> as GetSpokeServiceType<C>;
       }
       case 'INJECTIVE': {
@@ -587,6 +599,12 @@ export class SpokeService {
 
       switch (chainType) {
         case 'EVM': {
+          if (isMonadChainKeyType(params.chainKey)) {
+            const value = (await this.monad.estimateGas(
+              params as EstimateGasParams<MonadChainKey>,
+            )) satisfies GetEstimateGasReturnType<EvmChainKey> as GetEstimateGasReturnType<C>;
+            return { ok: true, value };
+          }
           const value = (await this.evm.estimateGas(
             params as EstimateGasParams<EvmSpokeOnlyChainKey>,
           )) satisfies GetEstimateGasReturnType<EvmChainKey> as GetEstimateGasReturnType<C>;
@@ -812,6 +830,14 @@ export class SpokeService {
       const chainType = getChainType(params.srcChainKey);
       switch (chainType) {
         case 'EVM': {
+          if (isMonadChainKeyType(params.srcChainKey)) {
+            // Monad rides the MPC relay in address mode — no on-chain asset-manager simulation applies.
+            const value = (await this.monad.deposit(params as DepositParams<MonadChainKey, R>)) satisfies TxReturnType<
+              MonadChainKey,
+              R
+            > as DepositReturnType<K, R>;
+            return { ok: true, value };
+          }
           const verify = await this.verifyDepositSimulation(params);
           if (!verify.ok) return verify;
           const value = (await this.evm.deposit(
@@ -950,6 +976,10 @@ export class SpokeService {
       const chainType = getChainType(params.srcChainKey);
       switch (chainType) {
         case 'EVM': {
+          if (isMonadChainKeyType(params.srcChainKey)) {
+            const value = await this.monad.getDeposit(params as GetDepositParams<MonadChainKey>);
+            return { ok: true, value };
+          }
           const value = await this.evm.getDeposit(params as GetDepositParams<EvmSpokeOnlyChainKey>);
           return { ok: true, value };
         }
@@ -1025,6 +1055,10 @@ export class SpokeService {
       const chainType = getChainType(params.srcChainKey);
       switch (chainType) {
         case 'EVM': {
+          if (isMonadChainKeyType(params.srcChainKey)) {
+            const value = await this.monad.getWalletBalance(params as GetBalanceParams<MonadChainKey>);
+            return { ok: true, value };
+          }
           const value = await this.evm.getWalletBalance(params as GetBalanceParams<EvmSpokeOnlyChainKey>);
           return { ok: true, value };
         }
@@ -1104,6 +1138,10 @@ export class SpokeService {
       const chainType = getChainType(params.srcChainKey);
       switch (chainType) {
         case 'EVM': {
+          if (isMonadChainKeyType(params.srcChainKey)) {
+            const value = await this.monad.getWalletBalances(params as GetBalancesParams<MonadChainKey>);
+            return { ok: true, value };
+          }
           const value = await this.evm.getWalletBalances(params as GetBalancesParams<EvmSpokeOnlyChainKey>);
           return { ok: true, value };
         }
@@ -1201,6 +1239,12 @@ export class SpokeService {
       const chainType = getChainType(params.srcChainKey);
       switch (chainType) {
         case 'EVM': {
+          if (isMonadChainKeyType(params.srcChainKey)) {
+            const value = (await this.monad.sendMessage(
+              params as SendMessageParams<MonadChainKey, Raw>,
+            )) as TxReturnType<MonadChainKey, Raw> as SendMessageReturnType<K, Raw>;
+            return { ok: true, value };
+          }
           const verify = await this.verifySimulation(params);
           if (!verify.ok) return verify;
           const value = (await this.evm.sendMessage(
@@ -1586,6 +1630,9 @@ export class SpokeService {
         return this.tron;
       case 'XRP':
         return this.xrp;
+      case 'EVM':
+        if (isMonadChainKeyType(chainKey)) return this.monad;
+        throw new Error(`[SpokeService.settle] no MPC relay settlement service for chain ${chainKey}`);
       default:
         // Falling through to the intent relay would submit a packet nothing is waiting for.
         throw new Error(`[SpokeService] no MPC relay settlement service for chain ${chainKey}`);
@@ -1784,6 +1831,11 @@ export class SpokeService {
       const chainType = getChainType(params.chainKey);
       switch (chainType) {
         case 'EVM': {
+          if (isMonadChainKeyType(params.chainKey)) {
+            return (await this.monad.waitForTransactionReceipt(
+              effectiveParams as WaitForTxReceiptParams<MonadChainKey>,
+            )) satisfies Result<WaitForTxReceiptReturnType<MonadChainKey>> as Result<WaitForTxReceiptReturnType<C>>;
+          }
           return (await this.evm.waitForTransactionReceipt(
             effectiveParams as WaitForTxReceiptParams<EvmSpokeOnlyChainKey>,
           )) satisfies Result<WaitForTxReceiptReturnType<EvmSpokeOnlyChainKey>> as Result<

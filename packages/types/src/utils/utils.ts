@@ -45,7 +45,7 @@ import {
   type EVM_SPOKE_ONLY_CHAIN_KEYS,
   type GetChainType,
 } from '../chains/chains.js';
-import { spokeChainKeysSet, type ChainKey } from '../chains/chain-keys.js';
+import { ChainKeys, spokeChainKeysSet, type ChainKey } from '../chains/chain-keys.js';
 import type { XToken } from '../chains/tokens.js';
 import { type ConcentratedLiquidityConfig, concentratedLiquidityConfig } from '../dex/dex.js';
 import { type SolverConfig, solverConfig } from '../common/constants.js';
@@ -110,6 +110,10 @@ export function isTronChainKey(chainId: SpokeChainKey): boolean {
 
 export function isXrpChainKey(chainId: SpokeChainKey): boolean {
   return XRP_CHAIN_KEYS_SET.has(chainId as (typeof XRP_CHAIN_KEYS)[number]);
+}
+
+export function isMonadChainKey(chainId: SpokeChainKey): boolean {
+  return chainId === ChainKeys.MONAD_MAINNET;
 }
 
 export function getChainType<K extends SpokeChainKey>(chainId: K): GetChainType<K> {
@@ -231,7 +235,11 @@ export function isMpcRelayChainKey(chainId: SpokeChainKey): boolean {
 /** Look up the floor by token identity, independently of its display symbol. */
 export function getMpcPayoutMinimum(token: Pick<XToken, 'chainKey' | 'address'>): bigint | undefined {
   const floors = MpcRelayPayoutMinimums[token.chainKey];
-  return floors && Object.hasOwn(floors, token.address) ? floors[token.address] : undefined;
+  if (!floors) return undefined;
+  const address = isEvmChainKey(token.chainKey)
+    ? Object.keys(floors).find(key => key.toLowerCase() === token.address.toLowerCase())
+    : token.address;
+  return address !== undefined && Object.hasOwn(floors, address) ? floors[address] : undefined;
 }
 
 /** The {@link MpcRelayPayoutMinimums} entry a payout fails to exceed; `minimum` is in `decimals`. */

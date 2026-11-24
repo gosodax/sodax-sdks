@@ -1,3 +1,4 @@
+import { monadSupportedTokens } from '@sodax/types';
 /**
  * Tests for the strongly-typed SwapService public API.
  *
@@ -5640,5 +5641,54 @@ describe('SwapService.useBackendSubmitTx — deprecated forms', () => {
   it('keeps the deprecated types assignable', () => {
     expectTypeOf<SwapsClientOptions>().toEqualTypeOf<NonNullable<SodaxOptions['swapsOptions']>>();
     expectTypeOf<SwapServiceConstructorParams['useBackendSubmitTx']>().toEqualTypeOf<boolean | undefined>();
+  });
+});
+
+describe('Monad swap settlement policy', () => {
+  it('refuses the production route before signing', async () => {
+    const deposit = vi.spyOn(sodax.spoke, 'deposit');
+    const token = monadSupportedTokens.USDC.address;
+    const result = await sodax.swaps.createIntent({
+      params: {
+        ...intentInput(ChainKeys.MONAD_MAINNET),
+        inputToken: token,
+        dstChainKey: ChainKeys.MONAD_MAINNET,
+        outputToken: token,
+      },
+      raw: true,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'VALIDATION_FAILED', message: expect.stringContaining('production solver') },
+    });
+    expect(deposit).not.toHaveBeenCalled();
+  });
+
+  it('reopens status from the original Monad hash without sending again', async () => {
+    const source = '0x1234';
+    const hub = '0xbeef';
+    const deposit = vi.spyOn(sodax.spoke, 'deposit');
+    vi.spyOn(sodax.api.swaps, 'getSubmitTxStatus').mockResolvedValue({
+      ok: false,
+      error: new Error('No record'),
+    } as never);
+    const read = vi.spyOn(sodax.spoke, 'getMpcRelayDeposit').mockResolvedValue({
+      ok: true,
+      value: {
+        depositId: 'test',
+        status: 'minted',
+        createdAt: null,
+        txs: { hubMint: { chain: 'sonic', hash: hub, ts: 0 } },
+      },
+    });
+    mocks.solverGetStatus.mockResolvedValueOnce({ ok: true, value: { status: SolverIntentStatusCode.SOLVED } });
+    await expect(
+      sodax.swaps.getDetailedStatus({
+        srcChainKey: ChainKeys.MONAD_MAINNET,
+        srcTxHash: source,
+      }),
+    ).resolves.toMatchObject({ ok: true, value: { source: 'solver', dstTxHash: hub } });
+    expect(read).toHaveBeenCalledWith(ChainKeys.MONAD_MAINNET, source);
+    expect(deposit).not.toHaveBeenCalled();
   });
 });

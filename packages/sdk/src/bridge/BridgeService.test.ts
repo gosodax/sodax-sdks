@@ -48,6 +48,7 @@ import {
   DEFAULT_RELAY_TX_TIMEOUT,
   getIntentRelayChainId,
   tronSupportedTokens,
+  monadSupportedTokens,
   xrpSupportedTokens,
 } from '@sodax/types';
 import { RELAY_FALLBACK_FLOOR_MS } from '../shared/services/intentRelay/IntentRelayApiService.js';
@@ -382,6 +383,19 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
     if (!token) throw new Error(`fixture missing: ${symbol} on ${chainKey}`);
     return token;
   };
+
+  it('discovers the hub asset for native MON and refuses to invent a vault limit', async () => {
+    const mon = monadSupportedTokens.MON;
+    const wrapped = { ...mon, chainKey: ChainKeys.SONIC_MAINNET, address: mon.hubAsset };
+    const result = sodax.bridge.getBridgeableTokens(mon.chainKey, wrapped.chainKey, mon.address);
+    expect(result).toMatchObject({ ok: true, value: [wrapped] });
+    expect(sodax.bridge.isBridgeable({ from: mon, to: wrapped })).toBe(true);
+    expect(sodax.bridge.isBridgeable({ from: wrapped, to: mon })).toBe(true);
+    await expect(sodax.bridge.getBridgeableAmount(mon, wrapped)).resolves.toMatchObject({
+      ok: false,
+      error: { cause: expect.objectContaining({ message: expect.stringContaining('No vault limit') }) },
+    });
+  });
 
   it('refuses a direct Tron bridge at the delivered floor and encodes one unit above it', () => {
     const token = tronSupportedTokens.USDT;

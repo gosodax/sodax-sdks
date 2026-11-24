@@ -178,3 +178,7 @@ See [Hub Wallet Abstraction](/developers/technical-overview/hub-wallet-abstracti
 Yes, two ways. This documentation site hosts an auto-generated MCP server at `docs.sodax.com/mcp` that exposes a search tool over these pages — add it to your agent's MCP config, or use the "Add to \[agent]" option in the contextual menu on any page. For more than doc search, add the [SODAX MCP](/sodax-mcp) (`https://mcp.sodax.com/mcp`): it gives the agent live chains, tokens, quotes, money market rates, intent lookups **and** these docs over one endpoint, plus [swaps](/sodax-mcp#swaps) for a user once you send a SODAX API key.
 
 See [SODAX MCP](/sodax-mcp) and [AI Integration](/ai-integration-guide).
+
+### Does a Monad swap need asset-manager approval?
+
+Monad makes a direct transfer to the relay-derived deposit address. The swap does not use an asset-manager allowance on Monad. The production solver currently has no Monad routes.

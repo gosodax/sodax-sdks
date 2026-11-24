@@ -47,7 +47,6 @@ import {
   waitUntilIntentExecuted,
   type HubProvider,
   isIconChainKeyType,
-  isEvmChainKeyType,
   isHubChainKeyType,
   isStellarChainKeyType,
   type SpokeIsAllowanceValidParamsStellar,
@@ -185,7 +184,10 @@ export class MigrationService {
           return { ok: true, value: true };
         }
 
-        if (isUnifiedBnUSDMigrateParams(params) && isEvmChainKeyType(params.srcChainKey)) {
+        if (
+          isUnifiedBnUSDMigrateParams(params) &&
+          (isEvmSpokeOnlyChainKeyType(params.srcChainKey) || isHubChainKeyType(params.srcChainKey))
+        ) {
           const bnUSDTokenAddress = this.config.getChainConfig(params.srcChainKey).supportedTokens.bnUSD?.address ?? '';
           migrationInvariant(
             isAddress(bnUSDTokenAddress),
@@ -223,7 +225,10 @@ export class MigrationService {
           { ...baseCtx, field: 'params' },
         );
 
-        if (isUnifiedBnUSDMigrateParams(params) && isEvmChainKeyType(params.srcChainKey)) {
+        if (
+          isUnifiedBnUSDMigrateParams(params) &&
+          (isEvmSpokeOnlyChainKeyType(params.srcChainKey) || isHubChainKeyType(params.srcChainKey))
+        ) {
           const spender: Address = isHubChainKeyType(params.srcChainKey)
             ? await this.hubProvider.getUserRouter(params.srcAddress as Address)
             : this.config.getChainConfig(params.srcChainKey).addresses.assetManager;

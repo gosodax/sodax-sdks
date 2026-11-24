@@ -24,6 +24,7 @@ import type {
   EvmSpokeOnlyChainKey,
   StellarChainKey,
   EvmChainKey,
+  MonadChainKey,
   WalletProviderSlot,
 } from '@sodax/types';
 import type { RelayExtraData } from './relay-types.js';
@@ -222,7 +223,9 @@ export type SpokeIsAllowanceValidParamsOther<K extends OtherSpokeChainKey = Othe
   };
 
 /** @internal Distributive: picks the variant based on `K`. Defaults to the full union. */
-export type SpokeIsAllowanceValidParams<K extends SpokeChainKey = SpokeChainKey> = K extends EvmChainKey
+export type SpokeIsAllowanceValidParams<K extends SpokeChainKey = SpokeChainKey> = K extends MonadChainKey
+  ? SpokeIsAllowanceValidParamsOther<K>
+  : K extends EvmChainKey
   ? K extends HubChainKey // handle case when EvmChainKey type is passed
     ? SpokeIsAllowanceValidParamsHub<K>
     : SpokeIsAllowanceValidParamsEvmSpoke<EvmSpokeOnlyChainKey>

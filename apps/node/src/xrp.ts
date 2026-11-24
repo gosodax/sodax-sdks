@@ -123,7 +123,9 @@ async function main() {
           : endpoint === 'intent'
             ? DATA
             : encodeContractCalls([]);
-      log(`deposit ${AMOUNT_XRP} ${TOKEN === NATIVE_XRP ? 'XRP' : TOKEN}  data=${data.slice(0, 42)}${data.length > 42 ? '…' : ''}`);
+      log(
+        `deposit ${AMOUNT_XRP} ${TOKEN === NATIVE_XRP ? 'XRP' : TOKEN}  data=${data.slice(0, 42)}${data.length > 42 ? '…' : ''}`,
+      );
 
       const txHash = await xrp.deposit({
         srcChainKey: XRP,
@@ -150,6 +152,8 @@ async function main() {
       // The hub burns before the relay finds out the release cannot land, so check first, as the SDK does.
       const readiness = await xrp.checkDestination({ address: recipient, token: TOKEN, amount: amountUnits });
       if (!readiness.ready) throw new Error(`XRPL destination ${recipient} cannot receive: ${readiness.reason}`);
+      // The release recipient is the 32-byte word the asset manager expects — the same encoding the
+      // SDK's own money-market flows apply, so this harness exercises the real path.
       const dstAddress = encodeRecipient(XRP, recipient);
       const payload: Hex =
         endpoint === 'borrow'

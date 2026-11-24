@@ -20,7 +20,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Address, IEvmWalletProvider, SpokeChainKey } from '@sodax/types';
+import { ChainKeys, type Address, type IEvmWalletProvider, type SpokeChainKey } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { SodaxError } from '../errors/SodaxError.js';
 import type {
@@ -398,11 +398,13 @@ describe.each(EVM_SPOKES)('StakingService — per-chain SODA lookup on srcChainK
 
 // Staking settles through the intent relay, which an MPC-relay chain does not use.
 describe('StakingService — MPC-relay source', () => {
-  it('refuses every staking action from Tron before signing', async () => {
+  it.each([
+    'tron',
+    ChainKeys.MONAD_MAINNET,
+  ] as const)('refuses every staking action from %s before signing', async srcChainKey => {
     const hubWallet = vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress');
     const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
     const deposit = vi.spyOn(sodax.spoke, 'deposit');
-    const srcChainKey = 'tron' as const satisfies SpokeChainKey;
 
     const results = [
       await sodax.staking.createStakeIntent({

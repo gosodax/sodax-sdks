@@ -55,6 +55,7 @@ import {
   type ApprovalStrategy,
 } from '../shared/utils/approvalBatch.js';
 import {
+  ChainKeys,
   type SpokeChainKey,
   type XToken,
   type Hex,
@@ -1195,7 +1196,7 @@ export class BridgeService {
     if (!isHubChainKeyType(chainKey)) return undefined;
     const hubToken = this.config.getXTokenFromHubAsset(token);
     // The hub-asset index can store a spoke descriptor for the same asset.
-    return hubToken && { ...hubToken, chainKey };
+    return hubToken && { ...hubToken, chainKey, address: hubToken.hubAsset };
   }
 
   /**
@@ -1565,8 +1566,8 @@ export class BridgeService {
   public async getBridgeableAmount(from: XToken, to: XToken): Promise<Result<BridgeLimit, BridgeLookupError>> {
     const baseCtx = { srcChainKey: from.chainKey, dstChainKey: to.chainKey };
     try {
-      const fromToken = this.config.getSpokeTokenFromOriginalAssetAddress(from.chainKey, from.address);
-      const toToken = this.config.getSpokeTokenFromOriginalAssetAddress(to.chainKey, to.address);
+      const fromToken = this.resolveBridgeEndpointToken(from.chainKey, from.address);
+      const toToken = this.resolveBridgeEndpointToken(to.chainKey, to.address);
 
       bridgeInvariant(fromToken, `Token not found for token ${from.address} on chain ${from.chainKey}`, {
         ...baseCtx,
@@ -1579,6 +1580,22 @@ export class BridgeService {
       bridgeInvariant(this.isBridgeable({ from, to }), `Tokens ${from.address} and ${to.address} are not bridgeable`, {
         ...baseCtx,
       });
+
+      if (
+        (from.chainKey === ChainKeys.MONAD_MAINNET || to.chainKey === ChainKeys.MONAD_MAINNET) &&
+        toToken.vault.toLowerCase() === toToken.hubAsset.toLowerCase() &&
+        fromToken.vault.toLowerCase() === fromToken.hubAsset.toLowerCase()
+      ) {
+        return {
+          ok: false,
+          error: lookupFailed(
+            'bridge',
+            'getBridgeableAmount',
+            new Error('No vault limit is available for the native MON route'),
+            baseCtx,
+          ),
+        };
+      }
 
       // we need to check the max deposit of the token on the from chain and the asset manager balance on the to chain
       const [tokenInfos, reserves] = await Promise.all([
@@ -1687,8 +1704,8 @@ export class BridgeService {
       }
 
       // Get hub asset info for both source and destination assets
-      const srcToken = this.config.getSpokeTokenFromOriginalAssetAddress(from.chainKey, from.address);
-      const dstToken = this.config.getSpokeTokenFromOriginalAssetAddress(to.chainKey, to.address);
+      const srcToken = this.resolveBridgeEndpointToken(from.chainKey, from.address);
+      const dstToken = this.resolveBridgeEndpointToken(to.chainKey, to.address);
 
       // Check if both assets are supported and have vault information
       bridgeInvariant(srcToken, `Token not found for token ${from.address} on chain ${from.chainKey}`, {
@@ -1729,13 +1746,23 @@ export class BridgeService {
   ): Result<XToken[], BridgeLookupError> {
     const baseCtx = { srcChainKey: from, dstChainKey: to };
     try {
-      const srcToken = this.config.getSpokeTokenFromOriginalAssetAddress(from, token);
+      const srcToken = this.resolveBridgeEndpointToken(from, token);
       bridgeInvariant(srcToken, `Token not found for token ${token} on chain ${from}`, { ...baseCtx, field: 'token' });
 
-      return {
-        ok: true,
-        value: this.filterTokensWithSameVault(this.config.spokeChainConfig[to].supportedTokens, to, srcToken),
-      };
+      const destinations = this.filterTokensWithSameVault(
+        this.config.spokeChainConfig[to].supportedTokens,
+        to,
+        srcToken,
+      );
+      if (
+        isHubChainKeyType(to) &&
+        from === ChainKeys.MONAD_MAINNET &&
+        srcToken.vault.toLowerCase() === srcToken.hubAsset.toLowerCase() &&
+        !destinations.some(candidate => candidate.address.toLowerCase() === srcToken.hubAsset.toLowerCase())
+      ) {
+        destinations.push({ ...srcToken, address: srcToken.hubAsset, chainKey: to });
+      }
+      return { ok: true, value: destinations };
     } catch (error) {
       if (isBridgeLookupError(error)) return { ok: false, error };
       return {
@@ -1766,7 +1793,7 @@ export class BridgeService {
     const bridgeableTokens: XToken[] = [];
 
     for (const token of Object.values(tokens)) {
-      const dstToken = this.config.getSpokeTokenFromOriginalAssetAddress(to, token.address);
+      const dstToken = this.resolveBridgeEndpointToken(to, token.address);
 
       if (dstToken && srcToken && dstToken.vault.toLowerCase() === srcToken.vault.toLowerCase()) {
         bridgeableTokens.push({

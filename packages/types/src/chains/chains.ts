@@ -29,6 +29,7 @@ import {
   tronSupportedTokens,
   robinhoodSupportedTokens,
   xrpSupportedTokens,
+  monadSupportedTokens,
 } from './tokens.js';
 
 import { ChainKeys, CHAIN_KEYS, type ChainKey, type ChainType } from './chain-keys.js';
@@ -63,6 +64,7 @@ export const RelayChainIdMap = {
   [ChainKeys.TRON_MAINNET]: 728126428n,
   [ChainKeys.ROBINHOOD_MAINNET]: 21071n,
   [ChainKeys.XRP_MAINNET]: 66n,
+  [ChainKeys.MONAD_MAINNET]: 48n,
 } as const satisfies Record<ChainKey, bigint>;
 
 export type IntentChainId = (typeof RelayChainIdMap)[keyof typeof RelayChainIdMap];
@@ -96,10 +98,8 @@ export type MpcRelayChainInfo = {
  * {@link RelayChainIdMap} for the other relay.
  *
  * Unlike that map this one is deliberately PARTIAL: membership is the definition. A chain in here
- * settles through the MPC relay (deposit paid to a shared reserve with a payload-hash memo, tracked
- * over the relay's REST API); every other chain rides the intent relay. Tron is the only member
- * today — XRP (`3`) and Aptos (`4`) settle the same way and join by being added here, which is also
- * why the scheme lives in the map rather than in a chain's spoke service.
+ * settles through the MPC relay and is tracked over its REST API. Tron, XRP and Monad are members;
+ * each entry defines its relay identity and withdrawal signature scheme.
  */
 export const MpcRelayChainMap = {
   [ChainKeys.TRON_MAINNET]: { chainId: 728126428n, withdrawScheme: 1 },
@@ -107,6 +107,9 @@ export const MpcRelayChainMap = {
   // Scheme 3 signs the RAW message hash and submits the 33-byte 0xED public key alongside,
   // because an ed25519 signature cannot recover its signer the way secp256k1 does.
   [ChainKeys.XRP_MAINNET]: { chainId: 66n, withdrawScheme: 3 },
+  // Monad's relay id is 48 (a SODAX routing id; the EVM network id is 143). Scheme 0 is EIP-191
+  // personal_sign over the raw message hash, recovered like any EVM signature.
+  [ChainKeys.MONAD_MAINNET]: { chainId: 48n, withdrawScheme: 0 },
 } as const satisfies Partial<Record<ChainKey, MpcRelayChainInfo>>;
 
 export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
@@ -128,6 +131,11 @@ export const MpcRelayPayoutMinimums: Readonly<Record<MpcRelayChainKey, Readonly<
     [xrpSupportedTokens.XRP.address]: 0n,
     [xrpSupportedTokens.USDC.address]: 0n,
     [xrpSupportedTokens.RLUSD.address]: 0n,
+  },
+  // Monad releases are quoted 1:1. Explicit zero floors still reject unknown token addresses.
+  [ChainKeys.MONAD_MAINNET]: {
+    [monadSupportedTokens.MON.address.toLowerCase()]: 0n,
+    [monadSupportedTokens.USDC.address.toLowerCase()]: 0n,
   },
 };
 
@@ -482,6 +490,20 @@ export const baseChainInfo = {
       contractUrl: 'https://livenet.xrpl.org/accounts/',
     },
   },
+  [ChainKeys.MONAD_MAINNET]: {
+    name: 'Monad',
+    key: ChainKeys.MONAD_MAINNET,
+    type: 'EVM',
+    chainId: 143,
+    mainnet: true,
+    logo: chainLogo(ChainKeys.MONAD_MAINNET),
+    explorer: {
+      baseUrl: 'https://monadscan.com/',
+      txUrl: 'https://monadscan.com/tx/',
+      addressUrl: 'https://monadscan.com/address/',
+      contractUrl: 'https://monadscan.com/address/',
+    },
+  },
 } as const satisfies Record<ChainKey, BaseChainInfo<ChainType>>;
 
 type ChainKeysByType<T extends ChainType> = {
@@ -493,7 +515,11 @@ type ChainKeysByType<T extends ChainType> = {
  * Purpose: To use for types where Sonic (the hub) should not be included with spoke EVM chain lists.
  * Intersected with keyof spokeChainConfig so it can safely index the config object.
  */
-export type EvmSpokeOnlyChainKey = Exclude<EvmChainKey, HubChainKey> & keyof typeof spokeChainConfig;
+/**
+ * EVM spokes that settle through a spoke asset manager and the intent relay. Monad is EVM for wallets
+ * and addresses but settles through the MPC relay, so it is excluded — it has no spoke contracts.
+ */
+export type EvmSpokeOnlyChainKey = Exclude<EvmChainKey, HubChainKey | MonadChainKey> & keyof typeof spokeChainConfig;
 export type EvmChainKey = ChainKeysByType<'EVM'>;
 export type SonicChainKey = typeof ChainKeys.SONIC_MAINNET; // Sonic is EVM — narrowed via HUB_CHAIN_KEY where needed
 export type SolanaChainKey = ChainKeysByType<'SOLANA'>;
@@ -506,6 +532,7 @@ export type NearChainKey = ChainKeysByType<'NEAR'> & keyof typeof spokeChainConf
 export type BitcoinChainKey = ChainKeysByType<'BITCOIN'>;
 export type TronChainKey = ChainKeysByType<'TRON'>;
 export type XrpChainKey = ChainKeysByType<'XRP'>;
+export type MonadChainKey = typeof ChainKeys.MONAD_MAINNET;
 
 const filterChainKeysByType = <T extends ChainType>(type: T) =>
   CHAIN_KEYS.filter((key): key is ChainKeysByType<T> => baseChainInfo[key].type === type);
@@ -514,7 +541,7 @@ export const HUB_CHAIN_KEY = ChainKeys.SONIC_MAINNET;
 export const EVM_CHAIN_KEYS = filterChainKeysByType('EVM');
 export const EVM_CHAIN_KEYS_SET = new Set(EVM_CHAIN_KEYS);
 export const EVM_SPOKE_ONLY_CHAIN_KEYS = EVM_CHAIN_KEYS.filter(
-  (key): key is EvmSpokeOnlyChainKey => key !== HUB_CHAIN_KEY,
+  (key): key is EvmSpokeOnlyChainKey => key !== HUB_CHAIN_KEY && key !== ChainKeys.MONAD_MAINNET,
 );
 export const EVM_SPOKE_ONLY_CHAIN_KEYS_SET = new Set(EVM_SPOKE_ONLY_CHAIN_KEYS);
 export const SONIC_CHAIN_KEYS = [ChainKeys.SONIC_MAINNET] as const;
@@ -738,7 +765,7 @@ export type MpcRelayChainConfig = {
   /** MPC relay REST endpoint (notify + deposit-address), distinct from the intent relay. */
   mpcRelayApiEndpoint: HttpUrl;
   addresses: {
-    /** MPC-relay reserve; deposits land here tagged with the keccak256 payload-hash memo. */
+    /** MPC-relay reserve. Memo-mode deposits pay it directly; address-mode deposits are swept into it. */
     reserve: string;
   };
 };
@@ -753,7 +780,14 @@ export type XrpSpokeChainConfig = BaseSpokeChainConfig<'XRP'> &
     rpcUrl: string;
   };
 
+/** Monad: an EVM chain settling through the MPC relay in address mode (per-deposit derived EOAs). */
+export type MonadSpokeChainConfig = BaseSpokeChainConfig<'EVM'> &
+  MpcRelayChainConfig & {
+    rpcUrl: string;
+  };
+
 export type SpokeChainConfig =
+  | MonadSpokeChainConfig
   | XrpSpokeChainConfig
   | EvmSpokeChainConfig
   | SonicSpokeChainConfig
@@ -769,29 +803,31 @@ export type SpokeChainConfig =
 
 export type GetSpokeChainConfigType<T extends SpokeChainKey> = T extends SonicChainKey
   ? SonicSpokeChainConfig
-  : GetChainType<T> extends 'EVM'
-    ? EvmSpokeChainConfig
-    : GetChainType<T> extends 'SOLANA'
-      ? SolanaChainConfig
-      : GetChainType<T> extends 'STELLAR'
-        ? StellarSpokeChainConfig
-        : GetChainType<T> extends 'ICON'
-          ? IconSpokeChainConfig
-          : GetChainType<T> extends 'SUI'
-            ? SuiSpokeChainConfig
-            : GetChainType<T> extends 'INJECTIVE'
-              ? InjectiveSpokeChainConfig
-              : GetChainType<T> extends 'NEAR'
-                ? NearSpokeChainConfig
-                : GetChainType<T> extends 'STACKS'
-                  ? StacksSpokeChainConfig
-                  : GetChainType<T> extends 'BITCOIN'
-                    ? BitcoinSpokeChainConfig
-                    : GetChainType<T> extends 'TRON'
-                      ? TronSpokeChainConfig
-                      : GetChainType<T> extends 'XRP'
-                        ? XrpSpokeChainConfig
-                        : SpokeChainConfig;
+  : T extends MonadChainKey
+    ? MonadSpokeChainConfig
+    : GetChainType<T> extends 'EVM'
+      ? EvmSpokeChainConfig
+      : GetChainType<T> extends 'SOLANA'
+        ? SolanaChainConfig
+        : GetChainType<T> extends 'STELLAR'
+          ? StellarSpokeChainConfig
+          : GetChainType<T> extends 'ICON'
+            ? IconSpokeChainConfig
+            : GetChainType<T> extends 'SUI'
+              ? SuiSpokeChainConfig
+              : GetChainType<T> extends 'INJECTIVE'
+                ? InjectiveSpokeChainConfig
+                : GetChainType<T> extends 'NEAR'
+                  ? NearSpokeChainConfig
+                  : GetChainType<T> extends 'STACKS'
+                    ? StacksSpokeChainConfig
+                    : GetChainType<T> extends 'BITCOIN'
+                      ? BitcoinSpokeChainConfig
+                      : GetChainType<T> extends 'TRON'
+                        ? TronSpokeChainConfig
+                        : GetChainType<T> extends 'XRP'
+                          ? XrpSpokeChainConfig
+                          : SpokeChainConfig;
 
 export type IconAddress = `hx${string}` | `cx${string}`;
 export type IconSpokeChainConfig = BaseSpokeChainConfig<'ICON'> & {
@@ -1557,6 +1593,22 @@ export const spokeChainConfig = {
       maxTimeoutMs: 90_000,
     },
   } as const satisfies XrpSpokeChainConfig,
+  [ChainKeys.MONAD_MAINNET]: {
+    chain: baseChainInfo[ChainKeys.MONAD_MAINNET] satisfies BaseChainInfo<'EVM'>,
+    rpcUrl: 'https://rpc.monad.xyz',
+    // MPC-relay REST endpoint (notify + deposit-address). Not the intent relay.
+    mpcRelayApiEndpoint: 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com',
+    addresses: {
+      reserve: '0xCa487AF198d7605CE0435151711a5a93e1Dbb149',
+    },
+    nativeToken: '0x0000000000000000000000000000000000000000',
+    bnUSD: '',
+    supportedTokens: monadSupportedTokens,
+    pollingConfig: {
+      pollingIntervalMs: 2000,
+      maxTimeoutMs: 90_000,
+    },
+  } as const satisfies MonadSpokeChainConfig,
 } as const satisfies Record<SpokeChainKey, SpokeChainConfig>;
 
 export const supportedSpokeChains: SpokeChainKey[] = Object.keys(spokeChainConfig) as SpokeChainKey[];

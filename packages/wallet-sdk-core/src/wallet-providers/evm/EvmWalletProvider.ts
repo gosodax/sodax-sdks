@@ -1,5 +1,7 @@
 import {
   ChainKeys,
+  IndeterminateOutcomeError,
+  type EvmDepositRecovery,
   type EvmAtomicBatchSupport,
   type EvmBatchResult,
   type EvmChainKey,
@@ -15,13 +17,27 @@ import type {
   Chain,
   GetCapabilitiesReturnType,
   Hash,
+  Hex,
   PublicClient,
   TransactionReceipt,
   Transport,
   WalletClient,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { createWalletClient, createPublicClient, http, defineChain, WaitForCallsStatusTimeoutError } from 'viem';
+import {
+  BaseError,
+  ChainMismatchError,
+  InsufficientFundsError,
+  IntrinsicGasTooLowError,
+  UserRejectedRequestError,
+  createWalletClient,
+  createPublicClient,
+  http,
+  defineChain,
+  isHash,
+  keccak256,
+  WaitForCallsStatusTimeoutError,
+} from 'viem';
 import { BaseWalletProvider } from '../BaseWalletProvider.js';
 import type {
   BrowserExtensionEvmWalletConfig,
@@ -64,6 +80,16 @@ export const hyper = /*#__PURE__*/ defineChain({
   rpcUrls: { default: { http: ['https://rpc.hyperliquid.xyz/evm'] } },
   blockExplorers: { default: { name: 'HyperEVMScan', url: 'https://hyperevmscan.io/' } },
   contracts: { multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11', blockCreated: 13051 } },
+});
+
+/** Monad mainnet — absent from the pinned `viem/chains`, which only carries its testnet. */
+export const monad = /*#__PURE__*/ defineChain({
+  id: 143,
+  name: 'Monad',
+  nativeCurrency: { decimals: 18, name: 'Monad', symbol: 'MON' },
+  rpcUrls: { default: { http: ['https://rpc.monad.xyz'] } },
+  blockExplorers: { default: { name: 'MonadScan', url: 'https://monadscan.com/' } },
+  contracts: { multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11' } },
 });
 
 /**
@@ -116,6 +142,8 @@ export function getEvmViemChain(key: EvmChainKey): Chain {
       return kaia;
     case ChainKeys.HEDERA_MAINNET:
       return hedera;
+    case ChainKeys.MONAD_MAINNET:
+      return monad;
     case ChainKeys.ROBINHOOD_MAINNET:
       return robinhoodChain;
     default: {
@@ -195,13 +223,61 @@ export class EvmWalletProvider extends BaseWalletProvider<EvmWalletDefaults> imp
     txData: EvmRawTransaction,
     options?: EvmSendTransactionPolicy & EvmSendTransactionOptions,
   ): Promise<Hash> {
-    const { expectedChainId, ...policyOverrides } = options ?? {};
+    const { expectedChainId, preserveDepositOutcome, ...policyOverrides } = options ?? {};
     if (expectedChainId !== undefined) {
       await this.assertActiveChain(expectedChainId);
     }
     const policy = this.mergePolicy('sendTransaction', policyOverrides);
     const tx = { ...policy, ...txData } as Parameters<typeof this.walletClient.sendTransaction>[0];
-    return this.walletClient.sendTransaction(tx);
+    if (!preserveDepositOutcome) return this.walletClient.sendTransaction(tx);
+
+    const { account, chain } = this.walletClient;
+    if (account.type === 'local') {
+      const request = await this.walletClient.prepareTransactionRequest({ ...tx, account, chain });
+      const serializedTransaction = await this.walletClient.signTransaction({ ...request, account, chain });
+      const txHash = keccak256(serializedTransaction);
+      try {
+        const submittedHash = await this.walletClient.sendRawTransaction({ serializedTransaction });
+        if (submittedHash.toLowerCase() === txHash) return txHash;
+        throw new Error('RPC returned a hash that does not match the signed deposit');
+      } catch (cause) {
+        if (this.isDefiniteDepositRejection(cause)) throw cause;
+        throw new IndeterminateOutcomeError('The signed EVM deposit may have been broadcast', { cause, txHash });
+      }
+    }
+
+    const recovery: EvmDepositRecovery = {
+      kind: 'evm-deposit',
+      chainId: expectedChainId ?? chain.id,
+      transaction: { ...txData },
+      attemptedAtMs: Date.now(),
+    };
+    try {
+      const txHash = await this.walletClient.sendTransaction(tx);
+      if (isHash(txHash)) return txHash;
+      throw new Error('Wallet returned no valid deposit transaction hash');
+    } catch (cause) {
+      if (this.isDefiniteDepositRejection(cause)) throw cause;
+      throw new IndeterminateOutcomeError('The wallet may have broadcast the EVM deposit', { cause, recovery });
+    }
+  }
+
+  private isDefiniteDepositRejection(cause: unknown): boolean {
+    const isDefinite = (error: unknown) =>
+      error instanceof UserRejectedRequestError ||
+      error instanceof ChainMismatchError ||
+      error instanceof InsufficientFundsError ||
+      error instanceof IntrinsicGasTooLowError ||
+      (typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        (error.code === 4001 || error.code === 'ACTION_REJECTED'));
+    return isDefinite(cause) || (cause instanceof BaseError && isDefinite(cause.walk(isDefinite)));
+  }
+
+  /** EIP-191 `personal_sign` over the raw bytes of `hash`, for withdraw-auth on MPC-relay EVM spokes. */
+  async signMessage(hash: Hex): Promise<Hex> {
+    return this.walletClient.signMessage({ account: this.walletClient.account, message: { raw: hash } });
   }
 
   /**

@@ -20,6 +20,7 @@ import type {
   SonicChainKey,
   TronChainKey,
   XrpChainKey,
+  MonadChainKey,
   MpcRelayChainKey,
   HubChainKey,
   PartnerFeeAmount,
@@ -46,6 +47,7 @@ import {
   isStacksChainKey,
   isTronChainKey,
   isXrpChainKey,
+  isMonadChainKey,
   isMpcRelayChainKey,
   isHubChainKey,
   isEvmChainKey,
@@ -64,7 +66,14 @@ import type {
 } from './types/spoke-types.js';
 
 export function isEvmSpokeChainConfig(value: SpokeChainConfig): value is EvmSpokeChainConfig {
-  return typeof value === 'object' && value !== null && value.chain.type === 'EVM' && value.chain.key !== HUB_CHAIN_KEY;
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    value.chain.type === 'EVM' &&
+    value.chain.key !== HUB_CHAIN_KEY &&
+    // An MPC-relay EVM chain (Monad) has no spoke asset manager, so it is not an EVM spoke config.
+    !isMpcRelayChainKey(value.chain.key)
+  );
 }
 
 export function isIconAddress(value: unknown): value is IconAddress {
@@ -216,6 +225,10 @@ export function isTronChainKeyType(value: SpokeChainKey): value is TronChainKey 
 
 export function isXrpChainKeyType(value: SpokeChainKey): value is XrpChainKey {
   return isXrpChainKey(value);
+}
+
+export function isMonadChainKeyType(value: SpokeChainKey): value is MonadChainKey {
+  return isMonadChainKey(value);
 }
 
 /** Settles through the MPC relay rather than the intent relay. Prefer this over naming a chain. */

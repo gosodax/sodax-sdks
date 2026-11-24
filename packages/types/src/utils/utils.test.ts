@@ -3,6 +3,7 @@ import {
   ChainKeys,
   MpcRelayChainMap,
   MpcRelayPayoutMinimums,
+  monadSupportedTokens,
   type MpcRelayChainKey,
   supportedTokensByChain,
   tronSupportedTokens,
@@ -91,4 +92,19 @@ it('requires every MPC chain to declare its payout floors', () => {
   for (const key of Object.keys(MpcRelayChainMap)) {
     expect(Object.hasOwn(MpcRelayPayoutMinimums, key)).toBe(true);
   }
+});
+
+describe('Monad payout floor identity', () => {
+  it('covers each Monad payout token with a zero floor independent of EVM address casing', () => {
+    for (const token of Object.values(monadSupportedTokens)) {
+      expect(getMpcPayoutMinimum(token)).toBe(0n);
+      expect(getMpcPayoutMinimum({ ...token, address: token.address.toLowerCase() })).toBe(0n);
+      expect(getMpcPayoutMinimum({ ...token, address: `0x${token.address.slice(2).toUpperCase()}` })).toBe(0n);
+    }
+    const { USDC } = monadSupportedTokens;
+    const lower = USDC.address.toLowerCase();
+    expect(USDC.address).not.toBe(lower);
+    expect(getMpcPayoutMinimum({ ...USDC, address: lower })).toBe(getMpcPayoutMinimum(USDC));
+    expect(getMpcPayoutMinimum({ chainKey: ChainKeys.MONAD_MAINNET, address: `0x${'ab'.repeat(20)}` })).toBeUndefined();
+  });
 });

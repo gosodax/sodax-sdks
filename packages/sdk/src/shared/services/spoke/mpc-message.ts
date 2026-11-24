@@ -8,7 +8,7 @@
  * "Recovered address does not match sender". Per-scheme wrapping belongs in the wallet provider;
  * this stays common.
  */
-import { concat, keccak256, numberToHex, type Hex } from 'viem';
+import { bytesToBigInt, concat, keccak256, numberToHex, type Hex } from 'viem';
 
 /** Mirrors the NEAR contract's `SignedMessage` (minus `scheme`/`public_key`, which ride alongside). */
 export interface SignedWalletMessage {
@@ -16,7 +16,7 @@ export interface SignedWalletMessage {
   to: Hex;
   /** Encoded hub-wallet calls (e.g. `AssetManager.transfer` to burn + release). */
   data: Hex;
-  /** Any unused u64; replays are rejected on NEAR via the `msg:` nonce set. */
+  /** Any unused value within {@link MAX_SAFE_NONCE}; replays are rejected on NEAR via the `msg:` nonce set. */
   nonce: bigint;
   /** The SOURCE chain's relay id (Tron `728126428n`, XRP `66n`) — never the hub's. */
   chainId: bigint;
@@ -33,4 +33,21 @@ export function computeSignedMessageHash(m: SignedWalletMessage): Hex {
   return keccak256(
     concat([m.to, m.data, numberToHex(m.nonce, { size: 8 }), numberToHex(m.chainId, { size: 8 }), m.sender]),
   );
+}
+
+/**
+ * Largest withdraw-auth nonce the relay carries intact. The relay passes the nonce through a
+ * JavaScript `number` before the NEAR call, so a value above `Number.MAX_SAFE_INTEGER` arrives
+ * rounded; the contract then hashes a nonce that was never signed and rejects the withdrawal with
+ * "Recovered address does not match sender" — after the nonce is already spent.
+ */
+export const MAX_SAFE_NONCE = (1n << 53n) - 1n;
+
+/**
+ * A fresh withdraw-auth nonce. NEAR rejects a repeat but does not require an increasing value, so a
+ * random draw avoids the same-millisecond and clock-skew collisions a timestamp would cause. 2^53
+ * draws leave collision odds negligible.
+ */
+export function randomWithdrawNonce(): bigint {
+  return bytesToBigInt(crypto.getRandomValues(new Uint8Array(8))) & MAX_SAFE_NONCE;
 }

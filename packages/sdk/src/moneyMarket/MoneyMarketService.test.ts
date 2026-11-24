@@ -127,9 +127,9 @@ const stubBorrowableDstToken = (): void => {
   vi.spyOn(sodax.moneyMarket.data, 'getReserveData').mockResolvedValue(reserveData(BORROWABLE_RESERVE));
 };
 
-// MPC-relay accounts and the recipient word each becomes on the hub. `encodeAddress` yields the bare
-// 20-byte identity (what derives the hub wallet); `encodeRecipient` left-pads it to the 32-byte word
-// AssetManager.transfer expects as the delivery address.
+// MPC-relay accounts and the recipient each becomes on the hub. `encodeAddress` yields the bare 20-byte
+// identity (what derives the hub wallet); `encodeRecipient` left-pads it to the 32-byte word a non-EVM
+// release expects, and leaves an EVM (Monad) recipient as a plain address, which is what its release pays.
 const MPC_RECIPIENTS = [
   {
     chainKey: ChainKeys.TRON_MAINNET,
@@ -140,6 +140,11 @@ const MPC_RECIPIENTS = [
     chainKey: ChainKeys.XRP_MAINNET,
     address: 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah',
     word: `0x${'00'.repeat(12)}72a3de6b0973062d5f2fe77383ef02f0c17901ab` as Address,
+  },
+  {
+    chainKey: ChainKeys.MONAD_MAINNET,
+    address: '0x6be3a4afbd5983604385bcba71aaa3645918e2e2',
+    word: '0x6be3a4afbd5983604385bcba71aaa3645918e2e2' as Address,
   },
 ] as const;
 
@@ -1571,7 +1576,7 @@ describe('MoneyMarketService.createBorrowIntent', () => {
 
     it.each(
       MPC_RECIPIENTS,
-    )('on a $chainKey destination: pads the recipient to 32 bytes for the asset-manager transfer', async ({
+    )('on a $chainKey destination: encodes the recipient the asset-manager release expects', async ({
       chainKey,
       address,
       word,
@@ -2168,7 +2173,7 @@ describe('MoneyMarketService.createWithdrawIntent', () => {
 
     it.each(
       MPC_RECIPIENTS,
-    )('on a $chainKey destination: pads the recipient to 32 bytes for the asset-manager transfer', async ({
+    )('on a $chainKey destination: encodes the recipient the asset-manager release expects', async ({
       chainKey,
       address,
       word,
@@ -3717,6 +3722,8 @@ describe('MoneyMarketService — outbound result by source chain', () => {
     ['withdraw', ChainKeys.TRON_MAINNET],
     ['borrow', ChainKeys.XRP_MAINNET],
     ['withdraw', ChainKeys.XRP_MAINNET],
+    ['borrow', ChainKeys.MONAD_MAINNET],
+    ['withdraw', ChainKeys.MONAD_MAINNET],
   ] as const)('%s on %s keeps its original tracking ID on a settlement timeout', async (action, chainKey) => {
     const trackingId = '0xoriginal';
     const relayData = { address: HUB_WALLET, payload: '0x01' } as const;

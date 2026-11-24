@@ -12,11 +12,12 @@ import type { ConfigService } from '../config/ConfigService.js';
 import { SodaxError } from '../../errors/SodaxError.js';
 import type { SodaxErrorContext } from '../../errors/codes.js';
 import {
+  ChainKeys,
   type SpokeChainKey,
+  getSupportedSolverTokens,
   type Hex,
   type XToken,
   getChainType,
-  type ChainType,
   isNativeBitcoinToken,
   DEFAULT_MAX_RETRY,
   DEFAULT_RETRY_DELAY_MS,
@@ -199,22 +200,27 @@ export function assertMpcPayoutAboveMinimum({
   );
 }
 
-/** Chain types whose hub release reads its recipient as a left-padded 32-byte word. */
-const PADDED_RECIPIENT_CHAIN_TYPES: readonly ChainType[] = ['TRON', 'XRP'];
-
 /**
  * Recipient bytes for a hub release — the `to` an `AssetManager.transfer` pays out to.
  *
  * This is NOT {@link encodeAddress}, which produces the withdrawal-auth identity / hub-wallet salt.
- * An MPC-relay release reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so its recipient is the
- * left-padded word; the bare identity mis-decodes. The chain type picks the encoding, never the relay
- * a chain settles through; every other type keeps {@link encodeAddress}.
+ * A non-EVM MPC-relay chain (Tron, XRP) reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so its
+ * 20-byte identity is left-padded into a full word. An EVM MPC-relay chain (Monad) releases to a plain
+ * 20-byte address: the relay does not decode the padded word, and sent one to the zero address.
+ * Intent-relay chains keep their own encoding unchanged.
  */
 export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): Hex {
-  const encoded = encodeAddress(spokeChainId, address);
-  if (!PADDED_RECIPIENT_CHAIN_TYPES.includes(getChainType(spokeChainId))) return encoded;
-  const hash = encoded.replace(/^0x/, '');
-  if (hash.length !== 40) {
+  if (!isMpcRelayChainKey(spokeChainId)) return encodeAddress(spokeChainId, address);
+  if (getChainType(spokeChainId) === 'EVM') {
+    // `encodeAddress` passes EVM input through unchecked, and a malformed recipient here is released
+    // on-chain as-is, so validate before it reaches the hub.
+    if (!isAddress(address) || /^0x0{40}$/i.test(address)) {
+      throw new Error(`[encodeRecipient] invalid EVM recipient for ${spokeChainId}: ${address}`);
+    }
+    return address.toLowerCase() as Hex;
+  }
+  const hash = encodeAddress(spokeChainId, address).replace(/^0x/, '');
+  if (!/^[0-9a-fA-F]{40}$/.test(hash)) {
     throw new Error(`[encodeRecipient] expected a 20-byte identity for ${spokeChainId}, got ${hash.length / 2} bytes`);
   }
   return `0x${'00'.repeat(12)}${hash}`;
@@ -226,6 +232,31 @@ function mpcRelayIdentityHash(encoded: string, label: string): string {
   if (hash.length !== 64) return hash;
   invariant(hash.startsWith('0'.repeat(24)), `Invalid ${label} recipient word: ${encoded}`);
   return hash.slice(24);
+}
+
+/** The production solver does not accept staging-only Monad tokens. */
+export function assertMonadSwapProductionRoute(
+  endpoint: string,
+  params: { srcChainKey: SpokeChainKey; dstChainKey: SpokeChainKey; inputToken: string; outputToken: string },
+): void {
+  if (params.srcChainKey !== ChainKeys.MONAD_MAINNET && params.dstChainKey !== ChainKeys.MONAD_MAINNET) return;
+  if (new URL(endpoint).origin !== 'https://api.sodax.com') return;
+  for (const [chainKey, token] of [
+    [params.srcChainKey, params.inputToken],
+    [params.dstChainKey, params.outputToken],
+  ] as const) {
+    if (chainKey !== ChainKeys.MONAD_MAINNET) continue;
+    if (getSupportedSolverTokens(chainKey).some(entry => entry.address.toLowerCase() === token.toLowerCase())) continue;
+    throw new SodaxError('VALIDATION_FAILED', 'This Monad swap token is unavailable on the production solver', {
+      feature: 'swap',
+      context: {
+        phase: 'validate',
+        srcChainKey: params.srcChainKey,
+        dstChainKey: params.dstChainKey,
+        field: 'chainKey',
+      },
+    });
+  }
 }
 
 /** Validates MPC swap legs before encoding or signing a new intent. */

@@ -17,6 +17,7 @@ The `ChainKey` type is the union of every `ChainKeys.*` value — the table belo
 | `REDBELLY_MAINNET` | `'redbelly'` | EVM | spoke | `0x${string}` |
 | `KAIA_MAINNET` | `'0x2019.kaia'` | EVM | spoke | `0x${string}` |
 | `HEDERA_MAINNET` | `'hedera'` | EVM | spoke | `0x${string}` |
+| `MONAD_MAINNET` | `'monad'` | EVM | spoke (MPC relay) | `0x${string}` |
 | `ROBINHOOD_MAINNET` | `'robinhood'` | EVM | spoke | `0x${string}` |
 | `SOLANA_MAINNET` | `'solana'` | SOLANA | spoke | base58 PublicKey string |
 | `SUI_MAINNET` | `'sui'` | SUI | spoke | `0x${string}` (32-byte) |

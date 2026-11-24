@@ -41,6 +41,7 @@ import {
   assertMpcPayoutAboveMinimum,
   encodeRecipient,
   assertMpcSwapRoute,
+  assertMonadSwapProductionRoute,
   isMpcRelayChainKeyType,
   RELAY_FALLBACK_FLOOR_MS,
 } from '../shared/index.js';
@@ -1598,6 +1599,7 @@ export class SwapService {
           { ...baseCtx, field: 'minOutputAmount' },
         );
       }
+      assertMonadSwapProductionRoute(this.solver.solverApiEndpoint, params);
       assertMpcSwapRoute({ ...params, outputToken: outputTokenInfo });
       const refundAmount = params.inputAmount - calculateFeeAmount(params.inputAmount, partnerFee);
       if (inputTokenInfo) {
