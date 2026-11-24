@@ -12,7 +12,6 @@ import type { ConfigService } from '../config/ConfigService.js';
 import { SodaxError } from '../../errors/SodaxError.js';
 import type { SodaxErrorContext } from '../../errors/codes.js';
 import {
-  ChainKeys,
   type SpokeChainKey,
   getSupportedSolverTokens,
   type Hex,
@@ -32,6 +31,7 @@ import {
 import { formatUnits, hexToBytes, isAddress, toHex } from 'viem';
 import { tronHashToBase58, tronIdentityBytes } from '../services/spoke/tron-utils.js';
 import { xrpHashToClassicAddress, xrpIdentityBytes } from '../services/spoke/xrp-utils.js';
+import { tonAddressHash, tonIdentityBytes, tonWalletAddress } from '../services/spoke/ton-utils.js';
 import { bcs } from '@mysten/sui/bcs';
 import { PublicKey } from '@solana/web3.js';
 import { Address as StellarAddress, xdr } from '@stellar/stellar-sdk';
@@ -208,8 +208,12 @@ export function assertMpcPayoutAboveMinimum({
  * 20-byte identity is left-padded into a full word. An EVM MPC-relay chain (Monad) releases to a plain
  * 20-byte address: the relay does not decode the padded word, and sent one to the zero address.
  * Intent-relay chains keep their own encoding unchanged.
+ *
+ * TON is the exception: its identity is a public key, and a release pays the 32-byte account hash of
+ * that key's wallet-v4R2 address, which already fills the word.
  */
 export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): Hex {
+  if (getChainType(spokeChainId) === 'TON') return tonAddressHash(tonWalletAddress(address));
   if (!isMpcRelayChainKey(spokeChainId)) return encodeAddress(spokeChainId, address);
   if (getChainType(spokeChainId) === 'EVM') {
     // `encodeAddress` passes EVM input through unchecked, and a malformed recipient here is released
@@ -234,26 +238,31 @@ function mpcRelayIdentityHash(encoded: string, label: string): string {
   return hash.slice(24);
 }
 
-/** The production solver does not accept staging-only Monad tokens. */
-export function assertMonadSwapProductionRoute(
+export function assertProductionSwapRoute(
   endpoint: string,
   params: { srcChainKey: SpokeChainKey; dstChainKey: SpokeChainKey; inputToken: string; outputToken: string },
 ): void {
-  if (params.srcChainKey !== ChainKeys.MONAD_MAINNET && params.dstChainKey !== ChainKeys.MONAD_MAINNET) return;
   if (new URL(endpoint).origin !== 'https://api.sodax.com') return;
-  for (const [chainKey, token] of [
-    [params.srcChainKey, params.inputToken],
-    [params.dstChainKey, params.outputToken],
+  for (const [chainKey, token, field] of [
+    [params.srcChainKey, params.inputToken, 'inputToken'],
+    [params.dstChainKey, params.outputToken, 'outputToken'],
   ] as const) {
-    if (chainKey !== ChainKeys.MONAD_MAINNET) continue;
-    if (getSupportedSolverTokens(chainKey).some(entry => entry.address.toLowerCase() === token.toLowerCase())) continue;
-    throw new SodaxError('VALIDATION_FAILED', 'This Monad swap token is unavailable on the production solver', {
+    // Scoped to MPC-relay legs: other chains keep deferring token support to the solver.
+    if (!isMpcRelayChainKey(chainKey)) continue;
+    const supportedTokens = getSupportedSolverTokens(chainKey);
+    const isSupported = supportedTokens?.some(
+      entry =>
+        entry.address === token ||
+        (getChainType(chainKey) === 'EVM' && entry.address.toLowerCase() === token.toLowerCase()),
+    );
+    if (isSupported) continue;
+    throw new SodaxError('VALIDATION_FAILED', 'This swap token is unavailable on the production solver', {
       feature: 'swap',
       context: {
         phase: 'validate',
         srcChainKey: params.srcChainKey,
         dstChainKey: params.dstChainKey,
-        field: 'chainKey',
+        field,
       },
     });
   }
@@ -352,6 +361,10 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
       // `r…` address encodes. NOT the public key: the two are distinct and the contract derives
       // one from the other.
       return xrpIdentityBytes(address);
+    case 'TON':
+      // TON's identity is the 32-byte ed25519 public key itself: a TON address is a hash of the
+      // wallet's StateInit and cannot be inverted, so the key is what the relay identifies users by.
+      return tonIdentityBytes(address);
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);
@@ -423,6 +436,9 @@ export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex):
       return tronHashToBase58(mpcRelayIdentityHash(encoded, 'Tron'));
     case 'XRP':
       return xrpHashToClassicAddress(mpcRelayIdentityHash(encoded, 'XRP'));
+    case 'TON':
+      // The identity encoding is the public key verbatim.
+      return tonIdentityBytes(encoded);
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);

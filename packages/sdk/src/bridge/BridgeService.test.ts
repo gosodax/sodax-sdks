@@ -49,6 +49,7 @@ import {
   getIntentRelayChainId,
   tronSupportedTokens,
   monadSupportedTokens,
+  tonSupportedTokens,
   xrpSupportedTokens,
 } from '@sodax/types';
 import { RELAY_FALLBACK_FLOOR_MS } from '../shared/services/intentRelay/IntentRelayApiService.js';
@@ -395,6 +396,43 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
       ok: false,
       error: { cause: expect.objectContaining({ message: expect.stringContaining('No vault limit') }) },
     });
+  });
+
+  it('discovers the hub asset for native TON and refuses to invent a vault limit', async () => {
+    const ton = tonSupportedTokens.TON;
+    const wrapped = { ...ton, chainKey: ChainKeys.SONIC_MAINNET, address: ton.hubAsset };
+    expect(sodax.bridge.getBridgeableTokens(ton.chainKey, wrapped.chainKey, ton.address)).toMatchObject({
+      ok: true,
+      value: [wrapped],
+    });
+    expect(sodax.bridge.getBridgeableTokens(wrapped.chainKey, ton.chainKey, wrapped.address)).toMatchObject({
+      ok: true,
+      value: [ton],
+    });
+    await expect(sodax.bridge.getBridgeableAmount(ton, wrapped)).resolves.toMatchObject({
+      ok: false,
+      error: { cause: expect.objectContaining({ message: expect.stringContaining('native TON route') }) },
+    });
+  });
+
+  it('checks the TON floor and destination descriptor before encoding a payout', () => {
+    const token = realToken(ChainKeys.TON_MAINNET, 'USDT');
+    const params = {
+      srcChainKey: ChainKeys.TON_MAINNET,
+      srcAddress: `0x${'12'.repeat(32)}`,
+      srcToken: token.address,
+      dstChainKey: ChainKeys.TON_MAINNET,
+      dstToken: token.address,
+      recipient: `0x${'34'.repeat(32)}`,
+      amount: 3_000_000n,
+    };
+    expect(() => sodax.bridge.buildBridgeData(params, token, token, undefined)).toThrow(/greater than 3 USDT/);
+    expect(sodax.bridge.buildBridgeData({ ...params, amount: 3_000_001n }, token, token, undefined)).toMatch(
+      /^0x[0-9a-f]+$/i,
+    );
+    expect(() => sodax.bridge.buildBridgeData({ ...params, dstChainKey: ARBITRUM }, token, token, undefined)).toThrow(
+      /Payout token chain must match/,
+    );
   });
 
   it('refuses a direct Tron bridge at the delivered floor and encodes one unit above it', () => {

@@ -6,6 +6,7 @@ import {
   monadSupportedTokens,
   type MpcRelayChainKey,
   supportedTokensByChain,
+  tonSupportedTokens,
   tronSupportedTokens,
   xrpSupportedTokens,
 } from '../chains/index.js';
@@ -107,4 +108,11 @@ describe('Monad payout floor identity', () => {
     expect(getMpcPayoutMinimum({ ...USDC, address: lower })).toBe(getMpcPayoutMinimum(USDC));
     expect(getMpcPayoutMinimum({ chainKey: ChainKeys.MONAD_MAINNET, address: `0x${'ab'.repeat(20)}` })).toBeUndefined();
   });
+});
+
+it('applies the TON payout floors by token address', () => {
+  const { TON, USDT } = tonSupportedTokens;
+  expect(getMpcPayoutMinimum(TON)).toBe(0n);
+  expect(getUnmetMpcPayoutMinimum({ token: USDT, amount: 3_000_000n })?.minimum).toBe(3_000_000n);
+  expect(getUnmetMpcPayoutMinimum({ token: USDT, amount: 3_000_001n })).toBeUndefined();
 });

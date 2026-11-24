@@ -15,7 +15,7 @@ import {
 import { Erc20Service } from '../shared/services/erc-20/Erc20Service.js';
 import {
   assertMpcSwapRoute,
-  assertMonadSwapProductionRoute,
+  assertProductionSwapRoute,
   calculatePercentageFeeAmount,
   encodeRecipient,
   randomUint256,
@@ -109,7 +109,7 @@ export class EvmSolverService {
       ? (createIntentParams.outputToken as Address)
       : outputTokenInfo?.hubAsset;
 
-    assertMonadSwapProductionRoute(config.solver.solverApiEndpoint, createIntentParams);
+    assertProductionSwapRoute(config.solver.solverApiEndpoint, createIntentParams);
     assertMpcSwapRoute({ ...createIntentParams, outputToken: outputTokenInfo });
 
     invariant(

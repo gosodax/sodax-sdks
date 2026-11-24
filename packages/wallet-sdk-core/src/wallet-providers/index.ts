@@ -10,3 +10,4 @@ export * from './near/index.js';
 export * from './bitcoin/index.js';
 export * from './tron/index.js';
 export * from './xrp/index.js';
+export * from './ton/index.js';
