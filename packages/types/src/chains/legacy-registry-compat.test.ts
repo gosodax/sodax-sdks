@@ -350,6 +350,12 @@ const LEGACY_MONEY_MARKET_RESERVE_ASSETS: readonly string[] = [
   '0xE801CA34E19aBCbFeA12025378D19c4FBE250131',
 ];
 
+// Reserves added after the legacy snapshot was frozen, in the order they are appended.
+const APPENDED_MONEY_MARKET_RESERVE_ASSETS: readonly string[] = [
+  // XRP vault, listed as a reserve by the XRP spoke.
+  '0xb89B3a6633fb06CAB86b7d54e2f6913C51a73952',
+];
+
 const LEGACY_MONEY_MARKET_ROBINHOOD: readonly string[] = [
   'ETH:0x0000000000000000000000000000000000000000',
   'bnUSD:0x3cd95C469be0EDFD12Bd4F3a4436B132B7908DF4',
@@ -510,20 +516,27 @@ const moneyMarketEquityIds = (registry: Record<(typeof EQUITY_SYMBOLS)[number], 
   MONEY_MARKET_EQUITY_SYMBOLS.map(symbol => `${symbol}:${registry[symbol].address}`);
 
 describe('money market keeps its legacy lists and appends only the listed equity reserves', () => {
-  it('Sonic supported tokens: all 28 legacy entries unchanged, then the equity vaults', () => {
+  it('Sonic supported tokens: all 28 legacy entries unchanged, then the equity vaults and the ZEC vault', () => {
     expect(identify(moneyMarketSupportedTokens[ChainKeys.SONIC_MAINNET])).toEqual([
       ...LEGACY_MONEY_MARKET_SONIC,
       ...moneyMarketEquityIds(SodaTokens),
+      // The ZEC vault, a reserve since Zcash joined as a money-market spoke.
+      'sodaZECv2:0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
     ]);
   });
 
-  it('reserve assets: legacy reserves unchanged, then the equity vaults', () => {
-    // hubConfig.bnUSD is appended after the hub vaults, so it stays last.
+  it('reserve assets: legacy reserves unchanged, then the equity vaults and the ZEC vault', () => {
+    // hubConfig.bnUSD is appended after the hub vaults, so it stays last of the legacy list; later reserves follow it.
     expect(LEGACY_MONEY_MARKET_RESERVE_ASSETS.at(-1)).toBe(hubConfig.bnUSD);
+    expect(APPENDED_MONEY_MARKET_RESERVE_ASSETS).toEqual([
+      spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.XRP.vault,
+    ]);
     expect([...moneyMarketReserveAssets]).toEqual([
       ...LEGACY_MONEY_MARKET_RESERVE_ASSETS.slice(0, -1),
       ...MONEY_MARKET_EQUITY_SYMBOLS.map(symbol => SodaTokens[symbol].address),
+      '0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
       hubConfig.bnUSD,
+      ...APPENDED_MONEY_MARKET_RESERVE_ASSETS,
     ]);
   });
 

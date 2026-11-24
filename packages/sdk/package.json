@@ -6,20 +6,36 @@
   },
   "version": "2.3.0",
   "license": "MIT",
-  "description": "Sodax SDK",
+  "description": "TypeScript SDK for SODAX cross-network DeFi: intent swaps, money market, bridging and staking across EVM, Solana, Sui, Stellar and other networks",
   "keywords": [
     "sodax",
     "sdk",
     "frontend",
-    "interface"
+    "interface",
+    "defi",
+    "cross-chain",
+    "multi-chain",
+    "swap",
+    "bridge",
+    "intents",
+    "money-market",
+    "lending",
+    "web3",
+    "evm",
+    "solana",
+    "sui",
+    "stellar",
+    "sonic",
+    "typescript"
   ],
-  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/sdk",
+  "homepage": "https://docs.sodax.com/developers/packages/foundation/sdk",
   "bugs": {
     "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/gosodax/sodax-sdks"
+    "url": "git+https://github.com/gosodax/sodax-sdks.git",
+    "directory": "packages/sdk"
   },
   "type": "module",
   "main": "./dist/index.cjs",
@@ -47,7 +63,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup && node ../../scripts/verify-dist-exports.mjs",
+    "build": "tsup && node ../../scripts/verify-dist-exports.mjs && node verify-outcome-guard.mjs",
     "test": "vitest run --exclude ./src/e2e-tests",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "coverage": "vitest run --coverage",
@@ -69,9 +85,11 @@
     "@injectivelabs/networks": "catalog:",
     "@injectivelabs/sdk-ts": "catalog:",
     "@mysten/sui": "catalog:",
+    "@noble/hashes": "^1.8.0",
     "@pancakeswap/infinity-sdk": "catalog:",
     "@pancakeswap/swap-sdk-core": "catalog:",
     "@pancakeswap/v3-sdk": "catalog:",
+    "@scure/base": "^1.2.6",
     "@sodax/bridge-api": "workspace:*",
     "@sodax/libs": "workspace:*",
     "@sodax/swaps-api": "workspace:*",
@@ -79,6 +97,8 @@
     "@solana/spl-token": "catalog:",
     "@solana/web3.js": "catalog:",
     "@stellar/stellar-sdk": "catalog:",
+    "@ton/core": "catalog:",
+    "@tonconnect/sdk": "3.4.1",
     "bignumber.js": "catalog:",
     "bitcoinjs-lib": "^6.1.5",
     "bn.js": "^5.2.1",
@@ -86,8 +106,8 @@
     "icon-sdk-js": "catalog:",
     "near-api-js": "catalog:",
     "rlp": "3.0.0",
-    "viem": "catalog:",
-    "valibot": "catalog:"
+    "valibot": "catalog:",
+    "viem": "catalog:"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",

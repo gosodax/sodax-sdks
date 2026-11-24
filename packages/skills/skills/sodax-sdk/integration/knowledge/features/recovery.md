@@ -12,10 +12,10 @@ Access: `sodax.recovery`. Service class: `RecoveryService`. Feature tag for erro
 sodax.recovery.fetchHubAssetBalances(args): Promise<Result<HubAssetBalance[], SodaxError>>;
 
 // Mutation: withdraw a single hub asset back to a spoke chain.
-// Returns a single chain-specific tx hash (a TxReturnType) when raw: false — not a tx-pair.
+// Returns a single chain-specific tx hash when raw: false — not a tx-pair; from Tron, the relay's trackingId.
 sodax.recovery.withdrawHubAsset<K extends SpokeChainKey, Raw extends boolean>(
   action: WithdrawHubAssetAction<K, Raw>,
-): Promise<Result<TxReturnType<K, Raw>, SodaxError>>;
+): Promise<Result<SendMessageReturnType<K, Raw>, SodaxError>>;
 ```
 
 ## Common call shape
@@ -41,7 +41,7 @@ const result = await sodax.recovery.withdrawHubAsset({
 
 ## When to use
 
-Recovery is a workaround for failed cross-chain operations. Best used **after** investigating why the original operation failed — relay timeouts may resolve on retry; structural failures need fixing first.
+Recovery is a workaround for failed cross-chain operations. Best used **after** investigating why the original operation failed — resume settlement using the original source hash or withdrawal tracking ID after a relay timeout. Resolve structural problems before attempting a new operation.
 
 ## Cross-references
 
@@ -49,3 +49,12 @@ Recovery is a workaround for failed cross-chain operations. Best used **after** 
 - Partner-fee handling (separate service): [`./partner.md`](partner.md).
 - Backend HTTP client (separate service): [`./backend-api.md`](backend-api.md).
 - Error model context fields: [`../reference/`](../reference/) § 3.
+
+
+### Resume an uncertain MPC withdrawal
+
+If `withdrawHubAsset` reports `INTENT_CREATION_FAILED` with `context.trackingId`,
+keep the original authorization. Call `sodax.spoke.settle` with the original
+`srcChainKey`, the tracking ID as `tx`, `direction: 'outbound'` and the original
+`dstChainKey` and `relayData` from context. Do not call `withdrawHubAsset` again
+while that authorization is unresolved.

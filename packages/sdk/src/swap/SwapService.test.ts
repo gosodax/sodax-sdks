@@ -12,9 +12,19 @@
  *   4. `cancelIntent` takes an explicit `srcChainKey` alongside `intent`; we assert at runtime
  *      that `getIntentRelayChainId(srcChainKey) === intent.srcChain` and throw on mismatch.
  */
+import { CARDANO_ADDRESSES } from '../shared/services/spoke/cardano-test-vectors.js';
+import { IndeterminateOutcomeError } from '../errors/IndeterminateOutcomeError.js';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import {
   ChainKeys,
+  MpcRelayChainMap,
+  arbitrumSupportedTokens,
+  cardanoSupportedTokens,
+  type ICardanoWalletProvider,
+  monadSupportedTokens,
+  tonSupportedTokens,
+  zcashSupportedTokens,
+  type MpcRelayChainKey,
   getIntentRelayChainId,
   spokeChainConfig,
   type AnalyticsEvent,
@@ -25,7 +35,9 @@ import {
   type IEvmWalletProvider,
   type ISolanaWalletProvider,
   type IStellarWalletProvider,
+  type ITronWalletProvider,
   type IWalletProvider,
+  type PartnerFee,
   DEFAULT_BACKEND_API_TIMEOUT,
   DEFAULT_RELAY_TX_TIMEOUT,
   SolverIntentErrorCode,
@@ -34,6 +46,8 @@ import {
   type SolverIntentStatusResponse,
   type SpokeChainKey,
   type SubmitTxStatusDataV2,
+  tronSupportedTokens,
+  xrpSupportedTokens,
 } from '@sodax/types';
 import {
   ACCOUNT_UPGRADE_DECLINED,
@@ -140,6 +154,8 @@ vi.mock('./SolverApiService.js', () => ({
   },
 }));
 import type { CancelIntentActionParams, CreateIntentParams, Intent, SwapActionParams } from './SwapService.js';
+import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
+import type { XrpDestinationReadiness } from '../shared/services/spoke/XrpSpokeService.js';
 
 // --- test fixtures --------------------------------------------------------
 //
@@ -153,7 +169,11 @@ import type { CancelIntentActionParams, CreateIntentParams, Intent, SwapActionPa
 // `getUserHubWalletAddress` is an instance method on `sodax.hubProvider` and is rebound via
 // `vi.spyOn` in `beforeEach`.
 
-const sodax = new Sodax({ swaps: { useBackendSubmitTx: false } });
+const testSolver = { solverApiEndpoint: 'https://api.example.com/v1/intent' } as const;
+const sodax = new Sodax({
+  solver: testSolver,
+  swaps: { useBackendSubmitTx: false },
+});
 
 // Wallet provider fakes — only used by the type-level tests to prove walletProvider
 // narrowing via expectTypeOf / @ts-expect-error. The bodies never execute at runtime.
@@ -183,6 +203,14 @@ const mockStellarProvider = {
   getWalletAddress: vi.fn(),
   signTransaction: vi.fn(),
 } as unknown as IStellarWalletProvider;
+
+const mockTronProvider: ITronWalletProvider = {
+  chainType: 'TRON',
+  getWalletAddress: vi.fn(),
+  signTransaction: vi.fn(),
+  signMessage: vi.fn(),
+  waitForTransactionReceipt: vi.fn(),
+};
 
 // Base user-facing intent params parameterized by source chain. Returning a generic
 // `CreateIntentParams<K>` lets the test call sites pass a literal ChainKey and have K
@@ -1797,6 +1825,80 @@ describe('SwapService.getSolvedIntentPacket', () => {
 
     expect(result).toEqual({ ok: false, error: timeoutError });
   });
+
+  // The intent relay never delivers to an MPC-relay chain, so asking it could only time out.
+  it('fails for an MPC-relay destination without asking the relayer or inventing a packet', async () => {
+    const release = vi.spyOn(sodax.spoke, 'submitHubRelease');
+
+    const result = await sodax.swaps.getSolvedIntentPacket({ chainId: ChainKeys.TRON_MAINNET, fillTxHash: '0xfill' });
+
+    invariant(!result.ok, 'expected a refusal');
+    expect(String(result.error)).toContain('waitForIntentDelivery');
+    expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+    expect(release).not.toHaveBeenCalled();
+  });
+});
+
+describe('SwapService.waitForIntentDelivery', () => {
+  const RELEASE = { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: '0xfill', logIndex: 3 };
+
+  it('returns a hub fill without asking the relay packet API', async () => {
+    vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({
+      ok: true,
+      value: { status: 'success', receipt: {} },
+    });
+    const result = await sodax.swaps.waitForIntentDelivery({ chainId: ChainKeys.SONIC_MAINNET, fillTxHash: '0xfill' });
+    expect(result).toEqual({ ok: true, value: { source: 'hub', dstTxHash: '0xfill' } });
+    expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+  });
+
+  it('refuses a reverted hub fill', async () => {
+    const error = new Error('reverted');
+    vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValueOnce({ ok: true, value: { status: 'failure', error } });
+    const result = await sodax.swaps.waitForIntentDelivery({ chainId: ChainKeys.SONIC_MAINNET, fillTxHash: '0xfill' });
+    expect(result).toEqual({ ok: false, error });
+    expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+  });
+
+  it('returns the relay packet and its destination tx for an intent-relay destination', async () => {
+    const packet = { dst_tx_hash: '0xdstTxHash' };
+    mocks.waitUntilIntentExecuted.mockResolvedValueOnce({ ok: true, value: packet });
+
+    const result = await sodax.swaps.waitForIntentDelivery({ chainId: ChainKeys.BSC_MAINNET, fillTxHash: '0xfill' });
+
+    expect(result).toEqual({ ok: true, value: { source: 'relay', dstTxHash: '0xdstTxHash', packet } });
+  });
+
+  it('submits the fill as a release to an MPC-relay destination and waits on that same release', async () => {
+    const submit = vi.spyOn(sodax.spoke, 'submitHubRelease').mockResolvedValueOnce({ ok: true, value: RELEASE });
+    const wait = vi
+      .spyOn(sodax.spoke, 'waitForHubRelease')
+      .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xfill', dstChainTxHash: 'tronPayout' } });
+
+    const result = await sodax.swaps.waitForIntentDelivery({
+      chainId: ChainKeys.TRON_MAINNET,
+      fillTxHash: '0xfill',
+      timeout: 5_000,
+    });
+
+    expect(submit).toHaveBeenCalledWith({ hubTxHash: '0xfill', dstChainKey: ChainKeys.TRON_MAINNET });
+    expect(wait).toHaveBeenCalledWith({ release: RELEASE, timeout: 5_000 });
+    expect(mocks.waitUntilIntentExecuted).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, value: { source: 'mpcRelay', dstTxHash: 'tronPayout', release: RELEASE } });
+  });
+
+  it('surfaces the relay failure itself, so RELAY_TIMEOUT stays readable on `error.message`', async () => {
+    const timeoutError = new Error('RELAY_TIMEOUT');
+    vi.spyOn(sodax.spoke, 'submitHubRelease').mockResolvedValueOnce({ ok: true, value: RELEASE });
+    vi.spyOn(sodax.spoke, 'waitForHubRelease').mockResolvedValueOnce({
+      ok: false,
+      error: { phase: 'relay', cause: timeoutError },
+    });
+
+    const result = await sodax.swaps.waitForIntentDelivery({ chainId: ChainKeys.TRON_MAINNET, fillTxHash: '0xfill' });
+
+    expect(result).toEqual({ ok: false, error: timeoutError });
+  });
 });
 
 // =========================================================================
@@ -2804,6 +2906,87 @@ describe('SwapService.createIntent — extras (partnerFee + srcPublicKey)', () =
     expect(depositCall.accessToken).toBe(accessToken);
   });
 
+  it('carries the Cardano deposit hash into the swap error context', async () => {
+    const chainKey = ChainKeys.CARDANO_MAINNET;
+    const txHash = 'ab'.repeat(32);
+    const failure = new IndeterminateOutcomeError('Cardano submission outcome is unknown', {
+      cause: new DOMException('wallet response lost', 'NetworkError'),
+      txHash,
+    });
+    const srcAddress = CARDANO_ADDRESSES.enterpriseMainnet.bech32;
+    const walletProvider: ICardanoWalletProvider = {
+      chainType: 'CARDANO',
+      getWalletAddress: vi.fn(async () => srcAddress),
+      signTransaction: vi.fn(),
+      submitTransaction: vi.fn(),
+      signData: vi.fn(),
+    };
+    mocks.getUserHubWalletAddress.mockResolvedValueOnce('0xhubwallet');
+    mocks.constructCreateIntentData.mockReturnValueOnce(['0xintentdata', makeIntent(chainKey), 0n]);
+    const deposit = vi.spyOn(sodax.spoke.cardano, 'deposit').mockRejectedValueOnce(failure);
+
+    const result = await sodax.swaps.createIntent({
+      params: {
+        ...intentInput(chainKey),
+        srcAddress,
+        inputToken: cardanoSupportedTokens.ADA.address,
+        inputAmount: 2_000_000n,
+        deadline: 1_700_000_000n,
+      },
+      raw: false,
+      walletProvider,
+    });
+
+    expect(deposit).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'INTENT_CREATION_FAILED', context: { srcTxHash: txHash }, cause: failure },
+    });
+  });
+
+  it('carries a known deposit hash through an intent failure for recovery', async () => {
+    const svc = sodax.swaps;
+    const chainKey = ChainKeys.BITCOIN_MAINNET;
+    const txHash = 'ab'.repeat(32);
+    const cause = Object.freeze(new Error('wallet response lost'));
+    const error = new IndeterminateOutcomeError('Deposit submission outcome is unknown', { cause, txHash });
+    mocks.getUserHubWalletAddress.mockResolvedValueOnce('0xhubwallet');
+    mocks.constructCreateIntentData.mockReturnValueOnce(['0xintentdata', makeIntent(chainKey), 0n]);
+    vi.spyOn(svc.spoke.bitcoin, 'getEffectiveWalletAddress').mockImplementation(async address => address);
+    const deposit = vi.spyOn(svc.spoke, 'deposit').mockResolvedValueOnce({ ok: false, error });
+
+    const result = await svc.createIntent({ params: intentInput(chainKey), raw: true });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: 'INTENT_CREATION_FAILED', context: { srcTxHash: txHash } },
+    });
+    invariant(!result.ok, 'expected a failed intent');
+    expect(result.error.cause).toBe(error);
+    expect(error.cause).toBe(cause);
+    expect(cause).not.toHaveProperty('txHash');
+
+    const status = {
+      txHash,
+      srcChainKey: chainKey,
+      status: 'solved',
+      processingAttempts: 1,
+      result: { dstIntentTxHash: '0xDST', intent_hash: '0xHASH' },
+    } as const;
+    const read = vi.spyOn(svc.backendApi.swaps, 'getSubmitTxStatus').mockResolvedValueOnce({
+      ok: true,
+      value: { success: true, data: status },
+    });
+    const srcTxHash = result.error.context?.srcTxHash;
+    if (typeof srcTxHash !== 'string') throw new Error('missing recovery hash');
+    expect(await svc.getDetailedStatus({ srcChainKey: chainKey, srcTxHash })).toEqual({
+      ok: true,
+      value: { source: 'backend', data: status },
+    });
+    expect(read).toHaveBeenCalledExactlyOnceWith({ srcChainKey: chainKey, txHash });
+    expect(deposit).toHaveBeenCalledOnce();
+  });
+
   it('omits accessToken on the deposit params when extras.bound is absent (BitcoinSpokeService falls back to its radfi instance token)', async () => {
     const svc = sodax.swaps;
     mocks.getUserHubWalletAddress.mockResolvedValueOnce('0xhubwallet');
@@ -2819,6 +3002,189 @@ describe('SwapService.createIntent — extras (partnerFee + srcPublicKey)', () =
     expect(result.ok).toBe(true);
     const depositCall = (svc.spoke.deposit as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0];
     expect(depositCall.accessToken).toBeUndefined();
+  });
+});
+
+// The relay takes its release fee from a payout to Tron and releases nothing once it reaches the amount.
+describe('SwapService.createIntent — payouts through the MPC relay', () => {
+  const TRON_USDT = tronSupportedTokens.USDT.address;
+  const fromTron = (
+    inputAmount: bigint,
+    allowPartialFill = false,
+  ): CreateIntentParams<typeof ChainKeys.TRON_MAINNET> => ({
+    ...intentInput(ChainKeys.TRON_MAINNET),
+    inputToken: TRON_USDT,
+    outputToken: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+    inputAmount,
+    allowPartialFill,
+    srcAddress: TRON_TEST_ADDRESS,
+    deadline: 1_700_000_000n,
+  });
+  const toTron = (minOutputAmount: bigint): CreateIntentParams<typeof ChainKeys.BSC_MAINNET> => ({
+    ...intentInput(ChainKeys.BSC_MAINNET),
+    dstChainKey: ChainKeys.TRON_MAINNET,
+    outputToken: TRON_USDT,
+    minOutputAmount,
+    dstAddress: TRON_TEST_ADDRESS,
+  });
+
+  const run = async (params: CreateIntentParams<SpokeChainKey>, partnerFee?: PartnerFee) => {
+    const s = new Sodax({ logger: 'silent', solver: testSolver });
+    const pastValidation = vi
+      .spyOn(s.hubProvider, 'getUserHubWalletAddress')
+      .mockRejectedValue(new Error('past validation'));
+    const result = await s.swaps.createIntent({ params, raw: true, extras: partnerFee ? { partnerFee } : undefined });
+    return { result, pastValidation };
+  };
+  const expectRefused = async (outcome: ReturnType<typeof run>, field: string) => {
+    const { result, pastValidation } = await outcome;
+    invariant(!result.ok, 'expected a refusal');
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.field).toBe(field);
+    expect(pastValidation).not.toHaveBeenCalled();
+  };
+
+  it('refuses a Tron-source intent whose refund would not clear the minimum', async () => {
+    await expectRefused(run(fromTron(3_000_000n)), 'inputAmount');
+  });
+
+  it('sizes the refund after the partner fee', async () => {
+    await expectRefused(
+      run(fromTron(3_100_000n), { address: '0x00000000000000000000000000000000feec0a01', percentage: 500 }),
+      'inputAmount',
+    );
+  });
+
+  it('refuses a minOutputAmount to Tron at the minimum', async () => {
+    await expectRefused(run(toTron(3_000_000n)), 'minOutputAmount');
+  });
+
+  it.each([
+    ['from', fromTron(10_000_000n, true)],
+    ['to', { ...toTron(10_000_000n), allowPartialFill: true }],
+  ] as const)('refuses a partial fill %s Tron', async (_, params) => {
+    await expectRefused(run(params), 'allowPartialFill');
+  });
+
+  it('refuses a Tron-source intent with no deadline, which nothing could cancel', async () => {
+    await expectRefused(run({ ...fromTron(10_000_000n), deadline: 0n }), 'deadline');
+  });
+
+  it('refuses a limit order from Tron, which never expires', async () => {
+    const s = new Sodax({ logger: 'silent', solver: testSolver });
+    const pastValidation = vi.spyOn(s.hubProvider, 'getUserHubWalletAddress');
+    const result = await s.swaps.createLimitOrderIntent({ params: fromTron(10_000_000n), raw: true });
+    invariant(!result.ok, 'expected a refusal');
+    expect(result.error.context?.field).toBe('deadline');
+    expect(pastValidation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['from', fromTron(3_000_001n)],
+    ['to', toTron(3_000_001n)],
+  ] as const)('passes a payout %s Tron above the minimum', async (_, params) => {
+    expect((await run(params)).pastValidation).toHaveBeenCalled();
+  });
+
+  // An XRPL account can refuse a release outright, and a cancelled intent refunds its source.
+  describe('to or from XRPL', () => {
+    const XRPL_ADDRESS = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+    const XRPL_USDC = xrpSupportedTokens.USDC.address;
+    const toXrpl: CreateIntentParams<typeof ChainKeys.BSC_MAINNET> = {
+      ...intentInput(ChainKeys.BSC_MAINNET),
+      dstChainKey: ChainKeys.XRP_MAINNET,
+      outputToken: XRPL_USDC,
+      minOutputAmount: 5_000_000n,
+      dstAddress: XRPL_ADDRESS,
+    };
+    const fromXrpl: CreateIntentParams<typeof ChainKeys.XRP_MAINNET> = {
+      ...intentInput(ChainKeys.XRP_MAINNET),
+      inputToken: XRPL_USDC,
+      outputToken: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+      inputAmount: 5_000_000n,
+      srcAddress: XRPL_ADDRESS,
+      deadline: 1_700_000_000n,
+    };
+
+    it.each([
+      99_000_000n,
+      50_000_000n,
+    ])('checks solved payout headroom for minimum %s before signing', async minOutputAmount => {
+      const s = new Sodax({ logger: 'silent' });
+      vi.spyOn(s.swaps, 'getQuote').mockResolvedValue({ ok: true, value: { quoted_amount: 100_000_000n } });
+      vi.spyOn(s.spoke.xrp, 'checkDestination').mockImplementation(async ({ amount, maxAmount = amount }) =>
+        maxAmount > 100_000_000n ? { ready: false, reason: 'trustline_limit' } : { ready: true },
+      );
+      const signing = vi.spyOn(s.spoke, 'deposit');
+      const pastValidation = vi
+        .spyOn(s.hubProvider, 'getUserHubWalletAddress')
+        .mockRejectedValue(new Error('past validation'));
+      const result = await s.swaps.createIntent({ params: { ...toXrpl, minOutputAmount }, raw: true });
+      if (minOutputAmount === 99_000_000n) {
+        invariant(!result.ok, 'expected refusal');
+        expect(result.error.context).toMatchObject({ reason: 'xrpl-trustline_limit' });
+        expect(pastValidation).not.toHaveBeenCalled();
+        expect(signing).not.toHaveBeenCalled();
+      } else expect(pastValidation).toHaveBeenCalled();
+    });
+
+    it('refuses a minimum one unit below half the current quote before checking the trustline or signing', async () => {
+      const s = new Sodax({ logger: 'silent' });
+      const quote = vi
+        .spyOn(s.swaps, 'getQuote')
+        .mockResolvedValue({ ok: true, value: { quoted_amount: 10_000_001n } });
+      const check = vi.spyOn(s.spoke.xrp, 'checkDestination');
+      const deposit = vi.spyOn(s.spoke, 'deposit');
+
+      const result = await s.swaps.createIntent({ params: toXrpl, raw: true });
+
+      invariant(!result.ok, 'expected quote bound rejection');
+      expect(result.error.context?.field).toBe('minOutputAmount');
+      expect(result.error.message).toContain('at least half');
+      expect(quote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          token_dst: XRPL_USDC,
+          amount: toXrpl.inputAmount,
+          quote_type: 'exact_input',
+        }),
+      );
+      expect(check).not.toHaveBeenCalled();
+      expect(deposit).not.toHaveBeenCalled();
+    });
+
+    const runXrpl = async (params: CreateIntentParams<SpokeChainKey>, readiness: XrpDestinationReadiness) => {
+      const s = new Sodax({ logger: 'silent' });
+      vi.spyOn(s.swaps, 'getQuote').mockResolvedValue({ ok: true, value: { quoted_amount: 10_000_000n } });
+      const checkSpy = vi.spyOn(s.spoke.xrp, 'checkDestination').mockResolvedValue(readiness);
+      const pastValidation = vi
+        .spyOn(s.hubProvider, 'getUserHubWalletAddress')
+        .mockRejectedValue(new Error('past validation'));
+      const result = await s.swaps.createIntent({ params, raw: true });
+      return { result, pastValidation, checkSpy };
+    };
+
+    // A payout needs room for the most a fill can pay; a refund lands on the line the deposit just drew down,
+    // so it is checked for no extra room.
+    it.each([
+      ['to', toXrpl, 'dstAddress', 5_000_000n, 10_000_000n],
+      ['from', fromXrpl, 'srcAddress', 0n, undefined],
+    ] as const)('refuses a swap %s an XRPL account that cannot receive its release', async (_, params, field, amount, maxAmount) => {
+      const outcome = runXrpl(params, { ready: false, reason: 'no_trustline' });
+      await expectRefused(outcome, field);
+      expect((await outcome).checkSpy).toHaveBeenCalledWith({
+        address: XRPL_ADDRESS,
+        token: XRPL_USDC,
+        amount,
+        maxAmount,
+      });
+    });
+
+    it.each([
+      ['to', toXrpl],
+      ['from', fromXrpl],
+    ] as const)('passes a swap %s an XRPL account that can receive its release', async (_, params) => {
+      expect((await runXrpl(params, { ready: true })).pastValidation).toHaveBeenCalled();
+    });
   });
 });
 
@@ -3342,6 +3708,21 @@ describe('SwapService.swap', () => {
 // =========================================================================
 
 describe('SwapService.createCancelIntent', () => {
+  it('refuses an intent from an MPC-relay source before signing: its refund would pay an identity', async () => {
+    const sendMessageSpy = vi.spyOn(sodax.spoke, 'sendMessage');
+
+    const result = await sodax.swaps.createCancelIntent({
+      params: { srcChainKey: ChainKeys.TRON_MAINNET, intent: makeIntent(ChainKeys.TRON_MAINNET) },
+      raw: false,
+      walletProvider: mockTronProvider,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatchObject({ code: 'VALIDATION_FAILED', context: { field: 'srcChainKey' } });
+    expect(sendMessageSpy).not.toHaveBeenCalled();
+  });
+
   it('forwards sendMessage params with raw=true and no walletProvider', async () => {
     const intent = makeIntent(ChainKeys.BSC_MAINNET);
     const sendMessageSpy = vi
@@ -3800,6 +4181,40 @@ describe('SwapService.swap — backend 2-step (useBackendSubmitTx)', () => {
     // path only, so the backend happy path must never reach it (see SWAPS.md § Backend 2-step submit).
     return vi.spyOn(sodaxBE.spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
   };
+
+  it('settles an MPC-relay source client-side without trying the backend, which only uses the intent relay', async () => {
+    stubCreatedAndVerified(ChainKeys.TRON_MAINNET);
+    const submitSpy = vi.spyOn(sodaxBE.api.swaps, 'submitTx');
+    const settleSpy = vi
+      .spyOn(sodaxBE.spoke, 'settle')
+      .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: '0xbeef' } });
+    mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK' } });
+
+    const result = await sodaxBE.swaps.swap({
+      params: intentInput(ChainKeys.TRON_MAINNET),
+      raw: false,
+      walletProvider: mockTronProvider,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(submitSpy).not.toHaveBeenCalled();
+    expect(settleSpy).toHaveBeenCalledWith(expect.objectContaining({ chainKey: ChainKeys.TRON_MAINNET }));
+  });
+
+  it('keeps the source hash when an MPC relay returns a malformed hub hash', async () => {
+    stubCreatedAndVerified(ChainKeys.TRON_MAINNET);
+    vi.spyOn(sodaxBE.spoke, 'settle').mockResolvedValueOnce({
+      ok: true,
+      value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: 'not-a-hash' },
+    });
+    const result = await sodaxBE.swaps.swap({
+      params: intentInput(ChainKeys.TRON_MAINNET),
+      raw: false,
+      walletProvider: mockTronProvider,
+    });
+    expect(result).toMatchObject({ ok: false, error: { code: 'RELAY_FAILED', context: { srcTxHash: '0xspokeTx' } } });
+    expect(mocks.solverPostExecution).not.toHaveBeenCalled();
+  });
 
   it('on backend "solved", returns a SwapResponse reconstructed from the backend (no client-side relay)', async () => {
     const verifySpy = stubCreatedAndVerified(ChainKeys.BSC_MAINNET);
@@ -5276,5 +5691,99 @@ describe('SwapService.useBackendSubmitTx — deprecated forms', () => {
   it('keeps the deprecated types assignable', () => {
     expectTypeOf<SwapsClientOptions>().toEqualTypeOf<NonNullable<SodaxOptions['swapsOptions']>>();
     expectTypeOf<SwapServiceConstructorParams['useBackendSubmitTx']>().toEqualTypeOf<boolean | undefined>();
+  });
+});
+
+describe('Production solver routing', () => {
+  const unsupportedTokens = {
+    [ChainKeys.TRON_MAINNET]: tronSupportedTokens.USDT.address,
+    [ChainKeys.XRP_MAINNET]: 'unlisted-xrp-token',
+    [ChainKeys.MONAD_MAINNET]: monadSupportedTokens.USDC.address,
+    [ChainKeys.TON_MAINNET]: tonSupportedTokens.TON.address,
+    [ChainKeys.ZCASH_MAINNET]: zcashSupportedTokens.ZEC.address,
+    [ChainKeys.CARDANO_MAINNET]: cardanoSupportedTokens.ADA.address,
+  } satisfies Record<MpcRelayChainKey, string>;
+
+  it.each(
+    Object.keys(MpcRelayChainMap).filter((key): key is MpcRelayChainKey => Object.hasOwn(unsupportedTokens, key)),
+  )('refuses unsupported %s routes before signing', async chainKey => {
+    const production = new Sodax();
+    vi.spyOn(production.config, 'isValidOriginalAssetAddress').mockReturnValue(true);
+    const deposit = vi.spyOn(production.spoke, 'deposit');
+    const supported = arbitrumSupportedTokens.WBTC.address;
+    const unsupported = unsupportedTokens[chainKey];
+    const routes = [
+      {
+        srcChainKey: chainKey,
+        inputToken: unsupported,
+        dstChainKey: ChainKeys.ARBITRUM_MAINNET,
+        outputToken: supported,
+      },
+      {
+        srcChainKey: ChainKeys.ARBITRUM_MAINNET,
+        inputToken: supported,
+        dstChainKey: chainKey,
+        outputToken: unsupported,
+      },
+    ];
+
+    for (const route of routes) {
+      const result = await production.swaps.createIntent({
+        params: { ...intentInput(route.srcChainKey), ...route },
+        raw: true,
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION_FAILED', message: expect.stringContaining('production solver') },
+      });
+    }
+    expect(deposit).not.toHaveBeenCalled();
+  });
+
+  it('leaves production routes between non-MPC chains to the solver', async () => {
+    const production = new Sodax({ logger: 'silent' });
+    const pastValidation = vi
+      .spyOn(production.hubProvider, 'getUserHubWalletAddress')
+      .mockRejectedValue(new Error('past validation'));
+    const result = await production.swaps.createIntent({
+      params: {
+        ...intentInput(ChainKeys.ETHEREUM_MAINNET),
+        inputToken: spokeChainConfig[ChainKeys.ETHEREUM_MAINNET].supportedTokens.WBTC.address,
+        outputToken: arbitrumSupportedTokens.WBTC.address,
+      },
+      raw: true,
+    });
+    expect(result).toMatchObject({ ok: false, error: { message: expect.not.stringContaining('production solver') } });
+    expect(pastValidation).toHaveBeenCalled();
+  });
+});
+
+describe('Monad swap settlement policy', () => {
+  it('reopens status from the original Monad hash without sending again', async () => {
+    const source = '0x1234';
+    const hub = '0xbeef';
+    const deposit = vi.spyOn(sodax.spoke, 'deposit');
+    vi.spyOn(sodax.api.swaps, 'getSubmitTxStatus').mockResolvedValue({
+      ok: false,
+      error: new Error('No record'),
+    } as never);
+    const read = vi.spyOn(sodax.spoke, 'getMpcRelayDeposit').mockResolvedValue({
+      ok: true,
+      value: {
+        depositId: 'test',
+        status: 'minted',
+        createdAt: null,
+        txs: { hubMint: { chain: 'sonic', hash: hub, ts: 0 } },
+      },
+    });
+    mocks.solverGetStatus.mockResolvedValueOnce({ ok: true, value: { status: SolverIntentStatusCode.SOLVED } });
+    await expect(
+      sodax.swaps.getDetailedStatus({
+        srcChainKey: ChainKeys.MONAD_MAINNET,
+        srcTxHash: source,
+      }),
+    ).resolves.toMatchObject({ ok: true, value: { source: 'solver', dstTxHash: hub } });
+    expect(read).toHaveBeenCalledWith(ChainKeys.MONAD_MAINNET, source);
+    expect(deposit).not.toHaveBeenCalled();
   });
 });

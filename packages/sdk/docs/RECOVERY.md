@@ -1,8 +1,8 @@
 # Recovery
 
 > **Error handling conventions:** `fetchHubAssetBalances` returns `SodaxError<'LOOKUP_FAILED'>` and
-> nothing else. `withdrawHubAsset` is different — failures from the spoke leg are passed through
-> unchanged and are **not** guaranteed to be a `SodaxError`. Read the **Error handling** section
+> nothing else. `withdrawHubAsset` is different — ordinary spoke failures are passed through
+> unchanged, while an uncertain MPC authorization carries structured recovery context and are **not** guaranteed to be a `SodaxError`. Read the **Error handling** section
 > before writing a `catch` branch; the naive `result.error.code` check is wrong on that path.
 
 The `RecoveryService` class, reachable via `sodax.recovery`, resolves assets stranded in a user's
@@ -98,8 +98,9 @@ Two parameters are easy to get wrong:
 - **`amount` is denominated in the hub-side asset**, which is the same unit `fetchHubAssetBalances`
   returned. Pass `asset.balance` through without rescaling.
 
-`raw: true` returns the unsigned spoke transaction and takes no `walletProvider`; `raw: false` (or
-omitted) signs and broadcasts, resolving to the chain-specific transaction hash.
+`raw: true` returns the unsigned spoke transaction (from Tron a `TronRawWithdraw` to sign) and takes no `walletProvider`; `raw: false` (or
+omitted) signs and broadcasts, resolving to the chain-specific transaction hash, or the relay's
+`trackingId` from an MPC-relay chain.
 
 Under the hood the withdrawal is not a hub-chain transaction the user signs: the service encodes an
 asset-manager `transfer` and relays it from the spoke chain, so the user only ever signs on the
@@ -113,11 +114,13 @@ chain they already hold a wallet for.
 | Method | What you get | Notes |
 | --- | --- | --- |
 | `fetchHubAssetBalances` | `SodaxError<'LOOKUP_FAILED'>` | Every failure is wrapped by `lookupFailed()`, including the unknown-chain-key guard. The original error — a `SodaxError<'VALIDATION_FAILED'>` for a bad chain key — survives only on `error.cause` |
+| `withdrawHubAsset` | `SodaxError<'VALIDATION_FAILED'>` | When a payout to an MPC-relay chain is at or below `MpcRelayPayoutMinimums` (`context.reason: 'mpc-payout-below-minimum'`) |
 | `withdrawHubAsset` | `SodaxError<'EXECUTION_FAILED'>` | Only when the hub-wallet derivation or payload encoding throws |
-| `withdrawHubAsset` | **A plain `Error`, or an arbitrary thrown value** | When the spoke leg fails. The spoke `sendMessage` result is returned unchanged: a failed simulation arrives as `new Error('SIMULATION_FAILED')`, with no `code` and no `feature`, and its own `catch` re-emits whatever was thrown |
+| `withdrawHubAsset` | `SodaxError<'INTENT_CREATION_FAILED'>` | An indeterminate MPC authorization with its original tracking ID and settlement context |
+| `withdrawHubAsset` | **A plain `Error`, or an arbitrary thrown value** | When the spoke leg fails. Except for the indeterminate MPC withdrawal case below, the spoke `sendMessage` result is returned unchanged: a failed simulation arrives as `new Error('SIMULATION_FAILED')`, with no `code` and no `feature`, and its own `catch` re-emits whatever was thrown |
 
-So `VALIDATION_FAILED` and `UNKNOWN` are in the type but not reachable from either returned
-`Result` today, and the withdrawal path is **not** safe to discriminate on `error.code` alone:
+So `UNKNOWN` is in the type but not reachable from either returned `Result`, and the withdrawal
+path is **not** safe to discriminate on `error.code` alone:
 
 ```typescript
 import { isSodaxError } from '@sodax/sdk';
@@ -126,7 +129,9 @@ if (!withdrawal.ok) {
   const error = withdrawal.error;
 
   if (isSodaxError(error)) {
-    // error.code === 'EXECUTION_FAILED', error.context.phase === 'execution'
+    if (error.code === 'INTENT_CREATION_FAILED' && error.context?.trackingId) {
+      // Keep context and resume this authorization as shown below.
+    }
     console.error(error.code, error.context);
   } else if (error instanceof Error && error.message === 'SIMULATION_FAILED') {
     // The spoke simulation rejected the message before anything was broadcast.
@@ -181,3 +186,12 @@ pnpm dev:demo   # → http://localhost:3000/recovery
 - [Configure SDK](https://docs.sodax.com/developers/how-to/configure_sdk) — `sodax.recovery` in the service table.
 - [SDK Architecture](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/ARCHITECTURE_REFACTOR_SUMMARY.md) — `Result<T>` and the error convention.
 - [Monetize SDK](https://docs.sodax.com/developers/how-to/monetize_sdk) — partner fee claiming has its own recovery path for stuck conversion intents, which is unrelated to this service.
+
+
+### Resume an uncertain MPC withdrawal
+
+If `withdrawHubAsset` reports `INTENT_CREATION_FAILED` with `context.trackingId`,
+keep the original authorization. Call `sodax.spoke.settle` with the original
+`srcChainKey`, the tracking ID as `tx`, `direction: 'outbound'` and the original
+`dstChainKey` and `relayData` from context. Do not call `withdrawHubAsset` again
+while that authorization is unresolved.

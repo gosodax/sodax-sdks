@@ -9,8 +9,11 @@ import {
 } from '../guards.js';
 import { canonicalizeBitcoinAddress, isValidBitcoinAddress } from '../entities/btc/btc-utils.js';
 import type { ConfigService } from '../config/ConfigService.js';
+import { SodaxError } from '../../errors/SodaxError.js';
+import type { SodaxErrorContext } from '../../errors/codes.js';
 import {
   type SpokeChainKey,
+  getSupportedSolverTokens,
   type Hex,
   type XToken,
   getChainType,
@@ -20,8 +23,21 @@ import {
   FEE_PERCENTAGE_SCALE,
   type PartnerFee,
   type QuoteType,
+  getUnmetMpcPayoutMinimum,
+  getMpcPayoutMinimum,
+  isMpcRelayChainKey,
+  type SodaxFeature,
 } from '@sodax/types';
-import { hexToBytes, isAddress, toHex } from 'viem';
+import { formatUnits, hexToBytes, isAddress, toHex } from 'viem';
+import { tronHashToBase58, tronIdentityBytes } from '../services/spoke/tron-utils.js';
+import { xrpHashToClassicAddress, xrpIdentityBytes } from '../services/spoke/xrp-utils.js';
+import { tonAddressHash, tonIdentityBytes, tonWalletAddress } from '../services/spoke/ton-utils.js';
+import { zcashHashToAddress, zcashIdentityBytes } from '../services/spoke/zcash-utils.js';
+import {
+  cardanoAddressFromRecipientBytes,
+  cardanoIdentityBytes,
+  cardanoRecipientBytes,
+} from '../services/spoke/cardano-utils.js';
 import { bcs } from '@mysten/sui/bcs';
 import { PublicKey } from '@solana/web3.js';
 import { Address as StellarAddress, xdr } from '@stellar/stellar-sdk';
@@ -149,6 +165,172 @@ export function BigIntToHex(value: bigint): Hex {
   return `0x${value.toString(16)}`;
 }
 
+/**
+ * Refuses a payout at or below its {@link MpcRelayPayoutMinimums} entry, or below its {@link MpcRelayPayoutFloors}
+ * entry, before anything is signed: the relay takes its release fee from the payout and releases nothing once the
+ * fee reaches it, and refuses a release under a floor, both after the hub has burned it.
+ */
+export function assertMpcPayoutAboveMinimum({
+  feature,
+  token,
+  amount,
+  amountDecimals,
+  dstChainKey = token.chainKey,
+  context,
+}: {
+  feature: SodaxFeature;
+  token: Pick<XToken, 'chainKey' | 'address' | 'symbol' | 'decimals'>;
+  amount: bigint;
+  /** Decimals `amount` is in, when not the token's own. */
+  amountDecimals?: number;
+  dstChainKey?: SpokeChainKey;
+  context?: Partial<SodaxErrorContext>;
+}): void {
+  if ((isMpcRelayChainKey(dstChainKey) || isMpcRelayChainKey(token.chainKey)) && token.chainKey !== dstChainKey) {
+    throw new SodaxError('VALIDATION_FAILED', 'Payout token chain must match the destination chain', {
+      feature,
+      context: { phase: 'validate', ...context, dstChainKey, field: 'dstToken' },
+    });
+  }
+  if (isMpcRelayChainKey(dstChainKey) && getMpcPayoutMinimum(token) === undefined) {
+    throw new SodaxError('VALIDATION_FAILED', `No MPC relay payout minimum for ${token.address} on ${token.chainKey}`, {
+      feature,
+      context: { phase: 'validate', ...context, reason: 'mpc-payout-minimum-missing' },
+    });
+  }
+  const unmet = getUnmetMpcPayoutMinimum({ token, amount, amountDecimals });
+  if (!unmet) return;
+  const minimum = `${formatUnits(unmet.minimum, unmet.decimals)} ${unmet.symbol}`;
+  throw new SodaxError(
+    'VALIDATION_FAILED',
+    unmet.inclusive
+      ? `A ${unmet.symbol} payout to ${token.chainKey} must be at least ${minimum}: the relay refuses a smaller release after the hub has burned it`
+      : `A ${unmet.symbol} payout to ${token.chainKey} must be greater than ${minimum}: the relay's release fee comes out of it`,
+    { feature, context: { phase: 'validate', ...context, reason: 'mpc-payout-below-minimum' } },
+  );
+}
+
+/**
+ * Recipient bytes for a hub release — the `to` an `AssetManager.transfer` pays out to.
+ *
+ * This is NOT {@link encodeAddress}, which produces the withdrawal-auth identity / hub-wallet salt.
+ * A non-EVM MPC-relay chain (Tron, XRP) reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so its
+ * 20-byte identity is left-padded into a full word. An EVM MPC-relay chain (Monad) releases to a plain
+ * 20-byte address: the relay does not decode the padded word, and sent one to the zero address.
+ * Intent-relay chains keep their own encoding unchanged.
+ *
+ * TON is the exception: its identity is a public key, and a release pays the 32-byte account hash of
+ * that key's wallet-v4R2 address, which already fills the word. Cardano pays the full raw address (29 or 57
+ * bytes), which is neither the 28-byte key-hash identity nor a padded word.
+ */
+export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): Hex {
+  if (getChainType(spokeChainId) === 'TON') return tonAddressHash(tonWalletAddress(address));
+  if (getChainType(spokeChainId) === 'CARDANO') return cardanoRecipientBytes(address);
+  if (!isMpcRelayChainKey(spokeChainId)) return encodeAddress(spokeChainId, address);
+  if (getChainType(spokeChainId) === 'EVM') {
+    // `encodeAddress` passes EVM input through unchecked, and a malformed recipient here is released
+    // on-chain as-is, so validate before it reaches the hub.
+    if (!isAddress(address) || /^0x0{40}$/i.test(address)) {
+      throw new Error(`[encodeRecipient] invalid EVM recipient for ${spokeChainId}: ${address}`);
+    }
+    return address.toLowerCase() as Hex;
+  }
+  const hash = encodeAddress(spokeChainId, address).replace(/^0x/, '');
+  if (!/^[0-9a-fA-F]{40}$/.test(hash)) {
+    throw new Error(`[encodeRecipient] expected a 20-byte identity for ${spokeChainId}, got ${hash.length / 2} bytes`);
+  }
+  return `0x${'00'.repeat(12)}${hash}`;
+}
+
+/** The 20-byte identity of an MPC-relay account, from either that identity or the padded `encodeRecipient` word intents store as srcAddress. */
+function mpcRelayIdentityHash(encoded: string, label: string): string {
+  const hash = encoded.replace(/^0x/, '').toLowerCase();
+  if (hash.length !== 64) return hash;
+  invariant(hash.startsWith('0'.repeat(24)), `Invalid ${label} recipient word: ${encoded}`);
+  return hash.slice(24);
+}
+
+export function assertProductionSwapRoute(
+  endpoint: string,
+  params: { srcChainKey: SpokeChainKey; dstChainKey: SpokeChainKey; inputToken: string; outputToken: string },
+): void {
+  if (new URL(endpoint).origin !== 'https://api.sodax.com') return;
+  for (const [chainKey, token, field] of [
+    [params.srcChainKey, params.inputToken, 'inputToken'],
+    [params.dstChainKey, params.outputToken, 'outputToken'],
+  ] as const) {
+    // Scoped to MPC-relay legs: other chains keep deferring token support to the solver.
+    if (!isMpcRelayChainKey(chainKey)) continue;
+    const supportedTokens = getSupportedSolverTokens(chainKey);
+    const isSupported = supportedTokens?.some(
+      entry =>
+        entry.address === token ||
+        (getChainType(chainKey) === 'EVM' && entry.address.toLowerCase() === token.toLowerCase()),
+    );
+    if (isSupported) continue;
+    throw new SodaxError('VALIDATION_FAILED', 'This swap token is unavailable on the production solver', {
+      feature: 'swap',
+      context: {
+        phase: 'validate',
+        srcChainKey: params.srcChainKey,
+        dstChainKey: params.dstChainKey,
+        field,
+      },
+    });
+  }
+}
+
+/** Validates MPC swap legs before encoding or signing a new intent. */
+export function assertMpcSwapRoute({
+  srcChainKey,
+  dstChainKey,
+  deadline,
+  allowPartialFill,
+  outputToken,
+  minOutputAmount,
+}: {
+  srcChainKey: SpokeChainKey;
+  dstChainKey: SpokeChainKey;
+  deadline: bigint;
+  allowPartialFill: boolean;
+  outputToken?: Parameters<typeof assertMpcPayoutAboveMinimum>[0]['token'];
+  minOutputAmount: bigint;
+}): void {
+  const source = isMpcRelayChainKey(srcChainKey);
+  const destination = isMpcRelayChainKey(dstChainKey);
+  const context = { phase: 'validate' as const, srcChainKey, dstChainKey };
+  if ((source || destination) && allowPartialFill) {
+    throw new SodaxError(
+      'VALIDATION_FAILED',
+      'allowPartialFill is not supported for a swap to or from an MPC-relay chain',
+      {
+        feature: 'swap',
+        context: { ...context, field: 'allowPartialFill' },
+      },
+    );
+  }
+  if (source && deadline <= 0n) {
+    throw new SodaxError('VALIDATION_FAILED', 'An intent from an MPC-relay chain needs a deadline', {
+      feature: 'swap',
+      context: { ...context, field: 'deadline' },
+    });
+  }
+  if (!destination) return;
+  if (!outputToken) {
+    throw new SodaxError('VALIDATION_FAILED', 'MPC relay destination token is unsupported', {
+      feature: 'swap',
+      context: { ...context, field: 'outputToken' },
+    });
+  }
+  assertMpcPayoutAboveMinimum({
+    feature: 'swap',
+    token: outputToken,
+    amount: minOutputAmount,
+    dstChainKey,
+    context: { ...context, field: 'minOutputAmount' },
+  });
+}
+
 export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex {
   const chainType = getChainType(spokeChainId);
   switch (chainType) {
@@ -183,6 +365,24 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
     case 'INJECTIVE':
       invariant(isValidInjectiveAddress(address), `Invalid Injective address: ${address}`);
       return toHex(Buffer.from(address, 'utf-8'));
+    case 'TRON':
+      // Tron's hub-wallet identity is the 20-byte address hash: base58 payload without the 0x41 byte.
+      return tronIdentityBytes(address);
+    case 'XRP':
+      // XRPL's identity is the 20-byte AccountID — ripemd160(sha256(pubkey)) — which a classic
+      // `r…` address encodes. NOT the public key: the two are distinct and the contract derives
+      // one from the other.
+      return xrpIdentityBytes(address);
+    case 'TON':
+      // TON's identity is the 32-byte ed25519 public key itself: a TON address is a hash of the
+      // wallet's StateInit and cannot be inverted, so the key is what the relay identifies users by.
+      return tonIdentityBytes(address);
+    case 'ZCASH':
+      // The 20-byte hash160 a transparent t1 address encodes — the identity scheme 6 recovers.
+      return zcashIdentityBytes(address);
+    case 'CARDANO':
+      // The 28-byte payment key hash — the identity scheme 7 proves with `signData`.
+      return cardanoIdentityBytes(address);
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);
@@ -250,6 +450,18 @@ export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex):
     case 'NEAR':
     case 'INJECTIVE':
       return Buffer.from(hexToBytes(encoded)).toString('utf8');
+    case 'TRON':
+      return tronHashToBase58(mpcRelayIdentityHash(encoded, 'Tron'));
+    case 'XRP':
+      return xrpHashToClassicAddress(mpcRelayIdentityHash(encoded, 'XRP'));
+    case 'TON':
+      // The identity encoding is the public key verbatim.
+      return tonIdentityBytes(encoded);
+    case 'ZCASH':
+      return zcashHashToAddress(mpcRelayIdentityHash(encoded, 'Zcash'));
+    case 'CARDANO':
+      // Only the raw recipient bytes decode: the 28-byte identity does not say which stake part its address had.
+      return cardanoAddressFromRecipientBytes(encoded);
     default: {
       const exhaustiveCheck: never = chainType;
       throw new Error(`Invalid spoke chain id: ${exhaustiveCheck}`);

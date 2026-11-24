@@ -11,6 +11,11 @@ export const ChainTypeArr = [
   'STACKS',
   'NEAR',
   'BITCOIN',
+  'TRON',
+  'XRP',
+  'TON',
+  'ZCASH',
+  'CARDANO',
 ] as const;
 
 export const ChainKeys = {
@@ -35,7 +40,13 @@ export const ChainKeys = {
   KAIA_MAINNET: '0x2019.kaia',
   STACKS_MAINNET: 'stacks',
   HEDERA_MAINNET: 'hedera',
+  TRON_MAINNET: 'tron',
   ROBINHOOD_MAINNET: 'robinhood',
+  XRP_MAINNET: 'xrp',
+  MONAD_MAINNET: 'monad',
+  TON_MAINNET: 'ton',
+  ZCASH_MAINNET: 'zcash',
+  CARDANO_MAINNET: 'cardano',
 } as const;
 
 export type ChainKey = (typeof ChainKeys)[keyof typeof ChainKeys];

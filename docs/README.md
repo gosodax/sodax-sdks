@@ -103,7 +103,7 @@ chain views also accept `data-type` (`EVM` / `non-EVM`) and a comma-separated `d
 
 Two consequences worth knowing: live values are not in the search index or `llms.txt`, so
 keep the surrounding prose meaningful on its own; and agents should be sent to the config
-API or [Builders MCP](/builders-mcp) rather than to the page.
+API or [SODAX MCP](/sodax-mcp) rather than to the page.
 
 ## Editing in the Mintlify dashboard
 

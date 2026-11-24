@@ -50,6 +50,26 @@ export const xChainTypes: WalletItemProps[] = [
     name: 'Stacks',
     xChainType: 'STACKS',
   },
+  {
+    name: 'Tron',
+    xChainType: 'TRON',
+  },
+  {
+    name: 'XRP Ledger',
+    xChainType: 'XRP',
+  },
+  {
+    name: 'TON',
+    xChainType: 'TON',
+  },
+  {
+    name: 'Zcash',
+    xChainType: 'ZCASH',
+  },
+  {
+    name: 'Cardano',
+    xChainType: 'CARDANO',
+  },
 ];
 
 export const WalletModal = ({ isOpen, onDismiss }: WalletModalProps) => {

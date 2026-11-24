@@ -43,6 +43,7 @@ src/
 ├── btc.ts, evm.ts, sonic.ts, sui.ts, …    # one file per chain (spoke or hub)
 ├── moneymarket.ts, moneymarket-actions.ts, moneymarket-ops.ts
 ├── swap.ts                                 # intent-based swap E2E
+├── swap-cli.ts                             # standalone swap CLI (quote-only by default, --execute to send)
 ├── soda-staking.ts
 ├── bitcoin-radfi.ts                        # Bitcoin trading-wallet provider
 ├── stellar-sponsor.ts                      # sponsored Stellar account activation (tsx; headless)

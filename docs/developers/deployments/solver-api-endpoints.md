@@ -219,6 +219,8 @@ Polling intent status and waiting for fill delivery are separate steps the calle
 6. getSolvedIntentPacket()→ wait for fill relay packet on destination chain
 ```
 
+From an MPC-relay chain, steps 2–3 wait instead for the MPC relay to mint the deposit on the hub; to one, step 6 is `waitForIntentDelivery()`, which waits for the release the solver notifies.
+
 ### Complete example
 
 ```ts

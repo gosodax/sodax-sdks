@@ -13,13 +13,14 @@
     "internal",
     "do-not-use-directly"
   ],
-  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/libs",
+  "homepage": "https://docs.sodax.com/developers/packages",
   "bugs": {
     "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/gosodax/sodax-sdks"
+    "url": "git+https://github.com/gosodax/sodax-sdks.git",
+    "directory": "packages/libs"
   },
   "type": "module",
   "exports": {

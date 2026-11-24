@@ -104,7 +104,7 @@ await connect(connector); // resolves with undefined for EVM
 // account.address is populated on the next render
 ```
 
-Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks) return the resolved `XAccount` from `connect()` — but reading via `useXAccount` works for both, so default to it.
+Non-provider chains return the resolved `XAccount` from `connect()` — but reading via `useXAccount` works for both, so default to it.
 
 ---
 

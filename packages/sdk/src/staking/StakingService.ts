@@ -32,13 +32,15 @@ import {
   type GetAddressType,
   type Result,
   type GetWalletProviderType,
-  isEvmChainKey,
   type EvmChainKey,
   type HubChainKey,
   type GetTokenAddressType,
   type StellarChainKey,
   type SpokeExecActionParams,
   type EvmSpokeOnlyChainKey,
+  type DepositReturnType,
+  type SendMessageReturnType,
+  isMpcRelayChainKey,
 } from '@sodax/types';
 import {
   lookupFailed,
@@ -64,6 +66,20 @@ import {
   stakingInvariant,
 } from './errors.js';
 import { mapRelayFailure } from '../errors/relay-error-mapping.js';
+
+// Staking settles through the intent relay, which an MPC-relay chain does not use; SODA is not on one either.
+const MPC_RELAY_UNSUPPORTED_MESSAGE =
+  'Staking does not support MPC-relay source chains; use a supported spoke or the hub';
+
+function refuseMpcRelaySource(ctx: {
+  srcChainKey: SpokeChainKey;
+  action: StakingActionUnion<SpokeChainKey>['action'];
+}): void {
+  stakingInvariant(!isMpcRelayChainKey(ctx.srcChainKey), MPC_RELAY_UNSUPPORTED_MESSAGE, {
+    ...ctx,
+    field: 'srcChainKey',
+  });
+}
 
 export type StakeParams<K extends SpokeChainKey> = {
   srcChainKey: K; // chain key of the spoke chain to stake from
@@ -213,6 +229,7 @@ export class StakingService {
     const { params } = _params;
     const baseCtx = { srcChainKey: params.srcChainKey, action: params.action };
     try {
+      refuseMpcRelaySource(baseCtx);
       stakingInvariant(
         params.action === 'stake' || params.action === 'unstake' || params.action === 'instantUnstake',
         `Allowance check is not applicable for action: ${params.action}`,
@@ -230,7 +247,7 @@ export class StakingService {
       // spoke-layer failure as STAKING_ALLOWANCE_CHECK_FAILED at the single return point below.
       let inner: Result<boolean> = { ok: true, value: true };
 
-      if (isEvmChainKey(params.srcChainKey) || isHubChainKeyType(params.srcChainKey)) {
+      if (isEvmSpokeOnlyChainKeyType(params.srcChainKey) || isHubChainKeyType(params.srcChainKey)) {
         const spender = isHubChainKeyType(params.srcChainKey)
           ? await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey)
           : this.config.getChainConfig(params.srcChainKey).addresses.assetManager;
@@ -289,6 +306,7 @@ export class StakingService {
     const wrapApproveFailure = (cause: unknown) => approveFailed('staking', cause, baseCtx);
 
     try {
+      refuseMpcRelaySource(baseCtx);
       stakingInvariant(
         params.action === 'stake' || params.action === 'unstake' || params.action === 'instantUnstake',
         `Approve is not applicable for action: ${params.action}`,
@@ -490,6 +508,7 @@ export class StakingService {
     const { params, skipSimulation } = _params;
     const baseCtx = { srcChainKey: params.srcChainKey, action: 'stake' as const };
     try {
+      refuseMpcRelaySource(baseCtx);
       const sodaToken = this.config.getSodaToken(params.srcChainKey);
       stakingInvariant(sodaToken, 'SODA token not found', { ...baseCtx, field: 'sodaToken' });
       const sodaAsset = this.config.getSpokeTokenFromOriginalAssetAddress(params.srcChainKey, sodaToken.address);
@@ -533,7 +552,7 @@ export class StakingService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies DepositReturnType<K, Raw> as DepositReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };
@@ -665,6 +684,7 @@ export class StakingService {
     const { params } = _params;
     const baseCtx = { srcChainKey: params.srcChainKey, action: 'unstake' as const };
     try {
+      refuseMpcRelaySource(baseCtx);
       const xSoda = this.hubProvider.chainConfig.addresses.xSoda;
       const [hubWallet, underlyingSodaAmount] = await Promise.all([
         this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey),
@@ -704,7 +724,7 @@ export class StakingService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, Raw> as SendMessageReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };
@@ -837,6 +857,7 @@ export class StakingService {
     const { params } = _params;
     const baseCtx = { srcChainKey: params.srcChainKey, action: 'instantUnstake' as const };
     try {
+      refuseMpcRelaySource(baseCtx);
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
 
       const sodaToken = this.config.getSodaToken(params.srcChainKey);
@@ -883,7 +904,7 @@ export class StakingService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, boolean> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, boolean> as SendMessageReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };
@@ -1024,6 +1045,7 @@ export class StakingService {
     const { params } = _params;
     const baseCtx = { srcChainKey: params.srcChainKey, action: 'claim' as const };
     try {
+      refuseMpcRelaySource(baseCtx);
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
 
       const sodaToken = this.config.getSodaToken(params.srcChainKey);
@@ -1070,7 +1092,7 @@ export class StakingService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, Raw> as SendMessageReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };
@@ -1218,6 +1240,7 @@ export class StakingService {
     const { params } = _params;
     const baseCtx = { srcChainKey: params.srcChainKey, action: 'cancelUnstake' as const };
     try {
+      refuseMpcRelaySource(baseCtx);
       const hubWallet = await this.hubProvider.getUserHubWalletAddress(params.srcAddress, params.srcChainKey);
 
       const data = await this.buildCancelUnstakeData(params, hubWallet);
@@ -1254,7 +1277,7 @@ export class StakingService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies SendMessageReturnType<K, Raw> as SendMessageReturnType<K, Raw>,
           relayData: { address: hubWallet, payload: data },
         },
       };

@@ -20,7 +20,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Address, IEvmWalletProvider, SpokeChainKey } from '@sodax/types';
+import { ChainKeys, type Address, type IEvmWalletProvider, type SpokeChainKey } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { SodaxError } from '../errors/SodaxError.js';
 import type {
@@ -393,5 +393,57 @@ describe.each(EVM_SPOKES)('StakingService — per-chain SODA lookup on srcChainK
     expect(result.value.tx).toBe(SPOKE_TX_HASH);
     expect(result.value.relayData.address).toBe(HUB_WALLET);
     expect(result.value.relayData.payload.startsWith('0x')).toBe(true);
+  });
+});
+
+// Staking settles through the intent relay, which an MPC-relay chain does not use.
+describe('StakingService — MPC-relay source', () => {
+  it.each([
+    'tron',
+    ChainKeys.MONAD_MAINNET,
+  ] as const)('refuses every staking action from %s before signing', async srcChainKey => {
+    const hubWallet = vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress');
+    const sendMessage = vi.spyOn(sodax.spoke, 'sendMessage');
+    const deposit = vi.spyOn(sodax.spoke, 'deposit');
+
+    const results = [
+      await sodax.staking.createStakeIntent({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, amount: 1n, minReceive: 1n, action: 'stake' },
+      }),
+      await sodax.staking.isAllowanceValid({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, amount: 1n, minReceive: 1n, action: 'stake' },
+      }),
+      await sodax.staking.approve({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, amount: 1n, minReceive: 1n, action: 'stake' },
+      }),
+      await sodax.staking.createUnstakeIntent({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, amount: 1n, action: 'unstake' },
+      }),
+      await sodax.staking.createCancelUnstakeIntent({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, requestId: 1n, action: 'cancelUnstake' },
+      }),
+      await sodax.staking.createInstantUnstakeIntent({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, amount: 1n, minAmount: 1n, action: 'instantUnstake' },
+      }),
+      await sodax.staking.createClaimIntent({
+        raw: true,
+        params: { srcChainKey, srcAddress: SAMPLE_USER, requestId: 1n, amount: 1n, action: 'claim' },
+      }),
+    ];
+
+    for (const result of results) {
+      if (result.ok) throw new Error('expected a refusal');
+      expect(result.error.code).toBe('VALIDATION_FAILED');
+      expect(result.error.context?.field).toBe('srcChainKey');
+    }
+    expect(hubWallet).not.toHaveBeenCalled();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(deposit).not.toHaveBeenCalled();
   });
 });

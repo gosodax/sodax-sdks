@@ -3,7 +3,7 @@
  * Forbidden to import types from other packages in this file (exception for shared types)!
  */
 
-import type { Address, Hex, RpcFailoverConfig, TxPollingConfig } from '../shared/shared.js';
+import type { Address, Hex, HttpUrl, RpcFailoverConfig, TxPollingConfig } from '../shared/shared.js';
 import {
   sonicSupportedTokens,
   redbellySupportedTokens,
@@ -26,7 +26,13 @@ import {
   kaiaSupportedTokens,
   stacksSupportedTokens,
   hederaSupportedTokens,
+  tronSupportedTokens,
   robinhoodSupportedTokens,
+  xrpSupportedTokens,
+  monadSupportedTokens,
+  tonSupportedTokens,
+  zcashSupportedTokens,
+  cardanoSupportedTokens,
 } from './tokens.js';
 
 import { ChainKeys, CHAIN_KEYS, type ChainKey, type ChainType } from './chain-keys.js';
@@ -56,11 +62,109 @@ export const RelayChainIdMap = {
   [ChainKeys.KAIA_MAINNET]: 27489n,
   [ChainKeys.STACKS_MAINNET]: 60n,
   [ChainKeys.HEDERA_MAINNET]: 18501n,
+  // Tron settles through the MPC relay (MpcRelayChainMap), but this id still derives its hub wallets
+  // and fills intent srcChain/dstChain.
+  [ChainKeys.TRON_MAINNET]: 728126428n,
   [ChainKeys.ROBINHOOD_MAINNET]: 21071n,
+  [ChainKeys.XRP_MAINNET]: 66n,
+  [ChainKeys.MONAD_MAINNET]: 48n,
+  [ChainKeys.TON_MAINNET]: 607n,
+  [ChainKeys.ZCASH_MAINNET]: 133n,
+  [ChainKeys.CARDANO_MAINNET]: 1815n,
 } as const satisfies Record<ChainKey, bigint>;
 
 export type IntentChainId = (typeof RelayChainIdMap)[keyof typeof RelayChainIdMap];
 export const INTENT_CHAIN_IDS = Object.values(RelayChainIdMap);
+
+/**
+ * Withdraw-auth scheme byte for the MPC relay. It pins curve + signature wrapping + identity
+ * derivation together, so a client cannot mix them to forge an identity:
+ * `0` EVM, `1` Tron, `2` generic ed25519, `3` XRP, `4` Aptos.
+ */
+export type MpcWithdrawScheme = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+/** A withdraw-auth message as the MPC relay takes it: numeric fields are u64 decimal strings. */
+export type MpcWithdrawMessage = {
+  to: Hex;
+  data: Hex;
+  nonce: string;
+  chainId: string;
+  sender: Hex;
+};
+
+export type MpcRelayChainInfo = {
+  /** The relay's `srcChain` / `chain_id` for this chain; sent to the relay as a decimal string. */
+  chainId: bigint;
+  /** Scheme the relay expects a withdraw-auth signature from this chain to use. */
+  withdrawScheme: MpcWithdrawScheme;
+};
+
+/**
+ * Per-chain identity for the **MPC relay** (NEAR chain signatures) — the counterpart of
+ * {@link RelayChainIdMap} for the other relay.
+ *
+ * Unlike that map this one is deliberately PARTIAL: membership is the definition. A chain in here
+ * settles through the MPC relay and is tracked over its REST API. Tron, XRP and Monad are members;
+ * each entry defines its relay identity and withdrawal signature scheme.
+ */
+export const MpcRelayChainMap = {
+  [ChainKeys.TRON_MAINNET]: { chainId: 728126428n, withdrawScheme: 1 },
+  // XRPL's relay id is 66 on mainnet (an internal routing id, not XRPL's network id).
+  // Scheme 3 signs the RAW message hash and submits the 33-byte 0xED public key alongside,
+  // because an ed25519 signature cannot recover its signer the way secp256k1 does.
+  [ChainKeys.XRP_MAINNET]: { chainId: 66n, withdrawScheme: 3 },
+  // Monad's relay id is 48 (a SODAX routing id; the EVM network id is 143). Scheme 0 is EIP-191
+  // personal_sign over the raw message hash, recovered like any EVM signature.
+  [ChainKeys.MONAD_MAINNET]: { chainId: 48n, withdrawScheme: 0 },
+  // TON's relay id is 607 (a SODAX routing id). Scheme 5 is a TonConnect `signData` over a text line
+  // embedding the message hash, submitted with the pubkey and the wallet's signing envelope.
+  [ChainKeys.TON_MAINNET]: { chainId: 607n, withdrawScheme: 5 },
+  // Zcash's relay id is 133. Scheme 6 is a Bitcoin-style `signmessage` over the hex text of the hash,
+  // recovered to the hash160 identity a transparent address encodes.
+  [ChainKeys.ZCASH_MAINNET]: { chainId: 133n, withdrawScheme: 6 },
+  // Cardano's relay id is 1815 (SLIP-44 ADA; one id for every Cardano network). Scheme 7 is a CIP-30 `signData`
+  // over the text `0x<hash>`, submitted with the wallet's COSE_Sign1 and COSE_Key.
+  [ChainKeys.CARDANO_MAINNET]: { chainId: 1815n, withdrawScheme: 7 },
+} as const satisfies Partial<Record<ChainKey, MpcRelayChainInfo>>;
+
+export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
+
+/**
+ * Floor for a payout through the MPC relay, by chain and token address, in the payout token's decimals: the SDK
+ * refuses a payout at or below it. The relay deducts a live release fee from the payout, and releases nothing
+ * once that fee reaches the amount, after the hub has already burned it. Sized to the fee cap the solver assumes.
+ * Every {@link MpcRelayChainKey} must have an entry, and the SDK refuses a payout of a token its entry omits.
+ */
+export const MpcRelayPayoutMinimums: Readonly<Record<MpcRelayChainKey, Readonly<Record<string, bigint>>>> &
+  Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
+  [ChainKeys.TRON_MAINNET]: {
+    [tronSupportedTokens.USDT.address]: 3_000_000n,
+    [tronSupportedTokens.TRX.address]: 10_000_000n,
+  },
+  // XRPL releases have no relay fee. Unknown issuer addresses still fail closed.
+  [ChainKeys.XRP_MAINNET]: {
+    [xrpSupportedTokens.XRP.address]: 0n,
+    [xrpSupportedTokens.USDC.address]: 0n,
+    [xrpSupportedTokens.RLUSD.address]: 0n,
+  },
+  // Monad releases are quoted 1:1. Explicit zero floors still reject unknown token addresses.
+  [ChainKeys.MONAD_MAINNET]: {
+    [monadSupportedTokens.MON.address.toLowerCase()]: 0n,
+    [monadSupportedTokens.USDC.address.toLowerCase()]: 0n,
+  },
+  // USDT is capped at 3 USDT by the relay release-fee model. Native TON has no release fee.
+  [ChainKeys.TON_MAINNET]: {
+    [tonSupportedTokens.TON.address]: 0n,
+    [tonSupportedTokens.USDT.address]: 3_000_000n,
+  },
+  [ChainKeys.ZCASH_MAINNET]: { [zcashSupportedTokens.ZEC.address]: 100_000n },
+  [ChainKeys.CARDANO_MAINNET]: { [cardanoSupportedTokens.ADA.address]: 0n },
+};
+
+/** Smallest payout the relay releases, by chain and token address. The amount may equal this floor. */
+export const MpcRelayPayoutFloors: Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
+  [ChainKeys.CARDANO_MAINNET]: { [cardanoSupportedTokens.ADA.address]: 1_000_000n },
+};
 
 export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey>(
   Object.entries(RelayChainIdMap).map(([chainKey, chainId]) => [chainId, chainKey as ChainKey]),
@@ -71,8 +175,7 @@ export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey
  * Each logo is served from `main` via raw.githubusercontent and named by its
  * `ChainKeys` value, so the full URL is `${CHAIN_LOGO_BASE_URL}/<chainKey>.png`.
  */
-export const CHAIN_LOGO_BASE_URL =
-  'https://raw.githubusercontent.com/gosodax/sodax-sdks/main/packages/assets/chain';
+export const CHAIN_LOGO_BASE_URL = 'https://raw.githubusercontent.com/gosodax/sodax-sdks/main/packages/assets/chain';
 
 const chainLogo = (key: ChainKey): string => `${CHAIN_LOGO_BASE_URL}/${key}.png`;
 
@@ -371,6 +474,20 @@ export const baseChainInfo = {
       contractUrl: 'https://hashscan.io/mainnet/contract/',
     },
   },
+  [ChainKeys.TRON_MAINNET]: {
+    name: 'Tron',
+    key: ChainKeys.TRON_MAINNET,
+    type: 'TRON',
+    chainId: 728126428,
+    mainnet: true,
+    logo: chainLogo(ChainKeys.TRON_MAINNET),
+    explorer: {
+      baseUrl: 'https://tronscan.org/#/',
+      txUrl: 'https://tronscan.org/#/transaction/',
+      addressUrl: 'https://tronscan.org/#/address/',
+      contractUrl: 'https://tronscan.org/#/contract/',
+    },
+  },
   [ChainKeys.ROBINHOOD_MAINNET]: {
     name: 'Robinhood Chain',
     key: ChainKeys.ROBINHOOD_MAINNET,
@@ -385,6 +502,80 @@ export const baseChainInfo = {
       contractUrl: 'https://robinhoodchain.blockscout.com/address/',
     },
   },
+  [ChainKeys.XRP_MAINNET]: {
+    name: 'XRP Ledger',
+    key: ChainKeys.XRP_MAINNET,
+    type: 'XRP',
+    // The relay's internal routing id for XRPL mainnet, not an EVM network id.
+    chainId: 66,
+    mainnet: true,
+    logo: chainLogo(ChainKeys.XRP_MAINNET),
+    explorer: {
+      baseUrl: 'https://livenet.xrpl.org/',
+      txUrl: 'https://livenet.xrpl.org/transactions/',
+      addressUrl: 'https://livenet.xrpl.org/accounts/',
+      contractUrl: 'https://livenet.xrpl.org/accounts/',
+    },
+  },
+  [ChainKeys.MONAD_MAINNET]: {
+    name: 'Monad',
+    key: ChainKeys.MONAD_MAINNET,
+    type: 'EVM',
+    chainId: 143,
+    mainnet: true,
+    logo: chainLogo(ChainKeys.MONAD_MAINNET),
+    explorer: {
+      baseUrl: 'https://monadscan.com/',
+      txUrl: 'https://monadscan.com/tx/',
+      addressUrl: 'https://monadscan.com/address/',
+      contractUrl: 'https://monadscan.com/address/',
+    },
+  },
+  [ChainKeys.TON_MAINNET]: {
+    name: 'TON',
+    key: ChainKeys.TON_MAINNET,
+    type: 'TON',
+    // The relay's internal routing id for TON mainnet; TON has no numeric network id of its own here.
+    chainId: 607,
+    mainnet: true,
+    logo: chainLogo(ChainKeys.TON_MAINNET),
+    explorer: {
+      baseUrl: 'https://tonviewer.com/',
+      txUrl: 'https://tonviewer.com/transaction/',
+      addressUrl: 'https://tonviewer.com/',
+      contractUrl: 'https://tonviewer.com/',
+    },
+  },
+  [ChainKeys.ZCASH_MAINNET]: {
+    name: 'Zcash',
+    key: ChainKeys.ZCASH_MAINNET,
+    type: 'ZCASH',
+    // The relay's internal routing id for Zcash mainnet.
+    chainId: 133,
+    mainnet: true,
+    logo: chainLogo(ChainKeys.ZCASH_MAINNET),
+    explorer: {
+      baseUrl: 'https://mainnet.zcashexplorer.app/',
+      txUrl: 'https://mainnet.zcashexplorer.app/transactions/',
+      addressUrl: 'https://mainnet.zcashexplorer.app/address/',
+      contractUrl: 'https://mainnet.zcashexplorer.app/address/',
+    },
+  },
+  [ChainKeys.CARDANO_MAINNET]: {
+    name: 'Cardano',
+    key: ChainKeys.CARDANO_MAINNET,
+    type: 'CARDANO',
+    // The relay's internal routing id for Cardano (SLIP-44 ADA).
+    chainId: 1815,
+    mainnet: true,
+    logo: chainLogo(ChainKeys.CARDANO_MAINNET),
+    explorer: {
+      baseUrl: 'https://cardanoscan.io/',
+      txUrl: 'https://cardanoscan.io/transaction/',
+      addressUrl: 'https://cardanoscan.io/address/',
+      contractUrl: 'https://cardanoscan.io/address/',
+    },
+  },
 } as const satisfies Record<ChainKey, BaseChainInfo<ChainType>>;
 
 type ChainKeysByType<T extends ChainType> = {
@@ -396,7 +587,11 @@ type ChainKeysByType<T extends ChainType> = {
  * Purpose: To use for types where Sonic (the hub) should not be included with spoke EVM chain lists.
  * Intersected with keyof spokeChainConfig so it can safely index the config object.
  */
-export type EvmSpokeOnlyChainKey = Exclude<EvmChainKey, HubChainKey> & keyof typeof spokeChainConfig;
+/**
+ * EVM spokes that settle through a spoke asset manager and the intent relay. Monad is EVM for wallets
+ * and addresses but settles through the MPC relay, so it is excluded — it has no spoke contracts.
+ */
+export type EvmSpokeOnlyChainKey = Exclude<EvmChainKey, HubChainKey | MonadChainKey> & keyof typeof spokeChainConfig;
 export type EvmChainKey = ChainKeysByType<'EVM'>;
 export type SonicChainKey = typeof ChainKeys.SONIC_MAINNET; // Sonic is EVM — narrowed via HUB_CHAIN_KEY where needed
 export type SolanaChainKey = ChainKeysByType<'SOLANA'>;
@@ -407,6 +602,12 @@ export type SuiChainKey = ChainKeysByType<'SUI'>;
 export type StacksChainKey = ChainKeysByType<'STACKS'>;
 export type NearChainKey = ChainKeysByType<'NEAR'> & keyof typeof spokeChainConfig;
 export type BitcoinChainKey = ChainKeysByType<'BITCOIN'>;
+export type TronChainKey = ChainKeysByType<'TRON'>;
+export type XrpChainKey = ChainKeysByType<'XRP'>;
+export type MonadChainKey = typeof ChainKeys.MONAD_MAINNET;
+export type TonChainKey = ChainKeysByType<'TON'>;
+export type ZcashChainKey = ChainKeysByType<'ZCASH'>;
+export type CardanoChainKey = ChainKeysByType<'CARDANO'>;
 
 const filterChainKeysByType = <T extends ChainType>(type: T) =>
   CHAIN_KEYS.filter((key): key is ChainKeysByType<T> => baseChainInfo[key].type === type);
@@ -415,7 +616,7 @@ export const HUB_CHAIN_KEY = ChainKeys.SONIC_MAINNET;
 export const EVM_CHAIN_KEYS = filterChainKeysByType('EVM');
 export const EVM_CHAIN_KEYS_SET = new Set(EVM_CHAIN_KEYS);
 export const EVM_SPOKE_ONLY_CHAIN_KEYS = EVM_CHAIN_KEYS.filter(
-  (key): key is EvmSpokeOnlyChainKey => key !== HUB_CHAIN_KEY,
+  (key): key is EvmSpokeOnlyChainKey => key !== HUB_CHAIN_KEY && key !== ChainKeys.MONAD_MAINNET,
 );
 export const EVM_SPOKE_ONLY_CHAIN_KEYS_SET = new Set(EVM_SPOKE_ONLY_CHAIN_KEYS);
 export const SONIC_CHAIN_KEYS = [ChainKeys.SONIC_MAINNET] as const;
@@ -436,6 +637,17 @@ export const NEAR_CHAIN_KEYS = filterChainKeysByType('NEAR');
 export const NEAR_CHAIN_KEYS_SET = new Set(NEAR_CHAIN_KEYS);
 export const BITCOIN_CHAIN_KEYS = filterChainKeysByType('BITCOIN');
 export const BITCOIN_CHAIN_KEYS_SET = new Set(BITCOIN_CHAIN_KEYS);
+export const TRON_CHAIN_KEYS = filterChainKeysByType('TRON');
+export const TRON_CHAIN_KEYS_SET = new Set(TRON_CHAIN_KEYS);
+export const XRP_CHAIN_KEYS = filterChainKeysByType('XRP');
+export const XRP_CHAIN_KEYS_SET = new Set(XRP_CHAIN_KEYS);
+export const TON_CHAIN_KEYS = filterChainKeysByType('TON');
+export const TON_CHAIN_KEYS_SET = new Set(TON_CHAIN_KEYS);
+export const ZCASH_CHAIN_KEYS = filterChainKeysByType('ZCASH');
+export const ZCASH_CHAIN_KEYS_SET = new Set(ZCASH_CHAIN_KEYS);
+export const CARDANO_CHAIN_KEYS = filterChainKeysByType('CARDANO');
+export const CARDANO_CHAIN_KEYS_SET = new Set(CARDANO_CHAIN_KEYS);
+
 export type HubChainKey = typeof HUB_CHAIN_KEY;
 export type HubChainType = 'EVM';
 export type SpokeChainKey = (typeof CHAIN_KEYS)[number];
@@ -624,7 +836,61 @@ export type NearSpokeChainConfig = BaseSpokeChainConfig<'NEAR'> & {
   rpcUrl: string;
 };
 
+/**
+ * Config carried by a chain that settles through the **MPC relay** (NEAR chain signatures) instead
+ * of the intent relay: deposits are paid to a shared reserve and tracked over the relay's REST API,
+ * rather than submitted as a packet. Which chains settle this way is `MpcRelayChainMap`
+ * (`isMpcRelayChainKey`).
+ */
+export type MpcRelayChainConfig = {
+  /** MPC relay REST endpoint (notify + deposit-address), distinct from the intent relay. */
+  mpcRelayApiEndpoint: HttpUrl;
+  addresses: {
+    /** MPC-relay reserve. Memo-mode deposits pay it directly; address-mode deposits are swept into it. */
+    reserve: string;
+  };
+};
+
+export type TronSpokeChainConfig = BaseSpokeChainConfig<'TRON'> &
+  MpcRelayChainConfig & {
+    rpcUrl: string;
+  };
+
+export type XrpSpokeChainConfig = BaseSpokeChainConfig<'XRP'> &
+  MpcRelayChainConfig & {
+    rpcUrl: string;
+  };
+
+export type TonSpokeChainConfig = BaseSpokeChainConfig<'TON'> &
+  MpcRelayChainConfig & {
+    /** toncenter v2 JSON-RPC endpoint. */
+    rpcUrl: string;
+  };
+
+export type ZcashSpokeChainConfig = BaseSpokeChainConfig<'ZCASH'> &
+  MpcRelayChainConfig & {
+    /** Zcash JSON-RPC with address indexing (`getaddressutxos`) — building a deposit needs it. */
+    rpcUrl: string;
+  };
+
+export type CardanoSpokeChainConfig = BaseSpokeChainConfig<'CARDANO'> &
+  MpcRelayChainConfig & {
+    /** Koios REST base URL, used to read the account's UTXOs, the tip and the protocol parameters. */
+    rpcUrl: string;
+  };
+
+/** Monad: an EVM chain settling through the MPC relay in address mode (per-deposit derived EOAs). */
+export type MonadSpokeChainConfig = BaseSpokeChainConfig<'EVM'> &
+  MpcRelayChainConfig & {
+    rpcUrl: string;
+  };
+
 export type SpokeChainConfig =
+  | CardanoSpokeChainConfig
+  | ZcashSpokeChainConfig
+  | TonSpokeChainConfig
+  | MonadSpokeChainConfig
+  | XrpSpokeChainConfig
   | EvmSpokeChainConfig
   | SonicSpokeChainConfig
   | InjectiveSpokeChainConfig
@@ -634,29 +900,42 @@ export type SpokeChainConfig =
   | BitcoinSpokeChainConfig
   | SolanaChainConfig
   | StacksSpokeChainConfig
-  | NearSpokeChainConfig;
+  | NearSpokeChainConfig
+  | TronSpokeChainConfig;
 
 export type GetSpokeChainConfigType<T extends SpokeChainKey> = T extends SonicChainKey
   ? SonicSpokeChainConfig
-  : GetChainType<T> extends 'EVM'
-    ? EvmSpokeChainConfig
-    : GetChainType<T> extends 'SOLANA'
-      ? SolanaChainConfig
-      : GetChainType<T> extends 'STELLAR'
-        ? StellarSpokeChainConfig
-        : GetChainType<T> extends 'ICON'
-          ? IconSpokeChainConfig
-          : GetChainType<T> extends 'SUI'
-            ? SuiSpokeChainConfig
-            : GetChainType<T> extends 'INJECTIVE'
-              ? InjectiveSpokeChainConfig
-              : GetChainType<T> extends 'NEAR'
-                ? NearSpokeChainConfig
-                : GetChainType<T> extends 'STACKS'
-                  ? StacksSpokeChainConfig
-                  : GetChainType<T> extends 'BITCOIN'
-                    ? BitcoinSpokeChainConfig
-                    : SpokeChainConfig;
+  : T extends MonadChainKey
+    ? MonadSpokeChainConfig
+    : GetChainType<T> extends 'EVM'
+      ? EvmSpokeChainConfig
+      : GetChainType<T> extends 'SOLANA'
+        ? SolanaChainConfig
+        : GetChainType<T> extends 'STELLAR'
+          ? StellarSpokeChainConfig
+          : GetChainType<T> extends 'ICON'
+            ? IconSpokeChainConfig
+            : GetChainType<T> extends 'SUI'
+              ? SuiSpokeChainConfig
+              : GetChainType<T> extends 'INJECTIVE'
+                ? InjectiveSpokeChainConfig
+                : GetChainType<T> extends 'NEAR'
+                  ? NearSpokeChainConfig
+                  : GetChainType<T> extends 'STACKS'
+                    ? StacksSpokeChainConfig
+                    : GetChainType<T> extends 'BITCOIN'
+                      ? BitcoinSpokeChainConfig
+                      : GetChainType<T> extends 'TRON'
+                        ? TronSpokeChainConfig
+                        : GetChainType<T> extends 'XRP'
+                          ? XrpSpokeChainConfig
+                          : GetChainType<T> extends 'TON'
+                            ? TonSpokeChainConfig
+                            : GetChainType<T> extends 'ZCASH'
+                              ? ZcashSpokeChainConfig
+                              : GetChainType<T> extends 'CARDANO'
+                                ? CardanoSpokeChainConfig
+                                : SpokeChainConfig;
 
 export type IconAddress = `hx${string}` | `cx${string}`;
 export type IconSpokeChainConfig = BaseSpokeChainConfig<'ICON'> & {
@@ -1373,6 +1652,22 @@ export const spokeChainConfig = {
       maxTimeoutMs: 60_000,
     },
   } as const satisfies EvmSpokeChainConfig,
+  [ChainKeys.TRON_MAINNET]: {
+    chain: baseChainInfo[ChainKeys.TRON_MAINNET] satisfies BaseChainInfo<'TRON'>,
+    rpcUrl: 'https://api.trongrid.io',
+    // MPC-relay REST endpoint (notify + deposit-address). Not the intent relay.
+    mpcRelayApiEndpoint: 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com',
+    addresses: {
+      reserve: 'TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92',
+    },
+    nativeToken: '0x0000000000000000000000000000000000000000',
+    bnUSD: '',
+    supportedTokens: tronSupportedTokens,
+    pollingConfig: {
+      pollingIntervalMs: 3000,
+      maxTimeoutMs: 90_000,
+    },
+  } as const satisfies TronSpokeChainConfig,
   [ChainKeys.ROBINHOOD_MAINNET]: {
     chain: baseChainInfo[ChainKeys.ROBINHOOD_MAINNET] satisfies BaseChainInfo<'EVM'>,
     rpcUrl: 'https://rpc.mainnet.chain.robinhood.com',
@@ -1388,6 +1683,93 @@ export const spokeChainConfig = {
       maxTimeoutMs: 60_000,
     },
   } as const satisfies EvmSpokeChainConfig,
+  [ChainKeys.XRP_MAINNET]: {
+    chain: baseChainInfo[ChainKeys.XRP_MAINNET] satisfies BaseChainInfo<'XRP'>,
+    rpcUrl: 'https://xrplcluster.com',
+    // MPC-relay REST endpoint (notify + deposit-address). Not the intent relay.
+    mpcRelayApiEndpoint: 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com',
+    addresses: {
+      reserve: 'rbtWzBnJB84fKuVCg2qbKKX4EUtCWVik7',
+    },
+    nativeToken: '0x0000000000000000000000000000000000000000',
+    bnUSD: '',
+    supportedTokens: xrpSupportedTokens,
+    pollingConfig: {
+      pollingIntervalMs: 3000,
+      // XRPL validates in ~4s and the relay attests at 0 confirmations, but the hub mint still
+      // has to land, so this matches Tron's budget rather than XRPL's ledger close time.
+      maxTimeoutMs: 90_000,
+    },
+  } as const satisfies XrpSpokeChainConfig,
+  [ChainKeys.MONAD_MAINNET]: {
+    chain: baseChainInfo[ChainKeys.MONAD_MAINNET] satisfies BaseChainInfo<'EVM'>,
+    rpcUrl: 'https://rpc.monad.xyz',
+    // MPC-relay REST endpoint (notify + deposit-address). Not the intent relay.
+    mpcRelayApiEndpoint: 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com',
+    addresses: {
+      reserve: '0xCa487AF198d7605CE0435151711a5a93e1Dbb149',
+    },
+    nativeToken: '0x0000000000000000000000000000000000000000',
+    bnUSD: '',
+    supportedTokens: monadSupportedTokens,
+    pollingConfig: {
+      pollingIntervalMs: 2000,
+      maxTimeoutMs: 90_000,
+    },
+  } as const satisfies MonadSpokeChainConfig,
+  [ChainKeys.TON_MAINNET]: {
+    chain: baseChainInfo[ChainKeys.TON_MAINNET] satisfies BaseChainInfo<'TON'>,
+    rpcUrl: 'https://toncenter.com/api/v2/jsonRPC',
+    // MPC-relay REST endpoint (notify + deposit-address). Not the intent relay.
+    mpcRelayApiEndpoint: 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com',
+    addresses: {
+      reserve: '0:2a7f65800a2ebe06fa227e7f29cd188d5c3e39d0566d8646c8c73104417a6a97',
+    },
+    nativeToken: '0x0000000000000000000000000000000000000000',
+    bnUSD: '',
+    supportedTokens: tonSupportedTokens,
+    pollingConfig: {
+      pollingIntervalMs: 5000,
+      maxTimeoutMs: 120_000,
+    },
+  } as const satisfies TonSpokeChainConfig,
+  [ChainKeys.ZCASH_MAINNET]: {
+    chain: baseChainInfo[ChainKeys.ZCASH_MAINNET] satisfies BaseChainInfo<'ZCASH'>,
+    // No public Zcash RPC indexes addresses; set an address-indexed endpoint through config.
+    rpcUrl: '',
+    // MPC-relay REST endpoint (notify + deposit-address). Not the intent relay.
+    mpcRelayApiEndpoint: 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com',
+    addresses: {
+      reserve: 't1TFab5a31gE6bxzatfs1KSqiportHDCE3X',
+    },
+    nativeToken: '0x0000000000000000000000000000000000000000',
+    bnUSD: '',
+    supportedTokens: zcashSupportedTokens,
+    pollingConfig: {
+      pollingIntervalMs: 15_000,
+      // Zcash targets 75-second blocks and the relay waits for a confirmation.
+      maxTimeoutMs: 600_000,
+    },
+  } as const satisfies ZcashSpokeChainConfig,
+  [ChainKeys.CARDANO_MAINNET]: {
+    chain: baseChainInfo[ChainKeys.CARDANO_MAINNET] satisfies BaseChainInfo<'CARDANO'>,
+    // Koios: the public mainnet endpoint is keyless and rate limited; point this at a keyed one for production traffic.
+    rpcUrl: 'https://api.koios.rest/api/v1',
+    // MPC-relay REST endpoint (notify + deposit-address). Not the intent relay.
+    mpcRelayApiEndpoint: 'https://e3e55uxnxd.execute-api.us-east-2.amazonaws.com',
+    addresses: {
+      // Derived on-chain by the bridge contract at `bridge:reserve:1815`; the relay returns the current one per deposit.
+      reserve: 'addr1vx0h73rxdjtggq58vadnyfp7dnduu3l90750lmlurmr20kgej3dfa',
+    },
+    nativeToken: '0x0000000000000000000000000000000000000000',
+    bnUSD: '',
+    supportedTokens: cardanoSupportedTokens,
+    pollingConfig: {
+      pollingIntervalMs: 15_000,
+      // The relay waits for 15 confirmations (about 5 minutes) before attesting.
+      maxTimeoutMs: 900_000,
+    },
+  } as const satisfies CardanoSpokeChainConfig,
 } as const satisfies Record<SpokeChainKey, SpokeChainConfig>;
 
 export const supportedSpokeChains: SpokeChainKey[] = Object.keys(spokeChainConfig) as SpokeChainKey[];

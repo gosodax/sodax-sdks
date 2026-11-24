@@ -54,6 +54,16 @@ export type EvmRawTransactionReceipt = {
 export type EvmSendTransactionOptions = {
   // Refuse to send unless the wallet's active chain id matches; without it the tx goes to whatever chain the wallet is on.
   expectedChainId?: number;
+  /** Keep the original deposit identifier if the broadcast response is indeterminate. */
+  preserveDepositOutcome?: boolean;
+};
+
+/** Transfer details for recovering a wallet deposit for which no hash was returned. */
+export type EvmDepositRecovery = {
+  readonly kind: 'evm-deposit';
+  readonly chainId: number;
+  readonly transaction: EvmRawTransaction;
+  readonly attemptedAtMs: number;
 };
 
 /**
@@ -91,6 +101,12 @@ export interface IEvmWalletProvider extends ICoreWallet {
   getWalletAddress: () => Promise<Address>;
   sendTransaction: (evmRawTx: EvmRawTransaction, options?: EvmSendTransactionOptions) => Promise<Hash>;
   waitForTransactionReceipt: (txHash: Hash) => Promise<EvmRawTransactionReceipt>;
+  /**
+   * EIP-191 `personal_sign` over the raw 32-byte `hash` (not its hex text). Required only for chains
+   * that authorize withdrawals by signature — an MPC-relay EVM spoke such as Monad; optional so
+   * existing providers stay valid.
+   */
+  signMessage?: (hash: Hex) => Promise<Hex>;
   /** EIP-5792 atomic-batch support for `chainId`. Optional — callers guard before use. */
   getAtomicBatchSupport?: (chainId: number) => Promise<EvmAtomicBatchSupport>;
   /**

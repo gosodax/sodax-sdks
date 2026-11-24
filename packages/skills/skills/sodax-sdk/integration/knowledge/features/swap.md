@@ -30,12 +30,12 @@ asset. Canonical hub vault registration alone does not enable swaps or lending.
 1. **Build an intent** — `createIntent` signs a spoke transaction encoding the swap declaration.
 2. **Relay to hub** — handled internally; the spoke tx propagates to Sonic.
 3. **Solver fulfillment** — an off-chain solver picks up the intent and fills it on the destination chain.
-4. **Post-execution settlement** — `postExecution` finalizes the user's side once the solver completes.
+4. **Post-execution settlement** — `postExecution` notifies the solver after the intent is registered on Sonic.
 
 Two execution paths:
 
-- **`swap`** — full flow in one call. Wraps `createIntent` + relay + `postExecution`. Returns `SwapResponse` on success. By default uses a **backend-driven 2-step** variant (`swaps.useBackendSubmitTx`, default `true` — the backend relays + post-executes server-side); on any non-success it falls back to the client-side relay, returning the same `SwapResponse`. Set `new Sodax({ swaps: { useBackendSubmitTx: false } })` to force client-side only. The SDK does NOT verify the tx on-chain before handing it to the backend — the backend verifies itself, so `verifyTxHash` (and `TX_VERIFICATION_FAILED`) belong to the client-side path only. `timeout` (defaults to `DEFAULT_RELAY_TX_TIMEOUT`) is a PER-ATTEMPT budget, not end-to-end: the backend attempt (submit POST + status poll) gets it, and if that attempt does not complete the client-side relay wait gets a fresh one starting after verification — so neither a stalled backend nor a slow source-chain confirmation shortens the fallback, and raising `timeout` grows both. Each backend request is clamped to `min(budget left in the attempt, api.timeout)`; `api.timeout` is configurable (packaged default `DEFAULT_BACKEND_API_TIMEOUT`), and once the attempt's remainder drops below it a single stalled request can spend what is left — the clamp bounds a request by the attempt, it does not guarantee a retry. Worst case is `createIntent + timeout + verification + max(timeout, RELAY_FALLBACK_FLOOR_MS) + postExecution`; verification is bounded by the source chain's `pollingConfig.maxTimeoutMs` (varies widely — Stacks is several times Sui — read `chains.ts`, and it is a no-op on EVM), and intent creation and post-execution are not bounded by `timeout` at all.
-- **`createIntent` + backend submit** — break it apart for custom relay handling. `createIntent` returns `{ tx, intent, relayData }`; submit `relayData.payload` to the backend swap-tx endpoint via `sodax.api.swaps.submitTx`.
+- **`swap`** — full flow in one call. Wraps `createIntent` + relay + `postExecution`. Returns `SwapResponse` on success. By default uses a **backend-driven 2-step** variant (`swaps.useBackendSubmitTx`, default `true` — the backend relays + post-executes server-side; a Tron source always takes the client-side path); on any non-success it falls back to the client-side relay, returning the same `SwapResponse`. Set `new Sodax({ swaps: { useBackendSubmitTx: false } })` to force client-side only. The SDK does NOT verify the tx on-chain before handing it to the backend — the backend verifies itself, so `verifyTxHash` (and `TX_VERIFICATION_FAILED`) belong to the client-side path only. `timeout` (defaults to `DEFAULT_RELAY_TX_TIMEOUT`) is a PER-ATTEMPT budget, not end-to-end: the backend attempt (submit POST + status poll) gets it, and if that attempt does not complete the client-side relay wait gets a fresh one starting after verification — so neither a stalled backend nor a slow source-chain confirmation shortens the fallback, and raising `timeout` grows both. Each backend request is clamped to `min(budget left in the attempt, api.timeout)`; `api.timeout` is configurable (packaged default `DEFAULT_BACKEND_API_TIMEOUT`), and once the attempt's remainder drops below it a single stalled request can spend what is left — the clamp bounds a request by the attempt, it does not guarantee a retry. Worst case is `createIntent + timeout + verification + max(timeout, RELAY_FALLBACK_FLOOR_MS) + postExecution`; verification is bounded by the source chain's `pollingConfig.maxTimeoutMs` (varies widely — Stacks is several times Sui — read `chains.ts`, and it is a no-op on EVM), and intent creation and post-execution are not bounded by `timeout` at all.
+- **`createIntent` + backend submit** — break it apart for custom relay handling. `createIntent` returns `{ tx, intent, relayData }`; for an intent-relay source, submit `relayData.payload` to the backend swap-tx endpoint via `sodax.api.swaps.submitTx`. For an MPC-relay source, use the same-hash settlement and solver notification described above.
 
 ## Public methods
 
@@ -52,8 +52,8 @@ sodax.swaps.createIntent<K extends SpokeChainKey, Raw extends boolean>(
 ): Promise<Result<CreateIntentResult<K, Raw>, SodaxError>>;
 
 sodax.swaps.postExecution(
-  args: { intent, relayData },
-): Promise<Result<SwapResponse, SodaxError>>;
+  args: { intent_tx_hash: Hex },
+): Promise<Result<SolverExecutionResponse, PostExecutionError>>;
 
 sodax.swaps.createLimitOrder<K, Raw>(
   action: LimitOrderActionParams<K, Raw>,
@@ -94,6 +94,9 @@ sodax.swaps.getDetailedStatus(
   params: { srcChainKey: SpokeChainKey; srcTxHash: string },   // the SOURCE-chain tx hash
 ): Promise<Result<DetailedSwapStatus, SodaxError<'LOOKUP_FAILED'>>>;
 //   Routes to the backend submit-tx record or the solver. Does NOT define a new status vocabulary.
+
+sodax.swaps.waitForIntentDelivery({ chainId, fillTxHash, timeout? }): Promise<Result<IntentDelivery>>;
+//   After SOLVED: where the output landed (`dstTxHash`). On the hub, the fill tx itself; to Tron, the release of the fill, which the solver notifies.
 ```
 
 ## Approve and swap in one signature
@@ -135,7 +138,7 @@ Three readers. Pick by which transaction hash you hold:
 - **`sodax.swaps.getStatus({ intent_tx_hash })`** — the solver's view of one intent, keyed on the **hub** tx hash (`intentDeliveryInfo.dstTxHash`). Returns the legacy `SolverErrorResponse` error shape, so do not `switch (error.code)` on it.
 - **`sodax.swaps.getDetailedStatus({ srcChainKey, srcTxHash })`** — routes between the two, keyed on the **source** tx. Use this when you only have the source hash and do not know which path the swap took.
 
-`getDetailedStatus` defines no status of its own. It returns whichever source can answer, tagged. The backend record is unmodified; a solver answer short of `SOLVED`/`FAILED` is first checked against the backend's durable intent record, so a fill that consumed the remainder reads `SOLVED` and a cancelled intent with nothing filled reads `FAILED` (already refunded — do not offer a cancel). The union is discriminated on `source` — no type guards are exported, narrow on the field:
+`getDetailedStatus` defines no status of its own. It returns whichever source can answer, tagged. The backend record is unmodified; a solver answer short of `SOLVED`/`FAILED` is first checked against the backend's durable intent record, so a fill that consumed the remainder reads `SOLVED` and a cancelled intent with nothing filled reads `FAILED` (do not offer a cancel; from a Tron source, release the refund with `sodax.spoke.settleHubRelease` on the `txHash` of the record's `intent-cancelled` event). The union is discriminated on `source` — no type guards are exported, narrow on the field:
 
 ```ts
 type DetailedSwapStatus =
@@ -155,7 +158,11 @@ const { state, hubTxHash, fillTxHash } = summarizeSwapStatus(status); // state: 
 
 `fillTxHash` may be absent even when solved (the backend can confirm a fill from the on-chain journal without one).
 
-**A `swap()` failure after broadcast still carries the source tx.** `TX_VERIFICATION_FAILED`, the relay codes and postExecution failures set `error.context.srcTxHash` (plus `srcChainKey`). The swap may still complete — the backend keeps working after `swap()` gives up — so keep polling `getDetailedStatus` with it instead of reporting the swap as lost. One case polling cannot fix: a failed solver notification (`EXECUTION_FAILED` / `EXTERNAL_API_ERROR`, `phase: 'postExecution'`) also sets `error.context.dstTxHash`, the hub tx. Unless the backend took the swap nothing else notifies the solver and the intent expires, so call `postExecution({ intent_tx_hash: dstTxHash })` again (the solver only re-affirms an intent it already has), then poll.
+After broadcast, `swap()` can return an error with `context.srcTxHash`. On intent-relay sources, if backend submit-tx accepted the deposit, it may keep processing. Poll `getDetailedStatus` with that hash.
+
+On an MPC-relay source, the backend submit-tx path is skipped. If `INTENT_CREATION_FAILED`, `RELAY_TIMEOUT` or another settlement failure carries `context.srcTxHash`, use the source spoke's deposit wait (for Tron, `sodax.spoke.tron.waitForDeposit(srcTxHash)`) to notify the relay and wait for the hub mint. On timeout, back off and repeat the wait with the same source hash. Once the result is successful and `value.txs?.hubMint?.hash` is a hex hash (check with viem's `isHex`), call `sodax.swaps.postExecution({ intent_tx_hash: hubMintHash })`. Check the returned Result and retry a failed notification with the same hub hash. After notification succeeds, poll `getDetailedStatus` using the original source hash. Do not create another swap or deposit.
+
+If the error already carries `context.dstTxHash` from the `postExecution` phase, retry just the solver notification with that hub hash, then poll using the source hash.
 
 The only error is `LOOKUP_FAILED`, meaning no source could answer — usually the relay has not delivered the packet, so there is no hub tx hash. When polling, branch on `error.context.reason`: `DETAILED_STATUS_NOT_DELIVERED` is the ambiguous miss (indistinguishable from "still in flight" — bound it with a retry budget), set only when the backend also answered. Anything else, including a relay miss behind a backend outage, is a dependency failing right now and should be retried until it recovers. A 401/403 from the backend does not route on at all — it surfaces directly with `context.status` lifted, so `isAuthFailure(error)` is true and polling should stop; only a corrected key changes the answer. Point-in-time — poll it yourself, or use dapp-kit's `useDetailedStatus`.
 
@@ -208,7 +215,7 @@ type CreateIntentParams<K extends SpokeChainKey> = {
 };
 ```
 
-`CreateLimitOrderParams<K>` is `Omit<CreateIntentParams<K>, 'deadline'> & { deadline?: bigint }` — it makes `deadline` optional rather than removing it; when omitted the SDK forces it to `0n` internally (limit orders use a different expiry mechanism).
+`CreateLimitOrderParams<K>` is `Omit<CreateIntentParams<K>, 'deadline'> & { deadline?: bigint }` — it makes `deadline` optional rather than removing it; when omitted the SDK forces it to `0n` internally (limit orders use a different expiry mechanism). A Tron source refuses a limit order: see [`chain-specifics.md`](../chain-specifics.md#6-tron-mpc-relay).
 
 ### Delivery hooks (`hook` / `deliveryData`)
 
@@ -349,10 +356,10 @@ if (!result.ok) return;
 
 const { tx: spokeTxHash, intent, relayData } = result.value;
 //   tx is the spoke tx hash (TxReturnType<K, false>) for raw: false
-//   relayData is { address: Hex; payload: Hex }; submit relayData.payload to your backend
+//   relayData is { address: Hex; payload: Hex }; keep it for manual settlement
 ```
 
-### Backend submit-tx flow
+### Backend submit-tx flow for intent-relay sources
 
 Submitting is only the first half. `swap()` also polls to a terminal status and falls back to the client-side relay on any non-success — code that drives the steps itself must do both. Full recipe: [`../recipes/manual-submit-tx-with-fallback.md`](../recipes/manual-submit-tx-with-fallback.md).
 
@@ -410,7 +417,7 @@ await sodax.swaps.cancelIntent({
 });
 ```
 
-Relay handling is chain-aware and needs no caller input: Solana cancels submit the cancel payload with the spoke tx, Bitcoin cancels relay the signed on-demand payload. On Bitcoin `srcChainTxHash` is the relay's `od:<hash>` id, not a chain tx hash.
+A Tron source cannot be cancelled: see [`chain-specifics.md`](../chain-specifics.md#6-tron-mpc-relay). Relay handling is chain-aware and needs no caller input: Solana cancels submit the cancel payload with the spoke tx, Bitcoin cancels relay the signed on-demand payload. On Bitcoin `srcChainTxHash` is the relay's `od:<hash>` id, not a chain tx hash.
 
 `params.srcAddress` (optional) overrides the wallet the cancel is sent from; it defaults to the intent's `srcAddress`, or on Bitcoin TRADING mode to `walletProvider.getWalletAddress()` (the intent stores the trading address). A raw (`raw: true`) Bitcoin TRADING-mode cancel must pass it.
 
@@ -421,8 +428,8 @@ Relaying a `createCancelIntent` tx yourself: on Solana pass `data: sodax.swaps.g
 | Method | Success type |
 |---|---|
 | `swap` | `SwapResponse` = `{ solverExecutionResponse, intent, intentDeliveryInfo }` |
-| `createIntent` | `CreateIntentResult<K, Raw>` = `{ tx: TxReturnType<K, Raw>, intent: Intent & FeeAmount, relayData: RelayExtraData }` |
-| `postExecution` | `SwapResponse` |
+| `createIntent` | `CreateIntentResult<K, Raw>` = `{ tx: DepositReturnType<K, Raw>, intent: Intent & FeeAmount, relayData: RelayExtraData }` |
+| `postExecution` | `SolverExecutionResponse` |
 | `createLimitOrder` / `createLimitOrderIntent` | Same as `createIntent` |
 | `cancelIntent` / `cancelLimitOrder` | `TxHashPair` = `{ srcChainTxHash, dstChainTxHash }` (not generic over `Raw`) |
 | `approve` | `TxReturnType<K, Raw>` |

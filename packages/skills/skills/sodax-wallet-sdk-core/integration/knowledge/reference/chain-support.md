@@ -23,6 +23,7 @@ Chain families and spoke chain keys this package can sign for. Keys live in `@so
 | `ChainKeys.REDBELLY_MAINNET` | `redbellyMainnet` |
 | `ChainKeys.KAIA_MAINNET` | `kaia` |
 | `ChainKeys.HEDERA_MAINNET` | `hedera` |
+| `ChainKeys.MONAD_MAINNET` | `monad` (defined inside this package) |
 | `ChainKeys.ROBINHOOD_MAINNET` | `robinhoodChain` (defined locally — absent from `viem/chains`) |
 
 ---
@@ -39,8 +40,8 @@ Chain families and spoke chain keys this package can sign for. Keys live in `@so
 | Injective | `InjectiveWalletProvider` | `ChainKeys.INJECTIVE_MAINNET` |
 | NEAR      | `NearWalletProvider`      | `ChainKeys.NEAR_MAINNET` |
 | Stacks    | `StacksWalletProvider`    | `ChainKeys.STACKS_MAINNET` |
-
-> 22 spoke chains total = 14 EVM + 8 non-EVM. The hub chain (Sonic) is counted with EVM.
+| Tron      | `TronWalletProvider`      | `ChainKeys.TRON_MAINNET` |
+| Zcash     | `ZcashWalletProvider`     | `ChainKeys.ZCASH_MAINNET` |
 
 ---
 
@@ -59,6 +60,8 @@ Run-time deps each provider pulls in. See [`../recipes/library-exports.md`](../r
 | `InjectiveWalletProvider` | `@injectivelabs/sdk-ts`, `@injectivelabs/wallet-core`, `@injectivelabs/networks`, `@injectivelabs/ts-types` |
 | `NearWalletProvider`      | `near-api-js`, `@hot-labs/near-connect` |
 | `StacksWalletProvider`    | `@stacks/transactions`, `@stacks/connect`, `@stacks/network` |
+| `TronWalletProvider`      | `viem` (no Tron SDK: TronWeb is typed structurally) |
+| `ZcashWalletProvider`     | `viem`, `@noble/hashes`, `@bitcoinerlab/secp256k1` (browser mode wraps a structurally typed wallet such as Noir) |
 
 ---
 

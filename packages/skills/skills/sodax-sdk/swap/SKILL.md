@@ -21,9 +21,9 @@ Swap has materially different code paths depending on the answers. Don't skip:
 2. **Signed flow (frontend wallet, browser/RN) or unsigned-tx flow (backend / custom relay)?**
    - Signed → `raw: false` + `walletProvider`.
    - Unsigned → `raw: true`, you handle relay yourself.
-3. **One-shot `swap()` or step-by-step (`createIntent` → backend submit → `postExecution`)?**
+3. **One-shot `swap()` or manual settlement? Use backend submission only for an intent-relay source. For an MPC-relay source, settle the original deposit on Sonic before notifying the solver.**
    - One-shot is the default for frontends. If the token may need an approval, prefer `swapWithApproval()` — it approves only when needed, and on an EIP-5792 wallet does approve + swap in one signature (`getApprovalStrategy()` tells you which path it will take). A wallet that must first upgrade the account (`'ready'`) prompts for it; pass `allowAccountUpgrade: false` to skip that and approve separately, e.g. after a `USER_REJECTED` with `context.reason === ACCOUNT_UPGRADE_DECLINED`. Step-by-step is for backends that already have a relay/orchestration layer. If your SDK has no `swapWithApproval()`, gate with `isAllowanceValid()`, call `approve()` and wait for it, then `swap()`.
-   - Step-by-step code must reproduce BOTH paths `swap()` runs internally — the backend submit-tx attempt *and* the client-side relay fallback on any non-success. The helpers behind `swap()` are package-internal, so the loop is hand-written: [`../integration/knowledge/recipes/manual-submit-tx-with-fallback.md`](../integration/knowledge/recipes/manual-submit-tx-with-fallback.md).
+   - For an intent-relay source, step-by-step code must reproduce BOTH paths `swap()` runs internally — the backend submit-tx attempt *and* the client-side relay fallback on any non-success. The helpers behind `swap()` are package-internal, so the loop is hand-written: [`../integration/knowledge/recipes/manual-submit-tx-with-fallback.md`](../integration/knowledge/recipes/manual-submit-tx-with-fallback.md).
 4. **Market order or limit order?** Limit orders use a different params shape — `deadline` becomes optional (forced to `0n` internally), not required.
 
 ## Integration workflow (writing new v2 swap code)
@@ -36,14 +36,14 @@ Read in order. Skipping `ai-rules.md` is the most common cause of agents reverti
    - Signed one-shot → [`../integration/knowledge/recipes/signed-tx-flow.md`](../integration/knowledge/recipes/signed-tx-flow.md)
    - Backend step-by-step → [`../integration/knowledge/recipes/raw-tx-flow.md`](../integration/knowledge/recipes/raw-tx-flow.md) + [`../integration/knowledge/recipes/backend-server-init.md`](../integration/knowledge/recipes/backend-server-init.md)
 4. Error handling for swap-specific codes (`INTENT_CREATION_FAILED`, `EXECUTION_FAILED`, `RELAY_TIMEOUT`, solver-side `EXTERNAL_API_ERROR`) → [`../integration/knowledge/recipes/result-and-errors.md`](../integration/knowledge/recipes/result-and-errors.md) and [`../integration/knowledge/reference/error-codes.md`](../integration/knowledge/reference/error-codes.md).
-5. Cross-chain destination quirks (Stellar trustline, BTC PSBT, Solana PDA) → [`../integration/knowledge/chain-specifics.md`](../integration/knowledge/chain-specifics.md).
+5. Chain quirks (Stellar trustline, BTC PSBT, Solana PDA, Tron MPC relay) → [`../integration/knowledge/chain-specifics.md`](../integration/knowledge/chain-specifics.md).
 6. Reading swap status → [`../integration/knowledge/features/swap.md`](../integration/knowledge/features/swap.md) § Reading swap status. Default to `getDetailedStatus({ srcChainKey, srcTxHash })` (works whichever completion path ran) and collapse it with `summarizeSwapStatus`.
 
 ### Swap-specific anti-patterns
 
 - **`try { await sodax.swaps.swap(...) } catch` for SDK-level failures.** v2 returns `Result<T>` — branch on `result.ok`. `catch` only fires for thrown exceptions (e.g. missing `walletProvider`), not for `RELAY_TIMEOUT` or `EXECUTION_FAILED`.
 - **Forgetting the discriminator.** `raw: false` is required on signed swaps; without it TypeScript rejects `walletProvider`.
-- **Reporting a swap as lost on a post-broadcast failure.** `TX_VERIFICATION_FAILED`, the relay codes and postExecution failures carry `error.context.srcTxHash` — the backend may still complete the swap, so keep polling `getDetailedStatus` with it. A failed solver notification also carries `error.context.dstTxHash`: call `postExecution({ intent_tx_hash })` with it again first, since polling never notifies.
+- **Repeating a swap after a post-broadcast failure.** Keep `error.context.srcTxHash`. Poll `getDetailedStatus` by that hash if an intent-relay backend accepted the deposit. For an MPC-relay source, [resume the original swap](../integration/knowledge/features/swap.md) by waiting for the same deposit, notifying the solver with the hub mint hash, then polling. If `context.dstTxHash` is already available from a failed solver notification, retry just `postExecution` with it. Do not call `swap()` again.
 - **Calling `sodax.api.swaps.submitTx` with the full `relayData` object.** The backend expects the `payload: string` field, not the wrapper.
 
 ## Migration workflow (port v1 swap to v2)

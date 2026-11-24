@@ -17,13 +17,21 @@ import type {
   NearRawTransactionReceipt,
   StacksRawTransactionReceipt,
   BitcoinRawTransactionReceipt,
+  TronRawTransactionReceipt,
+  XrpRawTransactionReceipt,
+  TonRawTransactionReceipt,
+  ZcashRawTransactionReceipt,
+  CardanoRawTransactionReceipt,
   ChainType,
   GetAddressType,
   EvmSpokeOnlyChainKey,
   StellarChainKey,
   EvmChainKey,
+  MonadChainKey,
   WalletProviderSlot,
 } from '@sodax/types';
+import type { RelayExtraData } from './relay-types.js';
+
 type OptionalSkipSimulation = { skipSimulation?: boolean };
 
 /*
@@ -53,13 +61,15 @@ export type GetDepositParams<ChainKey extends SpokeChainKey = SpokeChainKey> = {
   srcChainKey: ChainKey; // The chain key of the spoke (origin) chain
   srcAddress: GetAddressType<ChainKey>; // The address of the user on the spoke (origin) chain
   token: GetTokenAddressType<ChainKey>;
+  /** TON only: the wallet account to read (e.g. from ITonWalletProvider.getAccountAddress()); defaults to the public key's wallet-v4R2 address */
+  accountAddress?: string;
 };
 
 /**
  * Parameters for reading a user's own wallet balance of a single token on a spoke chain.
  *
- * Unlike {@link GetDepositParams} (which reads the protocol asset-manager holding and keys
- * the token by raw address), this reads the balance held by `srcAddress` itself. `token` is
+ * Unlike {@link GetDepositParams} (which reads the protocol asset-manager holding, `srcAddress` on Tron and XRPL, and
+ * keys the token by raw address), this reads the balance held by `srcAddress` itself. `token` is
  * the full {@link XToken} so the reader can detect the native coin and resolve chain-specific
  * token identifiers (EVM erc20 address, Solana mint, Sui coinType, Soroban contract, …).
  *
@@ -78,6 +88,8 @@ export type GetBalanceParams<ChainKey extends SpokeChainKey = SpokeChainKey> = {
   srcChainKey: ChainKey; // The chain key of the spoke (origin) chain
   srcAddress: GetAddressType<ChainKey>; // The address of the user whose balance is read
   token: XToken; // The token to read the balance of
+  /** TON only: the wallet account to read (e.g. from ITonWalletProvider.getAccountAddress()); defaults to the public key's wallet-v4R2 address */
+  accountAddress?: string;
 };
 
 /**
@@ -99,6 +111,8 @@ export type GetBalancesParams<ChainKey extends SpokeChainKey = SpokeChainKey> = 
   srcChainKey: ChainKey; // The chain key of the spoke (origin) chain
   srcAddress: GetAddressType<ChainKey>; // The address of the user whose balances are read
   tokens: readonly XToken[]; // The tokens to read the balances of
+  /** TON only: the wallet account to read (e.g. from ITonWalletProvider.getAccountAddress()); defaults to the public key's wallet-v4R2 address */
+  accountAddress?: string;
 };
 
 export type DepositSimulationParams = {
@@ -151,7 +165,17 @@ export type GetTxReceiptType<C extends SpokeChainKey | ChainType> =
                   ? StacksRawTransactionReceipt
                   : GetChainType<C> extends 'BITCOIN'
                     ? BitcoinRawTransactionReceipt
-                    : unknown;
+                    : GetChainType<C> extends 'TRON'
+                      ? TronRawTransactionReceipt
+                      : GetChainType<C> extends 'XRP'
+                        ? XrpRawTransactionReceipt
+                        : GetChainType<C> extends 'TON'
+                          ? TonRawTransactionReceipt
+                          : GetChainType<C> extends 'CARDANO'
+                            ? CardanoRawTransactionReceipt
+                            : GetChainType<C> extends 'ZCASH'
+                              ? ZcashRawTransactionReceipt
+                              : unknown;
 
 export type TxStatus = 'success' | 'failure' | 'timeout';
 export type WaitForTxReceiptParams<C extends SpokeChainKey> = {
@@ -214,19 +238,21 @@ export type SpokeIsAllowanceValidParamsOther<K extends OtherSpokeChainKey = Othe
   };
 
 /** @internal Distributive: picks the variant based on `K`. Defaults to the full union. */
-export type SpokeIsAllowanceValidParams<K extends SpokeChainKey = SpokeChainKey> = K extends EvmChainKey
-  ? K extends HubChainKey // handle case when EvmChainKey type is passed
-    ? SpokeIsAllowanceValidParamsHub<K>
-    : SpokeIsAllowanceValidParamsEvmSpoke<EvmSpokeOnlyChainKey>
-  : K extends HubChainKey
-    ? SpokeIsAllowanceValidParamsHub<K>
-    : K extends EvmSpokeOnlyChainKey
-      ? SpokeIsAllowanceValidParamsEvmSpoke<K>
-      : K extends StellarChainKey
-        ? SpokeIsAllowanceValidParamsStellar<K>
-        : K extends OtherSpokeChainKey
-          ? SpokeIsAllowanceValidParamsOther<K>
-          : never;
+export type SpokeIsAllowanceValidParams<K extends SpokeChainKey = SpokeChainKey> = K extends MonadChainKey
+  ? SpokeIsAllowanceValidParamsOther<K>
+  : K extends EvmChainKey
+    ? K extends HubChainKey // handle case when EvmChainKey type is passed
+      ? SpokeIsAllowanceValidParamsHub<K>
+      : SpokeIsAllowanceValidParamsEvmSpoke<EvmSpokeOnlyChainKey>
+    : K extends HubChainKey
+      ? SpokeIsAllowanceValidParamsHub<K>
+      : K extends EvmSpokeOnlyChainKey
+        ? SpokeIsAllowanceValidParamsEvmSpoke<K>
+        : K extends StellarChainKey
+          ? SpokeIsAllowanceValidParamsStellar<K>
+          : K extends OtherSpokeChainKey
+            ? SpokeIsAllowanceValidParamsOther<K>
+            : never;
 
 type SpokeApproveParamsCommon<K extends SpokeChainKey, Raw extends boolean> = {
   token: GetTokenAddressType<K>;
@@ -286,3 +312,29 @@ export type RawDestinationParams = {
   dstChainKey: SpokeChainKey;
   dstAddress: string;
 };
+
+/**
+ * Direction of the settlement a feature waits on: `inbound` is spoke→hub, `outbound` hub→spoke. The
+ * two are not symmetric per chain family; {@link SpokeService.settle} owns that behaviour.
+ */
+export type SettlementDirection = 'inbound' | 'outbound';
+
+export type SettleParams<
+  K extends SpokeChainKey = SpokeChainKey,
+  D extends SettlementDirection = SettlementDirection,
+> = {
+  chainKey: K;
+  /** What `create*Intent` returned: the spoke tx hash, or an MPC tracking id for a Tron withdrawal. */
+  tx: string;
+  direction: D;
+  relayData: RelayExtraData;
+  timeout?: number;
+  /**
+   * Payout chain. For outbound settlement from an MPC-relay chain, always pass the original payout chain, including Sonic.
+   * Drives the destination leg, which an MPC-relay chain or an MPC-produced hub tx needs driven here.
+   */
+  dstChainKey?: SpokeChainKey;
+};
+
+/** Why a settlement failed. `phase` lets a feature map it onto its own errors. */
+export type SettlementFailure = { phase: 'verification' | 'relay'; cause: unknown };

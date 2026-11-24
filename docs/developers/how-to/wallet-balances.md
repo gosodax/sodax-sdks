@@ -117,6 +117,8 @@ export function Balances({
 }
 ```
 
+On TON, `address` is the account's public key and the SDK reads the key's wallet-v4R2 address by default. A TonConnect wallet may use another wallet version, so pass its friendly address as `accountAddress` (from `TonWalletProvider.getAccountAddress()`); the same field works on `getWalletBalance` and `getWalletBalances`.
+
 The hook stays idle until `chainKey` and `address` are set and `tokens` is not empty, so you can mount it before the user picks a network. Pass `queryOptions` to change the refresh interval or other React Query settings.
 
 `useBalances` is the SDK-backed successor to `useXBalances`, which reads through the wallet SDK's `xService`. Prefer `useBalances` when your app already has a `SodaxProvider`.

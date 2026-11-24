@@ -8,6 +8,11 @@ import type { ISolanaWalletProvider } from '../solana/solana.js';
 import type { IStacksWalletProvider } from '../stacks/stacks.js';
 import type { IStellarWalletProvider } from '../stellar/stellar.js';
 import type { ISuiWalletProvider } from '../sui/sui.js';
+import type { ITronWalletProvider } from '../tron/tron.js';
+import type { IXrpWalletProvider } from '../xrp/xrp.js';
+import type { ITonWalletProvider } from '../ton/ton.js';
+import type { IZcashWalletProvider } from '../zcash/zcash.js';
+import type { ICardanoWalletProvider } from '../cardano/cardano.js';
 
 /**
  * Union of all chain-specific wallet providers. Narrow by the discriminant field
@@ -23,7 +28,12 @@ export type IWalletProvider =
   | IBitcoinWalletProvider
   | ISolanaWalletProvider
   | IStacksWalletProvider
-  | INearWalletProvider;
+  | INearWalletProvider
+  | ITronWalletProvider
+  | IXrpWalletProvider
+  | ITonWalletProvider
+  | IZcashWalletProvider
+  | ICardanoWalletProvider;
 
 /**
  * Wallet provider type for a chain key or abstract {@link ChainType}. Maps `C` to the matching
@@ -50,4 +60,14 @@ export type GetWalletProviderType<C extends SpokeChainKey | ChainType> =
                   ? INearWalletProvider
                   : GetChainType<C> extends 'BITCOIN'
                     ? IBitcoinWalletProvider
-                    : IWalletProvider;
+                    : GetChainType<C> extends 'TRON'
+                      ? ITronWalletProvider
+                      : GetChainType<C> extends 'XRP'
+                        ? IXrpWalletProvider
+                        : GetChainType<C> extends 'TON'
+                          ? ITonWalletProvider
+                          : GetChainType<C> extends 'ZCASH'
+                            ? IZcashWalletProvider
+                            : GetChainType<C> extends 'CARDANO'
+                              ? ICardanoWalletProvider
+                              : IWalletProvider;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MAX_NOT_FOUND_POLLS, STATUS_POLL_MS } from '../shared/notFoundStreak.js';
+import { MAX_MPC_RELAY_NOT_FOUND_POLLS, MAX_NOT_FOUND_POLLS, STATUS_POLL_MS } from '../shared/notFoundStreak.js';
 
 /**
  * Pins the WIRING the pure-policy test cannot see: the hook must pass the read into the policy and
@@ -73,10 +73,34 @@ describe('useBridgeDetailedStatus wiring', () => {
     );
   });
 
+  it('keys and reads by the destination too, which decides when a Tron-source bridge is delivered', async () => {
+    refCursor = 0;
+    useBridgeDetailedStatus({ params: { srcChainKey: 'tron', srcTxHash: SRC_TX, dstChainKey: SRC_CHAIN } });
+    expect(captured.queryKey).toEqual(['bridge', 'detailedStatus', 'tron', SRC_TX, SRC_CHAIN]);
+    await captured.queryFn();
+    expect(getDetailedStatus).toHaveBeenLastCalledWith(
+      { srcChainKey: 'tron', srcTxHash: SRC_TX, dstChainKey: SRC_CHAIN },
+      undefined,
+    );
+  });
+
   it('feeds the read into the policy, so a terminal answer stops the poll', () => {
     render();
     const relayed = { ok: true, value: { source: 'relay', data: { dst_tx_hash: '0xdst' } } };
     expect(captured.refetchInterval({ state: { data: relayed, dataUpdateCount: 1 } })).toBe(false);
+  });
+
+  it('gives the leg after the hub mint a budget of its own', () => {
+    refSlots.length = 0;
+    render();
+    for (let update = 1; update <= MAX_NOT_FOUND_POLLS - 1; update++) {
+      captured.refetchInterval({ state: { data: notDeliveredRead, dataUpdateCount: update } });
+    }
+    const onwardMiss = {
+      ok: false,
+      error: { code: 'LOOKUP_FAILED', context: { reason: 'relay_not_delivered', hubTxHash: '0xhub' } },
+    };
+    expect(captured.refetchInterval({ state: { data: onwardMiss, dataUpdateCount: 40 } })).toBe(STATUS_POLL_MS);
   });
 
   it('advances the not-delivered budget once per update, and stops when it is spent', () => {
@@ -89,5 +113,36 @@ describe('useBridgeDetailedStatus wiring', () => {
     }
     expect(captured.refetchInterval({ state: { data: notDeliveredRead, dataUpdateCount: 39 } })).toBe(STATUS_POLL_MS);
     expect(captured.refetchInterval({ state: { data: notDeliveredRead, dataUpdateCount: 40 } })).toBe(false);
+  });
+
+  it('gives a miss the SDK tags as an MPC-relay bridge the longer budget', () => {
+    refSlots.length = 0;
+    render();
+    const mpcRelayMiss = {
+      ok: false,
+      error: { code: 'LOOKUP_FAILED', context: { reason: 'relay_not_delivered', mpcRelay: true } },
+    };
+    for (let update = 1; update < MAX_MPC_RELAY_NOT_FOUND_POLLS; update++) {
+      expect(captured.refetchInterval({ state: { data: mpcRelayMiss, dataUpdateCount: update } })).toBe(STATUS_POLL_MS);
+    }
+    const last = { state: { data: mpcRelayMiss, dataUpdateCount: MAX_MPC_RELAY_NOT_FOUND_POLLS } };
+    expect(captured.refetchInterval(last)).toBe(false);
+  });
+
+  it('does not let one untagged miss cut an MPC-relay streak to the short budget', () => {
+    refSlots.length = 0;
+    render();
+    const mpcRelayMiss = {
+      ok: false,
+      error: { code: 'LOOKUP_FAILED', context: { reason: 'relay_not_delivered', mpcRelay: true } },
+    };
+    let update = 0;
+    while (update < MAX_NOT_FOUND_POLLS + 5) {
+      update += 1;
+      captured.refetchInterval({ state: { data: mpcRelayMiss, dataUpdateCount: update } });
+    }
+    expect(captured.refetchInterval({ state: { data: notDeliveredRead, dataUpdateCount: update + 1 } })).toBe(
+      STATUS_POLL_MS,
+    );
   });
 });

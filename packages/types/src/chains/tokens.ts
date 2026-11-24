@@ -139,6 +139,8 @@ export const HubVaultSymbols = [
   'GLD',
   'sodaADA',
   'sodaZEC',
+  'sodaZECv2',
+  'sodaTRX',
   'ANT',
 ] as const;
 
@@ -883,6 +885,28 @@ export const SodaTokens = {
     chainKey: ChainKeys.SONIC_MAINNET,
     hubAsset: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
     vault: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
+  },
+  // The ZEC vault Zcash deposits into, and the money market's ZEC reserve. Read on Sonic 2026-11-22: it registers the
+  // Zcash (0x24312b2C…) and NEAR (0xEd5d71eE…) ZEC hub assets, and the lending pool lists it, not sodaZEC (0xf4af…).
+  // sodaZEC is the legacy, non-reserve ZEC vault, kept for compatibility: it registers the Zcash (0x24312b2C…) and BSC
+  // (0x3155…) ZEC hub assets. Neither vault registers Solana's ZEC hub asset (0xdfce…).
+  sodaZECv2: {
+    symbol: 'sodaZECv2',
+    name: 'SODA ZEC v2',
+    decimals: 18,
+    address: '0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
+    chainKey: ChainKeys.SONIC_MAINNET,
+    hubAsset: '0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
+    vault: '0xf54339b1df8d9cebf69665fdf002310a4f2fe9ee',
+  },
+  sodaTRX: {
+    symbol: 'sodaTRX',
+    name: 'SODA TRX',
+    decimals: 18,
+    address: '0x40931ea2e572bd298c371ea4312ca58db2c3b646',
+    chainKey: ChainKeys.SONIC_MAINNET,
+    hubAsset: '0x40931ea2e572bd298c371ea4312ca58db2c3b646',
+    vault: '0x40931ea2e572bd298c371ea4312ca58db2c3b646',
   },
   ANT: {
     symbol: 'ANT',
@@ -2847,6 +2871,145 @@ export const bitcoinSupportedTokens = {
     chainKey: ChainKeys.BITCOIN_MAINNET,
     hubAsset: '0xdb41c7d09406026d4582bc2fc6d6319c323fe1bb',
     vault: '0xE801CA34E19aBCbFeA12025378D19c4FBE250131',
+  },
+} as const satisfies Record<string, XToken>;
+
+/**
+ * XRPL spoke tokens.
+ *
+ * XRPL has no token contracts: an issued currency (IOU) is identified by a (currency, issuer)
+ * pair, so `address` carries the ISSUER account — the nearest analogue to a contract address, and
+ * what identifies the asset on-chain. The currency code itself is the nonstandard 160-bit form
+ * (`USDC` is 4 characters, so it cannot use the 3-char form): `5553444300000000000000000000000000000000`.
+ * `XrpSpokeService` needs both halves to build the Payment's Amount object.
+ *
+ * `decimals` is the SPOKE-side scale (XRPL drops are 6, and the relay registers its IOUs at 6),
+ * not the hub vault's — the vault shares are 18 like every other soda vault.
+ */
+export const xrpSupportedTokens = {
+  // Native XRP. The spoke-side "address" uses the EVM-zero sentinel (XRPL native has no issuer);
+  // the hub wraps it as wXRP, minted into the XRP vault via the MPC relay.
+  XRP: {
+    symbol: 'XRP',
+    name: 'XRP',
+    decimals: 6,
+    address: '0x0000000000000000000000000000000000000000',
+    chainKey: ChainKeys.XRP_MAINNET,
+    hubAsset: '0xd4FE528Cb89A9228E3167db260A0036942A21277',
+    vault: '0xb89B3a6633fb06CAB86b7d54e2f6913C51a73952',
+  },
+  RLUSD: {
+    symbol: 'RLUSD',
+    name: 'Ripple USD',
+    decimals: 6,
+    address: 'rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De',
+    chainKey: ChainKeys.XRP_MAINNET,
+    hubAsset: '0x68f7A1C04A596641bB810012A262CD68Bea195af',
+    vault: '0x3521647869645910b6BbB027E14F3bC583752f5c',
+  },
+  USDC: {
+    symbol: 'USDC',
+    name: 'USD Coin',
+    decimals: 6,
+    address: 'rGm7WCVp9gb4jZHWTEtGUr4dd74z2XuWhE',
+    chainKey: ChainKeys.XRP_MAINNET,
+    hubAsset: '0x0895948Cda333E33e5aF401c595a477b3769005c',
+    vault: SodaTokens.sodaUSDC.address,
+  },
+} as const satisfies Record<string, XToken>;
+
+export const zcashSupportedTokens = {
+  // Native transparent ZEC (8 decimals), deposited into the sodaZECv2 vault.
+  ZEC: {
+    symbol: 'ZEC',
+    name: 'Zcash',
+    decimals: 8,
+    address: '0x0000000000000000000000000000000000000000',
+    chainKey: ChainKeys.ZCASH_MAINNET,
+    hubAsset: '0x24312b2Cc7A56ADdD3a849Db5e9B81704D6B20af',
+    vault: SodaTokens.sodaZECv2.address,
+  },
+} as const satisfies Record<string, XToken>;
+
+export const cardanoSupportedTokens = {
+  // Native ADA (6 decimals), deposited into the sodaADA vault. Cardano is ADA only: a native-token payment to
+  // the reserve is never credited.
+  ADA: {
+    symbol: 'ADA',
+    name: 'Cardano',
+    decimals: 6,
+    address: '0x0000000000000000000000000000000000000000',
+    chainKey: ChainKeys.CARDANO_MAINNET,
+    hubAsset: '0xB1eE2A6920E335F5544Ec6a8070a1D92dcF25fa6',
+    vault: SodaTokens.sodaADA.address,
+  },
+} as const satisfies Record<string, XToken>;
+
+export const tonSupportedTokens = {
+  // Native TON (9 decimals). There is no TON vault, so `vault` is the wrapped hub asset itself.
+  TON: {
+    symbol: 'TON',
+    name: 'Toncoin',
+    decimals: 9,
+    address: '0x0000000000000000000000000000000000000000',
+    chainKey: ChainKeys.TON_MAINNET,
+    hubAsset: '0x40ccbaf7FeE4Af5d15E2356c9Cc8fE0d93b3D76e',
+    vault: '0x40ccbaf7FeE4Af5d15E2356c9Cc8fE0d93b3D76e',
+  },
+  // A jetton is identified by its master contract; `address` is that master.
+  USDT: {
+    symbol: 'USDT',
+    name: 'Tether USD',
+    decimals: 6,
+    address: 'EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs',
+    chainKey: ChainKeys.TON_MAINNET,
+    hubAsset: '0xdA885Fda1cADb42A6ECF6dC4F68263737E7ac0E5',
+    vault: SodaTokens.sodaUSDT.address,
+  },
+} as const satisfies Record<string, XToken>;
+
+export const monadSupportedTokens = {
+  // Native MON. There is no MON vault, so `vault` is the wrapped hub asset itself (the no-vault convention).
+  MON: {
+    symbol: 'MON',
+    name: 'Monad',
+    decimals: 18,
+    address: '0x0000000000000000000000000000000000000000',
+    chainKey: ChainKeys.MONAD_MAINNET,
+    hubAsset: '0xcCFAcabC823dc7fbFB60c26B23c120Fa1C1A5CA4',
+    vault: '0xcCFAcabC823dc7fbFB60c26B23c120Fa1C1A5CA4',
+  },
+  USDC: {
+    symbol: 'USDC',
+    name: 'USD Coin',
+    decimals: 6,
+    address: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603',
+    chainKey: ChainKeys.MONAD_MAINNET,
+    hubAsset: '0xc2C1a0D7814194545020cfef6cE6BE1Eb741ee38',
+    vault: SodaTokens.sodaUSDC.address,
+  },
+} as const satisfies Record<string, XToken>;
+
+export const tronSupportedTokens = {
+  // Native TRX. The spoke-side "address" uses the EVM-zero sentinel (Tron native has no
+  // contract); the hub wraps it as wTRX, minted into the sodaTRX vault via the MPC relay.
+  TRX: {
+    symbol: 'TRX',
+    name: 'Tron',
+    decimals: 6,
+    address: '0x0000000000000000000000000000000000000000',
+    chainKey: ChainKeys.TRON_MAINNET,
+    hubAsset: '0x61cd7FFcf33E3F5EB8280b94bc5180bc617b1da9',
+    vault: '0x40931ea2e572bd298c371ea4312ca58db2c3b646',
+  },
+  USDT: {
+    symbol: 'USDT',
+    name: 'Tether USD',
+    decimals: 6,
+    address: 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t',
+    chainKey: ChainKeys.TRON_MAINNET,
+    hubAsset: '0xA71E3e927BAf32eb5f1678a3b13c2fFfeE3973D7',
+    vault: '0xbDf1F453FCB61424011BBDDCB96cFDB30f3Fe876',
   },
 } as const satisfies Record<string, XToken>;
 
@@ -5470,7 +5633,13 @@ export const supportedTokensByChain = {
   [ChainKeys.KAIA_MAINNET]: kaiaSupportedTokens,
   [ChainKeys.STACKS_MAINNET]: stacksSupportedTokens,
   [ChainKeys.HEDERA_MAINNET]: hederaSupportedTokens,
+  [ChainKeys.TRON_MAINNET]: tronSupportedTokens,
   [ChainKeys.ROBINHOOD_MAINNET]: robinhoodSupportedTokens,
+  [ChainKeys.XRP_MAINNET]: xrpSupportedTokens,
+  [ChainKeys.MONAD_MAINNET]: monadSupportedTokens,
+  [ChainKeys.TON_MAINNET]: tonSupportedTokens,
+  [ChainKeys.ZCASH_MAINNET]: zcashSupportedTokens,
+  [ChainKeys.CARDANO_MAINNET]: cardanoSupportedTokens,
 } as const satisfies Record<ChainKey, Record<string, XToken>>;
 
 /**

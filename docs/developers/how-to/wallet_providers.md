@@ -39,6 +39,8 @@ Every chain family has a named interface that `@sodax/sdk` exports:
 | `IStacksWalletProvider` | `'STACKS'` | Stacks |
 | `IBitcoinWalletProvider` | `'BITCOIN'` | Bitcoin |
 | `INearWalletProvider` | `'NEAR'` | NEAR |
+| `ITronWalletProvider` | `'TRON'` | Tron |
+| `ICardanoWalletProvider` | `'CARDANO'` | Cardano |
 
 All interfaces extend `WalletAddressProvider` (from `@sodax/sdk`), which requires:
 
@@ -46,7 +48,7 @@ All interfaces extend `WalletAddressProvider` (from `@sodax/sdk`), which require
 getWalletAddress(): Promise<string>;
 ```
 
-The full union of all nine interfaces is `IWalletProvider`. `GetWalletProviderType<K>` maps a
+The full union of these interfaces is `IWalletProvider`. `GetWalletProviderType<K>` maps a
 chain key or `ChainType` literal to the appropriate specific interface.
 
 ---
@@ -120,12 +122,13 @@ wallet-providers/
 ├── stellar/                   # StellarWalletProvider + types
 ├── stacks/                    # StacksWalletProvider + types
 ├── bitcoin/                   # BitcoinWalletProvider + types
-└── near/                      # NearWalletProvider + types
+├── near/                      # NearWalletProvider + types
+└── tron/                      # TronWalletProvider + types
 ```
 
 ### BaseWalletProvider
 
-All nine provider classes extend `BaseWalletProvider<TDefaults>`:
+All provider classes extend `BaseWalletProvider<TDefaults>`:
 
 ```ts
 abstract class BaseWalletProvider<TDefaults extends object> {
@@ -160,7 +163,7 @@ if (walletProvider.chainType === 'SOLANA') {
 ```
 
 Valid `chainType` values: `'EVM'`, `'BITCOIN'`, `'SOLANA'`, `'STELLAR'`, `'SUI'`, `'ICON'`,
-`'INJECTIVE'`, `'STACKS'`, `'NEAR'`.
+`'INJECTIVE'`, `'STACKS'`, `'NEAR'`, `'TRON'`.
 
 `packages/sdk/src/shared/guards.ts` also exposes named guards for the most common cases:
 
@@ -178,7 +181,7 @@ mechanism varies by chain:
 
 | Mechanism | Chains |
 |---|---|
-| **Field presence** — `privateKey` field present vs. absent | EVM, ICON, Solana, Sui (uses `mnemonics`), NEAR |
+| **Field presence** — `privateKey` field present vs. absent | EVM, ICON, Solana, Sui (uses `mnemonics`), NEAR, Tron |
 | **Explicit `type` field** (`'PRIVATE_KEY'` / `'BROWSER_EXTENSION'`) | Bitcoin, Stellar |
 | **`secret` nested object** (`{ privateKey }` or `{ mnemonics }`) vs. `msgBroadcaster` | Injective |
 | **Field presence** — `privateKey` present vs. absent | Stacks |
@@ -198,6 +201,8 @@ All config types include an optional `defaults` field for per-method behavioral 
 | Stacks | `StacksWalletProvider` | @stacks/transactions | `'STACKS'` |
 | Bitcoin | `BitcoinWalletProvider` | bitcoinjs-lib (PSBT) | `'BITCOIN'` |
 | NEAR | `NearWalletProvider` | near-api-js | `'NEAR'` |
+| Tron | `TronWalletProvider` | none (TronWeb typed structurally) | `'TRON'` |
+| Cardano | `CardanoWalletProvider` | none (a CIP-30 wallet typed structurally) | `'CARDANO'` |
 
 ---
 
@@ -411,6 +416,45 @@ new NearWalletProvider({
 
 `NearWalletDefaults` accepts: `throwOnFailure`, `waitUntil`, `gasDefault`, `depositDefault`.
 
+### Tron (`TronWalletProvider`)
+
+Private-key mode takes `privateKey`; browser-extension mode takes `getProvider`, which returns the provider the wallet
+announces over TIP-6963, and optionally the injected `tronWeb`. The shapes are in
+[`tron/types.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/types.ts).
+
+`TronWalletDefaults` accepts: `rpcUrl`.
+
+---
+
+### Cardano (`CardanoWalletProvider`)
+
+Browser-wallet mode only: a CIP-30 wallet (Lace) holds the key. The SDK builds the deposit transaction from the
+account's pure-ADA UTXOs (read from Koios), the wallet adds its witness (`signTx`) and submits it, and a withdraw
+authorization is a `signData` over the readable `0x<hash>` payload.
+
+```ts
+new CardanoWalletProvider({
+  wallet: {                // CardanoWalletLike: the CIP-30 calls, hex CBOR without 0x
+    getAddress,            // bech32 key-hash payment address
+    signTx,                // api.signTx(tx, false) → witness set
+    submitTx,              // api.submitTx(tx) → tx hash
+    signData,              // api.signData(address, payload)
+  },
+  defaults?: CardanoWalletDefaults,
+});
+```
+
+The SDK reads UTXOs, the tip and the protocol parameters from Koios (`chains.cardano.rpcUrl`, default
+`https://api.koios.rest/api/v1`). Public Koios does not send CORS headers on its responses, so **a browser app must
+point `rpcUrl` at a CORS-enabled endpoint or its own proxy**; Node and backends can use the default.
+
+If wallet submission throws and the SDK cannot tell whether it broadcast the deposit, the SDK tries
+to notify the relay and throws an `IndeterminateOutcomeError` carrying its computed hash as `txHash`.
+If the wallet instead returns a hash that differs from the one the SDK built, the SDK notifies both
+and throws with the built hash as `txHash` and the wallet's as `walletTxHash`. In either case, settle
+`txHash` and do not send the deposit again. An explicit CIP-30 refusal (`{ code: 1, info }`) is
+rethrown unchanged without notifying the relay; `sodax.spoke.deposit` returns it as `{ ok: false, error }`.
+
 ---
 
 ## 5. React integration: useWalletProvider
@@ -446,7 +490,7 @@ Wallet providers are populated into the store by:
 
 - **Provider-managed chains (EVM, Solana, Sui)** — Hydrator components (`EvmHydrator`,
   `SolanaHydrator`, `SuiHydrator`) sync the native SDK state into the store as the sole writers.
-- **Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks)** — providers are
+- **Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks, Tron, Cardano)** — providers are
   created as a side-effect of `setXConnection()` in the store, triggered when a user connects a
   wallet through `ChainActions`.
 
@@ -523,3 +567,5 @@ Requirements for a valid custom implementation:
    it is terminal and throws if it is not by then. The SDK always passes a positive `timeout`, and reads the
    receipts as the batch's transaction when they all carry one hash (extra calls the wallet adds are fine), or —
    right after sending — as one per call in call order; any other shape is treated as unconfirmed.
+6. **Tron `signMessage` signs the hash's hex text, not its bytes** — see `ITronWalletProvider` in
+   [`tron.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/tron/tron.ts).

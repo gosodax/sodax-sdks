@@ -5,7 +5,7 @@ import {
   type DetailedBridgeStatus,
   type Result,
 } from '@sodax/sdk';
-import { MAX_NOT_FOUND_POLLS, STATUS_POLL_MS } from '../shared/notFoundStreak.js';
+import { MAX_MPC_RELAY_NOT_FOUND_POLLS, MAX_NOT_FOUND_POLLS, STATUS_POLL_MS } from '../shared/notFoundStreak.js';
 
 /**
  * Structural mirror of `useBridgeDetailedStatus`'s data type. Declared locally rather than imported
@@ -23,13 +23,19 @@ export function isBridgeNotDelivered(data: DetailedBridgeStatusRead): boolean {
   return data !== undefined && !data.ok && data.error?.context?.reason === DETAILED_STATUS_NOT_DELIVERED;
 }
 
+/** A read the SDK tags `context.mpcRelay`: a bridge with an MPC-relay end, which gets the longer budget. */
+export function isBridgeMpcRelayRead(data: DetailedBridgeStatusRead): boolean {
+  return data !== undefined && !data.ok && data.error?.context?.mpcRelay === true;
+}
+
 /**
  * Polling interval for `useBridgeDetailedStatus`.
  *
  * Unlike the swap analog there is no in-flight second arm to wait on: the relay arm only ever
- * carries a matched `executed` packet, so it is terminal on arrival. That leaves three stops — a
- * terminal or abandoned backend record, a rejected API key, and the ambiguous relay miss once it has
- * run `MAX_NOT_FOUND_POLLS` times in a row.
+ * carries a matched `executed` packet, and the MPC-relay arm a minted deposit record, so both are
+ * terminal on arrival. That leaves three stops — a terminal or abandoned backend record, a rejected
+ * API key, and the ambiguous relay miss once it has run `MAX_NOT_FOUND_POLLS` times in a row, or
+ * `MAX_MPC_RELAY_NOT_FOUND_POLLS` when the SDK tags it `context.mpcRelay`.
  *
  * Kept in its own pure module (no React/context imports) so it is unit-testable in dapp-kit's `node`
  * test environment — importing the hook itself pulls in `useSodaxContext`.
@@ -39,14 +45,17 @@ export function getBridgeDetailedStatusRefetchInterval(
   consecutiveNotFound: number,
 ): number | false {
   if (data?.ok) {
-    if (data.value.source === 'relay') return false;
+    if (data.value.source !== 'backend') return false;
     // The two terminal states of the bridge wire contract, plus a record the backend abandoned
     // while its status was still non-terminal.
     const { status, abandonedAt } = data.value.data;
     return status === 'executed' || status === 'failed' || abandonedAt ? false : STATUS_POLL_MS;
   }
-  // A rejected key is terminal — only a corrected key changes the answer, so stop asking.
-  if (data && !data.ok && isAuthFailure(data.error)) return false;
-  if (isBridgeNotDelivered(data) && consecutiveNotFound >= MAX_NOT_FOUND_POLLS) return false;
+  if (data && !data.ok) {
+    // A rejected key is terminal — only a corrected key changes the answer, so stop asking.
+    if (isAuthFailure(data.error)) return false;
+    const budget = isBridgeMpcRelayRead(data) ? MAX_MPC_RELAY_NOT_FOUND_POLLS : MAX_NOT_FOUND_POLLS;
+    if (isBridgeNotDelivered(data) && consecutiveNotFound >= budget) return false;
+  }
   return STATUS_POLL_MS;
 }

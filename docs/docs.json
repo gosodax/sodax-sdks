@@ -70,7 +70,7 @@
           {
             "group": "Start here",
             "icon": "rocket",
-            "pages": ["index", "introduction", "quickstart", "ai-integration-guide", "builders-mcp"]
+            "pages": ["index", "introduction", "quickstart", "ai-integration-guide", "sodax-mcp"]
           },
           {
             "group": "How SODAX works",
@@ -162,6 +162,7 @@
           "developers/how-to/how_to_make_a_swap",
           "developers/how-to/integrate_leverage_yield",
           "developers/how-to/robinhood-stocks",
+          "developers/how-to/robinhood-stocks-due-diligence",
           "developers/how-to/wallet-balances",
           "developers/how-to/migrate_swap_to_submit_tx",
           "developers/how-to/api-keys",
@@ -457,7 +458,7 @@
                 "pages": [
                   "resources/blog/hub-and-spoke",
                   "resources/blog/six-categories-one-sdk",
-                  "resources/blog/builders-mcp-agent",
+                  "resources/blog/sodax-mcp-agent",
                   "resources/blog/swaps-api-any-language",
                   "resources/blog/swap-widget",
                   "resources/blog/limit-orders",
@@ -866,6 +867,14 @@
     {
       "source": "/developers/packages/sdk/docs/BITCOIN_INTEGRATION",
       "destination": "/developers/how-to/bitcoin-integration"
+    },
+    {
+      "source": "/builders-mcp",
+      "destination": "/sodax-mcp"
+    },
+    {
+      "source": "/resources/blog/builders-mcp-agent",
+      "destination": "/resources/blog/sodax-mcp-agent"
     }
   ],
   "thumbnails": {

@@ -13,9 +13,13 @@
     "react",
     "react-query",
     "hooks",
-    "defi"
+    "defi",
+    "cross-chain",
+    "swap",
+    "web3",
+    "sdk"
   ],
-  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/dapp-kit",
+  "homepage": "https://docs.sodax.com/developers/packages/experience/dapp-kit",
   "bugs": {
     "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
@@ -30,7 +34,8 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/gosodax/sodax-sdks"
+    "url": "git+https://github.com/gosodax/sodax-sdks.git",
+    "directory": "packages/dapp-kit"
   },
   "scripts": {
     "build": "tsup && node ../../scripts/verify-dist-exports.mjs",

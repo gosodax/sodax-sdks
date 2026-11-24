@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   advanceNotFoundStreak,
   INITIAL_NOT_FOUND_STREAK,
+  MAX_MPC_RELAY_NOT_FOUND_POLLS,
   MAX_NOT_FOUND_POLLS,
   STATUS_POLL_MS,
 } from '../shared/notFoundStreak.js';
@@ -20,9 +21,10 @@ import {
 
 /**
  * Guards the polling-stop invariant for `useBridgeDetailedStatus.refetchInterval`: stop on a
- * terminal or abandoned backend record, on any relay packet (always terminal), on a rejected API
- * key, and on an exhausted not-delivered budget — but keep polling through an outage. Tested as a
- * pure function because dapp-kit's vitest runs in the `node` environment.
+ * terminal or abandoned backend record, on any relay packet or MPC deposit record (always
+ * terminal), on a rejected API key, and on an exhausted not-delivered budget — but keep polling
+ * through an outage. Tested as a pure function because dapp-kit's vitest runs in the `node`
+ * environment.
  */
 const KEY_A = 'arb:0xaaa';
 const KEY_B = 'arb:0xbbb';
@@ -52,6 +54,19 @@ const packet: PacketData = {
 
 const relayed: Read = { ok: true, value: { source: 'relay', data: packet } };
 
+const minted: Read = {
+  ok: true,
+  value: {
+    source: 'mpcRelay',
+    data: {
+      depositId: 'id',
+      status: 'minted',
+      createdAt: 0,
+      txs: { hubMint: { chain: 'sonic', hash: '0xdst', ts: 0 } },
+    },
+  },
+};
+
 const lookupFailed = (context: Record<string, unknown>): Read => ({
   ok: false,
   error: new SodaxError('LOOKUP_FAILED', 'no source could answer', {
@@ -61,6 +76,7 @@ const lookupFailed = (context: Record<string, unknown>): Read => ({
 });
 
 const notDelivered = lookupFailed({ reason: DETAILED_STATUS_NOT_DELIVERED });
+const mpcRelayNotDelivered = lookupFailed({ reason: DETAILED_STATUS_NOT_DELIVERED, mpcRelay: true });
 const outage = lookupFailed({});
 const rejectedKey = lookupFailed({ status: 401 });
 
@@ -93,6 +109,10 @@ describe('getBridgeDetailedStatusRefetchInterval', () => {
     expect(getBridgeDetailedStatusRefetchInterval(relayed, 0)).toBe(false);
   });
 
+  it('stops on a minted MPC-relay deposit record — that arm is terminal on arrival too', () => {
+    expect(getBridgeDetailedStatusRefetchInterval(minted, 0)).toBe(false);
+  });
+
   it('stops on a rejected API key, at the first read', () => {
     expect(getBridgeDetailedStatusRefetchInterval(rejectedKey, 0)).toBe(false);
   });
@@ -100,6 +120,11 @@ describe('getBridgeDetailedStatusRefetchInterval', () => {
   it('stops a not-delivered read only once the budget is spent', () => {
     expect(getBridgeDetailedStatusRefetchInterval(notDelivered, MAX_NOT_FOUND_POLLS - 1)).toBe(STATUS_POLL_MS);
     expect(getBridgeDetailedStatusRefetchInterval(notDelivered, MAX_NOT_FOUND_POLLS)).toBe(false);
+  });
+
+  it('gives a miss on a bridge with an MPC-relay end the longer budget', () => {
+    expect(getBridgeDetailedStatusRefetchInterval(mpcRelayNotDelivered, MAX_NOT_FOUND_POLLS)).toBe(STATUS_POLL_MS);
+    expect(getBridgeDetailedStatusRefetchInterval(mpcRelayNotDelivered, MAX_MPC_RELAY_NOT_FOUND_POLLS)).toBe(false);
   });
 
   it('keeps polling an outage forever — that is how the read recovers', () => {

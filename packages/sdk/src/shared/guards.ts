@@ -18,6 +18,13 @@ import type {
   StellarChainKey,
   SuiChainKey,
   SonicChainKey,
+  TronChainKey,
+  XrpChainKey,
+  MonadChainKey,
+  TonChainKey,
+  ZcashChainKey,
+  CardanoChainKey,
+  MpcRelayChainKey,
   HubChainKey,
   PartnerFeeAmount,
   PartnerFeePercentage,
@@ -41,6 +48,13 @@ import {
   isIconChainKey,
   isSuiChainKey,
   isStacksChainKey,
+  isTronChainKey,
+  isXrpChainKey,
+  isMonadChainKey,
+  isTonChainKey,
+  isZcashChainKey,
+  isCardanoChainKey,
+  isMpcRelayChainKey,
   isHubChainKey,
   isEvmChainKey,
   isEvmSpokeOnlyChainKey,
@@ -58,7 +72,14 @@ import type {
 } from './types/spoke-types.js';
 
 export function isEvmSpokeChainConfig(value: SpokeChainConfig): value is EvmSpokeChainConfig {
-  return typeof value === 'object' && value !== null && value.chain.type === 'EVM' && value.chain.key !== HUB_CHAIN_KEY;
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    value.chain.type === 'EVM' &&
+    value.chain.key !== HUB_CHAIN_KEY &&
+    // An MPC-relay EVM chain (Monad) has no spoke asset manager, so it is not an EVM spoke config.
+    !isMpcRelayChainKey(value.chain.key)
+  );
 }
 
 export function isIconAddress(value: unknown): value is IconAddress {
@@ -202,6 +223,35 @@ export function isSuiChainKeyType(value: SpokeChainKey): value is SuiChainKey {
 
 export function isStacksChainKeyType(value: SpokeChainKey): value is StacksChainKey {
   return isStacksChainKey(value);
+}
+
+export function isTronChainKeyType(value: SpokeChainKey): value is TronChainKey {
+  return isTronChainKey(value);
+}
+
+export function isXrpChainKeyType(value: SpokeChainKey): value is XrpChainKey {
+  return isXrpChainKey(value);
+}
+
+export function isMonadChainKeyType(value: SpokeChainKey): value is MonadChainKey {
+  return isMonadChainKey(value);
+}
+
+export function isTonChainKeyType(value: SpokeChainKey): value is TonChainKey {
+  return isTonChainKey(value);
+}
+
+export function isZcashChainKeyType(value: SpokeChainKey): value is ZcashChainKey {
+  return isZcashChainKey(value);
+}
+
+export function isCardanoChainKeyType(value: SpokeChainKey): value is CardanoChainKey {
+  return isCardanoChainKey(value);
+}
+
+/** Settles through the MPC relay rather than the intent relay. Prefer this over naming a chain. */
+export function isMpcRelayChainKeyType(value: SpokeChainKey): value is MpcRelayChainKey {
+  return isMpcRelayChainKey(value);
 }
 
 /** Same runtime check as `isHubChainKeyType(params.srcChainKey)`; narrows the full `params` object. */

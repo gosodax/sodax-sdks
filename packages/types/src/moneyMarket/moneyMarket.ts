@@ -50,6 +50,7 @@ const moneyMarketHubVaults = [
   SodaTokens.sodaUSDS,
   SodaTokens.sodaUSSD,
   ...moneyMarketEquitySymbols.map(symbol => SodaTokens[symbol]),
+  SodaTokens.sodaZECv2,
 ] as const satisfies XToken[];
 
 // currently supported spoke chain tokens for money market
@@ -278,11 +279,31 @@ export const moneyMarketSupportedTokens = {
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.USDG,
     ...moneyMarketEquitySymbols.map(symbol => spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens[symbol]),
   ] as const satisfies XToken[],
+  // No TRX: its sodaTRX vault is not a money-market reserve.
+  [ChainKeys.TRON_MAINNET]: [spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.USDT] as const satisfies XToken[],
+  // RLUSD is swap-only for now — unlike sodaXRP and sodaUSDC, its vault is not a lending-pool reserve.
+  [ChainKeys.XRP_MAINNET]: [
+    spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.XRP,
+    spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.USDC,
+  ] as const satisfies XToken[],
+  // USDC only: MON has no vault, so it cannot be a lending-pool reserve.
+  [ChainKeys.MONAD_MAINNET]: [
+    spokeChainConfig[ChainKeys.MONAD_MAINNET].supportedTokens.USDC,
+  ] as const satisfies XToken[],
+  // USDT only: TON has no vault, so it cannot be a lending-pool reserve.
+  [ChainKeys.TON_MAINNET]: [spokeChainConfig[ChainKeys.TON_MAINNET].supportedTokens.USDT] as const satisfies XToken[],
+  [ChainKeys.ZCASH_MAINNET]: [
+    spokeChainConfig[ChainKeys.ZCASH_MAINNET].supportedTokens.ZEC,
+  ] as const satisfies XToken[],
+  // None: the sodaADA vault is not a lending-pool reserve.
+  [ChainKeys.CARDANO_MAINNET]: [],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 export const moneyMarketReserveAssets = [
   ...moneyMarketHubVaults.map(vault => vault.address),
   hubConfig.bnUSD,
+  // A pool reserve with its own vault rather than a SodaTokens entry.
+  spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.XRP.vault,
 ] as const satisfies Address[];
 
 export const moneyMarketConfig = {

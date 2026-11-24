@@ -26,7 +26,11 @@ import {
   decodeAbiParameters,
   decodeFunctionData,
   erc20Abi,
+  pad,
   parseAbiParameters,
+  toEventSelector,
+  toHex,
+  type TransactionReceipt,
   UserRejectedRequestError,
 } from 'viem';
 import type {
@@ -35,18 +39,31 @@ import type {
   EvmBatchResult,
   EvmRawTransaction,
   IEvmWalletProvider,
+  PartnerFee,
   SpokeChainKey,
 } from '@sodax/types';
-import { ChainKeys, DEFAULT_BACKEND_API_TIMEOUT, DEFAULT_RELAY_TX_TIMEOUT, getIntentRelayChainId } from '@sodax/types';
+import {
+  ChainKeys,
+  DEFAULT_BACKEND_API_TIMEOUT,
+  DEFAULT_RELAY_TX_TIMEOUT,
+  getIntentRelayChainId,
+  tronSupportedTokens,
+  monadSupportedTokens,
+  tonSupportedTokens,
+  xrpSupportedTokens,
+} from '@sodax/types';
 import { RELAY_FALLBACK_FLOOR_MS } from '../shared/services/intentRelay/IntentRelayApiService.js';
 import { EvmVaultTokenService } from '../shared/services/hub/EvmVaultTokenService.js';
 import { Sodax } from '../shared/entities/Sodax.js';
+import type { XrpDestinationReadiness } from '../shared/services/spoke/XrpSpokeService.js';
 import { SodaxError } from '../errors/SodaxError.js';
 import { isAuthFailure } from '../errors/guards.js';
 import { DETAILED_STATUS_NOT_DELIVERED } from '../backendApi/detailedStatusRouting.js';
+import type { DepositRecord } from '../shared/services/mpcRelay/MpcRelayApiService.js';
 import { invariant } from '../shared/utils/tiny-invariant.js';
 import type { BridgeParams, BridgeWithApprovalParams } from './BridgeService.js';
 import { ACCOUNT_UPGRADE_DECLINED, ATOMIC_BATCH_UNCONFIRMED } from '../shared/utils/approvalBatch.js';
+import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
 
 const mocks = vi.hoisted(() => ({
   relayTxAndWaitPacket: vi.fn(),
@@ -368,6 +385,138 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
     return token;
   };
 
+  it('discovers the hub asset for native MON and refuses to invent a vault limit', async () => {
+    const mon = monadSupportedTokens.MON;
+    const wrapped = { ...mon, chainKey: ChainKeys.SONIC_MAINNET, address: mon.hubAsset };
+    const result = sodax.bridge.getBridgeableTokens(mon.chainKey, wrapped.chainKey, mon.address);
+    expect(result).toMatchObject({ ok: true, value: [wrapped] });
+    expect(sodax.bridge.isBridgeable({ from: mon, to: wrapped })).toBe(true);
+    expect(sodax.bridge.isBridgeable({ from: wrapped, to: mon })).toBe(true);
+    await expect(sodax.bridge.getBridgeableAmount(mon, wrapped)).resolves.toMatchObject({
+      ok: false,
+      error: { cause: expect.objectContaining({ message: expect.stringContaining('No vault limit') }) },
+    });
+  });
+
+  it('enforces the ZEC floor and the bridge destination chain', () => {
+    const token = realToken(ChainKeys.ZCASH_MAINNET, 'ZEC');
+    const address = 't1TFab5a31gE6bxzatfs1KSqiportHDCE3X';
+    const params = {
+      srcChainKey: ChainKeys.ZCASH_MAINNET,
+      srcAddress: address,
+      srcToken: token.address,
+      dstChainKey: ChainKeys.ZCASH_MAINNET,
+      dstToken: token.address,
+      recipient: address,
+      amount: 100_000n,
+    };
+    expect(() => sodax.bridge.buildBridgeData(params, token, token, undefined)).toThrow(/greater than 0.001 ZEC/);
+    expect(sodax.bridge.buildBridgeData({ ...params, amount: 100_001n }, token, token, undefined)).toMatch(
+      /^0x[0-9a-f]+$/i,
+    );
+    expect(() => sodax.bridge.buildBridgeData({ ...params, dstChainKey: ARBITRUM }, token, token, undefined)).toThrow(
+      /Payout token chain must match/,
+    );
+  });
+
+  it('discovers the hub asset for native TON and refuses to invent a vault limit', async () => {
+    const ton = tonSupportedTokens.TON;
+    const wrapped = { ...ton, chainKey: ChainKeys.SONIC_MAINNET, address: ton.hubAsset };
+    expect(sodax.bridge.getBridgeableTokens(ton.chainKey, wrapped.chainKey, ton.address)).toMatchObject({
+      ok: true,
+      value: [wrapped],
+    });
+    expect(sodax.bridge.getBridgeableTokens(wrapped.chainKey, ton.chainKey, wrapped.address)).toMatchObject({
+      ok: true,
+      value: [ton],
+    });
+    await expect(sodax.bridge.getBridgeableAmount(ton, wrapped)).resolves.toMatchObject({
+      ok: false,
+      error: { cause: expect.objectContaining({ message: expect.stringContaining('native TON route') }) },
+    });
+  });
+
+  it('checks the TON floor and destination descriptor before encoding a payout', () => {
+    const token = realToken(ChainKeys.TON_MAINNET, 'USDT');
+    const params = {
+      srcChainKey: ChainKeys.TON_MAINNET,
+      srcAddress: `0x${'12'.repeat(32)}`,
+      srcToken: token.address,
+      dstChainKey: ChainKeys.TON_MAINNET,
+      dstToken: token.address,
+      recipient: `0x${'34'.repeat(32)}`,
+      amount: 3_000_000n,
+    };
+    expect(() => sodax.bridge.buildBridgeData(params, token, token, undefined)).toThrow(/greater than 3 USDT/);
+    expect(sodax.bridge.buildBridgeData({ ...params, amount: 3_000_001n }, token, token, undefined)).toMatch(
+      /^0x[0-9a-f]+$/i,
+    );
+    expect(() => sodax.bridge.buildBridgeData({ ...params, dstChainKey: ARBITRUM }, token, token, undefined)).toThrow(
+      /Payout token chain must match/,
+    );
+  });
+
+  it('refuses a direct Tron bridge at the delivered floor and encodes one unit above it', () => {
+    const token = tronSupportedTokens.USDT;
+    const build = (amount: bigint) =>
+      sodax.bridge.buildBridgeData(
+        {
+          srcChainKey: ChainKeys.TRON_MAINNET,
+          srcAddress: TRON_TEST_ADDRESS,
+          srcToken: token.address,
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstToken: token.address,
+          recipient: TRON_TEST_ADDRESS,
+          amount,
+        },
+        token,
+        token,
+        undefined,
+      );
+    expect(() => build(3_000_000n)).toThrow(/must be greater than 3 USDT/);
+    expect(build(3_000_001n)).toMatch(/^0x[0-9a-f]+$/i);
+  });
+
+  it('refuses a destination token descriptor from the wrong chain', () => {
+    const token = tronSupportedTokens.USDT;
+    expect(() =>
+      sodax.bridge.buildBridgeData(
+        {
+          srcChainKey: ChainKeys.TRON_MAINNET,
+          srcAddress: TRON_TEST_ADDRESS,
+          srcToken: token.address,
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstToken: token.address,
+          recipient: TRON_TEST_ADDRESS,
+          amount: 4_000_000n,
+        },
+        token,
+        { ...token, chainKey: ARBITRUM },
+        undefined,
+      ),
+    ).toThrow(/Payout token chain must match/);
+  });
+
+  it('refuses a Tron token descriptor for a non-MPC destination', () => {
+    const token = tronSupportedTokens.USDT;
+    expect(() =>
+      sodax.bridge.buildBridgeData(
+        {
+          srcChainKey: ChainKeys.TRON_MAINNET,
+          srcAddress: TRON_TEST_ADDRESS,
+          srcToken: token.address,
+          dstChainKey: ARBITRUM,
+          dstToken: token.address,
+          recipient: FEE_ADDR,
+          amount: 4_000_000n,
+        },
+        token,
+        token,
+        undefined,
+      ),
+    ).toThrow(/Payout token chain must match/);
+  });
+
   it('charges the partner fee in 18-dp hub units, not the spoke token’s units', () => {
     const src = realToken(ARBITRUM, 'USDC');
     const dst = realToken(ChainKeys.SONIC_MAINNET, 'USDC');
@@ -451,8 +600,9 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
   it('targets the hub asset — never the spoke token address — for the fee on the no-deposit path', () => {
     const src = realToken(ARBITRUM, 'ARB'); // hubAsset === vault → no-deposit branch
     expect(src.hubAsset.toLowerCase()).toBe(src.vault.toLowerCase());
-    const dst = sodax.config.getXTokenFromHubAsset(src.hubAsset);
-    if (!dst) throw new Error('fixture missing: hub XToken for ARB hub asset');
+    const hubToken = sodax.config.getXTokenFromHubAsset(src.hubAsset);
+    if (!hubToken) throw new Error('fixture missing: hub XToken for ARB hub asset');
+    const dst = { ...hubToken, chainKey: ChainKeys.SONIC_MAINNET };
     const amount = 10n ** 18n;
 
     const data = sodax.bridge.buildBridgeData(
@@ -512,8 +662,9 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
     // encodeContractCalls, failing every fee-bearing Solana→hub bridge of a vault-asset token.
     const src = realToken(SOLANA, 'BONK');
     expect(src.hubAsset.toLowerCase()).toBe(src.vault.toLowerCase());
-    const dst = sodax.config.getXTokenFromHubAsset(src.hubAsset);
-    if (!dst) throw new Error('fixture missing: hub XToken for BONK hub asset');
+    const hubToken = sodax.config.getXTokenFromHubAsset(src.hubAsset);
+    if (!hubToken) throw new Error('fixture missing: hub XToken for BONK hub asset');
+    const dst = { ...hubToken, chainKey: ChainKeys.SONIC_MAINNET };
     const params = {
       srcChainKey: src.chainKey,
       srcAddress: 'GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi',
@@ -764,6 +915,7 @@ describe('BridgeService.bridge — integration error-path coverage', () => {
     expect(result.error.context?.srcChainKey).toBe(BSC);
     expect(result.error.context?.dstChainKey).toBe(ARBITRUM);
     expect(result.error.context?.srcTxHash).toBe('0xspokeTxHash');
+    expect(result.error.context?.relayData).toEqual({ address: HUB_WALLET, payload: '0x' });
     // Relay must not have been called.
     expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
   });
@@ -844,6 +996,44 @@ describe('BridgeService.bridge — backend submit-tx (useBackendSubmitTx)', () =
     });
     return vi.spyOn(sodaxBE.spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
   };
+
+  it('settles an MPC-relay source client-side without trying the backend, which only uses the intent relay', async () => {
+    vi.spyOn(sodaxBE.bridge, 'createBridgeIntent').mockResolvedValueOnce({
+      ok: true,
+      value: { tx: '0xspokeTx', relayData: { address: HUB_WALLET, payload: '0x' } },
+    });
+    const submitSpy = vi.spyOn(sodaxBE.api.bridge, 'submitTx');
+    const settleSpy = vi
+      .spyOn(sodaxBE.spoke, 'settle')
+      .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: '0xHUBMINT' } });
+
+    const result = await sodaxBE.bridge.bridge(bridgeInput(ChainKeys.TRON_MAINNET, ARBITRUM));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.dstChainTxHash).toBe('0xHUBMINT');
+    expect(submitSpy).not.toHaveBeenCalled();
+    expect(settleSpy).toHaveBeenCalledWith(expect.objectContaining({ chainKey: ChainKeys.TRON_MAINNET }));
+  });
+
+  // The backend never notifies the MPC relay, so a bridge paying out on Tron would burn and never release.
+  it('settles a bridge to an MPC-relay chain client-side, naming it as the destination leg', async () => {
+    vi.spyOn(sodaxBE.bridge, 'createBridgeIntent').mockResolvedValueOnce({
+      ok: true,
+      value: { tx: '0xspokeTx', relayData: { address: HUB_WALLET, payload: '0x' } },
+    });
+    const submitSpy = vi.spyOn(sodaxBE.api.bridge, 'submitTx');
+    const settleSpy = vi
+      .spyOn(sodaxBE.spoke, 'settle')
+      .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: 'TronPayout' } });
+
+    const result = await sodaxBE.bridge.bridge(bridgeInput(ARBITRUM, ChainKeys.TRON_MAINNET));
+
+    expect(result.ok).toBe(true);
+    expect(submitSpy).not.toHaveBeenCalled();
+    expect(settleSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ chainKey: ARBITRUM, dstChainKey: ChainKeys.TRON_MAINNET }),
+    );
+  });
 
   it('on backend "executed", returns the TxHashPair from the backend (no client-side relay)', async () => {
     stubCreatedAndVerified();
@@ -1516,11 +1706,13 @@ describe('BridgeService.getDetailedStatus', () => {
   // Carries the identity fields the attribution guard matches on, so the happy paths exercise it.
   // The relay has its own chain numbering, so derive it rather than hardcoding a chain id.
   const RELAY_CHAIN_ID = Number(getIntentRelayChainId(ARBITRUM));
+  const HUB_RELAY_CHAIN_ID = Number(getIntentRelayChainId(ChainKeys.SONIC_MAINNET));
   const delivered = [{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }];
 
   beforeEach(() => {
     vi.restoreAllMocks();
     mocks.getTransactionPackets.mockReset();
+    vi.spyOn(sodaxBE.spoke, 'getHubRelease').mockResolvedValue(undefined);
   });
 
   it('returns the unmodified submit-tx record without touching the relay', async () => {
@@ -1602,6 +1794,289 @@ describe('BridgeService.getDetailedStatus', () => {
     expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
   });
 
+  // An MPC-relay source never produces an intent-relay packet: the relay's deposit record answers instead.
+  describe('from an MPC-relay source', () => {
+    const tronKey = { srcChainKey: ChainKeys.TRON_MAINNET, srcTxHash: 'ab'.repeat(32) } as const;
+    const deposit = (status: DepositRecord['status'], txs: DepositRecord['txs']) =>
+      vi
+        .spyOn(sodaxBE.spoke, 'getMpcRelayDeposit')
+        .mockResolvedValueOnce({ ok: true, value: { depositId: 'id', status, createdAt: 0, txs } });
+
+    it('returns the minted deposit record whole, without asking the intent relay', async () => {
+      recordNotFound();
+      const hubMint = { chain: 'sonic', hash: DST_TX, ts: 0 };
+      deposit('minted', { hubMint });
+
+      const result = await sodaxBE.bridge.getDetailedStatus({ ...tronKey, dstChainKey: ChainKeys.SONIC_MAINNET });
+
+      expect(result).toEqual({
+        ok: true,
+        value: { source: 'mpcRelay', data: { depositId: 'id', status: 'minted', createdAt: 0, txs: { hubMint } } },
+      });
+      expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
+    });
+
+    it('keeps a hub mint non-terminal when the destination is omitted', async () => {
+      recordNotFound();
+      deposit('minted', { hubMint: { chain: 'sonic', hash: DST_TX, ts: 0 } });
+
+      const result = await sodaxBE.bridge.getDetailedStatus(tronKey);
+
+      invariant(!result.ok, 'expected a non-terminal lookup');
+      expect(result.error.context).toMatchObject({ reason: DETAILED_STATUS_NOT_DELIVERED, hubTxHash: DST_TX });
+    });
+
+    describe('to another spoke', () => {
+      const toArbitrum = { ...tronKey, dstChainKey: ARBITRUM } as const;
+      const onwardPacket = {
+        status: 'executed',
+        dst_tx_hash: '0xa7b1',
+        src_tx_hash: DST_TX,
+        src_chain_id: HUB_RELAY_CHAIN_ID,
+      };
+
+      beforeEach(() => {
+        recordNotFound();
+        deposit('minted', { hubMint: { chain: 'sonic', hash: DST_TX, ts: 0 } });
+      });
+
+      it('waits for the hub-to-spoke packet: the hub mint alone is not delivered', async () => {
+        packets([]);
+
+        const result = await sodaxBE.bridge.getDetailedStatus(toArbitrum);
+
+        invariant(!result.ok, 'expected LOOKUP_FAILED');
+        expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+        expect(result.error.context?.hubTxHash).toBe(DST_TX);
+        expect(result.error.context?.mpcRelay).toBe(true);
+      });
+
+      it('answers with that packet once it lands', async () => {
+        packets([onwardPacket]);
+
+        const result = await sodaxBE.bridge.getDetailedStatus(toArbitrum);
+
+        expect(result).toEqual({ ok: true, value: { source: 'relay', data: onwardPacket } });
+      });
+
+      it('never asks the backend, which holds no bridge from Tron and rejects its chain key', async () => {
+        vi.restoreAllMocks();
+        const backend = vi.spyOn(sodaxBE.api.bridge, 'getSubmitTxStatus');
+        deposit('minted', { hubMint: { chain: 'sonic', hash: DST_TX, ts: 0 } });
+        packets([]);
+
+        const result = await sodaxBE.bridge.getDetailedStatus(toArbitrum);
+
+        expect(backend).not.toHaveBeenCalled();
+        invariant(!result.ok, 'expected LOOKUP_FAILED');
+        expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      });
+
+      it('waits for the release when the destination is the source chain', async () => {
+        const result = await sodaxBE.bridge.getDetailedStatus({ ...tronKey, dstChainKey: ChainKeys.TRON_MAINNET });
+
+        invariant(!result.ok, 'expected LOOKUP_FAILED');
+        expect(result.error.code).toBe('LOOKUP_FAILED');
+        expect(result.error.context).toMatchObject({
+          reason: DETAILED_STATUS_NOT_DELIVERED,
+          hubTxHash: DST_TX,
+          mpcRelay: true,
+        });
+        expect(sodaxBE.spoke.getHubRelease).toHaveBeenCalledWith(DST_TX);
+        expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
+      });
+
+      it.each(['unpaid', 'failed'] as const)('keeps a %s Tron release pending after the hub mint', async state => {
+        vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce(
+          state === 'failed'
+            ? { ok: false, error: new Error('rpc down') }
+            : { ok: true, value: { depositId: 'release', status: 'submitted', createdAt: 0, txs: {} } },
+        );
+        const result = await sodaxBE.bridge.getDetailedStatus({ ...tronKey, dstChainKey: ChainKeys.TRON_MAINNET });
+        invariant(!result.ok, 'expected LOOKUP_FAILED');
+        expect(result.error.context).toMatchObject({ hubTxHash: DST_TX, mpcRelay: true });
+        expect(result.error.context?.reason).toBe(state === 'unpaid' ? DETAILED_STATUS_NOT_DELIVERED : undefined);
+      });
+
+      it('returns the paid release for a Tron-to-Tron bridge', async () => {
+        const release = {
+          depositId: 'release',
+          status: 'submitted',
+          createdAt: 0,
+          txs: { release: { chain: 'tron', hash: 'tronPayout', ts: 0 } },
+        } as const;
+        vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({ ok: true, value: release });
+        const result = await sodaxBE.bridge.getDetailedStatus({ ...tronKey, dstChainKey: ChainKeys.TRON_MAINNET });
+        expect(result).toEqual({ ok: true, value: { source: 'mpcRelay', data: release } });
+        expect(sodaxBE.spoke.getHubRelease).toHaveBeenCalledWith(DST_TX);
+      });
+
+      it('keeps the hub mint as the answer for a bridge to the hub', async () => {
+        const result = await sodaxBE.bridge.getDetailedStatus({ ...tronKey, dstChainKey: ChainKeys.SONIC_MAINNET });
+
+        invariant(result.ok && result.value.source === 'mpcRelay', 'expected the mpcRelay arm');
+        expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
+      });
+    });
+
+    it('tags a deposit the relay has not minted as the budgetable not-delivered miss', async () => {
+      recordNotFound();
+      deposit('attested', {});
+
+      const result = await sodaxBE.bridge.getDetailedStatus(tronKey);
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.code).toBe('LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(true);
+      expect(mocks.getTransactionPackets).not.toHaveBeenCalled();
+    });
+  });
+
+  // The hub emits a `BridgeRequest` for an MPC-relay payout, so the intent relay has no packet for that leg.
+  describe('to an MPC-relay destination', () => {
+    const HUB_SOURCE = ChainKeys.SONIC_MAINNET;
+    const hubKey = { srcChainKey: HUB_SOURCE, srcTxHash: SRC_TX } as const;
+    const release = (txs: DepositRecord['txs']) =>
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({
+        ok: true,
+        value: { depositId: 'id', status: 'submitted', createdAt: 0, txs },
+      });
+    const paid = { release: { chain: 'tron', hash: 'tronPayout', ts: 0 } };
+
+    it('answers a hub-source bridge from the release record once the payout is recorded', async () => {
+      recordNotFound();
+      packets([]);
+      release(paid);
+
+      const result = await sodaxBE.bridge.getDetailedStatus(hubKey);
+
+      expect(sodaxBE.spoke.getHubRelease).toHaveBeenCalledWith(SRC_TX);
+      invariant(result.ok && result.value.source === 'mpcRelay', 'expected the mpcRelay arm');
+      expect(result.value.data.txs.release?.hash).toBe('tronPayout');
+    });
+
+    it('keeps an unpaid release a budgetable miss, since that arm stops pollers', async () => {
+      recordNotFound();
+      packets([]);
+      release({});
+
+      const result = await sodaxBE.bridge.getDetailedStatus(hubKey);
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(true);
+    });
+
+    it('does not read the hub receipt when a hub-source packet already answers', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: HUB_RELAY_CHAIN_ID }]);
+
+      const result = await sodaxBE.bridge.getDetailedStatus(hubKey);
+
+      invariant(result.ok, 'expected the relay arm');
+      expect(result.value.source).toBe('relay');
+      expect(sodaxBE.spoke.getHubRelease).not.toHaveBeenCalled();
+    });
+
+    it('keeps the packet miss when a hub-source receipt cannot be read yet', async () => {
+      recordNotFound();
+      packets([]);
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({ ok: false, error: new Error('no receipt') });
+
+      const result = await sodaxBE.bridge.getDetailedStatus(hubKey);
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(false);
+    });
+
+    it('keeps retrying a hub-source bridge to an MPC-relay chain while its release cannot be read', async () => {
+      packets([]);
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({ ok: false, error: new Error('rpc down') });
+
+      const result = await sodaxBE.bridge.getDetailedStatus({ ...hubKey, dstChainKey: ChainKeys.TRON_MAINNET });
+
+      // No packet can exist for that bridge, so a budgetable packet miss would spend its budget on an outage.
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBeUndefined();
+      expect(result.error.context?.mpcRelay).toBe(true);
+    });
+
+    it('does not report a spoke-source bridge final when its packet only reached the hub', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      release({});
+
+      const result = await sodaxBE.bridge.getDetailedStatus(key);
+
+      expect(sodaxBE.spoke.getHubRelease).toHaveBeenCalledWith(DST_TX);
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(true);
+      // The first leg reached the hub, so the release gets a budget of its own.
+      expect(result.error.context?.hubTxHash).toBe(DST_TX);
+    });
+
+    it('does not report a spoke-source bridge to an MPC-relay chain final when its hub tx sends no release', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce(undefined);
+
+      const result = await sodaxBE.bridge.getDetailedStatus({ ...key, dstChainKey: ChainKeys.TRON_MAINNET });
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(true);
+      expect(result.error.context?.hubTxHash).toBe(DST_TX);
+    });
+
+    it('answers a spoke-source bridge from the release record once paid', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      release(paid);
+
+      const result = await sodaxBE.bridge.getDetailedStatus(key);
+
+      invariant(result.ok && result.value.source === 'mpcRelay', 'expected the mpcRelay arm');
+      expect(result.value.data.txs.release?.hash).toBe('tronPayout');
+    });
+
+    it('keeps retrying rather than reporting final when the hub receipt behind a packet is unreadable', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({ ok: false, error: new Error('rpc down') });
+
+      const result = await sodaxBE.bridge.getDetailedStatus(key);
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBeUndefined();
+    });
+
+    it('answers from the packet when the hub receipt is unreadable and dstChainKey is off the MPC relay', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({ ok: false, error: new Error('rpc down') });
+
+      const result = await sodaxBE.bridge.getDetailedStatus({ ...key, dstChainKey: BSC });
+
+      invariant(result.ok && result.value.source === 'relay', 'expected the relay arm');
+      expect(result.value.data.dst_tx_hash).toBe(DST_TX);
+    });
+
+    it('still finds a release the hub tx sends to Tron when dstChainKey says otherwise', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      release({});
+
+      const result = await sodaxBE.bridge.getDetailedStatus({ ...key, dstChainKey: BSC });
+
+      invariant(!result.ok, 'expected LOOKUP_FAILED');
+      expect(result.error.context?.reason).toBe(DETAILED_STATUS_NOT_DELIVERED);
+      expect(result.error.context?.mpcRelay).toBe(true);
+    });
+  });
+
   it('returns a Result rather than rejecting when a dependency throws', async () => {
     vi.spyOn(sodaxBE.api.bridge, 'getSubmitTxStatus').mockRejectedValueOnce(new Error('boom'));
 
@@ -1609,6 +2084,153 @@ describe('BridgeService.getDetailedStatus', () => {
 
     invariant(!result.ok, 'expected LOOKUP_FAILED');
     expect(result.error.code).toBe('LOOKUP_FAILED');
+  });
+});
+
+// Below `settle`: only the relay seams are stubbed, so the hub release a bridge to Tron needs is driven for real.
+describe('BridgeService.bridge — to Tron, through the MPC relay seams', () => {
+  it('submits the hub delivery as a Tron release, waits on that release, and returns its payout', async () => {
+    const hubTx = `0x${'9'.repeat(64)}` as const;
+    vi.spyOn(sodax.bridge, 'createBridgeIntent').mockResolvedValueOnce({
+      ok: true,
+      value: { tx: '0xspokeTx', relayData: { address: HUB_WALLET, payload: '0x' } },
+    });
+    vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
+    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: hubTx } });
+    const bridgeRequest = {
+      address: sodax.hubProvider.chainConfig.addresses.assetManager,
+      logIndex: 2,
+      topics: [toEventSelector('BridgeRequest(uint256,bytes,bytes)'), pad(toHex(728126428n), { size: 32 })],
+    };
+    vi.spyOn(sodax.hubProvider.publicClient, 'waitForTransactionReceipt')
+      // Only `status` and `logs` are read; a full receipt carries block data the test has no use for.
+      .mockResolvedValue({ status: 'success', logs: [bridgeRequest] } as unknown as TransactionReceipt);
+    const submit = vi.spyOn(sodax.spoke.tron, 'submitHubRelease').mockResolvedValue({ ok: true, value: undefined });
+    const wait = vi.spyOn(sodax.spoke.tron, 'waitForHubRelease').mockResolvedValue({
+      ok: true,
+      value: {
+        depositId: 'id',
+        status: 'submitted',
+        createdAt: null,
+        txs: { release: { chain: 'tron', hash: 'tronPayout', ts: 0 } },
+      },
+    });
+
+    const result = await sodax.bridge.bridge(bridgeInput(ARBITRUM, ChainKeys.TRON_MAINNET));
+
+    const release = { dstChainKey: ChainKeys.TRON_MAINNET, hubChainId: '146', hubTxHash: hubTx, logIndex: 2 };
+    expect(submit).toHaveBeenCalledWith(release);
+    expect(wait).toHaveBeenCalledWith(release, expect.any(Number));
+    expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: 'tronPayout' } });
+  });
+});
+
+describe('BridgeService.createBridgeIntent — small payout to an MPC-relay chain', () => {
+  const sodaxBE = new Sodax({ logger: 'silent' });
+  // Any non-vault hub asset: each endpoint translates through the 18-dp vault units.
+  const hubAsset = '0x2222222222222222222222222222222222222222' as Address;
+  const src = { address: SAMPLE_TOKEN, chainKey: ARBITRUM, symbol: 'USDT', decimals: 18, hubAsset };
+  const dst = {
+    address: String(tronSupportedTokens.USDT.address),
+    chainKey: ChainKeys.TRON_MAINNET,
+    symbol: 'USDT',
+    decimals: 6,
+    hubAsset,
+  };
+
+  const run = async (amount: bigint, partnerFee?: PartnerFee, destination = dst) => {
+    // Private, and the only seam that gives the two endpoints decimals that differ.
+    const resolver = sodaxBE.bridge as unknown as { resolveBridgeEndpointToken: (chainKey: string) => unknown };
+    vi.spyOn(resolver, 'resolveBridgeEndpointToken').mockImplementation(chainKey =>
+      chainKey === ChainKeys.TRON_MAINNET ? destination : src,
+    );
+    const pastValidation = vi
+      .spyOn(sodaxBE.hubProvider, 'getUserHubWalletAddress')
+      .mockRejectedValue(new Error('past validation'));
+    const input = bridgeInput(ARBITRUM, ChainKeys.TRON_MAINNET);
+    const result = await sodaxBE.bridge.createBridgeIntent({
+      ...input,
+      params: { ...input.params, amount, recipient: TRON_TEST_ADDRESS },
+      extras: partnerFee ? { partnerFee } : undefined,
+    });
+    return { result, pastValidation };
+  };
+
+  const expectRefused = ({ result, pastValidation }: Awaited<ReturnType<typeof run>>) => {
+    invariant(!result.ok, 'expected a refusal');
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context?.reason).toBe('mpc-payout-below-minimum');
+    expect(pastValidation).not.toHaveBeenCalled();
+  };
+
+  it('refuses the floor even with a custom symbol on the same token', async () => {
+    expectRefused(await run(3n * 10n ** 18n, undefined, { ...dst, symbol: 'CUSTOM' }));
+  });
+
+  it('refuses a token address without a floor even when it uses the USDT symbol', async () => {
+    const { result, pastValidation } = await run(4n * 10n ** 18n, undefined, { ...dst, address: TRON_TEST_ADDRESS });
+    invariant(!result.ok, 'expected a refusal');
+    expect(result.error.context?.reason).toBe('mpc-payout-minimum-missing');
+    expect(pastValidation).not.toHaveBeenCalled();
+  });
+
+  it('refuses the source amount converted to the payout decimals at the minimum', async () => {
+    expectRefused(await run(3n * 10n ** 18n));
+  });
+
+  it('refuses on what arrives after the partner fee, not the gross amount', async () => {
+    expectRefused(await run(31n * 10n ** 17n, { address: SAMPLE_USER, percentage: 500 }));
+  });
+
+  it('passes above the minimum, however large the source decimals make it look', async () => {
+    expect((await run(4n * 10n ** 18n)).pastValidation).toHaveBeenCalled();
+  });
+});
+
+// An XRPL account can refuse a release outright, after the hub has already burned the funds.
+describe('BridgeService.createBridgeIntent — XRPL recipient', () => {
+  const sodaxBE = new Sodax({ logger: 'silent' });
+  const XRPL_ADDRESS = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+  const hubAsset = '0x2222222222222222222222222222222222222222' as Address;
+  const src = { address: SAMPLE_TOKEN, chainKey: ARBITRUM, symbol: 'USDC', decimals: 6, hubAsset };
+  const dst = {
+    address: xrpSupportedTokens.USDC.address,
+    chainKey: ChainKeys.XRP_MAINNET,
+    symbol: 'USDC',
+    decimals: 6,
+    hubAsset,
+  };
+
+  const run = async (readiness: XrpDestinationReadiness) => {
+    // Private, and the only seam that resolves both endpoints without a configured route.
+    const resolver = sodaxBE.bridge as unknown as { resolveBridgeEndpointToken: (chainKey: string) => unknown };
+    vi.spyOn(resolver, 'resolveBridgeEndpointToken').mockImplementation(chainKey =>
+      chainKey === ChainKeys.XRP_MAINNET ? dst : src,
+    );
+    const checkSpy = vi.spyOn(sodaxBE.spoke.xrp, 'checkDestination').mockResolvedValue(readiness);
+    const pastValidation = vi
+      .spyOn(sodaxBE.hubProvider, 'getUserHubWalletAddress')
+      .mockRejectedValue(new Error('past validation'));
+    const input = bridgeInput(ARBITRUM, ChainKeys.XRP_MAINNET);
+    const result = await sodaxBE.bridge.createBridgeIntent({
+      ...input,
+      params: { ...input.params, amount: 5_000_000n, recipient: XRPL_ADDRESS },
+    });
+    return { result, pastValidation, checkSpy };
+  };
+
+  it('refuses a bridge to an XRPL account that cannot receive the release', async () => {
+    const { result, pastValidation, checkSpy } = await run({ ready: false, reason: 'destination_tag_required' });
+
+    invariant(!result.ok, 'expected a refusal');
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context).toMatchObject({ field: 'recipient', reason: 'xrpl-destination_tag_required' });
+    expect(checkSpy).toHaveBeenCalledWith(expect.objectContaining({ address: XRPL_ADDRESS, token: dst.address }));
+    expect(pastValidation).not.toHaveBeenCalled();
+  });
+
+  it('passes a bridge to an XRPL account that can receive it', async () => {
+    expect((await run({ ready: true })).pastValidation).toHaveBeenCalled();
   });
 });
 
@@ -1934,6 +2556,12 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
     const stubResumeRelay = () => {
       mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xDST' } });
     };
+    const resumeToTron = (wallet: ReturnType<typeof makeBatchProvider>) =>
+      sodax.bridge.bridgeWithApproval({
+        ...bridgeInput(BSC, ChainKeys.TRON_MAINNET),
+        walletProvider: wallet,
+        resumeBatchId: 'batch-1',
+      });
     const resume = (wallet: ReturnType<typeof makeBatchProvider>, resumeBatchCallCount?: number) =>
       sodax.bridge.bridgeWithApproval({ ...input(wallet), resumeBatchId: 'batch-1', resumeBatchCallCount });
     const perCallReceipts: EvmBatchResult = {
@@ -2074,6 +2702,50 @@ describe('BridgeService.getApprovalStrategy and bridgeWithApproval', () => {
       const result = await resume(wallet);
 
       expect(!result.ok && result.error.code).toBe('TX_SUBMIT_FAILED');
+      expect(!result.ok && result.error.context?.srcTxHash).toBe('0xbatchTx');
+    });
+
+    it('releases the payout of a resumed batch to Tron, which no relay watches the hub for', async () => {
+      const wallet = makeBatchProvider();
+      stubResumeRelay();
+      const release = vi
+        .spyOn(sodax.bridge.spoke, 'settleHubRelease')
+        .mockResolvedValueOnce({ ok: true, value: { srcChainTxHash: '0xDST', dstChainTxHash: 'tronPayout' } });
+
+      const result = await resumeToTron(wallet);
+
+      expect(release).toHaveBeenCalledWith('0xDST', ChainKeys.TRON_MAINNET, DEFAULT_RELAY_TX_TIMEOUT);
+      expect(result).toEqual({
+        ok: true,
+        value: { srcChainTxHash: '0xbatchTx', dstChainTxHash: 'tronPayout', approvalStrategy: 'atomic-batch' },
+      });
+    });
+
+    it('keeps the deposit tx when the Tron release does not land', async () => {
+      const wallet = makeBatchProvider();
+      stubResumeRelay();
+      vi.spyOn(sodax.bridge.spoke, 'settleHubRelease').mockResolvedValueOnce({
+        ok: false,
+        error: { phase: 'relay', cause: new Error('RELAY_TIMEOUT') },
+      });
+
+      const result = await resumeToTron(wallet);
+
+      expect(!result.ok && result.error.code).toBe('RELAY_TIMEOUT');
+      expect(!result.ok && result.error.context?.srcTxHash).toBe('0xbatchTx');
+    });
+
+    it('reports a hub release that reverted as a verification failure, not a relay one', async () => {
+      const wallet = makeBatchProvider();
+      stubResumeRelay();
+      vi.spyOn(sodax.bridge.spoke, 'settleHubRelease').mockResolvedValueOnce({
+        ok: false,
+        error: { phase: 'verification', cause: new Error('hub tx 0xDST reverted') },
+      });
+
+      const result = await resumeToTron(wallet);
+
+      expect(!result.ok && result.error.code).toBe('TX_VERIFICATION_FAILED');
       expect(!result.ok && result.error.context?.srcTxHash).toBe('0xbatchTx');
     });
 

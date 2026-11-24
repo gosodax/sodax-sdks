@@ -145,24 +145,7 @@ export function useInitializeSodax() {
 ```tsx
 import { ChainKeys } from '@sodax/sdk';
 
-// Examples (full list lives in @sodax/sdk's reference):
-ChainKeys.SONIC_MAINNET;       // 'sonic'           (hub)
-ChainKeys.ARBITRUM_MAINNET;    // '0xa4b1.arbitrum'
-ChainKeys.BASE_MAINNET;        // '0x2105.base'
-ChainKeys.BSC_MAINNET;         // '0x38.bsc'
-ChainKeys.ETHEREUM_MAINNET;    // '0x1.ethereum'
-ChainKeys.POLYGON_MAINNET;     // '0x89.polygon'
-ChainKeys.OPTIMISM_MAINNET;    // '0xa.optimism'
-ChainKeys.AVALANCHE_MAINNET;   // '0xa86a.avax'
-ChainKeys.SUI_MAINNET;         // 'sui'
-ChainKeys.STELLAR_MAINNET;     // 'stellar'
-ChainKeys.SOLANA_MAINNET;      // 'solana'
-ChainKeys.ICON_MAINNET;        // '0x1.icon'
-ChainKeys.INJECTIVE_MAINNET;   // 'injective-1'
-ChainKeys.NEAR_MAINNET;        // 'near'
-ChainKeys.STACKS_MAINNET;      // 'stacks'
-ChainKeys.BITCOIN_MAINNET;     // 'bitcoin'
-// HyperEVM, Lightlink, Redbelly, Kaia, Hedera also available.
+ChainKeys.SONIC_MAINNET; // the hub; every supported chain is a ChainKeys member
 ```
 
 **v1 → v2:** the legacy `*_MAINNET_CHAIN_ID` constants (e.g. `BSC_MAINNET_CHAIN_ID`) are gone. Use `ChainKeys.X_MAINNET` namespace access.

@@ -1,4 +1,11 @@
-import { ATOMIC_BATCH_UNCONFIRMED, ChainKeys, SodaxError, type CreateIntentParams } from '@sodax/sdk';
+import {
+  ATOMIC_BATCH_UNCONFIRMED,
+  ChainKeys,
+  IndeterminateOutcomeError,
+  intentCreationFailed,
+  SodaxError,
+  type CreateIntentParams,
+} from '@sodax/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const strategyHook = vi.fn();
@@ -304,6 +311,25 @@ describe('useSwapLifecycle', () => {
 
     expect(lifecycle.state).toMatchObject({ kind: 'pending', srcTxHash: '0xsrc' });
     expect(lifecycle.error).toBe(error);
+  });
+
+  it('keeps a recovery-only attempt pending across an input edit without sending again', async () => {
+    const recovery = { validUntil: 42 };
+    const failure = intentCreationFailed(
+      'swap',
+      new IndeterminateOutcomeError('submit reply lost', {
+        cause: new Error('timeout'),
+        recovery,
+      }),
+    );
+    stub({ swap: { status: 'error', error: failure, variables: { params: PARAMS } } });
+    const lifecycle = run({ intentParams: { ...PARAMS, minOutputAmount: 899_000n } });
+
+    expect(lifecycle.state).toEqual({ kind: 'pending', srcChainKey: PARAMS.srcChainKey, recovery, error: failure });
+    expect(statusHook).toHaveBeenCalledWith({ params: { srcChainKey: undefined, srcTxHash: undefined } });
+    await expect(lifecycle.next()).resolves.toBeUndefined();
+    expect(mutateAsyncSafe).not.toHaveBeenCalled();
+    expect(resetSwap).not.toHaveBeenCalled();
   });
 
   it('ignores reset() while the swap call is in flight', () => {

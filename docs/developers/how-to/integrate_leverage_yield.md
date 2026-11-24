@@ -116,7 +116,7 @@ In TypeScript, `sodax.api.leverageYield` and the `useLeverageYieldApi*` hooks wr
 
 ## Build it with an AI agent {#ai-agents}
 
-Install the [`@sodax/skills`](/ai-integration-guide) bundle before you start the agent. The broad `sodax-dapp-kit` and `sodax-sdk` skills route it to the leverage-yield skills below. You don't need the Builders MCP for vaults: the SDK and hooks read live vault data, APR and quotes themselves. Then describe the task plainly, for example *"Add a deposit into a leverage-yield vault from Arbitrum with `@sodax/dapp-kit`"*. Check what the agent produces against the [Gotchas](#gotchas).
+Install the [`@sodax/skills`](/ai-integration-guide) bundle before you start the agent. The broad `sodax-dapp-kit` and `sodax-sdk` skills route it to the leverage-yield skills below. You don't need the SODAX MCP for vaults: the SDK and hooks read live vault data, APR and quotes themselves. Then describe the task plainly, for example *"Add a deposit into a leverage-yield vault from Arbitrum with `@sodax/dapp-kit`"*. Check what the agent produces against the [Gotchas](#gotchas).
 
 To point an agent at a skill directly, or to read one yourself:
 

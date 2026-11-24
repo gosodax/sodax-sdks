@@ -17,6 +17,10 @@ The `ChainKey` type is the union of every `ChainKeys.*` value — the table belo
 | `REDBELLY_MAINNET` | `'redbelly'` | EVM | spoke | `0x${string}` |
 | `KAIA_MAINNET` | `'0x2019.kaia'` | EVM | spoke | `0x${string}` |
 | `HEDERA_MAINNET` | `'hedera'` | EVM | spoke | `0x${string}` |
+| `MONAD_MAINNET` | `'monad'` | EVM | spoke (MPC relay) | `0x${string}` |
+| `TON_MAINNET` | `'ton'` | TON | spoke (MPC relay) | 32-byte ed25519 public key `0x${string}` (not a TON address) |
+| `ZCASH_MAINNET` | `'zcash'` | ZCASH | spoke (MPC relay) | transparent `t1…` address (string) |
+| `CARDANO_MAINNET` | `'cardano'` | CARDANO | spoke (MPC relay) | mainnet `addr1…` key-hash payment address (string) |
 | `ROBINHOOD_MAINNET` | `'robinhood'` | EVM | spoke | `0x${string}` |
 | `SOLANA_MAINNET` | `'solana'` | SOLANA | spoke | base58 PublicKey string |
 | `SUI_MAINNET` | `'sui'` | SUI | spoke | `0x${string}` (32-byte) |
@@ -26,6 +30,8 @@ The `ChainKey` type is the union of every `ChainKeys.*` value — the table belo
 | `NEAR_MAINNET` | `'near'` | NEAR | spoke | `<account>.near` / `<hex>` |
 | `STACKS_MAINNET` | `'stacks'` | STACKS | spoke | `SP…` / `ST…` |
 | `BITCOIN_MAINNET` | `'bitcoin'` | BITCOIN | spoke | `bc1…` / `1…` / `3…` |
+| `TRON_MAINNET` | `'tron'` | TRON | spoke | `T…` (base58check) |
+| `XRP_MAINNET` | `'xrp'` | XRP | spoke | classic `r…` (base58check) |
 
 ### Notes
 
@@ -56,7 +62,9 @@ import {
   isStacksChainKeyType,
   isNearChainKeyType,
   isBitcoinChainKeyType,
+  isTronChainKeyType,
   isHubChainKeyType,
+  isMpcRelayChainKeyType, // settles through the MPC relay (Tron): ../chain-specifics.md § "Tron (MPC relay)"
 } from '@sodax/sdk';
 ```
 

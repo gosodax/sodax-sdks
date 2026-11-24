@@ -28,6 +28,11 @@ const rpcConfig: RpcConfig = {
   [ChainKeys.SOLANA_MAINNET]: process.env.SOLANA_RPC_URL ?? 'https://solana-rpc.publicnode.com',
   [ChainKeys.SUI_MAINNET]: process.env.SUI_GRPC_URL ?? 'https://fullnode.mainnet.sui.io',
   [ChainKeys.NEAR_MAINNET]: process.env.NEAR_RPC_URL ?? 'https://free.rpc.fastnear.com',
+  [ChainKeys.TRON_MAINNET]: process.env.TRON_RPC_URL ?? 'https://api.trongrid.io',
+  [ChainKeys.XRP_MAINNET]: process.env.XRP_RPC_URL ?? 'https://xrplcluster.com',
+  [ChainKeys.TON_MAINNET]: process.env.TON_RPC_URL ?? 'https://toncenter.com/api/v2/jsonRPC',
+  // Public Koios sends no CORS headers on responses, so Vite and Vercel both proxy it at `/__koios`.
+  [ChainKeys.CARDANO_MAINNET]: process.env.CARDANO_RPC_URL ?? `${window.location.origin}/__koios`,
   [ChainKeys.STELLAR_MAINNET]: {
     horizonRpcUrl: process.env.STELLAR_HORIZON_RPC_URL ?? 'https://horizon.stellar.org',
     sorobanRpcUrl: process.env.STELLAR_SOROBAN_RPC_URL ?? 'https://rpc.ankr.com/stellar_soroban',
@@ -36,6 +41,13 @@ const rpcConfig: RpcConfig = {
     rpcUrl: process.env.BITCOIN_RPC_URL ?? 'https://mempool.space/api',
   },
 };
+
+// Zcash deposits and balances need an address-indexed node, and the SDK packages none, so Zcash stays off without one.
+const zcashRpcUrlEnv: unknown = import.meta.env.VITE_ZCASH_RPC_URL;
+const zcashChains =
+  isHttpUrl(zcashRpcUrlEnv) && URL.canParse(zcashRpcUrlEnv)
+    ? { [ChainKeys.ZCASH_MAINNET]: { rpcUrl: zcashRpcUrlEnv } }
+    : undefined;
 
 // Read credentials through Vite-scoped env variables, not the inlined process environment.
 // The optional base URL includes any deployment prefix; the SDK appends the sponsoring path.
@@ -117,6 +129,32 @@ export default function Providers({ children, privy }: { children: ReactNode; pr
         },
       },
       STACKS: { chains: { [ChainKeys.STACKS_MAINNET]: 'mainnet' } },
+      TRON: {
+        chains: {
+          [ChainKeys.TRON_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.TRON_MAINNET] },
+        },
+      },
+      // XRPL rides the MPC relay like Tron; GemWallet is its connector.
+      XRP: {
+        chains: {
+          [ChainKeys.XRP_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.XRP_MAINNET] },
+        },
+      },
+      // TON rides the MPC relay too; TonConnect is its connector and needs the app's manifest.
+      TON: {
+        manifestUrl: `${window.location.origin}/tonconnect-manifest.json`,
+        chains: {
+          [ChainKeys.TON_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.TON_MAINNET] },
+        },
+      },
+      // Zcash rides the MPC relay in address mode with Noir Wallet; offered only with an address-indexed RPC.
+      ...(zcashChains ? { ZCASH: { chains: zcashChains } } : {}),
+      // Cardano rides the MPC relay in memo mode; Lace (CIP-30) is its connector and Koios supplies the UTXOs.
+      CARDANO: {
+        chains: {
+          [ChainKeys.CARDANO_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.CARDANO_MAINNET] },
+        },
+      },
     };
   }, [privy]);
 
@@ -184,6 +222,11 @@ export default function Providers({ children, privy }: { children: ReactNode; pr
         [ChainKeys.NEAR_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.NEAR_MAINNET] },
         [ChainKeys.STELLAR_MAINNET]: rpcConfig[ChainKeys.STELLAR_MAINNET],
         [ChainKeys.BITCOIN_MAINNET]: rpcConfig[ChainKeys.BITCOIN_MAINNET],
+        [ChainKeys.TRON_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.TRON_MAINNET] },
+        [ChainKeys.XRP_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.XRP_MAINNET] },
+        [ChainKeys.TON_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.TON_MAINNET] },
+        [ChainKeys.CARDANO_MAINNET]: { rpcUrl: rpcConfig[ChainKeys.CARDANO_MAINNET] },
+        ...zcashChains,
       },
     };
   }, [solverEnvironment, sodaxSettings]);

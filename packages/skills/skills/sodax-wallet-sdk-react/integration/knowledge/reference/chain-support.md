@@ -6,11 +6,11 @@ Chains supported by `@sodax/wallet-sdk-react` v2 — their `ChainType` family an
 
 ## Chain families (`ChainType`)
 
-9 chain families. Each is a top-level slot on `SodaxWalletConfig`:
+Each chain family is a top-level slot on `SodaxWalletConfig`:
 
 | ChainType | Networks (examples) | React adapter mounted |
 |---|---|---|
-| `EVM` | Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood Chain | wagmi |
+| `EVM` | Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Monad, Robinhood Chain | wagmi |
 | `SOLANA` | Solana mainnet | `@solana/wallet-adapter-react` |
 | `SUI` | Sui mainnet/testnet | `@mysten/dapp-kit-react` |
 | `BITCOIN` | Bitcoin mainnet | (none — direct extension probes) |
@@ -19,8 +19,12 @@ Chains supported by `@sodax/wallet-sdk-react` v2 — their `ChainType` family an
 | `INJECTIVE` | Injective mainnet | (none) |
 | `NEAR` | NEAR mainnet | (none) |
 | `STACKS` | Stacks mainnet | (none) |
+| `TRON` | Tron mainnet | (none) |
+| `ZCASH` | Zcash mainnet (transparent ZEC) | (none — Noir Wallet extension) |
 
 EVM is the only family with multiple networks under one connection — wagmi maintains a single connection that spans every configured EVM network. See [`../architecture.md`](../architecture.md) § "EVM is one connection".
+
+Tron's `isInstalled` reads the wallet found by the TIP-6963 discovery that runs once per page, then `window.tron` / `window.tronLink`, taking the first one that can authorize. `connect()` runs discovery again before the same fallback. The connection does not follow an account switched in the wallet: reconnect after switching.
 
 ---
 
@@ -37,6 +41,8 @@ EVM is the only family with multiple networks under one connection — wagmi mai
 | `ICON` | `connectors?, chains` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }` |
 | `NEAR` | `connectors?, chains` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }` |
 | `STACKS` | preset name (string) **or** `StacksNetworkLike & { defaults?, connectors? }` | `'mainnet'` / `'testnet'` preset accepted |
+| `TRON` | `connectors?, chains?` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }` |
+| `ZCASH` | `connectors?, chains?` | `chains` keyed by `ChainKey` → `{ rpcUrl?, defaults? }`; SDK deposits also need an address-indexed RPC in the SDK's `chains.zcash.rpcUrl` |
 
 The single source of truth for the per-chain shape is `ChainMeta` in `src/types/config.ts` — `SodaxWalletConfig`, `ChainEntry<K>`, `WalletDefaultsByKey<K>` derive from it.
 
@@ -56,7 +62,7 @@ ChainKeys.BITCOIN_MAINNET;     // BITCOIN
 // …etc
 ```
 
-Naming pattern: `<NETWORK>_MAINNET`. EVM has 14 entries (Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood Chain); the other 8 families each have one. Inspect `@sodax/types` for the authoritative list.
+Naming pattern: `<NETWORK>_MAINNET`. EVM has 15 entries (Sonic, Ethereum, Arbitrum, Base, BSC, Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Monad, Robinhood Chain); the other families each have one. Inspect `@sodax/types` for the authoritative list.
 
 ---
 

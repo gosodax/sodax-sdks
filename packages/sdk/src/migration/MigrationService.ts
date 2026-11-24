@@ -47,7 +47,6 @@ import {
   waitUntilIntentExecuted,
   type HubProvider,
   isIconChainKeyType,
-  isEvmChainKeyType,
   isHubChainKeyType,
   isStellarChainKeyType,
   type SpokeIsAllowanceValidParamsStellar,
@@ -82,6 +81,7 @@ import {
   type HubChainKey,
   type EvmSpokeOnlyChainKey,
   type IconContractAddress,
+  type DepositReturnType,
 } from '@sodax/types';
 import { isAddress } from 'viem';
 import type { ConfigService } from '../shared/config/ConfigService.js';
@@ -184,7 +184,10 @@ export class MigrationService {
           return { ok: true, value: true };
         }
 
-        if (isUnifiedBnUSDMigrateParams(params) && isEvmChainKeyType(params.srcChainKey)) {
+        if (
+          isUnifiedBnUSDMigrateParams(params) &&
+          (isEvmSpokeOnlyChainKeyType(params.srcChainKey) || isHubChainKeyType(params.srcChainKey))
+        ) {
           const bnUSDTokenAddress = this.config.getChainConfig(params.srcChainKey).supportedTokens.bnUSD?.address ?? '';
           migrationInvariant(
             isAddress(bnUSDTokenAddress),
@@ -222,7 +225,10 @@ export class MigrationService {
           { ...baseCtx, field: 'params' },
         );
 
-        if (isUnifiedBnUSDMigrateParams(params) && isEvmChainKeyType(params.srcChainKey)) {
+        if (
+          isUnifiedBnUSDMigrateParams(params) &&
+          (isEvmSpokeOnlyChainKeyType(params.srcChainKey) || isHubChainKeyType(params.srcChainKey))
+        ) {
           const spender: Address = isHubChainKeyType(params.srcChainKey)
             ? await this.hubProvider.getUserRouter(params.srcAddress as Address)
             : this.config.getChainConfig(params.srcChainKey).addresses.assetManager;
@@ -1086,7 +1092,7 @@ export class MigrationService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies DepositReturnType<K, Raw> as DepositReturnType<K, Raw>,
           relayData: { address: hubWalletAddress, payload: migrationData },
         },
       };

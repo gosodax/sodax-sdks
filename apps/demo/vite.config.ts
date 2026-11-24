@@ -9,6 +9,9 @@ import viteTsconfigPaths from 'vite-tsconfig-paths';
 
 export default defineConfig(({ command, mode }: ConfigEnv) => {
   const env = loadEnv(mode, process.cwd(), '');
+  // Koios answers CORS preflights but sends no Access-Control-Allow-Origin on the GET/POST itself, so a browser cannot
+  // read it directly. Cardano reads go same-origin through `/__koios` (see `CARDANO_RPC_URL` in `src/providers.tsx`).
+  const koios = new URL(env.CARDANO_KOIOS_URL || 'https://api.koios.rest/api/v1');
 
   return {
     // depending on your application, base can also be "/"
@@ -55,6 +58,11 @@ export default defineConfig(({ command, mode }: ConfigEnv) => {
           target: env.MOCK_INTAKE_URL || 'http://localhost:9009',
           changeOrigin: true,
           rewrite: p => p.replace(/^\/__intake/, ''),
+        },
+        '/__koios': {
+          target: koios.origin,
+          changeOrigin: true,
+          rewrite: p => koios.pathname.replace(/\/$/, '') + p.replace(/^\/__koios/, ''),
         },
       },
     },

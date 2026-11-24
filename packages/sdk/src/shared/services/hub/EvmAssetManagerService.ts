@@ -46,7 +46,7 @@ export class EvmAssetManagerService {
   /**
    * Encodes a transfer transaction for an asset.
    * @param token - The address of the token.
-   * @param to - The hex encoded address (encodeAddress) to transfer the token to.
+   * @param to - The hex encoded recipient (encodeRecipient) to transfer the token to.
    * @param amount - The amount of the token to transfer.
    * @param assetManager
    * @returns The encoded contract call.
@@ -94,7 +94,8 @@ export class EvmAssetManagerService {
   }
 
   /**
-   * Withdraw tokens from the spoke chain.
+   * Encode a withdrawal without validating the payout floor. For MPC-relay destinations,
+   * validate the amount and token before signing these calls.
    * @param {EvmWithdrawAssetDataParams} params - Parameters for the withdrawal.
    * @param {EvmSpokeProvider} spokeProvider - The provider for the spoke chain.
    * @param {EvmHubProvider} hubProvider - The provider for the hub chain.

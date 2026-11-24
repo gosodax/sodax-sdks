@@ -1,3 +1,4 @@
+import { monadSupportedTokens } from '@sodax/types';
 /**
  * Tests for EvmSolverService — the static helper that produces hub-chain calldata,
  * computes intent hashes, and reads `IntentCreated` / `IntentFilled` event payloads.
@@ -50,11 +51,13 @@ import {
 import { IntentsAbi } from '../shared/abis/intents.abi.js';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import { IntentDataType, type CreateIntentParams, type Intent } from '../shared/types/intent-types.js';
-import { calculatePercentageFeeAmount } from '../shared/utils/shared-utils.js';
+import { calculatePercentageFeeAmount, encodeAddress, encodeRecipient } from '../shared/utils/shared-utils.js';
 import { EvmSolverService } from './EvmSolverService.js';
 import { HookService } from './HookService.js';
 import { IntentDataService } from './IntentDataService.js';
 import { Sodax } from '../index.js';
+import { tronSupportedTokens, xrpSupportedTokens } from '@sodax/types';
+import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
 
 // --- fixtures -------------------------------------------------------------
 
@@ -213,6 +216,122 @@ describe('EvmSolverService.constructCreateIntentData', () => {
 
     expect(intent.srcAddress).toBe(SRC_USER);
     expect(intent.dstAddress).toBe(DST_USER);
+  });
+
+  it.each([
+    [true, 3_000_001n, 'allowPartialFill'],
+    [false, 3_000_000n, 'minOutputAmount'],
+  ] as const)('rejects invalid MPC payout parameters (%s, %s)', (allowPartialFill, minOutputAmount, field) => {
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(tronSupportedTokens.USDT);
+    expect(() =>
+      EvmSolverService.constructCreateIntentData(
+        {
+          ...baseParams(),
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstAddress: TRON_TEST_ADDRESS,
+          outputToken: tronSupportedTokens.USDT.address,
+          minOutputAmount,
+          allowPartialFill,
+        },
+        HUB_WALLET,
+        mockConfig,
+        undefined,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: 'VALIDATION_FAILED',
+        context: expect.objectContaining({ field }),
+      }),
+    );
+  });
+
+  it.each([
+    { token: tronSupportedTokens.USDT, address: TRON_TEST_ADDRESS, minOutputAmount: 3_000_001n },
+    { token: xrpSupportedTokens.XRP, address: 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah', minOutputAmount: 1n },
+  ])('encodes the recipient word for $token.chainKey above the payout floor', ({ token, address, minOutputAmount }) => {
+    const chainKey = token.chainKey;
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(token);
+    const [, intent] = EvmSolverService.constructCreateIntentData(
+      { ...baseParams(), dstChainKey: chainKey, dstAddress: address, outputToken: token.address, minOutputAmount },
+      HUB_WALLET,
+      mockConfig,
+      undefined,
+    );
+    const identity = encodeAddress(chainKey, address);
+    expect(intent.dstAddress).toBe(encodeRecipient(chainKey, address));
+    expect(intent.dstAddress).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
+    expect(intent.srcAddress).toBe(SRC_USER);
+  });
+
+  it('encodes an EVM MPC-relay (Monad) dstAddress as the plain 20-byte address', () => {
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(monadSupportedTokens.USDC);
+    const monadAddress = '0x6be3a4afbd5983604385bcba71aaa3645918e2e2';
+
+    const [, intent] = EvmSolverService.constructCreateIntentData(
+      {
+        ...baseParams(),
+        dstChainKey: ChainKeys.MONAD_MAINNET,
+        dstAddress: monadAddress,
+        outputToken: monadSupportedTokens.USDC.address,
+      },
+      HUB_WALLET,
+      mockConfig,
+      undefined,
+    );
+
+    // A padded word here was released to the zero address on Monad.
+    expect(intent.dstAddress).toBe(monadAddress);
+  });
+
+  it.each([
+    [0n, false, 'deadline'],
+    [1n, true, 'allowPartialFill'],
+  ] as const)('rejects invalid MPC source swap parameters (%s, %s)', (deadline, allowPartialFill, field) => {
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(tronSupportedTokens.USDT)
+      .mockReturnValueOnce(hubOutputXToken);
+    expect(() =>
+      EvmSolverService.constructCreateIntentData(
+        {
+          ...baseParams(),
+          srcChainKey: ChainKeys.TRON_MAINNET,
+          srcAddress: TRON_TEST_ADDRESS,
+          inputToken: tronSupportedTokens.USDT.address,
+          deadline,
+          allowPartialFill,
+        },
+        HUB_WALLET,
+        mockConfig,
+        undefined,
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        code: 'VALIDATION_FAILED',
+        context: expect.objectContaining({ field }),
+      }),
+    );
+  });
+
+  it('encodes a Tron srcAddress as the recipient word, since a cancel refunds to it', () => {
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(hubOutputXToken);
+
+    const [, intent] = EvmSolverService.constructCreateIntentData(
+      { ...baseParams(), srcChainKey: ChainKeys.TRON_MAINNET, srcAddress: TRON_TEST_ADDRESS },
+      HUB_WALLET,
+      mockConfig,
+      undefined,
+    );
+
+    expect(intent.srcAddress).toBe(encodeRecipient(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS));
+    expect(intent.srcAddress).not.toBe(encodeAddress(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS));
   });
 
   it('treats the input token as already-on-hub when srcChainKey is the hub chain (skips lookup)', () => {

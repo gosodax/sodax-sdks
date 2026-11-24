@@ -11,6 +11,11 @@ import {
   StellarWalletProvider,
   NearWalletProvider,
   StacksWalletProvider,
+  TronWalletProvider,
+  XrpWalletProvider,
+  TonWalletProvider,
+  ZcashWalletProvider,
+  CardanoWalletProvider,
 } from '@sodax/wallet-sdk-core';
 import { Wallet } from '@injectivelabs/wallet-base';
 import { getEthereumAddress } from '@injectivelabs/sdk-ts';
@@ -40,6 +45,11 @@ import { hasSignBip322, hasSignEcdsa } from './xchains/bitcoin/bitcoinSignGuards
 import { NearXService } from './xchains/near/NearXService.js';
 import { NearXConnector } from './xchains/near/NearXConnector.js';
 import { StacksXService, StacksXConnector, STACKS_PROVIDERS } from './xchains/stacks/index.js';
+import { TronXService, TronXConnector } from './xchains/tron/index.js';
+import { XrpXService, XrpXConnector } from './xchains/xrp/index.js';
+import { TonXService, TonXConnector } from './xchains/ton/index.js';
+import { ZcashXService, ZcashXConnector } from './xchains/zcash/index.js';
+import { CardanoXService, CardanoXConnector } from './xchains/cardano/index.js';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -395,6 +405,124 @@ export const chainRegistry: Record<string, ChainServiceFactory> = {
         store.walletConfig?.STACKS?.chains?.[ChainKeys.STACKS_MAINNET],
       );
       return new StacksWalletProvider({ address, provider, defaults });
+    },
+  }),
+  TRON: defineChain({
+    createService: walletConfig => TronXService.getInstance(walletConfig?.TRON?.chains?.[ChainKeys.TRON_MAINNET]),
+    displayName: 'Tron',
+    defaultConnectors: () => [new TronXConnector()],
+    providerManaged: false,
+    createActions: (service, getStore) => ({
+      ...createDefaultActions('TRON', service, getStore),
+      signMessage: async (message: string) => {
+        const connection = getStore().xConnections.TRON;
+        const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+        const address = connection?.xAccount.address;
+        if (!(connector instanceof TronXConnector) || !address) throw new Error('Tron wallet not connected');
+        return connector.signMessage(message, address);
+      },
+    }),
+    createWalletProvider: (service, getStore) => {
+      const store = getStore();
+      const connection = store.xConnections.TRON;
+      const address = connection?.xAccount.address;
+      if (!address) return undefined;
+      const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+      if (!(connector instanceof TronXConnector)) return undefined;
+      const entry = store.walletConfig?.TRON?.chains?.[ChainKeys.TRON_MAINNET];
+      const defaults = getEntryDefaults<typeof ChainKeys.TRON_MAINNET>(entry);
+      // Built even before the wallet is found: on a page reload this runs ahead of TIP-6963 discovery,
+      // so signing re-resolves the provider per call instead of capturing what exists now.
+      return new TronWalletProvider({
+        tronWeb: connector.getTronWeb(),
+        provider: connector.getProvider(),
+        getProvider: () => connector.getProvider(),
+        address,
+        endpoint: entry?.rpcUrl,
+        defaults,
+      });
+    },
+  }),
+  XRP: defineChain({
+    createService: walletConfig => XrpXService.getInstance(walletConfig?.XRP?.chains?.[ChainKeys.XRP_MAINNET]),
+    displayName: 'XRP Ledger',
+    defaultConnectors: () => [new XrpXConnector()],
+    providerManaged: false,
+    // The wallet modal refuses a connector that reads as not installed, and GemWallet reads that way until
+    // `@gemwallet/api` has heard from the extension: ask once, then republish so the modal reads it again.
+    discoverConnectors: async (_service, getStore) => {
+      if (!(await XrpXConnector.detect())) return;
+      getStore().setXConnectors('XRP', [...(getStore().xConnectorsByChain.XRP ?? [])]);
+    },
+    createWalletProvider: (service, getStore) => {
+      const store = getStore();
+      const connection = store.xConnections.XRP;
+      const address = connection?.xAccount.address;
+      if (!address) return undefined;
+      const connector = connection?.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+      // The connector adapts `@gemwallet/api` to the structural shape the core provider expects,
+      // so wallet-sdk-core needs no GemWallet dependency of its own.
+      const gemWallet = connector instanceof XrpXConnector ? connector.getGemWallet() : undefined;
+      if (!gemWallet) return undefined;
+      const entry = store.walletConfig?.XRP?.chains?.[ChainKeys.XRP_MAINNET];
+      const defaults = getEntryDefaults<typeof ChainKeys.XRP_MAINNET>(entry);
+      return new XrpWalletProvider({ gemWallet, address, endpoint: entry?.rpcUrl, defaults });
+    },
+  }),
+  TON: defineChain({
+    createService: walletConfig =>
+      TonXService.getInstance({
+        rpcUrl: walletConfig?.TON?.chains?.[ChainKeys.TON_MAINNET]?.rpcUrl,
+        manifestUrl: walletConfig?.TON?.manifestUrl,
+      }),
+    displayName: 'TON',
+    defaultConnectors: () => [new TonXConnector()],
+    providerManaged: false,
+    createWalletProvider: (service, getStore) => {
+      const store = getStore();
+      const connection = store.xConnections.TON;
+      if (!connection?.xAccount.address) return undefined;
+      const connector = connection.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+      if (!(connector instanceof TonXConnector)) return undefined;
+      const defaults = getEntryDefaults<typeof ChainKeys.TON_MAINNET>(
+        store.walletConfig?.TON?.chains?.[ChainKeys.TON_MAINNET],
+      );
+      return new TonWalletProvider({ tonConnect: connector.getTonConnect(), defaults });
+    },
+  }),
+  ZCASH: defineChain({
+    createService: walletConfig => ZcashXService.getInstance(walletConfig?.ZCASH?.chains?.[ChainKeys.ZCASH_MAINNET]),
+    displayName: 'Zcash',
+    defaultConnectors: () => [new ZcashXConnector()],
+    providerManaged: false,
+    createWalletProvider: (service, getStore) => {
+      const store = getStore();
+      const connection = store.xConnections.ZCASH;
+      if (!connection?.xAccount.address) return undefined;
+      const connector = connection.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+      if (!(connector instanceof ZcashXConnector)) return undefined;
+      const defaults = getEntryDefaults<typeof ChainKeys.ZCASH_MAINNET>(
+        store.walletConfig?.ZCASH?.chains?.[ChainKeys.ZCASH_MAINNET],
+      );
+      return new ZcashWalletProvider({ wallet: connector.getWallet(), defaults });
+    },
+  }),
+  CARDANO: defineChain({
+    createService: walletConfig =>
+      CardanoXService.getInstance(walletConfig?.CARDANO?.chains?.[ChainKeys.CARDANO_MAINNET]),
+    displayName: 'Cardano',
+    defaultConnectors: () => [new CardanoXConnector()],
+    providerManaged: false,
+    createWalletProvider: (service, getStore) => {
+      const store = getStore();
+      const connection = store.xConnections.CARDANO;
+      if (!connection?.xAccount.address) return undefined;
+      const connector = connection.xConnectorId ? service.getXConnectorById(connection.xConnectorId) : undefined;
+      if (!(connector instanceof CardanoXConnector)) return undefined;
+      const defaults = getEntryDefaults<typeof ChainKeys.CARDANO_MAINNET>(
+        store.walletConfig?.CARDANO?.chains?.[ChainKeys.CARDANO_MAINNET],
+      );
+      return new CardanoWalletProvider({ wallet: connector.getWallet(), defaults });
     },
   }),
 };

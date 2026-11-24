@@ -6,21 +6,27 @@
   },
   "version": "2.3.0",
   "license": "MIT",
-  "description": "Sodax Wallet SDK Core",
+  "description": "Framework-agnostic TypeScript wallet providers for the SODAX SDK: EVM, Solana, Sui, Stellar, Injective, ICON, NEAR, Stacks and Bitcoin",
   "keywords": [
     "sodax",
     "wallet",
     "sdk",
     "frontend",
-    "interface"
+    "interface",
+    "multi-chain",
+    "evm",
+    "solana",
+    "sui",
+    "web3"
   ],
-  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/wallet-sdk-core",
+  "homepage": "https://docs.sodax.com/developers/packages/connection/wallet-sdk-core",
   "bugs": {
     "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/gosodax/sodax-sdks"
+    "url": "git+https://github.com/gosodax/sodax-sdks.git",
+    "directory": "packages/wallet-sdk-core"
   },
   "type": "module",
   "main": "./dist/index.cjs",
@@ -47,7 +53,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup && node ../../scripts/verify-dist-exports.mjs",
+    "build": "tsup && node ../../scripts/verify-dist-exports.mjs && node verify-dist-load.mjs",
     "test": "vitest run --exclude ./src/tests/e2e",
     "test:e2e": "vitest run --passWithNoTests ./src/tests/e2e",
     "coverage": "vitest run --coverage",
@@ -69,20 +75,27 @@
     "@injectivelabs/ts-types": "catalog:",
     "@injectivelabs/wallet-core": "catalog:",
     "@mysten/sui": "catalog:",
+    "@noble/hashes": "^1.8.0",
+    "@scure/base": "^1.2.6",
     "@sodax/libs": "workspace:*",
     "@sodax/types": "workspace:*",
     "@solana/spl-token": "catalog:",
     "@solana/wallet-adapter-base": "catalog:",
     "@solana/web3.js": "catalog:",
     "@stellar/stellar-sdk": "catalog:",
+    "@ton/core": "catalog:",
+    "@ton/crypto": "^3.3.0",
+    "@ton/ton": "^16.3.0",
     "bip322-js": "^3.0.0",
     "bitcoinjs-lib": "^6.1.5",
     "cosmjs-types": "0.9.0",
     "ecpair": "^2.0.1",
     "icon-sdk-js": "catalog:",
     "near-api-js": "catalog:",
+    "ripple-keypairs": "^2.0.0",
     "secp256k1": "^5.0.1",
-    "viem": "catalog:"
+    "viem": "catalog:",
+    "xrpl": "^4.2.0"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "catalog:",

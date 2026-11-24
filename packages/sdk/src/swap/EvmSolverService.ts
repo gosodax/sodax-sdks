@@ -13,7 +13,13 @@ import {
   parseEventLogs,
 } from 'viem';
 import { Erc20Service } from '../shared/services/erc-20/Erc20Service.js';
-import { calculatePercentageFeeAmount, encodeAddress, randomUint256 } from '../shared/utils/shared-utils.js';
+import {
+  assertMpcSwapRoute,
+  assertProductionSwapRoute,
+  calculatePercentageFeeAmount,
+  encodeRecipient,
+  randomUint256,
+} from '../shared/utils/shared-utils.js';
 import { encodeContractCalls } from '../shared/utils/evm-utils.js';
 import { isPartnerFeeAmount, isPartnerFeePercentage } from '../shared/guards.js';
 import {
@@ -71,6 +77,9 @@ export class EvmSolverService {
    * The returned `Hex` payload is passed as the `data` field in a spoke deposit, so the hub
    * wallet abstraction executes both the approval and the intent creation atomically.
    *
+   * It validates MPC-relay routes and the destination payout floor, but not the floor on a refund to an
+   * MPC-relay source: callers building from one must check that, as `SwapService.createIntent` does.
+   *
    * @param createIntentParams - Source/destination tokens, amounts, chain keys, addresses, and optional solver.
    * @param creatorHubWalletAddress - The hub chain wallet address derived from the user's spoke address.
    * @param config - Used to resolve hub asset addresses and the intents contract address.
@@ -92,10 +101,16 @@ export class EvmSolverService {
           ?.hubAsset
       : (createIntentParams.inputToken as `0x${string}`);
 
-    const outputToken = !isHubChainKey(createIntentParams.dstChainKey)
-      ? config.getSpokeTokenFromOriginalAssetAddress(createIntentParams.dstChainKey, createIntentParams.outputToken)
-          ?.hubAsset
-      : (createIntentParams.outputToken as `0x${string}`);
+    const { dstChainKey } = createIntentParams;
+    const outputTokenInfo = isHubChainKey(dstChainKey)
+      ? undefined
+      : config.getSpokeTokenFromOriginalAssetAddress(dstChainKey, createIntentParams.outputToken);
+    const outputToken = isHubChainKey(dstChainKey)
+      ? (createIntentParams.outputToken as Address)
+      : outputTokenInfo?.hubAsset;
+
+    assertProductionSwapRoute(config.solver.solverApiEndpoint, createIntentParams);
+    assertMpcSwapRoute({ ...createIntentParams, outputToken: outputTokenInfo });
 
     invariant(
       inputToken,
@@ -125,8 +140,8 @@ export class EvmSolverService {
       allowPartialFill: createIntentParams.allowPartialFill,
       srcChain: getIntentRelayChainId(createIntentParams.srcChainKey),
       dstChain: getIntentRelayChainId(createIntentParams.dstChainKey),
-      srcAddress: encodeAddress(createIntentParams.srcChainKey, createIntentParams.srcAddress),
-      dstAddress: encodeAddress(createIntentParams.dstChainKey, dstAddress),
+      srcAddress: encodeRecipient(createIntentParams.srcChainKey, createIntentParams.srcAddress),
+      dstAddress: encodeRecipient(createIntentParams.dstChainKey, dstAddress),
       solver: createIntentParams.solver ?? '0x0000000000000000000000000000000000000000',
       data: intentData, // fee amount will be deducted from the input amount; may also carry delivery data
     } satisfies Intent;

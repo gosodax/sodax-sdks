@@ -66,6 +66,8 @@ export const availableChains: ChainUI[] = [
   ChainKeys.SONIC_MAINNET,
   ChainKeys.ETHEREUM_MAINNET,
   ChainKeys.SOLANA_MAINNET,
+  ChainKeys.TRON_MAINNET,
+  ChainKeys.XRP_MAINNET,
   ChainKeys.BASE_MAINNET,
   ChainKeys.ARBITRUM_MAINNET,
   ChainKeys.SUI_MAINNET,

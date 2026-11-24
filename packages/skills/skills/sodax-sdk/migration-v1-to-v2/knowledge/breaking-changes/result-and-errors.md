@@ -86,7 +86,7 @@ There is **no** `toResult` / `tryCatch` / `safeCall` helper. Explicit `try/catch
 const result = await sodax.swaps.createIntent({ params, raw: false, walletProvider });
 if (!result.ok) {
   if (isSodaxError(result.error)) {
-    if (result.error.code === 'RELAY_TIMEOUT') { /* retry */ }
+    if (result.error.code === 'RELAY_TIMEOUT') { /* resume settlement of the original transaction */ }
     if (result.error.code === 'INTENT_CREATION_FAILED') { /* show input error */ }
   }
   return;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { EvmWalletProvider } from './EvmWalletProvider.js';
+import { EvmWalletProvider, getEvmViemChain } from './EvmWalletProvider.js';
 import type { BrowserExtensionEvmWalletConfig, EvmWalletConfig } from './types.js';
 import type { EvmRawTransaction } from '@sodax/types';
 import { ChainKeys } from '@sodax/types';
@@ -7,6 +7,8 @@ import {
   createWalletClient,
   createPublicClient,
   http,
+  keccak256,
+  recoverMessageAddress,
   WaitForCallsStatusTimeoutError,
   type GetCallsStatusReturnType,
   type TransactionReceipt,
@@ -280,6 +282,50 @@ describe('EvmWalletProvider', () => {
       expect(spy).toHaveBeenCalledWith(expect.not.objectContaining({ expectedChainId: sonic.id }));
     });
 
+    it('retains the signed EVM deposit hash across a lost raw broadcast reply', async () => {
+      const config = makeBrowserExtensionConfig();
+      const provider = new EvmWalletProvider(config);
+      const lost = new Error('connection closed during broadcast');
+      const serializedTransaction = '0x02abcdef' as const;
+      vi.spyOn(config.walletClient, 'prepareTransactionRequest').mockResolvedValue({
+        ...RAW_TX,
+        chainId: sonic.id,
+      });
+      const sign = vi.spyOn(config.walletClient, 'signTransaction').mockResolvedValue(serializedTransaction);
+      const broadcast = vi.spyOn(config.walletClient, 'sendRawTransaction').mockRejectedValue(lost);
+
+      await expect(provider.sendTransaction(RAW_TX, { preserveDepositOutcome: true })).rejects.toMatchObject({
+        name: 'IndeterminateOutcomeError',
+        cause: lost,
+        txHash: keccak256(serializedTransaction),
+      });
+      expect(sign).toHaveBeenCalledOnce();
+      expect(broadcast).toHaveBeenCalledExactlyOnceWith({ serializedTransaction });
+    });
+
+    it('keeps a browser deposit pending on a missing response and does not reinterpret refusal', async () => {
+      const config = makeConnectedWalletConfig();
+      const provider = new EvmWalletProvider(config);
+      const refused = Object.assign(new Error('user refused'), { code: 4001 });
+      const lost = new Error('wallet channel closed');
+      const send = vi
+        .spyOn(config.walletClient, 'sendTransaction')
+        .mockRejectedValueOnce(refused)
+        .mockRejectedValueOnce(lost);
+      await expect(provider.sendTransaction(RAW_TX, { preserveDepositOutcome: true })).rejects.toBe(refused);
+      await expect(provider.sendTransaction(RAW_TX, { preserveDepositOutcome: true })).rejects.toMatchObject({
+        name: 'IndeterminateOutcomeError',
+        cause: lost,
+        recovery: { kind: 'evm-deposit', chainId: sonic.id, transaction: RAW_TX },
+      });
+      send.mockResolvedValueOnce('0x');
+      await expect(provider.sendTransaction(RAW_TX, { preserveDepositOutcome: true })).rejects.toMatchObject({
+        name: 'IndeterminateOutcomeError',
+        recovery: { kind: 'evm-deposit', chainId: sonic.id, transaction: RAW_TX },
+      });
+      expect(send).toHaveBeenCalledTimes(3);
+    });
+
     it('skips the chain check entirely when expectedChainId is not passed', async () => {
       const config = makeBrowserExtensionConfig();
       const provider = new EvmWalletProvider(config);
@@ -327,6 +373,31 @@ describe('EvmWalletProvider', () => {
       void provider.sendTransaction(RAW_TX, { to: '0xOther' });
       // @ts-expect-error — `data` belongs to EvmRawTransaction
       void provider.sendTransaction(RAW_TX, { data: '0xdead' });
+    });
+  });
+
+  describe('signMessage', () => {
+    const HASH = `0x${'5a'.repeat(32)}` as const;
+
+    it.each([
+      [
+        'private-key',
+        () => new EvmWalletProvider({ privateKey: PRIVATE_KEY, chainId: ChainKeys.SONIC_MAINNET, rpcUrl: RPC_URL }),
+      ],
+      ['browser-extension', () => new EvmWalletProvider(makeBrowserExtensionConfig())],
+    ])('%s: signs the raw 32 bytes of the hash under EIP-191, recoverable to the account', async (_mode, make) => {
+      const signature = await make().signMessage(HASH);
+
+      // Scheme 0 verifies `recoverMessageAddress({ message: { raw } })` — signing the hex text instead
+      // would recover a different address.
+      const recovered = await recoverMessageAddress({ message: { raw: HASH }, signature });
+      expect(recovered).toBe(privateKeyToAccount(PRIVATE_KEY).address);
+    });
+  });
+
+  describe('getEvmViemChain', () => {
+    it('resolves Monad to its mainnet network id, not the relay routing id', () => {
+      expect(getEvmViemChain(ChainKeys.MONAD_MAINNET).id).toBe(143);
     });
   });
 

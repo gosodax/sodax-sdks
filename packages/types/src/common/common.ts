@@ -11,6 +11,23 @@ import type { SolanaBase58PublicKey, SolanaRawTransaction, SolanaReturnType } fr
 import type { StacksRawTransaction, StacksReturnType } from '../stacks/stacks.js';
 import type { StellarRawTransaction, StellarReturnType } from '../stellar/stellar.js';
 import type { SuiRawTransaction, SuiReturnType } from '../sui/sui.js';
+import type {
+  TronDepositReturnType,
+  TronRawTransaction,
+  TronRawWithdraw,
+  TronReturnType,
+  TronSendMessageReturnType,
+} from '../tron/tron.js';
+import type {
+  XrpDepositReturnType,
+  XrpRawTransaction,
+  XrpRawWithdraw,
+  XrpReturnType,
+  XrpSendMessageReturnType,
+} from '../xrp/xrp.js';
+import type { TonGasEstimate, TonRawTransaction, TonReturnType } from '../ton/ton.js';
+import type { ZcashGasEstimate, ZcashRawTransaction, ZcashReturnType } from '../zcash/zcash.js';
+import type { CardanoGasEstimate, CardanoRawTransaction, CardanoReturnType } from '../cardano/cardano.js';
 import type { GetWalletProviderType } from '../wallet/providers.js';
 
 export type Default = {
@@ -181,7 +198,8 @@ export type HashTxReturnType =
   | InjectiveReturnType<false>
   | StellarReturnType<false>
   | StacksReturnType<false>
-  | NearReturnType<false>;
+  | NearReturnType<false>
+  | TronReturnType<false>;
 
 /**
  * Fallback raw-tx union for {@link TxReturnType} (which prefers a chain-keyed branch), and the declared
@@ -203,7 +221,14 @@ export type RawTxReturnType =
   | StellarRawTransaction
   | StacksRawTransaction
   | NearRawTransaction
-  | BitcoinRawTransaction;
+  | BitcoinRawTransaction
+  | TronRawTransaction
+  | TronRawWithdraw
+  | XrpRawTransaction
+  | XrpRawWithdraw
+  | TonRawTransaction
+  | ZcashRawTransaction
+  | CardanoRawTransaction;
 
 export type GetDefaultTxReturnType<Raw extends boolean> = Raw extends true ? RawTxReturnType : HashTxReturnType;
 
@@ -230,7 +255,33 @@ export type TxReturnType<C extends SpokeChainKey | ChainType, Raw extends boolea
                   ? NearReturnType<Raw>
                   : GetChainType<C> extends 'BITCOIN'
                     ? BitcoinReturnType<Raw>
-                    : GetDefaultTxReturnType<Raw>;
+                    : GetChainType<C> extends 'TRON'
+                      ? TronReturnType<Raw>
+                      : GetChainType<C> extends 'XRP'
+                        ? XrpReturnType<Raw>
+                        : GetChainType<C> extends 'TON'
+                          ? TonReturnType<Raw>
+                          : GetChainType<C> extends 'ZCASH'
+                            ? ZcashReturnType<Raw>
+                            : GetChainType<C> extends 'CARDANO'
+                              ? CardanoReturnType<Raw>
+                              : GetDefaultTxReturnType<Raw>;
+
+/** What a deposit returns on `C`: {@link TxReturnType}, except that an MPC-relay deposit is only ever a transfer. */
+export type DepositReturnType<C extends SpokeChainKey | ChainType, Raw extends boolean> =
+  GetChainType<C> extends 'TRON'
+    ? TronDepositReturnType<Raw>
+    : GetChainType<C> extends 'XRP'
+      ? XrpDepositReturnType<Raw>
+      : TxReturnType<C, Raw>;
+
+/** What a message to the hub (borrow, withdraw) returns on `C`: {@link TxReturnType}, but an MPC-relay withdraw-auth. */
+export type SendMessageReturnType<C extends SpokeChainKey | ChainType, Raw extends boolean> =
+  GetChainType<C> extends 'TRON'
+    ? TronSendMessageReturnType<Raw>
+    : GetChainType<C> extends 'XRP'
+      ? XrpSendMessageReturnType<Raw>
+      : TxReturnType<C, Raw>;
 
 export type Prettify<T> = {
   [K in keyof T]: T[K];
@@ -275,13 +326,36 @@ export type FeeEstimateTransaction = {
 
 export type NearGasEstimate = bigint;
 
+/** Tron prices a transaction in two staked resources rather than one gas number. */
+export type TronGasEstimate = {
+  /** Energy the contract call consumes. `0n` for a native TRX transfer, which uses none. */
+  energy: bigint;
+  /** Bandwidth points consumed: the byte length of the signed transaction plus 64 bytes of result space per contract. */
+  bandwidth: bigint;
+};
+
+/**
+ * XRPL charges a flat per-transaction fee in drops rather than metering execution, so there is no
+ * gas/limit pair to return — only the fee the ledger will burn.
+ */
+export type XrpGasEstimate = {
+  /** Transaction fee in drops (1 XRP = 1_000_000 drops). */
+  fee: bigint;
+};
+
 export type GasEstimateType =
+  | XrpGasEstimate
   | EvmGasEstimate
   | SolanaGasEstimate
   | StellarGasEstimate
   | IconGasEstimate
   | SuiGasEstimate
-  | InjectiveGasEstimate;
+  | InjectiveGasEstimate
+  | TronGasEstimate
+  | XrpGasEstimate
+  | TonGasEstimate
+  | ZcashGasEstimate
+  | CardanoGasEstimate;
 
 export type GetEstimateGasReturnTypeForSpokeChainId<C extends SpokeChainKey | ChainType> =
   GetChainType<C> extends 'EVM'
@@ -302,7 +376,17 @@ export type GetEstimateGasReturnTypeForSpokeChainId<C extends SpokeChainKey | Ch
                   ? BitcoinGasEstimate
                   : GetChainType<C> extends 'STACKS'
                     ? FeeEstimateTransaction
-                    : GasEstimateType;
+                    : GetChainType<C> extends 'TRON'
+                      ? TronGasEstimate
+                      : GetChainType<C> extends 'XRP'
+                        ? XrpGasEstimate
+                        : GetChainType<C> extends 'TON'
+                          ? TonGasEstimate
+                          : GetChainType<C> extends 'ZCASH'
+                            ? ZcashGasEstimate
+                            : GetChainType<C> extends 'CARDANO'
+                              ? CardanoGasEstimate
+                              : GasEstimateType;
 
 export type GetEstimateGasReturnTypeForChainType<C extends ChainType> = C extends 'EVM'
   ? EvmGasEstimate
@@ -322,7 +406,17 @@ export type GetEstimateGasReturnTypeForChainType<C extends ChainType> = C extend
                 ? FeeEstimateTransaction
                 : C extends 'NEAR'
                   ? NearGasEstimate
-                  : GasEstimateType;
+                  : C extends 'TRON'
+                    ? TronGasEstimate
+                    : C extends 'XRP'
+                      ? XrpGasEstimate
+                      : C extends 'TON'
+                        ? TonGasEstimate
+                        : C extends 'ZCASH'
+                          ? ZcashGasEstimate
+                          : C extends 'CARDANO'
+                            ? CardanoGasEstimate
+                            : GasEstimateType;
 
 export type GetEstimateGasReturnType<C extends SpokeChainKey | ChainType> = C extends SpokeChainKey
   ? GetEstimateGasReturnTypeForSpokeChainId<C>

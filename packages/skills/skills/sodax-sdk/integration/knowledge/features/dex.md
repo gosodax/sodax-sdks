@@ -26,13 +26,13 @@ To increase / decrease / claim:
 ```ts
 // AssetService
 sodax.dex.assetService.deposit<K>(action: AssetDepositAction<K, false>): Promise<Result<TxHashPair, SodaxError>>;
-sodax.dex.assetService.withdraw<K>(action: AssetWithdrawAction<K, false>): Promise<Result<TxHashPair, SodaxError>>;
+sodax.dex.assetService.withdraw<K>(action: AssetWithdrawAction<K, false>): Promise<Result<OutboundSettlement<K>, SodaxError>>;
 sodax.dex.assetService.approve<K, Raw>(args): Promise<Result<TxReturnType<K, Raw>, SodaxError>>;
 sodax.dex.assetService.isAllowanceValid<K, Raw>(args): Promise<Result<boolean, SodaxError>>;
 sodax.dex.assetService.getDeposit(poolToken, walletAddress, chainKey): Promise<Result<bigint, SodaxError>>;
 sodax.dex.assetService.executeDeposit<K, Raw>(args): /* spoke-only deposit; no relay */;
 
-// ClService (concentrated liquidity)
+// ClService (concentrated liquidity) — refuses a Tron source
 sodax.dex.clService.supplyLiquidity<K>(action): Promise<Result<TxHashPair, SodaxError>>;
 sodax.dex.clService.increaseLiquidity<K>(action): Promise<Result<TxHashPair, SodaxError>>;
 sodax.dex.clService.decreaseLiquidity<K>(action): Promise<Result<TxHashPair, SodaxError>>;
@@ -154,7 +154,8 @@ The underlying read does not consult the wallet provider; pass `raw: true` to sa
 
 | Method | Success type |
 |---|---|
-| `deposit`, `withdraw`, `supplyLiquidity`, `increaseLiquidity`, `decreaseLiquidity`, `claimRewards` | `TxHashPair` |
+| `deposit`, `supplyLiquidity`, `increaseLiquidity`, `decreaseLiquidity`, `claimRewards` | `TxHashPair` |
+| `withdraw` | `OutboundSettlement<K>`: `TxHashPair`, or from Tron `{ trackingId, dstChainTxHash }` |
 | `approve` | `TxReturnType<K, Raw>` |
 | `isAllowanceValid` | `boolean` |
 | `getDeposit` | `bigint` (user's balance in the pool's hub wallet) |
@@ -186,3 +187,18 @@ approval can take two transactions" in [`architecture.md`](../architecture.md).
 
 - v1 → v2 DEX migration: [`features/dex.md`](../../../migration-v1-to-v2/knowledge/features/dex.md).
 - The hub-side `EvmHubProvider.publicClient` is what `getPoolData` / `getPositionInfo` use internally — consumers can pass `sodax.hubProvider.publicClient`.
+
+
+### Resume a DEX withdrawal to an MPC-relay chain
+
+If an MPC-relay source fails with `context.trackingId`, call `sodax.spoke.settle` with
+`chainKey: context.srcChainKey`, `tx: context.trackingId`, `direction: 'outbound'`,
+and the original `context.relayData` and `context.dstChainKey`. If settlement instead
+failed after the hub burn and exposes `context.hubTxHash`, call
+`sodax.spoke.settleHubRelease(context.hubTxHash, context.dstChainKey)`. On timeout,
+resume the same settlement with those identifiers. Do not call `withdraw` again.
+
+For an intent-relay source paying an MPC destination, a first-leg relay failure keeps
+`context.srcTxHash`, `context.relayData` and both chain keys. Call `sodax.spoke.settle`
+with those original fields and `direction: 'outbound'`. It resumes the first leg
+and then releases the hub burn to the destination. Do not send another withdrawal.

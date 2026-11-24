@@ -29,6 +29,21 @@ import {
   type INJECTIVE_CHAIN_KEYS,
   STACKS_CHAIN_KEYS_SET,
   type STACKS_CHAIN_KEYS,
+  TRON_CHAIN_KEYS_SET,
+  type TRON_CHAIN_KEYS,
+  XRP_CHAIN_KEYS_SET,
+  type XRP_CHAIN_KEYS,
+  TON_CHAIN_KEYS_SET,
+  type TON_CHAIN_KEYS,
+  ZCASH_CHAIN_KEYS_SET,
+  type ZCASH_CHAIN_KEYS,
+  CARDANO_CHAIN_KEYS_SET,
+  type CARDANO_CHAIN_KEYS,
+  MpcRelayChainMap,
+  MpcRelayPayoutMinimums,
+  MpcRelayPayoutFloors,
+  type MpcRelayChainInfo,
+  type MpcRelayChainKey,
   baseChainInfo,
   RelayChainIdMap,
   type IntentRelayChainId,
@@ -37,7 +52,7 @@ import {
   type EVM_SPOKE_ONLY_CHAIN_KEYS,
   type GetChainType,
 } from '../chains/chains.js';
-import { spokeChainKeysSet, type ChainKey } from '../chains/chain-keys.js';
+import { ChainKeys, spokeChainKeysSet, type ChainKey } from '../chains/chain-keys.js';
 import type { XToken } from '../chains/tokens.js';
 import { type ConcentratedLiquidityConfig, concentratedLiquidityConfig } from '../dex/dex.js';
 import { type SolverConfig, solverConfig } from '../common/constants.js';
@@ -94,6 +109,30 @@ export function isInjectiveChainKey(chainId: SpokeChainKey): boolean {
 
 export function isStacksChainKey(chainId: SpokeChainKey): boolean {
   return STACKS_CHAIN_KEYS_SET.has(chainId as (typeof STACKS_CHAIN_KEYS)[number]);
+}
+
+export function isTronChainKey(chainId: SpokeChainKey): boolean {
+  return TRON_CHAIN_KEYS_SET.has(chainId as (typeof TRON_CHAIN_KEYS)[number]);
+}
+
+export function isXrpChainKey(chainId: SpokeChainKey): boolean {
+  return XRP_CHAIN_KEYS_SET.has(chainId as (typeof XRP_CHAIN_KEYS)[number]);
+}
+
+export function isTonChainKey(chainId: SpokeChainKey): boolean {
+  return TON_CHAIN_KEYS_SET.has(chainId as (typeof TON_CHAIN_KEYS)[number]);
+}
+
+export function isZcashChainKey(chainId: SpokeChainKey): boolean {
+  return ZCASH_CHAIN_KEYS_SET.has(chainId as (typeof ZCASH_CHAIN_KEYS)[number]);
+}
+
+export function isCardanoChainKey(chainId: SpokeChainKey): boolean {
+  return CARDANO_CHAIN_KEYS_SET.has(chainId as (typeof CARDANO_CHAIN_KEYS)[number]);
+}
+
+export function isMonadChainKey(chainId: SpokeChainKey): boolean {
+  return chainId === ChainKeys.MONAD_MAINNET;
 }
 
 export function getChainType<K extends SpokeChainKey>(chainId: K): GetChainType<K> {
@@ -202,6 +241,73 @@ export function isNativeToken(chainId: SpokeChainKey, token: XToken | string): b
 
 export function getIntentRelayChainId(chainKey: SpokeChainKey): IntentRelayChainId {
   return RelayChainIdMap[chainKey];
+}
+
+/**
+ * Does this chain settle through the MPC relay rather than the intent relay? Membership in
+ * {@link MpcRelayChainMap} is the definition — see that map.
+ */
+export function isMpcRelayChainKey(chainId: SpokeChainKey): boolean {
+  return chainId in MpcRelayChainMap;
+}
+
+/** Look up the floor by token identity, independently of its display symbol. */
+export function getMpcPayoutMinimum(token: Pick<XToken, 'chainKey' | 'address'>): bigint | undefined {
+  const floors = MpcRelayPayoutMinimums[token.chainKey];
+  if (!floors) return undefined;
+  const address = isEvmChainKey(token.chainKey)
+    ? Object.keys(floors).find(key => key.toLowerCase() === token.address.toLowerCase())
+    : token.address;
+  return address !== undefined && Object.hasOwn(floors, address) ? floors[address] : undefined;
+}
+
+/**
+ * The {@link MpcRelayPayoutMinimums} or {@link MpcRelayPayoutFloors} entry a payout fails to meet; `minimum` is in
+ * `decimals`. `inclusive` is true for a floor the amount may equal, false for a minimum it must exceed.
+ */
+export type MpcPayoutMinimum = { symbol: string; decimals: number; minimum: bigint; inclusive: boolean };
+
+/**
+ * The minimum that paying `amount` of `token` out through the MPC relay fails to exceed, or `undefined` when it
+ * clears {@link MpcRelayPayoutMinimums} and {@link MpcRelayPayoutFloors}. The SDK refuses such a payout before
+ * signing. An amount equal to a minimum fails too, because the relay skips a release once fee >= amount; an amount
+ * equal to a floor passes. `amount` is truncated to the payout token's decimals first, as delivery would.
+ *
+ * @param amountDecimals - The decimals `amount` is in, when not the payout token's (a bridge's source).
+ */
+export function getUnmetMpcPayoutMinimum({
+  token,
+  amount,
+  amountDecimals = token.decimals,
+}: {
+  token: Pick<XToken, 'chainKey' | 'address' | 'symbol' | 'decimals'>;
+  amount: bigint;
+  amountDecimals?: number;
+}): MpcPayoutMinimum | undefined {
+  const minimum = getMpcPayoutMinimum(token);
+  const floor = MpcRelayPayoutFloors[token.chainKey]?.[token.address];
+  if (minimum === undefined && floor === undefined) return undefined;
+  const delivered =
+    amountDecimals >= token.decimals
+      ? amount / 10n ** BigInt(amountDecimals - token.decimals)
+      : amount * 10n ** BigInt(token.decimals - amountDecimals);
+  const { symbol, decimals } = token;
+  if (minimum !== undefined && delivered <= minimum) return { symbol, decimals, minimum, inclusive: false };
+  if (floor !== undefined && delivered < floor) return { symbol, decimals, minimum: floor, inclusive: true };
+  return undefined;
+}
+
+/**
+ * The MPC relay's identity for a chain — its relay chain id and withdraw-auth scheme. The
+ * counterpart of {@link getIntentRelayChainId}; throws for a chain that rides the intent relay,
+ * which is a routing bug rather than a runtime condition (guard with {@link isMpcRelayChainKey}).
+ */
+export function getMpcRelayChainInfo(chainKey: SpokeChainKey): MpcRelayChainInfo {
+  const info = MpcRelayChainMap[chainKey as MpcRelayChainKey];
+  if (!info) {
+    throw new Error(`Chain ${chainKey} does not settle through the MPC relay`);
+  }
+  return info;
 }
 
 export function getChainKeyFromRelayChainId(chainId: IntentRelayChainId): ChainKey {

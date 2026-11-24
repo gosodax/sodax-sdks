@@ -583,6 +583,18 @@ export const swapSupportedTokens = {
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.TAO,
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.ANT,
   ] as const satisfies XToken[],
+  // Tron is currently staging-only — see stagingSwapSupportedTokens
+  [ChainKeys.TRON_MAINNET]: [],
+  [ChainKeys.XRP_MAINNET]: [
+    spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.XRP,
+    spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.RLUSD,
+    spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.USDC,
+  ] as const satisfies XToken[],
+  // Staging-only for now.
+  [ChainKeys.MONAD_MAINNET]: [],
+  [ChainKeys.TON_MAINNET]: [],
+  [ChainKeys.ZCASH_MAINNET]: [],
+  [ChainKeys.CARDANO_MAINNET]: [],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 // Tokens supported ONLY in the staging solver environment.
@@ -634,6 +646,24 @@ export const stagingSwapSupportedTokens = {
   // Hedera promoted to production — see swapSupportedTokens
   [ChainKeys.HEDERA_MAINNET]: [],
   [ChainKeys.ROBINHOOD_MAINNET]: [],
+  [ChainKeys.TRON_MAINNET]: [
+    spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.TRX,
+    spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.USDT,
+  ] as const satisfies XToken[],
+  // Production-only: the three XRPL assets are on the production solver oracle.
+  [ChainKeys.XRP_MAINNET]: [],
+  [ChainKeys.MONAD_MAINNET]: [
+    spokeChainConfig[ChainKeys.MONAD_MAINNET].supportedTokens.MON,
+    spokeChainConfig[ChainKeys.MONAD_MAINNET].supportedTokens.USDC,
+  ] as const satisfies XToken[],
+  [ChainKeys.TON_MAINNET]: [
+    spokeChainConfig[ChainKeys.TON_MAINNET].supportedTokens.TON,
+    spokeChainConfig[ChainKeys.TON_MAINNET].supportedTokens.USDT,
+  ] as const satisfies XToken[],
+  [ChainKeys.ZCASH_MAINNET]: [spokeChainConfig[ChainKeys.ZCASH_MAINNET].supportedTokens.ZEC] as const satisfies XToken[],
+  [ChainKeys.CARDANO_MAINNET]: [
+    spokeChainConfig[ChainKeys.CARDANO_MAINNET].supportedTokens.ADA,
+  ] as const satisfies XToken[],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 export type SwapsOptions = {

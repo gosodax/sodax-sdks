@@ -14,13 +14,14 @@
     "claude-code",
     "agents"
   ],
-  "homepage": "https://github.com/gosodax/sodax-sdks/tree/main/packages/skills",
+  "homepage": "https://docs.sodax.com/developers/packages/experience/skills",
   "bugs": {
     "url": "https://github.com/gosodax/sodax-sdks/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/gosodax/sodax-sdks"
+    "url": "git+https://github.com/gosodax/sodax-sdks.git",
+    "directory": "packages/skills"
   },
   "type": "module",
   "engines": {
