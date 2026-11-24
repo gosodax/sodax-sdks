@@ -4125,6 +4125,58 @@ describe('LeverageYieldService.getApprovalStrategy and vaultSwapWithApproval', (
       expect(approveSpy).not.toHaveBeenCalled();
     });
 
+    it('keeps the leverage-yield label on a wallet of the wrong family', async () => {
+      allowance(false);
+      mocks.constructCreateIntentData.mockReturnValue(['0xdata', makeIntent(ARBITRUM), 0n]);
+      vi.spyOn(sodax.spoke, 'deposit').mockResolvedValue({ ok: true, value: '0xspokeTx' });
+
+      const result = await sodax.leverageYield.vaultSwapWithApproval(deposit(mockBitcoinProvider as never));
+
+      expect(!result.ok && result.error).toMatchObject({
+        code: 'VALIDATION_FAILED',
+        feature: 'leverageYield',
+        message: 'Invalid wallet provider. Expected Evm wallet provider.',
+      });
+    });
+
+    it('labels a failed approval as leverage yield, with the spoke error as its cause', async () => {
+      allowance(false);
+      mocks.constructCreateIntentData.mockReturnValue(['0xdata', makeIntent(ARBITRUM), 0n]);
+      const depositSpy = vi.spyOn(sodax.spoke, 'deposit').mockResolvedValue({ ok: true, value: '0xspokeTx' });
+      const spokeError = new Error('approve reverted');
+      vi.spyOn(sodax.spoke, 'approve').mockResolvedValueOnce({ ok: false, error: spokeError });
+
+      const result = await sodax.leverageYield.vaultSwapWithApproval(deposit(mockEvmProvider));
+
+      expect(!result.ok && result.error).toMatchObject({
+        code: 'APPROVE_FAILED',
+        feature: 'leverageYield',
+        cause: spokeError,
+        context: { approvalStrategy: 'sequential' },
+      });
+      // Only the unsigned preflight build ran; no deposit went out.
+      expect(depositSpy.mock.calls.map(([call]) => call.raw)).toEqual([true]);
+    });
+
+    it('labels a failed approval build as leverage yield and sends no batch', async () => {
+      allowance(false);
+      const spokeError = new Error('allowance read failed');
+      vi.spyOn(sodax.spoke, 'buildApproveTxs').mockResolvedValueOnce({ ok: false, error: spokeError });
+      mocks.constructCreateIntentData.mockReturnValue(['0xdata', makeIntent(ARBITRUM), 0n]);
+      vi.spyOn(sodax.spoke, 'deposit').mockResolvedValue({ ok: true, value: '0xspokeTx' });
+      const wallet = makeBatchProvider();
+
+      const result = await sodax.leverageYield.vaultSwapWithApproval(deposit(wallet));
+
+      expect(!result.ok && result.error).toMatchObject({
+        code: 'APPROVE_FAILED',
+        feature: 'leverageYield',
+        cause: spokeError,
+        context: { approvalStrategy: 'atomic-batch' },
+      });
+      expect(wallet.sendAtomicBatch).not.toHaveBeenCalled();
+    });
+
     it('runs a withdraw as vaultSwap does, with no approval', async () => {
       const allowanceSpy = vi.spyOn(sodax.spoke, 'isAllowanceValid');
       const createSpy = stubCreate();
