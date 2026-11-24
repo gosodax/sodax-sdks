@@ -49,6 +49,7 @@ import {
   getIntentRelayChainId,
   tronSupportedTokens,
   monadSupportedTokens,
+  tonSupportedTokens,
   xrpSupportedTokens,
 } from '@sodax/types';
 import { RELAY_FALLBACK_FLOOR_MS } from '../shared/services/intentRelay/IntentRelayApiService.js';
@@ -394,6 +395,23 @@ describe('BridgeService.buildBridgeData — shared fee/decimal basis', () => {
     await expect(sodax.bridge.getBridgeableAmount(mon, wrapped)).resolves.toMatchObject({
       ok: false,
       error: { cause: expect.objectContaining({ message: expect.stringContaining('No vault limit') }) },
+    });
+  });
+
+  it('discovers the hub asset for native TON and refuses to invent a vault limit', async () => {
+    const ton = tonSupportedTokens.TON;
+    const wrapped = { ...ton, chainKey: ChainKeys.SONIC_MAINNET, address: ton.hubAsset };
+    expect(sodax.bridge.getBridgeableTokens(ton.chainKey, wrapped.chainKey, ton.address)).toMatchObject({
+      ok: true,
+      value: [wrapped],
+    });
+    expect(sodax.bridge.getBridgeableTokens(wrapped.chainKey, ton.chainKey, wrapped.address)).toMatchObject({
+      ok: true,
+      value: [ton],
+    });
+    await expect(sodax.bridge.getBridgeableAmount(ton, wrapped)).resolves.toMatchObject({
+      ok: false,
+      error: { cause: expect.objectContaining({ message: expect.stringContaining('native TON route') }) },
     });
   });
 

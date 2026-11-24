@@ -247,6 +247,8 @@ export function assertProductionSwapRoute(
     [params.srcChainKey, params.inputToken, 'inputToken'],
     [params.dstChainKey, params.outputToken, 'outputToken'],
   ] as const) {
+    // Scoped to MPC-relay legs: other chains keep deferring token support to the solver.
+    if (!isMpcRelayChainKey(chainKey)) continue;
     const supportedTokens = getSupportedSolverTokens(chainKey);
     const isSupported = supportedTokens?.some(
       entry =>

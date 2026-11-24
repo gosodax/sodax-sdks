@@ -55,7 +55,6 @@ import {
   type ApprovalStrategy,
 } from '../shared/utils/approvalBatch.js';
 import {
-  ChainKeys,
   type SpokeChainKey,
   type XToken,
   type Hex,
@@ -1571,7 +1570,7 @@ export class BridgeService {
       });
 
       if (
-        (from.chainKey === ChainKeys.MONAD_MAINNET || to.chainKey === ChainKeys.MONAD_MAINNET) &&
+        (isMpcRelayChainKey(from.chainKey) || isMpcRelayChainKey(to.chainKey)) &&
         toToken.vault.toLowerCase() === toToken.hubAsset.toLowerCase() &&
         fromToken.vault.toLowerCase() === fromToken.hubAsset.toLowerCase()
       ) {
@@ -1580,7 +1579,7 @@ export class BridgeService {
           error: lookupFailed(
             'bridge',
             'getBridgeableAmount',
-            new Error('No vault limit is available for the native MON route'),
+            new Error(`No vault limit is available for the native ${fromToken.symbol} route`),
             baseCtx,
           ),
         };
@@ -1745,7 +1744,7 @@ export class BridgeService {
       );
       if (
         isHubChainKeyType(to) &&
-        from === ChainKeys.MONAD_MAINNET &&
+        isMpcRelayChainKey(from) &&
         srcToken.vault.toLowerCase() === srcToken.hubAsset.toLowerCase() &&
         !destinations.some(candidate => candidate.address.toLowerCase() === srcToken.hubAsset.toLowerCase())
       ) {
