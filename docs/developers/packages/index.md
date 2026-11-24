@@ -11,7 +11,7 @@ For a first integration, start with [Your first swap](/quickstart); for a specif
 
 <Note>
   **Building with an AI coding agent?** Install [`@sodax/skills`](/ai-integration-guide) so it writes
-  v2-correct code against these packages, and add the [Builders MCP](/builders-mcp) so it can read the
+  v2-correct code against these packages, and add the [SODAX MCP](/sodax-mcp) so it can read the
   live chain and token lists, quote a real pair, and search these docs as it goes.
 </Note>
 
