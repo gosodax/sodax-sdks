@@ -1,10 +1,11 @@
 // packages/dapp-kit/src/hooks/recovery/useWithdrawHubAsset.ts
-import type { SpokeChainKey, TxReturnType, WithdrawHubAssetAction } from '@sodax/sdk';
+import type { SpokeChainKey, SendMessageReturnType, WithdrawHubAssetAction } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
+import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
 /**
@@ -21,21 +22,27 @@ export type UseWithdrawHubAssetVars<K extends SpokeChainKey = SpokeChainKey> = O
  * React hook for withdrawing a hub-side asset back to the user's spoke chain wallet.
  *
  * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped tx return value on success.
+ * `onError`, `retry`). Returns the spoke tx hash on success, or from an MPC-relay chain (Tron) the
+ * relay's `trackingId`, which is not a tx hash: never link it to an explorer.
  */
 export function useWithdrawHubAsset<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
-}: MutationHookParams<TxReturnType<K, false>, UseWithdrawHubAssetVars<K>> = {}): SafeUseMutationResult<
-  TxReturnType<K, false>,
+}: MutationHookParams<SendMessageReturnType<K, false>, UseWithdrawHubAssetVars<K>> = {}): SafeUseMutationResult<
+  SendMessageReturnType<K, false>,
   Error,
   UseWithdrawHubAssetVars<K>
 > {
   const { sodax } = useSodaxContext();
   const queryClient = useQueryClient();
 
-  return useSafeMutation<TxReturnType<K, false>, Error, UseWithdrawHubAssetVars<K>>({
+  return useSafeMutation<SendMessageReturnType<K, false>, Error, UseWithdrawHubAssetVars<K>>({
     mutationKey: ['recovery', 'withdrawHubAsset'],
     ...mutationOptions,
+    retry: retryBeforeSubmission(
+      mutationOptions?.retry ??
+        queryClient.getMutationDefaults?.(mutationOptions?.mutationKey ?? ['recovery', 'withdrawHubAsset'])?.retry ??
+        queryClient.getDefaultOptions?.().mutations?.retry,
+    ),
     mutationFn: async vars => unwrapResult(await sodax.recovery.withdrawHubAsset<K, false>({ ...vars, raw: false })),
     onSuccess: async (data, vars, ctx) => {
       const { params } = vars;

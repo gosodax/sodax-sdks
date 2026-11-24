@@ -14,7 +14,7 @@ export type XSignMessageVariables = {
  * `ChainActions.signMessage` — registered per chain by the `chainRegistry` (non-provider
  * chains) or by the `<Chain>Actions` component (provider-managed chains).
  *
- * The signature shape varies by chain: hex `\`0x${string}\`` for EVM, base64 `string` for
+ * The signature shape varies by chain: hex `\`0x${string}\`` for EVM and Tron, base64 `string` for
  * Stellar/Solana/Sui, etc. Branch on `xChainType` when consuming.
  *
  * **Bitcoin auto-selects** between BIP-322 (P2WPKH/P2TR) and ECDSA (P2SH/P2PKH) based

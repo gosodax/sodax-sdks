@@ -15,8 +15,8 @@ aTokens (ERC4626 receipt tokens) live on the hub and represent the user's share 
 ```ts
 // Mutations
 sodax.moneyMarket.supply<K>(action): Promise<Result<TxHashPair, SodaxError>>;
-sodax.moneyMarket.borrow<K>(action): Promise<Result<TxHashPair, SodaxError>>;
-sodax.moneyMarket.withdraw<K>(action): Promise<Result<TxHashPair, SodaxError>>;
+sodax.moneyMarket.borrow<K>(action): Promise<Result<OutboundSettlement<K>, SodaxError>>;
+sodax.moneyMarket.withdraw<K>(action): Promise<Result<OutboundSettlement<K>, SodaxError>>;
 sodax.moneyMarket.repay<K>(action): Promise<Result<TxHashPair, SodaxError>>;
 
 // Intent creators (raw-tx variant)
@@ -154,7 +154,8 @@ The `action` field routes to the right token under the hood — relevant for rep
 
 | Method | Success type |
 |---|---|
-| `supply`, `borrow`, `withdraw`, `repay` | `TxHashPair` = `{ srcChainTxHash, dstChainTxHash }` |
+| `supply`, `repay` | `TxHashPair` = `{ srcChainTxHash, dstChainTxHash }` |
+| `borrow`, `withdraw` | `OutboundSettlement<K>`: `TxHashPair`, or from Tron `{ trackingId, dstChainTxHash }` |
 | `create*Intent` | `IntentTxResult<K, Raw>` = `{ tx, relayData }` |
 | `approve` | `TxReturnType<K, Raw>` |
 | `isAllowanceValid` | `boolean` |
@@ -164,13 +165,19 @@ The `action` field routes to the right token under the hood — relevant for rep
 | `getSupportedReserves` | `readonly Address[]` |
 | `buildSupplyData` / `buildBorrowData` / `buildWithdrawData` / `buildRepayData` | `Hex` (calldata for hub-side calls) |
 
-> Every cross-chain mutation across the SDK (bridge, staking, dex, migration, MM) returns `TxHashPair = { srcChainTxHash, dstChainTxHash }` — there is no array-form variant in v2.
+If `borrow` or `withdraw` returns `INTENT_CREATION_FAILED` with `error.context.trackingId`, read the original withdrawal with `sodax.spoke.getMpcRelayWithdrawal({ chainKey, trackingId })`. Polling only observes the MPC relay record. To drive settlement, call `sodax.spoke.settle({ chainKey, tx: trackingId, direction: 'outbound', dstChainKey, relayData })`. Use the original payout `dstChainKey` and `relayData` from the error context for a feature call, or from the original intent for a raw call. Keep tracking the original ID if a replay is rejected. Do not start another borrow or withdraw while the original outcome is unknown. A 429 on the SDK's own first submission queues nothing. The SDK retries the same authorization up to three total attempts. If all three replies are 429, it reports `withdraw rate limit retries exhausted; nothing was queued` without a tracking ID, and a fresh feature call is safe after backing off.
+
+> Every cross-chain mutation across the SDK (bridge, staking, dex, migration, MM) returns an object (`TxHashPair`, or `OutboundSettlement<K>` above) — there is no array-form variant in v2.
 
 `approve` can send **two** transactions on a token that rejects a non-zero to non-zero allowance
 change (Ethereum USDT is the only listed one today): `approve(0)` is mined first, then the real
 approval, so the user signs twice. The returned value is unchanged — one hash, the **last**
 transaction's. Detection simulates the approval, so never gate on a token list. Full note: "ERC-20
 approval can take two transactions" in [`architecture.md`](../architecture.md).
+
+If an MPC borrow or withdrawal fails during settlement, resume with its original `context.trackingId`, `dstChainKey` and `relayData`. Do not repeat the feature call.
+
+After an MPC-relay supply or repay settlement failure with `context.srcTxHash`, wait for the existing deposit's hub mint with the spoke's `waitForDeposit(srcTxHash)`. On timeout, repeat that wait with the same hash after backing off. Do not call supply or repay again for that deposit.
 
 ## Error codes
 

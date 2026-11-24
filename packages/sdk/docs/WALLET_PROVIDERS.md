@@ -35,6 +35,7 @@ Every chain family has a named interface that `@sodax/sdk` exports:
 | `IStacksWalletProvider` | `'STACKS'` | Stacks |
 | `IBitcoinWalletProvider` | `'BITCOIN'` | Bitcoin |
 | `INearWalletProvider` | `'NEAR'` | NEAR |
+| `ITronWalletProvider` | `'TRON'` | Tron |
 
 All interfaces extend `WalletAddressProvider` (from `@sodax/sdk`), which requires:
 
@@ -42,7 +43,7 @@ All interfaces extend `WalletAddressProvider` (from `@sodax/sdk`), which require
 getWalletAddress(): Promise<string>;
 ```
 
-The full union of all nine interfaces is `IWalletProvider`. `GetWalletProviderType<K>` maps a
+The full union of these interfaces is `IWalletProvider`. `GetWalletProviderType<K>` maps a
 chain key or `ChainType` literal to the appropriate specific interface.
 
 ---
@@ -116,12 +117,13 @@ wallet-providers/
 ├── stellar/                   # StellarWalletProvider + types
 ├── stacks/                    # StacksWalletProvider + types
 ├── bitcoin/                   # BitcoinWalletProvider + types
-└── near/                      # NearWalletProvider + types
+├── near/                      # NearWalletProvider + types
+└── tron/                      # TronWalletProvider + types
 ```
 
 ### BaseWalletProvider
 
-All nine provider classes extend `BaseWalletProvider<TDefaults>`:
+All provider classes extend `BaseWalletProvider<TDefaults>`:
 
 ```ts
 abstract class BaseWalletProvider<TDefaults extends object> {
@@ -156,7 +158,7 @@ if (walletProvider.chainType === 'SOLANA') {
 ```
 
 Valid `chainType` values: `'EVM'`, `'BITCOIN'`, `'SOLANA'`, `'STELLAR'`, `'SUI'`, `'ICON'`,
-`'INJECTIVE'`, `'STACKS'`, `'NEAR'`.
+`'INJECTIVE'`, `'STACKS'`, `'NEAR'`, `'TRON'`.
 
 `packages/sdk/src/shared/guards.ts` also exposes named guards for the most common cases:
 
@@ -174,7 +176,7 @@ mechanism varies by chain:
 
 | Mechanism | Chains |
 |---|---|
-| **Field presence** — `privateKey` field present vs. absent | EVM, ICON, Solana, Sui (uses `mnemonics`), NEAR |
+| **Field presence** — `privateKey` field present vs. absent | EVM, ICON, Solana, Sui (uses `mnemonics`), NEAR, Tron |
 | **Explicit `type` field** (`'PRIVATE_KEY'` / `'BROWSER_EXTENSION'`) | Bitcoin, Stellar |
 | **`secret` nested object** (`{ privateKey }` or `{ mnemonics }`) vs. `msgBroadcaster` | Injective |
 | **Field presence** — `privateKey` present vs. absent | Stacks |
@@ -194,6 +196,7 @@ All config types include an optional `defaults` field for per-method behavioral 
 | Stacks | `StacksWalletProvider` | @stacks/transactions | `'STACKS'` |
 | Bitcoin | `BitcoinWalletProvider` | bitcoinjs-lib (PSBT) | `'BITCOIN'` |
 | NEAR | `NearWalletProvider` | near-api-js | `'NEAR'` |
+| Tron | `TronWalletProvider` | none (TronWeb typed structurally) | `'TRON'` |
 
 ---
 
@@ -407,6 +410,14 @@ new NearWalletProvider({
 
 `NearWalletDefaults` accepts: `throwOnFailure`, `waitUntil`, `gasDefault`, `depositDefault`.
 
+### Tron (`TronWalletProvider`)
+
+Private-key mode takes `privateKey`; browser-extension mode takes `getProvider`, which returns the provider the wallet
+announces over TIP-6963, and optionally the injected `tronWeb`. The shapes are in
+[`tron/types.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/types.ts).
+
+`TronWalletDefaults` accepts: `rpcUrl`.
+
 ---
 
 ## 5. React integration: useWalletProvider
@@ -442,7 +453,7 @@ Wallet providers are populated into the store by:
 
 - **Provider-managed chains (EVM, Solana, Sui)** — Hydrator components (`EvmHydrator`,
   `SolanaHydrator`, `SuiHydrator`) sync the native SDK state into the store as the sole writers.
-- **Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks)** — providers are
+- **Non-provider chains (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks, Tron)** — providers are
   created as a side-effect of `setXConnection()` in the store, triggered when a user connects a
   wallet through `ChainActions`.
 
@@ -519,3 +530,5 @@ Requirements for a valid custom implementation:
    it is terminal and throws if it is not by then. The SDK always passes a positive `timeout`, and reads the
    receipts as the batch's transaction when they all carry one hash (extra calls the wallet adds are fine), or —
    right after sending — as one per call in call order; any other shape is treated as unconfirmed.
+6. **Tron `signMessage` signs the hash's hex text, not its bytes** — see `ITronWalletProvider` in
+   [`tron.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/tron/tron.ts).

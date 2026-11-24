@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { ChainKeys } from '../chains/index.js';
-import { getEvmChainKeyByChainId } from './utils.js';
+import {
+  ChainKeys,
+  MpcRelayChainMap,
+  type MpcRelayChainKey,
+  supportedTokensByChain,
+  tronSupportedTokens,
+} from '../chains/index.js';
+import { getEvmChainKeyByChainId, getMpcPayoutMinimum, getUnmetMpcPayoutMinimum } from './utils.js';
 
 describe('getEvmChainKeyByChainId', () => {
   it('maps wagmi chainId 42161 to ARBITRUM_MAINNET', () => {
@@ -29,5 +35,48 @@ describe('getEvmChainKeyByChainId', () => {
 
   it('returns undefined for missing chainId', () => {
     expect(getEvmChainKeyByChainId(undefined)).toBeUndefined();
+  });
+});
+
+describe('getUnmetMpcPayoutMinimum', () => {
+  const { USDT: usdt, TRX: trx } = tronSupportedTokens;
+
+  it('fails below and at the minimum, since the relay skips a release once fee >= amount', () => {
+    const unmet = { symbol: 'USDT', decimals: 6, minimum: 3_000_000n };
+    expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 2_999_999n })).toEqual(unmet);
+    expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3_000_000n })).toEqual(unmet);
+    expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3_000_001n })).toBeUndefined();
+    expect(getUnmetMpcPayoutMinimum({ token: trx, amount: 10_000_000n })?.minimum).toBe(10_000_000n);
+    expect(getUnmetMpcPayoutMinimum({ token: trx, amount: 10_000_001n })).toBeUndefined();
+  });
+
+  // A bridge form holds the source token's decimals: an 18-decimal 2 USDT must not read as huge.
+  it('truncates to payout decimals before comparing the minimum', () => {
+    expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 2n * 10n ** 18n, amountDecimals: 18 })).toBeDefined();
+    expect(getUnmetMpcPayoutMinimum({ token: usdt, amount: 3n * 10n ** 18n, amountDecimals: 18 })).toBeDefined();
+    expect(
+      getUnmetMpcPayoutMinimum({ token: usdt, amount: 3_000_000_500_000_000_000n, amountDecimals: 18 }),
+    ).toBeDefined();
+    expect(
+      getUnmetMpcPayoutMinimum({ token: usdt, amount: 3_000_001_000_000_000_000n, amountDecimals: 18 }),
+    ).toBeUndefined();
+  });
+
+  // The SDK refuses a payout of a token with no floor, so a token listed without one could never be paid out.
+  it('has a floor for every token of every MPC-relay chain', () => {
+    const missing = (Object.keys(MpcRelayChainMap) as MpcRelayChainKey[]).flatMap(chainKey =>
+      Object.values(supportedTokensByChain[chainKey])
+        .filter(token => getMpcPayoutMinimum(token) === undefined)
+        .map(token => `${chainKey}:${token.symbol}`),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it('passes a chain or token with no minimum', () => {
+    expect(
+      getUnmetMpcPayoutMinimum({ token: { ...usdt, chainKey: ChainKeys.ARBITRUM_MAINNET }, amount: 1n }),
+    ).toBeUndefined();
+    expect(getUnmetMpcPayoutMinimum({ token: { ...usdt, address: 'unlisted' }, amount: 1n })).toBeUndefined();
+    expect(getUnmetMpcPayoutMinimum({ token: { ...usdt, symbol: 'OTHER' }, amount: 1n })?.minimum).toBe(3_000_000n);
   });
 });

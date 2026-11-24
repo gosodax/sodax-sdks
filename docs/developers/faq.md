@@ -73,13 +73,13 @@ Per-module code tables: [Swaps](/developers/packages/foundation/sdk/functional-m
 
 #### 8. What should I do when a swap returns `RELAY_TIMEOUT`?
 
-The spoke transaction landed but the hub packet has not arrived within the timeout window. The relay may still complete. Persist the spoke tx hash and poll the relayer API. Do not re-submit from the user side.
+For an intent-relay swap, persist the original source hash and poll `sodax.swaps.getDetailedStatus`. On an MPC-relay source, the backend submit-tx path is skipped. If `INTENT_CREATION_FAILED`, `RELAY_TIMEOUT` or another settlement failure carries `context.srcTxHash`, use the spoke's `waitForDeposit(srcTxHash)` to notify the relay and wait for the hub mint. On timeout, back off and repeat the wait with the same source hash. Once the result is successful and `value.txs?.hubMint?.hash` is a hex hash (check with viem's `isHex`), call `sodax.swaps.postExecution({ intent_tx_hash: hubMintHash })`. Check the returned Result and retry a failed notification with the same hub hash. After notification succeeds, poll `getDetailedStatus` using the original source hash. Do not create another swap or deposit.
 
 Error semantics: [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap), [Relayer API endpoints](/developers/deployments/relayer-api-endpoints).
 
 #### 9. What does `TX_SUBMIT_FAILED` mean?
 
-The critical case. The spoke tx landed but the relay submission itself failed. Funds may be in flight. Persist the user's input plus spoke tx hash and retry submission against the relay API. Do not retry the user-facing transaction.
+The critical case. The spoke tx landed but the relay submission itself failed. Funds may be in flight. For an intent-relay submission, resubmit the existing hash and required original relay data. On an MPC source, resume the same deposit, including solver notification for a swap. Do not retry the user-facing transaction.
 
 Full code reference: [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap).
 
@@ -105,7 +105,7 @@ Walkthrough with code: [Make a swap (SDK)](/developers/how-to/how_to_make_a_swap
 
 #### 12. Can I cancel an intent?
 
-Yes. Call `cancelIntent(intent)` on the Intents contract. The caller must be the creator, or the deadline must have passed. Intents with pending fills cannot be cancelled. Limit orders (`deadline = 0`) always require manual cancellation.
+Yes, unless it comes from an MPC-relay chain (Tron): hub cancellation follows expiry, so it cannot be a limit order. The corresponding MPC release must settle before the refund reaches the source chain. Call `cancelIntent(intent)` on the Intents contract. The caller must be the creator, or the deadline must have passed. Intents with pending fills cannot be cancelled. Limit orders (`deadline = 0`) always require manual cancellation.
 
 Contract interface: [Intents](/developers/technical-overview/intents).
 
@@ -139,13 +139,11 @@ See [Bridge](/developers/packages/foundation/sdk/functional-modules/bridge) and 
 
 Build a raw tx with `raw: true` from any `createIntent`, `createSupplyIntent`, `approve`, etc. Then call the matching module's `estimateGas({ tx, chainKey })`. The return shape depends on the chain family.
 
-EVM, ICON, Stellar, Bitcoin, NEAR return a `bigint`. Sui returns `{ computationCost, storageCost, storageRebate, nonRefundableStorageFee }`. Injective returns `{ gasWanted, gasUsed }`. Stacks returns `{ low, medium, high }` fee tiers. Solana returns `number | undefined` compute units.
-
-Examples per chain: [Estimate Gas](/developers/how-to/estimate_gas).
+Return shape and examples per chain: [Estimate Gas](/developers/how-to/estimate_gas).
 
 #### 17. Can I stake SODA from a non-EVM chain like Sui or Stellar?
 
-Yes. Every `StakingService` method accepts any `SpokeChainKey` as the source. If you pass `ChainKeys.SONIC_MAINNET`, the spoke and hub tx hashes are identical. Approval is required only on EVM spokes, the hub, and Stellar.
+Yes. Every `StakingService` method accepts any `SpokeChainKey` as the source except an MPC-relay chain (Tron). If you pass `ChainKeys.SONIC_MAINNET`, the spoke and hub tx hashes are identical. Approval is required only on EVM spokes, the hub, and Stellar.
 
 See [Staking](/developers/packages/foundation/sdk/functional-modules/staking).
 

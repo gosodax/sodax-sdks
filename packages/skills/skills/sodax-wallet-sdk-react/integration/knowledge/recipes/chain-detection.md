@@ -191,7 +191,7 @@ Both `useChainGroups` and `useConnectedChains` accept an `order?: readonly Chain
 
 ```typescript
 const groups = useChainGroups({ order: ['EVM', 'ICON'] });
-// EVM → ICON → (alphabetical: BITCOIN, INJECTIVE, NEAR, SOLANA, STACKS, STELLAR, SUI)
+// EVM → ICON → the other enabled chains, alphabetically
 ```
 
 For UIs that must not reflow on reload (header chain list, navigation), always pass `order`.

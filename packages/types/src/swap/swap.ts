@@ -583,6 +583,8 @@ export const swapSupportedTokens = {
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.TAO,
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.ANT,
   ] as const satisfies XToken[],
+  // Tron is currently staging-only — see stagingSwapSupportedTokens
+  [ChainKeys.TRON_MAINNET]: [],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 // Tokens supported ONLY in the staging solver environment.
@@ -634,6 +636,10 @@ export const stagingSwapSupportedTokens = {
   // Hedera promoted to production — see swapSupportedTokens
   [ChainKeys.HEDERA_MAINNET]: [],
   [ChainKeys.ROBINHOOD_MAINNET]: [],
+  [ChainKeys.TRON_MAINNET]: [
+    spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.TRX,
+    spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.USDT,
+  ] as const satisfies XToken[],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 export type SwapsOptions = {

@@ -120,6 +120,26 @@ const StacksRawTxSchema = v.object({
   estimatedLength: v.optional(v.number()),
 });
 
+/**
+ * `TronRawTransaction` — the node-built deposit transfer, the only Tron tx these routes return. `raw_data`
+ * is kept whole, extra fields included: a browser wallet signs from it and checks it against
+ * `raw_data_hex`. Whether `txID` hashes that hex is the signer's check, not this parse.
+ */
+const TronRawTxSchema = v.object({
+  txID: v.pipe(v.string(), v.regex(/^[0-9a-fA-F]{64}$/)),
+  raw_data_hex: v.pipe(v.string(), v.regex(/^(?:[0-9a-fA-F]{2})+$/)),
+  raw_data: v.looseObject({
+    contract: v.array(v.unknown()),
+    expiration: v.pipe(v.number(), v.integer(), v.minValue(0)),
+    ref_block_bytes: v.optional(v.string()),
+    ref_block_hash: v.optional(v.string()),
+    timestamp: v.optional(v.number()),
+    fee_limit: v.optional(v.number()),
+    data: v.optional(v.string()),
+  }),
+  visible: v.optional(v.boolean()),
+});
+
 /** Permissive fallback for an unmapped chain key: non-null object, typed as `RawTxReturnType`. */
 const AnyRawTxSchema = v.custom<RawTxReturnType>(input => typeof input === 'object' && input !== null);
 
@@ -152,6 +172,8 @@ export function rawTxSchemaForChainKey(chainKey: string): v.GenericSchema<unknow
       return StacksRawTxSchema;
     case 'NEAR':
       return NearRawTxSchema;
+    case 'TRON':
+      return TronRawTxSchema;
     case 'BITCOIN':
       return BitcoinRawTxSchema;
     default:

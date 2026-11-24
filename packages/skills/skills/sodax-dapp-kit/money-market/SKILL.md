@@ -32,7 +32,7 @@ Granular skill for the lending/borrowing hooks of `@sodax/dapp-kit` v2. queryKey
 - **Using `srcChainKey`/`srcAddress` on read hooks.** Those are mutation-side names. Position reads (`useATokensBalances`, `useUserFormattedSummary`, `useUserReservesData`) key on `spokeChainKey` + `userAddress`; the hub wallet is derived automatically. Don't grep-replace one for the other.
 - **Treating `useMMAllowance` `undefined` as "not approved" for borrow/withdraw.** The query is `enabled: false` for those actions — `undefined` means "approval not required."
 - **Passing the MM params directly under `params` on `useMMAllowance`.** They nest under `params.payload`.
-- **Treating mutation `data` as `Result<T>`.** `data` is the unwrapped `TxHashPair = { srcChainTxHash, dstChainTxHash }`.
+- **Treating mutation `data` as `Result<T>`.** `data` is the unwrapped `TxHashPair = { srcChainTxHash, dstChainTxHash }` (`OutboundSettlement<K>` for `useBorrow` / `useWithdraw`).
 - **Skipping a health-factor warning, or comparing it wrong.** `healthFactor` is a **string**, and a no-debt position returns the sentinel `'-1'` — so `Number(hf)` it and exclude `-1` before warning: `const hf = Number(summary.healthFactor); if (hf !== -1 && hf < 1.05) { /* warn */ }`. A raw `healthFactor < 1.05` is a TS error and would also flag a debt-free user.
 
 ## Migration workflow (port v1 MM hooks to v2)

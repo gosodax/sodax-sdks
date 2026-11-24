@@ -1,4 +1,4 @@
-import { ChainKeys } from '@sodax/sdk';
+import { ATOMIC_BATCH_UNCONFIRMED, ChainKeys, SodaxError } from '@sodax/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const VARS = {
@@ -8,6 +8,7 @@ const VARS = {
 
 type CapturedMutation = {
   mutationKey: unknown;
+  retry: (failureCount: number, error: Error) => boolean;
   mutationFn: (vars: unknown) => Promise<unknown>;
   onSuccess: (data: unknown, vars: typeof VARS, ctx: unknown) => Promise<void>;
 };
@@ -33,6 +34,28 @@ beforeEach(() => {
 });
 
 describe('useSwapWithApproval', () => {
+  it.each([
+    { batchId: 'batch-1' },
+    { reason: ATOMIC_BATCH_UNCONFIRMED },
+  ])('suppresses configured retries after an unconfirmed batch ($context)', context => {
+    useSwapWithApproval({ mutationOptions: { retry: 3 } });
+    const error = new SodaxError('TX_VERIFICATION_FAILED', 'Batch was sent but not confirmed', {
+      feature: 'swap',
+      context,
+    });
+    expect(captured.retry(0, error)).toBe(false);
+  });
+
+  it('suppresses configured retries when the original source hash is known', () => {
+    useSwapWithApproval({ mutationOptions: { retry: 3 } });
+    const error = new SodaxError('RELAY_TIMEOUT', 'Settlement pending', {
+      feature: 'swap',
+      context: { srcTxHash: '0x1234' },
+    });
+    expect(captured.retry(0, error)).toBe(false);
+    expect(captured.retry(0, new Error('Before submission'))).toBe(true);
+  });
+
   it('keys the mutation under swap and calls swapWithApproval in signed mode', async () => {
     swapWithApproval.mockResolvedValueOnce({ ok: true, value: { approvalStrategy: 'atomic-batch' } });
     useSwapWithApproval();

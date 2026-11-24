@@ -82,6 +82,7 @@ import {
   type HubChainKey,
   type EvmSpokeOnlyChainKey,
   type IconContractAddress,
+  type DepositReturnType,
 } from '@sodax/types';
 import { isAddress } from 'viem';
 import type { ConfigService } from '../shared/config/ConfigService.js';
@@ -1086,7 +1087,7 @@ export class MigrationService {
       return {
         ok: true,
         value: {
-          tx: txResult.value satisfies TxReturnType<K, Raw> as TxReturnType<K, Raw>,
+          tx: txResult.value satisfies DepositReturnType<K, Raw> as DepositReturnType<K, Raw>,
           relayData: { address: hubWalletAddress, payload: migrationData },
         },
       };

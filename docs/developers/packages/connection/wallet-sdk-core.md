@@ -40,6 +40,7 @@ The package includes wallet provider implementations for:
 - Near ✅
 - Stacks ✅
 - Bitcoin ✅
+- Tron ✅
 
 ## Public API surface
 
@@ -54,7 +55,7 @@ Internal utilities (e.g. `shallowMerge` in `src/utils/merge.ts`) are **not** exp
 
 All providers support two modes, but **the union discriminant depends on the provider**:
 
-- **Field presence (no `type` field in config)**: EVM, Solana, Sui, Near, Stacks, Icon, Injective
+- **Field presence (no `type` field in config)**: EVM, Solana, Sui, Near, Stacks, Icon, Injective, Tron
 - **Explicit uppercase `type` field**: Bitcoin, Stellar (`'PRIVATE_KEY' | 'BROWSER_EXTENSION'`)
 
 ### EVM
@@ -269,6 +270,10 @@ const nearBrowser = new NearWalletProvider({
   wallet: myNearConnector,
 });
 ```
+
+### Tron
+
+Tron discriminates by field presence: `privateKey`, or the wallet's `tronWeb` plus `getProvider` returning the provider it announces over TIP-6963. See [`tron/types.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/types.ts); both configs are constructed in [`TronWalletProvider.test.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/wallet-sdk-core/src/wallet-providers/tron/TronWalletProvider.test.ts).
 
 ## Defaults and merge semantics
 

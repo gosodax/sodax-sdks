@@ -53,7 +53,7 @@ When dapp-kit is also in use, the full provider stack is:
 <SodaxWalletProvider config={walletConfig}>{children}</SodaxWalletProvider>
 ```
 
-The v2 `config` is `SodaxWalletConfig`. Top-level keys are **chain-type slots** (`EVM`, `SOLANA`, `SUI`, `BITCOIN`, `STELLAR`, `ICON`, `INJECTIVE`, `NEAR`, `STACKS`). **Omit a slot to skip mounting that adapter**; pass `{}` to mount with SDK defaults.
+The v2 `config` is `SodaxWalletConfig`. Top-level keys are **chain-type slots** (one per `ChainTypeArr` member in `@sodax/types`). **Omit a slot to skip mounting that adapter**; pass `{}` to mount with SDK defaults.
 
 ---
 
@@ -98,7 +98,7 @@ const walletConfig: SodaxWalletConfig = {
 
 | Slot | Per-chain entry |
 |---|---|
-| `EVM`, `SOLANA`, `ICON`, `NEAR` | `{ rpcUrl?, defaults? }` |
+| `EVM`, `SOLANA`, `ICON`, `NEAR`, `TRON` | `{ rpcUrl?, defaults? }` |
 | `SUI` | `{ grpcUrl?, defaults? }` — `rpcUrl` is a deprecated alias; pass one or the other, never both |
 | `BITCOIN`, `STELLAR`, `INJECTIVE` | extends their `*RpcConfig` type with `{ defaults? }` |
 | `STACKS` | preset name (string) **or** `StacksNetworkLike & { defaults? }` |

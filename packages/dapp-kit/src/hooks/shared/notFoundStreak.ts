@@ -16,6 +16,11 @@
 export const STATUS_POLL_MS = 3000;
 /** Cap consecutive ambiguous polls (~2 min at 3s). The first one is a race, not a stop. */
 export const MAX_NOT_FOUND_POLLS = 40;
+/**
+ * The cap for a read the SDK tags `context.mpcRelay` (~5 min at 3s). An MPC-relay leg waits on confirmations,
+ * the NEAR signature and the hub tx, and the SDK itself allows it at least 5 minutes.
+ */
+export const MAX_MPC_RELAY_NOT_FOUND_POLLS = 100;
 
 export type NotFoundStreakState = {
   /** Identity of what is being polled — an intent tx hash, or a composite source-chain/tx key. */

@@ -15,7 +15,7 @@ import { useXWalletStore } from '@/useXWalletStore.js';
  * after the native SDK reports `connected`. Read the resolved account via
  * `useXAccount` / `useXConnection`, not the mutation's return value.
  *
- * **Non-provider chains** (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks) return
+ * **Non-provider chains** (Bitcoin, ICON, Injective, Stellar, NEAR, Stacks, Tron) return
  * the resolved `XAccount` directly. Code defensively if your component supports
  * both — `useXAccount` works for both cases.
  *

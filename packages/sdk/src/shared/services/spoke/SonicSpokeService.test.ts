@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ChainKeys,
   spokeChainConfig,
+  tronSupportedTokens,
   type Address,
   type Hex,
   type IEvmWalletProvider,
@@ -107,8 +108,10 @@ vi.mock('../../utils/shared-utils.js', async () => {
 
 import { Sodax } from '../../entities/Sodax.js';
 import { SonicSpokeService } from './SonicSpokeService.js';
+import { encodeAddress } from '../../utils/shared-utils.js';
 import type { CreateIntentParams } from '../../types/intent-types.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
+import { TRON_TEST_ADDRESS } from './tron-test-fixtures.js';
 
 // --- fixtures -------------------------------------------------------------
 
@@ -915,6 +918,50 @@ describe('SonicSpokeService.createSwapIntent (static)', () => {
       });
 
       expect(intent.outputToken).toBe(hubAsset);
+    });
+
+    it.each([
+      [false, 'minOutputAmount'],
+      [true, 'allowPartialFill'],
+    ] as const)('refuses invalid Tron payout parameters before building (%s)', async (allowPartialFill, field) => {
+      vi.spyOn(sodax.config, 'getSpokeTokenFromOriginalAssetAddress').mockReturnValueOnce(tronSupportedTokens.USDT);
+      await expect(
+        SonicSpokeService.createSwapIntent({
+          createIntentParams: baseCreateIntentParams(SONIC, {
+            dstChainKey: ChainKeys.TRON_MAINNET,
+            dstAddress: TRON_TEST_ADDRESS,
+            outputToken: tronSupportedTokens.USDT.address,
+            minOutputAmount: 3_000_000n,
+            allowPartialFill,
+          }),
+          creatorHubWalletAddress: HUB_WALLET,
+          solverConfig,
+          fee: undefined,
+          hubProvider: baseHubProvider,
+          raw: true,
+        }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', context: { field } });
+    });
+
+    it('MPC-relay (Tron) dst: dstAddress is the 32-byte recipient word (12 zero bytes ‖ 20-byte hash)', async () => {
+      vi.spyOn(sodax.config, 'getSpokeTokenFromOriginalAssetAddress').mockReturnValueOnce(tronSupportedTokens.USDT);
+
+      const [, intent] = await SonicSpokeService.createSwapIntent({
+        createIntentParams: baseCreateIntentParams(SONIC, {
+          dstChainKey: ChainKeys.TRON_MAINNET,
+          dstAddress: TRON_TEST_ADDRESS,
+          outputToken: tronSupportedTokens.USDT.address,
+          minOutputAmount: 3_000_001n,
+        }),
+        creatorHubWalletAddress: HUB_WALLET,
+        solverConfig,
+        fee: undefined,
+        hubProvider: baseHubProvider,
+        raw: true,
+      });
+
+      const identity = encodeAddress(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS);
+      expect(intent.dstAddress).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
     });
 
     it('returns `inputAmount - feeAmount` as the intent inputAmount when a partner fee is configured', async () => {

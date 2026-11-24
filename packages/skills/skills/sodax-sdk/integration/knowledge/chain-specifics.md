@@ -15,6 +15,7 @@ Non-EVM:
 3. [Solana PDA derivation](#3-solana-pda-derivation) — `SOLANA_MAINNET`. Deterministic addresses; one-time setup utilities.
 4. [ICON Hana wallet](#4-icon-hana-wallet) — `ICON_MAINNET`. Low-level Hana-extension helpers; chain key string vs numeric ID.
 5. [NEAR connector discovery](#5-near-connector-discovery) — `NEAR_MAINNET`. Account-id semantics; multiple wallet variants.
+6. [Tron (MPC relay)](#6-tron-mpc-relay) — `TRON_MAINNET`. Settles through the MPC relay, as a source and as a destination.
 
 ---
 
@@ -234,6 +235,29 @@ The `sodax-dapp-kit` skill wraps these as the `useNearStorageCheck` / `useRegist
 ### `ft_transfer_call` attaches 1 yoctoNEAR
 
 Deposits **from** NEAR (`deposit()` / `fillIntent()` on the NEAR spoke service) call the token's `ft_transfer_call`, which per NEP-141 must carry **exactly 1 yoctoNEAR** — the spoke service attaches it automatically. The signer only needs a small NEAR balance to cover gas (the 1 yoctoNEAR is dust). Native-token deposits use a plain `transfer` and aren't subject to this.
+
+---
+
+## 6. Tron (MPC relay)
+
+`TRON_MAINNET`, address base58 `T…`. Tron settles through the **MPC relay**, not the intent relay, so it has no relay packet; branch on `isMpcRelayChainKeyType(chainKey)`. Features that cannot settle through it refuse Tron before signing with `VALIDATION_FAILED`; each feature doc names its refusal.
+
+### From Tron
+
+- A deposit is a memo-tagged transfer, so it needs no approval. A raw deposit settles differently: [`recipes/raw-tx-flow.md`](recipes/raw-tx-flow.md).
+- A signed `create*Intent` deposit resolves to its tx hash even when its broadcast or relay notify got no clear answer: settle that hash with `sodax.spoke.settle`, or notify it with `sodax.spoke.submitMpcDeposit`, rather than sending it again.
+- A borrow or withdraw has no Tron tx, only the relay's trackingId: it resolves to `{ trackingId, dstChainTxHash }` (`OutboundSettlement<K>`).
+- A swap to or from Tron refuses `allowPartialFill`; from Tron it also refuses limit orders and `cancelIntent`, so only its deadline refunds it. The refund is a payout to Tron: release the `txHash` of the intent record's `intent-cancelled` event, e.g. with `sodax.spoke.settleHubRelease`.
+
+### To Tron
+
+- A payout arrives less the relay's release fee, which the SDK does not quote. Before signing, the SDK refuses a payout at or below [`MpcRelayPayoutMinimums`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chains.ts) with `VALIDATION_FAILED` and `context.reason: 'mpc-payout-below-minimum'`. Pre-check with `getUnmetMpcPayoutMinimum({ token, amount })`.
+- Encode a Tron recipient with `encodeRecipient`, not `encodeAddress`.
+- The relay does not watch the hub: a payout is released only once its hub tx is notified. `bridge`, `borrow`, `withdraw` and DEX `withdraw` do this. For a solved intent (a swap, a vault withdraw), the solver notifies its fill; `sodax.swaps.waitForIntentDelivery` waits for the payout. A caller driving `create*Intent` or raw txs passes `dstChainKey` to `sodax.spoke.settle`, or releases the hub tx with `sodax.spoke.submitHubRelease` / `settleHubRelease`. From Tron to another spoke, `sodax.spoke.submitHubDelivery(hubTxHash)` relays the hub mint without waiting.
+- Withdraw recovery. If `borrow` or `withdraw` returns `INTENT_CREATION_FAILED` with `error.context.trackingId`, read the original withdrawal with `sodax.spoke.getMpcRelayWithdrawal({ chainKey, trackingId })`. Polling only observes the MPC relay record. To drive settlement, call `sodax.spoke.settle({ chainKey, tx: trackingId, direction: 'outbound', dstChainKey, relayData })`. Use the original payout `dstChainKey` and `relayData` from the error context for a feature call, or from the original intent for a raw call. Keep tracking the original ID if a replay is rejected. Do not start another borrow or withdraw while the original outcome is unknown. A 429 on the SDK's own first submission queues nothing. The SDK retries the same authorization up to three total attempts. If all three replies are 429, it reports `withdraw rate limit retries exhausted; nothing was queued` without a tracking ID, and a fresh feature call is safe after backing off.
+- Status: for a Tron source, pass `dstChainKey` to `bridge.getDetailedStatus`. Pass Sonic if the bridge ends at the hub. An omitted destination leaves the hub mint non-terminal. To Tron, `bridge.getDetailedStatus` returns the `mpcRelay` arm with `txs.release` once paid, `waitForIntentDelivery` its `mpcRelay` arm (`getSolvedIntentPacket` fails for Tron), and `sodax.spoke.getHubReleaseRecord` reads a release without waiting.
+
+A custom `ITronWalletProvider` must follow its [JSDoc](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/tron/tron.ts): `signMessage` signs the hash's hex text, not its raw bytes.
 
 ---
 

@@ -278,6 +278,8 @@ export const moneyMarketSupportedTokens = {
     spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens.USDG,
     ...moneyMarketEquitySymbols.map(symbol => spokeChainConfig[ChainKeys.ROBINHOOD_MAINNET].supportedTokens[symbol]),
   ] as const satisfies XToken[],
+  // No TRX: its sodaTRX vault is not a money-market reserve.
+  [ChainKeys.TRON_MAINNET]: [spokeChainConfig[ChainKeys.TRON_MAINNET].supportedTokens.USDT] as const satisfies XToken[],
 } as const satisfies Record<SpokeChainKey, readonly XToken[]>;
 
 export const moneyMarketReserveAssets = [

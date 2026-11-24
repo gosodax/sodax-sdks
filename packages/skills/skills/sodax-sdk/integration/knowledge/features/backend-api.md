@@ -51,6 +51,8 @@ Every data / token / money-market response is validated at runtime against a val
 
 ## Common call shape — submit swap tx (`sodax.api.swaps.submitTx`)
 
+Use this flow only for intent-relay sources. For an MPC-relay source, settle the existing source transaction to Sonic, then call `postExecution` with the hub mint hash and poll the original source hash.
+
 After `sodax.swaps.createIntent({ params, raw: false, walletProvider })` returns:
 
 ```ts

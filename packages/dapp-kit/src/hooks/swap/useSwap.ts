@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
+import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 
 /**
  * Mutation variables for {@link useSwap}. Generic over `K extends SpokeChainKey` (defaults to the
@@ -29,6 +30,11 @@ export function useSwap<K extends SpokeChainKey = SpokeChainKey>({
   return useSafeMutation<SwapResponse, Error, UseSwapVars<K>>({
     mutationKey: ['swap'],
     ...mutationOptions,
+    retry: retryBeforeSubmission(
+      mutationOptions?.retry ??
+        queryClient.getMutationDefaults?.(mutationOptions?.mutationKey ?? ['swap'])?.retry ??
+        queryClient.getDefaultOptions?.().mutations?.retry,
+    ),
     mutationFn: async vars => unwrapResult(await sodax.swaps.swap({ ...vars, raw: false })),
     onSuccess: async (data, vars, ctx) => {
       invalidateBalances(queryClient, vars.params.srcChainKey, vars.params.dstChainKey);

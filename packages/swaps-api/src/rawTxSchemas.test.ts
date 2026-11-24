@@ -1,5 +1,6 @@
 import * as v from 'valibot';
 import { describe, expect, it } from 'vitest';
+import { ChainKeys } from '@sodax/types';
 import { EvmRawTxSchema, InjectiveRawTxSchema, rawTxSchemaForChainKey } from './rawTxSchemas.js';
 
 const evmTxWire = {
@@ -145,5 +146,32 @@ describe('rawTxSchemaForChainKey', () => {
     // Fallback validates "is a non-null object" and leaves the payload untransformed.
     expect(v.parse(schema, { anything: 'goes' })).toEqual({ anything: 'goes' });
     expect(v.safeParse(schema, 'not-an-object').success).toBe(false);
+  });
+});
+
+describe('rawTxSchemaForChainKey — Tron', () => {
+  const rawData = {
+    contract: [{ type: 'TriggerSmartContract', parameter: { value: { owner_address: 'owner' } } }],
+    expiration: 1_700_000_060_000,
+    ref_block_bytes: 'abcd',
+    data: 'memo',
+    // A field this schema does not name still reaches the wallet, which compares the body with the hex.
+    future_field: 1,
+  };
+  const tronTx = { txID: 'ab'.repeat(32), raw_data_hex: '0a02abcd', raw_data: rawData, visible: false };
+  const schema = rawTxSchemaForChainKey(ChainKeys.TRON_MAINNET);
+
+  it('keeps the decoded body whole, since a browser wallet signs from it', () => {
+    expect(v.parse(schema, tronTx)).toEqual(tronTx);
+  });
+
+  it.each([
+    ['a withdraw-auth, which these routes never return', { message: {}, digest: `0x${'00'.repeat(32)}`, scheme: 1 }],
+    ['no decoded body', { txID: tronTx.txID, raw_data_hex: tronTx.raw_data_hex }],
+    ['a txID that is not 32 bytes', { ...tronTx, txID: 'abcd' }],
+    ['a body hex of odd length', { ...tronTx, raw_data_hex: 'abc' }],
+    ['an expiration that is not a number', { ...tronTx, raw_data: { ...rawData, expiration: '1700000060000' } }],
+  ])('rejects %s', (_label, body) => {
+    expect(v.safeParse(schema, body).success).toBe(false);
   });
 });
