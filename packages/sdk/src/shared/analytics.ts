@@ -124,7 +124,11 @@ export function resolveAnalytics(option: AnalyticsOption | undefined): ResolvedA
   const emit: ResolvedAnalytics['emit'] = (feature, action, phase, build, level = 'basic') => {
     if (!isEnabled(feature, action, level)) return;
     try {
-      tracker({ feature, action, phase, level, data: build?.() });
+      // An `async` tracker satisfies `void` but may reject after `emit` returns; absorb that rejection too.
+      const returned: unknown = tracker({ feature, action, phase, level, data: build?.() });
+      if (typeof (returned as PromiseLike<unknown> | undefined)?.then === 'function') {
+        Promise.resolve(returned).catch(() => {});
+      }
     } catch {
       // Analytics is fire-and-forget — a throwing consumer tracker must never break a feature flow.
     }
