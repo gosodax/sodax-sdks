@@ -178,9 +178,8 @@ describe('XRPL Robinhood stocks', () => {
   const STOCK_ISSUER = 'rhQeeggWNoaN6ttBEaSqLPJZekFYBvPxtn';
   const xrpChain = ChainKeys.XRP_MAINNET;
   const asciiHex = (s: string) => Buffer.from(s, 'ascii').toString('hex').toUpperCase().padEnd(40, '0');
-  // Only asset ids up to 0x000a are live: the XRP executor's token map covers these seven for now, and the other 39
-  // stocks are commented out in tokens.ts / swap.ts. Add a symbol here when its entry is uncommented.
-  const LIVE = ['NVDA', 'SPCX', 'GME', 'DJT', 'RDDT', 'MSTR', 'AAPL'] as const satisfies readonly EquitySymbol[];
+  // Asset ids up to 0x0031 are live: the 46 stocks the relay's XRP_TOKEN_MAP covers. Add a symbol here when its entry is added.
+  const LIVE = ['SPCX', 'NVDA', 'GME', 'DJT', 'RDDT', 'MSTR', 'AAPL', 'TSLA', 'MU', 'SNDK', 'SPY', 'QQQ', 'SGOV', 'USO', 'GLD', 'SLV', 'AMC', 'GOOGL', 'HIMS', 'AMZN', 'MSFT', 'LLY', 'META', 'CRCL', 'COIN', 'PLTR', 'COST', 'TSM', 'AMD', 'TTWO', 'INTC', 'RBLX', 'IBM', 'MRNA', 'LULU', 'SNAP', 'WYFI', 'RIVN', 'BABA', 'NFLX', 'BULL', 'QUBT', 'NET', 'SKHY', 'JNJ', 'UPS'] as const satisfies readonly EquitySymbol[];
   const stock = (symbol: (typeof LIVE)[number]): XToken => xrpSupportedTokens[symbol];
 
   it('registers exactly the live stocks and no other equity yet', () => {

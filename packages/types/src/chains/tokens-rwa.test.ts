@@ -76,9 +76,9 @@ describe('RWA metadata', () => {
     [ChainKeys.SONIC_MAINNET]: equities,
     [ChainKeys.STELLAR_MAINNET]: equities,
     [ChainKeys.HEDERA_MAINNET]: equities,
-    // Only asset ids up to 0x000a are live on XRPL for now (the rest are commented out in tokens.ts).
+    // Asset ids up to 0x0031 are live on XRPL (46 stocks).
     [ChainKeys.XRP_MAINNET]: equities.filter(symbol =>
-      ['NVDA', 'SPCX', 'GME', 'DJT', 'RDDT', 'MSTR', 'AAPL'].includes(symbol),
+      ['SPCX', 'NVDA', 'GME', 'DJT', 'RDDT', 'MSTR', 'AAPL', 'TSLA', 'MU', 'SNDK', 'SPY', 'QQQ', 'SGOV', 'USO', 'GLD', 'SLV', 'AMC', 'GOOGL', 'HIMS', 'AMZN', 'MSFT', 'LLY', 'META', 'CRCL', 'COIN', 'PLTR', 'COST', 'TSM', 'AMD', 'TTWO', 'INTC', 'RBLX', 'IBM', 'MRNA', 'LULU', 'SNAP', 'WYFI', 'RIVN', 'BABA', 'NFLX', 'BULL', 'QUBT', 'NET', 'SKHY', 'JNJ', 'UPS'].includes(symbol),
     ),
     [ChainKeys.SOLANA_MAINNET]: xstocks,
     [ChainKeys.ETHEREUM_MAINNET]: [ethereumSupportedTokens.PAXG.symbol, ethereumSupportedTokens.XAUt.symbol],

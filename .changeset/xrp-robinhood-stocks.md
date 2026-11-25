@@ -4,7 +4,7 @@
 "@sodax/wallet-sdk-react": patch
 ---
 
-Add the first 7 Robinhood tokenized stocks on the XRP Ledger (NVDA, SPCX, GME, DJT, RDDT, MSTR, AAPL) as staging-only swap tokens; the other 39 are written out but commented out until the XRP executor's token map covers them.
+Add 46 Robinhood tokenized stocks on the XRP Ledger (asset ids 0x0004 to 0x0031, NVDA through UPS) as staging-only swap tokens.
 
 `xrpSupportedTokens` registers each live stock flagged `isRwa`, 8 decimals, pointing at its existing Sonic equity vault with the XRPL wrapped asset as `hubAsset`. They are listed in `stagingSwapSupportedTokens` for XRP, not in the production list, until the production solver prices them. They are not money-market assets.
 

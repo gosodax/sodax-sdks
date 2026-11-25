@@ -1021,12 +1021,11 @@ describe('XrpSpokeService — tokens that share one issuer (the Robinhood stocks
       .Amount;
   const stockAddresses = () => Object.values(tokens).filter(t => t.address.includes(':')).map(t => t.address);
 
-  // Only asset ids up to 0x000a are live (the XRP executor's token map covers them for now); the other 39 stocks are
-  // commented out in tokens.ts. Raise this as they are uncommented.
-  it('registers the 7 live stocks, each with a distinct address', () => {
+  // Asset ids up to 0x0031 are live (46 stocks, covered by the relay's XRP_TOKEN_MAP).
+  it('registers the 46 live stocks, each with a distinct address', () => {
     const addresses = stockAddresses();
-    expect(addresses).toHaveLength(7);
-    expect(new Set(addresses).size).toBe(7);
+    expect(addresses).toHaveLength(46);
+    expect(new Set(addresses).size).toBe(46);
   });
 
   it.each(['NVDA', 'SPCX', 'GME', 'DJT', 'MSTR'])('deposits %s with its own currency and the shared issuer', async symbol => {
