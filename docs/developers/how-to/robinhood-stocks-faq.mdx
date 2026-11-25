@@ -15,7 +15,7 @@ These answers apply to Robinhood stock tokens on every network they are on. Wher
 
 #### Which stocks are live, and on which networks? {#networks}
 
-Every ticker is live on Robinhood Chain, Hedera and Stellar, with one vault token per ticker on Sonic, the SODAX hub. Tickers are added over time, so read the live list over HTTP, filtered as in [Find the stock tokens](/developers/how-to/robinhood-stocks#find-stocks-http), or from the SDK. Every ticker and its address on each network are in [Mainnet deployments](/developers/deployments/mainnet#robinhood-tokenized-equities).
+Robinhood issues each stock on Robinhood Chain, and each ticker has one vault token on Sonic, the SODAX hub. Tickers and networks are added over time, so read the live list over HTTP, filtered as in [Find the stock tokens](/developers/how-to/robinhood-stocks#find-stocks-http), or from the SDK. Every ticker and its address on each network are in [Mainnet deployments](/developers/deployments/mainnet#robinhood-tokenized-equities).
 
 #### How are the stock tokens on each network related? {#how-related}
 
@@ -32,7 +32,7 @@ Through the SODAX [Asset Manager](/developers/technical-overview/asset-manager).
 #### How is the supply issued on each network? {#supply}
 
 - **Robinhood Chain:** Robinhood issues the tokens. The ones that back the other networks are locked in the SODAX SpokeAssetManager there.
-- **Hedera:** the supply of each stock token is created in advance and held by the SODAX SpokeAssetManager on Hedera. Users receive tokens when that contract releases them, so the supply in users' hands is the token's total supply minus what the SpokeAssetManager and the token's treasury account hold. The tokens use Hedera's native token service (HTS) and have no KYC, freeze, wipe or pause keys. They do have an admin key and a supply key (see [due diligence](/developers/how-to/robinhood-stocks-due-diligence#token-controls)). See [What it is](/developers/how-to/robinhood-stocks#what-it-is).
+- **Hedera:** the supply of each stock token is created in advance and held by the SODAX SpokeAssetManager on Hedera, and users receive tokens when that contract releases them. [What it is](/developers/how-to/robinhood-stocks#what-it-is) explains how to work out the supply in users' hands, and [Who controls the token contracts?](/developers/how-to/robinhood-stocks-due-diligence#token-controls) covers the token's keys.
 - **Stellar:** each stock is a classic Stellar asset, exposed to contracts through its Stellar Asset Contract. The asset code and issuer account for each ticker are in the Stellar spoke config (`trustlineConfigs` in [`chains.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chains.ts)). New supply comes from the issuer account. Holders need a trustline to receive it (see [Gotchas](/developers/how-to/robinhood-stocks#gotchas)).
 - **Sonic:** each ticker is one vault token. The vault mints vault tokens when supported tokens are deposited and burns them on withdrawal ([Vault Token](/developers/technical-overview/vault-token)).
 
