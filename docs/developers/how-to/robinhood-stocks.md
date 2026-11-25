@@ -374,6 +374,8 @@ console.log('Covers Hedera:', robinhoodLocked >= hederaCirculating * scale);
 
 You can also read the same balances in a block explorer: [HashScan](https://hashscan.io/mainnet/contract/0x0df73542cc68bdc01b361d231c60f726b0e0bc05) for Hedera and [Robinhood Chain Blockscout](https://robinhoodchain.blockscout.com/address/0x0df73542cC68bDC01b361d231c60F726B0e0bC05) for Robinhood Chain.
 
+The script subtracts only what the SpokeAssetManager holds, so it assumes the token's treasury account holds none. Read the treasury account from the Hedera mirror node (`/api/v1/tokens/<token id>`) and its balance from `/api/v1/tokens/<token id>/balances?account.id=<treasury>`, and subtract that too if it is not zero.
+
 <Note>
   This script checks Hedera only. The same locked tokens also back that ticker on Stellar (7 decimals) and Sonic, so full backing means the locked balance covers the supply in users' hands on all three combined. A `true` here does not prove that on its own.
 </Note>
