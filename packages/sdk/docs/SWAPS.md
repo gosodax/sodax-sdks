@@ -675,6 +675,10 @@ map and no way to broadcast them the wrong way round.
 
 For an XRP Ledger issued-token destination in a swap or leverage-yield vault swap, the SDK requests a current exact-input quote before building the intent. Set `minOutputAmount` to at least half that quote. The destination trustline must have room for twice `minOutputAmount`. A fill above that bound, or a trustline that changes before settlement, can still prevent the release.
 
+### XRP Ledger Stock Tokens
+
+The Robinhood stock tokens on XRP Ledger share one issuer, so each token `address` is `<40-hex currency>:<issuer>`. Take it from `spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens`; the issuer address alone names no token. They are listed in `stagingSwapSupportedTokens`, not in the production list. XRP, RLUSD and USDC keep their previous addresses.
+
 ### Stellar Trustline
 
 For Stellar as the source chain, `isAllowanceValid` checks trustline balance sufficiency and `approve` adds/increases the trustline. For Stellar as the **destination** chain, frontends must manually establish trustlines before executing swaps. See `packages/sdk/docs/STELLAR_TRUSTLINE.md` for details.
