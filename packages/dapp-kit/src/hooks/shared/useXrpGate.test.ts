@@ -99,7 +99,8 @@ describe('useXrpGate', () => {
     const { gate } = run({ ready: false, reason: 'trustline_limit' });
 
     await expect(gate.requestTrustline()).resolves.toEqual({ ok: true, value: 'hash' });
-    expect(establish).toHaveBeenCalledWith({ token: TOKEN, walletProvider: XRP_WALLET });
+    // The checked recipient travels with the request, so the mutation can refuse another connected account.
+    expect(establish).toHaveBeenCalledWith({ token: TOKEN, address: ADDRESS, walletProvider: XRP_WALLET });
 
     establish.mockReset();
     const { gate: evmWallet } = run({ ready: false, reason: 'no_trustline' }, { walletProvider: { chainType: 'EVM' } });

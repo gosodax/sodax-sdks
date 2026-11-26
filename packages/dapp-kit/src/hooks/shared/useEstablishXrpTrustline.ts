@@ -9,6 +9,8 @@ import { unwrapResult } from './unwrapResult.js';
 export type UseEstablishXrpTrustlineVars = {
   /** The XRPL issued token to hold. */
   token: string;
+  /** The account that needs the trustline. When set, the mutation refuses a wallet connected to another account. */
+  address?: string;
   walletProvider: IXrpWalletProvider;
 };
 
@@ -30,8 +32,13 @@ export function useEstablishXrpTrustline({
   return useSafeMutation<string, Error, UseEstablishXrpTrustlineVars>({
     mutationKey: ['shared', 'establishXrpTrustline'],
     ...mutationOptions,
-    mutationFn: async ({ token, walletProvider }): Promise<string> => {
+    mutationFn: async ({ token, address, walletProvider }): Promise<string> => {
       const srcAddress = await walletProvider.getWalletAddress();
+      if (address !== undefined && address !== srcAddress) {
+        throw new Error(
+          `The connected XRPL account ${srcAddress} is not ${address}, which needs the trustline — connect ${address} to add it`,
+        );
+      }
       return unwrapResult(await sodax.spoke.xrp.requestTrustline<false>({ srcAddress, token, walletProvider }));
     },
     onSuccess: async (data, vars, ctx) => {

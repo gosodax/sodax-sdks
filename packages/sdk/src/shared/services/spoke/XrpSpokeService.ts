@@ -535,8 +535,9 @@ export class XrpSpokeService implements MpcRelaySettlement {
    *
    * Refused: a missing account, unless native XRP of at least the base reserve creates it; a required
    * destination tag; Deposit Authorization. For an IOU paid to anyone but its issuer (paying the issuer
-   * redeems it): a global freeze or transfer fee on the issuer, no trustline, a trustline the issuer has
-   * not authorized when it requires that, a deep freeze, or too little room under the limit.
+   * redeems it): a global freeze or transfer fee on the issuer, an issuer that requires authorization and
+   * has not authorized the line (reported whether or not the line exists yet), no trustline, a deep freeze,
+   * or too little room under the limit.
    */
   public async checkDestination(params: {
     address: string;
@@ -572,10 +573,11 @@ export class XrpSpokeService implements MpcRelaySettlement {
     if (issuer.flags & LSF_GLOBAL_FREEZE) return { ready: false, reason: 'issuer_frozen' };
     const rate = issuer.transferRate;
     if (rate && rate !== TRANSFER_RATE_NONE) return { ready: false, reason: 'issuer_transfer_fee' };
-    if (!line) return { ready: false, reason: 'no_trustline' };
-    if (issuer.flags & LSF_REQUIRE_AUTH && !line.peer_authorized) {
+    // Before `no_trustline`: a holder's own TrustSet cannot satisfy an issuer that requires authorization.
+    if (issuer.flags & LSF_REQUIRE_AUTH && !line?.peer_authorized) {
       return { ready: false, reason: 'trustline_unauthorized' };
     }
+    if (!line) return { ready: false, reason: 'no_trustline' };
     if (stateFlags & LSF_DEEP_FREEZE) return { ready: false, reason: 'trustline_frozen' };
     if (maxAmount > trustlineRoom(line.limit, line.balance, iou.decimals)) {
       return { ready: false, reason: 'trustline_limit' };

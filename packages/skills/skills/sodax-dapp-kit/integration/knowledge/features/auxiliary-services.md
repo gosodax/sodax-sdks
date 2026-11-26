@@ -416,10 +416,12 @@ if (xrp.checkFailed) xrp.retry();
 
 `blockedReason` covers every refusal the account's own trustline cannot fix: a missing account, a required
 destination tag, Deposit Authorization, an issuer freeze, transfer fee or required authorization, and a deep
-freeze. Offer no trustline action for those. `useSwapLifecycle` runs this gate as the `xrpTrustline`,
+freeze. An issuer that requires authorization is blocked even before the line exists, since the holder's own
+TrustSet cannot authorize it. Offer no trustline action for those. `useSwapLifecycle` runs this gate as the `xrpTrustline`,
 `xrpFunding`, `xrpBlocked` and `xrpCheckFailed` setup reasons, sized with `minOutputAmount` and twice that as
 `maxAmount`, matching the check the SDK runs before signing. The pieces are `useXrpDestinationCheck`,
-`useXrpTrustlineReserveCheck` and `useEstablishXrpTrustline` (vars `{ token, walletProvider }`, mutationKey
+`useXrpTrustlineReserveCheck` and `useEstablishXrpTrustline` (vars `{ token, address?, walletProvider }`; with `address`
+it refuses, before signing, a wallet connected to another account; mutationKey
 `['shared', 'establishXrpTrustline']`); `resolveXrpGate` is the hook-free resolver.
 
 ## Stellar account activation (sponsoring)

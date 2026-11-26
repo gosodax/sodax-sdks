@@ -14,7 +14,7 @@ export interface UseXrpGateParams {
   amount: bigint | undefined;
   /** The most that can arrive, which the trustline needs room for. Defaults to `amount`. */
   maxAmount?: bigint;
-  /** Must control `address` for `requestTrustline` to clear the gate. */
+  /** Must control `address`: `requestTrustline` refuses, before signing, a wallet connected to another account. */
   walletProvider: GetWalletProviderType<SpokeChainKey> | undefined;
 }
 
@@ -61,8 +61,8 @@ export function useXrpGate({
   const { mutateAsyncSafe: establishTrustline, isPending: isRequestingTrustline } = useEstablishXrpTrustline();
 
   const requestTrustline = async (): Promise<Result<string> | undefined> => {
-    if (!xrpWalletProvider || !token) return undefined;
-    return establishTrustline({ token, walletProvider: xrpWalletProvider });
+    if (!xrpWalletProvider || !token || !address) return undefined;
+    return establishTrustline({ token, address, walletProvider: xrpWalletProvider });
   };
 
   const retry = (): void => {

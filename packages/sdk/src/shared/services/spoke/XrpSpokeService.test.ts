@@ -802,6 +802,23 @@ describe('XrpSpokeService.checkDestination', () => {
     expect(await check(USDC_ISSUER)).toEqual({ ready: true });
   });
 
+  it('reports a missing line from an issuer that requires authorization as unauthorized, not as fixable', async () => {
+    // lsfRequireAuth, and no RippleState: the holder's own TrustSet would still leave the line unauthorized.
+    stubRippled({
+      ...withIssuer({ Flags: 0x00040000 }),
+      account_lines: { lines: [] },
+      ledger_entry: { error: 'entryNotFound' },
+    });
+    expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'trustline_unauthorized' });
+
+    stubRippled({
+      ...withIssuer({ Flags: 0 }),
+      account_lines: { lines: [] },
+      ledger_entry: { error: 'entryNotFound' },
+    });
+    expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'no_trustline' });
+  });
+
   it('reads a RippleState missing by the time ledger_entry runs as no line, not as an error', async () => {
     const entryNotFound = { error: 'entryNotFound', error_message: 'Entry not found.' };
     stubRippled({ account_lines: { lines: [] }, ledger_entry: entryNotFound });
