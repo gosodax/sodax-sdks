@@ -16,6 +16,8 @@ import {
   type XrpSpokeChainConfig,
   type XrpGasEstimate,
   type XrpUnsignedTransaction,
+  type XrpUnsignedTrustSet,
+  type WalletProviderSlot,
 } from '@sodax/types';
 import type { ConfigService } from '../../config/ConfigService.js';
 import { retry } from '../../utils/shared-utils.js';
@@ -75,8 +77,25 @@ const LSF_DEEP_FREEZE = 0x02000000 | 0x04000000;
 /** Issuer AccountRoot flags: holders need its authorization, or its tokens move only to and from it. */
 const LSF_REQUIRE_AUTH = 0x00040000;
 const LSF_GLOBAL_FREEZE = 0x00400000;
+// RippleState flags: the low or high account has an owner reserve locked for this line.
+const LSF_LOW_RESERVE = 0x00010000;
+const LSF_HIGH_RESERVE = 0x00020000;
 /** `TransferRate` billionths meaning no issuer transfer fee; an absent or 0 rate means none too. */
 const TRANSFER_RATE_NONE = 1_000_000_000;
+
+/** TrustSet flag that sets NoRipple on the holder's side, so the line cannot be used to ripple other holders' balances. */
+const TF_SET_NO_RIPPLE = 0x00020000;
+/** The largest issued-currency amount XRPL represents, used as the trustline limit so it never runs out of room. */
+const XRP_MAX_IOU_LIMIT = '9999999999999999e80';
+
+/** Create or raise the trustline `srcAddress` needs to hold `token`, an XRPL issued currency. */
+export type RequestXrpTrustlineParams<Raw extends boolean> = {
+  srcAddress: string;
+  token: string;
+} & WalletProviderSlot<XrpChainKey, Raw>;
+
+/** The unsigned TrustSet in raw mode, else the hash of the validated TrustSet. */
+export type RequestXrpTrustlineReturnType<Raw extends boolean> = Raw extends true ? XrpUnsignedTrustSet : string;
 
 type XrpTrustLine = { currency: string; account: string; balance: string; limit: string; peer_authorized?: boolean };
 
@@ -520,8 +539,9 @@ export class XrpSpokeService implements MpcRelaySettlement {
    *
    * Refused: a missing account, unless native XRP of at least the base reserve creates it; a required
    * destination tag; Deposit Authorization. For an IOU paid to anyone but its issuer (paying the issuer
-   * redeems it): a global freeze or transfer fee on the issuer, no trustline, a trustline the issuer has
-   * not authorized when it requires that, a deep freeze, or too little room under the limit.
+   * redeems it): a global freeze or transfer fee on the issuer, an issuer that requires authorization and
+   * has not authorized the line (reported whether or not the line exists yet), no trustline, a deep freeze,
+   * or too little room under the limit.
    */
   public async checkDestination(params: {
     address: string;
@@ -558,15 +578,141 @@ export class XrpSpokeService implements MpcRelaySettlement {
     if (issuer.flags & LSF_GLOBAL_FREEZE) return { ready: false, reason: 'issuer_frozen' };
     const rate = issuer.transferRate;
     if (rate && rate !== TRANSFER_RATE_NONE) return { ready: false, reason: 'issuer_transfer_fee' };
-    if (!line) return { ready: false, reason: 'no_trustline' };
-    if (issuer.flags & LSF_REQUIRE_AUTH && !line.peer_authorized) {
+    // Before `no_trustline`: a holder's own TrustSet cannot satisfy an issuer that requires authorization.
+    if (issuer.flags & LSF_REQUIRE_AUTH && !line?.peer_authorized) {
       return { ready: false, reason: 'trustline_unauthorized' };
     }
+    if (!line) return { ready: false, reason: 'no_trustline' };
     if (stateFlags & LSF_DEEP_FREEZE) return { ready: false, reason: 'trustline_frozen' };
     if (maxAmount > trustlineRoom(line.limit, line.balance, iou.decimals)) {
       return { ready: false, reason: 'trustline_limit' };
     }
     return { ready: true };
+  }
+
+  /** Whether holding `token` needs a trustline: every listed issued currency does, native XRP does not. */
+  public requiresTrustline(token: string): boolean {
+    return token !== this.chainConfig.nativeToken && this.findIou(token) !== undefined;
+  }
+
+  /**
+   * Whether `address` holds enough spendable XRP to send the TrustSet for `token`: the fee, plus one owner
+   * reserve unless the line already holds one on `address`'s side. A line the issuer created (to authorize
+   * the holder) does not, so raising its limit needs the reserve too. An address nobody has funded yet
+   * cannot afford it. rippled waives the reserve for an account owning fewer than two objects; this check
+   * deliberately does not, so it never offers a TrustSet the ledger could refuse.
+   */
+  public async canAffordTrustline(params: { address: string; token: string }): Promise<boolean> {
+    const { address, token } = params;
+    const iou = this.findIou(token);
+    if (!iou) throw new Error(`[XrpSpokeService.canAffordTrustline] ${token} is not an XRPL issued currency`);
+    const { currency, issuer } = xrpTokenRef(iou);
+
+    const [info, reserves, fee, trustline] = await Promise.all([
+      orIfMissing(
+        this.rpc<{ account_data?: { Balance?: string; OwnerCount?: number } }>('account_info', {
+          account: address,
+          ledger_index: 'validated',
+        }),
+        undefined,
+      ),
+      this.readReservesDrops(),
+      this.readFeeDrops(),
+      this.readTrustline(address, issuer, currency),
+    ]);
+    if (!info?.account_data) return false;
+
+    const balance = BigInt(info.account_data.Balance ?? '0');
+    const locked = reserves.base + BigInt(info.account_data.OwnerCount ?? 0) * reserves.increment;
+    const needed = fee + (trustline.holderReserved ? 0n : reserves.increment);
+    return balance - locked >= needed;
+  }
+
+  /**
+   * Create the trustline `srcAddress` needs to hold `token`, or raise its limit. The limit is set to the
+   * largest amount XRPL represents, with NoRipple, so one TrustSet clears both a missing and a full line.
+   *
+   * `raw: true` returns the unsigned TrustSet. Otherwise the wallet's `signTrustSet` signs it (a browser
+   * wallet also submits it), and this resolves to its bare uppercase hash once it validates with `tesSUCCESS`.
+   * When the TrustSet may have been sent but its outcome is unknown (a submit that failed in transit, a
+   * non-final submit verdict, no validation in time) the error is an IndeterminateOutcomeError carrying the
+   * hash: check it before signing again, since each TrustSet costs a fee.
+   */
+  public async requestTrustline<Raw extends boolean>(
+    params: RequestXrpTrustlineParams<Raw>,
+  ): Promise<Result<RequestXrpTrustlineReturnType<Raw>>> {
+    try {
+      const { srcAddress, token } = params;
+      const iou = this.findIou(token);
+      if (!iou) throw new Error(`[XrpSpokeService.requestTrustline] ${token} is not an XRPL issued currency`);
+      const { currency, issuer } = xrpTokenRef(iou);
+
+      const unsigned: XrpUnsignedTrustSet = {
+        TransactionType: 'TrustSet',
+        Account: srcAddress,
+        LimitAmount: { currency, issuer, value: XRP_MAX_IOU_LIMIT },
+        Flags: TF_SET_NO_RIPPLE,
+      };
+      if (params.raw === true) {
+        return { ok: true, value: unsigned satisfies XrpUnsignedTrustSet as RequestXrpTrustlineReturnType<Raw> };
+      }
+
+      const walletProvider = params.walletProvider;
+      if (!walletProvider?.signTrustSet) {
+        throw new Error('[XrpSpokeService.requestTrustline] the XRPL wallet provider cannot sign a TrustSet');
+      }
+      const signed = await walletProvider.signTrustSet(unsigned);
+      const hash = signed.tx_blob ? await this.submitTrustSet(signed.tx_blob) : signed.hash?.toUpperCase();
+      if (!hash) throw new Error('[XrpSpokeService.requestTrustline] wallet returned neither a signed blob nor a hash');
+
+      const unknown = (cause: unknown) =>
+        new IndeterminateOutcomeError(`[XrpSpokeService.requestTrustline] outcome of ${hash} is unknown`, {
+          txHash: hash,
+          cause,
+        });
+      const receipt = await this.waitForTransactionReceipt({ chainKey: ChainKeys.XRP_MAINNET, txHash: hash });
+      if (!receipt.ok) throw unknown(receipt.error);
+      if (receipt.value.status === 'failure') throw receipt.value.error;
+      if (receipt.value.status !== 'success') throw unknown(receipt.value.error);
+      // The shared receipt counts a validated transaction with no result as success; a TrustSet needs tesSUCCESS.
+      const result = receipt.value.receipt.meta?.TransactionResult;
+      if (result !== 'tesSUCCESS') throw unknown(new Error(`xrpl tx ${hash} validated without tesSUCCESS`));
+      return { ok: true, value: hash satisfies string as RequestXrpTrustlineReturnType<Raw> };
+    } catch (error) {
+      return { ok: false, error };
+    }
+  }
+
+  /**
+   * Submit a signed TrustSet blob. Only a `tem` verdict means it can never apply; any other failure, or a
+   * submit lost in transit, may still validate (a `tec` even charges the fee), so it is indeterminate.
+   */
+  private async submitTrustSet(blob: string): Promise<string> {
+    if (!/^(?:[0-9a-f]{2})+$/i.test(blob)) throw new Error('[XrpSpokeService.requestTrustline] invalid signed blob');
+    // No relay keys a TrustSet, so its hash keeps XRPL's own bare uppercase form.
+    const hash = (await signedBlobHash(blob)).slice(2).toUpperCase();
+    const indeterminate = (cause: unknown) =>
+      new IndeterminateOutcomeError('[XrpSpokeService.requestTrustline] submit outcome is unknown', {
+        txHash: hash,
+        cause,
+      });
+    let submitted: { engine_result?: unknown };
+    try {
+      submitted = await this.rpc<{ engine_result?: unknown }>('submit', { tx_blob: blob });
+    } catch (error) {
+      throw indeterminate(error);
+    }
+    const result = typeof submitted.engine_result === 'string' ? submitted.engine_result : undefined;
+    if (result === 'tesSUCCESS' || result === 'terQUEUED') return hash;
+    const failure = new Error(`[XrpSpokeService.requestTrustline] submit of ${hash} failed: ${result ?? 'unknown'}`);
+    if (result && /^tem[A-Z][A-Z0-9_]*$/.test(result)) throw failure;
+    throw indeterminate(failure);
+  }
+
+  private findIou(token: string) {
+    return Object.values(this.chainConfig.supportedTokens).find(
+      t => t.address === token && t.address !== this.chainConfig.nativeToken,
+    );
   }
 
   /** The account's flags and transfer rate, or `undefined` for an address nobody has funded yet. */
@@ -589,7 +735,22 @@ export class XrpSpokeService implements MpcRelaySettlement {
     return BigInt(reserve);
   }
 
-  /** The holder's line to `issuer` (if any), that line's RippleState flags, and the issuer's account root. */
+  /** The account base reserve and the per-owned-object increment, in drops. */
+  private async readReservesDrops(): Promise<{ base: bigint; increment: bigint }> {
+    const res = await this.rpc<{ state?: { validated_ledger?: { reserve_base?: number; reserve_inc?: number } } }>(
+      'server_state',
+      {},
+    );
+    const { reserve_base: base, reserve_inc: increment } = res.state?.validated_ledger ?? {};
+    if (typeof base !== 'number') throw new Error('[XrpSpokeService] server_state returned no reserve_base');
+    if (typeof increment !== 'number') throw new Error('[XrpSpokeService] server_state returned no reserve_inc');
+    return { base: BigInt(base), increment: BigInt(increment) };
+  }
+
+  /**
+   * The holder's line to `issuer` (if any), that line's RippleState flags, whether it holds an owner reserve
+   * on the holder's side, and the issuer's account root.
+   */
   private async readTrustline(holder: string, issuer: string, currency: string) {
     const [lines, state, issuerRoot] = await Promise.all([
       orIfMissing(
@@ -602,7 +763,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
       ),
       // account_lines reports only the ordinary freeze, which still lets the holder receive; a deep freeze does not.
       orIfMissing(
-        this.rpc<{ node?: { Flags?: number } }>('ledger_entry', {
+        this.rpc<{ node?: { Flags?: number; LowLimit?: { issuer?: string } } }>('ledger_entry', {
           ripple_state: { accounts: [holder, issuer], currency },
           ledger_index: 'validated',
         }),
@@ -610,20 +771,28 @@ export class XrpSpokeService implements MpcRelaySettlement {
       ),
       this.readAccountRoot(issuer),
     ]);
+    const stateFlags = state.node?.Flags ?? 0;
+    // RippleState names its low account in LowLimit.issuer; each side has its own reserve flag.
+    const holderIsLow = state.node?.LowLimit?.issuer === holder;
     return {
       // The two reads can land on different ledgers; a line whose RippleState is gone no longer exists.
       line: state.node && lines.lines?.find(l => l.currency === currency && l.account === issuer),
-      stateFlags: state.node?.Flags ?? 0,
+      stateFlags,
+      holderReserved: (stateFlags & (holderIsLow ? LSF_LOW_RESERVE : LSF_HIGH_RESERVE)) !== 0,
       issuer: issuerRoot ?? { flags: 0 },
     };
   }
 
   /** The current open-ledger Payment fee in drops, falling back to the base fee when unavailable. */
   public async estimateGas(_params: EstimateGasParams<XrpChainKey>): Promise<XrpGasEstimate> {
+    return { fee: await this.readFeeDrops() };
+  }
+
+  private async readFeeDrops(): Promise<bigint> {
     const info = await this.rpc<{ drops?: { open_ledger_fee?: string; base_fee?: string } }>('fee', {});
     const fee = info.drops?.open_ledger_fee ?? info.drops?.base_fee;
     if (fee === undefined) throw new Error('[XrpSpokeService.estimateGas] fee returned no ledger fee');
-    return { fee: BigInt(fee) };
+    return BigInt(fee);
   }
 
   /**
