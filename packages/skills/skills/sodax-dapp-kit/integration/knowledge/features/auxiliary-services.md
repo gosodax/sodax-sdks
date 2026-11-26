@@ -399,6 +399,29 @@ const { needsRegistration, blocksAction } = resolveNearStorageGate(dstChainKey, 
 
 The underlying SDK methods (`isStorageRegistered` / `registerStorage` on the NEAR spoke service, and the `NEAR_STORAGE_DEPOSIT` constant) are documented in the `sodax-sdk` skill (integration mode).
 
+### XRPL trustlines — use `useXrpGate`
+
+An XRPL account needs one trustline per issued token (currency + issuer) before it can receive it; native XRP
+needs none. `useXrpGate` reads whether the destination can receive the payout, then, only when the trustline is
+missing or full, whether the account has the spendable XRP to set one. Each new line locks one owner reserve.
+
+```ts
+// @ai-snippets-skip — illustrative only.
+const xrp = useXrpGate({ dstChainKey, token, address, amount, maxAmount, walletProvider });
+if (xrp.needsTrustline) await xrp.requestTrustline(); // one TrustSet, signed by the destination wallet
+if (xrp.needsFunding) showFundAccount();
+if (xrp.blockedReason) showBlocked(xrp.blockedReason); // e.g. 'issuer_frozen', 'trustline_unauthorized'
+if (xrp.checkFailed) xrp.retry();
+```
+
+`blockedReason` covers every refusal the account's own trustline cannot fix: a missing account, a required
+destination tag, Deposit Authorization, an issuer freeze, transfer fee or required authorization, and a deep
+freeze. Offer no trustline action for those. `useSwapLifecycle` runs this gate as the `xrpTrustline`,
+`xrpFunding`, `xrpBlocked` and `xrpCheckFailed` setup reasons, sized with `minOutputAmount` and twice that as
+`maxAmount`, matching the check the SDK runs before signing. The pieces are `useXrpDestinationCheck`,
+`useXrpTrustlineReserveCheck` and `useEstablishXrpTrustline` (vars `{ token, walletProvider }`, mutationKey
+`['shared', 'establishXrpTrustline']`); `resolveXrpGate` is the hook-free resolver.
+
 ## Stellar account activation (sponsoring)
 
 A Stellar account must exist on-chain before it can hold or receive anything, and a brand-new user

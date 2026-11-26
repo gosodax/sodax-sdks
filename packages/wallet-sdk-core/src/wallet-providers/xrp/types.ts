@@ -1,4 +1,4 @@
-import type { XrpUnsignedTransaction } from '@sodax/types';
+import type { XrpUnsignedTransaction, XrpUnsignedTrustSet } from '@sodax/types';
 
 /** Defaults shared by both XRPL provider modes. */
 export type XrpWalletDefaults = {
@@ -9,7 +9,7 @@ export type XrpWalletDefaults = {
 /**
  * Minimal GemWallet surface the provider needs, kept STRUCTURAL so this package takes no
  * dependency on `@gemwallet/api` — the same approach `TronWebLike` uses for TronLink. The app
- * passes the real API object in; only these four calls are ever used.
+ * passes the real API object in.
  */
 export interface GemWalletLike {
   /** `getAddress()` → the connected classic `r…` address. */
@@ -27,6 +27,13 @@ export interface GemWalletLike {
   /** `submitTransaction({ transaction })` → submits a Payment and returns its hash. */
   submitTransaction: (payload: {
     transaction: XrpUnsignedTransaction;
+  }) => Promise<{ type?: 'response' | 'reject'; result?: { hash?: string } } | undefined>;
+  /**
+   * `submitTransaction({ transaction })` for a TrustSet. Optional, so an adapter written before trustline
+   * setup still type-checks; without it the provider cannot set up a trustline.
+   */
+  submitTrustSet?: (payload: {
+    transaction: XrpUnsignedTrustSet;
   }) => Promise<{ type?: 'response' | 'reject'; result?: { hash?: string } } | undefined>;
   /**
    * `getNetwork()` → the ledger the wallet submits to. GemWallet also serves Testnet, Devnet and the Xahau

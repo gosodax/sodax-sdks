@@ -139,7 +139,7 @@ Feed it `intentDeliveryInfo.srcChainKey` / `srcTxHash` on success. A `swap()` th
 ## One Hook for the Whole Form
 
 `useSwapLifecycle` composes the approval strategy, the destination gates (Stellar account + trustline, NEAR
-storage), source-chain switching, `useSwapWithApproval` and `useDetailedStatus` into one discriminated `state` and
+storage, XRPL trustline), source-chain switching, `useSwapWithApproval` and `useDetailedStatus` into one discriminated `state` and
 one `next()` action. Render from `state.kind`; wire the button to `next()`. Chain switching and app-owned setup
 (e.g. a Bitcoin trading wallet) are passed in — dapp-kit does not depend on the wallet packages.
 
@@ -160,6 +160,9 @@ function buttonLabel(state: SwapLifecycleState): string {
       if (state.reason === 'stellarCheckFailed') return 'Retry check';
       if (state.reason === 'nearStorage') return 'Register storage';
       if (state.reason === 'nearStorageCheckFailed') return 'Retry check';
+      if (state.reason === 'xrpTrustline') return 'Add trustline';
+      if (state.reason === 'xrpCheckFailed') return 'Retry check';
+      // xrpFunding: the account needs spendable XRP. xrpBlocked: read lifecycle.xrp.blockedReason.
       return 'Waiting on setup';
     case 'submitting':
     case 'pending':
@@ -177,7 +180,9 @@ function buttonLabel(state: SwapLifecycleState): string {
 
 // Nothing to click: waiting, or a prerequisite only the user or the app can resolve.
 function isPassive(state: SwapLifecycleState): boolean {
-  if (state.kind === 'needsSetup') return state.reason === 'stellarFunding' || state.reason === 'external';
+  if (state.kind === 'needsSetup') {
+    return ['stellarFunding', 'xrpFunding', 'xrpBlocked', 'external'].includes(state.reason);
+  }
   return ['idle', 'checking', 'submitting', 'pending'].includes(state.kind);
 }
 

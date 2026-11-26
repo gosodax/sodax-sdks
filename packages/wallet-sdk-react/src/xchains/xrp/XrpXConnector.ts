@@ -75,6 +75,7 @@ export class XrpXConnector extends XConnector {
       getPublicKey: () => getPublicKey(),
       signMessage: (message: string, isHex?: boolean) => signMessage(message, isHex),
       submitTransaction: payload => submitTransaction(payload),
+      submitTrustSet: payload => submitTransaction(payload),
       getNetwork: () => getNetwork(),
     };
   }

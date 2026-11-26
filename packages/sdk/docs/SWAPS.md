@@ -675,6 +675,20 @@ map and no way to broadcast them the wrong way round.
 
 For an XRP Ledger issued-token destination in a swap or leverage-yield vault swap, the SDK requests a current exact-input quote before building the intent. Set `minOutputAmount` to at least half that quote. The destination trustline must have room for twice `minOutputAmount`. A fill above that bound, or a trustline that changes before settlement, can still prevent the release.
 
+The destination account holds one trustline per issued token, and the SDK can set it up. `sodax.spoke.xrp.checkDestination` says whether the account can receive and why not. A `no_trustline` or `trustline_limit` result is fixed by `sodax.spoke.xrp.requestTrustline`, which sends one TrustSet with the largest limit XRPL represents and NoRipple, then resolves once it validates. The TrustSet costs the network fee, and a new line also locks one owner reserve: `sodax.spoke.xrp.canAffordTrustline` checks the account's spendable XRP first. Every other refusal (a missing account, a required destination tag, Deposit Authorization, an issuer freeze, transfer fee or required authorization, a deep freeze) needs the account owner or the issuer to act.
+
+```typescript
+const readiness = await sodax.spoke.xrp.checkDestination({ address, token, amount, maxAmount: amount * 2n });
+if (!readiness.ready && (readiness.reason === 'no_trustline' || readiness.reason === 'trustline_limit')) {
+  if (await sodax.spoke.xrp.canAffordTrustline({ address, token })) {
+    const trustSet = await sodax.spoke.xrp.requestTrustline({ srcAddress: address, token, walletProvider });
+    if (!trustSet.ok) console.error(trustSet.error);
+  }
+}
+```
+
+`requestTrustline` needs a wallet provider that implements the optional `IXrpWalletProvider.signTrustSet`, which `XrpWalletProvider` does in both modes; `raw: true` returns the unsigned TrustSet instead. In React, `useSwapLifecycle` runs these steps as its `xrpTrustline` setup step.
+
 ### Stellar Trustline
 
 For Stellar as the source chain, `isAllowanceValid` checks trustline balance sufficiency and `approve` adds/increases the trustline. For Stellar as the **destination** chain, frontends must manually establish trustlines before executing swaps. See `packages/sdk/docs/STELLAR_TRUSTLINE.md` for details.

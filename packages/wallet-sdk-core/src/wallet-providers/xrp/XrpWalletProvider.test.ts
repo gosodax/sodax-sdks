@@ -9,7 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { isIndeterminateOutcomeError, type XrpUnsignedTransaction } from '@sodax/types';
+import { isIndeterminateOutcomeError, type XrpUnsignedTransaction, type XrpUnsignedTrustSet } from '@sodax/types';
 import { generateSeed } from 'ripple-keypairs';
 import { decode } from 'xrpl';
 import { XrpWalletProvider, isGemWalletXrpWalletConfig, isPrivateKeyXrpWalletConfig } from './XrpWalletProvider.js';
@@ -30,6 +30,13 @@ const payment: XrpUnsignedTransaction = {
   Destination: 'rbtWzBnJB84fKuVCg2qbKKX4EUtCWVik7',
   Amount: '20000000',
   Memos: [{ Memo: { MemoData: 'DEADBEEF' } }],
+};
+
+const trustSet: XrpUnsignedTrustSet = {
+  TransactionType: 'TrustSet',
+  Account: GEM_ADDRESS,
+  LimitAmount: { currency: 'USD', issuer: 'rbtWzBnJB84fKuVCg2qbKKX4EUtCWVik7', value: '1000000' },
+  Flags: 0x00020000,
 };
 
 type Call = { method: string; params: Record<string, unknown> };
@@ -360,6 +367,68 @@ describe('XrpWalletProvider.signTransaction — GemWallet', () => {
 
     expect(isIndeterminateOutcomeError(error)).toBe(false);
     expect(error).toMatchObject({ message: expect.stringContaining('rejected by the user') });
+  });
+});
+
+describe('XrpWalletProvider.signTrustSet', () => {
+  it('signs a TrustSet locally with autofilled fields on the raw-key path', async () => {
+    stubRippled();
+    const provider = rawKeyProvider();
+
+    const signed = await provider.signTrustSet({ ...trustSet, Account: await provider.getWalletAddress() });
+
+    expect(decode(signed.tx_blob)).toMatchObject({
+      TransactionType: 'TrustSet',
+      LimitAmount: trustSet.LimitAmount,
+      Flags: 0x00020000,
+      Sequence: 77,
+      Fee: '15',
+      LastLedgerSequence: 1020,
+    });
+  });
+
+  it('submits through GemWallet on the XRPL Mainnet and returns the hash with no blob', async () => {
+    const submitTrustSet = vi.fn(async () => ({ result: { hash: TX_HASH } }));
+    const gem = gemWallet({ submitTrustSet });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    expect(await provider.signTrustSet(trustSet)).toEqual({ tx_blob: '', hash: TX_HASH });
+    expect(submitTrustSet).toHaveBeenCalledWith({ transaction: trustSet });
+    expect(gem.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses to submit while GemWallet is on another network', async () => {
+    const submitTrustSet = vi.fn(async () => ({ result: { hash: TX_HASH } }));
+    const gem = gemWallet({
+      submitTrustSet,
+      getNetwork: vi.fn(async () => ({ result: { chain: 'XRPL', network: 'Testnet' } })),
+    });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    await expect(provider.signTrustSet(trustSet)).rejects.toThrow(/switch it to the XRPL Mainnet/);
+    expect(submitTrustSet).not.toHaveBeenCalled();
+  });
+
+  it('reports an adapter without submitTrustSet instead of sending the TrustSet as a Payment', async () => {
+    const gem = gemWallet();
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    await expect(provider.signTrustSet(trustSet)).rejects.toThrow(/no submitTrustSet/);
+    expect(gem.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it('reports a rejection, and a reply with no hash', async () => {
+    const rejecting = new XrpWalletProvider({
+      gemWallet: gemWallet({ submitTrustSet: vi.fn(async () => ({ type: 'reject' as const })) }),
+      address: GEM_ADDRESS,
+    });
+    await expect(rejecting.signTrustSet(trustSet)).rejects.toThrow(/rejected by the user/);
+
+    const hashless = new XrpWalletProvider({
+      gemWallet: gemWallet({ submitTrustSet: vi.fn(async () => ({ result: {} })) }),
+      address: GEM_ADDRESS,
+    });
+    await expect(hashless.signTrustSet(trustSet)).rejects.toThrow(/no TrustSet hash/);
   });
 });
 

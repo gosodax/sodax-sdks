@@ -13,6 +13,7 @@ const swapHook = vi.fn();
 const statusHook = vi.fn();
 const stellarHook = vi.fn();
 const nearHook = vi.fn();
+const xrpHook = vi.fn();
 const fetchingChecks = vi.fn(() => 0);
 
 // The lifecycle is composition plus a pure resolver (covered in utils/swapLifecycle.test.ts), so the
@@ -22,6 +23,7 @@ vi.mock('./useSwapWithApproval.js', () => ({ useSwapWithApproval: (args: unknown
 vi.mock('./useDetailedStatus.js', () => ({ useDetailedStatus: (args: unknown) => statusHook(args) }));
 vi.mock('../shared/useStellarGate.js', () => ({ useStellarGate: (args: unknown) => stellarHook(args) }));
 vi.mock('../shared/useNearStorageGate.js', () => ({ useNearStorageGate: (args: unknown) => nearHook(args) }));
+vi.mock('../shared/useXrpGate.js', () => ({ useXrpGate: (args: unknown) => xrpHook(args) }));
 // Its own state is one ref; a fresh one per run() is a fresh mount.
 vi.mock('react', () => ({ useRef: (initial: unknown) => ({ current: initial }) }));
 vi.mock('@tanstack/react-query', () => ({ useIsFetching: () => fetchingChecks() }));
@@ -56,6 +58,8 @@ const openGate = {
   blocksAction: false,
   isNear: false,
   needsRegistration: false,
+  isXrpIssuedToken: false,
+  blockedReason: undefined,
   activate: vi.fn(),
   requestTrustline: vi.fn(),
   retry: vi.fn(),
@@ -68,12 +72,14 @@ const stub = ({
   status,
   stellar = {},
   near = {},
+  xrp = {},
 }: {
   swap?: Record<string, unknown>;
   strategy?: string;
   status?: unknown;
   stellar?: Record<string, unknown>;
   near?: Record<string, unknown>;
+  xrp?: Record<string, unknown>;
 } = {}) => {
   strategyHook.mockReturnValue({ data: strategy, error: null, refetch: refetchStrategy });
   swapHook.mockReturnValue({
@@ -88,6 +94,7 @@ const stub = ({
   statusHook.mockReturnValue({ data: status });
   stellarHook.mockReturnValue({ ...openGate, ...stellar });
   nearHook.mockReturnValue({ ...openGate, ...near });
+  xrpHook.mockReturnValue({ ...openGate, ...xrp });
 };
 
 const run = (overrides: Partial<Parameters<typeof useSwapLifecycle>[0]> = {}) =>
@@ -192,6 +199,8 @@ describe('useSwapLifecycle', () => {
     [{ stellar: { isStellar: true, needsTrustline: true, blocksAction: true } }, 'requestTrustline'],
     [{ stellar: { isStellar: true, checkFailed: true, blocksAction: true } }, 'retry'],
     [{ near: { isNear: true, needsRegistration: true, blocksAction: true } }, 'registerStorage'],
+    [{ xrp: { isXrpIssuedToken: true, needsTrustline: true, blocksAction: true } }, 'requestTrustline'],
+    [{ xrp: { isXrpIssuedToken: true, checkFailed: true, blocksAction: true } }, 'retry'],
   ] as const)('runs the matching setup action', async (gates, action) => {
     stub(gates);
     const lifecycle = run();
@@ -209,6 +218,43 @@ describe('useSwapLifecycle', () => {
 
     expect(stellarHook).toHaveBeenCalledWith(expect.objectContaining({ address: PARAMS.dstAddress }));
     expect(nearHook).toHaveBeenCalledWith(expect.objectContaining({ accountId: PARAMS.dstAddress }));
+  });
+
+  it('sizes the XRPL trustline check as the SDK sizes its check before signing', () => {
+    stub();
+    run({ intentParams: { ...PARAMS, dstChainKey: ChainKeys.XRP_MAINNET } });
+
+    expect(xrpHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dstChainKey: ChainKeys.XRP_MAINNET,
+        address: PARAMS.dstAddress,
+        token: PARAMS.outputToken,
+        amount: PARAMS.minOutputAmount,
+        maxAmount: PARAMS.minOutputAmount * 2n,
+      }),
+    );
+  });
+
+  it.each([
+    ['xrpBlocked', { blockedReason: 'issuer_frozen' }],
+    ['xrpFunding', { needsFunding: true }],
+  ] as const)('leaves %s to the app and sends nothing', async (reason, gate) => {
+    stub({ xrp: { isXrpIssuedToken: true, blocksAction: true, ...gate } });
+    const lifecycle = run();
+
+    expect(lifecycle.state).toEqual({ kind: 'needsSetup', reason });
+    expect(await lifecycle.next()).toBeUndefined();
+    expect(openGate.requestTrustline).not.toHaveBeenCalled();
+    expect(mutateAsyncSafe).not.toHaveBeenCalled();
+  });
+
+  it('holds the XRPL trustline step while its TrustSet is in flight', async () => {
+    stub({ xrp: { isXrpIssuedToken: true, needsTrustline: true, blocksAction: true, isRequestingTrustline: true } });
+    const lifecycle = run();
+
+    expect(lifecycle.state).toEqual({ kind: 'checking' });
+    await lifecycle.next();
+    expect(openGate.requestTrustline).not.toHaveBeenCalled();
   });
 
   it('retries a failed NEAR storage check instead of swapping', async () => {

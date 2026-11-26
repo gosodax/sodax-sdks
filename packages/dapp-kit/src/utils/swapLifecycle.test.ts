@@ -9,6 +9,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import type { NearStorageGateState } from './nearStorageGate.js';
 import type { StellarGateState } from './stellarGate.js';
+import type { XrpGateState } from './xrpGate.js';
 import {
   isSameIntent,
   resolveSwapLifecycle,
@@ -54,6 +55,14 @@ const OPEN_STELLAR: StellarGateState = {
   blocksAction: false,
 };
 const OPEN_NEAR: NearStorageGateState = { isNear: false, needsRegistration: false, blocksAction: false };
+const OPEN_XRP: XrpGateState = {
+  isXrpIssuedToken: false,
+  needsTrustline: false,
+  needsFunding: false,
+  blockedReason: undefined,
+  checkFailed: false,
+  blocksAction: false,
+};
 
 const inputs = (overrides: Partial<SwapLifecycleInputs> = {}): SwapLifecycleInputs => ({
   attempt: { phase: 'none' },
@@ -62,6 +71,7 @@ const inputs = (overrides: Partial<SwapLifecycleInputs> = {}): SwapLifecycleInpu
   hasInputs: true,
   stellar: OPEN_STELLAR,
   nearStorage: OPEN_NEAR,
+  xrp: OPEN_XRP,
   externalBlocked: false,
   setupBusy: false,
   isWrongChain: false,
@@ -227,6 +237,31 @@ describe('resolveSwapLifecycle', () => {
     expect(resolveSwapLifecycle(inputs({ stellar: { ...OPEN_STELLAR, isStellar: true, ...gate } }))).toEqual({
       kind: 'needsSetup',
       reason,
+    });
+  });
+
+  it.each([
+    [{ needsTrustline: true, blocksAction: true }, 'xrpTrustline'],
+    [{ needsFunding: true, blocksAction: true }, 'xrpFunding'],
+    [{ blockedReason: 'issuer_frozen', blocksAction: true }, 'xrpBlocked'],
+    [{ checkFailed: true, blocksAction: true }, 'xrpCheckFailed'],
+  ] as const)('blocks on the XRPL gate (%o → %s)', (gate, reason) => {
+    expect(resolveSwapLifecycle(inputs({ xrp: { ...OPEN_XRP, isXrpIssuedToken: true, ...gate } }))).toEqual({
+      kind: 'needsSetup',
+      reason,
+    });
+  });
+
+  it('is checking while the XRPL gate resolves, or while a TrustSet and its refreshed check run', () => {
+    const xrp = { ...OPEN_XRP, isXrpIssuedToken: true, blocksAction: true };
+    expect(resolveSwapLifecycle(inputs({ xrp }))).toEqual({ kind: 'checking' });
+    expect(resolveSwapLifecycle(inputs({ xrp: { ...xrp, needsTrustline: true }, setupBusy: true }))).toEqual({
+      kind: 'checking',
+    });
+    // Once the trustline is in place the swap goes ahead.
+    expect(resolveSwapLifecycle(inputs({ xrp: { ...OPEN_XRP, isXrpIssuedToken: true } }))).toEqual({
+      kind: 'ready',
+      approvalStrategy: 'atomic-batch',
     });
   });
 
