@@ -443,20 +443,20 @@ These contracts are deployed on chain, but Botanix is **not yet reachable throug
 ### HyperEvm
 | Contract | Address |
 |----------|---------|
-| AssetManager | [0xAfd6A6e4287A511D3BAAd013093815268846FBb7](https://purrsec.com/address/0xAfd6A6e4287A511D3BAAd013093815268846FBb7) |
-| RateLimit | [0xA6934BCeD5351D7465a2A6Cd13c1936E8d590988](https://purrsec.com/address/0xA6934BCeD5351D7465a2A6Cd13c1936E8d590988) |
-| Balanced Dollar | [0x506ba7c8d91dadf7a91ee677a205d9687b751579](https://purrsec.com/address/0x506ba7c8d91dadf7a91ee677a205d9687b751579) |
-| Intent Filler | [0x1F3d6180eed6A46650D0cFB416874bEABf695457](https://purrsec.com/address/0x1F3d6180eed6A46650D0cFB416874bEABf695457) |
+| AssetManager | [0xAfd6A6e4287A511D3BAAd013093815268846FBb7](https://hyperevmscan.io/address/0xAfd6A6e4287A511D3BAAd013093815268846FBb7) |
+| RateLimit | [0xA6934BCeD5351D7465a2A6Cd13c1936E8d590988](https://hyperevmscan.io/address/0xA6934BCeD5351D7465a2A6Cd13c1936E8d590988) |
+| Balanced Dollar | [0x506ba7c8d91dadf7a91ee677a205d9687b751579](https://hyperevmscan.io/address/0x506ba7c8d91dadf7a91ee677a205d9687b751579) |
+| Intent Filler | [0x1F3d6180eed6A46650D0cFB416874bEABf695457](https://hyperevmscan.io/address/0x1F3d6180eed6A46650D0cFB416874bEABf695457) |
 
 #### Assets
 | Token | Address |
 |-------|---------|
 | HYPE(18) | [0x7288622bc2D39553f34D5b81c88c3F979d91dbc7](https://sonicscan.org/address/0x7288622bc2D39553f34D5b81c88c3F979d91dbc7)  |
-| [bnUSD(18)](https://purrsec.com/address/0x506ba7c8d91dadf7a91ee677a205d9687b751579) | [0x19feAf3043DFA69b365D05495630E840A2b9a9dC](https://sonicscan.org/address/0x19feAf3043DFA69b365D05495630E840A2b9a9dC)  |
-| [Soda(18)](https://purrsec.com/address/0xA28C70F92a1B2513edCdDD29c2E5195a4B785aB2) | [0x4cf5ce9594aeddc5d3efe9d4cdf0b944b4e73a53](https://sonicscan.org/address/0x4cf5ce9594aeddc5d3efe9d4cdf0b944b4e73a53)  |
-| [USDC(6)](https://purrsec.com/address/0xb88339CB7199b77E23DB6E890353E22632Ba630f) | [0x0f78b995d113712deeb17d96638e9d7525d409c6](https://sonicscan.org/address/0x0f78b995d113712deeb17d96638e9d7525d409c6)  |
-| [USDT(6)](https://purrsec.com/address/0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb) | [0x87f73744d919447e6f8220f268bcbbfa0cbfafa3](https://sonicscan.org/address/0x87f73744d919447e6f8220f268bcbbfa0cbfafa3)  |
-| [USOL(9)](https://purrsec.com/address/0x068f321Fa8Fb9f0D135f290Ef6a3e2813e1c8A29) | [0xba570366523aef0de760489e5c693eeb5ecb3e64](https://sonicscan.org/address/0xba570366523aef0de760489e5c693eeb5ecb3e64) |
+| [bnUSD(18)](https://hyperevmscan.io/address/0x506ba7c8d91dadf7a91ee677a205d9687b751579) | [0x19feAf3043DFA69b365D05495630E840A2b9a9dC](https://sonicscan.org/address/0x19feAf3043DFA69b365D05495630E840A2b9a9dC)  |
+| [Soda(18)](https://hyperevmscan.io/address/0xA28C70F92a1B2513edCdDD29c2E5195a4B785aB2) | [0x4cf5ce9594aeddc5d3efe9d4cdf0b944b4e73a53](https://sonicscan.org/address/0x4cf5ce9594aeddc5d3efe9d4cdf0b944b4e73a53)  |
+| [USDC(6)](https://hyperevmscan.io/address/0xb88339CB7199b77E23DB6E890353E22632Ba630f) | [0x0f78b995d113712deeb17d96638e9d7525d409c6](https://sonicscan.org/address/0x0f78b995d113712deeb17d96638e9d7525d409c6)  |
+| [USDT(6)](https://hyperevmscan.io/address/0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb) | [0x87f73744d919447e6f8220f268bcbbfa0cbfafa3](https://sonicscan.org/address/0x87f73744d919447e6f8220f268bcbbfa0cbfafa3)  |
+| [USOL(9)](https://hyperevmscan.io/address/0x068f321Fa8Fb9f0D135f290Ef6a3e2813e1c8A29) | [0xba570366523aef0de760489e5c693eeb5ecb3e64](https://sonicscan.org/address/0xba570366523aef0de760489e5c693eeb5ecb3e64) |
 
 ### Hedera
 #### Core Contracts

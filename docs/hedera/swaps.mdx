@@ -11,7 +11,7 @@ From your side it is one SDK call. From your user's side it is one wallet prompt
 ## What this looks like on Hedera
 
 - **Source**: the intent transaction is an EVM transaction sent through Hedera's JSON-RPC relay and signed by the user's ECDSA key. `ChainKeys.HEDERA_MAINNET` (`'hedera'`) identifies the network everywhere in the SDK.
-- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets today. The [on-Hedera asset list](/hedera/networks-and-assets) only bounds what users hold on Hedera itself, not what they can swap into.
+- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">226</span> assets today. The [on-Hedera asset list](/hedera/networks-and-assets) only bounds what users hold on Hedera itself, not what they can swap into.
 - **Tokens**: Hedera assets are native HTS tokens, addressed by the EVM form of their token ID. USDC is token `0.0.456858`, which the SDK lists as `0x000000000000000000000000000000000006f89a`. Read addresses from the SDK config; never convert them by hand.
 - **Settlement**: output lands on the destination network at `dstAddress`. Swaps into Hedera settle as HTS balances on the recipient's EVM address, which must be able to receive the token: see [Receiving tokens on Hedera](#receiving-tokens-on-hedera).
 

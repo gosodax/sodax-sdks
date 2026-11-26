@@ -11,7 +11,7 @@ From your side it is one SDK call. From your user's side it is one wallet prompt
 ## What this looks like on BNB Chain
 
 - **Source**: the intent transaction is an ordinary EVM transaction on BNB Smart Chain. `ChainKeys.BSC_MAINNET` (`'0x38.bsc'`) identifies the network everywhere in the SDK.
-- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets today. The [on-BNB Chain asset list](/bnb-chain/networks-and-assets) only bounds what users hold on BNB Chain itself, not what they can swap into.
+- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">226</span> assets today. The [on-BNB Chain asset list](/bnb-chain/networks-and-assets) only bounds what users hold on BNB Chain itself, not what they can swap into.
 - **Tokens**: BEP-20 tokens, which are ERC-20 contracts at their BNB Smart Chain addresses; native BNB uses the zero address. Read addresses and decimals from the SDK config rather than typing them.
 - **Settlement**: output lands on the destination network at `dstAddress`. Swaps into BNB Chain settle as ordinary BNB or BEP-20 balances; the recipient needs no setup.
 

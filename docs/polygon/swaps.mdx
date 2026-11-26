@@ -11,7 +11,7 @@ From your side it is one SDK call. From your user's side it is one wallet prompt
 ## What this looks like on Polygon
 
 - **Source**: the intent transaction is an ordinary EVM transaction on Polygon PoS. `ChainKeys.POLYGON_MAINNET` (`'0x89.polygon'`) identifies the network everywhere in the SDK.
-- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets today. The [on-Polygon asset list](/polygon/networks-and-assets) only bounds what users hold on Polygon itself, not what they can swap into.
+- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">226</span> assets today. The [on-Polygon asset list](/polygon/networks-and-assets) only bounds what users hold on Polygon itself, not what they can swap into.
 - **Tokens**: standard ERC-20 contracts at their Polygon addresses; native POL uses the zero address. Read addresses from the SDK config rather than typing them, and match by address: two Polygon contracts report the symbol `USDC`, and SODAX supports one.
 - **Settlement**: output lands on the destination network at `dstAddress`. Swaps into Polygon settle as ordinary POL or ERC-20 balances; the recipient needs no setup.
 
