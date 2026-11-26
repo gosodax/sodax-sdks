@@ -110,7 +110,21 @@ describe('XrpXConnector.getGemWallet', () => {
       'getPublicKey',
       'signMessage',
       'submitTransaction',
+      'submitTrustSet',
     ]);
+  });
+
+  it('submits a TrustSet through the same GemWallet submitTransaction call', async () => {
+    const transaction = {
+      TransactionType: 'TrustSet' as const,
+      Account: 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah',
+      LimitAmount: { currency: 'USD', issuer: 'rbtWzBnJB84fKuVCg2qbKKX4EUtCWVik7', value: '9999999999999999e80' },
+    };
+    submitTransaction.mockResolvedValue({ result: { hash: 'A'.repeat(64) } });
+
+    await connector().getGemWallet().submitTrustSet?.({ transaction });
+
+    expect(submitTransaction).toHaveBeenCalledWith({ transaction });
   });
 
   it('forwards the hash and its hex flag to signMessage unchanged', async () => {

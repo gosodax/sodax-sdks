@@ -1,4 +1,5 @@
 import {
+  SOLVED_PAYOUT_HEADROOM_FACTOR,
   isAuthFailure,
   summarizeSwapStatus,
   type CreateIntentParams,
@@ -14,6 +15,7 @@ import { useRef } from 'react';
 import { resolveSwapLifecycle, toSwapAttempt, type SwapLifecycleState } from '../../utils/swapLifecycle.js';
 import { useNearStorageGate, type NearStorageGate } from '../shared/useNearStorageGate.js';
 import { useStellarGate, type StellarGate } from '../shared/useStellarGate.js';
+import { useXrpGate, type XrpGate } from '../shared/useXrpGate.js';
 import type { MutationHookOptions } from '../shared/types.js';
 import type { SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { useDetailedStatus, type UseDetailedStatusResult } from './useDetailedStatus.js';
@@ -31,7 +33,7 @@ export type UseSwapLifecycleParams<K extends SpokeChainKey = SpokeChainKey> = {
   intentParams: CreateIntentParams<K> | undefined;
   srcWalletProvider: GetWalletProviderType<K> | undefined;
   /**
-   * Destination wallet, for the Stellar and NEAR setup actions. The gates check `intentParams.dstAddress`,
+   * Destination wallet, for the Stellar, NEAR and XRPL setup actions. The gates check `intentParams.dstAddress`,
    * the account the swap pays, so this wallet must control it for those actions to clear them.
    */
   dstWalletProvider: GetWalletProviderType<SpokeChainKey> | undefined;
@@ -70,11 +72,13 @@ export type SwapLifecycle<K extends SpokeChainKey = SpokeChainKey> = {
   status: UseQueryResult<UseDetailedStatusResult>;
   stellar: StellarGate;
   nearStorage: NearStorageGate;
+  /** `blockedReason` names why an XRPL destination cannot receive when the state is `xrpBlocked`. */
+  xrp: XrpGate;
 };
 
 /**
  * One hook for a swap form: approval strategy, destination prerequisites (Stellar account and
- * trustline, NEAR storage), source-chain switching, the swap itself (`useSwapWithApproval` — one
+ * trustline, NEAR storage, XRPL trustline), source-chain switching, the swap itself (`useSwapWithApproval` — one
  * signature on an EIP-5792 wallet) and its status (`useDetailedStatus`), as a single discriminated
  * `state` with one `next()` action. Render from `state.kind`; wire the button to `next()`.
  *
@@ -112,12 +116,24 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     walletProvider: dstWalletProvider,
   });
 
+  const xrp = useXrpGate({
+    dstChainKey: intentParams?.dstChainKey,
+    token: intentParams?.outputToken,
+    address: intentParams?.dstAddress,
+    // Sized as the SDK's check before signing sizes it, so the gate never passes a swap the SDK then refuses.
+    amount: intentParams?.minOutputAmount,
+    maxAmount: intentParams && intentParams.minOutputAmount * SOLVED_PAYOUT_HEADROOM_FACTOR,
+    walletProvider: dstWalletProvider,
+  });
+
   // The setup mutations invalidate these checks without awaiting the refetch, so a stale "needs setup"
   // outlives the tx by one read.
   const fetchingSetupChecks =
     useIsFetching({ queryKey: ['sponsoring', 'stellarAccountStatus'] }) +
     useIsFetching({ queryKey: ['shared', 'stellarTrustlineCheck'] }) +
-    useIsFetching({ queryKey: ['shared', 'nearStorageCheck'] });
+    useIsFetching({ queryKey: ['shared', 'nearStorageCheck'] }) +
+    useIsFetching({ queryKey: ['shared', 'xrpDestinationCheck'] }) +
+    useIsFetching({ queryKey: ['shared', 'xrpTrustlineReserveCheck'] });
 
   const attempt = toSwapAttempt(swap, intentParams);
   const broadcast = attempt.phase === 'broadcast' ? attempt : undefined;
@@ -132,9 +148,14 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     hasInputs: !!intentParams && !!srcWalletProvider,
     stellar,
     nearStorage,
+    xrp,
     externalBlocked,
     setupBusy:
-      stellar.isActivating || stellar.isRequestingTrustline || nearStorage.isRegistering || fetchingSetupChecks > 0,
+      stellar.isActivating ||
+      stellar.isRequestingTrustline ||
+      nearStorage.isRegistering ||
+      xrp.isRequestingTrustline ||
+      fetchingSetupChecks > 0,
     isWrongChain: chainSwitch?.isWrongChain ?? false,
     strategy: { data: approvalStrategy.data, error: approvalStrategy.error },
   });
@@ -157,7 +178,9 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
         if (state.reason === 'nearStorage') return nearStorage.registerStorage();
         if (state.reason === 'stellarCheckFailed') stellar.retry();
         if (state.reason === 'nearStorageCheckFailed') nearStorage.retry();
-        // `stellarFunding` and `external` are for the app to resolve.
+        if (state.reason === 'xrpTrustline') return xrp.requestTrustline();
+        if (state.reason === 'xrpCheckFailed') xrp.retry();
+        // `stellarFunding`, `xrpFunding`, `xrpBlocked` and `external` are for the app to resolve.
         return undefined;
       case 'ready':
         if (!intentParams || !srcWalletProvider) return undefined;
@@ -208,5 +231,6 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     status,
     stellar,
     nearStorage,
+    xrp,
   };
 }

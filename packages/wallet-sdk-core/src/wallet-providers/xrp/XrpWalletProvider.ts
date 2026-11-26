@@ -7,6 +7,7 @@ import {
   type XrpRawTransactionReceipt,
   type XrpSignedTransaction,
   type XrpUnsignedTransaction,
+  type XrpUnsignedTrustSet,
 } from '@sodax/types';
 import { BaseWalletProvider } from '../BaseWalletProvider.js';
 import type {
@@ -158,14 +159,7 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
       const signed = this.wallet.sign(autofilled);
       return { tx_blob: signed.tx_blob, hash: signed.hash };
     }
-    // GemWallet submits to whichever ledger it is set to; on another, a deposit pays a reserve the relay never watches.
-    const network = (await this.gemWallet?.getNetwork?.())?.result;
-    if (!network?.chain || !network.network) {
-      throw new Error('GemWallet did not confirm the XRPL Mainnet');
-    }
-    if (network.chain !== 'XRPL' || network.network !== 'Mainnet') {
-      throw new Error(`GemWallet is set to ${network.chain} ${network.network} — switch it to the XRPL Mainnet`);
-    }
+    await this.assertGemWalletOnMainnet();
     // GemWallet submits as well as signs, so there is no blob to hand back — the hash it returns
     // is the settled identifier the caller needs.
     const recovery = {
@@ -190,8 +184,58 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
     return { tx_blob: '', hash };
   }
 
+  /**
+   * Sign a TrustSet. The raw-key path autofills and signs locally; GemWallet submits it through the
+   * adapter's `submitTrustSet`, so it returns the hash with an empty blob. GemWallet must be on the XRPL
+   * Mainnet and on `tx.Account` right now, and a submit that may have happened throws an
+   * IndeterminateOutcomeError.
+   */
+  public async signTrustSet(tx: XrpUnsignedTrustSet): Promise<XrpSignedTransaction> {
+    if (this.wallet) {
+      const signed = this.wallet.sign(await this.autofill(tx));
+      return { tx_blob: signed.tx_blob, hash: signed.hash };
+    }
+    const gemWallet = this.gemWallet;
+    if (!gemWallet?.submitTrustSet) {
+      throw new Error('This GemWallet adapter cannot submit a TrustSet (no submitTrustSet)');
+    }
+    await this.assertGemWalletOnMainnet();
+    // The connection address is cached, so ask GemWallet which account would sign now.
+    const live = (await gemWallet.getAddress())?.result?.address;
+    if (live !== tx.Account) {
+      throw new Error(
+        `GemWallet is on ${live ?? 'no account'}, not ${tx.Account} — switch it before adding the trustline`,
+      );
+    }
+    const indeterminate = (cause: unknown) =>
+      new IndeterminateOutcomeError('GemWallet returned no TrustSet hash; check the account before retrying', {
+        cause,
+      });
+    let res: Awaited<ReturnType<NonNullable<GemWalletLike['submitTrustSet']>>>;
+    try {
+      res = await gemWallet.submitTrustSet({ transaction: tx });
+    } catch (error) {
+      throw indeterminate(error);
+    }
+    if (res?.type === 'reject') throw new Error('GemWallet transaction was rejected by the user');
+    const hash = res?.result?.hash;
+    if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/i.test(hash)) throw indeterminate(res);
+    return { tx_blob: '', hash };
+  }
+
+  /** GemWallet submits to whichever ledger it is set to; on another, a transaction lands where SODAX never looks. */
+  private async assertGemWalletOnMainnet(): Promise<void> {
+    const network = (await this.gemWallet?.getNetwork?.())?.result;
+    if (!network?.chain || !network.network) {
+      throw new Error('GemWallet did not confirm the XRPL Mainnet');
+    }
+    if (network.chain !== 'XRPL' || network.network !== 'Mainnet') {
+      throw new Error(`GemWallet is set to ${network.chain} ${network.network} — switch it to the XRPL Mainnet`);
+    }
+  }
+
   /** Fill Sequence/Fee/LastLedgerSequence from the node for the raw-key path. */
-  private async autofill(tx: XrpUnsignedTransaction): Promise<XrpUnsignedTransaction> {
+  private async autofill<T extends XrpUnsignedTransaction | XrpUnsignedTrustSet>(tx: T): Promise<T> {
     const [info, ledger, fee] = await Promise.all([
       this.rpc<{ account_data?: { Sequence?: number } }>('account_info', {
         account: tx.Account,

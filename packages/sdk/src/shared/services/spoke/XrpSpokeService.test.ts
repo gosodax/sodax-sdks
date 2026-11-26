@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { concat, encodeAbiParameters, isHex, keccak256, toHex } from 'viem';
 import { ChainKeys, spokeChainConfig, type Hex, type XrpRawWithdraw } from '@sodax/types';
-import { IndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
+import { IndeterminateOutcomeError, isIndeterminateOutcomeError } from '../../../errors/IndeterminateOutcomeError.js';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import { computeSignedMessageHash } from './mpc-message.js';
@@ -802,6 +802,23 @@ describe('XrpSpokeService.checkDestination', () => {
     expect(await check(USDC_ISSUER)).toEqual({ ready: true });
   });
 
+  it('reports a missing line from an issuer that requires authorization as unauthorized, not as fixable', async () => {
+    // lsfRequireAuth, and no RippleState: the holder's own TrustSet would still leave the line unauthorized.
+    stubRippled({
+      ...withIssuer({ Flags: 0x00040000 }),
+      account_lines: { lines: [] },
+      ledger_entry: { error: 'entryNotFound' },
+    });
+    expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'trustline_unauthorized' });
+
+    stubRippled({
+      ...withIssuer({ Flags: 0 }),
+      account_lines: { lines: [] },
+      ledger_entry: { error: 'entryNotFound' },
+    });
+    expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'no_trustline' });
+  });
+
   it('reads a RippleState missing by the time ledger_entry runs as no line, not as an error', async () => {
     const entryNotFound = { error: 'entryNotFound', error_message: 'Entry not found.' };
     stubRippled({ account_lines: { lines: [] }, ledger_entry: entryNotFound });
@@ -1080,6 +1097,187 @@ describe('XrpSpokeService.sendMessage', () => {
 
       await expect(xrp.submitSignedWithdraw({ withdraw, signature: SIGNATURE, publicKey })).rejects.toThrow();
       expect(MpcRelayApiService.submitWithdraw).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('XrpSpokeService trustline setup', () => {
+  const USDC_ISSUER = 'rGm7WCVp9gb4jZHWTEtGUr4dd74z2XuWhE';
+  const signTrustSet = vi.fn(async (_tx: Record<string, unknown>) => ({ tx_blob: '12001422', hash: TX_HASH }));
+  const trustSetProvider = { chainType: 'XRP', signTransaction, signMessage, getPublicKey, signTrustSet } as never;
+  // 10 XRP base, 2 XRP per owned object, 10-drop fee; 12 XRP + 10 drops covers one more object exactly.
+  const reserves = {
+    server_state: { state: { validated_ledger: { reserve_base: 10_000_000, reserve_inc: 2_000_000 } } },
+  };
+  const funded = (Balance: string, OwnerCount = 0) => ({ account_info: { account_data: { Balance, OwnerCount } } });
+  const noLines = { account_lines: { lines: [] }, ledger_entry: { error: 'entryNotFound' } };
+
+  beforeEach(() => signTrustSet.mockClear());
+
+  it('requires a trustline for an issued currency and not for native XRP', () => {
+    expect(xrp.requiresTrustline(RLUSD_ISSUER)).toBe(true);
+    expect(xrp.requiresTrustline(NATIVE_XRP)).toBe(false);
+    expect(xrp.requiresTrustline('rNotListed11111111111111111111111')).toBe(false);
+  });
+
+  describe('canAffordTrustline', () => {
+    it('needs the fee plus one owner reserve on top of what is already locked for a new line', async () => {
+      stubRippled({ ...reserves, ...noLines, ...funded('14000010', 1) });
+      expect(await xrp.canAffordTrustline({ address: SENDER, token: USDC_ISSUER })).toBe(true);
+
+      stubRippled({ ...reserves, ...noLines, ...funded('14000009', 1) });
+      expect(await xrp.canAffordTrustline({ address: SENDER, token: USDC_ISSUER })).toBe(false);
+    });
+
+    // RippleState lsfLowReserve / lsfHighReserve: which side of the line has an owner reserve locked.
+    const lineWith = (lowAccount: string, Flags: number) => ({
+      ledger_entry: { node: { Flags, LowLimit: { issuer: lowAccount } } },
+    });
+
+    it('needs only the fee to raise the limit of a line that already holds the holder an owner reserve', async () => {
+      stubRippled({ ...reserves, ...funded('12000010', 1), ...lineWith(SENDER, 0x00010000) });
+      expect(await xrp.canAffordTrustline({ address: SENDER, token: RLUSD_ISSUER })).toBe(true);
+
+      stubRippled({ ...reserves, ...funded('12000010', 1), ...lineWith(RLUSD_ISSUER, 0x00020000) });
+      expect(await xrp.canAffordTrustline({ address: SENDER, token: RLUSD_ISSUER })).toBe(true);
+    });
+
+    it('needs an owner reserve to raise a line only the issuer holds a reserve for, as when it pre-authorizes', async () => {
+      stubRippled({ ...reserves, ...funded('12000010', 1), ...lineWith(RLUSD_ISSUER, 0x00010000) });
+      expect(await xrp.canAffordTrustline({ address: SENDER, token: RLUSD_ISSUER })).toBe(false);
+
+      stubRippled({ ...reserves, ...funded('14000010', 1), ...lineWith(RLUSD_ISSUER, 0x00010000) });
+      expect(await xrp.canAffordTrustline({ address: SENDER, token: RLUSD_ISSUER })).toBe(true);
+    });
+
+    it('reports an account nobody has funded as unable to afford it', async () => {
+      stubRippled({ ...reserves, ...noLines, account_info: { error: 'actNotFound' } });
+
+      expect(await xrp.canAffordTrustline({ address: SENDER, token: USDC_ISSUER })).toBe(false);
+    });
+
+    it('refuses native XRP, which has no trustline', async () => {
+      stubRippled(reserves);
+
+      await expect(xrp.canAffordTrustline({ address: SENDER, token: NATIVE_XRP })).rejects.toThrow(
+        /not an XRPL issued currency/,
+      );
+    });
+  });
+
+  describe('requestTrustline', () => {
+    it('builds a max-limit NoRipple TrustSet for the token in raw mode, without a wallet', async () => {
+      stubRippled();
+
+      const result = await xrp.requestTrustline({ srcAddress: SENDER, token: RLUSD_ISSUER, raw: true });
+
+      expect(result).toEqual({
+        ok: true,
+        value: {
+          TransactionType: 'TrustSet',
+          Account: SENDER,
+          LimitAmount: { currency: xrpCurrencyCode('RLUSD'), issuer: RLUSD_ISSUER, value: '9999999999999999e80' },
+          Flags: 0x00020000,
+        },
+      });
+      expect(calls).toEqual([]);
+    });
+
+    it('signs, submits and waits for the TrustSet to validate', async () => {
+      stubRippled();
+
+      const result = await xrp.requestTrustline({
+        srcAddress: SENDER,
+        token: RLUSD_ISSUER,
+        walletProvider: trustSetProvider,
+      });
+
+      expect(signTrustSet).toHaveBeenCalledWith(expect.objectContaining({ TransactionType: 'TrustSet' }));
+      expect(callTo('submit')?.params).toEqual({ tx_blob: '12001422' });
+      expect(result).toEqual({ ok: true, value: expect.stringMatching(/^[0-9A-F]{64}$/) });
+      expect(callTo('tx')?.params).toMatchObject({ transaction: result.ok ? result.value : undefined });
+    });
+
+    it('waits on the hash a submitting wallet returns, without submitting again', async () => {
+      stubRippled();
+      signTrustSet.mockResolvedValueOnce({ tx_blob: '', hash: TX_HASH.toLowerCase() });
+
+      const result = await xrp.requestTrustline({
+        srcAddress: SENDER,
+        token: RLUSD_ISSUER,
+        walletProvider: trustSetProvider,
+      });
+
+      expect(result).toEqual({ ok: true, value: TX_HASH });
+      expect(callTo('submit')).toBeUndefined();
+    });
+
+    const request = () =>
+      xrp.requestTrustline({ srcAddress: SENDER, token: RLUSD_ISSUER, walletProvider: trustSetProvider });
+
+    it('fails plainly on a TrustSet that can never apply, and on one that validates with a tec result', async () => {
+      stubRippled({ submit: { engine_result: 'temBAD_LIMIT' } });
+      const malformed = await request();
+      expect(malformed).toMatchObject({ ok: false, error: { message: expect.stringMatching(/temBAD_LIMIT/) } });
+      expect(!malformed.ok && isIndeterminateOutcomeError(malformed.error)).toBe(false);
+
+      stubRippled({ tx: { hash: TX_HASH, validated: true, meta: { TransactionResult: 'tecNO_LINE_INSUF_RESERVE' } } });
+      const failed = await request();
+      expect(failed).toMatchObject({
+        ok: false,
+        error: { message: expect.stringMatching(/tecNO_LINE_INSUF_RESERVE/) },
+      });
+      expect(!failed.ok && isIndeterminateOutcomeError(failed.error)).toBe(false);
+    });
+
+    it.each([
+      [
+        'a non-final submit verdict, which can still validate and charge the fee',
+        { submit: { engine_result: 'tecINSUF_RESERVE_LINE' } },
+      ],
+      ['a submit lost in transit', { submit: { error: 'noNetwork', error_message: 'connection reset' } }],
+      ['a TrustSet that validates without a result', { tx: { hash: TX_HASH, validated: true, meta: {} } }],
+    ])('reports %s as indeterminate, carrying the hash', async (_, overrides) => {
+      stubRippled(overrides);
+
+      const result = await request();
+
+      expect(result.ok).toBe(false);
+      const error = result.ok ? undefined : result.error;
+      expect(isIndeterminateOutcomeError(error)).toBe(true);
+      expect(error).toMatchObject({ txHash: expect.stringMatching(/^[0-9A-F]{64}$/) });
+    });
+
+    it('reports a TrustSet that does not validate in time as indeterminate', async () => {
+      stubRippled({ tx: { hash: TX_HASH, validated: false } });
+      // The XRP chain's own polling budget is far longer than a unit test.
+      const quick = vi.spyOn(xrp, 'waitForTransactionReceipt').mockResolvedValueOnce({
+        ok: true,
+        value: { status: 'timeout', error: new Error('not validated in time') },
+      });
+
+      const result = await request();
+
+      expect(result.ok || isIndeterminateOutcomeError(result.error)).toBe(true);
+      expect(result.ok).toBe(false);
+      quick.mockRestore();
+    });
+
+    it('refuses a wallet provider that cannot sign a TrustSet, and native XRP', async () => {
+      stubRippled();
+
+      const noSigner = await xrp.requestTrustline({ srcAddress: SENDER, token: RLUSD_ISSUER, walletProvider });
+      expect(noSigner).toMatchObject({
+        ok: false,
+        error: { message: expect.stringMatching(/cannot sign a TrustSet/) },
+      });
+
+      const native = await xrp.requestTrustline({ srcAddress: SENDER, token: NATIVE_XRP, raw: true });
+      expect(native).toMatchObject({
+        ok: false,
+        error: { message: expect.stringMatching(/not an XRPL issued currency/) },
+      });
+      expect(signTransaction).not.toHaveBeenCalled();
     });
   });
 });
