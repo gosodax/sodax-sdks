@@ -4,7 +4,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "2.4.0-rc.1",
+  "version": "2.4.0-rc.2",
   "license": "MIT",
   "description": "TypeScript SDK for SODAX cross-network DeFi: intent swaps, money market, bridging and staking across EVM, Solana, Sui, Stellar and other networks",
   "keywords": [

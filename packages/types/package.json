@@ -4,7 +4,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "2.4.0-rc.1",
+  "version": "2.4.0-rc.2",
   "description": "Shared SODAX type definitions, constants and configuration for @sodax/* SDK packages and applications",
   "main": "dist/index.js",
   "homepage": "https://docs.sodax.com/developers/packages",
