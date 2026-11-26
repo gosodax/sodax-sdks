@@ -1,0 +1,18 @@
+---
+"@sodax/types": minor
+"@sodax/sdk": minor
+"@sodax/wallet-sdk-core": minor
+"@sodax/wallet-sdk-react": minor
+"@sodax/dapp-kit": major
+---
+
+Let a user set up the XRP Ledger trustline a swap into an issued token needs, instead of only being refused before signing.
+
+**Breaking (`@sodax/dapp-kit`):** `SwapSetupReason` gains `xrpTrustline`, `xrpFunding`, `xrpBlocked` and `xrpCheckFailed`, so an exhaustive `switch` over `useSwapLifecycle`'s `needsSetup` reason needs those cases.
+
+- `@sodax/sdk` — `sodax.spoke.xrp.requestTrustline({ srcAddress, token, walletProvider | raw })` sends one TrustSet with the largest limit XRPL represents and NoRipple, which fixes both a missing trustline and one without room, and resolves to a `Result` once it validates; `raw: true` returns the unsigned TrustSet. A TrustSet that may have been sent with an unknown outcome fails with an `IndeterminateOutcomeError` carrying its hash. `canAffordTrustline({ address, token })` checks the spendable XRP for the fee plus one owner reserve, unless the line already holds one on the account's side, and `requiresTrustline(token)` tells an issued token from native XRP. `SOLVED_PAYOUT_HEADROOM_FACTOR` is now exported, so a caller can size `checkDestination`'s `maxAmount` as the SDK does.
+- `@sodax/sdk` (behavior) — `checkDestination` now reports `trustline_unauthorized`, not `no_trustline`, for a missing line from an issuer that requires authorization, since the holder's own TrustSet cannot authorize it. A swap, withdrawal or borrow refused for that reason carries `context.reason: 'xrpl-trustline_unauthorized'`.
+- `@sodax/types` — `XrpUnsignedTrustSet` and the optional `IXrpWalletProvider.signTrustSet`. A provider without it cannot set up trustlines, and `requestTrustline` refuses it.
+- `@sodax/wallet-sdk-core` — `XrpWalletProvider.signTrustSet` signs locally in raw-key mode and submits through GemWallet in browser mode, only on the XRPL Mainnet and only while GemWallet is on the TrustSet's account. `GemWalletLike` gains the optional `submitTrustSet`.
+- `@sodax/wallet-sdk-react` — the GemWallet connector passes `submitTrustSet` through.
+- `@sodax/dapp-kit` — `useSwapLifecycle` gates an XRPL issued-token destination: `xrpTrustline` runs the TrustSet from `next()`, `xrpFunding` asks for spendable XRP, `xrpBlocked` covers refusals no trustline fixes (read `lifecycle.xrp.blockedReason`), and `xrpCheckFailed` retries. New hooks `useXrpGate`, `useXrpDestinationCheck`, `useXrpTrustlineReserveCheck` and `useEstablishXrpTrustline` (which, given the checked `address`, refuses a wallet connected to another account before signing, and never retries a TrustSet whose outcome is unknown), and the resolver `resolveXrpGate`.

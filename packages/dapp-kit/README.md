@@ -15,7 +15,7 @@ High-level React hooks library for dApp developers. Wraps `@sodax/sdk` with Reac
 - **Partner** — `useFetchAssetsBalances`, `useGetAutoSwapPreferences`, `useIsTokenApproved`, `useApproveToken`, `useSetSwapPreference`, `useFeeClaimSwap`, `useFeeClaimWithdraw`, `usePartnerCancelIntent`, `useGetUserIntent`, `useGetIntentDetails`
 - **Recovery** — `useHubAssetBalances`, `useWithdrawHubAsset`
 - **Backend Queries** — Intent tracking, swap-tx submission + status, orderbook, money market position queries
-- **Shared** — `useBalances`, `useXBalances`, `useDeriveUserWalletAddress`, `useGetUserHubWalletAddress`, `useStellarTrustlineCheck`, `useEstablishTrustline`, `useStellarGate`, `useNearStorageCheck`, `useRegisterNearStorage`, `useNearStorageGate`, `useEstimateGas`
+- **Shared** — `useBalances`, `useXBalances`, `useDeriveUserWalletAddress`, `useGetUserHubWalletAddress`, `useStellarTrustlineCheck`, `useEstablishTrustline`, `useStellarGate`, `useNearStorageCheck`, `useRegisterNearStorage`, `useNearStorageGate`, `useXrpDestinationCheck`, `useXrpTrustlineReserveCheck`, `useEstablishXrpTrustline`, `useXrpGate`, `useEstimateGas`
 - **Sponsoring** — `useStellarAccountActive`, `useStellarAccountStatus`, `useSponsorConfig`, `useActivateStellarAccount`
 
 ## Installation
@@ -140,7 +140,7 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 - [`useSwap()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwap.ts) — Submit a cross-chain swap intent
 - [`useSwapAllowance()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapAllowance.ts) — Check token approval
 - [`useSwapApprove()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapApprove.ts) — Approve token spending
-- [`useSwapLifecycle()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapLifecycle.ts) — A whole swap form as one discriminated `state` and one `next()` action: approval strategy, Stellar/NEAR destination gates, source-chain switch (passed in), the swap and its status. A swap that fails after broadcast stays `pending` with its `error`; a batch that was sent but not confirmed is `unconfirmed`, and `next()` waits for it again (never re-sends it) and finishes the swap once it lands. The hooks it composes are returned as escape hatches
+- [`useSwapLifecycle()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapLifecycle.ts) — A whole swap form as one discriminated `state` and one `next()` action: approval strategy, Stellar/NEAR/XRPL destination gates, source-chain switch (passed in), the swap and its status. A swap that fails after broadcast stays `pending` with its `error`; a batch that was sent but not confirmed is `unconfirmed`, and `next()` waits for it again (never re-sends it) and finishes the swap once it lands. The hooks it composes are returned as escape hatches
 - [`useSwapWithApproval()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapWithApproval.ts) — `useSwap` with the approval folded in: approve + swap as one EIP-5792 batch (one signature) on a wallet that can batch, otherwise approve then swap. `allowAccountUpgrade: false` skips the smart-account upgrade prompt a `'ready'` wallet would show and approves separately
 - [`useSwapApprovalStrategy()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useSwapApprovalStrategy.ts) — Which path `useSwapWithApproval` will take (`'not-required'` / `'atomic-batch'` / `'sequential'`), to label the button
 - [`useDetailedStatus()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/swap/useDetailedStatus.ts) — Poll a swap's status from its **source** tx (`{ srcChainKey, srcTxHash }`), whichever completion path ran — the default status read. Collapse `data.value` with `summarizeSwapStatus` from `@sodax/sdk`
@@ -311,6 +311,10 @@ expires unfilled, so those go through `useSubmitLeveragePositionIntent()`, which
 - [`useEstablishTrustline()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useEstablishTrustline.ts) — Request Stellar trustline
 - [`useRequestTrustline()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useRequestTrustline.ts) — **Deprecated**, use `useEstablishTrustline()`
 - [`useStellarGate()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useStellarGate.ts) — Sequences the Stellar destination prerequisites (activation → funding → trustline)
+- [`useXrpDestinationCheck()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useXrpDestinationCheck.ts) — Whether an XRPL account can receive an amount of a token, and why not
+- [`useXrpTrustlineReserveCheck()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useXrpTrustlineReserveCheck.ts) — Whether an XRPL account holds the spendable XRP to set a trustline
+- [`useEstablishXrpTrustline()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useEstablishXrpTrustline.ts) — Create an XRPL trustline, or raise its limit, with one TrustSet
+- [`useXrpGate()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useXrpGate.ts) — Sequences the XRPL issued-token destination prerequisites (trustline → funding), with `blockedReason` for refusals no trustline fixes
 - [`useNearStorageCheck()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useNearStorageCheck.ts) — Check NEP-141 storage registration for a token on NEAR (NEAR's analogue of a Stellar trustline)
 - [`useRegisterNearStorage()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useRegisterNearStorage.ts) — Submit a NEP-141 `storage_deposit` so a NEAR account can receive a token
 - [`useNearStorageGate()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/shared/useNearStorageGate.ts) — Derive the NEP-141 storage-registration UI gate state for a NEAR delivery
@@ -379,6 +383,10 @@ DEX param builders:
 - [`createWithdrawParamsProps()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/utils/dex-utils.ts) — Build withdraw params with optional destination info
 - [`createSupplyLiquidityParamsProps()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/utils/dex-utils.ts) — Build concentrated liquidity supply params
 - [`createDecreaseLiquidityParamsProps()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/utils/dex-utils.ts) — Build decrease liquidity params
+
+XRPL trustline gate:
+
+- [`resolveXrpGate()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/utils/xrpGate.ts) — Derive the XRPL issued-token destination gate state (hook-free counterpart of `useXrpGate`)
 
 NEAR storage gate:
 

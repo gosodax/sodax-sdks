@@ -41,6 +41,26 @@ export interface XrpUnsignedTransaction {
   [field: string]: unknown;
 }
 
+/**
+ * An unsigned XRPL TrustSet: creates the trustline an account needs to hold an issued currency, or
+ * raises its limit. Fee, Sequence and LastLedgerSequence are left to the wallet, as for a Payment.
+ */
+export interface XrpUnsignedTrustSet {
+  TransactionType: 'TrustSet';
+  Account: string;
+  LimitAmount: {
+    currency: string;
+    issuer: string;
+    value: string;
+  };
+  Flags?: number;
+  Fee?: string;
+  Sequence?: number;
+  LastLedgerSequence?: number;
+  SigningPubKey?: string;
+  [field: string]: unknown;
+}
+
 /** Identifies an XRP Ledger payment whose wallet reply did not include a hash. */
 export type XrpPaymentRecovery = {
   readonly kind: 'xrp-payment';
@@ -125,6 +145,11 @@ export interface IXrpWalletProvider extends ICoreWallet {
    * XrpPaymentRecovery handle so the caller can resolve the original Payment.
    */
   signTransaction: (tx: XrpUnsignedTransaction) => Promise<XrpSignedTransaction>;
+  /**
+   * Sign an unsigned TrustSet. Optional: a provider without it cannot set up trustlines, and the sdk
+   * refuses a trustline request for it. A provider that also submits returns the hash with an empty blob.
+   */
+  signTrustSet?: (tx: XrpUnsignedTrustSet) => Promise<XrpSignedTransaction>;
   /**
    * Sign the 32-byte withdrawal-auth message hash (scheme 3) as a RAW ed25519 signature — no
    * prefix and no envelope, which is what GemWallet's `signMessage(hexHash, isHex)` produces.

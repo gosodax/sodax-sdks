@@ -77,6 +77,7 @@ describe('RWA metadata', () => {
     [ChainKeys.SONIC_MAINNET]: [...equities, robinhoodSupportedTokens.ANT.symbol],
     [ChainKeys.STELLAR_MAINNET]: [...equities, robinhoodSupportedTokens.ANT.symbol],
     [ChainKeys.HEDERA_MAINNET]: [...equities, robinhoodSupportedTokens.ANT.symbol],
+    [ChainKeys.XRP_MAINNET]: [...equities, robinhoodSupportedTokens.ANT.symbol],
     [ChainKeys.SOLANA_MAINNET]: xstocks,
     [ChainKeys.ETHEREUM_MAINNET]: [ethereumSupportedTokens.PAXG.symbol, ethereumSupportedTokens.XAUt.symbol],
   };

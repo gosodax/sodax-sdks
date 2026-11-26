@@ -10,6 +10,7 @@ import {
 } from '@sodax/sdk';
 import type { NearStorageGateState } from './nearStorageGate.js';
 import type { StellarGateState } from './stellarGate.js';
+import type { XrpGateState } from './xrpGate.js';
 
 /** A prerequisite the user must resolve before the swap can go out. */
 export type SwapSetupReason =
@@ -19,6 +20,10 @@ export type SwapSetupReason =
   | 'stellarCheckFailed'
   | 'nearStorage'
   | 'nearStorageCheckFailed'
+  | 'xrpTrustline'
+  | 'xrpFunding'
+  | 'xrpBlocked'
+  | 'xrpCheckFailed'
   | 'external';
 
 /**
@@ -77,6 +82,7 @@ export type SwapLifecycleInputs = {
   stellar: StellarGateState;
   /** `checkFailed`: the registration check errored, so the swap waits for a retry rather than going out blind. */
   nearStorage: NearStorageGateState & { checkFailed?: boolean };
+  xrp: XrpGateState;
   externalBlocked: boolean;
   /** A setup tx is in flight, or the check it invalidated is still refreshing: acting now would resend it. */
   setupBusy: boolean;
@@ -145,7 +151,7 @@ function toFinishedAttempt(mutation: SwapAttemptSource, attempted: CreateIntentP
 
 /**
  * Derives the lifecycle state. Order: an attempt in flight or broadcast wins; then missing inputs;
- * then destination prerequisites (Stellar, NEAR, app-owned); then the source chain; then the
+ * then destination prerequisites (Stellar, NEAR, XRPL, app-owned); then the source chain; then the
  * approval strategy. Pure — `useSwapLifecycle` feeds it from its sub-hooks.
  */
 export function resolveSwapLifecycle(inputs: SwapLifecycleInputs): SwapLifecycleState {
@@ -175,7 +181,9 @@ export function resolveSwapLifecycle(inputs: SwapLifecycleInputs): SwapLifecycle
 
   const reason = setupReason(inputs);
   if (reason) return inputs.setupBusy ? { kind: 'checking' } : { kind: 'needsSetup', reason };
-  if (inputs.stellar.blocksAction || inputs.nearStorage.blocksAction) return { kind: 'checking' };
+  if (inputs.stellar.blocksAction || inputs.nearStorage.blocksAction || inputs.xrp.blocksAction) {
+    return { kind: 'checking' };
+  }
   if (inputs.isWrongChain) return { kind: 'needsChainSwitch' };
   // A failed refetch keeps the last strategy; `swapWithApproval` resolves its own before sending anyway.
   if (inputs.strategy.error && !inputs.strategy.data) return { kind: 'failed', error: inputs.strategy.error };
@@ -183,13 +191,17 @@ export function resolveSwapLifecycle(inputs: SwapLifecycleInputs): SwapLifecycle
   return { kind: 'ready', approvalStrategy: inputs.strategy.data };
 }
 
-function setupReason({ stellar, nearStorage, externalBlocked }: SwapLifecycleInputs): SwapSetupReason | undefined {
+function setupReason({ stellar, nearStorage, xrp, externalBlocked }: SwapLifecycleInputs): SwapSetupReason | undefined {
   if (stellar.needsActivation) return 'stellarActivation';
   if (stellar.needsFunding) return 'stellarFunding';
   if (stellar.needsTrustline) return 'stellarTrustline';
   if (stellar.checkFailed) return 'stellarCheckFailed';
   if (nearStorage.needsRegistration) return 'nearStorage';
   if (nearStorage.checkFailed) return 'nearStorageCheckFailed';
+  if (xrp.blockedReason) return 'xrpBlocked';
+  if (xrp.needsFunding) return 'xrpFunding';
+  if (xrp.needsTrustline) return 'xrpTrustline';
+  if (xrp.checkFailed) return 'xrpCheckFailed';
   if (externalBlocked) return 'external';
   return undefined;
 }
