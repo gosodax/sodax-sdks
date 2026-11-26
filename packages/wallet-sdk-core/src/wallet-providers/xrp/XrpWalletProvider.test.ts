@@ -503,3 +503,64 @@ it('bounds a stalled response body by the receipt wall-clock budget', async () =
     vi.useRealTimers();
   }
 });
+
+describe('XrpWalletProvider.signTrustSet', () => {
+  const trustSet = (account: string) => ({
+    TransactionType: 'TrustSet' as const,
+    Account: account,
+    LimitAmount: {
+      currency: '4E56444100000000000000000000000000000000',
+      issuer: 'rhQeeggWNoaN6ttBEaSqLPJZekFYBvPxtn',
+      value: '1000000000000000',
+    },
+    Flags: 0x00020000,
+  });
+
+  it('signs a TrustSet with the raw key, autofilled from the node', async () => {
+    stubRippled();
+    const provider = rawKeyProvider();
+    const account = await provider.getWalletAddress();
+
+    const signed = await provider.signTrustSet(trustSet(account));
+
+    expect(decode(signed.tx_blob)).toMatchObject({
+      TransactionType: 'TrustSet',
+      Account: account,
+      LimitAmount: trustSet(account).LimitAmount,
+      Flags: 0x00020000,
+      Sequence: 77,
+      Fee: '15',
+      LastLedgerSequence: 1020,
+    });
+  });
+
+  it('submits through GemWallet on the XRPL Mainnet and returns its hash', async () => {
+    const gem = gemWallet();
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    expect(await provider.signTrustSet(trustSet(GEM_ADDRESS))).toEqual({ tx_blob: '', hash: TX_HASH });
+    expect(gem.submitTransaction).toHaveBeenCalledWith({ transaction: trustSet(GEM_ADDRESS) });
+  });
+
+  it('refuses GemWallet off the XRPL Mainnet', async () => {
+    const gem = gemWallet({ getNetwork: vi.fn(async () => ({ result: { chain: 'XRPL', network: 'Testnet' } })) });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    await expect(provider.signTrustSet(trustSet(GEM_ADDRESS))).rejects.toThrow(/switch it to the XRPL Mainnet/);
+    expect(gem.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it('fails plainly, without a recovery handle, when GemWallet returns no hash', async () => {
+    const gem = gemWallet({ submitTransaction: vi.fn(async () => ({ result: {} })) });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    await expect(provider.signTrustSet(trustSet(GEM_ADDRESS))).rejects.toThrow(/check the trustline before retrying/);
+  });
+
+  it('reports a user rejection', async () => {
+    const gem = gemWallet({ submitTransaction: vi.fn(async () => ({ type: 'reject' as const })) });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    await expect(provider.signTrustSet(trustSet(GEM_ADDRESS))).rejects.toThrow(/rejected by the user/);
+  });
+});

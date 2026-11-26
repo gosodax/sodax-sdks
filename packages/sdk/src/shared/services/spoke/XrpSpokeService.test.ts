@@ -1368,3 +1368,122 @@ describe('XrpSpokeService — tokens that share one issuer (the Robinhood stocks
     });
   });
 });
+
+describe('XrpSpokeService trustlines (hasSufficientTrustline / requestTrustline)', () => {
+  const STOCK_ISSUER = 'rhQeeggWNoaN6ttBEaSqLPJZekFYBvPxtn';
+  const NVDA = spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens.NVDA;
+  const NVDA_CURRENCY = '4E56444100000000000000000000000000000000';
+  const SPCX_CURRENCY = '5350435800000000000000000000000000000000';
+  const RESERVES = { state: { validated_ledger: { reserve_base: 1_000_000, reserve_inc: 200_000 } } };
+  const line = (currency: string, limit: string, balance = '0') => ({
+    lines: [{ currency, account: STOCK_ISSUER, balance, limit }],
+  });
+  const signTrustSet = vi.fn(async (_tx: Record<string, unknown>) => ({ tx_blob: '1200142280000000', hash: TX_HASH }));
+  const trustlineWallet = { ...(walletProvider as object), signTrustSet } as never;
+  const request = (raw: boolean, extra: Record<string, unknown> = {}) =>
+    xrp.requestTrustline({
+      srcChainKey: XRP,
+      srcAddress: SENDER,
+      token: NVDA.address,
+      amount: 100_000_000n,
+      raw,
+      ...(raw ? {} : { walletProvider: trustlineWallet }),
+      ...extra,
+    } as never);
+
+  beforeEach(() => signTrustSet.mockClear());
+
+  it('needs no trustline for native XRP or for the issuer itself', async () => {
+    stubRippled();
+    expect(await xrp.hasSufficientTrustline(NATIVE_XRP, 1n, SENDER)).toBe(true);
+    expect(await xrp.hasSufficientTrustline(NVDA.address, 1n, STOCK_ISSUER)).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('checks the line for this stock, with room for the amount', async () => {
+    stubRippled({ account_lines: line(NVDA_CURRENCY, '2', '0.5') });
+    expect(await xrp.hasSufficientTrustline(NVDA.address, 150_000_000n, SENDER)).toBe(true);
+    expect(await xrp.hasSufficientTrustline(NVDA.address, 150_000_001n, SENDER)).toBe(false);
+    expect(callTo('account_lines')?.params).toMatchObject({ account: SENDER, peer: STOCK_ISSUER });
+  });
+
+  it('does not count a line for another stock of the same issuer, or a missing account', async () => {
+    stubRippled({ account_lines: line(SPCX_CURRENCY, '1000') });
+    expect(await xrp.hasSufficientTrustline(NVDA.address, 1n, SENDER)).toBe(false);
+    stubRippled({ account_lines: { error: 'actNotFound', error_message: 'Account not found.' } });
+    expect(await xrp.hasSufficientTrustline(NVDA.address, 1n, SENDER)).toBe(false);
+  });
+
+  it('refuses an unlisted token', async () => {
+    stubRippled();
+    await expect(xrp.hasSufficientTrustline(STOCK_ISSUER, 1n, SENDER)).rejects.toThrow(
+      /not a listed XRPL issued token/,
+    );
+  });
+
+  it('builds a NoRipple TrustSet for the stock in raw mode, without signing', async () => {
+    stubRippled({ account_lines: { lines: [] }, server_state: RESERVES });
+
+    expect(await request(true)).toEqual({
+      from: SENDER,
+      token: NVDA.address,
+      value: 100_000_000n,
+      transaction: {
+        TransactionType: 'TrustSet',
+        Account: SENDER,
+        LimitAmount: { currency: NVDA_CURRENCY, issuer: STOCK_ISSUER, value: '1000000000000000' },
+        Flags: 0x00020000,
+      },
+    });
+    expect(signTrustSet).not.toHaveBeenCalled();
+  });
+
+  it('keeps an existing limit higher than the default', async () => {
+    stubRippled({ account_lines: line(NVDA_CURRENCY, '1e20', '5'), server_state: RESERVES });
+    const raw = (await request(true)) as { transaction: { LimitAmount: { value: string } } };
+    expect(raw.transaction.LimitAmount.value).toBe('1e20');
+  });
+
+  it('refuses a new line the account cannot reserve, before signing', async () => {
+    stubRippled({
+      account_lines: { lines: [] },
+      account_info: { account_data: { Balance: '1500000', OwnerCount: 3 } },
+      server_state: RESERVES,
+    });
+    await expect(request(false)).rejects.toThrow(/owner reserve/);
+    expect(signTrustSet).not.toHaveBeenCalled();
+  });
+
+  it('waives the reserve while the account owns fewer than two objects', async () => {
+    stubRippled({
+      account_lines: { lines: [] },
+      account_info: { account_data: { Balance: '1', OwnerCount: 1 } },
+      server_state: RESERVES,
+    });
+    await expect(request(true)).resolves.toBeTruthy();
+  });
+
+  it('refuses an account that does not exist', async () => {
+    stubRippled({
+      account_lines: { lines: [] },
+      account_info: { error: 'actNotFound', error_message: 'Account not found.' },
+      server_state: RESERVES,
+    });
+    await expect(request(true)).rejects.toThrow(/does not exist/);
+  });
+
+  it('signs with signTrustSet, submits, and returns the hash', async () => {
+    stubRippled({ account_lines: { lines: [] }, server_state: RESERVES });
+
+    const hash = await request(false);
+
+    expect(signTrustSet).toHaveBeenCalledWith(expect.objectContaining({ TransactionType: 'TrustSet' }));
+    expect(callTo('submit')?.params).toEqual({ tx_blob: '1200142280000000' });
+    expect(hash).toMatch(/^0x[0-9a-f]{64}$/);
+  });
+
+  it('refuses a wallet provider that cannot sign a TrustSet', async () => {
+    stubRippled({ account_lines: { lines: [] }, server_state: RESERVES });
+    await expect(request(false, { walletProvider })).rejects.toThrow(/cannot sign a TrustSet/);
+  });
+});

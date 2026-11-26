@@ -41,6 +41,41 @@ export interface XrpUnsignedTransaction {
   [field: string]: unknown;
 }
 
+/**
+ * An unsigned XRPL TrustSet, which opens or raises the holder's trustline so the account can hold an
+ * issued token (an IOU). An account cannot receive an IOU without one.
+ */
+export interface XrpUnsignedTrustSet {
+  TransactionType: 'TrustSet';
+  Account: string;
+  /** The token's currency and issuer, and the most of it the line may hold, in whole units. */
+  LimitAmount: { currency: string; issuer: string; value: string };
+  /** `tfSetNoRipple` (`0x00020000`), so the holder's balance cannot ripple through this line. */
+  Flags?: number;
+  Fee?: string;
+  Sequence?: number;
+  LastLedgerSequence?: number;
+  SigningPubKey?: string;
+  [field: string]: unknown;
+}
+
+/** A trustline request in raw mode: sign and submit `transaction` from `from`. */
+export type XrpRawTrustSet = {
+  from: string;
+  /** The SDK token address the trustline is for. */
+  token: string;
+  /** The amount, in base units, the line was sized to receive. */
+  value: bigint;
+  transaction: XrpUnsignedTrustSet;
+};
+
+/** What an XRPL trustline request returns: the unsigned TrustSet in raw mode, else its tx hash. */
+export type XrpTrustlineReturnType<Raw extends boolean> = Raw extends true
+  ? XrpRawTrustSet
+  : Raw extends false
+    ? string
+    : XrpRawTrustSet | string;
+
 /** Identifies an XRP Ledger payment whose wallet reply did not include a hash. */
 export type XrpPaymentRecovery = {
   readonly kind: 'xrp-payment';
@@ -131,6 +166,12 @@ export interface IXrpWalletProvider extends ICoreWallet {
    * Returns the 64-byte signature hex.
    */
   signMessage: (hash: `0x${string}`) => Promise<`0x${string}`>;
+  /**
+   * Sign an unsigned TrustSet. A provider that also submits returns the hash with an empty blob.
+   * Optional so a provider written before trustline support still type-checks; an executed
+   * (`raw: false`) trustline request needs it.
+   */
+  signTrustSet?: (tx: XrpUnsignedTrustSet) => Promise<XrpSignedTransaction>;
   /**
    * The signer's 33-byte `0xED`-prefixed ed25519 public key. Scheme 3 cannot recover the identity
    * from the signature the way secp256k1 does, so the key must be submitted with the withdrawal

@@ -679,6 +679,25 @@ map and no way to broadcast them the wrong way round.
 
 For an XRP Ledger issued-token destination in a swap or leverage-yield vault swap, the SDK requests a current exact-input quote before building the intent. Set `minOutputAmount` to at least half that quote. The destination trustline must have room for twice `minOutputAmount`. A fill above that bound, or a trustline that changes before settlement, can still prevent the release.
 
+The SDK refuses the swap when that trustline is missing or too small. Check and open it first, as for Stellar:
+
+```typescript
+const room = 2n * minOutputAmount;
+if (!(await sodax.spoke.xrp.hasSufficientTrustline(outputToken, room, xrpAddress))) {
+  const txHash = await sodax.spoke.xrp.requestTrustline({
+    srcChainKey: ChainKeys.XRP_MAINNET,
+    srcAddress: xrpAddress,
+    token: outputToken,
+    amount: room,
+    raw: false,
+    walletProvider: xrpWalletProvider, // needs signTrustSet
+  });
+  await sodax.spoke.xrp.waitForTransactionReceipt({ txHash, chainKey: ChainKeys.XRP_MAINNET });
+}
+```
+
+`requestTrustline` sets a NoRipple line with a limit far above any listed supply, or keeps a higher existing limit. A new line adds an owner reserve to the account (waived while it owns fewer than two ledger objects), so the request is refused before signing when the account's XRP cannot cover it. `raw: true` returns the unsigned `TrustSet` to sign yourself. Native XRP needs no trustline.
+
 ### XRP Ledger Stock Tokens
 
 The Robinhood stock tokens on XRP Ledger share one issuer, so each token `address` is `<40-hex currency>:<issuer>`. Take it from `spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens`; the issuer address alone names no token. They are listed in `stagingSwapSupportedTokens`, not in the production list. XRP, RLUSD and USDC keep their previous addresses.

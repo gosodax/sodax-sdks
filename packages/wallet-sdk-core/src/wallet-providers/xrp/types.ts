@@ -1,4 +1,4 @@
-import type { XrpUnsignedTransaction } from '@sodax/types';
+import type { XrpUnsignedTransaction, XrpUnsignedTrustSet } from '@sodax/types';
 
 /** Defaults shared by both XRPL provider modes. */
 export type XrpWalletDefaults = {
@@ -24,9 +24,9 @@ export interface GemWalletLike {
    * decoded bytes; without it, it signs the UTF-8 text of the string, which scheme 3 rejects.
    */
   signMessage: (message: string, isHex?: boolean) => Promise<{ result?: { signedMessage?: string } } | undefined>;
-  /** `submitTransaction({ transaction })` → submits a Payment and returns its hash. */
+  /** `submitTransaction({ transaction })` → submits a Payment or TrustSet and returns its hash. */
   submitTransaction: (payload: {
-    transaction: XrpUnsignedTransaction;
+    transaction: XrpUnsignedTransaction | XrpUnsignedTrustSet;
   }) => Promise<{ type?: 'response' | 'reject'; result?: { hash?: string } } | undefined>;
   /**
    * `getNetwork()` → the ledger the wallet submits to. GemWallet also serves Testnet, Devnet and the Xahau

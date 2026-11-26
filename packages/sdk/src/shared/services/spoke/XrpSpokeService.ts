@@ -15,7 +15,11 @@ import {
   type XrpRawTransactionReceipt,
   type XrpSpokeChainConfig,
   type XrpGasEstimate,
+  type XrpRawTrustSet,
+  type XrpTrustlineReturnType,
   type XrpUnsignedTransaction,
+  type XrpUnsignedTrustSet,
+  type WalletProviderSlot,
 } from '@sodax/types';
 import type { ConfigService } from '../../config/ConfigService.js';
 import { retry } from '../../utils/shared-utils.js';
@@ -77,6 +81,22 @@ const LSF_REQUIRE_AUTH = 0x00040000;
 const LSF_GLOBAL_FREEZE = 0x00400000;
 /** `TransferRate` billionths meaning no issuer transfer fee; an absent or 0 rate means none too. */
 const TRANSFER_RATE_NONE = 1_000_000_000;
+
+/** TrustSet flag: the holder's balance cannot ripple through the line. */
+const TF_SET_NO_RIPPLE = 0x00020000;
+/**
+ * Limit, in whole units, a trustline opened through {@link XrpSpokeService.requestTrustline} gets: far
+ * above any listed token's supply, so one line serves every later receipt.
+ */
+const DEFAULT_TRUSTLINE_LIMIT = '1000000000000000';
+
+/** Params for {@link XrpSpokeService.requestTrustline}; `srcAddress` is the account that will hold the token. */
+export type XrpRequestTrustlineParams<Raw extends boolean> = {
+  srcAddress: string;
+  srcChainKey: XrpChainKey;
+  token: string;
+  amount: bigint;
+} & WalletProviderSlot<XrpChainKey, Raw>;
 
 type XrpTrustLine = { currency: string; account: string; balance: string; limit: string; peer_authorized?: boolean };
 
@@ -569,6 +589,136 @@ export class XrpSpokeService implements MpcRelaySettlement {
     return { ready: true };
   }
 
+  /**
+   * Whether `walletAddress` can receive `amount` (base units) of `token`: it has a trustline to the
+   * token's issuer, in the token's currency, with at least that much room under its limit. Native XRP
+   * and the issuer itself need no trustline. Mirrors `sodax.spoke.stellar.hasSufficientTrustline`.
+   */
+  public async hasSufficientTrustline(token: string, amount: bigint, walletAddress: string): Promise<boolean> {
+    if (token === this.chainConfig.nativeToken) return true;
+    const { entry, currency, issuer } = this.issuedToken(token, 'hasSufficientTrustline');
+    if (walletAddress === issuer) return true;
+    const line = await this.readHolderLine(walletAddress, issuer, currency);
+    return line !== undefined && trustlineRoom(line.limit, line.balance, entry.decimals) >= amount;
+  }
+
+  /**
+   * Open, or raise, `srcAddress`'s trustline for an issued `token` so it can receive `amount` (base
+   * units). The line gets a limit far above any listed token's supply, or keeps a higher existing one,
+   * and NoRipple. `raw: true` returns the unsigned TrustSet; `raw: false` signs it with the wallet's
+   * `signTrustSet`, submits it, and returns the tx hash for {@link waitForTransactionReceipt}.
+   *
+   * A NEW line adds an owner reserve to the account (rippled waives it while the account owns fewer
+   * than two objects). The request is refused before signing when the account's XRP cannot cover it,
+   * since a TrustSet the ledger refuses still burns its fee.
+   */
+  public async requestTrustline<Raw extends boolean>(
+    params: XrpRequestTrustlineParams<Raw>,
+  ): Promise<XrpTrustlineReturnType<Raw>> {
+    const { srcAddress, token, amount } = params;
+    if (amount <= 0n) throw new Error('[XrpSpokeService.requestTrustline] amount must be greater than 0');
+    const { entry, currency, issuer } = this.issuedToken(token, 'requestTrustline');
+    if (srcAddress === issuer) {
+      throw new Error(
+        `[XrpSpokeService.requestTrustline] ${srcAddress} is the issuer of ${token} and needs no trustline`,
+      );
+    }
+
+    const [line, owner, reserves] = await Promise.all([
+      this.readHolderLine(srcAddress, issuer, currency),
+      this.readOwnerState(srcAddress),
+      this.readReserveDrops(),
+    ]);
+    if (!owner) {
+      throw new Error(
+        `[XrpSpokeService.requestTrustline] XRPL account ${srcAddress} does not exist — fund it with XRP first`,
+      );
+    }
+    const keepExisting =
+      line !== undefined &&
+      toBaseUnits(line.limit, entry.decimals) > toBaseUnits(DEFAULT_TRUSTLINE_LIMIT, entry.decimals);
+    const limit = keepExisting ? line.limit : DEFAULT_TRUSTLINE_LIMIT;
+    if (trustlineRoom(limit, line?.balance ?? '0', entry.decimals) < amount) {
+      throw new Error(`[XrpSpokeService.requestTrustline] ${amount} of ${token} exceeds the most a trustline can hold`);
+    }
+    // rippled SetTrust: no reserve for a line while the account owns fewer than 2 objects.
+    if (line === undefined && owner.ownerCount >= 2) {
+      const needed = reserves.base + BigInt(owner.ownerCount + 1) * reserves.increment;
+      if (owner.balance < needed) {
+        throw new Error(
+          `[XrpSpokeService.requestTrustline] ${srcAddress} holds ${owner.balance} drops but a new trustline needs ${needed} (owner reserve) — add XRP first`,
+        );
+      }
+    }
+
+    const transaction: XrpUnsignedTrustSet = {
+      TransactionType: 'TrustSet',
+      Account: srcAddress,
+      LimitAmount: { currency, issuer, value: limit },
+      Flags: TF_SET_NO_RIPPLE,
+    };
+    if ('raw' in params && params.raw) {
+      return {
+        from: srcAddress,
+        token,
+        value: amount,
+        transaction,
+      } satisfies XrpRawTrustSet as XrpTrustlineReturnType<Raw>;
+    }
+
+    const walletProvider = params.walletProvider;
+    if (!walletProvider.signTrustSet) {
+      throw new Error(
+        '[XrpSpokeService.requestTrustline] the XRPL wallet provider cannot sign a TrustSet (no signTrustSet)',
+      );
+    }
+    const signed = await walletProvider.signTrustSet(transaction);
+    return toRelayTxHash(await this.submitSigned(signed)) satisfies string as XrpTrustlineReturnType<Raw>;
+  }
+
+  /** The listed issued token `token` names, with its currency and issuer; throws for native XRP or an unlisted address. */
+  private issuedToken(token: string, caller: string) {
+    const entry =
+      token === this.chainConfig.nativeToken
+        ? undefined
+        : Object.values(this.chainConfig.supportedTokens).find(t => t.address === token);
+    if (!entry) throw new Error(`[XrpSpokeService.${caller}] ${token} is not a listed XRPL issued token`);
+    return { entry, ...xrpTokenRef(entry) };
+  }
+
+  /** The holder's line to `issuer` in `currency`, read page by page; `undefined` when there is none (or no account). */
+  private async readHolderLine(holder: string, issuer: string, currency: string): Promise<XrpTrustLine | undefined> {
+    let marker: unknown;
+    do {
+      const page = await orIfMissing(
+        this.rpc<{ lines?: XrpTrustLine[]; marker?: unknown }>('account_lines', {
+          account: holder,
+          peer: issuer,
+          ledger_index: 'validated',
+          ...(marker === undefined ? {} : { marker }),
+        }),
+        { lines: [] },
+      );
+      const line = page.lines?.find(l => l.currency === currency && l.account === issuer);
+      if (line) return line;
+      marker = page.marker;
+    } while (marker !== undefined);
+    return undefined;
+  }
+
+  /** The account's XRP balance (drops) and owned-object count, or `undefined` for an unfunded address. */
+  private async readOwnerState(account: string): Promise<{ balance: bigint; ownerCount: number } | undefined> {
+    const info = await orIfMissing(
+      this.rpc<{ account_data?: { Balance?: string; OwnerCount?: number } }>('account_info', {
+        account,
+        ledger_index: 'validated',
+      }),
+      undefined,
+    );
+    if (!info?.account_data) return undefined;
+    return { balance: BigInt(info.account_data.Balance ?? '0'), ownerCount: info.account_data.OwnerCount ?? 0 };
+  }
+
   /** The account's flags and transfer rate, or `undefined` for an address nobody has funded yet. */
   private async readAccountRoot(account: string): Promise<{ flags: number; transferRate?: number } | undefined> {
     const info = await orIfMissing(
@@ -587,6 +737,19 @@ export class XrpSpokeService implements MpcRelaySettlement {
     const reserve = res.state?.validated_ledger?.reserve_base;
     if (typeof reserve !== 'number') throw new Error('[XrpSpokeService] server_state returned no reserve_base');
     return BigInt(reserve);
+  }
+
+  /** The account base reserve and per-object owner reserve, in drops. */
+  private async readReserveDrops(): Promise<{ base: bigint; increment: bigint }> {
+    const res = await this.rpc<{ state?: { validated_ledger?: { reserve_base?: number; reserve_inc?: number } } }>(
+      'server_state',
+      {},
+    );
+    const { reserve_base: base, reserve_inc: increment } = res.state?.validated_ledger ?? {};
+    if (typeof base !== 'number' || typeof increment !== 'number') {
+      throw new Error('[XrpSpokeService] server_state returned no reserve_base / reserve_inc');
+    }
+    return { base: BigInt(base), increment: BigInt(increment) };
   }
 
   /** The holder's line to `issuer` (if any), that line's RippleState flags, and the issuer's account root. */
