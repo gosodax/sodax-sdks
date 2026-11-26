@@ -321,7 +321,7 @@ Typed React Query wrappers over the backend Leverage Yield API (`sodax.api.lever
 | `useRequestTrustline` | Deprecated | 2.0.0-shape wrapper over `useEstablishTrustline`; removed next major |
 | `useStellarGate` | Composite | Sequences the Stellar prerequisites: exists → trustline → can afford; `checkFailed`/`error`/`retry` for a failed check |
 | `useXrpDestinationCheck` | Query | Whether an XRPL account can receive an amount of a token, and why not (`XrpDestinationReadiness`) |
-| `useXrpTrustlineReserveCheck` | Query | Whether an XRPL account holds the spendable XRP for a TrustSet (fee, plus an owner reserve unless the line already holds the account's) |
+| `useXrpTrustlineReserveCheck` | Query | Whether an XRPL account holds the spendable XRP for a TrustSet (fee, plus an owner reserve unless the line already holds the account's or the account owns fewer than two ledger objects) |
 | `useEstablishXrpTrustline` | Mutation | Create or raise an XRPL trustline with one TrustSet; resolves to its hash once validated |
 | `useXrpGate` | Composite | Sequences the XRPL issued-token prerequisites: trustline → can afford; `blockedReason` for refusals no trustline fixes; `checkFailed`/`error`/`retry` |
 | `resolveXrpGate` | Utility | Derive the XRPL gate flags from the destination and reserve checks |

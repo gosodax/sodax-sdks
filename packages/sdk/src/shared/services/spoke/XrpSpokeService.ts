@@ -598,9 +598,9 @@ export class XrpSpokeService implements MpcRelaySettlement {
   /**
    * Whether `address` holds enough spendable XRP to send the TrustSet for `token`: the fee, plus one owner
    * reserve unless the line already holds one on `address`'s side. A line the issuer created (to authorize
-   * the holder) does not, so raising its limit needs the reserve too. An address nobody has funded yet
-   * cannot afford it. rippled waives the reserve for an account owning fewer than two objects; this check
-   * deliberately does not, so it never offers a TrustSet the ledger could refuse.
+   * the holder) does not, so raising its limit needs the reserve too. Like rippled's TrustSet, an account
+   * owning fewer than two objects needs no reserve for the line, only the fee. An address nobody has funded
+   * yet cannot afford it.
    */
   public async canAffordTrustline(params: { address: string; token: string }): Promise<boolean> {
     const { address, token } = params;
@@ -623,8 +623,10 @@ export class XrpSpokeService implements MpcRelaySettlement {
     if (!info?.account_data) return false;
 
     const balance = BigInt(info.account_data.Balance ?? '0');
-    const locked = reserves.base + BigInt(info.account_data.OwnerCount ?? 0) * reserves.increment;
-    const needed = fee + (trustline.holderReserved ? 0n : reserves.increment);
+    const ownerCount = info.account_data.OwnerCount ?? 0;
+    const locked = reserves.base + BigInt(ownerCount) * reserves.increment;
+    const reserveWaived = trustline.holderReserved || ownerCount < 2;
+    const needed = fee + (reserveWaived ? 0n : reserves.increment);
     return balance - locked >= needed;
   }
 

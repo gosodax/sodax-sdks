@@ -17,7 +17,7 @@ export type UseEstablishXrpTrustlineVars = {
 
 /**
  * Create the XRPL trustline the connected account needs to hold `token`, or raise its limit. Resolves to the
- * TrustSet hash once it validates. The account pays its fee and owner reserve: check with
+ * TrustSet hash once it validates. The account pays its fee and, unless the ledger waives it, an owner reserve: check with
  * {@link useXrpTrustlineReserveCheck}, or use {@link useXrpGate}, before asking the user to sign.
  */
 export function useEstablishXrpTrustline({
