@@ -518,6 +518,18 @@ describe('SpokeService.assertReleaseRecipientReady', () => {
     });
   });
 
+  it.each(['no_trustline', 'trustline_limit'] as const)('names the SDK call that fixes a %s refusal', async reason => {
+    vi.spyOn(spoke.xrp, 'checkDestination').mockResolvedValue({ ready: false, reason });
+
+    const error = await check(ChainKeys.XRP_MAINNET, encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS)).catch(
+      (e: unknown) => e,
+    );
+
+    invariant(isSodaxError(error), 'expected a SodaxError');
+    expect(error.message).toMatch(/sodax\.spoke\.xrp\.requestTrustline/);
+    expect(error.context).toMatchObject({ reason: `xrpl-${reason}` });
+  });
+
   it('does not look up a recipient on a chain that cannot refuse a release', async () => {
     const checkSpy = vi.spyOn(spoke.xrp, 'checkDestination');
 

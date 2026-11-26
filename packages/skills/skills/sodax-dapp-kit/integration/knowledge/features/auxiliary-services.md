@@ -403,7 +403,7 @@ The underlying SDK methods (`isStorageRegistered` / `registerStorage` on the NEA
 
 An XRPL account needs one trustline per issued token (currency + issuer) before it can receive it; native XRP
 needs none. `useXrpGate` reads whether the destination can receive the payout, then, only when the trustline is
-missing or full, whether the account has the spendable XRP to set one. Setting the line locks one owner reserve, unless the line already holds one on the account's side (a line the issuer created to authorize the account does not).
+missing or full, whether the account has the spendable XRP to set one. Setting the line locks one owner reserve, unless the line already holds one on the account's side (a line the issuer created to authorize the account does not) or the account owns fewer than two ledger objects (the XRP Ledger then charges only the fee).
 
 ```ts
 // @ai-snippets-skip — illustrative only.

@@ -209,10 +209,10 @@ function xrpRefusalMessage(
     deposit_auth: `XRPL destination ${address} has Deposit Authorization enabled and would refuse the release`,
     issuer_frozen: `XRPL token ${token} is globally frozen by its issuer, so a release of it cannot be paid`,
     issuer_transfer_fee: `XRPL token ${token} carries an issuer transfer fee, which a release cannot pay`,
-    no_trustline: `XRPL destination ${address} has no trustline for ${token} — add the trustline first`,
+    no_trustline: `XRPL destination ${address} has no trustline for ${token} — set it up with sodax.spoke.xrp.requestTrustline`,
     trustline_unauthorized: `XRPL destination ${address} is not yet authorized by the issuer to hold ${token} — the issuer must authorize its trustline`,
     trustline_frozen: `XRPL destination ${address} trustline for ${token} is deep-frozen and cannot receive the release`,
-    trustline_limit: `XRPL destination ${address} trustline limit for ${token} is too low for this amount`,
+    trustline_limit: `XRPL destination ${address} trustline limit for ${token} is too low for this amount — raise it with sodax.spoke.xrp.requestTrustline`,
   } satisfies Record<typeof reason, string>;
   return refusals[reason];
 }

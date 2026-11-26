@@ -1122,10 +1122,20 @@ describe('XrpSpokeService trustline setup', () => {
 
   describe('canAffordTrustline', () => {
     it('needs the fee plus one owner reserve on top of what is already locked for a new line', async () => {
-      stubRippled({ ...reserves, ...noLines, ...funded('14000010', 1) });
+      stubRippled({ ...reserves, ...noLines, ...funded('16000010', 2) });
       expect(await xrp.canAffordTrustline({ address: SENDER, token: USDC_ISSUER })).toBe(true);
 
-      stubRippled({ ...reserves, ...noLines, ...funded('14000009', 1) });
+      stubRippled({ ...reserves, ...noLines, ...funded('16000009', 2) });
+      expect(await xrp.canAffordTrustline({ address: SENDER, token: USDC_ISSUER })).toBe(false);
+    });
+
+    // rippled's TrustSet enforces no reserve for the line while the account owns fewer than two objects.
+    it.each([0, 1])('needs only the fee for a new line when the account owns %i objects', async ownerCount => {
+      const locked = 10_000_000 + ownerCount * 2_000_000;
+      stubRippled({ ...reserves, ...noLines, ...funded(String(locked + 10), ownerCount) });
+      expect(await xrp.canAffordTrustline({ address: SENDER, token: USDC_ISSUER })).toBe(true);
+
+      stubRippled({ ...reserves, ...noLines, ...funded(String(locked + 9), ownerCount) });
       expect(await xrp.canAffordTrustline({ address: SENDER, token: USDC_ISSUER })).toBe(false);
     });
 
@@ -1135,18 +1145,23 @@ describe('XrpSpokeService trustline setup', () => {
     });
 
     it('needs only the fee to raise the limit of a line that already holds the holder an owner reserve', async () => {
-      stubRippled({ ...reserves, ...funded('12000010', 1), ...lineWith(SENDER, 0x00010000) });
+      stubRippled({ ...reserves, ...funded('14000010', 2), ...lineWith(SENDER, 0x00010000) });
       expect(await xrp.canAffordTrustline({ address: SENDER, token: RLUSD_ISSUER })).toBe(true);
 
-      stubRippled({ ...reserves, ...funded('12000010', 1), ...lineWith(RLUSD_ISSUER, 0x00020000) });
+      stubRippled({ ...reserves, ...funded('14000010', 2), ...lineWith(RLUSD_ISSUER, 0x00020000) });
       expect(await xrp.canAffordTrustline({ address: SENDER, token: RLUSD_ISSUER })).toBe(true);
     });
 
     it('needs an owner reserve to raise a line only the issuer holds a reserve for, as when it pre-authorizes', async () => {
-      stubRippled({ ...reserves, ...funded('12000010', 1), ...lineWith(RLUSD_ISSUER, 0x00010000) });
+      stubRippled({ ...reserves, ...funded('14000010', 2), ...lineWith(RLUSD_ISSUER, 0x00010000) });
       expect(await xrp.canAffordTrustline({ address: SENDER, token: RLUSD_ISSUER })).toBe(false);
 
-      stubRippled({ ...reserves, ...funded('14000010', 1), ...lineWith(RLUSD_ISSUER, 0x00010000) });
+      stubRippled({ ...reserves, ...funded('16000010', 2), ...lineWith(RLUSD_ISSUER, 0x00010000) });
+      expect(await xrp.canAffordTrustline({ address: SENDER, token: RLUSD_ISSUER })).toBe(true);
+    });
+
+    it('needs only the fee to raise an issuer-created line while the account owns fewer than two objects', async () => {
+      stubRippled({ ...reserves, ...funded('12000010', 1), ...lineWith(RLUSD_ISSUER, 0x00010000) });
       expect(await xrp.canAffordTrustline({ address: SENDER, token: RLUSD_ISSUER })).toBe(true);
     });
 
