@@ -689,6 +689,10 @@ if (!readiness.ready && (readiness.reason === 'no_trustline' || readiness.reason
 
 `requestTrustline` needs a wallet provider that implements the optional `IXrpWalletProvider.signTrustSet`. `XrpWalletProvider` does in raw-key mode, and in GemWallet mode when the adapter has `submitTrustSet`, as the bundled connector's does; `raw: true` returns the unsigned TrustSet instead. When the TrustSet may have been sent but its outcome is unknown, the error is an `IndeterminateOutcomeError` carrying its hash: look the hash up before signing again, since every TrustSet costs a fee. In React, `useSwapLifecycle` runs these steps as its `xrpTrustline` setup step.
 
+### XRP Ledger Stock Tokens
+
+The Robinhood stock tokens on XRP Ledger share one issuer, so each token `address` is `<40-hex currency>:<issuer>`. Take it from `spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens`; the issuer address alone names no token. They are listed in `stagingSwapSupportedTokens`, not in the production list. XRP, RLUSD and USDC keep their previous addresses.
+
 ### Stellar Trustline
 
 For Stellar as the source chain, `isAllowanceValid` checks trustline balance sufficiency and `approve` adds/increases the trustline. For Stellar as the **destination** chain, frontends must manually establish trustlines before executing swaps. See `packages/sdk/docs/STELLAR_TRUSTLINE.md` for details.

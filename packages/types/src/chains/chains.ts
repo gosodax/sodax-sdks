@@ -143,6 +143,12 @@ export const MpcRelayPayoutMinimums: Readonly<Record<MpcRelayChainKey, Readonly<
   },
   // XRPL releases have no relay fee. Unknown issuer addresses still fail closed.
   [ChainKeys.XRP_MAINNET]: {
+    // The Robinhood stocks, derived from the token map so a listed stock cannot be left unpayable.
+    ...Object.fromEntries(
+      Object.values(xrpSupportedTokens)
+        .filter(token => 'isRwa' in token)
+        .map(token => [token.address, 0n]),
+    ),
     [xrpSupportedTokens.XRP.address]: 0n,
     [xrpSupportedTokens.USDC.address]: 0n,
     [xrpSupportedTokens.RLUSD.address]: 0n,
