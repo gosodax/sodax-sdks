@@ -384,10 +384,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * IOU amount object for a Payment. XRPL identifies an issued currency by (currency, issuer), and
-   * the token's `address` carries the issuer — XRPL has no token contracts. The currency code is
-   * derived from the symbol rather than looked up, so a newly listed IOU cannot miss a registry
-   * entry (see {@link xrpCurrencyCode}).
+   * IOU amount object for a Payment. XRPL identifies an issued currency by (currency, issuer), which
+   * {@link xrpTokenRef} reads from the token's `address` — XRPL has no token contracts.
    *
    * `value` is a decimal STRING in whole units, not drops: XRPL IOUs are decimal, so the base-unit
    * amount has to be scaled down by the token's decimals or the Payment moves 10^decimals too much.

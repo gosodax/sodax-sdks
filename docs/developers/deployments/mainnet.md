@@ -834,7 +834,7 @@ Cardano is in `ChainKeys` as `CARDANO_MAINNET` (chain type `'CARDANO'`), **nativ
 Hub chain ID: `66` — relay mode: **MPC**
 
 <Note>
-XRP Ledger is **not yet reachable through the SDK** — it has no entry in `ChainKeys` (`@sodax/types`) and is not returned by `GET /config/spoke/chains`. No spoke contracts are published for it; the hub-side asset mappings below are for reference only.
+XRP Ledger is in `ChainKeys` as `XRP_MAINNET` (chain type `'XRP'`). It has **no spoke contracts**: it settles through the MPC relay in memo mode (relay id `66`, withdraw scheme `3` in [`MpcRelayChainMap`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chains.ts)). An issued token is identified by its currency and issuer. RLUSD and USDC use the issuer address as their SDK token `address`; the Robinhood stocks share one issuer, so each uses `<40-hex currency>:<issuer>`. XRPL releases carry no relay fee, so every XRPL token has a zero `MpcRelayPayoutMinimums` floor.
 </Note>
 
 #### Assets
