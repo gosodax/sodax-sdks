@@ -1265,3 +1265,105 @@ it('normalizes NaN settlement timeouts to the floor for every relay wait', async
     );
   }
 });
+
+/**
+ * The Robinhood stocks all share ONE issuer, so an issuer-only address cannot name a single stock and the
+ * service used to resolve every one of them to the first stock it found. Each stock now carries
+ * `<40-hex currency>:<issuer>`; these pin that every path uses its OWN currency.
+ */
+describe('XrpSpokeService — tokens that share one issuer (the Robinhood stocks)', () => {
+  const STOCK_ISSUER = 'rhQeeggWNoaN6ttBEaSqLPJZekFYBvPxtn';
+  const tokens = spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens;
+  const asciiHex = (s: string) => Buffer.from(s, 'ascii').toString('hex').toUpperCase().padEnd(40, '0');
+  const sentAmount = () =>
+    (vi.mocked(signTransaction).mock.calls[0]?.[0] as { Amount: { currency: string; issuer: string; value: string } })
+      .Amount;
+  const stockAddresses = () =>
+    Object.values(tokens)
+      .filter(t => t.address.includes(':'))
+      .map(t => t.address);
+
+  // Asset ids up to 0x0031 are live (46 stocks, covered by the relay's XRP_TOKEN_MAP).
+  it('registers the 46 live stocks, each with a distinct address', () => {
+    const addresses = stockAddresses();
+    expect(addresses).toHaveLength(46);
+    expect(new Set(addresses).size).toBe(46);
+  });
+
+  it.each([
+    'NVDA',
+    'SPCX',
+    'GME',
+    'DJT',
+    'MSTR',
+  ])('deposits %s with its own currency and the shared issuer', async symbol => {
+    stubRippled();
+
+    // 150_000_000 base units at 8 decimals is 1.5 tokens.
+    await xrp.deposit({
+      ...(depositParams(tokens[symbol as 'NVDA'].address) as object),
+      amount: 150_000_000n,
+    } as never);
+
+    expect(sentAmount()).toEqual({ currency: asciiHex(symbol), issuer: STOCK_ISSUER, value: '1.5' });
+  });
+
+  it('never resolves a stock to another stock of the same issuer (SPCX is first in the list)', async () => {
+    stubRippled();
+
+    await xrp.deposit(depositParams(tokens.NVDA.address));
+
+    expect(sentAmount().currency).toBe(asciiHex('NVDA'));
+    expect(sentAmount().currency).not.toBe(asciiHex('SPCX'));
+  });
+
+  it('keeps a 3-letter ticker on the 160-bit code it was issued with, not the standard form', async () => {
+    stubRippled();
+
+    await xrp.deposit(depositParams(tokens.GME.address));
+
+    expect(sentAmount().currency).toBe('474D450000000000000000000000000000000000');
+    expect(sentAmount().currency).not.toBe('GME');
+  });
+
+  it('refuses the bare issuer address: it names no single stock', async () => {
+    stubRippled();
+
+    await expect(xrp.deposit(depositParams(STOCK_ISSUER))).rejects.toThrow(/unknown XRPL token/);
+  });
+
+  it('reads the balance of the right stock when the holder holds several', async () => {
+    stubRippled({
+      account_lines: {
+        lines: [
+          { currency: asciiHex('SPCX'), account: STOCK_ISSUER, balance: '7' },
+          { currency: asciiHex('NVDA'), account: STOCK_ISSUER, balance: '2.5' },
+        ],
+      },
+    });
+
+    const nvda = await xrp.getDeposit({ srcChainKey: XRP, srcAddress: SENDER, token: tokens.NVDA.address } as never);
+    const spcx = await xrp.getDeposit({ srcChainKey: XRP, srcAddress: SENDER, token: tokens.SPCX.address } as never);
+
+    expect(nvda).toBe(250_000_000n); // 2.5 at 8 decimals
+    expect(spcx).toBe(700_000_000n);
+  });
+
+  it('checks the destination trustline for the right stock before a release', async () => {
+    const lineFor = (symbol: string) => ({
+      lines: [{ currency: asciiHex(symbol), account: STOCK_ISSUER, balance: '0', limit: '1000' }],
+    });
+
+    stubRippled({ account_lines: lineFor('NVDA') });
+    expect(await xrp.checkDestination({ address: SENDER, token: tokens.NVDA.address, amount: 100_000_000n })).toEqual({
+      ready: true,
+    });
+
+    // A trustline for a different stock of the same issuer is not a trustline for this one.
+    stubRippled({ account_lines: lineFor('SPCX') });
+    expect(await xrp.checkDestination({ address: SENDER, token: tokens.NVDA.address, amount: 100_000_000n })).toEqual({
+      ready: false,
+      reason: 'no_trustline',
+    });
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sha256 } from 'viem';
-import { decodeAccountId, xrpCurrencyCode, encodeAccountId, xrpIdentityBytes } from './xrp-utils.js';
+import { decodeAccountId, xrpCurrencyCode, encodeAccountId, xrpIdentityBytes, xrpTokenRef } from './xrp-utils.js';
 
 /**
  * Fixtures are live mainnet values from the deployed relay (NEAR chain config for chain 66 and
@@ -75,3 +75,45 @@ function base58Check(payload: Uint8Array): string {
   }
   return out;
 }
+
+describe('xrpTokenRef', () => {
+  const STOCK_ISSUER = 'rhQeeggWNoaN6ttBEaSqLPJZekFYBvPxtn';
+  const NVDA = '4E56444100000000000000000000000000000000';
+  const GME = '474D450000000000000000000000000000000000';
+
+  it('keeps the issuer-only form for single-token issuers: issuer is the address, currency comes from the symbol', () => {
+    expect(xrpTokenRef({ address: RLUSD_ISSUER, symbol: 'RLUSD' })).toEqual({
+      currency: '524C555344000000000000000000000000000000',
+      issuer: RLUSD_ISSUER,
+    });
+  });
+
+  it('reads the explicit currency from <currency>:<issuer>, ignoring the symbol', () => {
+    expect(xrpTokenRef({ address: `${NVDA}:${STOCK_ISSUER}`, symbol: 'NVDA' })).toEqual({
+      currency: NVDA,
+      issuer: STOCK_ISSUER,
+    });
+    expect(xrpTokenRef({ address: `${NVDA.toLowerCase()}:${STOCK_ISSUER}`, symbol: 'whatever' }).currency).toBe(NVDA);
+  });
+
+  it('does not turn a 3-letter ticker into a standard currency when the code is explicit', () => {
+    expect(xrpTokenRef({ address: `${GME}:${STOCK_ISSUER}`, symbol: 'GME' }).currency).toBe(GME);
+    // The symbol-derived form WOULD be the 3-char standard code, which is a different currency.
+    expect(xrpTokenRef({ address: STOCK_ISSUER, symbol: 'GME' }).currency).toBe('GME');
+  });
+
+  it('gives different stocks of the same issuer different currencies', () => {
+    expect(xrpTokenRef({ address: `${NVDA}:${STOCK_ISSUER}`, symbol: 'NVDA' }).currency).not.toBe(
+      xrpTokenRef({ address: `${GME}:${STOCK_ISSUER}`, symbol: 'GME' }).currency,
+    );
+  });
+
+  it.each([
+    ['a short currency', `4E5644:${STOCK_ISSUER}`],
+    ['a currency starting with 00', `00${'A'.repeat(38)}:${STOCK_ISSUER}`],
+    ['a non-hex currency', `${'Z'.repeat(40)}:${STOCK_ISSUER}`],
+    ['an invalid issuer', `${NVDA}:rNotAnAddress`],
+  ])('rejects %s', (_, address) => {
+    expect(() => xrpTokenRef({ address, symbol: 'X' })).toThrow();
+  });
+});

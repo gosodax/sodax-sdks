@@ -50,7 +50,7 @@ import {
   type WithdrawalSettledOn,
 } from '../mpcRelay/MpcRelayApiService.js';
 import { computeSignedMessageHash, randomWithdrawNonce } from './mpc-message.js';
-import { xrpCurrencyCode, xrpIdentityBytes } from './xrp-utils.js';
+import { xrpIdentityBytes, xrpTokenRef } from './xrp-utils.js';
 import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 
 /** Per-request budget for a rippled call, mirroring the Tron service's own request cap. */
@@ -402,7 +402,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
     const frac = amount % scale;
     const value =
       frac === 0n ? whole.toString() : `${whole}.${frac.toString().padStart(entry.decimals, '0').replace(/0+$/, '')}`;
-    return { currency: xrpCurrencyCode(entry.symbol), issuer: entry.address, value };
+    const { currency, issuer } = xrpTokenRef(entry);
+    return { currency, issuer, value };
   }
 
   /**
@@ -476,7 +477,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
 
     const entry = Object.values(this.chainConfig.supportedTokens).find(t => t.address === token);
     if (!entry) throw new Error(`[XrpSpokeService.getDeposit] unknown XRPL token ${token}`);
-    const currency = xrpCurrencyCode(entry.symbol);
+    const { currency, issuer } = xrpTokenRef(entry);
     let marker: unknown;
     do {
       const page = await this.rpc<{
@@ -484,11 +485,11 @@ export class XrpSpokeService implements MpcRelaySettlement {
         marker?: unknown;
       }>('account_lines', {
         account: srcAddress,
-        peer: entry.address,
+        peer: issuer,
         ledger_index: 'validated',
         ...(marker === undefined ? {} : { marker }),
       });
-      const line = page.lines?.find(l => l.currency === currency && l.account === entry.address);
+      const line = page.lines?.find(l => l.currency === currency && l.account === issuer);
       if (line) return toBaseUnits(line.balance, entry.decimals);
       marker = page.marker;
     } while (marker !== undefined);
@@ -536,12 +537,13 @@ export class XrpSpokeService implements MpcRelaySettlement {
     if (token !== this.chainConfig.nativeToken && !iou) {
       throw new Error(`[XrpSpokeService.checkDestination] unknown XRPL token ${token}`);
     }
-    const needsTrustline = iou !== undefined && address !== iou.address;
+    const ref = iou ? xrpTokenRef(iou) : undefined;
+    const needsTrustline = ref !== undefined && address !== ref.issuer;
 
     // Independent reads, so they run together; only creating an account needs one more.
     const [account, trustline] = await Promise.all([
       this.readAccountRoot(address),
-      needsTrustline ? this.readTrustline(address, iou.address, xrpCurrencyCode(iou.symbol)) : undefined,
+      needsTrustline ? this.readTrustline(address, ref.issuer, ref.currency) : undefined,
     ]);
     if (account === undefined) {
       if (!iou && amount >= (await this.readBaseReserveDrops())) return { ready: true };

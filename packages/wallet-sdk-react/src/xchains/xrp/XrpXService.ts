@@ -17,6 +17,17 @@ function currencyCode(symbol: string): string {
     .toUpperCase();
 }
 
+/**
+ * The XRPL (currency, issuer) of a token. An issuer that issues several tokens (the Robinhood stocks)
+ * uses the address `<40-hex currency>:<issuer>`; every other token keeps the issuer-only address and
+ * derives the currency from its symbol. Mirrors `xrpTokenRef` in the sdk, kept local for the same reason.
+ */
+export function xrpTokenRef(token: { address: string; symbol: string }): { currency: string; issuer: string } {
+  const sep = token.address.indexOf(':');
+  if (sep === -1) return { currency: currencyCode(token.symbol), issuer: token.address };
+  return { currency: token.address.slice(0, sep).toUpperCase(), issuer: token.address.slice(sep + 1) };
+}
+
 export class XrpXService extends XService {
   private static instance: XrpXService;
 
@@ -62,7 +73,7 @@ export class XrpXService extends XService {
         return BigInt(info?.account_data?.Balance ?? 0);
       }
       // IOU: the balance lives on the trustline to the issuer, which is the token's `address`.
-      const wanted = currencyCode(xToken.symbol);
+      const { currency: wanted, issuer } = xrpTokenRef(xToken);
       let marker: unknown;
       do {
         const page = await this.rpc<{
@@ -70,11 +81,11 @@ export class XrpXService extends XService {
           marker?: unknown;
         }>('account_lines', {
           account: address,
-          peer: xToken.address,
+          peer: issuer,
           ledger_index: 'validated',
           ...(marker === undefined ? {} : { marker }),
         });
-        const line = page?.lines?.find(l => l.currency === wanted && l.account === xToken.address);
+        const line = page?.lines?.find(l => l.currency === wanted && l.account === issuer);
         if (line) return toBaseUnits(line.balance, xToken.decimals);
         marker = page?.marker;
       } while (marker !== undefined);

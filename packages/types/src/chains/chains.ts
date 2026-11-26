@@ -141,12 +141,8 @@ export const MpcRelayPayoutMinimums: Readonly<Record<MpcRelayChainKey, Readonly<
     [tronSupportedTokens.USDT.address]: 3_000_000n,
     [tronSupportedTokens.TRX.address]: 10_000_000n,
   },
-  // XRPL releases have no relay fee. Unknown issuer addresses still fail closed.
-  [ChainKeys.XRP_MAINNET]: {
-    [xrpSupportedTokens.XRP.address]: 0n,
-    [xrpSupportedTokens.USDC.address]: 0n,
-    [xrpSupportedTokens.RLUSD.address]: 0n,
-  },
+  // XRPL releases have no relay fee. Unlisted token addresses still fail closed.
+  [ChainKeys.XRP_MAINNET]: Object.fromEntries(Object.values(xrpSupportedTokens).map(token => [token.address, 0n])),
   // Monad releases are quoted 1:1. Explicit zero floors still reject unknown token addresses.
   [ChainKeys.MONAD_MAINNET]: {
     [monadSupportedTokens.MON.address.toLowerCase()]: 0n,
