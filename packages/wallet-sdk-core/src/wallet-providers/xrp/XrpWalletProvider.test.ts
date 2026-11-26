@@ -424,11 +424,56 @@ describe('XrpWalletProvider.signTrustSet', () => {
     });
     await expect(rejecting.signTrustSet(trustSet)).rejects.toThrow(/rejected by the user/);
 
+    const rejection = await rejecting.signTrustSet(trustSet).catch((cause: unknown) => cause);
+    expect(isIndeterminateOutcomeError(rejection)).toBe(false);
+
     const hashless = new XrpWalletProvider({
       gemWallet: gemWallet({ submitTrustSet: vi.fn(async () => ({ result: {} })) }),
       address: GEM_ADDRESS,
     });
-    await expect(hashless.signTrustSet(trustSet)).rejects.toThrow(/no TrustSet hash/);
+    const error = await hashless.signTrustSet(trustSet).catch((cause: unknown) => cause);
+    expect(isIndeterminateOutcomeError(error)).toBe(true);
+    expect(error).toMatchObject({ message: expect.stringContaining('no TrustSet hash') });
+  });
+
+  it('marks a submit that threw as indeterminate, since the TrustSet may have been sent', async () => {
+    const provider = new XrpWalletProvider({
+      gemWallet: gemWallet({ submitTrustSet: vi.fn(async () => Promise.reject(new Error('port closed'))) }),
+      address: GEM_ADDRESS,
+    });
+
+    const error = await provider.signTrustSet(trustSet).catch((cause: unknown) => cause);
+
+    expect(isIndeterminateOutcomeError(error)).toBe(true);
+  });
+
+  it('calls submitTrustSet on the adapter, so a class-based adapter keeps its `this`', async () => {
+    class Adapter {
+      private readonly hash = TX_HASH;
+      getNetwork = async () => ({ result: { chain: 'XRPL', network: 'Mainnet' } });
+      getAddress = async () => ({ result: { address: GEM_ADDRESS } });
+      getPublicKey = async () => ({ result: { publicKey: `ED${'11'.repeat(32)}` } });
+      signMessage = async () => ({ result: { signedMessage: 'CD'.repeat(64) } });
+      submitTransaction = async () => ({ result: { hash: this.hash } });
+      async submitTrustSet() {
+        return { result: { hash: this.hash } };
+      }
+    }
+    const provider = new XrpWalletProvider({ gemWallet: new Adapter(), address: GEM_ADDRESS });
+
+    expect(await provider.signTrustSet(trustSet)).toEqual({ tx_blob: '', hash: TX_HASH });
+  });
+
+  it('refuses before submitting when GemWallet has switched to another account', async () => {
+    const submitTrustSet = vi.fn(async () => ({ result: { hash: TX_HASH } }));
+    const gem = gemWallet({
+      submitTrustSet,
+      getAddress: vi.fn(async () => ({ result: { address: 'rbtWzBnJB84fKuVCg2qbKKX4EUtCWVik7' } })),
+    });
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    await expect(provider.signTrustSet(trustSet)).rejects.toThrow(/switch it before adding the trustline/);
+    expect(submitTrustSet).not.toHaveBeenCalled();
   });
 });
 

@@ -1,6 +1,7 @@
 import { ChainKeys, type IXrpWalletProvider } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateBalances } from './invalidateBalances.js';
+import { retryBeforeSubmission } from './retryBeforeSubmission.js';
 import type { MutationHookParams } from './types.js';
 import { useSafeMutation, type SafeUseMutationResult } from './useSafeMutation.js';
 import { useSodaxContext } from './useSodaxContext.js';
@@ -32,6 +33,12 @@ export function useEstablishXrpTrustline({
   return useSafeMutation<string, Error, UseEstablishXrpTrustlineVars>({
     mutationKey: ['shared', 'establishXrpTrustline'],
     ...mutationOptions,
+    // Each TrustSet costs a fee, so one that may have been sent is never signed again automatically.
+    retry: retryBeforeSubmission(
+      mutationOptions?.retry ??
+        queryClient.getMutationDefaults?.(mutationOptions?.mutationKey ?? ['shared', 'establishXrpTrustline'])?.retry ??
+        queryClient.getDefaultOptions?.().mutations?.retry,
+    ),
     mutationFn: async ({ token, address, walletProvider }): Promise<string> => {
       const srcAddress = await walletProvider.getWalletAddress();
       if (address !== undefined && address !== srcAddress) {
@@ -42,8 +49,8 @@ export function useEstablishXrpTrustline({
       return unwrapResult(await sodax.spoke.xrp.requestTrustline<false>({ srcAddress, token, walletProvider }));
     },
     onSuccess: async (data, vars, ctx) => {
-      // The TrustSet is already validated, so an account switch mid-flow must not skip the invalidations.
-      const address = await vars.walletProvider.getWalletAddress().catch(() => undefined);
+      // The checked account, not whichever account the wallet is on by now.
+      const address = vars.address ?? (await vars.walletProvider.getWalletAddress().catch(() => undefined));
       queryClient.invalidateQueries({
         queryKey: address
           ? ['shared', 'xrpDestinationCheck', ChainKeys.XRP_MAINNET, vars.token, address]

@@ -1,4 +1,4 @@
-import { ChainKeys } from '@sodax/sdk';
+import { ChainKeys, IndeterminateOutcomeError } from '@sodax/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invalidateQueries = vi.fn();
@@ -23,7 +23,12 @@ type MutationFn = (vars: unknown) => Promise<string>;
 const vars = (getWalletAddress: () => Promise<string>) => ({ token: TOKEN, walletProvider: { getWalletAddress } });
 
 // The stubbed useSafeMutation returns its options, which the hook's declared return type does not describe.
-const optionsOf = () => useEstablishXrpTrustline() as unknown as { onSuccess: OnSuccess; mutationFn: MutationFn };
+const optionsOf = (retry?: number) =>
+  useEstablishXrpTrustline({ mutationOptions: { retry } }) as unknown as {
+    onSuccess: OnSuccess;
+    mutationFn: MutationFn;
+    retry: (failureCount: number, error: Error) => boolean;
+  };
 
 const invalidatedKeys = () => invalidateQueries.mock.calls.map(([arg]) => arg.queryKey);
 
@@ -78,6 +83,23 @@ describe('useEstablishXrpTrustline', () => {
       ['shared', 'balances', ChainKeys.XRP_MAINNET],
       ['shared', 'xBalances', ChainKeys.XRP_MAINNET],
     ]);
+  });
+
+  it('invalidates the checked account even after the wallet switched to another one', async () => {
+    await optionsOf().onSuccess(
+      'hash',
+      { ...vars(async () => 'rOtherAccount1111111111111111111111'), address: ADDRESS },
+      undefined,
+    );
+
+    expect(invalidatedKeys()[0]).toEqual(['shared', 'xrpDestinationCheck', ChainKeys.XRP_MAINNET, TOKEN, ADDRESS]);
+  });
+
+  it('never retries a TrustSet that may have been sent, since each one costs a fee', () => {
+    const { retry } = optionsOf(3);
+
+    expect(retry(0, new IndeterminateOutcomeError('outcome unknown', { cause: undefined, txHash: 'AB' }))).toBe(false);
+    expect(retry(0, new Error('node unreachable'))).toBe(true);
   });
 
   it('still invalidates when the wallet fails right after the TrustSet validated', async () => {

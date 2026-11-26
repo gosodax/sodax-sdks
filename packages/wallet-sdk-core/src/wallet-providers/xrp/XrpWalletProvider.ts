@@ -186,22 +186,40 @@ export class XrpWalletProvider extends BaseWalletProvider<XrpWalletDefaults> imp
 
   /**
    * Sign a TrustSet. The raw-key path autofills and signs locally; GemWallet submits it through the
-   * adapter's `submitTrustSet`, so it returns the hash with an empty blob.
+   * adapter's `submitTrustSet`, so it returns the hash with an empty blob. GemWallet must be on the XRPL
+   * Mainnet and on `tx.Account` right now, and a submit that may have happened throws an
+   * IndeterminateOutcomeError.
    */
   public async signTrustSet(tx: XrpUnsignedTrustSet): Promise<XrpSignedTransaction> {
     if (this.wallet) {
       const signed = this.wallet.sign(await this.autofill(tx));
       return { tx_blob: signed.tx_blob, hash: signed.hash };
     }
-    const submitTrustSet = this.gemWallet?.submitTrustSet;
-    if (!submitTrustSet) throw new Error('This GemWallet adapter cannot submit a TrustSet (no submitTrustSet)');
+    const gemWallet = this.gemWallet;
+    if (!gemWallet?.submitTrustSet) {
+      throw new Error('This GemWallet adapter cannot submit a TrustSet (no submitTrustSet)');
+    }
     await this.assertGemWalletOnMainnet();
-    const res = await submitTrustSet({ transaction: tx });
+    // The connection address is cached, so ask GemWallet which account would sign now.
+    const live = (await gemWallet.getAddress())?.result?.address;
+    if (live !== tx.Account) {
+      throw new Error(
+        `GemWallet is on ${live ?? 'no account'}, not ${tx.Account} — switch it before adding the trustline`,
+      );
+    }
+    const indeterminate = (cause: unknown) =>
+      new IndeterminateOutcomeError('GemWallet returned no TrustSet hash; check the account before retrying', {
+        cause,
+      });
+    let res: Awaited<ReturnType<NonNullable<GemWalletLike['submitTrustSet']>>>;
+    try {
+      res = await gemWallet.submitTrustSet({ transaction: tx });
+    } catch (error) {
+      throw indeterminate(error);
+    }
     if (res?.type === 'reject') throw new Error('GemWallet transaction was rejected by the user');
     const hash = res?.result?.hash;
-    if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/i.test(hash)) {
-      throw new Error('GemWallet returned no TrustSet hash; check the account before retrying');
-    }
+    if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/i.test(hash)) throw indeterminate(res);
     return { tx_blob: '', hash };
   }
 
