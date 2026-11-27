@@ -413,10 +413,11 @@ export class SwapService {
   }
 
   /**
-   * Calculates the fixed 0.1% solver protocol fee for a given input amount.
+   * Returns the maximum solver protocol fee (0.1%, 10 basis points) for an input amount.
+   * The actual fee is 0.01% to 0.1% depending on the solver's route, and is already included in quotes.
    *
    * @param inputAmount - Gross input token amount (in token's smallest unit).
-   * @returns The solver fee amount denominated in the input token (10 basis points of `inputAmount`).
+   * @returns The maximum solver fee amount denominated in the input token (10 basis points of `inputAmount`).
    */
   public getSolverFee(inputAmount: bigint): bigint {
     return calculatePercentageFeeAmount(inputAmount, 10);

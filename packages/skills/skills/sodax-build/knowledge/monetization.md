@@ -6,7 +6,7 @@ The monetization mechanism for products built on SODAX is the **partner fee**: t
 
 ## Two fees
 
-- **Protocol (solver) fee — fixed, set by SODAX.** A small fixed protocol fee applies to swaps. The end-user and the integrator do not control it. Confirm the exact current value from live source before quoting it.
+- **Protocol (solver) fee — set by SODAX, varies by route.** A small protocol fee applies to swaps. Its rate depends on the route the solver takes, so it is not fixed and cannot be predicted per swap; it is already included in the quote. The end-user and the integrator do not control it. Confirm the current maximum from live source before quoting it.
 - **Partner fee — set by the integrator (the person building the product).** This is *your* revenue. The app decides the rate; the end-user does not. It can be a percentage or a fixed amount, and it is deducted from the input token of the transaction.
 
 Both fees come out of the **input** side of a transaction, not the output, and they are denominated in the input token.

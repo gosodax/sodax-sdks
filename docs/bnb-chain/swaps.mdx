@@ -63,7 +63,7 @@ The same applies in the other direction: 100 USDC swapped from Base into USDT on
 
 Using SODAX is free to integrate. Two fees can apply to a trade:
 
-- **Base fee**: a fixed 0.1% of the input, taken by the protocol. Not configurable; compute it ahead of time with `getSolverFee(inputAmount)`.
+- **Protocol fee**: 0.01% to 0.1% of the input, depending on the route the solver takes. It is already included in the quote, along with the gas cost of delivering the tokens. `getSolverFee(inputAmount)` returns the maximum (0.1%).
 - **Your fee**: optional platform fee on top, set by you and paid to you. It is the only fee you control. Configure it at SDK setup and check it with `getPartnerFee(inputAmount)`. See [Monetize SDK](/developers/how-to/monetize_sdk).
 
 The user also pays BNB Chain's network fee for the intent transaction, in BNB, like any other BNB Smart Chain transaction.

@@ -113,7 +113,7 @@ All swap methods are accessible through `sodax.swaps`:
 
 - `getQuote(payload)` — Request a price quote from the solver API
 - `getPartnerFee(inputAmount)` — Calculate the partner fee for a given input amount
-- `getSolverFee(inputAmount)` — Calculate the solver protocol fee (0.1%) for a given input amount
+- `getSolverFee(inputAmount)` — Return the maximum solver protocol fee (0.1%) for a given input amount; the actual fee is 0.01% to 0.1% depending on the solver's route
 - `getSwapDeadline(offset?)` — Compute an absolute deadline timestamp for an intent
 
 ### Intent Creation & Execution
@@ -534,12 +534,14 @@ The partner fee is deducted from the input amount before the intent is created. 
 ### Solver Fee
 
 ```typescript
-// Calculate the 0.1% solver protocol fee
+// Maximum solver protocol fee (0.1%) for this input
 const inputAmount = 1_000_000_000_000_000n;
 const solverFee = sodax.swaps.getSolverFee(inputAmount);
 
-console.log('Solver fee (0.1%):', solverFee);
+console.log('Max solver fee (0.1%):', solverFee);
 ```
+
+The actual protocol fee is 0.01% to 0.1% of the input, depending on the route the solver takes, so it cannot be predicted ahead of time. It is already included in the quote, along with the gas cost of delivering the tokens, which makes small trades look more expensive as a percentage.
 
 ---
 
