@@ -58,6 +58,7 @@ const sameAddress = (a: string, b: string): boolean => a.toLowerCase() === b.toL
 /**
  * Sends the approval and EVM `intentTx` as one EIP-5792 batch; a batch the user saw is never resent.
  * Unconfirmed batch → `TX_VERIFICATION_FAILED` (may still land: resume via `confirmApprovalBatch`, never re-swap).
+ * Rejected → `USER_REJECTED` (`ACCOUNT_UPGRADE_DECLINED`: retry with `allowAccountUpgrade: false`); reverted → `INTENT_CREATION_FAILED`.
  */
 export const useSwapsApiBroadcastWithApproval = ({
   mutationOptions,

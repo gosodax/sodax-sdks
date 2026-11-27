@@ -19,6 +19,7 @@ export type UseOpenLeveragePositionVars<K extends SpokeChainKey = SpokeChainKey>
 
 /**
  * Resolving means the intent is live, not that the position is open; check `notified`, since a failed notification still resolves.
+ * Pass the signer as `params.srcAddress`; the SDK resolves the owning hub wallet.
  * @experimental Off-hub (spoke) origins are unverified on-chain.
  */
 export function useOpenLeveragePosition<K extends SpokeChainKey = SpokeChainKey>({

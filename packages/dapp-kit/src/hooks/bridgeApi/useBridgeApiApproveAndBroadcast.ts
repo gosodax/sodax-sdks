@@ -23,8 +23,11 @@ export type UseBridgeApiApproveAndBroadcastVars<K extends SpokeChainKey = SpokeC
   onProgress?: ApprovalProgressListener;
 };
 
-/** Signs, broadcasts and waits for each approval tx (reset mined first), then waits up to ~15s for the API allowance to
- * report valid since its RPC can lag; resolves either way, so read the allowance rather than treating success as `valid`. */
+/**
+ * Signs, broadcasts and waits for each approval tx (reset mined first), then waits up to ~15s for the API allowance to
+ * report valid since its RPC can lag; resolves either way, so read the allowance rather than treating success as `valid`.
+ * Approval runs only on the hub, EVM spokes and Stellar; other chains report the allowance as always sufficient.
+ */
 export const useBridgeApiApproveAndBroadcast = <K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<BridgeApiApprovalHashes, UseBridgeApiApproveAndBroadcastVars<K>> = {}): SafeUseMutationResult<

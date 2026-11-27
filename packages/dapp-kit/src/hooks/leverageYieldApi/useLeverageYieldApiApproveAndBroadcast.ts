@@ -26,6 +26,7 @@ export type UseLeverageYieldApiApproveAndBroadcastVars<K extends SpokeChainKey =
 /**
  * Signs and confirms the deposit approval plan, mining the reset before the approve (USDT-lineage tokens revert).
  * Resolves after waiting up to ~15s for the API allowance to turn valid, valid or not: read the allowance.
+ * Approval runs only on the hub, EVM spokes and Stellar; other chains report the allowance as always sufficient.
  */
 export const useLeverageYieldApiApproveAndBroadcast = <K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,

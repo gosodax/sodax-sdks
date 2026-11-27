@@ -12,7 +12,7 @@ export type UseWithdrawHubAssetVars<K extends SpokeChainKey = SpokeChainKey> = O
   'raw'
 >;
 
-/** Resolves the spoke tx hash, or for an MPC-relay chain a relay `trackingId` that is not a tx hash. */
+/** Resolves the spoke tx hash, or for an MPC-relay chain a relay `trackingId` that is not a tx hash: never link it to an explorer. */
 export function useWithdrawHubAsset<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<SendMessageReturnType<K, false>, UseWithdrawHubAssetVars<K>> = {}): SafeUseMutationResult<

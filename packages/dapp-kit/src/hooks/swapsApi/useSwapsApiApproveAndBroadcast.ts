@@ -27,6 +27,7 @@ export type UseSwapsApiApproveAndBroadcastVars<K extends SpokeChainKey = SpokeCh
 /**
  * Signs and mines each approval tx in order: a USDT-style `resetTx` must mine before the approve.
  * Then waits up to ~15s for the API to report the allowance valid, but resolves either way.
+ * Approval runs only on the hub, EVM spokes and Stellar; other chains report the allowance as always sufficient.
  */
 export const useSwapsApiApproveAndBroadcast = <K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
