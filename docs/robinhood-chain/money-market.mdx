@@ -18,6 +18,7 @@ The assets that work in the money market from Robinhood Chain are a subset of th
 
 Supplying an ERC-20 token needs an allowance first, the same as any EVM network:
 
+{/* example: robinhood-chain/money-market-supply.ts#supply */}
 ```typescript
 import { Sodax, ChainKeys } from '@sodax/sdk';
 
@@ -55,6 +56,7 @@ const result = await sodax.moneyMarket.supply({
 
 `dstChainKey` and `dstAddress` default to the source, but any supported network can be the destination. That is the cross-network story in one parameter: collateral supplied from one network, borrowed liquidity delivered to another.
 
+{/* example: robinhood-chain/money-market-borrow.ts#borrow */}
 ```typescript
 const bnUSD = robinhoodTokens.find(t => t.symbol === 'bnUSD');
 if (!bnUSD) throw new Error('bnUSD is not a supported money-market token on Robinhood Chain');
@@ -63,7 +65,7 @@ const result = await sodax.moneyMarket.borrow({
   params: {
     srcChainKey: ChainKeys.ROBINHOOD_MAINNET, // where the caller acts from
     srcAddress: userRobinhoodAddress,
-    token: bnUSD.address,                     // token on the destination network
+    token: bnUSD.address, // token on the destination network
     amount: 50n * 10n ** BigInt(bnUSD.decimals), // 50 bnUSD
     action: 'borrow',
     dstChainKey: ChainKeys.ROBINHOOD_MAINNET, // deliver on Robinhood Chain
