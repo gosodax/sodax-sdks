@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/partner/useGetIntentDetails.ts
 import type { Hex, Intent } from '@sodax/sdk';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
@@ -8,13 +7,7 @@ const ZERO_HASH = '0x00000000000000000000000000000000000000000000000000000000000
 
 export type UseGetIntentDetailsParams = ReadHookParams<Intent, { intentHash: Hex | undefined }>;
 
-/**
- * React hook to fetch the full {@link Intent} details for a ProtocolIntents intent hash.
- *
- * Pair with {@link useGetUserIntent} to display a stuck intent (e.g. its locked `inputAmount`)
- * before recovering it. Disabled when the hash is missing or the zero hash (no intent). Throws
- * on `!ok`.
- */
+/** Disabled for a missing or zero hash; pair with {@link useGetUserIntent} to inspect a stuck intent. */
 export function useGetIntentDetails({
   params,
   queryOptions,

@@ -18,25 +18,8 @@ export type UseDetailedStatusParams = ReadHookParams<
 >;
 
 /**
- * Hook for monitoring a swap from its source-chain transaction.
- *
- * `useStatus` needs the hub tx hash and always asks the solver; this takes `(srcChainKey,
- * srcTxHash)` — the pair you hold after `swap()` — and routes to whichever source can answer.
- * `data.value` is discriminated on `source`, and each variant carries that source's payload
- * unmodified.
- *
- * Polls every 3s. Stops once the answering source is terminal, once the backend rejects the API
- * key, and — like `useStatus` — after 40 consecutive *ambiguous* reads: a solver `NOT_FOUND`, or a
- * `LOOKUP_FAILED` whose relay has no packet for the tx. Neither can distinguish "still in flight" from "never will be", so the budget
- * is what stops a swap nothing can resolve. A dependency outage — relay unreachable, solver down —
- * keeps polling instead, so the read recovers by itself; any real status resets the budget.
- * Override with `queryOptions.refetchInterval`.
- *
- * @example
- * ```typescript
- * const { data } = useDetailedStatus({ params: { srcChainKey, srcTxHash } });
- * if (data?.ok && data.value.source === 'backend') console.log(data.value.data.status);
- * ```
+ * Status by source tx `(srcChainKey, srcTxHash)`, routed to whichever source can answer; `data.value` is discriminated on `source`.
+ * Polls every 3s until terminal, API-key rejection, or 40 consecutive ambiguous reads (solver NOT_FOUND / no relay packet); outages keep polling.
  */
 export const useDetailedStatus = ({
   params,

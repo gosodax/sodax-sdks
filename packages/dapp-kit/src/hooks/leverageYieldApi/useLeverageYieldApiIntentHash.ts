@@ -13,13 +13,6 @@ export type UseLeverageYieldApiIntentHashParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to compute the keccak256 hash of an Intent struct via the leverage-yield API —
- * `sodax.api.leverageYield.getIntentHash`. Returns `{ hash }`.
- *
- * @example
- * const { data } = useLeverageYieldApiIntentHash({ params: { intent } });
- */
 export const useLeverageYieldApiIntentHash = ({
   params,
   queryOptions,

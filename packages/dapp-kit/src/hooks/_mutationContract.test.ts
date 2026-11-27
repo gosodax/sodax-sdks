@@ -5,13 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 const HOOKS_DIR = resolve(fileURLToPath(import.meta.url), '..');
 
-/**
- * Manifest of every mutation hook. `nativeThrow: true` marks hooks whose underlying SDK methods
- * throw natively (Bound Exchange APIs) and so don't need `unwrapResult`.
- *
- * To add a new mutation hook, add its path here. The friction is intentional — it forces explicit
- * registration so the contract is enforced from day one.
- */
+/** `nativeThrow` marks hooks whose SDK methods throw natively, so they need no `unwrapResult`. */
 const HOOKS: Array<{ path: string; nativeThrow?: true }> = [
   { path: 'bitcoin/useEnsureRadfiAccessToken.ts', nativeThrow: true },
   { path: 'bitcoin/useFundTradingWallet.ts', nativeThrow: true },
@@ -114,7 +108,6 @@ describe.each(HOOKS)('mutation hook contract: $path', ({ path, nativeThrow }) =>
   });
 
   it('mutationKey first segment matches feature directory', () => {
-    // Feature directory = first segment of `path`. e.g. `mm/useSupply.ts` → `mm`.
     const featureDir = path.split('/')[0];
     const match = src.match(/mutationKey:\s*\[\s*'([^']+)'/);
     expect(match).not.toBeNull();

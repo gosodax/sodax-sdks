@@ -4,26 +4,12 @@ import { unwrapResult } from '../shared/unwrapResult.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 
-/**
- * Mutation variables for {@link useSwapsApiSubmitIntent}. The per-request `apiConfig` override
- * belongs here rather than at the hook level.
- */
 export type UseSwapsApiSubmitIntentVars = {
   body: SubmitIntentRequestV2;
   apiConfig?: RequestOverrideConfig;
 };
 
-/**
- * React hook to submit the broadcast intent tx to the relay via the swaps API —
- * `sodax.api.swaps.submitIntent`. Returns `{ result }` (opaque relay response).
- *
- * No auto-retry (`retry: false`): submitting is non-idempotent — a retry after a lost response
- * could double-submit to the relay. Override via `mutationOptions.retry` if your relay dedupes.
- *
- * @example
- * const { mutateAsync: submitIntent } = useSwapsApiSubmitIntent();
- * const { result } = await submitIntent({ body: { chainId: '146', txHash: '0x123...' } });
- */
+/** No auto-retry: submit is non-idempotent, so a retry after a lost response could double-submit. */
 export const useSwapsApiSubmitIntent = ({
   mutationOptions,
 }: MutationHookParams<SubmitIntentResponseV2, UseSwapsApiSubmitIntentVars> = {}): SafeUseMutationResult<

@@ -12,10 +12,7 @@ export type UseUnstakingInfoParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch the user's pending unstake requests by deriving the hub wallet from the
- * spoke `srcAddress` + `srcChainKey`. Throws on `!ok`.
- */
+/** Throws on `!ok`. */
 export function useUnstakingInfo({
   params,
   queryOptions,

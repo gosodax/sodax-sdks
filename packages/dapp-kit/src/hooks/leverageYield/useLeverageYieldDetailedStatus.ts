@@ -30,25 +30,8 @@ export type UseLeverageYieldDetailedStatusParams = ReadHookParams<
 >;
 
 /**
- * Hook for monitoring a leverage-yield vault swap from its source-chain transaction.
- *
- * `useLeverageYieldApiSubmitTxStatus` needs the backend to still hold a usable record; this takes
- * `(srcChainKey, srcTxHash)` — the pair you hold after `vaultSwap()` — and routes to whichever
- * source can answer, so it also covers a vault swap the client-side fallback completed. `data.value`
- * is discriminated on `source`, and each variant carries that source's payload unmodified.
- *
- * Polls every 3s. Stops once the answering source is terminal, once the backend rejects the API
- * key, and — like `useDetailedStatus` — after 40 consecutive *ambiguous* reads: a solver
- * `NOT_FOUND`, or a `LOOKUP_FAILED` whose relay has no packet for the tx. Neither can distinguish "still in flight" from "never will be", so the
- * budget is what stops a vault swap nothing can resolve. A dependency outage — relay unreachable,
- * solver down — keeps polling instead, so the read recovers by itself; any real status resets the
- * budget. Override with `queryOptions.refetchInterval`.
- *
- * @example
- * ```typescript
- * const { data } = useLeverageYieldDetailedStatus({ params: { srcChainKey, srcTxHash } });
- * if (data?.ok && data.value.source === 'backend') console.log(data.value.data.status);
- * ```
+ * Vault-swap status from `(srcChainKey, srcTxHash)`, routed to whichever source can answer. Polls until terminal,
+ * auth rejection, or 40 consecutive ambiguous reads (solver NOT_FOUND / relay not delivered); outages keep polling.
  */
 export const useLeverageYieldDetailedStatus = ({
   params,

@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/shared/useEstimateGas.ts
 import type { EstimateGasParams, GetEstimateGasReturnType, SpokeChainKey } from '@sodax/sdk';
 import { useSodaxContext } from './useSodaxContext.js';
 import type { MutationHookParams } from './types.js';

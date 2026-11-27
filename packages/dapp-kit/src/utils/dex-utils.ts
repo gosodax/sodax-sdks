@@ -14,22 +14,13 @@ import {
 import type { SpokeChainKey } from '@sodax/sdk';
 import { parseUnits } from 'viem';
 
-/**
- * Subset of {@link CreateAssetDepositParams} produced by {@link createDepositParamsProps}.
- * Callers add `srcChainKey` + `srcAddress` at the mutation call site.
- */
+/** Callers add `srcChainKey` + `srcAddress` at the mutation call site. */
 export type DepositParamsCore = Omit<CreateAssetDepositParams<SpokeChainKey>, 'srcChainKey' | 'srcAddress'>;
 
-/**
- * Subset of {@link CreateAssetWithdrawParams} produced by {@link createWithdrawParamsProps}.
- * Callers add `srcChainKey` + `srcAddress` at the mutation call site.
- */
+/** Callers add `srcChainKey` + `srcAddress` at the mutation call site. */
 export type WithdrawParamsCore = Omit<CreateAssetWithdrawParams<SpokeChainKey>, 'srcChainKey' | 'srcAddress'>;
 
-/**
- * Subset of {@link ClDecreaseLiquidityParams} produced by {@link createDecreaseLiquidityParamsProps}.
- * Callers add `srcChainKey` + `srcAddress` at the mutation call site.
- */
+/** Callers add `srcChainKey` + `srcAddress` at the mutation call site. */
 export type DecreaseLiquidityParamsCore = Omit<ClDecreaseLiquidityParams<SpokeChainKey>, 'srcChainKey' | 'srcAddress'>;
 
 export function createDecreaseLiquidityParamsProps({
@@ -50,13 +41,11 @@ export function createDecreaseLiquidityParamsProps({
     throw new Error('Slippage must be between 0 and 100');
   }
 
-  // Calculate liquidity to remove based on percentage
   const liquidityToRemove =
     percentageNum === 100
       ? positionInfo.liquidity
       : (positionInfo.liquidity * BigInt(Math.floor(percentageNum * 100))) / 10000n;
 
-  // Calculate expected token amounts from this liquidity
   const expectedAmount0 =
     percentageNum === 100
       ? positionInfo.amount0
@@ -66,7 +55,6 @@ export function createDecreaseLiquidityParamsProps({
       ? positionInfo.amount1
       : (positionInfo.amount1 * BigInt(Math.floor(percentageNum * 100))) / 10000n;
 
-  // Apply slippage to minimum amounts
   const slippageMultiplier = BigInt(Math.floor((100 - slippage) * 100));
   const amount0Min = (expectedAmount0 * slippageMultiplier) / 10000n;
   const amount1Min = (expectedAmount1 * slippageMultiplier) / 10000n;
@@ -97,7 +85,7 @@ export function createDepositParamsProps({
 
   return {
     asset: originalAsset.address,
-    // Use deposit token decimals (original asset) for correct unit parsing
+    // Deposit token (original asset) decimals, not the pool token's.
     amount: parseUnits(String(amount), originalAsset.decimals),
     poolToken: token.address,
   };
@@ -135,7 +123,6 @@ export function createSupplyLiquidityParamsProps({
   const amount0BigInt = parseUnits(liquidityToken0Amount, poolData.token0.decimals);
   const amount1BigInt = parseUnits(liquidityToken1Amount, poolData.token1.decimals);
 
-  // Convert prices to ticks
   const token0 = poolData.token0;
   const token1 = poolData.token1;
   const tickSpacing = poolData.tickSpacing;
@@ -143,7 +130,6 @@ export function createSupplyLiquidityParamsProps({
   const tickLower = ClService.priceToTick(minPriceNum, token0, token1, tickSpacing);
   const tickUpper = ClService.priceToTick(maxPriceNum, token0, token1, tickSpacing);
 
-  // Calculate liquidity from full amounts (the desired deposit)
   const liquidity = ClService.calculateLiquidityFromAmounts(
     amount0BigInt,
     amount1BigInt,
@@ -152,8 +138,7 @@ export function createSupplyLiquidityParamsProps({
     BigInt(poolData.currentTick),
   );
 
-  // Apply slippage to get max amounts — the ceiling the contract is allowed to pull.
-  // If price moves unfavorably, the contract may need slightly more tokens than expected.
+  // Max amounts are the slippage-padded ceiling the contract may pull if price moves unfavorably.
   const { amount0Max, amount1Max } = ClService.calculateMaxAmountsForSlippage(
     liquidity,
     tickLower,

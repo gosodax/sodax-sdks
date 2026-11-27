@@ -13,13 +13,7 @@ export type UseLeverageYieldApiLsdAprParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch the off-chain LSD staking-APR snapshot for a leverage-yield vault via the leverage-yield API —
- * `sodax.api.leverageYield.getLsdApr`.
- *
- * @example
- * const { data } = useLeverageYieldApiLsdApr({ params: { vault: '0x...' } });
- */
+/** Off-chain LSD staking-APR snapshot. */
 export const useLeverageYieldApiLsdApr = ({
   params,
   queryOptions,

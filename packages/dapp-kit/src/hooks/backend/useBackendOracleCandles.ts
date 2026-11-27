@@ -16,15 +16,7 @@ export type UseBackendOracleCandlesParams = ReadHookParams<
   }
 >;
 
-/**
- * Hook for fetching USD OHLC candles for a symbol over the half-open range `[from, to)`
- * from the backend API. Responses are cached server-side for roughly 10 seconds.
- *
- * @example
- * const { data } = useBackendOracleCandles({
- *   params: { symbol: 'ETH', interval: '1h', from: 1756000000, to: 1756360000 },
- * });
- */
+/** USD OHLC candles over the half-open range `[from, to)`; responses are cached server-side for ~10s. */
 export const useBackendOracleCandles = ({
   params,
   queryOptions,

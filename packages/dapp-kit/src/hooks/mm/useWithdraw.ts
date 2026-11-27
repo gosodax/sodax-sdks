@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/mm/useWithdraw.ts
 import type { MoneyMarketWithdrawActionParams, SpokeChainKey, OutboundSettlement } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
@@ -8,23 +7,12 @@ import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMu
 import { unwrapResult } from '../shared/unwrapResult.js';
 import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 
-/**
- * Mutation variables for {@link useWithdraw}. Generic over `K extends SpokeChainKey` (defaults to
- * the full union). Sophisticated callers can lock K at the hook call site to narrow the
- * `walletProvider` and `params.srcChainKey` types.
- */
 export type UseWithdrawVars<K extends SpokeChainKey = SpokeChainKey> = Omit<
   MoneyMarketWithdrawActionParams<K, false>,
   'raw'
 >;
 
-/**
- * React hook for withdrawing supplied tokens from the Sodax money market protocol.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped {@link OutboundSettlement} on success: a tx pair, or
- * from Tron the relay's `trackingId` beside the destination tx.
- */
+/** Throws on SDK failure; resolves to an {@link OutboundSettlement} (tx pair, or Tron relay `trackingId` + dst tx). */
 export function useWithdraw<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<OutboundSettlement<K>, UseWithdrawVars<K>> = {}): SafeUseMutationResult<

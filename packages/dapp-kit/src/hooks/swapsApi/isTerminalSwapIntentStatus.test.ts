@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isTerminalSwapIntentStatus } from './isTerminalSwapIntentStatus.js';
 
-/**
- * Guards the polling-stop invariant for `useSwapsApiStatus.refetchInterval`: the hook keeps polling
- * (1s) until the solver reports a terminal status, then stops. Tested as a pure predicate because
- * dapp-kit's vitest runs in the `node` environment (no hook rendering) — see nearStorageGate.test.ts.
- */
+// Tested as a pure predicate: dapp-kit's vitest runs in `node`, with no hook rendering.
 describe('isTerminalSwapIntentStatus', () => {
   it('is terminal for SOLVED (3) and FAILED (4)', () => {
     expect(isTerminalSwapIntentStatus(3)).toBe(true);

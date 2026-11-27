@@ -19,7 +19,6 @@ export function getSponsorConfigQueryOptions({ sodax }: { sodax: SponsorConfigRe
   };
 }
 
-/** Read the sponsoring service's published transaction parameters. */
 export function useSponsorConfig({
   queryOptions,
 }: UseSponsorConfigParams = {}): UseQueryResult<StellarSponsorConfig, Error> {

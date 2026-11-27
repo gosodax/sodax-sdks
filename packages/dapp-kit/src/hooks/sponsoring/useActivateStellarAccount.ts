@@ -6,13 +6,9 @@ import type { MutationHookParams } from '../shared/types.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 
-/** Keep mutation variables aligned with the SDK operation. */
 export type UseActivateStellarAccountVars = ActivateStellarAccountParams;
 
-/**
- * Activate a Stellar account through the sponsoring service. Both `submitted`
- * and `alreadyActive` are successful outcomes.
- */
+/** Both `submitted` and `alreadyActive` are successful outcomes. */
 export function useActivateStellarAccount({
   mutationOptions,
 }: MutationHookParams<ActivateStellarAccountResult, UseActivateStellarAccountVars> = {}): SafeUseMutationResult<

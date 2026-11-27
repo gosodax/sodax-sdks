@@ -13,16 +13,8 @@ export type UseStatusParams = ReadHookParams<
 >;
 
 /**
- * Hook for monitoring the status of an intent-based swap.
- *
- * Polls every 3s while the intent is in flight. Stops on `SOLVED` (3) or `FAILED` (4). Stops after
- * 40 consecutive successful fetches while status stays `NOT_FOUND` (~2 min) — a forgotten intent
- * never changes. An in-flight status resets that streak. Override with `queryOptions.refetchInterval`.
- *
- * @example
- * ```typescript
- * const { data: status, isLoading } = useStatus({ params: { intentTxHash } });
- * ```
+ * Polls every 3s; stops on `SOLVED`/`FAILED` or after 40 consecutive `NOT_FOUND` reads (~2 min).
+ * An in-flight status resets that streak.
  */
 export const useStatus = ({
   params,

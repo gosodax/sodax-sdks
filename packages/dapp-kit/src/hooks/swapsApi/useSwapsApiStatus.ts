@@ -14,17 +14,7 @@ export type UseSwapsApiStatusParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook for polling the solver intent status by hub-chain intent tx hash via the swaps API —
- * `sodax.api.swaps.getStatus`. Returns `{ status, fillTxHash? }` (`fillTxHash` set when `status === 3`).
- *
- * @example
- * const { data } = useSwapsApiStatus({ params: { intentTxHash: '0x123...' } });
- *
- * @remarks
- * - Default refetch interval is 1 second; stops once `status` is `3` (SOLVED) or `4` (FAILED), or
- *   once the backend rejects the API key (401/403 is terminal — a retry cannot fix it).
- */
+/** Polls every 1s until SOLVED (3), FAILED (4) or an API-key rejection (401/403). */
 export const useSwapsApiStatus = ({
   params,
   queryOptions,

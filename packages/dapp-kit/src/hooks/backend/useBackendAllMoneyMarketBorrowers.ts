@@ -12,16 +12,6 @@ export type UseBackendAllMoneyMarketBorrowersParams = ReadHookParams<
   }
 >;
 
-/**
- * Hook for fetching all money market borrowers from the backend API.
- *
- * @example
- * ```typescript
- * const { data, isLoading, error } = useBackendAllMoneyMarketBorrowers({
- *   params: { pagination: { offset: '0', limit: '50' } },
- * });
- * ```
- */
 export const useBackendAllMoneyMarketBorrowers = ({
   params,
   queryOptions,

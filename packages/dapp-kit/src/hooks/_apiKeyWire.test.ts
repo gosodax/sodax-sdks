@@ -1,18 +1,5 @@
-/**
- * Executable API-key wire manifest for the swapsApi + bridgeApi + leverageYieldApi hook families.
- *
- * Every hook that accepts a per-request `apiConfig` must land it on the outgoing HTTP request as
- * `x-api-key`. Each row renders its hook without a renderer (the package convention: the React
- * Query wrapper is mocked so `queryFn`/`mutationFn` can be captured and driven directly) against a
- * REAL `Sodax` instance whose config carries a DIFFERENT key — so a hook that silently drops its
- * `apiConfig` still makes a request, still sends a key, and fails its row. The stubbed fetch serves
- * a minimal 200 body; post-request validation rejections are expected and tolerated, because the
- * request that already went out is the whole subject. For the approveAndBroadcast hooks that
- * rejection also means the wallet machinery is never touched.
- *
- * To add a new swapsApi/bridgeApi/leverageYieldApi hook, add its row here. The friction is
- * intentional — it forces key-on-wire coverage from day one.
- */
+// Every hook taking a per-request `apiConfig` must send it as `x-api-key`, beating the instance key; add a row per new hook.
+// Post-request validation rejections are tolerated: the outgoing request is the subject.
 
 import { ChainKeys, Sodax, type RequestOverrideConfig } from '@sodax/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -48,7 +35,7 @@ const fetchMock = vi.fn<typeof globalThis.fetch>(
 );
 vi.stubGlobal('fetch', fetchMock);
 
-// --- wire-DTO fixtures (string amounts; the six intent bigint fields are serialized client-side) ---
+// Wire DTOs carry string amounts; the intent bigint fields are serialized client-side.
 
 const INTENT = {
   intentId: 1n,
@@ -159,23 +146,17 @@ const LEVERAGE_WITHDRAW_QUOTE_BODY = {
   quoteType: 'exact_input' as const,
 };
 
-/** The leverage-yield submit-tx body carries the required `operation` discriminator. */
 const LEVERAGE_SUBMIT_TX_REQUEST = { ...SUBMIT_TX_REQUEST, operation: 'deposit' as const };
-
-// --- manifest ---------------------------------------------------------------
 
 type Row = {
   hook: string;
   /** Exact pathname (below the `/v1` gateway root) the row's single request must hit. */
   path: string;
-  /** Exact HTTP method of that request — with `path`, pins the row to one endpoint. */
   method: 'GET' | 'POST';
-  /** Renders the hook with `apiConfig` threaded in, then drives the captured queryFn/mutationFn. */
   run: (apiConfig: RequestOverrideConfig) => Promise<unknown>;
 };
 
 const ROWS: Row[] = [
-  // swapsApi read hooks
   {
     hook: 'useSwapsApiTokens',
     path: '/swaps/tokens',
@@ -315,7 +296,6 @@ const ROWS: Row[] = [
       return captured.queryFn();
     },
   },
-  // swapsApi mutation hooks
   {
     hook: 'useSwapsApiApprove',
     path: '/swaps/approve',
@@ -371,8 +351,7 @@ const ROWS: Row[] = [
     },
   },
   {
-    // The `{}` 200 fails the approve schema, so the mutation rejects BEFORE any wallet work — the
-    // backend request this row asserts is the hook's first step.
+    // The `{}` 200 fails the approve schema, so the mutation rejects before any wallet work.
     hook: 'useSwapsApiApproveAndBroadcast',
     path: '/swaps/approve',
     method: 'POST',
@@ -391,7 +370,6 @@ const ROWS: Row[] = [
       return captured.mutationFn({ body: CREATE_INTENT_BODY, intentTx: {}, walletProvider: {}, apiConfig });
     },
   },
-  // bridgeApi read hooks
   {
     hook: 'useBridgeApiTokens',
     path: '/bridge/tokens',
@@ -457,7 +435,6 @@ const ROWS: Row[] = [
       return captured.queryFn();
     },
   },
-  // bridgeApi mutation hooks
   {
     hook: 'useBridgeApiApprove',
     path: '/bridge/approve',
@@ -495,7 +472,6 @@ const ROWS: Row[] = [
       return captured.mutationFn({ body: BRIDGE_INTENT_BODY, walletProvider: {}, apiConfig });
     },
   },
-  // leverageYieldApi read hooks
   {
     hook: 'useLeverageYieldApiVaults',
     path: '/leverage-yield/vaults',
@@ -749,7 +725,6 @@ const ROWS: Row[] = [
       return captured.queryFn();
     },
   },
-  // leverageYieldApi mutation hooks
   {
     hook: 'useLeverageYieldApiApprove',
     path: '/leverage-yield/approve',

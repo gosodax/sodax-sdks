@@ -4,7 +4,6 @@ import { waitForApiAllowance } from './waitForApiAllowance.js';
 
 const valid = (value: boolean) => ({ ok: true as const, value: { valid: value } });
 
-/** A backend failure as the API services surface it: `EXTERNAL_API_ERROR` with the status on context. */
 const apiError = (status: number): SodaxError =>
   new SodaxError('EXTERNAL_API_ERROR', `responded with ${status}`, {
     feature: 'backend',

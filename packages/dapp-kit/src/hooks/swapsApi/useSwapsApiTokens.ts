@@ -12,13 +12,6 @@ export type UseSwapsApiTokensParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch all supported swap tokens grouped by SpokeChainKey via the swaps API —
- * `sodax.api.swaps.getTokens`.
- *
- * @example
- * const { data: tokensByChain } = useSwapsApiTokens();
- */
 export const useSwapsApiTokens = ({
   params,
   queryOptions,

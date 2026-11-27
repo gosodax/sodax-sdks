@@ -13,13 +13,6 @@ export type UseLeverageYieldApiPositionParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch a leveraged-position snapshot for a leverage-yield vault via the leverage-yield API —
- * `sodax.api.leverageYield.getPosition`.
- *
- * @example
- * const { data } = useLeverageYieldApiPosition({ params: { vault: '0x...' } });
- */
 export const useLeverageYieldApiPosition = ({
   params,
   queryOptions,

@@ -9,15 +9,13 @@ export type UseStellarTrustlineCheckParams = ReadHookParams<
     token: string | undefined;
     amount: bigint | undefined;
     chainId: SpokeChainKey | undefined;
-    /** Resolved Stellar account address (e.g. `useXAccount('STELLAR').address`) — keys the cache per account. */
     walletAddress: string | undefined;
   }
 >;
 
-// Narrow slice of the SDK this query reads — lets tests pass a minimal stub without casting `Sodax`.
+// Narrow slice so tests can pass a minimal stub without casting `Sodax`.
 type StellarTrustlineReader = { spoke: { stellar: Pick<Sodax['spoke']['stellar'], 'hasSufficientTrustline'> } };
 
-// Pure query options, extracted for unit testing (mirrors `getXBalancesQueryOptions`).
 export function getStellarTrustlineCheckQueryOptions({
   sodax,
   token,
@@ -32,7 +30,6 @@ export function getStellarTrustlineCheckQueryOptions({
   walletAddress: string | undefined;
 }) {
   return {
-    // Key on chain, token, account, amount so editing the amount (or switching account/chain) re-queries.
     queryKey: ['shared', 'stellarTrustlineCheck', chainId, token, walletAddress, amount?.toString()] as const,
     queryFn: async (): Promise<boolean> => {
       if (chainId !== ChainKeys.STELLAR_MAINNET) return true;

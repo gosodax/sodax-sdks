@@ -5,10 +5,7 @@ import type { ReadHookParams } from '../shared/types.js';
 
 export type UsePoolDataParams = ReadHookParams<PoolData, { poolKey: PoolKey | null }>;
 
-/**
- * React hook to fetch on-chain pool data (sqrt price, tick, fees, token info, etc.) for a given
- * pool key. Reads via the hub `publicClient`. Disabled when `poolKey` is null.
- */
+/** Disabled when `poolKey` is null. */
 export function usePoolData({ params, queryOptions }: UsePoolDataParams = {}): UseQueryResult<PoolData, Error> {
   const { sodax } = useSodaxContext();
   const poolKey = params?.poolKey ?? null;

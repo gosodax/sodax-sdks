@@ -4,8 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const invalidateQueries = vi.fn();
 const requestTrustline = vi.fn();
 
-// The hook is a pure options builder around useSafeMutation, so stubbing the React-side imports
-// lets the real mutationFn and onSuccess run without a DOM.
+// Stubbing the React-side imports lets the real mutationFn and onSuccess run without a DOM.
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries }) }));
 vi.mock('./useSodaxContext.js', () => ({
   useSodaxContext: () => ({ sodax: { spoke: { xrp: { requestTrustline } } } }),

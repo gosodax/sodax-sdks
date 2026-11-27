@@ -26,8 +26,6 @@ describe('toResult', () => {
   });
 
   it('does not catch synchronous throws above the await — caller must produce a Promise', async () => {
-    // Documents the contract: toResult only neutralizes Promise rejections, not sync throws
-    // before the Promise is constructed. Hooks always pass `mutateAsync(vars)` which is async.
     const wrapped = (): Promise<Result<number>> =>
       toResult(
         (async () => {
@@ -39,5 +37,4 @@ describe('toResult', () => {
   });
 });
 
-// Local type alias to keep the file self-contained — mirrors @sodax/sdk's Result<T>.
 type Result<T> = { ok: true; value: T } | { ok: false; error: unknown };

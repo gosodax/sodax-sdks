@@ -11,13 +11,7 @@ export type UseBitcoinBalanceParams = ReadHookParams<
 
 const DEFAULT_RPC_URL = 'https://mempool.space/api';
 
-/**
- * Hook to fetch BTC balance for any Bitcoin address.
- * Sums all UTXOs (confirmed + unconfirmed) from mempool.space API.
- *
- * The UTXO set already excludes spent outputs (even from unconfirmed txs),
- * so the total is always the correct spendable balance.
- */
+/** Sums all UTXOs (confirmed + unconfirmed); the UTXO set already excludes spent outputs. */
 export function useBitcoinBalance({
   params,
   queryOptions,

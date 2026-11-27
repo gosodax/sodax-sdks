@@ -13,15 +13,7 @@ export type UseBridgeApiAllowanceParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to check whether the source-token allowance is already sufficient for a bridge via
- * the bridge API — `sodax.api.bridge.checkAllowance`. Returns `{ valid }`.
- *
- * The `body` uses the wire DTO field names (`inputToken`/`inputAmount`).
- *
- * @example
- * const { data: allowance } = useBridgeApiAllowance({ params: { body: createBridgeIntentParams } });
- */
+/** `body` uses the wire DTO field names (`inputToken`/`inputAmount`). */
 export const useBridgeApiAllowance = ({
   params,
   queryOptions,

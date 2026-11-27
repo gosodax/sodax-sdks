@@ -8,16 +8,11 @@ export type UseHubAssetBalancesParams = ReadHookParams<
   HubAssetBalance[],
   {
     chainKey: SpokeChainKey | undefined;
-    /** The user's address on the spoke chain. The SDK derives the hub wallet abstraction internally. */
+    /** Spoke address; the SDK derives the hub wallet from it. */
     srcAddress: string | undefined;
   }
 >;
 
-/**
- * React hook to fetch the hub-side balances of every supported token on the given spoke chain
- * for the user's hub wallet (derived internally from `srcAddress` + `chainKey`). Disabled when
- * either input is missing. Throws on `!ok`.
- */
 export function useHubAssetBalances({
   params,
   queryOptions,

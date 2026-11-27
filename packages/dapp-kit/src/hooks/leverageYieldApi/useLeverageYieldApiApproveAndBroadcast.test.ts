@@ -1,13 +1,6 @@
 /**
- * The leverage-yield API can return two approval transactions, and the second is only a valid state
- * transition once the first has been mined. That ordering is what this hook exists to own.
- *
- * `runApprovalPlan` itself — every chain family, every progress phase — is covered by the swaps and
- * bridge suites; this one pins what is leverage-yield-specific: the client method it asks for the
- * plan, that the ordering survives, that errors name THIS hook, and its own invalidation key.
- *
- * Follows the package convention of testing hooks without a renderer: the React Query wrapper is
- * mocked so `mutationFn` can be captured and driven directly.
+ * Pins leverage-yield specifics: client method, reset-before-approve ordering, error hook name, invalidation key.
+ * `runApprovalPlan` itself is covered by the swaps/bridge suites; React Query is mocked to capture `mutationFn`.
  */
 
 import { ChainKeys } from '@sodax/sdk';
@@ -65,7 +58,6 @@ function evmProvider(calls: string[], onWait?: (hash: string) => string | void) 
   };
 }
 
-/** One render, then the captured `mutationFn` invoked with `vars`. */
 // biome-ignore lint/suspicious/noExplicitAny: vars mirror the hook's generic mutation variables.
 const run = (vars: any) => {
   useLeverageYieldApiApproveAndBroadcast();
@@ -112,8 +104,7 @@ describe('useLeverageYieldApiApproveAndBroadcast', () => {
     const result = await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider: evmProvider(calls) });
 
     expect(result).toEqual({ resetTxHash: RESET_HASH, approveTxHash: APPROVE_HASH });
-    // The wait has to sit between the two sends; approving over an unconfirmed reset reverts. This is
-    // the transaction `useLeverageYieldApiApprove` callers were dropping.
+    // The wait must sit between the two sends; approving over an unconfirmed reset reverts.
     expect(calls).toEqual(['send:0xreset', `wait:${RESET_HASH}`, 'send:0xapprove', `wait:${APPROVE_HASH}`]);
   });
 
@@ -136,8 +127,7 @@ describe('useLeverageYieldApiApproveAndBroadcast', () => {
   });
 
   it('names this hook, not a sibling, in an error from the shared plan runner', async () => {
-    // The runner is shared with the swaps and bridge hooks; a hard-coded prefix there would point a
-    // leverage-yield integrator at the wrong hook.
+    // The runner is shared with swaps and bridge; a hard-coded hook name there would misdirect integrators.
     approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX } });
 
     await expect(run({ body: body(ChainKeys.SOLANA_MAINNET), walletProvider: {} })).rejects.toThrow(

@@ -13,15 +13,8 @@ export type UseNearStorageCheckParams = ReadHookParams<
 >;
 
 /**
- * Whether `accountId` is NEP-141 storage-registered for `token` on NEAR — the receive-side
- * prerequisite for any leg that delivers a token to the user on NEAR (swap output on NEAR, bridge
- * into NEAR, money-market borrow/withdraw to NEAR). NEAR's analogue of a Stellar trustline.
- *
- * Returns `true` (no gate) when `chainId` is not NEAR, mirroring how the Stellar trustline check
- * short-circuits off-chain. Native NEAR is not a NEP-141 token, so the SDK reports it as registered.
- *
- * Pair with {@link useRegisterNearStorage} to perform the one-time `storage_deposit` when this
- * resolves to `false`.
+ * Whether `accountId` is NEP-141 storage-registered to receive `token` on NEAR. Resolves `true` when
+ * `chainId` is not NEAR; native NEAR always reads as registered.
  */
 export function useNearStorageCheck({
   params,

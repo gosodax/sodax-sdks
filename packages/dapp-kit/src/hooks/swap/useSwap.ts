@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/swap/useSwap.ts
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { SpokeChainKey, SwapActionParams, SwapResponse } from '@sodax/sdk';
@@ -8,19 +7,10 @@ import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMu
 import { unwrapResult } from '../shared/unwrapResult.js';
 import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 
-/**
- * Mutation variables for {@link useSwap}. Generic over `K extends SpokeChainKey` (defaults to the
- * full union). Sophisticated callers can lock K at the hook call site to narrow the
- * `walletProvider` and `params.srcChainKey` types.
- */
+/** Lock `K` at the call site to narrow `walletProvider` and `params.srcChainKey`. */
 export type UseSwapVars<K extends SpokeChainKey = SpokeChainKey> = Omit<SwapActionParams<K, false>, 'raw'>;
 
-/**
- * React hook for executing an intent-based cross-chain swap.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `SwapResponse` on success.
- */
+/** Throws on SDK failure; resolves to the unwrapped `SwapResponse` and invalidates balances. */
 export function useSwap<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<SwapResponse, UseSwapVars<K>> = {}): SafeUseMutationResult<SwapResponse, Error, UseSwapVars<K>> {

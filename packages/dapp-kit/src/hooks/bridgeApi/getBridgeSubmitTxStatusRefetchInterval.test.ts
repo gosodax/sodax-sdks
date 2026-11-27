@@ -5,11 +5,7 @@ import {
   getBridgeSubmitTxStatusRefetchInterval,
 } from './getBridgeSubmitTxStatusRefetchInterval.js';
 
-/**
- * Guards the polling-stop invariant for `useBridgeApiSubmitTxStatus.refetchInterval`: keep polling
- * a live record, stop on a terminal or abandoned one, and stop on a rejected API key. Tested as a
- * pure function because dapp-kit's vitest runs in the `node` environment.
- */
+/** Tested as a pure function because dapp-kit's vitest runs in the `node` environment. */
 const record = (data: Partial<BridgeSubmitTxStatusDataV2>): BridgeSubmitTxStatusDataV2 => ({
   txHash: '0xabc',
   srcChainKey: '0xa4b1.arbitrum',
@@ -74,8 +70,7 @@ describe('getBridgeSubmitTxStatusRefetchInterval', () => {
   });
 
   it('stops on an auth failure even when a live record is still cached', () => {
-    // Order matters: the key was rejected on a later poll, so the stale in-flight record must not
-    // keep the interval alive.
+    // Order matters: a key rejected on a later poll must stop polling despite the stale in-flight record.
     expect(getBridgeSubmitTxStatusRefetchInterval(apiError(401), record({ status: 'relaying' }))).toBe(false);
   });
 });

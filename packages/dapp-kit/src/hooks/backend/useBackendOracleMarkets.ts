@@ -6,13 +6,7 @@ import type { ReadHookParams } from '../shared/types.js';
 
 export type UseBackendOracleMarketsParams = ReadHookParams<OracleMarketsResponse>;
 
-/**
- * Hook for fetching the oracle candle store's discovery payload (quote currency,
- * selectable intervals, and covered symbols) from the backend API.
- *
- * @example
- * const { data: markets } = useBackendOracleMarkets();
- */
+/** Oracle discovery payload: quote currency, selectable intervals and covered symbols. */
 export const useBackendOracleMarkets = ({
   queryOptions,
 }: UseBackendOracleMarketsParams = {}): UseQueryResult<OracleMarketsResponse, Error> => {

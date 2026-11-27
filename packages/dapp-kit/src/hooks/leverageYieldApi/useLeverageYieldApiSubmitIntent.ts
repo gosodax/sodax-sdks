@@ -4,19 +4,13 @@ import { unwrapResult } from '../shared/unwrapResult.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 
-/**
- * Mutation variables for {@link useLeverageYieldApiSubmitIntent}. The per-request `apiConfig` override belongs here
- * rather than at the hook level — different calls in the same component can target different
- * endpoints without re-rendering.
- */
+/** Per-call `apiConfig` so calls in one component can target different endpoints. */
 export type UseLeverageYieldApiSubmitIntentVars = {
   body: SubmitIntentRequestV2;
   apiConfig?: RequestOverrideConfig;
 };
 
-/**
- * React hook to submit the broadcast intent tx to the relay via the leverage-yield API — `sodax.api.leverageYield.submitIntent`.
- */
+/** Submits the already-broadcast intent tx to the relay. */
 export const useLeverageYieldApiSubmitIntent = ({
   mutationOptions,
 }: MutationHookParams<SubmitIntentResponseV2, UseLeverageYieldApiSubmitIntentVars> = {}): SafeUseMutationResult<

@@ -13,13 +13,6 @@ export type UseLeverageYieldApiAssetParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch the underlying hub asset for a leverage-yield vault via the leverage-yield API —
- * `sodax.api.leverageYield.getAsset`.
- *
- * @example
- * const { data } = useLeverageYieldApiAsset({ params: { vault: '0x...' } });
- */
 export const useLeverageYieldApiAsset = ({
   params,
   queryOptions,

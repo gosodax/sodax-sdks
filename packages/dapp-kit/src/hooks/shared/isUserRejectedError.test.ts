@@ -20,9 +20,6 @@ describe('isUserRejectedError', () => {
   });
 
   it('does not match a plain Error whose message contains rejection prose', () => {
-    // The predicate trusts SDK classification; it does NOT re-scan message content. A bare
-    // Error from outside the SDK boundary (e.g. a non-canonical throw in a queryFn) is not a
-    // canonical USER_REJECTED — it should fall through to the generic failure UI.
     expect(isUserRejectedError(new Error('User rejected the request'))).toBe(false);
   });
 

@@ -10,10 +10,6 @@ export type UseIsTokenApprovedParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to check whether a token is approved to the protocol-intents contract on Sonic for
- * a given owner. Read-only; throws on `!ok`.
- */
 export function useIsTokenApproved({
   params,
   queryOptions,

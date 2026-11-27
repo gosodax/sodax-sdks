@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/recovery/useWithdrawHubAsset.ts
 import type { SpokeChainKey, SendMessageReturnType, WithdrawHubAssetAction } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
@@ -8,23 +7,12 @@ import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMu
 import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/**
- * Mutation variables for {@link useWithdrawHubAsset}. Generic over `K extends SpokeChainKey`
- * (defaults to the full union). Sophisticated callers can lock K at the hook call site to narrow
- * the `walletProvider` and `params.srcChainKey` types.
- */
 export type UseWithdrawHubAssetVars<K extends SpokeChainKey = SpokeChainKey> = Omit<
   WithdrawHubAssetAction<K, false>,
   'raw'
 >;
 
-/**
- * React hook for withdrawing a hub-side asset back to the user's spoke chain wallet.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the spoke tx hash on success, or from an MPC-relay chain (Tron) the
- * relay's `trackingId`, which is not a tx hash: never link it to an explorer.
- */
+/** Resolves the spoke tx hash, or for an MPC-relay chain a relay `trackingId` that is not a tx hash. */
 export function useWithdrawHubAsset<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<SendMessageReturnType<K, false>, UseWithdrawHubAssetVars<K>> = {}): SafeUseMutationResult<

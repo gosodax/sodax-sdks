@@ -13,13 +13,6 @@ export type UseLeverageYieldApiTotalAssetsParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch the total assets managed by the vault for a leverage-yield vault via the leverage-yield API —
- * `sodax.api.leverageYield.getTotalAssets`.
- *
- * @example
- * const { data } = useLeverageYieldApiTotalAssets({ params: { vault: '0x...' } });
- */
 export const useLeverageYieldApiTotalAssets = ({
   params,
   queryOptions,

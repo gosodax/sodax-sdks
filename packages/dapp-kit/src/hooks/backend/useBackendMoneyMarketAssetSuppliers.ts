@@ -13,14 +13,6 @@ export type UseBackendMoneyMarketAssetSuppliersParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook for fetching suppliers for a specific money market asset from the backend API.
- *
- * @example
- * const { data: suppliers } = useBackendMoneyMarketAssetSuppliers({
- *   params: { reserveAddress: '0xabc...', pagination: { offset: '0', limit: '20' } },
- * });
- */
 export const useBackendMoneyMarketAssetSuppliers = ({
   params,
   queryOptions,

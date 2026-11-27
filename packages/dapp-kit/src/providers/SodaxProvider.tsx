@@ -4,18 +4,7 @@ import { SodaxContext } from '@/contexts/index.js';
 
 interface SodaxProviderProps {
   children: ReactNode;
-  /**
-   * Sodax SDK config. Tracked by **reference** - a new identity re-instantiates the
-   * SDK. Hoist to a module constant or wrap in `useMemo`; include any value the SDK
-   * should react to (e.g. solver env) in the deps. Inline `{...}` re-creates the SDK
-   * every parent render and resets every `useSodaxContext` consumer.
-   *
-   * @example
-   * ```tsx
-   * const config = useMemo(() => ({ solver: solverMap[env] }), [env]);
-   * <SodaxProvider config={config}>...</SodaxProvider>
-   * ```
-   */
+  /** Tracked by reference: a new identity re-creates the SDK and resets consumers, so memoize it. */
   config?: SodaxOptions;
 }
 

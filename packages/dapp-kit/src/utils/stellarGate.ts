@@ -1,21 +1,13 @@
 import { ChainKeys, type SpokeChainKey, type StellarAccountStatus } from '@sodax/sdk';
 import type { UseQueryResult } from '@tanstack/react-query';
 
-/**
- * The subset of a query result the gate reads. A full `UseQueryResult<T>` satisfies it.
- *
- * `isLoading` is intentional: `isPending` remains true for disabled queries.
- * Errors remain distinct from unmet prerequisites.
- */
+/** Reads `isLoading` because `isPending` stays true for disabled queries; errors stay distinct from unmet prerequisites. */
 export type StellarCheckResult<T> = Pick<UseQueryResult<T>, 'isLoading' | 'isError' | 'data'>;
 
 export interface StellarGateState {
   isStellar: boolean;
   needsActivation: boolean;
-  /**
-   * The account needs a trustline but lacks spendable XLM. Never set for
-   * native XLM or an existing trustline.
-   */
+  /** Never set for native XLM or an existing trustline. */
   needsFunding: boolean;
   needsTrustline: boolean;
   /** A query failed; disabled or unresolved queries do not set this. */
@@ -45,12 +37,7 @@ const NOT_STELLAR: StellarGateState = {
   blocksAction: false,
 };
 
-/**
- * Resolve activation, trustline, and funding prerequisites in order.
- *
- * Check the trustline before affordability because an existing trustline needs
- * no additional XLM. Unknown states fail closed.
- */
+/** Checks the trustline before affordability because an existing trustline needs no extra XLM. Unknown states fail closed. */
 export function resolveStellarGate(chainKey: SpokeChainKey | undefined, inputs: StellarGateInputs): StellarGateState {
   const { statusCheck, trustlineCheck, isNativeToken } = inputs;
 

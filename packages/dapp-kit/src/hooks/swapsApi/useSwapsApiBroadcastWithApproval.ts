@@ -36,18 +36,11 @@ export type UseSwapsApiBroadcastWithApprovalVars = ApprovalOptions & {
   apiConfig?: RequestOverrideConfig;
   /** Progress of a separate approval, hashes included. A batch is one prompt and reports nothing. */
   onProgress?: ApprovalProgressListener;
-  /**
-   * Called with the batch id and its call count once the wallet accepts the batch, before the wait.
-   * Persist both: if the batch comes back unconfirmed, `confirmApprovalBatch` with them is how to find
-   * the deposit again instead of sending a second one.
-   */
+  /** Fires once the wallet accepts the batch; persist both so `confirmApprovalBatch` can resume an unconfirmed one. */
   onBatchSent?: (batchId: string, callCount: number) => void;
   /**
-   * What happens when there is no batch to send: the wallet refuses it before signing, or cannot batch
-   * (the Sonic hub never does). By default the hook rejects with a refusal (`isAtomicBatchRefusal`) and
-   * sends nothing: approve with `useSwapsApiApproveAndBroadcast`, then create the intent again and sign
-   * that one. `true` approves and then sends this `intentTx` instead — built before the approval, so its
-   * deadline and quote must outlast the approval's wait.
+   * On refusal or no batch support: approve, then send this `intentTx` (default: reject, send nothing).
+   * `intentTx` predates the approval, so its deadline and quote must outlast the approval wait.
    */
   fallbackOnRefusal?: boolean;
 };
@@ -63,37 +56,8 @@ export type SwapsApiBroadcastWithApprovalResult = {
 const sameAddress = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
 /**
- * React hook that broadcasts a swaps-API intent transaction whose source-token allowance is short,
- * with the approval folded in: on an EIP-5792 wallet, the approval and `intentTx` go out as **one
- * atomic batch — one signature**.
- *
- * Call it when `/swaps/allowance/check` says the allowance is short and the source is an EVM chain —
- * it always approves, so with enough allowance sign `intentTx` directly instead. It stops at the
- * broadcast: persist `txHash` and then call `/swaps/submit-tx` as before.
- *
- * The batch rules match the SDK's `swapWithApproval`; the Sonic hub never batches. With no batch to
- * send — the wallet cannot batch, or refuses the batch before signing — it rejects with a refusal
- * (`isAtomicBatchRefusal`) and sends nothing: approve with `useSwapsApiApproveAndBroadcast`, create
- * the intent again and sign that. `fallbackOnRefusal: true` approves (via {@link runApprovalPlan}) and
- * sends this `intentTx` instead. A batch the user saw is never resent:
- * - rejected → `SodaxError` `USER_REJECTED`, with `context.reason: ACCOUNT_UPGRADE_DECLINED` when the
- *   user declined the account upgrade — retry with `allowAccountUpgrade: false`;
- * - never included or fully reverted → `INTENT_CREATION_FAILED`, `context.reason: 'atomic-batch-failed'`;
- * - sent but not confirmed → `TX_VERIFICATION_FAILED`, `context.reason: ATOMIC_BATCH_UNCONFIRMED`. It
- *   may still land: do not let the user swap again. Resume it with `confirmApprovalBatch` and the
- *   batch id `onBatchSent` reported.
- *
- * With `fallbackOnRefusal: true`, errors from the separate approval or intent send are the wallet's
- * own, as with `useSwapsApiApproveAndBroadcast`.
- *
- * @example
- * const { mutateAsyncSafe: broadcast } = useSwapsApiBroadcastWithApproval();
- * const created = await sodax.api.swaps.createIntent(body);
- * const result = await broadcast({ body, intentTx: created.value.tx as EvmRawTransaction, walletProvider });
- * if (result.ok) await submitTx({ txHash: result.value.txHash, ... });
- * else if (isAtomicBatchRefusal(result.error)) {
- *   // Nothing was sent: approve, create the intent again (fresh deadline), sign it, then submit-tx.
- * }
+ * Sends the approval and EVM `intentTx` as one EIP-5792 batch; a batch the user saw is never resent.
+ * Unconfirmed batch → `TX_VERIFICATION_FAILED` (may still land: resume via `confirmApprovalBatch`, never re-swap).
  */
 export const useSwapsApiBroadcastWithApproval = ({
   mutationOptions,

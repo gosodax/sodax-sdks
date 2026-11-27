@@ -10,7 +10,6 @@ import { useTradingWalletBalance } from './useTradingWalletBalance.js';
 
 export interface UseBitcoinTradingSetupParams {
   chainKey: SpokeChainKey;
-  /** This side's wallet provider + account, e.g. `useWalletProvider` / `useXAccount`. */
   walletProvider: IWalletProvider | undefined;
   address: string | undefined;
 }
@@ -23,9 +22,8 @@ export interface BitcoinTradingSetup {
 const INERT: BitcoinTradingSetup = { wallet: undefined, tradingBalance: undefined };
 
 /**
- * Bitcoin trading-wallet setup for one side of a cross-chain flow: Bitcoin funds move through a
- * Bound Exchange (Radfi) trading wallet, not the personal wallet. Inert (no work) unless `chainKey`
- * is Bitcoin. Wallet-layer inputs are passed in — this package doesn't depend on wallet-sdk-react.
+ * Bitcoin funds move through a Bound (Radfi) trading wallet; inert unless `chainKey` is Bitcoin.
+ * Wallet inputs are passed in because this package must not depend on wallet-sdk-react.
  */
 export function useBitcoinTradingSetup({
   chainKey,

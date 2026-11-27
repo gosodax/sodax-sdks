@@ -14,8 +14,7 @@ let mutation: MutationState;
 const refSlots: Array<{ current: unknown }> = [];
 let refCursor = 0;
 
-// Only useRef and useCallback are needed, and call order is stable, so this replays React's
-// slot semantics well enough to observe the deprecated hook across renders — no DOM, no renderer.
+// Replays React's ref slots by call order, enough to observe the hook across renders without a DOM.
 vi.mock('react', () => ({
   useRef: (initial: unknown) => {
     const slot = refSlots[refCursor] ?? { current: initial };
@@ -39,12 +38,9 @@ const idle: MutationState = {
   data: undefined,
 };
 
-/** One render of the hook, with the mutation in `state`. */
 const render = (state: Partial<MutationState> = {}) => {
   mutation = { ...idle, ...state };
   refCursor = 0;
-  // The positional argument was ignored in 2.0.0 and still is; passed here because keeping it
-  // callable is the point of this wrapper.
   return useRequestTrustline(TOKEN);
 };
 
@@ -79,8 +75,6 @@ describe('useRequestTrustline — 2.0.0 compatibility wrapper', () => {
     expect(first.isRequested).toBe(true);
     expect(first.data).toBe('hash');
 
-    // React Query clears data and isSuccess once the next attempt starts; 2.0.0 held both
-    // in component state and never cleared them.
     const retrying = render({ isPending: true });
     expect(retrying.isRequested).toBe(true);
     expect(retrying.data).toBe('hash');

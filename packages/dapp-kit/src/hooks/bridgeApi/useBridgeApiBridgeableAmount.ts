@@ -13,18 +13,7 @@ export type UseBridgeApiBridgeableAmountParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch the deposit capacity / withdrawal liquidity limit for a (from, to) token pair
- * via the bridge API — `sodax.api.bridge.getBridgeableAmount`. Returns `{ limit }`.
- *
- * Computable client-side from config + vault reserves — prefer `sodax.bridge.getBridgeableAmount`
- * for a no-round-trip read; this HTTP variant mirrors the `/bridge/bridgeable-amount` endpoint.
- *
- * The `body` uses the wire DTO field names (`srcChainKey`/`dstChainKey`/`inputToken`/`outputToken`).
- *
- * @example
- * const { data } = useBridgeApiBridgeableAmount({ params: { body: quote } });
- */
+/** HTTP mirror of `sodax.bridge.getBridgeableAmount` (prefer that for a no-round-trip read); `body` uses wire DTO field names. */
 export const useBridgeApiBridgeableAmount = ({
   params,
   queryOptions,

@@ -5,19 +5,13 @@ import { unwrapResult } from '../shared/unwrapResult.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 
-/**
- * Mutation variables for {@link useLeverageYieldApiCreateDepositIntent}. The per-request `apiConfig` override belongs here
- * rather than at the hook level — different calls in the same component can target different
- * endpoints without re-rendering.
- */
+/** Per-call `apiConfig` so calls in one component can target different endpoints. */
 export type UseLeverageYieldApiCreateDepositIntentVars = {
   body: CreateDepositIntentParamsV2;
   apiConfig?: RequestOverrideConfig;
 };
 
-/**
- * React hook to build an unsigned deposit create-intent transaction (any token → lsoda* shares) via the leverage-yield API — `sodax.api.leverageYield.createDepositIntent`.
- */
+/** Builds an unsigned deposit create-intent tx (any token → lsoda* shares). */
 export const useLeverageYieldApiCreateDepositIntent = ({
   mutationOptions,
 }: MutationHookParams<CreateIntentResponseV2, UseLeverageYieldApiCreateDepositIntentVars> = {}): SafeUseMutationResult<

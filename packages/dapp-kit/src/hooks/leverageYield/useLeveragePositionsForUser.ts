@@ -8,21 +8,7 @@ export type UseLeveragePositionsForUserParams = ReadHookParams<
   { spokeChainKey: SpokeChainKey | undefined; spokeAddress: string | undefined }
 >;
 
-/**
- * Lists a user's leverage positions from their spoke-side address and chain.
- *
- * Positions are owned by the user's hub wallet, not their EOA, so discovery resolves that address
- * first — the wallet router for a Sonic user, the cross-chain wallet for a spoke user, via one
- * call. Use this in user-facing code; {@link useLeveragePositions} takes a hub address directly
- * and will find nothing if handed an EOA.
- *
- * @example
- * ```typescript
- * const { data: positions } = useLeveragePositionsForUser({
- *   params: { spokeChainKey: chain, spokeAddress: account.address },
- * });
- * ```
- */
+/** Resolves the user's hub wallet first, since positions are owned by it; {@link useLeveragePositions} finds nothing for an EOA. */
 export function useLeveragePositionsForUser({
   params,
   queryOptions,

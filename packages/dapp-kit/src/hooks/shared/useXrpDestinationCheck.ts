@@ -8,7 +8,6 @@ export type UseXrpDestinationCheckParams = ReadHookParams<
   {
     chainId: SpokeChainKey | undefined;
     token: string | undefined;
-    /** The XRPL account that receives the payout. */
     address: string | undefined;
     /** The least that arrives, in the token's decimals. */
     amount: bigint | undefined;
@@ -52,10 +51,7 @@ export function getXrpDestinationCheckQueryOptions({
   };
 }
 
-/**
- * Whether an XRPL account can receive `amount` of `token` (up to `maxAmount`), and if not, why. It reads the
- * same ledger state a swap or withdrawal is refused on before signing.
- */
+/** Whether an XRPL account can receive `amount` of `token` (up to `maxAmount`), and if not, why. */
 export function useXrpDestinationCheck({
   params,
   queryOptions,

@@ -22,7 +22,6 @@ const PAYLOAD: LeverageYieldQuoteParams = {
   quote_type: 'exact_input',
 };
 
-/** The SDK's own quote Result, derived so the doubles stay honest without an unsafe cast. */
 type QuoteResult = Awaited<ReturnType<Sodax['leverageYield']['getQuote']>>;
 
 const QUOTE: QuoteResult = { ok: true, value: { quoted_amount: 990_000n } };
@@ -63,8 +62,7 @@ describe('getLeverageYieldQuoteQueryOptions', () => {
     expect(getQuote).not.toHaveBeenCalled();
   });
 
-  // React Query hashes keys with JSON.stringify, which throws on bigint. Both bigint sites
-  // (`amount` and a fixed-amount `partnerFee`) must be stringified or every render crashes.
+  // React Query hashes keys with JSON.stringify, which throws on bigint.
   it('produces a hashable key for a percentage partner fee', () => {
     const partnerFee = { address: FEE_RECIPIENT, percentage: 100 } satisfies PartnerFee;
     const { sodax } = makeSodax();
@@ -87,7 +85,6 @@ describe('getLeverageYieldQuoteQueryOptions', () => {
       sodax,
       payload: { ...PAYLOAD, partnerFee: { address: FEE_RECIPIENT, percentage: 100 } },
     }).queryKey;
-    // Sharing a cache entry would serve a quote priced on a different net input.
     expect(hashKey(base)).not.toBe(hashKey(withFee));
   });
 
@@ -97,9 +94,6 @@ describe('getLeverageYieldQuoteQueryOptions', () => {
     expect(hashKey(queryKey)).toContain('"amount":"1000000"');
   });
 
-  // The configured fee is a real input to the quote whenever payload.partnerFee is omitted, so it
-  // has to participate in the key — otherwise differently-configured providers share a cache entry
-  // and a reconfigured provider serves the previous fee's quote.
   it('keys the configured leverageYield fee when the payload omits partnerFee', () => {
     const noFee = getLeverageYieldQuoteQueryOptions({ sodax: makeSodax().sodax, payload: PAYLOAD }).queryKey;
     const withConfigFee = getLeverageYieldQuoteQueryOptions({
@@ -130,9 +124,7 @@ describe('getLeverageYieldQuoteQueryOptions', () => {
     expect(hashKey(queryKey)).toContain('7000');
   });
 
-  // Pins the allow-list. If `LeverageYieldQuoteParams` gains a field, this fails and forces a
-  // decision about whether it belongs in the key — rather than a spread silently carrying a new
-  // bigint in and crashing `hashKey` at render time.
+  // Fails when `LeverageYieldQuoteParams` gains a field, forcing a decision on whether it belongs in the key.
   it('keys exactly the known request fields', () => {
     const { sodax } = makeSodax();
     const { queryKey } = getLeverageYieldQuoteQueryOptions({ sodax, payload: PAYLOAD });
@@ -150,10 +142,9 @@ describe('getLeverageYieldQuoteQueryOptions', () => {
     );
   });
 
-  // Key derivation runs during render, so it must not throw on a payload assembled from
-  // partially-validated form state — the SDK's own validation reports that as a Result.
   it('derives a hashable key even when amount is missing', () => {
     const { sodax } = makeSodax();
+    // Simulates half-filled form state that the type forbids; key derivation must not throw during render.
     const malformed = { ...PAYLOAD, amount: undefined } as unknown as LeverageYieldQuoteParams;
 
     const { queryKey } = getLeverageYieldQuoteQueryOptions({ sodax, payload: malformed });
@@ -169,7 +160,6 @@ describe('getLeverageYieldQuoteQueryOptions', () => {
       sodax,
       payload: { ...PAYLOAD, partnerFee: explicitFee },
     });
-    // Mirrors getQuote's own precedence: per-call override beats the configured fee.
     expect(hashKey(queryKey)).toContain('"percentage":10');
   });
 });

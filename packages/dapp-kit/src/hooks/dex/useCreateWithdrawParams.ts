@@ -10,11 +10,7 @@ export type UseCreateWithdrawParamsProps = {
   dst?: DestinationParamsType;
 };
 
-/**
- * React hook to memoize the withdraw-specific subset of {@link CreateAssetWithdrawParams}
- * (`{ asset, amount, poolToken, dst? }`). Callers add `srcChainKey` + `srcAddress` at the mutation
- * call site.
- */
+/** Memoizes the withdraw fields; callers add `srcChainKey` + `srcAddress` at mutation time. */
 export function useCreateWithdrawParams({
   tokenIndex,
   amount,

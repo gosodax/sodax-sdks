@@ -13,13 +13,7 @@ export type UseLeverageYieldApiAprParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch the AAVE-only steady-state APR for a leverage-yield vault via the leverage-yield API —
- * `sodax.api.leverageYield.getApr`.
- *
- * @example
- * const { data } = useLeverageYieldApiApr({ params: { vault: '0x...' } });
- */
+/** AAVE-only steady-state APR; {@link useLeverageYieldApiEffectiveApr} includes LSD yield. */
 export const useLeverageYieldApiApr = ({
   params,
   queryOptions,

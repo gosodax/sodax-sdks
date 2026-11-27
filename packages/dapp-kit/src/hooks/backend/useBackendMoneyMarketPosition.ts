@@ -11,12 +11,6 @@ export type UseBackendMoneyMarketPositionParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook for fetching a user's money market position from the backend API.
- *
- * @example
- * const { data } = useBackendMoneyMarketPosition({ params: { userAddress: '0xabc...' } });
- */
 export const useBackendMoneyMarketPosition = ({
   params,
   queryOptions,

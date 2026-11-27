@@ -1,5 +1,4 @@
 import { useQueryClient } from '@tanstack/react-query';
-// packages/dapp-kit/src/hooks/swap/useCreateLimitOrder.ts
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import type { LimitOrderActionParams, SpokeChainKey, SwapResponse } from '@sodax/sdk';
 import type { MutationHookParams } from '../shared/types.js';
@@ -7,22 +6,13 @@ import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMu
 import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/**
- * Mutation variables for {@link useCreateLimitOrder}. Generic over `K extends SpokeChainKey`
- * (defaults to the full union). Sophisticated callers can lock K at the call site to narrow the
- * `walletProvider` and `params.srcChainKey` types.
- */
+/** Lock `K` at the call site to narrow `walletProvider` and `params.srcChainKey`. */
 export type UseCreateLimitOrderVars<K extends SpokeChainKey = SpokeChainKey> = Omit<
   LimitOrderActionParams<K, false>,
   'raw'
 >;
 
-/**
- * React hook for creating a limit-order intent (no deadline).
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `SwapResponse` on success.
- */
+/** Creates a limit order (no deadline). Throws on SDK failure; resolves to the unwrapped `SwapResponse`. */
 export function useCreateLimitOrder<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<SwapResponse, UseCreateLimitOrderVars<K>> = {}): SafeUseMutationResult<

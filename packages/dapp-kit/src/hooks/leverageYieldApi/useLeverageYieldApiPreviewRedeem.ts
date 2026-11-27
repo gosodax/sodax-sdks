@@ -14,13 +14,7 @@ export type UseLeverageYieldApiPreviewRedeemParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to preview the assets returned for redeeming `shares` (ERC-4626 previewRedeem) via the leverage-yield API —
- * `sodax.api.leverageYield.previewRedeem`.
- *
- * @example
- * const { data } = useLeverageYieldApiPreviewRedeem({ params: { vault: '0x...', shares: '1000000000000000000' } });
- */
+/** ERC-4626 `previewRedeem`: assets returned for `shares`. */
 export const useLeverageYieldApiPreviewRedeem = ({
   params,
   queryOptions,

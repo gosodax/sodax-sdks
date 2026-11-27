@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/mm/useSupply.ts
 import type { MoneyMarketSupplyActionParams, SpokeChainKey, TxHashPair } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
@@ -8,34 +7,12 @@ import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMu
 import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/**
- * Mutation variables for {@link useSupply}. Generic over `K extends SpokeChainKey` (defaults to
- * the full union). Sophisticated callers can lock K at the hook call site to narrow the
- * `walletProvider` and `params.srcChainKey` types.
- */
 export type UseSupplyVars<K extends SpokeChainKey = SpokeChainKey> = Omit<
   MoneyMarketSupplyActionParams<K, false>,
   'raw'
 >;
 
-/**
- * React hook for supplying tokens to the Sodax money market protocol.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
- *
- * @example
- * ```tsx
- * const walletProvider = useWalletProvider({ xChainId: chainKey });
- * const { mutateAsync: supply, isError, error } = useSupply();
- * if (!walletProvider) return;
- * try {
- *   const { spokeTxHash, hubTxHash } = await supply({ params: supplyParams, walletProvider });
- * } catch (e) {
- *   // surfaced via mutation.error / onError
- * }
- * ```
- */
+/** Throws on SDK failure (React Query error state); resolves to the unwrapped `TxHashPair`. */
 export function useSupply<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<TxHashPair, UseSupplyVars<K>> = {}): SafeUseMutationResult<TxHashPair, Error, UseSupplyVars<K>> {

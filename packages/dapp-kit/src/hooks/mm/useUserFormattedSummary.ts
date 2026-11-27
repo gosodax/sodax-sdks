@@ -13,13 +13,6 @@ export type UseUserFormattedSummaryParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook returning the user's formatted money market portfolio summary (collateral, borrows,
- * health factor, available borrow power, etc.) for the given spoke chain.
- *
- * Internally chains `getReservesHumanized` → `formatReservesUSD` → `getUserReservesHumanized`
- * → `formatUserSummary`.
- */
 export function useUserFormattedSummary({
   params,
   queryOptions,

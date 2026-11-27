@@ -12,13 +12,7 @@ import {
   toNotFoundBudgetRead,
 } from '../shared/solverStatusPolicy.js';
 
-/**
- * Guards the polling-stop invariant for `useDetailedStatus`. The two variants report terminality in
- * their own vocabularies, so the stop condition reads whichever source answered. Unresolved reads
- * share `useStatus`'s single budget — but only the ones that are ambiguous by nature (solver
- * `NOT_FOUND`, or a relay with no packet for the tx), never a dependency outage, which must keep
- * polling so it recovers on its own.
- */
+// Only ambiguous reads (solver NOT_FOUND, no relay packet) spend the budget; an outage must keep polling.
 
 /** Derived from the public union so the fixtures track the wire contract without a cast. */
 type BackendStatus = Extract<DetailedSwapStatus, { source: 'backend' }>['data']['status'];
@@ -51,7 +45,7 @@ const outage = {
   error: new SodaxError('LOOKUP_FAILED', 'relay down', { feature: 'swap' }),
 };
 
-/** A key the backend rejected. Terminal, and reached before any budget — see the stop below. */
+/** A key the backend rejected: terminal before any budget is spent. */
 const rejectedKey = {
   ok: false as const,
   error: new SodaxError('LOOKUP_FAILED', 'rejected', { feature: 'swap', context: { status: 401 } }),
@@ -73,9 +67,7 @@ const advance = (
   );
 
 describe('getSolverDetailedStatusRefetchInterval', () => {
-  // Both terminal states of the `SubmitSwapTxStatusV2` wire contract. `'failed'` is unreachable via
-  // `getDetailedStatus` today (the SDK routes abandoned records to the solver) — asserted here as
-  // the hook's own contract, so a terminal record is never polled forever if that routing changes.
+  // `'failed'` is unreachable via `getDetailedStatus` today; asserted so a routing change never polls a terminal record forever.
   it.each(['solved', 'failed'] as const)('stops on a backend record at the terminal status %s', status => {
     expect(getSolverDetailedStatusRefetchInterval(ok(backend(status)), 0)).toBe(false);
   });
@@ -136,9 +128,7 @@ describe('getSolverDetailedStatusRefetchInterval', () => {
     expect(getSolverDetailedStatusRefetchInterval(rejected, 0)).toBe(false);
   });
 
-  // The regression this guards: a rejected key leaves the backend unanswered, so a relay miss behind
-  // it is unprovable and never tagged `DETAILED_STATUS_NOT_DELIVERED`. Without its own stop the read
-  // would poll both endpoints forever, because the budget it would need to exhaust never advances.
+  // A rejected key hides any relay miss from the budget, so without its own stop it would poll forever.
   it('stops a rejected key even though the not-delivered budget never advances', () => {
     expect(advance(INITIAL_NOT_FOUND_STREAK, Array(MAX_NOT_FOUND_POLLS).fill(rejectedKey)).consecutiveNotFound).toBe(0);
     expect(getSolverDetailedStatusRefetchInterval(rejectedKey, 0)).toBe(false);
@@ -183,8 +173,7 @@ describe('detailed-status budget', () => {
     expect(getSolverDetailedStatusRefetchInterval(notFound, state.consecutiveNotFound)).toBe(false);
   });
 
-  // The regression this guards: a swap whose relay packet never lands used to poll forever, because
-  // every LOOKUP_FAILED reset the budget it should have been spending.
+  // Regression: a LOOKUP_FAILED must not reset the budget, or an undelivered packet polls forever.
   it('counts consecutive undelivered reads up to the cutoff, then stops', () => {
     const state = advance({ ...INITIAL_NOT_FOUND_STREAK }, Array(MAX_NOT_FOUND_POLLS).fill(notDelivered));
 
@@ -192,8 +181,7 @@ describe('detailed-status budget', () => {
     expect(getSolverDetailedStatusRefetchInterval(notDelivered, state.consecutiveNotFound)).toBe(false);
   });
 
-  // The regression this guards: a 2-minute solver or relay outage used to exhaust the budget and
-  // stop the poll for good, turning recoverable downtime into a permanently stuck status.
+  // Regression: an outage must not exhaust the budget, or recoverable downtime becomes a stuck status.
   it('never exhausts the budget on an outage, however long it runs', () => {
     const state = advance({ ...INITIAL_NOT_FOUND_STREAK }, Array(MAX_NOT_FOUND_POLLS * 2).fill(outage));
 

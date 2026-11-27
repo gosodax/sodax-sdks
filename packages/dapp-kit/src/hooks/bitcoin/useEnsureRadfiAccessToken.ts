@@ -9,19 +9,8 @@ export type UseEnsureRadfiAccessTokenVars = {
 };
 
 /**
- * Ensure a valid Bound Exchange access token and return it. Refreshes the existing token (no
- * signature prompt) when a refresh token is available, falling back to a full BIP322 re-auth only if
- * refresh fails. Bound tokens are short-lived, so call this right before a Bitcoin-source
- * createIntent — forward the returned token via the typed `extras.bound.accessToken` slot (SDK in-process)
- * or the `accessToken` body field on the backend DTO — or before the client-side sign + co-sign step.
- *
- * @example
- * const { mutateAsync: ensureToken } = useEnsureRadfiAccessToken();
- * const accessToken = await ensureToken({ walletProvider });
- * // SDK in-process (Bitcoin-gated extras):
- * await sodax.swaps.createIntent({ params, extras: { bound: { accessToken } }, raw: true });
- * // or backend createIntent — token in the body, not an x-bound-access-token header:
- * await createIntent({ body: { ...body, accessToken } });
+ * Bound tokens are short-lived: call right before a Bitcoin-source createIntent and pass the token as
+ * `extras.bound.accessToken` (SDK) or the `accessToken` body field (backend). Falls back to BIP322 re-auth.
  */
 export function useEnsureRadfiAccessToken({
   mutationOptions,

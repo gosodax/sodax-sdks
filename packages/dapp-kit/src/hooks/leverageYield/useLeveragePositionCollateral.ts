@@ -9,19 +9,8 @@ export type UseLeveragePositionCollateralParams = ReadHookParams<
 >;
 
 /**
- * Reads a leverage position's collateral as an exact aToken balance.
- *
- * Use this, not `useLeveragePositionAccount().totalCollateralBase`, whenever an amount is going into
- * a transaction. The account snapshot is denominated in the oracle's base currency at 8 decimals, so
- * dividing it back out by a price gives an amount near the balance rather than the balance — and a
- * decrease-leverage call for more collateral than the position holds expires as an unfillable intent
- * instead of failing up front.
- *
- * @example
- * ```typescript
- * const { data: collateral } = useLeveragePositionCollateral({ params: { position } });
- * // collateral.balance is what a full exit sells
- * ```
+ * Exact aToken collateral balance; use this (not the account snapshot's oracle-priced total) for transaction
+ * amounts, since over-asking on decrease-leverage expires as an unfillable intent instead of failing up front.
  */
 export function useLeveragePositionCollateral({
   params,
@@ -40,7 +29,6 @@ export function useLeveragePositionCollateral({
       return result.value;
     },
     enabled: !!position,
-    // Interest accrues into the balance continuously, so match the account snapshot's cadence.
     refetchInterval: 30_000,
     ...queryOptions,
   });

@@ -7,17 +7,12 @@ import {
 } from '@sodax/sdk';
 import { MAX_MPC_RELAY_NOT_FOUND_POLLS, MAX_NOT_FOUND_POLLS, STATUS_POLL_MS } from '../shared/notFoundStreak.js';
 
-/**
- * Structural mirror of `useBridgeDetailedStatus`'s data type. Declared locally rather than imported
- * so this module does not own the hook's public contract.
- */
+/** Mirrors `useBridgeDetailedStatus`'s data type locally so this module does not own the hook's contract. */
 type DetailedBridgeStatusRead = Result<DetailedBridgeStatus, BridgeDetailedStatusError> | undefined;
 
 /**
- * The read the budget counts: the relay has no packet for this source tx *and* the backend answered,
- * so the miss is real rather than unprovable. Every other `LOOKUP_FAILED` is a dependency failing
- * right now — the relay unreachable, a malformed response — and those keep polling, because that is
- * how the read recovers when the outage ends.
+ * The only read the budget counts: no relay packet *and* the backend answered, so the miss is real.
+ * Other `LOOKUP_FAILED`s are outages and keep polling so the read recovers.
  */
 export function isBridgeNotDelivered(data: DetailedBridgeStatusRead): boolean {
   return data !== undefined && !data.ok && data.error?.context?.reason === DETAILED_STATUS_NOT_DELIVERED;
@@ -29,16 +24,8 @@ export function isBridgeMpcRelayRead(data: DetailedBridgeStatusRead): boolean {
 }
 
 /**
- * Polling interval for `useBridgeDetailedStatus`.
- *
- * Unlike the swap analog there is no in-flight second arm to wait on: the relay arm only ever
- * carries a matched `executed` packet, and the MPC-relay arm a minted deposit record, so both are
- * terminal on arrival. That leaves three stops — a terminal or abandoned backend record, a rejected
- * API key, and the ambiguous relay miss once it has run `MAX_NOT_FOUND_POLLS` times in a row, or
- * `MAX_MPC_RELAY_NOT_FOUND_POLLS` when the SDK tags it `context.mpcRelay`.
- *
- * Kept in its own pure module (no React/context imports) so it is unit-testable in dapp-kit's `node`
- * test environment — importing the hook itself pulls in `useSodaxContext`.
+ * Relay and MPC-relay answers are terminal on arrival; stops on a terminal/abandoned backend record, a rejected key, or an exhausted miss budget.
+ * Kept free of React imports so it is unit-testable in the `node` test environment.
  */
 export function getBridgeDetailedStatusRefetchInterval(
   data: DetailedBridgeStatusRead,
@@ -46,13 +33,12 @@ export function getBridgeDetailedStatusRefetchInterval(
 ): number | false {
   if (data?.ok) {
     if (data.value.source !== 'backend') return false;
-    // The two terminal states of the bridge wire contract, plus a record the backend abandoned
-    // while its status was still non-terminal.
+    // `abandonedAt` marks a record the backend gave up on while still non-terminal.
     const { status, abandonedAt } = data.value.data;
     return status === 'executed' || status === 'failed' || abandonedAt ? false : STATUS_POLL_MS;
   }
   if (data && !data.ok) {
-    // A rejected key is terminal — only a corrected key changes the answer, so stop asking.
+    // Only a corrected key changes the answer, so stop asking.
     if (isAuthFailure(data.error)) return false;
     const budget = isBridgeMpcRelayRead(data) ? MAX_MPC_RELAY_NOT_FOUND_POLLS : MAX_NOT_FOUND_POLLS;
     if (isBridgeNotDelivered(data) && consecutiveNotFound >= budget) return false;
