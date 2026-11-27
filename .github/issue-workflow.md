@@ -6,11 +6,13 @@ Every change starts from a GitHub issue. The issue body is the **spec**: what to
 
 | Artifact | Where | Template |
 | --- | --- | --- |
-| Spec | Issue body | [`ISSUE_TEMPLATE/spec.md`](ISSUE_TEMPLATE/spec.md), or [`bug_report.md`](ISSUE_TEMPLATE/bug_report.md) for a bug |
+| Spec | Issue body | [`ISSUE_TEMPLATE/spec.md`](ISSUE_TEMPLATE/spec.md); [`bug_report.md`](ISSUE_TEMPLATE/bug_report.md) for a bug; [`new-chain.yml`](ISSUE_TEMPLATE/new-chain.yml) to add a chain; [`new-token.yml`](ISSUE_TEMPLATE/new-token.yml) to add tokens |
 | Epic | Issue body; its GitHub sub-issues are its plan | [`ISSUE_TEMPLATE/epic.md`](ISSUE_TEMPLATE/epic.md) |
 | Plan | One issue comment starting with `<!-- sodax:plan -->`, edited in place, never re-posted | [`plan-template.md`](plan-template.md) |
 | Approval | `plan-approved` label on the issue, applied by a human with write access | — |
 | Delivery | Pull request with `Closes #N`; its Evidence maps each AC to proof | [`PULL_REQUEST_TEMPLATE.md`](PULL_REQUEST_TEMPLATE.md) |
+
+Use the New chain or New token form instead of `spec.md` for those two changes. Each is a spec with the same sections, plus the inputs the `add-chain` and `add-token` skills say must be confirmed before work starts.
 
 Issues created through the API (`gh issue create`) must use the matching template's sections too.
 

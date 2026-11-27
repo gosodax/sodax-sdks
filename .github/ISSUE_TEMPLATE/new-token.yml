@@ -1,0 +1,98 @@
+name: New token
+description: Add one or more tokens to the SDK. A spec plus the inputs that must be known before work starts.
+title: "feat(types): add <symbol> token"
+labels: [new-token]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue is a spec ([issue workflow](https://github.com/gosodax/sodax-sdks/blob/main/.github/issue-workflow.md)): it says what ships and how we know it is done. The plan comment says how.
+        This repository is public. Take addresses from the deployment record, and write "to be announced" for any address that isn't public yet.
+        Bridge, partner fee and recovery include every added token automatically, and staking is SODA only, so none of them are asked here.
+  - type: textarea
+    id: tokens
+    attributes:
+      label: Tokens
+      description: One line per token, symbol and name, e.g. "USDC (USD Coin)".
+    validations:
+      required: true
+  - type: textarea
+    id: deployments
+    attributes:
+      label: Chains and addresses
+      description: One line per token and chain, with the address and decimals. Write "to be announced" for an address that isn't public yet.
+      placeholder: |
+        USDC on Arbitrum: 0x... (6 decimals)
+        USDC on Solana: to be announced (6 decimals)
+  - type: textarea
+    id: hub
+    attributes:
+      label: Hub asset and vault
+      description: For each token, its hub asset and the vault it uses, or "to be announced". Say if the vault doesn't exist yet.
+  - type: dropdown
+    id: access
+    attributes:
+      label: Restricted access
+      options:
+        - None
+        - Withdraw only
+        - Deposit only
+    validations:
+      required: true
+  - type: dropdown
+    id: swap-tier
+    attributes:
+      label: Swap
+      description: Which solver list the token joins, and whether it is filled from day one. Confirm with the solver team; don't guess.
+      options:
+        - Not a swap token
+        - Production, live
+        - Production, parked (listed, not filled yet)
+        - Staging, live
+        - Staging, parked (listed, not filled yet)
+    validations:
+      required: true
+  - type: dropdown
+    id: money-market
+    attributes:
+      label: Money market
+      options:
+        - Not a money-market token
+        - Yes, and its vault is already a money-market reserve
+        - Yes, but its vault is not a money-market reserve yet (needs a hub change first)
+    validations:
+      required: true
+  - type: textarea
+    id: bridge
+    attributes:
+      label: Bridge counterparts
+      description: If the token should bridge, the matching token on each other chain.
+  - type: textarea
+    id: spec
+    attributes:
+      label: Spec
+      description: Fill every section. Non-goals and Constraints may say "None".
+      value: |
+        ## Goal
+        <!-- 1–3 sentences: which tokens, and what users and integrators can do with them once this ships. No implementation. -->
+
+        ## Requirements
+        <!-- Numbered, each one observable, e.g. "Users can swap USDC on Arbitrum". Outcomes only: no internal class, file or mechanism names; those go in the plan. -->
+        1.
+
+        ## Non-goals
+        <!-- What this explicitly does not do. "None" if none. -->
+        -
+
+        ## Constraints
+        <!-- Task-specific only, e.g. waits on a hub vault or a solver listing. "None" if none. -->
+        -
+
+        ## Acceptance criteria
+        <!-- Each one checkable by a test, a command, or an observable result. The plan and PR Evidence reference AC1, AC2… -->
+        - [ ] AC1:
+
+        ## Context
+        <!-- The deployment record or announcement for the addresses, the parent epic, related issues. -->
+    validations:
+      required: true
