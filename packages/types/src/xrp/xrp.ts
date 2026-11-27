@@ -2,20 +2,8 @@ import type { MpcWithdrawMessage, MpcWithdrawScheme } from '../chains/chains.js'
 import type { Hex } from '../shared/shared.js';
 import type { ICoreWallet } from '../wallet/wallet.js';
 
-/**
- * XRPL types for the MPC (memo-mode) deposit flow. XRPL does NOT ride the intent relay — deposits
- * are Payments to the shared MPC reserve carrying a 32-byte payload-hash memo, picked up by the
- * NEAR chain-signatures relay. See `MpcRelayApiService` in the sdk package.
- *
- * Withdrawals use auth scheme 3, which differs from Tron's scheme 1 in two ways that are easy to
- * get wrong:
- *   - the signature is a RAW ed25519 signature over the 32-byte message hash — no prefix, no
- *     envelope, unlike Tron's TIP-191 wrapping;
- *   - the identity is NOT the public key. `sender` is the 20-byte AccountID
- *     (`ripemd160(sha256(pubkey))` over the FULL 33-byte `0xED`-prefixed key), and the 33-byte
- *     key rides alongside as `publicKey`. The contract derives the former from the latter and
- *     compares, so the two are not interchangeable.
- */
+// XRPL uses the MPC relay, not the intent relay: deposits are Payments to the MPC reserve with a 32-byte payload-hash memo.
+// Withdraw scheme 3: RAW ed25519 sig (no TIP-191 envelope); `sender` is the AccountID derived from the 33-byte `0xED` key.
 
 /** Amount on XRPL: drops for native XRP, or an issued-currency (IOU) amount object. */
 export type XrpAmount =
@@ -26,13 +14,12 @@ export type XrpAmount =
       value: string;
     };
 
-/** An unsigned XRPL Payment, as handed to a wallet for signing. */
 export interface XrpUnsignedTransaction {
   TransactionType: 'Payment';
   Account: string;
   Destination: string;
   Amount: XrpAmount;
-  /** Memo carrying the payload hash — what the relay matches the deposit on. */
+  /** Payload hash the relay matches the deposit on. */
   Memos?: { Memo: { MemoData: string } }[];
   Fee?: string;
   Sequence?: number;
@@ -41,10 +28,7 @@ export interface XrpUnsignedTransaction {
   [field: string]: unknown;
 }
 
-/**
- * An unsigned XRPL TrustSet: creates the trustline an account needs to hold an issued currency, or
- * raises its limit. Fee, Sequence and LastLedgerSequence are left to the wallet, as for a Payment.
- */
+/** Fee, Sequence and LastLedgerSequence are left to the wallet, as for a Payment. */
 export interface XrpUnsignedTrustSet {
   TransactionType: 'TrustSet';
   Account: string;
@@ -71,20 +55,15 @@ export type XrpPaymentRecovery = {
   readonly attemptedAtMs: number;
 };
 
-/** A signed XRPL transaction blob ready to submit. */
 export interface XrpSignedTransaction {
-  /** Hex-encoded signed transaction blob (`tx_blob`). */
+  /** Hex-encoded. */
   tx_blob: string;
-  /** Transaction hash, when the signer computed it. */
   hash?: string;
 }
 
 /**
- * Structural raw-tx shape shared with the other spoke chains (see `RawTxReturnType`). `to` is the
- * MPC reserve the funds go to and `data` the memo to tag the Payment with, for both native XRP and
- * an IOU — `token` distinguishes them (the zero sentinel for native XRP), since an IOU Payment
- * carries a currency/issuer amount object rather than a drops string. `transaction` is that Payment,
- * built: sign and submit it, then notify the relay of its hash.
+ * `to` is the MPC reserve, `data` the memo; `token` is the zero sentinel for native XRP, else an IOU.
+ * `transaction` is the built Payment: sign and submit it, then notify the relay of its hash.
  */
 export type XrpRawTransaction = {
   from: string;
@@ -95,11 +74,7 @@ export type XrpRawTransaction = {
   transaction: XrpUnsignedTransaction;
 };
 
-/**
- * Raw withdraw-auth: no XRPL transaction exists. Sign `digest` as a RAW ed25519 signature with
- * {@link IXrpWalletProvider.signMessage}, then submit it with the account's `0xED` public key, which
- * returns the withdrawal's trackingId.
- */
+/** No XRPL transaction exists: sign `digest` with {@link IXrpWalletProvider.signMessage}, then submit it with the `0xED` public key. */
 export type XrpRawWithdraw = {
   message: MpcWithdrawMessage;
   digest: Hex;
@@ -112,21 +87,20 @@ export type XrpReturnType<Raw extends boolean> = Raw extends true
     ? string
     : XrpRawTransaction | XrpRawWithdraw | string;
 
-/** What an XRPL deposit returns: the unsigned Payment in raw mode, else its tx hash. */
 export type XrpDepositReturnType<Raw extends boolean> = Raw extends true
   ? XrpRawTransaction
   : Raw extends false
     ? string
     : XrpRawTransaction | string;
 
-/** What an XRPL withdraw-auth (`sendMessage`) returns: the unsigned message in raw mode, else its trackingId. */
+/** Non-raw result is the withdrawal's trackingId. */
 export type XrpSendMessageReturnType<Raw extends boolean> = Raw extends true
   ? XrpRawWithdraw
   : Raw extends false
     ? string
     : XrpRawWithdraw | string;
 
-/** rippled `tx` response (the fields the relay/sdk actually read). */
+/** Subset of the rippled `tx` response the sdk reads. */
 export type XrpRawTransactionReceipt = {
   hash: string;
   ledger_index?: number;
@@ -139,30 +113,16 @@ export type XrpRawTransactionReceipt = {
 
 export interface IXrpWalletProvider extends ICoreWallet {
   readonly chainType: 'XRP';
-  /**
-   * Sign an unsigned XRPL Payment. A provider that also submits returns the original hash with an
-   * empty blob. On an ambiguous submit without a hash, throw an IndeterminateOutcomeError with an
-   * XrpPaymentRecovery handle so the caller can resolve the original Payment.
-   */
+  /** A submitting provider returns the hash with an empty blob; on an ambiguous submit without a hash, throw an
+   * IndeterminateOutcomeError carrying an XrpPaymentRecovery handle. */
   signTransaction: (tx: XrpUnsignedTransaction) => Promise<XrpSignedTransaction>;
-  /**
-   * Sign an unsigned TrustSet. Optional: a provider without it cannot set up trustlines, and the sdk
-   * refuses a trustline request for it. A provider that also submits returns the hash with an empty blob.
-   */
+  /** Without it the sdk refuses trustline requests. A submitting provider returns the hash with an empty blob. */
   signTrustSet?: (tx: XrpUnsignedTrustSet) => Promise<XrpSignedTransaction>;
-  /**
-   * Sign the 32-byte withdrawal-auth message hash (scheme 3) as a RAW ed25519 signature — no
-   * prefix and no envelope, which is what GemWallet's `signMessage(hexHash, isHex)` produces.
-   * Returns the 64-byte signature hex.
-   */
+  /** RAW ed25519 signature (64 bytes) over the 32-byte hash, no prefix or envelope, as GemWallet's `signMessage(hexHash, isHex)`. */
   signMessage: (hash: `0x${string}`) => Promise<`0x${string}`>;
-  /**
-   * The signer's 33-byte `0xED`-prefixed ed25519 public key. Scheme 3 cannot recover the identity
-   * from the signature the way secp256k1 does, so the key must be submitted with the withdrawal
-   * for the contract to derive the AccountID and check it against `sender`.
-   */
+  /** 33-byte `0xED`-prefixed ed25519 key; ed25519 cannot recover the signer, so it is submitted for the contract to check `sender`. */
   getPublicKey: () => Promise<`0x${string}`>;
   waitForTransactionReceipt: (txHash: string) => Promise<XrpRawTransactionReceipt>;
-  /** Broadcast an already-signed transaction via a rippled node. Returns the tx hash. */
+  /** Broadcasts via a rippled node; returns the tx hash. */
   sendTransaction?: (signedTx: XrpSignedTransaction) => Promise<string>;
 }

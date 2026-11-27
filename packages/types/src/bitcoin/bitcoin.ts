@@ -1,21 +1,12 @@
 import type { ICoreWallet } from '../wallet/wallet.js';
 import type { XToken } from '../chains/tokens.js';
 
-/**
- * Bitcoin protocol dust limit, in satoshis. Any native-BTC output below this is "dust" — economically
- * unspendable, and nodes/relays reject transactions that create it. Native-BTC deposits (Bitcoin as the
- * source) and deliveries (Bitcoin as the destination) must clear this threshold. Single source of truth
- * for the value; number-based UTXO math converts it with `Number(...)`.
- */
+/** Dust limit in satoshis: nodes reject outputs below it, so native-BTC deposits and deliveries must clear it. */
 export const BITCOIN_DUST_SATS = 546n;
 
 /**
- * True when `token` (an address or symbol) is native BTC for the given Bitcoin chain config, matched
- * against the config's own native identifiers — the literal 'btc', its `nativeToken` symbol, and the
- * BTC token address (e.g. '0:0') — all case-insensitively. Single source of truth for native-BTC
- * identity so the deposit-PSBT builder and the swap/bridge dust-limit guard never drift. Note: the
- * generic `isNativeToken` cannot be used here because Bitcoin's `nativeToken` is a symbol, not an
- * on-chain address.
+ * Matches 'btc', the `nativeToken` symbol or the BTC token address (e.g. '0:0'), case-insensitively. Use this,
+ * not `isNativeToken`: Bitcoin's `nativeToken` is a symbol, not an on-chain address.
  */
 export function isNativeBitcoinToken(
   chainConfig: { nativeToken: string; supportedTokens: Partial<Record<string, XToken>> },
@@ -29,15 +20,10 @@ export function isNativeBitcoinToken(
   return nativeBtcTokens.has(token.toLowerCase());
 }
 
-/** Check whether an AddressType is supported for signing/spending. */
 export function isSupportedBitcoinAddressType(addressType: string): addressType is BtcAddressType {
   return (BTC_ADDRESS_TYPES as readonly string[]).includes(addressType);
 }
 
-/**
- * Detect Bitcoin address type from its prefix.
- * Shared utility — use this instead of duplicating prefix checks.
- */
 export function detectBitcoinAddressType(address: string): BtcAddressType {
   if (address.startsWith('bc1p') || address.startsWith('tb1p')) return 'P2TR';
   if (address.startsWith('bc1') || address.startsWith('tb1')) return 'P2WPKH';
@@ -47,30 +33,20 @@ export function detectBitcoinAddressType(address: string): BtcAddressType {
 }
 
 /**
- * Off-chain message-signing scheme a Bitcoin address type must use: BIP-322 vs ECDSA (BIP-137).
- *
- * - **P2WPKH / P2TR → BIP-322.** Taproot keys are Schnorr/x-only, so ECDSA cannot sign for them
- *   (and wallets like Xverse default to Taproot).
- * - **P2SH / P2PKH → ECDSA (BIP-137).** Browser wallets (UniSat/OKX) reject BIP-322 on
- *   nested-segwit/legacy addresses — they throw "Not support address type to sign".
- *
- * No single scheme works for every address type, so signers AND verifiers must branch on this.
+ * Signers and verifiers must branch on this: Taproot keys are x-only so ECDSA cannot sign for them, while
+ * UniSat/OKX reject BIP-322 on P2SH/P2PKH, which therefore use ECDSA (BIP-137).
  */
 export function usesBip322MessageSigning(addressType: BtcAddressType): boolean {
   return addressType === 'P2WPKH' || addressType === 'P2TR';
 }
 
 export const BTC_WALLET_ADDRESS_TYPES = ['taproot', 'segwit'] as const;
-/** User-friendly Bitcoin address type for wallet connection. */
 export type BtcWalletAddressType = (typeof BTC_WALLET_ADDRESS_TYPES)[number];
 
-/** Address types that Sodax supports for transactions. */
 const BTC_ADDRESS_TYPES = ['P2PKH', 'P2SH', 'P2WPKH', 'P2TR'] as const;
 
-/** Subset of AddressType that Sodax can actually sign/spend from. */
 export type BtcAddressType = (typeof BTC_ADDRESS_TYPES)[number];
 
-// Type definitions for @sodax/types - Bitcoin Wallet Provider
 export interface BitcoinTransactionStatus {
   confirmed: boolean;
   block_height?: number;
@@ -143,37 +119,20 @@ export type BitcoinReturnType<Raw extends boolean> = Raw extends true
 
 export interface IBitcoinWalletProvider extends ICoreWallet {
   readonly chainType: 'BITCOIN';
-  /**
-   * Get the wallet's Bitcoin address
-   * @returns Promise resolving to the Bitcoin address
-   */
   getWalletAddress(): Promise<string>;
 
-  /**
-   * Sign a Bitcoin transaction (PSBT format)
-   * @param psbtHex - Hex-encoded PSBT transaction
-   * @returns Promise resolving to signed transaction hex
-   */
+  /** `psbt` is hex-encoded; resolves to the signed transaction hex. */
   signTransaction(psbt: string, finalize?: boolean): Promise<string>;
 
   signEcdsaMessage(message: string): Promise<string>;
 
   signBip322Message(message: string): Promise<string>;
 
-  /**
-   * Get the signer's public key as a hex string. Optional capability: required only for the
-   * money-market on-demand (borrow/withdraw) flow, where the relay needs the key to verify a
-   * BIP-322 (Schnorr/Taproot) signature — which is not public-key-recoverable. Wallets that
-   * cannot expose it omit this method; callers guard before use.
-   */
+  /** Hex. Needed only by money-market borrow/withdraw, where the relay verifies a non-recoverable BIP-322 signature;
+   * callers guard before use. */
   getPublicKey?(): Promise<string>;
 
-  /**
-   * Send Bitcoin to an address
-   * @param toAddress - Destination Bitcoin address
-   * @param satoshis - Amount to send in satoshis
-   * @returns Promise resolving to transaction hash
-   */
+  /** Resolves to the transaction hash. */
   sendBitcoin(toAddress: string, satoshis: bigint): Promise<string>;
 }
 

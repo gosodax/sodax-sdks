@@ -145,7 +145,6 @@ export function getChainType<K extends SpokeChainKey>(chainId: K): GetChainType<
   return type as GetChainType<K>;
 }
 
-/** Numeric viem/wagmi chain id → EvmChainKey. Built once from `baseChainInfo`. */
 export const EVM_CHAIN_ID_TO_KEY: ReadonlyMap<number, EvmChainKey> = new Map(
   EVM_CHAIN_KEYS.map(key => {
     const id = baseChainInfo[key].chainId;
@@ -156,31 +155,18 @@ export const EVM_CHAIN_ID_TO_KEY: ReadonlyMap<number, EvmChainKey> = new Map(
   }),
 );
 
-/**
- * Look up the `EvmChainKey` for a numeric viem/wagmi chain id.
- * Inverse of `baseChainInfo[chainKey].chainId` for EVM chains.
- */
 export function getEvmChainKeyByChainId(chainId: number | undefined): EvmChainKey | undefined {
   return chainId === undefined ? undefined : EVM_CHAIN_ID_TO_KEY.get(chainId);
 }
 
-/**
- * Returns true if the provided chainId is a legacy bnUSD chain ID.
- */
 export function isLegacybnUSDChainId(chainId: SpokeChainKey): boolean {
   return bnUSDLegacySpokeChainIds.includes(chainId as LegacybnUSDChainId);
 }
 
-/**
- * Returns true if the provided chainId is a new bnUSD chain ID.
- */
 export function isNewbnUSDChainId(chainId: SpokeChainKey): boolean {
   return newbnUSDSpokeChainIds.includes(chainId as NewbnUSDChainId);
 }
 
-/**
- * Returns true if the provided token (by object or address string) is a legacy bnUSD token.
- */
 export function isLegacybnUSDToken(token: XToken | string): boolean {
   if (typeof token === 'string') {
     return bnUSDLegacyTokens.some(t => t.address.toLowerCase() === token.toLowerCase());
@@ -196,9 +182,6 @@ export function getbnUSDToken(chainId: SpokeChainKey): XToken | undefined {
   return undefined;
 }
 
-/**
- * Returns true if the provided token (by object or address string) is a new bnUSD token.
- */
 export function isNewbnUSDToken(token: XToken | string): boolean {
   if (typeof token === 'string') {
     return newbnUSDSpokeChainIds
@@ -210,9 +193,6 @@ export function isNewbnUSDToken(token: XToken | string): boolean {
     .some(t => t?.address.toLowerCase() === token.address.toLowerCase());
 }
 
-/**
- * Returns all legacy bnUSD tokens, together with their chainId.
- */
 export function getAllLegacybnUSDTokens(): { token: LegacybnUSDToken; chainId: LegacybnUSDChainId }[] {
   return bnUSDLegacySpokeChainIds.map(chainId => ({
     token: spokeChainConfig[chainId].supportedTokens.legacybnUSD,
@@ -220,9 +200,6 @@ export function getAllLegacybnUSDTokens(): { token: LegacybnUSDToken; chainId: L
   }));
 }
 
-/**
- * Returns the concentrated liquidity configuration object.
- */
 export function getConcentratedLiquidityConfig(): ConcentratedLiquidityConfig {
   return concentratedLiquidityConfig;
 }
@@ -243,10 +220,7 @@ export function getIntentRelayChainId(chainKey: SpokeChainKey): IntentRelayChain
   return RelayChainIdMap[chainKey];
 }
 
-/**
- * Does this chain settle through the MPC relay rather than the intent relay? Membership in
- * {@link MpcRelayChainMap} is the definition — see that map.
- */
+/** True when the chain settles through the MPC relay rather than the intent relay ({@link MpcRelayChainMap} is the definition). */
 export function isMpcRelayChainKey(chainId: SpokeChainKey): boolean {
   return chainId in MpcRelayChainMap;
 }
@@ -268,12 +242,8 @@ export function getMpcPayoutMinimum(token: Pick<XToken, 'chainKey' | 'address'>)
 export type MpcPayoutMinimum = { symbol: string; decimals: number; minimum: bigint; inclusive: boolean };
 
 /**
- * The minimum that paying `amount` of `token` out through the MPC relay fails to exceed, or `undefined` when it
- * clears {@link MpcRelayPayoutMinimums} and {@link MpcRelayPayoutFloors}. The SDK refuses such a payout before
- * signing. An amount equal to a minimum fails too, because the relay skips a release once fee >= amount; an amount
- * equal to a floor passes. `amount` is truncated to the payout token's decimals first, as delivery would.
- *
- * @param amountDecimals - The decimals `amount` is in, when not the payout token's (a bridge's source).
+ * Unmet MPC payout minimum, or `undefined`; equal to a minimum fails (relay skips once fee >= amount), equal to a floor passes.
+ * `amount` (in `amountDecimals`, default the payout token's) is truncated to the token's decimals first, as delivery would.
  */
 export function getUnmetMpcPayoutMinimum({
   token,
@@ -297,11 +267,7 @@ export function getUnmetMpcPayoutMinimum({
   return undefined;
 }
 
-/**
- * The MPC relay's identity for a chain — its relay chain id and withdraw-auth scheme. The
- * counterpart of {@link getIntentRelayChainId}; throws for a chain that rides the intent relay,
- * which is a routing bug rather than a runtime condition (guard with {@link isMpcRelayChainKey}).
- */
+/** Throws for an intent-relay chain, which is a routing bug rather than a runtime condition (guard with {@link isMpcRelayChainKey}). */
 export function getMpcRelayChainInfo(chainKey: SpokeChainKey): MpcRelayChainInfo {
   const info = MpcRelayChainMap[chainKey as MpcRelayChainKey];
   if (!info) {

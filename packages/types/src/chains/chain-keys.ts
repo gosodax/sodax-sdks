@@ -1,6 +1,4 @@
-/**
- * Spoke chain key constants only — no imports from tokens/chains to avoid ESM circular init.
- */
+/** Chain key constants only — no imports from tokens/chains, to avoid ESM circular init. */
 export const ChainTypeArr = [
   'ICON',
   'EVM',

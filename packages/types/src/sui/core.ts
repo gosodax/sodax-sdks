@@ -1,9 +1,6 @@
 import type { SuiExecutionResult, SuiExecutionStatus, SuiPaginatedCoins } from './sui.js';
 
-/**
- * Structural mirrors of the `client.core` responses in `@mysten/sui` 2.x, kept local so
- * `@sodax/types` stays dependency-free. Bump them in lockstep with the workspace catalog.
- */
+// Local mirrors of `@mysten/sui` 2.x `client.core` responses (keeps this package dependency-free); bump with the catalog.
 export type SuiCoreCoin = {
   objectId: string;
   version: string;
@@ -23,10 +20,7 @@ export type SuiCoreCommandResult = {
   returnValues: { bcs: Uint8Array }[];
 };
 
-/**
- * `listCoins` reports `type` as the full `0x2::coin::Coin<T>` tag, so `coinType` echoes the
- * filter the caller queried with rather than unwrapping it.
- */
+/** `listCoins` reports `type` as the full `0x2::coin::Coin<T>` tag, so `coinType` echoes the caller's filter instead. */
 export function toSuiPaginatedCoins(response: SuiCoreListCoinsResponse, coinType: string): SuiPaginatedCoins {
   return {
     data: response.objects.map(coin => ({

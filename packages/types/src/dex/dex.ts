@@ -3,7 +3,6 @@ import { StatATokenAddresses } from '../chains/tokens.js';
 import type { PoolKey } from './pancakeswap-infinity.js';
 import type { Prettify } from '../common/common.js';
 
-// Re-export imported types for external usage with explicit type definitions for clarity.
 export type {
   EncodedPoolKey,
   PoolKey,
@@ -42,7 +41,7 @@ export const concentratedLiquidityConfig = {
 export const dexPools = {
   AETH_BNUSD: {
     currency0: '0x3E102c7D9b46c92aBcd4c2e1C70f362B47a201A6', // AsodaETH
-    currency1: '0xE801CA34E19aBCbFeA12025378D19c4FBE250131', // bnuSD
+    currency1: '0xE801CA34E19aBCbFeA12025378D19c4FBE250131', // bnUSD
     hooks: '0x598448d8f8553b9c6f27E52a92E2cCf27cDEF229', // defaultHook
     poolManager: '0xA3256ab552A271A16AcDfdB521B32ef82d481F43', // clPoolManager
     fee: 8388608, // DYNAMIC_FEE
@@ -94,10 +93,9 @@ export const dexPools = {
     },
   },
 
-  // SODA/ETH pool
   ASODA_BNUSD: {
     currency0: '0xac8540fee419c7ceb985889EaBa1e84B42a53e8a', // sodaSODA
-    currency1: '0xE801CA34E19aBCbFeA12025378D19c4FBE250131', // sodaETH
+    currency1: '0xE801CA34E19aBCbFeA12025378D19c4FBE250131', // bnUSD
     hooks: '0x598448d8f8553b9c6f27E52a92E2cCf27cDEF229', // defaultHook
     poolManager: '0xA3256ab552A271A16AcDfdB521B32ef82d481F43', // clPoolManager
     fee: 8388608, // DYNAMIC_FEE
@@ -122,7 +120,6 @@ export const dexPools = {
     },
   },
 
-  // SODA/USDC pool
   ASODA_XSODA: {
     currency0: '0xac8540fee419c7ceb985889EaBa1e84B42a53e8a', // sodaSODA
     currency1: '0xADC6561Cc8FC31767B4917CCc97F510D411378d9', // xSODA
