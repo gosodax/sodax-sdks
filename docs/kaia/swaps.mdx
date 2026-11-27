@@ -11,7 +11,7 @@ From your side it is one SDK call. From your user's side it is one wallet prompt
 ## What this looks like on Kaia
 
 - **Source**: the intent transaction is an Ethereum-format EVM transaction on Kaia mainnet (chain ID 8217), signed by an account with the `AccountKeyLegacy` key type. `ChainKeys.KAIA_MAINNET` (`'0x2019.kaia'`) identifies the network everywhere in the SDK.
-- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets today. The [on-Kaia asset list](/kaia/networks-and-assets) only bounds what users hold on Kaia itself, not what they can swap into.
+- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">226</span> assets today. The [on-Kaia asset list](/kaia/networks-and-assets) only bounds what users hold on Kaia itself, not what they can swap into.
 - **Tokens**: KAIA is the native gas token and uses the zero address in the SDK config. Every other Kaia asset is an ERC-20 token. Read addresses and decimals from the SDK config; never hard-code them.
 - **Settlement**: output lands on the destination network at `dstAddress`. Swaps into Kaia settle as ordinary token balances at the recipient's address.
 

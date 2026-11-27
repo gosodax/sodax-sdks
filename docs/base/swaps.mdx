@@ -11,7 +11,7 @@ From your side it is one SDK call. From your user's side it is one wallet prompt
 ## What this looks like on Base
 
 - **Source**: the intent transaction is an ordinary EVM transaction on Base, signed by the user's wallet. `ChainKeys.BASE_MAINNET` (`'0x2105.base'`) identifies the network everywhere in the SDK.
-- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets today. The [on-Base asset list](/base/networks-and-assets) only bounds what users hold on Base itself, not what they can swap into.
+- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">226</span> assets today. The [on-Base asset list](/base/networks-and-assets) only bounds what users hold on Base itself, not what they can swap into.
 - **Tokens**: ETH plus standard ERC-20s. Read addresses and decimals from the SDK config; never hard-code them.
 - **Settlement**: output lands on the destination network at `dstAddress`. Swaps into Base settle as ordinary ETH or ERC-20 balances at the recipient address.
 

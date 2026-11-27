@@ -12,7 +12,7 @@ On every other network, that transaction goes to a spoke contract and the SODAX 
 
 - **Source**: the intent transaction is an EVM transaction on Sonic that creates the intent on the hub intents contract. Native S is sent as the transaction value; ERC-20 inputs are pulled by the intents contract. `ChainKeys.SONIC_MAINNET` (`'sonic'`) identifies the network everywhere in the SDK.
 - **No relay hop**: the source transaction is the hub transaction. `swap()` skips the relay step, and the same hash is what the solver and `getStatus` key on.
-- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets today. The [on-Sonic asset list](/sonic/networks-and-assets) only bounds what users hold on Sonic itself, not what they can swap into.
+- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">226</span> assets today. The [on-Sonic asset list](/sonic/networks-and-assets) only bounds what users hold on Sonic itself, not what they can swap into.
 - **Tokens**: the Sonic list mixes Sonic-native tokens (S, wS, USDC, and others) with SODAX hub tokens, such as the `soda*` vault tokens and hub representations of assets from other networks. Read addresses and decimals from the SDK config; never hard-code them.
 - **Settlement**: output lands on the destination network at `dstAddress`. A swap into Sonic pays out in the Sonic token at `dstAddress` on Sonic.
 

@@ -109,7 +109,7 @@ For v1 → v2 ports, say something like “migrate my project to SODAX v2” —
 
 ## Tips
 
-- **Keep agent docs in sync when you upgrade `@sodax/*`** — docs should match the SDKs you ship. **skills CLI:** re-run `npx skills@latest add gosodax/sodax-sdks/packages/skills`. **npm / local package install:** bump `@sodax/skills` (e.g. `pnpm add -D @sodax/skills@1.2.3`). Using both CLI and npm is optional; if you use only the CLI, you do not need `@sodax/skills` in `package.json`.
+- **Keep agent docs in sync when you upgrade `@sodax/*`** — docs should match the SDKs you ship. **skills CLI:** re-run `npx skills@latest add gosodax/sodax-sdks/packages/skills`. **npm / local package install:** bump `@sodax/skills` to the version of `@sodax/sdk` you ship, which is the install that [matches that SDK](https://github.com/gosodax/sodax-sdks/blob/main/packages/skills/README.md). Using both CLI and npm is optional; if you use only the CLI, you do not need `@sodax/skills` in `package.json`.
 - **Start from `AGENTS.md`** (or, on CLI installs, let the agent pick a skill via its frontmatter) — not random files under `integration/knowledge/` or `migration-v1-to-v2/knowledge/`.
 - **Don’t add `@sodax/types` as a separate dependency** — types are re-exported from `@sodax/sdk`.
 

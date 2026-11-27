@@ -8,8 +8,8 @@ Sonic is the hub of the SODAX System. Every other network is a spoke: user funds
 
 There are two asset lists to keep straight, and the difference is the point of SODAX:
 
-- **Assets on Sonic**: the <span data-sodax-config="count" data-metric="chain-swap-tokens" data-chain="sonic">63</span> assets that live on Sonic itself. These are what your users hold, send, and receive on Sonic; the entry and exit points of any Sonic-side flow.
-- **Assets across the SODAX System**: <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets across all supported networks. Every one of them is a valid swap destination or collateral source for your Sonic users, because every SODAX action is cross-network by default.
+- **Assets on Sonic**: the <span data-sodax-config="count" data-metric="chain-swap-tokens" data-chain="sonic">86</span> assets that live on Sonic itself. These are what your users hold, send, and receive on Sonic; the entry and exit points of any Sonic-side flow.
+- **Assets across the SODAX System**: <span data-sodax-config="count" data-metric="swap-tokens">226</span> assets across all supported networks. Every one of them is a valid swap destination or collateral source for your Sonic users, because every SODAX action is cross-network by default.
 
 A user holding S is not limited to the Sonic-side list. They can swap S into ETH on Ethereum, USDC on Base, SOL on Solana, or any other listed asset on any network, in one signed transaction. The on-Sonic assets are simply where those journeys start and end on your side.
 
@@ -23,7 +23,7 @@ Live for swaps on Sonic:
   Live token list loads from the config API. If it has not appeared, read `config.swaps.supportedTokens.sonic` from [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all), or use the SDK call below.
 </div>
 
-Live in the [Money Market](/sonic/money-market) for supply, borrow, repay, and withdraw (<span data-sodax-config="count" data-metric="chain-money-market-tokens" data-chain="sonic">36</span> today):
+Live in the [Money Market](/sonic/money-market) for supply, borrow, repay, and withdraw (<span data-sodax-config="count" data-metric="chain-money-market-tokens" data-chain="sonic">46</span> today):
 
 <div data-sodax-config="money-market-tokens" data-chain="sonic">
   Live token list loads from the config API: `config.moneyMarket.supportedTokens.sonic` in [`GET /v2/be/config/all`](https://api.sodax.com/v2/be/config/all).

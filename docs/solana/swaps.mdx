@@ -11,7 +11,7 @@ From your side it is one SDK call. From your user's side it is one Phantom promp
 ## What this looks like on Solana
 
 - **Source**: the intent transaction is a normal Solana transaction signed by the user's wallet. `ChainKeys.SOLANA_MAINNET` (`'solana'`) identifies the chain everywhere in the SDK.
-- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">140</span> assets today. The [on-Solana asset list](/solana/networks-and-assets) only bounds what users hold on Solana itself, not what they can swap into.
+- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">226</span> assets today. The [on-Solana asset list](/solana/networks-and-assets) only bounds what users hold on Solana itself, not what they can swap into.
 - **No approvals**: there is no ERC-20 style allowance on Solana. `isAllowanceValid` always returns `true`; you can go straight from quote to swap.
 - **Settlement**: output lands on the destination network at `dstAddress`. Swaps into Solana settle to the user's address as SPL balances.
 - **Raw mode**: methods that support `raw: true` return a `SolanaRawTransaction` when the source is Solana, TypeScript-narrowed from `srcChainKey`, if you want to control signing and broadcast yourself.

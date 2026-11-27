@@ -11,7 +11,7 @@ From your side it is one SDK call. From your user's side it is one wallet prompt
 ## What this looks like on LightLink
 
 - **Source**: the intent transaction is an ordinary EVM transaction on LightLink Phoenix mainnet, signed by the user's wallet and paid for in ETH. `ChainKeys.LIGHTLINK_MAINNET` (`'lightlink'`) identifies the network everywhere in the SDK.
-- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets today. The [on-LightLink asset list](/lightlink/networks-and-assets) only bounds what users hold on LightLink itself, not what they can swap into.
+- **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">226</span> assets today. The [on-LightLink asset list](/lightlink/networks-and-assets) only bounds what users hold on LightLink itself, not what they can swap into.
 - **Tokens**: ETH uses the zero address; every other token, LL and the `.LL` tokens included, is a LightLink ERC-20 contract. Every `.LL` token uses 18 decimals. Read addresses and decimals from the SDK config rather than copying them.
 - **Settlement**: output lands on the destination network at `dstAddress`. Swaps into LightLink settle as ordinary ETH or ERC-20 balances at the recipient's LightLink address, with no extra step on the receiving side.
 
