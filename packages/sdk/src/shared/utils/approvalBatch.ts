@@ -22,59 +22,34 @@ import {
 } from './evmAtomicBatch.js';
 
 /**
- * How an approve-then-deposit flow gets the source token approved:
- * - `'not-required'` — allowance already sufficient (or none needed, e.g. a native token): one transaction.
- * - `'atomic-batch'` — approve and the deposit go out as one EIP-5792 batch: one signature.
- * - `'sequential'` — approve first, wait for it to confirm, then the deposit: two signatures, or
- *   three when the token must reset a stale allowance first.
+ * `'not-required'`: one tx; `'atomic-batch'`: approve + deposit as one EIP-5792 batch (one signature);
+ * `'sequential'`: approve, wait for confirmation, then deposit (two or three signatures with an allowance reset).
  */
 export type ApprovalStrategy = 'not-required' | 'atomic-batch' | 'sequential';
 
-/**
- * What swap's and leverage yield's `getApprovalStrategy` return when the allowance read fails. Bridge's
- * returns `isAllowanceValid`'s own error, so invalid params stay `VALIDATION_FAILED` there.
- */
+/** Swap/leverage-yield strategy-read error; bridge returns `isAllowanceValid`'s own error instead. */
 export type ApprovalStrategyErrorCode = Extract<SodaxErrorCode, 'ALLOWANCE_CHECK_FAILED'>;
 export type ApprovalStrategyError = SodaxError<ApprovalStrategyErrorCode>;
 
-/**
- * How long an SDK `*WithApproval` call waits for its batch: the caller's `timeout`, never below
- * `DEFAULT_RELAY_TX_TIMEOUT`. A batch given up on early may still land, and then it can only be waited out.
- */
+/** Caller's `timeout`, never below `DEFAULT_RELAY_TX_TIMEOUT`: a batch given up on early may still land. */
 export function approvalBatchWaitMs(timeout: number | undefined): number {
   return Math.max(resolveTimeoutMs(timeout, DEFAULT_RELAY_TX_TIMEOUT), DEFAULT_RELAY_TX_TIMEOUT);
 }
 
-/**
- * `context.reason` of the `INTENT_CREATION_FAILED` returned when the wallet refused the batch before
- * anything was signed (unsupported method, capability, chain or atomicity). Nothing was sent, so
- * approving separately and then sending the deposit cannot duplicate anything.
- */
+/** `context.reason` when the wallet refused the batch before signing; nothing was sent, so approving separately is safe. */
 export const ATOMIC_BATCH_REFUSED = 'atomic-batch-refused';
 
-/**
- * `context.reason` of a batch the wallet accepted but that did not confirm as a deposit — not within
- * the timeout, or with a result that does not say whether it landed (`TX_VERIFICATION_FAILED`, with
- * `context.batchId`, plus `context.callCount` when known). It may have landed: do not retry it.
- */
+/** `context.reason` of an accepted batch that did not confirm as a deposit; it may have landed, so do not retry. */
 export const ATOMIC_BATCH_UNCONFIRMED = 'atomic-batch-unconfirmed';
 
-/**
- * `context.reason` of the `USER_REJECTED` returned when the user declined the account upgrade a
- * `'ready'` wallet asked for (EIP-5792 5750), as opposed to rejecting the batch itself. Retry with
- * `allowAccountUpgrade: false` to approve separately without upgrading.
- */
+/** `context.reason` of a declined account upgrade (EIP-5792 5750); retry with `allowAccountUpgrade: false`. */
 export const ACCOUNT_UPGRADE_DECLINED = 'account-upgrade-declined';
 
 // EIP-5792 status codes that say nothing landed: 400 never included, 500 fully reverted. 600 may have partly landed.
 const BATCH_NOTHING_LANDED_CODES: ReadonlySet<number> = new Set([400, 500]);
 
-/** The account-upgrade choice every approve-then-deposit flow and its strategy read take. */
 export type ApprovalOptions = {
-  /**
-   * Whether a wallet that must first upgrade the account to batch (EIP-5792 `'ready'`, e.g. a MetaMask
-   * EOA becoming a smart account) may be asked to. `false` approves separately instead. Defaults to `true`.
-   */
+  /** May a wallet that must first upgrade the account to batch (EIP-5792 `'ready'`) be asked to? Defaults to `true`. */
   allowAccountUpgrade?: boolean;
 };
 
@@ -83,11 +58,7 @@ export type ResolveApprovalStrategyParams = ApprovalOptions & {
   walletProvider: IWalletProvider;
 };
 
-/**
- * How to approve once the allowance is known to be short: `'atomic-batch'` for an EVM spoke source
- * whose wallet reports EIP-5792 atomic support on that chain, `'sequential'` otherwise. The Sonic hub
- * always gets `'sequential'`. Read-only; sends nothing.
- */
+/** `'atomic-batch'` for an EVM spoke source whose wallet reports EIP-5792 atomic support, else `'sequential'`. */
 export async function resolveApprovalStrategy({
   srcChainKey,
   walletProvider,
@@ -109,41 +80,25 @@ export type ApprovalBatchErrorCode = 'USER_REJECTED' | 'INTENT_CREATION_FAILED' 
 export type SendApprovalBatchParams = {
   walletProvider: IEvmWalletProvider;
   srcChainKey: EvmSpokeOnlyChainKey;
-  /** The approval leg(s) then the deposit, in broadcast order — the deposit must be the last call. */
+  /** The deposit must be the last call. */
   txs: readonly EvmRawTransaction[];
-  /** How long to wait for the batch to confirm, in ms. */
+  /** In ms. */
   timeoutMs: number;
-  /** The feature the returned errors belong to. */
   feature: SodaxFeature;
-  /** Merged into every returned error's `context`. */
   context?: SodaxErrorContext;
-  /**
-   * Called with the batch id as soon as the wallet accepts the batch, before the wait. Persist it: if the
-   * wait ends without a receipt, {@link confirmApprovalBatch} with that id is the only way back to the
-   * deposit. A listener that throws is ignored.
-   */
+  /** Persist this batch id: if the wait ends without a receipt, {@link confirmApprovalBatch} is the only way back. */
   onBatchSent?: (batchId: string) => void;
 };
 
 export type ApprovalBatchResult = {
-  /** The transaction that carries the deposit — what the relay and `submit-tx` take as the source tx. */
+  /** The tx carrying the deposit: what the relay and `submit-tx` take as the source tx. */
   txHash: Hash;
   batchId: string;
 };
 
 /**
- * Sends approve + deposit as one EIP-5792 atomic batch and waits for it, so the user signs once.
- *
- * - The wallet refuses the batch before signing (or cannot batch at all) → `INTENT_CREATION_FAILED`
- *   with `context.reason:` {@link ATOMIC_BATCH_REFUSED}. Only this case may fall back to approving
- *   separately.
- * - The user rejects the batch → `USER_REJECTED`; a declined account upgrade (5750) adds
- *   `context.reason:` {@link ACCOUNT_UPGRADE_DECLINED}.
- * - Never included or fully reverted (EIP-5792 400 / 500) → `INTENT_CREATION_FAILED` with
- *   `context.reason: 'atomic-batch-failed'`. Nothing was deposited.
- * - Anything else short of a confirmed deposit receipt → `TX_VERIFICATION_FAILED` with
- *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED}, `context.batchId` and `context.callCount`. It may
- *   have landed — never retry it, as a batch or as separate transactions.
+ * Sends approve + deposit as one EIP-5792 batch. Only an `ATOMIC_BATCH_REFUSED` failure may fall back to approving
+ * separately; an `ATOMIC_BATCH_UNCONFIRMED` batch may have landed and must never be retried.
  */
 export async function sendApprovalBatch({
   walletProvider,
@@ -186,29 +141,19 @@ export async function sendApprovalBatch({
 
 export type ConfirmApprovalBatchParams = {
   walletProvider: IEvmWalletProvider;
-  /** The id `sendAtomicBatch` returned — what {@link SendApprovalBatchParams.onBatchSent} reported. */
+  /** What {@link SendApprovalBatchParams.onBatchSent} reported. */
   batchId: string;
-  /**
-   * How many calls the batch carried, deposit last. Without it, only a batch whose receipts all share one
-   * transaction identifies the deposit.
-   */
+  /** Calls the batch carried, deposit last; without it only a single-tx batch identifies the deposit. */
   callCount?: number;
-  /** How long to wait for the batch to confirm, in ms. */
+  /** In ms. */
   timeoutMs: number;
   feature: SodaxFeature;
   context?: SodaxErrorContext;
 };
 
 /**
- * Waits for a batch the wallet already accepted and reads the deposit's transaction from it. This is
- * the second half of {@link sendApprovalBatch}, and how an app resumes a batch it reported as
- * unconfirmed (after a reload, say) instead of sending the deposit again.
- *
- * - Never included or fully reverted (EIP-5792 400 / 500) → `INTENT_CREATION_FAILED` with
- *   `context.reason: 'atomic-batch-failed'`. Nothing was deposited.
- * - Anything else short of a confirmed deposit receipt → `TX_VERIFICATION_FAILED` with
- *   `context.reason:` {@link ATOMIC_BATCH_UNCONFIRMED}, `context.batchId` and any `callCount` given. It
- *   may still land.
+ * Second half of {@link sendApprovalBatch}: how an app resumes an unconfirmed batch (e.g. after reload)
+ * instead of sending the deposit again.
  */
 export async function confirmApprovalBatch({
   walletProvider,
@@ -252,8 +197,7 @@ export async function confirmApprovalBatch({
         }),
       };
     }
-    // The deposit is the last call: either every receipt is the same tx (a wallet may add its own fee
-    // call to it), or there is one receipt per call.
+    // The deposit is the last call: every receipt is one tx (a wallet may add a fee call) or one per call.
     const { receipts } = batch;
     const oneTx = new Set(receipts.map(receipt => receipt.transactionHash)).size === 1;
     const depositReceipt = oneTx || receipts.length === callCount ? receipts.at(-1) : undefined;
@@ -264,14 +208,10 @@ export async function confirmApprovalBatch({
   }
 }
 
-/** `SpokeService.waitForTxReceipt`, typed structurally so this module never imports the service. */
+// Typed structurally so this module never imports `SpokeService`.
 type WaitForTxReceipt = (params: { txHash: string; chainKey: SpokeChainKey }) => Promise<Result<{ status: string }>>;
 
-/**
- * Waits for a separately sent approval to confirm: the deposit after it is only valid once the
- * allowance is on-chain, and `approve` returns at broadcast. Otherwise `APPROVE_FAILED` with
- * `context.reason: 'approve-not-confirmed'` and `context.approveTxHash`.
- */
+/** The deposit is only valid once the allowance is on-chain, and `approve` returns at broadcast. */
 export async function confirmApproval({
   waitForTxReceipt,
   txHash,
@@ -297,21 +237,14 @@ export async function confirmApproval({
   };
 }
 
-/**
- * Whether `error` is a batch the wallet refused before anything was signed or sent — the one batch
- * failure after which approving separately cannot duplicate anything.
- */
+/** The one batch failure after which approving separately cannot duplicate anything. */
 export function isAtomicBatchRefusal(error: unknown): boolean {
   return (
     isSodaxError(error) && error.code === 'INTENT_CREATION_FAILED' && error.context?.reason === ATOMIC_BATCH_REFUSED
   );
 }
 
-/**
- * Sends the deposit down the path `strategy` picked. Only a batch the wallet refused before anything
- * was signed (`ATOMIC_BATCH_REFUSED`) falls back to approving separately; any other batch failure is
- * returned as is, because the user saw that batch and it may still land. Resolves with the path that ran.
- */
+/** Only `ATOMIC_BATCH_REFUSED` falls back to sequential; other batch failures may still land, so they are returned. */
 export async function runWithApproval<T, E extends SodaxError>({
   strategy,
   notRequired,

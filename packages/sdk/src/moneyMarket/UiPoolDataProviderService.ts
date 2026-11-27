@@ -21,22 +21,7 @@ export type UiPoolDataProviderServiceConstructorParams = {
   config: ConfigService;
 };
 
-/**
- * Wraps the on-chain `UiPoolDataProvider` contract to read full pool and per-user reserve
- * state from the SODAX money market on the hub chain.
- *
- * All read methods call the hub's public RPC client (no wallet required). The service
- * implements {@link UiPoolDataProviderInterface} so it can be swapped for a mock in tests.
- *
- * Two specialised transformations are applied throughout:
- * - **bnUSD merging**: the bnUSD debt reserve and bnUSD vault reserve are merged into a single
- *   entry so that displayed borrow state matches the pool's internal accounting.
- * - **Humanization**: the `*Humanized` methods convert `bigint` fields to decimal strings and
- *   numeric bitmaps to 256-character binary strings, ready for display components.
- *
- * Instantiated automatically inside {@link MoneyMarketDataService}; callers should not
- * construct this service directly.
- */
+/** Reads pool and user reserve state from the hub `UiPoolDataProvider`, merging the bnUSD debt and vault reserves. */
 export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
   private readonly hubProvider: HubProvider;
   private readonly uiPoolDataProvider: Address;
@@ -50,17 +35,7 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
     this.config = config;
   }
 
-  /**
-   * Fetch per-user reserve positions and convert all `bigint` balance fields to decimal strings.
-   *
-   * Each entry's `id` is a deterministic composite key of chain key, user address, reserve
-   * address, and pool addresses provider (lowercased), suitable for stable React keys.
-   * The bnUSD debt and vault reserves are merged (balances summed) before humanization.
-   *
-   * @param userAddress - The user's hub wallet address.
-   * @returns An object with `userReserves` (humanized per-reserve positions) and
-   *   `userEmodeCategoryId` (active eMode category, or 0 if none).
-   */
+  /** Each entry's `id` is a stable lowercased composite of chain key, user, reserve and addresses provider. */
   public async getUserReservesHumanized(userAddress: Address): Promise<{
     userReserves: UserReserveDataHumanized[];
     userEmodeCategoryId: number;
@@ -79,15 +54,7 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
     };
   }
 
-  /**
-   * Fetch all eMode categories and convert numeric fields to strings.
-   *
-   * `collateralBitmap` and `borrowableBitmap` are serialized as 256-character zero-padded
-   * binary strings (MSB-first) for direct consumption by display components.
-   *
-   * @returns Array of {@link EmodeDataHumanized} with string-encoded LTV, threshold, bonus,
-   *   and bitmap fields.
-   */
+  /** Bitmaps are serialized as 256-char zero-padded binary strings, MSB-first. */
   public async getEModesHumanized(): Promise<EmodeDataHumanized[]> {
     const eModeData = await this.getEModes();
     return eModeData.map(eMode => ({
@@ -103,14 +70,6 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
     }));
   }
 
-  /**
-   * Fetch all efficiency mode (eMode) categories from the pool contract.
-   *
-   * Returns raw on-chain values with `bigint` LTV, liquidation threshold, and bitmap fields.
-   * Use {@link getEModesHumanized} for string-encoded display values.
-   *
-   * @returns Immutable array of {@link EModeData}.
-   */
   public async getEModes(): Promise<readonly EModeData[]> {
     return this.hubProvider.publicClient.readContract({
       address: this.uiPoolDataProvider,
@@ -119,15 +78,7 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
       args: [this.poolAddressesProvider],
     });
   }
-  /**
-   * Return the list of reserve asset addresses registered in the pool.
-   *
-   * By default the bnUSD debt reserve is filtered out so callers only see the vault-token
-   * reserves that users interact with. Pass `true` to include it.
-   *
-   * @param unfiltered - When `true`, returns all reserves including the bnUSD debt reserve.
-   * @returns Immutable array of hub-chain reserve asset addresses.
-   */
+  /** Reserve assets, excluding the bnUSD debt reserve unless `unfiltered`. */
   public async getReservesList(unfiltered = false): Promise<readonly Address[]> {
     const reservesList = await this.hubProvider.publicClient.readContract({
       address: this.uiPoolDataProvider,
@@ -140,19 +91,10 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
       return reservesList;
     }
 
-    // filter out bnUSD (debt) reserve by default
     return reservesList.filter(reserve => reserve.toLowerCase() !== this.config.moneyMarket.bnUSD.toLowerCase());
   }
 
-  /**
-   * Read the bnUSD GHO-style facilitator bucket from the bnUSD token contract.
-   *
-   * The bucket enforces a hard cap on bnUSD borrowing. This data is used by
-   * {@link getReservesData} to override the pool's `availableLiquidity` and `borrowCap`
-   * for the bnUSD reserve with the facilitator's current values.
-   *
-   * @returns A tuple of `[cap, currentBorrowed]` — both in bnUSD's native decimals.
-   */
+  /** bnUSD facilitator bucket `[cap, currentBorrowed]`; overrides the bnUSD reserve's borrowCap and availableLiquidity. */
   public async getBnusdFacilitatorBucket(): Promise<readonly [bigint, bigint]> {
     return this.hubProvider.publicClient.readContract({
       address: this.config.moneyMarket.bnUSD,
@@ -163,16 +105,8 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
   }
 
   /**
-   * Fetch raw on-chain data for all reserves and the pool's base currency info.
-   *
-   * The bnUSD debt reserve and bnUSD vault reserve are merged into a single entry: the merged
-   * reserve uses vault-side supply state (liquidity index, aToken address) but takes its borrow
-   * rate and borrow index from the bnUSD debt token so displayed debt amounts are correct.
-   * The `borrowCap` and `availableLiquidity` are overridden from the bnUSD facilitator bucket.
-   *
-   * All numeric fields are `bigint` in contract-native precision.
-   *
-   * @returns A tuple of `[reserveDataArray, baseCurrencyInfo]`.
+   * bnUSD debt and vault reserves are merged: supply state from the vault, borrow rate/index/timestamp from
+   * the debt token, and borrowCap/availableLiquidity from the facilitator bucket.
    */
   public async getReservesData(): Promise<readonly [readonly AggregatedReserveData[], BaseCurrencyInfo]> {
     const [reserveData, bnUSDFacilitatorBucket] = await Promise.all([
@@ -191,7 +125,6 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
     const bnUSD = this.config.moneyMarket.bnUSD.toLowerCase();
     const bnUSDVault = this.config.moneyMarket.bnUSDVault.toLowerCase();
 
-    // merge bnUSD vault and bnUSD Debt (bnUSD) reserves into one bnUSD reserve (vault)
     const bnUSDReserve = reserves.find(r => bnUSD === r.underlyingAsset.toLowerCase());
     const bnUSDVaultReserve = reserves.find(r => bnUSDVault === r.underlyingAsset.toLowerCase());
 
@@ -206,22 +139,12 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
       totalScaledVariableDebt: bnUSDReserve.totalScaledVariableDebt + bnUSDVaultReserve.totalScaledVariableDebt,
       virtualUnderlyingBalance: bnUSDReserve.virtualUnderlyingBalance + bnUSDVaultReserve.virtualUnderlyingBalance,
       accruedToTreasury: bnUSDReserve.accruedToTreasury + bnUSDVaultReserve.accruedToTreasury,
-      // Borrow rate comes from the bnUSD debt token, not the vault.
-      // The vault is the supply side; bnUSD is what users actually borrow.
+      // The vault is the supply side; users actually borrow the bnUSD debt token.
       variableBorrowRate: bnUSDReserve.variableBorrowRate,
-      // The borrow index must also come from the bnUSD debt token.
-      // User debt is stored scaled by bnUSD's index, so reading it back requires the same index.
-      // Using the vault's index here would inflate the displayed debt amount.
+      // User debt is scaled by bnUSD's index; the vault's index would inflate displayed debt.
       variableBorrowIndex: bnUSDReserve.variableBorrowIndex,
-      // The debt index/rate are only meaningful paired with the debt token's OWN lastUpdateTimestamp.
-      // Downstream formatters accrue debt as
-      //   scaledDebt × variableBorrowIndex × compound(variableBorrowRate, now − lastUpdateTimestamp).
-      // The spread above inherits the *vault's* lastUpdateTimestamp, which is typically much staler
-      // than the debt token's (the vault is low-activity), so the debt index gets compounded over the
-      // wrong (too-long) window — injecting phantom interest and over-stating displayed debt. Pin the
-      // timestamp to the debt reserve so the (index, rate, lastUpdateTimestamp) triple is consistent.
-      // The vault supply side is unaffected: its liquidityRate is 0, so liquidityIndex does not accrue
-      // over time and is independent of lastUpdateTimestamp.
+      // The vault's (staler) timestamp would compound the debt index over too long a window and overstate debt;
+      // the vault's liquidityRate is 0, so the supply side doesn't depend on it.
       lastUpdateTimestamp: bnUSDReserve.lastUpdateTimestamp,
       borrowingEnabled: bnUSDReserve.borrowingEnabled,
     };
@@ -237,16 +160,7 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
     ];
   }
 
-  /**
-   * Fetch raw per-user reserve positions from the pool contract.
-   *
-   * The bnUSD debt and vault reserves are merged into a single entry (scaled aToken balances
-   * and scaled variable debt are summed). All balance fields are raw `bigint` values.
-   *
-   * @param userAddress - The user's hub wallet address.
-   * @returns A tuple of `[userReserveDataArray, eModeCategoryId]` — category 0 means no
-   *   active eMode.
-   */
+  /** bnUSD debt and vault reserves are merged (scaled balances summed); eMode category 0 means none. */
   public async getUserReservesData(userAddress: Address): Promise<readonly [readonly UserReserveData[], number]> {
     const userReserves = await this.hubProvider.publicClient.readContract({
       address: this.uiPoolDataProvider,
@@ -260,7 +174,6 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
     const bnUSD = this.config.moneyMarket.bnUSD.toLowerCase();
     const bnUSDVault = this.config.moneyMarket.bnUSDVault.toLowerCase();
 
-    // merge bnUSD vault and bnUSD Debt (bnUSD) reserves into one bnUSD reserve (vault)
     const bnUSDReserve = userReservesData.find(r => bnUSD === r.underlyingAsset.toLowerCase());
     const bnUSDVaultReserve = userReservesData.find(r => bnUSDVault === r.underlyingAsset.toLowerCase());
 
@@ -285,18 +198,7 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
     ];
   }
 
-  /**
-   * Fetch all reserve data and convert `bigint` fields to decimal strings, with pool base
-   * currency info normalised into a plain decimal count.
-   *
-   * Each reserve's `id` is a deterministic composite key of chain key, reserve address, and
-   * pool addresses provider (lowercased), suitable for stable React keys and cache look-ups.
-   * Suitable for passing directly to {@link MoneyMarketDataService.buildReserveDataWithPrice}
-   * and then {@link MoneyMarketDataService.formatReservesUSD}.
-   *
-   * @returns A {@link ReservesDataHumanized} object with a formatted reserves array and
-   *   humanized base currency info.
-   */
+  /** Each reserve's `id` is a stable lowercased composite of chain key, reserve and addresses provider. */
   public async getReservesHumanized(): Promise<ReservesDataHumanized> {
     const [reservesRaw, poolBaseCurrencyRaw] = await this.getReservesData();
 
@@ -334,7 +236,6 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
         variableRateSlope2: reserveRaw.variableRateSlope2.toString(),
         baseVariableBorrowRate: reserveRaw.baseVariableBorrowRate.toString(),
         optimalUsageRatio: reserveRaw.optimalUsageRatio.toString(),
-        // new fields
         isPaused: reserveRaw.isPaused,
         debtCeiling: reserveRaw.debtCeiling.toString(),
         borrowCap: reserveRaw.borrowCap.toString(),
@@ -352,7 +253,7 @@ export class UiPoolDataProviderService implements UiPoolDataProviderInterface {
     });
 
     const baseCurrencyData: PoolBaseCurrencyHumanized = {
-      // this is to get the decimals from the unit so 1e18 = string length of 19 - 1 to get the number of 0
+      // 1e18 → "1000000000000000000".length - 1 = 18 decimals
       marketReferenceCurrencyDecimals: poolBaseCurrencyRaw.marketReferenceCurrencyUnit.toString().length - 1,
       marketReferenceCurrencyPriceInUsd: poolBaseCurrencyRaw.marketReferenceCurrencyPriceInUsd.toString(),
       networkBaseTokenPriceInUsd: poolBaseCurrencyRaw.networkBaseTokenPriceInUsd.toString(),

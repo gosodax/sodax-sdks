@@ -1,15 +1,9 @@
 import type { EvmAtomicBatchSupport, IEvmWalletProvider } from '@sodax/types';
 
-/** An EVM wallet provider that implements all three optional EIP-5792 batch methods. */
 export type AtomicBatchEvmWalletProvider = IEvmWalletProvider &
   Required<Pick<IEvmWalletProvider, 'getAtomicBatchSupport' | 'sendAtomicBatch' | 'waitForBatch'>>;
 
-/**
- * Whether `walletProvider` implements the EIP-5792 batch methods. They are optional on
- * `IEvmWalletProvider`, so a provider without them is sent separate transactions instead.
- *
- * Deliberately NOT re-exported: an internal guard, not SDK surface. `approvalBatch.ts` is the public policy.
- */
+/** The batch methods are optional on `IEvmWalletProvider`. Internal: `approvalBatch.ts` is the public policy. */
 export function canSendAtomicBatch(walletProvider: IEvmWalletProvider): walletProvider is AtomicBatchEvmWalletProvider {
   return (
     typeof walletProvider.getAtomicBatchSupport === 'function' &&
@@ -37,12 +31,11 @@ const MAX_CAUSE_DEPTH = 5;
 // EIP-5792: the wallet could have upgraded the account to execute atomically, but the user declined.
 const UPGRADE_DECLINED_CODE = 5750;
 
-/** Whether `error` (or a cause, as viem wraps RPC errors) says the wallet refused the batch outright. */
+/** Checks `error` or a cause, since viem wraps RPC errors. */
 export function isAtomicBatchRefused(error: unknown): boolean {
   return hasErrorCode(error, code => BATCH_REFUSED_CODES.has(code));
 }
 
-/** Whether `error` (or a cause) is the user declining the account upgrade a `'ready'` wallet asked for. */
 export function isAccountUpgradeDeclined(error: unknown): boolean {
   return hasErrorCode(error, code => code === UPGRADE_DECLINED_CODE);
 }

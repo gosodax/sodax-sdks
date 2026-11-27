@@ -1,5 +1,3 @@
-/** Recovery module narrow error types. */
-
 import type { SodaxErrorCode } from '../errors/codes.js';
 import { isCodeMember } from '../errors/guards.js';
 import { createInvariant, type FeatureInvariant } from '../errors/invariant.js';

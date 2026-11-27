@@ -1,9 +1,4 @@
-/**
- * Program IDL in camelCase format in order to be used in JS/TS.
- *
- * Note that this is only a type helper and is not the actual IDL. The original
- * IDL can be found at `target/idl/asset_manager.json`.
- */
+/** Type helper for the program IDL (camelCase), not the IDL itself: see `target/idl/asset_manager.json`. */
 export type AssetManager = {
   address: 'AnCCJjheynmGqPp6Vgat9DTirGKD4CtQzP8cwTYV8qKH';
   metadata: {

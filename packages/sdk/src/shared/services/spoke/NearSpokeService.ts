@@ -33,7 +33,6 @@ export type QueryResponse = string | number | boolean | object | undefined;
 export type CallResponse = string | number | object | bigint | boolean;
 
 export const NEAR_DEFAULT_GAS = BigInt('300000000000000'); // 30 TGas derived from near documentation as max limit
-/** NEP-141 default storage bond for a one-time `storage_deposit` registration (0.00125 NEAR). */
 export const NEAR_STORAGE_DEPOSIT = BigInt('1250000000000000000000'); // 0.00125 NEAR
 
 export class NearSpokeService {
@@ -44,7 +43,7 @@ export class NearSpokeService {
 
   public constructor(config: ConfigService) {
     this.config = config;
-    // since we only support mainnet for now, we can hardcode the single near chain config
+    // Only mainnet is supported, so the single NEAR chain config is used.
     const chainConfig = config.getChainConfig(ChainKeys.NEAR_MAINNET);
     this.rpcProvider = new JsonRpcProvider({ url: chainConfig.rpcUrl });
     this.pollingIntervalMs = chainConfig.pollingConfig.pollingIntervalMs;
@@ -133,14 +132,6 @@ export class NearSpokeService {
     };
   }
 
-  /**
-   * Deposit tokens to the spoke chain.
-   * @param {CWSpokeDepositParams} params - The parameters for the deposit, including the user's address, token address, amount, and additional data.
-   * @param {CWSpokeProvider} spokeProvider - The provider for the spoke chain.
-   * @param {EvmHubProvider} hubProvider - The provider for the hub chain.
-   * @param {boolean} raw - The return type raw or just transaction hash
-   * @returns {PromiseNearTxReturnType<R>} A promise that resolves to the transaction hash.
-   */
   public async deposit<R extends boolean = false>(
     params: DepositParams<NearChainKey, R>,
   ): Promise<TxReturnType<NearChainKey, R>> {
@@ -194,12 +185,7 @@ export class NearSpokeService {
     >;
   }
 
-  /**
-   * Get the balance of the token in the spoke chain.
-   * @param {Address} token - The address of the token to get the balance of.
-   * @param {CWSpokeProvider} spokeProvider - The spoke provider.
-   * @returns {Promise<bigint>} The balance of the token.
-   */
+  /** Balance of the token in the spoke chain asset manager. */
   public async getDeposit(params: GetDepositParams<NearChainKey>): Promise<bigint> {
     const assetManager = this.config.getChainConfig(params.srcChainKey).addresses.assetManager;
     let bal: unknown;
@@ -218,14 +204,7 @@ export class NearSpokeService {
     return BigInt(bal);
   }
 
-  /**
-   * Get the user's own wallet balance of a token on NEAR, in smallest units (yoctoNEAR for the
-   * native coin). Native NEAR via the account's `viewAccount().amount`; NEP-141 tokens via the
-   * token contract's `ft_balance_of` view. Reads the balance held by `srcAddress` (the user
-   * wallet), not the protocol asset manager. Uses this service's own configured RPC provider.
-   * @param {GetBalanceParams<NearChainKey>} params - The chain key, user address, and token.
-   * @returns {Promise<bigint>} The token balance in smallest units.
-   */
+  /** In smallest units (yoctoNEAR for native): native via `viewAccount().amount`, NEP-141 via `ft_balance_of`. */
   public async getWalletBalance(params: GetBalanceParams<NearChainKey>): Promise<bigint> {
     if (isNativeToken(params.srcChainKey, params.token)) {
       const account = await this.rpcProvider.viewAccount({ accountId: params.srcAddress });
@@ -243,12 +222,6 @@ export class NearSpokeService {
     return BigInt(bal);
   }
 
-  /**
-   * Get the user's own wallet balances of multiple tokens on NEAR, in smallest units. Fans out
-   * over {@link getWalletBalance}, keyed by `token.address`.
-   * @param {GetBalancesParams<NearChainKey>} params - The chain key, user address, and tokens.
-   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
-   */
   public async getWalletBalances(params: GetBalancesParams<NearChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
     const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
@@ -259,14 +232,8 @@ export class NearSpokeService {
   }
 
   /**
-   * Whether `accountId` is storage-registered on a NEP-141 `token` contract. NEP-141 requires an
-   * account to pay a one-time storage bond before it can receive (hold a balance of) the token, so
-   * this gates any leg that delivers a token to a user on NEAR (swap output on NEAR, bridge into
-   * NEAR, money-market borrow/withdraw to NEAR).
-   *
-   * Native NEAR is not a NEP-141 token and has no storage registration, so this returns `true` for
-   * the native token. The view goes through {@link queryContract}, i.e. the configurable RPC from
-   * chain config — a custom `rpcUrl` passed to the SDK is honoured.
+   * NEP-141 needs a one-time storage bond before an account can hold a token, so this gates every leg delivering a
+   * token to NEAR. Always `true` for native NEAR.
    */
   public async isStorageRegistered(token: string, accountId: string): Promise<boolean> {
     if (isNativeToken(ChainKeys.NEAR_MAINNET, token)) {
@@ -277,14 +244,8 @@ export class NearSpokeService {
   }
 
   /**
-   * Build (and, unless `raw`, submit) a NEP-141 `storage_deposit` registration for `accountId` on
-   * the `token` contract. Call this when {@link isStorageRegistered} is `false` before a token is
-   * delivered to the account on NEAR.
-   *
-   * Native NEAR has no storage registration — passing the native token throws.
-   *
-   * @param params.deposit Storage bond to attach; defaults to {@link NEAR_STORAGE_DEPOSIT}
-   *   (0.00125 NEAR). Override per token if its `storage_balance_bounds.min` differs.
+   * Build (and unless `raw`, submit) a NEP-141 `storage_deposit` for `accountId`; throws for native NEAR. Override
+   * `deposit` (default {@link NEAR_STORAGE_DEPOSIT}) if the token's `storage_balance_bounds.min` differs.
    */
   public async registerStorage<Raw extends boolean = false>(params: {
     token: string;
@@ -317,14 +278,6 @@ export class NearSpokeService {
     >;
   }
 
-  /**
-   * Sends a message to the hub chain.
-   * @param {SendMessageParams} params - Includes dstChainKey, the chain key of the hub chain.
-   * @param {Address} dstAddress - The address on the hub chain.
-   * @param {Hex} payload - The payload to send.
-   * @param {CWSpokeProvider} spokeProvider - The provider for the spoke chain.
-   * @returns {Promise<TxReturnType<S, R>>} A promise that resolves to the transaction hash.
-   */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<NearChainKey, Raw>,
   ): Promise<TxReturnType<NearChainKey, Raw>> {
@@ -354,23 +307,13 @@ export class NearSpokeService {
     >;
   }
 
-  /**
-   * Get Max Withdrawable Balance for the token.
-   * @param {Address} token - The address of the token to get the balance of.
-   * @param {NearSpokeProvider} spokeProvider - The spoke provider.
-   * @returns {Promise<bigint>} The max limit of the token.
-   */
+  /** Max withdrawable limit for the token. */
   public async getLimit(token: string, srcChainKey: NearChainKey): Promise<bigint> {
     const rate_limit = await this.getRateLimit(token, srcChainKey);
     return BigInt(rate_limit.maxAvailable);
   }
 
-  /**
-   * Get available withdrawable amount for the token.
-   * @param {Address} token - The address of the token to get the balance of.
-   * @param {NearSpokeProvider} spokeProvider - The spoke provider.
-   * @returns {Promise<bigint>} The available withdrawable amount of the token.
-   */
+  /** Currently available withdrawable amount for the token. */
   public async getAvailable(token: string, srcChainKey: NearChainKey): Promise<bigint> {
     const rate_limit = await this.getRateLimit(token, srcChainKey);
     return BigInt(rate_limit.available);

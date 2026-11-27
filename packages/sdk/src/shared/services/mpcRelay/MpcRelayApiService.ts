@@ -14,16 +14,12 @@ import { resolveTimeoutMs } from '../../utils/resolveTimeoutMs.js';
 import { invariant } from '../../utils/tiny-invariant.js';
 import { RELAY_ERROR_CODES } from '../intentRelay/IntentRelayApiService.js';
 
-/**
- * Client for the SODAX MPC relay (NEAR chain signatures), used by every chain in `MpcRelayChainMap`.
- * Distinct from the intent relay. Per deposit: getDepositAddress → send the spoke transfer → notify →
- * waitForDeposit.
- */
+// Client for the SODAX MPC relay (NEAR chain signatures), distinct from the intent relay.
+// Per deposit: getDepositAddress → send the spoke transfer → notify → waitForDeposit.
 
 /**
- * Settlement surface an MPC-relay spoke service implements, so no feature service learns a chain name. Each
- * operation has a submit that only notifies, a one-read get, and a wait that polls (and re-notifies, which is
- * idempotent) until it lands. An implementation may raise a wait's `timeout` to a chain floor, never shorten it.
+ * Settlement surface an MPC-relay spoke service implements: submit only notifies, get reads once, wait polls (and
+ * idempotently re-notifies). An implementation may raise a wait's `timeout` to a chain floor, never shorten it.
  */
 export interface MpcRelaySettlement {
   /** Notify the relay of a broadcast deposit, without waiting for it to land. */
@@ -64,7 +60,6 @@ interface DepositAddressBase {
 /** Memo mode (Tron, XRP, TON, Cardano): pay the shared reserve and tag the transfer with `memo`. */
 export interface MemoDepositAddressResponse extends DepositAddressBase {
   depositMethod: 'memo';
-  /** The shared reserve the transfer pays. */
   reserveAddress: string;
   /** 32-byte hash to attach as the transfer memo — the same value as `payloadHash`. */
   memo: Hex;
@@ -75,7 +70,6 @@ export interface MemoDepositAddressResponse extends DepositAddressBase {
 /** Address mode (Monad): pay a deposit address derived for this one payload; the relay sweeps it. */
 export interface AddressDepositAddressResponse extends DepositAddressBase {
   depositMethod: 'address';
-  /** The per-payload deposit address the transfer pays. */
   depositAddress: string;
 }
 
@@ -110,7 +104,6 @@ export interface NotifyResponse {
 /** Withdraw-auth scheme (per client-api.md §4). Per-chain values live in `MpcRelayChainMap`. */
 export type WithdrawScheme = MpcWithdrawScheme;
 
-/** Signed withdraw message as submitted to the ingest. */
 export type WithdrawMessagePayload = MpcWithdrawMessage;
 
 export interface SubmitWithdrawRequest {
@@ -219,11 +212,8 @@ export function computePayloadHash(hubWallet: Hex, data: Hex): Hex {
 }
 
 /**
- * Register a deposit's hub payload and get back where to send the funds.
- * @param owner  Spoke-chain address; its hub wallet is derived from this.
- * @param srcChain  Numeric spoke chain id as a string.
- * @param data  Hub-side calls, from `encodeContractCalls`. Pass `encodeContractCalls([])` rather than
- *   `'0x'` for a plain mint: only non-empty bytes make the hub deploy the user's wallet.
+ * `data` is the hub calls from `encodeContractCalls`; pass `encodeContractCalls([])` rather than `'0x'` for a
+ * plain mint, since only non-empty bytes make the hub deploy the user's wallet.
  */
 export async function getDepositAddress(
   apiUrl: HttpUrl,
@@ -319,9 +309,8 @@ export async function waitForDeposit(
 }
 
 /**
- * Poll a hub-triggered release until its spoke payout tx is recorded. `/withdrawal/` only takes a
- * withdraw-auth trackingId, so this reads the release's row by its withdrawalId through `/deposit/`,
- * whose `status` does not track releases; `txs.release` is the signal. Ends in `RELAY_TIMEOUT`.
+ * `/withdrawal/` only takes a withdraw-auth trackingId, so this reads the release by withdrawalId via `/deposit/`,
+ * whose `status` does not track releases: `txs.release` is the signal. Ends in `RELAY_TIMEOUT`.
  */
 export async function waitForHubRelease(
   apiUrl: HttpUrl,
@@ -343,10 +332,7 @@ export async function waitForHubRelease(
   return settled ?? { ok: false, error: relayTimeout(`mpc-relay: timed out waiting for release ${withdrawalId}`) };
 }
 
-/**
- * Submit a signed withdraw-auth message (hub→spoke release).
- * @returns the `trackingId` to poll {@link waitForWithdrawal} with.
- */
+/** Submits a signed withdraw-auth (hub→spoke release); poll {@link waitForWithdrawal} with the returned `trackingId`. */
 export async function submitWithdraw(
   apiUrl: HttpUrl,
   request: SubmitWithdrawRequest,

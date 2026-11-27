@@ -24,7 +24,6 @@ import {
 import { poolAbi } from '../shared/abis/pool.abi.js';
 import {
   type SpokeService,
-  relayTxAndWaitPacket,
   type ConfigService,
   type SendMessageParams,
   type EstimateGasParams,
@@ -78,45 +77,40 @@ import {
 import { MoneyMarketDataService } from './MoneyMarketDataService.js';
 
 export type MoneyMarketEncodeSupplyParams = {
-  asset: Address; // The address of the asset to supply.
-  amount: bigint; // The amount of the asset to supply.
-  onBehalfOf: Address; // The address on whose behalf the asset is supplied.
-  referralCode: number; // The referral code for the transaction.
+  asset: Address;
+  amount: bigint;
+  onBehalfOf: Address;
+  referralCode: number;
 };
 
 export type MoneyMarketEncodeWithdrawParams = {
-  asset: Address; // The address of the asset to withdraw.
-  amount: bigint; // The amount of the asset to withdraw.
-  to: Address; // The address that will receive the withdrawn assets.
+  asset: Address;
+  amount: bigint;
+  to: Address;
 };
 
 export type MoneyMarketEncodeBorrowParams = {
-  asset: Address; // The address of the asset to borrow.
-  amount: bigint; // The amount of the asset to borrow.
-  interestRateMode: bigint; // The interest rate mode (2 for Variable).
-  referralCode: number; // The referral code for the borrow transaction.
-  onBehalfOf: Address; // The address that will receive the borrowed assets.
+  asset: Address;
+  amount: bigint;
+  interestRateMode: bigint; // 2 = variable
+  referralCode: number;
+  onBehalfOf: Address;
 };
 
 export type MoneyMarketEncodeRepayParams = {
-  asset: Address; // The address of the asset to repay.
-  amount: bigint; // The amount of the asset to repay.
-  interestRateMode: bigint; // The interest rate mode (2 for Variable).
-  onBehalfOf: Address; // The address that will get their debt reduced/removed.
+  asset: Address;
+  amount: bigint;
+  interestRateMode: bigint; // 2 = variable
+  onBehalfOf: Address; // account whose debt is reduced
 };
 
 export type MoneyMarketEncodeRepayWithATokensParams = {
-  asset: Address; // The address of the asset to repay.
-  amount: bigint; // The amount of the asset to repay.
-  interestRateMode: bigint; // The interest rate mode (2 for Variable).
+  asset: Address;
+  amount: bigint;
+  interestRateMode: bigint; // 2 = variable
 };
 
-/**
- * Parameters for a Money Market supply operation.
- *
- * `srcChainKey: K` drives chain-narrowing of the associated walletProvider.
- * `srcAddress` is the originating wallet on the source spoke chain.
- */
+/** `srcChainKey: K` drives chain-narrowing of the associated walletProvider. */
 export type MoneyMarketSupplyParams<K extends SpokeChainKey = SpokeChainKey> = {
   srcChainKey: K;
   srcAddress: string;
@@ -163,7 +157,6 @@ export type MoneyMarketParams<K extends SpokeChainKey = SpokeChainKey> =
   | MoneyMarketWithdrawParams<K>
   | MoneyMarketRepayParams<K>;
 
-// Exec-mode wrappers (walletProvider required, K-narrowed)
 export type MoneyMarketSupplyActionParams<K extends SpokeChainKey, Raw extends boolean = false> = SpokeExecActionParams<
   K,
   Raw,
@@ -187,12 +180,11 @@ export type MoneyMarketRepayActionParams<K extends SpokeChainKey, Raw extends bo
   MoneyMarketRepayParams<K>
 >;
 
-// `isAllowanceValid` accepts any action (reads allowance/trustline state only).
 export type MoneyMarketAllowanceParams<K extends SpokeChainKey> = {
   params: MoneyMarketParams<K>;
 };
 
-// `approve` accepts any action (but only supply/repay actually require approval on EVM).
+// Accepts any action, but only supply/repay actually require approval on EVM.
 export type MoneyMarketApproveActionParams<
   K extends SpokeChainKey,
   Raw extends boolean = false,
@@ -215,42 +207,20 @@ const isReserveBorrowable = (configuration: bigint): boolean =>
   (RESERVE_ACTIVE | RESERVE_BORROWING_ENABLED);
 
 /**
- * Entry point for all SODAX money market operations: supply, borrow, withdraw, and repay.
- *
- * Operations are cross-chain: a user initiates on any supported spoke chain and the action
- * is relayed to the hub (Sonic) where the Aave-style lending pool lives. Hub-chain callers
- * skip the relay step entirely.
- *
- * The service mirrors the {@link SwapService} interface shape: public methods accept
- * `srcChainKey + srcAddress + walletProvider` instead of a pre-built `SpokeProvider`.
- * Pass `{ raw: true }` on any `create*Intent` or `approve` call to obtain unsigned
- * transaction data for external signing and broadcasting without touching the wallet.
- *
- * A `data` sub-service ({@link MoneyMarketDataService}) is available for read-only pool
- * and position queries.
- *
+ * Money market supply/borrow/withdraw/repay, relayed from any spoke to the Aave-style pool on the hub.
  * @namespace SodaxFeatures
  */
 export class MoneyMarketService {
-  // dependent services
   readonly hubProvider: HubProvider;
   readonly config: ConfigService;
   readonly spoke: SpokeService;
 
-  // money market config (hoisted from config for ergonomics, mirrors SwapService)
   readonly relayerApiEndpoint: HttpUrl;
-
-  // sub-service
   readonly data: MoneyMarketDataService;
 
   /**
-   * Effective money-market partner fee (`moneyMarket.partnerFee`, else the global `fee`). Read live
-   * off `ConfigService` rather than snapshotted in the constructor, so it cannot diverge from
-   * `config.moneyMarketPartnerFee` if the config object is ever replaced. Mirrors
-   * {@link SwapService.partnerFee}.
-   *
-   * Money market has no per-action override: unlike swap / bridge / leverage-yield, every flow here
-   * charges this configured fee.
+   * Effective partner fee (`moneyMarket.partnerFee`, else global `fee`), read live so it tracks config replacement.
+   * Money market has no per-action override.
    */
   get partnerFee(): PartnerFee | undefined {
     return this.config.moneyMarketPartnerFee;
@@ -264,14 +234,6 @@ export class MoneyMarketService {
     this.data = new MoneyMarketDataService({ hubProvider, config: config });
   }
 
-  /**
-   * Estimate the gas cost of an already-encoded transaction on the given spoke chain.
-   *
-   * Delegates to {@link SpokeService.estimateGas} and returns the chain-specific gas estimate.
-   *
-   * @param params - Chain key, from/to addresses, and encoded calldata to simulate.
-   * @returns The chain-specific gas estimate on success, or a wrapped error on failure.
-   */
   public async estimateGas<K extends SpokeChainKey>(
     params: EstimateGasParams<K>,
   ): Promise<Result<GetEstimateGasReturnType<K>, MoneyMarketGasEstimationError>> {
@@ -292,18 +254,8 @@ export class MoneyMarketService {
   }
 
   /**
-   * Check whether the current token allowance (or Stellar trustline) is sufficient to
-   * execute the given money market action without a prior approval transaction.
-   *
-   * Rules per chain / action:
-   * - Supply / repay on hub: checks ERC-20 allowance against the user's hub router.
-   * - Supply / repay on EVM spoke: checks ERC-20 allowance against the spoke asset manager.
-   * - Stellar source or destination: checks trustline sufficiency on both the sender and
-   *   the recipient wallets.
-   * - Withdraw / borrow: no on-chain approval required — always returns `true`.
-   *
-   * @param _params - The money market action params used solely for the allowance check (no wallet needed).
-   * @returns `true` if the allowance is sufficient; `false` if an approval transaction is required first.
+   * Checks ERC-20 allowance (hub router / spoke asset manager) or Stellar trustlines on sender and recipient.
+   * Withdraw/borrow on EVM need no approval and always return `true`.
    */
   public async isAllowanceValid<K extends SpokeChainKey>(
     _params: MoneyMarketAllowanceParams<K>,
@@ -331,12 +283,9 @@ export class MoneyMarketService {
         );
       }
 
-      // Compute the underlying Result<boolean> across the various chain-type paths, then wrap
-      // any spoke-layer failure as MM_ALLOWANCE_CHECK_FAILED at the single return point below.
       let inner: Result<boolean> = { ok: true, value: true };
 
-      // Target chain is Stellar with a specific recipient: both recipient and (if src is Stellar) sender
-      // must have sufficient trustline for the token.
+      // Stellar recipient (and Stellar sender, if any) must both hold a trustline for the token.
       if (params.dstChainKey && isStellarChainKeyType(params.dstChainKey) && params.dstAddress) {
         const targetResult = await this.spoke.isAllowanceValid({
           srcChainKey: params.dstChainKey,
@@ -375,7 +324,6 @@ export class MoneyMarketService {
           owner: params.srcAddress,
         } satisfies SpokeIsAllowanceValidParamsStellar);
       } else if (params.action === 'supply' || params.action === 'repay') {
-        // Allowance on EVM (hub or spoke) is required only for supply / repay.
         if (isHubChainKeyType(srcChainKey)) {
           const spender = await this.hubProvider.getUserRouter(params.srcAddress as Address);
           inner = await this.spoke.isAllowanceValid({
@@ -411,20 +359,8 @@ export class MoneyMarketService {
   }
 
   /**
-   * Approve token spending for a supply or repay action, or establish a Stellar trustline.
-   *
-   * - EVM hub: approves the user's hub router as spender.
-   * - EVM spoke: approves the spoke asset manager as spender.
-   * - Stellar: creates/updates the required trustline.
-   *
-   * Borrow and withdraw do not require prior approval; calling this method with either of
-   * those actions returns an error.
-   *
-   * Pass `{ raw: true }` to receive unsigned transaction data instead of broadcasting.
-   *
-   * @param _params - Action params including `srcChainKey`, `token`, `amount`, optional `walletProvider`, and `raw` flag.
-   * @returns The broadcast transaction result on success (`raw: false`), or unsigned transaction
-   *   data (`raw: true`), keyed to the source chain type.
+   * Approves the hub router (hub) or asset manager (EVM spoke), or sets a Stellar trustline.
+   * Borrow/withdraw on EVM return an error since they need no approval.
    */
   public async approve<K extends SpokeChainKey, Raw extends boolean>(
     _params: MoneyMarketApproveActionParams<K, Raw>,
@@ -519,8 +455,7 @@ export class MoneyMarketService {
         };
       }
 
-      // Reached only for chains that don't support approval (Solana, NEAR, etc.). Surface as
-      // a validation failure rather than a generic Error so consumers can discriminate.
+      // Chains without approval support (Solana, NEAR, ...) fail as a validation error, not a generic Error.
       mmInvariant(false, 'Approve only supported for hub (Sonic), EVM spokes, and Stellar', {
         ...baseCtx,
         field: 'srcChainKey',
@@ -531,18 +466,6 @@ export class MoneyMarketService {
     }
   }
 
-  // ==== supply ==========================================================================
-
-  /**
-   * Supply tokens to the money market lending pool and wait for the cross-chain relay to complete.
-   *
-   * Executes the spoke-side deposit, then relays the message to the hub where the Aave pool
-   * records the supply position. Hub-chain callers skip the relay step.
-   *
-   * @param _params - Supply action params: `srcChainKey`, `srcAddress`, `token`, `amount`,
-   *   `walletProvider`, and optional `dstChainKey`/`dstAddress` for cross-chain delivery.
-   * @returns A pair of transaction hashes — `srcChainTxHash` (spoke) and `dstChainTxHash` (hub).
-   */
   public async supply<K extends SpokeChainKey>(
     _params: MoneyMarketSupplyActionParams<K, false>,
   ): Promise<Result<TxHashPair, MoneyMarketOrchestrationError>> {
@@ -556,10 +479,8 @@ export class MoneyMarketService {
 
         try {
           const txResult = await this.createSupplyIntent(_params);
-          // CreateSupplyIntentErrorCode ⊂ SupplyErrorCode, so the SodaxError narrows correctly.
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
-          // Settlement is skipped only when the source chain is the hub.
           if (isHubChainKeyType(srcChainKey)) {
             const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
             if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
@@ -607,17 +528,7 @@ export class MoneyMarketService {
     );
   }
 
-  /**
-   * Build and optionally broadcast the spoke-side supply transaction without waiting for the
-   * cross-chain relay to settle on the hub.
-   *
-   * Use this when you need manual relay control or want to sign and broadcast the transaction
-   * yourself. Pass `{ raw: true }` to receive unsigned calldata instead of executing.
-   *
-   * @param _params - Supply action params plus `raw` flag and optional `skipSimulation`.
-   * @returns The spoke transaction result (hash or raw calldata) plus `relayData` required to
-   *   trigger the hub-side execution via {@link relayTxAndWaitPacket}.
-   */
+  /** Executes (or returns raw) the spoke-side supply tx plus `relayData`, without waiting for hub settlement. */
   public async createSupplyIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: MoneyMarketSupplyActionParams<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw, 'deposit'>, MoneyMarketCreateIntentError>> {
@@ -644,15 +555,10 @@ export class MoneyMarketService {
       const dstChainKey = params.dstChainKey ?? srcChainKey;
       const dstAddress = params.dstAddress ?? params.srcAddress;
 
-      // Bitcoin (TRADING mode) pulls the deposit from the Bound Exchange trading wallet, so the
-      // effective source address — and the hub wallet derived from it, where collateral lives — is the
-      // trading wallet, not the personal one. getEffectiveWalletAddress + ensureRadfiAccessToken are the
-      // Bitcoin spoke/Bound primitives (mirrors SwapService/BridgeService); non-Bitcoin chains pass through.
+      // Bitcoin TRADING mode deposits from the Bound Exchange trading wallet, so the hub wallet derives from it.
       const isBitcoinSrc = isBitcoinChainKeyType(srcChainKey);
       if (isBitcoinSrc && !_params.raw) {
-        // Fail fast (mirrors SwapService/BridgeService): a non-raw Bitcoin deposit must sign via a
-        // Bitcoin wallet provider. A missing/wrong provider here would otherwise silently skip the
-        // Bound Exchange session and only surface as an opaque undefined error deep in spoke.deposit.
+        // A wrong provider would silently skip the Bound session and fail opaquely deep in spoke.deposit.
         mmInvariant(
           walletProvider !== undefined && isBitcoinWalletProviderType(walletProvider),
           `Invalid wallet provider for chain key: ${srcChainKey}. Expected bitcoin wallet provider.`,
@@ -665,8 +571,6 @@ export class MoneyMarketService {
         : params.srcAddress;
       const fromHubWallet = await this.hubProvider.getUserHubWalletAddress(srcEffectiveAddress, srcChainKey);
 
-      // Same-chain self-deposit (the common case) reuses the source resolution; a distinct destination
-      // resolves its own effective (Bitcoin trading) address before hub-wallet derivation.
       const toHubWallet =
         dstChainKey === srcChainKey && dstAddress === params.srcAddress
           ? fromHubWallet
@@ -726,8 +630,6 @@ export class MoneyMarketService {
     }
   }
 
-  // ==== borrow ==========================================================================
-
   /**
    * Map a {@link SpokeService.settle} failure onto the money-market errors: a source tx that never
    * landed is a verification failure, anything later a relay failure.
@@ -741,20 +643,7 @@ export class MoneyMarketService {
       : mapRelayFailure(failure.cause, { feature: 'moneyMarket', ...ctx });
   }
 
-  /**
-   * Borrow tokens from the money market lending pool and wait for the cross-chain relay to
-   * deliver the funds to the destination address.
-   *
-   * The relay step is skipped when both the source and destination are the hub chain.
-   * Borrowed tokens can be sent to a different spoke chain by supplying `dstChainKey`
-   * and `dstAddress`.
-   *
-   * @param _params - Borrow action params: `srcChainKey`, `srcAddress`, `token`, `amount`,
-   *   `walletProvider`, and optional `dstChainKey`/`dstAddress`.
-   * @returns A pair of transaction hashes — `srcChainTxHash` (spoke/hub trigger) and
-   *   `dstChainTxHash` (hub delivery or relay destination); from an MPC-relay chain, the relay's
-   *   `trackingId` in place of a source tx ({@link OutboundSettlement}).
-   */
+  /** From an MPC-relay chain, `srcChainTxHash` is replaced by the relay's `trackingId` ({@link OutboundSettlement}). */
   public async borrow<K extends SpokeChainKey>(
     _params: MoneyMarketBorrowActionParams<K, false>,
   ): Promise<Result<OutboundSettlement<K>, MoneyMarketOrchestrationError>> {
@@ -771,8 +660,7 @@ export class MoneyMarketService {
           const txResult = await this.createBorrowIntent(_params);
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
-          // Settlement is not required when the borrow is executed on hub AND the target is also hub.
-          // (Borrow from hub to a different target chain still needs the relay to deliver tokens.)
+          // Hub-to-hub borrow needs no settlement; hub to another chain still needs the relay to deliver.
           const needsSettlement =
             srcChainKey !== hubChainId ||
             (params.dstChainKey != null && params.dstAddress != null && params.dstChainKey !== hubChainId);
@@ -780,7 +668,6 @@ export class MoneyMarketService {
           if (!needsSettlement) {
             const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
             if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
-            // Hub to hub: the source is the hub, never an MPC-relay chain, so this is a pair.
             const onHub = { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx };
             return { ok: true, value: onHub satisfies TxHashPair as OutboundSettlement<K> };
           }
@@ -835,17 +722,7 @@ export class MoneyMarketService {
     );
   }
 
-  /**
-   * Build and optionally broadcast the spoke-side borrow message without waiting for the
-   * cross-chain relay to deliver funds.
-   *
-   * Use this when you need manual relay control or want to sign and broadcast the transaction
-   * yourself. Pass `{ raw: true }` to receive unsigned calldata instead of executing.
-   *
-   * @param _params - Borrow action params plus `raw` flag and optional `skipSimulation`.
-   * @returns The spoke transaction result (hash or raw calldata) plus `relayData` required to
-   *   trigger the hub-side borrow execution via {@link relayTxAndWaitPacket}.
-   */
+  /** Sends (or returns raw) the spoke-side borrow message plus `relayData`, without waiting for delivery. */
   public async createBorrowIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: MoneyMarketBorrowActionParams<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw, 'sendMessage'>, MoneyMarketCreateIntentError>> {
@@ -891,11 +768,8 @@ export class MoneyMarketService {
         { ...baseCtx, field: 'token' },
       );
 
-      // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the
-      // collateral/debt lives. srcAddress stays the personal address because `SpokeService.sendMessage`
-      // resolves the effective address itself (unlike the deposit path used by supply/repay, which
-      // does not). Passing the already-resolved trading address here would double-resolve it
-      // (getTradingWallet(tradingAddress) → "Trading wallet not found").
+      // Only the hub wallet uses the Bitcoin trading address: sendMessage resolves srcAddress itself,
+      // so passing the trading address would double-resolve it ("Trading wallet not found").
       const srcEffectiveAddress = isBitcoinChainKeyType(srcChainKey)
         ? await this.spoke.bitcoin.getEffectiveWalletAddress(params.srcAddress)
         : params.srcAddress;
@@ -959,22 +833,7 @@ export class MoneyMarketService {
     }
   }
 
-  // ==== withdraw ========================================================================
-
-  /**
-   * Withdraw previously supplied tokens from the money market lending pool and wait for the
-   * cross-chain relay to deliver the funds to the destination address.
-   *
-   * The relay step is skipped when the source is the hub chain and the destination is either
-   * unspecified, the hub chain itself, or the hub wallet router address. A cross-chain
-   * destination (different chain, non-walletRouter address) always triggers the relay.
-   *
-   * @param _params - Withdraw action params: `srcChainKey`, `srcAddress`, `token`, `amount`,
-   *   `walletProvider`, and optional `dstChainKey`/`dstAddress`.
-   * @returns A pair of transaction hashes — `srcChainTxHash` (initiating chain) and
-   *   `dstChainTxHash` (hub or relay destination); from an MPC-relay chain, the relay's `trackingId` in
-   *   place of a source tx ({@link OutboundSettlement}).
-   */
+  /** From an MPC-relay chain, `srcChainTxHash` is replaced by the relay's `trackingId` ({@link OutboundSettlement}). */
   public async withdraw<K extends SpokeChainKey>(
     _params: MoneyMarketWithdrawActionParams<K, false>,
   ): Promise<Result<OutboundSettlement<K>, MoneyMarketOrchestrationError>> {
@@ -992,7 +851,7 @@ export class MoneyMarketService {
           const txResult = await this.createWithdrawIntent(_params);
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
-          // Settlement is not required only when: source is hub AND target is hub AND target is not the walletRouter.
+          // No settlement only when source and target are hub and the target is not the walletRouter.
           const needsSettlement =
             srcChainKey !== hubChainId ||
             (params.dstChainKey != null &&
@@ -1003,7 +862,6 @@ export class MoneyMarketService {
           if (!needsSettlement) {
             const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
             if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
-            // Hub to hub: the source is the hub, never an MPC-relay chain, so this is a pair.
             const onHub = { srcChainTxHash: txResult.value.tx, dstChainTxHash: txResult.value.tx };
             return { ok: true, value: onHub satisfies TxHashPair as OutboundSettlement<K> };
           }
@@ -1058,17 +916,7 @@ export class MoneyMarketService {
     );
   }
 
-  /**
-   * Build and optionally broadcast the spoke-side withdraw message without waiting for the
-   * cross-chain relay to deliver funds.
-   *
-   * Use this when you need manual relay control or want to sign and broadcast the transaction
-   * yourself. Pass `{ raw: true }` to receive unsigned calldata instead of executing.
-   *
-   * @param _params - Withdraw action params plus `raw` flag and optional `skipSimulation`.
-   * @returns The spoke transaction result (hash or raw calldata) plus `relayData` required to
-   *   trigger the hub-side withdrawal via {@link relayTxAndWaitPacket}.
-   */
+  /** Sends (or returns raw) the spoke-side withdraw message plus `relayData`, without waiting for delivery. */
   public async createWithdrawIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: MoneyMarketWithdrawActionParams<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw, 'sendMessage'>, MoneyMarketCreateIntentError>> {
@@ -1115,11 +963,8 @@ export class MoneyMarketService {
         amount: params.amount,
         context: { ...baseCtx, field: 'dstAddress' },
       });
-      // Only the hub wallet needs the effective (Bitcoin trading) address — that's where the
-      // collateral/debt lives. srcAddress stays the personal address because `SpokeService.sendMessage`
-      // resolves the effective address itself (unlike the deposit path used by supply/repay, which
-      // does not). Passing the already-resolved trading address here would double-resolve it
-      // (getTradingWallet(tradingAddress) → "Trading wallet not found").
+      // Only the hub wallet uses the Bitcoin trading address: sendMessage resolves srcAddress itself,
+      // so passing the trading address would double-resolve it ("Trading wallet not found").
       const srcEffectiveAddress = isBitcoinChainKeyType(srcChainKey)
         ? await this.spoke.bitcoin.getEffectiveWalletAddress(params.srcAddress)
         : params.srcAddress;
@@ -1183,19 +1028,6 @@ export class MoneyMarketService {
     }
   }
 
-  // ==== repay ===========================================================================
-
-  /**
-   * Repay a borrowed position in the money market lending pool and wait for the cross-chain
-   * relay to settle on the hub.
-   *
-   * Hub-chain callers skip the relay step. The repayment is credited to `dstAddress` on
-   * `dstChainKey` (defaulting to the source address and chain when omitted).
-   *
-   * @param _params - Repay action params: `srcChainKey`, `srcAddress`, `token`, `amount`,
-   *   `walletProvider`, and optional `dstChainKey`/`dstAddress`.
-   * @returns A pair of transaction hashes — `srcChainTxHash` (spoke) and `dstChainTxHash` (hub).
-   */
   public async repay<K extends SpokeChainKey>(
     _params: MoneyMarketRepayActionParams<K, false>,
   ): Promise<Result<TxHashPair, MoneyMarketOrchestrationError>> {
@@ -1211,7 +1043,6 @@ export class MoneyMarketService {
           const txResult = await this.createRepayIntent(_params);
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
-          // Settlement is skipped only when the source chain is the hub.
           if (isHubChainKeyType(srcChainKey)) {
             const verify = await this.spoke.verifyTxHash({ txHash: txResult.value.tx, chainKey: srcChainKey });
             if (!verify.ok) return { ok: false, error: verifyFailed('moneyMarket', verify.error, baseCtx) };
@@ -1259,17 +1090,7 @@ export class MoneyMarketService {
     );
   }
 
-  /**
-   * Build and optionally broadcast the spoke-side repay transaction without waiting for the
-   * cross-chain relay to settle on the hub.
-   *
-   * Use this when you need manual relay control or want to sign and broadcast the transaction
-   * yourself. Pass `{ raw: true }` to receive unsigned calldata instead of executing.
-   *
-   * @param _params - Repay action params plus `raw` flag and optional `skipSimulation`.
-   * @returns The spoke transaction result (hash or raw calldata) plus `relayData` required to
-   *   trigger the hub-side repayment via {@link relayTxAndWaitPacket}.
-   */
+  /** Executes (or returns raw) the spoke-side repay tx plus `relayData`, without waiting for hub settlement. */
   public async createRepayIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: MoneyMarketRepayActionParams<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw, 'deposit'>, MoneyMarketCreateIntentError>> {
@@ -1296,15 +1117,10 @@ export class MoneyMarketService {
       const dstChainKey = params.dstChainKey ?? srcChainKey;
       const dstAddress = params.dstAddress ?? params.srcAddress;
 
-      // Bitcoin (TRADING mode) pulls the deposit from the Bound Exchange trading wallet, so the
-      // effective source address — and the hub wallet derived from it, where collateral lives — is the
-      // trading wallet, not the personal one. getEffectiveWalletAddress + ensureRadfiAccessToken are the
-      // Bitcoin spoke/Bound primitives (mirrors SwapService/BridgeService); non-Bitcoin chains pass through.
+      // Bitcoin TRADING mode deposits from the Bound Exchange trading wallet, so the hub wallet derives from it.
       const isBitcoinSrc = isBitcoinChainKeyType(srcChainKey);
       if (isBitcoinSrc && !_params.raw) {
-        // Fail fast (mirrors SwapService/BridgeService): a non-raw Bitcoin deposit must sign via a
-        // Bitcoin wallet provider. A missing/wrong provider here would otherwise silently skip the
-        // Bound Exchange session and only surface as an opaque undefined error deep in spoke.deposit.
+        // A wrong provider would silently skip the Bound session and fail opaquely deep in spoke.deposit.
         mmInvariant(
           walletProvider !== undefined && isBitcoinWalletProviderType(walletProvider),
           `Invalid wallet provider for chain key: ${srcChainKey}. Expected bitcoin wallet provider.`,
@@ -1317,8 +1133,6 @@ export class MoneyMarketService {
         : params.srcAddress;
       const fromHubWallet = await this.hubProvider.getUserHubWalletAddress(srcEffectiveAddress, srcChainKey);
 
-      // Same-chain self-deposit (the common case) reuses the source resolution; a distinct destination
-      // resolves its own effective (Bitcoin trading) address before hub-wallet derivation.
       const toHubWallet =
         dstChainKey === srcChainKey && dstAddress === params.srcAddress
           ? fromHubWallet
@@ -1378,21 +1192,7 @@ export class MoneyMarketService {
     }
   }
 
-  // ==== build helpers (hub-side call encoding) ==========================================
-
-  /**
-   * Encode the hub-side calldata for a supply operation.
-   *
-   * For non-vault tokens the encoded sequence is: ERC-20 approve → vault deposit → vault
-   * approve → pool `supply`. Amounts are decimal-translated to hub (vault) precision before
-   * encoding so the pool always receives vault-denominated values.
-   *
-   * @param srcChainKey - The source spoke chain that the tokens originate from.
-   * @param fromToken - The token address on `srcChainKey` being supplied.
-   * @param amount - The amount in the spoke token's native decimals.
-   * @param toHubAddress - The hub wallet address that will receive the aTokens.
-   * @returns ABI-encoded multicall data ready to be sent to the hub wallet router.
-   */
+  /** Hub multicall for supply; `amount` is in spoke-token decimals and is translated to vault precision. */
   public buildSupplyData(srcChainKey: SpokeChainKey, fromToken: string, amount: bigint, toHubAddress: Address): Hex {
     const calls: EvmContractCall[] = [];
 
@@ -1405,7 +1205,6 @@ export class MoneyMarketService {
     const lendingPool = this.config.moneyMarket.lendingPool;
 
     if (!this.config.isSodaVaultHubAsset(fromHubAsset.hubAsset)) {
-      // deposit non-vault token into the vault
       calls.push(Erc20Service.encodeApprove(fromHubAsset.hubAsset, fromHubAsset.vault, amount));
       calls.push(EvmVaultTokenService.encodeDeposit(fromHubAsset.vault, fromHubAsset.hubAsset, amount));
     }
@@ -1442,25 +1241,7 @@ export class MoneyMarketService {
     return vault.toLowerCase() === bnUSDVault.toLowerCase() ? bnUSD : vault;
   }
 
-  /**
-   * Encode the hub-side calldata for a borrow operation.
-   *
-   * The encoded sequence handles two cases:
-   * - bnUSD vault: borrow bnUSD debt token → deposit into vault → optional partner fee transfer.
-   * - Other vault: borrow vault token directly → optional partner fee transfer → vault withdraw
-   *   (if the destination token is not the vault token itself).
-   *
-   * Funds are then routed to the destination: native S (wrapped Sonic unwrap) on the hub, plain
-   * ERC-20 transfer on the hub for non-native, or an asset manager cross-chain transfer for
-   * spoke destinations.
-   *
-   * @param fromHubAddress - The hub wallet address that owns the collateral and will take on the debt.
-   * @param dstAddress - The ABI-encoded destination address on the target chain.
-   * @param toToken - The token address on `dstChainKey` that the borrower wants to receive.
-   * @param amount - The borrow amount in the destination token's native decimals.
-   * @param dstChainKey - The chain where borrowed tokens should be delivered.
-   * @returns ABI-encoded multicall data ready to be sent to the hub wallet router.
-   */
+  /** Hub multicall for borrow; `amount` is in the destination token's native decimals. */
   public buildBorrowData(
     fromHubAddress: Address,
     dstAddress: Address,
@@ -1515,7 +1296,6 @@ export class MoneyMarketService {
     }
 
     if (!this.config.isSodaVaultHubAsset(assetAddress)) {
-      // if the target token is not the vault token, we need to withdraw the tokens from the vault
       calls.push(EvmVaultTokenService.encodeWithdraw(vaultAddress, assetAddress, translatedInAmount - feeAmount));
     }
 
@@ -1561,21 +1341,7 @@ export class MoneyMarketService {
     return encodeContractCalls(calls);
   }
 
-  /**
-   * Encode the hub-side calldata for a withdraw operation.
-   *
-   * Calls pool `withdraw` (which burns aTokens and returns vault tokens), then optionally
-   * redeems underlying from the vault when the destination token is not the vault token itself.
-   * Funds are then forwarded to the destination: native S unwrap on the hub, ERC-20 transfer
-   * on the hub for non-native, or an asset manager cross-chain transfer for spoke destinations.
-   *
-   * @param fromHubAddress - The hub wallet address that holds the aTokens to burn.
-   * @param dstAddress - The ABI-encoded destination address on the target chain.
-   * @param toToken - The token address on `dstChainKey` that the caller wants to receive.
-   * @param amount - The withdrawal amount in the destination token's native decimals.
-   * @param dstChainKey - The chain where withdrawn tokens should be delivered.
-   * @returns ABI-encoded multicall data ready to be sent to the hub wallet router.
-   */
+  /** Hub multicall for withdraw; `amount` is in the destination token's native decimals. */
   public buildWithdrawData(
     fromHubAddress: Address,
     dstAddress: Address,
@@ -1610,7 +1376,6 @@ export class MoneyMarketService {
     );
 
     if (!this.config.isSodaVaultHubAsset(assetAddress)) {
-      // if the target token is not the vault token, we need to withdraw the tokens from the vault
       calls.push(EvmVaultTokenService.encodeWithdraw(vaultAddress, assetAddress, translatedInAmount));
     }
 
@@ -1657,28 +1422,8 @@ export class MoneyMarketService {
   }
 
   /**
-   * Encode the hub-side calldata for a repay operation.
-   *
-   * Two paths based on the vault type:
-   * - bnUSD vault: if the incoming asset is not already the vault, approve and deposit into it
-   *   (using the raw spoke-native `amount`); then withdraw the bnUSD debt token from the vault
-   *   and call pool `repay` with the bnUSD token.
-   * - Other vault: if the incoming asset is not already a vault token, approve and deposit first
-   *   (using the raw spoke-native `amount`); then call pool `repay` directly with the vault token.
-   *
-   * Decimal handling — two scales are intentionally used in the same call sequence:
-   * - Vault `deposit` / ERC-20 `approve` for the vault receive the raw spoke-native `amount`
-   *   because the vault contract expects amounts in the underlying token's native decimals.
-   * - Vault `withdraw`, ERC-20 `approve` for the lending pool, and pool `repay` receive
-   *   `translatedAmountIn` (decimal-scaled to 18-decimal hub/vault precision via
-   *   {@link EvmVaultTokenService.translateIncomingDecimals}) because the Aave pool operates
-   *   exclusively in vault-token (18-decimal) units.
-   *
-   * @param srcChainKey - The source spoke chain that the repayment tokens originate from.
-   * @param fromToken - The token address on `srcChainKey` being used to repay.
-   * @param amount - The repay amount in the source token's native decimals.
-   * @param toHubAddress - The hub wallet address whose debt position will be reduced.
-   * @returns ABI-encoded multicall data ready to be sent to the hub wallet router.
+   * Hub multicall for repay. Vault deposit/approve take the raw spoke-native `amount`; pool approve/repay
+   * and vault withdraw take the 18-decimal `translatedAmountIn`, since the pool only works in vault units.
    */
   public buildRepayData(srcChainKey: SpokeChainKey, fromToken: string, amount: bigint, toHubAddress: Address): Hex {
     const calls: EvmContractCall[] = [];
@@ -1699,16 +1444,14 @@ export class MoneyMarketService {
 
     let repayToken = vaultAddress;
     if (bnUSDVault.toLowerCase() === vaultAddress.toLowerCase()) {
-      // when repaying bnUSD using vault token, bnUSD debt token gets repaid
+      // Repaying the bnUSD vault repays the bnUSD debt token.
       repayToken = bnUSD;
 
       if (assetAddress.toLowerCase() !== bnUSDVault.toLowerCase()) {
-        // if asset address is not bnUSD vault, we need to approve and deposit the asset into the vault
         calls.push(Erc20Service.encodeApprove(assetAddress, vaultAddress, amount));
         calls.push(EvmVaultTokenService.encodeDeposit(vaultAddress, assetAddress, amount));
       }
 
-      // withdraw the bnUSD debt token from the vault
       calls.push(EvmVaultTokenService.encodeWithdraw(bnUSDVault, bnUSD, translatedAmountIn));
     } else {
       if (!this.config.isSodaVaultHubAsset(fromHubAsset.hubAsset)) {
@@ -1727,30 +1470,11 @@ export class MoneyMarketService {
     return encodeContractCalls(calls);
   }
 
-  // ==== static encoders (unchanged) =====================================================
-
-  /**
-   * Convert a token amount to its scaled aToken equivalent using the reserve's current
-   * liquidity index (RAY precision, 27 decimals).
-   *
-   * The result is rounded up by 1 to avoid rounding-down dust that would make the
-   * `withdraw` call revert due to insufficient aToken balance.
-   *
-   * @param amount - Token amount in the reserve's native decimals.
-   * @param normalizedIncome - The reserve's current `liquidityIndex` in RAY (1e27) precision.
-   * @returns The scaled aToken amount required to represent `amount` of the underlying.
-   */
+  /** Scaled aToken amount for `amount` at the RAY (1e27) `normalizedIncome`, +1 so withdraw never reverts on dust. */
   static calculateATokenAmount(amount: bigint, normalizedIncome: bigint): bigint {
     return (amount * 10n ** 27n) / normalizedIncome + 1n;
   }
 
-  /**
-   * Encode a pool `supply` call as a raw {@link EvmContractCall} for use inside a multicall batch.
-   *
-   * @param params - Asset address, amount, beneficiary, and referral code.
-   * @param lendingPool - Address of the Aave-style lending pool contract.
-   * @returns An `EvmContractCall` with the ABI-encoded `supply` calldata.
-   */
   public static encodeSupply(params: MoneyMarketEncodeSupplyParams, lendingPool: Address): EvmContractCall {
     return {
       address: lendingPool,
@@ -1763,13 +1487,6 @@ export class MoneyMarketService {
     };
   }
 
-  /**
-   * Encode a pool `withdraw` call as a raw {@link EvmContractCall} for use inside a multicall batch.
-   *
-   * @param params - Asset address, amount to withdraw, and recipient address.
-   * @param lendingPool - Address of the Aave-style lending pool contract.
-   * @returns An `EvmContractCall` with the ABI-encoded `withdraw` calldata.
-   */
   public static encodeWithdraw(params: MoneyMarketEncodeWithdrawParams, lendingPool: Address): EvmContractCall {
     return {
       address: lendingPool,
@@ -1782,14 +1499,6 @@ export class MoneyMarketService {
     };
   }
 
-  /**
-   * Encode a pool `borrow` call as a raw {@link EvmContractCall} for use inside a multicall batch.
-   *
-   * @param params - Asset address, borrow amount, interest rate mode (2 = variable), referral code,
-   *   and the address that will carry the debt.
-   * @param lendingPool - Address of the Aave-style lending pool contract.
-   * @returns An `EvmContractCall` with the ABI-encoded `borrow` calldata.
-   */
   public static encodeBorrow(params: MoneyMarketEncodeBorrowParams, lendingPool: Address): EvmContractCall {
     return {
       address: lendingPool,
@@ -1802,14 +1511,6 @@ export class MoneyMarketService {
     };
   }
 
-  /**
-   * Encode a pool `repay` call as a raw {@link EvmContractCall} for use inside a multicall batch.
-   *
-   * @param params - Asset address, repay amount, interest rate mode (2 = variable), and the
-   *   address whose debt will be reduced.
-   * @param lendingPool - Address of the Aave-style lending pool contract.
-   * @returns An `EvmContractCall` with the ABI-encoded `repay` calldata.
-   */
   public static encodeRepay(params: MoneyMarketEncodeRepayParams, lendingPool: Address): EvmContractCall {
     return {
       address: lendingPool,
@@ -1822,17 +1523,7 @@ export class MoneyMarketService {
     };
   }
 
-  /**
-   * Encode a pool `repayWithATokens` call as a raw {@link EvmContractCall} for use inside a
-   * multicall batch.
-   *
-   * Repays debt by burning the caller's aTokens directly instead of transferring the underlying
-   * asset. Useful when the caller holds aTokens and wants to close a position atomically.
-   *
-   * @param params - Asset address, repay amount, and interest rate mode (2 = variable).
-   * @param lendingPool - Address of the Aave-style lending pool contract.
-   * @returns An `EvmContractCall` with the ABI-encoded `repayWithATokens` calldata.
-   */
+  /** Repays debt by burning the caller's aTokens instead of transferring the underlying. */
   public static encodeRepayWithATokens(
     params: MoneyMarketEncodeRepayWithATokensParams,
     lendingPool: Address,
@@ -1848,18 +1539,6 @@ export class MoneyMarketService {
     };
   }
 
-  /**
-   * Encode a pool `setUserUseReserveAsCollateral` call as a raw {@link EvmContractCall} for use
-   * inside a multicall batch.
-   *
-   * Toggles whether a supplied asset is used as collateral for the caller's borrowing capacity.
-   * Disabling collateral reduces the caller's available borrow power.
-   *
-   * @param asset - Address of the reserve asset whose collateral flag will be updated.
-   * @param useAsCollateral - `true` to enable as collateral; `false` to disable.
-   * @param lendingPool - Address of the Aave-style lending pool contract.
-   * @returns An `EvmContractCall` with the ABI-encoded `setUserUseReserveAsCollateral` calldata.
-   */
   public static encodeSetUserUseReserveAsCollateral(
     asset: Address,
     useAsCollateral: boolean,
@@ -1876,32 +1555,15 @@ export class MoneyMarketService {
     };
   }
 
-  // ==== info getters =====================================================================
-
-  /**
-   * Return the list of money market tokens supported on the given spoke chain.
-   *
-   * @param chainId - The spoke chain to query.
-   * @returns Immutable array of supported {@link XToken} definitions for that chain.
-   */
   public getSupportedTokensByChainId(chainId: SpokeChainKey): readonly XToken[] {
     return this.config.getSupportedMoneyMarketTokensByChainId(chainId);
   }
 
-  /**
-   * Return all supported money market tokens grouped by spoke chain.
-   *
-   * @returns A {@link GetMoneyMarketTokensApiResponse} map of chain key → token list.
-   */
   public getSupportedTokens(): GetMoneyMarketTokensApiResponse {
     return this.config.getSupportedMoneyMarketTokens();
   }
 
-  /**
-   * Return the list of hub-side reserve asset addresses registered in the lending pool.
-   *
-   * @returns Immutable array of reserve asset addresses (vault tokens on the hub chain).
-   */
+  /** Hub reserve assets (vault tokens) registered in the lending pool. */
   public getSupportedReserves(): readonly Address[] {
     return this.config.getMoneyMarketReserveAssets();
   }

@@ -4,11 +4,6 @@ import type { RelayExtraData } from './relay-types.js';
 import type { DepositReturnType, MpcRelayChainKey, SendMessageReturnType, SpokeChainKey } from '@sodax/types';
 import type { SettlementDirection } from './spoke-types.js';
 
-/**
- * Types derived from Core SDK specific types
- * NOTE: common (non Core SDK specific) types should be put in @sodax/types package
- */
-
 export type HubProvider = EvmHubProvider;
 
 export type RateLimitConfig = {
@@ -17,9 +12,6 @@ export type RateLimitConfig = {
   available: number;
 };
 
-/**
- * Structural types
- */
 export type OptionalRaw<R extends boolean> = { raw?: R };
 export type OptionalSkipSimulation = { skipSimulation?: boolean };
 export type OptionalTimeout = { timeout?: number };
@@ -30,9 +22,8 @@ export type TxHashPair = {
 };
 
 /**
- * How an MPC-relay withdraw-auth (a borrow or withdraw from Tron) settled. The source chain has no tx for
- * it, only the relay's `trackingId`, so it is not a {@link TxHashPair}: never link `trackingId` to an
- * explorer. `dstChainTxHash` is the far side, as in a pair: the payout tx, or the hub tx when it ends there.
+ * An MPC-relay withdraw-auth has no source tx, only the relay's `trackingId`: never link it to an explorer.
+ * `dstChainTxHash` is the payout tx, or the hub tx when it ends there.
  */
 export type MpcWithdrawalSettlement = { trackingId: string; dstChainTxHash: string };
 

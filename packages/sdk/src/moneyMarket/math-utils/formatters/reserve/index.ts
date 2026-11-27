@@ -61,7 +61,6 @@ export interface ReserveData {
   totalScaledVariableDebt: string;
   lastUpdateTimestamp: number;
   aTokenAddress: string;
-  // v3
   borrowCap: string;
   supplyCap: string;
   debtCeiling: string;
@@ -85,9 +84,7 @@ interface GetComputedReserveFieldsResponse {
   unborrowedLiquidity: string;
 }
 
-/**
- * @description accrues interest and adds computed fields
- */
+/** Accrues interest and adds computed fields. */
 function getComputedReserveFields({
   reserve,
   currentTimestamp,
@@ -103,10 +100,7 @@ function getComputedReserveFields({
     LTV_PRECISION,
   );
 
-  /**
-   * availableLiquidity returned by the helper is the amount of unborrowed tokens
-   * the actual availableLiquidity might be lower due to borrowCap
-   */
+  /** The helper's availableLiquidity is unborrowed tokens; borrowCap may lower it further. */
   const availableLiquidity =
     reserve.borrowCap === '0'
       ? new BigNumber(reserve.availableLiquidity)
@@ -146,9 +140,6 @@ interface FormatEnhancedReserveRequest {
   reserve: ReserveData & GetComputedReserveFieldsResponse;
   eModes?: EModeDataString[];
 }
-/**
- * @description normalizes reserve values & computed fields
- */
 function formatEnhancedReserve({ reserve, eModes }: FormatEnhancedReserveRequest): FormatReserveResponse {
   const normalizeWithReserve = (n: BigNumberValue) => normalize(n, reserve.decimals);
 
@@ -193,9 +184,7 @@ function formatEnhancedReserve({ reserve, eModes }: FormatEnhancedReserveRequest
   };
 }
 
-/**
- * @description computes additional fields and normalizes numbers into human readable decimals
- */
+/** Computes additional fields and normalizes numbers into human-readable decimals. */
 export function formatReserve({ reserve, currentTimestamp, eModes }: FormatReserveRequest): FormatReserveResponse {
   const computedFields = getComputedReserveFields({
     reserve,
@@ -232,10 +221,7 @@ export interface FormatReserveUSDResponse extends FormatReserveResponse {
   priceInUSD: string;
 }
 
-/**
- * @description computes additional fields and normalizes numbers into human readable decimals
- * In addition to that it also converts the numbers to USD
- */
+/** Like {@link formatReserve}, plus USD conversion. */
 export function formatReserveUSD({
   reserve,
   currentTimestamp,
@@ -296,7 +282,6 @@ export function formatReserveUSD({
       priceInMarketReferenceCurrency: reserve.priceInMarketReferenceCurrency,
       normalizedMarketReferencePriceInUsd,
     }),
-    // v3
     // caps are already in absolutes
     borrowCapUSD: normalizedToUsd(
       new BigNumber(reserve.borrowCap),
@@ -313,11 +298,6 @@ export function formatReserveUSD({
       reserve.priceInMarketReferenceCurrency,
       marketReferenceCurrencyDecimals,
     ).toString(),
-    // debtCeilingUSD: normalizedToUsd(
-    //   new BigNumber(reserve.debtCeiling),
-    //   marketReferencePriceInUsd,
-    //   marketReferenceCurrencyDecimals,
-    // ).toString(),
   };
 }
 

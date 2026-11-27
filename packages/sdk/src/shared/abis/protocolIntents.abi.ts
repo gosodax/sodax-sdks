@@ -1,4 +1,3 @@
-// packages/sdk/src/shared/abis/protocolIntents.abi.ts
 export const ProtocolIntentsAbi = [
   {
     type: 'function',

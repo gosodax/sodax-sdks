@@ -1,9 +1,4 @@
-/**
- * Program IDL in camelCase format in order to be used in JS/TS.
- *
- * Note that this is only a type helper and is not the actual IDL. The original
- * IDL can be found at `target/idl/connection.json`.
- */
+/** Type helper for the program IDL (camelCase), not the IDL itself: see `target/idl/connection.json`. */
 export type Connection = {
   address: 'GxS8i6D9qQjbSeniD487CnomUxU2pXt6V8P96T6MkUXB';
   metadata: {

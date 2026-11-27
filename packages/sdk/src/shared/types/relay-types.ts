@@ -3,10 +3,8 @@ import type { HttpUrl, SpokeChainKey, Hex } from '@sodax/types';
 export type RelayExtraData = { address: Hex; payload: Hex };
 
 /**
- * Signed Bitcoin on-demand payload (money-market borrow/withdraw) carried in the relay submit
- * `data` as a JSON object — not a stringified JSON. There is no broadcast tx for these.
- * `public_key` is the signer's public key, required by the relay to verify a BIP-322 signature
- * (BIP-322 is not public-key-recoverable, unlike BIP-137).
+ * Bitcoin on-demand payload (borrow/withdraw), sent as a JSON object, not a string; there is no broadcast tx.
+ * `public_key` is required because BIP-322 signatures are not public-key-recoverable.
  */
 export type OnDemandRelayData = { payload_hex: string; signature?: string; public_key?: string };
 
@@ -39,12 +37,7 @@ export type WaitUntilIntentExecutedPayload = {
   srcTxHash: string;
   timeout?: number;
   apiUrl: HttpUrl;
-  /**
-   * Disambiguates when a single src tx emits multiple relay packets. Receives the candidates
-   * already filtered by `srcTxHash` and `src_chain_id` (so only packets for the awaited
-   * transaction and source chain reach it) and returns the desired one (or undefined to keep
-   * polling). Defaults to "first candidate" — the legacy behavior for single-packet flows.
-   */
+  /** Picks among packets of one src tx (already filtered by hash and chain); undefined keeps polling. Defaults to the first. */
   selectPacket?: (packets: PacketData[]) => PacketData | undefined;
 };
 

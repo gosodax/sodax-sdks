@@ -33,26 +33,17 @@ type ResultifiedSponsoringApi = {
     : never;
 };
 
-/** Construction options for {@link SponsoringApiService}. */
 export type SponsoringApiServiceOptions = {
   /**
-   * The instance-wide `new Sodax({ apiKey })`, which sponsoring inherits only when its effective
-   * target is one of `inheritedApiKeyBaseURLs`. Deliberately not baked into the headers: a per-request
-   * `baseURL` retargets the call while keeping the default headers, which would carry the credential
-   * off-gateway. Outranked by the configured slice key (`SponsoringApiConfig.apiKey`) and by headers.
+   * Sent only to `inheritedApiKeyBaseURLs`; not baked into headers, since a per-request `baseURL` would carry it
+   * off-gateway. Outranked by the slice `apiKey` and by headers.
    */
   inheritedApiKey?: string;
   /** Roots the inherited key may be sent to — the packaged sponsoring default and the shared gateway. */
   inheritedApiKeyBaseURLs?: readonly string[];
 };
 
-/**
- * Uncached HTTP client for the sponsoring API. Stellar orchestration and
- * config caching belong to `SponsoringService`.
- *
- * Transport errors use `feature: 'backend'`; only the user-facing orchestrator
- * uses `feature: 'sponsoring'`.
- */
+/** Uncached client; transport errors use `feature: 'backend'` (only the orchestrator uses `'sponsoring'`). */
 export class SponsoringApiService implements ResultifiedSponsoringApi {
   private readonly config: SponsoringApiConfig;
   private readonly headers: Record<string, string>;
@@ -73,27 +64,20 @@ export class SponsoringApiService implements ResultifiedSponsoringApi {
     this.inheritedApiKeyBaseURLs = (options.inheritedApiKeyBaseURLs ?? []).map(trimTrailingSlashes);
   }
 
-  /**
-   * The inherited instance key, but only for a request whose effective target is an allowed root.
-   * Evaluated per call because a `RequestOverrideConfig.baseURL` retargets the request.
-   */
+  /** Evaluated per call because a `RequestOverrideConfig.baseURL` retargets the request. */
   private inheritedKeyFor(baseURL: string): string | undefined {
     if (!this.inheritedApiKey) return undefined;
     return this.inheritedApiKeyBaseURLs.includes(trimTrailingSlashes(baseURL)) ? this.inheritedApiKey : undefined;
   }
 
-  /**
-   * Validate a response while preserving HTTP failures on `error.cause` for
-   * sponsor-error classification.
-   */
+  /** HTTP failures stay on `error.cause` for sponsor-error classification. */
   private async request<S extends v.GenericSchema>(
     endpoint: string,
     config: RequestConfig,
     schema: S,
   ): Promise<Result<v.InferOutput<S>, SodaxError<'EXTERNAL_API_ERROR'>>> {
     try {
-      // The inherited key sits LOWEST, under the configured slice key and headers; `resolveRequestConfig`
-      // then layers the per-request `apiKey` and headers on top.
+      // Inherited key sits lowest, under the slice key, headers and per-request overrides.
       const inherited = apiKeyHeader(this.inheritedKeyFor(config.baseURL || this.config.baseURL));
       const raw = await makeRequest<unknown>({
         endpoint,
@@ -115,7 +99,7 @@ export class SponsoringApiService implements ResultifiedSponsoringApi {
       }
       return { ok: true, value: parsed.output };
     } catch (error) {
-      // `makeRequest` already logged this failure under the same service label — don't double-log.
+      // `makeRequest` already logged this failure.
       return { ok: false, error: toExternalApiError({ api: 'sponsoring', feature: 'backend', endpoint, error }) };
     }
   }
@@ -131,10 +115,7 @@ export class SponsoringApiService implements ResultifiedSponsoringApi {
     );
   }
 
-  /**
-   * Submit a client-signed transaction for sponsor co-signing. An
-   * `alreadyActive` response is also successful.
-   */
+  /** An `alreadyActive` response is also successful. */
   public async createStellarSponsoredAccount(
     body: StellarSponsoredAccountRequest,
     config?: RequestOverrideConfig,

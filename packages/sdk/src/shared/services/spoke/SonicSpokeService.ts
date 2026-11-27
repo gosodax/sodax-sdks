@@ -76,7 +76,7 @@ export type CreateSonicSwapIntentParams<Raw extends boolean> = {
 
 export class SonicSpokeService {
   private readonly config: ConfigService;
-  // since sonic is sole hub chain we only need one public client
+  // Sonic is the sole hub chain, so one public client suffices.
   public readonly publicClient: PublicClient;
   private readonly pollingIntervalMs: number;
   private readonly maxTimeoutMs: number;
@@ -92,9 +92,7 @@ export class SonicSpokeService {
     this.maxTimeoutMs = chainConfig.pollingConfig.maxTimeoutMs;
   }
 
-  /**
-   * Check ERC-20 allowance on Sonic (hub) for a given spender (e.g. intents contract).
-   */
+  /** ERC-20 allowance on Sonic (hub) for a spender such as the intents contract. */
   public async isAllowanceValid(
     params: Omit<Erc20IsAllowanceParams<SonicChainKey>, 'publicClient' | 'nativeToken'>,
   ): Promise<Result<boolean>> {
@@ -155,31 +153,7 @@ export class SonicSpokeService {
     }
   }
 
-  /**
-
-    * Estimates the gas necessary to complete a transaction without submitting it to the network.
-    *
-    * - Docs: https://viem.sh/docs/actions/public/estimateGas
-    * - JSON-RPC Methods: [`eth_estimateGas`](https://ethereum.org/en/developers/docs/apis/json-rpc/#eth_estimategas)
-    *
-    * @param {EstimateGasParams<SonicChainKey>} params - The parameters for the gas estimation, including the from, to, value, and data.
-    * @returns {Promise<bigint>} Estimated gas for the transaction.
-    *
-    * @example
-    *
-    * const params: EstimateGasParams<SonicChainKey> = {
-    *   from: '0x1234...abcd', // sender address
-    *   to: '0xabcd...1234',   // recipient address
-    *   value: 1000000000000000000n, // 1 ETH in wei
-    *   data: '0x', // no calldata
-    * };
-    *
-    * // Assume spokeProvider is an initialized EvmSpokeProvider
-    * const estimatedGas = await EvmSpokeService.estimateGas(rawTx, spokeProvider);
-    * console.log(`Estimated gas: ${estimatedGas}`);
-    */
   public async estimateGas(params: EstimateGasParams<SonicChainKey>): Promise<bigint> {
-    // Use viem's estimateGas with explicit parameter types
     return this.publicClient.estimateGas({
       account: params.tx.from,
       to: params.tx.to,
@@ -188,11 +162,7 @@ export class SonicSpokeService {
     });
   }
 
-  /**
-   * Get the derived address of a contract deployed with CREATE3.
-   * @param {GetUserRouterParams} params - The parameters for the get user router
-   * @returns {HubAddress} The computed contract address as a EVM address (hex) string
-   */
+  /** The user's CREATE3-derived router (hub wallet) address. */
   public async getUserRouter(params: GetUserRouterParams): Promise<HubAddress> {
     return this.publicClient.readContract({
       address: this.config.getChainConfig(params.chainId).addresses.walletRouter,
@@ -202,11 +172,7 @@ export class SonicSpokeService {
     });
   }
 
-  /**
-   * Deposit tokens to the spoke chain using the Sonic wallet abstraction.
-   * @param {DepositParams<SonicChainKey, Raw>} params - The parameters for the deposit
-   * @returns {Promise<TxReturnType<SonicChainKey, Raw>>} A promise that resolves to the transaction hash
-   */
+  /** Deposit via the Sonic wallet abstraction: `data` holds the encoded calls array. */
   public async deposit<Raw extends boolean>(
     params: DepositParams<SonicChainKey, Raw>,
   ): Promise<TxReturnType<SonicChainKey, Raw>> {
@@ -214,7 +180,6 @@ export class SonicSpokeService {
 
     const chainConfig = this.config.getChainConfig(params.srcChainKey);
 
-    // Decode the data field which contains the encoded calls array
     const calls = Array.from(
       decodeAbiParameters(
         [
@@ -233,7 +198,6 @@ export class SonicSpokeService {
     );
 
     if (params.token.toLowerCase() === chainConfig.nativeToken.toLowerCase()) {
-      // Add a call to wrap the native token
       const wrapCall = {
         address: chainConfig.addresses.wrappedSonic,
         value: params.amount,
@@ -308,9 +272,8 @@ export class SonicSpokeService {
       `hub asset not found for spoke chain token (intent.outputToken): ${createIntentParams.outputToken}`,
     );
 
-    // Apply the delivery hook (if any): may override dstAddress and derive deliveryData.
+    // The delivery hook (if any) may override dstAddress and derive deliveryData.
     const { dstAddress, deliveryData } = HookService.resolveDelivery(createIntentParams);
-    // Encode the partner fee, then fold it together with any delivery payload into the intent `data`.
     const [feeEnvelope, feeAmount] = EvmSolverService.createIntentFeeData(fee, createIntentParams.inputAmount);
     const intentData = IntentDataService.composeIntentData(feeEnvelope, deliveryData);
 
@@ -357,11 +320,7 @@ export class SonicSpokeService {
       txData.data,
     ];
   }
-  /**
-   * Get the balance of the token in the hub (sonic) chain.
-   * @param {GetDepositParams<SonicChainKey>} params - The parameters for the deposit, including the token and chain id.
-   * @returns {Promise<bigint>} The balance of the token.
-   */
+  /** Balance of the token on the hub (Sonic) chain. */
   public async getDeposit(params: GetDepositParams<SonicChainKey>): Promise<bigint> {
     return this.publicClient.readContract({
       address: params.token,
@@ -371,12 +330,6 @@ export class SonicSpokeService {
     });
   }
 
-  /**
-   * Get the user's own wallet balance of a token on the hub (Sonic) chain, in smallest units.
-   * Native coin via `eth_getBalance`; erc20 via `balanceOf`.
-   * @param {GetBalanceParams<SonicChainKey>} params - The chain key, user address, and token.
-   * @returns {Promise<bigint>} The token balance in smallest units.
-   */
   public async getWalletBalance(params: GetBalanceParams<SonicChainKey>): Promise<bigint> {
     const { srcChainKey, srcAddress, token } = params;
 
@@ -393,13 +346,7 @@ export class SonicSpokeService {
     return balance ?? 0n;
   }
 
-  /**
-   * Get the user's own wallet balances of multiple tokens on the hub (Sonic) chain, in smallest
-   * units. Non-native tokens are batched via multicall3 when the chain supports it, otherwise
-   * read in parallel.
-   * @param {GetBalancesParams<SonicChainKey>} params - The chain key, user address, and tokens.
-   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
-   */
+  /** Non-native tokens are batched via multicall3 when the chain supports it, otherwise read in parallel. */
   public async getWalletBalances(params: GetBalancesParams<SonicChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
 
@@ -416,9 +363,8 @@ export class SonicSpokeService {
     }
 
     if (getEvmViemChain(srcChainKey).contracts?.multicall3) {
-      // allowFailure (viem's default) keeps a single reverting token — or a rate-limited aggregate3
-      // chunk, which viem fans out as a failure entry per call — from discarding the balances that
-      // did resolve. Each failure still goes through the collector so it is logged, not silent.
+      // allowFailure keeps one reverting token (or a rate-limited aggregate3 chunk, fanned out per call) from discarding
+      // the balances that did resolve; each failure still goes through the collector.
       const results = await this.publicClient.multicall({
         contracts: nonNativeTokens.map(token => ({
           abi: erc20Abi,
@@ -449,18 +395,12 @@ export class SonicSpokeService {
     return collector.finish();
   }
 
-  /**
-   * Execute a batch of contract calls through the Sonic wallet contract.
-   * @param {Hex} payload - The encoded payload containing the calls array
-   * @param {SonicSpokeProviderType} spokeProvider - The provider for the spoke chain
-   * @returns {Promise<TxReturnType<S, R>>} A promise that resolves to the transaction hash
-   */
+  /** Execute a batch of contract calls (encoded in `payload`) through the Sonic wallet contract. */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<SonicChainKey, Raw>,
   ): Promise<TxReturnType<SonicChainKey, Raw>> {
     invariant(isSonicChainKeyType(params.srcChainKey), '[SonicSpokeService.callWallet] invalid chain id');
 
-    // Decode the payload which contains the encoded calls array
     const calls = decodeAbiParameters(
       [
         {

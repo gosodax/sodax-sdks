@@ -99,10 +99,7 @@ export class CustomStellarAccount {
   }
 }
 
-/**
- * `TransactionBuilder.setTimeout` uses seconds, unlike this service's
- * millisecond timeout fields.
- */
+/** `TransactionBuilder.setTimeout` takes seconds, unlike this service's millisecond timeouts. */
 const TRUSTLINE_TX_TIMEOUT_SECONDS = 300;
 
 export type RequestTrustlineParams<S extends StellarChainKey, Raw extends boolean> = {
@@ -126,7 +123,7 @@ export class StellarSpokeService {
     this.config = config;
     this.chainConfig = config.getChainConfig(ChainKeys.STELLAR_MAINNET);
 
-    // since we only support mainnet for now, we can hardcode the single stellar chain config
+    // Only mainnet is supported, so the single Stellar chain config is used.
     this.server = new Horizon.Server(this.chainConfig.horizonRpcUrl, {
       allowHttp: true,
     });
@@ -168,13 +165,7 @@ export class StellarSpokeService {
     throw new Error('result undefined');
   }
 
-  /**
-   * Get the user's own wallet balance of a token on Stellar, in smallest units. Native XLM returns
-   * the spendable amount (total minus the minimum reserve and selling liabilities) via Horizon;
-   * other assets return the Soroban token contract's `balance` for the user.
-   * @param {GetBalanceParams<StellarChainKey>} params - The chain key, user address, and token.
-   * @returns {Promise<bigint>} The token balance in smallest units.
-   */
+  /** Native XLM returns the spendable amount via Horizon; other assets the Soroban token contract's `balance`. */
   public async getWalletBalance(params: GetBalanceParams<StellarChainKey>): Promise<bigint> {
     const { srcChainKey, srcAddress, token } = params;
 
@@ -194,11 +185,7 @@ export class StellarSpokeService {
     );
   }
 
-  /**
-   * Spendable XLM in stroops: the account's native balance minus its minimum reserve and selling
-   * liabilities. Reporting the raw balance would let a user try to spend reserves the network
-   * refuses to release.
-   */
+  /** Native balance minus minimum reserve and selling liabilities — the network refuses to release reserves. */
   private static spendableXlmStroops(account: Horizon.AccountResponse): bigint {
     const nativeBalance = account.balances.find(
       (balance): balance is Horizon.HorizonApi.BalanceLineNative => balance.asset_type === 'native',
@@ -219,10 +206,8 @@ export class StellarSpokeService {
   }
 
   /**
-   * Simulate a Soroban token `balance` call. Takes the network passphrase and source account so a
-   * batch can fetch them once; `getAccountClone()` hands each builder its own `Account`, because
-   * `TransactionBuilder.build()` increments the source's sequence number and concurrent builders
-   * would otherwise interleave on a shared one.
+   * Each builder needs its own `getAccountClone()`: `TransactionBuilder.build()` increments the source's sequence
+   * number, so concurrent builders on a shared `Account` would interleave.
    */
   private async simulateTokenBalance(
     tokenAddress: string,
@@ -241,23 +226,14 @@ export class StellarSpokeService {
     if (!rpc.Api.isSimulationSuccess(result)) {
       throw new Error('Failed to simulate transaction');
     }
-    // A success response with no return value is a malformed read, not a zero balance — and `0n`
-    // now carries the meaning "confirmed zero on chain". Throw, as the sibling `getBalance` does.
+    // A success with no return value is a malformed read, not a zero balance (`0n` means confirmed zero).
     if (!result.result) {
       throw new Error('Failed to read token balance: simulation returned no result');
     }
     return scValToBigInt(result.result.retval);
   }
 
-  /**
-   * Get the user's own wallet balances of multiple tokens on Stellar, in smallest units.
-   *
-   * The network passphrase and the source account are the same for every token, so they are
-   * fetched once per batch instead of once per token — and only when a partition actually needs
-   * them, so an all-native request issues no Soroban calls at all.
-   * @param {GetBalancesParams<StellarChainKey>} params - The chain key, user address, and tokens.
-   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
-   */
+  /** Passphrase and source account are fetched once per batch, and only if needed (all-native issues no Soroban calls). */
   public async getWalletBalances(params: GetBalancesParams<StellarChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
 
@@ -318,7 +294,7 @@ export class StellarSpokeService {
       throw new Error(`Simulation error: ${JSON.stringify(simulationForFee)}`);
     }
 
-    // note new account info must be loaded because local account sequence increments for every created tx
+    // Fresh account clone: the local sequence increments for every created tx.
     const priorityTransaction = new TransactionBuilder(account.getAccountClone(), {
       fee: (BigInt(simulationForFee.minResourceFee) + BigInt(this.priorityFee) + BigInt(this.baseFee)).toString(),
       networkPassphrase: network.passphrase,
@@ -461,7 +437,6 @@ export class StellarSpokeService {
       );
     }
 
-    // check if restore is needed
     let restored = false;
     if (rpc.Api.isSimulationRestore(initialSimulation)) {
       try {
@@ -480,12 +455,11 @@ export class StellarSpokeService {
       }
     }
 
-    // if restore is not needed, submit the tx and return the response
     if (!restored) {
       return await this.signAndSendTransaction(walletProvider, tx);
     }
 
-    // increment sequence number because restore tx used current sequence number
+    // The restore tx consumed the current sequence number.
     const newAccount = account.getAccountClone();
     newAccount.incrementSequenceNumber();
 
@@ -530,12 +504,6 @@ export class StellarSpokeService {
     return toHex(Buffer.from(stellaraddress, 'hex'));
   }
 
-  /**
-   * Deposit tokens to the spoke chain.
-   * @param {DepositParams<StellarChainKey, R>} params - The parameters for the deposit, including the user's address, token address, amount, and additional data.
-   * @param {boolean} raw - The return type raw or just transaction hash
-   * @returns {Promise<TxReturnType<StellarChainKey, R>>} A promise that resolves to the transaction hash or raw transaction.
-   */
   public async deposit<R extends boolean = false>(
     params: DepositParams<StellarChainKey, R>,
   ): Promise<TxReturnType<StellarChainKey, R>> {
@@ -583,10 +551,7 @@ export class StellarSpokeService {
     }
   }
 
-  /**
-   * Whether a token requires a trustline. Native XLM and legacy bnUSD are
-   * exempt and therefore need no subentry reserve.
-   */
+  /** Native XLM and legacy bnUSD are exempt, so they need no subentry reserve. */
   public requiresTrustline(token: string): boolean {
     const stellarChainConfig = this.chainConfig;
     const normalized = token.toLowerCase();
@@ -595,13 +560,6 @@ export class StellarSpokeService {
     return legacyBnUSD === undefined || normalized !== legacyBnUSD.address.toLowerCase();
   }
 
-  /**
-   * Check if the user has sufficient trustline established for the token.
-   * @param token - The token address to check the trustline for.
-   * @param amount - The amount of tokens to check the trustline for.
-   * @param walletAddress - The Stellar wallet address.
-   * @returns True if the user has sufficient trustline established for the token, false otherwise.
-   */
   public async hasSufficientTrustline(token: string, amount: bigint, walletAddress: string): Promise<boolean> {
     const stellarChainConfig = this.chainConfig;
     if (!this.requiresTrustline(token)) {
@@ -640,14 +598,6 @@ export class StellarSpokeService {
     return availableTrustAmount >= amount;
   }
 
-  /**
-   * Request a trustline for a given token and amount.
-   * @param token - The token address to request the trustline for.
-   * @param amount - The amount of tokens to request the trustline for.
-   * @param spokeProvider - The spoke provider.
-   * @param raw - Whether to return the raw transaction data.
-   * @returns The transaction result.
-   */
   public async requestTrustline<Raw extends boolean>(
     params: RequestTrustlineParams<StellarChainKey, Raw>,
   ): Promise<TxReturnType<StellarChainKey, Raw>> {
@@ -701,12 +651,7 @@ export class StellarSpokeService {
     }
   }
 
-  /**
-   * Estimate the gas for a transaction.
-   * @param rawTx - The raw transaction to estimate the gas for.
-   * @param spokeProvider - The spoke provider.
-   * @returns The estimated gas (minResourceFee) for the transaction.
-   */
+  /** Returns the minResourceFee. */
   public async estimateGas(params: EstimateGasParams<StellarChainKey>): Promise<StellarGasEstimate> {
     const network = await this.sorobanServer.getNetwork();
     let tx: Transaction | FeeBumpTransaction = TransactionBuilder.fromXDR(params.tx.data, network.passphrase);
@@ -724,12 +669,7 @@ export class StellarSpokeService {
     return BigInt(simulationForFee.minResourceFee);
   }
 
-  /**
-   * Get the balance of the token in the spoke chain asset manager.
-   * @param token - The address of the token to get the balance of.
-   * @param spokeProvider - The spoke provider.
-   * @returns The balance of the token.
-   */
+  /** Balance of the token in the spoke chain asset manager. */
   public async getDeposit(params: GetDepositParams<StellarChainKey>): Promise<bigint> {
     return BigInt(await this.getBalance(params));
   }

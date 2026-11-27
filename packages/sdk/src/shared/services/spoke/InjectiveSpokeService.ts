@@ -93,20 +93,7 @@ export interface State {
   owner: string;
 }
 
-/**
- * InjectiveSpokeService provides methods for interacting with the Injective spoke chain,
- * specifically for managing token deposits and transfers between the spoke chain and hub chain.
- * It handles the cross-chain communication and token bridging functionality, allowing users to:
- * - Deposit tokens from Injective to the hub chain
- * - Check token balances on the spoke chain
- * - Transfer tokens with custom data payloads
- */
-
-/**
- * Safety multiplier applied to the simulated gas so the broadcast tx doesn't run out of gas.
- * Matches the default `gasBufferCoefficient` of `@injectivelabs`' `MsgBroadcaster(WithPk)`, which the
- * non-raw `execute()` path relies on.
- */
+/** Simulated-gas safety multiplier, matching `@injectivelabs` `MsgBroadcaster`'s default `gasBufferCoefficient`. */
 const GAS_BUFFER_MULTIPLIER = 1.2;
 
 /** Splits a chain-config gas price like `"500000000inj"` into `<amount><denom>`. */
@@ -134,7 +121,6 @@ export class InjectiveSpokeService {
     this.gasPrice = this.config.getChainConfig(ChainKeys.INJECTIVE_MAINNET).gasPrice;
   }
 
-  /** Parse a chain-config gas price like `"500000000inj"` into its numeric price and denom. */
   private parseGasPrice(gasPrice: string): { price: bigint; denom: string } {
     const match = GAS_PRICE_REGEX.exec(gasPrice);
     const price = match?.[1];
@@ -144,12 +130,6 @@ export class InjectiveSpokeService {
     return { price: BigInt(price), denom: match?.[2] || 'inj' };
   }
 
-  /**
-   * Estimate the gas for a transaction.
-   * @param {InjectiveRawTransaction} rawTx - The raw transaction to estimate the gas for.
-   * @param {InjectiveSpokeProviderType} spokeProvider - The provider for the spoke chain.
-   * @returns {Promise<InjectiveGasEstimate>} The estimated gas for the transaction.
-   */
   public async estimateGas({ tx }: EstimateGasParams<InjectiveChainKey>): Promise<InjectiveGasEstimate> {
     const txRaw = TxRaw.fromPartial({
       bodyBytes: tx.signedDoc.bodyBytes,
@@ -165,14 +145,6 @@ export class InjectiveSpokeService {
     } satisfies InjectiveGasEstimate;
   }
 
-  /**
-   * Deposit tokens to the spoke chain.
-   * @param {InjectiveSpokeDepositParams} params - The parameters for the deposit, including the user's address, token address, amount, and additional data.
-   * @param {InjectiveSpokeProviderType} spokeProvider - The provider for the spoke chain.
-   * @param {EvmHubProvider} hubProvider - The provider for the hub chain.
-   * @param {boolean} raw - The return type raw or just transaction hash
-   * @returns {Promise<TxReturnType<InjectiveSpokeProviderType, R>>} A promise that resolves to the transaction hash.
-   */
   public async deposit<R extends boolean = false>(
     params: DepositParams<InjectiveChainKey, R>,
   ): Promise<TxReturnType<InjectiveChainKey, R>> {
@@ -209,12 +181,7 @@ export class InjectiveSpokeService {
     return res.transactionHash satisfies TxReturnType<InjectiveChainKey, false> as TxReturnType<InjectiveChainKey, R>;
   }
 
-  /**
-   * Get the balance of the token that deposited in the spoke chain Asset Manager.
-   * @param {Address} token - The address of the token to get the balance of.
-   * @param {InjectiveSpokeProviderType} spokeProvider - The spoke provider.
-   * @returns {Promise<bigint>} The balance of the token.
-   */
+  /** Balance of the token deposited in the spoke chain asset manager. */
   public async getDeposit(params: GetDepositParams<InjectiveChainKey>): Promise<bigint> {
     const response = await this.chainGrpcWasmApi.fetchSmartContractState(
       this.config.getChainConfig(params.srcChainKey).addresses.assetManager,
@@ -227,14 +194,7 @@ export class InjectiveSpokeService {
     return BigInt(fromBase64(response.data as unknown as string) as unknown as number);
   }
 
-  /**
-   * Get the user's own wallet balance of a token on Injective, in smallest units. On Injective every
-   * asset is a bank coin, so the native coin (`inj`) and factory/peggy/IBC tokens are all read from the
-   * account's portfolio bank balances and matched by denom. The denom is the chain's native denom for
-   * the native coin and `params.token.address` for standard tokens.
-   * @param {GetBalanceParams<InjectiveChainKey>} params - The chain key, user address, and token.
-   * @returns {Promise<bigint>} The token balance in smallest units, or 0n when the account holds none.
-   */
+  /** Every Injective asset is a bank coin, so all are read from the portfolio bank balances and matched by denom. */
   public async getWalletBalance(params: GetBalanceParams<InjectiveChainKey>): Promise<bigint> {
     const denom = isNativeToken(params.srcChainKey, params.token)
       ? this.config.getChainConfig(params.srcChainKey).nativeToken
@@ -246,16 +206,9 @@ export class InjectiveSpokeService {
     return balance ? BigInt(balance.amount) : 0n;
   }
 
-  /**
-   * Get the user's own wallet balances of multiple tokens on Injective, in smallest units.
-   * @param {GetBalancesParams<InjectiveChainKey>} params - The chain key, user address, and tokens.
-   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
-   */
   public async getWalletBalances(params: GetBalancesParams<InjectiveChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
-    // One portfolio fetch returns every bank balance, so read once and match each token by denom
-    // instead of fanning out a full portfolio request per token. A failure here is batch-wide —
-    // there is no per-token read to isolate — so it propagates to the router.
+    // One portfolio fetch covers every denom; a failure is batch-wide, so it propagates to the router.
     const portfolio = await this.indexerGrpcAccountPortfolioApi.fetchAccountPortfolioBalances(srcAddress);
     const amountByDenom = new Map(portfolio.bankBalancesList.map(balance => [balance.denom, BigInt(balance.amount)]));
     const nativeDenom = this.config.getChainConfig(srcChainKey).nativeToken;
@@ -284,9 +237,7 @@ export class InjectiveSpokeService {
       funds,
     });
 
-    // Fetch the on-chain account once (number, sequence, pubKey) and reuse it for both the
-    // simulation draft and the final tx — avoids the double account/block fetch that calling
-    // `createTransactionForAddressAndMsg` twice would incur.
+    // Fetch the account (number, sequence, pubKey) once for both the simulation draft and the final tx.
     const accountResponse = await new ChainRestAuthApi(this.endpoints.rest).fetchCosmosAccount(senderAddress);
     const baseAccount = BaseAccount.fromRestCosmosApi(accountResponse);
     const pubKey = baseAccount.pubKey.key;
@@ -302,8 +253,7 @@ export class InjectiveSpokeService {
       chainId,
     };
 
-    // 1. Build a draft (default fee) and simulate it to size the gas. `createTransaction` is pure
-    //    (no network) — sequence + pubKey come from the account fetched above.
+    // `createTransaction` is pure (no network); the draft is simulated to size the gas.
     const draft = createTransaction(txArgs);
 
     const { gasInfo } = await this.txClient.simulate(
@@ -314,7 +264,7 @@ export class InjectiveSpokeService {
       }),
     );
 
-    // 2. Build an explicit self-pay fee (no granter/payer) from the simulated gas + chain gasPrice.
+    // Explicit self-pay fee (no granter/payer).
     const gas = Math.ceil(gasInfo.gasUsed * GAS_BUFFER_MULTIPLIER);
     const { price, denom } = this.parseGasPrice(this.gasPrice);
     const fee = {
@@ -322,8 +272,7 @@ export class InjectiveSpokeService {
       gas: gas.toString(),
     };
 
-    // 3. Rebuild with the explicit fee. authInfoBytes now carries the fee, and signDoc carries the
-    //    real account number (the old path discarded it, hardcoding 0 → signature verification failed).
+    // signDoc must carry the real account number, or signature verification fails.
     const { txRaw, signDoc } = createTransaction({ ...txArgs, fee });
 
     const rawTx = {
@@ -339,7 +288,6 @@ export class InjectiveSpokeService {
     return rawTx;
   }
 
-  // Query Methods
   async getState(chainId: InjectiveChainKey): Promise<State> {
     return this.chainGrpcWasmApi.fetchSmartContractState(
       this.config.getChainConfig(chainId).addresses.assetManager,
@@ -349,16 +297,6 @@ export class InjectiveSpokeService {
     ) as unknown as Promise<State>;
   }
 
-  /**
-   * Sends a message to the hub chain.
-   * @param {SendMessageParams<InjectiveChainKey, R>} params - The parameters for the call wallet, including:
-   *   - {FromParams<InjectiveChainKey>} fromParams: The parameters for the from chain.
-   *   - {HubChainKey} dstChainKey: The chain key of the hub chain.
-   *   - {HubAddress} dstAddress: The address on the hub chain.
-   *   - {Hex} payload: The payload to send.
-   *   - {boolean} raw: The return type raw or just transaction hash.
-   * @returns {Promise<TxReturnType<InjectiveChainKey, R>>} A promise that resolves to the transaction hash.
-   */
   async sendMessage<Raw extends boolean>(
     params: SendMessageParams<InjectiveChainKey, Raw>,
   ): Promise<TxReturnType<InjectiveChainKey, Raw>> {

@@ -1,8 +1,3 @@
-/**
- * Zcash transparent helpers for the MPC relay: t-address encoding, the hash160 identity the relay
- * checks withdrawals against, the ZIP-317 fee, and a parser for signed v5 transactions so a deposit can
- * be checked before it is broadcast. Signing (the ZIP-244 digest) lives in the wallet provider.
- */
 import { blake2b } from '@noble/hashes/blake2b';
 import { bytesToHex, concatBytes, hexToBytes, ripemd160, sha256, type Hex } from 'viem';
 
@@ -50,10 +45,7 @@ function base58CheckEncode(body: Uint8Array): string {
   return out;
 }
 
-/**
- * The 20-byte hash160 a mainnet transparent `t1…` address encodes — the account's withdraw-auth identity
- * and hub-wallet key. Refuses a non-mainnet or non-P2PKH address.
- */
+/** The hash160 a mainnet `t1…` address encodes (withdraw identity and hub-wallet key); refuses non-mainnet/non-P2PKH. */
 export function zcashIdentityBytes(address: string): Hex {
   const body = base58CheckDecode(address);
   const prefix = bytesToHex(body.subarray(0, 2)).slice(2);
@@ -63,7 +55,7 @@ export function zcashIdentityBytes(address: string): Hex {
   return bytesToHex(body.subarray(2));
 }
 
-/** The mainnet `t1…` address for a 20-byte hash160 — the inverse of {@link zcashIdentityBytes}. */
+/** Inverse of {@link zcashIdentityBytes}. */
 export function zcashHashToAddress(hash160: string): string {
   const hash = hexToBytes(hash160.startsWith('0x') ? (hash160 as Hex) : `0x${hash160}`);
   if (hash.length !== 20) throw new Error(`[zcashHashToAddress] expected 20 bytes, got ${hash.length}`);
@@ -75,26 +67,22 @@ export function zcashHash160(compressedPublicKey: Uint8Array): Hex {
   return ripemd160(sha256(compressedPublicKey, 'bytes'));
 }
 
-/** The P2PKH locking script paying `address`, hex without `0x`. */
+/** Hex without `0x`. */
 export function zcashP2pkhScript(address: string): string {
   return `76a914${zcashIdentityBytes(address).slice(2)}88ac`;
 }
 
-/** The ZIP-317 conventional fee for a transparent transaction: 5000 zatoshis per logical action, at least 2. */
+/** ZIP-317 conventional fee: 5000 zatoshis per logical action, at least 2. */
 export function zcashZip317Fee(inputs: number, outputs: number): bigint {
   return 5000n * BigInt(Math.max(2, inputs, outputs));
 }
 
-/** One output of a parsed transaction. */
 export interface ZcashParsedOutput {
   value: bigint;
   scriptPubKey: string;
 }
 
-/**
- * The transparent outputs of a signed v5 transaction. Used to check what a wallet actually signed — the
- * bytes that will be broadcast — rather than trusting the transaction that was requested.
- */
+/** Checks the bytes that will be broadcast rather than trusting the transaction that was requested. */
 function parseZcashV5(txHex: string) {
   if (!/^(?:0x)?(?:[0-9a-fA-F]{2})+$/.test(txHex)) throw new Error('[zcash] invalid transaction hex');
   const bytes = hexToBytes(txHex.startsWith('0x') ? (txHex as Hex) : `0x${txHex}`);

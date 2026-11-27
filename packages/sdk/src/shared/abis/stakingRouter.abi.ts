@@ -1,4 +1,3 @@
-// packages/sdk/src/abis/stakingRouter.abi.ts
 export const stakingRouterAbi = [
   {
     inputs: [

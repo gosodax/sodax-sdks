@@ -32,23 +32,15 @@ import {
 } from '@sodax/types';
 
 /**
- * Scales a native-token amount from the token's canonical decimals to the EVM
- * msg.value decimals for chains where they differ (currently only Hedera).
- *
- * Why: HBAR is tracked as 8 decimals in spoke accounting, but Hedera's EVM
- * layer treats native value as 18 decimals — so msg.value must be multiplied
- * by 10^10 even though the asset-manager `transfer` argument stays in 8.
+ * HBAR is tracked as 8 decimals but Hedera's EVM layer treats native value as 18, so msg.value is scaled by 10^10
+ * while the asset-manager `transfer` amount stays in 8.
  */
 const HEDERA_NATIVE_VALUE_SCALE = 10n ** 10n;
 function scaleNativeMsgValue(chainKey: EvmSpokeOnlyChainKey, amount: bigint): bigint {
   return chainKey === ChainKeys.HEDERA_MAINNET ? amount * HEDERA_NATIVE_VALUE_SCALE : amount;
 }
 
-/**
- * Inverse of {@link scaleNativeMsgValue}: scales a native balance read from the EVM layer back
- * to the token's canonical decimals. `eth_getBalance` returns HBAR in 18-decimal "weibar", but
- * HBAR is tracked as 8 decimals, so divide by 10^10 on Hedera.
- */
+/** Inverse of {@link scaleNativeMsgValue}: `eth_getBalance` returns HBAR in 18-decimal weibar. */
 function scaleNativeBalance(chainKey: EvmSpokeOnlyChainKey, amount: bigint): bigint {
   return chainKey === ChainKeys.HEDERA_MAINNET ? amount / HEDERA_NATIVE_VALUE_SCALE : amount;
 }
@@ -60,7 +52,7 @@ export type CreateViemPublicClientParams = {
 
 export class EvmSpokeService {
   private readonly config: ConfigService;
-  // map containing the public clients for each evm spoke chain, lazy loaded on demand
+  // Lazily created per chain
   private readonly publicClients: Map<EvmSpokeOnlyChainKey, PublicClient<HttpTransport>> = new Map();
 
   public constructor(config: ConfigService) {
@@ -84,30 +76,7 @@ export class EvmSpokeService {
     return publicClient;
   }
 
-  /**
-   * Estimates the gas necessary to complete a transaction without submitting it to the network.
-   *
-   * - Docs: https://viem.sh/docs/actions/public/estimateGas
-   * - JSON-RPC Methods: [`eth_estimateGas`](https://ethereum.org/en/developers/docs/apis/json-rpc/#eth_estimategas)
-   *
-   * @param {EstimateGasParams<EvmSpokeOnlyChainKey>} params - The parameters for the gas estimation, including the from, to, value, and data.
-   * @returns {Promise<bigint>} Estimated gas for the transaction.
-   *
-   * @example
-   *
-   * const rawTx: EvmRawTransaction = {
-   *   from: '0x1234...abcd', // sender address
-   *   to: '0xabcd...1234',   // recipient address
-   *   value: 1000000000000000000n, // 1 ETH in wei
-   *   data: '0x', // no calldata
-   * };
-   *
-   * // Assume spokeProvider is an initialized EvmSpokeProvider
-   * const estimatedGas = await EvmSpokeService.estimateGas(rawTx, spokeProvider);
-   * console.log(`Estimated gas: ${estimatedGas}`);
-   */
   public async estimateGas({ tx, chainKey: chainId }: EstimateGasParams<EvmSpokeOnlyChainKey>): Promise<bigint> {
-    // Use viem's estimateGas with explicit parameter types
     return this.getPublicClient(chainId).estimateGas({
       account: tx.from,
       to: tx.to,
@@ -116,16 +85,6 @@ export class EvmSpokeService {
     });
   }
 
-  /**
-   * Check if spender has enough ERC20 allowance for given amount
-   * @param token - ERC20 token address
-   * @param amount - Amount to check allowance for
-   * @param owner - User wallet address
-   * @param spender - Spender address
-   * @param chainId - Chain ID
-   * @param configService - Config service
-   * @return - True if spender is allowed to spend amount on behalf of owner
-   */
   public async isAllowanceValid(
     params: Omit<Erc20IsAllowanceParams<EvmSpokeOnlyChainKey>, 'publicClient' | 'nativeToken'>,
   ): Promise<Result<boolean>> {
@@ -143,17 +102,7 @@ export class EvmSpokeService {
     }
   }
 
-  /**
-   * Transfers tokens to the hub chain by depositing into spoke chain asset maanger.
-   * @param {DepositParams<EvmSpokeOnlyChainKey, Raw>} params - The parameters for the transfer, including:
-   *   - {FromParams<EvmSpokeOnlyChainKey>} fromParams: The parameters for the from chain.
-   *   - {Address} token: The original spoke chain address of the token to deposit.
-   *   - {Address} to: The recipient address on the hub chain.
-   *   - {bigint} amount: The amount to deposit.
-   *   - {Hex} [data="0x"]: Additional data for the deposit.
-   *   - {boolean} raw: The return type raw or just transaction hash.
-   * @returns {Promise<TxReturnType<EvmSpokeOnlyChainKey, Raw>>} A promise that resolves to the transaction hash.
-   */
+  /** Deposit into the spoke chain asset manager to transfer tokens to the hub. */
   public async deposit<Raw extends boolean = false>(
     params: DepositParams<EvmSpokeOnlyChainKey, Raw>,
   ): Promise<TxReturnType<EvmSpokeOnlyChainKey, Raw>> {
@@ -180,11 +129,6 @@ export class EvmSpokeService {
     }) satisfies Promise<TxReturnType<EvmSpokeOnlyChainKey, false>> as Promise<TxReturnType<EvmSpokeOnlyChainKey, Raw>>;
   }
 
-  /**
-   * Get the balance of the token deposited in the spoke chain asset manager.
-   * @param {GetDepositParams<EvmSpokeOnlyChainKey>} params - The parameters for the deposit, including the token and chain id.
-   * @returns {Promise<bigint>} The balance of the token deposited in the spoke chain asset manager.
-   */
   public async getDeposit(params: GetDepositParams<EvmSpokeOnlyChainKey>): Promise<bigint> {
     return this.getPublicClient(params.srcChainKey).readContract({
       address: params.token,
@@ -194,12 +138,7 @@ export class EvmSpokeService {
     });
   }
 
-  /**
-   * Get the user's own wallet balance of a token on an EVM spoke chain, in smallest units.
-   * Native coin via `eth_getBalance` (Hedera scaled to canonical decimals); erc20 via `balanceOf`.
-   * @param {GetBalanceParams<EvmSpokeOnlyChainKey>} params - The chain key, user address, and token.
-   * @returns {Promise<bigint>} The token balance in smallest units.
-   */
+  /** Native coin via `eth_getBalance` (Hedera scaled to canonical decimals); erc20 via `balanceOf`. */
   public async getWalletBalance(params: GetBalanceParams<EvmSpokeOnlyChainKey>): Promise<bigint> {
     const { srcChainKey, srcAddress, token } = params;
     const publicClient = this.getPublicClient(srcChainKey);
@@ -218,13 +157,7 @@ export class EvmSpokeService {
     return balance ?? 0n;
   }
 
-  /**
-   * Get the user's own wallet balances of multiple tokens on an EVM spoke chain, in smallest
-   * units. Non-native tokens are batched via multicall3 when the chain supports it, otherwise
-   * read in parallel.
-   * @param {GetBalancesParams<EvmSpokeOnlyChainKey>} params - The chain key, user address, and tokens.
-   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
-   */
+  /** Non-native tokens are batched via multicall3 when the chain supports it, otherwise read in parallel. */
   public async getWalletBalances(params: GetBalancesParams<EvmSpokeOnlyChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
 
@@ -243,9 +176,8 @@ export class EvmSpokeService {
     const publicClient = this.getPublicClient(srcChainKey);
 
     if (getEvmViemChain(srcChainKey).contracts?.multicall3) {
-      // allowFailure (viem's default) keeps a single reverting token — or a rate-limited aggregate3
-      // chunk, which viem fans out as a failure entry per call — from discarding the balances that
-      // did resolve. Each failure still goes through the collector so it is logged, not silent.
+      // allowFailure keeps one reverting token (or a rate-limited aggregate3 chunk, fanned out per call) from discarding
+      // the balances that did resolve; each failure still goes through the collector.
       const results = await publicClient.multicall({
         contracts: nonNativeTokens.map(token => ({
           abi: erc20Abi,
@@ -276,15 +208,6 @@ export class EvmSpokeService {
     return collector.finish();
   }
 
-  /**
-   * Sends a message to the hub chain.
-   * @param {SendMessageParams} params - Includes dstChainKey, the chain key of the hub chain.
-   * @param {Address} dstAddress - The address on the hub chain.
-   * @param {Hex} payload - The payload to send.
-   * @param {EvmSpokeProviderType} spokeProvider - The provider for the spoke chain.
-   * @param {boolean} raw - The return type raw or just transaction hash
-   * @returns {Promise<TxReturnType<EvmSpokeProviderType, R>>} A promise that resolves to the transaction hash.
-   */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<EvmSpokeOnlyChainKey, Raw>,
   ): Promise<TxReturnType<EvmSpokeOnlyChainKey, Raw>> {

@@ -27,9 +27,7 @@ export function calculateAllReserveIncentives({
   marketReferenceCurrencyDecimals,
 }: CalculateAllReserveIncentivesRequest): ReserveIncentiveDict {
   const reserveDict: ReserveIncentiveDict = {};
-  // calculate incentive per reserve token
   reserveIncentives.forEach(reserveIncentive => {
-    // Find the corresponding reserve data for each reserveIncentive
     const reserve: ReserveCalculationData | undefined = reserves.find(
       (reserve: ReserveCalculationData) =>
         reserve.underlyingAsset.toLowerCase() === reserveIncentive.underlyingAsset.toLowerCase(),

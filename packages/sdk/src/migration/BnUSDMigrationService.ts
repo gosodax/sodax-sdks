@@ -49,18 +49,7 @@ export type BnUSDMigrationServiceConstructorParams = {
   config: ConfigService;
 };
 
-/**
- * Low-level service for encoding bnUSD migration calldata executed on the hub chain (Sonic).
- *
- * This service is used internally by `MigrationService` and should not be called directly.
- * It encodes the hub-side contract call sequences required to transform tokens across the two
- * bnUSD "generations":
- * - Legacy bnUSD (ICON, Sui, Stellar) → new bnUSD (EVM spokes) via `migrateData`
- * - New bnUSD (EVM spokes) → legacy bnUSD (ICON, Sui, Stellar) via `revertMigrationData`
- *
- * Both directions route through the shared `bnUSDVault` on the hub using ERC-4626 deposit/
- * withdraw mechanics and decimal translation handled by `EvmVaultTokenService`.
- */
+/** Hub calldata for legacy (ICON/Sui/Stellar) ↔ new bnUSD, routed through the shared `bnUSDVault`. */
 export class BnUSDMigrationService {
   private readonly hubProvider: HubProvider;
   private readonly config: ConfigService;
@@ -70,26 +59,6 @@ export class BnUSDMigrationService {
     this.config = config;
   }
 
-  /**
-   * Encodes the hub execution calldata for a legacy bnUSD → new bnUSD migration.
-   *
-   * Produces a batched contract call sequence:
-   * 1. Approve the legacy bnUSD hub-asset to its corresponding spoke vault.
-   * 2. Deposit the hub-asset into the spoke vault to receive vault-share tokens.
-   * 3. Approve the vault-share tokens to the shared `bnUSDVault`.
-   * 4. Deposit the vault-share tokens into `bnUSDVault`.
-   * 5a. If `newbnUSD` equals `bnUSDVault` (destination is the hub vault itself), transfer
-   *     vault-share tokens directly to `dstAddress`.
-   * 5b. Otherwise, withdraw from `bnUSDVault` into the destination spoke's hub-asset and
-   *     transfer it to `dstAddress` via the asset manager.
-   *
-   * Decimal translation between legacy and new token precisions is applied automatically.
-   *
-   * @param params - Internal migration parameters: source chain key, legacy and new bnUSD
-   *   addresses, amount, ABI-encoded destination address, and destination chain key.
-   * @returns ABI-encoded batch of contract calls ready for hub execution.
-   * @throws If the hub asset configuration for the legacy or new bnUSD token is not found.
-   */
   public migrateData(params: FormattedBnUSDMigrateParams): Hex {
     const calls: EvmContractCall[] = [];
     const assetConfig = this.config.getSpokeTokenFromOriginalAssetAddress(params.srcChainKey, params.legacybnUSD);
@@ -97,22 +66,19 @@ export class BnUSDMigrationService {
 
     const bnUSDVault = this.config.moneyMarket.bnUSDVault;
 
-    // Wrap legacy bnUSD into vault tokens
     calls.push(Erc20Service.encodeApprove(assetConfig.hubAsset, assetConfig.vault, params.amount));
     calls.push(EvmVaultTokenService.encodeDeposit(assetConfig.vault, assetConfig.hubAsset, params.amount));
 
-    // Migrate to new bnUSD vault
     const translatedAmount = EvmVaultTokenService.translateIncomingDecimals(assetConfig.decimals, params.amount);
     calls.push(Erc20Service.encodeApprove(assetConfig.vault, bnUSDVault, translatedAmount));
     calls.push(EvmVaultTokenService.encodeDeposit(bnUSDVault, assetConfig.vault, translatedAmount));
 
-    // check if bnUSD is getting migrated to hub chain bnUSD vault
+    // Destination is the hub bnUSD vault itself: transfer vault shares directly.
     if (params.newbnUSD.toLowerCase() === bnUSDVault.toLowerCase()) {
       calls.push(Erc20Service.encodeTransfer(bnUSDVault, params.dstAddress, translatedAmount));
       return encodeContractCalls(calls);
     }
 
-    // Withdraw to new bnUSD
     const dstAssetConfig = this.config.getSpokeTokenFromOriginalAssetAddress(params.dstChainKey, params.newbnUSD);
     invariant(dstAssetConfig, `hub asset not found for new bnUSD token: ${params.newbnUSD}`);
 
@@ -133,28 +99,10 @@ export class BnUSDMigrationService {
     return encodeContractCalls(calls);
   }
 
-  /**
-   * Encodes the hub execution calldata for a new bnUSD → legacy bnUSD reverse migration.
-   *
-   * Produces a batched contract call sequence:
-   * 1. If `newbnUSD` is not the hub vault itself: approve the new bnUSD hub-asset to
-   *    `bnUSDVault` and deposit it to receive vault-share tokens.
-   * 2. Withdraw from `bnUSDVault` into the legacy bnUSD's spoke vault.
-   * 3. Withdraw from the spoke vault into the legacy bnUSD hub-asset.
-   * 4. Transfer the legacy bnUSD hub-asset to `dstAddress` via the asset manager.
-   *
-   * Decimal translation is applied when moving across vault boundaries.
-   *
-   * @param params - Internal revert parameters: source chain key, new bnUSD and legacy bnUSD
-   *   addresses, amount, ABI-encoded destination address, and destination chain key.
-   * @returns ABI-encoded batch of contract calls ready for hub execution.
-   * @throws If the hub asset configuration for the new or legacy bnUSD token is not found.
-   */
   public revertMigrationData(params: BnUSDRevertMigrationParams): Hex {
     const calls: EvmContractCall[] = [];
     const bnUSDVault = this.config.moneyMarket.bnUSDVault;
 
-    // Wrap new bnUSD into vault tokens
     let decimals = 18;
     if (params.newbnUSD.toLowerCase() !== bnUSDVault.toLowerCase()) {
       const assetConfig = this.config.getSpokeTokenFromOriginalAssetAddress(params.srcChainKey, params.newbnUSD);
@@ -166,7 +114,6 @@ export class BnUSDMigrationService {
 
     const translatedAmount = EvmVaultTokenService.translateIncomingDecimals(decimals, params.amount);
 
-    // Migrate to legacy bnUSD vault'
     const dstAssetConfig = this.config.getSpokeTokenFromOriginalAssetAddress(params.dstChainKey, params.legacybnUSD);
     invariant(dstAssetConfig, `hub asset not found for new bnUSD token: ${params.legacybnUSD}`);
 
