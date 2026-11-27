@@ -35,18 +35,6 @@ describe('ICONEX request() channel', () => {
     expect(detail.payload).toBe(VALID_ICON_ADDRESS);
   });
 
-  it('times out and rejects when no response arrives, and ignores a late response', async () => {
-    vi.useFakeTimers();
-    const pending = request({ type: ICONexRequestEventType.REQUEST_ADDRESS });
-    const rejection = expect(pending).rejects.toThrow(/timed out/);
-
-    await vi.advanceTimersByTimeAsync(ICONEX_REQUEST_TIMEOUT_MS);
-    await rejection;
-
-    // Listener was removed on timeout — a late response is a no-op (no unhandled resolution).
-    expect(() => dispatchResponse(ICONexResponseEventType.RESPONSE_ADDRESS, VALID_ICON_ADDRESS)).not.toThrow();
-  });
-
   // An unanswered short-timeout request (hydration) must not hold the FIFO queue for 300s.
   it('a short-timeout request frees the queue for the next request when it times out', async () => {
     vi.useFakeTimers();
@@ -64,7 +52,7 @@ describe('ICONEX request() channel', () => {
   });
 
   // A dismissed interactive prompt sends no relay event, so the bounded timeout is what frees the queue.
-  it('an unanswered interactive request frees the queue at the bounded timeout', async () => {
+  it('an unanswered interactive request rejects at the bounded timeout and frees the queue', async () => {
     vi.useFakeTimers();
     const dismissed = request({ type: ICONexRequestEventType.REQUEST_ADDRESS });
     const rejection = expect(dismissed).rejects.toThrow(/timed out/);

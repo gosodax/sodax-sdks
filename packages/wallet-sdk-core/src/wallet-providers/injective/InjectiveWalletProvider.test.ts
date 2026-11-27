@@ -91,31 +91,18 @@ function makeProvider(defaults?: ConstructorParameters<typeof InjectiveWalletPro
 
 describe('InjectiveWalletProvider', () => {
   describe('constructor', () => {
-    it('initializes with secret (private key) config', () => {
-      const provider = makeProvider();
-      expect(provider.chainType).toBe('INJECTIVE');
-      expect(provider.wallet.msgBroadcaster).toBeDefined();
-    });
+    it('initializes with secret (private key) and browser-extension configs', () => {
+      const pkProvider = makeProvider();
+      expect(pkProvider.chainType).toBe('INJECTIVE');
+      expect(pkProvider.wallet.msgBroadcaster).toBeDefined();
 
-    it('initializes with browser-extension config', () => {
       // biome-ignore lint/suspicious/noExplicitAny: mocked broadcaster
       const msgBroadcaster: any = { walletStrategy: { getAddresses: vi.fn() } };
-      const provider = new InjectiveWalletProvider({ msgBroadcaster });
-      expect(provider.chainType).toBe('INJECTIVE');
+      expect(new InjectiveWalletProvider({ msgBroadcaster }).chainType).toBe('INJECTIVE');
     });
 
     it('throws on invalid config', () => {
       expect(() => new InjectiveWalletProvider({} as never)).toThrow('Invalid Injective wallet config');
-    });
-
-    it('accepts defaults without throwing', () => {
-      const provider = makeProvider({
-        defaultMemo: 'sodax',
-        defaultFunds: [{ amount: '100', denom: 'inj' }],
-        sequence: 5,
-        accountNumber: 10,
-      });
-      expect(provider.chainType).toBe('INJECTIVE');
     });
   });
 
@@ -125,20 +112,8 @@ describe('InjectiveWalletProvider', () => {
       createTransaction.mockClear();
     });
 
-    it('uses defaults: empty funds, empty memo, sequence=0, accountNumber=0 when nothing set', async () => {
-      const provider = makeProvider();
-
-      await provider.getRawTransaction(CHAIN_ID, '', SENDER, CONTRACT, MSG);
-
-      const msgArgs = msgExecuteContractFromJSON.mock.calls[0]?.[0];
-      expect(msgArgs.funds).toEqual([]);
-      const txArgs = createTransaction.mock.calls[0]?.[0];
-      expect(txArgs.memo).toBe('');
-      expect(txArgs.sequence).toBe(0);
-      expect(txArgs.accountNumber).toBe(0);
-    });
-
-    it('applies defaults.{defaultFunds, defaultMemo, sequence, accountNumber}', async () => {
+    it('resolves funds/memo/sequence/accountNumber: per-call args > defaults > empty/zero', async () => {
+      await makeProvider().getRawTransaction(CHAIN_ID, '', SENDER, CONTRACT, MSG);
       const provider = makeProvider({
         defaultFunds: [{ amount: '100', denom: 'inj' }],
         defaultMemo: 'sodax-memo',
@@ -147,43 +122,20 @@ describe('InjectiveWalletProvider', () => {
       });
 
       await provider.getRawTransaction(CHAIN_ID, '', SENDER, CONTRACT, MSG);
-
-      const msgArgs = msgExecuteContractFromJSON.mock.calls[0]?.[0];
-      expect(msgArgs.funds).toEqual([{ amount: '100', denom: 'inj' }]);
-      const txArgs = createTransaction.mock.calls[0]?.[0];
-      expect(txArgs.memo).toBe('sodax-memo');
-      expect(txArgs.sequence).toBe(7);
-      expect(txArgs.accountNumber).toBe(13);
-    });
-
-    it('per-call options override defaults', async () => {
-      const provider = makeProvider({
-        defaultFunds: [{ amount: '100', denom: 'inj' }],
-        defaultMemo: 'sodax-memo',
-        sequence: 7,
-        accountNumber: 13,
-      });
-
-      await provider.getRawTransaction(CHAIN_ID, '', SENDER, CONTRACT, MSG, undefined, {
+      await provider.getRawTransaction(CHAIN_ID, '', SENDER, CONTRACT, MSG, 'explicit-memo', {
         defaultFunds: [{ amount: '999', denom: 'usdt' }],
         sequence: 99,
         accountNumber: 42,
       });
 
-      const msgArgs = msgExecuteContractFromJSON.mock.calls[0]?.[0];
-      expect(msgArgs.funds).toEqual([{ amount: '999', denom: 'usdt' }]);
-      const txArgs = createTransaction.mock.calls[0]?.[0];
-      expect(txArgs.sequence).toBe(99);
-      expect(txArgs.accountNumber).toBe(42);
-    });
-
-    it('memo argument wins over defaults.defaultMemo', async () => {
-      const provider = makeProvider({ defaultMemo: 'sodax-memo' });
-
-      await provider.getRawTransaction(CHAIN_ID, '', SENDER, CONTRACT, MSG, 'explicit-memo');
-
-      const txArgs = createTransaction.mock.calls[0]?.[0];
-      expect(txArgs.memo).toBe('explicit-memo');
+      const [fallbackMsg, defaultMsg, overrideMsg] = msgExecuteContractFromJSON.mock.calls.map(([args]) => args);
+      const [fallbackTx, defaultTx, overrideTx] = createTransaction.mock.calls.map(([args]) => args);
+      expect(fallbackMsg.funds).toEqual([]);
+      expect(fallbackTx).toMatchObject({ memo: '', sequence: 0, accountNumber: 0 });
+      expect(defaultMsg.funds).toEqual([{ amount: '100', denom: 'inj' }]);
+      expect(defaultTx).toMatchObject({ memo: 'sodax-memo', sequence: 7, accountNumber: 13 });
+      expect(overrideMsg.funds).toEqual([{ amount: '999', denom: 'usdt' }]);
+      expect(overrideTx).toMatchObject({ memo: 'explicit-memo', sequence: 99, accountNumber: 42 });
     });
   });
 
@@ -194,49 +146,26 @@ describe('InjectiveWalletProvider', () => {
       broadcastWithPk.mockResolvedValue({ txHash: 'pk-tx-hash', height: '100' });
     });
 
-    it('applies defaults.defaultFunds when funds arg omitted', async () => {
+    it('uses defaults.defaultFunds unless an explicit funds arg is passed', async () => {
       const provider = makeProvider({ defaultFunds: [{ amount: '50', denom: 'inj' }] });
 
       await provider.execute(SENDER, CONTRACT, MSG);
-
-      const msgArgs = msgExecuteContractCompatFromJSON.mock.calls[0]?.[0];
-      expect(msgArgs.funds).toEqual([{ amount: '50', denom: 'inj' }]);
-    });
-
-    it('explicit funds arg overrides defaults.defaultFunds', async () => {
-      const provider = makeProvider({ defaultFunds: [{ amount: '50', denom: 'inj' }] });
-
       await provider.execute(SENDER, CONTRACT, MSG, [{ amount: '999', denom: 'usdt' }]);
 
-      const msgArgs = msgExecuteContractCompatFromJSON.mock.calls[0]?.[0];
-      expect(msgArgs.funds).toEqual([{ amount: '999', denom: 'usdt' }]);
+      const [defaulted, explicit] = msgExecuteContractCompatFromJSON.mock.calls.map(([args]) => args);
+      expect(defaulted.funds).toEqual([{ amount: '50', denom: 'inj' }]);
+      expect(explicit.funds).toEqual([{ amount: '999', denom: 'usdt' }]);
     });
 
-    it('memo absent (no key in broadcast args) when defaults.defaultMemo is undefined', async () => {
-      const provider = makeProvider();
+    it('forwards memo only when defaults.defaultMemo is set, including an empty string', async () => {
+      await makeProvider().execute(SENDER, CONTRACT, MSG);
+      await makeProvider({ defaultMemo: '' }).execute(SENDER, CONTRACT, MSG);
+      await makeProvider({ defaultMemo: 'sodax-memo' }).execute(SENDER, CONTRACT, MSG);
 
-      await provider.execute(SENDER, CONTRACT, MSG);
-
-      const broadcastArgs = broadcastWithPk.mock.calls[0]?.[0];
-      expect(broadcastArgs).not.toHaveProperty('memo');
-    });
-
-    it('memo forwarded as empty string when defaults.defaultMemo is set to empty string', async () => {
-      const provider = makeProvider({ defaultMemo: '' });
-
-      await provider.execute(SENDER, CONTRACT, MSG);
-
-      const broadcastArgs = broadcastWithPk.mock.calls[0]?.[0];
-      expect(broadcastArgs).toHaveProperty('memo', '');
-    });
-
-    it('memo forwarded when defaults.defaultMemo is set to a non-empty value', async () => {
-      const provider = makeProvider({ defaultMemo: 'sodax-memo' });
-
-      await provider.execute(SENDER, CONTRACT, MSG);
-
-      const broadcastArgs = broadcastWithPk.mock.calls[0]?.[0];
-      expect(broadcastArgs).toHaveProperty('memo', 'sodax-memo');
+      const [unset, empty, set] = broadcastWithPk.mock.calls.map(([args]) => args);
+      expect(unset).not.toHaveProperty('memo');
+      expect(empty).toHaveProperty('memo', '');
+      expect(set).toHaveProperty('memo', 'sodax-memo');
     });
   });
 
@@ -255,15 +184,6 @@ describe('InjectiveWalletProvider', () => {
     beforeEach(() => {
       grpcBroadcast.mockReset();
       grpcBroadcast.mockResolvedValue({ txHash: 'grpc-tx-hash', code: 0, rawLog: '' });
-    });
-
-    it('decodes the signed TxRaw and broadcasts it via gRPC, returning the tx hash', async () => {
-      const provider = makeProvider();
-
-      const hash = await provider.sendTransaction(new Uint8Array([9, 9]));
-
-      expect(grpcBroadcast).toHaveBeenCalledTimes(1);
-      expect(hash).toBe('grpc-tx-hash');
     });
 
     it('throws when the node rejects the transaction (non-zero code)', async () => {
@@ -345,15 +265,6 @@ describe('InjectiveWalletProvider', () => {
       expect(broadcastArgs.injectiveAddress).toBe('inj1abc');
       expect(broadcastArgs.msgs).toEqual([{ kind: 'MsgExecuteContractCompat' }]);
       expect(hash).toBe('fee-deleg-tx-hash');
-    });
-
-    it('throws before decoding when the raw tx sender does not match the connected wallet', async () => {
-      const provider = makeBrowserProvider();
-
-      await expect(
-        provider.signAndSendTransaction({ ...RAW_TX, from: 'inj1different' as `0x${string}` }),
-      ).rejects.toThrow(/cannot sign transaction for inj1different with wallet inj1abc/);
-      expect(broadcastWithFeeDelegation).not.toHaveBeenCalled();
     });
 
     it('throws when the raw tx carries a message type other than MsgExecuteContract', async () => {

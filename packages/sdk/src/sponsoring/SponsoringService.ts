@@ -26,16 +26,10 @@ import {
   STELLAR_BASE_RESERVE_STROOPS,
 } from './internal/horizon.js';
 
-/**
- * Mirrors the server's config cache window so sponsor rotation propagates
- * within one minute.
- */
+/** Mirrors the server's config cache window so sponsor rotation propagates within one minute. */
 export const SPONSOR_CONFIG_TTL_MS = 60_000;
 
-/**
- * The base reserve only moves at a network upgrade, so one read per hour is
- * ample and keeps account-status polling to a single request.
- */
+/** The base reserve only moves at a network upgrade, so one read per hour is ample. */
 export const STELLAR_BASE_RESERVE_TTL_MS = 3_600_000;
 
 const DEFAULT_MAX_HORIZON_RETRIES = 2;
@@ -44,10 +38,8 @@ const DEFAULT_MAX_HORIZON_RETRIES = 2;
 const STELLAR_FEE_HEADROOM_STROOPS = 100_000n;
 
 /**
- * Spendable XLM required for one trustline at the base reserve Stellar has
- * published since protocol 12. It is the fallback only: the live requirement
- * is `StellarAccountStatus.trustlineMinXlmStroops`, computed from the network's
- * current base reserve, which validators can vote to change.
+ * Fallback only, at the base reserve published since protocol 12; the live requirement is
+ * `StellarAccountStatus.trustlineMinXlmStroops`, since validators can vote to change the reserve.
  */
 export const STELLAR_TRUSTLINE_MIN_XLM_STROOPS = STELLAR_BASE_RESERVE_STROOPS + STELLAR_FEE_HEADROOM_STROOPS;
 
@@ -59,35 +51,20 @@ export type StellarAccountStatus = {
   availableBalanceStroops: bigint;
   /** Whether available balance can fund one additional trustline. */
   canAffordTrustline: boolean;
-  /**
-   * Spendable XLM one more trustline needs, at the network's current base
-   * reserve. Render this rather than {@link STELLAR_TRUSTLINE_MIN_XLM_STROOPS}.
-   */
+  /** Spendable XLM one more trustline needs at the current base reserve; render this, not the constant. */
   trustlineMinXlmStroops: bigint;
 };
 
 export type ActivateStellarAccountParams = {
   /** Stellar account to activate. Must be the account `walletProvider` signs with. */
   address: string;
-  /**
-   * Signs as the account being created. The SDK must not broadcast before the
-   * server adds the sponsor signature.
-   */
+  /** Signs as the account being created; the SDK must not broadcast before the server adds the sponsor signature. */
   walletProvider: IStellarWalletProvider;
-  /**
-   * Allow one rebuild and new signature after a sequence conflict. Defaults to
-   * `true`; disable for headless callers.
-   */
+  /** Allow one rebuild and re-sign after a sequence conflict. Defaults to `true`; disable for headless callers. */
   allowSequenceRetry?: boolean;
-  /**
-   * Re-submit the same signed payload after `HORIZON_UNAVAILABLE`.
-   * Defaults to 2; `0` disables.
-   */
+  /** Re-submit the same signed payload after `HORIZON_UNAVAILABLE`. Defaults to 2; `0` disables. */
   maxHorizonRetries?: number;
-  /**
-   * Fired before each wallet prompt so a UI can explain a required re-sign
-   * before the extension takes focus.
-   */
+  /** Fired before each wallet prompt so a UI can explain a required re-sign before the extension takes focus. */
   onSignatureRequired?: (info: { attempt: 1 | 2; reason: 'initial' | 'sequenceConflict' }) => void;
   forceConfigRefresh?: boolean;
   requestConfig?: RequestOverrideConfig;
@@ -109,10 +86,6 @@ export type ActivateStellarAccountResult =
 
 type ConfigCacheEntry = { value: StellarSponsorConfig; expiresAt: number };
 
-/**
- * Orchestrates sponsored Stellar activation: config caching, Horizon reads,
- * account signing, sponsor submission, and bounded retries.
- */
 export class SponsoringService {
   private readonly config: ConfigService;
   private readonly spoke: SpokeService;
@@ -135,19 +108,13 @@ export class SponsoringService {
     return this.spoke.stellar.server;
   }
 
-  /**
-   * Whether an account exists. Read failures remain errors rather than being
-   * misreported as inactive.
-   */
+  /** Read failures stay errors rather than being misreported as inactive. */
   public async isStellarAccountActive(params: { address: string }): Promise<Result<boolean, SponsoringLookupError>> {
     const account = await this.readAccount(params.address, 'isStellarAccountActive');
     return account.ok ? { ok: true, value: account.value !== undefined } : account;
   }
 
-  /**
-   * Return account existence and trustline affordability. Costs one Horizon
-   * account read, plus a base-reserve read on the first call per hour.
-   */
+  /** One Horizon account read, plus a base-reserve read on the first call per hour. */
   public async getStellarAccountStatus(params: {
     address: string;
   }): Promise<Result<StellarAccountStatus, SponsoringLookupError>> {
@@ -183,10 +150,7 @@ export class SponsoringService {
     };
   }
 
-  /**
-   * Shared account read. A 404 resolves to `undefined` because absence is a
-   * legitimate answer; every other failure remains an error.
-   */
+  /** A 404 resolves to `undefined` because absence is a legitimate answer; other failures stay errors. */
   private async readAccount(
     address: string,
     action: 'isStellarAccountActive' | 'getStellarAccountStatus',
@@ -212,9 +176,8 @@ export class SponsoringService {
   }
 
   /**
-   * The base reserve is a validator-controlled network setting, so read it from
-   * the latest ledger rather than assuming the published 0.5 XLM. A failed read
-   * degrades to that value: this drives a UI hint, never a signed transaction.
+   * The base reserve is validator-controlled, so read it from the latest ledger. A failed read degrades
+   * to the published 0.5 XLM: this drives a UI hint, never a signed transaction.
    */
   private async resolveBaseReserveStroops(): Promise<bigint> {
     const cached = this.baseReserveCache;
@@ -251,12 +214,8 @@ export class SponsoringService {
   }
 
   /**
-   * Cache key for a config request: the resolved base URL plus the per-call headers the request will
-   * actually carry, `apiKey` included. Headers can select a different response from the same URL — an
-   * API key scoped to another deployment, or a test harness's scenario header — so folding them in
-   * stops one caller's override from being served to, or overwriting, the default path. Names are
-   * lower-cased before sorting and serialized as JSON so casing and delimiters cannot collide two
-   * distinct header sets onto one key. Kept in memory as a Map key only.
+   * Base URL plus the per-call headers (incl. `apiKey`), which can select a different response from the same URL.
+   * Names are lower-cased, sorted and JSON-serialized so distinct header sets cannot collide.
    */
   private configCacheKey(requestConfig?: RequestOverrideConfig): string {
     const baseURL = requestConfig?.baseURL || this.api.sponsoring.getBaseURL();
@@ -267,10 +226,7 @@ export class SponsoringService {
     return entries.length === 0 ? baseURL : `${baseURL}|${JSON.stringify(entries)}`;
   }
 
-  /**
-   * Fetch sponsor config with per-endpoint caching and in-flight deduplication.
-   * Failures are never cached.
-   */
+  /** Per-endpoint caching with in-flight dedup; failures are never cached. */
   public async getStellarSponsorConfig(params?: {
     forceRefresh?: boolean;
     requestConfig?: RequestOverrideConfig;
@@ -293,8 +249,7 @@ export class SponsoringService {
       .then((result): Result<StellarSponsorConfig, SponsoringConfigError> => {
         // A superseded request must not overwrite the refreshed value.
         if (result.ok && this.inflightConfig.get(key) === request) {
-          // Header-scoped keys are unbounded (a caller may send a per-request trace
-          // header), so drop expired entries rather than accumulating one per call.
+          // Header-scoped keys are unbounded (e.g. per-request trace headers), so drop expired entries.
           const now = Date.now();
           for (const [cached, entry] of this.configCache) {
             if (entry.expiresAt <= now) this.configCache.delete(cached);
@@ -312,10 +267,7 @@ export class SponsoringService {
     return request;
   }
 
-  /**
-   * Activate an account with a sponsored base reserve. Config and existence are
-   * checked before prompting; sponsor sequence is never cached.
-   */
+  /** Config and existence are checked before prompting; the sponsor sequence is never cached. */
   public async activateStellarAccount(
     params: ActivateStellarAccountParams,
   ): Promise<Result<ActivateStellarAccountResult, SponsoringOrchestrationError>> {
@@ -379,7 +331,6 @@ export class SponsoringService {
     );
   }
 
-  /** One build, sign, and submit attempt. */
   private async attemptActivation(args: {
     params: ActivateStellarAccountParams;
     sponsorConfig: StellarSponsorConfig;
@@ -390,9 +341,7 @@ export class SponsoringService {
     const { params, sponsorConfig, attempt, sponsorSequenceHint } = args;
     const { address, walletProvider } = params;
 
-    // Reject a bad published config before spending a Horizon round-trip on the
-    // sponsor's sequence — an invalid sponsorAccount would otherwise surface as
-    // that lookup's 404 rather than as the validation failure it is.
+    // Validate config before the sponsor-sequence read, or a bad sponsorAccount surfaces as that lookup's 404.
     assertSponsoredCreateInputs({ config: sponsorConfig, address });
 
     // Read per attempt unless the server supplied a conflict hint.
@@ -480,9 +429,7 @@ export class SponsoringService {
     };
   }
 
-  /**
-   * Re-submit identical signed bytes only for `retrySameRequest` failures.
-   */
+  /** Re-submit identical signed bytes only for `retrySameRequest` failures. */
   private async submitWithHorizonRetry(args: {
     signedXdr: string;
     maxRetries: number;
@@ -499,10 +446,7 @@ export class SponsoringService {
     return result;
   }
 
-  /**
-   * Best-effort existence pre-flight. Read failures continue to activation
-   * because the server performs the authoritative check.
-   */
+  /** Best-effort existence pre-flight; read failures continue because the server performs the authoritative check. */
   private async accountExistsBestEffort(address: string): Promise<boolean> {
     const account = await this.readAccount(address, 'isStellarAccountActive');
     if (account.ok) return account.value !== undefined;

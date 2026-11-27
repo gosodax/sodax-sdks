@@ -311,16 +311,6 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     expect(submitted()).toMatchObject([result.submit]);
   });
 
-  it('sends [approve, deposit] when the token needs no reset', async () => {
-    stubBackend({ withReset: false });
-    const walletProvider = batchWallet();
-
-    await approveAndDeposit(walletProvider, DEPOSIT_PARAMS);
-
-    const [txs] = walletProvider.sendAtomicBatch.mock.calls[0] ?? [];
-    expect(txs?.map(tx => tx.data)).toEqual([APPROVE_WIRE.data, DEPOSIT_WIRE.data]);
-  });
-
   it('approves separately and creates the deposit intent again when the wallet refuses the batch', async () => {
     stubBackend({ withReset: false });
     const walletProvider = batchWallet();
@@ -394,11 +384,13 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     ]);
   });
 
-  it('retries only submitTx when it fails after the deposit: the same body goes again, no second deposit', async () => {
+  it('batches [approve, deposit] with no reset, and retries only a failed submitTx: same body, no second deposit', async () => {
     stubBackend({ withReset: false, failSubmitOnce: true });
     const walletProvider = batchWallet();
 
     const { submit } = await approveAndDeposit(walletProvider, DEPOSIT_PARAMS);
+    const [txs] = walletProvider.sendAtomicBatch.mock.calls[0] ?? [];
+    expect(txs?.map(tx => tx.data)).toEqual([APPROVE_WIRE.data, DEPOSIT_WIRE.data]);
     const first = await submitDeposit(submit);
     const retried = await submitDeposit(submit);
 

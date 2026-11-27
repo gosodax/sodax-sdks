@@ -26,7 +26,6 @@ export interface UserReserveIncentive {
   rewardPriceFeed: string;
 }
 
-// Calculate user supply and borrow incentives for an individual reserve asset
 export function calculateUserReserveIncentives({
   reserveIncentives,
   userIncentives,
@@ -34,13 +33,11 @@ export function calculateUserReserveIncentives({
   userReserveData,
 }: CalculateUserReserveIncentivesRequest): UserReserveIncentive[] {
   const calculatedUserIncentives: UserReserveIncentive[] = [];
-  // Compute incentive data for each reward linked to supply of this reserve
   userIncentives.aTokenIncentivesUserData.userRewardsInformation.forEach(userReserveIncentive => {
     const reserveIncentive = reserveIncentives.aIncentiveData.rewardsTokenInformation.find(
       reward => reward.rewardTokenAddress === userReserveIncentive.rewardTokenAddress,
     );
     if (reserveIncentive) {
-      // Calculating accrued rewards is only required if user has an active aToken balance
       const accruedRewards = userReserveData
         ? calculateAccruedIncentives({
             principalUserBalance: new BigNumber(userReserveData.scaledATokenBalance),
@@ -70,13 +67,11 @@ export function calculateUserReserveIncentives({
       });
     }
   });
-  // Compute incentive data for each reward linked to variable borrows of this reserve
   userIncentives.vTokenIncentivesUserData.userRewardsInformation.forEach(userReserveIncentive => {
     const reserveIncentive = reserveIncentives.vIncentiveData.rewardsTokenInformation.find(
       reward => reward.rewardTokenAddress === userReserveIncentive.rewardTokenAddress,
     );
     if (reserveIncentive) {
-      // Calculating accrued rewards is only required if user has an active variableDebt token balance
       const accruedRewards = userReserveData
         ? calculateAccruedIncentives({
             principalUserBalance: new BigNumber(userReserveData.scaledVariableDebt),

@@ -15,7 +15,7 @@ useBorrow({ mutationOptions });
 useRepay({ mutationOptions });
 
 // Allowance + approve — useMMAllowance wraps the MM params under `params.payload`
-useMMAllowance({ params: { payload: MoneyMarketParams<K> }, queryOptions });   // disabled for borrow/withdraw (data is undefined)
+useMMAllowance({ params: { payload: MoneyMarketParams<K> }, queryOptions });   // borrow/withdraw: disabled, data is `true`
 useMMApprove({ mutationOptions });
 
 // Reserves data (read-only)
@@ -118,7 +118,7 @@ const { mutateAsync: approve } = useMMApprove();
 if (!isApproved) await approve({ params: supplyParams, walletProvider });
 ```
 
-`useMMAllowance` skips the on-chain check entirely for `'borrow'` / `'withdraw'` actions — the query is `enabled: false` for those, so `data` stays `undefined`. Treat "absent allowance for borrow/withdraw" as "approval not required" at the call site (these actions never need ERC-20 approval).
+`useMMAllowance` skips the on-chain check entirely for `'borrow'` / `'withdraw'` actions — the query is `enabled: false` for those and `data` is seeded with `true`, so a `data === true` gate works for every action (these actions never need ERC-20 approval).
 
 ## Reserves data hooks
 
@@ -138,14 +138,14 @@ if (!isApproved) await approve({ params: supplyParams, walletProvider });
 | `useSupply` / `useRepay` | `SafeUseMutationResult<TxHashPair, Error, ...>` (`{ srcChainTxHash, dstChainTxHash }`) |
 | `useBorrow` / `useWithdraw` | `SafeUseMutationResult<OutboundSettlement<K>, Error, ...>`: `TxHashPair`, or from Tron `{ trackingId, dstChainTxHash }`. A withdraw-auth has no Tron tx, so never link `trackingId` to an explorer. For a non-literal `K`, narrow with `'trackingId' in data` |
 | `useMMApprove` | `SafeUseMutationResult<TxReturnType<K, false>, Error, ...>` — chain-keyed receipt union |
-| `useMMAllowance` | `UseQueryResult<boolean, Error>` — already unwrapped; for `borrow`/`withdraw` actions the query is `enabled: false` and `data` is `undefined` |
+| `useMMAllowance` | `UseQueryResult<boolean, Error>` — already unwrapped; for `borrow`/`withdraw` actions the query is `enabled: false` and `data` is `true` |
 | Reserve / position hooks | `UseQueryResult<TData, Error>` — already unwrapped; queries throw on SDK `!ok` |
 
 ## Gotchas
 
 1. **Health factor < 1.0 is liquidation territory.** `healthFactor` is a **string** — coerce before comparing (`summary.healthFactor < 1.05` is a TS type error). A user with **no debt** returns the sentinel `'-1'`, so guard against it or you'll warn on a safe position: `const hf = Number(summary.healthFactor); if (hf !== -1 && hf < 1.05) { /* warn */ }` (use whatever margin your UX needs).
 2. **Cross-chain delivery via `dstChainKey`/`dstAddress`** — supported on all four actions (supply / withdraw / borrow / repay). Omit for same-chain operations; don't pass `dstChainKey === srcChainKey` (let the default kick in).
-3. **`useMMAllowance` is `enabled: false` for borrow/withdraw** — `data` stays `undefined` (not `true`). Treat "no allowance result for borrow/withdraw" as "approval not required" — those actions never need ERC-20 approval.
+3. **`useMMAllowance` is `enabled: false` for borrow/withdraw** — `data` is `true` immediately (no RPC, no loading state). Those actions never need ERC-20 approval.
 4. **Position queries take `{ spokeChainKey, userAddress }`** (NOT `srcChainKey`/`srcAddress` — those are mutation-side names). The hub wallet derivation is automatic.
 
 ## Cross-references

@@ -12,13 +12,6 @@ import { getEvmViemChain } from '../../utils/constant-utils.js';
 export class EvmVaultTokenService {
   private constructor() {}
 
-  /**
-   * Fetches token information for a specific token in the vault.
-   * @param vault - The address of the vault.
-   * @param token - The address of the token.
-   * @param publicClient - PublicClient
-   * @returns Token information as a TokenInfo object.
-   */
   public static async getTokenInfo(vault: Address, token: Address, publicClient: PublicClient): Promise<TokenInfo> {
     const [decimals, depositFee, withdrawalFee, maxDeposit, isSupported] = await publicClient.readContract({
       address: vault,
@@ -30,13 +23,6 @@ export class EvmVaultTokenService {
     return { decimals, depositFee, withdrawalFee, maxDeposit, isSupported };
   }
 
-  /**
-   * Fetches token information for a list of tokens in a vault using a multicall.
-   * @param vault - The address of the vault contract.
-   * @param tokens - An array of token addresses to fetch info for.
-   * @param publicClient - The Viem PublicClient instance used to interact with the blockchain.
-   * @returns A promise that resolves to an array of TokenInfo objects, one for each provided token.
-   */
   public static async getTokenInfos(
     vault: Address,
     tokens: Address[],
@@ -61,12 +47,6 @@ export class EvmVaultTokenService {
     });
   }
 
-  /**
-   * Retrieves the reserves of the vault.
-   * @param vault - The address of the vault.
-   * @param publicClient - PublicClient
-   * @returns An object containing tokens and their balances.
-   */
   public static async getVaultReserves(vault: Address, publicClient: PublicClient): Promise<VaultReserves> {
     const [tokens, balances] = await publicClient.readContract({
       address: vault,
@@ -81,12 +61,6 @@ export class EvmVaultTokenService {
     };
   }
 
-  /**
-   * Retrieves all token information for the vault.
-   * @param vault - The address of the vault.
-   * @param publicClient - PublicClient
-   * @returns A promise that resolves to an object containing tokens, their infos, and reserves.
-   */
   public static async getAllTokenInfo(
     vault: Address,
     publicClient: PublicClient,
@@ -109,14 +83,6 @@ export class EvmVaultTokenService {
     };
   }
 
-  /**
-   * Deposits a specified amount of a token into the vault.
-   * @param vault - The address of the vault.
-   * @param token - The address of the token to deposit.
-   * @param amount - The amount of the token to deposit.
-   * @param walletProvider - IEvmWalletProvider
-   * @returns Transaction hash
-   */
   public static async deposit(
     vault: Address,
     token: Address,
@@ -140,14 +106,6 @@ export class EvmVaultTokenService {
     );
   }
 
-  /**
-   * Withdraws a specified amount of a token from the vault.
-   * @param vault - The address of the vault.
-   * @param token - The address of the token to withdraw.
-   * @param amount - The amount of the token to withdraw.
-   * @param provider - EvmWalletProvider
-   * @returns Transaction hash
-   */
   public static async withdraw(
     vault: Address,
     token: Address,
@@ -170,13 +128,6 @@ export class EvmVaultTokenService {
     );
   }
 
-  /**
-   * Encodes the deposit transaction data for the vault.
-   * @param vault - The address of the vault.
-   * @param token - The address of the token to deposit.
-   * @param amount - The amount of the token to deposit.
-   * @returns The encoded contract call data.
-   */
   static encodeDeposit(vault: Address, token: Address, amount: bigint): EvmContractCall {
     return {
       address: vault,
@@ -189,13 +140,6 @@ export class EvmVaultTokenService {
     };
   }
 
-  /**
-   * Encodes the withdraw transaction data for the vault.
-   * @param vault - The address of the vault.
-   * @param token - The address of the token to withdraw.
-   * @param amount - The amount of the token to withdraw.
-   * @returns The encoded contract call data.
-   */
   static encodeWithdraw(vault: Address, token: Address, amount: bigint): EvmContractCall {
     return {
       address: vault,
@@ -208,12 +152,7 @@ export class EvmVaultTokenService {
     };
   }
 
-  /**
-   * Translates token amounts from their native decimals to 18 decimals
-   * @param decimals - The number of decimals of the token
-   * @param amount - The amount to translate
-   * @returns The translated amount
-   */
+  /** Native token decimals → the vault's 18-decimal scale. */
   public static translateIncomingDecimals(decimals: number, amount: bigint): bigint {
     if (decimals <= 18) {
       return amount * BigInt(10 ** (18 - decimals));
@@ -221,12 +160,7 @@ export class EvmVaultTokenService {
     return amount / BigInt(10 ** (decimals - 18));
   }
 
-  /**
-   * Translates token amounts from 18 decimals back to their native decimals
-   * @param decimals - The number of decimals of the token
-   * @param amount - The amount to translate
-   * @returns The translated amount
-   */
+  /** The vault's 18-decimal scale → native token decimals. */
   public static translateOutgoingDecimals(decimals: number, amount: bigint): bigint {
     if (decimals <= 18) {
       return amount / BigInt(10 ** (18 - decimals));

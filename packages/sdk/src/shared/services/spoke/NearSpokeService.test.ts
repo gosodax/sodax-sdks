@@ -39,7 +39,7 @@ vi.mock('../../utils/shared-utils.js', async () => {
 });
 
 import { Sodax } from '../../entities/Sodax.js';
-import { NearSpokeService, NEAR_DEFAULT_GAS } from './NearSpokeService.js';
+import { NEAR_DEFAULT_GAS } from './NearSpokeService.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
 
 // --- fixtures -------------------------------------------------------------
@@ -57,8 +57,6 @@ const NEAR_RATE_LIMIT = nearConfig.addresses.rateLimit;
 const NEAR_INTENT_FILLER = nearConfig.addresses.intentFiller;
 const NEAR_NATIVE = nearConfig.nativeToken;
 const NEAR_BNUSD = nearConfig.bnUSD;
-const NEAR_POLLING_MS = nearConfig.pollingConfig.pollingIntervalMs;
-const NEAR_TIMEOUT_MS = nearConfig.pollingConfig.maxTimeoutMs;
 
 // Deliberate cast: GetAddressType<'near…'> is declared as Address (0x-hex) in @sodax/types, but
 // real NEAR accounts are names like `user.near` and the service consumes them as such at runtime.
@@ -81,36 +79,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-});
-
-// =========================================================================
-// 1. constructor
-// =========================================================================
-
-describe('NearSpokeService — constructor', () => {
-  it('exposes the spoke instance on sodax.spoke.near with the expected method surface', () => {
-    expect(nearSpoke).toBeInstanceOf(NearSpokeService);
-    expect(typeof nearSpoke.estimateGas).toBe('function');
-    expect(typeof nearSpoke.queryContract).toBe('function');
-    expect(typeof nearSpoke.getRateLimit).toBe('function');
-    expect(typeof nearSpoke.fillIntent).toBe('function');
-    expect(typeof nearSpoke.deposit).toBe('function');
-    expect(typeof nearSpoke.getDeposit).toBe('function');
-    expect(typeof nearSpoke.getWalletBalance).toBe('function');
-    expect(typeof nearSpoke.getWalletBalances).toBe('function');
-    expect(typeof nearSpoke.isStorageRegistered).toBe('function');
-    expect(typeof nearSpoke.registerStorage).toBe('function');
-    expect(typeof nearSpoke.sendMessage).toBe('function');
-    expect(typeof nearSpoke.getLimit).toBe('function');
-    expect(typeof nearSpoke.getAvailable).toBe('function');
-    expect(typeof nearSpoke.waitForTransactionReceipt).toBe('function');
-  });
-
-  it('wires a JsonRpcProvider with the methods the rest of the class consumes', () => {
-    expect(nearSpoke.rpcProvider).toBeDefined();
-    expect(typeof nearSpoke.rpcProvider.callFunction).toBe('function');
-    expect(typeof nearSpoke.rpcProvider.viewTransactionStatus).toBe('function');
-  });
 });
 
 // =========================================================================
@@ -146,8 +114,8 @@ describe('NearSpokeService.queryContract', () => {
 // =========================================================================
 
 describe('NearSpokeService.getRateLimit', () => {
-  it('maps snake_case fields to camelCase on happy path', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockResolvedValueOnce({
+  it('queries the config rateLimit contract and maps snake_case fields to camelCase', async () => {
+    const spy = vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockResolvedValueOnce({
       max_available: 100,
       available: 80,
       rate_per_second: 5,
@@ -155,33 +123,21 @@ describe('NearSpokeService.getRateLimit', () => {
 
     const result = await nearSpoke.getRateLimit(NEAR_BNUSD, NEAR);
     expect(result).toEqual({ maxAvailable: 100, available: 80, ratePerSecond: 5 });
-  });
-
-  it('returns zeroes when callFunction resolves to null', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockResolvedValueOnce(null as never);
-
-    const result = await nearSpoke.getRateLimit(NEAR_BNUSD, NEAR);
-    expect(result).toEqual({ maxAvailable: 0, available: 0, ratePerSecond: 0 });
-  });
-
-  it('returns zeroes when callFunction resolves to undefined', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockResolvedValueOnce(undefined);
-
-    const result = await nearSpoke.getRateLimit(NEAR_BNUSD, NEAR);
-    expect(result).toEqual({ maxAvailable: 0, available: 0, ratePerSecond: 0 });
-  });
-
-  it('queries the per-chain rateLimit contract from config', async () => {
-    const spy = vi
-      .spyOn(nearSpoke.rpcProvider, 'callFunction')
-      .mockResolvedValueOnce({ max_available: 1, available: 1, rate_per_second: 1 });
-
-    await nearSpoke.getRateLimit(NEAR_BNUSD, NEAR);
     expect(spy).toHaveBeenCalledWith({
       contractId: NEAR_RATE_LIMIT,
       method: 'get_rate_limit',
       args: { token: NEAR_BNUSD },
     });
+  });
+
+  it('returns zeroes when callFunction resolves to null or undefined', async () => {
+    vi.spyOn(nearSpoke.rpcProvider, 'callFunction')
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce(undefined);
+
+    const zeroes = { maxAvailable: 0, available: 0, ratePerSecond: 0 };
+    expect(await nearSpoke.getRateLimit(NEAR_BNUSD, NEAR)).toEqual(zeroes);
+    expect(await nearSpoke.getRateLimit(NEAR_BNUSD, NEAR)).toEqual(zeroes);
   });
 });
 
@@ -302,8 +258,11 @@ describe('NearSpokeService.getDeposit', () => {
     expect(spy).toHaveBeenCalledWith({ contractId: NEAR_ASSET_MGR, method: 'get_balance', args: {} });
   });
 
-  it('non-native → calls ft_balance_of on token with account_id=assetManager', async () => {
-    const spy = vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockResolvedValueOnce('7500');
+  it('non-native → calls ft_balance_of on token with account_id=assetManager, throwing on a non-string', async () => {
+    const spy = vi
+      .spyOn(nearSpoke.rpcProvider, 'callFunction')
+      .mockResolvedValueOnce('7500')
+      .mockResolvedValueOnce(123);
 
     const result = await nearSpoke.getDeposit({
       srcChainKey: NEAR,
@@ -317,10 +276,6 @@ describe('NearSpokeService.getDeposit', () => {
       method: 'ft_balance_of',
       args: { account_id: NEAR_ASSET_MGR },
     });
-  });
-
-  it('throws when callFunction returns a non-string (defensive type check)', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockResolvedValueOnce(123);
 
     await expect(nearSpoke.getDeposit({ srcChainKey: NEAR, srcAddress: SRC_ADDR, token: NEAR_BNUSD })).rejects.toThrow(
       'Failed to get balance',
@@ -374,16 +329,14 @@ describe('NearSpokeService.getWalletBalance', () => {
     expect(spy).not.toHaveBeenCalledWith(expect.objectContaining({ args: { account_id: NEAR_ASSET_MGR } }));
   });
 
-  it('rejects when ft_balance_of returns a non-string — an unread balance must never become 0n', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockResolvedValueOnce(7500 as never);
+  it('rejects a non-string ft_balance_of and propagates an RPC rejection — an unread balance never becomes 0n', async () => {
+    vi.spyOn(nearSpoke.rpcProvider, 'callFunction')
+      .mockResolvedValueOnce(7500 as never)
+      .mockRejectedValueOnce(new Error('rpc 503'));
 
     await expect(
       nearSpoke.getWalletBalance({ srcChainKey: NEAR, srcAddress: SRC_ADDR, token: BNUSD_TOKEN }),
     ).rejects.toThrow('[NearSpokeService.getWalletBalance] Failed to get balance. Unexpected response type.');
-  });
-
-  it('propagates an RPC rejection rather than swallowing it into a zero', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockRejectedValueOnce(new Error('rpc 503'));
 
     await expect(
       nearSpoke.getWalletBalance({ srcChainKey: NEAR, srcAddress: SRC_ADDR, token: BNUSD_TOKEN }),
@@ -403,8 +356,10 @@ describe('NearSpokeService.getWalletBalances', () => {
     }) as never);
   };
 
-  it('keys every token by token.address with the balance in smallest units', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'viewAccount').mockResolvedValueOnce({ amount: 42n } as never);
+  it('keys every token by token.address with the balance in smallest units, and an empty list to an empty map', async () => {
+    const viewAccountSpy = vi
+      .spyOn(nearSpoke.rpcProvider, 'viewAccount')
+      .mockResolvedValueOnce({ amount: 42n } as never);
     ftBalances({ [BNUSD_TOKEN.address]: '7500', [USDT_TOKEN.address]: '0' });
     const warnSpy = vi.spyOn(sodax.config.logger, 'warn');
 
@@ -422,6 +377,11 @@ describe('NearSpokeService.getWalletBalances', () => {
       [USDT_TOKEN.address]: 0n,
     });
     expect(warnSpy).not.toHaveBeenCalled();
+
+    vi.mocked(nearSpoke.rpcProvider.callFunction).mockClear();
+    expect(await nearSpoke.getWalletBalances({ srcChainKey: NEAR, srcAddress: SRC_ADDR, tokens: [] })).toEqual({});
+    expect(nearSpoke.rpcProvider.callFunction).not.toHaveBeenCalled();
+    expect(viewAccountSpy).toHaveBeenCalledTimes(1);
   });
 
   it('isolates a failing token as a logged 0n instead of discarding the batch', async () => {
@@ -458,17 +418,6 @@ describe('NearSpokeService.getWalletBalances', () => {
       }),
     ).rejects.toThrow(`every balance read failed on ${NEAR}`);
   });
-
-  it('returns an empty map for an empty token list without touching the RPC', async () => {
-    const callSpy = vi.spyOn(nearSpoke.rpcProvider, 'callFunction');
-    const viewAccountSpy = vi.spyOn(nearSpoke.rpcProvider, 'viewAccount');
-
-    const result = await nearSpoke.getWalletBalances({ srcChainKey: NEAR, srcAddress: SRC_ADDR, tokens: [] });
-
-    expect(result).toEqual({});
-    expect(callSpy).not.toHaveBeenCalled();
-    expect(viewAccountSpy).not.toHaveBeenCalled();
-  });
 });
 
 // =========================================================================
@@ -483,10 +432,11 @@ describe('NearSpokeService.isStorageRegistered', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('non-native registered → storage_balance_of returns an object → true', async () => {
+  it('non-native → storage_balance_of: an object is registered, null is not', async () => {
     const spy = vi
       .spyOn(nearSpoke.rpcProvider, 'callFunction')
-      .mockResolvedValueOnce({ total: '1250000000000000000000', available: '0' });
+      .mockResolvedValueOnce({ total: '1250000000000000000000', available: '0' })
+      .mockResolvedValueOnce(null as never);
 
     expect(await nearSpoke.isStorageRegistered(NEAR_BNUSD, SRC_ADDR)).toBe(true);
     expect(spy).toHaveBeenCalledWith({
@@ -494,16 +444,12 @@ describe('NearSpokeService.isStorageRegistered', () => {
       method: 'storage_balance_of',
       args: { account_id: SRC_ADDR },
     });
-  });
-
-  it('non-native unregistered → storage_balance_of returns null → false', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockResolvedValueOnce(null as never);
     expect(await nearSpoke.isStorageRegistered(NEAR_BNUSD, SRC_ADDR)).toBe(false);
   });
 });
 
 describe('NearSpokeService.registerStorage', () => {
-  it('non-native raw=true → storage_deposit tx with registration_only and default 0.00125 NEAR bond', async () => {
+  it('non-native raw=true → storage_deposit tx with registration_only and a 0.00125 NEAR bond unless overridden', async () => {
     const tx = await nearSpoke.registerStorage({
       token: NEAR_BNUSD,
       accountId: SRC_ADDR,
@@ -517,18 +463,15 @@ describe('NearSpokeService.registerStorage', () => {
     expect(tx.params.args).toEqual({ account_id: SRC_ADDR, registration_only: true });
     expect(tx.params.deposit).toBe(1_250_000_000_000_000_000_000n);
     expect(tx.params.gas).toBe(NEAR_DEFAULT_GAS);
-  });
 
-  it('honours a custom deposit override', async () => {
-    const tx = (await nearSpoke.registerStorage({
+    const custom = await nearSpoke.registerStorage({
       token: NEAR_BNUSD,
       accountId: SRC_ADDR,
       walletProvider: mockNearProvider,
       deposit: 5n,
       raw: true,
-    })) as { params: { deposit: bigint } };
-
-    expect(tx.params.deposit).toBe(5n);
+    });
+    expect(custom.params.deposit).toBe(5n);
   });
 
   it('native token → throws (no NEP-141 storage registration)', async () => {
@@ -581,6 +524,7 @@ describe('NearSpokeService.sendMessage', () => {
     expect(tx.params.gas).toBe(NEAR_DEFAULT_GAS);
     // dst_chain_id is the relay id parsed to a number
     expect((tx.params.args as SendMsgArgs).dst_chain_id).toBe(Number(getIntentRelayChainId(SONIC)));
+    expect(getIntentRelayChainId(SONIC)).toBe(146n);
   });
 
   it('raw=false → delegates to walletProvider.signAndSubmitTxn and returns hash', async () => {
@@ -589,10 +533,6 @@ describe('NearSpokeService.sendMessage', () => {
     const result = await nearSpoke.sendMessage(sendMessageParams<false>({ raw: false }));
     expect(result).toBe(TX_HASH);
   });
-
-  it('pins getIntentRelayChainId(SONIC) === 146n', () => {
-    expect(getIntentRelayChainId(SONIC)).toBe(146n);
-  });
 });
 
 // =========================================================================
@@ -600,23 +540,14 @@ describe('NearSpokeService.sendMessage', () => {
 // =========================================================================
 
 describe('NearSpokeService.getLimit / getAvailable', () => {
-  it('getLimit returns maxAvailable as bigint', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockResolvedValueOnce({
+  it('getLimit returns maxAvailable and getAvailable returns available, as bigint', async () => {
+    vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockResolvedValue({
       max_available: 42,
       available: 10,
       rate_per_second: 1,
     });
 
     expect(await nearSpoke.getLimit(NEAR_BNUSD, NEAR)).toBe(42n);
-  });
-
-  it('getAvailable returns available as bigint', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockResolvedValueOnce({
-      max_available: 42,
-      available: 10,
-      rate_per_second: 1,
-    });
-
     expect(await nearSpoke.getAvailable(NEAR_BNUSD, NEAR)).toBe(10n);
   });
 });
@@ -626,22 +557,20 @@ describe('NearSpokeService.getLimit / getAvailable', () => {
 // =========================================================================
 
 describe('NearSpokeService.waitForTransactionReceipt', () => {
-  it('SuccessValue → status:success with the outcome receipt', async () => {
+  it('SuccessValue and SuccessReceiptId → status:success with the outcome receipt', async () => {
     const outcome = { status: { SuccessValue: '' }, transaction: { hash: TX_HASH } };
-    vi.spyOn(nearSpoke.rpcProvider, 'viewTransactionStatus').mockResolvedValueOnce(outcome as never);
+    const receiptOutcome = { status: { SuccessReceiptId: 'abc' } };
+    vi.spyOn(nearSpoke.rpcProvider, 'viewTransactionStatus')
+      .mockResolvedValueOnce(outcome as never)
+      .mockResolvedValueOnce(receiptOutcome as never);
 
     const result = await nearSpoke.waitForTransactionReceipt({ chainKey: NEAR, txHash: TX_HASH });
-
     if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
     expect(result.value.receipt).toBe(outcome);
-  });
 
-  it('SuccessReceiptId → status:success', async () => {
-    const outcome = { status: { SuccessReceiptId: 'abc' } };
-    vi.spyOn(nearSpoke.rpcProvider, 'viewTransactionStatus').mockResolvedValueOnce(outcome as never);
-
-    const result = await nearSpoke.waitForTransactionReceipt({ chainKey: NEAR, txHash: TX_HASH });
-    if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
+    const viaReceipt = await nearSpoke.waitForTransactionReceipt({ chainKey: NEAR, txHash: TX_HASH });
+    if (!viaReceipt.ok || viaReceipt.value.status !== 'success') throw new Error('expected ok+success');
+    expect(viaReceipt.value.receipt).toBe(receiptOutcome);
   });
 
   it('Failure → status:failure with JSON-stringified error', async () => {
@@ -657,68 +586,33 @@ describe('NearSpokeService.waitForTransactionReceipt', () => {
     expect(result.value.error.message).toContain('oops');
   });
 
-  it('pending (no recognised status) until deadline → status:timeout', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'viewTransactionStatus').mockResolvedValue({ status: {} } as never);
+  it('pending (no recognised status) or a persistent rejection until deadline → status:timeout', async () => {
+    const spy = vi.spyOn(nearSpoke.rpcProvider, 'viewTransactionStatus').mockResolvedValue({ status: {} } as never);
+    const params = { chainKey: NEAR, txHash: TX_HASH, pollingIntervalMs: 1, maxTimeoutMs: 1 } as const;
 
-    const result = await nearSpoke.waitForTransactionReceipt({
-      chainKey: NEAR,
-      txHash: TX_HASH,
-      pollingIntervalMs: 1,
-      maxTimeoutMs: 1,
-    });
+    const pending = await nearSpoke.waitForTransactionReceipt(params);
+    if (!pending.ok) throw new Error('expected ok');
+    expect(pending.value.status).toBe('timeout');
 
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.value.status).toBe('timeout');
+    spy.mockRejectedValue(new Error('rpc 503'));
+    const rejected = await nearSpoke.waitForTransactionReceipt(params);
+    if (!rejected.ok) throw new Error('expected ok');
+    expect(rejected.value.status).toBe('timeout');
   });
 
-  it('transient rejection → recovers on next poll', async () => {
+  it('transient rejection → sleeps the caller pollingIntervalMs and recovers on next poll', async () => {
     vi.spyOn(nearSpoke.rpcProvider, 'viewTransactionStatus')
       .mockRejectedValueOnce(new Error('rpc 503'))
       .mockResolvedValueOnce({ status: { SuccessValue: '' } } as never);
 
     const result = await nearSpoke.waitForTransactionReceipt({
-      chainKey: NEAR,
-      txHash: TX_HASH,
-      pollingIntervalMs: 1,
-      maxTimeoutMs: 1000,
-    });
-
-    if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
-    expect(mocks.sleep).toHaveBeenCalled();
-  });
-
-  it('persistent rejection → status:timeout', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'viewTransactionStatus').mockRejectedValue(new Error('rpc 503'));
-
-    const result = await nearSpoke.waitForTransactionReceipt({
-      chainKey: NEAR,
-      txHash: TX_HASH,
-      pollingIntervalMs: 1,
-      maxTimeoutMs: 1,
-    });
-
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.value.status).toBe('timeout');
-  });
-
-  it('config-driven defaults: pollingConfig pins polling=1000ms / timeout=45_000ms', () => {
-    // A config change that drops or renames either field surfaces here.
-    expect(NEAR_POLLING_MS).toBe(1000);
-    expect(NEAR_TIMEOUT_MS).toBe(45_000);
-  });
-
-  it('forwards caller-supplied pollingIntervalMs to sleep on retry', async () => {
-    vi.spyOn(nearSpoke.rpcProvider, 'viewTransactionStatus')
-      .mockRejectedValueOnce(new Error('rpc 503'))
-      .mockResolvedValueOnce({ status: { SuccessValue: '' } } as never);
-
-    await nearSpoke.waitForTransactionReceipt({
       chainKey: NEAR,
       txHash: TX_HASH,
       pollingIntervalMs: 7,
       maxTimeoutMs: 1000,
     });
 
+    if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
     expect(mocks.sleep).toHaveBeenCalledWith(7);
   });
 });

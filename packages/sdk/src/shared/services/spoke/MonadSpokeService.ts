@@ -59,28 +59,16 @@ import {
 import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 import { computeSignedMessageHash, randomWithdrawNonce } from './mpc-message.js';
 
-/**
- * Floor for an MPC-relay settlement wait, applied over the caller's own timeout.
- *
- * Monad blocks are fast, but the relay waits on confirmations, aggregation, the NEAR submit and the
- * hub tx, so the generic cross-chain timeout would give up mid-flight.
- */
+/** Floor over the caller's settlement timeout: confirmations, aggregation, the NEAR submit and the hub tx outlast it. */
 const MONAD_SETTLEMENT_FLOOR_MS = 300_000;
 /** How long a deposit waits for its transfer's receipt before notifying the relay anyway. */
 const MONAD_DEPOSIT_RECEIPT_TIMEOUT_MS = 60_000;
 
-/** How often to re-notify the relay while waiting for a deposit. */
 const RENOTIFY_INTERVAL_MS = 6_000;
 
 /**
- * Spoke service for Monad. Monad is EVM for wallets and addresses, but it has no spoke contracts:
- * deposits and withdrawals go through the **MPC relay** in address mode.
- *
- * A deposit is a plain transfer — native MON, or an ERC-20 `transfer` — to a deposit address the
- * relay derives for that one payload, which it then sweeps into the shared reserve. Withdrawals are
- * authorized with scheme 0, an EIP-191 `personal_sign` over the message hash.
- *
- * @see MpcRelayApiService for the relay REST flow (deposit-address → notify → poll).
+ * Monad is EVM for wallets but has no spoke contracts: deposits are plain transfers to a per-payload relay address
+ * (MPC relay, address mode), and withdrawals are authorized with scheme 0 (EIP-191 `personal_sign`).
  */
 export class MonadSpokeService implements MpcRelaySettlement {
   private readonly config: ConfigService;
@@ -90,8 +78,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
     this.config = config;
   }
 
-  // Read live rather than captured in the constructor: `ConfigService` can swap in backend-fetched
-  // config after construction.
+  // Read live: `ConfigService` can swap in backend-fetched config after construction.
   private get chainConfig(): MonadSpokeChainConfig {
     return this.config.getChainConfig(ChainKeys.MONAD_MAINNET);
   }
@@ -119,15 +106,8 @@ export class MonadSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Deposit MON or an ERC-20 into the hub via the MPC relay.
-   *
-   * `Raw: true` returns the unsigned transfer (no wallet needed). `Raw: false` registers the hub
-   * `data`, sends the transfer to the derived deposit address, waits for its receipt, and notifies the
-   * relay — resolving to the source tx hash. An ERC-20 deposit is a direct transfer, so it needs no
-   * allowance. An indeterminate receipt failure or a failed notify warns and still resolves to the hash;
-   * the relay is notified even if the receipt wait fails. A definite revert throws with the hash.
-   * An ambiguous broadcast with a known signed hash notifies the relay and preserves the typed error.
-   * Resume the existing deposit via settlement or `spoke.submitMpcDeposit`.
+   * Deposit MON or an ERC-20 (direct transfer, no allowance) via the MPC relay. The relay is notified even if the receipt
+   * wait fails; an indeterminate receipt or failed notify warns and still resolves to the hash, a definite revert throws.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<MonadChainKey, R>,
@@ -154,8 +134,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
       throw new Error('[MonadSpokeService.deposit] relay returned an invalid deposit address');
     }
 
-    // The relay derives the receiving hub wallet from `srcAddress` rather than taking `to`, so `to`
-    // is an assertion: a mismatch means the identity encoding drifted from the relay's.
+    // The relay derives the hub wallet from `srcAddress`, so `to` is only an assertion; a mismatch means identity drift.
     if (to.toLowerCase() !== hubWallet.toLowerCase()) {
       throw new Error(
         `[MonadSpokeService.deposit] relay derives hub wallet ${hubWallet} for ${srcAddress}, but the deposit targets ${to}`,
@@ -230,10 +209,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * Notify the relay of a landed deposit, without waiting for the hub mint. The funds have already moved,
-   * so it retries, and a failure keeps the tx hash: the only handle left for re-notifying the deposit.
-   */
+  /** Notify the relay of a landed deposit with retries; a failure keeps the tx hash, the only handle to re-notify. */
   public async submitDeposit(txHash: string): Promise<Result<void>> {
     try {
       await this.retryNotify(() => notify(this.relayApiUrl, this.chainId, txHash));
@@ -248,7 +224,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** A notify, retried: `retry` reacts to a throw and `notify` reports failure in its Result, so rethrow it. */
+  /** `retry` reacts to a throw while `notify` reports failure in its Result, so rethrow it. */
   private async retryNotify(send: () => Promise<Result<NotifyResponse>>): Promise<void> {
     await retry(async () => {
       const res = await send();
@@ -256,10 +232,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /**
-   * The relay's deposit id for `txHash`. A native send has no log and is keyed at index 0; an ERC-20
-   * deposit is keyed by the block-level index of its `Transfer` log from a supported token.
-   */
+  /** A native send is keyed at index 0; an ERC-20 deposit by the block-level index of its `Transfer` log. */
   private async depositIdFor(txHash: string, { waitMs }: { waitMs?: number }): Promise<string> {
     const client = this.getPublicClient();
     const hash = txHash as Hex;
@@ -283,13 +256,8 @@ export class MonadSpokeService implements MpcRelaySettlement {
     return toDepositId(this.chainId, txHash, transfers[0]?.logIndex ?? 0);
   }
 
-  /**
-   * Wait for the hub mint to land for a Monad deposit, via the MPC relay's deposit record.
-   * `txHash` is the source tx hash returned by {@link deposit}.
-   */
   public async waitForDeposit(txHash: string, timeout?: number): Promise<Result<DepositRecord>> {
-    // `/notify` accepts a tx before it is confirmed and never re-checks, so a notification sent right
-    // after the transfer can land too early. Re-notifying is idempotent.
+    // `/notify` accepts a tx before it is confirmed and never re-checks, so re-notify (idempotent).
     void notify(this.relayApiUrl, this.chainId, txHash);
     const renotify = setInterval(() => {
       void notify(this.relayApiUrl, this.chainId, txHash);
@@ -309,7 +277,6 @@ export class MonadSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** The MPC relay's current record for a Monad deposit, read once. `txHash` is as for {@link waitForDeposit}. */
   public async getDepositRecord(txHash: string): Promise<Result<DepositRecord>> {
     try {
       return await getDeposit(this.relayApiUrl, await this.depositIdFor(txHash, {}));
@@ -318,10 +285,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * On-chain balance of `token` for the deposit owner. Monad has no spoke asset manager holding
-   * deposits, so this reads the holder's own balance — native MON, or `balanceOf` for an ERC-20.
-   */
+  /** Monad has no spoke asset manager, so this reads the holder's own balance. */
   public async getDeposit(params: GetDepositParams<MonadChainKey>): Promise<bigint> {
     const client = this.getPublicClient();
     if (this.isNative(params.token)) {
@@ -335,7 +299,6 @@ export class MonadSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /** The account's own balance of `token`, in smallest units: native MON, or `balanceOf` for an ERC-20. */
   public async getWalletBalance(params: GetBalanceParams<MonadChainKey>): Promise<bigint> {
     return this.getDeposit({
       srcChainKey: params.srcChainKey,
@@ -344,7 +307,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /** {@link getWalletBalance} for several tokens; a failed read is logged and left out, unless every read fails. */
+  /** A failed read is logged and left out, unless every read fails. */
   public async getWalletBalances(params: GetBalancesParams<MonadChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
     const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
@@ -352,19 +315,11 @@ export class MonadSpokeService implements MpcRelaySettlement {
     return collector.finish();
   }
 
-  /** Gas for the deposit transfer, from the node. */
   public async estimateGas({ tx }: EstimateGasParams<MonadChainKey>): Promise<bigint> {
     return this.getPublicClient().estimateGas({ account: tx.from, to: tx.to, value: tx.value, data: tx.data });
   }
 
-  /**
-   * Withdraw / borrow (hub→Monad) via the MPC relay's signature-mode pipeline.
-   *
-   * The `payload` is the hub-wallet calls to run; `dstAddress` is the hub wallet that executes them.
-   * The Monad account signs the withdraw-auth hash with EIP-191 (scheme 0), and the relay verifies →
-   * burns on the hub → MPC-signs the release. Resolves to the `trackingId` to poll
-   * {@link waitForWithdrawal} with. Raw mode is not supported — there is no spoke tx to return.
-   */
+  /** Withdraw / borrow (hub→Monad) via the MPC relay (scheme 0 EIP-191); resolves to the `trackingId`. Raw mode is unsupported. */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<MonadChainKey, Raw>,
   ): Promise<TxReturnType<MonadChainKey, Raw>> {
@@ -400,15 +355,10 @@ export class MonadSpokeService implements MpcRelaySettlement {
     return trackingId satisfies string as TxReturnType<MonadChainKey, Raw>;
   }
 
-  /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */
   public async getWithdrawalRecord(trackingId: string): Promise<Result<WithdrawalRecord>> {
     return getWithdrawal(this.relayApiUrl, trackingId);
   }
 
-  /**
-   * Wait for a hub→Monad withdrawal to reach `released`, via the MPC relay.
-   * `trackingId` is the value returned by {@link sendMessage}.
-   */
   public async waitForWithdrawal(
     trackingId: string,
     timeout?: number,
@@ -421,10 +371,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /**
-   * Notify the relay of a hub tx releasing to Monad, without waiting for the release. The relay has no hub
-   * watcher and learns of the hub tx only through `/notify`.
-   */
+  /** Notify the relay of a hub tx releasing to Monad; it has no hub watcher and learns of it only through `/notify`. */
   public async submitHubRelease(release: HubRelease): Promise<Result<void>> {
     const { hubChainId, hubTxHash } = release;
     try {
@@ -439,10 +386,7 @@ export class MonadSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * Wait until a release {@link submitHubRelease} notified is paid. The relay's verifier also waits on hub
-   * confirmations and may have dropped an early notify, so this keeps re-notifying.
-   */
+  /** Wait until a notified release is paid, re-notifying: the verifier waits on hub confirmations and may drop an early notify. */
   public async waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>> {
     const { hubChainId, hubTxHash } = release;
     const renotify = setInterval(() => {
@@ -458,12 +402,10 @@ export class MonadSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** One read of a hub release's record through the relay, which `txs.release` marks as paid. */
   public async getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>> {
     return getDeposit(this.relayApiUrl, toHubReleaseId(release));
   }
 
-  /** Wait until the transaction is mined, mapping the receipt to the SDK shape. */
   public async waitForTransactionReceipt(
     params: WaitForTxReceiptParams<MonadChainKey>,
   ): Promise<Result<WaitForTxReceiptReturnType<MonadChainKey>>> {

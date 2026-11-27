@@ -7,39 +7,18 @@ import type {
   SodaxFeature,
 } from '@sodax/types';
 
-/**
- * Optional per-phase payload builders for {@link ResolvedAnalytics.trackResult}. Each is a lazy thunk
- * invoked only if its event actually emits, so payloads are never built when analytics is off.
- * `success` receives the resolved value, `failure` the `Result` error.
- */
+/** Lazy per-phase payload builders, invoked only if their event actually emits. */
 export interface AnalyticsActionData<T, E> {
   start?: () => Record<string, unknown>;
   success?: (value: T) => Record<string, unknown>;
   failure?: (error: E) => Record<string, unknown>;
 }
 
-/**
- * The SDK-internal analytics emitter, resolved once from the consumer's {@link AnalyticsOption} and
- * held on `ConfigService` (`config.analytics`).
- *
- * Services never touch the raw config — they call {@link ResolvedAnalytics.emit}, which is the only
- * gate. When analytics is disabled, off for a feature/action, or above the configured detail level,
- * the `build` thunk is never invoked, so event payloads are never constructed on hot feature paths.
- * This is what keeps feature code free of analytics overhead unless a consumer explicitly opts in.
- */
+/** Resolved once and held on `ConfigService`; `build` thunks never run when an event is gated off, so disabled analytics costs nothing. */
 export interface ResolvedAnalytics {
-  /**
-   * Whether an event for `feature`/`action` at `level` would be emitted. Call sites rarely need this
-   * directly — {@link emit} checks it internally — but it is exposed for the rare case where even
-   * deciding what to emit is itself costly. Omit `action` to ask whether the feature is tracked at all.
-   */
+  /** For when even deciding what to emit is costly; {@link emit} checks it internally. Omit `action` for the feature. */
   isEnabled(feature: SodaxFeature, action?: string, level?: AnalyticsDetailLevel): boolean;
-  /**
-   * Emit one user-action event. `build` produces the optional structured payload and is invoked
-   * lazily — only when the event passes the enabled/feature/action/level gate — so disabled analytics
-   * costs nothing but a boolean check at the call site. A faulty consumer tracker can never break a
-   * feature flow: delivery is wrapped and fire-and-forget.
-   */
+  /** `build` runs only if the event passes the gate; delivery is fire-and-forget so a faulty tracker can't break a flow. */
   emit(
     feature: SodaxFeature,
     action: string,
@@ -47,12 +26,7 @@ export interface ResolvedAnalytics {
     build?: () => Record<string, unknown>,
     level?: AnalyticsDetailLevel,
   ): void;
-  /**
-   * Wrap a `Result`-returning action flow: emit `start` before `run`, then `success` or `failure`
-   * from the resolved `Result` (and `failure` + rethrow if `run` throws), returning the `Result`
-   * unchanged. This is the canonical way to instrument a feature method — one call at the boundary
-   * covers every internal return point, so action code stays free of scattered emit calls.
-   */
+  /** Emits `start`, then `success`/`failure` from the `Result` (or `failure` + rethrow), returning the `Result` unchanged. */
   trackResult<T, E>(
     feature: SodaxFeature,
     action: string,
@@ -61,7 +35,6 @@ export interface ResolvedAnalytics {
   ): Promise<Result<T, E>>;
 }
 
-/** Disabled emitter: every gate is closed, `build` is never called, nothing is delivered. */
 export const noopAnalytics: ResolvedAnalytics = {
   isEnabled: () => false,
   emit: () => {},
@@ -71,15 +44,7 @@ export const noopAnalytics: ResolvedAnalytics = {
 /** Detail levels ordered low → high so a configured `basic` excludes `detailed` events. */
 const LEVEL_RANK: Record<AnalyticsDetailLevel, number> = { basic: 0, detailed: 1 };
 
-/**
- * Normalize the {@link AnalyticsFeatures} allowlist into a fast lookup:
- * - `null` → no scoping configured: every feature/action is tracked.
- * - `Map` entry `true` → track all of that feature's actions.
- * - `Map` entry `Set` → track only those actions.
- *
- * A feature absent from the map is OFF (allowlist semantics). The array shorthand maps each listed
- * feature to `true` (all actions).
- */
+/** `null` = no scoping (track all); a `Map` entry `true` = all actions, a `Set` = only those; absent features are OFF. */
 function normalizeFeatures(features: AnalyticsFeatures | undefined): Map<SodaxFeature, true | Set<string>> | null {
   if (features === undefined) return null;
   const map = new Map<SodaxFeature, true | Set<string>>();
@@ -97,14 +62,7 @@ function normalizeFeatures(features: AnalyticsFeatures | undefined): Map<SodaxFe
   return map;
 }
 
-/**
- * Resolve an {@link AnalyticsOption} (a config object, `false`, or `undefined`) into a concrete
- * {@link ResolvedAnalytics}.
- *
- * Defaults to {@link noopAnalytics} so analytics is **off** unless a consumer opts in with an
- * `AnalyticsConfig`. This mirrors `resolveLogger` but with the opposite default — logging is on by
- * default, analytics is off — per issue #175 ("no needless invocations unless explicitly enabled").
- */
+/** Off unless the consumer opts in (unlike `resolveLogger`, which is on by default). */
 export function resolveAnalytics(option: AnalyticsOption | undefined): ResolvedAnalytics {
   if (!option) return noopAnalytics; // undefined | false → disabled
   const { tracker, level: configuredLevel = 'basic', features } = option;
@@ -126,7 +84,7 @@ export function resolveAnalytics(option: AnalyticsOption | undefined): ResolvedA
     try {
       tracker({ feature, action, phase, level, data: build?.() });
     } catch {
-      // Analytics is fire-and-forget — a throwing consumer tracker must never break a feature flow.
+      // A throwing consumer tracker must never break a feature flow.
     }
   };
 
@@ -143,8 +101,7 @@ export function resolveAnalytics(option: AnalyticsOption | undefined): ResolvedA
       }
       return result;
     } catch (error) {
-      // `run` threw rather than returning a `Result` error — still record a failure, then rethrow so
-      // the caller's own error handling is unchanged.
+      // Still record a failure, then rethrow so the caller's error handling is unchanged.
       emit(feature, action, 'failure', () => ({ error: error instanceof Error ? error.message : String(error) }));
       throw error;
     }

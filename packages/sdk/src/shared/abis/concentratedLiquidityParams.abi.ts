@@ -1,8 +1,3 @@
-// ABI parameter definitions for concentrated liquidity operations
-
-/**
- * PoolKey structure ABI definition
- */
 export const poolKeyAbi = [
   { type: 'address', name: 'currency0' },
   { type: 'address', name: 'currency1' },
@@ -12,9 +7,6 @@ export const poolKeyAbi = [
   { type: 'bytes32', name: 'parameters' },
 ] as const;
 
-/**
- * Swap exact input single parameters ABI definition
- */
 export const swapExactInSingleParamsAbi = [
   {
     type: 'tuple',
@@ -33,9 +25,6 @@ export const swapExactInSingleParamsAbi = [
   },
 ] as const;
 
-/**
- * Mint position parameters ABI definition
- */
 export const mintPositionParamsAbi = [
   {
     type: 'tuple',
@@ -51,10 +40,7 @@ export const mintPositionParamsAbi = [
   { type: 'bytes', name: 'hookData' },
 ] as const;
 
-/**
- * Modify liquidity parameters ABI definition (for increase/decrease liquidity)
- * Based on: (uint256 tokenId, uint256 liquidity, uint128 amount0Max, uint128 amount1Max, bytes hookData)
- */
+/** For increase/decrease liquidity. */
 export const modifyLiquidityParamsAbi = [
   { type: 'uint256', name: 'tokenId' },
   { type: 'uint256', name: 'liquidity' },

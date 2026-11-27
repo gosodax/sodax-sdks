@@ -11,18 +11,7 @@ export type DexServiceConstructorParams = {
 };
 
 /**
- * Facade for all DEX operations on the SODAX platform.
- *
- * `DexService` is a thin composition root that wires together the two
- * specialised sub-services and exposes them as named properties so callers
- * never need to construct the sub-services themselves:
- *
- * - `assetService` — wrapping/unwrapping tokens for DEX liquidity (deposit / withdraw)
- * - `clService`    — concentrated-liquidity position management (PancakeSwap Infinity / Uniswap V3-style)
- *
- * All liquidity pools live on the Sonic hub chain; cross-chain users route
- * their assets through the hub-and-spoke relay before interacting with the pool.
- *
+ * DEX facade: `assetService` (pool-token wrap/unwrap) and `clService` (concentrated liquidity); pools live on the hub.
  * @namespace SodaxFeatures
  */
 export class DexService {

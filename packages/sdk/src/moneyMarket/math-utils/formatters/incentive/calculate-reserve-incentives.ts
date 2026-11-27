@@ -56,7 +56,6 @@ export function calculateRewardTokenPrice(
   return '0';
 }
 
-// Determine is reward emsission is active or distribution has ended
 const rewardEmissionActive = (reward: RewardInfoHumanized) => {
   if (reward.emissionEndTimestamp > reward.incentivesLastUpdateTimestamp) {
     return true;
@@ -65,7 +64,6 @@ const rewardEmissionActive = (reward: RewardInfoHumanized) => {
   return false;
 };
 
-// Calculate supply and variableBorrow incentives APR for a reserve asset
 export function calculateReserveIncentives({
   reserves,
   reserveIncentiveData,

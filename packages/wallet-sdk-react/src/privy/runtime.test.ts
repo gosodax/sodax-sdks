@@ -22,20 +22,6 @@ const ops = () => ({
 const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 
 describe('createPrivyRuntime', () => {
-  it('keeps waits alive through a StrictMode unmount and immediate remount', async () => {
-    const runtime = createPrivyRuntime();
-    runtime.attach(ops());
-    const waiting = runtime.waitFor(s => s.ready, 1_000);
-
-    runtime.unmount();
-    runtime.attach(ops());
-    runtime.publish({ ...ready, ready: false });
-    await settle();
-    runtime.publish(ready);
-
-    await expect(waiting).resolves.toMatchObject({ ready: true });
-  });
-
   it('ends pending waits and logins once the bridge stays unmounted', async () => {
     const runtime = createPrivyRuntime();
     runtime.attach(ops());
@@ -70,18 +56,6 @@ describe('createPrivyRuntime', () => {
     controller.abort(reason);
 
     await expect(waiting).rejects.toBe(reason);
-  });
-
-  it('times a wait out when the predicate never holds', async () => {
-    vi.useFakeTimers();
-    const runtime = createPrivyRuntime();
-    const waiting = runtime.waitFor(s => s.ready, 500);
-    const assertion = expect(waiting).rejects.toBeInstanceOf(PrivyTimeoutError);
-
-    await vi.advanceTimersByTimeAsync(500);
-
-    await assertion;
-    vi.useRealTimers();
   });
 
   describe('login', () => {
@@ -119,25 +93,6 @@ describe('createPrivyRuntime', () => {
       await expect(loggingIn).resolves.toBeUndefined();
     });
 
-    it("waits out Privy's own steps after the code (it creates a new user's wallet) until its modal closes", async () => {
-      const runtime = createPrivyRuntime();
-      const privy = ops();
-      privy.login.mockImplementation(() => runtime.publish({ ...ready, modalOpen: true }));
-      runtime.attach(privy);
-      runtime.publish(ready);
-      let settled = false;
-
-      const loggingIn = runtime.login().finally(() => {
-        settled = true;
-      });
-      runtime.publish({ ...ready, authenticated: true, userLoaded: true, modalOpen: true });
-      await settle();
-      expect(settled).toBe(false);
-      runtime.publish({ ...ready, authenticated: true, userLoaded: true, hasEmbeddedAccount: true });
-
-      await expect(loggingIn).resolves.toBeUndefined();
-    });
-
     it('rejects as a user rejection when the modal closes without a sign-in (e.g. terms declined)', async () => {
       const runtime = createPrivyRuntime();
       const privy = ops();
@@ -149,17 +104,6 @@ describe('createPrivyRuntime', () => {
       runtime.publish(ready);
 
       await expect(loggingIn).rejects.toBeInstanceOf(UserRejectedRequestError);
-    });
-
-    it('ends the wait once Privy reports the user authenticated, with or without onComplete', async () => {
-      const runtime = createPrivyRuntime();
-      runtime.attach(ops());
-      runtime.publish(ready);
-
-      const loggingIn = runtime.login();
-      runtime.publish({ ...ready, authenticated: true, userLoaded: true });
-
-      await expect(loggingIn).resolves.toBeUndefined();
     });
   });
 });

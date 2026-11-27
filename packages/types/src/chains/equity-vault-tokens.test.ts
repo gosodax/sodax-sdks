@@ -18,9 +18,8 @@ import {
 } from '../swap/swap.js';
 import { moneyMarketReserveAssets, moneyMarketSupportedTokens } from '../moneyMarket/moneyMarket.js';
 
-// The Robinhood tokenized equities: canonical vaults and production solver assets on four chains,
-// of which only MONEY_MARKET_EQUITY_SYMBOLS are money-market reserves. A `SodaTokens` entry is
-// not evidence of money-market support, so this matrix pins both halves of that split.
+// Robinhood equities: vaults and production solver assets on four chains, only MONEY_MARKET_EQUITY_SYMBOLS being reserves.
+// A `SodaTokens` entry is not evidence of money-market support, so this pins both halves of that split.
 const EQUITY_SYMBOLS = [
   'SPCX',
   'NVDA',

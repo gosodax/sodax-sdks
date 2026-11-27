@@ -184,8 +184,11 @@ describe('BackendApiService.getIntentByTxHash', () => {
     );
   });
 
-  it('returns ok:false with EXTERNAL_API_ERROR wrapping HTTP_REQUEST_FAILED on a non-2xx response', async () => {
-    mockFetch.mockResolvedValueOnce(httpErrorResponse(500, 'Internal Server Error'));
+  // `SwapService.resolveSolverStatus` branches on exactly this: a 404 is the backend answering "no
+  // record", which lets a solver NOT_FOUND stand as a definitive miss, while any other failure leaves
+  // it unverified. The status therefore has to survive into `context`, and nothing else pins that.
+  it('returns EXTERNAL_API_ERROR wrapping HTTP_REQUEST_FAILED on a non-2xx, with the status lifted into context', async () => {
+    mockFetch.mockResolvedValueOnce(httpErrorResponse(404, 'Not Found'));
 
     const result = await sodax.backendApi.getIntentByTxHash(SAMPLE_TX_HASH);
 
@@ -196,23 +199,9 @@ describe('BackendApiService.getIntentByTxHash', () => {
       expect(err.code).toBe('EXTERNAL_API_ERROR');
       expect(err.feature).toBe('backend');
       expect(err.message).toBe('HTTP_REQUEST_FAILED');
-      // cause chain: SodaxError → makeRequest Error('HTTP_REQUEST_FAILED') → Error('HTTP 500: …')
+      // cause chain: SodaxError → makeRequest Error('HTTP_REQUEST_FAILED') → Error('HTTP 404: …')
       expect((err.cause as Error).message).toBe('HTTP_REQUEST_FAILED');
-      expect(((err.cause as Error).cause as Error).message).toMatch(/HTTP 500: Internal Server Error/);
-    }
-  });
-
-  // `SwapService.resolveSolverStatus` branches on exactly this: a 404 is the backend answering "no
-  // record", which lets a solver NOT_FOUND stand as a definitive miss, while any other failure leaves
-  // it unverified. The status therefore has to survive into `context`, and nothing else pins that.
-  it('lifts the HTTP status into error context on 404, so callers can tell a definitive miss apart', async () => {
-    mockFetch.mockResolvedValueOnce(httpErrorResponse(404, 'Not Found'));
-
-    const result = await sodax.backendApi.getIntentByTxHash(SAMPLE_TX_HASH);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
+      expect(((err.cause as Error).cause as Error).message).toMatch(/HTTP 404: Not Found/);
       expect(err.context?.status).toBe(404);
       expect(err.context?.api).toBe('backend');
     }
@@ -251,65 +240,87 @@ describe('BackendApiService.getIntentByTxHash', () => {
   });
 });
 
-describe('BackendApiService.getIntentByHash', () => {
-  it('issues GET to /intent/{intentHash} and returns ok:true wrapping the JSON body', async () => {
-    const intentBody = SAMPLE_INTENT_RESPONSE;
-    mockFetch.mockResolvedValueOnce(okResponse(intentBody));
-
-    const result = await sodax.backendApi.getIntentByHash(SAMPLE_INTENT_HASH);
-
-    expect(result).toEqual({ ok: true, value: intentBody });
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${DATA_API}/intent/${SAMPLE_INTENT_HASH}`,
-      expect.objectContaining({ method: 'GET' }),
-    );
-  });
-
-  it('returns ok:false with HTTP_REQUEST_FAILED on 404', async () => {
-    mockFetch.mockResolvedValueOnce(httpErrorResponse(404, 'Not Found'));
-
-    const result = await sodax.backendApi.getIntentByHash(SAMPLE_INTENT_HASH);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect((result.error as Error).message).toBe('HTTP_REQUEST_FAILED');
-  });
-});
-
 // =========================================================================
-// Solver endpoints — Result<T>-wrapped returns.
+// Validated data reads: each row pins its exact GET path + query string and that a
+// schema-valid body comes back as ok:true.
 // =========================================================================
 
-describe('BackendApiService.getOrderbook', () => {
-  it('issues GET to /solver/orderbook with offset+limit query params and resolves to the JSON body', async () => {
-    const orderbook = { total: 0, data: [] };
-    mockFetch.mockResolvedValueOnce(okResponse(orderbook));
+describe('BackendApiService data reads', () => {
+  const position = {
+    userAddress: SAMPLE_USER_ADDRESS,
+    positions: [
+      {
+        reserveAddress: SAMPLE_RESERVE_ADDRESS,
+        aTokenAddress: '0x5c50cf875aebad8d5ba548f229960c90b1c1f8c3',
+        variableDebtTokenAddress: '0x96a4197803ac8b21a1b7aefe72e565c71a91a40f',
+        aTokenBalance: '24998168147931621',
+        variableDebtTokenBalance: '0',
+        blockNumber: 37002111,
+      },
+    ],
+  };
+  const page = { offset: '0', limit: '10' };
+  const reads: Array<[name: string, invoke: () => Promise<unknown>, path: string, body: unknown]> = [
+    [
+      'getIntentByHash',
+      () => sodax.backendApi.getIntentByHash(SAMPLE_INTENT_HASH),
+      `/intent/${SAMPLE_INTENT_HASH}`,
+      SAMPLE_INTENT_RESPONSE,
+    ],
+    [
+      'getOrderbook',
+      () => sodax.backendApi.getOrderbook(page),
+      '/solver/orderbook?offset=0&limit=10',
+      { total: 0, data: [] },
+    ],
+    [
+      'getMoneyMarketPosition',
+      () => sodax.backendApi.getMoneyMarketPosition(SAMPLE_USER_ADDRESS),
+      `/moneymarket/position/${SAMPLE_USER_ADDRESS}`,
+      position,
+    ],
+    [
+      'getAllMoneyMarketAssets',
+      () => sodax.backendApi.getAllMoneyMarketAssets(),
+      '/moneymarket/asset/all',
+      [SAMPLE_MM_ASSET],
+    ],
+    [
+      'getMoneyMarketAsset',
+      () => sodax.backendApi.getMoneyMarketAsset(SAMPLE_RESERVE_ADDRESS),
+      `/moneymarket/asset/${SAMPLE_RESERVE_ADDRESS}`,
+      SAMPLE_MM_ASSET,
+    ],
+    [
+      'getMoneyMarketAssetBorrowers',
+      () => sodax.backendApi.getMoneyMarketAssetBorrowers(SAMPLE_RESERVE_ADDRESS, page),
+      `/moneymarket/asset/${SAMPLE_RESERVE_ADDRESS}/borrowers?offset=0&limit=10`,
+      { borrowers: [], total: 0, offset: 0, limit: 10 },
+    ],
+    [
+      'getMoneyMarketAssetSuppliers',
+      () => sodax.backendApi.getMoneyMarketAssetSuppliers(SAMPLE_RESERVE_ADDRESS, page),
+      `/moneymarket/asset/${SAMPLE_RESERVE_ADDRESS}/suppliers?offset=0&limit=10`,
+      { suppliers: [], total: 0, offset: 0, limit: 10 },
+    ],
+    [
+      'getAllMoneyMarketBorrowers',
+      () => sodax.backendApi.getAllMoneyMarketBorrowers(page),
+      '/moneymarket/borrowers?offset=0&limit=10',
+      { borrowers: [], total: 0, offset: 0, limit: 10 },
+    ],
+    ['getOracleMarkets', () => sodax.backendApi.getOracleMarkets(), '/oracle/markets', SAMPLE_ORACLE_MARKETS],
+  ];
 
-    await expect(sodax.backendApi.getOrderbook({ offset: '0', limit: '10' })).resolves.toEqual({
-      ok: true,
-      value: orderbook,
-    });
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${DATA_API}/solver/orderbook?offset=0&limit=10`,
-      expect.objectContaining({ method: 'GET' }),
-    );
-  });
-
-  it('forwards different pagination values into the query string verbatim', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({ total: 0, data: [] }));
-
-    await sodax.backendApi.getOrderbook({ offset: '20', limit: '5' });
-
-    expect(mockFetch).toHaveBeenCalledWith(`${DATA_API}/solver/orderbook?offset=20&limit=5`, expect.any(Object));
-  });
-
-  it('resolves to ok:false with HTTP_REQUEST_FAILED on a non-2xx response', async () => {
-    mockFetch.mockResolvedValueOnce(httpErrorResponse(503, 'Service Unavailable'));
-
-    await expect(sodax.backendApi.getOrderbook({ offset: '0', limit: '5' })).resolves.toEqual({
-      ok: false,
-      error: expect.objectContaining({ message: 'HTTP_REQUEST_FAILED' }),
-    });
+  it('each read GETs its exact data-API path and wraps the schema-valid JSON body in ok:true', async () => {
+    for (const [name, invoke, path, body] of reads) {
+      mockFetch.mockResolvedValueOnce(okResponse(body));
+      expect(await invoke(), name).toEqual({ ok: true, value: body });
+      expect(mockFetch, name).toHaveBeenLastCalledWith(
+        `${DATA_API}${path}`,
+        expect.objectContaining({ method: 'GET' }),
+      );
+    }
   });
 });
 
@@ -349,150 +360,6 @@ describe('BackendApiService.getUserIntents', () => {
     expect(calledUrl).toContain('limit=50');
     expect(calledUrl).toContain('offset=0');
   });
-
-  it('resolves to ok:false with HTTP_REQUEST_FAILED on a non-2xx response', async () => {
-    mockFetch.mockResolvedValueOnce(httpErrorResponse(500, 'boom'));
-
-    await expect(sodax.backendApi.getUserIntents({ userAddress: SAMPLE_USER_ADDRESS })).resolves.toEqual({
-      ok: false,
-      error: expect.objectContaining({ message: 'HTTP_REQUEST_FAILED' }),
-    });
-  });
-});
-
-// =========================================================================
-// Money Market endpoints — all Result<T>-wrapped.
-// =========================================================================
-
-describe('BackendApiService.getMoneyMarketPosition', () => {
-  it('issues GET to /moneymarket/position/{userAddress} and wraps the JSON body in ok:true', async () => {
-    const position = {
-      userAddress: SAMPLE_USER_ADDRESS,
-      positions: [
-        {
-          reserveAddress: SAMPLE_RESERVE_ADDRESS,
-          aTokenAddress: '0x5c50cf875aebad8d5ba548f229960c90b1c1f8c3',
-          variableDebtTokenAddress: '0x96a4197803ac8b21a1b7aefe72e565c71a91a40f',
-          aTokenBalance: '24998168147931621',
-          variableDebtTokenBalance: '0',
-          blockNumber: 37002111,
-        },
-      ],
-    };
-    mockFetch.mockResolvedValueOnce(okResponse(position));
-
-    const result = await sodax.backendApi.getMoneyMarketPosition(SAMPLE_USER_ADDRESS);
-
-    expect(result).toEqual({ ok: true, value: position });
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${DATA_API}/moneymarket/position/${SAMPLE_USER_ADDRESS}`,
-      expect.objectContaining({ method: 'GET' }),
-    );
-  });
-
-  it('returns ok:false with HTTP_REQUEST_FAILED on 500', async () => {
-    mockFetch.mockResolvedValueOnce(httpErrorResponse(500, 'boom'));
-
-    const result = await sodax.backendApi.getMoneyMarketPosition(SAMPLE_USER_ADDRESS);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect((result.error as Error).message).toBe('HTTP_REQUEST_FAILED');
-  });
-});
-
-describe('BackendApiService.getAllMoneyMarketAssets', () => {
-  it('issues GET to /moneymarket/asset/all and wraps the JSON body in ok:true', async () => {
-    const assets = [SAMPLE_MM_ASSET];
-    mockFetch.mockResolvedValueOnce(okResponse(assets));
-
-    const result = await sodax.backendApi.getAllMoneyMarketAssets();
-
-    expect(result).toEqual({ ok: true, value: assets });
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${DATA_API}/moneymarket/asset/all`,
-      expect.objectContaining({ method: 'GET' }),
-    );
-  });
-});
-
-describe('BackendApiService.getMoneyMarketAsset', () => {
-  it('issues GET to /moneymarket/asset/{reserveAddress} and wraps the JSON body in ok:true', async () => {
-    const asset = SAMPLE_MM_ASSET;
-    mockFetch.mockResolvedValueOnce(okResponse(asset));
-
-    const result = await sodax.backendApi.getMoneyMarketAsset(SAMPLE_RESERVE_ADDRESS);
-
-    expect(result).toEqual({ ok: true, value: asset });
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${DATA_API}/moneymarket/asset/${SAMPLE_RESERVE_ADDRESS}`,
-      expect.objectContaining({ method: 'GET' }),
-    );
-  });
-});
-
-describe('BackendApiService.getMoneyMarketAssetBorrowers', () => {
-  it('issues GET to /moneymarket/asset/{reserveAddress}/borrowers with offset+limit query params', async () => {
-    const borrowers = { borrowers: [], total: 0, offset: 0, limit: 10 };
-    mockFetch.mockResolvedValueOnce(okResponse(borrowers));
-
-    await expect(
-      sodax.backendApi.getMoneyMarketAssetBorrowers(SAMPLE_RESERVE_ADDRESS, { offset: '0', limit: '10' }),
-    ).resolves.toEqual({ ok: true, value: borrowers });
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${DATA_API}/moneymarket/asset/${SAMPLE_RESERVE_ADDRESS}/borrowers?offset=0&limit=10`,
-      expect.objectContaining({ method: 'GET' }),
-    );
-  });
-
-  it('resolves to ok:false with HTTP_REQUEST_FAILED on a non-2xx response', async () => {
-    mockFetch.mockResolvedValueOnce(httpErrorResponse(500, 'boom'));
-
-    await expect(
-      sodax.backendApi.getMoneyMarketAssetBorrowers(SAMPLE_RESERVE_ADDRESS, { offset: '0', limit: '10' }),
-    ).resolves.toEqual({ ok: false, error: expect.objectContaining({ message: 'HTTP_REQUEST_FAILED' }) });
-  });
-});
-
-describe('BackendApiService.getMoneyMarketAssetSuppliers', () => {
-  it('issues GET to /moneymarket/asset/{reserveAddress}/suppliers with offset+limit query params', async () => {
-    const suppliers = { suppliers: [], total: 0, offset: 0, limit: 10 };
-    mockFetch.mockResolvedValueOnce(okResponse(suppliers));
-
-    await expect(
-      sodax.backendApi.getMoneyMarketAssetSuppliers(SAMPLE_RESERVE_ADDRESS, { offset: '0', limit: '10' }),
-    ).resolves.toEqual({ ok: true, value: suppliers });
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${DATA_API}/moneymarket/asset/${SAMPLE_RESERVE_ADDRESS}/suppliers?offset=0&limit=10`,
-      expect.objectContaining({ method: 'GET' }),
-    );
-  });
-});
-
-describe('BackendApiService.getAllMoneyMarketBorrowers', () => {
-  it('issues GET to /moneymarket/borrowers with offset+limit query params', async () => {
-    const borrowers = { borrowers: [], total: 0, offset: 0, limit: 10 };
-    mockFetch.mockResolvedValueOnce(okResponse(borrowers));
-
-    await expect(sodax.backendApi.getAllMoneyMarketBorrowers({ offset: '0', limit: '10' })).resolves.toEqual({
-      ok: true,
-      value: borrowers,
-    });
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${DATA_API}/moneymarket/borrowers?offset=0&limit=10`,
-      expect.objectContaining({ method: 'GET' }),
-    );
-  });
-
-  it('forwards a distinct offset+limit pair into the query string verbatim', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({ borrowers: [], total: 0, offset: 20, limit: 5 }));
-
-    await sodax.backendApi.getAllMoneyMarketBorrowers({ offset: '20', limit: '5' });
-
-    expect(mockFetch).toHaveBeenCalledWith(`${DATA_API}/moneymarket/borrowers?offset=20&limit=5`, expect.any(Object));
-  });
 });
 
 // =========================================================================
@@ -500,26 +367,6 @@ describe('BackendApiService.getAllMoneyMarketBorrowers', () => {
 // asserted in full because the backend rejects any extra query param with a 400,
 // so the query string this service builds is part of the contract.
 // =========================================================================
-
-describe('BackendApiService.getOracleMarkets', () => {
-  it('issues GET to /oracle/markets and wraps the JSON body in ok:true', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse(SAMPLE_ORACLE_MARKETS));
-
-    const result = await sodax.backendApi.getOracleMarkets();
-
-    expect(result).toEqual({ ok: true, value: SAMPLE_ORACLE_MARKETS });
-    expect(mockFetch).toHaveBeenCalledWith(`${DATA_API}/oracle/markets`, expect.objectContaining({ method: 'GET' }));
-  });
-
-  it('resolves to ok:false with HTTP_REQUEST_FAILED on a non-2xx response', async () => {
-    mockFetch.mockResolvedValueOnce(httpErrorResponse(500, 'boom'));
-
-    await expect(sodax.backendApi.getOracleMarkets()).resolves.toEqual({
-      ok: false,
-      error: expect.objectContaining({ message: 'HTTP_REQUEST_FAILED' }),
-    });
-  });
-});
 
 describe('BackendApiService.getOracleCandles', () => {
   it('issues GET to /oracle/candles with exactly the four wire params, in order', async () => {
@@ -552,34 +399,6 @@ describe('BackendApiService.getOracleCandles', () => {
       `${DATA_API}/oracle/candles?symbol=BTC&interval=1d&from=0&to=86400`,
       expect.any(Object),
     );
-  });
-
-  it('returns ok:true with an empty candles array when the backend accepts an unknown symbol', async () => {
-    const body = { symbol: 'NOPE', quote: 'USD', interval: '1h', candles: [] };
-    mockFetch.mockResolvedValueOnce(okResponse(body));
-
-    await expect(
-      sodax.backendApi.getOracleCandles({ symbol: 'NOPE', interval: '1h', from: 0, to: 3600 }),
-    ).resolves.toEqual({ ok: true, value: body });
-  });
-
-  it('lifts a 400 (bad range / too many buckets) into error context', async () => {
-    mockFetch.mockResolvedValueOnce(httpErrorResponse(400, 'range too wide'));
-
-    const result = await sodax.backendApi.getOracleCandles({
-      symbol: 'ETH',
-      interval: '1m',
-      from: 0,
-      to: 100_000_000,
-    });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
-      expect(err.message).toBe('HTTP_REQUEST_FAILED');
-      expect(err.context?.status).toBe(400);
-      expect(err.context?.api).toBe('backend');
-    }
   });
 });
 
@@ -656,25 +475,28 @@ describe('BackendApiService config endpoints', () => {
     },
   ];
 
-  for (const { name, invoke, endpoint, body } of cases) {
-    it(`${name}: issues GET to ${endpoint} and wraps the JSON body in ok:true`, async () => {
+  it('each config read GETs its exact path and wraps the JSON body in ok:true', async () => {
+    for (const { name, invoke, endpoint, body } of cases) {
       mockFetch.mockResolvedValueOnce(okResponse(body));
+      expect(await invoke(), name).toEqual({ ok: true, value: body });
+      expect(mockFetch, name).toHaveBeenLastCalledWith(
+        `${DATA_API}${endpoint}`,
+        expect.objectContaining({ method: 'GET' }),
+      );
+    }
+  });
 
-      const result = await invoke();
+  it('an unvalidated config read (getAllConfig) returns ok:false with HTTP_REQUEST_FAILED on a non-2xx response', async () => {
+    mockFetch.mockResolvedValueOnce(httpErrorResponse(500, 'boom'));
 
-      expect(result).toEqual({ ok: true, value: body });
-      expect(mockFetch).toHaveBeenCalledWith(`${DATA_API}${endpoint}`, expect.objectContaining({ method: 'GET' }));
-    });
+    const result = await sodax.backendApi.getAllConfig();
 
-    it(`${name}: returns ok:false with HTTP_REQUEST_FAILED on a non-2xx response`, async () => {
-      mockFetch.mockResolvedValueOnce(httpErrorResponse(500, 'boom'));
-
-      const result = await invoke();
-
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect((result.error as Error).message).toBe('HTTP_REQUEST_FAILED');
-    });
-  }
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect((result.error as SodaxError).code).toBe('EXTERNAL_API_ERROR');
+      expect((result.error as Error).message).toBe('HTTP_REQUEST_FAILED');
+    }
+  });
 });
 
 // =========================================================================
@@ -700,22 +522,14 @@ describe('BackendApiService response validation', () => {
     }
   });
 
-  it('getAllMoneyMarketAssets rejects when an asset entry is missing required fields', async () => {
+  it('rejects a money-market asset or XToken entry missing required fields', async () => {
     mockFetch.mockResolvedValueOnce(okResponse([{ symbol: 'sodaAVAX' }]));
+    const assets = await sodax.backendApi.getAllMoneyMarketAssets();
+    expect(!assets.ok && (assets.error as SodaxError).context?.reason).toBe('invalid_response_shape');
 
-    const result = await sodax.backendApi.getAllMoneyMarketAssets();
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect((result.error as SodaxError).context?.reason).toBe('invalid_response_shape');
-  });
-
-  it('getSwapTokensByChainId rejects a token entry missing required XToken fields', async () => {
     mockFetch.mockResolvedValueOnce(okResponse([{ symbol: 'USDC' }]));
-
-    const result = await sodax.backendApi.getSwapTokensByChainId(ChainKeys.BSC_MAINNET);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect((result.error as SodaxError).context?.reason).toBe('invalid_response_shape');
+    const tokens = await sodax.backendApi.getSwapTokensByChainId(ChainKeys.BSC_MAINNET);
+    expect(!tokens.ok && (tokens.error as SodaxError).context?.reason).toBe('invalid_response_shape');
   });
 
   it('getOrderbook rejects a malformed nested entry (empty intentState / intentData)', async () => {
@@ -727,7 +541,7 @@ describe('BackendApiService response validation', () => {
     if (!result.ok) expect((result.error as SodaxError).context?.reason).toBe('invalid_response_shape');
   });
 
-  it('getOracleCandles rejects a candle whose OHLC prices are JSON numbers, not decimal strings', async () => {
+  it('getOracleCandles rejects OHLC prices sent as JSON numbers, and an interval echo outside the declared union', async () => {
     mockFetch.mockResolvedValueOnce(
       okResponse({
         symbol: 'ETH',
@@ -746,6 +560,15 @@ describe('BackendApiService response validation', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect((result.error as SodaxError).context?.reason).toBe('invalid_response_shape');
+
+    mockFetch.mockResolvedValueOnce(okResponse({ symbol: 'ETH', quote: 'USD', interval: '4h', candles: [] }));
+    const echo = await sodax.backendApi.getOracleCandles({
+      symbol: 'ETH',
+      interval: '1h',
+      from: 1782234000,
+      to: 1782241200,
+    });
+    expect(!echo.ok && (echo.error as SodaxError).context?.reason).toBe('invalid_response_shape');
   });
 
   it('getOracleMarkets tolerates an unknown interval key (schema is not a picklist)', async () => {
@@ -777,20 +600,6 @@ describe('BackendApiService response validation', () => {
     ).resolves.toEqual({ ok: true, value: body });
   });
 
-  it('getOracleCandles rejects an interval echo outside the declared union', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({ symbol: 'ETH', quote: 'USD', interval: '4h', candles: [] }));
-
-    const result = await sodax.backendApi.getOracleCandles({
-      symbol: 'ETH',
-      interval: '1h',
-      from: 1782234000,
-      to: 1782241200,
-    });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect((result.error as SodaxError).context?.reason).toBe('invalid_response_shape');
-  });
-
   it('getOracleMarkets rejects an intervals entry missing required fields', async () => {
     mockFetch.mockResolvedValueOnce(okResponse({ quote: 'USD', intervals: [{ key: '1h' }], symbols: ['ETH'] }));
 
@@ -798,24 +607,6 @@ describe('BackendApiService response validation', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect((result.error as SodaxError).context?.reason).toBe('invalid_response_shape');
-  });
-
-  it('getAllConfig (unvalidated) returns ok:true for an arbitrary body — config reads are not schema-validated', async () => {
-    const body = { version: 1, config: { anything: true } };
-    mockFetch.mockResolvedValueOnce(okResponse(body));
-
-    const result = await sodax.backendApi.getAllConfig();
-
-    expect(result).toEqual({ ok: true, value: body });
-  });
-
-  it('getRelayChainIdMap (unvalidated) returns ok:true for an arbitrary body', async () => {
-    const body = { '0x38.bsc': 4 };
-    mockFetch.mockResolvedValueOnce(okResponse(body));
-
-    const result = await sodax.backendApi.getRelayChainIdMap();
-
-    expect(result).toEqual({ ok: true, value: body });
   });
 });
 
@@ -827,19 +618,6 @@ describe('BackendApiService response validation', () => {
 // =========================================================================
 
 describe('BackendApiService.request config threading', () => {
-  it('uses the service default baseURL and headers when no override is passed', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({ total: 0, data: [] }));
-
-    await sodax.backendApi.getOrderbook({ offset: '0', limit: '5' });
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${DATA_API}/solver/orderbook?offset=0&limit=5`,
-      expect.objectContaining({
-        headers: expect.objectContaining({ 'Content-Type': 'application/json', Accept: 'application/json' }),
-      }),
-    );
-  });
-
   it('normalizes a legacy /be-suffixed per-call baseURL override instead of double-mounting', async () => {
     mockFetch.mockResolvedValueOnce(okResponse({ total: 0, data: [] }));
 
@@ -938,47 +716,6 @@ describe('BackendApiService.setHeaders', () => {
       expect(new Headers(headers).get('x-api-key')).toBe('v3');
     }
   });
-
-  it('overwrites an existing header on subsequent setHeaders calls (last write wins)', async () => {
-    const isolatedConfig: ApiConfig = {
-      baseURL: ROOT,
-      timeout: 30_000,
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    };
-    const isolatedService = new BackendApiService(isolatedConfig);
-    isolatedService.setHeaders({ 'X-API-Key': 'first' });
-    isolatedService.setHeaders({ 'X-API-Key': 'second' });
-    mockFetch.mockResolvedValueOnce(okResponse({ ok: true }));
-
-    await isolatedService.getIntentByTxHash('0x123');
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ headers: expect.objectContaining({ 'X-API-Key': 'second' }) }),
-    );
-  });
-
-  it.each([
-    ['swaps', (s: BackendApiService) => s.swaps.getTokens(), {}],
-    ['bridge', (s: BackendApiService) => s.bridge.getTokens(), {}],
-    ['leverageYield', (s: BackendApiService) => s.leverageYield.getVaults(), []],
-  ])('propagates the headers to the %s sub-service (a token set here reaches its calls)', async (_label, call, body) => {
-    const isolatedConfig: ApiConfig = {
-      baseURL: ROOT,
-      timeout: 30_000,
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    };
-    const isolatedService = new BackendApiService(isolatedConfig);
-    isolatedService.setHeaders({ 'X-API-Key': 'shared-key' });
-    mockFetch.mockResolvedValueOnce(okResponse(body)); // an empty map / list validates for each client
-
-    await call(isolatedService);
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ headers: expect.objectContaining({ 'X-API-Key': 'shared-key' }) }),
-    );
-  });
 });
 
 describe('BackendApiService logger forwarding', () => {
@@ -1013,15 +750,10 @@ describe('BackendApiService legacy baseURL deprecation', () => {
     expect(message).not.toContain(`"${DATA_API}"`);
   });
 
-  it('does not warn when an explicit basePath says the base URL is already a root', () => {
-    const spy = loggerSpy();
-    new BackendApiService({ baseURL: DATA_API, basePath: '', timeout: 30_000, headers: {} }, spy);
-    expect(spy.warn).not.toHaveBeenCalled();
-  });
-
-  it('stays quiet for a gateway root', () => {
+  it('stays quiet for a gateway root, and when an explicit basePath says the base URL is already a root', () => {
     const spy = loggerSpy();
     new BackendApiService({ baseURL: ROOT, timeout: 30_000, headers: {} }, spy);
+    new BackendApiService({ baseURL: DATA_API, basePath: '', timeout: 30_000, headers: {} }, spy);
     expect(spy.warn).not.toHaveBeenCalled();
   });
 });
@@ -1031,15 +763,6 @@ describe('BackendApiService.getBaseURL', () => {
     expect(sodax.backendApi.getBaseURL()).toBe(ROOT);
     expect(sodax.backendApi.getBasePath()).toBe(BACKEND_API_BASE_PATH);
     expect(`${sodax.backendApi.getBaseURL()}${sodax.backendApi.getBasePath()}`).toBe(DATA_API);
-  });
-
-  it('returns the overridden baseURL when an instance is constructed with a custom one', () => {
-    const customService = new BackendApiService({
-      baseURL: 'https://custom.example.com',
-      timeout: 30_000,
-      headers: {},
-    });
-    expect(customService.getBaseURL()).toBe('https://custom.example.com');
   });
 });
 
@@ -1060,15 +783,6 @@ describe('BackendApiService ApiConfig variants', () => {
     expect(service.swaps.getBaseURL()).toBe('https://flat.example');
   });
 
-  it('CustomApiConfig: base uses baseApiConfig, swaps uses swapsApiConfig', () => {
-    const service = new BackendApiService({
-      baseApiConfig: { baseURL: 'https://base.example', timeout: 30_000, headers: { Accept: 'application/json' } },
-      swapsApiConfig: { baseURL: 'https://swaps.example', timeout: 30_000, headers: { Accept: 'application/json' } },
-    });
-    expect(service.getBaseURL()).toBe('https://base.example');
-    expect(service.swaps.getBaseURL()).toBe('https://swaps.example');
-  });
-
   it('CustomApiConfig: routes base requests to baseApiConfig and swaps requests to swapsApiConfig', async () => {
     const service = new BackendApiService({
       baseApiConfig: {
@@ -1082,6 +796,8 @@ describe('BackendApiService ApiConfig variants', () => {
         headers: { 'Content-Type': 'application/json' },
       },
     });
+    expect(service.getBaseURL()).toBe('https://base.example');
+    expect(service.swaps.getBaseURL()).toBe('https://swaps.example');
 
     mockFetch.mockResolvedValueOnce(okResponse({ intentHash: '0x1' }));
     await service.getIntentByTxHash('0xabc');
@@ -1108,7 +824,7 @@ describe('BackendApiService ApiConfig variants', () => {
 
   // End-to-end through the Sodax facade: exercises mergeSodaxConfig (constructor) → service
   // construction → per-service resolution, the real path a consumer hits.
-  it('via new Sodax({ api: CustomApiConfig }): base and swaps are wired to their own baseURLs', () => {
+  it('via new Sodax({ api }): CustomApiConfig wires base and swaps to their own baseURLs; a flat partial keeps defaults', () => {
     const s = new Sodax({
       api: {
         baseApiConfig: {
@@ -1125,12 +841,11 @@ describe('BackendApiService ApiConfig variants', () => {
     });
     expect(s.backendApi.getBaseURL()).toBe('https://base.sodax.example');
     expect(s.api.swaps.getBaseURL()).toBe('https://swaps.sodax.example');
-  });
 
-  it('via new Sodax({ api: { timeout } }): flat partial merge keeps the default baseURL for base and swaps', () => {
-    const s = new Sodax({ api: { timeout: 12_345 } });
-    expect(s.backendApi.getBaseURL()).toBe(ROOT);
-    expect(s.api.swaps.getBaseURL()).toBe(ROOT);
+    // A flat partial merge keeps the default baseURL for base and swaps.
+    const partial = new Sodax({ api: { timeout: 12_345 } });
+    expect(partial.backendApi.getBaseURL()).toBe(ROOT);
+    expect(partial.api.swaps.getBaseURL()).toBe(ROOT);
   });
 });
 
@@ -1161,40 +876,31 @@ describe('one key, every service', () => {
     ['sponsoring', config => keyed.api.sponsoring.getStellarSponsorConfig(config)],
   ];
 
-  it.each(services)('sends the instance key on the %s wire', async (_label, call) => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await call();
-    expect(sentApiKey()).toBe('instance-key');
+  it.each(
+    services,
+  )('resolves the apiKey precedence on the %s wire (instance < per-request; blank = unset)', async (_label, call) => {
+    const keySent = async (config?: RequestOverrideConfig): Promise<string | null> => {
+      mockFetch.mockResolvedValueOnce(okResponse({}));
+      await call(config);
+      return sentApiKey();
+    };
+    expect(await keySent()).toBe('instance-key');
+    expect(await keySent({ apiKey: 'call-key' })).toBe('call-key');
+    expect(await keySent({ apiKey: '' })).toBe('instance-key');
+    // `undefined` is exactly what runBackendSubmitTx passes when `extras` is omitted.
+    expect(await keySent({ apiKey: undefined })).toBe('instance-key');
   });
 
-  it.each(services)('lets a per-request apiKey win on the %s wire', async (_label, call) => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await call({ apiKey: 'call-key' });
-    expect(sentApiKey()).toBe('call-key');
-  });
-
-  it.each(services)('treats an empty per-request apiKey as unset on the %s wire', async (_label, call) => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await call({ apiKey: '' });
-    expect(sentApiKey()).toBe('instance-key');
-  });
-
-  // `undefined` is exactly what runBackendSubmitTx passes when `extras` is omitted.
-  it.each(services)('treats an undefined per-request apiKey as unset on the %s wire', async (_label, call) => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await call({ apiKey: undefined });
-    expect(sentApiKey()).toBe('instance-key');
-  });
-
-  it.each(services)('sends a mixed-case raw header as the ONLY key header on the %s wire', async (_label, call) => {
+  it.each(
+    services,
+  )('lets a raw per-request x-api-key header win as the ONLY key header on the %s wire', async (_label, call) => {
     mockFetch.mockResolvedValueOnce(okResponse({}));
     await call({ headers: { 'X-Api-Key': 'raw-key' } });
     const headers = mockFetch.mock.calls.at(-1)?.[1]?.headers as Record<string, string>;
     expect(Object.keys(headers).filter(h => h.toLowerCase() === 'x-api-key')).toHaveLength(1);
     expect(new Headers(headers).get('x-api-key')).toBe('raw-key');
-  });
 
-  it.each(services)('sends a blank per-request x-api-key header verbatim on the %s wire', async (_label, call) => {
+    // A blank raw header is sent verbatim, even over a per-request apiKey.
     mockFetch.mockResolvedValueOnce(okResponse({}));
     await call({ apiKey: 'call-key', headers: { 'x-api-key': '' } });
     expect(sentApiKey()).toBe('');
@@ -1245,18 +951,17 @@ describe('sponsoring inherits the instance key only for an allowed root', () => 
     return sentApiKey();
   };
 
-  const sliceOrigins: Array<[label: string, baseURL: HttpUrl | undefined]> = [
-    ['the packaged default root', undefined],
-    ['a custom origin', CUSTOM_SPONSORING],
-  ];
+  const sliceOrigins: Array<HttpUrl | undefined> = [undefined, CUSTOM_SPONSORING];
 
-  it.each(sliceOrigins)('lets the sponsoring slice key win over the instance key at %s', async (_label, baseURL) => {
-    const sodax = new Sodax({
-      apiKey: 'instance-key',
-      api: { sponsoringApiConfig: { ...(baseURL ? { baseURL } : {}), apiKey: 'slice-key' } },
-      logger: silentLogger,
-    });
-    expect(await keySentTo(baseURL ?? DEFAULT_SPONSORING_API_ENDPOINT, sodax)).toBe('slice-key');
+  it('lets the sponsoring slice key win over the instance key at the default root and at a custom origin', async () => {
+    for (const baseURL of sliceOrigins) {
+      const sodax = new Sodax({
+        apiKey: 'instance-key',
+        api: { sponsoringApiConfig: { ...(baseURL ? { baseURL } : {}), apiKey: 'slice-key' } },
+        logger: silentLogger,
+      });
+      expect(await keySentTo(baseURL ?? DEFAULT_SPONSORING_API_ENDPOINT, sodax)).toBe('slice-key');
+    }
   });
 
   it('inherits when only the shared root moved and sponsoring stayed on the packaged default', async () => {
@@ -1274,15 +979,6 @@ describe('sponsoring inherits the instance key only for an allowed root', () => 
     expect(await keySentTo(STAGING_ROOT, sodax)).toBe('instance-key');
   });
 
-  it('withholds the instance key from a custom sponsoring origin', async () => {
-    const sodax = new Sodax({
-      apiKey: 'instance-key',
-      api: { sponsoringApiConfig: { baseURL: CUSTOM_SPONSORING } },
-      logger: silentLogger,
-    });
-    expect(await keySentTo(CUSTOM_SPONSORING, sodax)).toBeNull();
-  });
-
   // The gate is re-evaluated per request because a `RequestOverrideConfig.baseURL` retargets the call
   // while keeping the service defaults — a baked-in key would ride along to the new origin.
   it('withholds the instance key when a per-request baseURL leaves the allowed roots', async () => {
@@ -1290,17 +986,15 @@ describe('sponsoring inherits the instance key only for an allowed root', () => 
     expect(await keySentTo(CUSTOM_SPONSORING, sodax, { baseURL: CUSTOM_SPONSORING })).toBeNull();
   });
 
-  const explicitOverrides: Array<[label: string, override: RequestOverrideConfig]> = [
-    ['a per-request apiKey', { apiKey: 'call-key' }],
-    ['a raw per-request x-api-key header', { headers: { 'X-Api-Key': 'call-key' } }],
-  ];
-
-  it.each(explicitOverrides)('still sends %s to that same custom target', async (_label, override) => {
+  it('still sends an explicit per-request apiKey or raw x-api-key header to that same custom target', async () => {
     const sodax = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
-    expect(await keySentTo(CUSTOM_SPONSORING, sodax, { baseURL: CUSTOM_SPONSORING, ...override })).toBe('call-key');
+    const overrides: RequestOverrideConfig[] = [{ apiKey: 'call-key' }, { headers: { 'X-Api-Key': 'call-key' } }];
+    for (const override of overrides) {
+      expect(await keySentTo(CUSTOM_SPONSORING, sodax, { baseURL: CUSTOM_SPONSORING, ...override })).toBe('call-key');
+    }
   });
 
-  it('inherits again when a per-request baseURL points back at an allowed root', async () => {
+  it('withholds the key from a configured custom origin, and inherits again when a per-request baseURL points back at an allowed root', async () => {
     const sodax = new Sodax({
       apiKey: 'instance-key',
       api: { baseURL: STAGING_ROOT, sponsoringApiConfig: { baseURL: CUSTOM_SPONSORING } },
@@ -1310,38 +1004,30 @@ describe('sponsoring inherits the instance key only for an allowed root', () => 
     expect(await keySentTo(STAGING_ROOT, sodax, { baseURL: STAGING_ROOT })).toBe('instance-key');
   });
 
-  it('inherits when the configured sponsoring baseURL differs from an allowed root only by a trailing slash', async () => {
-    const sodax = new Sodax({
+  it('inherits when a configured or per-request baseURL differs from an allowed root only by a trailing slash', async () => {
+    const configured = new Sodax({
       apiKey: 'instance-key',
       api: { sponsoringApiConfig: { baseURL: `${DEFAULT_SPONSORING_API_ENDPOINT}/` } },
       logger: silentLogger,
     });
     // The wire URL is built from the trimmed base, so the asserted target carries no slash.
-    expect(await keySentTo(DEFAULT_SPONSORING_API_ENDPOINT, sodax)).toBe('instance-key');
-  });
+    expect(await keySentTo(DEFAULT_SPONSORING_API_ENDPOINT, configured)).toBe('instance-key');
 
-  it('inherits when a per-request baseURL differs from an allowed root only by a trailing slash', async () => {
-    const sodax = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
+    const perRequest = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
     const config: RequestOverrideConfig = { baseURL: `${DEFAULT_SPONSORING_API_ENDPOINT}/` };
-    expect(await keySentTo(DEFAULT_SPONSORING_API_ENDPOINT, sodax, config)).toBe('instance-key');
+    expect(await keySentTo(DEFAULT_SPONSORING_API_ENDPOINT, perRequest, config)).toBe('instance-key');
   });
 
-  it('sends the instance key on the account-creation POST at the packaged default root', async () => {
-    const sodax = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
-    expect(await keySentToAccounts(DEFAULT_SPONSORING_API_ENDPOINT, sodax)).toBe('instance-key');
-  });
+  it('gates the account-creation POST the same way: default root inherits, custom or retargeted origin does not', async () => {
+    const defaults = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
+    expect(await keySentToAccounts(DEFAULT_SPONSORING_API_ENDPOINT, defaults)).toBe('instance-key');
+    expect(await keySentToAccounts(CUSTOM_SPONSORING, defaults, { baseURL: CUSTOM_SPONSORING })).toBeNull();
 
-  it('withholds the instance key from the account-creation POST at a custom sponsoring origin', async () => {
-    const sodax = new Sodax({
+    const custom = new Sodax({
       apiKey: 'instance-key',
       api: { sponsoringApiConfig: { baseURL: CUSTOM_SPONSORING } },
       logger: silentLogger,
     });
-    expect(await keySentToAccounts(CUSTOM_SPONSORING, sodax)).toBeNull();
-  });
-
-  it('withholds the instance key when a per-request baseURL retargets the account-creation POST', async () => {
-    const sodax = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
-    expect(await keySentToAccounts(CUSTOM_SPONSORING, sodax, { baseURL: CUSTOM_SPONSORING })).toBeNull();
+    expect(await keySentToAccounts(CUSTOM_SPONSORING, custom)).toBeNull();
   });
 });

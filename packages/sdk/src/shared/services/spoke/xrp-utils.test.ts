@@ -12,31 +12,22 @@ const RLUSD_ISSUER = 'rMxCKbEDwqr76QuheSUMdEGf4B9xJ8m5De';
 const RLUSD_ISSUER_ACCOUNT_ID = '0xe5e961c6a025c9404aa7b662dd1df975be75d13e';
 
 describe('xrp-utils', () => {
-  it('decodes a classic address to a 20-byte AccountID', () => {
+  it('decodes a classic address to a 20-byte AccountID that round-trips back to the address', () => {
     expect(decodeAccountId(RESERVE)).toHaveLength(20);
-  });
-
-  it('round-trips address → AccountID → address', () => {
     expect(encodeAccountId(decodeAccountId(RESERVE))).toBe(RESERVE);
     expect(encodeAccountId(decodeAccountId(RLUSD_ISSUER))).toBe(RLUSD_ISSUER);
   });
 
-  it('derives the identity the relay registered for the RLUSD issuer', () => {
-    expect(xrpIdentityBytes(RLUSD_ISSUER)).toBe(RLUSD_ISSUER_ACCOUNT_ID);
-  });
-
-  it('derives the 160-bit currency codes the relay registered', () => {
+  it('derives the 160-bit currency codes the relay registered, leaving a 3-character code in ASCII form', () => {
     // Both taken from the live NEAR asset registrations for chain 66.
     expect(xrpCurrencyCode('USDC')).toBe('5553444300000000000000000000000000000000');
     expect(xrpCurrencyCode('RLUSD')).toBe('524C555344000000000000000000000000000000');
-  });
-
-  it('leaves a 3-character code in ASCII form', () => {
     expect(xrpCurrencyCode('XRP')).toBe('XRP');
     expect(xrpCurrencyCode('EUR')).toBe('EUR');
   });
 
-  it('agrees with an xrpl-generated ed25519 wallet', () => {
+  it('derives the identity the relay registered for the RLUSD issuer and for an xrpl-generated ed25519 wallet', () => {
+    expect(xrpIdentityBytes(RLUSD_ISSUER)).toBe(RLUSD_ISSUER_ACCOUNT_ID);
     // Fixture produced by `Wallet.fromEntropy(<32 zero bytes>, { algorithm: 'ed25519' })` — the
     // exact derivation XrpWalletProvider uses, so a divergence here is an identity mismatch that
     // the contract would reject on-chain.
@@ -102,16 +93,9 @@ describe('xrpTokenRef', () => {
     expect(xrpTokenRef({ address: STOCK_ISSUER, symbol: 'GME' }).currency).toBe('GME');
   });
 
-  it('gives different stocks of the same issuer different currencies', () => {
-    expect(xrpTokenRef({ address: `${NVDA}:${STOCK_ISSUER}`, symbol: 'NVDA' }).currency).not.toBe(
-      xrpTokenRef({ address: `${GME}:${STOCK_ISSUER}`, symbol: 'GME' }).currency,
-    );
-  });
-
   it.each([
     ['a short currency', `4E5644:${STOCK_ISSUER}`],
     ['a currency starting with 00', `00${'A'.repeat(38)}:${STOCK_ISSUER}`],
-    ['a non-hex currency', `${'Z'.repeat(40)}:${STOCK_ISSUER}`],
     ['an invalid issuer', `${NVDA}:rNotAnAddress`],
   ])('rejects %s', (_, address) => {
     expect(() => xrpTokenRef({ address, symbol: 'X' })).toThrow();

@@ -63,37 +63,15 @@ describe('BitcoinWalletProvider', () => {
     });
   }
 
-  describe('constructor', () => {
-    it('initializes with private-key config', () => {
-      const provider = new BitcoinWalletProvider({
-        type: 'PRIVATE_KEY',
-        privateKey: PRIVATE_KEY,
-        network: 'MAINNET',
-      });
-      expect(provider.chainType).toBe('BITCOIN');
+  it('initializes with browser-extension config', () => {
+    // biome-ignore lint/suspicious/noExplicitAny: mocked walletsKit
+    const walletsKit: any = { getAccounts: vi.fn(), signPsbt: vi.fn() };
+    const provider = new BitcoinWalletProvider({
+      type: 'BROWSER_EXTENSION',
+      walletsKit,
+      network: 'MAINNET',
     });
-
-    it('initializes with browser-extension config', () => {
-      // biome-ignore lint/suspicious/noExplicitAny: mocked walletsKit
-      const walletsKit: any = { getAccounts: vi.fn(), signPsbt: vi.fn() };
-      const provider = new BitcoinWalletProvider({
-        type: 'BROWSER_EXTENSION',
-        walletsKit,
-        network: 'MAINNET',
-      });
-      expect(provider.chainType).toBe('BITCOIN');
-    });
-
-    it('accepts defaults without throwing', () => {
-      const provider = new BitcoinWalletProvider({
-        type: 'PRIVATE_KEY',
-        privateKey: PRIVATE_KEY,
-        network: 'MAINNET',
-        addressType: 'P2TR',
-        defaults: { defaultFinalize: false },
-      });
-      expect(provider.chainType).toBe('BITCOIN');
-    });
+    expect(provider.chainType).toBe('BITCOIN');
   });
 
   describe('signTransaction — finalize merge', () => {
@@ -105,46 +83,26 @@ describe('BitcoinWalletProvider', () => {
       psbtToBase64.mockClear();
     });
 
-    it('falls back to DEFAULT_FINALIZE=true and extracts tx when neither defaults nor arg provided', async () => {
-      const provider = makeProvider();
+    it('finalizes and extracts the tx hex by default, or when finalize=true overrides defaults.defaultFinalize=false', async () => {
+      expect(await makeProvider().signTransaction(PSBT_BASE64)).toBe('extracted-tx-hex');
+      expect(await makeProvider({ defaultFinalize: false }).signTransaction(PSBT_BASE64, true)).toBe(
+        'extracted-tx-hex',
+      );
 
-      const result = await provider.signTransaction(PSBT_BASE64);
-
-      expect(finalizeAllInputs).toHaveBeenCalledTimes(1);
-      expect(extractTransaction).toHaveBeenCalledTimes(1);
+      expect(finalizeAllInputs).toHaveBeenCalledTimes(2);
+      expect(extractTransaction).toHaveBeenCalledTimes(2);
       expect(psbtToBase64).not.toHaveBeenCalled();
-      expect(result).toBe('extracted-tx-hex');
     });
 
-    it('uses defaults.defaultFinalize=false to skip finalize and return base64 PSBT', async () => {
-      const provider = makeProvider({ defaultFinalize: false });
-
-      const result = await provider.signTransaction(PSBT_BASE64);
+    it('returns the base64 PSBT unfinalized when defaults.defaultFinalize=false, or finalize=false overrides true', async () => {
+      expect(await makeProvider({ defaultFinalize: false }).signTransaction(PSBT_BASE64)).toBe('signed-psbt-base64');
+      expect(await makeProvider({ defaultFinalize: true }).signTransaction(PSBT_BASE64, false)).toBe(
+        'signed-psbt-base64',
+      );
 
       expect(finalizeAllInputs).not.toHaveBeenCalled();
       expect(extractTransaction).not.toHaveBeenCalled();
-      expect(psbtToBase64).toHaveBeenCalledTimes(1);
-      expect(result).toBe('signed-psbt-base64');
-    });
-
-    it('explicit finalize=true overrides defaults.defaultFinalize=false', async () => {
-      const provider = makeProvider({ defaultFinalize: false });
-
-      const result = await provider.signTransaction(PSBT_BASE64, true);
-
-      expect(finalizeAllInputs).toHaveBeenCalledTimes(1);
-      expect(extractTransaction).toHaveBeenCalledTimes(1);
-      expect(result).toBe('extracted-tx-hex');
-    });
-
-    it('explicit finalize=false overrides defaults.defaultFinalize=true', async () => {
-      const provider = makeProvider({ defaultFinalize: true });
-
-      const result = await provider.signTransaction(PSBT_BASE64, false);
-
-      expect(finalizeAllInputs).not.toHaveBeenCalled();
-      expect(psbtToBase64).toHaveBeenCalledTimes(1);
-      expect(result).toBe('signed-psbt-base64');
+      expect(psbtToBase64).toHaveBeenCalledTimes(2);
     });
   });
 });

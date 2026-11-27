@@ -86,11 +86,10 @@ export class BitcoinSpokeService {
 
   constructor(config: ConfigService) {
     this.config = config;
-    // since we only support mainnet for now, we can hardcode the single bitcoin chain config
+    // Only mainnet is supported, so the single Bitcoin chain config is used.
     const chainConfig = config.getChainConfig(ChainKeys.BITCOIN_MAINNET);
     this.rpcUrl = chainConfig.rpcUrl;
-    // Pass the client-side RadFi signer (if any) so server-to-server callers can attach Bound's
-    // `x-api-signature` HMAC header. `config.radfiSigner` is undefined for browser callers. See gh-831.
+    // Lets server-to-server callers attach Bound's `x-api-signature` HMAC header; undefined in browsers.
     this.radfi = new RadfiProvider(chainConfig.radfi, { signer: config.radfiSigner });
     this.walletMode = chainConfig.radfi.walletMode ?? 'TRADING';
     this.pollingIntervalMs = chainConfig.pollingConfig.pollingIntervalMs;
@@ -102,7 +101,6 @@ export class BitcoinSpokeService {
   }
 
   public async getBalance(tokenAddress: string, walletAddress: string): Promise<bigint> {
-    // For native BTC (empty token address or special marker)
     if (!tokenAddress || tokenAddress === '0x' || tokenAddress === 'BTC') {
       const utxos = await this.fetchUTXOs(walletAddress);
       const totalBalance = utxos.reduce((sum, utxo) => sum + utxo.value, 0);
@@ -111,13 +109,7 @@ export class BitcoinSpokeService {
     throw new Error('Token balance queries not yet implemented for non-BTC assets');
   }
 
-  /**
-   * Get the user's own wallet balance of a token on Bitcoin, in satoshis. Only native BTC is
-   * readable (summed from confirmed/unconfirmed UTXOs). Non-native spoke tokens are Rune ids
-   * (`block:tx`), whose amounts the Esplora UTXO endpoint does not carry, so they resolve to 0n.
-   * @param {GetBalanceParams<BitcoinChainKey>} params - The chain key, user address, and token.
-   * @returns {Promise<bigint>} The balance in satoshis.
-   */
+  /** In satoshis; only native BTC is readable — Rune ids (`block:tx`) are not in Esplora UTXOs, so they read 0n. */
   public async getWalletBalance(params: GetBalanceParams<BitcoinChainKey>): Promise<bigint> {
     const { srcChainKey, srcAddress, token } = params;
 
@@ -129,11 +121,6 @@ export class BitcoinSpokeService {
     return 0n;
   }
 
-  /**
-   * Get the user's own wallet balances of multiple tokens on Bitcoin, in satoshis.
-   * @param {GetBalancesParams<BitcoinChainKey>} params - The chain key, user address, and tokens.
-   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
-   */
   public async getWalletBalances(params: GetBalancesParams<BitcoinChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
     const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
@@ -151,33 +138,21 @@ export class BitcoinSpokeService {
     return out.script.toString('hex');
   }
 
-  /**
-   * Get the effective wallet address for hub wallet derivation and relay submission.
-   * In TRADING mode, returns the trading wallet address (not the personal wallet).
-   * This must be used everywhere a wallet address is needed for hub interaction.
-   */
+  /** The address for hub wallet derivation and relay submission: the trading wallet in TRADING mode. Use it everywhere. */
   public async getEffectiveWalletAddress(personalAddress: string): Promise<string> {
     if (this.walletMode === 'TRADING') {
-      // The trading-wallet lookup is a public GET — no access token required.
       const tradingWallet = await this.radfi.getTradingWallet(personalAddress);
       return tradingWallet.tradingAddress;
     }
     return personalAddress;
   }
 
-  /**
-   * Get the effective wallet address for hub wallet derivation and relay submission.
-   * In TRADING mode, returns the trading wallet address (not the personal wallet).
-   * This must be used everywhere a wallet address is needed for hub interaction.
-   */
+  /** The trading wallet address for `personalAddress`. */
   public async getTradingWalletAddress(personalAddress: string): Promise<string> {
     const tradingWallet = await this.radfi.getTradingWallet(personalAddress);
     return tradingWallet.tradingAddress;
   }
 
-  /**
-   * Get current fee rate estimate
-   */
   public async getFeeRateEstimate(targetBlocks = 6): Promise<number> {
     try {
       const response = await fetch(`${this.rpcUrl}/fee-estimates`);
@@ -191,13 +166,7 @@ export class BitcoinSpokeService {
     }
   }
 
-  /**
-   * Estimate transaction fee for a Bitcoin transaction
-   *
-   * @param {Hex} rawTx - The raw transaction parameters
-   * @param {string} rpcUrl - The RPC URL
-   * @returns {Promise<bigint>} Estimated fee in satoshis
-   */
+  /** Estimated fee in satoshis. */
   public async estimateGas(params: EstimateGasParams<BitcoinChainKey>): Promise<bigint> {
     if (typeof params.tx === 'string') {
       throw new Error('[BitcoinSpokeService.estimateGas] string tx not supported');
@@ -209,13 +178,6 @@ export class BitcoinSpokeService {
     return BigInt(vsize) * feeRateBigInt;
   }
 
-  /**
-   * Get the balance of deposited tokens in the asset manager
-   *
-   * @param {string} token - Token identifier ('BTC' for native Bitcoin)
-   * @param {BitcoinSpokeProviderType} spokeProvider - The Bitcoin spoke provider
-   * @returns {Promise<bigint>} Balance in satoshis
-   */
   public async getDeposit(params: GetDepositParams<BitcoinChainKey>): Promise<bigint> {
     const assetManagerAddress = this.config.getChainConfig(params.srcChainKey).addresses.assetManager;
     const utxos = await this.fetchUTXOs(assetManagerAddress);
@@ -224,13 +186,7 @@ export class BitcoinSpokeService {
     return BigInt(totalBalance);
   }
 
-  /**
-   * Fund the Bound Exchange trading wallet by sending BTC from the user's personal wallet
-   *
-   * @param {bigint} amount - Amount in satoshis to send
-   * @param {BitcoinSpokeProvider} spokeProvider - The Bitcoin spoke provider (must have signing capability)
-   * @returns {Promise<string>} Transaction ID of the funding transaction
-   */
+  /** Fund the Bound Exchange trading wallet with BTC from the user's personal wallet; returns the funding txid. */
   public async fundTradingWallet(
     amount: bigint,
     walletAddress: string,
@@ -241,17 +197,6 @@ export class BitcoinSpokeService {
     return walletProvider.sendBitcoin(tradingAddress, amount);
   }
 
-  /**
-   * Send a message to the hub chain
-   *
-   * @param {BitcoinChainKey} srcChainKey - Source spoke chain key
-   * @param {HubChainKey} dstChainKey - Destination chain key
-   * @param {HubAddress} dstAddress - Destination address on hub
-   * @param {Hex} payload - Message payload
-   * @param {BitcoinSpokeProviderType} spokeProvider - The Bitcoin spoke provider
-   * @param {boolean} raw - Whether to return raw PSBT or transaction hash
-   * @returns {Promise<TxReturnType<BitcoinSpokeProviderType, R>>} Transaction hash or raw PSBT
-   */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<BitcoinChainKey, Raw> & { walletMode?: WalletMode },
   ): Promise<TxReturnType<BitcoinChainKey, Raw>> {
@@ -259,16 +204,8 @@ export class BitcoinSpokeService {
   }
 
   /**
-   * Build the relay submit/poll identity for an on-demand action (borrow/withdraw).
-   *
-   * Bitcoin borrow/withdraw are on-demand: there is no broadcast transaction — the spoke result is
-   * the signed payload JSON produced by {@link encodeWithdrawalData}/{@link sendMessage}. The relay
-   * accepts the submit under the literal `withdraw` tx_hash with the signed payload (as a JSON object)
-   * in `data`, then tracks the resulting packet under a derived id: `od:` + keccak256 of the ASCII
-   * `payload_hex` string (hash the hex characters, not the decoded bytes). Polling must use that
-   * derived id (`pollTxHash`), not `withdraw`.
-   *
-   * @param tx - The JSON-stringified signed payload returned by `sendMessage` / `encodeWithdrawalData`.
+   * Relay identity for an on-demand borrow/withdraw (no broadcast tx): submitted as tx_hash `withdraw`, polled under
+   * `od:` + keccak256 of the ASCII `payload_hex` string (the hex characters, not the decoded bytes).
    */
   public getOnDemandRelayIdentity(tx: string): { srcTxHash: string; data: OnDemandRelayData; pollTxHash: string } {
     const data = JSON.parse(tx) as OnDemandRelayData;
@@ -277,9 +214,6 @@ export class BitcoinSpokeService {
     return { srcTxHash: 'withdraw', data, pollTxHash };
   }
 
-  /**
-   * Build a priority Bitcoin transaction with proper fee calculation
-   */
   public async buildBitcoinTransaction(
     utxos: BitcoinUTXO[],
     outputs: Array<{ address: string; value: number }>,
@@ -297,7 +231,6 @@ export class BitcoinSpokeService {
     let inputSum = 0;
     const outputSum = outputs.reduce((sum, o) => sum + o.value, 0);
 
-    // ---- Add inputs ----
     for (const utxo of utxos) {
       if (!utxo.status.confirmed) continue;
 
@@ -349,7 +282,6 @@ export class BitcoinSpokeService {
           },
         });
       } else {
-        // Legacy P2PKH fallback
         const txHex = await this.fetchRawTransaction(utxo.txid);
         psbt.addInput({
           hash: utxo.txid,
@@ -360,7 +292,7 @@ export class BitcoinSpokeService {
 
       inputSum += utxo.value;
 
-      // Conservative estimate WITHOUT assuming change yet
+      // Conservative estimate without change yet
       const estimatedSize = estimateBitcoinTxSize(psbt.inputCount, outputs.length, addressType, opReturnOutputVbytes);
       const estimatedFee = Math.ceil(effectiveFeeRate * estimatedSize);
 
@@ -369,7 +301,6 @@ export class BitcoinSpokeService {
       }
     }
 
-    // ---- Add recipient outputs ----
     for (const output of outputs) {
       psbt.addOutput({
         address: output.address,
@@ -377,7 +308,6 @@ export class BitcoinSpokeService {
       });
     }
 
-    // ---- Final fee & change calculation ----
     const sizeWithChange = estimateBitcoinTxSize(
       psbt.inputCount,
       outputs.length + 1,
@@ -399,14 +329,12 @@ export class BitcoinSpokeService {
       throw new Error(`Insufficient funds. Need ${outputSum + feeWithChange} satoshis, have ${inputSum}${hint}`);
     }
 
-    // ---- Add change only if it makes sense ----
     if (change > DUST_THRESHOLD) {
       psbt.addOutput({
         address: changeAddress,
         value: change,
       });
     } else {
-      // Drop change, recompute fee without it
       const finalFee = feeWithoutChange;
       change = inputSum - outputSum - finalFee;
 
@@ -418,9 +346,6 @@ export class BitcoinSpokeService {
     return psbt;
   }
 
-  /**
-   * Deposit operation - transfer BTC to the asset manager
-   */
   public async deposit<Raw extends boolean = false>(
     params: DepositParams<BitcoinChainKey, Raw>,
   ): Promise<TxReturnType<BitcoinChainKey, Raw>> {
@@ -443,7 +368,6 @@ export class BitcoinSpokeService {
           data: psbtBase64,
         }) satisfies TxReturnType<BitcoinChainKey, true> as TxReturnType<BitcoinChainKey, Raw>;
 
-      // ───────────────── Trading wallet flow ─────────────────
       if (this.walletMode === 'TRADING') {
         const tokenId = Object.values(chainConfig.supportedTokens).find(t => t.address === token)?.address;
 
@@ -476,18 +400,14 @@ export class BitcoinSpokeService {
           {
             userAddress: from,
             signedBase64Tx,
-            // Forward the relay identity ({ hub wallet address, full payload }) so the Bound Exchange
-            // backend can auto-resubmit the intent relay if it gets stuck. `to` is the hub wallet
-            // (relayData.address) and `data` is the full payload (relayData.payload) — the same pair
-            // feature services return as `relayData` from createIntent()/supply().
+            // Lets the Bound Exchange backend auto-resubmit a stuck intent relay (`to` is the hub wallet, `data` the full payload).
             relayData: { address: params.to, payload: data },
           },
           accessToken,
         )) satisfies TxReturnType<BitcoinChainKey, false> as TxReturnType<BitcoinChainKey, Raw>;
       }
 
-      // ───────────────── Normal deposit flow ─────────────────
-      // Bitcoin PSBT construction requires walletProvider even for raw mode (address derivation)
+      // PSBT construction needs walletProvider even in raw mode (address derivation).
       if (params.raw === true) {
         throw new Error(
           'Raw mode is not supported for normal Bitcoin deposits. Use TRADING wallet mode for raw transactions.',
@@ -526,18 +446,8 @@ export class BitcoinSpokeService {
   }
 
   /**
-   * Sign and submit a TRADING-wallet raw transaction — the Bound-built *unsigned* PSBT returned by
-   * `deposit({ raw: true })` / the Swaps API (`createIntent().tx.data`). Signs it with the wallet
-   * provider's key, then sends it to Bound Exchange to co-sign with the second 2-of-2 key and
-   * broadcast. Returns the broadcast tx id.
-   *
-   * This is the client-side completion of the TRADING deposit flow: the backend builds the PSBT
-   * (it can't broadcast — the user's signature is missing), the client signs here, and Bound
-   * co-signs + broadcasts. `relayData` ({ address, payload }) is the relay identity returned by
-   * `createIntent()`; forwarding it lets Bound auto-resubmit a stuck relay. It is **not** recoverable
-   * from `rawTx` (whose `to` is the asset manager, not the hub wallet), so callers must supply it.
-   *
-   * @throws if the chain is not in `TRADING` wallet mode (raw txs only exist in TRADING mode).
+   * Sign a Bound-built unsigned TRADING PSBT (from `deposit({ raw: true })` / Swaps API) and send it to Bound to co-sign
+   * and broadcast. `relayData` is not recoverable from `rawTx` (its `to` is the asset manager), so callers must supply it.
    */
   public async signAndSubmitRawTransaction(params: {
     rawTx: BitcoinRawTransaction;
@@ -549,8 +459,7 @@ export class BitcoinSpokeService {
       throw new Error('signAndSubmitRawTransaction requires TRADING wallet mode.');
     }
     const { rawTx, walletProvider, relayData, accessToken = this.radfi.accessToken } = params;
-    // Bitcoin is the one chain whose Swaps API raw tx isn't schema-validated upstream (it hits the
-    // permissive `AnyRawTxSchema`), so guard the fields this flow depends on before signing.
+    // Bitcoin's Swaps API raw tx hits the permissive `AnyRawTxSchema` upstream, so guard the fields used here.
     if (!rawTx?.data || !rawTx?.from) {
       throw new Error('signAndSubmitRawTransaction: rawTx.data (PSBT) and rawTx.from are required.');
     }
@@ -559,9 +468,6 @@ export class BitcoinSpokeService {
     return this.radfi.requestRadfiSignature({ userAddress: rawTx.from, signedBase64Tx, relayData }, accessToken);
   }
 
-  /**
-   * Build deposit PSBT with embedded cross-chain data
-   */
   public async buildDepositPsbt(
     walletAddress: string,
     walletProvider: IBitcoinWalletProvider,
@@ -615,9 +521,6 @@ export class BitcoinSpokeService {
     throw new Error(`Non-BTC token deposits not yet implemented (token: ${token})`);
   }
 
-  /**
-   * Fetch UTXOs for an address
-   */
   public async fetchUTXOs(address: string): Promise<BitcoinUTXO[]> {
     const response = await fetch(`${this.rpcUrl}/address/${address}/utxo`);
     if (!response.ok) {
@@ -626,11 +529,7 @@ export class BitcoinSpokeService {
     return await response.json();
   }
 
-  /**
-   * Returns the set of "txid:vout" outpoints currently being spent by
-   * unconfirmed transactions in the mempool for the given address.
-   * Used to prevent double-spend when building a new PSBT.
-   */
+  /** `txid:vout` outpoints spent by unconfirmed mempool txs, excluded to avoid double-spends. */
   private async fetchMempoolSpentOutpoints(address: string): Promise<Set<string>> {
     try {
       const response = await fetch(`${this.rpcUrl}/address/${address}/txs/mempool`);
@@ -648,9 +547,6 @@ export class BitcoinSpokeService {
     }
   }
 
-  /**
-   * Fetch raw transaction hex
-   */
   public async fetchRawTransaction(txid: string): Promise<string> {
     const response = await fetch(`${this.rpcUrl}/tx/${txid}/hex`);
     if (!response.ok) {
@@ -667,9 +563,8 @@ export class BitcoinSpokeService {
     const addressType = detectBitcoinAddressType(from);
 
     if (walletMode === 'TRADING') {
-      // No fallback to the personal address: in TRADING mode the relay derives the hub wallet from
-      // the trading address, so a failed lookup must throw rather than emit a payload whose
-      // src_address (personal) disagrees with that trading-derived hub wallet.
+      // No personal-address fallback: the relay derives the hub wallet from the trading address, so a mismatched
+      // src_address must throw instead.
       srcAddress = (await this.radfi.getTradingWallet(srcAddress)).tradingAddress;
     }
     const payload: BtcPayload = {
@@ -695,10 +590,8 @@ export class BitcoinSpokeService {
       >;
     }
 
-    // Pick the message-signing scheme by address type (see usesBip322MessageSigning): P2WPKH/P2TR
-    // sign via BIP322, P2SH/P2PKH via ECDSA — browser wallets reject the other scheme per type.
-    // The relay expects the signature as base64 (the wallets' native form) plus the signer's
-    // public key, which it needs to verify BIP322 (Taproot/Schnorr is not public-key-recoverable).
+    // P2WPKH/P2TR sign via BIP322, P2SH/P2PKH via ECDSA (wallets reject the other). The relay needs base64 plus the
+    // public key, since BIP322/Taproot signatures are not public-key-recoverable.
     if (!params.walletProvider.getPublicKey) {
       throw new Error('Wallet provider does not support getPublicKey');
     }
@@ -714,17 +607,13 @@ export class BitcoinSpokeService {
     >;
   }
 
-  /**
-   * Sign and broadcast a Bitcoin transaction
-   */
   public async signAndBroadcastTransaction(
     psbt: Psbt | string,
     walletProvider: IBitcoinWalletProvider,
   ): Promise<string> {
     const psbtBase64 = typeof psbt === 'string' ? psbt : psbt.toBase64();
 
-    // Pass finalize=false so all wallet types (private key, browser extension) return
-    // a signed PSBT rather than an extracted raw tx — we handle finalization here.
+    // finalize=false so every wallet type returns a signed PSBT; finalization happens here.
     const signedRaw = await walletProvider.signTransaction(psbtBase64, false);
     // Unisat/OKX return hex, Xverse/private-key return base64 — normalize before parsing
     const signedPsbt = Psbt.fromBase64(normalizePsbtToBase64(signedRaw));
@@ -742,9 +631,6 @@ export class BitcoinSpokeService {
     return txHash;
   }
 
-  /**
-   * Broadcast a signed transaction
-   */
   private async broadcastTransaction(txHex: string): Promise<string> {
     const response = await fetch(`${this.rpcUrl}/tx`, {
       method: 'POST',
@@ -773,9 +659,7 @@ export class BitcoinSpokeService {
           if (result.status?.confirmed) {
             return { ok: true, value: { status: 'success', receipt: result satisfies BitcoinRawTransactionReceipt } };
           }
-          // Transaction exists but not yet confirmed — keep polling
         }
-        // 404 or other status — not yet seen, keep polling
       } catch {
         // transient error — retry
       }

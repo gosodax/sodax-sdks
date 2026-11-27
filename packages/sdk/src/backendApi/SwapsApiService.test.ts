@@ -156,33 +156,18 @@ afterEach(() => {
 });
 
 // =========================================================================
-// URL + HTTP method coverage for all 21 endpoints. Asserts the exact path
-// and verb so a refactor that flips a route string surfaces immediately.
-// (Response bodies here need not satisfy the schema — only the fetch call
-// is asserted.)
+// URL + HTTP method for the endpoints without a behavioural test in this file;
+// only the fetch call is asserted, so response bodies need not satisfy the schema.
 // =========================================================================
 
 describe('SwapsApiService endpoint routing', () => {
   type Case = { name: string; invoke: () => Promise<{ ok: boolean }>; method: 'GET' | 'POST'; url: string };
   const cases: Case[] = [
-    { name: 'getTokens', invoke: () => sodax.api.swaps.getTokens(), method: 'GET', url: `${BASE}/swaps/tokens` },
     {
       name: 'getTokensByChain',
       invoke: () => sodax.api.swaps.getTokensByChain('0xa4b1.arbitrum'),
       method: 'GET',
       url: `${BASE}/swaps/tokens/0xa4b1.arbitrum`,
-    },
-    {
-      name: 'getQuote',
-      invoke: () => sodax.api.swaps.getQuote(sampleQuoteRequest),
-      method: 'POST',
-      url: `${BASE}/swaps/quote`,
-    },
-    {
-      name: 'getQuote (includeTxData)',
-      invoke: () => sodax.api.swaps.getQuote(sampleQuoteRequest, { includeTxData: true }),
-      method: 'POST',
-      url: `${BASE}/swaps/quote?includeTxData=true`,
     },
     {
       name: 'getDeadline',
@@ -203,34 +188,10 @@ describe('SwapsApiService endpoint routing', () => {
       url: `${BASE}/swaps/approve`,
     },
     {
-      name: 'createIntent',
-      invoke: () => sodax.api.swaps.createIntent(sampleCreateIntentParams),
-      method: 'POST',
-      url: `${BASE}/swaps/intents`,
-    },
-    {
       name: 'submitIntent',
       invoke: () => sodax.api.swaps.submitIntent({ chainId: '146', txHash: TX_HASH }),
       method: 'POST',
       url: `${BASE}/swaps/intents/submit`,
-    },
-    {
-      name: 'getStatus',
-      invoke: () => sodax.api.swaps.getStatus({ intentTxHash: TX_HASH }),
-      method: 'POST',
-      url: `${BASE}/swaps/intents/status`,
-    },
-    {
-      name: 'cancelIntent',
-      invoke: () => sodax.api.swaps.cancelIntent({ srcChainKey: '0x38.bsc', intent: sampleIntentRequest }),
-      method: 'POST',
-      url: `${BASE}/swaps/intents/cancel`,
-    },
-    {
-      name: 'getIntentHash',
-      invoke: () => sodax.api.swaps.getIntentHash({ intent: sampleIntentRequest }),
-      method: 'POST',
-      url: `${BASE}/swaps/intents/hash`,
     },
     {
       name: 'getSolvedIntentPacket',
@@ -243,12 +204,6 @@ describe('SwapsApiService endpoint routing', () => {
       invoke: () => sodax.api.swaps.getIntentSubmitTxExtraData({ txHash: TX_HASH }),
       method: 'POST',
       url: `${BASE}/swaps/intents/extra-data`,
-    },
-    {
-      name: 'getFilledIntent',
-      invoke: () => sodax.api.swaps.getFilledIntent(TX_HASH),
-      method: 'GET',
-      url: `${BASE}/swaps/intents/${TX_HASH}/fill`,
     },
     {
       name: 'getIntent',
@@ -280,27 +235,15 @@ describe('SwapsApiService endpoint routing', () => {
       method: 'GET',
       url: `${BASE}/swaps/fees/solver?amount=1000000`,
     },
-    {
-      name: 'submitTx',
-      invoke: () => sodax.api.swaps.submitTx(sampleSubmitTxRequest),
-      method: 'POST',
-      url: `${BASE}/swaps/submit-tx`,
-    },
-    {
-      name: 'getSubmitTxStatus',
-      invoke: () => sodax.api.swaps.getSubmitTxStatus({ txHash: '0xabc', srcChainKey: '0x38.bsc' }),
-      method: 'GET',
-      url: `${BASE}/swaps/submit-tx/status?txHash=0xabc&srcChainKey=0x38.bsc`,
-    },
   ];
 
-  for (const { name, invoke, method, url } of cases) {
-    it(`${name} issues ${method} to ${url.replace(BASE, '')}`, async () => {
+  it('each endpoint issues its exact verb to its exact path', async () => {
+    for (const { name, invoke, method, url } of cases) {
       mockFetch.mockResolvedValueOnce(okResponse({}));
       await invoke();
-      expect(mockFetch).toHaveBeenCalledWith(url, expect.objectContaining({ method }));
-    });
-  }
+      expect(mockFetch, name).toHaveBeenLastCalledWith(url, expect.objectContaining({ method }));
+    }
+  });
 });
 
 // =========================================================================
@@ -308,23 +251,15 @@ describe('SwapsApiService endpoint routing', () => {
 // =========================================================================
 
 describe('SwapsApiService happy paths (validated responses)', () => {
-  it('getTokens returns ok:true with the chain→tokens map', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
-    const result = await sodax.api.swaps.getTokens();
-    expect(result).toEqual({ ok: true, value: tokensResponse });
-  });
-
-  it('getQuote returns ok:true with the quoted amount', async () => {
+  it('getQuote POSTs the request and returns the quoted amount; includeTxData=true transforms txData.tx (value → bigint)', async () => {
     mockFetch.mockResolvedValueOnce(okResponse({ quotedAmount: '987654' }));
-    const result = await sodax.api.swaps.getQuote(sampleQuoteRequest);
-    expect(result).toEqual({ ok: true, value: { quotedAmount: '987654' } });
-    expect(mockFetch).toHaveBeenCalledWith(
+    const plain = await sodax.api.swaps.getQuote(sampleQuoteRequest);
+    expect(plain).toEqual({ ok: true, value: { quotedAmount: '987654' } });
+    expect(mockFetch).toHaveBeenLastCalledWith(
       `${BASE}/swaps/quote`,
       expect.objectContaining({ method: 'POST', body: JSON.stringify(sampleQuoteRequest) }),
     );
-  });
 
-  it('getQuote with includeTxData=true transforms the nested txData.tx (value decimal string → bigint)', async () => {
     mockFetch.mockResolvedValueOnce(okResponse({ quotedAmount: '987654', txData: createIntentResponse }));
     const result = await sodax.api.swaps.getQuote(sampleQuoteRequest, { includeTxData: true });
     // tokenSrcChainKey is an EVM chain, so the EVM raw-tx schema transforms txData.tx.value "0" → 0n.
@@ -335,25 +270,9 @@ describe('SwapsApiService happy paths (validated responses)', () => {
         txData: { ...createIntentResponse, tx: { ...createIntentResponse.tx, value: 0n } },
       },
     });
-    expect(mockFetch).toHaveBeenCalledWith(
+    expect(mockFetch).toHaveBeenLastCalledWith(
       `${BASE}/swaps/quote?includeTxData=true`,
       expect.objectContaining({ method: 'POST', body: JSON.stringify(sampleQuoteRequest) }),
-    );
-  });
-
-  it('getQuote forwards an optional hook field on the outgoing request body (client-side passthrough only)', async () => {
-    // SDK-service layer counterpart of the same-named assertion in
-    // packages/swaps-api/src/client.test.ts — keep both in sync (this proves the SDK wrapper doesn't
-    // break passthrough, not that any backend forwards `hook` for its includeTxData=true handler).
-    const hookedQuoteRequest: QuoteRequestV2 = {
-      ...sampleQuoteRequest,
-      hook: { kind: HookKind.HYPERCORE_DEPOSIT },
-    };
-    mockFetch.mockResolvedValueOnce(okResponse({ quotedAmount: '987654', txData: createIntentResponse }));
-    await sodax.api.swaps.getQuote(hookedQuoteRequest, { includeTxData: true });
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${BASE}/swaps/quote?includeTxData=true`,
-      expect.objectContaining({ method: 'POST', body: JSON.stringify(hookedQuoteRequest) }),
     );
   });
 
@@ -361,6 +280,7 @@ describe('SwapsApiService happy paths (validated responses)', () => {
     mockFetch.mockResolvedValueOnce(okResponse({ status: 3, fillTxHash: '0xfill' }));
     const result = await sodax.api.swaps.getStatus({ intentTxHash: TX_HASH });
     expect(result).toEqual({ ok: true, value: { status: 3, fillTxHash: '0xfill' } });
+    expect(mockFetch).toHaveBeenCalledWith(`${BASE}/swaps/intents/status`, expect.objectContaining({ method: 'POST' }));
   });
 
   it('createIntent returns ok:true with { tx, intent, relayData } (tx.value decimal string → bigint)', async () => {
@@ -373,41 +293,39 @@ describe('SwapsApiService happy paths (validated responses)', () => {
     });
   });
 
+  // SDK-service layer counterpart of the same-named assertion in packages/swaps-api/src/client.test.ts —
+  // proves the SDK wrapper serializes `hook` onto the wire unmodified, NOT that any backend forwards it.
+  const hookedQuote: QuoteRequestV2 = { ...sampleQuoteRequest, hook: { kind: HookKind.HYPERCORE_DEPOSIT } };
+  const hookedParams: CreateIntentParamsV2 = {
+    ...sampleCreateIntentParams,
+    hook: { kind: HookKind.HYPERCORE_DEPOSIT },
+  };
   it.each([
     {
-      name: 'checkAllowance',
-      path: 'allowance/check',
-      invoke: (body: CreateIntentParamsV2) => sodax.api.swaps.checkAllowance(body),
-      response: { valid: true },
-    },
-    {
-      name: 'approve',
-      path: 'approve',
-      invoke: (body: CreateIntentParamsV2) => sodax.api.swaps.approve(body),
-      response: { tx: createIntentResponse.tx },
+      name: 'getQuote',
+      url: `${BASE}/swaps/quote?includeTxData=true`,
+      body: hookedQuote,
+      invoke: () => sodax.api.swaps.getQuote(hookedQuote, { includeTxData: true }),
+      response: { quotedAmount: '987654', txData: createIntentResponse },
     },
     {
       name: 'createIntent',
-      path: 'intents',
-      invoke: (body: CreateIntentParamsV2) => sodax.api.swaps.createIntent(body),
+      url: `${BASE}/swaps/intents`,
+      body: hookedParams,
+      invoke: () => sodax.api.swaps.createIntent(hookedParams),
       response: createIntentResponse,
     },
   ])('$name forwards an optional hook field on the outgoing request body (client-side passthrough only)', async ({
-    path,
+    url,
+    body,
     invoke,
     response,
   }) => {
-    // Proves the SDK client serializes `hook` onto the wire unmodified — it does NOT prove any
-    // backend actually reads/forwards `hook` when building the intent.
-    const hookedParams: CreateIntentParamsV2 = {
-      ...sampleCreateIntentParams,
-      hook: { kind: HookKind.HYPERCORE_DEPOSIT },
-    };
     mockFetch.mockResolvedValueOnce(okResponse(response));
-    await invoke(hookedParams);
+    await invoke();
     expect(mockFetch).toHaveBeenCalledWith(
-      `${BASE}/swaps/${path}`,
-      expect.objectContaining({ method: 'POST', body: JSON.stringify(hookedParams) }),
+      url,
+      expect.objectContaining({ method: 'POST', body: JSON.stringify(body) }),
     );
   });
 
@@ -416,6 +334,10 @@ describe('SwapsApiService happy paths (validated responses)', () => {
     mockFetch.mockResolvedValueOnce(okResponse(fillState));
     const result = await sodax.api.swaps.getFilledIntent(TX_HASH);
     expect(result).toEqual({ ok: true, value: fillState });
+    expect(mockFetch).toHaveBeenCalledWith(
+      `${BASE}/swaps/intents/${TX_HASH}/fill`,
+      expect.objectContaining({ method: 'GET' }),
+    );
   });
 
   it('getSubmitTxStatus returns ok:true and unwraps the { success, data } envelope shape', async () => {
@@ -434,80 +356,44 @@ describe('SwapsApiService happy paths (validated responses)', () => {
     expect(result).toEqual({ ok: true, value: body });
     if (result.ok) expect(result.value.data.result?.dstIntentTxHash).toBe('0xdst');
   });
-
-  it('submitTx returns ok:true with the insertion status', async () => {
-    const body = { success: true, data: { status: 'inserted', message: 'Swap transaction submitted successfully' } };
-    mockFetch.mockResolvedValueOnce(okResponse(body));
-    const result = await sodax.api.swaps.submitTx(sampleSubmitTxRequest);
-    expect(result).toEqual({ ok: true, value: body });
-  });
 });
 
 // =========================================================================
-// bigint request bodies — the intent struct's bigint numerics serialize to
-// decimal strings so JSON.stringify does not throw and the backend receives
-// string numerics.
+// Intent-carrying request bodies. The intent struct's bigint numerics serialize to
+// decimal strings so JSON.stringify does not throw. `sodax.swaps.createIntent` returns
+// `Intent & FeeAmount`, and callers pass that intent straight in, so SwapsApiService
+// drops the SDK-only `feeAmount` before the strict wire serializer (which would
+// otherwise throw before fetch, leaving no request body and result.ok false).
 // =========================================================================
 
-describe('SwapsApiService bigint body serialization', () => {
-  it('cancelIntent serializes the intent struct bigints to decimal strings', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({ tx: { from: '0x1', to: '0x2', value: '0', data: '0x' } }));
-
-    const result = await sodax.api.swaps.cancelIntent({ srcChainKey: '0x38.bsc', intent: sampleIntentRequest });
-
-    expect(result.ok).toBe(true);
-    const body = mockFetch.mock.calls[0]?.[1]?.body as string;
-    const parsed = JSON.parse(body);
-    expect(parsed.intent.intentId).toBe('123456789');
-    expect(parsed.intent.inputAmount).toBe('5000000000000000000');
-    expect(parsed.intent.deadline).toBe('0');
-    expect(parsed.srcChainKey).toBe('0x38.bsc');
-  });
-
-  it('submitTx serializes the nested intent bigints without throwing', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({ success: true, data: { status: 'inserted', message: 'ok' } }));
-
-    const result = await sodax.api.swaps.submitTx(sampleSubmitTxRequest);
-
-    expect(result.ok).toBe(true);
-    const body = mockFetch.mock.calls[0]?.[1]?.body as string;
-    expect(JSON.parse(body).intent.minOutputAmount).toBe('1965353839071625320');
-  });
-});
-
-// =========================================================================
-// feeAmount stripping at the SDK↔wire boundary. `sodax.swaps.createIntent` returns
-// `Intent & FeeAmount`; callers pass that intent straight into the intent-carrying
-// endpoints. SwapsApiService drops the SDK-only `feeAmount` so the strict wire
-// serializer never sees the extra bigint. The augmented intent is built as a variable
-// (structurally assignable to IntentRequestV2 — the runtime path). Each case fails if
-// the strip is removed: serializeIntentRequest would throw before fetch, so no request
-// body would exist and result.ok would be false.
-// =========================================================================
-
-describe('SwapsApiService strips the SDK-only feeAmount before the wire serializer', () => {
+describe('SwapsApiService intent body serialization', () => {
   const intentWithFee = { ...sampleIntentRequest, feeAmount: 12345n };
 
-  it('submitTx drops feeAmount from the serialized intent', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({ success: true, data: { status: 'inserted', message: 'ok' } }));
+  it('submitTx returns the insertion status, serializing intent bigints and dropping feeAmount', async () => {
+    const body = { success: true, data: { status: 'inserted', message: 'Swap transaction submitted successfully' } };
+    mockFetch.mockResolvedValueOnce(okResponse(body));
 
     const result = await sodax.api.swaps.submitTx({ ...sampleSubmitTxRequest, intent: intentWithFee });
 
-    expect(result.ok).toBe(true);
+    expect(result).toEqual({ ok: true, value: body });
     const parsed = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
     expect(parsed.intent.feeAmount).toBeUndefined();
-    expect(parsed.intent.minOutputAmount).toBe('1965353839071625320'); // allowlisted bigint still a string
+    expect(parsed.intent.minOutputAmount).toBe('1965353839071625320');
   });
 
-  it('cancelIntent drops feeAmount from the serialized intent', async () => {
+  it('cancelIntent serializes the intent struct bigints to decimal strings and drops feeAmount', async () => {
     mockFetch.mockResolvedValueOnce(okResponse({ tx: { from: '0x1', to: '0x2', value: '0', data: '0x' } }));
 
     const result = await sodax.api.swaps.cancelIntent({ srcChainKey: '0x38.bsc', intent: intentWithFee });
 
     expect(result.ok).toBe(true);
+    expect(mockFetch).toHaveBeenCalledWith(`${BASE}/swaps/intents/cancel`, expect.objectContaining({ method: 'POST' }));
     const parsed = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
     expect(parsed.intent.feeAmount).toBeUndefined();
     expect(parsed.intent.intentId).toBe('123456789');
+    expect(parsed.intent.inputAmount).toBe('5000000000000000000');
+    expect(parsed.intent.deadline).toBe('0');
+    expect(parsed.srcChainKey).toBe('0x38.bsc');
   });
 
   it('getIntentHash drops feeAmount from the serialized intent', async () => {
@@ -516,6 +402,7 @@ describe('SwapsApiService strips the SDK-only feeAmount before the wire serializ
     const result = await sodax.api.swaps.getIntentHash({ intent: intentWithFee });
 
     expect(result.ok).toBe(true);
+    expect(mockFetch).toHaveBeenCalledWith(`${BASE}/swaps/intents/hash`, expect.objectContaining({ method: 'POST' }));
     const parsed = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
     expect(parsed.intent.feeAmount).toBeUndefined();
     expect(parsed.intent.deadline).toBe('0');
@@ -683,46 +570,33 @@ describe('SwapsApiService error propagation', () => {
 // =========================================================================
 
 describe('SwapsApiService RequestOverrideConfig', () => {
-  it('overrides baseURL on a GET method', async () => {
+  it('overrides baseURL on GET and POST methods', async () => {
     mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
     await sodax.api.swaps.getTokens({ baseURL: 'https://custom.example.com' });
-    expect(mockFetch).toHaveBeenCalledWith(
+    expect(mockFetch).toHaveBeenLastCalledWith(
       'https://custom.example.com/swaps/tokens',
       expect.objectContaining({ method: 'GET' }),
     );
-  });
 
-  it('overrides baseURL on a POST method', async () => {
     mockFetch.mockResolvedValueOnce(okResponse(createIntentResponse));
     await sodax.api.swaps.createIntent(sampleCreateIntentParams, { baseURL: 'https://custom.example.com' });
-    expect(mockFetch).toHaveBeenCalledWith(
+    expect(mockFetch).toHaveBeenLastCalledWith(
       'https://custom.example.com/swaps/intents',
       expect.objectContaining({ method: 'POST' }),
     );
   });
 
-  it('merges custom headers with the defaults (both present)', async () => {
+  it('merges custom headers with the defaults (both present) on the default baseURL', async () => {
     mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
     await sodax.api.swaps.getTokens({ headers: { 'X-Custom': 'test-value' } });
     expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
+      `${BASE}/swaps/tokens`,
       expect.objectContaining({
         headers: expect.objectContaining({
           'Content-Type': 'application/json',
           Accept: 'application/json',
           'X-Custom': 'test-value',
         }),
-      }),
-    );
-  });
-
-  it('falls back to default baseURL and headers when no override is passed', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
-    await sodax.api.swaps.getTokens();
-    expect(mockFetch).toHaveBeenCalledWith(
-      `${BASE}/swaps/tokens`,
-      expect.objectContaining({
-        headers: expect.objectContaining({ 'Content-Type': 'application/json', Accept: 'application/json' }),
       }),
     );
   });
@@ -735,10 +609,10 @@ describe('SwapsApiService RequestOverrideConfig', () => {
 const sentHeaders = (): Record<string, string> => mockFetch.mock.calls[0]?.[1]?.headers;
 
 describe('SwapsApiService API key', () => {
-  it('sends a configured x-api-key header on every request', async () => {
+  it('sends a configured x-api-key header, treating an empty per-call apiKey as unset', async () => {
     const service = new SwapsApiService({ baseURL: BASE, timeout: 30_000, headers: { 'x-api-key': 'config-key' } });
     mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
-    await service.getTokens();
+    await service.getTokens({ apiKey: '' });
     expect(sentHeaders()['x-api-key']).toBe('config-key');
   });
 
@@ -753,14 +627,7 @@ describe('SwapsApiService API key', () => {
     expect(sentHeaders()['x-api-key']).toBe('header-key');
   });
 
-  it('lets a per-call apiKey win over the configured key', async () => {
-    const keyed = new Sodax({ apiKey: 'global-key', logger: 'silent' });
-    mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
-    await keyed.api.swaps.getTokens({ apiKey: 'call-key' });
-    expect(sentHeaders()['x-api-key']).toBe('call-key');
-  });
-
-  it('lets a per-call x-api-key header win over the per-call apiKey, in any casing', async () => {
+  it('lets a per-call x-api-key header win over the per-call apiKey, in any casing, even when blank', async () => {
     // fetch folds two casings of one header name into a comma-joined value, so the case variant must
     // REPLACE the expanded key instead of being sent alongside it.
     for (const name of ['x-api-key', 'X-Api-Key']) {
@@ -772,38 +639,23 @@ describe('SwapsApiService API key', () => {
       expect(Object.keys(headers).filter(h => h.toLowerCase() === 'x-api-key')).toHaveLength(1);
       expect(new Headers(headers).get('x-api-key')).toBe('call-header-key');
     }
-  });
 
-  it('treats an empty per-call apiKey as unset and falls back to the configured key', async () => {
-    const service = new SwapsApiService({ baseURL: BASE, timeout: 30_000, headers: { 'x-api-key': 'config-key' } });
-    mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
-    await service.getTokens({ apiKey: '' });
-    expect(sentHeaders()['x-api-key']).toBe('config-key');
-  });
-
-  it('sends a blank per-call x-api-key header verbatim rather than falling back', async () => {
+    // A blank per-call header is sent verbatim rather than falling back.
+    mockFetch.mockReset();
     const service = new SwapsApiService({ baseURL: BASE, timeout: 30_000, headers: { 'x-api-key': 'config-key' } });
     mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
     await service.getTokens({ apiKey: 'call-key', headers: { 'x-api-key': '' } });
     expect(new Headers(sentHeaders()).get('x-api-key')).toBe('');
   });
-
-  it('sends no x-api-key when nothing configures one', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
-    await sodax.api.swaps.getTokens();
-    expect(sentHeaders()['x-api-key']).toBeUndefined();
-  });
 });
 
 describe('Sodax → swaps API key wiring', () => {
-  it('new Sodax({ apiKey }) reaches the swaps request header', async () => {
-    const keyed = new Sodax({ apiKey: 'global-key', logger: 'silent' });
+  it('sends no x-api-key when nothing configures one, and treats an empty apiKey as unset', async () => {
     mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
-    await keyed.api.swaps.getTokens();
-    expect(sentHeaders()['x-api-key']).toBe('global-key');
-  });
+    await sodax.api.swaps.getTokens();
+    expect(sentHeaders()['x-api-key']).toBeUndefined();
 
-  it('treats an empty apiKey as unset rather than sending a blank credential', async () => {
+    mockFetch.mockReset();
     const keyed = new Sodax({ apiKey: '', logger: 'silent' });
     mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
     await keyed.api.swaps.getTokens();
@@ -844,64 +696,41 @@ describe('SwapsApiService API key on the submit-tx flow', () => {
     },
   ];
 
-  // Exactly one call is pinned first, so the URL, method, and header below all describe THAT request.
-  it.each(submitFlows)('$name sends the instance key on the wire', async ({ invoke, url, method, body }) => {
+  // Exactly one call is pinned per request, so the URL, method, and header all describe THAT request.
+  it.each(submitFlows)('$name sends the instance key on the wire, and a per-request apiKey wins over it', async ({
+    invoke,
+    url,
+    method,
+    body,
+  }) => {
     const keyed = new Sodax({ apiKey: 'global-key', logger: 'silent' });
-    mockFetch.mockResolvedValueOnce(okResponse(body));
-    await invoke(keyed.api.swaps);
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0]?.[0]).toBe(url);
-    expect(mockFetch.mock.calls[0]?.[1]?.method).toBe(method);
-    expect(new Headers(sentHeaders()).get('x-api-key')).toBe('global-key');
-  });
-
-  it.each(submitFlows)(
-    '$name lets a per-request apiKey win over the instance key',
-    async ({ invoke, url, method, body }) => {
-      const keyed = new Sodax({ apiKey: 'global-key', logger: 'silent' });
+    for (const [config, expected] of [
+      [undefined, 'global-key'],
+      [{ apiKey: 'call-key' }, 'call-key'],
+    ] as const) {
+      mockFetch.mockReset();
       mockFetch.mockResolvedValueOnce(okResponse(body));
-      await invoke(keyed.api.swaps, { apiKey: 'call-key' });
+      await invoke(keyed.api.swaps, config);
       expect(mockFetch).toHaveBeenCalledTimes(1);
       expect(mockFetch.mock.calls[0]?.[0]).toBe(url);
       expect(mockFetch.mock.calls[0]?.[1]?.method).toBe(method);
-      expect(new Headers(sentHeaders()).get('x-api-key')).toBe('call-key');
-    },
-  );
+      expect(new Headers(sentHeaders()).get('x-api-key')).toBe(expected);
+    }
+  });
 });
 
 // =========================================================================
-// Utility methods — setHeaders / getBaseURL (isolated instance to avoid
-// leaking header mutations across the shared `sodax.api.swaps`).
+// setHeaders (isolated instance to avoid leaking header mutations across the
+// shared `sodax.api.swaps`).
 // =========================================================================
 
-describe('SwapsApiService utilities', () => {
-  it('getBaseURL returns the configured swaps-api endpoint', () => {
-    expect(sodax.api.swaps.getBaseURL()).toBe(BASE);
-  });
-
-  it('setHeaders persists and merges headers into subsequent requests', async () => {
-    const service = new SwapsApiService({
-      baseURL: BASE,
-      timeout: 30_000,
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    });
-    service.setHeaders({ 'X-API-Key': 'api-key-123' });
-    mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
-
-    await service.getTokens();
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ headers: expect.objectContaining({ 'X-API-Key': 'api-key-123' }) }),
-    );
-  });
-
-  it('a repeated mixed-casing update sends the newest value, not a stale case variant', async () => {
+describe('SwapsApiService.setHeaders', () => {
+  it('persists headers into subsequent requests; a repeated mixed-casing update sends the newest value', async () => {
     // Updating an existing object key does NOT move it in insertion order, so a raw
     // `headers[name] = value` would leave the older `X-Api-Key` last and let it win the merge —
     // silently shipping the superseded credential. setHeaders must be case-insensitively last-write-wins.
     const service = new SwapsApiService({ baseURL: BASE, timeout: 30_000, headers: { 'x-api-key': 'v1' } });
-    service.setHeaders({ 'X-Api-Key': 'v2' });
+    service.setHeaders({ 'X-Api-Key': 'v2', 'X-Trace': 't' });
     service.setHeaders({ 'x-api-key': 'v3' });
     mockFetch.mockResolvedValueOnce(okResponse(tokensResponse));
 
@@ -910,5 +739,6 @@ describe('SwapsApiService utilities', () => {
     const headers = mockFetch.mock.calls[0]?.[1]?.headers as Record<string, string>;
     expect(Object.keys(headers).filter(h => h.toLowerCase() === 'x-api-key')).toHaveLength(1);
     expect(new Headers(headers).get('x-api-key')).toBe('v3');
+    expect(headers['X-Trace']).toBe('t');
   });
 });

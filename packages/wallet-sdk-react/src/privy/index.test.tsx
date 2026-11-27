@@ -34,26 +34,17 @@ afterEach(() => {
 });
 
 describe('privy()', () => {
-  it('returns an opaque value that EvmProvider can set up', () => {
+  it('returns an independent, frozen, non-plain value that runs nothing until EvmProvider sets it up', () => {
     const source = privy({ appId: 'app' });
 
     expect(source.kind).toBe('privy');
     expect(Object.isFrozen(source)).toBe(true);
+    expect(Object.getPrototypeOf(source)).not.toBe(Object.prototype);
+    expect(privy({ appId: 'app' })).not.toBe(source);
+    expect(ctx.getState).not.toHaveBeenCalled();
     const setup = setupPrivySource(source, ctx);
     expect(typeof setup?.connector).toBe('function');
     expect(typeof setup?.Host).toBe('function');
-  });
-
-  it('is not a plain object, so React refuses to pass it from a Server Component', () => {
-    expect(Object.getPrototypeOf(privy({ appId: 'app' }))).not.toBe(Object.prototype);
-  });
-
-  it('is safe to call inline: each call is independent and nothing runs until setup', () => {
-    const first = privy({ appId: 'app' });
-    const second = privy({ appId: 'app' });
-
-    expect(first).not.toBe(second);
-    expect(ctx.getState).not.toHaveBeenCalled();
   });
 
   it('hands PrivyProvider a trimmed app id', () => {

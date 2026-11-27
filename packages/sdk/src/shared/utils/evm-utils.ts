@@ -1,11 +1,6 @@
 import { encodeAbiParameters, parseAbiParameters } from 'viem';
 import type { IEvmWalletProvider, EvmRawTransactionReceipt, Hex, EvmContractCall } from '@sodax/types';
 
-/**
- * ABI-encode an array of ContractCall objects.
- * @param calls An array of ContractCall objects.
- * @returns ABI-encoded bytes representing the array of ContractCall objects.
- */
 export function encodeContractCalls(calls: EvmContractCall[]): Hex {
   return encodeAbiParameters(parseAbiParameters('(address,uint256,bytes)[]'), [
     calls.map(v => [v.address, v.value, v.data] as const),

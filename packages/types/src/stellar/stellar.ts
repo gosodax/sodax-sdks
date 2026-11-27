@@ -2,7 +2,7 @@ import type { ICoreWallet } from '../wallet/wallet.js';
 
 export type XDR = string;
 
-// Stellar Horizon API based transaction receipt
+// Horizon API transaction receipt
 export type StellarRawTransactionReceipt = {
   _links: {
     self: { href: string };
@@ -14,38 +14,38 @@ export type StellarRawTransactionReceipt = {
     succeeds: { href: string };
     transaction: { href: string };
   };
-  id: string; // Transaction ID
-  paging_token: string; // Pagination token for streaming or querying
-  successful: boolean; // Indicates if the transaction was successful
-  hash: string; // Transaction hash
-  ledger_attr: number; // Ledger sequence number
-  created_at: string; // ISO 8601 timestamp of when the transaction was created
-  source_account: string; // Source account public key
-  source_account_sequence: string; // Sequence number of the source account
-  fee_account: string; // Account that paid the fee (for fee bump transactions)
+  id: string;
+  paging_token: string;
+  successful: boolean;
+  hash: string;
+  ledger_attr: number; // ledger sequence number
+  created_at: string; // ISO 8601
+  source_account: string;
+  source_account_sequence: string;
+  fee_account: string;
   fee_bump_transaction?: {
-    hash: string; // Hash of the fee bump transaction
-    signatures: string[]; // Signatures for the fee bump transaction
+    hash: string;
+    signatures: string[];
   };
   inner_transaction?: {
-    hash: string; // Hash of the inner transaction (for fee bump transactions)
-    signatures: string[]; // Signatures for the inner transaction
+    hash: string;
+    signatures: string[];
   };
-  envelope_xdr: XDR; // Base64-encoded XDR of the transaction envelope
-  result_xdr: XDR; // Base64-encoded XDR of the transaction result
-  result_meta_xdr: XDR; // Base64-encoded XDR of the transaction metadata
-  fee_meta_xdr: XDR; // Base64-encoded XDR of fee-related metadata
-  memo?: string; // Memo content (if any)
-  memo_type?: string; // Type of memo (e.g., "text", "id", "hash", "return")
-  signatures: XDR[]; // Array of Base64-encoded signatures
-  valid_after?: string; // Minimum time bound (if set)
-  valid_before?: string; // Maximum time bound (if set)
-  fee_charged: number | string; // Fee charged for the transaction (in stroops)
-  max_fee: number | string; // Maximum fee specified (in stroops)
-  operation_count: number; // Number of operations in the transaction to fetch the next transaction
+  envelope_xdr: XDR; // base64
+  result_xdr: XDR; // base64
+  result_meta_xdr: XDR; // base64
+  fee_meta_xdr: XDR; // base64
+  memo?: string;
+  memo_type?: string; // "text" | "id" | "hash" | "return"
+  signatures: XDR[]; // base64
+  valid_after?: string;
+  valid_before?: string;
+  fee_charged: number | string; // stroops
+  max_fee: number | string; // stroops
+  operation_count: number;
 };
 
-// Stellar Soroban RPC based transaction receipt — mirrors `GetTransactionResponse` from `@stellar/stellar-sdk`
+// Mirrors Soroban RPC `GetTransactionResponse` from `@stellar/stellar-sdk`; XDR fields omitted (complex subtypes).
 type StellarSorobanBaseResponse = {
   latestLedger: number;
   latestLedgerCloseTime: number;
@@ -59,11 +59,6 @@ export type StellarSorobanSuccessfulTransactionReceipt = StellarSorobanBaseRespo
   createdAt: number;
   applicationOrder: number;
   feeBump: boolean;
-  // envelopeXdr: XDR; // commented out because of complex subtypes
-  // resultXdr: XDR;
-  // resultMetaXdr: XDR;
-  // diagnosticEventsXdr?: XDR[];
-  // returnValue?: ScVal;
 };
 
 export type StellarSorobanFailedTransactionReceipt = StellarSorobanBaseResponse & {
@@ -72,10 +67,6 @@ export type StellarSorobanFailedTransactionReceipt = StellarSorobanBaseResponse 
   createdAt: number;
   applicationOrder: number;
   feeBump: boolean;
-  // envelopeXdr: XDR; // commented out because of complex subtypes
-  // resultXdr: XDR;
-  // resultMetaXdr: XDR;
-  // diagnosticEventsXdr?: XDR[];
 };
 
 export type StellarSorobanMissingTransactionReceipt = StellarSorobanBaseResponse & {
@@ -102,14 +93,11 @@ export type StellarReturnType<Raw extends boolean> = Raw extends true
 
 export interface IStellarWalletProvider extends ICoreWallet {
   readonly chainType: 'STELLAR';
-  /**
-   * Sign without broadcasting. Pass `options.address` when a specific
-   * account must sign; browser wallets otherwise use their active account.
-   */
+  /** Does not broadcast. Without `options.address`, browser wallets sign with their active account. */
   signTransaction: (tx: XDR, options?: { address?: string }) => Promise<XDR>;
   waitForTransactionReceipt: (txHash: string) => Promise<StellarRawTransactionReceipt>;
-  /** Broadcast an already-signed XDR transaction via the Soroban RPC server. Returns the tx hash. */
+  /** Broadcasts via the Soroban RPC server; returns the tx hash. */
   sendTransaction?: (signedTx: XDR) => Promise<string>;
-  /** Sign and broadcast an unsigned `StellarRawTransaction` (e.g. from the Swaps API). Returns the tx hash. */
+  /** For an unsigned `StellarRawTransaction` (e.g. from the Swaps API); returns the tx hash. */
   signAndSendTransaction?: (params: StellarRawTransaction) => Promise<string>;
 }

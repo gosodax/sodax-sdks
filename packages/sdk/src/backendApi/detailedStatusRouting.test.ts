@@ -54,21 +54,15 @@ describe('readIntentJournalOutcome', () => {
     expect(readIntentJournalOutcome(journal(false, [fill('0')]))).toEqual({ kind: 'solved', fillTxHash: '0xfill' });
   });
 
-  it('proves nothing for an open intent', () => {
+  it('proves nothing for an open intent, even one carrying a cancel event', () => {
     expect(readIntentJournalOutcome(journal(true, []))).toBeUndefined();
     expect(readIntentJournalOutcome(journal(true, [fill('500')]))).toBeUndefined();
-  });
-
-  it('does not read a cancel after a partial fill as cancelled', () => {
-    expect(readIntentJournalOutcome(journal(false, [fill('500'), cancel]))).toBeUndefined();
-  });
-
-  it('counts a fill too malformed to parse against a cancel', () => {
-    expect(readIntentJournalOutcome(journal(false, [{ eventType: 'intent-filled' }, cancel]))).toBeUndefined();
-  });
-
-  it('needs the intent closed as well as a cancel event', () => {
     expect(readIntentJournalOutcome(journal(true, [cancel]))).toBeUndefined();
+  });
+
+  it('does not read a cancel after a partial fill, or after a fill too malformed to parse, as cancelled', () => {
+    expect(readIntentJournalOutcome(journal(false, [fill('500'), cancel]))).toBeUndefined();
+    expect(readIntentJournalOutcome(journal(false, [{ eventType: 'intent-filled' }, cancel]))).toBeUndefined();
   });
 
   it('proves nothing for a closed intent with no terminal event', () => {
@@ -98,35 +92,27 @@ describe('resolveDeliveredHubTxHash', () => {
     vi.restoreAllMocks();
   });
 
-  it('reads an MPC-relay source from its minted deposit record and never asks the intent relay', async () => {
+  it('reads an MPC-relay source from its minted (or swept, past minted) deposit record and never asks the intent relay', async () => {
     const packets = vi.spyOn(IntentRelayApiService, 'getTransactionPackets');
     const getDepositRecord = vi
       .spyOn(spoke.tron, 'getDepositRecord')
-      .mockResolvedValue(deposit('minted', { hubMint: { chain: '146', hash: HUB_MINT, ts: 0 } }));
+      .mockResolvedValueOnce(deposit('minted', { hubMint: { chain: '146', hash: HUB_MINT, ts: 0 } }))
+      .mockResolvedValueOnce(deposit('swept', { hubMint: { chain: '146', hash: HUB_MINT, ts: 0 } }));
 
+    expect(await resolveDeliveredHubTxHash(params(TRON))).toEqual({ ok: true, hubTxHash: HUB_MINT });
     expect(await resolveDeliveredHubTxHash(params(TRON))).toEqual({ ok: true, hubTxHash: HUB_MINT });
     expect(getDepositRecord).toHaveBeenCalledWith(SRC_TX);
     expect(packets).not.toHaveBeenCalled();
   });
 
-  it('accepts a swept deposit, which is past minted', async () => {
-    vi.spyOn(spoke.tron, 'getDepositRecord').mockResolvedValue(
-      deposit('swept', { hubMint: { chain: '146', hash: HUB_MINT, ts: 0 } }),
-    );
-
-    expect(await resolveDeliveredHubTxHash(params(TRON))).toEqual({ ok: true, hubTxHash: HUB_MINT });
-  });
-
-  it('reads an unminted deposit as the budgetable not-delivered miss, only when the backend answered', async () => {
-    vi.spyOn(spoke.tron, 'getDepositRecord').mockResolvedValue(deposit('attested'));
+  it('reads an unminted deposit, or a minted one without a hub mint hash, as the not-delivered miss — budgetable only when the backend answered', async () => {
+    vi.spyOn(spoke.tron, 'getDepositRecord')
+      .mockResolvedValueOnce(deposit('attested'))
+      .mockResolvedValueOnce(deposit('attested'))
+      .mockResolvedValueOnce(deposit('minted'));
 
     expect(await resolveDeliveredHubTxHash(params(TRON, true))).toMatchObject({ ok: false, budgetable: true });
     expect(await resolveDeliveredHubTxHash(params(TRON, false))).toMatchObject({ ok: false, budgetable: false });
-  });
-
-  it('does not report a minted deposit without a hub mint hash as delivered', async () => {
-    vi.spyOn(spoke.tron, 'getDepositRecord').mockResolvedValue(deposit('minted'));
-
     expect(await resolveDeliveredHubTxHash(params(TRON))).toMatchObject({ ok: false, budgetable: true });
   });
 

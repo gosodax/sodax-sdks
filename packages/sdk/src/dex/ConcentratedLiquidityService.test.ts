@@ -215,19 +215,22 @@ afterEach(() => {
 describe('ClService refuses an MPC-relay source before signing', () => {
   const TRON = ChainKeys.TRON_MAINNET;
 
-  it.each([
-    ['executeSupplyLiquidity', () => cl.executeSupplyLiquidity({ params: supplyParams(TRON), raw: true })],
-    ['executeIncreaseLiquidity', () => cl.executeIncreaseLiquidity({ params: increaseParams(TRON), raw: true })],
-    ['executeDecreaseLiquidity', () => cl.executeDecreaseLiquidity({ params: decreaseParams(TRON), raw: true })],
-    ['executeClaimRewards', () => cl.executeClaimRewards({ params: claimParams(TRON), raw: true })],
-  ] as const)('%s', async (_, run) => {
+  it('refuses every execute action from Tron without resolving the hub wallet or sending', async () => {
     const send = vi.spyOn(sodax.spoke, 'sendMessage');
+    const runs = [
+      () => cl.executeSupplyLiquidity({ params: supplyParams(TRON), raw: true }),
+      () => cl.executeIncreaseLiquidity({ params: increaseParams(TRON), raw: true }),
+      () => cl.executeDecreaseLiquidity({ params: decreaseParams(TRON), raw: true }),
+      () => cl.executeClaimRewards({ params: claimParams(TRON), raw: true }),
+    ];
 
-    const result = await run();
+    for (const run of runs) {
+      const result = await run();
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error).toMatchObject({ code: 'VALIDATION_FAILED', feature: 'dex' });
+      expect(result.ok).toBe(false);
+      if (result.ok) return;
+      expect(result.error).toMatchObject({ code: 'VALIDATION_FAILED', feature: 'dex' });
+    }
     expect(send).not.toHaveBeenCalled();
     expect(mocks.getUserHubWalletAddress).not.toHaveBeenCalled();
   });
@@ -276,22 +279,13 @@ describe('ClService.getAssetsForPool', () => {
     expect(result).toEqual({ token0: fakeXToken0, token1: fakeXToken1 });
   });
 
-  it('throws when token0 cannot be resolved', () => {
-    vi.spyOn(sodax.config, 'getOriginalAssetAddressFromStakedATokenAddress')
-      .mockReturnValueOnce('0xT0')
-      .mockReturnValueOnce('0xT1');
-    vi.spyOn(sodax.config, 'findTokenByOriginalAddress').mockReturnValueOnce(undefined);
+  it('throws when token0 or token1 cannot be resolved', () => {
+    vi.spyOn(sodax.config, 'getOriginalAssetAddressFromStakedATokenAddress').mockReturnValue('0xT0');
+    const find = vi.spyOn(sodax.config, 'findTokenByOriginalAddress').mockReturnValueOnce(undefined);
 
     expect(() => cl.getAssetsForPool(ChainKeys.BSC_MAINNET, plainPoolKey)).toThrow(/Token0 .* not found/);
-  });
 
-  it('throws when token1 cannot be resolved', () => {
-    vi.spyOn(sodax.config, 'getOriginalAssetAddressFromStakedATokenAddress')
-      .mockReturnValueOnce('0xT0')
-      .mockReturnValueOnce('0xT1');
-    vi.spyOn(sodax.config, 'findTokenByOriginalAddress')
-      .mockReturnValueOnce({ symbol: 'T0' } as never)
-      .mockReturnValueOnce(undefined);
+    find.mockReturnValueOnce({ symbol: 'T0' } as never).mockReturnValueOnce(undefined);
 
     expect(() => cl.getAssetsForPool(ChainKeys.BSC_MAINNET, plainPoolKey)).toThrow(/Token1 .* not found/);
   });
@@ -301,9 +295,23 @@ describe('ClService.getAssetsForPool', () => {
 // execute* methods — encode + delegate to SpokeService.sendMessage
 // =========================================================================
 
+const lastSendArg = () => vi.mocked(sodax.spoke.sendMessage).mock.calls.at(-1)?.[0];
+
+/** Asserts a failed Result is SodaxError(INTENT_CREATION_FAILED, dex) carrying `cause`. */
+function expectIntentCreationFailed(result: { ok: boolean; error?: unknown }, cause: unknown) {
+  expect(result.ok).toBe(false);
+  expect(isSodaxError(result.error)).toBe(true);
+  expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
+  expect((result.error as SodaxError).feature).toBe('dex');
+  expect((result.error as SodaxError).cause).toBe(cause);
+}
+
 describe('ClService.executeSupplyLiquidity', () => {
-  it('on an EVM spoke (raw=false), forwards walletProvider and returns the IntentTxResult', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
+  it('forwards walletProvider when raw=false and omits it when raw=true, addressed to the hub wallet', async () => {
+    const rawTx = { from: '0x1', to: '0x2', data: '0x', value: 0n };
+    vi.spyOn(sodax.spoke, 'sendMessage')
+      .mockResolvedValueOnce({ ok: true, value: '0xspokeTx' })
+      .mockResolvedValueOnce({ ok: true, value: rawTx as never });
 
     const result = await cl.executeSupplyLiquidity({
       params: supplyParams(ChainKeys.BSC_MAINNET),
@@ -316,69 +324,29 @@ describe('ClService.executeSupplyLiquidity', () => {
       expect(result.value.tx).toBe('0xspokeTx');
       expect(result.value.relayData).toEqual({ address: HUB_WALLET, payload: expect.any(String) });
     }
-    const sendArg = (sodax.spoke.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(sendArg.raw).toBe(false);
-    expect(sendArg.walletProvider).toBe(mockEvmProvider);
-    expect(sendArg.srcChainKey).toBe(ChainKeys.BSC_MAINNET);
-    expect(sendArg.dstAddress).toBe(HUB_WALLET);
+    const sendArg = lastSendArg();
+    expect(sendArg?.raw).toBe(false);
+    expect(sendArg?.walletProvider).toBe(mockEvmProvider);
+    expect(sendArg?.srcChainKey).toBe(ChainKeys.BSC_MAINNET);
+    expect(sendArg?.dstAddress).toBe(HUB_WALLET);
     expect(mocks.encodeMintCalldata).toHaveBeenCalledTimes(1);
-  });
 
-  it('with raw=true, omits walletProvider and returns the raw spoke tx', async () => {
-    const rawTx = { from: '0x1', to: '0x2', data: '0x', value: 0n };
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: rawTx as never });
-
-    const result = await cl.executeSupplyLiquidity({
+    const raw = await cl.executeSupplyLiquidity({
       params: supplyParams(ChainKeys.BSC_MAINNET),
       raw: true,
     } satisfies ClSupplyAction<'0x38.bsc', true>);
 
-    expect(result.ok).toBe(true);
-    const sendArg = (sodax.spoke.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(sendArg.raw).toBe(true);
-    expect(sendArg).not.toHaveProperty('walletProvider');
-  });
-
-  it('wraps a failure Result from SpokeService.sendMessage as SodaxError(INTENT_CREATION_FAILED, dex) with .cause', async () => {
-    const sendError = new Error('SEND_REJECTED');
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
-
-    const result = await cl.executeSupplyLiquidity({
-      params: supplyParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    } satisfies ClSupplyAction<'0x38.bsc', false>);
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(sendError);
-  });
-
-  it('returns ok:false when getUserHubWalletAddress rejects (top-of-method failure)', async () => {
-    const hubError = new Error('HUB_LOOKUP_FAILED');
-    mocks.getUserHubWalletAddress.mockRejectedValueOnce(hubError);
-
-    const result = await cl.executeSupplyLiquidity({
-      params: supplyParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    } satisfies ClSupplyAction<'0x38.bsc', false>);
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(hubError);
+    expect(raw.ok).toBe(true);
+    expect(lastSendArg()?.raw).toBe(true);
+    expect(lastSendArg()).not.toHaveProperty('walletProvider');
   });
 });
 
 describe('ClService.executeIncreaseLiquidity', () => {
-  it('on an EVM spoke (raw=false), encodes increase calldata and forwards to sendMessage', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
+  it('encodes increase calldata, forwarding walletProvider when raw=false and omitting it when raw=true', async () => {
+    vi.spyOn(sodax.spoke, 'sendMessage')
+      .mockResolvedValueOnce({ ok: true, value: '0xspokeTx' })
+      .mockResolvedValueOnce({ ok: true, value: '0xrawTx' as never });
 
     const result = await cl.executeIncreaseLiquidity({
       params: increaseParams(ChainKeys.BSC_MAINNET),
@@ -389,61 +357,22 @@ describe('ClService.executeIncreaseLiquidity', () => {
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.tx).toBe('0xspokeTx');
     expect(mocks.encodeIncreaseCalldata).toHaveBeenCalledTimes(1);
-  });
-
-  it('with raw=true, sets raw flag and omits walletProvider', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xrawTx' as never });
 
     await cl.executeIncreaseLiquidity({
       params: increaseParams(ChainKeys.BSC_MAINNET),
       raw: true,
     } satisfies ClLiquidityIncreaseLiquidityAction<'0x38.bsc', true>);
 
-    const sendArg = (sodax.spoke.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(sendArg.raw).toBe(true);
-    expect(sendArg).not.toHaveProperty('walletProvider');
-  });
-
-  it('wraps sendMessage failure as SodaxError(INTENT_CREATION_FAILED, dex) with .cause', async () => {
-    const sendError = new Error('SEND_REJECTED');
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
-
-    const result = await cl.executeIncreaseLiquidity({
-      params: increaseParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    } satisfies ClLiquidityIncreaseLiquidityAction<'0x38.bsc', false>);
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(sendError);
-  });
-
-  it('returns ok:false when getUserHubWalletAddress rejects', async () => {
-    const hubError = new Error('HUB_LOOKUP_FAILED');
-    mocks.getUserHubWalletAddress.mockRejectedValueOnce(hubError);
-
-    const result = await cl.executeIncreaseLiquidity({
-      params: increaseParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    } satisfies ClLiquidityIncreaseLiquidityAction<'0x38.bsc', false>);
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(hubError);
+    expect(lastSendArg()?.raw).toBe(true);
+    expect(lastSendArg()).not.toHaveProperty('walletProvider');
   });
 });
 
 describe('ClService.executeDecreaseLiquidity', () => {
-  it('on an EVM spoke (raw=false), encodes decrease calldata and forwards to sendMessage', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
+  it('encodes the decrease amounts, forwarding walletProvider when raw=false and omitting it when raw=true', async () => {
+    vi.spyOn(sodax.spoke, 'sendMessage')
+      .mockResolvedValueOnce({ ok: true, value: '0xspokeTx' })
+      .mockResolvedValueOnce({ ok: true, value: '0xrawTx' as never });
 
     const result = await cl.executeDecreaseLiquidity({
       params: decreaseParams(ChainKeys.BSC_MAINNET),
@@ -458,61 +387,22 @@ describe('ClService.executeDecreaseLiquidity', () => {
     expect(decodeArgs.liquidity).toBe(500n);
     expect(decodeArgs.amount0Min).toBe(1n);
     expect(decodeArgs.amount1Min).toBe(2n);
-  });
-
-  it('with raw=true, sets raw flag and omits walletProvider', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xrawTx' as never });
 
     await cl.executeDecreaseLiquidity({
       params: decreaseParams(ChainKeys.BSC_MAINNET),
       raw: true,
     } satisfies ClLiquidityDecreaseLiquidityAction<'0x38.bsc', true>);
 
-    const sendArg = (sodax.spoke.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(sendArg.raw).toBe(true);
-    expect(sendArg).not.toHaveProperty('walletProvider');
-  });
-
-  it('wraps sendMessage failure as SodaxError(INTENT_CREATION_FAILED, dex) with .cause', async () => {
-    const sendError = new Error('SEND_REJECTED');
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
-
-    const result = await cl.executeDecreaseLiquidity({
-      params: decreaseParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    } satisfies ClLiquidityDecreaseLiquidityAction<'0x38.bsc', false>);
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(sendError);
-  });
-
-  it('returns ok:false when getUserHubWalletAddress rejects', async () => {
-    const hubError = new Error('HUB_LOOKUP_FAILED');
-    mocks.getUserHubWalletAddress.mockRejectedValueOnce(hubError);
-
-    const result = await cl.executeDecreaseLiquidity({
-      params: decreaseParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    } satisfies ClLiquidityDecreaseLiquidityAction<'0x38.bsc', false>);
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(hubError);
+    expect(lastSendArg()?.raw).toBe(true);
+    expect(lastSendArg()).not.toHaveProperty('walletProvider');
   });
 });
 
 describe('ClService.executeClaimRewards', () => {
-  it('encodes a 0-liquidity decrease call (the harvest trick) and forwards to sendMessage', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
+  it('encodes a 0-liquidity decrease call (the harvest trick), omitting walletProvider when raw=true', async () => {
+    vi.spyOn(sodax.spoke, 'sendMessage')
+      .mockResolvedValueOnce({ ok: true, value: '0xspokeTx' })
+      .mockResolvedValueOnce({ ok: true, value: '0xrawTx' as never });
 
     const result = await cl.executeClaimRewards({
       params: claimParams(ChainKeys.BSC_MAINNET),
@@ -525,55 +415,56 @@ describe('ClService.executeClaimRewards', () => {
     expect(decodeArgs.liquidity).toBe(0n);
     expect(decodeArgs.amount0Min).toBe(0n);
     expect(decodeArgs.amount1Min).toBe(0n);
-  });
-
-  it('with raw=true, omits walletProvider', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xrawTx' as never });
 
     await cl.executeClaimRewards({
       params: claimParams(ChainKeys.BSC_MAINNET),
       raw: true,
     } satisfies ClLiquidityClaimRewardsAction<'0x38.bsc', true>);
 
-    const sendArg = (sodax.spoke.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(sendArg.raw).toBe(true);
-    expect(sendArg).not.toHaveProperty('walletProvider');
+    expect(lastSendArg()?.raw).toBe(true);
+    expect(lastSendArg()).not.toHaveProperty('walletProvider');
   });
+});
 
-  it('wraps sendMessage failure as SodaxError(INTENT_CREATION_FAILED, dex) with .cause', async () => {
-    const sendError = new Error('SEND_REJECTED');
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
+describe('ClService execute* failures', () => {
+  it('wraps a sendMessage failure Result or a hub-wallet lookup rejection as INTENT_CREATION_FAILED for every action', async () => {
+    const runs = [
+      () =>
+        cl.executeSupplyLiquidity({
+          params: supplyParams(ChainKeys.BSC_MAINNET),
+          raw: false,
+          walletProvider: mockEvmProvider,
+        }),
+      () =>
+        cl.executeIncreaseLiquidity({
+          params: increaseParams(ChainKeys.BSC_MAINNET),
+          raw: false,
+          walletProvider: mockEvmProvider,
+        }),
+      () =>
+        cl.executeDecreaseLiquidity({
+          params: decreaseParams(ChainKeys.BSC_MAINNET),
+          raw: false,
+          walletProvider: mockEvmProvider,
+        }),
+      () =>
+        cl.executeClaimRewards({
+          params: claimParams(ChainKeys.BSC_MAINNET),
+          raw: false,
+          walletProvider: mockEvmProvider,
+        }),
+    ];
+    for (const run of runs) {
+      const sendError = new Error('SEND_REJECTED');
+      vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
 
-    const result = await cl.executeClaimRewards({
-      params: claimParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    } satisfies ClLiquidityClaimRewardsAction<'0x38.bsc', false>);
+      expectIntentCreationFailed(await run(), sendError);
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(sendError);
-  });
+      const hubError = new Error('HUB_LOOKUP_FAILED');
+      mocks.getUserHubWalletAddress.mockRejectedValueOnce(hubError);
 
-  it('returns ok:false when getUserHubWalletAddress rejects', async () => {
-    const hubError = new Error('HUB_LOOKUP_FAILED');
-    mocks.getUserHubWalletAddress.mockRejectedValueOnce(hubError);
-
-    const result = await cl.executeClaimRewards({
-      params: claimParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    } satisfies ClLiquidityClaimRewardsAction<'0x38.bsc', false>);
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(hubError);
+      expectIntentCreationFailed(await run(), hubError);
+    }
   });
 });
 
@@ -581,262 +472,51 @@ describe('ClService.executeClaimRewards', () => {
 // Lifecycle methods — execute*() + relay
 // =========================================================================
 
-describe('ClService.supplyLiquidity', () => {
-  it('on a non-hub spoke, relays the spoke tx and returns both src and dst tx hashes', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
-    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xhubTx' } });
+describe('ClService lifecycle methods (supply / increase / decrease / claim)', () => {
+  type LifecycleChain = typeof ChainKeys.BSC_MAINNET | typeof ChainKeys.SONIC_MAINNET;
+  const lifecycle = [
+    (k: LifecycleChain) => cl.supplyLiquidity({ params: supplyParams(k), raw: false, walletProvider: mockEvmProvider }),
+    (k: LifecycleChain) =>
+      cl.increaseLiquidity({ params: increaseParams(k), raw: false, walletProvider: mockEvmProvider }),
+    (k: LifecycleChain) =>
+      cl.decreaseLiquidity({ params: decreaseParams(k), raw: false, walletProvider: mockEvmProvider }),
+    (k: LifecycleChain) => cl.claimRewards({ params: claimParams(k), raw: false, walletProvider: mockEvmProvider }),
+  ];
 
-    const result = await cl.supplyLiquidity({
-      params: supplyParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
+  it('relays a spoke tx and returns both hashes, but skips the relay on the hub chain (Sonic)', async () => {
+    for (const [i, run] of lifecycle.entries()) {
+      vi.spyOn(sodax.spoke, 'sendMessage')
+        .mockResolvedValueOnce({ ok: true, value: '0xspokeTx' })
+        .mockResolvedValueOnce({ ok: true, value: '0xsonicTx' });
+      mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xhubTx' } });
 
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: '0xhubTx' } });
-    expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledTimes(1);
+      expect(await run(ChainKeys.BSC_MAINNET)).toEqual({
+        ok: true,
+        value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: '0xhubTx' },
+      });
+      expect(await run(ChainKeys.SONIC_MAINNET)).toEqual({
+        ok: true,
+        value: { srcChainTxHash: '0xsonicTx', dstChainTxHash: '0xsonicTx' },
+      });
+      expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledTimes(i + 1);
+    }
   });
 
-  it('on the hub chain (Sonic), skips the relay and reuses the spoke tx hash for both', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xsonicTx' });
+  it('wraps a failed or thrown send as INTENT_CREATION_FAILED, and returns a relay failure unchanged', async () => {
+    for (const run of lifecycle) {
+      const sendError = new Error('SEND_REJECTED');
+      const thrown = new Error('SEND_THREW');
+      const relayError = new Error('RELAY_TIMEOUT');
+      vi.spyOn(sodax.spoke, 'sendMessage')
+        .mockResolvedValueOnce({ ok: false, error: sendError })
+        .mockRejectedValueOnce(thrown)
+        .mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
+      mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: relayError });
 
-    const result = await cl.supplyLiquidity({
-      params: supplyParams(ChainKeys.SONIC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xsonicTx', dstChainTxHash: '0xsonicTx' } });
-    expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
-  });
-
-  it('forwards the wrapped failure from executeSupplyLiquidity (SodaxError(INTENT_CREATION_FAILED, dex))', async () => {
-    const sendError = new Error('SEND_REJECTED');
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
-
-    const result = await cl.supplyLiquidity({
-      params: supplyParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(sendError);
-  });
-
-  it('returns the failure Result from relayTxAndWaitPacket unchanged', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
-    const relayError = new Error('RELAY_TIMEOUT');
-    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: relayError });
-
-    const result = await cl.supplyLiquidity({
-      params: supplyParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result).toEqual({ ok: false, error: relayError });
-  });
-
-  it('wraps a thrown sendMessage failure as SodaxError(INTENT_CREATION_FAILED, dex) with .cause', async () => {
-    const thrown = new Error('SEND_THREW');
-    vi.spyOn(sodax.spoke, 'sendMessage').mockRejectedValueOnce(thrown);
-
-    const result = await cl.supplyLiquidity({
-      params: supplyParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(thrown);
-  });
-});
-
-describe('ClService.increaseLiquidity', () => {
-  it('on a non-hub spoke, relays and returns both src and dst tx hashes', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
-    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xhubTx' } });
-
-    const result = await cl.increaseLiquidity({
-      params: increaseParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: '0xhubTx' } });
-  });
-
-  it('on the hub chain, skips the relay', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xsonicTx' });
-
-    const result = await cl.increaseLiquidity({
-      params: increaseParams(ChainKeys.SONIC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xsonicTx', dstChainTxHash: '0xsonicTx' } });
-    expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
-  });
-
-  it('forwards the wrapped failure from executeIncreaseLiquidity (SodaxError(INTENT_CREATION_FAILED, dex))', async () => {
-    const sendError = new Error('SEND_REJECTED');
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
-
-    const result = await cl.increaseLiquidity({
-      params: increaseParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(sendError);
-  });
-
-  it('forwards the failure from relayTxAndWaitPacket', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
-    const relayError = new Error('RELAY_TIMEOUT');
-    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: relayError });
-
-    const result = await cl.increaseLiquidity({
-      params: increaseParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result).toEqual({ ok: false, error: relayError });
-  });
-});
-
-describe('ClService.decreaseLiquidity', () => {
-  it('on a non-hub spoke, relays and returns both src and dst tx hashes', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
-    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xhubTx' } });
-
-    const result = await cl.decreaseLiquidity({
-      params: decreaseParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: '0xhubTx' } });
-  });
-
-  it('on the hub chain, skips the relay', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xsonicTx' });
-
-    const result = await cl.decreaseLiquidity({
-      params: decreaseParams(ChainKeys.SONIC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xsonicTx', dstChainTxHash: '0xsonicTx' } });
-    expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
-  });
-
-  it('forwards the wrapped failure from executeDecreaseLiquidity (SodaxError(INTENT_CREATION_FAILED, dex))', async () => {
-    const sendError = new Error('SEND_REJECTED');
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
-
-    const result = await cl.decreaseLiquidity({
-      params: decreaseParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(sendError);
-  });
-
-  it('forwards the failure from relayTxAndWaitPacket', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
-    const relayError = new Error('RELAY_TIMEOUT');
-    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: relayError });
-
-    const result = await cl.decreaseLiquidity({
-      params: decreaseParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result).toEqual({ ok: false, error: relayError });
-  });
-});
-
-describe('ClService.claimRewards', () => {
-  it('on a non-hub spoke, relays and returns both src and dst tx hashes', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
-    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xhubTx' } });
-
-    const result = await cl.claimRewards({
-      params: claimParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xspokeTx', dstChainTxHash: '0xhubTx' } });
-  });
-
-  it('on the hub chain, skips the relay', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xsonicTx' });
-
-    const result = await cl.claimRewards({
-      params: claimParams(ChainKeys.SONIC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: '0xsonicTx', dstChainTxHash: '0xsonicTx' } });
-    expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
-  });
-
-  it('forwards the wrapped failure from executeClaimRewards (SodaxError(INTENT_CREATION_FAILED, dex))', async () => {
-    const sendError = new Error('SEND_REJECTED');
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: false, error: sendError });
-
-    const result = await cl.claimRewards({
-      params: claimParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(isSodaxError(result.error)).toBe(true);
-    expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-    expect((result.error as SodaxError).feature).toBe('dex');
-    expect((result.error as SodaxError).cause).toBe(sendError);
-  });
-
-  it('forwards the failure from relayTxAndWaitPacket', async () => {
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: '0xspokeTx' });
-    const relayError = new Error('RELAY_TIMEOUT');
-    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: relayError });
-
-    const result = await cl.claimRewards({
-      params: claimParams(ChainKeys.BSC_MAINNET),
-      raw: false,
-      walletProvider: mockEvmProvider,
-    });
-
-    expect(result).toEqual({ ok: false, error: relayError });
+      expectIntentCreationFailed(await run(ChainKeys.BSC_MAINNET), sendError);
+      expectIntentCreationFailed(await run(ChainKeys.BSC_MAINNET), thrown);
+      expect(await run(ChainKeys.BSC_MAINNET)).toEqual({ ok: false, error: relayError });
+    }
   });
 });
 
@@ -859,33 +539,21 @@ describe('ClService.getMintPositionEvent', () => {
     expect(result).toEqual({ ok: true, value: { tokenId: 42n } });
   });
 
-  it('returns ok:false when no MintPosition log is present', async () => {
-    vi.spyOn(sodax.hubProvider.publicClient, 'waitForTransactionReceipt').mockResolvedValueOnce({
+  it('returns ok:false when no MintPosition log is present or it carries no tokenId, and wraps a throw as LOOKUP_FAILED', async () => {
+    vi.spyOn(sodax.hubProvider.publicClient, 'waitForTransactionReceipt').mockResolvedValue({
       logs: [],
       // biome-ignore lint/suspicious/noExplicitAny: viem TransactionReceipt has many fields we don't exercise.
     } as any);
-    mocks.parseEventLogs.mockReturnValueOnce([]);
+    mocks.parseEventLogs.mockReturnValueOnce([]).mockReturnValueOnce([{ args: {} }]);
 
-    const result = await cl.getMintPositionEvent(hubTxHash);
+    const noLog = await cl.getMintPositionEvent(hubTxHash);
+    expect(noLog.ok).toBe(false);
+    if (!noLog.ok) expect(String(noLog.error)).toMatch(/No mint position event found/);
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(String(result.error)).toMatch(/No mint position event found/);
-  });
+    const noTokenId = await cl.getMintPositionEvent(hubTxHash);
+    expect(noTokenId.ok).toBe(false);
+    if (!noTokenId.ok) expect(String(noTokenId.error)).toMatch(/No tokenId found/);
 
-  it('returns ok:false when the event log has no tokenId', async () => {
-    vi.spyOn(sodax.hubProvider.publicClient, 'waitForTransactionReceipt').mockResolvedValueOnce({
-      logs: [],
-      // biome-ignore lint/suspicious/noExplicitAny: viem TransactionReceipt has many fields we don't exercise.
-    } as any);
-    mocks.parseEventLogs.mockReturnValueOnce([{ args: {} }]);
-
-    const result = await cl.getMintPositionEvent(hubTxHash);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(String(result.error)).toMatch(/No tokenId found/);
-  });
-
-  it('wraps thrown errors as SodaxError(LOOKUP_FAILED, dex) with .cause', async () => {
     const rpcError = new Error('RPC_DOWN');
     vi.spyOn(sodax.hubProvider.publicClient, 'waitForTransactionReceipt').mockRejectedValueOnce(rpcError);
 
@@ -917,15 +585,12 @@ describe('ClService.getPoolRewardConfig', () => {
     });
   });
 
-  it('returns ok:false when the pool has no hook configured (zero address)', async () => {
-    const client = createMockClient({});
-    const result = await cl.getPoolRewardConfig({ ...plainPoolKey, hooks: ZERO_ADDRESS }, client);
+  it('returns ok:false for a pool with no hook, and wraps a thrown read as LOOKUP_FAILED with .cause', async () => {
+    const noHook = await cl.getPoolRewardConfig({ ...plainPoolKey, hooks: ZERO_ADDRESS }, createMockClient({}));
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(String(result.error)).toMatch(/Pool has no hook configured/);
-  });
+    expect(noHook.ok).toBe(false);
+    if (!noHook.ok) expect(String(noHook.error)).toMatch(/Pool has no hook configured/);
 
-  it('wraps thrown errors as SodaxError(LOOKUP_FAILED, dex) with .cause', async () => {
     const client = createMockClient({
       poolRewardConfigs: () => {
         throw new Error('REVERT');
@@ -977,24 +642,19 @@ describe('ClService.getPoolData', () => {
     }
   });
 
-  it('omits rewardConfig when the pool has no hook (zero address)', async () => {
-    const client = makeHappyClient();
+  it('omits rewardConfig when the pool has no hook or the hook reports a zero reward rate', async () => {
+    const noHook = await cl.getPoolData({ ...plainPoolKey, hooks: ZERO_ADDRESS }, makeHappyClient());
 
-    const result = await cl.getPoolData({ ...plainPoolKey, hooks: ZERO_ADDRESS }, client);
+    expect(noHook.ok).toBe(true);
+    if (noHook.ok) expect(noHook.value.rewardConfig).toBeUndefined();
 
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.rewardConfig).toBeUndefined();
-  });
+    const zeroRate = await cl.getPoolData(
+      plainPoolKey,
+      makeHappyClient({ poolRewardConfigs: () => ['0xRewardToken', 0n, 0n] }),
+    );
 
-  it('omits rewardConfig when the hook reports a zero reward rate', async () => {
-    const client = makeHappyClient({
-      poolRewardConfigs: () => ['0xRewardToken', 0n, 0n],
-    });
-
-    const result = await cl.getPoolData(plainPoolKey, client);
-
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.rewardConfig).toBeUndefined();
+    expect(zeroRate.ok).toBe(true);
+    if (zeroRate.ok) expect(zeroRate.value.rewardConfig).toBeUndefined();
   });
 
   it('wraps thrown errors as SodaxError(LOOKUP_FAILED, dex) with .cause', async () => {
@@ -1047,10 +707,8 @@ describe('ClService.getPositionInfo', () => {
     mocks.decodePoolKey.mockReturnValue(plainPoolKey);
   });
 
-  it('returns position info when the current tick is inside the position range', async () => {
-    const client = buildClient(0, -1000, 1000);
-
-    const result = await cl.getPositionInfo(7n, client);
+  it('returns position info whether the current tick is inside, below or above the position range', async () => {
+    const result = await cl.getPositionInfo(7n, buildClient(0, -1000, 1000));
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -1061,25 +719,12 @@ describe('ClService.getPositionInfo', () => {
       expect(result.value.amount0Underlying).toBeUndefined();
       expect(result.value.amount1Underlying).toBeUndefined();
     }
+
+    expect((await cl.getPositionInfo(7n, buildClient(-2000, -1000, 1000))).ok).toBe(true);
+    expect((await cl.getPositionInfo(7n, buildClient(2000, -1000, 1000))).ok).toBe(true);
   });
 
-  it('returns position info when the current tick is below the position range', async () => {
-    const client = buildClient(-2000, -1000, 1000);
-
-    const result = await cl.getPositionInfo(7n, client);
-
-    expect(result.ok).toBe(true);
-  });
-
-  it('returns position info when the current tick is above the position range', async () => {
-    const client = buildClient(2000, -1000, 1000);
-
-    const result = await cl.getPositionInfo(7n, client);
-
-    expect(result.ok).toBe(true);
-  });
-
-  it('forwards the failure when getPoolData fails', async () => {
+  it('forwards a getPoolData failure, and wraps a thrown position read as LOOKUP_FAILED with .cause', async () => {
     const client = createMockClient({
       positions: () => ['0xencoded' as never, -1000, 1000, 1_000n, 0n, 0n, ZERO_ADDRESS],
       // getSlot0 reverts → getPoolData returns ok:false → getPositionInfo forwards as-is.
@@ -1092,21 +737,19 @@ describe('ClService.getPositionInfo', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect((result.error as { code: string }).code).toBe('LOOKUP_FAILED');
-  });
 
-  it('wraps thrown errors as SodaxError(LOOKUP_FAILED, dex) with .cause', async () => {
-    const client = createMockClient({
+    const throwing = createMockClient({
       positions: () => {
         throw new Error('REVERT');
       },
     });
 
-    const result = await cl.getPositionInfo(7n, client);
+    const thrown = await cl.getPositionInfo(7n, throwing);
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect((result.error as { code: string }).code).toBe('LOOKUP_FAILED');
-      expect(((result.error as Error).cause as Error).message).toBe('REVERT');
+    expect(thrown.ok).toBe(false);
+    if (!thrown.ok) {
+      expect((thrown.error as { code: string }).code).toBe('LOOKUP_FAILED');
+      expect(((thrown.error as Error).cause as Error).message).toBe('REVERT');
     }
   });
 });
@@ -1120,62 +763,37 @@ describe('ClService.calculateLiquidityFromAmounts', () => {
   const tickUpper = 1000n;
   const currentTick = 0n;
 
-  it('returns 0 when amount0 is 0 and amount1 is 0', () => {
+  it('returns 0 for no amounts, falls back to single-sided math for one, and is positive with both', () => {
     expect(ClService.calculateLiquidityFromAmounts(0n, 0n, tickLower, tickUpper, currentTick)).toBe(0n);
-  });
-
-  it('falls back to single-sided amount0 math when only amount0 is supplied', () => {
     // amount0 === 0 path inside the helper uses `maxLiquidityForAmount0Precise`.
-    const liquidity = ClService.calculateLiquidityFromAmounts(0n, 1_000_000n, tickLower, tickUpper, currentTick);
-    expect(liquidity).toBeGreaterThanOrEqual(0n);
-  });
-
-  it('falls back to single-sided amount1 math when only amount1 is supplied', () => {
-    const liquidity = ClService.calculateLiquidityFromAmounts(1_000_000n, 0n, tickLower, tickUpper, currentTick);
-    expect(liquidity).toBeGreaterThanOrEqual(0n);
-  });
-
-  it('returns positive liquidity when both amounts are non-zero', () => {
-    const liquidity = ClService.calculateLiquidityFromAmounts(
-      1_000_000n,
-      1_000_000n,
-      tickLower,
-      tickUpper,
-      currentTick,
-    );
-    expect(liquidity).toBeGreaterThan(0n);
+    expect(
+      ClService.calculateLiquidityFromAmounts(0n, 1_000_000n, tickLower, tickUpper, currentTick),
+    ).toBeGreaterThanOrEqual(0n);
+    expect(
+      ClService.calculateLiquidityFromAmounts(1_000_000n, 0n, tickLower, tickUpper, currentTick),
+    ).toBeGreaterThanOrEqual(0n);
+    expect(
+      ClService.calculateLiquidityFromAmounts(1_000_000n, 1_000_000n, tickLower, tickUpper, currentTick),
+    ).toBeGreaterThan(0n);
   });
 });
 
-describe('ClService.calculateAmount1FromAmount0', () => {
+describe('ClService.calculateAmount1FromAmount0 / calculateAmount0FromAmount1', () => {
   const tickLower = -1000n;
   const tickUpper = 1000n;
   const currentTick = 0n;
   const sqrtPriceX96 = sqrtPriceAtTick(0);
 
-  it('returns 0 when amount0 is 0', () => {
+  it('returns 0 for a zero input amount and a positive counterpart for a positive one in range, both ways', () => {
     expect(ClService.calculateAmount1FromAmount0(0n, tickLower, tickUpper, currentTick, sqrtPriceX96)).toBe(0n);
-  });
+    expect(
+      ClService.calculateAmount1FromAmount0(1_000_000n, tickLower, tickUpper, currentTick, sqrtPriceX96),
+    ).toBeGreaterThan(0n);
 
-  it('returns a positive amount1 for a positive amount0 in an in-range pool', () => {
-    const amount1 = ClService.calculateAmount1FromAmount0(1_000_000n, tickLower, tickUpper, currentTick, sqrtPriceX96);
-    expect(amount1).toBeGreaterThan(0n);
-  });
-});
-
-describe('ClService.calculateAmount0FromAmount1', () => {
-  const tickLower = -1000n;
-  const tickUpper = 1000n;
-  const currentTick = 0n;
-  const sqrtPriceX96 = sqrtPriceAtTick(0);
-
-  it('returns 0 when amount1 is 0', () => {
     expect(ClService.calculateAmount0FromAmount1(0n, tickLower, tickUpper, currentTick, sqrtPriceX96)).toBe(0n);
-  });
-
-  it('returns a positive amount0 for a positive amount1 in an in-range pool', () => {
-    const amount0 = ClService.calculateAmount0FromAmount1(1_000_000n, tickLower, tickUpper, currentTick, sqrtPriceX96);
-    expect(amount0).toBeGreaterThan(0n);
+    expect(
+      ClService.calculateAmount0FromAmount1(1_000_000n, tickLower, tickUpper, currentTick, sqrtPriceX96),
+    ).toBeGreaterThan(0n);
   });
 });
 
@@ -1184,26 +802,19 @@ describe('ClService.priceToTick', () => {
   const token0 = new Token(146, '0x0000000000000000000000000000000000000001', 18, 'T0', 'Token0');
   const token1 = new Token(146, '0x0000000000000000000000000000000000000002', 18, 'T1', 'Token1');
 
-  it('returns 0 for price = 1 with equal decimals (the natural tick at parity)', () => {
+  it('returns 0 at parity, a negative tick below 1 and a positive tick above 1, rounded to tickSpacing', () => {
     expect(ClService.priceToTick(1, token0, token1, 1)).toBe(0n);
-  });
+    expect(ClService.priceToTick(0.5, token0, token1, 1)).toBeLessThan(0n);
+    expect(ClService.priceToTick(2, token0, token1, 1)).toBeGreaterThan(0n);
 
-  it('rounds the result to a multiple of tickSpacing', () => {
+    // The result rounds to a multiple of tickSpacing.
     const tick = ClService.priceToTick(1.5, token0, token1, 60);
     expect(Number(tick) % 60).toBe(0);
-  });
-
-  it('returns a negative tick for a price below 1 and a positive tick for a price above 1', () => {
-    const lowPrice = ClService.priceToTick(0.5, token0, token1, 1);
-    const highPrice = ClService.priceToTick(2, token0, token1, 1);
-    expect(lowPrice).toBeLessThan(0n);
-    expect(highPrice).toBeGreaterThan(0n);
   });
 });
 
 // =========================================================================
-// Static: calculateMaxAmountsForSlippage — kept verbatim from the previous test
-// pass since the math is well-covered. These tests don't need any mocks.
+// Static: calculateMaxAmountsForSlippage
 // =========================================================================
 
 describe('ClService.calculateMaxAmountsForSlippage', () => {
@@ -1212,6 +823,8 @@ describe('ClService.calculateMaxAmountsForSlippage', () => {
   const currentTick = 0n;
   const sqrtPriceX96 = sqrtPriceAtTick(0);
   const liquidity = 10n ** 18n;
+  const maxAmounts = (slippage: number) =>
+    ClService.calculateMaxAmountsForSlippage(liquidity, tickLower, tickUpper, currentTick, sqrtPriceX96, slippage);
 
   it('returns zero for both tokens when liquidity is zero', () => {
     const result = ClService.calculateMaxAmountsForSlippage(0n, tickLower, tickUpper, currentTick, sqrtPriceX96, 1);
@@ -1219,224 +832,89 @@ describe('ClService.calculateMaxAmountsForSlippage', () => {
     expect(result.amount1Max).toBe(0n);
   });
 
-  it('returns exactly the current amounts when slippage is zero', () => {
+  it('returns exactly the current amounts at zero slippage and never less for a positive (incl. sub-percent) one', () => {
     const current0 = PositionMath.getToken0Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
     const current1 = PositionMath.getToken1Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
 
-    const result = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      tickLower,
-      tickUpper,
-      currentTick,
-      sqrtPriceX96,
-      0,
-    );
+    const exact = maxAmounts(0);
+    expect(exact.amount0Max).toBe(current0);
+    expect(exact.amount1Max).toBe(current1);
 
-    expect(result.amount0Max).toBe(current0);
-    expect(result.amount1Max).toBe(current1);
+    for (const slippage of [1, 0.1]) {
+      const result = maxAmounts(slippage);
+      expect(result.amount0Max).toBeGreaterThanOrEqual(current0);
+      expect(result.amount1Max).toBeGreaterThanOrEqual(current1);
+    }
   });
 
-  it('returns amounts at least as large as the current amounts for a positive slippage', () => {
-    const current0 = PositionMath.getToken0Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
-    const current1 = PositionMath.getToken1Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
-
-    const result = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      tickLower,
-      tickUpper,
-      currentTick,
-      sqrtPriceX96,
-      1,
-    );
-
-    expect(result.amount0Max).toBeGreaterThanOrEqual(current0);
-    expect(result.amount1Max).toBeGreaterThanOrEqual(current1);
-  });
-
-  it('is monotonic in slippage: larger slippage never produces smaller max amounts', () => {
-    const low = ClService.calculateMaxAmountsForSlippage(liquidity, tickLower, tickUpper, currentTick, sqrtPriceX96, 1);
-    const high = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      tickLower,
-      tickUpper,
-      currentTick,
-      sqrtPriceX96,
-      10,
-    );
-
-    expect(high.amount0Max).toBeGreaterThanOrEqual(low.amount0Max);
-    expect(high.amount1Max).toBeGreaterThanOrEqual(low.amount1Max);
-  });
-
-  it('slippagePercent scale is percent: 10% produces strictly larger amounts than 1% for an in-range position', () => {
-    const onePercent = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      tickLower,
-      tickUpper,
-      currentTick,
-      sqrtPriceX96,
-      1,
-    );
-    const tenPercent = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      tickLower,
-      tickUpper,
-      currentTick,
-      sqrtPriceX96,
-      10,
-    );
+  it('reads slippagePercent as percent and grows strictly with it for an in-range position', () => {
+    const onePercent = maxAmounts(1);
+    const tenPercent = maxAmounts(10);
 
     expect(tenPercent.amount0Max).toBeGreaterThan(onePercent.amount0Max);
     expect(tenPercent.amount1Max).toBeGreaterThan(onePercent.amount1Max);
   });
 
-  it('handles the current tick at the lower range boundary (position entirely in token0)', () => {
-    const boundaryTick = tickLower;
-    const boundarySqrtPrice = sqrtPriceAtTick(Number(boundaryTick));
-    const current1 = PositionMath.getToken1Amount(
-      Number(boundaryTick),
-      Number(tickLower),
-      Number(tickUpper),
-      boundarySqrtPrice,
-      liquidity,
-    );
-    expect(current1).toBe(0n);
+  it('puts the whole position in one token at a range boundary or outside the range', () => {
+    // At the lower boundary the position is entirely token0; at the upper, entirely token1.
+    const atLower = sqrtPriceAtTick(Number(tickLower));
+    expect(PositionMath.getToken1Amount(Number(tickLower), -1000, 1000, atLower, liquidity)).toBe(0n);
+    expect(
+      ClService.calculateMaxAmountsForSlippage(liquidity, tickLower, tickUpper, tickLower, atLower, 1).amount0Max,
+    ).toBeGreaterThan(0n);
 
-    const result = ClService.calculateMaxAmountsForSlippage(
+    const atUpper = sqrtPriceAtTick(Number(tickUpper));
+    expect(PositionMath.getToken0Amount(Number(tickUpper), -1000, 1000, atUpper, liquidity)).toBe(0n);
+    expect(
+      ClService.calculateMaxAmountsForSlippage(liquidity, tickLower, tickUpper, tickUpper, atUpper, 1).amount1Max,
+    ).toBeGreaterThan(0n);
+
+    const below = ClService.calculateMaxAmountsForSlippage(
       liquidity,
       tickLower,
       tickUpper,
-      boundaryTick,
-      boundarySqrtPrice,
+      -2000n,
+      sqrtPriceAtTick(-2000),
       1,
     );
+    expect(below.amount0Max).toBeGreaterThan(0n);
+    expect(below.amount1Max).toBe(0n);
 
-    expect(result.amount0Max).toBeGreaterThan(0n);
-  });
-
-  it('handles the current tick at the upper range boundary (position entirely in token1)', () => {
-    const boundaryTick = tickUpper;
-    const boundarySqrtPrice = sqrtPriceAtTick(Number(boundaryTick));
-    const current0 = PositionMath.getToken0Amount(
-      Number(boundaryTick),
-      Number(tickLower),
-      Number(tickUpper),
-      boundarySqrtPrice,
-      liquidity,
-    );
-    expect(current0).toBe(0n);
-
-    const result = ClService.calculateMaxAmountsForSlippage(
+    const above = ClService.calculateMaxAmountsForSlippage(
       liquidity,
       tickLower,
       tickUpper,
-      boundaryTick,
-      boundarySqrtPrice,
+      2000n,
+      sqrtPriceAtTick(2000),
       1,
     );
-
-    expect(result.amount1Max).toBeGreaterThan(0n);
+    expect(above.amount0Max).toBe(0n);
+    expect(above.amount1Max).toBeGreaterThan(0n);
   });
 
-  it('handles the current tick below the range', () => {
-    const belowTick = -2000n;
-    const belowSqrtPrice = sqrtPriceAtTick(Number(belowTick));
+  it('handles narrow and wide ranges, large liquidity and sqrtPriceX96 beyond JS Number precision', () => {
+    // sqrtPriceX96 at a high tick is far beyond Number.MAX_SAFE_INTEGER (~2^53).
+    const highTick = 200000n;
+    const largeSqrtPrice = sqrtPriceAtTick(Number(highTick));
+    expect(largeSqrtPrice).toBeGreaterThan(BigInt(Number.MAX_SAFE_INTEGER));
 
-    const result = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      tickLower,
-      tickUpper,
-      belowTick,
-      belowSqrtPrice,
-      1,
-    );
-
-    expect(result.amount0Max).toBeGreaterThan(0n);
-    expect(result.amount1Max).toBe(0n);
-  });
-
-  it('handles the current tick above the range', () => {
-    const aboveTick = 2000n;
-    const aboveSqrtPrice = sqrtPriceAtTick(Number(aboveTick));
-
-    const result = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      tickLower,
-      tickUpper,
-      aboveTick,
-      aboveSqrtPrice,
-      1,
-    );
-
-    expect(result.amount0Max).toBe(0n);
-    expect(result.amount1Max).toBeGreaterThan(0n);
-  });
-
-  it('handles a very narrow range around the current tick', () => {
-    const narrowLower = -10n;
-    const narrowUpper = 10n;
-
-    const result = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      narrowLower,
-      narrowUpper,
-      currentTick,
-      sqrtPriceX96,
-      1,
-    );
-
-    expect(result.amount0Max).toBeGreaterThan(0n);
-    expect(result.amount1Max).toBeGreaterThan(0n);
-  });
-
-  it('handles a very wide range', () => {
-    const wideLower = -100000n;
-    const wideUpper = 100000n;
-
-    const result = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      wideLower,
-      wideUpper,
-      currentTick,
-      sqrtPriceX96,
-      0.5,
-    );
-
-    expect(result.amount0Max).toBeGreaterThan(0n);
-    expect(result.amount1Max).toBeGreaterThan(0n);
-  });
-
-  it('handles realistic large liquidity values without overflow', () => {
-    const largeLiquidity = 10n ** 24n;
-
-    const result = ClService.calculateMaxAmountsForSlippage(
-      largeLiquidity,
-      tickLower,
-      tickUpper,
-      currentTick,
-      sqrtPriceX96,
-      0.5,
-    );
-
-    expect(result.amount0Max).toBeGreaterThan(0n);
-    expect(result.amount1Max).toBeGreaterThan(0n);
-  });
-
-  it('handles sub-percent slippage (0.1%)', () => {
-    const current0 = PositionMath.getToken0Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
-    const current1 = PositionMath.getToken1Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
-
-    const result = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      tickLower,
-      tickUpper,
-      currentTick,
-      sqrtPriceX96,
-      0.1,
-    );
-
-    expect(result.amount0Max).toBeGreaterThanOrEqual(current0);
-    expect(result.amount1Max).toBeGreaterThanOrEqual(current1);
+    const cases = [
+      ClService.calculateMaxAmountsForSlippage(liquidity, -10n, 10n, currentTick, sqrtPriceX96, 1),
+      ClService.calculateMaxAmountsForSlippage(liquidity, -100000n, 100000n, currentTick, sqrtPriceX96, 0.5),
+      ClService.calculateMaxAmountsForSlippage(10n ** 24n, tickLower, tickUpper, currentTick, sqrtPriceX96, 0.5),
+      ClService.calculateMaxAmountsForSlippage(
+        liquidity,
+        highTick - 100n,
+        highTick + 100n,
+        highTick,
+        largeSqrtPrice,
+        0.5,
+      ),
+    ];
+    for (const result of cases) {
+      expect(result.amount0Max).toBeGreaterThan(0n);
+      expect(result.amount1Max).toBeGreaterThan(0n);
+    }
   });
 
   it('matches direct PositionMath call within the worst-case bound', () => {
@@ -1478,25 +956,6 @@ describe('ClService.calculateMaxAmountsForSlippage', () => {
 
     expect(result.amount0Max).toBe(expectedAmount0AtDrop > current0 ? expectedAmount0AtDrop : current0);
     expect(result.amount1Max).toBe(expectedAmount1AtRise > current1 ? expectedAmount1AtRise : current1);
-  });
-
-  it('preserves precision for large sqrtPriceX96 values that overflow JS Number', () => {
-    // sqrtPriceX96 at a high tick is far beyond Number.MAX_SAFE_INTEGER (~2^53).
-    const highTick = 200000n;
-    const largeSqrtPrice = sqrtPriceAtTick(Number(highTick));
-    expect(largeSqrtPrice).toBeGreaterThan(BigInt(Number.MAX_SAFE_INTEGER));
-
-    const result = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      highTick - 100n,
-      highTick + 100n,
-      highTick,
-      largeSqrtPrice,
-      0.5,
-    );
-
-    expect(result.amount0Max).toBeGreaterThan(0n);
-    expect(result.amount1Max).toBeGreaterThan(0n);
   });
 });
 

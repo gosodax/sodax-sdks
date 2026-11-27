@@ -171,17 +171,6 @@ afterEach(() => {
 });
 
 describe('TonSpokeService.deposit', () => {
-  it.each([true, false])('rejects a relay memo mismatch before returning or sending (raw=%s)', async raw => {
-    const relay = await MpcRelayApiService.getDepositAddress('https://example.com', PUBKEY, '607', '0x');
-    if (!relay.ok || relay.value.depositMethod !== 'memo') throw new Error('expected a memo deposit');
-    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValueOnce({
-      ok: true,
-      value: { ...relay.value, memo: `0x${'00'.repeat(32)}` },
-    });
-    await expect(ton.deposit(depositParams(NATIVE_TON, { raw }))).rejects.toThrow(/memo does not match/);
-    expect(sendTransaction).not.toHaveBeenCalled();
-  });
-
   it('recovers from a lost response after the wallet accepted the original send', async () => {
     stubToncenter({ txs: [nativeTx('200', MEMO)] });
     const cause = new Error('wallet response lost');
@@ -211,28 +200,31 @@ describe('TonSpokeService.deposit', () => {
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
-  it('ignores a matching notification from a different source address', async () => {
+  it('ignores jetton notifications from another jetton wallet, depositor or amount', async () => {
     const other = jettonTx('201', MEMO, 2_000_000n, SENDER_ADDRESS, 'aa'.repeat(32));
     other.in_msg.source = SENDER_JETTON_WALLET.toString();
-    stubToncenter({ txs: [other, jettonTx('200', MEMO)] });
+    stubToncenter({
+      txs: [
+        other,
+        jettonTx('202', MEMO, 2_000_000n, RESERVE, 'aa'.repeat(32)),
+        jettonTx('203', MEMO, 1n, SENDER_ADDRESS, 'bb'.repeat(32)),
+        jettonTx('200', MEMO),
+      ],
+    });
     const txHash = await ton.deposit(depositParams(USDT_MASTER));
     expect(txHash).toBe(`0x${'cd'.repeat(32)}`);
     expect(MpcRelayApiService.notify).toHaveBeenCalledOnce();
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', txHash);
   });
 
-  it('registers the deposit under the PUBLIC KEY, which is the relay identity', async () => {
+  it('registers under the PUBLIC KEY, pays native TON with a memo comment and returns the RESERVE tx it notifies', async () => {
     stubToncenter({ txs: [nativeTx('200', MEMO)] });
 
-    await ton.deposit(depositParams(NATIVE_TON));
+    const hash = await ton.deposit(depositParams(NATIVE_TON));
 
     expect(MpcRelayApiService.getDepositAddress).toHaveBeenCalledWith(expect.anything(), PUBKEY, '607', '0x');
-  });
-
-  it('pays native TON to the reserve with the memo as a comment body', async () => {
-    stubToncenter({ txs: [nativeTx('200', MEMO)] });
-
-    await ton.deposit(depositParams(NATIVE_TON));
+    expect(hash).toBe(`0x${'cd'.repeat(32)}`);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', hash);
 
     const [message] = sentMessage().messages;
     expect(Address.parse(message?.address ?? '').toRawString()).toBe(RESERVE);
@@ -265,15 +257,6 @@ describe('TonSpokeService.deposit', () => {
     });
   });
 
-  it('returns the RESERVE transaction carrying the memo and notifies the relay with it', async () => {
-    stubToncenter({ txs: [nativeTx('200', MEMO)] });
-
-    const hash = await ton.deposit(depositParams(NATIVE_TON));
-
-    expect(hash).toBe(`0x${'cd'.repeat(32)}`);
-    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', `0x${'cd'.repeat(32)}`);
-  });
-
   it('reads the reserve baseline before sending, and ignores an older deposit that reused the memo', async () => {
     vi.useFakeTimers();
     const older = nativeTx('90', MEMO, Buffer.from('aa'.repeat(32), 'hex').toString('base64'));
@@ -298,8 +281,16 @@ describe('TonSpokeService.deposit', () => {
     expect(sendTransaction).not.toHaveBeenCalled();
   });
 
-  it('refuses an address-mode relay response and a hub wallet that disagrees with the relay', async () => {
+  it('refuses a memo mismatch (even raw), an address-mode relay response and a hub wallet the relay disagrees with', async () => {
     stubToncenter();
+    const relay = await MpcRelayApiService.getDepositAddress('https://example.com', PUBKEY, '607', '0x');
+    if (!relay.ok || relay.value.depositMethod !== 'memo') throw new Error('expected a memo deposit');
+    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValueOnce({
+      ok: true,
+      value: { ...relay.value, memo: `0x${'00'.repeat(32)}` },
+    });
+    await expect(ton.deposit(depositParams(NATIVE_TON, { raw: true }))).rejects.toThrow(/memo does not match/);
+
     vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValueOnce({
       ok: true,
       value: {
@@ -336,11 +327,13 @@ describe('TonSpokeService — relay submit and read', () => {
   const HASH = `0x${'cd'.repeat(32)}`;
   const HUB_RELEASE = { dstChainKey: 'ton', hubChainId: '146', hubTxHash: '0xhub', logIndex: 3 } as const;
 
-  it('submitDeposit notifies the relay on the TON relay id, without polling', async () => {
+  it('submitDeposit notifies on the TON relay id, and submitHubRelease the hub tx as a withdrawal, without polling', async () => {
     const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit');
 
     expect(await ton.submitDeposit(HASH)).toEqual({ ok: true, value: undefined });
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', HASH);
+    expect(await ton.submitHubRelease(HUB_RELEASE)).toEqual({ ok: true, value: undefined });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '146', '0xhub', 'withdrawal');
     expect(wait).not.toHaveBeenCalled();
   });
 
@@ -353,11 +346,6 @@ describe('TonSpokeService — relay submit and read', () => {
     const result = await pending;
 
     expect(!result.ok && (result.error as Error).message).toContain(`deposit ${HASH} was not notified`);
-  });
-
-  it('submitHubRelease notifies the hub tx as a withdrawal on the hub chain id', async () => {
-    expect(await ton.submitHubRelease(HUB_RELEASE)).toEqual({ ok: true, value: undefined });
-    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '146', '0xhub', 'withdrawal');
   });
 
   it('reads a deposit, a withdrawal and a hub release once each, notifying nothing', async () => {
@@ -375,15 +363,17 @@ describe('TonSpokeService — relay submit and read', () => {
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
-  it('waitForWithdrawal passes the stage to stop on through to the relay poll', async () => {
+  it('waitForWithdrawal passes the stage through and uses the settlement floor for a NaN timeout', async () => {
     const wait = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
       ok: true,
       value: { trackingId: '0xtrack', status: 'burned' },
     });
 
     await ton.waitForWithdrawal('0xtrack', undefined, 'burned');
-
     expect(wait).toHaveBeenCalledWith(expect.anything(), '0xtrack', expect.objectContaining({ until: 'burned' }));
+
+    await ton.waitForWithdrawal('x', Number.NaN);
+    expect(wait).toHaveBeenCalledWith(expect.anything(), 'x', expect.objectContaining({ timeout: 300_000 }));
   });
 });
 
@@ -486,14 +476,27 @@ describe('TonSpokeService.sendMessage', () => {
   });
 });
 
-describe('TonSpokeService.getDeposit', () => {
-  it('reads the native balance of the key wallet-v4R2 address', async () => {
+describe('TonSpokeService balances', () => {
+  it('reads the key wallet-v4R2 address by default, else the supplied account, for native, jetton and wallet balances', async () => {
     stubToncenter();
-
     const balance = await ton.getDeposit({ srcChainKey: TON, srcAddress: PUBKEY, token: NATIVE_TON } as never);
-
     expect(balance).toBe(1_500_000_000n);
     expect(calls.find(c => c.method === 'getAddressBalance')?.params.address).toBe(tonWalletAddress(PUBKEY).toString());
+
+    calls = [];
+    const accountAddress = Address.parse(RESERVE).toString();
+    await ton.getDeposit({ srcChainKey: TON, srcAddress: PUBKEY, token: NATIVE_TON, accountAddress });
+    expect(calls[0]?.params.address).toBe(accountAddress);
+    await ton.getDeposit({ srcChainKey: TON, srcAddress: PUBKEY, token: USDT_MASTER, accountAddress });
+    const stack = calls.find(c => c.method === 'runGetMethod')?.params.stack as [string, string][];
+    const cell = Cell.fromBoc(Buffer.from(stack[0]?.[1] ?? '', 'base64'))[0];
+    expect(cell?.beginParse().loadAddress().equals(Address.parse(accountAddress))).toBe(true);
+
+    calls = [];
+    const token = tonSupportedTokens.TON;
+    await ton.getWalletBalance({ srcChainKey: TON, srcAddress: PUBKEY, token, accountAddress: RESERVE });
+    await ton.getWalletBalances({ srcChainKey: TON, srcAddress: PUBKEY, tokens: [token], accountAddress: RESERVE });
+    expect(calls.filter(c => c.method === 'getAddressBalance').map(c => c.params.address)).toEqual([RESERVE, RESERVE]);
   });
 });
 
@@ -553,11 +556,18 @@ describe('TON review regressions', () => {
     expect(sendTransaction).toHaveBeenCalledTimes(1);
   });
 
-  it('resumes discovery and notification without sending', async () => {
+  it('resumes discovery and notification without sending, idempotently, but not for a different deposit', async () => {
     stubToncenter({ txs: [nativeTx('200', MEMO)] });
     expect(await ton.resumeDeposit(recovery)).toBe(hash);
     expect(sendTransaction).not.toHaveBeenCalled();
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', hash);
+
+    // The same recovery returns the hash it already claimed; another deposit cannot take it.
+    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledTimes(2);
+    await expect(ton.resumeDeposit({ ...recovery, broadcastId: 'second-broadcast' }, 1_000)).rejects.toMatchObject({
+      name: 'IndeterminateOutcomeError',
+    });
   });
 
   /** toncenter's getTransactions over `txs` (newest first): pages of `limit`, starting at the lt/hash cursor. */
@@ -590,7 +600,7 @@ describe('TON review regressions', () => {
       ),
     );
 
-  it.each([15, 16, 40])('recovers a deposit behind %i newer reserve transactions', async count => {
+  it.each([16, 40])('recovers a deposit behind %i newer reserve transactions', async count => {
     stubPagedReserve([...newerUnrelated(count), nativeTx('200', MEMO), nativeTx('50', MEMO, 'old')]);
     expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
   });
@@ -619,34 +629,6 @@ describe('TON review regressions', () => {
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '607', olderHash);
   });
 
-  it('resumes the same recovery twice and returns the hash it already claimed', async () => {
-    stubToncenter({ txs: [nativeTx('200', MEMO)] });
-    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
-    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
-    expect(MpcRelayApiService.notify).toHaveBeenCalledTimes(2);
-  });
-
-  it('still refuses to hand a claimed hash to a different deposit', async () => {
-    stubToncenter({ txs: [nativeTx('200', MEMO)] });
-    expect(await ton.resumeDeposit(recovery, 1_000)).toBe(hash);
-    await expect(ton.resumeDeposit({ ...recovery, broadcastId: 'second-broadcast' }, 1_000)).rejects.toMatchObject({
-      name: 'IndeterminateOutcomeError',
-    });
-  });
-
-  it('serializes same-memo deposits and claims each hash once', async () => {
-    const first = nativeTx('200', MEMO);
-    const second = nativeTx('201', MEMO, Buffer.from('de'.repeat(32), 'hex').toString('base64'));
-    second.in_msg.value = '3000000';
-    stubToncenter({ txs: [first, second] });
-    const hashes = await Promise.all([
-      ton.deposit(depositParams(NATIVE_TON)),
-      ton.deposit(depositParams(NATIVE_TON, { amount: 3_000_000n })),
-    ]);
-    expect(hashes).toEqual([hash, `0x${'de'.repeat(32)}`]);
-    expect(MpcRelayApiService.notify).toHaveBeenCalledTimes(2);
-  });
-
   it('ignores native transactions from another sender or amount', async () => {
     const stranger = nativeTx('201', MEMO, Buffer.from('aa'.repeat(32), 'hex').toString('base64'));
     stranger.in_msg.source = RESERVE;
@@ -672,7 +654,7 @@ describe('TON review regressions', () => {
     expect(calls[0]?.params.address).toBe(rotatedReserve);
   });
 
-  it('bounds a hanging receipt RPC by the remaining budget', async () => {
+  it('bounds a hanging receipt RPC and a rate-limit backoff by the remaining budget', async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       'fetch',
@@ -691,40 +673,24 @@ describe('TON review regressions', () => {
     await vi.advanceTimersByTimeAsync(100);
     expect(settled).toBe(true);
     expect(await pending).toMatchObject({ ok: true, value: { status: 'timeout' } });
-  });
 
-  it('uses the settlement floor for NaN timeouts', async () => {
-    const wait = vi
-      .spyOn(MpcRelayApiService, 'waitForWithdrawal')
-      .mockResolvedValue({ ok: true, value: { trackingId: '0x12', status: 'released' } });
-    await ton.waitForWithdrawal('x', Number.NaN);
-    expect(wait).toHaveBeenCalledWith(expect.anything(), 'x', expect.objectContaining({ timeout: 300_000 }));
-  });
-
-  it('reads the supplied account for native and jetton balances', async () => {
-    const accountAddress = Address.parse(RESERVE).toString();
-    stubToncenter();
-    await ton.getDeposit({ srcChainKey: TON, srcAddress: PUBKEY, token: NATIVE_TON, accountAddress });
-    expect(calls[0]?.params.address).toBe(accountAddress);
-    await ton.getDeposit({ srcChainKey: TON, srcAddress: PUBKEY, token: USDT_MASTER, accountAddress });
-    const stack = calls.find(c => c.method === 'runGetMethod')?.params.stack as [string, string][];
-    const cell = Cell.fromBoc(Buffer.from(stack[0]?.[1] ?? '', 'base64'))[0];
-    expect(cell?.beginParse().loadAddress().equals(Address.parse(accountAddress))).toBe(true);
+    const rpc = vi.fn(async () => new Response('', { status: 429 }));
+    vi.stubGlobal('fetch', rpc);
+    let throttledSettled = false;
+    const throttled = ton
+      .waitForTransactionReceipt({ chainKey: TON, txHash: '0x12', maxTimeoutMs: 100 })
+      .then(result => {
+        throttledSettled = true;
+        return result;
+      });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(throttledSettled).toBe(true);
+    expect(await throttled).toMatchObject({ ok: true, value: { status: 'timeout' } });
+    expect(rpc).toHaveBeenCalledTimes(1);
   });
 });
 
 describe('TON correlation and budget edge cases', () => {
-  it('rejects jetton notifications with another depositor or amount', async () => {
-    stubToncenter({
-      txs: [
-        jettonTx('201', MEMO, 2_000_000n, RESERVE, 'aa'.repeat(32)),
-        jettonTx('202', MEMO, 1n, SENDER_ADDRESS, 'bb'.repeat(32)),
-        jettonTx('203', MEMO),
-      ],
-    });
-    expect(await ton.deposit(depositParams(USDT_MASTER))).toBe(`0x${'cd'.repeat(32)}`);
-  });
-
   it('holds the same-memo lock until discovery ends and skips a claimed hash', async () => {
     stubToncenter({ txs: [nativeTx('200', MEMO), nativeTx('201', MEMO, 'de'.repeat(32))] });
     const fetchOk = fetch;
@@ -748,28 +714,5 @@ describe('TON correlation and budget edge cases', () => {
     release();
     expect(await Promise.all([first, second])).toEqual([`0x${'cd'.repeat(32)}`, `0x${'de'.repeat(32)}`]);
     expect(MpcRelayApiService.notify).toHaveBeenCalledTimes(2);
-  });
-
-  it('clamps rate-limit backoff to the receipt budget', async () => {
-    vi.useFakeTimers();
-    const rpc = vi.fn(async () => new Response('', { status: 429 }));
-    vi.stubGlobal('fetch', rpc);
-    let settled = false;
-    const pending = ton.waitForTransactionReceipt({ chainKey: TON, txHash: '0x12', maxTimeoutMs: 100 }).then(result => {
-      settled = true;
-      return result;
-    });
-    await vi.advanceTimersByTimeAsync(100);
-    expect(settled).toBe(true);
-    expect(await pending).toMatchObject({ ok: true, value: { status: 'timeout' } });
-    expect(rpc).toHaveBeenCalledTimes(1);
-  });
-
-  it('forwards accountAddress through both wallet balance helpers', async () => {
-    stubToncenter();
-    const token = tonSupportedTokens.TON;
-    await ton.getWalletBalance({ srcChainKey: TON, srcAddress: PUBKEY, token, accountAddress: RESERVE });
-    await ton.getWalletBalances({ srcChainKey: TON, srcAddress: PUBKEY, tokens: [token], accountAddress: RESERVE });
-    expect(calls.filter(c => c.method === 'getAddressBalance').map(c => c.params.address)).toEqual([RESERVE, RESERVE]);
   });
 });

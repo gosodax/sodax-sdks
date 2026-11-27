@@ -1,7 +1,4 @@
-/**
- * Test-only Tron fixtures: a test account, and builders for `raw_data_hex` bodies shaped like TronGrid's
- * `createtransaction` / `triggersmartcontract` output: ref block, expiration, one contract, then an optional fee limit.
- */
+// Test-only Tron fixtures: `raw_data_hex` builders shaped like TronGrid's `createtransaction` / `triggersmartcontract`.
 import { encodeTrc20TransferParams, tronBase58ToHex } from './tron-utils.js';
 
 /** A Tron test account, and the 32-byte word a hub release pays it through: 12 zero bytes, then its hash. */

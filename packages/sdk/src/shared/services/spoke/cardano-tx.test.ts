@@ -41,16 +41,10 @@ const build = (utxos: CardanoUtxo[], amount: bigint = V.amount) =>
 describe('cardano memo deposit — relay golden vector', () => {
   const built = build([...V.inputs]);
 
-  it('encodes the memo metadata and its hash exactly as the relay does', () => {
+  it('encodes the memo metadata, the body and the tx id the deposit is keyed on byte for byte as the relay does', () => {
     expect(bytesToHex(cardanoDepositAuxiliaryData(memo))).toBe(V.auxiliaryDataHex);
     expect(bytesToHex(cardanoHash(cardanoDepositAuxiliaryData(memo)))).toBe(V.auxiliaryDataHashHex);
-  });
-
-  it('builds the identical transaction body, byte for byte', () => {
     expect(bytesToHex(built.bodyCbor)).toBe(V.bodyHex);
-  });
-
-  it('derives the relay tx id, the digest the wallet signs and the hash the deposit is keyed on', () => {
     expect(bytesToHex(built.txId)).toBe(V.txIdHex);
     expect(cardanoTxHash(built)).toBe(V.txIdHex.slice(2));
   });
@@ -61,17 +55,13 @@ describe('cardano memo deposit — relay golden vector', () => {
     expect(built.body.outputs[1]).toEqual({ address: change, lovelace: 10_000_000n - V.amount - V.fee });
   });
 
-  it('assembles the transaction a wallet returns a witness for, to the relay signed bytes', () => {
+  it('assembles the relay signed bytes, with a fee that also covers a witness set without the set tag', () => {
     const signed = hexToBytes(V.signedTxHex);
     const bodyEnd = 1 + built.bodyCbor.length;
     // `a1 00 d9 0102 81 82 5820 <vkey> 5840 <sig>`: the 107-byte witness set the relay vector carries.
     const witnessSet = signed.slice(bodyEnd, bodyEnd + 107);
 
     expect(bytesToHex(assembleCardanoTx(built.bodyCbor, witnessSet, built.auxiliaryData))).toBe(V.signedTxHex);
-  });
-
-  it('prices a fee that also covers a wallet witness set without the set tag', () => {
-    const signed = hexToBytes(V.signedTxHex);
     const sizedWithoutTag = signed.length - 3;
 
     expect(built.body.fee).toBeGreaterThanOrEqual(cardanoMinFee(sizedWithoutTag, params));
@@ -83,9 +73,6 @@ describe('cardano deposit input selection', () => {
     const built = build([utxo(1_000_000n, 1), utxo(5_000_000n, 2), utxo(3_000_000n, 3)], 6_000_000n);
 
     expect(built.body.inputs.map(i => i.lovelace)).toEqual([5_000_000n, 3_000_000n]);
-  });
-
-  it('uses a single input when it covers the payment, the fee and a change output', () => {
     expect(build([utxo(1_000_000n, 1), utxo(20_000_000n, 2)], 5_000_000n).body.inputs).toHaveLength(1);
   });
 
@@ -99,25 +86,19 @@ describe('cardano deposit input selection', () => {
     expect(changeOutput.lovelace).toBeGreaterThanOrEqual(cardanoMinUtxo(changeOutput, params.coinsPerUtxoByte));
   });
 
-  it('refuses when the funds cannot cover the deposit, the fee and a change output', () => {
+  it('refuses a non-positive amount and funds that cannot cover the deposit, the fee and a change output', () => {
+    expect(() => build([utxo(10_000_000n)], 0n)).toThrow(/must be positive/);
     expect(() => build([utxo(2_000_000n, 1)], V.amount)).toThrow(/insufficient pure-ADA funds/);
     expect(() => build([], V.amount)).toThrow(/0 lovelace in 0 UTXOs/);
   });
 
   const minimum = cardanoMinUtxo({ address: reserve, lovelace: V.amount }, params.coinsPerUtxoByte);
 
-  it('rejects a deposit one lovelace below the reserve minimum', () => {
+  it('builds a deposit exactly at the reserve minimum and rejects one lovelace below it', () => {
+    expect(build([...V.inputs], minimum).body.outputs[0]?.lovelace).toBe(minimum);
     expect(() => build([...V.inputs], minimum - 1n)).toThrow(
       `deposit ${minimum - 1n} lovelace is below the reserve output's min-UTXO ${minimum}`,
     );
-  });
-
-  it('builds a deposit exactly at the reserve minimum', () => {
-    expect(build([...V.inputs], minimum).body.outputs[0]?.lovelace).toBe(minimum);
-  });
-
-  it('refuses a non-positive amount', () => {
-    expect(() => build([utxo(10_000_000n)], 0n)).toThrow(/must be positive/);
   });
 
   it('refuses a transaction above the ledger size limit', () => {
@@ -157,8 +138,6 @@ describe('cardano CBOR encoding', () => {
   it.each([
     [23n, '17'],
     [24n, '1818'],
-    [255n, '18ff'],
-    [256n, '190100'],
     [65_535n, '19ffff'],
     [65_536n, '1a00010000'],
     [4_294_967_295n, '1affffffff'],

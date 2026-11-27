@@ -66,10 +66,7 @@ import {
 } from './cardano-utils.js';
 import { computeSignedMessageHash, randomWithdrawNonce } from './mpc-message.js';
 
-/**
- * Floor for an MPC-relay settlement wait, applied over the caller's own timeout: the relay waits for 15
- * confirmations (about 5 minutes) before it attests, then submits to NEAR and mints on the hub.
- */
+/** Floor over the caller's settlement timeout: the relay waits 15 confirmations (~5 min), then submits to NEAR and mints. */
 const CARDANO_SETTLEMENT_FLOOR_MS = 900_000;
 
 /** How often to re-notify the relay while waiting for a deposit; `/notify` is idempotent. */
@@ -86,15 +83,8 @@ const toWalletHex = (bytes: Uint8Array): string => bytesToHex(bytes).slice(2);
 const fromWalletHex = (hex: string): Uint8Array => hexToBytes(`0x${hex.replace(/^0x/i, '')}`);
 
 /**
- * Spoke service for Cardano (native ADA). Deposits ride the **MPC relay** in memo mode: one payment to the shared
- * reserve at output 0, carrying the payload hash as CIP-20 label-674 metadata. A CIP-30 wallet signs and submits
- * but does not build transactions, so the service builds the body from the account's pure-ADA UTXOs (read from
- * Koios) and the wallet only adds its witness.
- *
- * Withdrawals use scheme 7: a CIP-30 `signData` over the text `0x<message hash>`, submitted with the wallet's
- * COSE_Sign1 and COSE_Key. A Cardano account is identified by the 28-byte hash of its payment key.
- *
- * @see MpcRelayApiService for the relay REST flow.
+ * Cardano (ADA) spoke: deposits ride the MPC relay in memo mode (CIP-20 label-674 metadata, reserve at output 0); the
+ * service builds from pure-ADA UTXOs and the CIP-30 wallet only witnesses. Withdrawals use scheme 7 (CIP-30 `signData`).
  */
 export class CardanoSpokeService implements MpcRelaySettlement {
   private readonly config: ConfigService;
@@ -122,14 +112,8 @@ export class CardanoSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Deposit native ADA into the hub via the MPC relay.
-   *
-   * `Raw: true` returns the transfer descriptor (the reserve, the lovelace and the memo). `Raw: false` builds the
-   * payment, has the wallet sign it, submits it through the wallet, notifies the relay, and resolves to the tx
-   * hash. After the wallet has submitted, a failed notify warns and still resolves to the hash, so a retry cannot
-   * pay twice: `settle` re-notifies it, and a caller that does not settle notifies it with `spoke.submitMpcDeposit`.
-   * A submission error with an uncertain broadcast carries the SDK `txHash` for settlement.
-   * If the wallet reports a different hash, the error also carries `walletTxHash`.
+   * Deposit ADA via the MPC relay. After the wallet submits, a failed notify warns and still resolves to the hash; an
+   * uncertain broadcast error carries the SDK `txHash` (and `walletTxHash` if the wallet reports a different one).
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<CardanoChainKey, R>,
@@ -156,8 +140,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     }
     const { reserveAddress, memo, hubWallet, cardanoMetadata } = addr.value;
 
-    // The payment is irreversible, so the reserve is pinned to the configured one rather than only warned about:
-    // a compromised or intercepted relay response must not be able to redirect it.
+    // The payment is irreversible, so the reserve is pinned rather than warned about: a tampered relay response must not redirect it.
     if (reserveAddress !== this.chainConfig.addresses.reserve) {
       throw new Error(
         `[CardanoSpokeService.deposit] relay reserve ${reserveAddress} is not the configured reserve ${this.chainConfig.addresses.reserve}; refusing to pay it`,
@@ -293,10 +276,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     return submitted satisfies string as TxReturnType<CardanoChainKey, R>;
   }
 
-  /**
-   * Notify the relay of a submitted deposit, without waiting for the hub mint. The funds are already on the
-   * network, so it retries, and a failure keeps the tx hash: the only handle left for re-notifying the deposit.
-   */
+  /** Notify the relay of a submitted deposit with retries; a failure keeps the tx hash, the only handle to re-notify. */
   public async submitDeposit(txHash: string): Promise<Result<void>> {
     const hash = canonicalTxHash(txHash);
     try {
@@ -312,7 +292,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** A notify, retried: `retry` reacts to a throw and `notify` reports failure in its Result, so rethrow it. */
+  /** `retry` reacts to a throw while `notify` reports failure in its Result, so rethrow it. */
   private async retryNotify(send: () => Promise<Result<NotifyResponse>>): Promise<void> {
     await retry(async () => {
       const res = await send();
@@ -320,10 +300,6 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /**
-   * Wait for the hub mint to land for a Cardano deposit, via the MPC relay's deposit record.
-   * `txHash` is the hash returned by {@link deposit}.
-   */
   public async waitForDeposit(txHash: string, timeout?: number): Promise<Result<DepositRecord>> {
     const hash = canonicalTxHash(txHash);
     // The relay waits for confirmations and never re-checks a notification that arrived first.
@@ -340,17 +316,15 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** The MPC relay's current record for a Cardano deposit, read once. `txHash` is as for {@link waitForDeposit}. */
   public async getDepositRecord(txHash: string): Promise<Result<DepositRecord>> {
     return getDeposit(this.relayApiUrl, toDepositId(this.chainId, canonicalTxHash(txHash), DEPOSIT_OUTPUT_INDEX));
   }
 
-  /** On-chain ADA balance of the account, in lovelace. Cardano is ADA only, so `token` does not choose anything. */
+  /** In lovelace; Cardano is ADA only, so `token` does not choose anything. */
   public async getDeposit(params: GetDepositParams<CardanoChainKey>): Promise<bigint> {
     return this.koios.getBalance(params.srcAddress);
   }
 
-  /** The user's own wallet balance of `token`, in lovelace — the same read as {@link getDeposit}. */
   public async getWalletBalance(params: GetBalanceParams<CardanoChainKey>): Promise<bigint> {
     return this.getDeposit({
       srcChainKey: params.srcChainKey,
@@ -359,7 +333,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /** The user's own wallet balances of multiple tokens, keyed by `token.address`. */
+  /** Keyed by `token.address`. */
   public async getWalletBalances(params: GetBalancesParams<CardanoChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
     const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
@@ -367,10 +341,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     return collector.finish();
   }
 
-  /**
-   * The network fee of a typical deposit, in lovelace: one input and a base-address change output, priced at the
-   * current protocol parameters. A wallet whose funds are spread over several UTXOs pays slightly more.
-   */
+  /** Fee (lovelace) of a typical one-input deposit at current protocol parameters; more spread-out UTXOs pay slightly more. */
   public async estimateGas(_params: EstimateGasParams<CardanoChainKey>): Promise<CardanoGasEstimate> {
     const reserve = parseCardanoAddress(this.chainConfig.addresses.reserve);
     const params = await this.koios.getProtocolParams();
@@ -387,14 +358,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     return { fee: built.body.fee };
   }
 
-  /**
-   * Withdraw / borrow (hub→Cardano) via the MPC relay's signature-mode pipeline.
-   *
-   * The `payload` is the hub-wallet calls to run; `dstAddress` is the hub wallet that executes them. The account
-   * `signData`s the withdraw-auth hash (scheme 7), and the relay verifies → burns on the hub → MPC-signs the
-   * release. Resolves to the `trackingId` to poll {@link waitForWithdrawal} with. Raw mode is not supported — there
-   * is no spoke tx to return.
-   */
+  /** Withdraw / borrow (hub→Cardano) via the MPC relay (scheme 7 `signData`); resolves to the `trackingId`. Raw mode is unsupported. */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<CardanoChainKey, Raw>,
   ): Promise<TxReturnType<CardanoChainKey, Raw>> {
@@ -433,15 +397,10 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     return trackingId satisfies string as TxReturnType<CardanoChainKey, Raw>;
   }
 
-  /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */
   public async getWithdrawalRecord(trackingId: string): Promise<Result<WithdrawalRecord>> {
     return getWithdrawal(this.relayApiUrl, trackingId);
   }
 
-  /**
-   * Wait for a hub→Cardano withdrawal to reach `released`, via the MPC relay.
-   * `trackingId` is the value returned by {@link sendMessage}.
-   */
   public async waitForWithdrawal(
     trackingId: string,
     timeout?: number,
@@ -454,10 +413,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /**
-   * Notify the relay of a hub tx releasing to Cardano, without waiting for the release. The relay has no hub
-   * watcher and learns of the hub tx only through `/notify`.
-   */
+  /** Notify the relay of a hub tx releasing to Cardano; it has no hub watcher and learns of it only through `/notify`. */
   public async submitHubRelease(release: HubRelease): Promise<Result<void>> {
     const { hubChainId, hubTxHash } = release;
     try {
@@ -472,10 +428,7 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * Wait until a release {@link submitHubRelease} notified is paid. The relay's verifier also waits on hub
-   * confirmations and may have dropped an early notify, so this keeps re-notifying.
-   */
+  /** Wait until a notified release is paid, re-notifying: the verifier waits on hub confirmations and may drop an early notify. */
   public async waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>> {
     const { hubChainId, hubTxHash } = release;
     const renotify = setInterval(() => {
@@ -491,12 +444,10 @@ export class CardanoSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** One read of a hub release's record through the relay, which `txs.release` marks as paid. */
   public async getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>> {
     return getDeposit(this.relayApiUrl, toHubReleaseId(release));
   }
 
-  /** Poll Koios until the transaction is in a block, mapping it to the SDK shape. */
   public async waitForTransactionReceipt(
     params: WaitForTxReceiptParams<CardanoChainKey>,
   ): Promise<Result<WaitForTxReceiptReturnType<CardanoChainKey>>> {

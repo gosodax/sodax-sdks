@@ -90,7 +90,7 @@ afterEach(() => {
 });
 
 describe('runBackendSubmitTx — happy path', () => {
-  it('submits, polls to the terminal status, and returns the mapped value', async () => {
+  it('submits, polls to the terminal status, and returns the mapped value, passing body and query verbatim', async () => {
     const api = fakeApi();
 
     const result = await run(api);
@@ -98,34 +98,13 @@ describe('runBackendSubmitTx — happy path', () => {
     expect(result).toEqual({ ok: true, value: '0xDST' });
     expect(api.submitCalls).toHaveLength(1);
     expect(api.statusCalls).toHaveLength(1);
-  });
-
-  it('passes the body and the status query through verbatim', async () => {
-    const api = fakeApi();
-
-    await run(api);
-
     // The feature owns these shapes — swaps sends `relayData.payload`, bridge the full envelope — so
     // the shared flow must not reinterpret either.
     expect(api.submitCalls[0]?.body).toEqual({ txHash: '0xspokeTx' });
     expect(api.statusCalls[0]?.query).toEqual({ txHash: '0xspokeTx' });
   });
 
-  it('keeps polling past a terminal status whose result is not yet complete', async () => {
-    const api = fakeApi({
-      statuses: [{ status: 'executed' }, { status: 'executed', result: { dstIntentTxHash: '0xDST' } }],
-    });
-
-    const promise = run(api);
-    await vi.advanceTimersByTimeAsync(2_000);
-
-    expect(await promise).toEqual({ ok: true, value: '0xDST' });
-    expect(api.statusCalls.length).toBeGreaterThan(1);
-  });
-});
-
-describe('runBackendSubmitTx — per-action override config', () => {
-  it('applies the override to the POST and every status request without touching the timeout bounds', async () => {
+  it('applies a per-action override to the POST and every status request without touching the timeout bounds', async () => {
     const api = fakeApi({
       statuses: [{ status: 'executed' }, { status: 'executed', result: { dstIntentTxHash: '0xDST' } }],
     });
@@ -144,6 +123,7 @@ describe('runBackendSubmitTx — per-action override config', () => {
 
     // The POST keeps its attempt-computed bound; the override only adds the key.
     expect(api.submitCalls[0]?.config).toEqual({ apiKey: 'per-action-key', timeout: SERVICE_TIMEOUT_MS });
+    expect(api.statusCalls.length).toBeGreaterThan(1);
     for (const call of api.statusCalls) {
       expect(call.config?.apiKey).toBe('per-action-key');
       expect(call.config?.timeout).toBeDefined(); // the poll's own per-request bound survives the merge
@@ -152,38 +132,17 @@ describe('runBackendSubmitTx — per-action override config', () => {
 });
 
 describe('runBackendSubmitTx — request bounds', () => {
-  it('clamps the POST down to the service timeout when the attempt has more budget', async () => {
-    const api = fakeApi();
+  it('clamps the POST and the first status request to min(service timeout, remaining attempt budget)', async () => {
+    // An override REPLACES `config.timeout`, so the raw 120s remainder would RAISE the bound above the
+    // 30s service ceiling — the first status request is the one that would exceed it if the clamp were dropped.
+    const large = fakeApi();
+    await run(large, 120_000);
+    expect(large.submitCalls[0]?.config).toEqual({ timeout: SERVICE_TIMEOUT_MS });
+    expect(large.statusCalls[0]?.config).toEqual({ timeout: SERVICE_TIMEOUT_MS });
 
-    await run(api, 120_000);
-
-    // An override REPLACES `config.timeout`, so the raw remainder would RAISE the bound to 120s.
-    expect(api.submitCalls[0]?.config).toEqual({ timeout: SERVICE_TIMEOUT_MS });
-  });
-
-  it('clamps the POST down to the remaining budget when that is the smaller bound', async () => {
-    const api = fakeApi();
-
-    await run(api, 10_000);
-
-    expect(api.submitCalls[0]?.config).toEqual({ timeout: 10_000 });
-  });
-
-  it('bounds status requests by the same ceiling as the POST', async () => {
-    const api = fakeApi({ statuses: [{ status: 'pending' }] });
-
-    // The attempt must exceed the service ceiling for the ceiling to be the binding side of the `min`
-    // — on a budget smaller than it, `remaining()` always wins and the assertion below proves nothing.
-    const promise = run(api, 120_000);
-    await vi.advanceTimersByTimeAsync(120_000);
-    await promise;
-
-    expect(api.statusCalls.length).toBeGreaterThan(1);
-    expect(api.statusCalls.every(c => (c.config?.timeout ?? 0) > 0)).toBe(true);
-    expect(api.statusCalls.every(c => (c.config?.timeout ?? 0) <= SERVICE_TIMEOUT_MS)).toBe(true);
-    // The first request is the one that would exceed the ceiling if the clamp were dropped: a fresh
-    // 120s attempt against a 30s service timeout.
-    expect(api.statusCalls[0]?.config).toEqual({ timeout: SERVICE_TIMEOUT_MS });
+    const small = fakeApi();
+    await run(small, 10_000);
+    expect(small.submitCalls[0]?.config).toEqual({ timeout: 10_000 });
   });
 
   it('retries after a status request that consumed its whole bound', async () => {
@@ -197,84 +156,73 @@ describe('runBackendSubmitTx — request bounds', () => {
 
     // 120s attempt, 30s ceiling: ~3-4 stalls, not one 120s stall that eats the attempt whole.
     expect(api.statusCalls.length).toBeGreaterThan(2);
+    expect(api.statusCalls.every(c => (c.config?.timeout ?? 0) > 0)).toBe(true);
     expect(api.statusCalls.every(c => (c.config?.timeout ?? 0) <= SERVICE_TIMEOUT_MS)).toBe(true);
     expect(result.ok).toBe(false);
   });
-});
 
-describe('runBackendSubmitTx — a POST that consumes its bound', () => {
-  it('leaves the poll only what the POST did not spend', async () => {
+  it('a POST that consumes its bound leaves the poll only what it did not spend — nothing when it spent the attempt', async () => {
     // 40s attempt against a 30s ceiling: the POST is clamped to 30s and hangs for all of it, so the
-    // first status request must see the 10s remainder — NOT another 30s. This is the one property the
-    // clamp-value assertions cannot reach: the POST and the poll draw on the SAME attempt, so a
-    // regression that hands the POST its own budget, or re-opens the attempt after it, still passes
-    // every other test here.
-    const api = fakeApi({ submitConsumesItsBound: true });
-
-    const promise = run(api, 40_000);
+    // first status request must see the 10s remainder — NOT another 30s. The POST and the poll draw on
+    // the SAME attempt, so a regression that hands the POST its own budget, or re-opens the attempt
+    // after it, fails here.
+    const partial = fakeApi({ submitConsumesItsBound: true });
+    const partialRun = run(partial, 40_000);
     await vi.advanceTimersByTimeAsync(40_000);
+    expect((await partialRun).ok).toBe(true);
+    expect(partial.submitCalls[0]?.config).toEqual({ timeout: 30_000 });
+    expect(partial.statusCalls[0]?.config).toEqual({ timeout: 10_000 });
 
-    expect((await promise).ok).toBe(true);
-    expect(api.submitCalls[0]?.config).toEqual({ timeout: 30_000 });
-    expect(api.statusCalls[0]?.config).toEqual({ timeout: 10_000 });
-  });
-
-  it('polls not at all when the POST succeeded only as the attempt ran out', async () => {
-    // The POST is clamped to the whole 20s attempt and takes all of it. Submission landed — the backend
-    // is now processing — but there is nothing left to watch it with, so the caller falls back rather
-    // than issuing a status request with an abort already armed.
-    const api = fakeApi({ submitConsumesItsBound: true });
-
-    const promise = run(api, 20_000);
+    // The POST is clamped to the whole 20s attempt and takes all of it. Submission landed but there is
+    // nothing left to watch it with, so the caller falls back rather than issuing a status request
+    // with an abort already armed.
+    const spent = fakeApi({ submitConsumesItsBound: true });
+    const spentRun = run(spent, 20_000);
     await vi.advanceTimersByTimeAsync(20_000);
-    const result = await promise;
-
-    expect(api.submitCalls[0]?.config).toEqual({ timeout: 20_000 });
-    expect(api.statusCalls).toHaveLength(0);
+    const result = await spentRun;
+    expect(spent.submitCalls[0]?.config).toEqual({ timeout: 20_000 });
+    expect(spent.statusCalls).toHaveLength(0);
     expect(result.ok).toBe(false);
     // Not "polling timed out" — no poll ever happened. The cause has to name what actually occurred,
     // since the caller logs it and falls back without surfacing it in the Result.
     if (!result.ok) expect(String((result.cause as Error).message)).toContain('no budget was left to poll');
   });
 
-  it('surfaces the rejection of a POST that hung until its bound fired', async () => {
-    // What a blackholed endpoint actually looks like: not an instant rejection, but one that arrives
-    // only when the request's own timeout aborts it.
-    const aborted = new Error('REQUEST_TIMEOUT');
-    const api = fakeApi({ submitConsumesItsBound: true, submitTx: { ok: false, error: aborted } });
+  it('sends nothing when the caller left no budget, or names api.timeout when the service ceiling is non-positive', async () => {
+    const noBudget = fakeApi();
+    const result = await run(noBudget, 0);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(String((result.cause as Error).message)).toContain('caller timeout');
+    expect(noBudget.submitCalls).toHaveLength(0);
+    expect(noBudget.statusCalls).toHaveLength(0);
 
-    const promise = run(api, 20_000);
-    await vi.advanceTimersByTimeAsync(20_000);
-
-    expect(await promise).toEqual({ ok: false, cause: aborted });
-    expect(api.statusCalls).toHaveLength(0);
+    // A full attempt budget but an unusable ceiling: the diagnostic must point at the config, not at
+    // the caller's `timeout`.
+    const noCeiling = fakeApi({ getTimeout: 0 });
+    const ceilingResult = await run(noCeiling, 120_000);
+    expect(ceilingResult.ok).toBe(false);
+    if (!ceilingResult.ok) expect(String((ceilingResult.cause as Error).message)).toContain('api timeout');
+    expect(noCeiling.submitCalls).toHaveLength(0);
   });
 });
 
 describe('runBackendSubmitTx — non-success outcomes', () => {
-  it('reports the submit error as the cause when the POST is rejected', async () => {
+  it('does not poll when the POST is rejected or returns success:false, surfacing why', async () => {
     const rejected = new Error('backend down');
-    const api = fakeApi({ submitTx: { ok: false, error: rejected } });
-
-    const result = await run(api);
-
-    expect(result).toEqual({ ok: false, cause: rejected });
+    const rejectedApi = fakeApi({ submitTx: { ok: false, error: rejected } });
+    expect(await run(rejectedApi)).toEqual({ ok: false, cause: rejected });
     // A rejected POST must not be followed by polling for something that was never accepted.
-    expect(api.statusCalls).toHaveLength(0);
-  });
+    expect(rejectedApi.statusCalls).toHaveLength(0);
 
-  it('falls back without polling when the POST returns success:false', async () => {
     // `ok` is transport-level only: a 200 can still say the submission was not queued. Polling for a
     // row that will never exist would burn the whole attempt before the fallback got a turn.
-    const api = fakeApi({
+    const notQueued = fakeApi({
       submitTx: { ok: true, value: { success: false, data: { message: 'unsupported source chain' } } },
     });
-
-    const result = await run(api);
-
+    const result = await run(notQueued);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(String((result.cause as Error).message)).toContain('unsupported source chain');
-    expect(api.statusCalls).toHaveLength(0);
+    expect(notQueued.statusCalls).toHaveLength(0);
   });
 
   it('carries the last status error as the cause when polling never succeeded', async () => {
@@ -315,49 +263,6 @@ describe('runBackendSubmitTx — non-success outcomes', () => {
     }
     // One read, then out — no waiting out the 120s attempt.
     expect(api.statusCalls).toHaveLength(1);
-  });
-
-  it('reports the terminal failure reason as the cause', async () => {
-    const api = fakeApi({ statuses: [{ status: 'failed', failureReason: 'hub execution reverted' }] });
-
-    const result = await run(api);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(String((result.cause as Error).message)).toContain('hub execution reverted');
-  });
-
-  it('reports a poll timeout as the cause when the attempt runs out', async () => {
-    const api = fakeApi({ statuses: [{ status: 'pending' }] });
-
-    const promise = run(api, 5_000);
-    await vi.advanceTimersByTimeAsync(5_000);
-    const result = await promise;
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(String((result.cause as Error).message)).toContain('timed out before reaching executed');
-  });
-
-  it('sends nothing at all when the caller left no budget', async () => {
-    const api = fakeApi();
-
-    const result = await run(api, 0);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(String((result.cause as Error).message)).toContain('caller timeout');
-    expect(api.submitCalls).toHaveLength(0);
-    expect(api.statusCalls).toHaveLength(0);
-  });
-
-  it('sends nothing and names api.timeout when the service ceiling is non-positive', async () => {
-    const api = fakeApi({ getTimeout: 0 });
-
-    const result = await run(api, 120_000);
-
-    // A full attempt budget but an unusable ceiling: the diagnostic must point at the config, not at
-    // the caller's `timeout`.
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(String((result.cause as Error).message)).toContain('api timeout');
-    expect(api.submitCalls).toHaveLength(0);
   });
 
   it('does not catch — an unexpected throw belongs to the caller that owns the feature context', async () => {

@@ -36,22 +36,17 @@ const notEnabled = (): string[] =>
 const initialized = () => useXWalletStore.setState({ walletConfig: { EVM: {} }, enabledChains: ['EVM'] });
 
 describe('chain-disabled warning', () => {
-  it('is silent on the first render, before initChainServices has run', () => {
-    renderHook(() => useWalletProvider({ xChainType: 'ICON' }));
-    renderHook(() => useXConnectors({ xChainType: 'STACKS' }));
-
-    expect(notEnabled()).toHaveLength(0);
-  });
-
   // Asserted on both sides of init: the counts alone are equal whether or not the guard is there,
   // so only the ordering distinguishes a warning saved from a warning already spent.
-  it('does not burn the one-shot during that first render', () => {
+  it('is silent on the first render, before initChainServices has run, without burning the one-shot', () => {
     renderHook(() => useWalletProvider({ xChainType: 'NEAR' })); // the mount-race render
+    renderHook(() => useXConnectors({ xChainType: 'STACKS' }));
     expect(notEnabled()).toHaveLength(0);
 
     initialized();
     renderHook(() => useWalletProvider({ xChainType: 'NEAR' })); // a real misconfiguration
-    expect(notEnabled()).toHaveLength(1);
+    renderHook(() => useXConnectors({ xChainType: 'STACKS' }));
+    expect(notEnabled()).toHaveLength(2);
   });
 
   it('stays silent once the chain is enabled', () => {
@@ -63,24 +58,18 @@ describe('chain-disabled warning', () => {
     expect(notEnabled()).toHaveLength(0);
   });
 
-  it('still reports a genuinely missing chain, from either hook', () => {
+  it('reports a genuinely missing chain once per hook after init', () => {
     initialized();
 
-    renderHook(() => useWalletProvider({ xChainType: 'SUI' }));
-    renderHook(() => useXConnectors({ xChainType: 'SUI' }));
+    for (let render = 0; render < 2; render++) {
+      renderHook(() => useWalletProvider({ xChainType: 'SUI' }));
+      renderHook(() => useXConnectors({ xChainType: 'SUI' }));
+    }
 
     const messages = notEnabled();
+    expect(messages).toHaveLength(2);
     expect(messages.some(message => message.startsWith('[useWalletProvider]'))).toBe(true);
     expect(messages.some(message => message.startsWith('[useXConnectors]'))).toBe(true);
-  });
-
-  it('warns only once per chain after init', () => {
-    initialized();
-
-    renderHook(() => useXConnectors({ xChainType: 'INJECTIVE' }));
-    renderHook(() => useXConnectors({ xChainType: 'INJECTIVE' }));
-
-    expect(notEnabled()).toHaveLength(1);
   });
 });
 

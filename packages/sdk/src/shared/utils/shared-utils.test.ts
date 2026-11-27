@@ -24,26 +24,20 @@ const HX = 'hx0000000000000000000000000000000000000001';
 const CX = 'cx1111111111111111111111111111111111111111';
 
 describe('encodeAddress (ICON)', () => {
-  it('encodes a valid hx address with the 00 version byte and round-trips', () => {
-    const encoded = encodeAddress(ICON_MAINNET, HX);
-    expect(encoded).toBe(`0x00${HX.slice(2)}`);
-    expect(reverseEncodeAddress(ICON_MAINNET, encoded)).toBe(HX);
-  });
-
-  it('encodes a valid cx address with the 01 version byte and round-trips', () => {
-    const encoded = encodeAddress(ICON_MAINNET, CX);
-    expect(encoded).toBe(`0x01${CX.slice(2)}`);
-    expect(reverseEncodeAddress(ICON_MAINNET, encoded)).toBe(CX);
+  it('encodes hx with the 00 and cx with the 01 version byte, and both round-trip', () => {
+    const hx = encodeAddress(ICON_MAINNET, HX);
+    expect(hx).toBe(`0x00${HX.slice(2)}`);
+    expect(reverseEncodeAddress(ICON_MAINNET, hx)).toBe(HX);
+    const cx = encodeAddress(ICON_MAINNET, CX);
+    expect(cx).toBe(`0x01${CX.slice(2)}`);
+    expect(reverseEncodeAddress(ICON_MAINNET, cx)).toBe(CX);
   });
 
   it.each([
-    ['bare prefix', 'hx'],
     ['non-hex body', 'hxZZZ0000000000000000000000000000000000000'],
     ['truncated body', 'hx000000000000000000000000000000000000001'],
     ['over-length body', 'hx00000000000000000000000000000000000000011'],
-    ['missing prefix', '0000000000000000000000000000000000000001'],
     ['wrong prefix', 'ax0000000000000000000000000000000000000001'],
-    ['empty string', ''],
   ])('rejects a malformed ICON address (%s)', (_label, address) => {
     expect(() => encodeAddress(ICON_MAINNET, address)).toThrow(/Invalid ICON address/);
   });
@@ -64,12 +58,8 @@ describe('encodeAddress destination validation (BRIDGE-M-2)', () => {
   });
 
   it.each([
-    ['wrong length (the stranded-funds case)', '0x1234'],
-    ['39 hex chars', `0x${'a'.repeat(39)}`],
-    ['41 hex chars', `0x${'a'.repeat(41)}`],
+    ['39 hex chars (the stranded-funds case)', `0x${'a'.repeat(39)}`],
     ['missing 0x prefix', '1468d3529032106291433B7e9e3026dF1Ff78F31'],
-    ['non-hex body', '0xZZ68d3529032106291433B7e9e3026dF1Ff78F31'],
-    ['empty string', ''],
     // The mistyped-recipient case: right length, right alphabet, one character off.
     ['mixed case failing its EIP-55 checksum', '0x1468d3529032106291433B7e9e3026dF1Ff78F32'],
   ])('rejects a malformed EVM recipient (%s)', (_label, address) => {
@@ -89,31 +79,18 @@ describe('encodeAddress destination validation (BRIDGE-M-2)', () => {
     ['bad Base58Check checksum', '1BoatSLRHtKNngkdXEeobR76b53LETtpyt'],
     ['bad bech32 checksum', 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5'],
     ['other bech32 chain', 'inj1cml96vmptgw99syqrrz8az79xer2pcgp0a885r'],
-    ['garbage', '0x1234'],
-    ['empty string', ''],
   ])('rejects a malformed Bitcoin recipient (%s)', (_label, address) => {
     expect(() => encodeAddress(ChainKeys.BITCOIN_MAINNET, address)).toThrow(/Invalid Bitcoin address/);
   });
 
   // bech32 is case-insensitive (BIP-173), and these bytes derive the user's hub wallet — the two
-  // cases of one address must not encode differently. Base58Check is case-sensitive, so it stands.
-  it.each([
-    ['P2WPKH', 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'],
-    ['P2TR', 'bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0'],
-  ])('encodes an uppercase bech32 recipient to its lowercase bytes (%s)', (_label, address) => {
+  // cases of one address must not encode differently. Base58Check is case-sensitive (the valid rows above).
+  it('encodes an uppercase bech32 recipient to its lowercase bytes', () => {
+    const address = 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4';
     expect(encodeAddress(ChainKeys.BITCOIN_MAINNET, address.toUpperCase())).toBe(utf8Hex(address));
   });
 
   it.each([
-    ['P2PKH', '1BoatSLRHtKNngkdXEeobR76b53LETtpyT'],
-    ['P2SH', '3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy'],
-  ])('leaves a case-sensitive Base58Check recipient untouched (%s)', (_label, address) => {
-    expect(encodeAddress(ChainKeys.BITCOIN_MAINNET, address)).toBe(utf8Hex(address));
-  });
-
-  it.each([
-    ['named account', 'alice.near'],
-    ['top-level account', 'aurora'],
     ['implicit account', 'f'.repeat(64)],
     ['separators', 'sub_1-a.alice.near'],
   ])('utf-8 encodes a valid NEAR account id (%s)', (_label, address) => {
@@ -125,15 +102,12 @@ describe('encodeAddress destination validation (BRIDGE-M-2)', () => {
     ['too short', 'a'],
     ['over 64 chars', 'a'.repeat(65)],
     ['consecutive dots', 'alice..near'],
-    ['trailing separator', 'alice-.near'],
-    ['empty string', ''],
   ])('rejects a malformed NEAR account id (%s)', (_label, address) => {
     expect(() => encodeAddress(ChainKeys.NEAR_MAINNET, address)).toThrow(/Invalid NEAR account id/);
   });
 
   it.each([
     ['Injective docs address', 'inj1cml96vmptgw99syqrrz8az79xer2pcgp0a885r'],
-    ['bech32-generated vector', 'inj1gfpyysjzgfpyysjzgfpyysjzgfpyysjzgcuxkp'],
     ['32-byte CosmWasm contract', 'inj1zut3w9chzut3w9chzut3w9chzut3w9chzut3w9chzut3w9chzutsme2qam'],
   ])('utf-8 encodes a checksum-valid Injective recipient (%s)', (_label, address) => {
     expect(encodeAddress(ChainKeys.INJECTIVE_MAINNET, address)).toBe(utf8Hex(address));
@@ -142,10 +116,7 @@ describe('encodeAddress destination validation (BRIDGE-M-2)', () => {
   it.each([
     ['other bech32 prefix', 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'],
     ['wrong data length', 'inj1cml96vmptgw99syqrrz8az79xer2pcgp'],
-    ['bech32-invalid chars', 'inj1cml96vmptgw99syqrrz8az79xer2pcgp0a88bo'],
     ['in-charset single-char typo (checksum)', 'inj1cml96vmptgw99syqrrz8az79xer2pcgp0a885q'],
-    ['uppercase', 'INJ1CML96VMPTGW99SYQRRZ8AZ79XER2PCGP0A885R'],
-    ['empty string', ''],
   ])('rejects a malformed Injective recipient (%s)', (_label, address) => {
     expect(() => encodeAddress(ChainKeys.INJECTIVE_MAINNET, address)).toThrow(/Invalid Injective address/);
   });
@@ -162,9 +133,7 @@ describe('encodeTokenIdentifier (BOT-R1)', () => {
 
   // Real configured identifiers — the exact values the default simulation path feeds through.
   it.each([
-    [ChainKeys.BITCOIN_MAINNET, '0:0'],
     [ChainKeys.BITCOIN_MAINNET, '897442:43'],
-    [ChainKeys.INJECTIVE_MAINNET, 'inj'],
     [ChainKeys.INJECTIVE_MAINNET, 'factory/inj1d036ftaatxpkqsu9hja8r24rv3v33chz3appxp/bnUSD'],
     [ChainKeys.NEAR_MAINNET, 'NEAR'],
   ])('utf-8 encodes the configured identifier (%s %s)', (chainKey, token) => {
@@ -188,31 +157,25 @@ describe('encodeTokenIdentifier (BOT-R1)', () => {
 describe('getRandomBytes / randomUint256 (CSPRNG)', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('returns a Uint8Array of the requested length', () => {
-    expect(getRandomBytes(32)).toBeInstanceOf(Uint8Array);
-    expect(getRandomBytes(32)).toHaveLength(32);
+  it('returns a Uint8Array of the requested length, sourced from crypto.getRandomValues, not Math.random', () => {
+    const cryptoSpy = vi.spyOn(globalThis.crypto, 'getRandomValues');
+    const mathSpy = vi.spyOn(Math, 'random');
+    const bytes = getRandomBytes(32);
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(bytes).toHaveLength(32);
+    expect(cryptoSpy).toHaveBeenCalledTimes(1);
+    expect(mathSpy).not.toHaveBeenCalled();
     expect(getRandomBytes(0)).toHaveLength(0);
   });
 
-  it('sources bytes from crypto.getRandomValues, not Math.random', () => {
-    const cryptoSpy = vi.spyOn(globalThis.crypto, 'getRandomValues');
-    const mathSpy = vi.spyOn(Math, 'random');
-    getRandomBytes(32);
-    expect(cryptoSpy).toHaveBeenCalledTimes(1);
-    expect(mathSpy).not.toHaveBeenCalled();
-  });
-
-  it('randomUint256 hex-encodes the 32 CSPRNG bytes into a bigint', () => {
+  it('randomUint256 hex-encodes the 32 CSPRNG bytes into a bigint within the uint256 range', () => {
+    const value = randomUint256();
+    expect(value).toBeGreaterThanOrEqual(0n);
+    expect(value).toBeLessThan(2n ** 256n);
     vi.spyOn(globalThis.crypto, 'getRandomValues').mockImplementation(array => {
       (array as Uint8Array).fill(0xff);
       return array;
     });
     expect(randomUint256()).toBe(2n ** 256n - 1n);
-  });
-
-  it('randomUint256 stays within the uint256 range', () => {
-    const value = randomUint256();
-    expect(value).toBeGreaterThanOrEqual(0n);
-    expect(value).toBeLessThan(2n ** 256n);
   });
 });

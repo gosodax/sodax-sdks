@@ -24,60 +24,40 @@ type Context = {
   slot: number;
 };
 
-/*
- * Account metadata used to define instructions
- */
 export type SolanaAccountMeta = {
-  /** An account's public key */
   pubkey: SolanaBase58PublicKey;
-  /** True if an instruction requires a transaction signature matching `pubkey` */
   isSigner: boolean;
-  /** True if the `pubkey` can be loaded as a read-write account. */
   isWritable: boolean;
 };
 
 export type SolanaRawTransactionInstruction = {
-  /**
-   * Public keys to include in this transaction
-   * Boolean represents whether this pubkey needs to sign the transaction
-   */
   keys: Array<SolanaAccountMeta>;
-  /**
-   * Program Id to execute
-   */
   programId: SolanaBase58PublicKey;
-  /**
-   * Program input
-   */
   data: Uint8Array;
 };
 
 export type SolanaTokenAmount = {
-  /** Raw amount of tokens as string ignoring decimals */
+  /** Raw amount, ignoring decimals. */
   amount: string;
-  /** Number of decimals configured for token's mint */
   decimals: number;
-  /** Token amount as float, accounts for decimals */
+  /** Decimal-adjusted float. */
   uiAmount: number | null;
-  /** Token amount as string, accounts for decimals */
+  /** Decimal-adjusted string. */
   uiAmountString?: string;
 };
 
 type TokenAmount = {
-  /** Raw amount of tokens as string ignoring decimals */
+  /** Raw amount, ignoring decimals. */
   amount: string;
-  /** Number of decimals configured for token's mint */
   decimals: number;
-  /** Token amount as float, accounts for decimals */
+  /** Decimal-adjusted float. */
   uiAmount: number | null;
-  /** Token amount as string, accounts for decimals */
+  /** Decimal-adjusted string. */
   uiAmountString?: string;
 };
 
 export type SolanaRpcResponseAndContext<T> = {
-  /** response context */
   context: Context;
-  /** response value */
   value: T;
 };
 
@@ -86,9 +66,7 @@ export type SolanaSignatureResult = {
 };
 
 type RpcResponseAndContext<T> = {
-  /** response context */
   context: Context;
-  /** response value */
   value: T;
 };
 
@@ -128,7 +106,7 @@ export interface ISolanaWalletProvider extends ICoreWallet {
   readonly chainType: 'SOLANA';
   getWalletAddress: () => Promise<string>;
   sendTransaction: (rawTransaction: Uint8Array | Array<number>) => Promise<TransactionSignature>;
-  /** Deserialize, sign, and broadcast an unsigned `SolanaRawTransaction` (e.g. from the Swaps API). */
+  /** For an unsigned `SolanaRawTransaction` (e.g. from the Swaps API). */
   signAndSendTransaction?: (params: SolanaRawTransaction) => Promise<TransactionSignature>;
   waitForConfirmation: (
     signature: TransactionSignature,

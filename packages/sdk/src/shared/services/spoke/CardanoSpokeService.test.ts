@@ -146,18 +146,13 @@ describe('CardanoSpokeService.deposit', () => {
     const txHash = await cardano.deposit(depositParams(wallet));
 
     expect(txHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(MpcRelayApiService.getDepositAddress).toHaveBeenCalledWith(expect.anything(), OWNER, '1815', '0x');
     expect(wallet.signTransaction).toHaveBeenCalledOnce();
     expect(wallet.submitTransaction).toHaveBeenCalledOnce();
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '1815', txHash);
     // The wallet is handed hex CBOR with no 0x, as CIP-30 takes it, and submits the transaction it signed.
     expect(wallet.signTransaction.mock.calls[0]?.[0]).toMatch(/^84a5/);
     expect(signedByWallet).toMatch(/^84a5/);
-  });
-
-  it('registers the deposit under the account address on the Cardano relay id', async () => {
-    await cardano.deposit(depositParams(walletFor()));
-
-    expect(MpcRelayApiService.getDepositAddress).toHaveBeenCalledWith(expect.anything(), OWNER, '1815', '0x');
   });
 
   it('returns the transfer descriptor in raw mode without reading the chain or touching the wallet', async () => {
@@ -201,65 +196,53 @@ describe('CardanoSpokeService.deposit', () => {
     );
   });
 
-  it('refuses a token payment, which the reserve never credits', async () => {
-    await expect(
-      cardano.deposit(depositParams(walletFor(), { token: '0x1234567890123456789012345678901234567890' })),
-    ).rejects.toThrow(/native ADA only/);
-  });
-
-  it('refuses a non-positive amount before registering anything', async () => {
-    await expect(cardano.deposit(depositParams(walletFor(), { amount: 0n }))).rejects.toThrow(/must be positive/);
-    expect(MpcRelayApiService.getDepositAddress).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ['a testnet address', CARDANO_ADDRESSES.enterpriseTestnet.bech32, /not mainnet/],
-    ['garbage', 'not-an-address', /invalid Cardano bech32/],
-  ])('refuses %s as the source before registering anything', async (_label, srcAddress, message) => {
-    await expect(cardano.deposit(depositParams(walletFor(), { srcAddress }))).rejects.toThrow(message);
-    expect(MpcRelayApiService.getDepositAddress).not.toHaveBeenCalled();
-  });
-
-  it('refuses to pay a reserve that is not the configured one, however well-formed', async () => {
-    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue(
-      registration({ reserveAddress: CARDANO_ADDRESSES.enterpriseMainnet.bech32 }) as never,
-    );
+  it('refuses a token, a non-positive or over-400-ADA amount and a bad source before registering or signing', async () => {
     const wallet = walletFor();
+    const cases: [object, RegExp][] = [
+      [{ token: '0x1234567890123456789012345678901234567890' }, /native ADA only/],
+      [{ amount: 0n }, /must be positive/],
+      [{ amount: 400_000_001n }, /400 ADA/],
+      [{ srcAddress: CARDANO_ADDRESSES.enterpriseTestnet.bech32 }, /not mainnet/],
+      [{ srcAddress: 'not-an-address' }, /invalid Cardano bech32/],
+    ];
 
-    await expect(cardano.deposit(depositParams(wallet))).rejects.toThrow(/is not the configured reserve/);
+    for (const [extra, message] of cases) {
+      await expect(cardano.deposit(depositParams(wallet, extra))).rejects.toThrow(message);
+    }
+    expect(MpcRelayApiService.getDepositAddress).not.toHaveBeenCalled();
     expect(wallet.signTransaction).not.toHaveBeenCalled();
   });
 
-  it.each([
-    [
-      'a memo that does not commit to the payload',
-      { memo: `0x${'ab'.repeat(32)}` },
-      /does not commit to this deposit's payload/,
-    ],
-    [
-      'a hub wallet other than the one targeted',
-      { hubWallet: '0x2222222222222222222222222222222222222222' },
-      /derives hub wallet/,
-    ],
-    ['an address-mode registration', { depositMethod: 'address', depositAddress: RESERVE }, /expected memo/],
-    [
-      'metadata that does not match the memo',
-      { cardanoMetadata: { '674': { msg: ['00'.repeat(32)] } } },
-      /does not match the metadata/,
-    ],
-  ])('refuses %s, signing nothing', async (_label, override, message) => {
-    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue(registration(override) as never);
+  it('refuses a registration it cannot trust, signing nothing', async () => {
+    const cases: [object, RegExp][] = [
+      // A reserve other than the configured one, however well-formed.
+      [{ reserveAddress: CARDANO_ADDRESSES.enterpriseMainnet.bech32 }, /is not the configured reserve/],
+      [{ memo: `0x${'ab'.repeat(32)}` }, /does not commit to this deposit's payload/],
+      [{ hubWallet: '0x2222222222222222222222222222222222222222' }, /derives hub wallet/],
+      [{ depositMethod: 'address', depositAddress: RESERVE }, /expected memo/],
+      [{ cardanoMetadata: { '674': { msg: ['00'.repeat(32)] } } }, /does not match the metadata/],
+    ];
     const wallet = walletFor();
 
-    await expect(cardano.deposit(depositParams(wallet))).rejects.toThrow(message);
+    for (const [override, message] of cases) {
+      vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue(registration(override) as never);
+      await expect(cardano.deposit(depositParams(wallet))).rejects.toThrow(message);
+    }
     expect(wallet.signTransaction).not.toHaveBeenCalled();
   });
 
-  it('refuses to submit when the wallet adds a witness the fee was not sized for', async () => {
-    const wallet = walletFor(twoWitnesses);
+  it('refuses to broadcast an unsized extra witness, another payment key, or a signature over another tx', async () => {
+    const cases: [string | ((hash: string) => string), RegExp][] = [
+      [twoWitnesses, /larger witness set than one key/],
+      [`a10081${otherWitness}`, /owner's payment key/],
+      [() => oneWitness('00'.repeat(32)), /invalid signature/],
+    ];
 
-    await expect(cardano.deposit(depositParams(wallet))).rejects.toThrow(/larger witness set than one key/);
-    expect(wallet.submitTransaction).not.toHaveBeenCalled();
+    for (const [witness, message] of cases) {
+      const wallet = walletFor(witness);
+      await expect(cardano.deposit(depositParams(wallet))).rejects.toThrow(message);
+      expect(wallet.submitTransaction).not.toHaveBeenCalled();
+    }
   });
 
   it('rejects a deposit below the reserve minimum before signing', async () => {
@@ -270,40 +253,18 @@ describe('CardanoSpokeService.deposit', () => {
     expect(wallet.signTransaction).not.toHaveBeenCalled();
   });
 
-  it('refuses to broadcast a witness from a different payment key', async () => {
-    const wallet = walletFor(`a10081${otherWitness}`);
-    await expect(cardano.deposit(depositParams(wallet))).rejects.toThrow(/owner's payment key/);
-    expect(wallet.submitTransaction).not.toHaveBeenCalled();
-  });
+  it('re-encodes a valid indefinite or tagged witness set in the sized encoding before submitting', async () => {
+    for (const witnessSet of [
+      (hash: string) => `a100819f${ownerWitness(hash).slice(2)}ff`,
+      (hash: string) => `bf00d901029f${ownerWitness(hash)}ffff`,
+    ]) {
+      const wallet = walletFor(witnessSet);
 
-  it('refuses an owner witness whose signature is for a different transaction', async () => {
-    const wallet = walletFor(() => oneWitness('00'.repeat(32)));
-    await expect(cardano.deposit(depositParams(wallet))).rejects.toThrow(/invalid signature/);
-    expect(wallet.submitTransaction).not.toHaveBeenCalled();
-  });
+      const txHash = await cardano.deposit(depositParams(wallet));
 
-  it.each(['array', 'inner array', 'map'])('submits a valid indefinite witness %s', async kind => {
-    const wallet = walletFor(hash => {
-      const witness = ownerWitness(hash);
-      if (kind === 'inner array') return `a100819f${witness.slice(2)}ff`;
-      if (kind === 'map') return `bf0081${witness}ff`;
-      return `a1009f${witness}ff`;
-    });
-
-    await expect(cardano.deposit(depositParams(wallet))).resolves.toMatch(/^[0-9a-f]{64}$/);
-    expect(wallet.submitTransaction).toHaveBeenCalledOnce();
-  });
-
-  it.each([
-    ['tagged indefinite array', (hash: string) => `a100d901029f${ownerWitness(hash)}ff`],
-    ['tagged indefinite array and map', (hash: string) => `bf00d901029f${ownerWitness(hash)}ffff`],
-  ])('submits a valid %s in the sized encoding', async (_label, witnessSet) => {
-    const wallet = walletFor(witnessSet);
-
-    const txHash = await cardano.deposit(depositParams(wallet));
-
-    expect(signedByWallet).toContain(oneWitness(String(txHash)));
-    expect(wallet.submitTransaction).toHaveBeenCalledOnce();
+      expect(signedByWallet).toContain(oneWitness(String(txHash)));
+      expect(wallet.submitTransaction).toHaveBeenCalledOnce();
+    }
   });
 
   it.each([
@@ -364,15 +325,6 @@ describe('CardanoSpokeService.deposit', () => {
     expect(wallet.submitTransaction).toHaveBeenCalledOnce();
   });
 
-  it('refuses 400 ADA plus one lovelace before registration or signing', async () => {
-    const wallet = walletFor();
-
-    await expect(cardano.deposit(depositParams(wallet, { amount: 400_000_001n }))).rejects.toThrow(/400 ADA/);
-    expect(MpcRelayApiService.getDepositAddress).not.toHaveBeenCalled();
-    expect(wallet.signTransaction).not.toHaveBeenCalled();
-    expect(wallet.submitTransaction).not.toHaveBeenCalled();
-  });
-
   it('preserves a CIP-30 refusal without notifying the relay', async () => {
     const wallet = walletFor();
     const refusal = { code: 1, info: 'wallet refuses to send' };
@@ -412,18 +364,15 @@ describe('CardanoSpokeService.deposit', () => {
     expect(vi.mocked(MpcRelayApiService.notify).mock.calls.length).toBeGreaterThan(1);
   });
 
-  it('fails the deposit, signing nothing, when Koios cannot be read', async () => {
-    koios.failOn = '/cli_protocol_params';
+  it('fails the deposit, signing nothing, when Koios cannot be read or returns a foreign UTXO', async () => {
     const wallet = walletFor();
-
+    koios.failOn = '/cli_protocol_params';
     await expect(cardano.deposit(depositParams(wallet))).rejects.toThrow(/koios \/cli_protocol_params: HTTP 500/);
-    expect(wallet.signTransaction).not.toHaveBeenCalled();
-  });
 
-  it('refuses a Koios UTXO that belongs to a different address', async () => {
+    koios.failOn = undefined;
     koios.utxos = [{ ...utxoRow(0, 20_000_000n), address: CARDANO_ADDRESSES.enterpriseMainnet.bech32 }];
-
-    await expect(cardano.deposit(depositParams(walletFor()))).rejects.toThrow(/belongs to a different address/);
+    await expect(cardano.deposit(depositParams(wallet))).rejects.toThrow(/belongs to a different address/);
+    expect(wallet.signTransaction).not.toHaveBeenCalled();
   });
 });
 
@@ -574,21 +523,15 @@ describe('CardanoSpokeService.sendMessage', () => {
     expect(request?.cardanoSignData?.coseKey).toBe(`0x${CARDANO_CIP8.coseSigner}`);
   });
 
-  it('refuses a wallet that signed a different payload, submitting nothing', async () => {
+  it('refuses a signature over a different payload or from a key other than the sender, submitting nothing', async () => {
     const submit = vi.spyOn(MpcRelayApiService, 'submitWithdraw');
-    const wallet = walletSigning(() => `0x${'30'.repeat(66)}`);
+    await expect(cardano.sendMessage(messageParams(walletSigning(() => `0x${'30'.repeat(66)}`)))).rejects.toThrow(
+      /payload other than/,
+    );
 
-    await expect(cardano.sendMessage(messageParams(wallet))).rejects.toThrow(/payload other than/);
-    expect(submit).not.toHaveBeenCalled();
-  });
-
-  it('refuses a signature from a key other than the account sending', async () => {
-    const submit = vi.spyOn(MpcRelayApiService, 'submitWithdraw');
-    const wallet = walletSigning();
     // The account is a different key than the one the wallet signs with.
     const other = cardanoAddressFromRecipientBytes(CARDANO_ADDRESSES.enterpriseMainnet.hex);
-
-    await expect(cardano.sendMessage(messageParams(wallet, { srcAddress: other }))).rejects.toThrow(
+    await expect(cardano.sendMessage(messageParams(walletSigning(), { srcAddress: other }))).rejects.toThrow(
       /signed with payment key hash/,
     );
     expect(submit).not.toHaveBeenCalled();
@@ -664,11 +607,13 @@ describe('CardanoSpokeService — relay submit and read', () => {
   const HASH = 'ab'.repeat(32);
   const record = { ok: true as const, value: { depositId: 'id', status: 'pending' as const, createdAt: 0, txs: {} } };
 
-  it('submitDeposit notifies the bare lowercase hash on the Cardano relay id, without polling', async () => {
+  it('submitDeposit notifies the bare lowercase hash on the Cardano relay id, and submitHubRelease the hub tx as a withdrawal, without polling', async () => {
     const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit');
 
     expect(await cardano.submitDeposit(`0x${HASH.toUpperCase()}`)).toEqual({ ok: true, value: undefined });
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '1815', HASH);
+    expect(await cardano.submitHubRelease(HUB_RELEASE)).toEqual({ ok: true, value: undefined });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '146', '0xhub', 'withdrawal');
     expect(wait).not.toHaveBeenCalled();
   });
 
@@ -683,21 +628,12 @@ describe('CardanoSpokeService — relay submit and read', () => {
     expect(!result.ok && (result.error as Error).message).toContain(`deposit ${HASH} was not notified`);
   });
 
-  it('keys a deposit on output index 0, which is where the reserve payment is built', async () => {
+  it('reads a deposit keyed on output 0, a hub release and a withdrawal once each, notifying nothing', async () => {
     const read = vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(record);
-
     await cardano.getDepositRecord(`0x${HASH}`);
-
+    // Output index 0 is where the reserve payment is built.
     expect(read.mock.calls[0]?.[1]).toBe(`1815-${HASH}-0`);
-  });
 
-  it('submitHubRelease notifies the hub tx as a withdrawal on the hub chain id', async () => {
-    expect(await cardano.submitHubRelease(HUB_RELEASE)).toEqual({ ok: true, value: undefined });
-    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '146', '0xhub', 'withdrawal');
-  });
-
-  it('reads a hub release and a withdrawal once each, notifying nothing', async () => {
-    vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(record);
     vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue({
       ok: true,
       value: { trackingId: '0xtrack', status: 'submitted' },
@@ -708,7 +644,7 @@ describe('CardanoSpokeService — relay submit and read', () => {
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
-  it('uses the settlement floor for NaN across the relay waits', async () => {
+  it('uses the settlement floor for NaN across the relay waits and passes the withdrawal stage through', async () => {
     const deposit = vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockResolvedValue(record);
     const release = vi.spyOn(MpcRelayApiService, 'waitForHubRelease').mockResolvedValue(record);
     const withdrawal = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
@@ -718,7 +654,7 @@ describe('CardanoSpokeService — relay submit and read', () => {
 
     await cardano.waitForDeposit(HASH, Number.NaN);
     await cardano.waitForHubRelease(HUB_RELEASE, Number.NaN);
-    await cardano.waitForWithdrawal('0xtrack', Number.NaN);
+    await cardano.waitForWithdrawal('0xtrack', Number.NaN, 'burned');
 
     for (const wait of [deposit, release, withdrawal]) {
       expect(wait).toHaveBeenCalledWith(
@@ -727,20 +663,7 @@ describe('CardanoSpokeService — relay submit and read', () => {
         expect.objectContaining({ timeout: 900_000 }),
       );
     }
-  });
-
-  it('waitForWithdrawal passes the stage to stop on through to the relay poll, with the Cardano floor', async () => {
-    const wait = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
-      ok: true,
-      value: { trackingId: '0xtrack', status: 'burned' },
-    });
-
-    await cardano.waitForWithdrawal('0xtrack', 1_000, 'burned');
-
-    expect(wait).toHaveBeenCalledWith(
-      expect.anything(),
-      '0xtrack',
-      expect.objectContaining({ until: 'burned', timeout: 900_000 }),
-    );
+    // The stage to stop on passes through to the relay poll.
+    expect(withdrawal).toHaveBeenCalledWith(expect.anything(), '0xtrack', expect.objectContaining({ until: 'burned' }));
   });
 });

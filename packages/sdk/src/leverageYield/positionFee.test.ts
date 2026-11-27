@@ -25,12 +25,13 @@ describe('getEffectivePositionFee', () => {
     expect(result.ok && result.value.feeBps).toBe(10);
   });
 
-  it('refuses a fractional or out-of-range fee rather than baking one in permanently', () => {
+  it('refuses a fractional or negative fee, or the fixed-amount variant PositionConfig cannot express', () => {
     // `PositionConfig.feeBps` is a uint16 fixed at creation; a bad value is not mispriced once, it is
     // wrong for the life of the position.
     const sodax = sodaxWith();
     expect(sodax.leverageYield.getEffectivePositionFee({ address: FEE_RECEIVER, percentage: 0.5 }).ok).toBe(false);
     expect(sodax.leverageYield.getEffectivePositionFee({ address: FEE_RECEIVER, percentage: -1 }).ok).toBe(false);
+    expect(sodax.leverageYield.getEffectivePositionFee({ address: FEE_RECEIVER, amount: 1000n }).ok).toBe(false);
   });
 
   /**
@@ -85,10 +86,5 @@ describe('getEffectivePositionFee', () => {
     const result = sodaxWith().leverageYield.getEffectivePositionFee({ address: ZERO_ADDRESS, percentage: 0 });
     expect(result.ok).toBe(true);
     expect(result.ok && result.value.feeBps).toBe(0);
-  });
-
-  it('refuses the fixed-amount fee variant, which PositionConfig cannot express', () => {
-    const sodax = sodaxWith();
-    expect(sodax.leverageYield.getEffectivePositionFee({ address: FEE_RECEIVER, amount: 1000n }).ok).toBe(false);
   });
 });

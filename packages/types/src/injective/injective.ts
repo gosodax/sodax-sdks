@@ -1,23 +1,11 @@
 import type { ICoreWallet } from '../wallet/wallet.js';
 
 export interface SignDoc {
-  /**
-   * body_bytes is protobuf serialization of a TxBody that matches the
-   * representation in TxRaw.
-   */
+  /** Protobuf TxBody matching the representation in TxRaw. */
   bodyBytes: Uint8Array;
-  /**
-   * auth_info_bytes is a protobuf serialization of an AuthInfo that matches the
-   * representation in TxRaw.
-   */
+  /** Protobuf AuthInfo matching the representation in TxRaw. */
   authInfoBytes: Uint8Array;
-  /**
-   * chain_id is the unique identifier of the chain this transaction targets.
-   * It prevents signed transactions from being used on another chain by an
-   * attacker
-   */
   chainId: string;
-  /** account_number is the account number of the account in state */
   accountNumber: bigint;
 }
 
@@ -32,9 +20,8 @@ export interface InjectiveCoin {
 
 export interface InjectiveExecuteResult {
   readonly logs: readonly unknown[];
-  /** Block height in which the transaction is included */
   readonly height: number;
-  /** Transaction hash (might be used as transaction ID). Guaranteed to be non-empty upper-case hex */
+  /** Non-empty upper-case hex. */
   readonly transactionHash: string;
   readonly events: readonly unknown[];
   readonly gasWanted: bigint;
@@ -120,8 +107,8 @@ export interface IInjectiveWalletProvider extends ICoreWallet {
     msg: JsonObject,
     funds?: InjectiveCoin[],
   ) => Promise<InjectiveExecuteResponse>;
-  /** Broadcast an already-signed, proto-encoded Cosmos `TxRaw`. Returns the tx hash. */
+  /** Takes a proto-encoded Cosmos `TxRaw`; returns the tx hash. */
   sendTransaction?: (signedTxRaw: Uint8Array) => Promise<string>;
-  /** Sign and broadcast an unsigned `InjectiveRawTransaction` (e.g. from the Swaps API). Returns the tx hash. */
+  /** For an unsigned `InjectiveRawTransaction` (e.g. from the Swaps API); returns the tx hash. */
   signAndSendTransaction?: (tx: InjectiveRawTransaction) => Promise<string>;
 }

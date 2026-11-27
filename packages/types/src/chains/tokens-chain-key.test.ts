@@ -5,9 +5,8 @@ import type { SpokeChainKey } from './chains.js';
 import { swapSupportedTokens, stagingSwapSupportedTokens } from '../swap/swap.js';
 import { moneyMarketSupportedTokens } from '../moneyMarket/moneyMarket.js';
 
-// A token is reachable only through the chain list it is filed under, and consumers route on
-// `token.chainKey` (RPC/wagmi chain id, spoke provider, hub-asset lookup). A mismatch between the
-// two silently sends reads for that token to a chain where its address does not exist.
+// Consumers route on `token.chainKey`, so a token filed under a different chain list silently sends reads to a
+// chain where its address does not exist.
 function describeTable(table: Record<string, readonly XToken[]>, label: string) {
   describe(`${label}: token.chainKey matches the chain it is listed under`, () => {
     for (const [chainKey, tokens] of Object.entries(table)) {

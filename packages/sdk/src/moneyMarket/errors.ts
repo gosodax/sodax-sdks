@@ -1,9 +1,4 @@
-/**
- * Money Market module narrow error types.
- *
- * The 4 user-facing operations (`supply`/`borrow`/`withdraw`/`repay`) all share the same
- * code shape — the discriminator lives on `context.action`, never in the type.
- */
+/** All four operations share one code shape; the action is carried on `context.action`, never in the type. */
 
 import {
   ALLOWANCE_CHECK_CODES,
@@ -22,7 +17,6 @@ import type { SodaxError } from '../errors/SodaxError.js';
 
 export const mmInvariant: FeatureInvariant = createInvariant('moneyMarket');
 
-/** The 4 user-facing money-market operations. Carried on `context.action`. */
 export type MoneyMarketAction = 'supply' | 'borrow' | 'withdraw' | 'repay';
 
 export type MoneyMarketCreateIntentErrorCode = CreateIntentErrorCode;

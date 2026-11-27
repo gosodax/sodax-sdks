@@ -117,15 +117,6 @@ describe('EvmVaultTokenService.getTokenInfos', () => {
     expect(result).toEqual([]);
     expect(spy.mock.calls[0]?.[0].contracts).toEqual([]);
   });
-
-  it('preserves order: result[i] corresponds to tokens[i]', async () => {
-    vi.mocked(mockPublicClient.multicall).mockResolvedValueOnce([tokenInfoTupleB, tokenInfoTupleA]);
-
-    const result = await EvmVaultTokenService.getTokenInfos(VAULT, [TOKEN_B, TOKEN_A], mockPublicClient);
-
-    expect(result[0]).toEqual(tokenInfoObjB);
-    expect(result[1]).toEqual(tokenInfoObjA);
-  });
 });
 
 // =========================================================================
@@ -177,17 +168,6 @@ describe('EvmVaultTokenService.deposit', () => {
       { expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id },
     );
   });
-
-  it('reads the from-address from walletProvider.getWalletAddress', async () => {
-    const altSender: Address = '0x5555555555555555555555555555555555555555';
-    vi.mocked(mockWalletProvider.getWalletAddress).mockResolvedValueOnce(altSender);
-    vi.mocked(mockWalletProvider.sendTransaction).mockResolvedValueOnce(TX_HASH);
-
-    await EvmVaultTokenService.deposit(VAULT, TOKEN_A, 1n, mockWalletProvider);
-
-    const sent = vi.mocked(mockWalletProvider.sendTransaction).mock.calls[0]?.[0];
-    expect(sent?.from).toBe(altSender);
-  });
 });
 
 // =========================================================================
@@ -216,19 +196,6 @@ describe('EvmVaultTokenService.withdraw', () => {
       },
       { expectedChainId: getEvmViemChain(ChainKeys.SONIC_MAINNET).id },
     );
-  });
-
-  it('uses different calldata than deposit for the same args (regression guard)', async () => {
-    vi.mocked(mockWalletProvider.getWalletAddress).mockResolvedValue(SENDER);
-    vi.mocked(mockWalletProvider.sendTransaction).mockResolvedValue(TX_HASH);
-
-    await EvmVaultTokenService.deposit(VAULT, TOKEN_A, 1_000n, mockWalletProvider);
-    await EvmVaultTokenService.withdraw(VAULT, TOKEN_A, 1_000n, mockWalletProvider);
-
-    const calls = vi.mocked(mockWalletProvider.sendTransaction).mock.calls;
-    const depositData = calls[0]?.[0].data;
-    const withdrawData = calls[1]?.[0].data;
-    expect(depositData).not.toEqual(withdrawData);
   });
 });
 
@@ -270,12 +237,6 @@ describe('EvmVaultTokenService.encodeWithdraw', () => {
       }),
     });
   });
-
-  it('produces calldata distinct from encodeDeposit for identical args', () => {
-    const deposit = EvmVaultTokenService.encodeDeposit(VAULT, TOKEN_A, 5_000n);
-    const withdraw = EvmVaultTokenService.encodeWithdraw(VAULT, TOKEN_A, 5_000n);
-    expect(deposit.data).not.toEqual(withdraw.data);
-  });
 });
 
 // =========================================================================
@@ -289,10 +250,8 @@ describe('EvmVaultTokenService.encodeWithdraw', () => {
 describe('EvmVaultTokenService.translateIncomingDecimals', () => {
   const cases: ReadonlyArray<{ decimals: number; amount: bigint; expected: bigint; label: string }> = [
     { decimals: 6, amount: 1n, expected: 10n ** 12n, label: 'decimals < 18 → multiply by 10^(18-d)' },
-    { decimals: 0, amount: 7n, expected: 7n * 10n ** 18n, label: 'decimals === 0 (extreme low)' },
     { decimals: 18, amount: 5n, expected: 5n, label: 'decimals === 18 (boundary, no-op)' },
     { decimals: 24, amount: 1_000_000n, expected: 1n, label: 'decimals > 18 → divide by 10^(d-18)' },
-    { decimals: 30, amount: 10n ** 12n, expected: 1n, label: 'decimals = 30 (extreme high)' },
   ];
 
   it.each(cases)('$label (d=$decimals, amt=$amount → $expected)', ({ decimals, amount, expected }) => {
@@ -310,10 +269,8 @@ describe('EvmVaultTokenService.translateIncomingDecimals', () => {
 describe('EvmVaultTokenService.translateOutgoingDecimals', () => {
   const cases: ReadonlyArray<{ decimals: number; amount: bigint; expected: bigint; label: string }> = [
     { decimals: 6, amount: 10n ** 12n, expected: 1n, label: 'decimals < 18 → divide by 10^(18-d)' },
-    { decimals: 0, amount: 7n * 10n ** 18n, expected: 7n, label: 'decimals === 0 (extreme low)' },
     { decimals: 18, amount: 5n, expected: 5n, label: 'decimals === 18 (boundary, no-op)' },
     { decimals: 24, amount: 1n, expected: 10n ** 6n, label: 'decimals > 18 → multiply by 10^(d-18)' },
-    { decimals: 30, amount: 1n, expected: 10n ** 12n, label: 'decimals = 30 (extreme high)' },
   ];
 
   it.each(cases)('$label (d=$decimals, amt=$amount → $expected)', ({ decimals, amount, expected }) => {

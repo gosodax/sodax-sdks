@@ -1,8 +1,5 @@
-/**
- * The CBOR subset needed to read a CIP-30 `signData` result (COSE_Sign1 / COSE_Key): a strict decoder that
- * accepts definite-length major types 0..5, COSE tag 18, and the simple values false/true/null. Witness sets
- * can opt into ledger set tag 258 and indefinite-length arrays and maps.
- */
+// Strict CBOR subset for CIP-30 `signData` (COSE_Sign1 / COSE_Key): definite-length majors 0..5, tag 18 and
+// false/true/null; witness sets may opt into set tag 258 and indefinite-length arrays and maps.
 
 /** A decoded CBOR item. Integers are bigint so u64 and negative values never lose precision. */
 export type CborValue =
@@ -51,7 +48,6 @@ class Reader {
   }
 }
 
-/** Read the argument of a head whose additional info is `info`. */
 function readArg(r: Reader, info: number): bigint {
   if (info < 24) return BigInt(info);
   const width = info === 24 ? 1 : info === 25 ? 2 : info === 26 ? 4 : info === 27 ? 8 : 0;

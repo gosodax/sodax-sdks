@@ -1,23 +1,19 @@
-/**
- * Koios REST reads for building a Cardano deposit: the account's UTXOs, the chain tip, the protocol parameters
- * and a transaction's depth. Every field is validated before use: these numbers feed a fee and a payment, and a
- * misbehaving endpoint must fail the read rather than shape the transaction.
- */
+// Every Koios field is validated before use: these numbers feed a fee and a payment, so a misbehaving endpoint
+// must fail the read rather than shape the transaction.
 import type { CardanoProtocolParams, CardanoUtxo } from './cardano-tx.js';
 
-/** Per-request budget for a Koios call, covering the body read. */
+/** Covers the body read. */
 const KOIOS_TIMEOUT_MS = 15_000;
 /** Koios' PostgREST `max-rows`: no page holds more, so a shorter page is the last. */
 const KOIOS_PAGE_ROWS = 1000;
 /** A bound on paging, so a misbehaving endpoint cannot loop a read forever. */
 const MAX_UTXO_PAGES = 50;
 
-/** A UTXO as Koios reports it, with what decides whether it can be spent without moving anything else. */
 export type KoiosUtxo = CardanoUtxo & { hasAssets: boolean; hasReferenceScript: boolean };
 
 type Row = Record<string, unknown>;
 
-/** `url` without trailing slashes, by scanning back rather than with a regex that backtracks on a long run of them. */
+/** Scans back rather than using a regex that backtracks on a long run of slashes. */
 function trimTrailingSlashes(url: string): string {
   let end = url.length;
   while (end > 0 && url[end - 1] === '/') end--;
@@ -56,12 +52,10 @@ function asTxHash(value: unknown, where: string): string {
 }
 
 export type KoiosClient = {
-  /** Every spendable UTXO of `address`. */
   getUtxos(address: string): Promise<KoiosUtxo[]>;
   /** The absolute slot of the chain tip. */
   getTipSlot(): Promise<bigint>;
   getProtocolParams(): Promise<CardanoProtocolParams>;
-  /** Total lovelace held at `address`. */
   getBalance(address: string): Promise<bigint>;
   /** Blocks on top of the transaction's block (0 in the tip block), or `null` when it is not in a block. */
   getTxDepth(txHash: string, timeoutMs?: number): Promise<number | null>;

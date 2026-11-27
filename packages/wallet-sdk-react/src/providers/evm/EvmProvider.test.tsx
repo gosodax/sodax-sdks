@@ -36,18 +36,6 @@ afterEach(() => {
 });
 
 describe('EvmProvider', () => {
-  it('forwards config.persistKey into createWagmiConfig', () => {
-    const spy = vi.spyOn(EvmXService, 'createWagmiConfig');
-    render(<EvmProvider config={{ persistKey: 'custom-key' }}>{null}</EvmProvider>);
-    expect(spy).toHaveBeenCalledWith(undefined, expect.objectContaining({ persistKey: 'custom-key' }));
-  });
-
-  it('forwards a non-array object initialState to wagmi', () => {
-    const state = EvmXService.createWagmiConfig().state;
-    render(<EvmProvider config={{ initialState: state }}>{null}</EvmProvider>);
-    expect(captured.initialState).toBe(state);
-  });
-
   it('drops a non-object initialState (passes undefined to wagmi) and warns', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     // Simulate an untyped JS caller passing a non-object — Object.defineProperty avoids a cast.
@@ -60,14 +48,17 @@ describe('EvmProvider', () => {
     expect(warn).toHaveBeenCalled();
   });
 
-  it('adds no connector and renders children directly without EVM.privy', () => {
+  it('forwards persistKey and an object initialState to wagmi, adding no connector without EVM.privy', () => {
     const spy = vi.spyOn(EvmXService, 'createWagmiConfig');
+    const state = EvmXService.createWagmiConfig().state;
+    spy.mockClear();
     const { getByText } = render(
-      <EvmProvider config={{}}>
+      <EvmProvider config={{ persistKey: 'custom-key', initialState: state }}>
         <span>child</span>
       </EvmProvider>,
     );
-    expect(spy).toHaveBeenCalledWith(undefined, expect.objectContaining({ connectors: [] }));
+    expect(spy).toHaveBeenCalledWith(undefined, expect.objectContaining({ persistKey: 'custom-key', connectors: [] }));
+    expect(captured.initialState).toBe(state);
     expect(getByText('child')).toBeTruthy();
   });
 

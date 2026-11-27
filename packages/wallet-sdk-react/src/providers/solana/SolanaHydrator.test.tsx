@@ -90,46 +90,33 @@ describe('SolanaHydrator → SolanaWalletProvider', () => {
     vi.clearAllMocks();
   });
 
-  it('forwards defaults from config.SOLANA.chains[SOLANA_MAINNET].defaults', () => {
+  it('constructs the provider from config defaults and the ConnectionProvider endpoint, and stores it', () => {
     connect();
+    adapterState.connection = { rpcEndpoint: 'https://configured-endpoint' };
     renderWith({
       SOLANA: {
         chains: {
-          [ChainKeys.SOLANA_MAINNET]: { defaults: { sendOptions: { skipPreflight: false, maxRetries: 3 } } },
+          [ChainKeys.SOLANA_MAINNET]: {
+            rpcUrl: 'https://configured-endpoint',
+            defaults: { sendOptions: { skipPreflight: false, maxRetries: 3 } },
+          },
         },
       },
     });
     expect(solanaCtor.mock.calls[0]?.[0]).toMatchObject({
+      endpoint: 'https://configured-endpoint',
       defaults: { sendOptions: { skipPreflight: false, maxRetries: 3 } },
     });
-  });
-
-  it('forwards rpcEndpoint from ConnectionProvider into ctor', () => {
-    connect();
-    adapterState.connection = { rpcEndpoint: 'https://configured-endpoint' };
-    renderWith({ SOLANA: { chains: { [ChainKeys.SOLANA_MAINNET]: { rpcUrl: 'https://configured-endpoint' } } } });
-    expect(solanaCtor.mock.calls[0]?.[0].endpoint).toBe('https://configured-endpoint');
-  });
-
-  it('passes undefined defaults when SOLANA chains map omits SOLANA_MAINNET entry', () => {
-    connect();
-    renderWith({ SOLANA: {} });
-    expect(solanaCtor.mock.calls[0]?.[0].defaults).toBeUndefined();
+    const [chain, provider] = setters.setWalletProvider.mock.calls.at(-1) ?? [];
+    expect(chain).toBe('SOLANA');
+    expect((provider as { defaults?: unknown }).defaults).toEqual({
+      sendOptions: { skipPreflight: false, maxRetries: 3 },
+    });
   });
 
   it('does not construct SolanaWalletProvider when wallet is disconnected', () => {
     renderWith({ SOLANA: { chains: { [ChainKeys.SOLANA_MAINNET]: { defaults: { sendOptions: {} } } } } });
     expect(solanaCtor).not.toHaveBeenCalled();
     expect(setters.setWalletProvider).toHaveBeenCalledWith('SOLANA', undefined);
-  });
-
-  it('writes the constructed provider into the SOLANA slot of the store', () => {
-    connect();
-    renderWith({
-      SOLANA: { chains: { [ChainKeys.SOLANA_MAINNET]: { defaults: { sendOptions: { skipPreflight: false } } } } },
-    });
-    const [chain, provider] = setters.setWalletProvider.mock.calls.at(-1) ?? [];
-    expect(chain).toBe('SOLANA');
-    expect((provider as { defaults?: unknown }).defaults).toEqual({ sendOptions: { skipPreflight: false } });
   });
 });

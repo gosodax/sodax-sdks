@@ -14,22 +14,19 @@ import { CARDANO_ADDRESSES, CARDANO_PAYMENT_HASH } from '../services/spoke/carda
 const TRON_ADDRESS = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
 
 describe('encodeRecipient — Tron', () => {
-  it('left-pads the 20-byte hash into a 32-byte word', () => {
+  it('left-pads the 20-byte hash into a 32-byte word, which is NOT the identity encoding', () => {
     const recipient = encodeRecipient(ChainKeys.TRON_MAINNET, TRON_ADDRESS);
 
     expect(recipient).toHaveLength(2 + 64);
     expect(recipient.slice(2, 26)).toBe('0'.repeat(24));
     // The trailing 20 bytes are the address hash: the base58 payload minus its 0x41 version byte.
     expect(recipient.slice(26)).toBe(tronBase58ToHex(TRON_ADDRESS).slice(2));
-  });
 
-  it('is NOT the identity encoding, which authorizes rather than receives', () => {
+    // The identity authorizes rather than receives; it is the tail of the padded word.
     const identity = encodeAddress(ChainKeys.TRON_MAINNET, TRON_ADDRESS);
-
     expect(identity).toHaveLength(2 + 40);
-    expect(encodeRecipient(ChainKeys.TRON_MAINNET, TRON_ADDRESS)).not.toBe(identity);
-    // The identity is the tail of the padded word.
-    expect(encodeRecipient(ChainKeys.TRON_MAINNET, TRON_ADDRESS).endsWith(identity.slice(2))).toBe(true);
+    expect(recipient).not.toBe(identity);
+    expect(recipient.endsWith(identity.slice(2))).toBe(true);
   });
 });
 
@@ -53,20 +50,13 @@ describe('reverseEncodeAddress — Tron', () => {
 const XRP_ADDRESS = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
 
 describe('encodeRecipient / reverseEncodeAddress — XRP', () => {
-  it('left-pads the 20-byte AccountID into a 32-byte word, as the relay releases to it', () => {
+  it('left-pads the 20-byte AccountID into a 32-byte word, and decodes both forms back to the classic address', () => {
     const identity = encodeAddress(ChainKeys.XRP_MAINNET, XRP_ADDRESS);
     const recipient = encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS);
 
     expect(recipient).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
-  });
-
-  it('decodes both the identity and the padded recipient word back to the classic address', () => {
-    expect(reverseEncodeAddress(ChainKeys.XRP_MAINNET, encodeAddress(ChainKeys.XRP_MAINNET, XRP_ADDRESS))).toBe(
-      XRP_ADDRESS,
-    );
-    expect(reverseEncodeAddress(ChainKeys.XRP_MAINNET, encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS))).toBe(
-      XRP_ADDRESS,
-    );
+    expect(reverseEncodeAddress(ChainKeys.XRP_MAINNET, identity)).toBe(XRP_ADDRESS);
+    expect(reverseEncodeAddress(ChainKeys.XRP_MAINNET, recipient)).toBe(XRP_ADDRESS);
   });
 
   it('rejects a 32-byte word whose padding is not zero', () => {
@@ -78,14 +68,18 @@ describe('encodeRecipient / reverseEncodeAddress — XRP', () => {
 describe('encodeRecipient — EVM MPC relay chains (Monad)', () => {
   const MONAD_ADDRESS = getAddress('0x6be3a4afbd5983604385bcba71aaa3645918e2e2');
 
-  it('returns the plain 20-byte address, not the padded word', () => {
+  it('returns the plain lowercased 20-byte address, not the padded word, for checksummed or lowercase input', () => {
     // The relay releases a padded word on Monad to the zero address (mainnet tx 0x1992cdac…234d).
     expect(encodeRecipient(ChainKeys.MONAD_MAINNET, MONAD_ADDRESS)).toBe(MONAD_ADDRESS.toLowerCase());
+    expect(encodeRecipient(ChainKeys.MONAD_MAINNET, MONAD_ADDRESS.toLowerCase())).toBe(MONAD_ADDRESS.toLowerCase());
   });
 
-  it('rejects a malformed EVM recipient instead of releasing to it', () => {
+  it('rejects a malformed or EIP-55-invalid EVM recipient instead of releasing to it', () => {
     expect(() => encodeRecipient(ChainKeys.MONAD_MAINNET, '0x1234')).toThrow(/invalid EVM recipient/);
     expect(() => encodeRecipient(ChainKeys.MONAD_MAINNET, `0x${'zz'.repeat(20)}`)).toThrow(/invalid EVM recipient/);
+    // The checksum is validated before lowercasing.
+    const valid = getAddress('0x1468d3529032106291433b7e9e3026df1ff78f31');
+    expect(() => encodeRecipient(ChainKeys.MONAD_MAINNET, `${valid.slice(0, -1)}2`)).toThrow(/invalid EVM recipient/);
   });
 });
 
@@ -105,16 +99,12 @@ describe('encodeAddress / encodeRecipient / reverseEncodeAddress — Cardano', (
     expect(encodeAddress(ChainKeys.CARDANO_MAINNET, baseMainnet.bech32)).toBe(CARDANO_PAYMENT_HASH);
   });
 
-  it('pays a release to the full raw address, neither the key hash nor a padded word', () => {
+  it('pays a release to the full raw address, neither the key hash nor a padded word, and decodes it back', () => {
     expect(encodeRecipient(ChainKeys.CARDANO_MAINNET, enterpriseMainnet.bech32)).toBe(enterpriseMainnet.hex);
-    expect(encodeRecipient(ChainKeys.CARDANO_MAINNET, baseMainnet.bech32)).toBe(baseMainnet.hex);
-    expect(encodeRecipient(ChainKeys.CARDANO_MAINNET, baseMainnet.bech32)).toHaveLength(2 + 57 * 2);
-  });
-
-  it('decodes the raw recipient bytes back to the bech32 address', () => {
-    expect(
-      reverseEncodeAddress(ChainKeys.CARDANO_MAINNET, encodeRecipient(ChainKeys.CARDANO_MAINNET, baseMainnet.bech32)),
-    ).toBe(baseMainnet.bech32);
+    const recipient = encodeRecipient(ChainKeys.CARDANO_MAINNET, baseMainnet.bech32);
+    expect(recipient).toBe(baseMainnet.hex);
+    expect(recipient).toHaveLength(2 + 57 * 2);
+    expect(reverseEncodeAddress(ChainKeys.CARDANO_MAINNET, recipient)).toBe(baseMainnet.bech32);
   });
 
   it('refuses to decode the key-hash identity, which does not say what stake part the address had', () => {
@@ -128,14 +118,6 @@ describe('encodeAddress / encodeRecipient / reverseEncodeAddress — Cardano', (
       /not mainnet/,
     );
   });
-});
-
-it('validates the EIP-55 checksum before lowercasing a Monad recipient', () => {
-  const valid = getAddress('0x1468d3529032106291433b7e9e3026df1ff78f31');
-  const invalid = `${valid.slice(0, -1)}2`;
-  expect(() => encodeRecipient(ChainKeys.MONAD_MAINNET, invalid)).toThrow(/invalid EVM recipient/);
-  expect(encodeRecipient(ChainKeys.MONAD_MAINNET, valid)).toBe(valid.toLowerCase());
-  expect(encodeRecipient(ChainKeys.MONAD_MAINNET, valid.toLowerCase())).toBe(valid.toLowerCase());
 });
 
 describe('reverseEncodeAddress — Zcash', () => {

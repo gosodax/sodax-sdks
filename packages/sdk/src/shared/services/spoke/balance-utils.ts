@@ -1,6 +1,6 @@
 import type { SodaxLogger, SpokeChainKey, XToken } from '@sodax/types';
 
-/** A wallet balance map in smallest units, keyed by `token.address`. */
+/** Smallest units, keyed by `token.address`. */
 export type WalletBalanceMap = Record<string, bigint>;
 
 export type BalanceReadContext = {
@@ -9,19 +9,13 @@ export type BalanceReadContext = {
 };
 
 /**
- * Accumulates a chain's per-token balance reads.
- *
- * A token that could not be read resolves to `0n` — the same value an empty wallet produces — so
- * every failure is logged through the SDK logger, which is where an integrator's error sink is
- * wired. That keeps one flaky token from discarding the balances that did resolve, but it means a
- * caller cannot tell the two apart; {@link BalanceCollector.finish} therefore refuses the one case
- * where the distinction is unmistakable and dangerous: an entire batch that read nothing at all
- * (a dead or rate-limited RPC) would otherwise render as "this wallet is empty on every asset".
+ * A failed read resolves to `0n` (logged), indistinguishable from an empty wallet, so {@link BalanceCollector.finish}
+ * refuses a batch that read nothing at all (a dead or rate-limited RPC) rather than report every asset as empty.
  */
 export interface BalanceCollector {
-  /** Record a balance that was actually read — including a genuine on-chain zero. */
+  /** Record a balance actually read, including a genuine on-chain zero. */
   ok(tokenAddress: string, value: bigint): void;
-  /** Record a failed read: logs the cause and falls back to `0n`. */
+  /** Logs the cause and falls back to `0n`. */
   fail(tokenAddress: string, reason: unknown): void;
   /** Return the map, or throw when a non-empty batch produced no successful read. */
   finish(): WalletBalanceMap;
@@ -56,11 +50,7 @@ export function createBalanceCollector({ logger, chainKey }: BalanceReadContext)
   };
 }
 
-/**
- * Read every token independently into `collector`, so one failing token never discards the rest.
- * Chains with a native batch call (EVM multicall3, ICON `tryAggregate`, Injective portfolio) feed
- * the collector directly instead of using this.
- */
+/** Reads each token independently; chains with a native batch call feed the collector directly instead. */
 export async function settleWalletBalances(
   collector: BalanceCollector,
   tokens: readonly XToken[],

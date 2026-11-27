@@ -87,19 +87,18 @@ describe('hub-scoped services bind every signed send to the hub chain', () => {
     vi.mocked(mockWalletProvider.sendTransaction).mockResolvedValue(TX_HASH);
   });
 
-  it('covers all eleven signed entry points', () => {
+  it('passes expectedChainId on all eleven signed entry points', async () => {
     expect(SENDS).toHaveLength(11);
-  });
-
-  it.each(SENDS)('%s passes expectedChainId', async (_label, send) => {
-    vi.mocked(mockWalletProvider.sendTransaction).mockClear();
-
-    await send();
-
-    expect(mockWalletProvider.sendTransaction).toHaveBeenCalledWith(expect.anything(), {
-      expectedChainId: HUB_CHAIN_ID,
-    });
     expect(HUB_CHAIN_ID).toBe(146);
+    for (const [label, send] of SENDS) {
+      vi.mocked(mockWalletProvider.sendTransaction).mockClear();
+
+      await send();
+
+      expect(mockWalletProvider.sendTransaction, label).toHaveBeenCalledWith(expect.anything(), {
+        expectedChainId: HUB_CHAIN_ID,
+      });
+    }
   });
 });
 
@@ -109,17 +108,13 @@ describe('raw mode still returns unsent calldata', () => {
     vi.mocked(mockWalletProvider.sendTransaction).mockClear();
   });
 
-  it('Permit2Service.approve with raw: true never reaches the wallet', async () => {
-    const tx = await Permit2Service.approve(SENDER, PERMIT2, TOKEN, SPENDER, 1n, 1, mockWalletProvider, true);
+  it('Permit2Service.approve and Erc4626Service.deposit with raw: true never reach the wallet', async () => {
+    const approveTx = await Permit2Service.approve(SENDER, PERMIT2, TOKEN, SPENDER, 1n, 1, mockWalletProvider, true);
+    expect(approveTx).toMatchObject({ from: SENDER, to: PERMIT2, value: 0n });
 
-    expect(tx).toMatchObject({ from: SENDER, to: PERMIT2, value: 0n });
-    expect(mockWalletProvider.sendTransaction).not.toHaveBeenCalled();
-  });
+    const depositTx = await Erc4626Service.deposit(VAULT, 1n, SENDER, mockWalletProvider, true);
+    expect(depositTx).toMatchObject({ from: SENDER, to: VAULT, value: 0n });
 
-  it('Erc4626Service.deposit with raw: true never reaches the wallet', async () => {
-    const tx = await Erc4626Service.deposit(VAULT, 1n, SENDER, mockWalletProvider, true);
-
-    expect(tx).toMatchObject({ from: SENDER, to: VAULT, value: 0n });
     expect(mockWalletProvider.sendTransaction).not.toHaveBeenCalled();
   });
 });

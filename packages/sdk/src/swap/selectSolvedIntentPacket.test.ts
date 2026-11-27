@@ -38,16 +38,10 @@ const CORRECT_PACKET: PacketData = {
 };
 
 describe('decodePacketIntentTarget', () => {
-  it('decodes payload field[1] to the hub intents contract for the correct packet', () => {
+  it('decodes payload field[1] to the packet target, with or without a 0x prefix', () => {
     expect(decodePacketIntentTarget(CORRECT_PACKET.payload)).toBe('0x6382d6ccd780758c5e8a6123c33ee8f4472f96ef');
-  });
-
-  it('decodes payload field[1] to a non-intents target for the wrong packet', () => {
-    expect(decodePacketIntentTarget(WRONG_PACKET.payload)).toBe('0xc3391bdecf3f5c40bf2e1b30606b60d3f22bf962');
-  });
-
-  it('tolerates a 0x prefix on the payload', () => {
     expect(decodePacketIntentTarget(`0x${CORRECT_PACKET.payload}`)).toBe('0x6382d6ccd780758c5e8a6123c33ee8f4472f96ef');
+    expect(decodePacketIntentTarget(WRONG_PACKET.payload)).toBe('0xc3391bdecf3f5c40bf2e1b30606b60d3f22bf962');
   });
 
   it('returns undefined for a malformed payload (no throw)', () => {
@@ -57,31 +51,19 @@ describe('decodePacketIntentTarget', () => {
 });
 
 describe('selectSolvedIntentPacket', () => {
-  it('selects the packet targeting the hub intents contract (user-facing delivery)', () => {
-    const data = [WRONG_PACKET, CORRECT_PACKET];
-    const selected = selectSolvedIntentPacket(data, INTENTS_CONTRACT);
+  it('selects the packet targeting the hub intents contract (user-facing delivery), in any order and case', () => {
+    const selected = selectSolvedIntentPacket([WRONG_PACKET, CORRECT_PACKET], INTENTS_CONTRACT);
     expect(selected?.dst_tx_hash).toBe('0xcc4cc5b6977d98909696859d0d6b9c967f573ea87d9503ab960b8f22c2db79f4');
     expect(selected?.conn_sn).toBe(174635);
+
+    expect(selectSolvedIntentPacket([CORRECT_PACKET, WRONG_PACKET], INTENTS_CONTRACT)?.conn_sn).toBe(174635);
+    expect(
+      selectSolvedIntentPacket([WRONG_PACKET, CORRECT_PACKET], INTENTS_CONTRACT.toLowerCase() as Address)?.conn_sn,
+    ).toBe(174635);
   });
 
-  it('selects correctly regardless of array order', () => {
-    const data = [CORRECT_PACKET, WRONG_PACKET];
-    expect(selectSolvedIntentPacket(data, INTENTS_CONTRACT)?.conn_sn).toBe(174635);
-  });
-
-  it('matches the intents contract case-insensitively', () => {
-    const selected = selectSolvedIntentPacket(
-      [WRONG_PACKET, CORRECT_PACKET],
-      INTENTS_CONTRACT.toLowerCase() as Address,
-    );
-    expect(selected?.conn_sn).toBe(174635);
-  });
-
-  it('returns the only candidate for a single-element array (legacy passthrough)', () => {
+  it('returns the only candidate of a single-element array (legacy passthrough), and undefined for none', () => {
     expect(selectSolvedIntentPacket([WRONG_PACKET], INTENTS_CONTRACT)).toBe(WRONG_PACKET);
-  });
-
-  it('returns undefined for an empty array', () => {
     expect(selectSolvedIntentPacket([], INTENTS_CONTRACT)).toBeUndefined();
   });
 

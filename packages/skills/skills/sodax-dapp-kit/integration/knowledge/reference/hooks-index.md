@@ -36,7 +36,7 @@ Comprehensive hook table across 12 feature domains. Use this when you know the f
 | `useWithdraw` | Mutation | Withdraw supplied tokens |
 | `useBorrow` | Mutation | Borrow against collateral |
 | `useRepay` | Mutation | Repay borrowed tokens |
-| `useMMAllowance` | Query | Approval check (`enabled: false` for borrow/withdraw — `data` stays `undefined`) |
+| `useMMAllowance` | Query | Approval check (`enabled: false` for borrow/withdraw — `data` is `true`) |
 | `useMMApprove` | Mutation | Approve tokens |
 | `useReservesData` | Query | All reserve data (raw) |
 | `useReservesHumanized` | Query | Reserves in decimal-normalized form |

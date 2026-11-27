@@ -13,63 +13,25 @@ import type { IntentResponse } from './BackendApiService.js';
 import { isFillEvent } from './guards.js';
 import type { BackendSubmitTxStatusEnvelope } from './pollBackendSubmitTx.js';
 
-/**
- * The pieces every "what happened to this source tx?" router shares, whichever feature asks.
- *
- * A feature's backend submit-tx record answers only while it is in play: with the backend path
- * opted out there is no record at all, and on the default path the client-side fallback leaves
- * behind whatever state the backend last reached. The relay packet is the second source, and
- * reading it is identical for every feature — so the read, its failure classification and the
- * budget vocabulary live here rather than once per feature. So does reading the intent journal,
- * which settles a solver answer for every solver-backed feature.
- *
- * Deliberately NOT exported from `./index.js`: `DETAILED_STATUS_NOT_DELIVERED` is already public
- * through the swap barrel, and the SDK's root barrel re-exports both with a flat `export *`, so a
- * second path to the same name would be an ambiguous star export.
- */
+// Not exported from `./index.js`: the swap barrel already exports `DETAILED_STATUS_NOT_DELIVERED`, and a second
+// path through the root `export *` would be ambiguous.
 
 /**
- * `error.context.reason` on the one lookup failure that is not a dependency outage: the relay has
- * no packet for this source tx. That covers both shapes the relayer uses — a 404 for a tx it has
- * not indexed, and a successful response with no matching delivered packet.
- *
- * The state is ambiguous by nature — a transfer still in flight and one whose tx never relayed at
- * all look identical here — so it is the only `LOOKUP_FAILED` a caller can sensibly bound with a
- * retry budget. Every other one (relay 5xx or unreachable, malformed response) is something failing
- * *right now* and should be retried until it recovers; spending a budget on those would turn a
- * transient outage into a permanently stuck read.
- *
- * It is set only when the **backend also answered** — a record, or a definitive 404. Behind a
- * backend outage a relay miss proves nothing: the record may be progressing unseen, so the failure
- * stays unbudgeted.
+ * Relay has no packet for this source tx (404 or no matching delivered packet): the only budgetable `LOOKUP_FAILED`,
+ * set only when the backend also answered; other failures are outages and should retry unbounded.
  */
 export const DETAILED_STATUS_NOT_DELIVERED = 'relay_not_delivered';
 
-/**
- * True when the backend gave up on a record — it failed terminally or was abandoned mid-flight.
- * Such a record never self-heals, so it routes like a 404; keep it and a transfer the client-side
- * fallback went on to complete would read `failed` forever.
- *
- * Typed on the structural envelope, not one feature's record: bridge types `status` as a tolerant
- * `string` where swaps and leverage-yield use a literal union.
- */
+/** A failed/abandoned record never self-heals, so it routes like a 404 (else a fallback-completed transfer reads `failed`). */
 export function isBackendSubmitTxAbandoned(data: BackendSubmitTxStatusEnvelope<unknown>): boolean {
   return data.status === 'failed' || Boolean(data.abandonedAt);
 }
 
-/** How an intent ended, as far as the backend's durable intent journal proves it. */
 export type IntentJournalOutcome = { kind: 'solved'; fillTxHash: string } | { kind: 'cancelled' };
 
 /**
- * The terminal outcome the intent journal proves, or `undefined` while it proves none.
- *
- * `solved` needs the fill that consumed the remainder: an intent created with `allowPartialFill` emits
- * a fill event per fill while input remains. `cancelled` needs an explicit cancel on a closed intent
- * that never filled at all — a cancel after a partial fill is neither, so it proves nothing here, and
- * any `intent-filled` entry rules it out, even one too malformed for `isFillEvent`.
- *
- * The journal, not the hub's `intentStates`: the hub deletes that entry on a full fill as well as on
- * a cancel, so it cannot tell the two apart.
+ * `solved` needs the fill with `remainingInput === '0'`; `cancelled` needs a cancel with no `intent-filled` at all.
+ * Uses the journal, not hub `intentStates`, which deletes the entry on both full fill and cancel.
  */
 export function readIntentJournalOutcome(intent: IntentResponse): IntentJournalOutcome | undefined {
   const settled = intent.events.filter(isFillEvent).find(fill => fill.intentState.remainingInput === '0');
@@ -82,23 +44,12 @@ export function readIntentJournalOutcome(intent: IntentResponse): IntentJournalO
   return undefined;
 }
 
-/**
- * The delivered relay packet for a source tx, or why it could not be read. Untagged cause plus a
- * budgetable flag, like {@link runBackendSubmitTx}'s result: the caller owns the error vocabulary,
- * so this stays feature-agnostic.
- */
+/** Untagged cause plus a budgetable flag: the caller owns the error vocabulary. */
 export type DeliveredPacketResult =
   | { ok: true; packet: PacketData }
   | { ok: false; cause: unknown; budgetable: boolean };
 
-/**
- * Reads the relay packet the source tx produced, applying the same envelope, attribution and
- * delivery guards `pollForExecutedPacket` does.
- *
- * `budgetable` marks the ambiguous miss described on {@link DETAILED_STATUS_NOT_DELIVERED}, and is
- * never set unless `backendAnswered`. Bounded by the relay module's own request budget, because
- * this read is polled; an expiry is a dependency failing now, so it is not budgetable.
- */
+/** Same guards as `pollForExecutedPacket`; `budgetable` is never set unless `backendAnswered`, and expiry isn't budgetable. */
 export async function resolveDeliveredPacket(params: {
   srcChainKey: SpokeChainKey;
   srcTxHash: string;
@@ -114,21 +65,17 @@ export async function resolveDeliveredPacket(params: {
     RELAY_REQUEST_TIMEOUT_MS,
   );
   if (!packets.ok) {
-    // The relayer answers 404 for a source tx it has not indexed — the same "no packet for this tx"
-    // state as an empty list. Anything else (5xx, transport, parse, budget expiry) is failing now.
+    // 404 means "not indexed", same as an empty list; anything else is failing now.
     const notIndexed = packets.error instanceof HttpRelayError && packets.error.status === 404;
     return { ok: false, cause: packets.error, budgetable: notIndexed && backendAnswered };
   }
 
-  // Relay responses are not schema-validated (`parseRelayResponse` casts `response.json()`), so a
-  // 200 with no `data` would otherwise throw here and be reported as ordinary in-flight latency.
+  // Relay responses aren't schema-validated, so a 200 with no `data` would otherwise throw here.
   if (!packets.value?.success || !Array.isArray(packets.value.data)) {
     return { ok: false, cause: new Error('relay returned no usable transaction packets'), budgetable: false };
   }
 
-  // A packet for another transaction would answer for the wrong transfer, so match on
-  // (src_tx_hash, src_chain_id) rather than taking the first executed entry, and string-guard both
-  // hashes so a malformed entry is skipped.
+  // Match on (src_tx_hash, src_chain_id) so another tx's packet can't answer for this transfer.
   const delivered = packets.value.data.find(
     packet =>
       typeof packet?.src_tx_hash === 'string' &&
@@ -149,21 +96,13 @@ export async function resolveDeliveredPacket(params: {
   return { ok: true, packet: delivered };
 }
 
-/** The hub tx a source tx delivered, or why it could not be read — shaped like {@link DeliveredPacketResult}. */
 export type DeliveredHubTxResult = { ok: true; hubTxHash: string } | { ok: false; cause: unknown; budgetable: boolean };
 
-/** An MPC-relay deposit that reached the hub, or why it has not — shaped like {@link DeliveredPacketResult}. */
 export type MintedDepositResult =
   | { ok: true; deposit: DepositRecord; hubTxHash: string }
   | { ok: false; cause: unknown; budgetable: boolean };
 
-/**
- * The deposit record of an MPC-relay source tx once the hub mint is recorded, or `undefined` when the
- * chain rides the intent relay. An MPC-relay chain never produces an intent-relay packet.
- *
- * An unminted deposit is the same ambiguous miss as an undelivered packet: the relay answers an
- * unknown deposit as `pending` rather than a 404, so a stuck and an in-flight deposit look alike.
- */
+/** `undefined` for intent-relay chains; an unminted deposit is budgetable since the relay reports unknown ones as `pending`. */
 export async function resolveMintedMpcDeposit(params: {
   srcChainKey: SpokeChainKey;
   srcTxHash: string;
@@ -186,18 +125,13 @@ export async function resolveMintedMpcDeposit(params: {
   };
 }
 
-/** A release to an MPC-relay chain that was paid out, or why it has not been — shaped like {@link MintedDepositResult}. */
 export type PaidHubReleaseResult =
   | { ok: true; release: DepositRecord }
   | { ok: false; cause: unknown; budgetable: boolean };
 
 /**
- * The record of the release a hub tx sends to an MPC-relay chain once `txs.release` holds the payout tx,
- * or `undefined` when it sends none. The intent relay has no packet for such a leg, since the hub emits
- * a `BridgeRequest` rather than a message, so this is the only source that can answer for it.
- *
- * An unpaid release is the same ambiguous miss as an undelivered packet: the relay answers an unknown
- * release as `pending`, and its `status` never names a release at all.
+ * `undefined` when the hub tx sends no MPC-relay release; the intent relay has no packet for it (hub emits `BridgeRequest`).
+ * An unpaid release is budgetable since the relay reports unknown ones as `pending`.
  */
 export async function resolvePaidHubRelease(params: {
   hubTxHash: string;
@@ -215,10 +149,7 @@ export async function resolvePaidHubRelease(params: {
   };
 }
 
-/**
- * The hub tx a non-hub source tx delivered: the minted deposit record on an MPC-relay chain
- * ({@link resolveMintedMpcDeposit}), the delivered packet ({@link resolveDeliveredPacket}) on any other.
- */
+/** Minted deposit on an MPC-relay chain, delivered packet on any other. */
 export async function resolveDeliveredHubTxHash(params: {
   srcChainKey: SpokeChainKey;
   srcTxHash: string;

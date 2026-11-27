@@ -1,15 +1,5 @@
-/**
- * Pure XRPL encoding helpers for the MPC deposit + withdrawal flows.
- *
- * Ported from the verified mainnet path (`MPC-relay/v2/scripts/xrp-withdraw.mjs`) and kept
- * byte-identical to the NEAR contract's decoders — any divergence breaks signature recovery
- * (withdrawal) or memo matching (deposit).
- *
- * XRPL identity is NOT the public key: a classic `r...` address encodes the 20-byte AccountID,
- * which is `ripemd160(sha256(pubkey))` over the FULL 33-byte `0xED`-prefixed ed25519 key. So the
- * withdraw-auth `sender` and the submitted `publicKey` are different values and are not
- * interchangeable — the contract derives the former from the latter and compares.
- */
+// Byte-identical to the NEAR contract's decoders. The withdraw `sender` (AccountID = ripemd160(sha256(0xED-prefixed
+// ed25519 key))) and the submitted `publicKey` differ; the contract derives the former from the latter.
 import { sha256, type Hex } from 'viem';
 
 /** XRPL's base58 alphabet — deliberately NOT the Bitcoin/Tron ordering. */
@@ -39,14 +29,12 @@ export function decodeAccountId(addr: string): Uint8Array {
   if (Buffer.compare(Buffer.from(sha256d(body).subarray(0, 4)), Buffer.from(chk)) !== 0) {
     throw new Error(`bad checksum for ${addr}`);
   }
-  // body[0] is the type prefix; only 0x00 is an account. Another payload with a valid checksum
-  // would still decode to 20 bytes that no account controls.
+  // Only type prefix 0x00 is an account; another checksummed payload would decode to bytes no account controls.
   if (body[0] !== 0x00)
     throw new Error(`not an XRPL account address (type prefix 0x${body[0]?.toString(16)}): ${addr}`);
   return body.subarray(1);
 }
 
-/** 20-byte AccountID → classic `r...` address. */
 export function encodeAccountId(accountId: Uint8Array): string {
   if (accountId.length !== 20) throw new Error(`AccountID must be 20 bytes, got ${accountId.length}`);
   const payload = Uint8Array.from([0x00, ...accountId]);
@@ -64,47 +52,28 @@ export function encodeAccountId(accountId: Uint8Array): string {
   return out;
 }
 
-/**
- * Withdraw-auth identity for an XRPL account (scheme 3): the 20-byte AccountID as 0x-hex.
- * This is what the NEAR contract compares its `ripemd160(sha256(publicKey))` against.
- */
+/** Scheme-3 identity: the 20-byte AccountID the NEAR contract compares `ripemd160(sha256(publicKey))` against. */
 export function xrpIdentityBytes(classicAddress: string): Hex {
   return `0x${Buffer.from(decodeAccountId(classicAddress)).toString('hex')}`;
 }
 
 /**
- * XRPL currency code for a token symbol.
- *
- * XRPL has two forms: a 3-character ASCII code, or the 160-bit form for anything else — the ASCII
- * bytes left-aligned and zero-padded to 20 bytes. Symbols longer than 3 characters (USDC, RLUSD)
- * MUST use the second, which is also how rippled reports them and what the relay registered:
- *   USDC  → 5553444300000000000000000000000000000000
- *   RLUSD → 524c555344000000000000000000000000000000
- *
- * Derived rather than looked up, so a newly listed IOU cannot silently miss a registry entry.
+ * 3-char ASCII code, else the 160-bit form (ASCII left-aligned, zero-padded to 20 bytes) as rippled reports it.
+ * Derived rather than looked up, so a newly listed IOU cannot miss a registry entry.
  */
 export function xrpCurrencyCode(symbol: string): string {
   if (symbol.length <= 3) return symbol;
   const ascii = Buffer.from(symbol, 'ascii');
   if (ascii.length > 20) throw new Error(`XRPL currency symbol too long: ${symbol}`);
-  // Uppercase: XRPL's canonical form, and how rippled reports it back — the relay registered
-  // RLUSD as 524C555344..., so a lowercase code risks a string-compare miss in a token map.
+  // Uppercase as rippled reports it; the relay registered RLUSD as 524C5553…, so lowercase risks a compare miss.
   return Buffer.concat([ascii, Buffer.alloc(20 - ascii.length)])
     .toString('hex')
     .toUpperCase();
 }
 
 /**
- * The XRPL (currency, issuer) an XRPL token resolves to.
- *
- * Two address forms exist:
- *  - issuer only (`rMxCK…`): the original form, used by tokens whose issuer issues just one token
- *    (RLUSD, USDC). The currency is derived from the symbol, see {@link xrpCurrencyCode}.
- *  - `<40-hex currency>:<issuer>`: for issuers that issue SEVERAL tokens (the Robinhood stocks all
- *    share one issuer), so an issuer-only address could not tell them apart. The currency is explicit,
- *    which also keeps tickers of 3 characters or fewer (GME, IBM) on the 160-bit code they were
- *    issued with instead of being read as a standard currency. This is the same shape as the relay's
- *    `XRP_TOKEN_MAP` key (`CURRENCY:ISSUER`).
+ * `address` is issuer-only (currency derived from the symbol) or `<40-hex currency>:<issuer>` for issuers of several
+ * tokens; the explicit form also keeps ≤3-char tickers on their 160-bit code. Matches the relay's `XRP_TOKEN_MAP` key.
  */
 export function xrpTokenRef(token: { address: string; symbol: string }): { currency: string; issuer: string } {
   const sep = token.address.indexOf(':');
@@ -120,10 +89,7 @@ export function xrpTokenRef(token: { address: string; symbol: string }): { curre
   return { currency, issuer };
 }
 
-/**
- * Inverse of {@link xrpIdentityBytes}: a 20-byte AccountID (0x-hex) back to its classic `r…`
- * address. Used when decoding a hub-side identity back into something a user can read or pay.
- */
+/** Inverse of {@link xrpIdentityBytes}: a 20-byte AccountID (0x-hex) back to its classic `r…` address. */
 export function xrpHashToClassicAddress(encoded: string): string {
   const hex = encoded.replace(/^0x/, '');
   if (hex.length !== 40) throw new Error(`XRPL AccountID must be 20 bytes, got ${hex.length / 2}`);

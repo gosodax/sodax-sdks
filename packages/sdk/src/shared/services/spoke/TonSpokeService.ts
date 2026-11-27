@@ -58,29 +58,23 @@ import {
   tonWalletAddress,
 } from './ton-utils.js';
 
-/** Per-request budget for a toncenter call. */
 const TON_RPC_TIMEOUT_MS = 15_000;
 
 /** toncenter's keyless tier answers 429 readily; a rate-limited call is retried this many times. */
 const TON_RPC_RATE_LIMIT_RETRIES = 5;
 
-/**
- * Floor for an MPC-relay settlement wait, applied over the caller's own timeout: the relay still has to
- * attest, submit to NEAR and mint on the hub (and for a withdrawal, MPC-sign the release).
- */
+/** Floor over the caller's settlement timeout: the relay still has to attest, submit to NEAR and mint on the hub. */
 const TON_SETTLEMENT_FLOOR_MS = 300_000;
 
-/** How often to re-notify the relay while waiting for a deposit — roughly one TON block. */
+/** Relay re-notify interval while waiting for a deposit — roughly one TON block. */
 const RENOTIFY_INTERVAL_MS = 6_000;
 
 /** How long a TonConnect transaction stays sendable. */
 const TON_VALID_WINDOW_SECS = 300;
 
 /**
- * TON attached to a jetton deposit, and the part of it forwarded with the notification. The forward must
- * be large enough for the reserve's jetton wallet to notify the reserve owner — at 1 nanoton the internal
- * transfer bounces and the jettons come back. Unused TON refunds to the sender. Values from live mainnet
- * deposits.
+ * TON attached to a jetton deposit and the part forwarded with the notification; too small a forward (e.g. 1 nanoton)
+ * bounces the internal transfer. Unused TON refunds. Values from live mainnet deposits.
  */
 const JETTON_DEPOSIT_ATTACHED_NANOTON = 200_000_000n;
 const JETTON_DEPOSIT_FORWARD_NANOTON = 100_000_000n;
@@ -93,7 +87,7 @@ const RESERVE_TX_PAGE_SIZE = 16;
 
 type ToncenterTx = TonRawTransactionReceipt;
 
-/** Bare lowercase hex of a toncenter hash, which toncenter reports as base64. */
+/** toncenter reports hashes as base64; this returns bare lowercase hex. */
 function toHexHash(hash: string): string {
   return /^[0-9a-fA-F]{64}$/.test(hash) ? hash.toLowerCase() : Buffer.from(hash, 'base64').toString('hex');
 }
@@ -143,14 +137,8 @@ export class TonDepositNotFoundError extends IndeterminateOutcomeError<TonDeposi
 }
 
 /**
- * Spoke service for TON. Deposits ride the **MPC relay** in memo mode: native TON carries the 32-byte
- * payload hash as a binary comment, a jetton carries it in the transfer's `forward_payload`.
- *
- * A TON account is addressed in the SDK by its 32-byte ed25519 public key — the relay's identity — and
- * pays from the wallet it controls. Withdrawals use scheme 5, a TonConnect `signData` submitted with the
- * public key and the wallet's signing envelope.
- *
- * @see MpcRelayApiService for the relay REST flow (deposit-address → notify → poll).
+ * TON spoke: deposits ride the MPC relay in memo mode (binary comment for TON, `forward_payload` for a jetton). An account
+ * is its 32-byte ed25519 public key (the relay identity); withdrawals use scheme 5, a TonConnect `signData`.
  */
 export class TonSpokeService implements MpcRelaySettlement {
   private readonly config: ConfigService;
@@ -163,8 +151,7 @@ export class TonSpokeService implements MpcRelaySettlement {
     this.config = config;
   }
 
-  // Read live rather than captured in the constructor: `ConfigService` can swap in backend-fetched
-  // config after construction.
+  // Read live: `ConfigService` can swap in backend-fetched config after construction.
   private get chainConfig(): TonSpokeChainConfig {
     return this.config.getChainConfig(ChainKeys.TON_MAINNET);
   }
@@ -182,7 +169,6 @@ export class TonSpokeService implements MpcRelaySettlement {
     return token === this.chainConfig.nativeToken;
   }
 
-  /** One toncenter JSON-RPC call, bounded by a timeout and retried on toncenter's rate limit. */
   private async rpc<T>(method: string, params: Record<string, unknown>, timeoutMs = TON_RPC_TIMEOUT_MS): Promise<T> {
     const deadline = Date.now() + timeoutMs;
     for (let attempt = 0; ; attempt++) {
@@ -216,7 +202,7 @@ export class TonSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** `owner`'s jetton wallet for `master`, from the master's `get_wallet_address` get-method. */
+  /** From the master's `get_wallet_address` get-method. */
   private async jettonWalletOf(master: string, owner: string, timeoutMs?: number): Promise<Address> {
     const ownerBoc = beginCell().storeAddress(Address.parse(owner)).endCell().toBoc().toString('base64');
     const result = await this.rpc<{ exit_code?: number; stack?: [string, { bytes?: string } | string][] }>(
@@ -292,10 +278,7 @@ export class TonSpokeService implements MpcRelaySettlement {
     return recovery.broadcastId;
   }
 
-  /**
-   * One scan of the reserve, newest first, paging back with toncenter's lt/hash cursor until it is past
-   * `recovery.sinceLt`: a busy reserve can take more than a page of transactions while a deposit is found.
-   */
+  /** Pages back with toncenter's lt/hash cursor past `recovery.sinceLt`: a busy reserve can exceed one page. */
   private async scanReserve(
     recovery: TonDepositRecovery,
     key: string,
@@ -381,10 +364,7 @@ export class TonSpokeService implements MpcRelaySettlement {
     return txHash;
   }
 
-  /**
-   * Find and notify a broadcast deposit without sending funds again. Idempotent: resuming the same recovery again
-   * returns the hash it already found and re-notifies it.
-   */
+  /** Find and notify a broadcast deposit without sending funds again; idempotent per recovery. */
   public async resumeDeposit(recovery: TonDepositRecovery, timeoutMs?: number): Promise<string> {
     const txHash = await this.withMemoLock(recovery.memo, () =>
       this.findReserveTx(recovery, resolveTimeoutMs(timeoutMs, DEPOSIT_TX_DISCOVERY_TIMEOUT_MS), true),
@@ -393,14 +373,8 @@ export class TonSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Deposit TON or a jetton into the hub via the MPC relay.
-   *
-   * `srcAddress` is the account's public key. `Raw: true` returns the unsigned message (sent from the
-   * key's wallet-v4R2 address). `Raw: false` has the wallet send it from the account it controls, finds the
-   * reserve transaction that carries the memo, and notifies the relay — resolving to that transaction hash.
-   * Once the deposit has landed, a failed notify warns and still resolves to the hash, so a retry cannot send
-   * it twice: `settle` re-notifies it, and a caller that does not settle notifies it with `spoke.submitMpcDeposit`.
-   * @throws {TonDepositNotFoundError} When broadcast succeeds but discovery times out. Use {@link resumeDeposit}.
+   * Deposit TON or a jetton via the MPC relay; `srcAddress` is the account's public key (raw mode sends from its wallet-v4R2).
+   * Resolves to the reserve tx hash. @throws {TonDepositNotFoundError} when discovery times out — use {@link resumeDeposit}.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<TonChainKey, R>,
@@ -418,8 +392,7 @@ export class TonSpokeService implements MpcRelaySettlement {
     const { reserveAddress, memo, hubWallet } = addr.value;
     this.warnOnUnknownReserve(reserveAddress);
 
-    // The relay derives the receiving hub wallet from the owner rather than taking `to`, so `to` is an
-    // assertion: a mismatch means the identity encoding drifted from the relay's.
+    // The relay derives the hub wallet from the owner, so `to` is only an assertion; a mismatch means identity drift.
     if (to.toLowerCase() !== hubWallet.toLowerCase()) {
       throw new Error(
         `[TonSpokeService.deposit] relay derives hub wallet ${hubWallet} for ${srcAddress}, but the deposit targets ${to}`,
@@ -501,10 +474,7 @@ export class TonSpokeService implements MpcRelaySettlement {
     return (await this.notifyDiscoveredDeposit(txHash)) satisfies string as TxReturnType<TonChainKey, R>;
   }
 
-  /**
-   * Notify the relay of a landed deposit, without waiting for the hub mint. The funds have already moved,
-   * so it retries, and a failure keeps the tx hash: the only handle left for re-notifying the deposit.
-   */
+  /** Notify the relay of a landed deposit with retries; a failure keeps the tx hash, the only handle to re-notify. */
   public async submitDeposit(txHash: string): Promise<Result<void>> {
     try {
       await this.retryNotify(() => notify(this.relayApiUrl, this.chainId, txHash));
@@ -519,7 +489,7 @@ export class TonSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** A notify, retried: `retry` reacts to a throw and `notify` reports failure in its Result, so rethrow it. */
+  /** `retry` reacts to a throw while `notify` reports failure in its Result, so rethrow it. */
   private async retryNotify(send: () => Promise<Result<NotifyResponse>>): Promise<void> {
     await retry(async () => {
       const res = await send();
@@ -537,13 +507,9 @@ export class TonSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * Wait for the hub mint to land for a TON deposit, via the MPC relay's deposit record.
-   * `txHash` is the reserve transaction hash returned by {@link deposit}.
-   */
+  /** `txHash` is the reserve transaction hash returned by {@link deposit}. */
   public async waitForDeposit(txHash: string, timeout?: number): Promise<Result<DepositRecord>> {
-    // Re-notifying is idempotent, and recovers a notification that reached the relay before toncenter
-    // indexed the transaction.
+    // Re-notifying is idempotent and recovers a notify that reached the relay before toncenter indexed the tx.
     const renotify = setInterval(() => {
       void notify(this.relayApiUrl, this.chainId, txHash);
     }, RENOTIFY_INTERVAL_MS);
@@ -558,14 +524,13 @@ export class TonSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** The MPC relay's current record for a TON deposit, read once. `txHash` is as for {@link waitForDeposit}. */
   public async getDepositRecord(txHash: string): Promise<Result<DepositRecord>> {
     return getDeposit(this.relayApiUrl, toDepositId(this.chainId, txHash));
   }
 
   /**
-   * On-chain balance of `token` for `accountAddress` (defaults to wallet-v4R2) — nanotons for native TON, jetton
-   * base units for a jetton. TON memo-mode has no spoke asset manager, so this reads the holder directly.
+   * On-chain balance for `accountAddress` (default wallet-v4R2): nanotons for TON, jetton base units for a jetton.
+   * Memo mode has no asset manager, so this reads the holder directly.
    */
   public async getDeposit(params: GetDepositParams<TonChainKey>): Promise<bigint> {
     const wallet = params.accountAddress ?? tonWalletAddress(params.srcAddress).toString();
@@ -588,7 +553,6 @@ export class TonSpokeService implements MpcRelaySettlement {
     return BigInt(balance);
   }
 
-  /** The user's own wallet balance of `token`, in smallest units — the same read as {@link getDeposit}. */
   public async getWalletBalance(params: GetBalanceParams<TonChainKey>): Promise<bigint> {
     return this.getDeposit({
       srcChainKey: params.srcChainKey,
@@ -598,7 +562,7 @@ export class TonSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /** The user's own wallet balances of multiple tokens, keyed by `token.address`. */
+  /** Keyed by `token.address`. */
   public async getWalletBalances(params: GetBalancesParams<TonChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
     const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
@@ -608,23 +572,12 @@ export class TonSpokeService implements MpcRelaySettlement {
     return collector.finish();
   }
 
-  /**
-   * TON a deposit attaches to carry its message: the amount itself for native TON aside, a jetton deposit
-   * attaches a fixed 0.2 TON (forward + fees), most of which refunds. Network fees are paid on top by the
-   * wallet and are not metered here.
-   */
+  /** TON a deposit attaches to carry its message (fixed 0.2 TON for a jetton, mostly refunded); network fees are not metered. */
   public async estimateGas({ tx }: EstimateGasParams<TonChainKey>): Promise<TonGasEstimate> {
     return { fee: this.isNative(tx.token) ? 0n : JETTON_DEPOSIT_ATTACHED_NANOTON };
   }
 
-  /**
-   * Withdraw / borrow (hub→TON) via the MPC relay's signature-mode pipeline.
-   *
-   * The `payload` is the hub-wallet calls to run; `dstAddress` is the hub wallet that executes them. The
-   * account `signData`s the withdraw-auth hash (scheme 5), and the relay verifies → burns on the hub →
-   * MPC-signs the release. Resolves to the `trackingId` to poll {@link waitForWithdrawal} with. Raw mode
-   * is not supported — there is no spoke tx to return.
-   */
+  /** Withdraw / borrow (hub→TON) via the MPC relay (scheme 5 `signData`); resolves to the `trackingId`. Raw mode is unsupported. */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<TonChainKey, Raw>,
   ): Promise<TxReturnType<TonChainKey, Raw>> {
@@ -666,15 +619,10 @@ export class TonSpokeService implements MpcRelaySettlement {
     return trackingId satisfies string as TxReturnType<TonChainKey, Raw>;
   }
 
-  /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */
   public async getWithdrawalRecord(trackingId: string): Promise<Result<WithdrawalRecord>> {
     return getWithdrawal(this.relayApiUrl, trackingId);
   }
 
-  /**
-   * Wait for a hub→TON withdrawal to reach `released`, via the MPC relay.
-   * `trackingId` is the value returned by {@link sendMessage}.
-   */
   public async waitForWithdrawal(
     trackingId: string,
     timeout?: number,
@@ -687,10 +635,7 @@ export class TonSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /**
-   * Notify the relay of a hub tx releasing to TON, without waiting for the release. The relay has no hub
-   * watcher and learns of the hub tx only through `/notify`.
-   */
+  /** Notify the relay of a hub tx releasing to TON; it has no hub watcher and learns of it only through `/notify`. */
   public async submitHubRelease(release: HubRelease): Promise<Result<void>> {
     const { hubChainId, hubTxHash } = release;
     try {
@@ -705,10 +650,7 @@ export class TonSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * Wait until a release {@link submitHubRelease} notified is paid. The relay's verifier also waits on hub
-   * confirmations and may have dropped an early notify, so this keeps re-notifying.
-   */
+  /** Wait until a notified release is paid, re-notifying: the verifier waits on hub confirmations and may drop an early notify. */
   public async waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>> {
     const { hubChainId, hubTxHash } = release;
     const renotify = setInterval(() => {
@@ -724,15 +666,11 @@ export class TonSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** One read of a hub release's record through the relay, which `txs.release` marks as paid. */
   public async getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>> {
     return getDeposit(this.relayApiUrl, toHubReleaseId(release));
   }
 
-  /**
-   * Wait until a reserve transaction with this hash is indexed. TON transactions are per-account, and the
-   * hashes this service returns are the reserve's, so the reserve is where to look.
-   */
+  /** TON transactions are per-account and returned hashes are the reserve's, so the reserve is polled. */
   public async waitForTransactionReceipt(
     params: WaitForTxReceiptParams<TonChainKey>,
   ): Promise<Result<WaitForTxReceiptReturnType<TonChainKey>>> {

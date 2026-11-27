@@ -3,13 +3,10 @@ import { createInvariant, sodaxInvariant, type FeatureInvariant } from './invari
 import { isSodaxError, type SodaxError } from './SodaxError.js';
 
 describe('sodaxInvariant', () => {
-  it('returns silently when condition is truthy', () => {
+  it('returns silently when condition is truthy, and otherwise throws SodaxError<VALIDATION_FAILED> with phase=validate', () => {
     expect(() => sodaxInvariant(true, 'should not throw', { feature: 'swap' })).not.toThrow();
     expect(() => sodaxInvariant(1, 'should not throw', { feature: 'swap' })).not.toThrow();
     expect(() => sodaxInvariant('x', 'should not throw', { feature: 'swap' })).not.toThrow();
-  });
-
-  it('throws SodaxError<VALIDATION_FAILED> with feature, message, and phase=validate', () => {
     try {
       sodaxInvariant(false, 'amount must be > 0', { feature: 'moneyMarket', context: { field: 'amount' } });
       throw new Error('expected sodaxInvariant to throw');
@@ -35,9 +32,10 @@ describe('sodaxInvariant', () => {
 });
 
 describe('createInvariant', () => {
-  it('returns a feature-bound invariant whose throws carry the bound feature', () => {
+  it('returns a feature-bound invariant that passes when the condition holds and throws with the bound feature otherwise', () => {
     // Explicit annotation — TS requires it to apply an `asserts` signature from a factory result.
     const swapInvariant: FeatureInvariant = createInvariant('swap');
+    expect(() => swapInvariant(true, 'm')).not.toThrow();
     try {
       swapInvariant(false, 'oops', { field: 'token' });
       throw new Error('expected throw');
@@ -48,10 +46,5 @@ describe('createInvariant', () => {
       expect(err.feature).toBe('swap');
       expect(err.context?.field).toBe('token');
     }
-  });
-
-  it('does not throw when condition holds', () => {
-    const stakingInvariant = createInvariant('staking');
-    expect(() => stakingInvariant(true, 'm')).not.toThrow();
   });
 });

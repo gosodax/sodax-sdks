@@ -69,12 +69,7 @@ export class SolanaSpokeService {
     this.maxTimeoutMs = chainConfig.pollingConfig.maxTimeoutMs;
   }
 
-  /**
-   * Estimate the gas for a transaction.
-   * @param {SolanaRawTransaction} rawTx - The raw transaction to estimate the gas for.
-   * @param {SolanaSpokeProviderType} spokeProvider - The provider for the spoke chain.
-   * @returns {Promise<number | undefined>} The units consumed for the transaction.
-   */
+  /** Returns the compute units consumed. */
   public async estimateGas(params: EstimateGasParams<SolanaChainKey>): Promise<SolanaGasEstimate> {
     const connection = new Connection(this.rpcUrl, 'confirmed');
 
@@ -90,11 +85,7 @@ export class SolanaSpokeService {
     return value.unitsConsumed;
   }
 
-  /**
-   * Transfers tokens to the hub chain by depositing into spoke chain asset maanger.
-   * @param {DepositParams<SolanaChainKey, R>} params - The parameters for the transfer, including:
-   * @returns {Promise<TxReturnType<SolanaChainKey, R>>} A promise that resolves to the transaction hash.
-   */
+  /** Deposit into the spoke chain asset manager to transfer tokens to the hub. */
   public async deposit<R extends boolean = false>(
     params: DepositParams<SolanaChainKey, R>,
   ): Promise<TxReturnType<SolanaChainKey, R>> {
@@ -137,9 +128,8 @@ export class SolanaSpokeService {
         ])
         .instruction();
     } else {
-      // The asset manager receives the token program as an account, so the ATA derivation and the
-      // `tokenProgram` account must both match the mint's owning program (legacy SPL Token vs
-      // Token-2022, e.g. xStock tokens like CRCLx).
+      // The ATA derivation and `tokenProgram` account must match the mint's owning program (SPL Token vs Token-2022,
+      // e.g. xStock tokens like CRCLx).
       const tokenProgramId = await SolanaSpokeService.getMintTokenProgramId(this.connection, token);
       const signerTokenAccount = await SolanaSpokeService.getAssociatedTokenAddress(
         token.toBase58(),
@@ -216,14 +206,7 @@ export class SolanaSpokeService {
     return BigInt(tokenAccount.value.amount);
   }
 
-  /**
-   * Get the user's own wallet balance of a token on Solana, in smallest units. Native SOL via
-   * `getBalance`; SPL via the associated token account. The mint may belong to the legacy SPL
-   * Token program or Token-2022 (e.g. xStock tokens), which derive different ATAs, so both
-   * candidate ATAs are read in one call and the existing one is used.
-   * @param {GetBalanceParams<SolanaChainKey>} params - The chain key, user address, and token.
-   * @returns {Promise<bigint>} The token balance in smallest units.
-   */
+  /** SPL mints may be legacy SPL Token or Token-2022 (different ATAs), so both candidate ATAs are read in one call. */
   public async getWalletBalance(params: GetBalanceParams<SolanaChainKey>): Promise<bigint> {
     const { srcChainKey, srcAddress, token } = params;
 
@@ -241,9 +224,7 @@ export class SolanaSpokeService {
 
     const accounts = await this.connection.getMultipleAccountsInfo(candidates.map(c => c.ata));
 
-    // A mint is owned by exactly one program, so normally only one ATA exists. Summing (and
-    // skipping anything that isn't a token account for that program) stays correct even if a
-    // stray account sits at the other candidate address.
+    // Summing only valid token accounts stays correct if a stray account sits at the other candidate address.
     let balance = 0n;
     for (const [i, candidate] of candidates.entries()) {
       const info = accounts[i];
@@ -257,11 +238,6 @@ export class SolanaSpokeService {
     return balance;
   }
 
-  /**
-   * Get the user's own wallet balances of multiple tokens on Solana, in smallest units.
-   * @param {GetBalancesParams<SolanaChainKey>} params - The chain key, user address, and tokens.
-   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
-   */
   public async getWalletBalances(params: GetBalancesParams<SolanaChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
     const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
@@ -271,15 +247,6 @@ export class SolanaSpokeService {
     return collector.finish();
   }
 
-  /**
-   * Sends a message to the hub chain.
-   * @param dstChainKey - The chain key of the hub chain.
-   * @param dstAddress - The address on the hub chain.
-   * @param payload - The payload to send.
-   * @param spokeProvider - The spoke provider.
-   * @param raw - Whether to return the raw transaction data.
-   * @returns The transaction result.
-   */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<SolanaChainKey, Raw>,
   ): Promise<TxReturnType<SolanaChainKey, Raw>> {
@@ -336,8 +303,7 @@ export class SolanaSpokeService {
     > as Promise<TxReturnType<SolanaChainKey, Raw>>;
   }
 
-  // Builds an unsigned, serialized v0 transaction for raw-mode callers who will sign and broadcast it themselves.
-  // The non-raw path uses walletProvider.buildV0Txn(...) instead, which signs the tx (prompting the user in adapter mode).
+  // Unsigned serialized v0 tx for raw-mode callers; the non-raw path uses walletProvider.buildV0Txn(...), which signs.
   public async buildV0Txn(
     from: SolanaBase58PublicKey,
     rawInstructions: SolanaRawTransactionInstruction[],
@@ -399,10 +365,7 @@ export class SolanaSpokeService {
     return await connection.getTokenAccountBalance(new PublicKey(publicKey));
   }
 
-  /**
-   * Resolves the token program that owns a mint (legacy SPL Token vs Token-2022). Falls back to
-   * the legacy SPL Token program when the mint account can't be read.
-   */
+  /** Legacy SPL Token vs Token-2022; falls back to legacy SPL Token when the mint account can't be read. */
   public static async getMintTokenProgramId(connection: Connection, mint: PublicKey): Promise<PublicKey> {
     const mintAccountInfo = await connection.getAccountInfo(mint);
     return mintAccountInfo?.owner.equals(TOKEN_2022_PROGRAM_ID) ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;

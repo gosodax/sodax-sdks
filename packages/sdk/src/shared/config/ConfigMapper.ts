@@ -1,20 +1,10 @@
-// Utility to parse a plain JSON object into a readonly Token[] type
-// Ensures object array matches minimum Token property requirements
-
 import type { XToken } from '@sodax/types';
 
-/**
- * Safely parse a JSON value presumed to be an array of Token-like objects
- * Returns a readonly Token[] if successfully parsed, throws otherwise
- * @param input the JSON value to parse
- */
 export function parseTokenArrayFromJson(input: unknown): readonly XToken[] {
   if (!Array.isArray(input)) {
     throw new TypeError('Input must be an array');
   }
 
-  // Validate and collect Token entries using a for loop,
-  // ensuring the minimum required Token properties are present
   const tokens: XToken[] = [];
   for (let idx = 0; idx < input.length; idx++) {
     const item = input[idx];
@@ -28,7 +18,6 @@ export function parseTokenArrayFromJson(input: unknown): readonly XToken[] {
     ) {
       throw new TypeError(`Item at index ${idx} is not a valid Token`);
     }
-    // Safe cast due to prior validation
     tokens.push(item as XToken);
   }
 

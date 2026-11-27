@@ -12,8 +12,8 @@ export type UseMMAllowanceParams<K extends SpokeChainKey> = ReadHookParams<
 >;
 
 /**
- * Disabled for `borrow`/`withdraw` (no approval needed) to avoid a loading flash. Query key must match
- * the `['mm', 'allowance', srcChainKey, token, action]` invalidations from `useMMApprove` and mutations.
+ * `borrow`/`withdraw` need no approval: the query stays disabled and `data` is seeded with `true`. Query key must
+ * match the `['mm', 'allowance', srcChainKey, token, action]` invalidations from `useMMApprove` and mutations.
  */
 export function useMMAllowance<K extends SpokeChainKey>({
   params,
@@ -21,6 +21,7 @@ export function useMMAllowance<K extends SpokeChainKey>({
 }: UseMMAllowanceParams<K> = {}): UseQueryResult<boolean, Error> {
   const { sodax } = useSodaxContext();
   const payload = params?.payload;
+  const needsApproval = payload?.action !== 'borrow' && payload?.action !== 'withdraw';
 
   return useQuery<boolean, Error>({
     queryKey: ['mm', 'allowance', payload?.srcChainKey, payload?.token, payload?.action],
@@ -29,7 +30,7 @@ export function useMMAllowance<K extends SpokeChainKey>({
         throw new Error('Params are required');
       }
 
-      if (payload.action === 'borrow' || payload.action === 'withdraw') {
+      if (!needsApproval) {
         return true;
       }
 
@@ -37,7 +38,8 @@ export function useMMAllowance<K extends SpokeChainKey>({
       if (!result.ok) throw result.error;
       return result.value;
     },
-    enabled: !!payload && payload.action !== 'borrow' && payload.action !== 'withdraw',
+    initialData: () => (payload && !needsApproval ? true : undefined),
+    enabled: !!payload && needsApproval,
     refetchInterval: 5000,
     gcTime: 0,
     ...queryOptions,

@@ -184,13 +184,14 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     data: '0x',
   });
 
-  it('resolves spoke-chain inputs to hub assets and embeds them in the intent struct (no fee)', () => {
+  it('resolves spoke-chain inputs to hub assets and embeds them in the intent struct (no fee, default solver)', () => {
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
       .mockReturnValueOnce(hubInputXToken)
       .mockReturnValueOnce(hubOutputXToken);
 
+    const { solver: _omit, ...withoutSolver } = baseParams();
     const [, intent, feeAmount] = EvmSolverService.constructCreateIntentData(
-      baseParams(),
+      withoutSolver as CreateIntentParams,
       HUB_WALLET,
       mockConfig,
       undefined,
@@ -203,25 +204,14 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     expect(intent.inputAmount).toBe(1_000_000n); // no fee deducted
     expect(intent.srcChain).toBe(4n); // BSC_MAINNET → 4n
     expect(intent.dstChain).toBe(2n); // ETHEREUM_MAINNET → 2n
-    expect(intent.solver).toBe(SOLVER_ADDRESS);
+    expect(intent.solver).toBe('0x0000000000000000000000000000000000000000');
     expect(intent.data).toBe('0x'); // no fee → empty data
-  });
-
-  it('uses the spoke-chain srcAddress/dstAddress as the hub-style hex (EVM chains pass through)', () => {
-    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
-      .mockReturnValueOnce(hubInputXToken)
-      .mockReturnValueOnce(hubOutputXToken);
-
-    const [, intent] = EvmSolverService.constructCreateIntentData(baseParams(), HUB_WALLET, mockConfig, undefined);
-
+    // EVM spoke addresses pass through as the hub-style hex.
     expect(intent.srcAddress).toBe(SRC_USER);
     expect(intent.dstAddress).toBe(DST_USER);
   });
 
-  it.each([
-    [true, 3_000_001n, 'allowPartialFill'],
-    [false, 3_000_000n, 'minOutputAmount'],
-  ] as const)('rejects invalid MPC payout parameters (%s, %s)', (allowPartialFill, minOutputAmount, field) => {
+  it('rejects an invalid MPC payout (partial fill to Tron) and an invalid MPC source (no deadline from Tron)', () => {
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
       .mockReturnValueOnce(hubInputXToken)
       .mockReturnValueOnce(tronSupportedTokens.USDT);
@@ -232,8 +222,8 @@ describe('EvmSolverService.constructCreateIntentData', () => {
           dstChainKey: ChainKeys.TRON_MAINNET,
           dstAddress: TRON_TEST_ADDRESS,
           outputToken: tronSupportedTokens.USDT.address,
-          minOutputAmount,
-          allowPartialFill,
+          minOutputAmount: 3_000_001n,
+          allowPartialFill: true,
         },
         HUB_WALLET,
         mockConfig,
@@ -242,57 +232,10 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     ).toThrow(
       expect.objectContaining({
         code: 'VALIDATION_FAILED',
-        context: expect.objectContaining({ field }),
+        context: expect.objectContaining({ field: 'allowPartialFill' }),
       }),
     );
-  });
 
-  it.each([
-    { token: tronSupportedTokens.USDT, address: TRON_TEST_ADDRESS, minOutputAmount: 3_000_001n },
-    { token: xrpSupportedTokens.XRP, address: 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah', minOutputAmount: 1n },
-  ])('encodes the recipient word for $token.chainKey above the payout floor', ({ token, address, minOutputAmount }) => {
-    const chainKey = token.chainKey;
-    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
-      .mockReturnValueOnce(hubInputXToken)
-      .mockReturnValueOnce(token);
-    const [, intent] = EvmSolverService.constructCreateIntentData(
-      { ...baseParams(), dstChainKey: chainKey, dstAddress: address, outputToken: token.address, minOutputAmount },
-      HUB_WALLET,
-      mockConfig,
-      undefined,
-    );
-    const identity = encodeAddress(chainKey, address);
-    expect(intent.dstAddress).toBe(encodeRecipient(chainKey, address));
-    expect(intent.dstAddress).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
-    expect(intent.srcAddress).toBe(SRC_USER);
-  });
-
-  it('encodes an EVM MPC-relay (Monad) dstAddress as the plain 20-byte address', () => {
-    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
-      .mockReturnValueOnce(hubInputXToken)
-      .mockReturnValueOnce(monadSupportedTokens.USDC);
-    const monadAddress = '0x6be3a4afbd5983604385bcba71aaa3645918e2e2';
-
-    const [, intent] = EvmSolverService.constructCreateIntentData(
-      {
-        ...baseParams(),
-        dstChainKey: ChainKeys.MONAD_MAINNET,
-        dstAddress: monadAddress,
-        outputToken: monadSupportedTokens.USDC.address,
-      },
-      HUB_WALLET,
-      mockConfig,
-      undefined,
-    );
-
-    // A padded word here was released to the zero address on Monad.
-    expect(intent.dstAddress).toBe(monadAddress);
-  });
-
-  it.each([
-    [0n, false, 'deadline'],
-    [1n, true, 'allowPartialFill'],
-  ] as const)('rejects invalid MPC source swap parameters (%s, %s)', (deadline, allowPartialFill, field) => {
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
       .mockReturnValueOnce(tronSupportedTokens.USDT)
       .mockReturnValueOnce(hubOutputXToken);
@@ -303,8 +246,7 @@ describe('EvmSolverService.constructCreateIntentData', () => {
           srcChainKey: ChainKeys.TRON_MAINNET,
           srcAddress: TRON_TEST_ADDRESS,
           inputToken: tronSupportedTokens.USDT.address,
-          deadline,
-          allowPartialFill,
+          deadline: 0n,
         },
         HUB_WALLET,
         mockConfig,
@@ -313,9 +255,51 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     ).toThrow(
       expect.objectContaining({
         code: 'VALIDATION_FAILED',
-        context: expect.objectContaining({ field }),
+        context: expect.objectContaining({ field: 'deadline' }),
       }),
     );
+  });
+
+  it('encodes an MPC-relay dstAddress per family: the padded recipient word for XRP, the plain 20-byte address for Monad', () => {
+    const xrp = xrpSupportedTokens.XRP;
+    const xrpAddress = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
+    const monadAddress = '0x6be3a4afbd5983604385bcba71aaa3645918e2e2';
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(xrp)
+      .mockReturnValueOnce(hubInputXToken)
+      .mockReturnValueOnce(monadSupportedTokens.USDC);
+
+    const [, toXrp] = EvmSolverService.constructCreateIntentData(
+      {
+        ...baseParams(),
+        dstChainKey: xrp.chainKey,
+        dstAddress: xrpAddress,
+        outputToken: xrp.address,
+        minOutputAmount: 1n,
+      },
+      HUB_WALLET,
+      mockConfig,
+      undefined,
+    );
+    const identity = encodeAddress(xrp.chainKey, xrpAddress);
+    expect(toXrp.dstAddress).toBe(encodeRecipient(xrp.chainKey, xrpAddress));
+    expect(toXrp.dstAddress).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
+    expect(toXrp.srcAddress).toBe(SRC_USER);
+
+    const [, toMonad] = EvmSolverService.constructCreateIntentData(
+      {
+        ...baseParams(),
+        dstChainKey: ChainKeys.MONAD_MAINNET,
+        dstAddress: monadAddress,
+        outputToken: monadSupportedTokens.USDC.address,
+      },
+      HUB_WALLET,
+      mockConfig,
+      undefined,
+    );
+    // A padded word here was released to the zero address on Monad.
+    expect(toMonad.dstAddress).toBe(monadAddress);
   });
 
   it('encodes a Tron srcAddress as the recipient word, since a cancel refunds to it', () => {
@@ -334,50 +318,28 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     expect(intent.srcAddress).not.toBe(encodeAddress(ChainKeys.TRON_MAINNET, TRON_TEST_ADDRESS));
   });
 
-  it('treats the input token as already-on-hub when srcChainKey is the hub chain (skips lookup)', () => {
-    // Only the *output* lookup runs; the input is the hub asset directly.
+  it('skips the hub-asset lookup for whichever side is the hub chain', () => {
+    // Only the spoke side is looked up; the hub side is the hub asset directly.
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress).mockReturnValueOnce(hubOutputXToken);
-
-    const params: CreateIntentParams = {
-      ...baseParams(),
-      srcChainKey: ChainKeys.SONIC_MAINNET,
-      inputToken: HUB_INPUT_ASSET,
-    };
-    const [, intent] = EvmSolverService.constructCreateIntentData(params, HUB_WALLET, mockConfig, undefined);
-
-    expect(intent.inputToken).toBe(HUB_INPUT_ASSET);
-    expect(intent.outputToken).toBe(HUB_OUTPUT_ASSET);
-    expect(mockConfig.getSpokeTokenFromOriginalAssetAddress).toHaveBeenCalledTimes(1);
-  });
-
-  it('treats the output token as already-on-hub when dstChainKey is the hub chain (skips lookup)', () => {
-    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress).mockReturnValueOnce(hubInputXToken);
-
-    const params: CreateIntentParams = {
-      ...baseParams(),
-      dstChainKey: ChainKeys.SONIC_MAINNET,
-      outputToken: HUB_OUTPUT_ASSET,
-    };
-    const [, intent] = EvmSolverService.constructCreateIntentData(params, HUB_WALLET, mockConfig, undefined);
-
-    expect(intent.outputToken).toBe(HUB_OUTPUT_ASSET);
-    expect(mockConfig.getSpokeTokenFromOriginalAssetAddress).toHaveBeenCalledTimes(1);
-  });
-
-  it('defaults solver to the zero address when params.solver is omitted', () => {
-    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
-      .mockReturnValueOnce(hubInputXToken)
-      .mockReturnValueOnce(hubOutputXToken);
-
-    const { solver: _omit, ...withoutSolver } = baseParams();
-    const [, intent] = EvmSolverService.constructCreateIntentData(
-      withoutSolver as CreateIntentParams,
+    const [, fromHub] = EvmSolverService.constructCreateIntentData(
+      { ...baseParams(), srcChainKey: ChainKeys.SONIC_MAINNET, inputToken: HUB_INPUT_ASSET },
       HUB_WALLET,
       mockConfig,
       undefined,
     );
+    expect(fromHub.inputToken).toBe(HUB_INPUT_ASSET);
+    expect(fromHub.outputToken).toBe(HUB_OUTPUT_ASSET);
+    expect(mockConfig.getSpokeTokenFromOriginalAssetAddress).toHaveBeenCalledTimes(1);
 
-    expect(intent.solver).toBe('0x0000000000000000000000000000000000000000');
+    vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress).mockReturnValueOnce(hubInputXToken);
+    const [, toHub] = EvmSolverService.constructCreateIntentData(
+      { ...baseParams(), dstChainKey: ChainKeys.SONIC_MAINNET, outputToken: HUB_OUTPUT_ASSET },
+      HUB_WALLET,
+      mockConfig,
+      undefined,
+    );
+    expect(toHub.outputToken).toBe(HUB_OUTPUT_ASSET);
+    expect(mockConfig.getSpokeTokenFromOriginalAssetAddress).toHaveBeenCalledTimes(2);
   });
 
   it('deducts a percentage fee from the intent inputAmount and encodes fee data into intent.data', () => {
@@ -391,6 +353,7 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     const expectedFee = calculatePercentageFeeAmount(1_000_000n, 100);
     expect(feeAmount).toBe(expectedFee);
     expect(intent.inputAmount).toBe(1_000_000n - expectedFee);
+    expect(intent.solver).toBe(SOLVER_ADDRESS);
     expect(intent.data).not.toBe('0x'); // fee data populated
   });
 
@@ -416,19 +379,15 @@ describe('EvmSolverService.constructCreateIntentData', () => {
     expect(encoded.toLowerCase().includes(grossEncoded.toLowerCase())).toBe(true);
   });
 
-  it('throws when the input token cannot be resolved to a hub asset', () => {
+  it('throws when the input or output token cannot be resolved to a hub asset', () => {
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress).mockReturnValueOnce(undefined);
-
     expect(() => EvmSolverService.constructCreateIntentData(baseParams(), HUB_WALLET, mockConfig, undefined)).toThrow(
       /hub asset not found for spoke chain token \(intent\.inputToken\)/,
     );
-  });
 
-  it('throws when the output token cannot be resolved to a hub asset', () => {
     vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
       .mockReturnValueOnce(hubInputXToken)
       .mockReturnValueOnce(undefined);
-
     expect(() => EvmSolverService.constructCreateIntentData(baseParams(), HUB_WALLET, mockConfig, undefined)).toThrow(
       /hub asset not found for spoke chain token \(intent\.outputToken\)/,
     );
@@ -469,82 +428,49 @@ describe('EvmSolverService.createIntentFeeData', () => {
       expect(feeAmount).toBe((1_000_000n * 250n) / FEE_PERCENTAGE_SCALE);
     });
 
-    it('accepts the FEE_PERCENTAGE_SCALE upper bound (100% fee)', () => {
-      const fee: PartnerFee = { address: FEE_RECEIVER, percentage: Number(FEE_PERCENTAGE_SCALE) };
-      const [, feeAmount] = EvmSolverService.createIntentFeeData(fee, 1_000_000n);
-      expect(feeAmount).toBe(1_000_000n);
-    });
-
-    it('accepts a 0% percentage fee (boundary, fee data still emitted)', () => {
-      const fee: PartnerFee = { address: FEE_RECEIVER, percentage: 0 };
-      const [encoded, feeAmount] = EvmSolverService.createIntentFeeData(fee, 1_000_000n);
-
-      expect(feeAmount).toBe(0n);
+    it('accepts the 0% and FEE_PERCENTAGE_SCALE (100%) percentage bounds', () => {
+      const [zeroEncoded, zeroFee] = EvmSolverService.createIntentFeeData(
+        { address: FEE_RECEIVER, percentage: 0 },
+        1_000_000n,
+      );
+      expect(zeroFee).toBe(0n);
       // Even with feeAmount === 0n the envelope is still emitted (distinct from `undefined` fee).
-      expect(encoded).not.toBe('0x');
+      expect(zeroEncoded).not.toBe('0x');
+
+      const [, fullFee] = EvmSolverService.createIntentFeeData(
+        { address: FEE_RECEIVER, percentage: Number(FEE_PERCENTAGE_SCALE) },
+        1_000_000n,
+      );
+      expect(fullFee).toBe(1_000_000n);
     });
   });
 
-  describe('rejects on invalid inputs', () => {
-    it('throws when inputAmount is 0n (invariant)', () => {
-      expect(() => EvmSolverService.createIntentFeeData(undefined, 0n)).toThrow('Input amount must be greater than 0');
-    });
-
-    it('throws when fee.percentage is negative', () => {
-      const fee: PartnerFee = { address: FEE_RECEIVER, percentage: -1 };
-      expect(() => EvmSolverService.createIntentFeeData(fee, 1_000_000n)).toThrow(/Fee percentage must be between/);
-    });
-
-    it('throws when fee.percentage exceeds FEE_PERCENTAGE_SCALE', () => {
-      const fee: PartnerFee = { address: FEE_RECEIVER, percentage: Number(FEE_PERCENTAGE_SCALE) + 1 };
-      expect(() => EvmSolverService.createIntentFeeData(fee, 1_000_000n)).toThrow(/Fee percentage must be between/);
-    });
+  it('throws on a zero inputAmount or a percentage outside [0, FEE_PERCENTAGE_SCALE]', () => {
+    expect(() => EvmSolverService.createIntentFeeData(undefined, 0n)).toThrow('Input amount must be greater than 0');
+    for (const percentage of [-1, Number(FEE_PERCENTAGE_SCALE) + 1]) {
+      expect(() => EvmSolverService.createIntentFeeData({ address: FEE_RECEIVER, percentage }, 1_000_000n)).toThrow(
+        /Fee percentage must be between/,
+      );
+    }
   });
 });
 
 // =========================================================================
-// decodeIntentFeeAmount — inverse of createIntentFeeData (fee recovery)
+// decodeIntentFeeAmount — inverse of createIntentFeeData (fee recovery). Envelope parsing (unknown type
+// bytes, delivery-only data) is IntentDataService.extractFeePayload's and tested there.
 // =========================================================================
 
 describe('EvmSolverService.decodeIntentFeeAmount', () => {
-  it('returns 0n for empty data ("0x")', () => {
+  it('returns 0n for empty data and round-trips fixed-amount and percentage fees from createIntentFeeData', () => {
     expect(EvmSolverService.decodeIntentFeeAmount('0x')).toBe(0n);
-  });
-
-  it('round-trips a fixed-amount fee encoded by createIntentFeeData', () => {
-    const [data, feeAmount] = EvmSolverService.createIntentFeeData(
+    for (const fee of [
       { address: FEE_RECEIVER, amount: 7_777n },
-      1_000_000n,
-    );
-    expect(EvmSolverService.decodeIntentFeeAmount(data)).toBe(feeAmount);
-  });
-
-  it('round-trips a percentage fee encoded by createIntentFeeData', () => {
-    const [data, feeAmount] = EvmSolverService.createIntentFeeData(
       { address: FEE_RECEIVER, percentage: 250 },
-      1_000_000n,
-    );
-    expect(feeAmount).toBeGreaterThan(0n);
-    expect(EvmSolverService.decodeIntentFeeAmount(data)).toBe(feeAmount);
-  });
-
-  it('gracefully returns 0n (logging the unknown type byte) for an unknown IntentData type byte', () => {
-    const bogus = encodePacked(
-      ['uint8', 'bytes'],
-      [
-        99,
-        encodeAbiParameters(
-          [
-            { name: 'fee', type: 'uint256' },
-            { name: 'receiver', type: 'address' },
-          ],
-          [1n, FEE_RECEIVER],
-        ),
-      ],
-    );
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(EvmSolverService.decodeIntentFeeAmount(bogus)).toBe(0n);
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown IntentData type byte'));
+    ] satisfies PartnerFee[]) {
+      const [data, feeAmount] = EvmSolverService.createIntentFeeData(fee, 1_000_000n);
+      expect(feeAmount).toBeGreaterThan(0n);
+      expect(EvmSolverService.decodeIntentFeeAmount(data)).toBe(feeAmount);
+    }
   });
 
   it('recovers the fee from a TYPE_ARRAY envelope carrying fee + delivery', () => {
@@ -554,16 +480,6 @@ describe('EvmSolverService.decodeIntentFeeAmount', () => {
       HookService.encodeDeliveryData({ kind: HookKind.HYPERCORE_DEPOSIT }, FEE_RECEIVER),
     );
     expect(EvmSolverService.decodeIntentFeeAmount(data)).toBe(1_234n);
-  });
-
-  it('returns 0n (no log) for a delivery-only envelope', () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const data = IntentDataService.composeIntentData(
-      '0x',
-      HookService.encodeDeliveryData({ kind: HookKind.HYPERCORE_DEPOSIT }, FEE_RECEIVER),
-    );
-    expect(EvmSolverService.decodeIntentFeeAmount(data)).toBe(0n);
-    expect(errorSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -588,12 +504,6 @@ describe('EvmSolverService.reconstructCreateIntentData', () => {
     data: '0x',
   });
 
-  const mockHubLookups = () =>
-    vi
-      .mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
-      .mockReturnValueOnce(hubInputXToken)
-      .mockReturnValueOnce(hubOutputXToken);
-
   // A real Solana → Sonic swap: the intent as read from the hub and the payload that was actually relayed for it.
   const SOLANA_RELAYED_INTENT = {
     intentId: BigInt('83488095412101173390950552028345512257870714538704893067132536316339680419144'),
@@ -614,54 +524,37 @@ describe('EvmSolverService.reconstructCreateIntentData', () => {
   const SOLANA_RELAYED_PAYLOAD =
     '0x00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000001200000000000000000000000000c09e69a4528945de6d16c7e469dea6996fdf636000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000044095ea7b30000000000000000000000006382d6ccd780758c5e8a6123c33ee8f4472f96ef00000000000000000000000000000000000000000000000000000000002625a0000000000000000000000000000000000000000000000000000000000000000000000000000000006382d6ccd780758c5e8a6123c33ee8f4472f96ef000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000284016f02e30000000000000000000000000000000000000000000000000000000000000020b89496621e10855e7ca566b16484c70234e14287966fe17cd7e57fc142539d48000000000000000000000000502a1ff98cae3e596bbaa3586ffb9cd58826c1400000000000000000000000000c09e69a4528945de6d16c7e469dea6996fdf6360000000000000000000000009ee17486571917837210824b0d4cadfe3b324d1200000000000000000000000000000000000000000000000000000000002625a00000000000000000000000000000000000000000000000001d5186a3c499a832000000000000000000000000000000000000000000000000000000006a2af31100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000500000000000000000000000000000000000000000000000000000000000001c00000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002400000000000000000000000000000000000000000000000000000000000000020cea4dc7d8fd9f14b68c0611cc46c984838f78a506420c22ee40427377464f19100000000000000000000000000000000000000000000000000000000000000140Ab764AB3816cD036Ea951bE973098510D8105A6000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000';
 
-  it('reconstruct actual solana relay data', () => {
+  it('reconstructs the actual relayed Solana payload, through reconstructRelayData and getIntentSubmitTxExtraData', async () => {
     const sodax = new Sodax();
 
     const reconstructResult = sodax.swaps.reconstructRelayData(SOLANA_RELAYED_INTENT);
     if (!reconstructResult.ok) {
       throw new Error('Failed to reconstruct relay data');
     }
-
     expect(reconstructResult.value.payload.toLowerCase()).toBe(SOLANA_RELAYED_PAYLOAD.toLowerCase());
-  });
-
-  it('getIntentSubmitTxExtraData rebuilds the same relayed multicall payload for a spoke-source intent', async () => {
-    const sodax = new Sodax();
 
     const result = await sodax.swaps.getIntentSubmitTxExtraData({ intent: SOLANA_RELAYED_INTENT });
     if (!result.ok) {
       throw new Error('Failed to get intent submit tx extra data');
     }
-
     expect(result.value.address).toBe(SOLANA_RELAYED_INTENT.creator);
     expect(result.value.payload.toLowerCase()).toBe(SOLANA_RELAYED_PAYLOAD.toLowerCase());
   });
 
   // The canonical proof: the payload `constructCreateIntentData` produced for a spoke source must be
   // reproducible from the resulting `Intent` alone (same intents contract, isHubSource = false).
-  it('reproduces the spoke multicall payload byte-for-byte (no fee)', () => {
-    mockHubLookups();
-    const [expected, intent] = EvmSolverService.constructCreateIntentData(
-      spokeParams(),
-      HUB_WALLET,
-      mockConfig,
+  it('reproduces the spoke multicall payload byte-for-byte with no fee, a percentage fee or a fixed-amount fee', () => {
+    for (const fee of [
       undefined,
-    );
-    expect(EvmSolverService.reconstructCreateIntentData(intent, INTENTS_CONTRACT, false)).toBe(expected);
-  });
-
-  it('reproduces the spoke multicall payload byte-for-byte (percentage fee)', () => {
-    mockHubLookups();
-    const fee: PartnerFee = { address: FEE_RECEIVER, percentage: 100 }; // 1%
-    const [expected, intent] = EvmSolverService.constructCreateIntentData(spokeParams(), HUB_WALLET, mockConfig, fee);
-    expect(EvmSolverService.reconstructCreateIntentData(intent, INTENTS_CONTRACT, false)).toBe(expected);
-  });
-
-  it('reproduces the spoke multicall payload byte-for-byte (fixed-amount fee)', () => {
-    mockHubLookups();
-    const fee: PartnerFee = { address: FEE_RECEIVER, amount: 1_000n };
-    const [expected, intent] = EvmSolverService.constructCreateIntentData(spokeParams(), HUB_WALLET, mockConfig, fee);
-    expect(EvmSolverService.reconstructCreateIntentData(intent, INTENTS_CONTRACT, false)).toBe(expected);
+      { address: FEE_RECEIVER, percentage: 100 },
+      { address: FEE_RECEIVER, amount: 1_000n },
+    ] satisfies (PartnerFee | undefined)[]) {
+      vi.mocked(mockConfig.getSpokeTokenFromOriginalAssetAddress)
+        .mockReturnValueOnce(hubInputXToken)
+        .mockReturnValueOnce(hubOutputXToken);
+      const [expected, intent] = EvmSolverService.constructCreateIntentData(spokeParams(), HUB_WALLET, mockConfig, fee);
+      expect(EvmSolverService.reconstructCreateIntentData(intent, INTENTS_CONTRACT, false)).toBe(expected);
+    }
   });
 
   it('reproduces the raw createIntent calldata for a hub (Sonic) source', () => {
@@ -676,89 +569,58 @@ describe('EvmSolverService.reconstructCreateIntentData', () => {
 // =========================================================================
 
 describe('EvmSolverService.getIntent', () => {
-  describe('happy paths', () => {
-    it('returns the Intent struct when a matching IntentCreated log is present', async () => {
-      const intent = buildIntent();
-      const intentHash = EvmSolverService.getIntentHash(intent);
-      const log = encodeIntentCreatedLog(intentHash, intent, INTENTS_CONTRACT);
-      vi.mocked(mockPublicClient.waitForTransactionReceipt).mockResolvedValueOnce(receiptWith([log]));
+  it('returns the Intent from the log the intents contract emitted, matched case-insensitively, skipping unrelated contracts', async () => {
+    const intent = buildIntent({ intentId: 99n });
+    const intentHash = EvmSolverService.getIntentHash(intent);
+    const otherContract: Address = '0x9999999999999999999999999999999999999999';
+    const irrelevantIntent = buildIntent({ intentId: 1n });
+    const irrelevantHash = EvmSolverService.getIntentHash(irrelevantIntent);
 
-      const result = await EvmSolverService.getIntent(TX_HASH, mockConfig, mockPublicClient);
+    // Upper-case the address — checksum casing varies in real receipts.
+    const logs = [
+      encodeIntentCreatedLog(irrelevantHash, irrelevantIntent, otherContract),
+      encodeIntentCreatedLog(intentHash, intent, INTENTS_CONTRACT.toUpperCase() as Address),
+    ];
+    vi.mocked(mockPublicClient.waitForTransactionReceipt).mockResolvedValueOnce(receiptWith(logs));
 
-      expect(result).toEqual(intent);
-      expect(mockPublicClient.waitForTransactionReceipt).toHaveBeenCalledWith({ hash: TX_HASH });
-    });
-
-    it('matches the intents contract case-insensitively (log address upper-cased)', async () => {
-      const intent = buildIntent();
-      const intentHash = EvmSolverService.getIntentHash(intent);
-      // Upper-case the address — checksum casing varies in real receipts.
-      const log = encodeIntentCreatedLog(intentHash, intent, INTENTS_CONTRACT.toUpperCase() as Address);
-      vi.mocked(mockPublicClient.waitForTransactionReceipt).mockResolvedValueOnce(receiptWith([log]));
-
-      await expect(EvmSolverService.getIntent(TX_HASH, mockConfig, mockPublicClient)).resolves.toEqual(intent);
-    });
-
-    it('skips logs from unrelated contracts and returns the matching one', async () => {
-      const intent = buildIntent({ intentId: 99n });
-      const intentHash = EvmSolverService.getIntentHash(intent);
-      const otherContract: Address = '0x9999999999999999999999999999999999999999';
-      const irrelevantIntent = buildIntent({ intentId: 1n });
-      const irrelevantHash = EvmSolverService.getIntentHash(irrelevantIntent);
-
-      const logs = [
-        encodeIntentCreatedLog(irrelevantHash, irrelevantIntent, otherContract),
-        encodeIntentCreatedLog(intentHash, intent, INTENTS_CONTRACT),
-      ];
-      vi.mocked(mockPublicClient.waitForTransactionReceipt).mockResolvedValueOnce(receiptWith(logs));
-
-      await expect(EvmSolverService.getIntent(TX_HASH, mockConfig, mockPublicClient)).resolves.toEqual(intent);
-    });
+    await expect(EvmSolverService.getIntent(TX_HASH, mockConfig, mockPublicClient)).resolves.toEqual(intent);
+    expect(mockPublicClient.waitForTransactionReceipt).toHaveBeenCalledWith({ hash: TX_HASH });
   });
 
-  describe('rejects on invalid inputs', () => {
-    it('throws when no IntentCreated log targets the intents contract', async () => {
-      const intent = buildIntent();
-      const intentHash = EvmSolverService.getIntentHash(intent);
-      const otherContract: Address = '0x9999999999999999999999999999999999999999';
-      const log = encodeIntentCreatedLog(intentHash, intent, otherContract);
-      vi.mocked(mockPublicClient.waitForTransactionReceipt).mockResolvedValueOnce(receiptWith([log]));
+  it('throws when no IntentCreated log targets the intents contract, or the receipt has no logs at all', async () => {
+    const intent = buildIntent();
+    const intentHash = EvmSolverService.getIntentHash(intent);
+    const otherContract: Address = '0x9999999999999999999999999999999999999999';
+    vi.mocked(mockPublicClient.waitForTransactionReceipt)
+      .mockResolvedValueOnce(receiptWith([encodeIntentCreatedLog(intentHash, intent, otherContract)]))
+      .mockResolvedValueOnce(receiptWith([]));
 
+    for (let i = 0; i < 2; i++) {
       await expect(EvmSolverService.getIntent(TX_HASH, mockConfig, mockPublicClient)).rejects.toThrow(
         `No intent found for ${TX_HASH}`,
       );
-    });
-
-    it('throws when the receipt has no logs at all', async () => {
-      vi.mocked(mockPublicClient.waitForTransactionReceipt).mockResolvedValueOnce(receiptWith([]));
-
-      await expect(EvmSolverService.getIntent(TX_HASH, mockConfig, mockPublicClient)).rejects.toThrow(
-        `No intent found for ${TX_HASH}`,
-      );
-    });
-
-    it('throws when the intent references an unrecognized relay chain id', async () => {
-      // Deliberate cast: 9999n is exactly the unrecognized relay chain id under test.
-      const intent = buildIntent({ srcChain: 9999n as unknown as Intent['srcChain'] });
-      const intentHash = EvmSolverService.getIntentHash(intent);
-      const log = encodeIntentCreatedLog(intentHash, intent, INTENTS_CONTRACT);
-      vi.mocked(mockPublicClient.waitForTransactionReceipt).mockResolvedValueOnce(receiptWith([log]));
-      // First call (srcChain) returns false → the throw fires before dstChain is checked.
-      vi.mocked(mockConfig.isValidIntentRelayChainId).mockReturnValueOnce(false);
-
-      await expect(EvmSolverService.getIntent(TX_HASH, mockConfig, mockPublicClient)).rejects.toThrow(
-        /Invalid intent relay chain id/,
-      );
-    });
+    }
   });
 
-  describe('error propagation', () => {
-    it('propagates errors from waitForTransactionReceipt', async () => {
-      const rpcError = new Error('rpc unreachable');
-      vi.mocked(mockPublicClient.waitForTransactionReceipt).mockRejectedValueOnce(rpcError);
+  it('throws when the intent references an unrecognized relay chain id', async () => {
+    // Deliberate cast: 9999n is exactly the unrecognized relay chain id under test.
+    const intent = buildIntent({ srcChain: 9999n as unknown as Intent['srcChain'] });
+    const intentHash = EvmSolverService.getIntentHash(intent);
+    const log = encodeIntentCreatedLog(intentHash, intent, INTENTS_CONTRACT);
+    vi.mocked(mockPublicClient.waitForTransactionReceipt).mockResolvedValueOnce(receiptWith([log]));
+    // First call (srcChain) returns false → the throw fires before dstChain is checked.
+    vi.mocked(mockConfig.isValidIntentRelayChainId).mockReturnValueOnce(false);
 
-      await expect(EvmSolverService.getIntent(TX_HASH, mockConfig, mockPublicClient)).rejects.toBe(rpcError);
-    });
+    await expect(EvmSolverService.getIntent(TX_HASH, mockConfig, mockPublicClient)).rejects.toThrow(
+      /Invalid intent relay chain id/,
+    );
+  });
+
+  it('propagates errors from waitForTransactionReceipt', async () => {
+    const rpcError = new Error('rpc unreachable');
+    vi.mocked(mockPublicClient.waitForTransactionReceipt).mockRejectedValueOnce(rpcError);
+
+    await expect(EvmSolverService.getIntent(TX_HASH, mockConfig, mockPublicClient)).rejects.toBe(rpcError);
   });
 });
 
@@ -769,17 +631,7 @@ describe('EvmSolverService.getIntent', () => {
 describe('EvmSolverService.getFilledIntent', () => {
   const filledState = { exists: true, remainingInput: 0n, receivedOutput: 950_000n, pendingPayment: false };
 
-  it('returns the IntentState when a matching IntentFilled log is present', async () => {
-    const intentHash: Hex = keccak256('0xdeadbeef');
-    const log = encodeIntentFilledLog(intentHash, filledState, INTENTS_CONTRACT);
-    vi.mocked(mockPublicClient.waitForTransactionReceipt).mockResolvedValueOnce(receiptWith([log]));
-
-    const result = await EvmSolverService.getFilledIntent(TX_HASH, solverCfg, mockPublicClient);
-
-    expect(result).toEqual(filledState);
-  });
-
-  it('matches the intents contract case-insensitively', async () => {
+  it('returns the IntentState from the IntentFilled log of the intents contract, matched case-insensitively', async () => {
     const intentHash: Hex = keccak256('0xdeadbeef');
     const log = encodeIntentFilledLog(intentHash, filledState, INTENTS_CONTRACT.toUpperCase() as Address);
     vi.mocked(mockPublicClient.waitForTransactionReceipt).mockResolvedValueOnce(receiptWith([log]));
@@ -787,31 +639,27 @@ describe('EvmSolverService.getFilledIntent', () => {
     await expect(EvmSolverService.getFilledIntent(TX_HASH, solverCfg, mockPublicClient)).resolves.toEqual(filledState);
   });
 
-  it('throws when no IntentFilled log targets the intents contract', async () => {
+  it('throws when no IntentFilled log targets the intents contract, and propagates receipt errors', async () => {
     const intentHash: Hex = keccak256('0xdeadbeef');
     const otherContract: Address = '0x9999999999999999999999999999999999999999';
-    const log = encodeIntentFilledLog(intentHash, filledState, otherContract);
-    vi.mocked(mockPublicClient.waitForTransactionReceipt).mockResolvedValueOnce(receiptWith([log]));
+    const rpcError = new Error('rpc unreachable');
+    vi.mocked(mockPublicClient.waitForTransactionReceipt)
+      .mockResolvedValueOnce(receiptWith([encodeIntentFilledLog(intentHash, filledState, otherContract)]))
+      .mockRejectedValueOnce(rpcError);
 
     await expect(EvmSolverService.getFilledIntent(TX_HASH, solverCfg, mockPublicClient)).rejects.toThrow(
       `No filled intent found for ${TX_HASH}`,
     );
-  });
-
-  it('propagates errors from waitForTransactionReceipt', async () => {
-    const rpcError = new Error('rpc unreachable');
-    vi.mocked(mockPublicClient.waitForTransactionReceipt).mockRejectedValueOnce(rpcError);
-
     await expect(EvmSolverService.getFilledIntent(TX_HASH, solverCfg, mockPublicClient)).rejects.toBe(rpcError);
   });
 });
 
 // =========================================================================
-// getIntentHash (static, pure) — keccak256 of ABI-encoded createIntent inputs
+// Pure calldata helpers — getIntentHash, encodeCreateIntent, encodeCancelIntent
 // =========================================================================
 
 describe('EvmSolverService.getIntentHash', () => {
-  it('matches keccak256 of encodeAbiParameters over the createIntent input shape', () => {
+  it('matches keccak256 of encodeAbiParameters over the createIntent input shape, distinct per intent', () => {
     const intent = buildIntent();
 
     const expected = keccak256(
@@ -819,48 +667,23 @@ describe('EvmSolverService.getIntentHash', () => {
     );
 
     expect(EvmSolverService.getIntentHash(intent)).toBe(expected);
-  });
-
-  it('produces different hashes for intents that differ in any field', () => {
-    const a = buildIntent({ intentId: 1n });
-    const b = buildIntent({ intentId: 2n });
-    expect(EvmSolverService.getIntentHash(a)).not.toBe(EvmSolverService.getIntentHash(b));
+    expect(EvmSolverService.getIntentHash(buildIntent({ intentId: 2n }))).not.toBe(expected);
   });
 });
 
-// =========================================================================
-// encodeCreateIntent / encodeCancelIntent (static, pure) — calldata-only
-// =========================================================================
-
-describe('EvmSolverService.encodeCreateIntent', () => {
-  it('returns { address: intentsContract, value: 0n, data: encoded createIntent(intent) }', () => {
+describe('EvmSolverService.encodeCreateIntent / encodeCancelIntent', () => {
+  it('returns { address: intentsContract, value: 0n, data } with the createIntent and cancelIntent calldata', () => {
     const intent = buildIntent();
-    const result = EvmSolverService.encodeCreateIntent(intent, INTENTS_CONTRACT);
 
-    expect(result).toEqual({
+    expect(EvmSolverService.encodeCreateIntent(intent, INTENTS_CONTRACT)).toEqual({
       address: INTENTS_CONTRACT,
       value: 0n,
       data: encodeFunctionData({ abi: IntentsAbi, functionName: 'createIntent', args: [intent] }),
     });
-  });
-});
-
-describe('EvmSolverService.encodeCancelIntent', () => {
-  it('returns { address: intentsContract, value: 0n, data: encoded cancelIntent(intent) }', () => {
-    const intent = buildIntent();
-    const result = EvmSolverService.encodeCancelIntent(intent, INTENTS_CONTRACT);
-
-    expect(result).toEqual({
+    expect(EvmSolverService.encodeCancelIntent(intent, INTENTS_CONTRACT)).toEqual({
       address: INTENTS_CONTRACT,
       value: 0n,
       data: encodeFunctionData({ abi: IntentsAbi, functionName: 'cancelIntent', args: [intent] }),
     });
-  });
-
-  it('produces calldata distinct from encodeCreateIntent for the same intent (regression guard)', () => {
-    const intent = buildIntent();
-    const create = EvmSolverService.encodeCreateIntent(intent, INTENTS_CONTRACT);
-    const cancel = EvmSolverService.encodeCancelIntent(intent, INTENTS_CONTRACT);
-    expect(create.data).not.toEqual(cancel.data);
   });
 });

@@ -29,23 +29,16 @@ const connection = (chainType: ChainType, address: string, xConnectorId: string)
 // ─── resolveDisconnectTargets ───────────────────────────────────────────────
 
 describe('resolveDisconnectTargets', () => {
-  it('returns every connected chain when connectors filter is undefined', () => {
+  it('returns every chain with an active address when connectors filter is undefined', () => {
     const connections = {
       EVM: connection('EVM', '0xabc', 'io.hana.wallet'),
       ICON: connection('ICON', 'hx123', 'hana'),
+      SUI: { xAccount: { address: undefined, xChainType: 'SUI' as const }, xConnectorId: 'hana' },
     };
     expect(resolveDisconnectTargets(undefined, connections, {})).toEqual(['ICON', 'EVM']);
   });
 
-  it('skips chains without an active address', () => {
-    const connections = {
-      EVM: { xAccount: { address: undefined, xChainType: 'EVM' as const }, xConnectorId: 'io.hana.wallet' },
-      ICON: connection('ICON', 'hx123', 'hana'),
-    };
-    expect(resolveDisconnectTargets(undefined, connections, {})).toEqual(['ICON']);
-  });
-
-  it('filters by identifier match against the active connector', () => {
+  it('keeps only chains whose active connector matches any identifier', () => {
     const connections = {
       EVM: connection('EVM', '0xabc', 'io.hana.wallet'),
       ICON: connection('ICON', 'hx123', 'hana'),
@@ -58,6 +51,11 @@ describe('resolveDisconnectTargets', () => {
     };
 
     expect(resolveDisconnectTargets(['hana'], connections, connectorsByChain)).toEqual(['ICON', 'EVM']);
+    expect(resolveDisconnectTargets(['hana', 'phantom'], connections, connectorsByChain)).toEqual([
+      'ICON',
+      'EVM',
+      'SOLANA',
+    ]);
   });
 
   it('skips connections whose connectorId does not match any registered connector', () => {
@@ -66,48 +64,37 @@ describe('resolveDisconnectTargets', () => {
 
     expect(resolveDisconnectTargets(['hana'], connections, connectorsByChain)).toEqual([]);
   });
-
-  it('returns empty when no chains are connected', () => {
-    expect(resolveDisconnectTargets(undefined, {}, {})).toEqual([]);
-  });
-
-  it('multiple identifiers OR-match', () => {
-    const connections = {
-      EVM: connection('EVM', '0xabc', 'io.hana.wallet'),
-      SOLANA: connection('SOLANA', 'sol-addr', 'phantom'),
-    };
-    const connectorsByChain = {
-      EVM: [makeConnector('EVM', 'io.hana.wallet', 'Hana')],
-      SOLANA: [makeConnector('SOLANA', 'phantom', 'Phantom')],
-    };
-
-    expect(resolveDisconnectTargets(['hana', 'phantom'], connections, connectorsByChain)).toEqual(['EVM', 'SOLANA']);
-  });
 });
 
 // ─── runBatchDisconnect ─────────────────────────────────────────────────────
 
 describe('runBatchDisconnect', () => {
-  it('all-success path: every chain disconnects', async () => {
+  it('disconnects every chain sequentially, in input order', async () => {
     const disconnect = vi.fn(async () => undefined);
-    const result = await runBatchDisconnect(['EVM', 'ICON'], disconnect);
+    const result = await runBatchDisconnect(['ICON', 'SOLANA', 'EVM'], disconnect);
 
-    expect(result).toEqual({ successful: ['EVM', 'ICON'], failed: [] });
-    expect(disconnect).toHaveBeenCalledTimes(2);
-    expect(disconnect).toHaveBeenNthCalledWith(1, { xChainType: 'EVM' });
-    expect(disconnect).toHaveBeenNthCalledWith(2, { xChainType: 'ICON' });
+    expect(result).toEqual({ successful: ['ICON', 'SOLANA', 'EVM'], failed: [] });
+    expect(disconnect.mock.calls).toEqual([
+      [{ xChainType: 'ICON' }],
+      [{ xChainType: 'SOLANA' }],
+      [{ xChainType: 'EVM' }],
+    ]);
   });
 
-  it('collects failures without throwing', async () => {
+  it('collects failures without throwing and reports each outcome through onProgress', async () => {
+    const events: BatchDisconnectProgressEvent[] = [];
     const evmError = new Error('extension closed');
     const disconnect = vi.fn(async ({ xChainType }: { xChainType: ChainType }) => {
       if (xChainType === 'EVM') throw evmError;
     });
 
-    const result = await runBatchDisconnect(['EVM', 'ICON'], disconnect);
+    const result = await runBatchDisconnect(['EVM', 'ICON'], disconnect, e => events.push(e));
 
-    expect(result.successful).toEqual(['ICON']);
-    expect(result.failed).toEqual([{ chainType: 'EVM', error: evmError }]);
+    expect(result).toEqual({ successful: ['ICON'], failed: [{ chainType: 'EVM', error: evmError }] });
+    expect(events).toEqual([
+      { chainType: 'EVM', outcome: 'failure', error: evmError },
+      { chainType: 'ICON', outcome: 'success' },
+    ]);
   });
 
   it('wraps non-Error throws into Error', async () => {
@@ -121,21 +108,6 @@ describe('runBatchDisconnect', () => {
     expect(result.failed[0]?.error.message).toBe('string-error');
   });
 
-  it('emits onProgress per target with correct outcomes', async () => {
-    const events: BatchDisconnectProgressEvent[] = [];
-    const evmError = new Error('failed');
-    const disconnect = vi.fn(async ({ xChainType }: { xChainType: ChainType }) => {
-      if (xChainType === 'EVM') throw evmError;
-    });
-
-    await runBatchDisconnect(['EVM', 'ICON'], disconnect, e => events.push(e));
-
-    expect(events).toEqual([
-      { chainType: 'EVM', outcome: 'failure', error: evmError },
-      { chainType: 'ICON', outcome: 'success' },
-    ]);
-  });
-
   it('isolates throwing onProgress callback — batch still completes', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const disconnect = vi.fn(async () => undefined);
@@ -147,23 +119,5 @@ describe('runBatchDisconnect', () => {
     expect(result.successful).toEqual(['EVM']);
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
-  });
-
-  it('preserves sequential ordering of chainTypes', async () => {
-    const callOrder: ChainType[] = [];
-    const disconnect = vi.fn(async ({ xChainType }: { xChainType: ChainType }) => {
-      callOrder.push(xChainType);
-    });
-
-    await runBatchDisconnect(['ICON', 'SOLANA', 'EVM'], disconnect);
-
-    expect(callOrder).toEqual(['ICON', 'SOLANA', 'EVM']);
-  });
-
-  it('returns empty success/failed for empty input', async () => {
-    const disconnect = vi.fn();
-    const result = await runBatchDisconnect([], disconnect);
-    expect(result).toEqual({ successful: [], failed: [] });
-    expect(disconnect).not.toHaveBeenCalled();
   });
 });

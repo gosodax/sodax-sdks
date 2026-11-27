@@ -1,18 +1,3 @@
-/**
- * leverageYield module narrow error types.
- *
- * The service owns the full vault-swap lifecycle: `deposit` / `withdraw` build
- * `CreateIntentParams`, `createVaultIntent` submits the intent on the source spoke chain,
- * and `vaultSwap` orchestrates the end-to-end flow (create → verify → relay → notify
- * solver). `approve` / `isAllowanceValid` manage the underlying-asset allowance on Sonic,
- * and the read methods query on-chain state.
- *
- * User-facing actions discriminated by `context.action`: `'deposit' | 'withdraw' |
- * 'approve' | 'vaultSwap'`. Read-only methods emit `LOOKUP_FAILED` partitioned by
- * `context.method`. Relay/verify codes appear only on `vaultSwap` — `createVaultIntent`
- * alone emits the create-intent subset.
- */
-
 import {
   ALLOWANCE_CHECK_CODES,
   type AllowanceCheckErrorCode,
@@ -51,27 +36,18 @@ export type LeverageYieldAllowanceCheckErrorCode = AllowanceCheckErrorCode;
 export type LeverageYieldLookupErrorCode = LookupErrorCode;
 
 /**
- * The only code `getDetailedStatus` returns: no status source could produce a usable answer.
- * Narrower than {@link LeverageYieldLookupErrorCode}, which also admits `VALIDATION_FAILED` /
- * `UNKNOWN`. Prefixed because swap's equivalent is not — the root barrel is a flat `export *`, so
- * an unprefixed `DetailedStatusError` here would collide with it.
+ * The only code `getDetailedStatus` returns. Prefixed because swap's unprefixed equivalent would
+ * collide in the flat root `export *`.
  */
 export type LeverageYieldDetailedStatusErrorCode = Extract<SodaxErrorCode, 'LOOKUP_FAILED'>;
 
-/**
- * Codes returnable by the solver-notify step inside `vaultSwap`. Mirrors the swap
- * domain's `PostExecutionErrorCode` — duplicated deliberately so the leverage-yield
- * error surface stands alone (see `vaultSwap`).
- */
+/** Mirrors swap's `PostExecutionErrorCode`, duplicated so the leverage-yield error surface stands alone. */
 export type LeverageYieldPostExecutionErrorCode = Extract<
   SodaxErrorCode,
   'EXECUTION_FAILED' | 'EXTERNAL_API_ERROR' | 'UNKNOWN'
 >;
 
-/**
- * Codes returnable by the end-to-end `vaultSwap` orchestrator: the create-intent subset
- * plus verify, relay and solver-notify codes. Mirrors the swap domain's `SwapErrorCode`.
- */
+/** Create-intent codes plus verify, relay and solver-notify codes. Mirrors swap's `SwapErrorCode`. */
 export type LeverageYieldSwapErrorCode = Extract<
   SodaxErrorCode,
   | 'USER_REJECTED'
@@ -86,7 +62,6 @@ export type LeverageYieldSwapErrorCode = Extract<
   | 'UNKNOWN'
 >;
 
-/** Codes returnable by `vaultSwapWithApproval`: every `vaultSwap` code plus the approval leg's. */
 export type VaultSwapWithApprovalErrorCode =
   | LeverageYieldSwapErrorCode
   | Extract<SodaxErrorCode, 'APPROVE_FAILED' | 'ALLOWANCE_CHECK_FAILED'>;

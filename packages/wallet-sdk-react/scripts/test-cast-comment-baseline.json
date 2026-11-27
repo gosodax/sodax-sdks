@@ -1,5 +1,4 @@
 {
-  "src/chainRegistry.test.ts": 9,
   "src/hooks/useBatchConnect.test.ts": 1,
   "src/hooks/useBatchDisconnect.test.ts": 1,
   "src/providers/sui/SuiProvider.test.tsx": 1,

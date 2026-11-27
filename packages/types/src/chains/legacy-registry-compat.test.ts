@@ -12,9 +12,8 @@ import {
 import { swapSupportedTokens } from '../swap/swap.js';
 import { moneyMarketReserveAssets, moneyMarketSupportedTokens } from '../moneyMarket/moneyMarket.js';
 
-// Registry order and membership as of this branch's merge base (origin/main @ fd4f450d).
-// The equity vaults are purely additive: every legacy sequence below has to survive as an
-// unchanged prefix, so a reorder or a dropped entry fails here instead of in a consumer.
+// Registry order and membership as of origin/main @ fd4f450d. Every legacy sequence must survive as an unchanged
+// prefix, so a reorder or a dropped entry fails here instead of in a consumer.
 const EQUITY_SYMBOLS = [
   'SPCX',
   'NVDA',

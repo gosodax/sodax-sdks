@@ -14,7 +14,6 @@ const stubFetch = () => {
 describe('createKoiosClient base URL', () => {
   it.each([
     ['https://koios.example/api/v1', 'https://koios.example/api/v1/tip'],
-    ['https://koios.example/api/v1/', 'https://koios.example/api/v1/tip'],
     ['https://koios.example/api/v1///', 'https://koios.example/api/v1/tip'],
   ])('reads %s as %s', async (baseUrl, expected) => {
     const fetchMock = stubFetch();

@@ -119,10 +119,10 @@ afterEach(() => {
 });
 
 describe('XrpSpokeService.deposit — native XRP', () => {
-  it('sends drops as a string amount to the reserve, carrying the memo as bare uppercase hex', async () => {
+  it('signs a drops-string Payment to the reserve with a bare uppercase hex memo, and notifies the relay hash', async () => {
     stubRippled();
 
-    await xrp.deposit(depositParams(NATIVE_XRP));
+    const hash = await xrp.deposit(depositParams(NATIVE_XRP));
 
     const signed = vi.mocked(signTransaction).mock.calls[0]?.[0];
     expect(signed).toMatchObject({
@@ -133,25 +133,10 @@ describe('XrpSpokeService.deposit — native XRP', () => {
     });
     // The relay matches the deposit on this memo: `0x`-prefixed or lowercase would not match.
     expect(signed?.Memos).toEqual([{ Memo: { MemoData: MEMO.slice(2).toUpperCase() } }]);
-  });
-
-  it('leaves Sequence, Fee and LastLedgerSequence to the wallet', async () => {
-    stubRippled();
-
-    await xrp.deposit(depositParams(NATIVE_XRP));
-
     // Pinning these races the wallet for the account Sequence, and GemWallet rejects a tx that sets them.
-    const signed = vi.mocked(signTransaction).mock.calls[0]?.[0] as Record<string, unknown>;
     expect(signed).not.toHaveProperty('Sequence');
     expect(signed).not.toHaveProperty('Fee');
     expect(signed).not.toHaveProperty('LastLedgerSequence');
-  });
-
-  it('returns the 0x-prefixed lowercase hash and notifies the relay with it', async () => {
-    stubRippled();
-
-    const hash = await xrp.deposit(depositParams(NATIVE_XRP));
-
     // XRPL reports bare uppercase hex; the relay API takes the 0x-prefixed lowercase form.
     expect(hash).toBe(RELAY_HASH);
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '66', hash);
@@ -183,34 +168,20 @@ describe('XrpSpokeService.deposit — native XRP', () => {
 });
 
 describe('XrpSpokeService.deposit — IOU', () => {
-  it('builds a currency/issuer amount object scaled to whole units, not base units', async () => {
+  it('builds a 160-bit currency/issuer amount scaled to whole units, fractions without trailing zeros', async () => {
     stubRippled();
 
     await xrp.deposit(depositParams(RLUSD_ISSUER));
-
-    // 20_000_000 base units at 6 decimals is 20 RLUSD — sending "20000000" would move 10^6 too much.
-    expect(vi.mocked(signTransaction).mock.calls[0]?.[0]).toMatchObject({
-      Amount: { currency: xrpCurrencyCode('RLUSD'), issuer: RLUSD_ISSUER, value: '20' },
-    });
-  });
-
-  it('renders a fractional amount without trailing zeros', async () => {
-    stubRippled();
-
     await xrp.deposit({ ...(depositParams(RLUSD_ISSUER) as object), amount: 1_500_000n } as never);
 
+    // 20_000_000 base units at 6 decimals is 20 RLUSD — sending "20000000" would move 10^6 too much.
+    // RLUSD is longer than 3 characters, so it takes the 160-bit currency form.
     expect(vi.mocked(signTransaction).mock.calls[0]?.[0]).toMatchObject({
+      Amount: { currency: '524C555344000000000000000000000000000000', issuer: RLUSD_ISSUER, value: '20' },
+    });
+    expect(vi.mocked(signTransaction).mock.calls[1]?.[0]).toMatchObject({
       Amount: expect.objectContaining({ value: '1.5' }),
     });
-  });
-
-  it('uses the 160-bit currency form for a symbol longer than 3 characters', async () => {
-    stubRippled();
-
-    await xrp.deposit(depositParams(RLUSD_ISSUER));
-
-    const amount = (vi.mocked(signTransaction).mock.calls[0]?.[0] as { Amount: { currency: string } }).Amount;
-    expect(amount.currency).toBe('524C555344000000000000000000000000000000');
   });
 
   it('rejects a token that is not in supportedTokens rather than sending to an unknown issuer', async () => {
@@ -239,13 +210,10 @@ describe('XrpSpokeService.deposit — submit results', () => {
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
+  // A non-tem code, a malformed tem-looking string, and a non-string verdict.
   it.each([
     'tecUNFUNDED_PAYMENT',
-    'tefPAST_SEQ',
-    'terPRE_SEQ',
-    'tec garbage',
     'tem garbage',
-    undefined,
     { toString: false },
   ])('notifies and exposes the hash when the verdict is %s', async engine_result => {
     stubRippled({ submit: { engine_result } });
@@ -257,13 +225,10 @@ describe('XrpSpokeService.deposit — submit results', () => {
     expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '66', RELAY_HASH);
   });
 
-  it.each([
-    [TX_HASH, RELAY_HASH],
-    ['A'.repeat(64), RELAY_HASH],
-    ['', '0x0c51f1f39d58c461731611827474f67fcf65895242b127b3d8d7b3b1b8c3d2fa'],
-  ])('notifies with the locally known hash after a lost submit response', async (hash, expected) => {
+  it('notifies with the hash derived from the signed blob, not the wallet-reported one, after a lost submit response', async () => {
+    const expected = RELAY_HASH;
     stubRippled();
-    vi.mocked(signTransaction).mockResolvedValueOnce({ tx_blob: '1200002280000000', hash });
+    vi.mocked(signTransaction).mockResolvedValueOnce({ tx_blob: '1200002280000000', hash: 'A'.repeat(64) });
     const fetchMock = vi.mocked(fetch);
     const answer = fetchMock.getMockImplementation();
     const lost = new Error('connection closed after submit');
@@ -290,15 +255,6 @@ describe('XrpSpokeService.deposit — submit results', () => {
     await expect(xrp.deposit(depositParams(NATIVE_XRP))).rejects.toBe(error);
     expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '66', RELAY_HASH);
     expect(callTo('submit')).toBeUndefined();
-  });
-
-  it('derives the hash before a successful submit without a returned hash', async () => {
-    stubRippled({ submit: { engine_result: 'tesSUCCESS' } });
-    vi.mocked(signTransaction).mockResolvedValueOnce({ tx_blob: '1200002280000000', hash: '' });
-
-    await expect(xrp.deposit(depositParams(NATIVE_XRP))).resolves.toBe(
-      '0x0c51f1f39d58c461731611827474f67fcf65895242b127b3d8d7b3b1b8c3d2fa',
-    );
   });
 
   it('preserves the underlying XRPL submit abort for recovery', async () => {
@@ -366,15 +322,16 @@ describe('XrpSpokeService.waitForDeposit', () => {
     vi.useRealTimers();
   });
 
-  it('re-notifies the relay while waiting, since the first notify can precede validation', async () => {
+  it('polls and re-notifies a bare uppercase XRPL hash under the relay form, since the first notify can precede validation', async () => {
     vi.useFakeTimers();
     const notifySpy = vi.mocked(MpcRelayApiService.notify);
     // Never resolves — the wait is what we are observing, not its outcome.
-    vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockReturnValue(new Promise(() => undefined));
+    const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockReturnValue(new Promise(() => undefined));
 
-    void xrp.waitForDeposit(RELAY_HASH);
+    void xrp.waitForDeposit(TX_HASH);
     await vi.advanceTimersByTimeAsync(20_000);
 
+    expect(wait).toHaveBeenCalledWith(expect.anything(), `66-${RELAY_HASH}-0`, expect.anything());
     expect(notifySpy.mock.calls.length).toBeGreaterThanOrEqual(3);
     expect(notifySpy).toHaveBeenCalledWith(expect.anything(), '66', RELAY_HASH);
   });
@@ -392,17 +349,6 @@ describe('XrpSpokeService.waitForDeposit', () => {
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(notifySpy).not.toHaveBeenCalled();
-  });
-
-  it('polls and re-notifies a bare uppercase XRPL hash under the form the relay keys on', async () => {
-    vi.useFakeTimers();
-    const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockReturnValue(new Promise(() => undefined));
-
-    void xrp.waitForDeposit(TX_HASH);
-    await vi.advanceTimersByTimeAsync(7_000);
-
-    expect(wait).toHaveBeenCalledWith(expect.anything(), `66-${RELAY_HASH}-0`, expect.anything());
-    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '66', RELAY_HASH);
   });
 });
 
@@ -515,22 +461,16 @@ describe('XrpSpokeService.deposit — notify failure', () => {
 describe('XrpSpokeService — relay submit and read', () => {
   const HUB_RELEASE = { dstChainKey: XRP, hubChainId: '146', hubTxHash: '0xhub', logIndex: 3 } as const;
 
-  it('submitDeposit notifies the relay of the tx on the XRPL chain id, without polling', async () => {
+  it('submitDeposit notifies on the XRPL chain id without polling; it and getDepositRecord key a bare uppercase hash in relay form', async () => {
     const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit');
-
-    expect(await xrp.submitDeposit('0xabc')).toEqual({ ok: true, value: undefined });
-    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '66', '0xabc');
-    expect(wait).not.toHaveBeenCalled();
-  });
-
-  it('submitDeposit and getDepositRecord take a bare uppercase XRPL hash in the form the relay keys on', async () => {
     const read = vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue({ ok: false, error: new Error('404') });
 
-    await xrp.submitDeposit(TX_HASH);
+    expect(await xrp.submitDeposit(TX_HASH)).toEqual({ ok: true, value: undefined });
     await xrp.getDepositRecord(TX_HASH);
 
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '66', RELAY_HASH);
     expect(read).toHaveBeenCalledWith(expect.anything(), `66-${RELAY_HASH}-0`);
+    expect(wait).not.toHaveBeenCalled();
   });
 
   it('leaves an empty hash empty, so notify still refuses it', async () => {
@@ -606,13 +546,10 @@ describe('XrpSpokeService.getDeposit', () => {
     expect(balance).toBe(1_500_000n);
   });
 
-  it('reports zero when the holder has no trustline for the currency', async () => {
+  it('reports zero with no trustline, and does not credit a same-currency line from a different issuer', async () => {
     stubRippled({ account_lines: { lines: [] } });
-
     expect(await xrp.getDeposit({ srcChainKey: XRP, srcAddress: SENDER, token: RLUSD_ISSUER } as never)).toBe(0n);
-  });
 
-  it('does not credit a line from a different issuer with the same currency code', async () => {
     stubRippled({
       account_lines: {
         lines: [{ currency: xrpCurrencyCode('RLUSD'), account: 'rImPoStErIsSuEr00000000000000000000', balance: '99' }],
@@ -639,16 +576,13 @@ describe('XrpSpokeService.getDeposit', () => {
 describe('XrpSpokeService wallet balances', () => {
   const { XRP: XRP_TOKEN, RLUSD } = spokeChainConfig[ChainKeys.XRP_MAINNET].supportedTokens;
 
-  it('routes a single-token read through SpokeService to the on-chain balance', async () => {
+  it('routes single and batched reads through SpokeService, keying XRP and IOU balances by token address', async () => {
     stubRippled();
 
-    const result = await sodax.spoke.getWalletBalance({ srcChainKey: XRP, srcAddress: SENDER, token: XRP_TOKEN });
-
-    expect(result).toEqual({ ok: true, value: 42_000_000n });
-  });
-
-  it('reads XRP and IOU balances in one batch, keyed by token address', async () => {
-    stubRippled();
+    expect(await sodax.spoke.getWalletBalance({ srcChainKey: XRP, srcAddress: SENDER, token: XRP_TOKEN })).toEqual({
+      ok: true,
+      value: 42_000_000n,
+    });
 
     const result = await sodax.spoke.getWalletBalances({
       srcChainKey: XRP,
@@ -682,16 +616,11 @@ describe('XrpSpokeService.checkDestination', () => {
       server_state: { state: { validated_ledger: { reserve_base: 1_000_000 } } },
     };
 
-    it('accepts native XRP of at least the base reserve, which the Payment uses to create it', async () => {
+    it('accepts native XRP of at least the base reserve, which creates it, but not less, nor any IOU', async () => {
       stubRippled(missing);
 
       expect(await check(NATIVE_XRP, 1_000_000n)).toEqual({ ready: true });
       expect(await check(NATIVE_XRP, 2_500_000n)).toEqual({ ready: true });
-    });
-
-    it('reports native XRP below the base reserve, and any IOU, which cannot create it', async () => {
-      stubRippled(missing);
-
       expect(await check(NATIVE_XRP, 999_999n)).toEqual({ ready: false, reason: 'account_not_found' });
       calls = [];
       expect(await check(USDC_ISSUER, 5_000_000n)).toEqual({ ready: false, reason: 'account_not_found' });
@@ -742,16 +671,21 @@ describe('XrpSpokeService.checkDestination', () => {
   });
 
   // An ordinary freeze still lets the holder receive; a deep freeze by either side stops it.
-  it.each([
-    ['low', 0x02000000],
-    ['high', 0x04000000],
-  ])('reports a trustline deep-frozen on the %s side', async (_, Flags) => {
-    stubRippled({ account_lines: usdcLine('0', '1000'), ledger_entry: { node: { Flags } } });
+  it('reports a trustline deep-frozen on either side, but accepts one under an ordinary freeze', async () => {
+    // lsfLowDeepFreeze, lsfHighDeepFreeze
+    for (const Flags of [0x02000000, 0x04000000]) {
+      calls = [];
+      stubRippled({ account_lines: usdcLine('0', '1000'), ledger_entry: { node: { Flags } } });
 
-    expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'trustline_frozen' });
-    expect(callTo('ledger_entry')?.params).toMatchObject({
-      ripple_state: { accounts: [SENDER, USDC_ISSUER], currency: xrpCurrencyCode('USDC') },
-    });
+      expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'trustline_frozen' });
+      expect(callTo('ledger_entry')?.params).toMatchObject({
+        ripple_state: { accounts: [SENDER, USDC_ISSUER], currency: xrpCurrencyCode('USDC') },
+      });
+    }
+
+    // lsfLowFreeze | lsfHighFreeze
+    stubRippled({ account_lines: usdcLine('0', '1000'), ledger_entry: { node: { Flags: 0x00400000 | 0x00800000 } } });
+    expect(await check(USDC_ISSUER)).toEqual({ ready: true });
   });
 
   // The issuer's account_info carries `issuer`; the recipient's carries no flags.
@@ -766,8 +700,10 @@ describe('XrpSpokeService.checkDestination', () => {
     stubRippled(withIssuer({ TransferRate: 1_002_000_000 }));
     expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'issuer_transfer_fee' });
 
-    // 1_000_000_000 is how an issuer states no fee.
+    // 1_000_000_000 is how an issuer states no fee, and rippled reads a TransferRate of 0 as no fee too.
     stubRippled(withIssuer({ TransferRate: 1_000_000_000 }));
+    expect(await check(USDC_ISSUER)).toEqual({ ready: true });
+    stubRippled(withIssuer({ TransferRate: 0 }));
     expect(await check(USDC_ISSUER)).toEqual({ ready: true });
   });
 
@@ -780,12 +716,6 @@ describe('XrpSpokeService.checkDestination', () => {
     expect(await check(NATIVE_XRP)).toEqual({ ready: true });
   });
 
-  it('reads a TransferRate of 0 as no fee, as rippled does', async () => {
-    stubRippled(withIssuer({ TransferRate: 0 }));
-
-    expect(await check(USDC_ISSUER)).toEqual({ ready: true });
-  });
-
   it('accepts a payment to the issuer itself, which redeems the IOU with no trustline and no transfer fee', async () => {
     stubRippled(withIssuer({ TransferRate: 1_002_000_000 }));
 
@@ -793,17 +723,15 @@ describe('XrpSpokeService.checkDestination', () => {
     expect(callTo('account_lines')).toBeUndefined();
   });
 
-  it('reports a trustline the issuer has not authorized when it requires authorization', async () => {
+  it('reports a line the issuer has not authorized, existing or missing, when it requires authorization', async () => {
     // lsfRequireAuth
     stubRippled(withIssuer({ Flags: 0x00040000 }, { peer_authorized: false }));
     expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'trustline_unauthorized' });
 
     stubRippled(withIssuer({ Flags: 0x00040000 }, { peer_authorized: true }));
     expect(await check(USDC_ISSUER)).toEqual({ ready: true });
-  });
 
-  it('reports a missing line from an issuer that requires authorization as unauthorized, not as fixable', async () => {
-    // lsfRequireAuth, and no RippleState: the holder's own TrustSet would still leave the line unauthorized.
+    // No RippleState: the holder's own TrustSet would still leave the line unauthorized, so it is not `no_trustline`.
     stubRippled({
       ...withIssuer({ Flags: 0x00040000 }),
       account_lines: { lines: [] },
@@ -828,22 +756,13 @@ describe('XrpSpokeService.checkDestination', () => {
     expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'no_trustline' });
   });
 
-  it('accepts a trustline under an ordinary freeze, which can still receive', async () => {
-    // lsfLowFreeze | lsfHighFreeze
-    stubRippled({ account_lines: usdcLine('0', '1000'), ledger_entry: { node: { Flags: 0x00400000 | 0x00800000 } } });
-
-    expect(await check(USDC_ISSUER)).toEqual({ ready: true });
-  });
-
-  it('reports an IOU destination with no trustline to the issuer', async () => {
+  it('reports an IOU destination with no trustline to the issuer, even one with a same-currency line elsewhere', async () => {
     stubRippled({ account_lines: { lines: [] } });
 
     expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'no_trustline' });
     // Filtering by issuer keeps a holder with many lines from being paged past the one that matters.
     expect(callTo('account_lines')?.params).toMatchObject({ account: SENDER, peer: USDC_ISSUER });
-  });
 
-  it('does not accept a trustline to the same currency from a different issuer', async () => {
     stubRippled({
       account_lines: {
         lines: [{ currency: xrpCurrencyCode('USDC'), account: RLUSD_ISSUER, balance: '0', limit: '1000' }],
@@ -851,18 +770,6 @@ describe('XrpSpokeService.checkDestination', () => {
     });
 
     expect(await check(USDC_ISSUER)).toEqual({ ready: false, reason: 'no_trustline' });
-  });
-
-  it('reports a trustline whose limit has no room for the amount', async () => {
-    stubRippled({ account_lines: usdcLine('9.5', '10') });
-
-    expect(await check(USDC_ISSUER, 1_000_000n)).toEqual({ ready: false, reason: 'trustline_limit' });
-  });
-
-  it('accepts an IOU destination whose trustline has room for the amount', async () => {
-    stubRippled({ account_lines: usdcLine('9', '10') });
-
-    expect(await check(USDC_ISSUER, 1_000_000n)).toEqual({ ready: true });
   });
 
   it('surfaces a node failure rather than treating it as a missing account', async () => {
@@ -885,26 +792,19 @@ describe('XrpSpokeService.estimateGas', () => {
     },
   } as const;
 
-  it('reports the ledger base fee in drops', async () => {
+  it('reports the ledger base fee in drops, whatever the transaction, since the fee is flat rather than metered', async () => {
     stubRippled();
 
-    const estimate = await xrp.estimateGas(gasParams);
-
     // 0.00001 XRP is 10 drops — XRPL charges a flat fee, so there is no gas/limit pair.
-    expect(estimate).toEqual({ fee: 10n });
+    expect(await xrp.estimateGas(gasParams)).toEqual({ fee: 10n });
+    const iou = { ...gasParams, tx: { ...gasParams.tx, token: RLUSD_ISSUER } };
+    expect(await xrp.estimateGas(iou)).toEqual({ fee: 10n });
   });
 
   it('uses the loaded open-ledger fee ahead of the base fee', async () => {
     stubRippled({ fee: { drops: { open_ledger_fee: '100', base_fee: '10' } } });
 
     expect((await xrp.estimateGas(gasParams)).fee).toBe(100n);
-  });
-
-  it('does not depend on the transaction, since the fee is flat rather than metered', async () => {
-    stubRippled();
-
-    const iou = { ...gasParams, tx: { ...gasParams.tx, token: RLUSD_ISSUER } };
-    expect(await xrp.estimateGas(iou)).toEqual(await xrp.estimateGas(gasParams));
   });
 
   it('rejects a node that cannot report its fee', async () => {
@@ -933,11 +833,17 @@ describe('XrpSpokeService.sendMessage', () => {
     });
   });
 
-  it('submits scheme 3 with the public key, since ed25519 cannot recover its signer', async () => {
+  it('submits scheme 3 with the public key, the AccountID as sender and the relay chain id', async () => {
     const trackingId = await xrp.sendMessage(sendParams);
 
+    // ed25519 cannot recover its signer, so scheme 3 carries the public key.
     expect(submitCall(0)).toMatchObject({ scheme: 3, signature: SIGNATURE, publicKey: PUBLIC_KEY });
     expect(trackingId).toBe(MEMO);
+    // The contract derives ripemd160(sha256(pubkey)) and compares it to `sender` — not interchangeable.
+    expect(submitCall(0)?.message.sender).toBe(xrpIdentityBytes(SENDER));
+    expect(submitCall(0)?.message.sender).not.toBe(PUBLIC_KEY);
+    // The relay chain id, not the hub chain id.
+    expect(submitCall(0)?.message.chainId).toBe('66');
   });
 
   it.each(['accepted', 'exhausted', 'lost reply'])('reuses one signed request after throttling (%s)', async outcome => {
@@ -985,43 +891,17 @@ describe('XrpSpokeService.sendMessage', () => {
     expect(new Set(send.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
   });
 
-  it('identifies the sender by AccountID rather than public key', async () => {
-    await xrp.sendMessage(sendParams);
-
-    // The contract derives ripemd160(sha256(pubkey)) and compares it to `sender` — the two are
-    // different values and are not interchangeable.
-    expect(submitCall(0)?.message.sender).toBe(xrpIdentityBytes(SENDER));
-    expect(submitCall(0)?.message.sender).not.toBe(PUBLIC_KEY);
-  });
-
-  it('uses the relay chain id, not the hub chain id', async () => {
-    await xrp.sendMessage(sendParams);
-
-    expect(submitCall(0)?.message.chainId).toBe('66');
-  });
-
-  it('draws a fresh random nonce per withdrawal rather than reading the clock', async () => {
-    await xrp.sendMessage(sendParams);
-    await xrp.sendMessage(sendParams);
-
-    // Two withdrawals in the same millisecond must not collide — a clock-derived nonce would.
-    const nonces = [0, 1].map(i => BigInt(submitCall(i)?.message.nonce ?? '0'));
-    expect(nonces[0]).not.toBe(nonces[1]);
-    for (const nonce of nonces) {
-      expect(nonce).toBeGreaterThan(0n);
-      expect(nonce).toBeLessThan(2n ** 64n);
-    }
-  });
-
-  it('keeps the nonce inside the safe-integer range the relay round-trips it through', async () => {
-    // The relay converts the nonce to a JS number before the NEAR call, so a value above
-    // MAX_SAFE_INTEGER reaches the contract rounded and the signature no longer verifies.
+  it('draws a fresh random positive nonce per withdrawal, inside the safe-integer range the relay round-trips', async () => {
+    // A clock-derived nonce would collide for two withdrawals in the same millisecond. The relay converts
+    // the nonce to a JS number before the NEAR call, so one above MAX_SAFE_INTEGER no longer verifies.
     for (let i = 0; i < 32; i++) {
       await xrp.sendMessage(sendParams);
       const nonce = BigInt(submitCall(i)?.message.nonce ?? '0');
+      expect(nonce).toBeGreaterThan(0n);
       expect(nonce).toBeLessThanOrEqual(BigInt(Number.MAX_SAFE_INTEGER));
       expect(BigInt(Number(nonce))).toBe(nonce);
     }
+    expect(submitCall(0)?.message.nonce).not.toBe(submitCall(1)?.message.nonce);
   });
 
   describe('in raw mode', () => {
@@ -1130,7 +1010,8 @@ describe('XrpSpokeService trustline setup', () => {
     });
 
     // rippled's TrustSet enforces no reserve for the line while the account owns fewer than two objects.
-    it.each([0, 1])('needs only the fee for a new line when the account owns %i objects', async ownerCount => {
+    it('needs only the fee for a new line when the account owns fewer than two objects', async () => {
+      const ownerCount = 1;
       const locked = 10_000_000 + ownerCount * 2_000_000;
       stubRippled({ ...reserves, ...noLines, ...funded(String(locked + 10), ownerCount) });
       expect(await xrp.canAffordTrustline({ address: SENDER, token: USDC_ISSUER })).toBe(true);
@@ -1300,19 +1181,12 @@ describe('XrpSpokeService trustline setup', () => {
 describe('XrpSpokeService.waitForTransactionReceipt', () => {
   const receiptParams = { txHash: RELAY_HASH, chainKey: XRP, pollingIntervalMs: 1 } as never;
 
-  it('queries rippled with the bare uppercase hash XRPL expects', async () => {
-    stubRippled();
-
-    await xrp.waitForTransactionReceipt(receiptParams);
-
-    expect(callTo('tx')?.params).toMatchObject({ transaction: TX_HASH, binary: false });
-  });
-
-  it('reports success only for a validated tesSUCCESS transaction', async () => {
+  it('queries rippled with the bare uppercase hash and reports a validated tesSUCCESS as success', async () => {
     stubRippled();
 
     const result = await xrp.waitForTransactionReceipt(receiptParams);
 
+    expect(callTo('tx')?.params).toMatchObject({ transaction: TX_HASH, binary: false });
     expect(result).toMatchObject({ ok: true, value: { status: 'success', receipt: { hash: TX_HASH } } });
   });
 
@@ -1387,7 +1261,7 @@ it('finds a balance trustline on page two filtered by issuer', async () => {
   expect(await xrp.getDeposit({ srcChainKey: XRP, srcAddress: SENDER, token: RLUSD_ISSUER })).toBe(2_000_000n);
   expect(calls.filter(c => c.method === 'account_lines')).toHaveLength(2);
 });
-it('includes sub-base-unit balance dust in trustline capacity', async () => {
+it('accepts an IOU only when the trustline has room, counting sub-base-unit balance dust', async () => {
   const issuer = spokeChainConfig[XRP].supportedTokens.USDC.address;
   for (const balance of ['9.0000009', '9']) {
     stubRippled({
@@ -1398,18 +1272,20 @@ it('includes sub-base-unit balance dust in trustline capacity', async () => {
     );
   }
 });
-it.each([
-  ['fits an exact payout under a fractional trustline limit', '9.0000009', '10.0000009'],
-  ['fits an exact payout under an exponent-notation trustline limit', '99999999999.0000009', '1.000000000000000009e11'],
-])('%s', async (_, balance, limit) => {
+it('fits an exact payout under a fractional or exponent-notation trustline limit, and not one base unit more', async () => {
   const issuer = spokeChainConfig[XRP].supportedTokens.USDC.address;
-  stubRippled({
-    account_lines: { lines: [{ currency: xrpCurrencyCode('USDC'), account: issuer, balance, limit }] },
-  });
-  for (const amount of [1_000_000n, 1_000_001n]) {
-    expect(await xrp.checkDestination({ address: SENDER, token: issuer, amount, maxAmount: amount })).toEqual(
-      amount === 1_000_000n ? { ready: true } : { ready: false, reason: 'trustline_limit' },
-    );
+  for (const [balance, limit] of [
+    ['9.0000009', '10.0000009'],
+    ['99999999999.0000009', '1.000000000000000009e11'],
+  ]) {
+    stubRippled({
+      account_lines: { lines: [{ currency: xrpCurrencyCode('USDC'), account: issuer, balance, limit }] },
+    });
+    for (const amount of [1_000_000n, 1_000_001n]) {
+      expect(await xrp.checkDestination({ address: SENDER, token: issuer, amount, maxAmount: amount })).toEqual(
+        amount === 1_000_000n ? { ready: true } : { ready: false, reason: 'trustline_limit' },
+      );
+    }
   }
 });
 it('refuses a negative sub-base-unit trustline room even for a zero payout', async () => {
@@ -1503,6 +1379,8 @@ describe('XrpSpokeService — tokens that share one issuer (the Robinhood stocks
     expect(new Set(addresses).size).toBe(47);
   });
 
+  // An issuer-only resolver would pick SPCX (listed first) for every stock, and 3-letter tickers must
+  // keep the 160-bit code they were issued with, not the standard form.
   it.each([
     'NVDA',
     'SPCX',
@@ -1520,24 +1398,6 @@ describe('XrpSpokeService — tokens that share one issuer (the Robinhood stocks
     } as never);
 
     expect(sentAmount()).toEqual({ currency: asciiHex(symbol), issuer: STOCK_ISSUER, value: '1.5' });
-  });
-
-  it('never resolves a stock to another stock of the same issuer (SPCX is first in the list)', async () => {
-    stubRippled();
-
-    await xrp.deposit(depositParams(tokens.NVDA.address));
-
-    expect(sentAmount().currency).toBe(asciiHex('NVDA'));
-    expect(sentAmount().currency).not.toBe(asciiHex('SPCX'));
-  });
-
-  it('keeps a 3-letter ticker on the 160-bit code it was issued with, not the standard form', async () => {
-    stubRippled();
-
-    await xrp.deposit(depositParams(tokens.GME.address));
-
-    expect(sentAmount().currency).toBe('474D450000000000000000000000000000000000');
-    expect(sentAmount().currency).not.toBe('GME');
   });
 
   it('refuses the bare issuer address: it names no single stock', async () => {

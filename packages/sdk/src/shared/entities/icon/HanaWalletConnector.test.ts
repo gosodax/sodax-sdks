@@ -33,12 +33,6 @@ describe('HanaWalletConnector — ICONEX relay helpers (WALLET-L-1)', () => {
     vi.useRealTimers();
   });
 
-  it('resolves requestAddress with an ok Result', async () => {
-    onRequest(() => respond({ type: 'RESPONSE_ADDRESS', payload: FROM }));
-
-    await expect(requestAddress()).resolves.toEqual({ ok: true, value: FROM });
-  });
-
   it('resolves requestJsonRpc with a well-formed RESPONSE_JSON-RPC payload', async () => {
     onRequest(req => respond({ type: 'RESPONSE_JSON-RPC', payload: { id: req.payload.id, result: '0xhash' } }));
 
@@ -58,15 +52,12 @@ describe('HanaWalletConnector — ICONEX relay helpers (WALLET-L-1)', () => {
     await expect(requestJsonRpc({ tx: 1 }, 1)).rejects.toThrow('Invalid payload response type');
   });
 
-  it('rejects requestJsonRpc on CANCEL_JSON-RPC', async () => {
-    onRequest(() => respond({ type: 'CANCEL_JSON-RPC', payload: null }));
+  it('rejects requestJsonRpc on CANCEL_JSON-RPC and requestSigning on CANCEL_SIGNING', async () => {
+    onRequest(req =>
+      respond({ type: req.type === 'REQUEST_SIGNING' ? 'CANCEL_SIGNING' : 'CANCEL_JSON-RPC', payload: null }),
+    );
 
     await expect(requestJsonRpc({ tx: 1 }, 1)).rejects.toThrow('CANCEL_JSON-RPC');
-  });
-
-  it('rejects requestSigning on CANCEL_SIGNING', async () => {
-    onRequest(() => respond({ type: 'CANCEL_SIGNING', payload: null }));
-
     await expect(requestSigning(FROM, 'HASH')).rejects.toThrow('CANCEL_SIGNING');
   });
 

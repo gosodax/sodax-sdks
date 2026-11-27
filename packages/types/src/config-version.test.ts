@@ -9,13 +9,8 @@ import {
   parseConfigVersion,
 } from './index.js';
 
-/**
- * Covers the shipped half of the CONFIG_VERSION encoding. `scripts/config-version.mjs` holds the
- * release-time mirror of the same formula — it cannot be imported here, because the release tooling
- * runs before any build and lives outside this package's `rootDir`. The integers below are therefore
- * restated from `scripts/config-version.test.mjs` on purpose: both implementations are pinned to one
- * set of literals, so a divergence fails on one side or the other.
- */
+// The literals restate `scripts/config-version.test.mjs` on purpose: its release-time mirror cannot be imported here,
+// so pinning both implementations to one set of literals makes any divergence fail on one side.
 
 const MIN = 1_000_000;
 const MAX = 99_999_999;
