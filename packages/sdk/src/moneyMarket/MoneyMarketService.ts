@@ -851,7 +851,7 @@ export class MoneyMarketService {
           const txResult = await this.createWithdrawIntent(_params);
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
-          // No settlement only when source and target are hub and the target is not the walletRouter.
+          // A hub source settles only when it withdraws to another chain at an address other than the walletRouter.
           const needsSettlement =
             srcChainKey !== hubChainId ||
             (params.dstChainKey != null &&

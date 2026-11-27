@@ -460,9 +460,9 @@ export class ClService {
         params.liquidity,
         params.amount0Max,
         params.amount1Max,
-        hubWallet,
-        '0x',
-        BigInt(2) ** BigInt(256) - BigInt(1),
+        hubWallet, // recipient
+        '0x', // no hook data
+        BigInt(2) ** BigInt(256) - BigInt(1), // maxUint256 deadline
       );
 
       const increaseCall: EvmContractCall = {

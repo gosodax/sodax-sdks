@@ -61,7 +61,7 @@ is kept as a secondary property (it makes the numbers readable and lineage reaso
 gate does not rely on it. Section 3 states both precisely and verifies them.
 
 **Timing.** The consumer is entirely commented out behind `TODO(config-v2): enable once the config v2
-endpoint is live` (`packages/sdk/src/shared/config/ConfigService.ts:158-185`). There is no live
+endpoint is live` (`packages/sdk/src/shared/config/ConfigService.ts:111-137`). There is no live
 runtime comparison today, which makes this the cheapest possible moment to change the encoding.
 
 ---
