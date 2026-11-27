@@ -116,3 +116,13 @@ sponsoring requires its own key.
 sponsoring call), not what the backend *accepts*. When two docs contradict each other on an
 acceptance rule, ask for the source of truth, then correct the losing side in the same change instead
 of writing prose that hedges between both.
+
+## L13 — Every PR gets a real issue on the SDK stream board; never fall back to `no-issue`
+
+**Correction:** opened a PR with no linked issue and proposed the `no-issue` label; the answer was
+"always create new issue in gosodax project sdk stream board for sodax-sdks".
+
+**Rule:** before opening a PR in `gosodax/sodax-sdks`, create an issue (spec template sections, written
+from what the work delivers) and put `Closes #N` in the PR body. Opening it as a writer lets
+`.github/workflows/add-to-project.yml` add it to org project 1 with Stream = SDK; confirm that run
+succeeded. Do not suggest `no-issue`, even for test-only or chore work.
