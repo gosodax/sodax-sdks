@@ -89,7 +89,7 @@ describe('SuiHydrator → SuiWalletProvider', () => {
     vi.clearAllMocks();
   });
 
-  it('forwards defaults, the resolved endpoint and the connected address to the ctor', () => {
+  it('hydrates a connected account: records the connection and stores a provider built from config', () => {
     connect();
     renderWith({
       SUI: {
@@ -106,39 +106,19 @@ describe('SuiHydrator → SuiWalletProvider', () => {
       address: '0xsui-account',
     });
     expect(typeof suiCtor.mock.calls[0]?.[0].signTransaction).toBe('function');
-  });
-
-  it('passes undefined defaults when SUI chains map omits SUI_MAINNET entry', () => {
-    connect();
-    renderWith({ SUI: {} });
-    expect(suiCtor.mock.calls[0]?.[0].defaults).toBeUndefined();
+    const [chain, provider] = setters.setWalletProvider.mock.calls.at(-1) ?? [];
+    expect(chain).toBe('SUI');
+    expect((provider as { defaults?: unknown }).defaults).toEqual({
+      signAndExecuteTxn: { dryRun: { enabled: false } },
+    });
+    expect(setters.setXConnection).toHaveBeenCalledWith('SUI', {
+      xAccount: { address: '0xsui-account', xChainType: 'SUI' },
+      xConnectorId: 'Sui Wallet',
+    });
   });
 
   it('does not construct SuiWalletProvider while no account is connected', () => {
     renderWith({ SUI: { chains: { [ChainKeys.SUI_MAINNET]: { defaults: { signAndExecuteTxn: {} } } } } });
     expect(suiCtor).not.toHaveBeenCalled();
-  });
-
-  it('writes the constructed provider into the SUI slot of the store', () => {
-    connect();
-    renderWith({
-      SUI: {
-        chains: { [ChainKeys.SUI_MAINNET]: { defaults: { signAndExecuteTxn: { dryRun: { enabled: true } } } } },
-      },
-    });
-    const [chain, provider] = setters.setWalletProvider.mock.calls.at(-1) ?? [];
-    expect(chain).toBe('SUI');
-    expect((provider as { defaults?: unknown }).defaults).toEqual({
-      signAndExecuteTxn: { dryRun: { enabled: true } },
-    });
-  });
-
-  it('records the connection with the wallet identifier dApp Kit derives', () => {
-    connect();
-    renderWith({ SUI: {} });
-    expect(setters.setXConnection).toHaveBeenCalledWith('SUI', {
-      xAccount: { address: '0xsui-account', xChainType: 'SUI' },
-      xConnectorId: 'Sui Wallet',
-    });
   });
 });

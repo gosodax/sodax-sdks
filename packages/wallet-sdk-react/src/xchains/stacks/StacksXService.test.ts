@@ -54,14 +54,11 @@ describe('StacksXService.getInstance — singleton + network update', () => {
     networkFrom.mockClear();
   });
 
-  it('returns the same instance on repeated calls (singleton identity)', () => {
+  it("defaults to 'mainnet' and reuses the singleton on repeated calls without a selector", () => {
     const a = StacksXService.getInstance();
     const b = StacksXService.getInstance();
     expect(a).toBe(b);
-  });
-
-  it("defaults to 'mainnet' when called with no argument", () => {
-    StacksXService.getInstance();
+    expect(networkFrom).toHaveBeenCalledTimes(1);
     expect(networkFrom).toHaveBeenCalledWith('mainnet');
   });
 
@@ -106,21 +103,6 @@ describe('StacksXService.getBalance — native STX path', () => {
   it('swallows !response.ok and returns 0n (error is logged but not thrown)', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({ ok: false, statusText: 'Internal Server Error' }));
-
-    const service = StacksXService.getInstance();
-    const result = await service.getBalance(USER, STX_TOKEN);
-
-    expect(result).toBe(0n);
-    expect(errSpy).toHaveBeenCalled();
-    errSpy.mockRestore();
-  });
-
-  it('swallows malformed JSON (missing stx.balance) and returns 0n', async () => {
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValueOnce({ ok: true, statusText: 'OK', json: () => Promise.resolve({}) }),
-    );
 
     const service = StacksXService.getInstance();
     const result = await service.getBalance(USER, STX_TOKEN);

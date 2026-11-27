@@ -30,19 +30,18 @@ describe('tonSignDataMessage', () => {
 });
 
 describe('TonWalletProvider — private key', () => {
-  it('uses the 32-byte public key as its wallet address, since that is the relay identity', async () => {
-    expect(await rawKey().getWalletAddress()).toBe(`0x${keyPair.publicKey.toString('hex')}`);
-  });
+  it('uses the 32-byte public key as its wallet address (the relay identity) and sends from its wallet-v4R2 address', async () => {
+    const provider = rawKey();
 
-  it('sends from the key wallet-v4R2 address', async () => {
-    expect(await rawKey().getAccountAddress()).toBe(v4r2.toString({ bounceable: false }));
+    expect(await provider.getWalletAddress()).toBe(`0x${keyPair.publicKey.toString('hex')}`);
+    expect(await provider.getAccountAddress()).toBe(v4r2.toString({ bounceable: false }));
   });
 
   it('refuses a key that is not a 32-byte seed', () => {
     expect(() => new TonWalletProvider({ privateKey: '0x1234' })).toThrow(/32-byte hex seed/);
   });
 
-  it('signs the withdraw text under a TonConnect envelope that verifies against its public key', async () => {
+  it('signs the withdraw text under a TonConnect envelope that verifies, binding the configured or default domain', async () => {
     const signed = await rawKey('app.sodax.com').signMessage(HASH);
 
     expect(signed).toMatchObject({
@@ -65,9 +64,6 @@ describe('TonWalletProvider — private key', () => {
     expect(signVerify(Buffer.from(digest), Buffer.from(signed.signature.slice(2), 'hex'), keyPair.publicKey)).toBe(
       true,
     );
-  });
-
-  it('binds the default domain when none is configured', async () => {
     expect((await rawKey().signMessage(HASH)).domain).toBe('sodax.com');
   });
 });

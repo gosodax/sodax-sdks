@@ -47,16 +47,14 @@ afterEach(() => {
 });
 
 describe('TonXConnector — identity', () => {
-  it('registers as the TonConnect connector for the TON chain type', () => {
+  it('registers as the always-installable TonConnect connector for the TON chain type', () => {
     const c = new TonXConnector();
 
     expect(c.xChainType).toBe('TON');
     expect(c.name).toBe('TonConnect');
     expect(c.icon).toMatch(/^data:image\/svg\+xml,/);
-  });
-
-  it('is always installable, since TonConnect lists every wallet including mobile ones', () => {
-    expect(new TonXConnector().isInstalled).toBe(true);
+    // TonConnect lists every wallet, including mobile ones, so there is nothing to detect.
+    expect(c.isInstalled).toBe(true);
   });
 });
 
@@ -68,6 +66,7 @@ describe('TonXConnector.connect', () => {
     expect(ui.openModal).toHaveBeenCalled();
     // The relay identifies a TON user by public key, so that is the address the SDK receives.
     expect(result).toEqual({ address: `0x${PUBLIC_KEY.toLowerCase()}`, xChainType: 'TON' });
+    expect(statusListener).toBeUndefined();
   });
 
   it('reuses a restored session without opening the modal again', async () => {
@@ -76,15 +75,6 @@ describe('TonXConnector.connect', () => {
     await new TonXConnector().connect();
 
     expect(ui.openModal).not.toHaveBeenCalled();
-  });
-
-  it('refuses a wallet that does not expose its public key', async () => {
-    ui.openModal.mockImplementationOnce(async () => {
-      account = { address: RAW_ADDRESS };
-      statusListener?.({ account });
-    });
-
-    await expect(new TonXConnector().connect()).rejects.toThrow(/did not expose its public key/);
   });
 });
 

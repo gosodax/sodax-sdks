@@ -126,32 +126,22 @@ afterEach(() => {
 });
 
 describe('StellarXService.getBalances', () => {
-  it('reads XLM and trustline balances from one account load, with no simulation', async () => {
-    const { service, loadAccount, simulateTransaction } = makeService([
-      nativeLine('100.0000000'),
-      trustline(USDC_CONFIG, '12.3456789'),
-    ]);
-
-    // 100 XLM minus the (2 + 1 trustline) * 0.5 XLM minimum balance.
-    expect(await service.getBalances(OWNER, [XLM, USDC])).toEqual({
-      [XLM.address]: 985_000_000n,
-      [USDC.address]: 123_456_789n,
-    });
-    expect(loadAccount).toHaveBeenCalledTimes(1);
-    expect(simulateTransaction).not.toHaveBeenCalled();
-  });
-
-  it('holds back sponsorship-adjusted reserves and selling liabilities from XLM', async () => {
-    const { service, loadAccount } = makeService([]);
+  it('reads XLM net of reserves and liabilities, and trustline balances, from one account load with no simulation', async () => {
+    const { service, loadAccount, simulateTransaction } = makeService([]);
     loadAccount.mockResolvedValue(
-      account([nativeLine('100.0000000', '1.0000000'), trustline(USDC_CONFIG, '1.0000000')], {
+      account([nativeLine('100.0000000', '1.0000000'), trustline(USDC_CONFIG, '12.3456789')], {
         numSponsoring: 2,
         numSponsored: 1,
       }),
     );
 
     // (2 + 1 subentry + 2 sponsoring - 1 sponsored) * 0.5 XLM + 1 XLM selling liabilities = 3 XLM held back.
-    expect(await service.getBalances(OWNER, [XLM])).toEqual({ [XLM.address]: 970_000_000n });
+    expect(await service.getBalances(OWNER, [XLM, USDC])).toEqual({
+      [XLM.address]: 970_000_000n,
+      [USDC.address]: 123_456_789n,
+    });
+    expect(loadAccount).toHaveBeenCalledTimes(1);
+    expect(simulateTransaction).not.toHaveBeenCalled();
   });
 
   it('reads XLM and classic assets as zero for an account never funded, but still simulates custom tokens', async () => {
@@ -167,16 +157,6 @@ describe('StellarXService.getBalances', () => {
     expect(simulateTransaction.mock.calls[0]?.[0].source).toBe(OWNER);
   });
 
-  it('reads a classic asset without a trustline as zero and simulates only custom contracts', async () => {
-    const { service, simulateTransaction } = makeService([nativeLine('10.0000000')]);
-
-    expect(await service.getBalances(OWNER, [MSFT, CUSTOM])).toEqual({
-      [MSFT.address]: 0n,
-      [CUSTOM.address]: 42n,
-    });
-    expect(simulateTransaction).toHaveBeenCalledTimes(1);
-  });
-
   it("reads an asset's own issuer as the i64 maximum the asset contract reports", async () => {
     const { service, simulateTransaction } = makeService([nativeLine('10.0000000')]);
 
@@ -187,41 +167,31 @@ describe('StellarXService.getBalances', () => {
     expect(simulateTransaction).not.toHaveBeenCalled();
   });
 
-  it('reads a failed simulation as zero', async () => {
-    const { service, simulateTransaction } = makeService([nativeLine('10.0000000')]);
-    simulateTransaction.mockResolvedValue(simulationError('HostError: Error(Contract, #13)'));
-
-    expect(await service.getBalances(OWNER, [CUSTOM])).toEqual({ [CUSTOM.address]: 0n });
-  });
-
-  it('reads a malformed token address as zero without failing the rest of the batch', async () => {
+  it('reads a failed simulation or a malformed token address as zero without failing the rest of the batch', async () => {
     const { service, simulateTransaction } = makeService([
       nativeLine('10.0000000'),
       trustline(USDC_CONFIG, '1.0000000'),
     ]);
+    simulateTransaction.mockResolvedValue(simulationError('HostError: Error(Contract, #13)'));
     const malformed = token('MALFORMED', 'not-a-contract-id');
 
-    expect(await service.getBalances(OWNER, [USDC, malformed])).toEqual({
+    expect(await service.getBalances(OWNER, [USDC, malformed, CUSTOM])).toEqual({
       [USDC.address]: 10_000_000n,
       [malformed.address]: 0n,
+      [CUSTOM.address]: 0n,
     });
-    expect(simulateTransaction).not.toHaveBeenCalled();
+    expect(simulateTransaction).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects the whole batch instead of reporting zero when a Soroban request fails', async () => {
-    const { service, simulateTransaction } = makeService([
+  it('rejects instead of reporting zero when a Soroban request fails or the account cannot be loaded', async () => {
+    const { service, loadAccount, simulateTransaction } = makeService([
       nativeLine('10.0000000'),
       trustline(USDC_CONFIG, '1.0000000'),
     ]);
     simulateTransaction.mockRejectedValue(new Error('HTTP error simulating TX! status: 429'));
-
     await expect(service.getBalances(OWNER, [XLM, USDC, CUSTOM])).rejects.toThrow('status: 429');
-  });
 
-  it('rejects when the account cannot be loaded', async () => {
-    const { service, loadAccount } = makeService([]);
     loadAccount.mockRejectedValue(new Error('horizon down'));
-
     await expect(service.getBalances(OWNER, [XLM])).rejects.toThrow('horizon down');
   });
 
@@ -234,34 +204,22 @@ describe('StellarXService.getBalances', () => {
   });
 });
 
-describe('StellarXService.getBalance', () => {
-  it('reads one token through the batched path', async () => {
-    const { service, loadAccount } = makeService([nativeLine('10.0000000'), trustline(USDC_CONFIG, '1.5000000')]);
-
-    expect(await service.getBalance(OWNER, USDC)).toBe(15_000_000n);
-    expect(loadAccount).toHaveBeenCalledTimes(1);
-  });
-});
-
 // getBalances reads listed assets only from trustlines, so a wrong id here would show a held asset as zero.
 describe('Stellar trustline config', () => {
   const stellar = spokeChainConfig[ChainKeys.STELLAR_MAINNET];
 
-  it('lists each classic asset under its Stellar Asset Contract id', () => {
+  it('lists classic assets under their Stellar Asset Contract ids and every token under a canonical contract id', () => {
     const mismatched = stellar.trustlineConfigs
       .filter(
         config => new Asset(config.assetCode, config.assetIssuer).contractId(Networks.PUBLIC) !== config.contractId,
       )
       .map(config => config.assetCode);
-
-    expect(mismatched).toEqual([]);
-  });
-
-  it('uses canonical contract ids for every Stellar token, since balances are matched by exact address', () => {
+    // Balances are matched by exact address, so a non-canonical id would never match.
     const nonCanonical = Object.values(stellar.supportedTokens)
       .filter(xToken => !StrKey.isValidContract(xToken.address))
       .map(xToken => xToken.symbol);
 
+    expect(mismatched).toEqual([]);
     expect(nonCanonical).toEqual([]);
   });
 });

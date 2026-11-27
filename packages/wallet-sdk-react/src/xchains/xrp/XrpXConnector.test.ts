@@ -42,36 +42,38 @@ describe('XrpXConnector — identity', () => {
 
     expect(c.xChainType).toBe('XRP');
     expect(c.name).toBe('GemWallet');
-  });
-
-  it('exposes a self-contained data-URI icon, avoiding a cross-origin image fetch', () => {
-    expect(connector().icon).toMatch(/^data:image\/svg\+xml,/);
-  });
-
-  it('points at the extension install page', () => {
-    expect(connector().installUrl).toBe('https://gemwallet.app/');
+    expect(c.icon).toMatch(/^data:image\/svg\+xml,/);
+    expect(c.installUrl).toBe('https://gemwallet.app/');
   });
 });
 
 describe('XrpXConnector.isInstalled', () => {
-  it('reads the extension detection flag synchronously, since it is on the render path', () => {
+  it('reads the extension detection flag synchronously, true only when it is exactly true', () => {
     vi.stubGlobal('window', { gemWallet: true });
-
     expect(connector().isInstalled).toBe(true);
-  });
 
-  it('is false when the flag is absent or not exactly true', () => {
     vi.stubGlobal('window', {});
     expect(connector().isInstalled).toBe(false);
 
     vi.stubGlobal('window', { gemWallet: 'yes' });
     expect(connector().isInstalled).toBe(false);
   });
+});
 
-  it('is false in a non-browser environment rather than throwing', () => {
+describe('XrpXConnector.detect', () => {
+  it("returns the extension's own answer, which is what sets the flag isInstalled reads", async () => {
+    isInstalled.mockResolvedValueOnce({ result: { isInstalled: false } });
+
+    expect(await XrpXConnector.detect()).toBe(false);
+    expect(await XrpXConnector.detect()).toBe(true);
+  });
+
+  it('reports not installed in a non-browser environment, without throwing or asking the extension', async () => {
     vi.stubGlobal('window', undefined);
 
     expect(connector().isInstalled).toBe(false);
+    expect(await XrpXConnector.detect()).toBe(false);
+    expect(isInstalled).not.toHaveBeenCalled();
   });
 });
 
@@ -99,34 +101,8 @@ describe('XrpXConnector.connect', () => {
   });
 });
 
+// `wallet-sdk-core` takes no `@gemwallet/api` dependency of its own — getGemWallet is the seam.
 describe('XrpXConnector.getGemWallet', () => {
-  it('adapts the API to the structural shape the wallet provider expects', () => {
-    const gem = connector().getGemWallet();
-
-    // `wallet-sdk-core` takes no `@gemwallet/api` dependency of its own — this is the seam.
-    expect(Object.keys(gem).sort()).toEqual([
-      'getAddress',
-      'getNetwork',
-      'getPublicKey',
-      'signMessage',
-      'submitTransaction',
-      'submitTrustSet',
-    ]);
-  });
-
-  it('submits a TrustSet through the same GemWallet submitTransaction call', async () => {
-    const transaction = {
-      TransactionType: 'TrustSet' as const,
-      Account: 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah',
-      LimitAmount: { currency: 'USD', issuer: 'rbtWzBnJB84fKuVCg2qbKKX4EUtCWVik7', value: '9999999999999999e80' },
-    };
-    submitTransaction.mockResolvedValue({ result: { hash: 'A'.repeat(64) } });
-
-    await connector().getGemWallet().submitTrustSet?.({ transaction });
-
-    expect(submitTransaction).toHaveBeenCalledWith({ transaction });
-  });
-
   it('forwards the hash and its hex flag to signMessage unchanged', async () => {
     const hash = 'AB'.repeat(32);
     signMessage.mockResolvedValue({ result: { signedMessage: 'CD'.repeat(64) } });
@@ -137,24 +113,27 @@ describe('XrpXConnector.getGemWallet', () => {
     expect(signMessage).toHaveBeenCalledWith(hash, true);
   });
 
-  it('forwards a transaction payload unchanged to submitTransaction', async () => {
-    const transaction = PAYMENT;
-    submitTransaction.mockResolvedValue({ result: { hash: 'A'.repeat(64) } });
-
-    await connector().getGemWallet().submitTransaction({ transaction });
-
-    expect(submitTransaction).toHaveBeenCalledWith({ transaction });
-  });
-
-  it('passes explicit GemWallet refusal through to the wallet provider', async () => {
+  it('routes Payment and TrustSet payloads unchanged through submitTransaction, passing a refusal back', async () => {
+    const trustSet = {
+      TransactionType: 'TrustSet' as const,
+      Account: ADDRESS,
+      LimitAmount: { currency: 'USD', issuer: 'rbtWzBnJB84fKuVCg2qbKKX4EUtCWVik7', value: '9999999999999999e80' },
+    };
     const refusal = { type: 'reject' } as const;
-    submitTransaction.mockResolvedValueOnce(refusal);
-    const transaction = PAYMENT;
-    await expect(connector().getGemWallet().submitTransaction({ transaction })).resolves.toBe(refusal);
+    submitTransaction.mockResolvedValueOnce(refusal).mockResolvedValueOnce({ result: { hash: 'A'.repeat(64) } });
+    const gem = connector().getGemWallet();
+
+    await expect(gem.submitTransaction({ transaction: PAYMENT })).resolves.toBe(refusal);
+    await gem.submitTrustSet?.({ transaction: trustSet });
+
+    expect(submitTransaction).toHaveBeenNthCalledWith(1, { transaction: PAYMENT });
+    expect(submitTransaction).toHaveBeenNthCalledWith(2, { transaction: trustSet });
   });
 
-  it('delegates address and public-key reads to the API', async () => {
+  it('delegates address, public-key and network reads to the API', async () => {
     getPublicKey.mockResolvedValue({ result: { publicKey: `ED${'11'.repeat(32)}` } });
+    // The provider refuses a ledger other than the XRPL Mainnet, so the network must pass through as is.
+    getNetwork.mockResolvedValue({ result: { chain: 'XAHAU', network: 'Mainnet' } });
     const gem = connector().getGemWallet();
 
     await gem.getAddress();
@@ -162,29 +141,6 @@ describe('XrpXConnector.getGemWallet', () => {
 
     expect(getAddress).toHaveBeenCalled();
     expect(getPublicKey).toHaveBeenCalled();
-  });
-});
-
-describe('XrpXConnector.detect', () => {
-  it("returns the extension's own answer, which is what sets the flag isInstalled reads", async () => {
-    isInstalled.mockResolvedValueOnce({ result: { isInstalled: false } });
-
-    expect(await XrpXConnector.detect()).toBe(false);
-    expect(await XrpXConnector.detect()).toBe(true);
-  });
-
-  it('reports not installed during server rendering, where there is no extension to ask', async () => {
-    vi.stubGlobal('window', undefined);
-
-    expect(await XrpXConnector.detect()).toBe(false);
-    expect(isInstalled).not.toHaveBeenCalled();
-  });
-});
-
-describe('XrpXConnector.getGemWallet — network', () => {
-  it('passes the wallet network through, so the provider can refuse a ledger other than the XRPL Mainnet', async () => {
-    getNetwork.mockResolvedValue({ result: { chain: 'XAHAU', network: 'Mainnet' } });
-
-    expect(await connector().getGemWallet().getNetwork?.()).toEqual({ result: { chain: 'XAHAU', network: 'Mainnet' } });
+    expect(await gem.getNetwork?.()).toEqual({ result: { chain: 'XAHAU', network: 'Mainnet' } });
   });
 });

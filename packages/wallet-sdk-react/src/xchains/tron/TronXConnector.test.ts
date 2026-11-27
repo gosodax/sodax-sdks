@@ -99,115 +99,83 @@ describe('TronXConnector — identity', () => {
 });
 
 describe('TronXConnector.isInstalled', () => {
-  it('is true when a Tron provider global is present', () => {
+  it('counts only a provider global that connect() could authorize against', () => {
     stubWindow({ globals: { tron: provider() } });
     expect(connector().isInstalled).toBe(true);
 
     stubWindow({ globals: { tronLink: provider() } });
     expect(connector().isInstalled).toBe(true);
-  });
 
-  it('is false when nothing Tron-shaped is injected', () => {
+    stubWindow({ globals: { tron: { tronWeb: {} }, tronLink: provider() } });
+    expect(connector().isInstalled).toBe(true);
+
+    stubWindow({ globals: { tron: { tronWeb: {} } } });
+    expect(connector().isInstalled).toBe(false);
+
     stubWindow();
-
     expect(connector().isInstalled).toBe(false);
   });
 
-  it('counts a wallet found only through TIP-6963 once discovery has answered', async () => {
+  it('counts a TIP-6963 wallet once discovery answers, but only for the window that discovered it', async () => {
     stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: provider() }] });
     const c = connector();
-
     await vi.runAllTimersAsync();
-
     // The wallet modal checks this before connect(), so it must agree with what connect() would find.
     expect(c.isInstalled).toBe(true);
-  });
 
-  it('is false for a global that connect() could not authorize against', () => {
-    stubWindow({ globals: { tron: { tronWeb: {} } } });
-
-    expect(connector().isInstalled).toBe(false);
-  });
-
-  it('is true when a usable global sits behind one that cannot authorize', () => {
-    stubWindow({ globals: { tron: { tronWeb: {} }, tronLink: provider() } });
-
-    expect(connector().isInstalled).toBe(true);
-  });
-
-  it('ignores a discovery started for a window that has since been replaced', async () => {
     stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: provider() }] });
     connector();
     stubWindow();
-    const c = connector();
-
+    const replaced = connector();
     await vi.runAllTimersAsync();
-
-    expect(c.isInstalled).toBe(false);
+    expect(replaced.isInstalled).toBe(false);
   });
 });
 
 describe('TronXConnector.connect — TIP-6963 discovery', () => {
-  it('authorizes the announced TronLink provider with eth_requestAccounts', async () => {
+  it('authorizes the announced TronLink provider with eth_requestAccounts, then stops listening', async () => {
     const p = provider();
-    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: p }] });
+    const w = stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: p }] });
 
     await expect(settle(connector().connect())).resolves.toEqual({ address: ADDRESS, xChainType: 'TRON' });
     expect(p.request).toHaveBeenCalledWith({ method: 'eth_requestAccounts' });
     expect(p.request).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'tron_requestAccounts' }));
-  });
-
-  it('prefers the provider announcing as TronLink over another announcing wallet', async () => {
-    const other = provider();
-    const tronlink = provider();
-    stubWindow({
-      announce: [
-        { info: { name: 'Some Multi-Chain Wallet' }, provider: other },
-        { info: { name: 'TronLink' }, provider: tronlink },
-      ],
-    });
-
-    await expect(settle(connector().connect())).resolves.toEqual({ address: ADDRESS, xChainType: 'TRON' });
-    expect(tronlink.request).toHaveBeenCalled();
-    expect(other.request).not.toHaveBeenCalled();
-  });
-
-  it('identifies TronLink by rdns as well as name', async () => {
-    const p = provider();
-    stubWindow({
-      announce: [
-        { info: { name: 'Other' }, provider: provider() },
-        { info: { rdns: 'org.tronlink.wallet' }, provider: p },
-      ],
-    });
-
-    await settle(connector().connect());
-
-    expect(p.request).toHaveBeenCalled();
-  });
-
-  it('stops listening for announcements once discovery is done', async () => {
-    const w = stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: provider() }] });
-
-    await settle(connector().connect());
-
     expect(w.listenerCount('TIP6963:announceProvider')).toBe(0);
   });
 
-  it('falls back to window.tron when no wallet announces', async () => {
-    const p = provider();
-    stubWindow({ globals: { tron: p } });
+  it('prefers the provider announcing as TronLink, by name or rdns, over another announcing wallet', async () => {
+    const other = provider();
+    const byName = provider();
+    stubWindow({
+      announce: [
+        { info: { name: 'Some Multi-Chain Wallet' }, provider: other },
+        { info: { name: 'TronLink' }, provider: byName },
+      ],
+    });
+    await settle(connector().connect());
+    expect(byName.request).toHaveBeenCalled();
+    expect(other.request).not.toHaveBeenCalled();
 
-    await expect(settle(connector().connect())).resolves.toEqual({ address: ADDRESS, xChainType: 'TRON' });
-    expect(p.request).toHaveBeenCalledWith({ method: 'eth_requestAccounts' });
+    const byRdns = provider();
+    stubWindow({
+      announce: [
+        { info: { name: 'Other' }, provider: provider() },
+        { info: { rdns: 'org.tronlink.wallet' }, provider: byRdns },
+      ],
+    });
+    await settle(connector().connect());
+    expect(byRdns.request).toHaveBeenCalled();
   });
 
-  it('authorizes through a usable global behind one that cannot authorize', async () => {
+  it('falls back to the first usable provider global when no wallet announces', async () => {
+    const tron = provider();
+    stubWindow({ globals: { tron } });
+    await expect(settle(connector().connect())).resolves.toEqual({ address: ADDRESS, xChainType: 'TRON' });
+    expect(tron.request).toHaveBeenCalledWith({ method: 'eth_requestAccounts' });
+
     const tronLink = provider();
     stubWindow({ globals: { tron: { tronWeb: {} }, tronLink } });
-
     await settle(connector().connect());
-
     expect(tronLink.request).toHaveBeenCalledWith({ method: 'eth_requestAccounts' });
   });
 
@@ -219,15 +187,6 @@ describe('TronXConnector.connect — TIP-6963 discovery', () => {
 });
 
 describe('TronXConnector.connect — address resolution', () => {
-  it('prefers the base58 address from the provider tronWeb', async () => {
-    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: provider() }] });
-
-    const account = await settle(connector().connect());
-
-    // `accounts[0]` is not guaranteed to be base58, so tronWeb wins when populated.
-    expect(account?.address).toBe(ADDRESS);
-  });
-
   it('waits for the base58 address when tronWeb publishes it a tick late', async () => {
     const p = provider({ tronWeb: { defaultAddress: { base58: undefined } } });
     p.request = vi.fn().mockImplementation(async () => {
@@ -241,61 +200,36 @@ describe('TronXConnector.connect — address resolution', () => {
     expect((await settle(connector().connect()))?.address).toBe(ADDRESS);
   });
 
-  it('rejects a non-base58 account rather than signing with an owner the wallet disowns', async () => {
+  it('rejects an authorization that yields no base58 account rather than sign with an owner the wallet disowns', async () => {
     // The address becomes the transaction's `owner_address`, which the wallet checks in base58.
-    const p = provider({ tronWeb: undefined });
-    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: p }] });
-
+    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: provider({ tronWeb: undefined }) }] });
     await expect(settle(connector().connect())).rejects.toThrow(/non-base58 account/);
-  });
 
-  it('rejects when authorization returns no account at all', async () => {
-    const p = provider({ request: vi.fn().mockResolvedValue([]), tronWeb: undefined });
-    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: p }] });
-
+    const empty = provider({ request: vi.fn().mockResolvedValue([]), tronWeb: undefined });
+    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: empty }] });
     await expect(settle(connector().connect())).rejects.toThrow(/returned no account/);
   });
 });
 
 describe('TronXConnector.connect — rejection', () => {
-  it('reports a user rejection from the EIP-1193 error code', async () => {
-    const p = provider({
+  it('maps an EIP-1193 user rejection to a clear error and surfaces any other wallet error message', async () => {
+    const rejecting = provider({
       request: vi.fn().mockRejectedValue(Object.assign(new Error('User rejected'), { code: 4001 })),
     });
-    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: p }] });
-
+    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: rejecting }] });
     await expect(settle(connector().connect())).rejects.toThrow(/rejected in the wallet/);
-  });
 
-  it('surfaces any other wallet error with its message', async () => {
-    const p = provider({ request: vi.fn().mockRejectedValue(new Error('wallet exploded')) });
-    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: p }] });
-
+    const failing = provider({ request: vi.fn().mockRejectedValue(new Error('wallet exploded')) });
+    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: failing }] });
     await expect(settle(connector().connect())).rejects.toThrow(/wallet exploded/);
   });
 });
 
-describe('TronXConnector.getProvider', () => {
-  it('returns the provider that authorized, so signing does not go through the injected tronWeb', async () => {
+describe('TronXConnector.getProvider / getTronWeb', () => {
+  it('returns the provider that authorized, not an injected global, until disconnect', async () => {
     // The injected `tronWeb` is an unconnected instance (`defaultPrivateKey: false`); signing
     // through it fails with "Private key does not match address in transaction".
     const announced = provider();
-    stubWindow({
-      announce: [{ info: { name: 'TronLink' }, provider: announced }],
-      globals: { tron: provider() },
-    });
-    const c = connector();
-
-    await settle(c.connect());
-
-    expect(c.getProvider()).toBe(announced);
-  });
-});
-
-describe('TronXConnector.getTronWeb', () => {
-  it('returns the tronWeb of the provider that actually authorized', async () => {
-    const announced = provider();
-    // A different global is present; the authorized provider must win.
     stubWindow({
       announce: [{ info: { name: 'TronLink' }, provider: announced }],
       globals: { tron: provider({ tronWeb: { defaultAddress: { base58: 'TOtherAddress' } } }) },
@@ -303,33 +237,27 @@ describe('TronXConnector.getTronWeb', () => {
     const c = connector();
 
     await settle(c.connect());
-
+    expect(c.getProvider()).toBe(announced);
     expect(c.getTronWeb()).toBe(announced.tronWeb);
+
+    // TronLink has no programmatic disconnect, so only the app-side connection is cleared.
+    await expect(c.disconnect()).resolves.toBeUndefined();
+    stubWindow();
+    expect(c.getProvider()).toBeUndefined();
   });
 
-  it('falls back to an injected provider global before connecting', () => {
+  it('falls back to an injected provider before connecting, never the bare unconnected window.tronWeb', () => {
     const p = provider();
     stubWindow({ globals: { tron: p } });
-
     expect(connector().getTronWeb()).toBe(p.tronWeb);
-  });
 
-  it('never returns the bare window.tronWeb, which is unconnected and cannot sign', () => {
-    const globalTronWeb = { defaultAddress: { base58: false as const } };
-    stubWindow({ globals: { tronWeb: globalTronWeb } });
-
-    expect(connector().getTronWeb()).toBeUndefined();
-  });
-
-  it('is undefined when nothing is injected, so the registry builds no provider', () => {
-    stubWindow();
-
+    stubWindow({ globals: { tronWeb: { defaultAddress: { base58: false as const } } } });
     expect(connector().getTronWeb()).toBeUndefined();
   });
 });
 
 describe('TronXConnector.signMessage', () => {
-  const signing = (account: string, signature = 'ab12') => {
+  const signing = (account: string | false, signature = 'ab12') => {
     const signMessageV2 = vi.fn().mockResolvedValue(signature);
     stubWindow({
       globals: { tron: provider({ tronWeb: { defaultAddress: { base58: account }, trx: { signMessageV2 } } }) },
@@ -344,27 +272,13 @@ describe('TronXConnector.signMessage', () => {
     expect(signMessageV2).toHaveBeenCalledWith('hello');
   });
 
-  it('refuses when the wallet has switched to another account', async () => {
-    const signMessageV2 = signing('TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow');
-
+  it('refuses unless the wallet is unlocked on the connected account', async () => {
+    const switched = signing('TGLeueT1EauJN1AupKBPmkSE76Brm1v4ow');
     await expect(connector().signMessage('hello', ADDRESS)).rejects.toThrow(`not the connected ${ADDRESS}`);
-    expect(signMessageV2).not.toHaveBeenCalled();
-  });
+    expect(switched).not.toHaveBeenCalled();
 
-  it('refuses when the wallet exposes no account', async () => {
-    stubWindow({ globals: { tron: provider({ tronWeb: { defaultAddress: { base58: false } } }) } });
-
+    const locked = signing(false);
     await expect(connector().signMessage('hello', ADDRESS)).rejects.toThrow('Tron wallet is locked or not connected');
-  });
-});
-
-describe('TronXConnector.disconnect', () => {
-  it('clears the authorized provider, since TronLink has no programmatic disconnect', async () => {
-    const p = provider();
-    stubWindow({ announce: [{ info: { name: 'TronLink' }, provider: p }] });
-    const c = connector();
-    await settle(c.connect());
-
-    await expect(c.disconnect()).resolves.toBeUndefined();
+    expect(locked).not.toHaveBeenCalled();
   });
 });

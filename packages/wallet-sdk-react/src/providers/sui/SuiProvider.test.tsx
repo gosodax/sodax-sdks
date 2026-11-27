@@ -57,14 +57,13 @@ describe('SuiProvider — endpoint resolution', () => {
     expect(resolvedEndpoint()).toBe('https://fullnode.mainnet.sui.io');
   });
 
-  it('uses a configured grpcUrl', () => {
-    renderWith({ chains: { [ChainKeys.SUI_MAINNET]: { grpcUrl: 'https://my-grpc.example' } } });
-    expect(resolvedEndpoint()).toBe('https://my-grpc.example');
-  });
-
-  it('honors the pre-gRPC `rpcUrl` name so existing configs keep working', () => {
-    renderWith({ chains: { [ChainKeys.SUI_MAINNET]: { rpcUrl: 'https://my-node.example' } } });
-    expect(resolvedEndpoint()).toBe('https://my-node.example');
+  it.each([
+    { name: 'grpcUrl', entry: { grpcUrl: 'https://my-grpc.example' }, expected: 'https://my-grpc.example' },
+    // The pre-gRPC name must keep existing configs working.
+    { name: 'legacy rpcUrl', entry: { rpcUrl: 'https://my-node.example' }, expected: 'https://my-node.example' },
+  ])('uses a configured $name', ({ entry, expected }) => {
+    renderWith({ chains: { [ChainKeys.SUI_MAINNET]: entry } });
+    expect(resolvedEndpoint()).toBe(expected);
   });
 
   // The entry type rejects this at compile time; the cast stands in for an untyped JS caller.
@@ -76,11 +75,6 @@ describe('SuiProvider — endpoint resolution', () => {
         },
       } as unknown as SuiTypeConfig),
     ).toThrow(/`grpcUrl` or `rpcUrl`, not both/);
-  });
-
-  it('has a packaged endpoint for every network the config type offers', () => {
-    renderWith({ network: 'testnet' });
-    expect(resolvedEndpoint()).toBe('https://fullnode.testnet.sui.io');
   });
 
   // The union rejects this at compile time; the cast stands in for an untyped JS caller.

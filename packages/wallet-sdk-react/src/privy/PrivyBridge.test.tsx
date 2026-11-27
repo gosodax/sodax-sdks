@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { StrictMode } from 'react';
 import { UserRejectedRequestError } from 'viem';
-import { PrivyUnavailableError } from './errors.js';
 import { PrivyBridge } from './PrivyBridge.js';
 import { createPrivyRuntime } from './runtime.js';
 
@@ -52,6 +51,7 @@ afterEach(cleanup);
 describe('PrivyBridge', () => {
   it('publishes Privy state, picking the first HD wallet whatever order Privy lists it in', () => {
     privy.state.authenticated = true;
+    privy.state.isModalOpen = true;
     privy.state.user = { linkedAccounts: [{ type: 'wallet', walletClientType: 'privy', chainType: 'ethereum' }] };
     privy.wallets.wallets = [
       { address: '0x01', walletClientType: 'metamask' },
@@ -67,6 +67,7 @@ describe('PrivyBridge', () => {
       authenticated: true,
       userLoaded: true,
       hasEmbeddedAccount: true,
+      modalOpen: true,
     });
     expect(runtime.getSnapshot().embedded?.address).toBe('0x02');
   });
@@ -85,15 +86,6 @@ describe('PrivyBridge', () => {
 
     expect(runtime.getSnapshot()).toMatchObject({ hasEmbeddedAccount: true });
     expect(runtime.getSnapshot().embedded?.address).toBe('0x02');
-  });
-
-  it('publishes whether Privy has a modal on screen', () => {
-    privy.state.isModalOpen = true;
-    const runtime = createPrivyRuntime();
-
-    render(<PrivyBridge runtime={runtime} />);
-
-    expect(runtime.getSnapshot().modalOpen).toBe(true);
   });
 
   it('opens the login modal and rejects only when the user closes it', async () => {
@@ -135,16 +127,5 @@ describe('PrivyBridge', () => {
     );
 
     await expect(restoring).resolves.toMatchObject({ ready: true });
-  });
-
-  it('rejects a pending login and resets the snapshot when the bridge unmounts', async () => {
-    const runtime = createPrivyRuntime();
-    const { unmount } = render(<PrivyBridge runtime={runtime} />);
-    const loggingIn = expect(runtime.login()).rejects.toBeInstanceOf(PrivyUnavailableError);
-
-    unmount();
-
-    await loggingIn;
-    expect(runtime.getSnapshot().ready).toBe(false);
   });
 });

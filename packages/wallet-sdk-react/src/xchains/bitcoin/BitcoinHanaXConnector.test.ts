@@ -36,32 +36,26 @@ afterEach(() => {
   if (typeof window !== 'undefined') (window as HanaWin).hanaWallet = undefined;
 });
 
+const TAPROOT_ACCOUNT = { address: 'bc1ptaproot', publicKey: '02deadbeef', purpose: 'ordinals', addressType: 'p2tr' };
+
 describe('BitcoinHanaXConnector — constructor + getters', () => {
-  it('exposes a Bitcoin-suffixed id distinct from the ICON Hana connector', () => {
+  it('exposes a Bitcoin-suffixed id distinct from the ICON Hana connector, defaulting to Taproot', () => {
     const c = new BitcoinHanaXConnector();
     expect(c.id).toBe('hana-bitcoin');
     expect(c.name).toBe('Hana Wallet');
     expect(c.xChainType).toBe('BITCOIN');
     expect(c.installUrl).toContain('chromewebstore.google.com');
     expect(c.icon).toMatch(/^https?:\/\//);
-  });
-
-  it('defaults to Taproot (Ordinals) purpose when no preference is stored', () => {
-    const c = new BitcoinHanaXConnector();
     expect(c.addressPurpose).toBe('ordinals');
   });
 
-  it('restores the persisted SegWit (Payment) preference', () => {
-    localStorage.setItem('hana-address-type', 'segwit');
-    const c = new BitcoinHanaXConnector();
-    expect(c.addressPurpose).toBe('payment');
-  });
-
-  it('persists the purpose set via setAddressPurpose', () => {
+  it('persists the purpose set via setAddressPurpose and restores it in a new connector', () => {
     const c = new BitcoinHanaXConnector();
     c.setAddressPurpose('segwit');
     expect(c.addressPurpose).toBe('payment');
     expect(localStorage.getItem('hana-address-type')).toBe('segwit');
+
+    expect(new BitcoinHanaXConnector().addressPurpose).toBe('payment');
   });
 });
 
@@ -71,11 +65,8 @@ describe('BitcoinHanaXConnector.isInstalled / isAvailable', () => {
     expect(BitcoinHanaXConnector.isAvailable()).toBe(false);
   });
 
-  it('returns false when window.hanaWallet.bitcoin is absent', () => {
+  it('reflects whether window.hanaWallet.bitcoin is present', () => {
     expect(new BitcoinHanaXConnector().isInstalled).toBe(false);
-  });
-
-  it('returns true when window.hanaWallet.bitcoin is present', () => {
     installHana();
     expect(new BitcoinHanaXConnector().isInstalled).toBe(true);
   });
@@ -86,14 +77,12 @@ describe('BitcoinHanaXConnector.connect', () => {
     await expect(new BitcoinHanaXConnector().connect()).rejects.toThrow('Hana wallet is not installed');
   });
 
-  it('returns the XAccount and pins the Hana provider id on getAccounts', async () => {
+  it('returns the XAccount, pins getAccounts to Hana, and holds a wallet provider until disconnect', async () => {
     installHana();
-    request.mockResolvedValueOnce({
-      status: 'success',
-      result: [{ address: 'bc1ptaproot', publicKey: '02deadbeef', purpose: 'ordinals', addressType: 'p2tr' }],
-    });
+    request.mockResolvedValueOnce({ status: 'success', result: [TAPROOT_ACCOUNT] });
+    const connector = new BitcoinHanaXConnector();
 
-    const result = await new BitcoinHanaXConnector().connect();
+    const result = await connector.connect();
 
     expect(result).toEqual({ address: 'bc1ptaproot', publicKey: '02deadbeef', xChainType: 'BITCOIN' });
     expect(request).toHaveBeenCalledWith(
@@ -101,6 +90,10 @@ describe('BitcoinHanaXConnector.connect', () => {
       { purposes: ['ordinals'], message: 'Connect to Sodax' },
       HANA_PROVIDER_ID,
     );
+    expect(connector.getWalletProvider()).toBeDefined();
+
+    await connector.disconnect();
+    expect(connector.getWalletProvider()).toBeUndefined();
   });
 
   it('throws with the wallet error message when getAccounts fails', async () => {
@@ -110,85 +103,49 @@ describe('BitcoinHanaXConnector.connect', () => {
   });
 });
 
-describe('BitcoinHanaWalletProvider — every sats-connect call is pinned to Hana', () => {
-  beforeEach(() => {
+describe('BitcoinHanaWalletProvider', () => {
+  it('pins every sats-connect call (message signing, PSBT signing, transfer) to Hana', async () => {
     installHana();
-  });
-
-  async function connectedProvider() {
-    request.mockResolvedValueOnce({
-      status: 'success',
-      result: [{ address: 'bc1ptaproot', publicKey: '02deadbeef', purpose: 'ordinals', addressType: 'p2tr' }],
-    });
+    request.mockResolvedValueOnce({ status: 'success', result: [TAPROOT_ACCOUNT] });
     const connector = new BitcoinHanaXConnector();
     await connector.connect();
     const provider = connector.getWalletProvider();
     if (!provider) throw new Error('expected a wallet provider after connect');
-    request.mockReset();
-    return provider;
-  }
 
-  it('signEcdsaMessage routes to Hana', async () => {
-    const provider = await connectedProvider();
     request.mockResolvedValueOnce({ status: 'success', result: { signature: 'sig-ecdsa' } });
-
     expect(await provider.signEcdsaMessage('hello')).toBe('sig-ecdsa');
-    expect(request).toHaveBeenCalledWith(
+    expect(request).toHaveBeenLastCalledWith(
       'signMessage',
       { address: 'bc1ptaproot', message: 'hello', protocol: 'ECDSA' },
       HANA_PROVIDER_ID,
     );
-  });
 
-  it('signBip322Message routes to Hana', async () => {
-    const provider = await connectedProvider();
     request.mockResolvedValueOnce({ status: 'success', result: { signature: 'sig-bip322' } });
-
     expect(await provider.signBip322Message('hello')).toBe('sig-bip322');
-    expect(request).toHaveBeenCalledWith(
+    expect(request).toHaveBeenLastCalledWith(
       'signMessage',
       { address: 'bc1ptaproot', message: 'hello', protocol: 'BIP322' },
       HANA_PROVIDER_ID,
     );
-  });
 
-  it('signTransaction routes to Hana', async () => {
-    const provider = await connectedProvider();
     request.mockResolvedValueOnce({ status: 'success', result: { psbt: 'c2lnbmVk' } });
-
     await provider.signTransaction('cHNidP8BAA==');
-    expect(request).toHaveBeenCalledWith('signPsbt', expect.objectContaining({ broadcast: false }), HANA_PROVIDER_ID);
-  });
+    expect(request).toHaveBeenLastCalledWith(
+      'signPsbt',
+      expect.objectContaining({ broadcast: false }),
+      HANA_PROVIDER_ID,
+    );
 
-  it('sendBitcoin routes to Hana', async () => {
-    const provider = await connectedProvider();
     request.mockResolvedValueOnce({ status: 'success', result: { txid: 'tx-hash' } });
-
     expect(await provider.sendBitcoin('bc1qdest', 1000n)).toBe('tx-hash');
-    expect(request).toHaveBeenCalledWith(
+    expect(request).toHaveBeenLastCalledWith(
       'sendTransfer',
       { recipients: [{ address: 'bc1qdest', amount: 1000 }] },
       HANA_PROVIDER_ID,
     );
   });
-});
 
-describe('BitcoinHanaXConnector — lifecycle', () => {
-  it('disconnect clears the wallet provider', async () => {
-    installHana();
-    request.mockResolvedValueOnce({
-      status: 'success',
-      result: [{ address: 'bc1ptaproot', publicKey: '02deadbeef', purpose: 'ordinals', addressType: 'p2tr' }],
-    });
-    const connector = new BitcoinHanaXConnector();
-    await connector.connect();
-    expect(connector.getWalletProvider()).toBeDefined();
-
-    await connector.disconnect();
-    expect(connector.getWalletProvider()).toBeUndefined();
-  });
-
-  it('recreateWalletProvider needs both address and publicKey', () => {
+  it('is recreated only from an account with both address and publicKey', () => {
     const connector = new BitcoinHanaXConnector();
     expect(connector.recreateWalletProvider({ address: 'bc1ptaproot', xChainType: 'BITCOIN' })).toBeUndefined();
     expect(

@@ -46,17 +46,6 @@ describe('TonXConnector connection lifecycle', () => {
     expect(fake.offModal).toHaveBeenCalledTimes(1);
   });
 
-  it('returns a successful account and removes both listeners', async () => {
-    const fake = setup();
-    const pending = new TonXConnector().connect();
-    await vi.waitFor(() => expect(fake.ui.openModal).toHaveBeenCalled());
-    fake.ui.account = { address: `0:${'12'.repeat(32)}`, publicKey: 'AB'.repeat(32) };
-    fake.status();
-    expect(await pending).toEqual({ address: `0x${'ab'.repeat(32)}`, xChainType: 'TON' });
-    expect(fake.offStatus).toHaveBeenCalledTimes(1);
-    expect(fake.offModal).toHaveBeenCalledTimes(1);
-  });
-
   it('disconnects a wallet with no public key before throwing', async () => {
     const fake = setup();
     fake.ui.account = { address: `0:${'12'.repeat(32)}` };

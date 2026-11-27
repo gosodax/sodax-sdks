@@ -43,96 +43,39 @@ const TX_PARAMS_BASE = {
 
 describe('StacksWalletProvider', () => {
   describe('constructor', () => {
-    it('initializes with private-key config', () => {
-      const provider = new StacksWalletProvider({ privateKey: PK });
-      expect(provider.chainType).toBe('STACKS');
+    beforeEach(() => {
+      networkFrom.mockClear();
     });
 
-    it('initializes with browser-extension config', () => {
-      const provider = new StacksWalletProvider({ address: BROWSER_ADDRESS });
-      expect(provider.chainType).toBe('STACKS');
+    it("binds the network from defaults.network, falling back to 'mainnet'", () => {
+      expect(new StacksWalletProvider({ privateKey: PK }).chainType).toBe('STACKS');
+      expect(networkFrom).toHaveBeenLastCalledWith('mainnet');
+
+      new StacksWalletProvider({ address: BROWSER_ADDRESS, defaults: { network: 'testnet' } });
+      expect(networkFrom).toHaveBeenLastCalledWith('testnet');
     });
 
     it('throws on invalid config', () => {
       expect(() => new StacksWalletProvider({} as never)).toThrow('Invalid Stacks wallet configuration');
     });
-
-    it('accepts defaults without throwing', () => {
-      const provider = new StacksWalletProvider({
-        privateKey: PK,
-        defaults: { network: 'testnet' },
-      });
-      expect(provider.chainType).toBe('STACKS');
-    });
   });
 
-  describe('constructor — defaults.network forwarded to networkFrom', () => {
-    beforeEach(() => {
-      networkFrom.mockClear();
-    });
-
-    it("defaults to 'mainnet' when defaults.network is unset", () => {
-      const provider = new StacksWalletProvider({ privateKey: PK });
-      expect(provider.chainType).toBe('STACKS');
-      expect(networkFrom).toHaveBeenCalledWith('mainnet');
-    });
-
-    it('forwards defaults.network to networkFrom', () => {
-      const provider = new StacksWalletProvider({ privateKey: PK, defaults: { network: 'testnet' } });
-      expect(provider.chainType).toBe('STACKS');
-      expect(networkFrom).toHaveBeenCalledWith('testnet');
-    });
-  });
-
-  describe('sendTransaction — option merge (PK path)', () => {
+  describe('sendTransaction — PK path', () => {
     beforeEach(() => {
       makeContractCall.mockClear();
       broadcastTransaction.mockClear();
     });
 
-    it('applies defaults.postConditionMode to makeContractCall when neither tx nor options specify', async () => {
-      const provider = new StacksWalletProvider({
-        privateKey: PK,
-        defaults: { postConditionMode: 0x01 },
-      });
+    it('resolves postConditionMode with tx > per-call options > defaults precedence', async () => {
+      const withDefaults = new StacksWalletProvider({ privateKey: PK, defaults: { postConditionMode: 0x01 } });
 
-      await provider.sendTransaction(TX_PARAMS_BASE);
+      await withDefaults.sendTransaction(TX_PARAMS_BASE);
+      await withDefaults.sendTransaction(TX_PARAMS_BASE, { postConditionMode: 0x02 });
+      await withDefaults.sendTransaction({ ...TX_PARAMS_BASE, postConditionMode: 0x02 }, { postConditionMode: 0x01 });
+      await new StacksWalletProvider({ privateKey: PK }).sendTransaction(TX_PARAMS_BASE);
 
-      const call = makeContractCall.mock.calls[0]?.[0];
-      expect(call.postConditionMode).toBe(0x01);
-    });
-
-    it('per-call options.postConditionMode overrides defaults', async () => {
-      const provider = new StacksWalletProvider({
-        privateKey: PK,
-        defaults: { postConditionMode: 0x01 },
-      });
-
-      await provider.sendTransaction(TX_PARAMS_BASE, { postConditionMode: 0x02 });
-
-      const call = makeContractCall.mock.calls[0]?.[0];
-      expect(call.postConditionMode).toBe(0x02);
-    });
-
-    it('tx-level postConditionMode wins over per-call options and defaults', async () => {
-      const provider = new StacksWalletProvider({
-        privateKey: PK,
-        defaults: { postConditionMode: 0x01 },
-      });
-
-      await provider.sendTransaction({ ...TX_PARAMS_BASE, postConditionMode: 0x02 }, { postConditionMode: 0x01 });
-
-      const call = makeContractCall.mock.calls[0]?.[0];
-      expect(call.postConditionMode).toBe(0x02);
-    });
-
-    it('postConditionMode stays undefined when no source provides it', async () => {
-      const provider = new StacksWalletProvider({ privateKey: PK });
-
-      await provider.sendTransaction(TX_PARAMS_BASE);
-
-      const call = makeContractCall.mock.calls[0]?.[0];
-      expect(call.postConditionMode).toBeUndefined();
+      const modes = makeContractCall.mock.calls.map(([call]) => call.postConditionMode);
+      expect(modes).toEqual([0x01, 0x02, 0x02, undefined]);
     });
   });
 
@@ -142,38 +85,17 @@ describe('StacksWalletProvider', () => {
       stacksRequest.mockResolvedValue({ txid: 'browser-tx-123' });
     });
 
-    it('forwards defaults.postConditionMode (translated to name) to stx_callContract request', async () => {
-      const provider = new StacksWalletProvider({
+    it('builds stx_callContract params from defaults, translating postConditionMode and defaulting network', async () => {
+      await new StacksWalletProvider({
         address: BROWSER_ADDRESS,
-        defaults: { postConditionMode: 0x01 },
-      });
+        defaults: { postConditionMode: 0x01, network: 'testnet' },
+      }).sendTransaction(TX_PARAMS_BASE);
+      await new StacksWalletProvider({ address: BROWSER_ADDRESS }).sendTransaction(TX_PARAMS_BASE);
 
-      await provider.sendTransaction(TX_PARAMS_BASE);
-
-      // request('stx_callContract', params)
-      const params = stacksRequest.mock.calls[0]?.[1];
-      expect(params.postConditionMode).toBe('allow');
-    });
-
-    it("uses defaults.network in the request payload (defaults to 'mainnet')", async () => {
-      const provider = new StacksWalletProvider({
-        address: BROWSER_ADDRESS,
-        defaults: { network: 'testnet' },
-      });
-
-      await provider.sendTransaction(TX_PARAMS_BASE);
-
-      const params = stacksRequest.mock.calls[0]?.[1];
-      expect(params.network).toBe('testnet');
-    });
-
-    it("falls back to network='mainnet' in the request payload when defaults.network is unset", async () => {
-      const provider = new StacksWalletProvider({ address: BROWSER_ADDRESS });
-
-      await provider.sendTransaction(TX_PARAMS_BASE);
-
-      const params = stacksRequest.mock.calls[0]?.[1];
-      expect(params.network).toBe('mainnet');
+      const [configured, bare] = stacksRequest.mock.calls.map(([, params]) => params);
+      expect(configured.postConditionMode).toBe('allow');
+      expect(configured.network).toBe('testnet');
+      expect(bare.network).toBe('mainnet');
     });
   });
 
@@ -238,40 +160,21 @@ describe('StacksWalletProvider', () => {
       fetchCallReadOnlyFunction.mockClear();
     });
 
-    it('forwards txParams + bound network + PK-derived sender to fetchCallReadOnlyFunction', async () => {
+    it('forwards txParams, the bound network and the wallet address as sender', async () => {
       fetchCallReadOnlyFunction.mockResolvedValue({ type: 'uint', value: 42n });
-      const provider = new StacksWalletProvider({ privateKey: PK });
+      const txParams = { contractAddress: 'SP1', contractName: 'token', functionName: 'get-balance', functionArgs: [] };
 
-      const result = await provider.readContract({
-        contractAddress: 'SP1',
-        contractName: 'token',
-        functionName: 'get-balance',
-        functionArgs: [],
-      });
+      const result = await new StacksWalletProvider({ privateKey: PK }).readContract(txParams);
+      await new StacksWalletProvider({ address: 'SP2BROWSER' }).readContract(txParams);
 
       expect(result).toEqual({ type: 'uint', value: 42n });
-      const call = fetchCallReadOnlyFunction.mock.calls[0]?.[0];
-      expect(call.contractAddress).toBe('SP1');
-      expect(call.contractName).toBe('token');
-      expect(call.functionName).toBe('get-balance');
-      expect(call.senderAddress).toBe('SP1ADDR');
-      // Bound network from ctor — `networkFrom` returned the mainnet stub.
-      expect(call.network).toEqual({ client: { baseUrl: 'https://stacks.example' } });
-    });
-
-    it('uses the browser-extension address as sender when configured that way', async () => {
-      fetchCallReadOnlyFunction.mockResolvedValue({ type: 'bool', value: true });
-      const provider = new StacksWalletProvider({ address: BROWSER_ADDRESS });
-
-      await provider.readContract({
-        contractAddress: 'SP1',
-        contractName: 'token',
-        functionName: 'get-name',
-        functionArgs: [],
-      });
-
-      const call = fetchCallReadOnlyFunction.mock.calls[0]?.[0];
-      expect(call.senderAddress).toBe(BROWSER_ADDRESS);
+      const [pkCall, browserCall] = fetchCallReadOnlyFunction.mock.calls.map(([call]) => call);
+      expect(pkCall.contractAddress).toBe('SP1');
+      expect(pkCall.contractName).toBe('token');
+      expect(pkCall.functionName).toBe('get-balance');
+      expect(pkCall.senderAddress).toBe('SP1ADDR');
+      expect(pkCall.network).toEqual({ client: { baseUrl: 'https://stacks.example' } });
+      expect(browserCall.senderAddress).toBe('SP2BROWSER');
     });
   });
 
@@ -281,20 +184,12 @@ describe('StacksWalletProvider', () => {
       publicKeyToHex.mockClear();
     });
 
-    it('PK path returns the hex-encoded public key', async () => {
-      const provider = new StacksWalletProvider({ privateKey: PK });
-
-      const result = await provider.getPublicKey();
-
-      expect(result).toBe('hex');
+    it('derives the hex public key from the private key, and refuses in browser-extension mode', async () => {
+      expect(await new StacksWalletProvider({ privateKey: PK }).getPublicKey()).toBe('hex');
       expect(privateKeyToPublic).toHaveBeenCalledWith(PK);
       expect(publicKeyToHex).toHaveBeenCalledWith('pub');
-    });
 
-    it('browser-extension path throws — there is no key to derive', async () => {
-      const provider = new StacksWalletProvider({ address: BROWSER_ADDRESS });
-
-      await expect(provider.getPublicKey()).rejects.toThrow(
+      await expect(new StacksWalletProvider({ address: BROWSER_ADDRESS }).getPublicKey()).rejects.toThrow(
         'getPublicKey is only supported for private key wallet configuration',
       );
     });
@@ -305,57 +200,19 @@ describe('StacksWalletProvider', () => {
       vi.unstubAllGlobals();
     });
 
-    it('returns the parsed balance on a 200 with the expected shape', async () => {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn().mockResolvedValue({
-          ok: true,
-          statusText: 'OK',
-          json: async () => ({ stx: { balance: '12345' } }),
-        }),
-      );
-      const provider = new StacksWalletProvider({ privateKey: PK });
-
-      const result = await provider.getBalance('SP1ADDR');
-
-      expect(result).toBe(12345n);
-    });
-
-    it('swallows a non-OK response and returns 0n (warning logged but no throw)', async () => {
+    it('returns the parsed micro-STX balance, or swallows a non-OK response as 0n', async () => {
       // Hush the expected `console.error` so vitest output stays clean.
       const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      vi.stubGlobal(
-        'fetch',
-        vi.fn().mockResolvedValue({
-          ok: false,
-          statusText: 'Service Unavailable',
-          json: async () => ({}),
-        }),
-      );
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce({ ok: true, statusText: 'OK', json: async () => ({ stx: { balance: '12345' } }) })
+        .mockResolvedValueOnce({ ok: false, statusText: 'Service Unavailable', json: async () => ({}) });
+      vi.stubGlobal('fetch', fetchMock);
       const provider = new StacksWalletProvider({ privateKey: PK });
 
-      const result = await provider.getBalance('SP1ADDR');
-
-      expect(result).toBe(0n);
-      expect(errSpy).toHaveBeenCalled();
-      errSpy.mockRestore();
-    });
-
-    it('swallows a malformed JSON body and returns 0n (data.stx undefined → throw → caught)', async () => {
-      const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      vi.stubGlobal(
-        'fetch',
-        vi.fn().mockResolvedValue({
-          ok: true,
-          statusText: 'OK',
-          json: async () => ({}), // no `stx.balance` → accessing `.stx.balance` throws
-        }),
-      );
-      const provider = new StacksWalletProvider({ privateKey: PK });
-
-      const result = await provider.getBalance('SP1ADDR');
-
-      expect(result).toBe(0n);
+      expect(await provider.getBalance('SP1ADDR')).toBe(12345n);
+      expect(errSpy).not.toHaveBeenCalled();
+      expect(await provider.getBalance('SP1ADDR')).toBe(0n);
       expect(errSpy).toHaveBeenCalled();
       errSpy.mockRestore();
     });

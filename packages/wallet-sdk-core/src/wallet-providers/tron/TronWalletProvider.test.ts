@@ -64,16 +64,10 @@ describe('TronWalletProvider — constructor', () => {
 });
 
 describe('TronWalletProvider.getWalletAddress', () => {
-  it('prefers the configured address over the injected TronWeb', async () => {
-    const provider = new TronWalletProvider({ tronWeb: makeTronWeb(OTHER_ADDRESS), address: TRON_ADDRESS });
-    await expect(provider.getWalletAddress()).resolves.toBe(TRON_ADDRESS);
-  });
-
-  it('falls back to tronWeb.defaultAddress', async () => {
+  it('browser: uses the configured address, then tronWeb.defaultAddress, and throws when there is no account', async () => {
+    const configured = new TronWalletProvider({ tronWeb: makeTronWeb(OTHER_ADDRESS), address: TRON_ADDRESS });
+    await expect(configured.getWalletAddress()).resolves.toBe(TRON_ADDRESS);
     await expect(new TronWalletProvider({ tronWeb: makeTronWeb() }).getWalletAddress()).resolves.toBe(TRON_ADDRESS);
-  });
-
-  it('throws when the wallet has no account', async () => {
     await expect(new TronWalletProvider({ tronWeb: makeTronWeb(false) }).getWalletAddress()).rejects.toThrow(
       /not connected/,
     );
@@ -81,26 +75,22 @@ describe('TronWalletProvider.getWalletAddress', () => {
 });
 
 describe('TronWalletProvider.signTransaction', () => {
-  it('private key: signs the txID so the signature recovers to the account (r ‖ s ‖ yParity byte)', async () => {
-    const signed = await new TronWalletProvider({ privateKey: PRIVATE_KEY }).signTransaction(TX);
+  it('private key: signs the txID, in either case, so the signature recovers to the account (r ‖ s ‖ yParity byte)', async () => {
+    const provider = new TronWalletProvider({ privateKey: PRIVATE_KEY });
+    const signed = await provider.signTransaction(TX);
     const signature = signed.signature[0] ?? '';
 
     expect(signed.txID).toBe(TX.txID);
     expect(signature).toMatch(/^[0-9a-f]{128}0[01]$/);
     await expect(recoverAddress({ hash: `0x${TX.txID}`, signature: `0x${signature}` })).resolves.toBe(EVM_ADDRESS);
-  });
 
-  it('private key: accepts an uppercase txID that matches the bytes', async () => {
-    const signed = await new TronWalletProvider({ privateKey: PRIVATE_KEY }).signTransaction({
-      ...TX,
-      txID: TX.txID.toUpperCase(),
-    });
-    await expect(recoverAddress({ hash: `0x${TX.txID}`, signature: `0x${signed.signature[0]}` })).resolves.toBe(
+    const upper = await provider.signTransaction({ ...TX, txID: TX.txID.toUpperCase() });
+    await expect(recoverAddress({ hash: `0x${TX.txID}`, signature: `0x${upper.signature[0]}` })).resolves.toBe(
       EVM_ADDRESS,
     );
   });
 
-  it('private key: refuses a txID that is not sha256(raw_data_hex)', async () => {
+  it('refuses a txID that is not sha256(raw_data_hex) before either signer runs', async () => {
     const provider = new TronWalletProvider({ privateKey: PRIVATE_KEY });
     await expect(provider.signTransaction({ ...TX, txID: 'ab'.repeat(32) })).rejects.toThrow(
       /is not sha256\(raw_data_hex\)/,
@@ -108,43 +98,33 @@ describe('TronWalletProvider.signTransaction', () => {
     await expect(provider.signTransaction({ ...TX, raw_data_hex: '0a02abce' })).rejects.toThrow(
       /is not sha256\(raw_data_hex\)/,
     );
-  });
 
-  it('browser: signs through the provider resolved at call time, not the captured injected TronWeb', async () => {
-    const injected = makeTronWeb();
-    const live = makeTronWeb();
-    const provider = new TronWalletProvider({
-      tronWeb: injected,
-      getProvider: (): TronProviderLike => ({ request: vi.fn(), tronWeb: live }),
-    });
-
-    await provider.signTransaction(TX);
-
-    expect(live.trx.sign).toHaveBeenCalledWith(TX);
-    expect(injected.trx.sign).not.toHaveBeenCalled();
-  });
-
-  it('browser: skips a TronWeb with no account and uses one that has one', async () => {
-    const disconnected = makeTronWeb(false);
-    const injected = makeTronWeb();
-    const provider = new TronWalletProvider({
-      tronWeb: injected,
-      provider: { request: vi.fn(), tronWeb: disconnected },
-    });
-
-    await provider.signTransaction(TX);
-
-    expect(disconnected.trx.sign).not.toHaveBeenCalled();
-    expect(injected.trx.sign).toHaveBeenCalledWith(TX);
-  });
-
-  it('browser: refuses a txID that is not sha256(raw_data_hex) before the wallet signs', async () => {
     const tronWeb = makeTronWeb();
-
     await expect(new TronWalletProvider({ tronWeb }).signTransaction({ ...TX, txID: 'ff'.repeat(32) })).rejects.toThrow(
       /is not sha256\(raw_data_hex\)/,
     );
     expect(tronWeb.trx.sign).not.toHaveBeenCalled();
+  });
+
+  it("browser: signs with the call-time provider's TronWeb when it has an account, skipping accountless ones", async () => {
+    const injected = makeTronWeb();
+    const live = makeTronWeb();
+    const resolved = new TronWalletProvider({
+      tronWeb: injected,
+      getProvider: (): TronProviderLike => ({ request: vi.fn(), tronWeb: live }),
+    });
+    await resolved.signTransaction(TX);
+    expect(live.trx.sign).toHaveBeenCalledWith(TX);
+    expect(injected.trx.sign).not.toHaveBeenCalled();
+
+    const disconnected = makeTronWeb(false);
+    const fallback = new TronWalletProvider({
+      tronWeb: injected,
+      provider: { request: vi.fn(), tronWeb: disconnected },
+    });
+    await fallback.signTransaction(TX);
+    expect(disconnected.trx.sign).not.toHaveBeenCalled();
+    expect(injected.trx.sign).toHaveBeenCalledWith(TX);
   });
 
   it('browser: built from getProvider alone, signs with a wallet discovered after construction', async () => {
@@ -162,39 +142,27 @@ describe('TronWalletProvider.signTransaction', () => {
     expect(live.trx.sign).toHaveBeenCalledWith(TX);
   });
 
-  it('browser: built from getProvider alone, reads the address and balance from the discovered wallet', async () => {
-    const fetchMock = stubFetch({ '/wallet/getaccount': { balance: 7 } });
-    const provider = new TronWalletProvider({ getProvider: () => ({ request: vi.fn(), tronWeb: makeTronWeb() }) });
-
-    await expect(provider.getWalletAddress()).resolves.toBe(TRON_ADDRESS);
-    await expect(provider.getBalance()).resolves.toBe(7n);
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).address).toBe(TRON_ADDRESS);
-  });
-
-  it('browser: asks a wallet with no account for one, then signs, as after a reload or an unlock', async () => {
+  it('browser: asks a wallet with no account to connect, then signs, and passes on a refusal without signing', async () => {
     const tronWeb = makeTronWeb(false);
     const request = vi.fn(async () => {
       tronWeb.defaultAddress = { base58: TRON_ADDRESS };
       return [TRON_ADDRESS];
     });
-    const provider = new TronWalletProvider({ getProvider: () => ({ request, tronWeb }), address: TRON_ADDRESS });
-
-    await provider.signTransaction(TX);
-
+    // As after a page reload or an unlock.
+    await new TronWalletProvider({ getProvider: () => ({ request, tronWeb }), address: TRON_ADDRESS }).signTransaction(
+      TX,
+    );
     expect(request).toHaveBeenCalledWith({ method: 'eth_requestAccounts' });
     expect(tronWeb.trx.sign).toHaveBeenCalledWith(TX);
-  });
 
-  it('browser: passes on the wallet refusing to connect, without signing', async () => {
-    const tronWeb = makeTronWeb(false);
+    const locked = makeTronWeb(false);
     const rejected = Object.assign(new Error('User rejected'), { code: 4001 });
-    const provider = new TronWalletProvider({
-      getProvider: () => ({ request: vi.fn().mockRejectedValue(rejected), tronWeb }),
+    const refusing = new TronWalletProvider({
+      getProvider: () => ({ request: vi.fn().mockRejectedValue(rejected), tronWeb: locked }),
       address: TRON_ADDRESS,
     });
-
-    await expect(provider.signTransaction(TX)).rejects.toBe(rejected);
-    expect(tronWeb.trx.sign).not.toHaveBeenCalled();
+    await expect(refusing.signTransaction(TX)).rejects.toBe(rejected);
+    expect(locked.trx.sign).not.toHaveBeenCalled();
   });
 
   it('browser: tells the user to reconnect when no injected TronWeb has an account', async () => {
@@ -204,17 +172,13 @@ describe('TronWalletProvider.signTransaction', () => {
 });
 
 describe('TronWalletProvider.signMessage', () => {
-  it('private key: signs the scheme-1 digest of the hash text, recoverable to the account', async () => {
-    const signature = await new TronWalletProvider({ privateKey: PRIVATE_KEY }).signMessage(HASH);
+  it('private key: signs the scheme-1 digest of the lowercased hash text, recoverable to the account', async () => {
+    const provider = new TronWalletProvider({ privateKey: PRIVATE_KEY });
+    const signature = await provider.signMessage(HASH);
 
     expect(signature).toMatch(/^0x[0-9a-f]{128}0[01]$/);
     await expect(recoverAddress({ hash: scheme1Digest(HASH), signature })).resolves.toBe(EVM_ADDRESS);
-  });
-
-  it('private key: signs the lowercased hash, so case does not change the digest', async () => {
-    const provider = new TronWalletProvider({ privateKey: PRIVATE_KEY });
-    const upper = `0x${HASH.slice(2).toUpperCase()}` as Hex;
-    await expect(provider.signMessage(upper)).resolves.toBe(await provider.signMessage(HASH));
+    await expect(provider.signMessage(`0x${HASH.slice(2).toUpperCase()}`)).resolves.toBe(signature);
   });
 
   it('browser: uses signMessageV2 and returns a 0x-prefixed signature', async () => {
@@ -326,11 +290,12 @@ describe('TronWalletProvider — node calls', () => {
     await expect(provider.sendTransaction(signed)).rejects.toThrow(/Tron broadcast failed: SIGERROR/);
   });
 
-  it('getBalance reads sun from getaccount, and 0n when the account has no balance field', async () => {
+  it("getBalance reads sun for the wallet's own address by default, and 0n when the account has no balance field", async () => {
     const provider = new TronWalletProvider({ privateKey: PRIVATE_KEY });
 
-    stubFetch({ '/wallet/getaccount': { balance: 1_500_000 } });
-    await expect(provider.getBalance(TRON_ADDRESS)).resolves.toBe(1_500_000n);
+    const fetchMock = stubFetch({ '/wallet/getaccount': { balance: 1_500_000 } });
+    await expect(provider.getBalance()).resolves.toBe(1_500_000n);
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).address).toBe(TRON_ADDRESS);
 
     // What TronGrid answers for an unactivated account.
     stubFetch({ '/wallet/getaccount': {} });

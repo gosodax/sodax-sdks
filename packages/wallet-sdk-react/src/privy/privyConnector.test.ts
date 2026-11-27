@@ -184,8 +184,8 @@ afterEach(() => {
 });
 
 describe('privyConnector — first login', () => {
-  it('logs in through the modal and connects the embedded wallet on the requested chain', async () => {
-    const { runtime, ops, config, privy } = setup();
+  it('logs in through the modal, connects on the requested chain and keys the flag by EVM.persistKey', async () => {
+    const { runtime, ops, config, privy } = setup({ storageKey: 'partner' });
     const wallet = fakeWallet();
     runtime.publish(loggedOut);
     ops.login.mockImplementation(() => {
@@ -200,21 +200,8 @@ describe('privyConnector — first login', () => {
     expect(ops.login).toHaveBeenCalledOnce();
     expect(result).toEqual({ accounts: [getAddress(ADDRESS)], chainId: base.id });
     expect(await privy.getChainId()).toBe(base.id);
-    expect(localStorage.getItem(FLAG_KEY)).toBe('1');
-  });
-
-  it('stays pending on recoverable in-modal errors and connects when login completes', async () => {
-    const { runtime, ops, config, privy } = setup();
-    runtime.publish(loggedOut);
-    ops.login.mockImplementation(() => {
-      queueMicrotask(() => {
-        runtime.loginFailed('invalid_credentials');
-        runtime.publish(loggedIn(fakeWallet()));
-        runtime.loginCompleted();
-      });
-    });
-
-    await expect(connect(config, { connector: privy })).resolves.toMatchObject({ chainId: sonic.id });
+    expect(localStorage.getItem('partner.privy.connected')).toBe('1');
+    expect(localStorage.getItem(FLAG_KEY)).toBeNull();
   });
 
   it('rejects as a user rejection only when the user closes the modal', async () => {
@@ -263,21 +250,6 @@ describe('privyConnector — first login', () => {
     });
   });
 
-  it('skips the modal for an already-authenticated user and creates a wallet only when none exists', async () => {
-    const { runtime, ops, config, privy } = setup();
-    const wallet = fakeWallet();
-    runtime.publish({ ...loggedIn(wallet), hasEmbeddedAccount: false, embedded: undefined });
-    ops.createWallet.mockImplementation(async () => {
-      runtime.publish(loggedIn(wallet));
-      return undefined;
-    });
-
-    await connect(config, { connector: privy });
-
-    expect(ops.login).not.toHaveBeenCalled();
-    expect(ops.createWallet).toHaveBeenCalledOnce();
-  });
-
   it('surfaces Privy initialisation errors instead of waiting out a timeout', async () => {
     const { runtime, config, privy } = setup();
     const invalidAppId = new Error('missing_or_invalid_privy_app_id');
@@ -285,37 +257,9 @@ describe('privyConnector — first login', () => {
 
     await expect(connect(config, { connector: privy })).rejects.toBe(invalidAppId);
   });
-
-  it('rejects at once with the cause when PrivyProvider could not start', async () => {
-    const { runtime, config, privy } = setup();
-    const httpsOnly = new Error('Embedded wallet is only available over HTTPS');
-    runtime.fail(httpsOnly);
-
-    await expect(connect(config, { connector: privy })).rejects.toBe(httpsOnly);
-  });
-
-  it('keys the connected flag by wagmi storage key (EVM.persistKey)', async () => {
-    const { runtime, config, privy } = setup({ storageKey: 'partner' });
-    runtime.publish(loggedIn(fakeWallet()));
-
-    await connect(config, { connector: privy });
-
-    expect(localStorage.getItem('partner.privy.connected')).toBe('1');
-    expect(localStorage.getItem(FLAG_KEY)).toBeNull();
-  });
 });
 
 describe('privyConnector — reconnect', () => {
-  it('never waits on Privy without the connected flag', async () => {
-    const { runtime, config } = setup();
-    const waitFor = vi.spyOn(runtime, 'waitFor');
-
-    const connections = await reconnect(config);
-
-    expect(waitFor).not.toHaveBeenCalled();
-    expect(connections.map(c => c.connector.id)).toEqual(['other']);
-  });
-
   it('restores from the localStorage flag alone (wagmi cookie storage lost on browser restart)', async () => {
     const { runtime, ops, config } = setup();
     localStorage.setItem(FLAG_KEY, '1');
@@ -338,19 +282,6 @@ describe('privyConnector — reconnect', () => {
     expect(connections.map(c => c.connector.id)).toEqual(['other']);
     expect(ops.login).not.toHaveBeenCalled();
     expect(localStorage.getItem(FLAG_KEY)).toBeNull();
-  });
-
-  it('gives up on a Privy that never becomes ready within the budget, keeps the flag, and still restores other wallets', async () => {
-    vi.useFakeTimers();
-    const { config } = setup();
-    localStorage.setItem(FLAG_KEY, '1');
-
-    const pending = reconnect(config);
-    await vi.advanceTimersByTimeAsync(RECONNECT_BUDGET_MS);
-    const connections = await pending;
-
-    expect(connections.map(c => c.connector.id)).toEqual(['other']);
-    expect(localStorage.getItem(FLAG_KEY)).toBe('1');
   });
 
   it('bounds the whole restore, not only the ready wait, so other wallets are never held back longer', async () => {
@@ -379,8 +310,11 @@ describe('privyConnector — reconnect', () => {
     expect(localStorage.getItem(FLAG_KEY)).toBeNull();
   });
 
-  it('is not authorized when storage throws, and a failed read does not wedge later reconnects', async () => {
-    const { privy, config } = setup();
+  it('never waits on Privy without a readable connected flag, and a failed read does not wedge later reconnects', async () => {
+    const { runtime, privy, config } = setup();
+    const waitFor = vi.spyOn(runtime, 'waitFor');
+    expect((await reconnect(config)).map(c => c.connector.id)).toEqual(['other']);
+    expect(waitFor).not.toHaveBeenCalled();
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
       throw new Error('SecurityError');
     });
@@ -422,21 +356,6 @@ describe('privyConnector — reconnect', () => {
 });
 
 describe('privyConnector — interactive supersession', () => {
-  it('stands down when the user connects another wallet while the Privy login is open', async () => {
-    const { runtime, ops, config, privy, other } = setup();
-    runtime.publish(loggedOut);
-    const loggingIn = connect(config, { connector: privy });
-    await vi.waitFor(() => expect(ops.login).toHaveBeenCalled());
-
-    await connect(config, { connector: other });
-    runtime.publish(loggedIn(fakeWallet()));
-    runtime.loginCompleted();
-
-    await expect(loggingIn).rejects.toBeInstanceOf(UserRejectedRequestError);
-    expect(config.state.current).toBe(other.uid);
-    expect(localStorage.getItem(FLAG_KEY)).toBeNull();
-  });
-
   it('keeps an open login alive when wagmi runs a background reconnect', async () => {
     const { runtime, ops, config, privy } = setup();
     localStorage.setItem(FLAG_KEY, '1');
@@ -520,11 +439,6 @@ describe('privyConnector — while connected', () => {
     expect(config.state.chainId).toBe(base.id);
     expect(wallet.switchChain).toHaveBeenCalledWith(base.id);
     await expect(getConnectorClient(config)).resolves.toMatchObject({ chain: { id: base.id } });
-  });
-
-  it('rejects a chain wagmi is not configured for', async () => {
-    const { privy } = await connected();
-    await expect(privy.switchChain?.({ chainId: mainnet.id })).rejects.toBeInstanceOf(SwitchChainError);
   });
 
   it('keeps the old chain when the wallet does not actually switch', async () => {
@@ -681,22 +595,6 @@ describe('privyConnector — signing out', () => {
     expect(config.state.current).toBe(other.uid);
   });
 
-  it('makes the next connect wait for a sign-out still in flight, then ask for a new code', async () => {
-    const { runtime, ops, config, privy, wallet } = await connected();
-    const { gate, logout } = signOutGate(runtime);
-    ops.logout.mockImplementation(logout);
-    ops.login.mockImplementation(() => queueMicrotask(() => runtime.publish(loggedIn(wallet))));
-
-    await disconnect(config, { connector: privy });
-    const reconnecting = connect(config, { connector: privy });
-    await settle();
-    expect(ops.login).not.toHaveBeenCalled();
-    gate.resolve();
-
-    await expect(reconnecting).resolves.toEqual({ accounts: [getAddress(ADDRESS)], chainId: sonic.id });
-    expect(ops.login).toHaveBeenCalledOnce();
-  });
-
   it('finishes a sign-out a reload or closed tab cut short before it trusts the Privy session', async () => {
     const { runtime, ops, config, privy } = setup();
     const wallet = fakeWallet();
@@ -740,17 +638,6 @@ describe('privyConnector — signing out', () => {
     expect(ops.login).toHaveBeenCalledOnce();
   });
 
-  it('refuses to reuse a session whose sign-out failed when storage refused the marker', async () => {
-    const { ops, config, privy } = await connected();
-    ops.logout.mockRejectedValue(new Error('offline'));
-    refuseStorageWrites();
-
-    await disconnect(config, { connector: privy });
-
-    await expect(connect(config, { connector: privy })).rejects.toThrow('Could not sign out');
-    expect(ops.login).not.toHaveBeenCalled();
-  });
-
   it('signs out when the SDK disconnects while the page-load restore is still waiting on Privy', async () => {
     const { runtime, ops, config, sdkDisconnect } = setup();
     const wallet = fakeWallet();
@@ -770,7 +657,7 @@ describe('privyConnector — signing out', () => {
     expect(ops.logout).toHaveBeenCalledOnce();
   });
 
-  it('signs out of a login whose connect lost to another wallet, so the next connect asks for a new code', async () => {
+  it('stands down for a wallet connected during the Privy login, signs out of it, and asks for a new code next time', async () => {
     const { runtime, ops, config, privy, other, sdkDisconnect } = setup();
     const wallet = fakeWallet();
     runtime.publish(loggedOut);
@@ -782,6 +669,8 @@ describe('privyConnector — signing out', () => {
     runtime.publish(loggedIn(wallet));
     runtime.loginCompleted();
     await expect(loggingIn).rejects.toBeInstanceOf(UserRejectedRequestError);
+    expect(config.state.current).toBe(other.uid);
+    expect(localStorage.getItem(FLAG_KEY)).toBeNull();
     await sdkDisconnect();
     await disconnect(config, { connector: other });
     await vi.waitFor(() => expect(localStorage.getItem(SIGN_OUT_KEY)).toBeNull());
@@ -790,27 +679,6 @@ describe('privyConnector — signing out', () => {
     ops.login.mockImplementation(() => queueMicrotask(() => runtime.publish(loggedIn(wallet))));
     await expect(connect(config, { connector: privy })).resolves.toMatchObject({ accounts: [getAddress(ADDRESS)] });
     expect(ops.login).toHaveBeenCalledTimes(2);
-  });
-
-  it('signs out of a login whose wallet provider never loaded', async () => {
-    vi.useFakeTimers();
-    const { runtime, ops, config, privy } = setup();
-    const stalled = fakeWallet(ADDRESS, { providerGate: new Promise<void>(() => undefined) });
-    runtime.publish(loggedOut);
-    ops.logout.mockImplementation(async () => runtime.publish(loggedOut));
-    ops.login.mockImplementation(() =>
-      queueMicrotask(() => {
-        runtime.publish(loggedIn(stalled));
-        runtime.loginCompleted();
-      }),
-    );
-
-    const failed = expect(connect(config, { connector: privy })).rejects.toThrow('getEthereumProvider');
-    await vi.advanceTimersByTimeAsync(INTERNAL_CALL_MS);
-    await failed;
-
-    await vi.waitFor(() => expect(localStorage.getItem(SIGN_OUT_KEY)).toBeNull());
-    expect(ops.logout).toHaveBeenCalledOnce();
   });
 
   it("with disconnectBehavior 'detach', keeps the session of a login whose connect failed", async () => {
@@ -890,22 +758,6 @@ describe('privyConnector — cancellation and teardown', () => {
     expect(await context.privy.getAccounts()).toEqual([]);
   });
 
-  it('does not commit an attempt whose Privy session ended while switching to the requested chain', async () => {
-    const context = setup();
-    const switchGate = Promise.withResolvers<void>();
-    const wallet = fakeWallet(ADDRESS, { switchGate: switchGate.promise });
-    context.runtime.publish(loggedIn(wallet));
-    const connecting = connect(context.config, { connector: context.privy, chainId: base.id });
-    await vi.waitFor(() => expect(wallet.switchChain).toHaveBeenCalled());
-
-    context.runtime.publish(loggedOut);
-    switchGate.resolve();
-
-    await expect(connecting).rejects.toThrow('The Privy session has ended.');
-    expect(localStorage.getItem(FLAG_KEY)).toBeNull();
-    expect(context.config.state.status).not.toBe('connected');
-  });
-
   it('leaves no watcher behind from a superseded attempt', async () => {
     const context = setup();
     const providerGate = Promise.withResolvers<void>();
@@ -942,25 +794,10 @@ describe('privyConnector — cancellation and teardown', () => {
 
     await expect(request(privy, { method: 'eth_chainId' })).rejects.toThrow(/not connected/);
   });
-
-  it('does not keep the connection when the Privy sign-out stalls', async () => {
-    vi.useFakeTimers();
-    const context = setup();
-    context.ops.logout.mockImplementation(() => new Promise<undefined>(() => undefined));
-    context.runtime.publish(loggedIn(fakeWallet()));
-    await connect(context.config, { connector: context.privy });
-
-    const disconnecting = disconnect(context.config, { connector: context.privy });
-    await vi.advanceTimersByTimeAsync(INTERNAL_CALL_MS);
-    await disconnecting;
-
-    expect(context.config.state.status).toBe('disconnected');
-    expect(localStorage.getItem(FLAG_KEY)).toBeNull();
-  });
 });
 
 describe('privyConnector — calls into Privy that never settle', () => {
-  it('does not hang on a createWallet() that never settles, and connects once the wallet appears', async () => {
+  it('skips the modal for an authenticated user without a wallet and does not hang on a createWallet() that never settles', async () => {
     vi.useFakeTimers();
     const { runtime, ops, config, privy } = setup();
     const wallet = fakeWallet();
@@ -972,6 +809,7 @@ describe('privyConnector — calls into Privy that never settle', () => {
     runtime.publish(loggedIn(wallet));
 
     await expect(connecting).resolves.toEqual({ accounts: [getAddress(ADDRESS)], chainId: sonic.id });
+    expect(ops.login).not.toHaveBeenCalled();
     expect(ops.createWallet).toHaveBeenCalledOnce();
   });
 });

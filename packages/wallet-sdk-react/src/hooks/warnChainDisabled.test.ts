@@ -14,36 +14,24 @@ const state = (over: Partial<ChainEnablementState> = {}): ChainEnablementState =
 describe('shouldWarnChainDisabled', () => {
   // The regression this exists for: children render before the parent effect that fills the store,
   // so a correctly-configured app sees enabledChains === [] once on mount.
-  it('stays silent before initChainServices has run', () => {
-    const before = state({ walletConfig: undefined, enabledChains: [] });
-    expect(shouldWarnChainDisabled('EVM', before, new Set())).toBe(false);
-  });
-
-  it('does not consume the one-shot while uninitialized', () => {
+  it('stays silent before initChainServices has run, without consuming the one-shot', () => {
     const warned = new Set<ChainType>();
-    shouldWarnChainDisabled('EVM', state({ walletConfig: undefined }), warned);
 
+    expect(shouldWarnChainDisabled('EVM', state({ walletConfig: undefined }), warned)).toBe(false);
     expect(warned.has('EVM')).toBe(false);
     expect(shouldWarnChainDisabled('EVM', state(), warned)).toBe(true);
-  });
-
-  it('warns once a genuinely missing chain is queried after init', () => {
-    expect(shouldWarnChainDisabled('EVM', state({ enabledChains: ['SOLANA'] }), new Set())).toBe(true);
   });
 
   it('stays silent for an enabled chain', () => {
     expect(shouldWarnChainDisabled('EVM', state({ enabledChains: ['EVM'] }), new Set())).toBe(false);
   });
 
-  it('warns only once per chain', () => {
+  it('warns once per missing chain after init, tracking each chain separately', () => {
     const warned = new Set<ChainType>();
-    expect(shouldWarnChainDisabled('EVM', state(), warned)).toBe(true);
-    expect(shouldWarnChainDisabled('EVM', state(), warned)).toBe(false);
-  });
+    const initialized = state({ enabledChains: ['SUI'] });
 
-  it('tracks each chain separately', () => {
-    const warned = new Set<ChainType>();
-    expect(shouldWarnChainDisabled('EVM', state(), warned)).toBe(true);
-    expect(shouldWarnChainDisabled('SOLANA', state(), warned)).toBe(true);
+    expect(shouldWarnChainDisabled('EVM', initialized, warned)).toBe(true);
+    expect(shouldWarnChainDisabled('EVM', initialized, warned)).toBe(false);
+    expect(shouldWarnChainDisabled('SOLANA', initialized, warned)).toBe(true);
   });
 });

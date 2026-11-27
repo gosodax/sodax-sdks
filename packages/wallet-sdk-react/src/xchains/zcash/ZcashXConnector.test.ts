@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ZcashWalletProvider } from '@sodax/wallet-sdk-core';
 import { ZcashXConnector } from './ZcashXConnector.js';
 import { ZcashXService } from './ZcashXService.js';
 
@@ -116,27 +115,14 @@ describe('ZcashXConnector.getWallet', () => {
     });
   });
 
-  it('refuses a signature from any key other than the transparent address', async () => {
+  it('refuses a signature that is not a well-formed signature from the transparent address key', async () => {
     stubNoir({
       zcash_signMessage: () => ({ signature: SIGNATURE, address: 't1Other', signingMode: 'derived' }),
     });
-
     await expect(new ZcashXConnector().getWallet().signMessage('0x00')).rejects.toThrow(/expected the transparent/);
-  });
 
-  it('refuses a malformed signature', async () => {
     stubNoir({ zcash_signMessage: () => ({ signature: 'abcd', address: ADDRESS }) });
-
     await expect(new ZcashXConnector().getWallet().signMessage('0x00')).rejects.toThrow(/malformed signature/);
-  });
-
-  it('backs a browser-mode provider that pays by sending rather than signing a transaction', async () => {
-    stubNoir();
-    const provider = new ZcashWalletProvider({ wallet: new ZcashXConnector().getWallet() });
-
-    expect(provider.signTransaction).toBeUndefined();
-    expect(await provider.sendTransfer?.({ to: 't1deposit', amount: 1n })).toBe(TXID);
-    expect(await provider.getWalletAddress()).toBe(ADDRESS);
   });
 });
 

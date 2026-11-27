@@ -11,18 +11,13 @@ const ctx: PrivySourceContext = {
 const SONIC_ID = 146;
 
 describe('buildPrivyConfig', () => {
-  it('logs in by email only and turns off every Privy-side wallet connector', () => {
-    const config = buildPrivyConfig({ appId: 'app' }, SONIC_ID, ctx);
+  it('logs in by email only, turns off every Privy-side wallet connector and sets no MFA or recovery options', () => {
+    const config = buildPrivyConfig({ appId: 'app', legal: { termsAndConditionsUrl: '/terms' } }, SONIC_ID, ctx);
 
     expect(config.loginMethods).toEqual(['email']);
     expect(config.appearance?.walletList).toEqual([]);
     expect(config.externalWallets).toEqual({ disableAllExternalWallets: true, walletConnect: { enabled: false } });
     expect(config.embeddedWallets).toEqual({ ethereum: { createOnLogin: 'users-without-wallets' } });
-  });
-
-  it('never sets MFA or recovery options, so Privy keeps prompting for MFA itself', () => {
-    const config = buildPrivyConfig({ appId: 'app', legal: { termsAndConditionsUrl: '/terms' } }, SONIC_ID, ctx);
-
     expect(Object.keys(config).sort()).toEqual(
       [
         'appearance',
@@ -36,8 +31,8 @@ describe('buildPrivyConfig', () => {
     );
   });
 
-  it('points every chain at the RPC the wagmi transport uses, without mutating the shared chains', () => {
-    const config = buildPrivyConfig({ appId: 'app' }, SONIC_ID, ctx);
+  it('points every chain at the RPC the wagmi transport uses and starts on the default chain from that list', () => {
+    const config = buildPrivyConfig({ appId: 'app' }, 8453, ctx);
     const chains = config.supportedChains ?? [];
 
     expect(chains.map(chain => chain.id)).toEqual(SODAX_EVM_CHAINS.map(chain => chain.id));
@@ -46,11 +41,6 @@ describe('buildPrivyConfig', () => {
     }
     expect(chains.find(chain => chain.id === 8453)?.rpcUrls.privyWalletOverride?.http[0]).toBe('https://base.example');
     expect(SODAX_EVM_CHAINS.some(chain => 'privyWalletOverride' in chain.rpcUrls)).toBe(false);
-  });
-
-  it('starts on the default chain, taken from the decorated list', () => {
-    const config = buildPrivyConfig({ appId: 'app' }, 8453, ctx);
-
     expect(config.defaultChain?.id).toBe(8453);
     expect(config.supportedChains).toContain(config.defaultChain);
   });
