@@ -621,6 +621,17 @@ describe('privyConnector — signing out', () => {
     expect(localStorage.getItem(SIGN_OUT_KEY)).toBe('1');
   });
 
+  it('refuses to reuse a session whose sign-out failed when storage refused the marker', async () => {
+    const { ops, config, privy } = await connected();
+    ops.logout.mockRejectedValue(new Error('offline'));
+    refuseStorageWrites();
+
+    await disconnect(config, { connector: privy });
+
+    await expect(connect(config, { connector: privy })).rejects.toThrow('Could not sign out');
+    expect(ops.login).not.toHaveBeenCalled();
+  });
+
   it('waits for a sign-out still in flight even when storage refused the marker', async () => {
     const { runtime, ops, config, privy, wallet } = await connected();
     const { gate, logout } = signOutGate(runtime);
@@ -756,6 +767,22 @@ describe('privyConnector — cancellation and teardown', () => {
     await expect(connecting).rejects.toThrow('The Privy session has ended.');
     expect(localStorage.getItem(FLAG_KEY)).toBeNull();
     expect(await context.privy.getAccounts()).toEqual([]);
+  });
+
+  it('does not commit an attempt whose Privy session ended while switching to the requested chain', async () => {
+    const context = setup();
+    const switchGate = Promise.withResolvers<void>();
+    const wallet = fakeWallet(ADDRESS, { switchGate: switchGate.promise });
+    context.runtime.publish(loggedIn(wallet));
+    const connecting = connect(context.config, { connector: context.privy, chainId: base.id });
+    await vi.waitFor(() => expect(wallet.switchChain).toHaveBeenCalled());
+
+    context.runtime.publish(loggedOut);
+    switchGate.resolve();
+
+    await expect(connecting).rejects.toThrow('The Privy session has ended.');
+    expect(localStorage.getItem(FLAG_KEY)).toBeNull();
+    expect(context.config.state.status).not.toBe('connected');
   });
 
   it('leaves no watcher behind from a superseded attempt', async () => {

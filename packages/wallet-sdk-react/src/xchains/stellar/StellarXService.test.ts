@@ -219,7 +219,7 @@ describe('Stellar trustline config', () => {
       .filter(xToken => !StrKey.isValidContract(xToken.address))
       .map(xToken => xToken.symbol);
 
-    expect(mismatched).toEqual([]);
-    expect(nonCanonical).toEqual([]);
+    expect.soft(mismatched).toEqual([]);
+    expect.soft(nonCanonical).toEqual([]);
   });
 });

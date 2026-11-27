@@ -105,6 +105,7 @@ describe('TronXService.getBalance — TRC-20 read', () => {
       { result: { result: true, message: REVERT_MESSAGE }, constant_result: [BALANCE_WORD] },
     ],
     ['an empty constant_result', { result: { result: true }, constant_result: [] }],
+    ['a result that is not one 32-byte word', { result: { result: true }, constant_result: [`${BALANCE_WORD}00`] }],
   ])('reports %s as a failed read (0n, logged), never a parsed balance', async (_label, answer) => {
     stubFetch(answer);
 
