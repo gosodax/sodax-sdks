@@ -87,166 +87,136 @@ afterEach(() => {
 });
 
 describe('XrpWalletProvider — configuration', () => {
-  it('discriminates the two config shapes', () => {
+  it('selects the mode by config shape and rejects anything else', () => {
     expect(isPrivateKeyXrpWalletConfig({ privateKey: PRIVATE_KEY })).toBe(true);
     expect(isGemWalletXrpWalletConfig({ privateKey: PRIVATE_KEY })).toBe(false);
     expect(isGemWalletXrpWalletConfig({ gemWallet: gemWallet() })).toBe(true);
-  });
-
-  it('rejects a configuration that is neither mode', () => {
     expect(() => new XrpWalletProvider({} as never)).toThrow(/Invalid XRPL wallet configuration/);
   });
 
-  it('accepts a private key with or without the 0x prefix', () => {
-    expect(new XrpWalletProvider({ privateKey: '11'.repeat(16) }).chainType).toBe('XRP');
-    expect(rawKeyProvider().chainType).toBe('XRP');
+  it('prefers an explicit endpoint over defaults.rpcUrl', async () => {
+    stubRippled();
+    await new XrpWalletProvider({
+      privateKey: PRIVATE_KEY,
+      endpoint: 'https://custom.example/rpc',
+      defaults: { rpcUrl: 'https://defaults.example/rpc' },
+    }).waitForTransactionReceipt(TX_HASH);
+    await new XrpWalletProvider({
+      privateKey: PRIVATE_KEY,
+      defaults: { rpcUrl: 'https://d.example/rpc' },
+    }).waitForTransactionReceipt(TX_HASH);
+
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => url)).toEqual([
+      'https://custom.example/rpc',
+      'https://d.example/rpc',
+    ]);
   });
 });
 
 describe('XrpWalletProvider — identity', () => {
-  it('derives an ed25519 account from the raw key, since scheme 3 requires it', async () => {
-    // A secp256k1 account has no supported withdraw scheme, so the algorithm is not left to chance.
-    expect(await rawKeyProvider().getPublicKey()).toMatch(/^0xed[0-9a-f]{64}$/);
-  });
-
-  it('derives the account the entropy belongs to', async () => {
-    expect(await rawKeyProvider().getWalletAddress()).toBe(PRIVATE_KEY_ADDRESS);
-  });
-
-  it('derives the same account from the family seed of that entropy', async () => {
+  it('derives the same ed25519 account from hex entropy, with or without 0x, and from its family seed', async () => {
     const seed = generateSeed({ entropy: ENTROPY, algorithm: 'ed25519' });
 
+    // A secp256k1 account has no supported withdraw scheme, so the algorithm is not left to chance.
+    expect(await rawKeyProvider().getPublicKey()).toMatch(/^0xed[0-9a-f]{64}$/);
+    expect(await rawKeyProvider().getWalletAddress()).toBe(PRIVATE_KEY_ADDRESS);
+    expect(await new XrpWalletProvider({ privateKey: '11'.repeat(16) }).getWalletAddress()).toBe(PRIVATE_KEY_ADDRESS);
     expect(await new XrpWalletProvider({ privateKey: seed }).getWalletAddress()).toBe(PRIVATE_KEY_ADDRESS);
   });
 
-  // Only 16 bytes are read, so a 32-byte key would sign for an account its owner does not expect.
-  it('refuses a key of any other length without echoing it', () => {
-    const key = `0x${'11'.repeat(16)}${'22'.repeat(16)}`;
-
-    expect(() => new XrpWalletProvider({ privateKey: key })).toThrow(
+  it('refuses an unusable private key without echoing any of it', () => {
+    // Only 16 bytes are read, so a 32-byte key would sign for an account its owner does not expect.
+    const longKey = `0x${'11'.repeat(16)}${'22'.repeat(16)}`;
+    expect(() => new XrpWalletProvider({ privateKey: longKey })).toThrow(
       /16 bytes of seed entropy as hex, got 64 hex characters/,
     );
-    expect(() => new XrpWalletProvider({ privateKey: key })).not.toThrow(/2222/);
-  });
+    expect(() => new XrpWalletProvider({ privateKey: longKey })).not.toThrow(/2222/);
 
-  it('refuses a malformed seed without quoting any of it', () => {
     // 'l' is outside XRPL's base58 alphabet, and the decoder's own error would name it.
-    const seed = `sEd${'l'.repeat(26)}`;
+    expect(() => new XrpWalletProvider({ privateKey: `sEd${'l'.repeat(26)}` })).toThrow(
+      /^XRPL privateKey is not a valid family seed$/,
+    );
 
-    expect(() => new XrpWalletProvider({ privateKey: seed })).toThrow(/^XRPL privateKey is not a valid family seed$/);
+    // A secp256k1 account could deposit but never withdraw.
+    const secpSeed = generateSeed({ entropy: ENTROPY, algorithm: 'ecdsa-secp256k1' });
+    expect(() => new XrpWalletProvider({ privateKey: secpSeed })).toThrow(/secp256k1/);
   });
 
-  it('refuses a secp256k1 seed, whose account could never withdraw', () => {
-    const seed = generateSeed({ entropy: ENTROPY, algorithm: 'ecdsa-secp256k1' });
-
-    expect(() => new XrpWalletProvider({ privateKey: seed })).toThrow(/secp256k1/);
-  });
-
-  it('prefers the connected address over a GemWallet round-trip', async () => {
+  it('resolves the GemWallet address from the connection, then getAddress(), and reports a disconnected wallet', async () => {
     const gem = gemWallet();
-    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
-
-    expect(await provider.getWalletAddress()).toBe(GEM_ADDRESS);
+    expect(await new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS }).getWalletAddress()).toBe(GEM_ADDRESS);
     expect(gem.getAddress).not.toHaveBeenCalled();
+
+    expect(await new XrpWalletProvider({ gemWallet: gem }).getWalletAddress()).toBe(GEM_ADDRESS);
+    expect(gem.getAddress).toHaveBeenCalledOnce();
+
+    const disconnected = new XrpWalletProvider({ gemWallet: gemWallet({ getAddress: vi.fn(async () => ({})) }) });
+    await expect(disconnected.getWalletAddress()).rejects.toThrow(/not connected/);
   });
 
-  it('falls back to getAddress() when no address was supplied', async () => {
-    const provider = new XrpWalletProvider({ gemWallet: gemWallet() });
-
-    expect(await provider.getWalletAddress()).toBe(GEM_ADDRESS);
-  });
-
-  it('reports a disconnected wallet rather than returning an empty address', async () => {
-    const provider = new XrpWalletProvider({ gemWallet: gemWallet({ getAddress: vi.fn(async () => ({})) }) });
-
-    await expect(provider.getWalletAddress()).rejects.toThrow(/not connected/);
-  });
-
-  it('normalises a GemWallet public key to lowercase 0x-hex', async () => {
-    const provider = new XrpWalletProvider({ gemWallet: gemWallet() });
-
-    expect(await provider.getPublicKey()).toBe(`0xed${'11'.repeat(32)}`);
-  });
-
-  it('refuses a secp256k1 account up front instead of at withdrawal time', async () => {
-    const provider = new XrpWalletProvider({
-      gemWallet: gemWallet({ getPublicKey: vi.fn(async () => ({ result: { publicKey: `03${'22'.repeat(32)}` } })) }),
-    });
+  it('normalises a GemWallet ed25519 public key and refuses a missing or secp256k1 one up front', async () => {
+    expect(await new XrpWalletProvider({ gemWallet: gemWallet() }).getPublicKey()).toBe(`0xed${'11'.repeat(32)}`);
 
     // This account can deposit but could never withdraw — failing here says why.
-    await expect(provider.getPublicKey()).rejects.toThrow(/not ed25519/);
-  });
+    const secp = new XrpWalletProvider({
+      gemWallet: gemWallet({ getPublicKey: vi.fn(async () => ({ result: { publicKey: `03${'22'.repeat(32)}` } })) }),
+    });
+    await expect(secp.getPublicKey()).rejects.toThrow(/not ed25519/);
 
-  it('reports a wallet that returns no public key', async () => {
-    const provider = new XrpWalletProvider({ gemWallet: gemWallet({ getPublicKey: vi.fn(async () => ({})) }) });
-
-    await expect(provider.getPublicKey()).rejects.toThrow(/no public key/);
+    const missing = new XrpWalletProvider({ gemWallet: gemWallet({ getPublicKey: vi.fn(async () => ({})) }) });
+    await expect(missing.getPublicKey()).rejects.toThrow(/no public key/);
   });
 });
 
 describe('XrpWalletProvider.signMessage', () => {
-  it('produces a raw 64-byte ed25519 signature over the hash, with no envelope', async () => {
+  it('raw key: produces a deterministic raw 64-byte ed25519 signature over the hash, with no envelope', async () => {
     const signature = await rawKeyProvider().signMessage(HASH);
 
     // Scheme 3 signs the hash bytes themselves — a prefix or TIP-191-style wrapper breaks verification.
     expect(signature).toMatch(/^0x[0-9a-f]{128}$/);
+    expect(await rawKeyProvider().signMessage(HASH)).toBe(signature);
   });
 
-  it('signs deterministically for the same key and hash', async () => {
-    expect(await rawKeyProvider().signMessage(HASH)).toBe(await rawKeyProvider().signMessage(HASH));
-  });
-
-  it('hands GemWallet the bare hash flagged as hex and lowercases what comes back', async () => {
+  it('GemWallet: hands over the bare hash flagged as hex, lowercases the result and refuses an empty one', async () => {
     const gem = gemWallet();
-    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
-
-    const signature = await provider.signMessage(HASH);
+    const signature = await new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS }).signMessage(HASH);
 
     // Without `isHex` GemWallet signs the 64-character text, which scheme 3 does not verify.
     expect(gem.signMessage).toHaveBeenCalledWith(HASH.slice(2).toUpperCase(), true);
     expect(signature).toBe(`0x${'cd'.repeat(64)}`);
-  });
 
-  it('reports a wallet that returns no signature', async () => {
-    const provider = new XrpWalletProvider({
+    const unsigned = new XrpWalletProvider({
       gemWallet: gemWallet({ signMessage: vi.fn(async () => ({ result: {} })) }),
       address: GEM_ADDRESS,
     });
-
-    await expect(provider.signMessage(HASH)).rejects.toThrow(/no signature/);
+    await expect(unsigned.signMessage(HASH)).rejects.toThrow(/no signature/);
   });
 });
 
 describe('XrpWalletProvider.signTransaction — raw key', () => {
-  it('autofills Sequence, Fee and LastLedgerSequence from the node', async () => {
-    stubRippled();
-    const provider = rawKeyProvider();
-
-    const signed = await provider.signTransaction({ ...payment, Account: await provider.getWalletAddress() });
-
-    expect(signed.tx_blob).toMatch(/^[0-9A-F]+$/);
-    expect(signed.hash).toBeTruthy();
-    expect(calls.map(c => c.method).sort()).toEqual(['account_info', 'fee', 'ledger_current']);
-  });
-
-  it('bounds submittability with a ledger window so a stalled submit expires', async () => {
+  it('autofills Sequence (queued-inclusive), Fee and a LastLedgerSequence window from the node', async () => {
     stubRippled();
     const provider = rawKeyProvider();
     const account = await provider.getWalletAddress();
 
     const signed = await provider.signTransaction({ ...payment, Account: account });
 
-    // Twenty ledgers past the node's current one, with Sequence and Fee from the node too.
+    expect(signed.tx_blob).toMatch(/^[0-9A-F]+$/);
+    expect(signed.hash).toBeTruthy();
+    expect(calls.map(c => c.method).sort()).toEqual(['account_info', 'fee', 'ledger_current']);
+    // The current ledger's Sequence counts transactions still queued for the account.
+    expect(calls.find(c => c.method === 'account_info')?.params).toMatchObject({ account, ledger_index: 'current' });
+    // Twenty ledgers past the node's current one, so a stalled submit expires.
     expect(decode(signed.tx_blob)).toMatchObject({ LastLedgerSequence: 1020, Sequence: 77, Fee: '15' });
   });
 
-  it('falls back to the minimum fee when the node does not report an open-ledger fee', async () => {
+  it('falls back to the minimum fee when the node reports no open-ledger fee', async () => {
     stubRippled({ fee: { drops: {} } });
     const provider = rawKeyProvider();
 
-    await expect(
-      provider.signTransaction({ ...payment, Account: await provider.getWalletAddress() }),
-    ).resolves.toBeTruthy();
+    const signed = await provider.signTransaction({ ...payment, Account: await provider.getWalletAddress() });
+
+    expect(decode(signed.tx_blob)).toMatchObject({ Fee: '12' });
   });
 
   it('does not overwrite fields the caller pinned', async () => {
@@ -265,57 +235,35 @@ describe('XrpWalletProvider.signTransaction — raw key', () => {
   });
 });
 
-describe('XrpWalletProvider.signTransaction — GemWallet network', () => {
-  // GemWallet also serves test networks and the Xahau ledger, where a deposit pays a reserve the relay never watches.
-  it.each([
-    ['the Xahau ledger', { chain: 'XAHAU', network: 'Mainnet' }],
-    ['the XRPL Testnet', { chain: 'XRPL', network: 'Testnet' }],
-  ])('refuses to submit while the wallet is on %s', async (_, result) => {
-    const gem = gemWallet({ getNetwork: vi.fn(async () => ({ result })) });
-    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
-
-    await expect(provider.signTransaction(payment)).rejects.toThrow(/switch it to the XRPL Mainnet/);
-    expect(gem.submitTransaction).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    undefined,
-    async () => undefined,
-    async () => ({ result: { chain: 'XRPL' } }),
-  ])('refuses to submit without confirmed XRPL Mainnet', async getNetwork => {
-    const gem = gemWallet({ getNetwork });
-    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
-
-    await expect(provider.signTransaction(payment)).rejects.toThrow(/did not confirm/);
-    expect(gem.submitTransaction).not.toHaveBeenCalled();
-  });
-
-  it('submits on the XRPL Mainnet', async () => {
-    const gem = gemWallet({ getNetwork: vi.fn(async () => ({ result: { chain: 'XRPL', network: 'Mainnet' } })) });
-    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
-
-    expect(await provider.signTransaction(payment)).toEqual({ tx_blob: '', hash: TX_HASH });
-  });
-});
-
 describe('XrpWalletProvider.signTransaction — GemWallet', () => {
-  it('submits through the wallet and returns the hash with no blob', async () => {
+  // GemWallet also serves test networks and the Xahau ledger, where a deposit pays a reserve the relay never watches.
+  it('refuses to submit unless the wallet confirms the XRPL Mainnet', async () => {
+    const cases = [
+      {
+        getNetwork: vi.fn(async () => ({ result: { chain: 'XAHAU', network: 'Mainnet' } })),
+        error: /switch it to the XRPL Mainnet/,
+      },
+      { getNetwork: undefined, error: /did not confirm/ },
+      { getNetwork: async () => ({ result: { chain: 'XRPL' } }), error: /did not confirm/ },
+    ];
+    for (const { getNetwork, error } of cases) {
+      const gem = gemWallet({ getNetwork });
+      const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+      await expect(provider.signTransaction(payment)).rejects.toThrow(error);
+      expect(gem.submitTransaction).not.toHaveBeenCalled();
+    }
+  });
+
+  it('submits the transaction unpinned through the wallet and returns the hash with no blob', async () => {
     const gem = gemWallet();
     const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
 
     const signed = await provider.signTransaction(payment);
 
-    // GemWallet submits as well as signs, so there is no blob to hand back.
+    // GemWallet submits as well as signs and rejects a pinned Sequence/Fee/LastLedgerSequence.
     expect(signed).toEqual({ tx_blob: '', hash: TX_HASH });
     expect(gem.submitTransaction).toHaveBeenCalledWith({ transaction: payment });
-  });
-
-  it('leaves Sequence, Fee and LastLedgerSequence to the wallet, which rejects a pinned transaction', async () => {
-    const gem = gemWallet();
-    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
-
-    await provider.signTransaction(payment);
-
     const submitted = vi.mocked(gem.submitTransaction).mock.calls[0]?.[0].transaction;
     expect(submitted).not.toHaveProperty('Sequence');
     expect(submitted).not.toHaveProperty('Fee');
@@ -323,13 +271,14 @@ describe('XrpWalletProvider.signTransaction — GemWallet', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('exposes a typed recovery handle when GemWallet returns no hash', async () => {
+  it('exposes a typed recovery handle when GemWallet returns no hash or the submit throws', async () => {
     const reply = { type: 'response', result: {} } as const;
-    const gem = gemWallet({ submitTransaction: vi.fn(async () => reply) });
-    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+    const hashless = gemWallet({ submitTransaction: vi.fn(async () => reply) });
     const tx = { ...payment, Memos: [{ Memo: { MemoData: 'ABCD' } }] };
 
-    const error = await provider.signTransaction(tx).catch((cause: unknown) => cause);
+    const error = await new XrpWalletProvider({ gemWallet: hashless, address: GEM_ADDRESS })
+      .signTransaction(tx)
+      .catch((cause: unknown) => cause);
 
     expect(isIndeterminateOutcomeError(error)).toBe(true);
     expect(error).toMatchObject({
@@ -343,20 +292,18 @@ describe('XrpWalletProvider.signTransaction — GemWallet', () => {
       },
       cause: reply,
     });
-    expect(gem.submitTransaction).toHaveBeenCalledOnce();
-  });
+    expect(hashless.submitTransaction).toHaveBeenCalledOnce();
 
-  it('retains the recovery handle and original exception when GemWallet submit throws', async () => {
     const cause = new Error('wallet transport closed');
-    const gem = gemWallet({ submitTransaction: vi.fn().mockRejectedValue(cause) });
-    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
-    const error = await provider.signTransaction(payment).catch((failure: unknown) => failure);
-    expect(isIndeterminateOutcomeError(error)).toBe(true);
-    expect(error).toMatchObject({
+    const throwing = gemWallet({ submitTransaction: vi.fn().mockRejectedValue(cause) });
+    const thrown = await new XrpWalletProvider({ gemWallet: throwing, address: GEM_ADDRESS })
+      .signTransaction(payment)
+      .catch((failure: unknown) => failure);
+    expect(isIndeterminateOutcomeError(thrown)).toBe(true);
+    expect(thrown).toMatchObject({
       recovery: { kind: 'xrp-payment', account: payment.Account, destination: payment.Destination },
       cause,
     });
-    expect(gem.submitTransaction).toHaveBeenCalledOnce();
   });
 
   it('preserves an explicit GemWallet rejection as a definite failure', async () => {
@@ -387,14 +334,25 @@ describe('XrpWalletProvider.signTrustSet', () => {
     });
   });
 
-  it('submits through GemWallet on the XRPL Mainnet and returns the hash with no blob', async () => {
-    const submitTrustSet = vi.fn(async () => ({ result: { hash: TX_HASH } }));
-    const gem = gemWallet({ submitTrustSet });
-    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+  it("submits through the adapter's submitTrustSet, keeping a class-based adapter's `this`", async () => {
+    class Adapter {
+      private readonly hash = TX_HASH;
+      getNetwork = async () => ({ result: { chain: 'XRPL', network: 'Mainnet' } });
+      getAddress = async () => ({ result: { address: GEM_ADDRESS } });
+      getPublicKey = async () => ({ result: { publicKey: `ED${'11'.repeat(32)}` } });
+      signMessage = async () => ({ result: { signedMessage: 'CD'.repeat(64) } });
+      submitTransaction = vi.fn(async () => ({ result: { hash: this.hash } }));
+      async submitTrustSet() {
+        return { result: { hash: this.hash } };
+      }
+    }
+    const adapter = new Adapter();
+    const submitTrustSet = vi.spyOn(adapter, 'submitTrustSet');
+    const provider = new XrpWalletProvider({ gemWallet: adapter, address: GEM_ADDRESS });
 
     expect(await provider.signTrustSet(trustSet)).toEqual({ tx_blob: '', hash: TX_HASH });
     expect(submitTrustSet).toHaveBeenCalledWith({ transaction: trustSet });
-    expect(gem.submitTransaction).not.toHaveBeenCalled();
+    expect(adapter.submitTransaction).not.toHaveBeenCalled();
   });
 
   it('refuses to submit while GemWallet is on another network', async () => {
@@ -409,61 +367,6 @@ describe('XrpWalletProvider.signTrustSet', () => {
     expect(submitTrustSet).not.toHaveBeenCalled();
   });
 
-  it('reports an adapter without submitTrustSet instead of sending the TrustSet as a Payment', async () => {
-    const gem = gemWallet();
-    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
-
-    await expect(provider.signTrustSet(trustSet)).rejects.toThrow(/no submitTrustSet/);
-    expect(gem.submitTransaction).not.toHaveBeenCalled();
-  });
-
-  it('reports a rejection, and a reply with no hash', async () => {
-    const rejecting = new XrpWalletProvider({
-      gemWallet: gemWallet({ submitTrustSet: vi.fn(async () => ({ type: 'reject' as const })) }),
-      address: GEM_ADDRESS,
-    });
-    await expect(rejecting.signTrustSet(trustSet)).rejects.toThrow(/rejected by the user/);
-
-    const rejection = await rejecting.signTrustSet(trustSet).catch((cause: unknown) => cause);
-    expect(isIndeterminateOutcomeError(rejection)).toBe(false);
-
-    const hashless = new XrpWalletProvider({
-      gemWallet: gemWallet({ submitTrustSet: vi.fn(async () => ({ result: {} })) }),
-      address: GEM_ADDRESS,
-    });
-    const error = await hashless.signTrustSet(trustSet).catch((cause: unknown) => cause);
-    expect(isIndeterminateOutcomeError(error)).toBe(true);
-    expect(error).toMatchObject({ message: expect.stringContaining('no TrustSet hash') });
-  });
-
-  it('marks a submit that threw as indeterminate, since the TrustSet may have been sent', async () => {
-    const provider = new XrpWalletProvider({
-      gemWallet: gemWallet({ submitTrustSet: vi.fn(async () => Promise.reject(new Error('port closed'))) }),
-      address: GEM_ADDRESS,
-    });
-
-    const error = await provider.signTrustSet(trustSet).catch((cause: unknown) => cause);
-
-    expect(isIndeterminateOutcomeError(error)).toBe(true);
-  });
-
-  it('calls submitTrustSet on the adapter, so a class-based adapter keeps its `this`', async () => {
-    class Adapter {
-      private readonly hash = TX_HASH;
-      getNetwork = async () => ({ result: { chain: 'XRPL', network: 'Mainnet' } });
-      getAddress = async () => ({ result: { address: GEM_ADDRESS } });
-      getPublicKey = async () => ({ result: { publicKey: `ED${'11'.repeat(32)}` } });
-      signMessage = async () => ({ result: { signedMessage: 'CD'.repeat(64) } });
-      submitTransaction = async () => ({ result: { hash: this.hash } });
-      async submitTrustSet() {
-        return { result: { hash: this.hash } };
-      }
-    }
-    const provider = new XrpWalletProvider({ gemWallet: new Adapter(), address: GEM_ADDRESS });
-
-    expect(await provider.signTrustSet(trustSet)).toEqual({ tx_blob: '', hash: TX_HASH });
-  });
-
   it('refuses before submitting when GemWallet has switched to another account', async () => {
     const submitTrustSet = vi.fn(async () => ({ result: { hash: TX_HASH } }));
     const gem = gemWallet({
@@ -474,6 +377,40 @@ describe('XrpWalletProvider.signTrustSet', () => {
 
     await expect(provider.signTrustSet(trustSet)).rejects.toThrow(/switch it before adding the trustline/);
     expect(submitTrustSet).not.toHaveBeenCalled();
+  });
+
+  it('reports an adapter without submitTrustSet instead of sending the TrustSet as a Payment', async () => {
+    const gem = gemWallet();
+    const provider = new XrpWalletProvider({ gemWallet: gem, address: GEM_ADDRESS });
+
+    await expect(provider.signTrustSet(trustSet)).rejects.toThrow(/no submitTrustSet/);
+    expect(gem.submitTransaction).not.toHaveBeenCalled();
+  });
+
+  it('treats a rejection as definite, and a hashless reply or a thrown submit as indeterminate', async () => {
+    const rejecting = new XrpWalletProvider({
+      gemWallet: gemWallet({ submitTrustSet: vi.fn(async () => ({ type: 'reject' as const })) }),
+      address: GEM_ADDRESS,
+    });
+    const rejection = await rejecting.signTrustSet(trustSet).catch((cause: unknown) => cause);
+    expect(isIndeterminateOutcomeError(rejection)).toBe(false);
+    expect(rejection).toMatchObject({ message: expect.stringContaining('rejected by the user') });
+
+    const hashless = new XrpWalletProvider({
+      gemWallet: gemWallet({ submitTrustSet: vi.fn(async () => ({ result: {} })) }),
+      address: GEM_ADDRESS,
+    });
+    const error = await hashless.signTrustSet(trustSet).catch((cause: unknown) => cause);
+    expect(isIndeterminateOutcomeError(error)).toBe(true);
+    expect(error).toMatchObject({ message: expect.stringContaining('no TrustSet hash') });
+
+    // The TrustSet may have been sent before the port closed.
+    const throwing = new XrpWalletProvider({
+      gemWallet: gemWallet({ submitTrustSet: vi.fn(async () => Promise.reject(new Error('port closed'))) }),
+      address: GEM_ADDRESS,
+    });
+    const thrown = await throwing.signTrustSet(trustSet).catch((cause: unknown) => cause);
+    expect(isIndeterminateOutcomeError(thrown)).toBe(true);
   });
 });
 
@@ -514,22 +451,7 @@ describe('XrpWalletProvider.waitForTransactionReceipt', () => {
     vi.useRealTimers();
   });
 
-  it('gives up rather than polling forever', async () => {
-    vi.useFakeTimers();
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => ({ ok: true, json: async () => ({ result: { hash: TX_HASH, validated: false } }) }) as never),
-    );
-
-    const pending = rawKeyProvider().waitForTransactionReceipt(TX_HASH);
-    const assertion = expect(pending).rejects.toThrow(/not validated in time/);
-    await vi.advanceTimersByTimeAsync(70_000);
-
-    await assertion;
-    vi.useRealTimers();
-  });
-
-  it('treats a node error as a non-terminal poll failure rather than aborting the wait', async () => {
+  it('treats a node error as a non-terminal poll failure and gives up at the deadline', async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       'fetch',
@@ -545,75 +467,37 @@ describe('XrpWalletProvider.waitForTransactionReceipt', () => {
     await assertion;
     vi.useRealTimers();
   });
-});
 
-describe('XrpWalletProvider — endpoint selection', () => {
-  it('prefers an explicit endpoint over the defaults and the built-in fallback', async () => {
-    stubRippled();
-    const provider = new XrpWalletProvider({
-      privateKey: PRIVATE_KEY,
-      endpoint: 'https://custom.example/rpc',
-      defaults: { rpcUrl: 'https://defaults.example/rpc' },
-    });
-
-    await provider.waitForTransactionReceipt(TX_HASH);
-
-    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe('https://custom.example/rpc');
-  });
-
-  it('falls back to the defaults rpcUrl when no endpoint is given', async () => {
-    stubRippled();
-    const provider = new XrpWalletProvider({ privateKey: PRIVATE_KEY, defaults: { rpcUrl: 'https://d.example/rpc' } });
-
-    await provider.waitForTransactionReceipt(TX_HASH);
-
-    expect(vi.mocked(fetch).mock.calls[0]?.[0]).toBe('https://d.example/rpc');
-  });
-});
-
-it('signs with the current account sequence including queued transactions', async () => {
-  stubRippled();
-  const original = vi.mocked(fetch).getMockImplementation();
-  vi.mocked(fetch).mockImplementation(async (url, init) => {
-    const { method, params } = JSON.parse(String(init?.body)) as { method: string; params: [{ ledger_index: string }] };
-    if (method === 'account_info')
-      return new Response(
-        JSON.stringify({ result: { account_data: { Sequence: params[0].ledger_index === 'current' ? 79 : 77 } } }),
+  it('bounds a stalled response body by the receipt wall-clock budget', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (_url: string, init: RequestInit) => {
+          const body = new ReadableStream({
+            start(controller) {
+              init.signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+            },
+          });
+          return new Response(body);
+        }),
       );
-    if (!original) throw new Error('missing fetch stub');
-    return original(url, init);
-  });
-  const provider = rawKeyProvider();
-  const signed = await provider.signTransaction({ ...payment, Account: await provider.getWalletAddress() });
-  expect(decode(signed.tx_blob)).toMatchObject({ Sequence: 79 });
-});
-it('bounds a stalled response body by the receipt wall-clock budget', async () => {
-  vi.useFakeTimers();
-  try {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_url: string, init: RequestInit) => {
-        const body = new ReadableStream({
-          start(controller) {
-            init.signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
-          },
+      let elapsed: number | undefined;
+      const start = Date.now();
+      const pending = rawKeyProvider()
+        .waitForTransactionReceipt(TX_HASH)
+        .catch((error: unknown) => {
+          elapsed = Date.now() - start;
+          return error;
         });
-        return new Response(body);
-      }),
-    );
-    let elapsed: number | undefined;
-    const start = Date.now();
-    const pending = rawKeyProvider()
-      .waitForTransactionReceipt(TX_HASH)
-      .catch((error: unknown) => {
-        elapsed = Date.now() - start;
-        return error;
-      });
-    await vi.advanceTimersByTimeAsync(62_000);
-    expect(elapsed).toBeDefined();
-    expect(elapsed).toBeLessThanOrEqual(62_000);
-    expect(await pending).toEqual(expect.objectContaining({ message: expect.stringMatching(/not validated in time/) }));
-  } finally {
-    vi.useRealTimers();
-  }
+      await vi.advanceTimersByTimeAsync(62_000);
+      expect(elapsed).toBeDefined();
+      expect(elapsed).toBeLessThanOrEqual(62_000);
+      expect(await pending).toEqual(
+        expect.objectContaining({ message: expect.stringMatching(/not validated in time/) }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

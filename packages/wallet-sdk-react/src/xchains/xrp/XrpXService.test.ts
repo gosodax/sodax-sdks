@@ -56,42 +56,34 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('XrpXService.getInstance', () => {
-  it('returns the same instance and defaults to the public cluster', () => {
-    const first = XrpXService.getInstance();
+/** Serves one RLUSD trustline holding `balance` and returns what the service reads from it. */
+async function rlusdBalance(balance: string): Promise<bigint> {
+  stubRippled({ account_lines: { lines: [{ currency: RLUSD_CURRENCY, account: RLUSD_ISSUER, balance }] } });
+  return XrpXService.getInstance().getBalance(USER, RLUSD_TOKEN);
+}
 
-    expect(XrpXService.getInstance()).toBe(first);
+describe('XrpXService.getInstance', () => {
+  it('shares one instance whose rpcUrl defaults to the public cluster and follows a later config', () => {
+    const first = XrpXService.getInstance();
     expect(first.rpcUrl).toBe('https://xrplcluster.com');
     expect(first.xChainType).toBe('XRP');
-  });
-
-  it('takes the rpcUrl from the first call', () => {
-    expect(XrpXService.getInstance({ rpcUrl: 'https://first.example' }).rpcUrl).toBe('https://first.example');
-  });
-
-  it('updates the rpcUrl of the existing instance rather than replacing it', () => {
-    const first = XrpXService.getInstance({ rpcUrl: 'https://first.example' });
 
     const second = XrpXService.getInstance({ rpcUrl: 'https://second.example' });
-
     expect(second).toBe(first);
     expect(second.rpcUrl).toBe('https://second.example');
-  });
 
-  it('keeps the existing rpcUrl when called again with no config', () => {
-    XrpXService.getInstance({ rpcUrl: 'https://first.example' });
-
-    expect(XrpXService.getInstance().rpcUrl).toBe('https://first.example');
+    expect(XrpXService.getInstance().rpcUrl).toBe('https://second.example');
   });
 });
 
 describe('XrpXService.getBalance — native XRP', () => {
-  it('reads drops from account_info against the validated ledger', async () => {
+  it('reads drops from account_info at the configured endpoint against the validated ledger', async () => {
     stubRippled({ account_info: { account_data: { Balance: '42000000' } } });
 
-    const balance = await XrpXService.getInstance().getBalance(USER, XRP_TOKEN);
+    const balance = await XrpXService.getInstance({ rpcUrl: 'https://custom.example/rpc' }).getBalance(USER, XRP_TOKEN);
 
     expect(calls[0]).toMatchObject({
+      url: 'https://custom.example/rpc',
       method: 'account_info',
       params: { account: USER, ledger_index: 'validated' },
     });
@@ -107,73 +99,73 @@ describe('XrpXService.getBalance — native XRP', () => {
     expect(balance).toBe(7n);
   });
 
-  it('reports zero for an unfunded account that has no Balance field', async () => {
+  it('reports zero for an unfunded account or a node answer without a result', async () => {
     stubRippled({ account_info: {} });
+    expect(await XrpXService.getInstance().getBalance(USER, XRP_TOKEN)).toBe(0n);
 
+    stubRippled({});
     expect(await XrpXService.getInstance().getBalance(USER, XRP_TOKEN)).toBe(0n);
   });
 });
 
 describe('XrpXService.getBalance — IOU', () => {
-  it('reads the trustline to the issuer and scales the decimal balance to base units', async () => {
-    stubRippled({
-      account_lines: { lines: [{ currency: RLUSD_CURRENCY, account: RLUSD_ISSUER, balance: '1.5' }] },
-    });
-
-    const balance = await XrpXService.getInstance().getBalance(USER, RLUSD_TOKEN);
-
-    expect(calls[0]?.method).toBe('account_lines');
-    // "1.5" at 6 decimals is 1_500_000 base units.
-    expect(balance).toBe(1_500_000n);
+  it('reads the trustline to the issuer and converts its decimal balance to base units exactly', async () => {
+    // RLUSD has 6 decimals.
+    expect(await rlusdBalance('1.5')).toBe(1_500_000n);
+    expect(calls[0]).toMatchObject({ method: 'account_lines', params: { peer: RLUSD_ISSUER } });
+    expect(await rlusdBalance('0.25')).toBe(250_000n);
+    expect(await rlusdBalance('3')).toBe(3_000_000n);
+    expect(await rlusdBalance('1.1234567')).toBe(1_123_456n);
+    expect(await rlusdBalance('1000000000000000e-4')).toBe(100_000_000_000_000_000n);
   });
 
-  it('pads a short fraction rather than misreading its scale', async () => {
-    stubRippled({
-      account_lines: { lines: [{ currency: RLUSD_CURRENCY, account: RLUSD_ISSUER, balance: '0.25' }] },
-    });
-
-    expect(await XrpXService.getInstance().getBalance(USER, RLUSD_TOKEN)).toBe(250_000n);
-  });
-
-  it('truncates a fraction finer than the token decimals', async () => {
-    stubRippled({
-      account_lines: { lines: [{ currency: RLUSD_CURRENCY, account: RLUSD_ISSUER, balance: '1.1234567' }] },
-    });
-
-    expect(await XrpXService.getInstance().getBalance(USER, RLUSD_TOKEN)).toBe(1_123_456n);
-  });
-
-  it('handles a whole-number balance with no decimal point', async () => {
-    stubRippled({
-      account_lines: { lines: [{ currency: RLUSD_CURRENCY, account: RLUSD_ISSUER, balance: '3' }] },
-    });
-
-    expect(await XrpXService.getInstance().getBalance(USER, RLUSD_TOKEN)).toBe(3_000_000n);
-  });
-
-  it('reports zero when there is no trustline for the currency', async () => {
+  it('credits only a line matching both the currency and the issuer', async () => {
     stubRippled({ account_lines: { lines: [] } });
-
     expect(await XrpXService.getInstance().getBalance(USER, RLUSD_TOKEN)).toBe(0n);
-  });
 
-  it('does not credit a line from a different issuer with the same currency code', async () => {
     stubRippled({
       account_lines: {
         lines: [{ currency: RLUSD_CURRENCY, account: 'rImPoStErIsSuEr00000000000000000000', balance: '99' }],
       },
     });
-
     expect(await XrpXService.getInstance().getBalance(USER, RLUSD_TOKEN)).toBe(0n);
   });
 
-  it('uses the 3-character ASCII currency form for a short symbol', async () => {
-    stubRippled({
-      account_lines: { lines: [{ currency: 'EUR', account: RLUSD_ISSUER, balance: '2' }] },
-    });
+  it('derives the currency from the symbol: 3 chars as ASCII, longer as the 160-bit form without a global Buffer', async () => {
+    stubRippled({ account_lines: { lines: [{ currency: 'EUR', account: RLUSD_ISSUER, balance: '2' }] } });
+    expect(await XrpXService.getInstance().getBalance(USER, token({ symbol: 'EUR', address: RLUSD_ISSUER }))).toBe(
+      2_000_000n,
+    );
 
-    const eur = token({ symbol: 'EUR', address: RLUSD_ISSUER, decimals: 6 });
-    expect(await XrpXService.getInstance().getBalance(USER, eur)).toBe(2_000_000n);
+    vi.stubGlobal('Buffer', undefined);
+    stubRippled({
+      account_lines: {
+        lines: [{ currency: '5553444300000000000000000000000000000000', account: RLUSD_ISSUER, balance: '2' }],
+      },
+    });
+    expect(await XrpXService.getInstance().getBalance(USER, token({ symbol: 'USDC', address: RLUSD_ISSUER }))).toBe(
+      2_000_000n,
+    );
+  });
+
+  it('finds an issuer trustline on page two', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const { params } = JSON.parse(String(init.body)) as { params: [{ peer?: string; marker?: string }] };
+        expect(params[0].peer).toBe(RLUSD_ISSUER);
+        return new Response(
+          JSON.stringify({
+            result:
+              params[0].marker === 'next'
+                ? { lines: [{ currency: RLUSD_CURRENCY, account: RLUSD_ISSUER, balance: '2' }] }
+                : { lines: [], marker: 'next' },
+          }),
+        );
+      }),
+    );
+    expect(await XrpXService.getInstance().getBalance(USER, RLUSD_TOKEN)).toBe(2_000_000n);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -198,12 +190,6 @@ describe('XrpXService.getBalance — failure handling', () => {
     expect(await XrpXService.getInstance().getBalance(USER, XRP_TOKEN)).toBe(0n);
     expect(error).toHaveBeenCalled();
   });
-
-  it('reports zero when the node answers without a result', async () => {
-    stubRippled({});
-
-    expect(await XrpXService.getInstance().getBalance(USER, XRP_TOKEN)).toBe(0n);
-  });
 });
 
 // The Robinhood stocks share ONE issuer, so their address is `<40-hex currency>:<issuer>` and the
@@ -214,80 +200,22 @@ describe('XrpXService.getBalance — tokens that share an issuer', () => {
   const asciiHex = (s: string) => Buffer.from(s, 'ascii').toString('hex').toUpperCase().padEnd(40, '0');
   const stock = (symbol: string) =>
     token({ symbol, address: `${asciiHex(symbol)}:${STOCK_ISSUER}`, decimals: 8, name: symbol });
-  const lines = {
-    account_lines: {
-      lines: [
-        { currency: asciiHex('SPCX'), account: STOCK_ISSUER, balance: '7' },
-        { currency: asciiHex('NVDA'), account: STOCK_ISSUER, balance: '2.5' },
-        { currency: asciiHex('GME'), account: STOCK_ISSUER, balance: '0.00000001' },
-      ],
-    },
-  };
 
-  it('reads the line for the stock asked about, not another stock of the same issuer', async () => {
-    stubRippled(lines);
+  it('reads the line for the currency in the address, including a 3-letter ticker under its 160-bit code', async () => {
+    stubRippled({
+      account_lines: {
+        lines: [
+          { currency: asciiHex('SPCX'), account: STOCK_ISSUER, balance: '7' },
+          { currency: asciiHex('NVDA'), account: STOCK_ISSUER, balance: '2.5' },
+          { currency: asciiHex('GME'), account: STOCK_ISSUER, balance: '0.00000001' },
+        ],
+      },
+    });
     const svc = XrpXService.getInstance();
 
     expect(await svc.getBalance(USER, stock('NVDA'))).toBe(250_000_000n); // 2.5 at 8 decimals
     expect(await svc.getBalance(USER, stock('SPCX'))).toBe(700_000_000n);
+    expect(await svc.getBalance(USER, stock('GME'))).toBe(1n);
+    expect(await svc.getBalance(USER, stock('UPS'))).toBe(0n);
   });
-
-  it('reads a 3-letter ticker under its 160-bit code, not the standard 3-char code', async () => {
-    stubRippled(lines);
-
-    expect(await XrpXService.getInstance().getBalance(USER, stock('GME'))).toBe(1n);
-  });
-
-  it('reports zero for a stock the holder has no line for', async () => {
-    stubRippled(lines);
-
-    expect(await XrpXService.getInstance().getBalance(USER, stock('UPS'))).toBe(0n);
-  });
-});
-
-describe('XrpXService — endpoint', () => {
-  it('queries the configured rpcUrl', async () => {
-    stubRippled({ account_info: { account_data: { Balance: '1' } } });
-
-    await XrpXService.getInstance({ rpcUrl: 'https://custom.example/rpc' }).getBalance(USER, XRP_TOKEN);
-
-    expect(calls[0]?.url).toBe('https://custom.example/rpc');
-  });
-});
-
-it('reads USDC without a global Buffer', async () => {
-  vi.stubGlobal('Buffer', undefined);
-  stubRippled({
-    account_lines: {
-      lines: [{ currency: '5553444300000000000000000000000000000000', account: RLUSD_ISSUER, balance: '2' }],
-    },
-  });
-  expect(await XrpXService.getInstance().getBalance(USER, token({ symbol: 'USDC', address: RLUSD_ISSUER }))).toBe(
-    2_000_000n,
-  );
-});
-it('converts exponent balances exactly', async () => {
-  stubRippled({
-    account_lines: { lines: [{ currency: RLUSD_CURRENCY, account: RLUSD_ISSUER, balance: '1000000000000000e-4' }] },
-  });
-  expect(await XrpXService.getInstance().getBalance(USER, RLUSD_TOKEN)).toBe(100_000_000_000_000_000n);
-});
-it('finds an issuer trustline on page two', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async (_url: string, init: RequestInit) => {
-      const { params } = JSON.parse(String(init.body)) as { params: [{ peer?: string; marker?: string }] };
-      expect(params[0].peer).toBe(RLUSD_ISSUER);
-      return new Response(
-        JSON.stringify({
-          result:
-            params[0].marker === 'next'
-              ? { lines: [{ currency: RLUSD_CURRENCY, account: RLUSD_ISSUER, balance: '2' }] }
-              : { lines: [], marker: 'next' },
-        }),
-      );
-    }),
-  );
-  expect(await XrpXService.getInstance().getBalance(USER, RLUSD_TOKEN)).toBe(2_000_000n);
-  expect(fetch).toHaveBeenCalledTimes(2);
 });

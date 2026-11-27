@@ -34,11 +34,11 @@ describe('resolveBatchTargets', () => {
     ]);
   });
 
-  it('emits every matching identifier per chain in priority order', () => {
+  it('emits every matching identifier per chain in priority order, skipping identifiers without a match', () => {
     const phantom = makeConnector('SOLANA', 'phantom', 'Phantom');
     const hana = makeConnector('SOLANA', 'hana', 'Hana');
 
-    const targets = resolveBatchTargets(['hana', 'phantom'], { SOLANA: [hana, phantom] });
+    const targets = resolveBatchTargets(['hana', 'okx', 'phantom'], { SOLANA: [phantom, hana] });
 
     expect(targets).toEqual([
       { chainType: 'SOLANA', connector: hana },
@@ -46,29 +46,10 @@ describe('resolveBatchTargets', () => {
     ]);
   });
 
-  it('skips identifiers that have no matching connector on a chain', () => {
+  it('returns no target for chains with no connectors or no matching identifier', () => {
     const phantom = makeConnector('SOLANA', 'phantom', 'Phantom');
-
-    const targets = resolveBatchTargets(['hana', 'phantom'], { SOLANA: [phantom] });
-
-    expect(targets).toEqual([{ chainType: 'SOLANA', connector: phantom }]);
-  });
-
-  it('skips chains with no connectors', () => {
-    const evmHana = makeConnector('EVM', 'hana', 'Hana');
-    const targets = resolveBatchTargets(['hana'], { EVM: [evmHana], ICON: [] });
-    expect(targets).toEqual([{ chainType: 'EVM', connector: evmHana }]);
-  });
-
-  it('skips chains where no identifier matches', () => {
-    const phantom = makeConnector('SOLANA', 'phantom', 'Phantom');
-    const targets = resolveBatchTargets(['hana'], { SOLANA: [phantom] });
-    expect(targets).toEqual([]);
-  });
-
-  it('returns empty for empty connectors array', () => {
-    const evmHana = makeConnector('EVM', 'hana', 'Hana');
-    expect(resolveBatchTargets([], { EVM: [evmHana] })).toEqual([]);
+    expect(resolveBatchTargets(['hana'], { ICON: [], SOLANA: [phantom] })).toEqual([]);
+    expect(resolveBatchTargets([], { SOLANA: [phantom] })).toEqual([]);
   });
 });
 
@@ -78,21 +59,22 @@ describe('runBatchConnect', () => {
   const evmHana = makeConnector('EVM', 'hana', 'Hana');
   const iconHana = makeConnector('ICON', 'hana', 'Hana');
 
-  it('all-success path: every target connects', async () => {
+  it('connects every target sequentially, in target order', async () => {
     const connect = vi.fn(async (c: IXConnector) => account(`addr-${c.xChainType}`, c.xChainType));
     const result = await runBatchConnect(
       [
-        { chainType: 'EVM', connector: evmHana },
         { chainType: 'ICON', connector: iconHana },
+        { chainType: 'EVM', connector: evmHana },
       ],
       { connect, isConnected: () => false, skipConnected: false },
     );
 
-    expect(result).toEqual({ successful: ['EVM', 'ICON'], failed: [], skipped: [] });
-    expect(connect).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({ successful: ['ICON', 'EVM'], failed: [], skipped: [] });
+    expect(connect.mock.calls).toEqual([[iconHana], [evmHana]]);
   });
 
-  it('collects failures without throwing', async () => {
+  it('collects failures without throwing and reports each outcome through onProgress', async () => {
+    const events: BatchConnectProgressEvent[] = [];
     const evmError = new Error('user rejected');
     const connect = vi.fn(async (c: IXConnector) => {
       if (c.xChainType === 'EVM') throw evmError;
@@ -104,12 +86,14 @@ describe('runBatchConnect', () => {
         { chainType: 'EVM', connector: evmHana },
         { chainType: 'ICON', connector: iconHana },
       ],
-      { connect, isConnected: () => false, skipConnected: false },
+      { connect, isConnected: () => false, skipConnected: false, onProgress: e => events.push(e) },
     );
 
-    expect(result.successful).toEqual(['ICON']);
-    expect(result.failed).toEqual([{ chainType: 'EVM', error: evmError }]);
-    expect(result.skipped).toEqual([]);
+    expect(result).toEqual({ successful: ['ICON'], failed: [{ chainType: 'EVM', error: evmError }], skipped: [] });
+    expect(events).toEqual([
+      { chainType: 'EVM', outcome: 'failure', error: evmError },
+      { chainType: 'ICON', outcome: 'success' },
+    ]);
   });
 
   it('wraps non-Error throws into Error', async () => {
@@ -124,71 +108,6 @@ describe('runBatchConnect', () => {
     expect(result.failed).toHaveLength(1);
     expect(result.failed[0]?.error).toBeInstanceOf(Error);
     expect(result.failed[0]?.error.message).toBe('string-error');
-  });
-
-  it('skips already-connected chains when skipConnected is on', async () => {
-    const connect = vi.fn(async (c: IXConnector) => account(`addr-${c.xChainType}`, c.xChainType));
-    const isConnected = (chain: ChainType) => chain === 'EVM';
-
-    const result = await runBatchConnect(
-      [
-        { chainType: 'EVM', connector: evmHana },
-        { chainType: 'ICON', connector: iconHana },
-      ],
-      { connect, isConnected, skipConnected: true },
-    );
-
-    expect(result.successful).toEqual(['ICON']);
-    expect(result.skipped).toEqual(['EVM']);
-    expect(connect).toHaveBeenCalledTimes(1);
-    expect(connect).toHaveBeenCalledWith(iconHana);
-  });
-
-  it('does not skip already-connected chains when skipConnected is off', async () => {
-    const connect = vi.fn(async (c: IXConnector) => account(`addr-${c.xChainType}`, c.xChainType));
-    const isConnected = () => true;
-
-    const result = await runBatchConnect([{ chainType: 'EVM', connector: evmHana }], {
-      connect,
-      isConnected,
-      skipConnected: false,
-    });
-
-    expect(result.successful).toEqual(['EVM']);
-    expect(result.skipped).toEqual([]);
-  });
-
-  it('emits onProgress per target with correct outcomes', async () => {
-    const events: BatchConnectProgressEvent[] = [];
-    const evmError = new Error('rejected');
-    const connect = vi.fn(async (c: IXConnector) => {
-      if (c.xChainType === 'EVM') throw evmError;
-      return account('addr-icon', 'ICON');
-    });
-
-    await runBatchConnect(
-      [
-        { chainType: 'EVM', connector: evmHana },
-        { chainType: 'ICON', connector: iconHana },
-      ],
-      { connect, isConnected: () => false, skipConnected: false, onProgress: e => events.push(e) },
-    );
-
-    expect(events).toEqual([
-      { chainType: 'EVM', outcome: 'failure', error: evmError },
-      { chainType: 'ICON', outcome: 'success' },
-    ]);
-  });
-
-  it('emits skipped event when skipConnected gates the target', async () => {
-    const events: BatchConnectProgressEvent[] = [];
-    await runBatchConnect([{ chainType: 'EVM', connector: evmHana }], {
-      connect: vi.fn(),
-      isConnected: () => true,
-      skipConnected: true,
-      onProgress: e => events.push(e),
-    });
-    expect(events).toEqual([{ chainType: 'EVM', outcome: 'skipped' }]);
   });
 
   it('isolates throwing onProgress callback — batch still completes', async () => {
@@ -209,28 +128,47 @@ describe('runBatchConnect', () => {
     consoleSpy.mockRestore();
   });
 
-  it('preserves sequential ordering of targets', async () => {
-    const callOrder: ChainType[] = [];
-    const connect = vi.fn(async (c: IXConnector) => {
-      callOrder.push(c.xChainType);
-      return account('addr', c.xChainType);
-    });
-
-    await runBatchConnect(
-      [
-        { chainType: 'ICON', connector: iconHana },
-        { chainType: 'EVM', connector: evmHana },
-      ],
-      { connect, isConnected: () => false, skipConnected: false },
-    );
-
-    expect(callOrder).toEqual(['ICON', 'EVM']);
-  });
-
-  // ─── Fallback-on-failure behavior ─────────────────────────────────────────
+  // ─── skipConnected ────────────────────────────────────────────────────────
 
   const evmHanaConnector = makeConnector('EVM', 'io.hana.wallet', 'Hana');
   const evmPhantomConnector = makeConnector('EVM', 'app.phantom', 'Phantom');
+
+  it('skipConnected skips an already-connected chain once, dropping its later targets without retrying', async () => {
+    const events: BatchConnectProgressEvent[] = [];
+    const connect = vi.fn(async (c: IXConnector) => account(`addr-${c.xChainType}`, c.xChainType));
+    const isConnected = (chain: ChainType) => chain === 'EVM';
+
+    const result = await runBatchConnect(
+      [
+        { chainType: 'EVM', connector: evmHanaConnector },
+        { chainType: 'EVM', connector: evmPhantomConnector },
+        { chainType: 'ICON', connector: iconHana },
+      ],
+      { connect, isConnected, skipConnected: true, onProgress: e => events.push(e) },
+    );
+
+    expect(result).toEqual({ successful: ['ICON'], failed: [], skipped: ['EVM'] });
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(connect).toHaveBeenCalledWith(iconHana);
+    expect(events).toEqual([
+      { chainType: 'EVM', outcome: 'skipped' },
+      { chainType: 'ICON', outcome: 'success' },
+    ]);
+  });
+
+  it('does not skip already-connected chains when skipConnected is off', async () => {
+    const connect = vi.fn(async (c: IXConnector) => account(`addr-${c.xChainType}`, c.xChainType));
+
+    const result = await runBatchConnect([{ chainType: 'EVM', connector: evmHana }], {
+      connect,
+      isConnected: () => true,
+      skipConnected: false,
+    });
+
+    expect(result).toEqual({ successful: ['EVM'], failed: [], skipped: [] });
+  });
+
+  // ─── Fallback-on-failure behavior ─────────────────────────────────────────
 
   it('skips later targets for the same chain once one succeeds', async () => {
     const connect = vi.fn(async (c: IXConnector) => account(`addr-${c.id}`, c.xChainType));
@@ -248,7 +186,8 @@ describe('runBatchConnect', () => {
     expect(connect).toHaveBeenCalledWith(evmHanaConnector);
   });
 
-  it('falls back to the next target for the same chain when the earlier one fails', async () => {
+  it('falls back to the next target for the same chain when the earlier one fails, emitting each attempt', async () => {
+    const events: BatchConnectProgressEvent[] = [];
     const hanaErr = new Error('Hana popup denied');
     const connect = vi.fn(async (c: IXConnector) => {
       if (c.id === 'io.hana.wallet') throw hanaErr;
@@ -260,11 +199,15 @@ describe('runBatchConnect', () => {
         { chainType: 'EVM', connector: evmHanaConnector },
         { chainType: 'EVM', connector: evmPhantomConnector },
       ],
-      { connect, isConnected: () => false, skipConnected: false },
+      { connect, isConnected: () => false, skipConnected: false, onProgress: e => events.push(e) },
     );
 
     expect(result).toEqual({ successful: ['EVM'], failed: [], skipped: [] });
     expect(connect).toHaveBeenCalledTimes(2);
+    expect(events).toEqual([
+      { chainType: 'EVM', outcome: 'failure', error: hanaErr },
+      { chainType: 'EVM', outcome: 'success' },
+    ]);
   });
 
   it('records the latest error when every target for a chain fails', async () => {
@@ -284,42 +227,5 @@ describe('runBatchConnect', () => {
 
     expect(result.successful).toEqual([]);
     expect(result.failed).toEqual([{ chainType: 'EVM', error: phantomErr }]);
-  });
-
-  it('emits a failure event per attempt and a final success event on fallback', async () => {
-    const events: BatchConnectProgressEvent[] = [];
-    const hanaErr = new Error('Hana denied');
-    const connect = vi.fn(async (c: IXConnector) => {
-      if (c.id === 'io.hana.wallet') throw hanaErr;
-      return account('addr', c.xChainType);
-    });
-
-    await runBatchConnect(
-      [
-        { chainType: 'EVM', connector: evmHanaConnector },
-        { chainType: 'EVM', connector: evmPhantomConnector },
-      ],
-      { connect, isConnected: () => false, skipConnected: false, onProgress: e => events.push(e) },
-    );
-
-    expect(events).toEqual([
-      { chainType: 'EVM', outcome: 'failure', error: hanaErr },
-      { chainType: 'EVM', outcome: 'success' },
-    ]);
-  });
-
-  it('skipConnected drops later targets for an already-connected chain without retrying', async () => {
-    const connect = vi.fn();
-    const result = await runBatchConnect(
-      [
-        { chainType: 'EVM', connector: evmHanaConnector },
-        { chainType: 'EVM', connector: evmPhantomConnector },
-      ],
-      { connect, isConnected: () => true, skipConnected: true },
-    );
-
-    expect(result.successful).toEqual([]);
-    expect(result.skipped).toEqual(['EVM']);
-    expect(connect).not.toHaveBeenCalled();
   });
 });

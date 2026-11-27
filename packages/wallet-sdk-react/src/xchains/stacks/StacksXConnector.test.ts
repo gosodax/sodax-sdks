@@ -40,72 +40,34 @@ describe('StacksXConnector — constructor + getters', () => {
   });
 });
 
-describe('StacksXConnector.isInstalled — SSR + browser', () => {
-  it('returns false when `window` is undefined (SSR / Node server component)', () => {
+describe('StacksXConnector.isInstalled / getProvider — window dot-walk', () => {
+  const XVERSE = { id: 'XverseProviders.StacksProvider', name: 'Xverse', icon: 'xverse.svg' };
+
+  it('reports not installed and no provider when window, the provider or an intermediate path object is missing', () => {
     vi.stubGlobal('window', undefined);
-    const c = new StacksXConnector(CONFIG);
-    expect(c.isInstalled).toBe(false);
-  });
+    expect(new StacksXConnector(CONFIG).isInstalled).toBe(false);
+    expect(new StacksXConnector(CONFIG).getProvider()).toBeUndefined();
 
-  it('returns false when the provider id is not present on window', () => {
     vi.stubGlobal('window', {});
-    const c = new StacksXConnector(CONFIG);
-    expect(c.isInstalled).toBe(false);
-  });
+    expect(new StacksXConnector(CONFIG).isInstalled).toBe(false);
 
-  it('returns true when the dot-separated id resolves to a non-undefined object', () => {
-    // Leather injects window.LeatherProvider; Xverse uses a nested path
-    // (window.XverseProviders.StacksProvider). Test both shapes.
-    vi.stubGlobal('window', { LeatherProvider: { fake: true } });
-    expect(new StacksXConnector(CONFIG).isInstalled).toBe(true);
-
-    vi.stubGlobal('window', {
-      XverseProviders: { StacksProvider: { fake: true } },
-    });
-    expect(
-      new StacksXConnector({
-        id: 'XverseProviders.StacksProvider',
-        name: 'Xverse',
-        icon: 'xverse.svg',
-      }).isInstalled,
-    ).toBe(true);
-  });
-
-  it('returns false when an intermediate object on the dot path is missing', () => {
     // The dot-walk should bail out cleanly, not crash.
     vi.stubGlobal('window', { XverseProviders: undefined });
-    expect(
-      new StacksXConnector({
-        id: 'XverseProviders.StacksProvider',
-        name: 'Xverse',
-        icon: 'xverse.svg',
-      }).isInstalled,
-    ).toBe(false);
-  });
-});
-
-describe('StacksXConnector.getProvider — window dot-walk', () => {
-  it('returns undefined under SSR (typeof window === undefined)', () => {
-    vi.stubGlobal('window', undefined);
-    const c = new StacksXConnector(CONFIG);
-    expect(c.getProvider()).toBeUndefined();
+    expect(new StacksXConnector(XVERSE).isInstalled).toBe(false);
+    expect(new StacksXConnector(XVERSE).getProvider()).toBeUndefined();
   });
 
-  it('returns the provider object when the dot path resolves', () => {
-    const fake = { reqHandler: () => undefined };
-    vi.stubGlobal('window', { LeatherProvider: fake });
-    const c = new StacksXConnector(CONFIG);
-    expect(c.getProvider()).toBe(fake);
-  });
+  it('resolves top-level and nested dot-separated ids to the injected provider', () => {
+    // Leather injects window.LeatherProvider; Xverse uses a nested path (window.XverseProviders.StacksProvider).
+    const leather = { reqHandler: () => undefined };
+    vi.stubGlobal('window', { LeatherProvider: leather });
+    expect(new StacksXConnector(CONFIG).isInstalled).toBe(true);
+    expect(new StacksXConnector(CONFIG).getProvider()).toBe(leather);
 
-  it('returns undefined when an intermediate object is missing from window', () => {
-    vi.stubGlobal('window', { XverseProviders: undefined });
-    const c = new StacksXConnector({
-      id: 'XverseProviders.StacksProvider',
-      name: 'Xverse',
-      icon: 'xverse.svg',
-    });
-    expect(c.getProvider()).toBeUndefined();
+    const xverse = { fake: true };
+    vi.stubGlobal('window', { XverseProviders: { StacksProvider: xverse } });
+    expect(new StacksXConnector(XVERSE).isInstalled).toBe(true);
+    expect(new StacksXConnector(XVERSE).getProvider()).toBe(xverse);
   });
 });
 
@@ -161,22 +123,15 @@ describe('StacksXConnector.connect', () => {
 describe('STACKS_PROVIDERS — Hana entry', () => {
   const hana = STACKS_PROVIDERS.find(p => p.id === 'hanaWallet.stacks');
 
-  it('is registered with shared WALLET_METADATA.hana icon + install URL', () => {
-    expect(hana).toBeDefined();
-    expect(hana?.name).toBe('Hana Wallet');
-    expect(hana?.icon).toBe(WALLET_METADATA.hana.icon);
-    expect(hana?.installUrl).toBe(WALLET_METADATA.hana.installUrl);
-  });
-
-  it('resolves through the connector dot-walk to window.hanaWallet.stacks', () => {
+  it('is registered with the shared Hana metadata and resolves to window.hanaWallet.stacks', () => {
     if (!hana) throw new Error('Hana entry missing from STACKS_PROVIDERS');
-    const c = new StacksXConnector(hana);
-
-    vi.stubGlobal('window', {});
-    expect(c.isInstalled).toBe(false);
+    expect(hana.name).toBe('Hana Wallet');
+    expect(hana.icon).toBe(WALLET_METADATA.hana.icon);
+    expect(hana.installUrl).toBe(WALLET_METADATA.hana.installUrl);
 
     const provider = { fake: true };
     vi.stubGlobal('window', { hanaWallet: { stacks: provider } });
+    const c = new StacksXConnector(hana);
     expect(c.isInstalled).toBe(true);
     expect(c.getProvider()).toBe(provider);
   });

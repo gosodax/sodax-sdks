@@ -23,17 +23,12 @@ describe('CardanoWalletProvider', () => {
     expect(await provider.getWalletAddress()).toBe(ADDRESS);
   });
 
-  it('hands the wallet a transaction as bare hex CBOR and returns its witness set', async () => {
+  it('hands the wallet transactions as bare hex CBOR to sign and submit, returning its results', async () => {
     const { wallet, provider } = makeWallet();
 
     expect(await provider.signTransaction('0x84a5')).toBe('a100');
     expect(wallet.signTx).toHaveBeenCalledWith('84a5');
-  });
-
-  it('submits a signed transaction as bare hex CBOR and returns the wallet tx hash', async () => {
-    const { wallet, provider } = makeWallet();
-
-    expect(await provider.submitTransaction('84a5')).toBe('ab'.repeat(32));
+    expect(await provider.submitTransaction('0x84a5')).toBe('ab'.repeat(32));
     expect(wallet.submitTx).toHaveBeenCalledWith('84a5');
   });
 

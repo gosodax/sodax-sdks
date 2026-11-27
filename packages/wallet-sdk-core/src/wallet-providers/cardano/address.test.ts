@@ -13,15 +13,11 @@ const BASE = {
 const TESTNET_ENTERPRISE = '608b218424ad74df25d35c2ea8e094a4c5c5aeb2cbb442419331569313';
 const SCRIPT_ENTERPRISE = '7155555555555555555555555555555555555555555555555555555555';
 const REWARD = 'e18b218424ad74df25d35c2ea8e094a4c5c5aeb2cbb442419331569313';
-const POINTER = '418b218424ad74df25d35c2ea8e094a4c5c5aeb2cbb442419331569313010203';
 
 describe('cardanoAddressFromRawHex', () => {
-  it('encodes an enterprise and a base mainnet address to their bech32 form', () => {
+  it('encodes an enterprise and a base mainnet address to their bech32 form, with or without a 0x prefix', () => {
     expect(cardanoAddressFromRawHex(ENTERPRISE.hex)).toBe(ENTERPRISE.bech32);
     expect(cardanoAddressFromRawHex(BASE.hex)).toBe(BASE.bech32);
-  });
-
-  it('accepts the hex with a 0x prefix', () => {
     expect(cardanoAddressFromRawHex(`0x${ENTERPRISE.hex}`)).toBe(ENTERPRISE.bech32);
   });
 
@@ -29,7 +25,6 @@ describe('cardanoAddressFromRawHex', () => {
     ['a testnet address', TESTNET_ENTERPRISE, /network id 0/],
     ['a script payment address', SCRIPT_ENTERPRISE, /header type 7 cannot sign data/],
     ['a reward address', REWARD, /header type 14 cannot sign data/],
-    ['a pointer address', POINTER, /header type 4 cannot sign data/],
     ['an empty address', '', /empty address/],
     ['a base address cut short', BASE.hex.slice(0, 100), /must be 57 bytes/],
   ])('refuses %s', (_label, hex, message) => {

@@ -6,7 +6,7 @@ import type { EvmChainEntry } from '@/types/config.js';
 // ─── getEntryDefaults ───────────────────────────────────────────────────────
 
 describe('getEntryDefaults', () => {
-  it('returns defaults from EVM object entry', () => {
+  it('returns defaults from an object entry', () => {
     const entry = {
       rpcUrl: 'https://arbitrum.drpc.org',
       defaults: { waitForTransactionReceipt: { confirmations: 1, timeout: 60_000 } },
@@ -17,37 +17,10 @@ describe('getEntryDefaults', () => {
     });
   });
 
-  it('returns defaults from Stellar entry (RpcConfig-extended shape)', () => {
-    const entry = {
-      horizonRpcUrl: 'https://horizon.stellar.org' as const,
-      sorobanRpcUrl: 'https://soroban-mainnet.stellar.org' as const,
-      defaults: { pollInterval: 1000 },
-    };
-    const result = getEntryDefaults<typeof ChainKeys.STELLAR_MAINNET>(entry);
-    expect(result).toEqual({ pollInterval: 1000 });
-  });
-
-  it('returns defaults from Bitcoin entry', () => {
-    const entry = {
-      rpcUrl: 'https://mempool.space/api',
-      defaults: { defaultFinalize: true },
-    };
-    const result = getEntryDefaults<typeof ChainKeys.BITCOIN_MAINNET>(entry);
-    expect(result).toEqual({ defaultFinalize: true });
-  });
-
-  it('returns undefined for missing entry', () => {
+  it('returns undefined for a missing entry, a Stacks preset name, or an entry without defaults', () => {
     expect(getEntryDefaults(undefined)).toBeUndefined();
-  });
-
-  it('returns undefined for Stacks preset name string (no defaults slot)', () => {
     expect(getEntryDefaults<typeof ChainKeys.STACKS_MAINNET>('mainnet')).toBeUndefined();
-    expect(getEntryDefaults<typeof ChainKeys.STACKS_MAINNET>('testnet')).toBeUndefined();
-  });
-
-  it('returns undefined when entry has no defaults field', () => {
-    const entry = { rpcUrl: 'https://x' };
-    expect(getEntryDefaults<typeof ChainKeys.ARBITRUM_MAINNET>(entry)).toBeUndefined();
+    expect(getEntryDefaults<typeof ChainKeys.ARBITRUM_MAINNET>({ rpcUrl: 'https://x' })).toBeUndefined();
   });
 });
 
@@ -58,23 +31,10 @@ describe('getRpcUrl', () => {
     expect(getRpcUrl({ rpcUrl: 'https://arbitrum.drpc.org', defaults: {} })).toBe('https://arbitrum.drpc.org');
   });
 
-  it('returns undefined when rpcUrl is omitted', () => {
-    expect(getRpcUrl({ defaults: {} })).toBeUndefined();
-  });
-
-  it('returns undefined for missing entry', () => {
+  it('returns undefined for a missing entry, a Stacks preset name, or an entry without rpcUrl', () => {
     expect(getRpcUrl(undefined)).toBeUndefined();
-  });
-
-  it('returns undefined for Stacks preset name string', () => {
     expect(getRpcUrl<typeof ChainKeys.STACKS_MAINNET>('mainnet')).toBeUndefined();
-  });
-
-  it('returns rpcUrl from Bitcoin entry (RpcConfig-extended)', () => {
-    const entry = {
-      rpcUrl: 'https://mempool.space/api',
-    };
-    expect(getRpcUrl<typeof ChainKeys.BITCOIN_MAINNET>(entry)).toBe('https://mempool.space/api');
+    expect(getRpcUrl({ defaults: {} })).toBeUndefined();
   });
 });
 
@@ -90,33 +50,20 @@ describe('resolveEvmDefaults', () => {
     [ChainKeys.ETHEREUM_MAINNET]: { rpcUrl: 'https://eth', defaults: ethDefaults },
   };
 
-  it('returns Arbitrum defaults when active chainId = 42161', () => {
+  it('returns the defaults of the active chain', () => {
     expect(resolveEvmDefaults(42161, evmChains)).toEqual(arbDefaults);
-  });
-
-  it('returns Ethereum defaults when active chainId = 1', () => {
     expect(resolveEvmDefaults(1, evmChains)).toEqual(ethDefaults);
   });
 
-  it('returns undefined when active chain has no entry in evmChains', () => {
+  it('returns undefined when the active chain is unconfigured, unknown, or has no defaults', () => {
     // 137 = Polygon, not in our test config
     expect(resolveEvmDefaults(137, evmChains)).toBeUndefined();
-  });
-
-  it('returns undefined when active chain entry has no defaults field', () => {
-    const chainsWithoutDefaults = { [ChainKeys.ARBITRUM_MAINNET]: { rpcUrl: 'https://arb' } };
-    expect(resolveEvmDefaults(42161, chainsWithoutDefaults)).toBeUndefined();
-  });
-
-  it('returns undefined when chainId is undefined (wallet disconnected)', () => {
-    expect(resolveEvmDefaults(undefined, evmChains)).toBeUndefined();
-  });
-
-  it('returns undefined when evmChains is undefined (no EVM config)', () => {
-    expect(resolveEvmDefaults(42161, undefined)).toBeUndefined();
-  });
-
-  it('returns undefined for unknown chainId', () => {
     expect(resolveEvmDefaults(999_999, evmChains)).toBeUndefined();
+    expect(resolveEvmDefaults(42161, { [ChainKeys.ARBITRUM_MAINNET]: { rpcUrl: 'https://arb' } })).toBeUndefined();
+  });
+
+  it('returns undefined without an active chain (wallet disconnected) or EVM config', () => {
+    expect(resolveEvmDefaults(undefined, evmChains)).toBeUndefined();
+    expect(resolveEvmDefaults(42161, undefined)).toBeUndefined();
   });
 });

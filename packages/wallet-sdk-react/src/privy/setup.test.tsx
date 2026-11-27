@@ -25,7 +25,7 @@ afterEach(() => {
 
 describe('createPrivySetup', () => {
   it('keeps the app rendering when Privy cannot start, and fails "Email (Privy)" with the cause', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     let config: Config | undefined;
     const setup = createPrivySetup({ appId: 'app' }, sonic.id, {
       rpcUrls: resolveEvmRpcUrls(undefined),
@@ -50,6 +50,7 @@ describe('createPrivySetup', () => {
     );
 
     expect(getByText('partner app')).toBeTruthy();
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining('Privy could not start'), expect.any(Error));
     const [privyConnector] = config.connectors;
     if (!privyConnector) throw new Error('no connector');
     await expect(connect(config, { connector: privyConnector })).rejects.toThrow('only available over HTTPS');
