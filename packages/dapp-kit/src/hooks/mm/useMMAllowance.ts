@@ -14,9 +14,8 @@ export type UseMMAllowanceParams<K extends SpokeChainKey> = ReadHookParams<
 /**
  * Hook for checking token allowance / trustline sufficiency for money market operations.
  *
- * Skips the on-chain check entirely for `borrow` and `withdraw` actions — those don't require
- * approval, and the SDK already short-circuits to `true` for them. The early `enabled: false`
- * here additionally avoids a render flash with `isLoading: true`.
+ * `borrow` and `withdraw` need no approval: the query stays disabled for them and `data` is seeded
+ * with `true`, so callers gating on `data` are not blocked and see no `isLoading` flash.
  *
  * The query key matches the invalidation keys emitted by `useMMApprove` and the four mutation
  * hooks: `['mm', 'allowance', srcChainKey, token, action]`.
@@ -32,6 +31,7 @@ export function useMMAllowance<K extends SpokeChainKey>({
 }: UseMMAllowanceParams<K> = {}): UseQueryResult<boolean, Error> {
   const { sodax } = useSodaxContext();
   const payload = params?.payload;
+  const needsApproval = payload?.action !== 'borrow' && payload?.action !== 'withdraw';
 
   return useQuery<boolean, Error>({
     queryKey: ['mm', 'allowance', payload?.srcChainKey, payload?.token, payload?.action],
@@ -40,8 +40,7 @@ export function useMMAllowance<K extends SpokeChainKey>({
         throw new Error('Params are required');
       }
 
-      // Borrow and withdraw don't require approval; SDK returns true instantly anyway.
-      if (payload.action === 'borrow' || payload.action === 'withdraw') {
+      if (!needsApproval) {
         return true;
       }
 
@@ -49,7 +48,8 @@ export function useMMAllowance<K extends SpokeChainKey>({
       if (!result.ok) throw result.error;
       return result.value;
     },
-    enabled: !!payload && payload.action !== 'borrow' && payload.action !== 'withdraw',
+    initialData: () => (payload && !needsApproval ? true : undefined),
+    enabled: !!payload && needsApproval,
     refetchInterval: 5000,
     gcTime: 0,
     ...queryOptions,
