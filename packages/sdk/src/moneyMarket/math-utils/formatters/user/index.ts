@@ -59,7 +59,6 @@ export function formatUserSummary<T extends FormatReserveUSDResponse = FormatRes
 }: FormatUserSummaryRequest<T>): FormatUserSummaryResponse<T> {
   const normalizedMarketRefPriceInUsd = normalize(marketReferencePriceInUsd, USD_DECIMALS);
 
-  // Combine raw user and formatted reserve data
   const combinedReserves: Array<CombinedReserveData<T>> = [];
 
   userReserves.forEach(userReserve => {

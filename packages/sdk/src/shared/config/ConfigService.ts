@@ -39,46 +39,23 @@ import { noopAnalytics, type ResolvedAnalytics } from '../analytics.js';
 export type ConfigServiceConstructorParams = {
   api: BackendApiService;
   config: SodaxConfig;
-  /**
-   * The raw user-provided config override (the `SodaxOptions` passed to `new Sodax(...)`),
-   * NOT the merged result. Re-applied on top of dynamic config in {@link ConfigService.initialize} so
-   * that a remote config fetch never clobbers explicit user overrides.
-   */
+  /** Raw user overrides (not the merged config), re-applied over dynamic config so a fetch never clobbers them. */
   userConfig?: SodaxOptions;
-  /**
-   * Pre-resolved SDK log sink. Held outside the swappable `SodaxConfig` so a dynamic config fetch
-   * in {@link ConfigService.initialize} never replaces it. Defaults to the console logger when omitted.
-   */
+  /** Held outside the swappable `SodaxConfig` so a dynamic config fetch never replaces it. */
   logger?: SodaxLogger;
-  /**
-   * Pre-resolved analytics emitter. Like {@link logger}, held outside the swappable `SodaxConfig` so a
-   * dynamic config fetch never replaces it. Defaults to the no-op (disabled) emitter when omitted.
-   */
+  /** Held outside the swappable `SodaxConfig`; defaults to the no-op (disabled) emitter. */
   analytics?: ResolvedAnalytics;
-  /**
-   * Global partner fee (the `fee` option passed to `new Sodax(...)`). Held outside the swappable
-   * `SodaxConfig` — like {@link logger} — so a dynamic config fetch never replaces it. The backend
-   * never supplies it; it is purely a client-side option.
-   */
+  /** Global partner fee; client-side only and held outside the swappable `SodaxConfig`. */
   fee?: PartnerFee;
-  /**
-   * Global backend API key (the `apiKey` option passed to `new Sodax(...)`). Held outside the
-   * swappable `SodaxConfig` — like {@link fee} — so a dynamic config fetch never replaces it. Sent as
-   * the `x-api-key` header on every backend API request; read here by the swap, leverage-yield, and
-   * partner solver flows, whose transport does not go through `BackendApiService`.
-   */
+  /** Global backend API key, sent as `x-api-key`; held outside the swappable `SodaxConfig`. */
   apiKey?: string;
-  /**
-   * RadFi/Bound request signer (the `radfi.signRequest` option passed to `new Sodax(...)`). Held
-   * outside the swappable `SodaxConfig` — like {@link logger} — so a dynamic config fetch never
-   * replaces it. Read by {@link BitcoinSpokeService} to inject Bound `x-api-signature` headers.
-   */
+  /** RadFi/Bound request signer; held outside the swappable `SodaxConfig`. */
   radfiSigner?: RadfiSigner;
 };
 
 /**
- * ConfigService - Holds the SDK config (packaged defaults merged with constructor overrides) and the lookups built
- * from it. `initialize()` does not fetch backend config yet, so supported chains and tokens are the packaged ones.
+ * Holds the SDK config (packaged defaults merged with constructor overrides) and lookups built from it.
+ * `initialize()` does not fetch backend config yet, so supported chains and tokens are the packaged ones.
  */
 export class ConfigService {
   private sodax: SodaxConfig;
@@ -86,45 +63,21 @@ export class ConfigService {
   // private readonly api: BackendApiService;
   // private readonly userConfig?: SodaxOptions;
 
-  /**
-   * SDK log sink. Resolved once at construction and kept independent of {@link sodax} so that
-   * {@link initialize}'s dynamic-config swap never clobbers it. Read by services via `config.logger`.
-   */
   public readonly logger: SodaxLogger;
 
-  /**
-   * Analytics emitter. Resolved once at construction and kept independent of {@link sodax} so that
-   * {@link initialize}'s dynamic-config swap never clobbers it. Read by services via `config.analytics`;
-   * disabled (no-op) unless the consumer passed an `analytics` config to `new Sodax(...)`.
-   */
   public readonly analytics: ResolvedAnalytics;
 
-  /**
-   * Global partner fee. Resolved once at construction and kept independent of {@link sodax} so that
-   * {@link initialize}'s dynamic-config swap never clobbers it. The backend never supplies it — it is
-   * a client-side option set via `new Sodax({ fee })`. Per-feature overrides live on the feature config.
-   */
+  /** Global partner fee; per-feature overrides live on the feature config. */
   public readonly fee: PartnerFee | undefined;
 
-  /**
-   * Global backend API key. Resolved once at construction and kept independent of {@link sodax} so
-   * that {@link initialize}'s dynamic-config swap never clobbers it. The backend never supplies it —
-   * it is a client-side option set via `new Sodax({ apiKey })`. Never logged; read here by the swap,
-   * leverage-yield, and partner solver flows, whose transport does not go through `BackendApiService`.
-   */
+  /** Never logged; read by the swap, leverage-yield and partner solver flows, which bypass `BackendApiService`. */
   public readonly apiKey: string | undefined;
 
-  /**
-   * RadFi/Bound request signer. Resolved once at construction and kept independent of {@link sodax}
-   * so that {@link initialize}'s dynamic-config swap never clobbers it. Read by `BitcoinSpokeService`
-   * via `config.radfiSigner`; `undefined` unless the consumer passed `radfi.signRequest` to
-   * `new Sodax(...)`. Holds the function reference only — never a credential.
-   */
+  /** Holds the function reference only, never a credential. */
   public readonly radfiSigner: RadfiSigner | undefined;
 
   private initialized = false;
 
-  // data structures for quick lookup
   private supportedHubAssetsSet!: Set<Address>;
   private supportedSodaVaultAssetsSet!: Set<Address>;
   private intentRelayChainIdToSpokeChainKeyMap!: Map<IntentRelayChainId, SpokeChainKey>;
@@ -135,8 +88,7 @@ export class ConfigService {
   private chainToSupportedTokenAddressMap!: Map<SpokeChainKey, Set<string>>;
   private hubAssetToXTokenMap!: Map<Address, XToken>;
 
-  // `api` / `userConfig` are accepted but unused while initialize()'s dynamic fetch is disabled
-  // (see TODO(config-v2) below); restore their assignments when re-enabling.
+  // `api` / `userConfig` stay unused until the TODO(config-v2) fetch is re-enabled.
   constructor({
     api,
     config,
@@ -221,13 +173,7 @@ export class ConfigService {
     return this.hubAssetToXTokenMap.get(hubAsset.toLowerCase() as Address)?.address;
   }
 
-  /**
-   * Resolves the {@link XToken} descriptor (hub asset, vault, decimals) for a hub-asset address.
-   *
-   * Useful when a caller holds a hub asset directly on Sonic that has no spoke-token entry under
-   * the hub chain — e.g. a partner BTC fee held as the BTC hub asset, which only exists as a spoke
-   * token on Bitcoin. Returns `undefined` when the address is not a known hub asset.
-   */
+  /** Resolves a hub-asset address to its XToken, e.g. a BTC hub asset held directly on Sonic. */
   public getXTokenFromHubAsset(hubAsset: string): XToken | undefined {
     return this.hubAssetToXTokenMap.get(hubAsset.toLowerCase() as Address);
   }
@@ -245,12 +191,7 @@ export class ConfigService {
     return this.supportedHubAssetsSet.has(hubAsset.toLowerCase() as Address);
   }
 
-  /**
-   * Checks whether a hub-chain address is one of the soda-vault hub assets
-   * (sodaUSDC, sodaUSDT, bnUSD, etc.). The input MUST be a hub-chain address;
-   * passing a spoke token address will silently produce wrong answers when a
-   * spoke address collides with a hub vault address (e.g. SODA on Base).
-   */
+  /** Input MUST be a hub-chain address: a spoke address can collide with a hub vault (e.g. SODA on Base). */
   public isSodaVaultHubAsset(hubAsset: Address): boolean {
     return this.supportedSodaVaultAssetsSet.has(hubAsset.toLowerCase() as Address);
   }
@@ -386,19 +327,12 @@ export class ConfigService {
     return this.sodax.moneyMarket.supportedTokens[chainId].some(t => t.address.toLowerCase() === token.toLowerCase());
   }
 
-  /**
-   * Is `asset` one of the money-market reserve assets?
-   *
-   * The reserve set is built from `moneyMarketHubVaults`, so its members are hub **vault**
-   * addresses. Query it with an `XToken.vault`; an `XToken.hubAsset` only matches for the Sonic
-   * vault shares themselves, where `hubAsset === vault`.
-   */
+  /** Reserve members are hub vault addresses: query with `XToken.vault`, not `XToken.hubAsset`. */
   public isMoneyMarketReserveAsset(asset: Address): boolean {
     return this.moneyMarketReserveAssetsSet.has(asset.toLowerCase() as Address);
   }
 
   private loadSodaxConfigDataStructures(sodaxConfig: SodaxConfig): void {
-    // Maps each hub asset address to its original XToken with the matching hubAsset property
     this.hubAssetToXTokenMap = new Map<`0x${string}`, XToken>(
       Object.values(sodaxConfig.chains)
         .flatMap(chainConfig => Object.values(chainConfig.supportedTokens))
@@ -476,9 +410,7 @@ export class ConfigService {
     return this.sodax.leverageYield;
   }
 
-  // Effective partner fee per feature: the feature-specific override if set, otherwise the global
-  // `fee` client option ({@link fee}). The global fee is the default, overridable per-feature. `??`
-  // (never a merge) keeps the chosen PartnerFee variant intact — no discriminated-union hybrid.
+  // Per-feature override, else the global `fee`; `??` (never a merge) keeps the PartnerFee variant intact.
   get swapPartnerFee(): PartnerFee | undefined {
     return this.swaps.partnerFee ?? this.fee;
   }
@@ -495,11 +427,8 @@ export class ConfigService {
     return this.leverageYield.partnerFee ?? this.fee;
   }
 
-  // Effective backend submit-tx toggle per feature. Read live off the same `swaps` / `bridge` slots as
-  // `partnerFee` so an omitted flag resolves to the ON default here, in one place, instead of leaving
-  // `config.swaps.useBackendSubmitTx === undefined` while the backend path is actually active.
-  // The deprecated `swapsOptions` / `bridgeOptions` keys are still honoured as a second-precedence
-  // fallback, so a pre-existing explicit opt-out keeps the client-side path instead of silently flipping.
+  // Omitted flag resolves to ON here; the deprecated `swapsOptions` / `bridgeOptions` keys are honoured
+  // as a fallback so an existing explicit opt-out keeps the client-side path.
   get swapUseBackendSubmitTx(): boolean {
     return this.swaps.useBackendSubmitTx ?? this.sodax.swapsOptions?.useBackendSubmitTx ?? true;
   }
@@ -508,10 +437,7 @@ export class ConfigService {
     return this.bridge.useBackendSubmitTx ?? this.sodax.bridgeOptions?.useBackendSubmitTx ?? true;
   }
 
-  // Same ON default as the two above, and for the same reason: any backend non-success falls back
-  // to the client-side relay, so the default costs a rejected attempt at worst. No deprecated
-  // second-precedence key here — leverage yield arrived after `swapsOptions` / `bridgeOptions` were
-  // already deprecated, so it never had one.
+  // ON by default: a backend non-success falls back to the client-side relay. No deprecated fallback key.
   get leverageYieldUseBackendSubmitTx(): boolean {
     return this.leverageYield.useBackendSubmitTx ?? true;
   }

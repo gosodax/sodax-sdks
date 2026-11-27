@@ -1,11 +1,5 @@
-/**
- * Cardano helpers for the MPC-relay flow: address rules, the withdraw-auth identity, the CIP-20 deposit
- * metadata and the CIP-30 `signData` handling. The bytes are pinned to the relay's contract by
- * `cardano-test-vectors.ts`; any divergence breaks signature verification or the release.
- *
- * Only mainnet key-hash payment addresses (enterprise or base) are valid: ADA sent to a script payment
- * address without a datum is unspendable, and pointer, reward and Byron addresses are not release targets.
- */
+// Bytes pinned to the relay's contract by `cardano-test-vectors.ts`. Only mainnet key-hash payment addresses are valid:
+// ADA sent to a datum-less script address is unspendable, and pointer, reward and Byron addresses are not release targets.
 import { blake2b } from '@noble/hashes/blake2b';
 import { base58, bech32 } from '@scure/base';
 import type { CardanoDataSignature, CardanoDepositMetadata, CardanoSignDataWire } from '@sodax/types';
@@ -29,16 +23,14 @@ const BYRON_CBOR_PREFIX = [0x82, 0xd8, 0x18];
 const MAX_COSE_SIGN1_BYTES = 1024;
 const MAX_COSE_KEY_BYTES = 128;
 
-/** A decoded mainnet payment address: the raw bytes a release pays, and the key hash that identifies it. */
 export type ParsedCardanoAddress = {
   /** Raw address bytes: 29 (enterprise) or 57 (base). */
   bytes: Uint8Array;
   kind: 'base' | 'enterprise';
-  /** 28-byte payment key hash. */
   paymentHash: Uint8Array;
 };
 
-/** Decode raw address bytes under the recipient rule; throws a specific error for every other kind, length or network. */
+/** Throws a specific error for every other kind, length or network. */
 function parseCardanoAddressBytes(raw: Uint8Array): ParsedCardanoAddress {
   const header = raw[0];
   if (header === undefined) throw new Error('Cardano address is empty');
@@ -77,7 +69,7 @@ function isByronBase58(address: string): boolean {
   }
 }
 
-/** Decode a bech32 mainnet payment address (`addr1…`); throws unless it is a key-hash enterprise or base address. */
+/** `addr1…` only; throws unless it is a key-hash enterprise or base address. */
 export function parseCardanoAddress(address: string): ParsedCardanoAddress {
   if (address.length > MAX_ADDRESS_CHARS) {
     throw new Error(`Cardano address is ${address.length} characters, above the ${MAX_ADDRESS_CHARS}-character limit`);
@@ -99,17 +91,17 @@ export function parseCardanoAddress(address: string): ParsedCardanoAddress {
   return parsed;
 }
 
-/** The recipient bytes of a release to `address`: the full raw address (29 or 57 bytes), not a padded word. */
+/** The full raw address (29 or 57 bytes), not a padded word. */
 export function cardanoRecipientBytes(address: string): Hex {
   return bytesToHex(parseCardanoAddress(address).bytes);
 }
 
-/** The withdraw-auth identity of `address`: its 28-byte payment key hash. */
+/** The 28-byte payment key hash. */
 export function cardanoIdentityBytes(address: string): Hex {
   return bytesToHex(parseCardanoAddress(address).paymentHash);
 }
 
-/** The `addr1…` address of a release recipient (the raw 29- or 57-byte form `cardanoRecipientBytes` produces). */
+/** Inverse of `cardanoRecipientBytes`. */
 export function cardanoAddressFromRecipientBytes(recipient: string): string {
   const raw = hexToBytes(recipient as Hex);
   if (raw.length !== ENTERPRISE_LEN && raw.length !== BASE_LEN) {
@@ -121,10 +113,7 @@ export function cardanoAddressFromRecipientBytes(recipient: string): string {
   return bech32.encode(MAINNET_HRP, bech32.toWords(parsed.bytes), MAX_ADDRESS_CHARS);
 }
 
-/**
- * The transaction metadata a deposit attaches: CIP-20 label 674 with the payload hash as 64 lowercase hex
- * characters and no `0x`, since CIP-20 caps each string at 64 bytes.
- */
+/** CIP-20 label 674 with the payload hash as 64 lowercase hex chars, no `0x` (CIP-20 caps each string at 64 bytes). */
 export function cardanoDepositMetadata(payloadHash: string): CardanoDepositMetadata {
   const hash = payloadHash.replace(/^0x/i, '');
   if (!/^[0-9a-fA-F]{64}$/.test(hash)) {
@@ -133,10 +122,7 @@ export function cardanoDepositMetadata(payloadHash: string): CardanoDepositMetad
   return { '674': { msg: [hash.toLowerCase()] } };
 }
 
-/**
- * The payload a scheme-7 wallet signs: the ASCII text `0x<lowercase hex of the message hash>` (66 bytes), so
- * wallets show readable text. It is signed unhashed.
- */
+/** ASCII `0x<lowercase hex of the message hash>` (66 bytes), signed unhashed so wallets show readable text. */
 export function cardanoSignDataPayload(messageHash: Hex): Hex {
   if (!/^0x[0-9a-fA-F]{64}$/.test(messageHash)) {
     throw new Error(`messageHash must be a 0x-prefixed 32-byte hex string, got "${messageHash.slice(0, 80)}"`);
@@ -146,7 +132,6 @@ export function cardanoSignDataPayload(messageHash: Hex): Hex {
 
 function boundedHexBytes(value: string, label: string, maxBytes: number): Uint8Array {
   const hex = value.replace(/^0x/i, '');
-  // Bound the size before scanning the string.
   if (hex.length > maxBytes * 2)
     throw new Error(`${label} is ${Math.ceil(hex.length / 2)} bytes, above the ${maxBytes}-byte limit`);
   if (hex.length === 0 || hex.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(hex)) {
@@ -164,10 +149,8 @@ function decodeOrThrow(bytes: Uint8Array, label: string): CborValue {
 }
 
 /**
- * Turn a wallet's CIP-30 `DataSignature` into the scheme-7 withdraw-auth fields. It fails early and specifically
- * on the two ways a real wallet goes wrong before the relay would refuse it: signing a different payload (for
- * example a hashed one), and signing with a key other than the withdraw `sender`. The COSE signature itself is
- * verified by the relay, not here.
+ * Fails early on a wallet signing a different (e.g. hashed) payload or with a key other than the withdraw `sender`;
+ * the COSE signature itself is verified by the relay.
  */
 export function cardanoSignDataFields(
   dataSignature: CardanoDataSignature,

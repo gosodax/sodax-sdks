@@ -1,10 +1,5 @@
-/**
- * Migration module narrow error types.
- *
- * Forward orchestrators (`migratebnUSD` / `migrateIcxToSoda` / `migrateBaln`) include
- * `TX_VERIFICATION_FAILED`; the reverse orchestrator (`revertMigrateSodaToIcx`) does not.
- * `migratebnUSD` carries `context.direction: 'forward' | 'reverse'`.
- */
+// Forward orchestrators include TX_VERIFICATION_FAILED; `revertMigrateSodaToIcx` does not.
+// `migratebnUSD` carries `context.direction: 'forward' | 'reverse'`.
 
 import {
   ALLOWANCE_CHECK_CODES,

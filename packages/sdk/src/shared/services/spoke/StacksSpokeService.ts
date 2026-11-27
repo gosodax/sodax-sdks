@@ -52,7 +52,7 @@ export class StacksSpokeService {
 
   constructor(config: ConfigService) {
     this.config = config;
-    // since we only support mainnet for now, we can hardcode the single stacks chain config
+    // Only mainnet is supported, so the single Stacks chain config is used.
     const chainConfig = config.getChainConfig(ChainKeys.STACKS_MAINNET);
     this.network = createNetwork({ network: 'mainnet', client: { baseUrl: chainConfig.rpcUrl } });
     this.pollingIntervalMs = chainConfig.pollingConfig.pollingIntervalMs;
@@ -135,13 +135,6 @@ export class StacksSpokeService {
     return ((await this.readContract(contractAddress as string, txParams)) as ContractPrincipalCV).value;
   }
 
-  /**
-   * Deposit tokens to the spoke chain.
-   * @param {StacksSpokeDepositParams} params - The parameters for the deposit, including the user's address, token address, amount, and additional data.
-   * @param {StacksSpokeProviderType} spokeProvider - The provider for the spoke chain.
-   * @param {EvmHubProvider} hubProvider - The provider for the hub chain.
-   * @returns {Promise<Hash>} A promise that resolves to the transaction hash.
-   */
   public async deposit<R extends boolean = false>(
     params: DepositParams<StacksChainKey, R>,
   ): Promise<TxReturnType<StacksChainKey, R>> {
@@ -162,11 +155,9 @@ export class StacksSpokeService {
         Cl.contractPrincipal(connectionAddress as string, connectionName as string),
       ],
     };
-    // Post-conditions cannot ride the raw return (`serializePayloadBytes` keeps the contract-call
-    // payload only), so raw mode skips the interface lookup they would need.
+    // Post-conditions cannot ride the raw return (`serializePayloadBytes` keeps only the payload), so raw skips them.
     if (params.raw === true) {
-      // srcPublicKey (builds the unsigned tx) and srcAddress (hub-wallet derivation + intent record) must
-      // be the same account — derive the address from the key and match, else the user signs a tx for another.
+      // srcPublicKey (signs) and srcAddress (hub wallet + intent) must be the same account, else the user signs for another.
       if (!params.srcPublicKey) {
         throw new Error('Stacks raw transactions require srcPublicKey (the signer public key for srcAddress).');
       }
@@ -204,9 +195,8 @@ export class StacksSpokeService {
   }
 
   /**
-   * Caps for a Deny-mode deposit: asset-manager-state.deposit moves exactly `amount` from the
-   * caller, so cap the sender at `amount` — one cap per FT the token contract defines (sBTC has
-   * two; the unmoved ones pass at 0 trivially), or uSTX for native.
+   * Deny-mode caps: the sender moves exactly `amount`, so one cap per FT the token defines (sBTC has two; unmoved
+   * ones pass at 0), or uSTX for native.
    */
   private async depositPostConditions(
     srcAddress: string,
@@ -223,11 +213,7 @@ export class StacksSpokeService {
     );
   }
 
-  /**
-   * Get the balance of the token deposited in the spoke chain asset manager.
-   * @param {GetDepositParams<StacksChainKey>} params - The parameters for the deposit, including the user's address, token address, and chain id.
-   * @returns {Promise<bigint>} The balance of the token.
-   */
+  /** Balance of the token deposited in the spoke chain asset manager. */
   public async getDeposit(params: GetDepositParams<StacksChainKey>): Promise<bigint> {
     const assetManager = this.config.getChainConfig(params.srcChainKey).addresses.assetManager;
     if (isNativeToken(params.srcChainKey, params.token)) {
@@ -236,14 +222,7 @@ export class StacksSpokeService {
     return this.readTokenBalance(params.token, assetManager);
   }
 
-  /**
-   * Get the user's own wallet balance of a token on Stacks, in smallest units. Native STX via the
-   * Hiro REST `/extended/v1/address/{addr}/balances` endpoint; SIP-010 fungible tokens via the
-   * read-only `get-balance` contract call. Unlike {@link getDeposit}, this reads the holding of
-   * `srcAddress` (the user), not the protocol asset manager.
-   * @param {GetBalanceParams<StacksChainKey>} params - The chain key, user address, and token.
-   * @returns {Promise<bigint>} The token balance in smallest units.
-   */
+  /** Native STX via Hiro REST `/extended/v1/address/{addr}/balances`; SIP-010 via read-only `get-balance`. */
   public async getWalletBalance(params: GetBalanceParams<StacksChainKey>): Promise<bigint> {
     if (isNativeToken(params.srcChainKey, params.token)) {
       return this.getSTXBalance(params.srcAddress);
@@ -251,11 +230,6 @@ export class StacksSpokeService {
     return this.readTokenBalance(params.token.address, params.srcAddress);
   }
 
-  /**
-   * Get the user's own wallet balances of multiple tokens on Stacks, in smallest units.
-   * @param {GetBalancesParams<StacksChainKey>} params - The chain key, user address, and tokens.
-   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
-   */
   public async getWalletBalances(params: GetBalancesParams<StacksChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
     const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
@@ -265,9 +239,6 @@ export class StacksSpokeService {
     return collector.finish();
   }
 
-  /**
-   * Sends a message to the hub chain.
-   */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<StacksChainKey, Raw>,
   ): Promise<TxReturnType<StacksChainKey, Raw>> {
@@ -283,8 +254,7 @@ export class StacksSpokeService {
     };
 
     if (params.raw === true) {
-      // TODO(follow-up): accept srcPublicKey here like deposit() does. Raw sendMessage still overloads
-      // srcAddress as the signer public key (money-market / recovery / swap-cancel callers).
+      // TODO(follow-up): accept srcPublicKey like deposit(); raw sendMessage still overloads srcAddress as the signer pubkey.
       const tx = await makeUnsignedContractCall({
         ...reqData,
         publicKey: params.srcAddress,

@@ -1,5 +1,4 @@
 export const permit2Abi = [
-  // Core Allowance Functions
   {
     type: 'function',
     name: 'allowance',
@@ -302,7 +301,6 @@ export const permit2Abi = [
     outputs: [],
     stateMutability: 'nonpayable',
   },
-  // Events
   {
     type: 'event',
     name: 'Approval',

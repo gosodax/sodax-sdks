@@ -1,14 +1,6 @@
 import type { DeepPartial } from '@sodax/types';
 
-/**
- * Recursively merges `source` into `target`, returning a new object.
- *
- * - Plain objects are merged key-by-key; defaults on `target` survive when `source` omits them.
- * - Arrays are replaced wholesale (not concatenated or merged element-wise).
- * - Primitives and `null` are replaced.
- * - `undefined` in `source` is skipped, so passing `{ foo: undefined }` preserves the default.
- * - `target` is never mutated.
- */
+/** Returns a new object: arrays are replaced wholesale and `undefined` in `source` is skipped (keeps the default). */
 export function deepMerge<T extends Record<string, unknown>>(target: T, source: DeepPartial<T>): T {
   const result = { ...target };
   for (const key of Object.keys(source) as (keyof T)[]) {

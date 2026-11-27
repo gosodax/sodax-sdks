@@ -11,12 +11,7 @@ import {
 } from '@sodax/types';
 import type { RelayExtraData } from '../../types/relay-types.js';
 
-/**
- * Raw error body shape returned by the Bound Exchange HTTP API on non-2xx responses.
- * The human-readable detail typically lives at `error.details` (nested), with
- * `code` carrying a Bound Exchange-specific identifier (e.g. "2002" insufficientBTCBalance,
- * "4008" duplicatedPubKey) and `message` an i18n key.
- */
+/** Bound Exchange non-2xx body: detail usually at `error.details`; `code` is Bound-specific (e.g. "2002"). */
 export type RadfiErrorBody = {
   code?: string;
   message?: string;
@@ -24,20 +19,10 @@ export type RadfiErrorBody = {
   error?: { details?: string; message?: string };
 };
 
-/**
- * Shape of a parsed Bound Exchange JSON response: the {@link RadfiErrorBody} envelope fields plus an
- * optional, per-call typed `data` payload. Modeled as a superset of `RadfiErrorBody` so a parsed body
- * can be handed straight to {@link RadfiApiError} on the error path. `data` is optional because Bound
- * can answer 2xx with a logical-error envelope (no `data`); callers guard before dereferencing it.
- */
+/** Parsed Bound response; `data` is optional because Bound can answer 2xx with a logical-error envelope. */
 export type RadfiResponseEnvelope<T = unknown> = RadfiErrorBody & { data?: T };
 
-/**
- * Structured error from a Bound Exchange HTTP request. Exposes `status` (HTTP), `code`
- * (Bound Exchange-specific identifier), and `details` (human-readable) so callers can
- * discriminate without fragile string-matching on `message`. The raw response
- * body is preserved on `cause` for structured logging.
- */
+/** Bound Exchange HTTP error; the raw response body is preserved on `cause`. */
 export class RadfiApiError extends Error {
   readonly status: number;
   readonly code?: string;
@@ -116,12 +101,7 @@ export type RadfiMaxSpentResponse = {
   fee: number;
 };
 
-/**
- * Runtime wiring for {@link RadfiProvider} — everything that is a live object rather than
- * serializable config (which belongs on {@link RadfiConfig}). An object, not a positional
- * parameter, because this is a public class and the next such dependency would otherwise be
- * a third argument. gh-831.
- */
+/** Runtime (non-serializable) wiring for {@link RadfiProvider}; serializable config belongs on {@link RadfiConfig}. */
 export type RadfiProviderOptions = {
   /** Attaches per-request headers to outbound Bound calls, e.g. a backend's HMAC closure. */
   signer?: RadfiSigner;
@@ -143,9 +123,7 @@ const normalizeUrl = (url: string | undefined): string | undefined => {
 export class RadfiProvider {
   private readonly config: RadfiConfig;
   private readonly hosts: Record<RadfiHost, string>;
-  // Client-side runtime signer (e.g. a backend's HMAC closure). Holds no credential itself — the SDK
-  // only keeps the reference and invokes it per outbound Bound request, on every routed host.
-  // UMS calls bypass `request()` and stay unsigned. See `RadfiOptions` / gh-831.
+  // Invoked per outbound Bound request on every routed host; UMS calls bypass `request()` and stay unsigned.
   private readonly signer?: RadfiSigner;
   public accessToken = '';
   public refreshToken = '';
@@ -153,21 +131,15 @@ export class RadfiProvider {
   constructor(config: RadfiConfig, options?: RadfiProviderOptions) {
     this.config = config;
     this.signer = options?.signer;
-    // Seed any pre-provisioned Bound Exchange session from config. `RadfiConfig` declares
-    // `accessToken` / `refreshToken` precisely so a server-side caller — which never runs the
-    // interactive BIP322 sign-in — can inject a token via `new Sodax({ ... })` and have the
-    // raw-tx build flow authenticate. Without this they stayed '' and every Bound call went out
-    // unauthenticated (which the API answers with a non-2xx HTML page).
+    // Seed a pre-provisioned session so server-side callers (no interactive BIP322 sign-in) can authenticate.
     this.accessToken = config.accessToken ?? '';
     this.refreshToken = config.refreshToken ?? '';
     if (config.umsUrl?.endsWith('/')) {
-      // Remove trailing slash from umsUrl
       this.config.umsUrl = config.umsUrl.slice(0, -1);
     }
 
     const api = normalizeUrl(config.apiUrl) ?? config.apiUrl;
-    // Companions are registered per api host, so an apiUrl the table does not know sends every
-    // family to itself — which is what makes a partial override unable to straddle environments.
+    // Companions are registered per api host; an unknown apiUrl sends every family to itself.
     const companions = BOUND_COMPANION_HOSTS[api] ?? {};
 
     this.hosts = {
@@ -176,9 +148,7 @@ export class RadfiProvider {
       transactions: normalizeUrl(config.transactionsUrl) ?? companions.transactions ?? api,
     };
 
-    // Refuse a retired host outright rather than warning: this SDK routes to the split hosts, and
-    // letting a caller stay on the old one only defers the failure to the day Bound turns it off.
-    // Checked per config field — the replacement differs by family, auth does not move to service.
+    // Refuse a retired host outright rather than deferring the failure; the replacement differs per field.
     const packaged = BOUND_COMPANION_HOSTS[BOUND_API_HOST] ?? {};
     const replacementFor = {
       apiUrl: BOUND_API_HOST,
@@ -196,10 +166,7 @@ export class RadfiProvider {
     }
   }
 
-  /**
-   * Authenticate with Bound Exchange: BIP322-sign a login message, then call the Bound Exchange API.
-   * Returns accessToken, refreshToken, and tradingAddress.
-   */
+  /** BIP322/ECDSA-signs a login message and authenticates with Bound Exchange. */
   public async authenticateWithWallet(
     walletProvider: IBitcoinWalletProvider,
     cachedPublicKey?: string,
@@ -228,14 +195,8 @@ export class RadfiProvider {
     return { ...result, publicKey };
   }
 
-  /**
-   * Ensure a valid Bound Exchange access token is set on this provider.
-   * If a token exists, validates it via the Bound Exchange API.
-   * If invalid, tries refreshing with the refresh token first.
-   * If refresh also fails, falls back to full re-authentication (BIP322 sign).
-   */
+  /** Refreshes the access token if possible, otherwise falls back to full re-authentication (wallet signature). */
   public async ensureRadfiAccessToken(walletProvider: IBitcoinWalletProvider): Promise<void> {
-    // Try refreshing with refresh token to get a fresh access token
     if (this.refreshToken) {
       try {
         const { accessToken, refreshToken } = await this.refreshAccessToken(this.refreshToken);
@@ -247,7 +208,6 @@ export class RadfiProvider {
       }
     }
 
-    // Full re-authentication (requires user wallet signature)
     this.accessToken = '';
     this.refreshToken = '';
     await this.authenticateWithWallet(walletProvider);
@@ -333,9 +293,7 @@ export class RadfiProvider {
       method: 'GET',
     });
 
-    // A non-2xx may be a JSON Bound error OR an HTML gateway/WAF page (e.g. an edge "403 Forbidden").
-    // parseJsonBody turns the latter into a legible RadfiApiError carrying the real HTTP status, so an
-    // edge/origin block no longer masquerades as a generic "Trading wallet not found".
+    // A non-2xx may be an HTML gateway/WAF page; parseJsonBody surfaces it with the real HTTP status.
     const body = await this.parseJsonBody<RadfiTradingWallet>(res, 'Trading wallet not found');
     if (!res.ok || !body.data) {
       throw new RadfiApiError(res.status, body, 'Trading wallet not found');
@@ -343,9 +301,7 @@ export class RadfiProvider {
     return body.data;
   }
 
-  // UMS call: goes out unsigned even when a signer is configured. UMS is separate infrastructure
-  // on `umsUrl`, outside the api/auth/transactions routing table, and does not verify the backend
-  // signature — so this bypasses `request()`, which signs. Same for `getExpiredUtxos`. See gh-831.
+  // UMS call: deliberately unsigned (UMS doesn't verify the backend signature), so it bypasses `request()`.
   public async getBalance(address: string): Promise<RadfiWalletBalance> {
     if (!this.config.umsUrl) {
       throw new Error('RadfiConfig.umsUrl is required for getBalance');
@@ -409,9 +365,7 @@ export class RadfiProvider {
       }),
     });
 
-    // The API can return HTTP 200 with a logical-error envelope (e.g. code "2002"
-    // insufficientBTCBalance) and no `data`. Treat a missing `data` as an error so the
-    // RadfiApiError (code/details) surfaces instead of a downstream undefined access.
+    // Bound can return HTTP 200 with a logical-error envelope and no `data`; surface it as RadfiApiError.
     const body = await this.parseJsonBody<RadfiDepositTxResponse>(res, 'Bound Exchange transaction request failed');
     if (!res.ok || !body.data) {
       throw new RadfiApiError(res.status, body, 'Bound Exchange transaction request failed');
@@ -421,12 +375,8 @@ export class RadfiProvider {
   }
 
   /**
-   * Co-sign and broadcast a `sodax-withdraw` deposit via the Bound Exchange API.
-   *
-   * `relayData` ({ address, payload }) is the same `RelayExtraData` the SDK returns from
-   * `createIntent()` / money-market supply etc. It is optional and non-breaking: when supplied,
-   * the Bound Exchange backend persists it so it can auto-resubmit the intent relay if the relay
-   * gets stuck (otherwise a stuck relay eventually refunds instead of completing the swap).
+   * Co-signs and broadcasts a `sodax-withdraw` deposit. Optional `relayData` lets Bound auto-resubmit
+   * a stuck relay (otherwise a stuck relay eventually refunds instead of completing).
    */
   public async requestRadfiSignature(
     params: {
@@ -455,12 +405,7 @@ export class RadfiProvider {
     return body.data.txId;
   }
 
-  /**
-   * Fetch expired (or near-expiry) UTXOs for a trading wallet address from UMS API.
-   *
-   * UMS call — unsigned by design, like `getBalance`: UMS sits outside the api/auth/transactions
-   * routing table, so it bypasses `request()` and a configured signer never runs.
-   */
+  /** Fetches expired UTXOs from UMS; unsigned by design, like `getBalance`. */
   public async getExpiredUtxos(
     tradingAddress: string,
     params?: { page?: number; pageSize?: number },
@@ -485,10 +430,7 @@ export class RadfiProvider {
     return { code: body.code ?? '', message: body.message ?? '', data: body.data ?? [] };
   }
 
-  /**
-   * Build a renew-utxo transaction via the Bound Exchange API.
-   * Returns a PSBT that needs to be signed by the user.
-   */
+  /** Returns an unsigned renew-utxo PSBT for the user to sign. */
   public async buildRenewUtxoTransaction(
     params: { userAddress: string; txIdVouts: string[] },
     accessToken: string,
@@ -515,10 +457,7 @@ export class RadfiProvider {
     return body.data;
   }
 
-  /**
-   * Sign and broadcast a renew-utxo transaction via the Bound Exchange API.
-   * The user signs the PSBT first, then Bound Exchange co-signs and broadcasts.
-   */
+  /** The user signs the PSBT first; Bound Exchange then co-signs and broadcasts. */
   public async signAndBroadcastRenewUtxo(
     params: { userAddress: string; signedBase64Tx: string },
     accessToken: string,
@@ -545,10 +484,7 @@ export class RadfiProvider {
     return body.data.txId;
   }
 
-  /**
-   * Withdraw BTC from trading wallet to user's personal wallet.
-   * Returns an unsigned PSBT for the user to sign.
-   */
+  /** Withdraws BTC from the trading wallet to the user's wallet; returns an unsigned PSBT. */
   public async withdrawToUser(
     params: {
       userAddress: string;
@@ -577,9 +513,6 @@ export class RadfiProvider {
     return body.data;
   }
 
-  /**
-   * Sign and broadcast a withdraw transaction via Bound Exchange.
-   */
   public async signAndBroadcastWithdraw(
     params: { userAddress: string; signedBase64Tx: string },
     accessToken: string,
@@ -612,9 +545,7 @@ export class RadfiProvider {
     return txId;
   }
 
-  /**
-   * Get max spendable amount for a withdraw transaction (amount after fee).
-   */
+  /** Max spendable withdraw amount after fee. */
   public async getMaxWithdrawable(
     params: {
       userAddress: string;
@@ -644,12 +575,8 @@ export class RadfiProvider {
   }
 
   /**
-   * Resolve the bearer credential for an authenticated Bound Exchange call, failing fast when none
-   * is available. A server-side raw-build caller that never ran the interactive sign-in would
-   * otherwise send `Authorization: Bearer ` (empty) and get an opaque 403 from Bound's gateway;
-   * throwing here turns that into an actionable client-side error naming the fix. We deliberately do
-   * NOT validate the token's contents (expiry / scope / signature) — only Bound can, and an invalid
-   * token still surfaces as a legible 401/403 via `parseJsonBody`.
+   * Fails fast without a credential: an empty `Bearer ` otherwise gets an opaque 403 from Bound's gateway.
+   * Token contents are not validated here; an invalid token surfaces as 401/403 via `parseJsonBody`.
    */
   private resolveAuth(accessToken: string): string {
     const auth = accessToken || this.config.apiKey;
@@ -666,17 +593,7 @@ export class RadfiProvider {
     return auth;
   }
 
-  /**
-   * Parse a Bound Exchange response body as JSON defensively.
-   *
-   * Bound (or an upstream gateway / WAF / CDN) can answer a request with an HTML error page
-   * instead of JSON — e.g. an unauthenticated call, a blocked origin, a 404, or a 5xx. Calling
-   * `res.json()` on that throws a cryptic `SyntaxError: Unexpected token '<'` that masks the real
-   * HTTP status and bubbles up as an opaque failure (it surfaced as a `createIntent` /
-   * `INTENT_CREATION_FAILED` "is not valid JSON" error on the Bitcoin raw-tx path). Reading the
-   * body as text first and parsing it ourselves lets us raise a `RadfiApiError` carrying the
-   * actual status code and a body snippet instead.
-   */
+  /** Bound or an upstream gateway may answer with HTML; parse as text first so the real status surfaces. */
   private async parseJsonBody<T = unknown>(res: Response, fallback: string): Promise<RadfiResponseEnvelope<T>> {
     const text = await res.text();
     try {
@@ -692,9 +609,7 @@ export class RadfiProvider {
   }
 
   private async request(host: RadfiHost, endpoint: string, options?: RequestInit): Promise<Response> {
-    // Let an injected signer add request headers (e.g. Bound's `x-api-signature` HMAC for a backend
-    // caller). Computed per request so a time-boxed signature stays inside its validity window. The
-    // signer owns the credential; this provider never sees it.
+    // Signed per request so a time-boxed signature stays inside its validity window.
     const baseUrl = this.hosts[host];
     const signed = this.signer
       ? await this.signer({ method: options?.method ?? 'GET', path: endpoint, baseUrl })

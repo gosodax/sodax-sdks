@@ -30,7 +30,6 @@ export function calculateAllUserIncentives({
   userReserves,
   currentTimestamp,
 }: CalculateAllUserIncentivesRequest): UserIncentiveDict {
-  // calculate incentive per token
   const allRewards = userIncentives.flatMap((userIncentive: UserReservesIncentivesDataHumanized) => {
     const reserve: ReservesIncentiveDataHumanized | undefined = reserveIncentives.find(
       (reserve: ReservesIncentiveDataHumanized) => reserve.underlyingAsset === userIncentive.underlyingAsset,
@@ -52,7 +51,6 @@ export function calculateAllUserIncentives({
     return [];
   });
 
-  // From the array of all deposit and borrow incentives, create dictionary indexed by reward token address
   const incentiveDict: UserIncentiveDict = {};
   for (const reward of allRewards) {
     if (!incentiveDict[reward.rewardTokenAddress]) {

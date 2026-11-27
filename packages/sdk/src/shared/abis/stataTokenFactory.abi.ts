@@ -1,5 +1,3 @@
-// packages/sdk/src/abis/stataTokenFactory.abi.ts
-
 export const stataTokenFactoryAbi = [
   {
     type: 'function',

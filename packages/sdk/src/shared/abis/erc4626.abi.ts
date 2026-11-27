@@ -1,5 +1,4 @@
 export const erc4626Abi = [
-  // ERC4626 Core Functions
   {
     type: 'function',
     name: 'asset',
@@ -322,7 +321,6 @@ export const erc4626Abi = [
     ],
     stateMutability: 'nonpayable',
   },
-  // ERC4626 Events
   {
     type: 'event',
     name: 'Deposit',

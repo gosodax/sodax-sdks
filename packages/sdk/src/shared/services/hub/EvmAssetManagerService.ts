@@ -22,13 +22,6 @@ export type EvmWithdrawAssetDataParams = {
 export class EvmAssetManagerService {
   private constructor() {}
 
-  /**
-   * Get asset information for a given asset address
-   * @param asset - The address of the asset contract
-   * @param assetManager - The address of the asset manager contract
-   * @param client - The Viem public client
-   * @returns Object containing chainID and spoke address for the asset
-   */
   public static async getAssetInfo(asset: Address, assetManager: Address, client: PublicClient): Promise<AssetInfo> {
     const [chainId, spokeAddress] = await client.readContract({
       address: assetManager,
@@ -43,14 +36,7 @@ export class EvmAssetManagerService {
     };
   }
 
-  /**
-   * Encodes a transfer transaction for an asset.
-   * @param token - The address of the token.
-   * @param to - The hex encoded recipient (encodeRecipient) to transfer the token to.
-   * @param amount - The amount of the token to transfer.
-   * @param assetManager
-   * @returns The encoded contract call.
-   */
+  /** `to` is the hex-encoded recipient from `encodeRecipient`. */
   public static encodeTransfer(token: Address, to: Hex, amount: bigint, assetManager: Address): EvmContractCall {
     return {
       address: assetManager,
@@ -63,13 +49,7 @@ export class EvmAssetManagerService {
     };
   }
 
-  /**
-   * Constructs the data for depositing tokens to the spoke chain.
-   * @param {EvmDepositToDataParams} params - The address of the token to deposit.
-   * @param {EvmSpokeProvider} spokeProvider - The provider for the spoke chain.
-   * @returns {Hex} Encoded contract calls for the deposit transaction.
-   * @throws Will throw an error if the asset or vault address is not found.
-   */
+  /** Hub calls that approve, vault-deposit and transfer the vault tokens to `params.to`. */
   public static depositToData(
     params: EvmDepositToDataParams,
     spokeChainId: SpokeChainKey,
@@ -93,15 +73,7 @@ export class EvmAssetManagerService {
     return encodeContractCalls(calls);
   }
 
-  /**
-   * Encode a withdrawal without validating the payout floor. For MPC-relay destinations,
-   * validate the amount and token before signing these calls.
-   * @param {EvmWithdrawAssetDataParams} params - Parameters for the withdrawal.
-   * @param {EvmSpokeProvider} spokeProvider - The provider for the spoke chain.
-   * @param {EvmHubProvider} hubProvider - The provider for the hub chain.
-   * @returns {Hex} Encoded contract calls for the withdrawal transaction.
-   * @throws Will throw an error if the asset address is not found.
-   */
+  /** Does not validate the payout floor: for MPC-relay destinations, validate amount and token before signing. */
   public static withdrawAssetData(
     params: EvmWithdrawAssetDataParams,
     hubProvider: EvmHubProvider,
@@ -128,14 +100,6 @@ export class EvmAssetManagerService {
     return encodeContractCalls(calls);
   }
 
-  /**
-   * Get asset address for a given chain ID and spoke address
-   * @param chainId Chain ID where the asset exists
-   * @param spokeAddress Address of the asset on the spoke chain
-   * @param assetManager Address of the asset manager contract
-   * @param client The Viem public client
-   * @returns The asset's address on the hub chain
-   */
   async getAssetAddress(
     chainId: bigint,
     spokeAddress: Address,

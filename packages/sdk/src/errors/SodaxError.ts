@@ -1,15 +1,3 @@
-/**
- * Canonical error type for the SODAX SDK.
- *
- * Used as the universal error shape across the SDK so callers get a deterministic, narrow-union
- * error type per method and so structured loggers (Sentry, Pino, Datadog) can serialize the
- * error consistently via {@link SodaxError.toJSON}.
- *
- * @see {@link isSodaxError} for a bundle-safe type guard.
- * @see {@link ./codes | codes} for the unified `SodaxErrorCode`, `SodaxFeature`, `SodaxPhase`
- *   vocabulary.
- */
-
 import type { SodaxErrorCode, SodaxErrorContext, SodaxFeature } from './codes.js';
 
 export type { SodaxErrorContext } from './codes.js';
@@ -49,14 +37,8 @@ export class SodaxError<C extends SodaxErrorCode = SodaxErrorCode> extends Error
   }
 
   /**
-   * Canonical logger-integration surface. Any logger (Sentry/Pino/Datadog) should serialize
-   * via this method. `JSON.stringify(err)` invokes it automatically per ECMAScript spec.
-   *
-   * Hardened against:
-   * - `bigint` anywhere in `context` (recursively coerced to string)
-   * - circular / deeply-nested cause chains (walked up to MAX_CAUSE_DEPTH = 3 levels)
-   * - non-plain objects in context (Date/Map/Set/Error/class instances are stringified)
-   * - context cycles (depth-bounded with MAX_SANITIZE_DEPTH = 5)
+   * Serialize via this (`JSON.stringify` calls it). Hardened against bigints, non-plain objects, context cycles
+   * (depth 5) and deep cause chains (depth 3).
    */
   toJSON(): SodaxErrorJSON<C> {
     return {
@@ -71,12 +53,7 @@ export class SodaxError<C extends SodaxErrorCode = SodaxErrorCode> extends Error
   }
 }
 
-/**
- * Type guard for {@link SodaxError}. Prefer this over bare `instanceof SodaxError` checks
- * in consumer code: it stays correct even when duplicate copies of `@sodax/sdk` exist in
- * a bundle (a real-world hazard with monorepos and dual ESM/CJS packages) where
- * `instanceof` can return `false` for a value originating from a sibling copy of the class.
- */
+/** Prefer over `instanceof`: stays correct when duplicate copies of `@sodax/sdk` exist in a bundle. */
 export function isSodaxError(e: unknown): e is SodaxError {
   if (e instanceof SodaxError) return true;
   return (

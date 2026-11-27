@@ -18,10 +18,6 @@ export class LendingPoolService {
     this.lendingPool = config.moneyMarket.lendingPool;
   }
 
-  /**
-   * Get the list of all reserves in the lending pool
-   * @returns {Promise<readonly Address[]>} - Array of reserve addresses
-   */
   async getReservesList(): Promise<readonly Address[]> {
     return this.hubProvider.publicClient.readContract({
       address: this.lendingPool,
@@ -31,11 +27,6 @@ export class LendingPoolService {
     });
   }
 
-  /**
-   * Get detailed data for a reserve in the pool
-   * @param assetAddress - The address of the asset
-   * @returns {Promise<ReserveDataLegacy>} - Reserve data
-   */
   async getReserveData(assetAddress: Address): Promise<ReserveDataLegacy> {
     return this.hubProvider.publicClient.readContract({
       address: this.lendingPool,
@@ -45,11 +36,6 @@ export class LendingPoolService {
     });
   }
 
-  /**
-   * Get the normalized income for a reserve
-   * @param asset - The address of the asset
-   * @returns {Promise<bigint>} - Normalized income
-   */
   async getReserveNormalizedIncome(asset: Address): Promise<bigint> {
     return this.hubProvider.publicClient.readContract({
       address: this.lendingPool,

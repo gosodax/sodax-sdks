@@ -61,16 +61,16 @@ export type CreateAssetWithdrawParams<K extends SpokeChainKey> = {
   srcChainKey: K;
   srcAddress: GetAddressType<K>;
   poolToken: Address;
-  asset: OriginalAssetAddress; // asset address
-  amount: bigint; // amount of asset to withdraw
+  asset: OriginalAssetAddress;
+  amount: bigint;
   dst?: DestinationParamsType;
 };
 
 export type CreateAssetDepositParams<K extends SpokeChainKey> = {
   srcChainKey: K;
   srcAddress: GetAddressType<K>;
-  asset: OriginalAssetAddress; // asset address
-  amount: bigint; // amount of token to deposit
+  asset: OriginalAssetAddress;
+  amount: bigint;
   poolToken: Address;
   dst?: DestinationParamsType;
 };
@@ -94,23 +94,7 @@ export type AssetServiceConstructorParams = {
 };
 
 /**
- * Service for wrapping and unwrapping assets in preparation for DEX liquidity provision.
- *
- * The SODAX DEX pools hold StatATokens (ERC-4626 interest-bearing wrappers produced by
- * the `StataTokenFactory`). Before a user can supply liquidity they must convert their
- * spoke-chain tokens into the vault-token representation that lives on the hub chain.
- * `AssetService` encapsulates that two-step conversion:
- *
- * - **Deposit** (wrap): spoke token → hub vault token → StatAToken  (`executeDeposit` / `deposit`)
- * - **Withdraw** (unwrap): StatAToken → hub vault token → spoke token  (`executeWithdraw` / `withdraw`)
- *
- * It also handles allowance checks and ERC-20 approvals for the above flows, and
- * provides helpers to query a user's current DEX deposit balance and to convert
- * between share and asset amounts for any ERC-4626 token.
- *
- * Cross-chain users go through the hub-and-spoke relay; hub-chain (Sonic) users
- * execute directly without a relay step.
- *
+ * Wraps spoke tokens into the pools' StatATokens (spoke token → hub vault token → ERC-4626 StatAToken) and back.
  * @namespace SodaxFeatures
  */
 export class AssetService {
@@ -128,21 +112,7 @@ export class AssetService {
     this.concentratedLiquidityConfig = config.dex.concentratedLiquidityConfig;
   }
 
-  /**
-   * Check whether sufficient allowance exists for a DEX deposit action.
-   *
-   * The required spender differs by chain type:
-   * - **EVM spoke chains**: the chain's `assetManager` contract.
-   * - **Hub chain (Sonic)**: the user's hub wallet address (contract wallet abstraction).
-   * - **Stellar**: verifies the sender's trustline via `SpokeService.isAllowanceValid`.
-   * - **All other non-EVM chains**: always returns `true` (no on-chain approval needed).
-   *
-   * @param _params - Deposit action parameters including the asset address, amount,
-   *   source chain key, and source address.
-   * @returns `Result<boolean>` — `true` if the spender already has sufficient allowance
-   *   (or approval is not required for the chain), `false` if an approval transaction
-   *   is needed before depositing.
-   */
+  /** Spender: asset manager on EVM spokes, user hub wallet on the hub; chains without approvals return `true`. */
   public async isAllowanceValid<K extends SpokeChainKey, Raw extends boolean>(
     _params: AssetDepositAction<K, Raw>,
   ): Promise<Result<boolean>> {
@@ -182,7 +152,6 @@ export class AssetService {
         return result;
       }
 
-      // For non-EVM/non-Sonic chains, no approval is required
       return {
         ok: true,
         value: true,
@@ -195,19 +164,6 @@ export class AssetService {
     }
   }
 
-  /**
-   * Submit an ERC-20 approval (or Stellar trustline operation) required before depositing.
-   *
-   * Supported chain types:
-   * - **Stellar**: calls `SpokeService.approve` for the trustline.
-   * - **EVM spoke & hub chains**: calls `SpokeService.approve` with the appropriate
-   *   spender (asset manager for EVM spokes, hub wallet for Sonic).
-   * - **Other chains**: returns an error — approval is not supported or not needed.
-   *
-   * @param _params - Deposit action parameters including the asset address and amount to approve.
-   * @returns `Result<TxReturnType<K, Raw>>` — the transaction hash (when `raw` is `false`)
-   *   or the unsigned transaction bytes (when `raw` is `true`).
-   */
   public async approve<K extends SpokeChainKey, Raw extends boolean>(
     _params: AssetDepositAction<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>>> {
@@ -290,24 +246,7 @@ export class AssetService {
     }
   }
 
-  /**
-   * Build and submit the spoke-side transaction that wraps tokens into the pool's StatAToken.
-   *
-   * On the hub the following calls are batched into a single payload:
-   * 1. If the asset is not already a vault token: `ERC20.approve` + `VaultToken.deposit`
-   *    to convert the spoke-chain asset into the hub vault token.
-   * 2. `ERC20.approve(vault → stataToken)` + `ERC4626.deposit(stataToken)` to wrap the
-   *    vault token into the StatAToken used by the CL pool.
-   *
-   * The payload is delivered to the hub via `SpokeService.deposit`. If a `dst` override
-   * is provided, the StatATokens are minted into a different hub wallet (cross-account
-   * liquidity provision).
-   *
-   * @param _params - Deposit action parameters including the original asset address,
-   *   amount, target pool token (StatAToken), and optional destination override.
-   * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
-   *   and relay data for cross-chain packet tracking.
-   */
+  /** Spoke deposit carrying the hub wrap calls; `dst` mints the StatATokens into another hub wallet. */
   public async executeDeposit<K extends SpokeChainKey, Raw extends boolean>(
     _params: AssetDepositAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw, 'deposit'>>> {
@@ -373,25 +312,7 @@ export class AssetService {
     }
   }
 
-  /**
-   * Build and submit the spoke-side transaction that unwraps StatATokens back to the original asset.
-   *
-   * On the hub the following calls are batched into a single payload:
-   * 1. `ERC4626.redeem(stataToken)` to convert StatAToken shares back to vault tokens.
-   * 2. `VaultToken.withdraw` to convert vault tokens back to the hub asset.
-   * 3. Transfer the unwrapped asset to the recipient:
-   *    - Hub chain + native Sonic (wS): `wrappedSonic.withdrawTo(recipient, amount)`
-   *    - Hub chain + other ERC-20: `ERC20.transfer(recipient, amount)`
-   *    - Cross-chain: `AssetManager.transfer(...)` which initiates the spoke delivery.
-   *
-   * Special case: bnUSD vault tokens skip the StatAToken redeem step and go directly
-   * to `VaultToken.withdraw`.
-   *
-   * @param _params - Withdraw action parameters including the asset address, amount
-   *   (in StatAToken shares), pool token address, and optional destination override.
-   * @returns `Result<IntentTxResult<K, Raw>>` — on success, contains the spoke-chain tx
-   *   and relay data for cross-chain packet tracking.
-   */
+  /** Spoke message carrying the hub unwrap calls; `amount` is in StatAToken shares. */
   public async executeWithdraw<K extends SpokeChainKey, Raw extends boolean>(
     _params: AssetWithdrawAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw, 'sendMessage'>>> {
@@ -461,21 +382,7 @@ export class AssetService {
     }
   }
 
-  /**
-   * Return whether the user is depositing SODA into an xSoda pool position.
-   *
-   * xSoda (the ERC-4626 staking vault) is a valid DEX pool token. When the original
-   * asset is SODA and the pool token is xSoda, the deposit flow must go through the
-   * staking contract (stake SODA → receive xSoda) rather than the standard wrap path.
-   * Callers should check this before calling `executeDeposit` so they can route the
-   * transaction appropriately.
-   *
-   * @param chainId - The spoke chain the asset originates from.
-   * @param asset - The original asset address on the spoke chain.
-   * @param poolToken - The hub-chain pool token address (the StatAToken or vault token).
-   * @returns `true` if the asset maps to SODA and the pool token is the hub's xSoda address.
-   * @throws If the spoke token config cannot be found for `asset` on `chainId`.
-   */
+  /** SODA into an xSoda pool must go through staking (SODA → xSoda), not the standard wrap path. */
   public isSodaAsXSodaInPool({
     chainId,
     asset,
@@ -497,18 +404,6 @@ export class AssetService {
     );
   }
 
-  /**
-   * Wrap tokens into the pool's StatAToken and wait for the cross-chain relay to complete.
-   *
-   * Calls `executeDeposit` to broadcast on the spoke chain, then blocks until the
-   * relayer delivers the packet to the hub (or the optional timeout elapses).
-   * When the source is the hub chain itself the relay step is skipped.
-   *
-   * @param _params - Deposit action parameters including the asset address, amount,
-   *   target pool token, and an optional `timeout` (ms) for the relay wait.
-   * @returns `Result<TxHashPair>` — on success, contains `srcChainTxHash` (spoke) and
-   *   `dstChainTxHash` (hub) once the relay packet has been confirmed.
-   */
   public async deposit<K extends SpokeChainKey>(_params: AssetDepositAction<K, false>): Promise<Result<TxHashPair>> {
     const { params, timeout } = _params;
     try {
@@ -548,18 +443,7 @@ export class AssetService {
     }
   }
 
-  /**
-   * Unwrap StatATokens back to the original asset and wait for the cross-chain relay to complete.
-   *
-   * Calls `executeWithdraw` to broadcast on the spoke chain, then blocks until the
-   * relayer delivers the packet to the hub (or the optional timeout elapses).
-   * When the source is the hub chain itself the relay step is skipped.
-   *
-   * @param _params - Withdraw action parameters including the asset address, amount
-   *   (in StatAToken shares), pool token address, and an optional `timeout` (ms).
-   * @returns `Result<OutboundSettlement<K>>` — on success, `srcChainTxHash` (spoke) and `dstChainTxHash`
-   *   (hub, or the payout) once settled; from an MPC-relay chain, the relay's `trackingId` in place of a source tx.
-   */
+  /** From an MPC-relay chain the result carries the relay's `trackingId` in place of a source tx. */
   public async withdraw<K extends SpokeChainKey>(
     _params: AssetWithdrawAction<K, false>,
   ): Promise<Result<OutboundSettlement<K>>> {
@@ -638,10 +522,7 @@ export class AssetService {
     }
   }
 
-  /**
-   * An MPC-relay source has no intent-relay packet, so it settles on its own relay: a deposit waits
-   * for the hub mint, a withdraw for the release on the source chain it pays back to.
-   */
+  /** An MPC-relay source has no intent-relay packet, so it settles on its own relay (hub mint / release). */
   private async settleOnMpcRelay<K extends SpokeChainKey, D extends SettlementDirection>(
     params: SettleParams<K, D>,
   ): Promise<Result<Settlement<K, D>>> {
@@ -662,27 +543,7 @@ export class AssetService {
     };
   }
 
-  /**
-   * Build the hub-side contract calls that wrap a spoke asset into the DEX pool token.
-   *
-   * The sequence depends on what the pool token is:
-   * - If the pool token is the vault token itself (e.g. bnUSD), only the vault deposit
-   *   calls are emitted (ERC-20 approve + `VaultToken.deposit`).
-   * - Otherwise the vault token is further wrapped into a StatAToken via the
-   *   `StataTokenFactory`: ERC-20 approve + `ERC4626.deposit(stataToken)`.
-   *
-   * The resulting array of `EvmContractCall` objects is intended to be batched with
-   * `encodeContractCalls` inside `executeDeposit`.
-   *
-   * @param address - The original asset address on the spoke chain.
-   * @param spokeChainId - The spoke chain the asset originates from (used for config lookup).
-   * @param amount - The amount of the original asset to wrap (in original asset decimals).
-   * @param poolToken - The target pool token address (StatAToken or vault token).
-   * @param recipient - The hub wallet address that will receive the wrapped tokens.
-   * @returns An array of `EvmContractCall` objects encoding the wrap sequence.
-   * @throws If the asset is not found in config, or if the resolved DEX token does not
-   *   match `poolToken`.
-   */
+  /** Hub wrap calls; stops after the vault deposit when the pool token is the vault itself (e.g. bnUSD). */
   public async getTokenWrapAction(
     address: OriginalAssetAddress,
     spokeChainId: SpokeChainKey,
@@ -715,32 +576,13 @@ export class AssetService {
 
     invariant(dexToken === poolToken, 'Dex token does not match pool token');
 
-    // deposit non-vault token into the vault
     calls.push(Erc20Service.encodeApprove(assetConfig.vault, dexToken, translatedAmount));
     calls.push(Erc4626Service.encodeDeposit(dexToken, translatedAmount, recipient));
 
     return calls;
   }
 
-  /**
-   * Build the hub-side contract calls that unwrap a DEX pool token back to the original asset.
-   *
-   * The sequence depends on the token type and destination chain:
-   * 1. If the pool token is a StatAToken (non-bnUSD): `ERC4626.redeem` to get vault tokens.
-   * 2. `VaultToken.withdraw` to convert vault tokens to the hub asset.
-   * 3. Transfer to recipient:
-   *    - Hub chain + native Sonic (wS): `wrappedSonic.withdrawTo`
-   *    - Hub chain + other ERC-20: `ERC20.transfer`
-   *    - Cross-chain: `AssetManager.transfer` (initiates spoke delivery)
-   *
-   * @param dstChainKey - The destination spoke chain (determines transfer encoding).
-   * @param address - The original asset address on the destination spoke chain.
-   * @param amount - The amount of StatAToken shares to redeem.
-   * @param userAddress - The hub wallet address of the user (used as ERC-4626 redeem owner).
-   * @param recipient - The encoded recipient address on the destination chain.
-   * @returns An array of `EvmContractCall` objects encoding the unwrap sequence.
-   * @throws If the asset is not found in config, or if an ERC-4626 conversion fails.
-   */
+  /** Hub unwrap calls: StatAToken redeem (skipped for bnUSD) → vault withdraw → payout. `amount` is in shares. */
   public async getTokenUnwrapAction(
     dstChainKey: SpokeChainKey,
     address: OriginalAssetAddress,
@@ -827,16 +669,7 @@ export class AssetService {
     return calls;
   }
 
-  /**
-   * Convert an underlying asset amount to the equivalent number of ERC-4626 shares.
-   *
-   * For example: given an amount of the hub vault token, returns how many StatAToken
-   * shares that amount buys at the current exchange rate.
-   *
-   * @param dexToken - The ERC-4626 token (StatAToken) address on the hub chain.
-   * @param assetAmount - The amount of underlying assets to convert.
-   * @returns `Result<bigint>` — the equivalent share amount.
-   */
+  /** Underlying asset amount → ERC-4626 shares at the current rate. */
   public async getWrappedAmount(dexToken: Address, assetAmount: bigint): Promise<Result<bigint>> {
     try {
       const shares = await Erc4626Service.convertToShares(dexToken, assetAmount, this.hubProvider.publicClient);
@@ -847,16 +680,7 @@ export class AssetService {
     }
   }
 
-  /**
-   * Convert a number of ERC-4626 shares to the equivalent underlying asset amount.
-   *
-   * For example: given a StatAToken share amount, returns how many vault tokens
-   * those shares redeem for at the current exchange rate.
-   *
-   * @param dexToken - The ERC-4626 token (StatAToken) address on the hub chain.
-   * @param shareAmount - The number of shares to convert.
-   * @returns `Result<bigint>` — the equivalent underlying asset amount.
-   */
+  /** ERC-4626 shares → underlying asset amount at the current rate. */
   public async getUnwrappedAmount(dexToken: Address, shareAmount: bigint): Promise<Result<bigint>> {
     try {
       const assetAmount = await Erc4626Service.convertToAssets(dexToken, shareAmount, this.hubProvider.publicClient);
@@ -867,18 +691,7 @@ export class AssetService {
     }
   }
 
-  /**
-   * Fetch the user's current DEX deposit balance for a given pool token.
-   *
-   * Resolves the user's hub wallet address from their spoke-chain address, then
-   * reads the ERC-20 balance of the pool token (StatAToken) held by that hub wallet.
-   * The returned amount is in StatAToken shares (not underlying asset units).
-   *
-   * @param poolToken - The pool token (StatAToken) address on the hub chain.
-   * @param walletAddress - The user's address on their spoke chain.
-   * @param chainKey - The spoke chain key used to derive the hub wallet address.
-   * @returns `Result<bigint>` — the StatAToken share balance of the user's hub wallet.
-   */
+  /** Pool-token balance of the user's hub wallet, in StatAToken shares (not underlying units). */
   public async getDeposit(
     poolToken: Address,
     walletAddress: Address,

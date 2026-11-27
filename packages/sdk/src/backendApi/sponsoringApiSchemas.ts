@@ -13,9 +13,7 @@ export const StellarSponsorConfigSchema = v.object({
   requiredStartingBalance: v.string(),
 });
 
-/**
- * Preserve the correlation between account state and transaction hash.
- */
+/** Preserves the correlation between account state and transaction hash. */
 export const StellarSponsoredAccountResponseSchema = v.variant('alreadyActive', [
   v.object({ hash: v.string(), alreadyActive: v.literal(false) }),
   v.object({ hash: v.null(), alreadyActive: v.literal(true) }),

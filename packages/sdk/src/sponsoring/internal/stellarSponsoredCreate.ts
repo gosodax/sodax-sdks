@@ -38,9 +38,8 @@ type SponsorFeeConfig = Pick<
 >;
 
 /**
- * Use the server's per-operation fee verbatim, then verify it against both
- * published bands. The two are independent: a fee can land inside the total
- * band and still violate the per-operation one, and the server validates both.
+ * Use the server's per-operation fee verbatim, then verify both published bands: a fee can fit the
+ * total band yet violate the per-operation one, and the server validates both.
  */
 export function deriveSponsorBaseFee(config: SponsorFeeConfig): { baseFee: string; totalFee: bigint } {
   const min = parseStroops(config.minTotalFeeStroops, 'minTotalFeeStroops');
@@ -88,10 +87,7 @@ export function deriveSponsorBaseFee(config: SponsorFeeConfig): { baseFee: strin
   return { baseFee: baseFee.toString(), totalFee };
 }
 
-/**
- * Clamp the validity window to the server's limit. `setTimeout` uses seconds,
- * and zero means an unbounded timeout that the service rejects.
- */
+/** Clamp to the server's limit; zero would mean an unbounded timeout, which the service rejects. */
 export function resolveTimeboundSeconds(config: Pick<StellarSponsorConfig, 'maxTimeboundSeconds'>): number {
   const ceiling = Math.floor(config.maxTimeboundSeconds);
   const seconds = Math.min(SPONSOR_TIMEBOUND_SECONDS, ceiling);
@@ -111,13 +107,8 @@ export type BuildSponsoredCreateParams = {
 };
 
 /**
- * Every check on the published config that does not need the sponsor's
- * sequence. Callers run this before reading Horizon so a bad config fails
- * locally instead of as whatever the sponsor account's lookup happens to
- * return — a malformed `sponsorAccount` is a 404, not a validation error.
- *
- * The checks are pure, so {@link buildSponsoredCreate} repeats them rather than
- * trusting the caller to have run them.
+ * Config checks that need no sponsor sequence, run before the Horizon read so a malformed `sponsorAccount`
+ * fails locally rather than as a 404. Pure, so {@link buildSponsoredCreate} repeats them.
  */
 export function assertSponsoredCreateInputs(params: { config: StellarSponsorConfig; address: string }): void {
   const { config, address } = params;
@@ -135,11 +126,8 @@ export function assertSponsoredCreateInputs(params: { config: StellarSponsorConf
 }
 
 /**
- * Build the unsigned begin/create/end sponsorship transaction. The new account
- * is the explicit source of `end`, so it must sign before server submission.
- *
- * Construct a fresh `Account` because `TransactionBuilder.build()` mutates its
- * sequence number.
+ * The new account is the explicit source of `end`, so it must sign before server submission.
+ * Uses a fresh `Account` because `TransactionBuilder.build()` mutates its sequence number.
  */
 export function buildSponsoredCreate(params: BuildSponsoredCreateParams): Transaction {
   const { config, sponsorSequence, address } = params;
@@ -171,11 +159,7 @@ export function assertValidStellarAccountId(address: string): void {
   sponsoringInvariant(valid, `"${address}" is not a valid Stellar ed25519 public key`, { field: 'address' });
 }
 
-/**
- * Verify the wallet preserved the envelope and signed it as the account being
- * activated. This catches wrong-network signatures locally instead of as an
- * opaque server `400`.
- */
+/** Verify the wallet kept the envelope and signed as the account, catching wrong-network signatures locally. */
 export function assertSignedByAccount(params: { signedXdr: string; address: string; unsignedHash: Buffer }): void {
   const { signedXdr, address, unsignedHash } = params;
 

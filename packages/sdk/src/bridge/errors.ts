@@ -1,10 +1,3 @@
-/**
- * Bridge module narrow error types.
- *
- * Single user-facing action (`'bridge'`); read-only methods emit `LOOKUP_FAILED`
- * partitioned by `context.method`.
- */
-
 import {
   ALLOWANCE_CHECK_CODES,
   type AllowanceCheckErrorCode,
@@ -42,10 +35,7 @@ export type BridgeApproveErrorCode = ApproveErrorCode;
 export type BridgeAllowanceCheckErrorCode = AllowanceCheckErrorCode;
 export type BridgeLookupErrorCode = LookupErrorCode;
 
-/**
- * The only code `getDetailedStatus` returns: no status source could produce a usable answer.
- * Narrower than {@link BridgeLookupErrorCode}, which also admits `VALIDATION_FAILED` / `UNKNOWN`.
- */
+/** The only code `getDetailedStatus` returns (narrower than {@link BridgeLookupErrorCode}). */
 export type BridgeDetailedStatusErrorCode = Extract<SodaxErrorCode, 'LOOKUP_FAILED'>;
 
 export type BridgeErrorCode = Extract<
@@ -64,7 +54,6 @@ export type BridgeErrorCode = Extract<
   | 'UNKNOWN'
 >;
 
-/** Codes returnable by `bridgeWithApproval`: every `bridge` code plus the approval leg's. */
 export type BridgeWithApprovalErrorCode =
   | BridgeOrchestrationErrorCode
   | Extract<SodaxErrorCode, 'APPROVE_FAILED' | 'ALLOWANCE_CHECK_FAILED'>;

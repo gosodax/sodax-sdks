@@ -38,7 +38,6 @@ export type ReserveDataHumanized = {
   variableRateSlope2: string;
   baseVariableBorrowRate: string;
   optimalUsageRatio: string;
-  // v3 only
   isPaused: boolean;
   isSiloedBorrowing: boolean;
   accruedToTreasury: string;
@@ -154,35 +153,30 @@ export type EModeData = {
 };
 
 export type ReserveDataLegacy = {
-  //stores the reserve configuration
   configuration: bigint;
-  //the liquidity index. Expressed in ray
+  // ray
   liquidityIndex: bigint;
-  //the current supply rate. Expressed in ray
+  // ray
   currentLiquidityRate: bigint;
-  //variable borrow index. Expressed in ray
+  // ray
   variableBorrowIndex: bigint;
-  //the current variable borrow rate. Expressed in ray
+  // ray
   currentVariableBorrowRate: bigint;
   // DEPRECATED on v3.2.0
   currentStableBorrowRate: bigint;
-  //timestamp of last update
   lastUpdateTimestamp: number;
-  //the id of the reserve. Represents the position in the list of the active reserves
+  // position in the list of active reserves
   id: number;
-  //aToken address
   aTokenAddress: Address;
   // DEPRECATED on v3.2.0
   stableDebtTokenAddress: Address;
-  //variableDebtToken address
   variableDebtTokenAddress: Address;
-  //address of the interest rate strategy
   interestRateStrategyAddress: Address;
-  //the current treasury balance, scaled
+  // scaled
   accruedToTreasury: bigint;
-  //the outstanding unbacked aTokens minted through the bridging feature
+  // unbacked aTokens minted through bridging
   unbacked: bigint;
-  //the outstanding debt borrowed against this asset in isolation mode
+  // debt borrowed against this asset in isolation mode
   isolationModeTotalDebt: bigint;
 };
 

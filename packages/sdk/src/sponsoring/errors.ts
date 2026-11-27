@@ -48,12 +48,7 @@ export const isSponsoringOrchestrationError = isCodeMember<SponsoringOrchestrati
 export const isSponsoringConfigError = isCodeMember<SponsoringConfigErrorCode>(CONFIG_CODES);
 export const isSponsoringLookupError = isCodeMember<SponsoringLookupErrorCode>(LOOKUP_CODES);
 
-/**
- * Caller action derived from a sponsoring failure.
- *
- * `rebuildAndResign` requires a new signature; `retrySameRequest` reuses
- * the signed XDR; `backoff` waits before retrying.
- */
+/** `rebuildAndResign` needs a new signature; `retrySameRequest` reuses the signed XDR; `backoff` waits first. */
 export type SponsorFailureAction =
   | 'fixIntegration'
   | 'checkApiKey'
@@ -135,12 +130,7 @@ function policy(
   return { action, ...ACTION_POLICY[action] };
 }
 
-/**
- * Classify a failed sponsoring request into the caller's next action.
- *
- * HTTP status is primary; recognized domain codes refine statuses whose handling
- * differs by cause.
- */
+/** HTTP status is primary; recognized domain codes refine statuses whose handling differs by cause. */
 export function classifySponsorError(error: SodaxError<'EXTERNAL_API_ERROR'>): SponsorFailureClass {
   // Preserve classification across duplicate SDK copies in one bundle.
   const cause = error.cause;

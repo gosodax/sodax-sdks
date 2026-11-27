@@ -45,10 +45,7 @@ export function rayPow(a: BigNumberValue, p: BigNumberValue): BigNumber {
   return z;
 }
 
-/**
- * RayPow is slow and gas intensive therefore in v2 we switched to binomial approximation on the contract level.
- * While the results ar not exact to the last decimal, they are close enough.
- */
+/** Binomial approximation of rayPow, as the contracts use; close but not exact to the last decimal. */
 export function binomialApproximatedRayPow(a: BigNumberValue, p: BigNumberValue): BigNumber {
   const base = valueToZDBigNumber(a);
   const exp = valueToZDBigNumber(p);
