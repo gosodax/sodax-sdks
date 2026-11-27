@@ -11,10 +11,7 @@ export type UseLiquidityAmountsResult = {
   handleToken1AmountChange: (value: string) => void;
 };
 
-/**
- * Hook for calculating concentrated-liquidity amounts based on the price range. Pure state +
- * math; no SDK calls beyond the static {@link ClService} helpers.
- */
+/** Pure state + math; no SDK calls beyond the static {@link ClService} helpers. */
 export function useLiquidityAmounts(
   minPrice: string,
   maxPrice: string,

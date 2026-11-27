@@ -20,8 +20,7 @@ export function useBridgeAllowance<K extends SpokeChainKey>({
   const walletProvider = params?.walletProvider;
 
   return useQuery<boolean, Error>({
-    // Extract the (chain, owner, token, amount) tuple that actually scopes the allowance —
-    // raw-object keys break per Rule 4 (bigints) and churn on every render.
+    // Key on the scoping tuple only: raw payload objects hold bigints and churn every render.
     queryKey: [
       'bridge',
       'allowance',

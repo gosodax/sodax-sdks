@@ -1,12 +1,5 @@
-/**
- * `SodaxProvider` wire test for the consumer-supplied API key: `config.apiKey` handed to the
- * provider must reach the backend as `x-api-key` on requests made through the provided instance.
- *
- * Covers the one key-supply surface the hook manifests' hand-built `Sodax` does not: the provider's
- * own `new Sodax(config)`. No renderer — `useMemo` is patched to evaluate its factory so the
- * component can be called as a plain function and the provided `sodax` read off the element's
- * context value.
- */
+// `config.apiKey` given to the provider must reach the backend as `x-api-key`.
+// `useMemo` is patched to run its factory so the component can be called without a renderer.
 
 import type { Sodax } from '@sodax/sdk';
 import type { ReactElement } from 'react';

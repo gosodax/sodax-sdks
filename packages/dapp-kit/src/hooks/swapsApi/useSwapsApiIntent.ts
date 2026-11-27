@@ -13,13 +13,7 @@ export type UseSwapsApiIntentParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to look up an Intent struct by its hub-chain creation tx hash via the swaps API —
- * `sodax.api.swaps.getIntent`. The decoded intent's bigint fields are returned as decimal strings.
- *
- * @example
- * const { data: intent } = useSwapsApiIntent({ params: { txHash: '0x123...' } });
- */
+/** Bigint fields of the decoded intent come back as decimal strings. */
 export const useSwapsApiIntent = ({
   params,
   queryOptions,

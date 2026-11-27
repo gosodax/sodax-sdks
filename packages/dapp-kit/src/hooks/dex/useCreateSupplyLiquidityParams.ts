@@ -15,11 +15,7 @@ export type UseCreateSupplyLiquidityParamsProps = {
   isValidPosition?: boolean;
 };
 
-/**
- * Subset of {@link ClSupplyParams} / {@link ClIncreaseLiquidityParams} produced by
- * {@link useCreateSupplyLiquidityParams}. Callers add `srcChainKey` + `srcAddress` at the mutation
- * call site. `tokenId` and `isValidPosition` distinguish the mint-new vs increase-existing path.
- */
+/** `tokenId` + `isValidPosition` select increase-existing over mint-new; callers add `srcChainKey` + `srcAddress`. */
 export type UseCreateSupplyLiquidityParamsResult = Omit<ClSupplyParams<SpokeChainKey>, 'srcChainKey' | 'srcAddress'> &
   Omit<ClIncreaseLiquidityParams<SpokeChainKey>, 'srcChainKey' | 'srcAddress' | 'tokenId'> & {
     tokenId?: string | bigint;
@@ -27,11 +23,6 @@ export type UseCreateSupplyLiquidityParamsResult = Omit<ClSupplyParams<SpokeChai
     isValidPosition?: boolean;
   };
 
-/**
- * React hook to memoize concentrated-liquidity supply parameters for a given pool. Returns the
- * pool/tick/liquidity/amount fields without `srcChainKey`/`srcAddress` — callers add those at the
- * mutation call site.
- */
 export function useCreateSupplyLiquidityParams({
   poolData,
   poolKey,

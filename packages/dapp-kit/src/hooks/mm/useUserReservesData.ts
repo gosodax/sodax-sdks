@@ -13,10 +13,6 @@ export type UseUserReservesDataParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook for fetching the raw user reserves data (positions on the hub) for a given spoke
- * chain and user address.
- */
 export function useUserReservesData({
   params,
   queryOptions,

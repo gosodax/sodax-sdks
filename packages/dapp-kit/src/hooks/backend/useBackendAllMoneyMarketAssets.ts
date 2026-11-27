@@ -6,12 +6,6 @@ import type { ReadHookParams } from '../shared/types.js';
 
 export type UseBackendAllMoneyMarketAssetsParams = ReadHookParams<MoneyMarketAsset[]>;
 
-/**
- * React hook to fetch all money market assets from the backend API.
- *
- * @example
- * const { data: assets, isLoading, error } = useBackendAllMoneyMarketAssets();
- */
 export const useBackendAllMoneyMarketAssets = ({
   queryOptions,
 }: UseBackendAllMoneyMarketAssetsParams = {}): UseQueryResult<MoneyMarketAsset[], Error> => {

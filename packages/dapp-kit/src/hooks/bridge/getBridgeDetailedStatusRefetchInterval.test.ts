@@ -19,13 +19,7 @@ import {
   isBridgeNotDelivered,
 } from './getBridgeDetailedStatusRefetchInterval.js';
 
-/**
- * Guards the polling-stop invariant for `useBridgeDetailedStatus.refetchInterval`: stop on a
- * terminal or abandoned backend record, on any relay packet or MPC deposit record (always
- * terminal), on a rejected API key, and on an exhausted not-delivered budget — but keep polling
- * through an outage. Tested as a pure function because dapp-kit's vitest runs in the `node`
- * environment.
- */
+// Tested as a pure function because dapp-kit's vitest runs in the `node` environment.
 const KEY_A = 'arb:0xaaa';
 const KEY_B = 'arb:0xbbb';
 

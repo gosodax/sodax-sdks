@@ -9,10 +9,7 @@ export type UseConvertedAssetsParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to convert an xSODA share amount to its underlying SODA value via the vault's
- * exchange rate. Hub-only read. Throws on `!ok`.
- */
+/** Converts xSODA shares to SODA at the vault rate. Throws on `!ok`. */
 export function useConvertedAssets({
   params,
   queryOptions,

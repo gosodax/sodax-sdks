@@ -10,10 +10,6 @@ export type UseFetchAssetsBalancesParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch hub-asset balances on Sonic for a given EVM address. Disabled when
- * `queryAddress` is missing. Throws on `!ok`.
- */
 export function useFetchAssetsBalances({
   params,
   queryOptions,

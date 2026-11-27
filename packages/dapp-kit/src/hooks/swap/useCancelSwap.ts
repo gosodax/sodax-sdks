@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/swap/useCancelSwap.ts
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import type { GetWalletProviderType, Intent, SpokeChainKey, TxHashPair } from '@sodax/sdk';
 import type { MutationHookParams } from '../shared/types.js';
@@ -11,12 +10,7 @@ type CancelIntentParams<K extends SpokeChainKey = SpokeChainKey> = {
   intent: Intent;
 };
 
-/**
- * React hook for cancelling an in-flight swap intent.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
- */
+/** Throws on SDK failure; resolves to the unwrapped `TxHashPair`. */
 export function useCancelSwap({
   mutationOptions,
 }: MutationHookParams<TxHashPair, CancelIntentParams> = {}): SafeUseMutationResult<

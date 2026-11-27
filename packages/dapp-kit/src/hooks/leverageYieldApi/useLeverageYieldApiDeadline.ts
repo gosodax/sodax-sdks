@@ -13,13 +13,7 @@ export type UseLeverageYieldApiDeadlineParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to compute a deposit/withdraw deadline (hub timestamp + `offsetSeconds`, default 300s)
- * via the leverage-yield API — `sodax.api.leverageYield.getDeadline`.
- *
- * @example
- * const { data: deadline } = useLeverageYieldApiDeadline({ params: { query: { offsetSeconds: 600 } } });
- */
+/** Deadline = hub timestamp + `offsetSeconds` (default 300s). */
 export const useLeverageYieldApiDeadline = ({
   params,
   queryOptions,

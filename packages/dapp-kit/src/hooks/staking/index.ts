@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/staking/index.ts
 export { useStake } from './useStake.js';
 export { useStakeApprove } from './useStakeApprove.js';
 export { useStakeAllowance } from './useStakeAllowance.js';

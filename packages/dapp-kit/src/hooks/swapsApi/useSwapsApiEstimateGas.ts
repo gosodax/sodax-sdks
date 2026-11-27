@@ -13,13 +13,6 @@ export type UseSwapsApiEstimateGasParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to estimate gas for a raw transaction on a spoke chain via the swaps API —
- * `sodax.api.swaps.estimateGas`. Returns `{ gas }` (chain-specific shape).
- *
- * @example
- * const { data } = useSwapsApiEstimateGas({ params: { body: { chainKey: 'sonic', tx } } });
- */
 export const useSwapsApiEstimateGas = ({
   params,
   queryOptions,

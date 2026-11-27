@@ -14,13 +14,7 @@ export type UseLeverageYieldApiPreviewWithdrawParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to preview the shares burned to withdraw `assets` (ERC-4626 previewWithdraw) via the leverage-yield API —
- * `sodax.api.leverageYield.previewWithdraw`.
- *
- * @example
- * const { data } = useLeverageYieldApiPreviewWithdraw({ params: { vault: '0x...', assets: '1000000000000000000' } });
- */
+/** ERC-4626 `previewWithdraw`: shares burned to withdraw `assets`. */
 export const useLeverageYieldApiPreviewWithdraw = ({
   params,
   queryOptions,

@@ -5,8 +5,7 @@ const statusCheck = vi.fn();
 const trustlineCheck = vi.fn();
 const requiresTrustline = vi.fn(() => true);
 
-// Stubbing the child hooks keeps this a DOM-free assertion on the params the gate builds —
-// the resolver itself is covered by utils/stellarGate.test.ts.
+// Stubbing the child hooks keeps this a DOM-free assertion on the params the gate builds.
 vi.mock('../sponsoring/useStellarAccountStatus.js', () => ({
   useStellarAccountStatus: (args: unknown) => statusCheck(args),
 }));
@@ -30,10 +29,7 @@ const ADDRESS = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 const idle = { isLoading: false, isError: false, data: undefined, error: null, refetch: vi.fn() };
 
-/**
- * Drive the gate with a given account-status result. An absent `walletAddress` is what
- * leaves `useStellarTrustlineCheck` disabled, so it stands in for "no Horizon read".
- */
+// An absent `walletAddress` leaves `useStellarTrustlineCheck` disabled: it stands in for "no Horizon read".
 const run = (status: unknown, overrides: Record<string, unknown> = {}) => {
   statusCheck.mockReturnValue({ ...idle, ...(status as object) });
   trustlineCheck.mockReturnValue(idle);
@@ -58,15 +54,12 @@ beforeEach(() => {
 
 describe('useStellarGate — the trustline read is gated on account existence', () => {
   it('does NOT read the trustline for an account that does not exist', () => {
-    // hasSufficientTrustline 404s on a missing account, and React Query would retry it.
     const { gate, trustlineAddress } = run({ data: { exists: false, canAffordTrustline: false } });
 
     expect(trustlineAddress).toBeUndefined();
-    // The gate still reaches the right conclusion without the trustline read.
     expect(gate.needsActivation).toBe(true);
     expect(gate.blocksAction).toBe(true);
     expect(gate.checkFailed).toBe(false);
-    // No spurious error while the UI is showing "activate".
     expect(gate.error).toBeUndefined();
   });
 

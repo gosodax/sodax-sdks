@@ -10,10 +10,6 @@ export type UseGetAutoSwapPreferencesParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch the auto-swap preferences (output token, destination chain, destination
- * address) for a given EVM address. Disabled when `queryAddress` is missing. Throws on `!ok`.
- */
 export function useGetAutoSwapPreferences({
   params,
   queryOptions,

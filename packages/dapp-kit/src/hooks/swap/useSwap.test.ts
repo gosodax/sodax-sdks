@@ -1,14 +1,4 @@
-/**
- * `useSwap` wire test for the per-action API key: `extras.apiKey` in the mutation vars must reach
- * the backend submit-tx leg as `x-api-key` — on the POST and on the status poll — beating the
- * instance-level key.
- *
- * Follows the package convention of testing hooks without a renderer (captured `mutationFn`), with
- * the SDK stubbed at the same seams its own backend 2-step tests use: `createIntent` is spied on a
- * real keyed `Sodax` so no wallet or chain is touched, while `POST /swaps/submit-tx` and
- * `GET /swaps/submit-tx/status` run call-through to a stubbed global fetch serving the schema-valid
- * fixtures from packages/sdk/src/swap/SwapService.test.ts.
- */
+// `createIntent` is spied on a real keyed `Sodax` (no wallet/chain); submit-tx calls hit a stubbed global fetch.
 
 import { ChainKeys, Sodax } from '@sodax/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

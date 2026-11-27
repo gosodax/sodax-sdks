@@ -9,11 +9,7 @@ export type UseCreateDepositParamsProps = {
   poolSpokeAssets: PoolSpokeAssets;
 };
 
-/**
- * React hook to memoize the deposit-specific subset of {@link CreateAssetDepositParams}
- * (`{ asset, amount, poolToken, dst? }`). Callers add `srcChainKey` + `srcAddress` at the mutation
- * call site.
- */
+/** Memoizes the deposit fields; callers add `srcChainKey` + `srcAddress` at mutation time. */
 export function useCreateDepositParams({
   tokenIndex,
   amount,

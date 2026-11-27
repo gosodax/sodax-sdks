@@ -4,10 +4,7 @@ type UseTradingWalletReturn = {
   tradingAddress: string | undefined;
 };
 
-/**
- * Returns the Bound Exchange trading wallet address from the persisted session.
- * Trading wallet is created automatically during authentication — no API call needed.
- */
+/** Reads the trading address from the persisted session (created during auth); no API call. */
 export function useTradingWallet(walletAddress: string | undefined): UseTradingWalletReturn {
   if (!walletAddress) return { tradingAddress: undefined };
   const session = loadRadfiSession(walletAddress);

@@ -8,18 +8,7 @@ export type UseLeverageYieldEffectiveAprParams = ReadHookParams<
   { vault: Address | undefined }
 >;
 
-/**
- * Reads a leverage-yield vault's effective APR — AAVE supply/borrow rates plus the LSD
- * staking yield, with the vault's leverage formula re-applied on the boosted supply side.
- *
- * The underlying SDK call does the on-chain reads (AAVE rates + `targetLTV`) and the
- * off-chain LSD fetch in parallel. Rates drift slowly, so the default refresh is 60s.
- *
- * @example
- * ```typescript
- * const { data: apr } = useLeverageYieldEffectiveApr({ params: { vault: vault.vault } });
- * ```
- */
+/** Vault APR: AAVE supply/borrow rates plus LSD staking yield, with the vault's leverage applied. */
 export function useLeverageYieldEffectiveApr({
   params,
   queryOptions,

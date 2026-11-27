@@ -12,18 +12,8 @@ export type UseMMAllowanceParams<K extends SpokeChainKey> = ReadHookParams<
 >;
 
 /**
- * Hook for checking token allowance / trustline sufficiency for money market operations.
- *
- * `borrow` and `withdraw` need no approval: the query stays disabled for them and `data` is seeded
- * with `true`, so callers gating on `data` are not blocked and see no `isLoading` flash.
- *
- * The query key matches the invalidation keys emitted by `useMMApprove` and the four mutation
- * hooks: `['mm', 'allowance', srcChainKey, token, action]`.
- *
- * @example
- * ```tsx
- * const { data: hasAllowance } = useMMAllowance({ params: { payload: supplyParams } });
- * ```
+ * `borrow`/`withdraw` need no approval: the query stays disabled and `data` is seeded with `true`. Query key must
+ * match the `['mm', 'allowance', srcChainKey, token, action]` invalidations from `useMMApprove` and mutations.
  */
 export function useMMAllowance<K extends SpokeChainKey>({
   params,

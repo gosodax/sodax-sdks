@@ -1,14 +1,4 @@
-/**
- * `useBridge` wire test for the per-action API key: `extras.apiKey` in the mutation vars must reach
- * the backend submit-tx leg as `x-api-key` — on the POST and on the status poll — beating the
- * instance-level key.
- *
- * Follows the package convention of testing hooks without a renderer (captured `mutationFn`), with
- * the SDK stubbed at the same seams its own backend submit-tx tests use: `createBridgeIntent` is
- * spied on a real keyed `Sodax` so no wallet or chain is touched, while `POST /bridge/submit-tx`
- * and `GET /bridge/submit-tx/status` run call-through to a stubbed global fetch serving the
- * schema-valid fixtures from packages/sdk/src/bridge/BridgeService.test.ts.
- */
+// `createBridgeIntent` is spied on a real keyed `Sodax` (no wallet/chain); submit-tx calls hit a stubbed global fetch.
 
 import { ChainKeys, Sodax } from '@sodax/sdk';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

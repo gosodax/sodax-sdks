@@ -5,10 +5,6 @@ import type { ReadHookParams } from '../shared/types.js';
 
 export type UseReservesListParams = ReadHookParams<readonly Address[]>;
 
-/**
- * React hook for fetching the list of reserve asset addresses currently registered in the
- * Sodax money market.
- */
 export function useReservesList({
   queryOptions,
 }: UseReservesListParams = {}): UseQueryResult<readonly Address[], Error> {

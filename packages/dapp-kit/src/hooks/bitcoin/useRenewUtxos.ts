@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/bitcoin/useRenewUtxos.ts
 import { normalizePsbtToBase64, type IBitcoinWalletProvider } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { loadRadfiSession } from './useRadfiAuth.js';
@@ -11,10 +10,6 @@ export type UseRenewUtxosVars = {
   walletProvider: IBitcoinWalletProvider;
 };
 
-/**
- * React hook for renewing expired UTXOs in the user's Bound Exchange trading wallet. Pure mutation: pass
- * `{ txIdVouts, walletProvider }` to `mutate({...})`.
- */
 export function useRenewUtxos({
   mutationOptions,
 }: MutationHookParams<string, UseRenewUtxosVars> = {}): SafeUseMutationResult<string, Error, UseRenewUtxosVars> {

@@ -14,13 +14,6 @@ export type UseLeverageYieldApiShareBalanceParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to get an owner's vault share (lsoda*) balance via the leverage-yield API —
- * `sodax.api.leverageYield.getShareBalance`.
- *
- * @example
- * const { data } = useLeverageYieldApiShareBalance({ params: { vault: '0x...', owner: '1000000000000000000' } });
- */
 export const useLeverageYieldApiShareBalance = ({
   params,
   queryOptions,

@@ -5,19 +5,13 @@ import { unwrapResult } from '../shared/unwrapResult.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 
-/**
- * Mutation variables for {@link useLeverageYieldApiCancelIntent}. The per-request `apiConfig` override belongs here
- * rather than at the hook level — different calls in the same component can target different
- * endpoints without re-rendering.
- */
+/** Per-call `apiConfig` so calls in one component can target different endpoints. */
 export type UseLeverageYieldApiCancelIntentVars = {
   body: CancelIntentRequestV2;
   apiConfig?: RequestOverrideConfig;
 };
 
-/**
- * React hook to build an unsigned cancel-intent transaction via the leverage-yield API — `sodax.api.leverageYield.cancelIntent`.
- */
+/** Builds an unsigned cancel-intent tx for the caller to sign and broadcast. */
 export const useLeverageYieldApiCancelIntent = ({
   mutationOptions,
 }: MutationHookParams<CancelIntentResponseV2, UseLeverageYieldApiCancelIntentVars> = {}): SafeUseMutationResult<

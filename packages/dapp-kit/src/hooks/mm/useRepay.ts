@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/mm/useRepay.ts
 import type { MoneyMarketRepayActionParams, SpokeChainKey, TxHashPair } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
@@ -8,19 +7,9 @@ import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMu
 import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/**
- * Mutation variables for {@link useRepay}. Generic over `K extends SpokeChainKey` (defaults to
- * the full union). Sophisticated callers can lock K at the hook call site to narrow the
- * `walletProvider` and `params.srcChainKey` types.
- */
 export type UseRepayVars<K extends SpokeChainKey = SpokeChainKey> = Omit<MoneyMarketRepayActionParams<K, false>, 'raw'>;
 
-/**
- * React hook for repaying a borrow in the Sodax money market protocol.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
- */
+/** Throws on SDK failure (React Query error state); resolves to the unwrapped `TxHashPair`. */
 export function useRepay<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<TxHashPair, UseRepayVars<K>> = {}): SafeUseMutationResult<TxHashPair, Error, UseRepayVars<K>> {

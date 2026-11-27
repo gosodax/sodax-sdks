@@ -47,10 +47,7 @@ function unresolved<T>(check: XrpCheckResult<T>): boolean {
   return check.isLoading || check.data === undefined;
 }
 
-/**
- * Resolve the XRPL destination prerequisites for an issued token. Native XRP and other chains pass through:
- * the SDK still refuses an unreceivable payout before signing. Unknown states fail closed.
- */
+/** Native XRP and other chains pass through: the SDK still refuses an unreceivable payout before signing. Unknown states fail closed. */
 export function resolveXrpGate(chainKey: SpokeChainKey | undefined, inputs: XrpGateInputs): XrpGateState {
   const { readinessCheck, reserveCheck, requiresTrustline } = inputs;
   if (chainKey !== ChainKeys.XRP_MAINNET || !requiresTrustline) return NOT_XRP_ISSUED_TOKEN;

@@ -13,13 +13,7 @@ export type UseLeverageYieldApiEstimateGasParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to estimate gas for a raw transaction on a spoke chain via the leverage-yield API —
- * `sodax.api.leverageYield.estimateGas`. Returns `{ gas }` (chain-specific shape).
- *
- * @example
- * const { data } = useLeverageYieldApiEstimateGas({ params: { body: { chainKey: 'sonic', tx: {...} } } });
- */
+/** Returns `{ gas }` in a chain-specific shape. */
 export const useLeverageYieldApiEstimateGas = ({
   params,
   queryOptions,

@@ -9,22 +9,8 @@ export type UseLeveragePositionPendingParams = ReadHookParams<
 >;
 
 /**
- * A position's operation slot: what it recorded, whether that intent is still live, and whether it
- * is stuck resolved-but-unswept.
- *
- * Gate leverage controls on `isLive` — a position permits one intent at a time, so offering a button
- * that can only revert is worse than disabling it. Offer a settle on `needsSettle`: that is the state
- * where the intent is gone but the position still holds the grant and any contribution, and it is
- * invisible from `isLive` alone.
- *
- * Polled, because both change without the user acting: a solver fills, or the intent expires. The
- * interval sits well inside the 5-minute intent deadline so a resolution shows up while it matters.
- *
- * @example
- * ```typescript
- * const { data: slot } = useLeveragePositionPending({ params: { position } });
- * if (slot?.needsSettle) offerSettle();
- * ```
+ * A position's operation slot. Gate controls on `isLive` (one intent at a time); offer settle on `needsSettle`.
+ * Polled well inside the 5-minute intent deadline since fills/expiry happen without user action.
  */
 export function useLeveragePositionPending({
   params,

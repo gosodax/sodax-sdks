@@ -5,19 +5,7 @@ import type { ReadHookParams } from '../shared/types.js';
 
 export type UseLeverageYieldPositionParams = ReadHookParams<LeverageYieldPosition, { vault: Address | undefined }>;
 
-/**
- * Reads a leverage-yield vault's live position snapshot via the vault's `getPositionDetails`:
- * collateral, debt, current LTV (drift vs `targetLTV`), health factor (∞ when no debt), and
- * idle (not-yet-deployed) asset.
- *
- * LTV shifts with each rebalance/rate tick, so the default refresh (30s) is faster than the
- * APR/stats reads.
- *
- * @example
- * ```typescript
- * const { data: position } = useLeverageYieldPosition({ params: { vault: vault.vault } });
- * ```
- */
+/** Vault position snapshot (`getPositionDetails`); health factor is ∞ when there is no debt. */
 export function useLeverageYieldPosition({
   params,
   queryOptions,

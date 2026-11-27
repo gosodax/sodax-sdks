@@ -13,14 +13,6 @@ export type UseSwapsApiFilledIntentParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to get the on-chain fill state for an intent by its hub-chain tx hash via the swaps
- * API — `sodax.api.swaps.getFilledIntent`. Returns
- * `{ exists, remainingInput, receivedOutput, pendingPayment }`.
- *
- * @example
- * const { data: fill } = useSwapsApiFilledIntent({ params: { txHash: '0x123...' } });
- */
 export const useSwapsApiFilledIntent = ({
   params,
   queryOptions,

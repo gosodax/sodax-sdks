@@ -19,21 +19,7 @@ export type UseLeverageYieldApiWithdrawQuoteParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to quote a swap-style leverage-yield withdraw (lsoda* shares → any token) via the
- * leverage-yield API — `sodax.api.leverageYield.getWithdrawQuote`. Pass `query.includeTxData = true`
- * to also build the unsigned transaction (`srcAddress`/`dstAddress` then required in the body).
- *
- * @example
- * const { data: quote } = useLeverageYieldApiWithdrawQuote({
- *   params: {
- *     body: {
- *       vault: '0x...', srcChainKey: 'sonic', tokenDst: '0x...', tokenDstChainKey: '0xa4b1.arbitrum',
- *       amount: '1000000000000000000', quoteType: 'exact_input',
- *     },
- *   },
- * });
- */
+/** `query.includeTxData = true` also builds the unsigned tx and requires `srcAddress`/`dstAddress` in the body. */
 export const useLeverageYieldApiWithdrawQuote = ({
   params,
   queryOptions,

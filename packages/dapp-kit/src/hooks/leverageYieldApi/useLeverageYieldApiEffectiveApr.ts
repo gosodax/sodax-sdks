@@ -13,13 +13,7 @@ export type UseLeverageYieldApiEffectiveAprParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch the honest combined AAVE + LSD effective APR for a leverage-yield vault via the leverage-yield API —
- * `sodax.api.leverageYield.getEffectiveApr`.
- *
- * @example
- * const { data } = useLeverageYieldApiEffectiveApr({ params: { vault: '0x...' } });
- */
+/** Combined AAVE + LSD effective APR. */
 export const useLeverageYieldApiEffectiveApr = ({
   params,
   queryOptions,

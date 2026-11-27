@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/swap/useCancelLimitOrder.ts
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import type { GetWalletProviderType, Intent, SpokeChainKey, TxHashPair } from '@sodax/sdk';
 import type { MutationHookParams } from '../shared/types.js';
@@ -12,12 +11,7 @@ type CancelLimitOrderParams<K extends SpokeChainKey = SpokeChainKey> = {
   timeout?: number;
 };
 
-/**
- * React hook for cancelling a limit-order intent.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
- */
+/** Throws on SDK failure; resolves to the unwrapped `TxHashPair`. */
 export function useCancelLimitOrder({
   mutationOptions,
 }: MutationHookParams<TxHashPair, CancelLimitOrderParams> = {}): SafeUseMutationResult<

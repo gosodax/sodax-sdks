@@ -15,13 +15,8 @@ export type UseSwapApprovalStrategyParams<K extends SpokeChainKey = SpokeChainKe
 >;
 
 /**
- * Which approval path {@link useSwapWithApproval} would take for this swap: `'not-required'`,
- * `'atomic-batch'` (approve + swap in one EIP-5792 signature) or `'sequential'` (approve, then
- * swap). Use it to label the swap button before the user clicks. Pass the same `allowAccountUpgrade`
- * you give the swap.
- *
- * Not polled: `useSwapWithApproval` invalidates it after a successful swap, and the swap itself
- * re-reads the strategy at execution, so a stale label never picks the wrong path.
+ * Predicts the approval path {@link useSwapWithApproval} will take; pass the same `allowAccountUpgrade`.
+ * Not polled: the swap re-reads the strategy at execution, so a stale label never picks the wrong path.
  */
 export function useSwapApprovalStrategy<K extends SpokeChainKey = SpokeChainKey>({
   params,

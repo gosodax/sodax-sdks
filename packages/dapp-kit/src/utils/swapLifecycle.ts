@@ -26,21 +26,7 @@ export type SwapSetupReason =
   | 'xrpCheckFailed'
   | 'external';
 
-/**
- * Where a swap form stands, discriminated on `kind`. `useSwapLifecycle`'s `next()` acts on it.
- *
- * - `checking` — waiting before anything can be done: a gate or the approval strategy is still reading, or a
- *   setup tx (activation, trustline, NEAR storage) is in flight or its check is refreshing.
- * - `submitting` — the swap call is in flight: signing, and on the default backend path settlement too.
- * - `pending` — the source tx status is being read, or a recovery handle is waiting for identification.
- *   `error` is set when the swap call
- *   failed after broadcast, or when the status read cannot recover (a rejected API key); the swap may
- *   still complete either way. The read can also stop polling without an error (after its budget of
- *   ambiguous reads), so keep `reset()` reachable here.
- * - `unconfirmed` — the wallet accepted an approve + swap batch that was not confirmed in time. It may
- *   still land, so `next()` never sends it again: it waits for that batch and finishes the swap once it
- *   lands. `reset()` stops tracking it.
- */
+/** Where a swap form stands, discriminated on `kind`; `useSwapLifecycle`'s `next()` acts on it. */
 export type SwapLifecycleState =
   | { kind: 'idle' }
   | { kind: 'checking' }
@@ -48,8 +34,10 @@ export type SwapLifecycleState =
   | { kind: 'needsSetup'; reason: SwapSetupReason }
   | { kind: 'ready'; approvalStrategy: SwapApprovalStrategy }
   | { kind: 'submitting' }
+  // `error`: failed after broadcast or unrecoverable status read; may still complete, and polling can stop silently, so keep `reset()` reachable.
   | { kind: 'pending'; srcChainKey: SpokeChainKey; srcTxHash: string; error?: Error }
   | { kind: 'pending'; srcChainKey: SpokeChainKey; srcTxHash?: never; recovery: unknown; error: Error }
+  // A wallet-accepted approve + swap batch not confirmed in time: may still land, so `next()` waits for it instead of resending.
   | { kind: 'unconfirmed'; batchId: string; callCount?: number; error: Error }
   | { kind: 'settled'; srcChainKey: SpokeChainKey; srcTxHash: string; fillTxHash?: Hex }
   | { kind: 'failed'; error: Error; srcChainKey?: SpokeChainKey; srcTxHash?: string };
@@ -109,12 +97,8 @@ export function isSameIntent(a: CreateIntentParams, b: CreateIntentParams): bool
   );
 }
 
-/**
- * The attempt the lifecycle tracks. A swap in flight, or one that may still land (a failure after
- * broadcast, which keeps its source tx from `error.context.srcTxHash`, or an unconfirmed batch), counts
- * until `reset()` whatever the params, so a param edit cannot re-enable the button and swap twice. A
- * completed or never-sent swap counts only while it is for the current params.
- */
+/** A swap in flight or one that may still land counts until `reset()` whatever the params, so a param edit cannot
+ * re-enable the button and swap twice; a completed or never-sent swap counts only for the current params. */
 export function toSwapAttempt(mutation: SwapAttemptSource, intentParams: CreateIntentParams | undefined): SwapAttempt {
   if (mutation.status === 'pending') return { phase: 'submitting' };
   const attempted = mutation.variables?.params;
@@ -149,11 +133,8 @@ function toFinishedAttempt(mutation: SwapAttemptSource, attempted: CreateIntentP
   return { phase: 'failed', error };
 }
 
-/**
- * Derives the lifecycle state. Order: an attempt in flight or broadcast wins; then missing inputs;
- * then destination prerequisites (Stellar, NEAR, XRPL, app-owned); then the source chain; then the
- * approval strategy. Pure — `useSwapLifecycle` feeds it from its sub-hooks.
- */
+/** Order: an attempt in flight or broadcast wins; then missing inputs; then destination prerequisites (Stellar, NEAR,
+ * XRPL, app-owned); then the source chain; then the approval strategy. */
 export function resolveSwapLifecycle(inputs: SwapLifecycleInputs): SwapLifecycleState {
   const { attempt, status } = inputs;
   if (attempt.phase === 'submitting') return { kind: 'submitting' };

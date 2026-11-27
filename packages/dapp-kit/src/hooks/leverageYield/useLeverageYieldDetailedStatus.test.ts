@@ -2,14 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SodaxError, SolverIntentStatusCode } from '@sodax/sdk';
 import { MAX_NOT_FOUND_POLLS, STATUS_POLL_MS } from '../shared/notFoundStreak.js';
 
-/**
- * Pins the WIRING the pure-policy test cannot see: the hook must pass the read into the policy and
- * advance the budget once per query update. Feeding the policy the wrong argument reproduces a poll
- * that never stops, with the policy's own tests still green.
- *
- * No renderer, per the package convention (see `_apiKeyWire.test.ts`): the React Query wrapper is
- * mocked so the captured options bag can be driven directly.
- */
+// Pins hook-to-policy wiring the pure-policy test cannot see; React Query is mocked to drive the options bag directly.
 
 // The captured options bag is opaque, like the real wrapper's.
 let captured: any;
@@ -17,8 +10,7 @@ let captured: any;
 const refSlots: Array<{ current: unknown }> = [];
 let refCursor = 0;
 
-// Only useRef is needed, and call order is stable, so this replays React's slot semantics well
-// enough to observe the budget across refetchInterval calls.
+// Replays React's useRef slot semantics (stable call order) to observe the budget across calls.
 vi.mock('react', () => ({
   useRef: (initial: unknown) => {
     const slot = refSlots[refCursor] ?? { current: initial };
@@ -93,9 +85,7 @@ describe('useLeverageYieldDetailedStatus wiring', () => {
   it('stops outright on a rejected API key, without spending the budget', () => {
     refSlots.length = 0;
     render();
-    // A real SodaxError, not a shaped literal: `isAuthFailure` goes through `isSodaxError`, which
-    // checks the instance. The SDK returns 401/403 as a Result, so React Query never sees an error
-    // to withhold a retry from — the policy is the only thing that can stop this poll.
+    // Must be a real SodaxError: `isAuthFailure` checks the instance via `isSodaxError`.
     const rejected = {
       ok: false,
       error: new SodaxError('LOOKUP_FAILED', 'rejected', { feature: 'leverageYield', context: { status: 401 } }),
@@ -122,7 +112,6 @@ describe('useLeverageYieldDetailedStatus wiring', () => {
     for (let update = 1; update <= MAX_NOT_FOUND_POLLS - 1; update++) {
       captured.refetchInterval({ state: { data: notFound, dataUpdateCount: update } });
     }
-    // One real answer in between clears the streak, so the next miss starts from zero.
     captured.refetchInterval({
       state: { data: solverRead(SolverIntentStatusCode.NOT_STARTED_YET), dataUpdateCount: 40 },
     });

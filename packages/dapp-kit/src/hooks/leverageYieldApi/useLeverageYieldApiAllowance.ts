@@ -13,14 +13,7 @@ export type UseLeverageYieldApiAllowanceParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to check whether the deposit input-token allowance is already sufficient for an intent
- * via the leverage-yield API — `sodax.api.leverageYield.checkAllowance`. Returns `{ valid }`.
- * (Withdraw needs no spoke allowance — it spends lsoda* from the hub wallet.)
- *
- * @example
- * const { data: allowance } = useLeverageYieldApiAllowance({ params: { body: depositIntentParams } });
- */
+/** Deposit-only: a withdraw needs no spoke allowance (it spends lsoda* from the hub wallet). */
 export const useLeverageYieldApiAllowance = ({
   params,
   queryOptions,

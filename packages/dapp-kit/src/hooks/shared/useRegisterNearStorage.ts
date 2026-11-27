@@ -12,16 +12,7 @@ export type UseRegisterNearStorageVars = {
   deposit?: bigint;
 };
 
-/**
- * Submit a NEP-141 `storage_deposit` so `accountId` can receive `token` on NEAR. NEAR's analogue of
- * requesting a Stellar trustline; pair with {@link useNearStorageCheck} and call this when the check
- * resolves to `false`. The recipient's NEAR wallet signs the registration tx.
- *
- * Pure mutation: pass `{ token, accountId, walletProvider }` to `mutate(...)`. The hook itself only
- * takes the structural `mutationOptions` slot. `registerStorage` throws natively (no `Result<T>`),
- * so this hook is registered as `nativeThrow` in the mutation contract. On success it invalidates
- * the matching {@link useNearStorageCheck} query.
- */
+/** NEP-141 `storage_deposit` so `accountId` can receive `token` on NEAR; the recipient's wallet signs. */
 export function useRegisterNearStorage({
   mutationOptions,
 }: MutationHookParams<string, UseRegisterNearStorageVars> = {}): SafeUseMutationResult<
@@ -34,6 +25,7 @@ export function useRegisterNearStorage({
   return useSafeMutation<string, Error, UseRegisterNearStorageVars>({
     mutationKey: ['shared', 'registerNearStorage'],
     ...mutationOptions,
+    // `registerStorage` throws natively (no Result), hence `nativeThrow` in the mutation contract.
     mutationFn: async ({ token, accountId, walletProvider, deposit }) =>
       sodax.spoke.near.registerStorage({ token, accountId, walletProvider, deposit, raw: false }),
     onSuccess: async (data, vars, ctx) => {

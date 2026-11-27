@@ -13,13 +13,7 @@ export type UseLeverageYieldApiIntentPacketParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to long-poll the relayer until the fill packet lands on the destination chain via the
- * leverage-yield API — `sodax.api.leverageYield.getSolvedIntentPacket`.
- *
- * @example
- * const { data } = useLeverageYieldApiIntentPacket({ params: { body: { chainId: 'sonic', fillTxHash: '0x...' } } });
- */
+/** Long-polls the relayer until the fill packet lands on the destination chain. */
 export const useLeverageYieldApiIntentPacket = ({
   params,
   queryOptions,

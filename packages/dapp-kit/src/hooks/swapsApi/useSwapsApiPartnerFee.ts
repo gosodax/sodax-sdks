@@ -13,13 +13,6 @@ export type UseSwapsApiPartnerFeeParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to compute the partner fee for a given input amount via the swaps API —
- * `sodax.api.swaps.getPartnerFee`. Returns `{ fee }` (decimal string).
- *
- * @example
- * const { data } = useSwapsApiPartnerFee({ params: { amount: '1000000' } });
- */
 export const useSwapsApiPartnerFee = ({
   params,
   queryOptions,

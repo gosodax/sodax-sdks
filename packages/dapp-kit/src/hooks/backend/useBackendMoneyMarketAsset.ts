@@ -11,12 +11,6 @@ export type UseBackendMoneyMarketAssetParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch a specific money market asset from the backend API.
- *
- * @example
- * const { data: asset } = useBackendMoneyMarketAsset({ params: { reserveAddress: '0xabc...' } });
- */
 export const useBackendMoneyMarketAsset = ({
   params,
   queryOptions,

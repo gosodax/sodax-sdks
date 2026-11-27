@@ -5,19 +5,13 @@ import { unwrapResult } from '../shared/unwrapResult.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 
-/**
- * Mutation variables for {@link useLeverageYieldApiSubmitTx}. The per-request `apiConfig` override belongs here
- * rather than at the hook level — different calls in the same component can target different
- * endpoints without re-rendering.
- */
+/** Per-call `apiConfig` so calls in one component can target different endpoints. */
 export type UseLeverageYieldApiSubmitTxVars = {
   request: LeverageYieldSubmitTxRequestV2;
   apiConfig?: RequestOverrideConfig;
 };
 
-/**
- * React hook to submit a vault-swap transaction to be processed (relay, post-execution, etc.) via the leverage-yield API — `sodax.api.leverageYield.submitTx`.
- */
+/** Submits a vault-swap tx for backend processing (relay, post-execution). */
 export const useLeverageYieldApiSubmitTx = ({
   mutationOptions,
 }: MutationHookParams<SubmitTxResponseV2, UseLeverageYieldApiSubmitTxVars> = {}): SafeUseMutationResult<

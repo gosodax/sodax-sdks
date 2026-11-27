@@ -9,19 +9,8 @@ export type UseLeveragePositionAccountParams = ReadHookParams<
 >;
 
 /**
- * Reads the live AAVE account snapshot for a leverage position — collateral, debt, LTV and
- * health factor.
- *
- * The figures come from the pool's `getUserAccountData`, not from the position contract,
- * which keeps no accounting of its own. Health factor is WAD (1e18); below 1e18 the position
- * is liquidatable, and there is no keeper deleveraging on the owner's behalf, so this is the
- * number a UI should surface most prominently. Debt accrues continuously, hence the 30s
- * default refresh.
- *
- * @example
- * ```typescript
- * const { data: account } = useLeveragePositionAccount({ params: { position } });
- * ```
+ * Live AAVE account snapshot (pool `getUserAccountData`). Health factor is WAD; below 1e18 the position
+ * is liquidatable with no keeper to deleverage it. Polled every 30s since debt accrues continuously.
  */
 export function useLeveragePositionAccount({
   params,

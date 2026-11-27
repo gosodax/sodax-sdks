@@ -1,10 +1,4 @@
-/**
- * The bridge API can return two approval transactions, and the second is only a valid state
- * transition once the first has been mined. That ordering is what this hook exists to own.
- *
- * Follows the package convention of testing hooks without a renderer: the React Query wrapper is
- * mocked so `mutationFn` can be captured and driven directly.
- */
+// A second approval tx is only valid once the first is mined; this hook exists to own that ordering.
 
 import { ChainKeys } from '@sodax/sdk';
 import type { ApprovalProgress } from '../../utils/approvalPlan.js';
@@ -38,10 +32,7 @@ const APPROVE_HASH = '0xapprove-hash';
 
 const body = (srcChainKey: string) => ({ srcChainKey, inputToken: '0xtoken', inputAmount: '1' });
 
-/**
- * Records the interleaving of sends and waits so ordering can be asserted, not assumed.
- * `onWait` either throws (the receipt never arrives) or returns the mined status.
- */
+/** Records send/wait interleaving; `onWait` throws (receipt never arrives) or returns the mined status. */
 function evmProvider(calls: string[], onWait?: (hash: string) => string | void) {
   return {
     sendTransaction: vi.fn(async (tx: { data: string }) => {
@@ -59,10 +50,8 @@ const onEvent = (sink: ApprovalProgress[]) => (progress: ApprovalProgress) => {
   sink.push(progress);
 };
 
-/** Compact rendering, so a sequence can be asserted as one readable list. */
 const trace = (p: ApprovalProgress): string => `${p.step}:${p.phase}:${p.index}/${p.total}`;
 
-/** One render, then the captured `mutationFn` invoked with `vars`. */
 // biome-ignore lint/suspicious/noExplicitAny: vars mirror the hook's generic mutation variables.
 const run = (vars: any) => {
   useBridgeApiApproveAndBroadcast();

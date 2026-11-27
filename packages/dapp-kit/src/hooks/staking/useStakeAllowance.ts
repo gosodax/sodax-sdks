@@ -11,11 +11,7 @@ export type UseStakeAllowanceParams<K extends SpokeChainKey = SpokeChainKey> = R
   }
 >;
 
-/**
- * React hook to check whether the user has approved sufficient SODA spending for the stake
- * action. Read-only — calls `staking.isAllowanceValid` with `raw: true` so no `walletProvider`
- * is required.
- */
+/** Read-only (`raw: true`), so no `walletProvider` is needed. */
 export function useStakeAllowance<K extends SpokeChainKey = SpokeChainKey>({
   params,
   queryOptions,

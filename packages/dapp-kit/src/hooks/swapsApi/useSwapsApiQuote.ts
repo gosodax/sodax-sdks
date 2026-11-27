@@ -14,26 +14,7 @@ export type UseSwapsApiQuoteParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to get a solver quote for a cross-chain swap via the swaps API —
- * `sodax.api.swaps.getQuote`. Pass `query.includeTxData = true` to also build an unsigned
- * create-intent transaction (`txData`); `srcAddress`/`dstAddress` are then required in the body.
- *
- * @example
- * const { data: quote } = useSwapsApiQuote({
- *   params: {
- *     body: {
- *       tokenSrc: '0x...', tokenSrcChainKey: '0xa4b1.arbitrum',
- *       tokenDst: '0x...', tokenDstChainKey: 'sonic',
- *       amount: '1000000', quoteType: 'exact_input',
- *       partnerFee: { address: '0xSonicFeeReceiver', percentage: 10 },
- *     },
- *     // Optional per-request override of the configured backend API key (`x-api-key`);
- *     // usually set once instead via new Sodax({ apiKey }).
- *     apiConfig: { apiKey: 'partner-api-key' },
- *   },
- * });
- */
+/** `query.includeTxData` also builds the unsigned create-intent tx; `srcAddress`/`dstAddress` are then required. */
 export const useSwapsApiQuote = ({
   params,
   queryOptions,
@@ -44,10 +25,7 @@ export const useSwapsApiQuote = ({
   const apiConfig = params?.apiConfig;
 
   return useQuery({
-    // Hash the whole request body so every quote input — including partnerFee and the other
-    // SwapExtrasV2 fields — is a cache dimension; a partnerFee change alters the quote and must
-    // miss the cache. QuoteRequestV2 is bigint-free (compile-time guaranteed), so React Query's
-    // default key hashing handles the object directly.
+    // Key on the whole (bigint-free) body so every input, e.g. partnerFee, is a cache dimension.
     queryKey: ['swapsApi', 'quote', body, query?.includeTxData ?? false],
     queryFn: async (): Promise<QuoteResponseV2 | undefined> => {
       if (!body) return undefined;

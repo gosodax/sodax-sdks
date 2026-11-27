@@ -8,18 +8,7 @@ export type UseLeverageYieldPreviewRedeemParams = ReadHookParams<
   { vault: Address | undefined; shares: bigint | undefined }
 >;
 
-/**
- * Reads the assets received for redeeming `shares` of a leverage-yield vault (ERC-4626
- * `previewRedeem`). Passing `10n ** 18n` (one share) yields the per-share price that creeps
- * up as the vault accrues interest. Moves slowly, so the default refresh is 60s.
- *
- * @example
- * ```typescript
- * const { data: sharePrice } = useLeverageYieldPreviewRedeem({
- *   params: { vault: vault.vault, shares: 10n ** 18n },
- * });
- * ```
- */
+/** ERC-4626 `previewRedeem`; pass `10n ** 18n` (one share) for the per-share price. */
 export function useLeverageYieldPreviewRedeem({
   params,
   queryOptions,

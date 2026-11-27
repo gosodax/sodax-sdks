@@ -6,8 +6,7 @@ const reserveCheck = vi.fn();
 const establish = vi.fn();
 const requiresTrustline = vi.fn(() => true);
 
-// Stubbing the child hooks keeps this a DOM-free assertion on the params the gate builds;
-// the resolver itself is covered by utils/xrpGate.test.ts.
+// Stubbing the child hooks keeps this a DOM-free assertion on the params the gate builds.
 vi.mock('./useXrpDestinationCheck.js', () => ({
   useXrpDestinationCheck: (args: unknown) => destinationCheck(args),
 }));
@@ -99,7 +98,6 @@ describe('useXrpGate', () => {
     const { gate } = run({ ready: false, reason: 'trustline_limit' });
 
     await expect(gate.requestTrustline()).resolves.toEqual({ ok: true, value: 'hash' });
-    // The checked recipient travels with the request, so the mutation can refuse another connected account.
     expect(establish).toHaveBeenCalledWith({ token: TOKEN, address: ADDRESS, walletProvider: XRP_WALLET });
 
     establish.mockReset();

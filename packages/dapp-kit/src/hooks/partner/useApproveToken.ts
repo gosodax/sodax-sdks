@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/partner/useApproveToken.ts
 import type { FeeTokenApproveAction, HubChainKey, TxReturnType } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
@@ -10,12 +9,7 @@ export type UseApproveTokenVars = Omit<FeeTokenApproveAction<HubChainKey, false>
 
 type ApproveTokenData = TxReturnType<HubChainKey, false>;
 
-/**
- * React hook to approve a token to the protocol-intents contract on Sonic with max allowance.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped tx return value on success.
- */
+/** Approves max allowance to the protocol-intents contract on Sonic. */
 export function useApproveToken({
   mutationOptions,
 }: MutationHookParams<ApproveTokenData, UseApproveTokenVars> = {}): SafeUseMutationResult<

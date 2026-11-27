@@ -16,10 +16,7 @@ export type UsePositionInfoParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch a CL position by NFT token id and validate it against an expected pool key.
- * Reads via the hub `publicClient`. Disabled when `tokenId` or `poolKey` is missing.
- */
+/** Validates the position against the expected pool key; disabled when `tokenId` or `poolKey` is missing. */
 export function usePositionInfo({
   params,
   queryOptions,

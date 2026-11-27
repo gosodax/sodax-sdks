@@ -20,10 +20,6 @@ export type UsePoolBalancesParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to query the user's hub-side deposit balances for both pool tokens. Derives the hub
- * wallet once and reads both pool-token balances in parallel via the hub `publicClient`.
- */
 export function usePoolBalances({
   params,
   queryOptions,

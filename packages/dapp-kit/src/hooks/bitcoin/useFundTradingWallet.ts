@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/bitcoin/useFundTradingWallet.ts
 import { useQueryClient } from '@tanstack/react-query';
 import { ChainKeys, type IBitcoinWalletProvider } from '@sodax/sdk';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
@@ -11,11 +10,6 @@ export type UseFundTradingWalletVars = {
   walletProvider: IBitcoinWalletProvider;
 };
 
-/**
- * React hook for funding the user's Bound Exchange trading wallet from their personal Bitcoin wallet.
- * Pure mutation: pass `{ amount, walletProvider }` to `mutate({...})`. Returns the broadcast tx
- * id on success.
- */
 export function useFundTradingWallet({
   mutationOptions,
 }: MutationHookParams<string, UseFundTradingWalletVars> = {}): SafeUseMutationResult<

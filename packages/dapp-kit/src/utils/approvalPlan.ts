@@ -57,21 +57,12 @@ type ChainSender = {
 /** Reads better than the id inside an error sentence. */
 const stepLabel = (step: ApprovalStepId): string => (step === 'allowance-reset' ? 'allowance reset' : 'approve');
 
-/**
- * `EvmRawTransactionReceipt.status` is documented as the JSON-RPC hex flag, but `EvmWalletProvider`
- * passes viem's `'reverted'` through unchanged, so both spellings reach here. A receipt without a
- * status is pre-Byzantium and inconclusive — not a revert.
- */
+/** Matches both the JSON-RPC hex flag and viem's `'reverted'`, which `EvmWalletProvider` passes through unchanged.
+ * A missing status is pre-Byzantium and inconclusive, not a revert. */
 const isRevertedEvmReceiptStatus = (status: string | undefined): boolean => status === 'reverted' || status === '0x0';
 
-/**
- * How to send and confirm on the chains a SODAX approve route can act on — the hub (Sonic), EVM
- * spokes, and Stellar. Every other chain reports its allowance as always sufficient, so approval
- * never runs for it.
- *
- * Resolved once, before anything is sent: an unsupported chain or a Stellar wallet that cannot sign
- * then fails without first asking the user for a signature that could never be broadcast.
- */
+/** Resolved before anything is sent, so an unsupported chain or a Stellar wallet that cannot sign fails
+ * without prompting for a signature that could never be broadcast. */
 function resolveChainSender(
   srcChainKey: SpokeChainKey,
   walletProvider: GetWalletProviderType<SpokeChainKey>,
@@ -79,9 +70,7 @@ function resolveChainSender(
 ): ChainSender {
   const fail = (message: string): Error => new Error(`[${hookName}] ${message}`);
 
-  // Single SDK-exported source for "which chains support approval" — the same partition
-  // SpokeService's approve-params guards resolve to, so a chain added there isn't silently
-  // missed here too.
+  // Same SDK partition SpokeService's approve guards use, so a newly added chain isn't missed here.
   if (!isApprovalSupportedChainKeyType(srcChainKey)) {
     throw fail(
       `${srcChainKey} cannot be approved — SODAX approve routes support the hub (Sonic), EVM spokes, and Stellar.`,
@@ -92,8 +81,7 @@ function resolveChainSender(
     const evm = walletProvider as IEvmWalletProvider;
 
     return {
-      // Chain-bind the send: the wallet broadcasts on ITS active chain, so refuse when that differs
-      // from the srcChainKey the user asked for. (Verifying the tx CONTENT is a separate concern.)
+      // Chain-bind the send: the wallet broadcasts on ITS active chain, so refuse when it differs from srcChainKey.
       send: raw => evm.sendTransaction(raw as EvmRawTransaction, { expectedChainId: getEvmViemChain(srcChainKey).id }),
       confirm: async (hash, step) => {
         const receipt = await evm.waitForTransactionReceipt(hash as Hex);
@@ -124,25 +112,14 @@ function resolveChainSender(
     };
   }
 
-  // Unreachable: isApprovalSupportedChainKeyType above already confirmed srcChainKey is hub, EVM-spoke,
-  // or Stellar, and the two branches above cover all three — kept only to satisfy TypeScript's
-  // return-path check (the guard is a plain boolean, so it doesn't narrow srcChainKey's type here).
+  // Unreachable: the boolean guard above doesn't narrow srcChainKey, so TypeScript needs this return path.
   throw fail(
     `${srcChainKey} cannot be approved — SODAX approve routes support the hub (Sonic), EVM spokes, and Stellar.`,
   );
 }
 
-/**
- * Broadcasts an approval plan in the only order that can work: `resetTx` mined first, then the
- * approve, which is not a valid state transition until the allowance has been zeroed on-chain.
- *
- * Not a pure helper like its neighbours here — it signs and sends through the caller's wallet
- * provider — but it is framework-free, and shared by the swaps and bridge approve-and-broadcast
- * hooks so the ordering is not re-derived per feature. `hookName` prefixes the errors.
- *
- * `onProgress` reports which transaction the user is being prompted for — `isPending` alone cannot
- * say whether a popup is the reset or the approve.
- */
+/** Broadcasts `resetTx` and waits for it to be mined before the approve, which is invalid until the allowance is zeroed.
+ * `hookName` prefixes errors; `onProgress` says which tx the wallet is prompting for. */
 export async function runApprovalPlan({
   plan,
   srcChainKey,

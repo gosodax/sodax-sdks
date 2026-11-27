@@ -24,30 +24,9 @@ export type UseLeverageYieldApiApproveAndBroadcastVars<K extends SpokeChainKey =
 };
 
 /**
- * React hook that runs the whole leverage-yield-API deposit approval: asks the API for the
- * transactions, then signs, broadcasts, and waits for each one. (Only a deposit needs a spoke
- * allowance — a withdraw spends `lsoda*` from the hub wallet.)
- *
- * Prefer this over {@link useLeverageYieldApiApprove}, which hands back the unsigned
- * `{ tx, resetTx? }` and leaves the ordering — reset mined first, then approve — to the caller. A
- * deposit token of the 2017 TetherToken lineage rejects an allowance change from one non-zero value
- * to another, so broadcasting the approve without the reset spends the user's gas on a transaction
- * that is certain to revert. Confirmation happens inside the hook, so it invalidates
- * `['leverageYieldApi','allowance']` itself — after waiting up to about 15 seconds for the API to report
- * the allowance as valid, since its RPC can trail the node that confirmed the approve. It resolves after
- * that wait either way, so read the allowance rather than treating success as `valid`.
- *
- * Supports the chains the leverage-yield API can approve on — the hub (Sonic), EVM spokes, and
- * Stellar. Every other chain reports its allowance as always sufficient, so approval never runs.
- *
- * `onProgress` reports each transaction as `{ step, phase, index, total }`, so the UI can name the
- * wallet prompt the user is looking at instead of one flat "Approving…" across two signatures.
- *
- * @example
- * const { mutateAsyncSafe: approve } = useLeverageYieldApiApproveAndBroadcast();
- * const result = await approve({ body: depositIntentParams, walletProvider, onProgress: setStep });
- * if (!result.ok) return;
- * const { resetTxHash, approveTxHash } = result.value;   // resetTxHash only on a guarded token
+ * Signs and confirms the deposit approval plan, mining the reset before the approve (USDT-lineage tokens revert).
+ * Resolves after waiting up to ~15s for the API allowance to turn valid, valid or not: read the allowance.
+ * Approval runs only on the hub, EVM spokes and Stellar; other chains report the allowance as always sufficient.
  */
 export const useLeverageYieldApiApproveAndBroadcast = <K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
@@ -79,8 +58,7 @@ export const useLeverageYieldApiApproveAndBroadcast = <K extends SpokeChainKey =
       return hashes;
     },
     onSuccess: async (data, vars, ctx) => {
-      // Awaited: the mutation must not resolve — re-enabling Approve — before the allowance query
-      // has actually refetched, or a stale cached `valid: false` re-enables a duplicate approval.
+      // Awaited so a stale cached `valid: false` cannot re-enable Approve before the refetch lands.
       await queryClient.invalidateQueries({ queryKey: ['leverageYieldApi', 'allowance'] });
       await mutationOptions?.onSuccess?.(data, vars, ctx);
     },

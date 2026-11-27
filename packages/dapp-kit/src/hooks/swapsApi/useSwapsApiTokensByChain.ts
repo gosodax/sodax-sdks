@@ -13,13 +13,6 @@ export type UseSwapsApiTokensByChainParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch supported swap tokens for a single SpokeChainKey via the swaps API —
- * `sodax.api.swaps.getTokensByChain`.
- *
- * @example
- * const { data: tokens } = useSwapsApiTokensByChain({ params: { chainKey: '0xa4b1.arbitrum' } });
- */
 export const useSwapsApiTokensByChain = ({
   params,
   queryOptions,

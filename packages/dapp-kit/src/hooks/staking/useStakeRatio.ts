@@ -9,10 +9,7 @@ export type UseStakeRatioParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to estimate the SODA → xSODA stake ratio for a given amount. Hub-only read. Throws
- * on `!ok`.
- */
+/** Throws on `!ok`. */
 export function useStakeRatio({
   params,
   queryOptions,

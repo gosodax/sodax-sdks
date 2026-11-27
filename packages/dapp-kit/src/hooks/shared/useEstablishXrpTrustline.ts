@@ -8,17 +8,15 @@ import { useSodaxContext } from './useSodaxContext.js';
 import { unwrapResult } from './unwrapResult.js';
 
 export type UseEstablishXrpTrustlineVars = {
-  /** The XRPL issued token to hold. */
   token: string;
-  /** The account that needs the trustline. When set, the mutation refuses a wallet connected to another account. */
+  /** When set, the mutation refuses a wallet connected to another account. */
   address?: string;
   walletProvider: IXrpWalletProvider;
 };
 
 /**
- * Create the XRPL trustline the connected account needs to hold `token`, or raise its limit. Resolves to the
- * TrustSet hash once it validates. The account pays its fee and, unless the ledger waives it, an owner reserve: check with
- * {@link useXrpTrustlineReserveCheck}, or use {@link useXrpGate}, before asking the user to sign.
+ * Creates or raises the XRPL trustline; resolves to the validated TrustSet hash. The account pays the fee
+ * and possibly an owner reserve: check with {@link useXrpGate} before asking the user to sign.
  */
 export function useEstablishXrpTrustline({
   mutationOptions,

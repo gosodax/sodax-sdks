@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/bridge/useBridge.ts
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import { invalidateBalances } from '../shared/invalidateBalances.js';
 import type { BridgeParams, SpokeChainKey, TxHashPair } from '@sodax/sdk';
@@ -8,19 +7,10 @@ import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMu
 import { unwrapResult } from '../shared/unwrapResult.js';
 import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 
-/**
- * Mutation variables for {@link useBridge}. Generic over `K extends SpokeChainKey` (defaults to
- * the full union). Sophisticated callers can lock K at the hook call site to narrow the
- * `walletProvider` and `params.srcChainKey` types.
- */
+/** Lock `K` at the call site to narrow `walletProvider` and `params.srcChainKey`. */
 export type UseBridgeVars<K extends SpokeChainKey = SpokeChainKey> = Omit<BridgeParams<K, false>, 'raw'>;
 
-/**
- * React hook for executing a cross-chain bridge transfer.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
- */
+/** Throws on SDK failure; resolves to the unwrapped `TxHashPair` and invalidates balances. */
 export function useBridge<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<TxHashPair, UseBridgeVars<K>> = {}): SafeUseMutationResult<TxHashPair, Error, UseBridgeVars<K>> {

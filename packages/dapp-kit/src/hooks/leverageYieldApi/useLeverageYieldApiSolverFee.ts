@@ -13,13 +13,7 @@ export type UseLeverageYieldApiSolverFeeParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to compute the maximum protocol (solver) fee for a given input amount via the leverage-yield API — `sodax.api.leverageYield.getSolverFee`.
- * Returns `{ fee }` (decimal string).
- *
- * @example
- * const { data } = useLeverageYieldApiSolverFee({ params: { amount: '1000000' } });
- */
+/** Maximum solver fee for `amount`, as a decimal string `{ fee }`. */
 export const useLeverageYieldApiSolverFee = ({
   params,
   queryOptions,

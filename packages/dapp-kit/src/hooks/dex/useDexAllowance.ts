@@ -11,11 +11,7 @@ export type UseDexAllowanceParams<K extends SpokeChainKey = SpokeChainKey> = Rea
   }
 >;
 
-/**
- * React hook to check whether the user has approved sufficient token allowance (or established a
- * trustline, on Stellar) for a DEX deposit. Read-only — calls `assetService.isAllowanceValid`
- * with `raw: true` so no `walletProvider` is required.
- */
+/** Read-only (`raw: true`), so no `walletProvider` is needed; covers Stellar trustlines too. */
 export function useDexAllowance<K extends SpokeChainKey = SpokeChainKey>({
   params,
   queryOptions,

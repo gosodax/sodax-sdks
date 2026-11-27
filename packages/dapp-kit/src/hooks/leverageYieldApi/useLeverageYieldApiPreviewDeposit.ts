@@ -14,13 +14,7 @@ export type UseLeverageYieldApiPreviewDepositParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to preview the shares minted for depositing `assets` (ERC-4626 previewDeposit) via the leverage-yield API —
- * `sodax.api.leverageYield.previewDeposit`.
- *
- * @example
- * const { data } = useLeverageYieldApiPreviewDeposit({ params: { vault: '0x...', assets: '1000000000000000000' } });
- */
+/** ERC-4626 `previewDeposit`: shares minted for `assets`. */
 export const useLeverageYieldApiPreviewDeposit = ({
   params,
   queryOptions,

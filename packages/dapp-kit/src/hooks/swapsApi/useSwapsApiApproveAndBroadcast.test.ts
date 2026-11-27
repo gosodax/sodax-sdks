@@ -1,12 +1,4 @@
-/**
- * The swaps API can return two approval transactions, and the second is only a valid state
- * transition once the first has been mined. That ordering is what this hook exists to own — before
- * it, every integration re-implemented it and could drop the wait or the abort, which costs the user
- * gas on a transaction certain to revert.
- *
- * Follows the package convention of testing hooks without a renderer: the React Query wrapper is
- * mocked so `mutationFn` can be captured and driven directly.
- */
+// Hooks are tested without a renderer: the React Query wrapper is mocked to capture `mutationFn`.
 
 import { ChainKeys, getEvmViemChain } from '@sodax/sdk';
 import type { ApprovalProgress } from '../../utils/approvalPlan.js';
@@ -40,10 +32,7 @@ const APPROVE_HASH = '0xapprove-hash';
 
 const body = (srcChainKey: string) => ({ srcChainKey, inputToken: '0xtoken', inputAmount: '1' });
 
-/**
- * Records the interleaving of sends and waits so ordering can be asserted, not assumed.
- * `onWait` either throws (the receipt never arrives) or returns the mined status.
- */
+/** Records send/wait interleaving; `onWait` throws (no receipt) or returns the mined status. */
 function evmProvider(calls: string[], onWait?: (hash: string) => string | void) {
   return {
     sendTransaction: vi.fn(async (tx: { data: string }) => {
@@ -117,8 +106,7 @@ describe('useSwapsApiApproveAndBroadcast', () => {
   it('never sends the approve when the reset is mined but reverts', async () => {
     approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX, resetTx: RESET_TX } });
     const calls: string[] = [];
-    // A paused or blacklisted token mines the reset and reverts it; the allowance never moved, so
-    // the approve that follows is certain to revert too and would be paid for.
+    // A paused/blacklisted token mines and reverts the reset; the paid approve would revert too.
     const walletProvider = evmProvider(calls, hash => (hash === RESET_HASH ? 'reverted' : 'success'));
 
     await expect(run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider })).rejects.toThrow(
@@ -131,8 +119,7 @@ describe('useSwapsApiApproveAndBroadcast', () => {
 
   it('reports a reverted approve, whichever spelling of the status the provider returns', async () => {
     approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX } });
-    // `EvmWalletProvider` forwards viem's `'reverted'`; a provider reading the JSON-RPC receipt
-    // directly returns `'0x0'`. Both mean the same thing.
+    // viem reports `'reverted'`; a provider reading the raw JSON-RPC receipt returns `'0x0'`.
     const walletProvider = evmProvider([], () => '0x0');
 
     await expect(run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider })).rejects.toThrow(
@@ -211,15 +198,13 @@ describe('useSwapsApiApproveAndBroadcast', () => {
 
     await captured.onSuccess({ approveTxHash: APPROVE_HASH }, {}, undefined);
 
-    // The hook owns confirmation now, so unlike useSwapsApiApprove it can refresh this itself.
     expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['swapsApi', 'allowance'] });
   });
 
   it('awaits the allowance refetch before resolving — a stale cache must not re-enable Approve', async () => {
     useSwapsApiApproveAndBroadcast();
     const order: string[] = [];
-    // A macrotask, not a microtask: any resolution that happens without awaiting invalidateQueries
-    // would land before this fires, so a regression here proves the mutation returned too early.
+    // A macrotask, so a mutation that skips awaiting invalidateQueries resolves before this fires.
     invalidateQueries.mockImplementationOnce(
       () =>
         new Promise<void>(resolve => {

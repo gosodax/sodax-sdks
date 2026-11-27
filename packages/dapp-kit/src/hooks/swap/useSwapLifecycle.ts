@@ -26,25 +26,17 @@ export type { SwapLifecycleState, SwapSetupReason } from '../../utils/swapLifecy
 
 export type UseSwapLifecycleParams<K extends SpokeChainKey = SpokeChainKey> = {
   /**
-   * The swap to run. Changing it starts a new lifecycle once the current swap is done; one that may still
-   * land (failed after broadcast, or an unconfirmed batch) holds until `reset()`. A `0n` `minOutputAmount`
-   * accepts any fill, so an app should not send one.
+   * Changing it starts a new lifecycle once the current swap is done; one that may still land holds until `reset()`.
+   * A `0n` `minOutputAmount` accepts any fill, so do not send one.
    */
   intentParams: CreateIntentParams<K> | undefined;
   srcWalletProvider: GetWalletProviderType<K> | undefined;
-  /**
-   * Destination wallet, for the Stellar, NEAR and XRPL setup actions. The gates check `intentParams.dstAddress`,
-   * the account the swap pays, so this wallet must control it for those actions to clear them.
-   */
+  /** For the Stellar, NEAR and XRPL setup actions; must control `intentParams.dstAddress`, which the gates check. */
   dstWalletProvider: GetWalletProviderType<SpokeChainKey> | undefined;
   /** Source-chain switching, e.g. `useEvmSwitchChain` from `@sodax/wallet-sdk-react`. */
   chainSwitch?: { isWrongChain: boolean; switchChain: () => void | Promise<void> };
-  /** An app-owned prerequisite that must hold before swapping (e.g. a Bitcoin trading-wallet setup). */
   externalBlocked?: boolean;
-  /**
-   * `false` approves separately instead of asking a `'ready'` wallet to upgrade the account (e.g. after
-   * the user declined: `USER_REJECTED` with `context.reason === ACCOUNT_UPGRADE_DECLINED`). Defaults to `true`.
-   */
+  /** `false` approves separately instead of asking a `'ready'` wallet to upgrade the account. Defaults to `true`. */
   allowAccountUpgrade?: boolean;
   extras?: SwapExtras<K>;
   timeout?: number;
@@ -56,15 +48,11 @@ export type SwapLifecycle<K extends SpokeChainKey = SpokeChainKey> = {
   /** The error behind `failed`, `unconfirmed` or a `pending` with one. Setup-action failures come back from `next()`. */
   error: Error | undefined;
   /**
-   * Does what the current state needs: switch chain, resolve a setup step, swap, re-check an `unconfirmed`
-   * batch (finishing the swap once it lands, never sending it again), or start over after a settled or
-   * failed swap. Does nothing while waiting or while a previous call is still running.
+   * Does what the current state needs (switch chain, setup step, swap, re-check an `unconfirmed` batch without resending, restart).
+   * No-op while waiting or while a previous call is still running.
    */
   next: () => Promise<Result<unknown> | undefined>;
-  /**
-   * Stops tracking the current swap and re-reads the approval strategy. Cancels nothing on-chain; a no-op
-   * while the swap call is still in flight.
-   */
+  /** Stops tracking the current swap; cancels nothing on-chain and is a no-op while the swap call is in flight. */
   reset: () => void;
   // Escape hatches: the composed hooks, for UIs that need more than `state`.
   approvalStrategy: UseQueryResult<SwapApprovalStrategy, Error>;
@@ -77,14 +65,8 @@ export type SwapLifecycle<K extends SpokeChainKey = SpokeChainKey> = {
 };
 
 /**
- * One hook for a swap form: approval strategy, destination prerequisites (Stellar account and
- * trustline, NEAR storage, XRPL trustline), source-chain switching, the swap itself (`useSwapWithApproval` — one
- * signature on an EIP-5792 wallet) and its status (`useDetailedStatus`), as a single discriminated
- * `state` with one `next()` action. Render from `state.kind`; wire the button to `next()`.
- *
- * Headless and additive: the granular hooks are unchanged, and each one this composes is returned.
- * Wallet-layer concerns (chain switching, app-owned setup) are passed in, because dapp-kit does not
- * depend on the wallet packages.
+ * Composes approval, destination setup gates, chain switching, swap and status into one `state` plus a `next()` action.
+ * Wallet-layer concerns are passed in because dapp-kit does not depend on the wallet packages.
  */
 export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
   intentParams,

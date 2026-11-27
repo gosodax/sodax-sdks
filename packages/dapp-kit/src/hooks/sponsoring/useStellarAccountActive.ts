@@ -32,7 +32,6 @@ export function getStellarAccountActiveQueryOptions({
   };
 }
 
-/** Whether a Stellar account exists on-chain. */
 export function useStellarAccountActive({
   params,
   queryOptions,

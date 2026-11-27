@@ -8,7 +8,6 @@ import { useXrpTrustlineReserveCheck } from './useXrpTrustlineReserveCheck.js';
 export interface UseXrpGateParams {
   dstChainKey: SpokeChainKey | undefined;
   token: string | undefined;
-  /** The XRPL account that receives the payout. */
   address: string | undefined;
   /** The least that arrives, in the token's decimals. */
   amount: bigint | undefined;
@@ -29,8 +28,8 @@ export interface XrpGate extends XrpGateState {
 }
 
 /**
- * Gate XRPL delivery of an issued token on a trustline with room for the payout, and on enough spendable XRP
- * to set one. Refusals the user's trustline cannot fix surface as `blockedReason`.
+ * Gates XRPL delivery on a trustline with room for the payout and enough XRP to set one. Refusals a
+ * trustline cannot fix surface as `blockedReason`.
  */
 export function useXrpGate({
   dstChainKey,

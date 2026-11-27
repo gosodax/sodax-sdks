@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/migrate/useMigrateBaln.ts
 import type { BalnMigrateAction, TxHashPair } from '@sodax/sdk';
 import { ChainKeys } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
@@ -10,13 +9,7 @@ import { unwrapResult } from '../shared/unwrapResult.js';
 
 export type UseMigrateBalnVars = Omit<BalnMigrateAction<false>, 'raw'>;
 
-/**
- * React hook for migrating BALN → SODA on the Sonic hub. Source chain is always Icon. Supports
- * lockup periods (0–24 months) which multiply the SODA reward (0.5x–1.5x).
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
- */
+/** Source chain is always Icon; a 0–24 month lockup scales the SODA reward 0.5x–1.5x. */
 export function useMigrateBaln({
   mutationOptions,
 }: MutationHookParams<TxHashPair, UseMigrateBalnVars> = {}): SafeUseMutationResult<

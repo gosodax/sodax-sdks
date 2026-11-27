@@ -13,16 +13,7 @@ export type UseSwapsApiIntentPacketParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to long-poll the relayer until the fill packet lands on the destination chain via the
- * swaps API — `sodax.api.swaps.getSolvedIntentPacket`. The request is held open server-side until
- * the packet arrives (or `body.timeout` ms elapses), so no client-side `refetchInterval` is set.
- *
- * @example
- * const { data: packet } = useSwapsApiIntentPacket({
- *   params: { body: { chainId: '146', fillTxHash: '0x123...' } },
- * });
- */
+/** Long-polls server-side until the packet lands (or `body.timeout` ms), so no `refetchInterval` is set. */
 export const useSwapsApiIntentPacket = ({
   params,
   queryOptions,

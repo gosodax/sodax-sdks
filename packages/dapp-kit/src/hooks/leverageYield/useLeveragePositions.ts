@@ -5,21 +5,7 @@ import type { ReadHookParams } from '../shared/types.js';
 
 export type UseLeveragePositionsParams = ReadHookParams<readonly Address[], { owner: Address | undefined }>;
 
-/**
- * Lists the leverage-position clones owned by `owner`, in creation order.
- *
- * Positions are the unpooled counterpart to leverage-yield vaults: each is its own AAVE
- * account, so one owner can hold several at different eMode categories and leverage tiers.
- * There is no static registry — discovery goes through the factory.
- *
- * Requires `leverageYield.positionFactory` in the `Sodax` config; without it the underlying
- * SDK call fails with a lookup error rather than guessing an address.
- *
- * @example
- * ```typescript
- * const { data: positions } = useLeveragePositions({ params: { owner } });
- * ```
- */
+/** Position clones owned by a hub `owner`, in creation order. Requires `leverageYield.positionFactory` in the Sodax config. */
 export function useLeveragePositions({
   params,
   queryOptions,

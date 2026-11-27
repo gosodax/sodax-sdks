@@ -36,28 +36,9 @@ function onwardHubTxHash(data: UseBridgeDetailedStatusResult): string | undefine
 }
 
 /**
- * Hook for monitoring a bridge from its source-chain transaction.
- *
- * `useBridgeApiSubmitTxStatus` needs the backend to still hold a usable record; this takes
- * `(srcChainKey, srcTxHash)` — the pair you hold after `bridge()`, plus `dstChainKey` for a bridge from Tron —
- * and routes to whichever source
- * can answer, so it also covers a bridge the client-side fallback completed. `data.value` is
- * discriminated on `source`, and each variant carries that source's payload unmodified.
- *
- * Polls every 3s. Stops once the answering source is terminal (a relay packet always is), once the
- * backend rejects the API key, and — like `useDetailedStatus` — after 40 consecutive *ambiguous*
- * reads, meaning a `LOOKUP_FAILED` whose relay has no packet for the tx — 100, about 5 minutes, for a bridge
- * with an MPC-relay end (`context.mpcRelay`), which settles more slowly. A dependency outage keeps
- * polling instead, so the read recovers by itself; any real answer resets the budget. Override with
- * `queryOptions.refetchInterval`.
- *
- * @example
- * ```typescript
- * const { data } = useBridgeDetailedStatus({ params: { srcChainKey, srcTxHash, dstChainKey } });
- * if (data?.ok && data.value.source === 'relay') console.log(data.value.data.dst_tx_hash);
- * ```
+ * Status by source tx (plus `dstChainKey` from Tron), routed to whichever source can answer; `data.value` is discriminated on `source`.
+ * Polls every 3s until terminal, API-key rejection, or 40 (MPC-relay: 100) consecutive no-packet misses; outages keep polling.
  */
-
 export const useBridgeDetailedStatus = ({
   params,
   queryOptions,
@@ -79,8 +60,7 @@ export const useBridgeDetailedStatus = ({
     },
     enabled: !!srcChainKey && !!srcTxHash,
     refetchInterval: query => {
-      // Reaching the hub is progress, so the leg after it gets a budget of its own. An MPC-relay miss counts
-      // on its own streak too, so one untagged miss in between cannot cut its longer budget short.
+      // Reaching the hub starts a fresh budget for the next leg; MPC-relay misses keep their own streak.
       const { data } = query.state;
       const leg = [onwardHubTxHash(data), isBridgeMpcRelayRead(data) ? 'mpcRelay' : undefined].filter(Boolean);
       notFoundStreakRef.current = advanceNotFoundStreak(

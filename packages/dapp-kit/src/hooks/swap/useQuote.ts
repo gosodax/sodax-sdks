@@ -3,10 +3,7 @@ import { useSodaxContext } from '../shared/useSodaxContext.js';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { ReadHookParams } from '../shared/types.js';
 
-/**
- * Derived from the SDK method rather than restated, so the error union stays exact and cannot
- * drift. `undefined` is the disabled state, before a `payload` exists.
- */
+/** Derived from the SDK method so the error union cannot drift; `undefined` means disabled (no `payload`). */
 type SwapQuote = Awaited<ReturnType<Sodax['swaps']['getQuote']>> | undefined;
 
 export type UseQuoteParams = ReadHookParams<SwapQuote, { payload: SolverIntentQuoteRequest | undefined }>;
@@ -20,20 +17,8 @@ function feeKeyPart(fee: PartnerFee | undefined) {
 }
 
 /**
- * Includes the configured partner fee: `getQuote` deducts it from `amount` before quoting, so it
- * is a real input to the result even though it never appears in `payload`. Leaving it out lets two
- * providers configured with different fees share one cache entry, and lets a reconfigured provider
- * serve the previous fee's quote until the next poll — either way a `minOutputAmount` derived from
- * that quote can be unfillable.
- *
- * Fields are named explicitly rather than spread. A spread would carry any future bigint field on
- * `SolverIntentQuoteRequest` straight into the key, and `JSON.stringify` throws on bigint — so a
- * spread fails *open* into a render crash, while an allow-list fails *closed* into a missing key
- * segment. Add new fields here deliberately.
- *
- * `String(...)` rather than `.toString()`: a payload assembled from partially-validated form state
- * may not have an `amount` yet, and key derivation runs during render. Staying total lets the SDK's
- * own validation surface it instead of throwing past React Query.
+ * Keys on the partner fee too: `getQuote` deducts it from `amount`, so omitting it can serve another fee's (unfillable) quote.
+ * Fields are allow-listed, not spread, so a future bigint field cannot crash render; `String()` tolerates a missing `amount`.
  */
 function quoteKeyPart(payload: SolverIntentQuoteRequest | undefined, configuredFee: PartnerFee | undefined) {
   if (!payload) return undefined;
@@ -69,20 +54,8 @@ export function getSwapQuoteQueryOptions({
 }
 
 /**
- * Hook for fetching a quote for an intent-based swap.
- *
- * For a leverage-yield vault deposit or withdraw use `useLeverageYieldQuote` instead — this hook
- * deducts the effective *swap* fee, which is not what a vault intent charges.
- *
- * @example
- * ```typescript
- * const { data: quote, isLoading } = useQuote({ params: { payload } });
- * ```
- *
- * @remarks
- * - The quote is automatically refreshed every 3 seconds
- * - The query is disabled when payload is undefined
- * - Returns the SDK `Result` as `data`; branch on `data?.ok` rather than reading `isError`
+ * Polls every 3s; `data` is the SDK `Result`, so branch on `data?.ok`, not `isError`.
+ * Deducts the swap fee: use `useLeverageYieldQuote` for leverage-yield vault intents.
  */
 export const useQuote = ({ params, queryOptions }: UseQuoteParams = {}): UseQueryResult<SwapQuote> => {
   const { sodax } = useSodaxContext();

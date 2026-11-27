@@ -13,13 +13,7 @@ export type UseSwapsApiDeadlineParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to compute a swap deadline (hub timestamp + `offsetSeconds`, default 300s) via the
- * swaps API — `sodax.api.swaps.getDeadline`.
- *
- * @example
- * const { data: deadline } = useSwapsApiDeadline({ params: { query: { offsetSeconds: 600 } } });
- */
+/** Hub timestamp + `offsetSeconds` (default 300s). */
 export const useSwapsApiDeadline = ({
   params,
   queryOptions,

@@ -12,12 +12,6 @@ export type UseBackendOrderbookParams = ReadHookParams<
   }
 >;
 
-/**
- * Hook for fetching the solver orderbook from the backend API.
- *
- * @example
- * const { data } = useBackendOrderbook({ params: { pagination: { offset: '0', limit: '10' } } });
- */
 export const useBackendOrderbook = ({
   params,
   queryOptions,
