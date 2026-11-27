@@ -155,7 +155,7 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 - [`useWithdraw()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/mm/useWithdraw.ts) — Withdraw supplied tokens
 - [`useBorrow()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/mm/useBorrow.ts) — Borrow against collateral
 - [`useRepay()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/mm/useRepay.ts) — Repay borrowed tokens
-- [`useMMAllowance()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/mm/useMMAllowance.ts) — Check approval (auto-skips for borrow/withdraw)
+- [`useMMAllowance()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/mm/useMMAllowance.ts) — Check approval (`data` is `true` for borrow/withdraw, no RPC)
 - [`useMMApprove()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/mm/useMMApprove.ts) — Approve token spending
 - [`useReservesData()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/mm/useReservesData.ts) — All reserve data
 - [`useReservesHumanized()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/hooks/mm/useReservesHumanized.ts) — Reserves in decimal-normalized format
