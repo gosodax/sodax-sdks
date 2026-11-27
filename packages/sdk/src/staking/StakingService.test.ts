@@ -48,9 +48,22 @@ const sodax = new Sodax();
 // relay branch fires. BSC is a well-supported EVM spoke.
 const BSC = '0x38.bsc' satisfies SpokeChainKey;
 
-// Hub-as-source (Sonic) and a non-hub EVM spoke: the two chain contexts the per-spoke SODA lookup
-// distinguishes. Sonic guards the hub-as-source path that previously masked the SODA-asset bug.
-const EVM_SPOKES = ['sonic', '0x38.bsc'] as const satisfies readonly SpokeChainKey[];
+// Every EVM spoke registering SODA, so a bad per-chain token entry fails on its own chain; Sonic
+// guards the hub-as-source path that previously masked the SODA-asset bug.
+const EVM_SPOKES = [
+  'sonic',
+  '0x2105.base',
+  '0x38.bsc',
+  '0xa4b1.arbitrum',
+  '0xa86a.avax',
+  '0xa.optimism',
+  '0x89.polygon',
+  'hyper',
+  'lightlink',
+  'ethereum',
+  'redbelly',
+  '0x2019.kaia',
+] as const satisfies readonly SpokeChainKey[];
 type EvmSpokeFixture = (typeof EVM_SPOKES)[number];
 
 const SAMPLE_USER = '0x4444444444444444444444444444444444444444' as Address;
@@ -271,8 +284,7 @@ describe('StakingService — out-of-union wrap-path smoke for non-stake orchestr
 // mistake. createUnstakeIntent reads only hub-side xSoda state and createCancel-
 // UnstakeIntent has no per-chain token lookup, so neither participates here.
 //
-// Running each method on BSC + SONIC catches both the non-Sonic-only regression and any future
-// regression on the hub-as-source path.
+// Running each method on every SODA spoke catches both regressions per chain.
 const stakeInputFor = <K extends EvmSpokeFixture>(srcChainKey: K): StakeAction<K, false> =>
   ({
     raw: false,
@@ -312,43 +324,26 @@ const claimInputFor = <K extends EvmSpokeFixture>(srcChainKey: K): ClaimAction<K
     },
   }) as ClaimAction<K, false>;
 
-describe.each(EVM_SPOKES)('StakingService — per-chain SODA lookup on srcChainKey=%s', srcChainKey => {
-  it('createStakeIntent builds the intent payload without throwing chain-context invariants', async () => {
-    vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress').mockResolvedValueOnce(HUB_WALLET);
+describe('StakingService — per-chain SODA lookup', () => {
+  it.each(EVM_SPOKES)('stake, instantUnstake and claim intents build on srcChainKey=%s', async srcChainKey => {
+    vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress').mockResolvedValue(HUB_WALLET);
     vi.spyOn(sodax.spoke, 'deposit').mockResolvedValueOnce({ ok: true, value: SPOKE_TX_HASH });
+    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValue({ ok: true, value: SPOKE_TX_HASH });
 
-    const result = await sodax.staking.createStakeIntent(stakeInputFor(srcChainKey));
+    const stake = await sodax.staking.createStakeIntent(stakeInputFor(srcChainKey));
+    if (!stake.ok) throw stake.error;
+    expect(stake.value.tx).toBe(SPOKE_TX_HASH);
+    expect(stake.value.relayData.payload.startsWith('0x')).toBe(true);
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.tx).toBe(SPOKE_TX_HASH);
-    expect(result.value.relayData.payload.startsWith('0x')).toBe(true);
-  });
-
-  it('createInstantUnstakeIntent builds the intent payload without throwing chain-context invariants', async () => {
-    vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress').mockResolvedValueOnce(HUB_WALLET);
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: SPOKE_TX_HASH });
-
-    const result = await sodax.staking.createInstantUnstakeIntent(instantUnstakeInputFor(srcChainKey));
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.tx).toBe(SPOKE_TX_HASH);
-    expect(result.value.relayData.address).toBe(HUB_WALLET);
-    expect(result.value.relayData.payload.startsWith('0x')).toBe(true);
-  });
-
-  it('createClaimIntent builds the intent payload without throwing chain-context invariants', async () => {
-    vi.spyOn(sodax.hubProvider, 'getUserHubWalletAddress').mockResolvedValueOnce(HUB_WALLET);
-    vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValueOnce({ ok: true, value: SPOKE_TX_HASH });
-
-    const result = await sodax.staking.createClaimIntent(claimInputFor(srcChainKey));
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.tx).toBe(SPOKE_TX_HASH);
-    expect(result.value.relayData.address).toBe(HUB_WALLET);
-    expect(result.value.relayData.payload.startsWith('0x')).toBe(true);
+    for (const result of [
+      await sodax.staking.createInstantUnstakeIntent(instantUnstakeInputFor(srcChainKey)),
+      await sodax.staking.createClaimIntent(claimInputFor(srcChainKey)),
+    ]) {
+      if (!result.ok) throw result.error;
+      expect(result.value.tx).toBe(SPOKE_TX_HASH);
+      expect(result.value.relayData.address).toBe(HUB_WALLET);
+      expect(result.value.relayData.payload.startsWith('0x')).toBe(true);
+    }
   });
 });
 

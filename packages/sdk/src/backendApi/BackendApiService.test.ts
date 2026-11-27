@@ -241,9 +241,8 @@ describe('BackendApiService.getIntentByTxHash', () => {
 });
 
 // =========================================================================
-// Validated data reads (intent / solver / money market / oracle) — one route
-// table: each read is a thin `request(path, GET, schema)` call, so each row pins
-// its exact path + query string and that a schema-valid body comes back as ok:true.
+// Validated data reads: each row pins its exact GET path + query string and that a
+// schema-valid body comes back as ok:true.
 // =========================================================================
 
 describe('BackendApiService data reads', () => {

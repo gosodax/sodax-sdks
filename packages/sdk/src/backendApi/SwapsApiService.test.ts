@@ -156,11 +156,8 @@ afterEach(() => {
 });
 
 // =========================================================================
-// URL + HTTP method coverage for the endpoints not exercised elsewhere in this
-// file (the rest assert their URL in their own behavioural test). Asserts the
-// exact path and verb so a refactor that flips a route string surfaces
-// immediately. (Response bodies here need not satisfy the schema — only the
-// fetch call is asserted.)
+// URL + HTTP method for the endpoints without a behavioural test in this file;
+// only the fetch call is asserted, so response bodies need not satisfy the schema.
 // =========================================================================
 
 describe('SwapsApiService endpoint routing', () => {

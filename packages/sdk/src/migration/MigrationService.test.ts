@@ -808,9 +808,8 @@ describe('MigrationService.migratebnUSD', () => {
 });
 
 // =========================================================================
-// migrateIcxToSoda / revertMigrateSodaToIcx / migrateBaln — facades over create + relay.
-// Each has one success test and one error-contract test: an intent failure is forwarded,
-// a relay failure is mapped, and a foreign SodaxError is wrapped as EXECUTION_FAILED.
+// migrateIcxToSoda / revertMigrateSodaToIcx / migrateBaln: intent failures are forwarded,
+// relay failures mapped, and a foreign SodaxError is wrapped as EXECUTION_FAILED.
 // =========================================================================
 
 const foreignError = () =>

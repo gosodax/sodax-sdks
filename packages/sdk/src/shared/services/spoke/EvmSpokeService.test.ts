@@ -545,11 +545,8 @@ describe('EvmSpokeService.waitForTransactionReceipt — branches & mapping', () 
 // =========================================================================
 // 4. Per-chain config routing — every EVM spoke, one pass each
 // =========================================================================
-//
-// The SUT's code paths are chain-independent, so sections 2-3 run them once. What can still
-// regress per chain is config routing: a hardcoded sample address (assetManager / connection
-// values diverge across chains), a snapshotted chainKey, a cache keyed wrong, or a
-// `getEvmViemChain()` switch hole. These tests sweep every spoke for exactly those.
+// Sections 2-3 run the chain-independent paths once; these sweep every spoke for per-chain config
+// slips: a hardcoded address, a snapshotted chainKey, a mis-keyed cache or a `getEvmViemChain()` hole.
 
 describe('EvmSpokeService — per-chain config routing', () => {
   it('getPublicClient returns a distinct cached instance for every chain (all-pairs)', () => {

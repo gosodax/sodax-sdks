@@ -96,9 +96,8 @@ afterEach(() => {
 });
 
 // =========================================================================
-// URL + HTTP method coverage for the endpoints without a behavioural test below
-// (those assert their own URL + verb). A refactor that flips a route string
-// surfaces immediately.
+// URL + HTTP method for the endpoints without a behavioural test below (those
+// assert their own URL + verb).
 // =========================================================================
 
 describe('BridgeApiService endpoint routing', () => {

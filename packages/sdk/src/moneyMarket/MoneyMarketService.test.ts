@@ -2362,6 +2362,45 @@ describe('MoneyMarketService — hub-only actions verify the source tx', () => {
   });
 });
 
+describe('MoneyMarketService — spoke-source verification failure', () => {
+  const BSC = ChainKeys.BSC_MAINNET;
+  const cases = [
+    {
+      action: 'borrow',
+      stub: () => vi.spyOn(sodax.moneyMarket, 'createBorrowIntent').mockResolvedValueOnce(spokeIntent),
+      run: () => sodax.moneyMarket.borrow({ raw: false, params: borrowParams(BSC), walletProvider: mockEvmProvider }),
+    },
+    {
+      action: 'withdraw',
+      stub: () => vi.spyOn(sodax.moneyMarket, 'createWithdrawIntent').mockResolvedValueOnce(spokeIntent),
+      run: () =>
+        sodax.moneyMarket.withdraw({ raw: false, params: withdrawParams(BSC), walletProvider: mockEvmProvider }),
+    },
+    {
+      action: 'repay',
+      stub: () => vi.spyOn(sodax.moneyMarket, 'createRepayIntent').mockResolvedValueOnce(spokeIntent),
+      run: () => sodax.moneyMarket.repay({ raw: false, params: repayParams(BSC), walletProvider: mockEvmProvider }),
+    },
+  ];
+
+  it.each(cases)('$action: maps it to TX_VERIFICATION_FAILED with its own action and cause', async ({
+    action,
+    stub,
+    run,
+  }) => {
+    stub();
+    const verifyError = new Error('VERIFY_FAILED');
+    vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValueOnce({ ok: false, error: verifyError });
+
+    const result = await run();
+
+    if (result.ok) throw new Error(`expected ${action} to fail`);
+    expect(result.error.code).toBe('TX_VERIFICATION_FAILED');
+    expect(result.error.cause).toBe(verifyError);
+    expect(result.error.context?.action).toBe(action);
+  });
+});
+
 describe('MoneyMarketService — outbound result by source chain', () => {
   it.each(['borrow', 'withdraw'] as const)('%s keeps only the Bitcoin relay ID on timeout', async action => {
     const chainKey = ChainKeys.BITCOIN_MAINNET;

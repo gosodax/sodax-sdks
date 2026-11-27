@@ -1379,9 +1379,16 @@ describe('XrpSpokeService — tokens that share one issuer (the Robinhood stocks
     expect(new Set(addresses).size).toBe(47);
   });
 
-  // NVDA is not first in the list (SPCX is, which an issuer-only resolver would pick for every stock), and
-  // GME is a 3-letter ticker that must keep the 160-bit code it was issued with, not the standard form.
-  it.each(['NVDA', 'GME'])('deposits %s with its own currency and the shared issuer', async symbol => {
+  // An issuer-only resolver would pick SPCX (listed first) for every stock, and 3-letter tickers must
+  // keep the 160-bit code they were issued with, not the standard form.
+  it.each([
+    'NVDA',
+    'SPCX',
+    'GME',
+    'DJT',
+    'MSTR',
+    'ANT',
+  ])('deposits %s with its own currency and the shared issuer', async symbol => {
     stubRippled();
 
     // 150_000_000 base units at 8 decimals is 1.5 tokens.

@@ -17,10 +17,14 @@ import { IndeterminateOutcomeError } from '../errors/IndeterminateOutcomeError.j
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import {
   ChainKeys,
+  MpcRelayChainMap,
   arbitrumSupportedTokens,
   cardanoSupportedTokens,
   type ICardanoWalletProvider,
   monadSupportedTokens,
+  tonSupportedTokens,
+  zcashSupportedTokens,
+  type MpcRelayChainKey,
   getIntentRelayChainId,
   spokeChainConfig,
   type AnalyticsEvent,
@@ -1509,9 +1513,8 @@ describe('SwapService.getStatus', () => {
     expect(lookup).toHaveBeenCalledWith(request.intent_tx_hash, { timeout: expected });
   });
 
-  // Behind an unreadable journal: a solver error is the better diagnostic (and already resets the caller's
-  // NOT_FOUND budget); a NOT_FOUND is not a definitive miss unless the backend answered — a 404 means it has
-  // no record, as definitive as a 200 with no terminal fill. Otherwise it fails, so a poller keeps retrying.
+  // A solver error is the better diagnostic; a NOT_FOUND is definitive only when the backend's 404 confirms
+  // it has no record, otherwise it fails so a poller keeps retrying.
   it('after an unreadable journal, keeps a solver error and a NOT_FOUND the backend 404 confirms, and fails an unverified NOT_FOUND', async () => {
     const solverError = { ok: false, error: { code: 'INTENT_NOT_FOUND' } };
     const notFound = { ok: true as const, value: { status: SolverIntentStatusCode.NOT_FOUND } };
@@ -4030,6 +4033,33 @@ describe('SwapService approval strategy and swapWithApproval', () => {
   });
 });
 
+describe('SwapService.swap — backend submit-tx opt-out', () => {
+  it('does not touch the backend submit API when the flag is off', async () => {
+    // The module-level `sodax` opts out via `swaps.useBackendSubmitTx: false` → pure client-side flow.
+    const intent = makeIntent(ChainKeys.BSC_MAINNET);
+    vi.spyOn(sodax.swaps, 'createIntent').mockResolvedValueOnce({
+      ok: true,
+      value: {
+        tx: '0xspokeTx',
+        intent: { ...intent, feeAmount: 0n },
+        relayData: { address: intent.creator, payload: '0xpay' },
+      },
+    });
+    const submitSpy = vi.spyOn(sodax.api.swaps, 'submitTx');
+    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xdstTx' } });
+    mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK' } });
+
+    const result = await sodax.swaps.swap({
+      params: intentInput(ChainKeys.BSC_MAINNET),
+      raw: false,
+      walletProvider: mockEvmProvider,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(submitSpy).not.toHaveBeenCalled();
+  });
+});
+
 // =========================================================================
 // swaps.useBackendSubmitTx — the deprecated forms stay honoured (type-wise and at runtime).
 // =========================================================================
@@ -4088,12 +4118,20 @@ describe('SwapService.useBackendSubmitTx — deprecated forms', () => {
 });
 
 describe('Production solver routing', () => {
-  // The token check differs only by chain type (EVM compares addresses case-insensitively), so one
-  // non-EVM (Tron) and one EVM (Monad) MPC-relay chain stand for the set.
-  it.each([
-    [ChainKeys.TRON_MAINNET, tronSupportedTokens.USDT.address],
-    [ChainKeys.MONAD_MAINNET, monadSupportedTokens.USDC.address],
-  ] as const)('refuses unsupported %s routes before signing', async (chainKey, unsupported) => {
+  // `satisfies Record<MpcRelayChainKey, …>` forces a row for every MPC-relay chain added later.
+  const unsupportedTokens = {
+    [ChainKeys.TRON_MAINNET]: tronSupportedTokens.USDT.address,
+    [ChainKeys.XRP_MAINNET]: 'unlisted-xrp-token',
+    [ChainKeys.MONAD_MAINNET]: monadSupportedTokens.USDC.address,
+    [ChainKeys.TON_MAINNET]: tonSupportedTokens.TON.address,
+    [ChainKeys.ZCASH_MAINNET]: zcashSupportedTokens.ZEC.address,
+    [ChainKeys.CARDANO_MAINNET]: cardanoSupportedTokens.ADA.address,
+  } satisfies Record<MpcRelayChainKey, string>;
+
+  it.each(
+    Object.keys(MpcRelayChainMap).filter((key): key is MpcRelayChainKey => Object.hasOwn(unsupportedTokens, key)),
+  )('refuses unsupported %s routes before signing', async chainKey => {
+    const unsupported = unsupportedTokens[chainKey];
     const production = new Sodax();
     vi.spyOn(production.config, 'isValidOriginalAssetAddress').mockReturnValue(true);
     const deposit = vi.spyOn(production.spoke, 'deposit');
