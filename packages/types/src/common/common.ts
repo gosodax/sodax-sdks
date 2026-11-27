@@ -54,32 +54,19 @@ export type VaultReserves = {
   balances: readonly bigint[];
 };
 
-/**
- * Fee type for transaction fees.
- * @property address - The address to which the fee is sent.
- * @property amount - Optional fixed fee amount in wei.
- */
+/** Fixed partner fee; `amount` in the token's smallest unit (wei). */
 export type PartnerFeeAmount = {
   address: Address;
   amount: bigint;
 };
 
-/**
- * Fee type for transaction fees.
- * @property address - The address to which the fee is sent.
- * @property percentage - Optional fee percentage in basis points (e.g., 100 = 1%). Maximum allowed is 100 (1%).
- */
+/** `percentage` is in basis points (100 = 1%); maximum 100. */
 export type PartnerFeePercentage = {
   address: Address;
   percentage: number;
 };
 
-/**
- * Fee type for transaction fees.
- * @property address - The address to which the fee is sent.
- * @property percentage - Optional fee percentage in basis points (e.g., 100 = 1%). Maximum allowed is 100 (1%).
- * @property amount - Optional fixed fee amount in wei. If both percentage and amount are provided, amount will be used.
- */
+/** Fixed `amount` (wei) or `percentage` (bps, max 100 = 1%); if both are provided, `amount` is used. */
 export type PartnerFee = PartnerFeeAmount | PartnerFeePercentage;
 
 export type PartnerFeeConfig = {
@@ -120,12 +107,12 @@ export type GetAddressType<C extends SpokeChainKey | ChainType> =
 export type QuoteType = 'exact_input';
 
 export type SolverIntentQuoteRequest = {
-  token_src: string; // Token address on the source chain
-  token_src_blockchain_id: SpokeChainKey; // Source chain id
-  token_dst: string; // Token address on the destination chain
-  token_dst_blockchain_id: SpokeChainKey; // Destination chain id
-  amount: bigint; // Amount to swap
-  quote_type: QuoteType; // Quote type
+  token_src: string;
+  token_src_blockchain_id: SpokeChainKey;
+  token_dst: string;
+  token_dst_blockchain_id: SpokeChainKey;
+  amount: bigint;
+  quote_type: QuoteType;
 };
 
 export type SolverIntentQuoteResponseRaw = {
@@ -144,12 +131,12 @@ export type SolverErrorResponse = {
 };
 
 export type SolverExecutionRequest = {
-  intent_tx_hash: Hex; // Intent hash of the execution on Sonic (hub chain)
+  intent_tx_hash: Hex; // hub (Sonic) tx hash
 };
 
 export type SolverExecutionResponse = {
   answer: 'OK';
-  intent_hash: Hex; // Here, the solver returns the intent_hash, might be helpful for front-end
+  intent_hash: Hex;
 };
 
 export type SolverIntentStatusRequest = {
@@ -163,19 +150,19 @@ export type SolverIntentStatusResponse = {
 
 export enum SolverIntentStatusCode {
   NOT_FOUND = -1,
-  NOT_STARTED_YET = 1, // It's in the task pool, but not started yet
+  NOT_STARTED_YET = 1, // queued in the task pool
   STARTED_NOT_FINISHED = 2,
   SOLVED = 3,
   FAILED = 4,
 }
 
 export enum SolverIntentErrorCode {
-  NO_PATH_FOUND = -4, // No path to swap Token X to Token Y
-  NO_PRIVATE_LIQUIDITY = -5, // Path found, but we have no private liquidity on the dest chain
-  NOT_ENOUGH_PRIVATE_LIQUIDITY = -8, // Path found, but not enough private liquidity on the dst chain
-  NO_EXECUTION_MODULE_FOUND = -7, // Path found, private liquidity, but execution modules unavailable
-  QUOTE_NOT_FOUND = -8, // When executing, given quote_uuid does not exist
-  QUOTE_NOT_MATCH = -9, // When executing, given quote_uuid does not match the quote
+  NO_PATH_FOUND = -4,
+  NO_PRIVATE_LIQUIDITY = -5, // path found, no private liquidity on the dst chain
+  NOT_ENOUGH_PRIVATE_LIQUIDITY = -8, // path found, insufficient private liquidity on the dst chain
+  NO_EXECUTION_MODULE_FOUND = -7, // path and liquidity found, execution modules unavailable
+  QUOTE_NOT_FOUND = -8, // on execute: quote_uuid does not exist
+  QUOTE_NOT_MATCH = -9, // on execute: quote_uuid does not match the quote
   INTENT_DATA_NOT_MATCH_QUOTE = -10,
   NO_GAS_HANDLER_FOR_BLOCKCHAIN = -11,
   INTENT_NOT_FOUND = -12,
@@ -201,17 +188,8 @@ export type HashTxReturnType =
   | NearReturnType<false>
   | TronReturnType<false>;
 
-/**
- * Fallback raw-tx union for {@link TxReturnType} (which prefers a chain-keyed branch), and the declared
- * shape of the backend APIs' unsigned `tx` response field, where the chain is only known from the
- * request's `srcChainKey` at runtime.
- *
- * `BitcoinRawTransaction` is listed even though it is currently structurally identical to
- * `SolanaRawTransaction` (both `{ from: string; to: string; value: bigint; data: string }`) and so would
- * be absorbed by it: Bitcoin is a supported raw-tx source, and naming it keeps that a stated part of the
- * contract rather than a coincidence that would silently lapse if the Solana member's string aliases were
- * ever branded.
- */
+/** Fallback for {@link TxReturnType} and the backend APIs' unsigned `tx` field (chain known only at runtime). Bitcoin is
+ * listed though structurally identical to Solana's raw tx, so its support stays explicit if Solana's types get branded. */
 export type RawTxReturnType =
   | EvmRawTransaction
   | SolanaRawTransaction
@@ -232,10 +210,6 @@ export type RawTxReturnType =
 
 export type GetDefaultTxReturnType<Raw extends boolean> = Raw extends true ? RawTxReturnType : HashTxReturnType;
 
-/**
- * Return type for a transaction based on the given ChainId or ChainType.
- * Default to GetDefaultTxReturnType<Raw>
- */
 export type TxReturnType<C extends SpokeChainKey | ChainType, Raw extends boolean> =
   GetChainType<C> extends 'EVM'
     ? EvmReturnType<Raw>
@@ -334,10 +308,7 @@ export type TronGasEstimate = {
   bandwidth: bigint;
 };
 
-/**
- * XRPL charges a flat per-transaction fee in drops rather than metering execution, so there is no
- * gas/limit pair to return — only the fee the ledger will burn.
- */
+/** XRPL charges a flat per-transaction fee rather than metering execution, so there is no gas/limit pair. */
 export type XrpGasEstimate = {
   /** Transaction fee in drops (1 XRP = 1_000_000 drops). */
   fee: bigint;
@@ -424,39 +395,27 @@ export type GetEstimateGasReturnType<C extends SpokeChainKey | ChainType> = C ex
     ? GetEstimateGasReturnTypeForChainType<C>
     : GasEstimateType;
 
-// Type for Stellar RPC configuration with horizon and soroban URLs
 export type StellarRpcConfig = {
   horizonRpcUrl?: string;
   sorobanRpcUrl?: string;
 };
 
-// Type for Bitcoin RPC configuration. Bound Exchange hosts are NOT set here — nothing reads
-// them off this shape. They live on `chains[BITCOIN_MAINNET].radfi` in the SDK config.
+// Bound Exchange hosts do not belong here; they live on `chains[BITCOIN_MAINNET].radfi` in the SDK config.
 export type BitcoinRpcConfig = {
   rpcUrl?: string;
 };
 
-// Type for Injective RPC configuration — covers indexer and gRPC endpoints.
-// Falls back to mainnet defaults from @injectivelabs/networks for unspecified fields.
+// Unset fields fall back to mainnet defaults from @injectivelabs/networks.
 export type InjectiveRpcConfig = {
   indexer?: string;
   grpc?: string;
 };
 
-// Stacks network preset names — mirrors `StacksNetworkName` from @stacks/network
-// (kept local to avoid importing external types per @sodax/types rules).
+// Local mirror of `StacksNetworkName` from @stacks/network (no external type imports in @sodax/types).
 export type StacksNetworkName = 'mainnet' | 'testnet' | 'devnet' | 'mocknet';
 
-/**
- * Structural mirror of `StacksNetwork` from @stacks/network (modeled against
- * @stacks/network@7.3.1). Kept local to avoid importing external types per
- * @sodax/types rules. Real `StacksNetwork` objects satisfy this via TS
- * structural typing, so consumers can pass `networkFrom(...)` output directly.
- *
- * Maintenance: bump this type in lockstep with `@stacks/network` in the
- * workspace catalog. If upstream adds required fields, consumers will get
- * a compile error until this type is updated to match.
- */
+/** Local structural mirror of `StacksNetwork` (@stacks/network@7.3.1), so `networkFrom(...)` output is assignable.
+ * Keep in lockstep with the workspace catalog's `@stacks/network`. */
 export type StacksNetworkLike = {
   chainId: number;
   transactionVersion: number;
@@ -467,12 +426,6 @@ export type StacksNetworkLike = {
   client: { baseUrl: string };
 };
 
-// Mapped type that uses ChainKey as keys and assigns appropriate value types per chain:
-// - Stellar    → StellarRpcConfig                   (horizon + soroban URLs)
-// - Bitcoin    → BitcoinRpcConfig                   (rpcUrl only; Bound hosts live on chains.radfi)
-// - Injective  → InjectiveRpcConfig                 (indexer + grpc endpoints)
-// - Stacks     → StacksNetworkName | StacksNetworkLike (preset name or full network)
-// - All others → string                             (single RPC URL)
 export type RpcConfig = Partial<{
   [K in ChainKey]: K extends typeof ChainKeys.STELLAR_MAINNET
     ? StellarRpcConfig
@@ -527,16 +480,8 @@ export type WalletProviderSlot<K extends SpokeChainKey | ChainType, Raw extends 
   ? { raw: true; walletProvider?: never }
   : { raw?: false; walletProvider: GetWalletProviderType<K> };
 
-/**
- * Standard exec-mode wrapper for hub/spoke flows: bounded `params`, optional per-action `extras`,
- * optional relay toggles, plus {@link WalletProviderSlot} (`raw: true` for unsigned payloads,
- * otherwise `walletProvider` required).
- *
- * Per-action data beyond `params` goes in the typed `extras` slot (`E`), parameterized like
- * `params` so a feature can key it off `K`, e.g. `SpokeExecActionParams<K, Raw, P, MyExtras<K>>`.
- * `E` defaults to `never`, so callers that don't opt in get `extras?: never` (effectively absent).
- * Simple one-off modifiers may still be intersected at the alias site instead.
- */
+/** Exec-mode wrapper for hub/spoke flows; `raw: true` returns unsigned payloads, else `walletProvider` is required.
+ * Per-action data beyond `params` goes in `extras` (`E`, keyable off `K`); `E` defaults to `never`, i.e. absent. */
 export type SpokeExecActionParams<K extends SpokeChainKey, Raw extends boolean, P, E = never> = {
   params: P;
   extras?: E;
@@ -544,7 +489,6 @@ export type SpokeExecActionParams<K extends SpokeChainKey, Raw extends boolean, 
   timeout?: number;
 } & WalletProviderSlot<K, Raw>;
 
-// export type RawOf<T extends { raw?: boolean }> = [T['raw']] extends [true] ? true : false;
 export type ExecuteAction<A> = Extract<A, { raw?: false }>;
 export type RawAction<A> = Extract<A, { raw: true }>;
 

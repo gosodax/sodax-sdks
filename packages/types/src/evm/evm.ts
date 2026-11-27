@@ -15,12 +15,11 @@ export type EvmRawTransaction = {
 };
 
 export type EvmContractCall = {
-  address: Address; // Target address of the call
-  value: bigint; // Ether value to send (in wei as a string for precision)
-  data: Hex; // Calldata for the call
+  address: Address;
+  value: bigint; // wei
+  data: Hex;
 };
 
-// Ethereum JSON-RPC Spec based logs
 export type EvmRawLog = {
   address: Address;
   topics: [Hex, ...Hex[]] | [];
@@ -33,22 +32,21 @@ export type EvmRawLog = {
   removed: boolean;
 };
 
-// Ethereum JSON-RPC Spec based transaction receipt
 export type EvmRawTransactionReceipt = {
   transactionHash: string; // 32-byte hash
-  transactionIndex: string; // hex string, e.g., '0x1'
+  transactionIndex: string; // hex
   blockHash: string; // 32-byte hash
-  blockNumber: string; // hex string, e.g., '0x5BAD55'
+  blockNumber: string; // hex
   from: string; // 20-byte address
   to: string | null; // null if contract creation
-  cumulativeGasUsed: string; // hex string
-  gasUsed: string; // hex string
+  cumulativeGasUsed: string; // hex
+  gasUsed: string; // hex
   contractAddress: string | null; // non-null only if contract creation
   logs: EvmRawLog[];
-  logsBloom: string; // 256-byte bloom filter hex string
+  logsBloom: string; // 256-byte hex
   status?: string; // '0x1' = success, '0x0' = failure (optional pre-Byzantium)
-  type?: string; // '0x0', '0x1', or '0x2' for tx type
-  effectiveGasPrice?: string; // hex string, only on EIP-1559 txs
+  type?: string; // '0x0', '0x1', or '0x2'
+  effectiveGasPrice?: string; // hex, only on EIP-1559 txs
 };
 
 export type EvmSendTransactionOptions = {
@@ -58,7 +56,7 @@ export type EvmSendTransactionOptions = {
   preserveDepositOutcome?: boolean;
 };
 
-/** Transfer details for recovering a wallet deposit for which no hash was returned. */
+/** For recovering a wallet deposit for which no hash was returned. */
 export type EvmDepositRecovery = {
   readonly kind: 'evm-deposit';
   readonly chainId: number;
@@ -66,10 +64,7 @@ export type EvmDepositRecovery = {
   readonly attemptedAtMs: number;
 };
 
-/**
- * EIP-5792 `atomic` capability of a wallet on one chain. `'ready'` means the wallet can execute
- * atomically once the user approves an account upgrade (e.g. MetaMask's EIP-7702 smart account).
- */
+/** EIP-5792 `atomic` capability; `'ready'` = atomic once the user approves an account upgrade (e.g. EIP-7702). */
 export type EvmAtomicBatchSupport = 'supported' | 'ready' | 'unsupported';
 
 export type EvmSendBatchOptions = {
@@ -78,7 +73,7 @@ export type EvmSendBatchOptions = {
 };
 
 export type EvmWaitForBatchOptions = {
-  /** How long to wait for the batch to reach a terminal status, in ms. */
+  /** Milliseconds. */
   timeout?: number;
 };
 
@@ -87,7 +82,7 @@ export type EvmBatchReceipt = {
   status: 'success' | 'reverted';
 };
 
-/** Terminal state of an EIP-5792 call batch. One receipt when the wallet executed it as one transaction. */
+/** Terminal state of an EIP-5792 batch; one receipt when the wallet executed it as one transaction. */
 export type EvmBatchResult = {
   status: 'success' | 'failure';
   /** EIP-5792 status code: 200 confirmed, 400 offchain failure, 500 reverted, 600 partially reverted. */
@@ -101,19 +96,13 @@ export interface IEvmWalletProvider extends ICoreWallet {
   getWalletAddress: () => Promise<Address>;
   sendTransaction: (evmRawTx: EvmRawTransaction, options?: EvmSendTransactionOptions) => Promise<Hash>;
   waitForTransactionReceipt: (txHash: Hash) => Promise<EvmRawTransactionReceipt>;
-  /**
-   * EIP-191 `personal_sign` over the raw 32-byte `hash` (not its hex text). Required only for chains
-   * that authorize withdrawals by signature — an MPC-relay EVM spoke such as Monad; optional so
-   * existing providers stay valid.
-   */
+  /** EIP-191 `personal_sign` over the raw 32-byte `hash` (not its hex text); required only for MPC-relay EVM spokes
+   * (e.g. Monad) that authorize withdrawals by signature. */
   signMessage?: (hash: Hex) => Promise<Hex>;
-  /** EIP-5792 atomic-batch support for `chainId`. Optional — callers guard before use. */
+  /** Optional — callers guard before use. */
   getAtomicBatchSupport?: (chainId: number) => Promise<EvmAtomicBatchSupport>;
-  /**
-   * Send `txs` as one EIP-5792 batch that must execute atomically (`atomicRequired`), in order.
-   * Resolves to the wallet's batch id, not a transaction hash — read it from {@link waitForBatch}.
-   */
+  /** EIP-5792 batch with `atomicRequired`, in order; resolves to the batch id, not a tx hash (see {@link waitForBatch}). */
   sendAtomicBatch?: (txs: readonly EvmRawTransaction[], options: EvmSendBatchOptions) => Promise<string>;
-  /** Wait for a batch sent with {@link sendAtomicBatch} to reach a terminal state. Throws on timeout. */
+  /** Throws on timeout. */
   waitForBatch?: (batchId: string, options?: EvmWaitForBatchOptions) => Promise<EvmBatchResult>;
 }

@@ -32,52 +32,20 @@ export declare const VM_TYPE_MAXIMA: {
 };
 export declare const ZERO_ADDRESS: '0x0000000000000000000000000000000000000000';
 
-/**
- * A currency is any fungible financial instrument, including Ether, all ERC20 tokens, and other chain-native currencies
- */
 // biome-ignore lint/suspicious/noExplicitAny: importing from @pancakeswap/swap-sdk-core
 export declare abstract class BaseCurrency<T extends BaseCurrency<any> = BaseCurrency<any>> {
-  /**
-   * Returns whether the currency is native to the chain and must be wrapped (e.g. Ether)
-   */
+  /** Native to the chain; must be wrapped for PancakeSwap (e.g. Ether). */
   abstract readonly isNative: boolean;
-  /**
-   * Returns whether the currency is a token that is usable in PancakeSwap without wrapping
-   */
+  /** Usable in PancakeSwap without wrapping. */
   abstract readonly isToken: boolean;
-  /**
-   * The chain ID on which this currency resides
-   */
   readonly chainId: number;
-  /**
-   * The decimals used in representing currency amounts
-   */
   readonly decimals: number;
-  /**
-   * The symbol of the currency, i.e. a short textual non-unique identifier
-   */
+  /** Short, non-unique identifier. */
   readonly symbol: string;
-  /**
-   * The name of the currency, i.e. a descriptive textual non-unique identifier
-   */
   readonly name?: string;
-  /**
-   * Constructs an instance of the base class `BaseCurrency`.
-   * @param chainId the chain ID on which this currency resides
-   * @param decimals decimals of the currency
-   * @param symbol symbol of the currency
-   * @param name of the currency
-   */
   protected constructor(chainId: number, decimals: number, symbol: string, name?: string);
-  /**
-   * Returns whether this currency is functionally equivalent to the other currency
-   * @param other the other currency
-   */
   abstract equals(other: BaseCurrency<T>): boolean;
-  /**
-   * Return the wrapped version of this currency that can be used with the PancakeSwap contracts. Currencies must
-   * implement this to be used in PancakeSwap
-   */
+  /** Wrapped version usable with the PancakeSwap contracts. */
   abstract get wrapped(): T;
   get asToken(): T;
 }
@@ -90,15 +58,9 @@ export interface SerializedToken {
   name?: string;
   projectLink?: string;
 }
-/**
- * Represents an ERC20 token with a unique address and some metadata.
- */
 export declare class Token extends BaseCurrency<Token> {
   readonly isNative: false;
   readonly isToken: true;
-  /**
-   * The contract address on the chain on which this token lives
-   */
   readonly address: `0x${string}`;
   readonly projectLink?: string;
   constructor(
@@ -109,28 +71,15 @@ export declare class Token extends BaseCurrency<Token> {
     name?: string,
     projectLink?: string,
   );
-  /**
-   * Returns true if the two tokens are equivalent, i.e. have the same chainId and address.
-   * @param other other token to compare
-   */
+  /** Equal when chainId and address match. */
   equals(other: BaseCurrency): boolean;
-  /**
-   * Returns true if the address of this token sorts before the address of the other token
-   * @param other other token to compare
-   * @throws if the tokens have the same address
-   * @throws if the tokens are on different chains
-   */
+  /** Compares by address; throws if the addresses are equal or the chains differ. */
   sortsBefore(other: Token): boolean;
-  /**
-   * Return this token, which does not need to be wrapped
-   */
+  /** Returns itself: a token needs no wrapping. */
   get wrapped(): Token;
   get serialize(): SerializedToken;
 }
 
-/**
- * Represents the native currency of the chain on which it resides, e.g.
- */
 export declare abstract class NativeCurrency extends BaseCurrency<Token> {
   readonly isNative: true;
   readonly isToken: false;
@@ -146,9 +95,7 @@ export interface SerializedSPLToken {
   name?: string;
   projectLink?: string;
 }
-/**
- * Represents an SPL token on Solana or other non-EVM chains.
- */
+/** SPL token on Solana or other non-EVM chains. */
 export declare class SPLToken extends BaseCurrency<SPLToken> {
   readonly isNative: false;
   readonly isToken: true;
@@ -177,19 +124,13 @@ export declare class SPLToken extends BaseCurrency<SPLToken> {
     projectLink?: string;
     isNative?: boolean;
   });
-  /**
-   * Returns true if the two tokens are equivalent, i.e. have the same chainId and programId.
-   * @param other other token to compare
-   */
+  /** Equal when chainId and programId match. */
   equals(other: BaseCurrency): boolean;
   sortsBefore(other: SPLToken): boolean;
   get wrapped(): SPLToken;
   get serialize(): SerializedSPLToken;
 }
 
-/**
- * Represents the native currency of the chain on which it resides, e.g.
- */
 export declare abstract class SPLNativeCurrency extends BaseCurrency<SPLToken> {
   readonly isNative: true;
   readonly isToken: false;
@@ -218,21 +159,12 @@ export declare class Fraction {
   divide(other: Fraction | BigintIsh): Fraction;
   toSignificant(significantDigits: number, format?: object, rounding?: Rounding): string;
   toFixed(decimalPlaces: number, format?: object, rounding?: Rounding): string;
-  /**
-   * Helper method for converting any super class back to a fraction
-   */
   get asFraction(): Fraction;
 }
 
-/**
- * Converts a fraction to a percent
- * @param fraction the fraction to convert
- */
 export declare function toPercent(fraction: Fraction): Percent;
 export declare class Percent extends Fraction {
-  /**
-   * This boolean prevents a fraction from being interpreted as a Percent
-   */
+  /** Discriminator that stops a plain Fraction from being treated as a Percent. */
   readonly isPercent: true;
   static readonly toPercent: typeof toPercent;
   add(other: Fraction | BigintIsh): Percent;
@@ -246,18 +178,8 @@ export declare class Percent extends Fraction {
 export declare class CurrencyAmount<T extends Currency> extends Fraction {
   readonly currency: T;
   readonly decimalScale: bigint;
-  /**
-   * Returns a new currency amount instance from the unitless amount of token, i.e. the raw amount
-   * @param currency the currency in the amount
-   * @param rawAmount the raw token or ether amount
-   */
+  /** `rawAmount` is unitless (smallest token unit). */
   static fromRawAmount<T extends Currency>(currency: T, rawAmount: BigintIsh): CurrencyAmount<T>;
-  /**
-   * Construct a currency amount with a denominator that is not equal to 1
-   * @param currency the currency
-   * @param numerator the numerator of the fractional token amount
-   * @param denominator the denominator of the fractional token amount
-   */
   static fromFractionalAmount<T extends Currency>(
     currency: T,
     numerator: BigintIsh,
@@ -279,18 +201,8 @@ export declare class CurrencyAmount<T extends Currency> extends Fraction {
 export declare class UnifiedCurrencyAmount<T extends UnifiedCurrency> extends Fraction {
   readonly currency: T;
   readonly decimalScale: bigint;
-  /**
-   * Returns a new currency amount instance from the unitless amount of token, i.e. the raw amount
-   * @param currency the currency in the amount
-   * @param rawAmount the raw token or ether amount
-   */
+  /** `rawAmount` is unitless (smallest token unit). */
   static fromRawAmount<T extends UnifiedCurrency>(currency: T, rawAmount: BigintIsh): UnifiedCurrencyAmount<T>;
-  /**
-   * Construct a currency amount with a denominator that is not equal to 1
-   * @param currency the currency
-   * @param numerator the numerator of the fractional token amount
-   * @param denominator the denominator of the fractional token amount
-   */
   static fromFractionalAmount<T extends UnifiedCurrency>(
     currency: T,
     numerator: BigintIsh,
@@ -313,10 +225,6 @@ export declare class Price<TBase extends UnifiedCurrency, TQuote extends Unified
   readonly baseCurrency: TBase;
   readonly quoteCurrency: TQuote;
   readonly scalar: Fraction;
-  /**
-   * Construct a price, either with the base and quote currency amount, or the
-   * @param args
-   */
   constructor(
     ...args:
       | [TBase, TQuote, BigintIsh, BigintIsh]
@@ -327,35 +235,14 @@ export declare class Price<TBase extends UnifiedCurrency, TQuote extends Unified
           },
         ]
   );
-  /**
-   * Flip the price, switching the base and quote currency
-   */
   invert(): Price<TQuote, TBase>;
-  /**
-   * Multiply the price by another price, returning a new price. The other price must have the same base currency as this price's quote currency
-   * @param other the other price
-   */
+  /** `other`'s base currency must equal this price's quote currency. */
   multiply<TOtherQuote extends UnifiedCurrency>(other: Price<TQuote, TOtherQuote>): Price<TBase, TOtherQuote>;
-  /**
-   * Return the amount of quote currency corresponding to a given amount of the base currency
-   * @param currencyAmount the amount of base currency to quote against the price
-   */
   quote(currencyAmount: UnifiedCurrencyAmount<TBase>): UnifiedCurrencyAmount<TQuote>;
-  /**
-   * Get the value scaled by decimals for formatting
-   * @private
-   */
   private get adjustedForDecimals();
   toSignificant(significantDigits?: number, format?: object, rounding?: Rounding): string;
   toFixed(decimalPlaces?: number, format?: object, rounding?: Rounding): string;
   get wrapped(): Price<TBase['wrapped'], TQuote['wrapped']>;
-  /**
-   * Create a price from base and quote currency and a decimal string
-   * @param base
-   * @param quote
-   * @param value
-   * @returns Price<TBase, TQuote> | undefined
-   */
   static fromDecimal<TBase extends UnifiedCurrency, TQuote extends UnifiedCurrency>(
     base: TBase,
     quote: TQuote,
@@ -363,18 +250,12 @@ export declare class Price<TBase extends UnifiedCurrency, TQuote extends Unified
   ): Price<TBase, TQuote> | undefined;
 }
 
-/**
- * Indicates that the pair has insufficient reserves for a desired output amount. I.e. the amount of output cannot be
- * obtained by sending any amount of input.
- */
+/** The pair's reserves cannot produce the desired output for any input amount. */
 export declare class InsufficientReservesError extends Error {
   readonly isInsufficientReservesError: true;
   constructor();
 }
-/**
- * Indicates that the input amount is too small to produce any amount of output. I.e. the amount of input sent is less
- * than the price of a single unit of output after fees.
- */
+/** The input is below the price of a single unit of output after fees, so it produces no output. */
 export declare class InsufficientInputAmountError extends Error {
   readonly isInsufficientInputAmountError: true;
   constructor();
@@ -388,12 +269,7 @@ export declare function sortedInsert<T>(
   maxSize: number,
   comparator: (a: T, b: T) => number,
 ): T | null;
-/**
- * Returns the percent difference between the mid price and the execution price, i.e. price impact.
- * @param midPrice mid price before the trade
- * @param inputAmount the input amount of the trade
- * @param outputAmount the output amount of the trade
- */
+/** Price impact: percent difference between the pre-trade mid price and the execution price. */
 export declare function computePriceImpact<TBase extends Currency, TQuote extends Currency>(
   midPrice: Price<TBase, TQuote>,
   inputAmount: CurrencyAmount<TBase>,
@@ -416,10 +292,6 @@ export declare function getMatchedCurrency(
 
 export type Tuple<T, N, R extends T[] = []> = R['length'] extends N ? R : Tuple<T, N, [...R, T]>;
 export type Bytes32 = `0x${string}`;
-/**
- * Hooks registration for all type pool
- * if the value is true, the hook will be registered
- */
 export type HooksRegistration = {
   beforeInitialize?: boolean;
   afterInitialize?: boolean;
@@ -452,74 +324,32 @@ export declare enum POOL_TYPE {
 }
 export type PoolType = `${POOL_TYPE}`;
 export type CLPoolParameter = {
-  /**
-   * Hooks registration for the pool
-   * @see {@link HooksRegistration}
-   */
   hooksRegistration?: HooksRegistration;
   tickSpacing: number;
 };
 export type BinPoolParameter = {
-  /**
-   * Hooks registration for the pool
-   * @see {@link HooksRegistration}
-   */
   hooksRegistration?: HooksRegistration;
   binStep: number;
   tickSpacing: number;
 };
-/**
- * PoolKey is a unique identifier for a pool
- *
- * decoded version of `PoolKey`
- *
- */
+/** Unique pool identifier, decoded form (see {@link EncodedPoolKey}). */
 export type PoolKey<TPoolType extends PoolType = 'CL' | 'Bin'> = {
-  /**
-   * the lower currency address of the pool, use zero address for native token
-   */
+  /** Lower-sorted currency address; zero address for the native token. */
   currency0: Address;
-  /**
-   * the higher currency address of the pool
-   */
+  /** Higher-sorted currency address. */
   currency1: Address;
-  /**
-   * the address of the hooks contract, if not set, use zero address
-   */
+  /** Zero address when the pool has no hooks. */
   hooks?: Address;
-  /**
-   * the address of the pool manager contract
-   */
   poolManager: Address;
-  /**
-   * the lp fee of the pool, the max fee for cl pool is 1_000_000(100%) and for bin, it is 100_000(10%).
-   * If the pool has dynamic fee then it must be exactly equal to 0x800000
-   *
-   * @see DYNAMIC_FEE_FLAG
-   */
+  /** LP fee in millionths: max 1_000_000 (100%) for CL, 100_000 (10%) for Bin. Dynamic-fee pools must use exactly 0x800000. */
   fee: number;
-  /**
-   * the parameters of the pool
-   * include:
-   *   1. hooks registration callback
-   *   2. pool specific parameters: tickSpacing for CLPool, binStep for BinPool
-   *
-   * @see BinPoolParameter
-   * @see CLPoolParameter
-   * @see HooksRegistration
-   */
   parameters: TPoolType extends 'CL'
     ? CLPoolParameter
     : TPoolType extends 'Bin'
       ? BinPoolParameter
       : CLPoolParameter | BinPoolParameter;
 };
-/**
- * encoded poolKey struct
- *
- * @see PoolKey
- * @see {@link https://github.com/pancakeswap/infinity-core/blob/main/src/types/PoolKey.sol|infinity-core}
- */
+/** On-chain encoded PoolKey; see https://github.com/pancakeswap/infinity-core/blob/main/src/types/PoolKey.sol */
 export type EncodedPoolKey = {
   currency0: Address;
   currency1: Address;
@@ -607,4 +437,3 @@ export declare enum HookType {
   Universal = 'Universal',
   PerPool = 'PerPool',
 }
-//# sourceMappingURL=types.d.ts.map

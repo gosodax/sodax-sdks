@@ -14,11 +14,7 @@ import type { ITonWalletProvider } from '../ton/ton.js';
 import type { IZcashWalletProvider } from '../zcash/zcash.js';
 import type { ICardanoWalletProvider } from '../cardano/cardano.js';
 
-/**
- * Union of all chain-specific wallet providers. Narrow by the discriminant field
- * {@link IEvmWalletProvider.chainType} (and the same property on other variants), e.g.
- * `if (w.chainType === 'EVM')` refines `w` to {@link IEvmWalletProvider}.
- */
+/** Discriminated by `chainType`, e.g. `if (w.chainType === 'EVM')` refines `w` to {@link IEvmWalletProvider}. */
 export type IWalletProvider =
   | IEvmWalletProvider
   | IInjectiveWalletProvider
@@ -35,12 +31,7 @@ export type IWalletProvider =
   | IZcashWalletProvider
   | ICardanoWalletProvider;
 
-/**
- * Wallet provider type for a chain key or abstract {@link ChainType}. Maps `C` to the matching
- * chain-specific provider. When `C` is the full {@link SpokeChainKey} union, `GetChainType<C>`
- * distributes to the full {@link ChainType} union and the result reduces to the union of all
- * chain-specific providers — i.e. {@link IWalletProvider}.
- */
+/** For the full {@link SpokeChainKey} union, `GetChainType<C>` distributes and the result reduces to {@link IWalletProvider}. */
 export type GetWalletProviderType<C extends SpokeChainKey | ChainType> =
   GetChainType<C> extends 'EVM'
     ? IEvmWalletProvider

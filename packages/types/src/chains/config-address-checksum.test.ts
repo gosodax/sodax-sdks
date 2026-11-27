@@ -2,22 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { getAddress, isAddress } from 'viem';
 import * as config from '../index.js';
 
-// A mixed-case EVM address whose EIP-55 checksum does not verify is rejected while viem encodes
-// calldata, before any RPC call. On its own that is a loud throw (a deposit/transfer fails to
-// build), but inside a `multicall` the bad address lands in the `aggregate3` tuple, which is
-// encoded after the per-call try/catch — so one typo rejects the whole chunk and, with viem's
-// default `allowFailure: true`, every balance in it degrades to a silent zero.
-//
-// Scope note: this walks the values reachable from the package barrel. A config value that is not
-// re-exported through `src/index.ts` is invisible here — which the "re-export through the
-// subdirectory barrel" rule in AGENTS.md is what keeps true.
+// viem rejects a bad EIP-55 checksum while encoding; inside a `multicall` one typo fails the whole chunk and every
+// balance in it silently reads zero. Only values re-exported through `src/index.ts` are walked.
 const EVM_ADDRESS_SHAPE = /^0x[0-9a-fA-F]{40}$/;
 
 function collectEvmAddresses(root: Record<string, unknown>): { path: string; value: string }[] {
   const found: { path: string; value: string }[] = [];
-  // Objects are shared by reference across the config (the same token entry appears in
-  // `supportedTokensByChain` and in the feature lists), so a visited-set keeps each value reported
-  // once. The reported path is therefore *a* path to the offender, not its only one.
+  // Objects are shared by reference across the config, so each is reported once, under *a* path rather than every
+  // path that reaches it.
   const visited = new WeakSet<object>();
 
   function walk(value: unknown, path: string): void {
@@ -60,9 +52,8 @@ describe('EVM addresses in config carry a valid EIP-55 checksum', () => {
 });
 
 describe('the checksum invariant itself', () => {
-  // The shape predicate is anchored so it never matches a non-EVM identifier (Icon `cx…`, Stellar
-  // `G…`, Solana base58, Sui's 0x + 64 hex, or the `vault: '0x'` placeholders) — re-casing one of
-  // those would corrupt it. A false positive means tightening the traversal, never the config.
+  // Anchored so it never matches a non-EVM identifier (re-casing one would corrupt it); a false positive means
+  // tightening the traversal, never the config.
   const VALID = '0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6';
   const MIS_CASED = '0x1BFD67037B42Cf73acF2047067bd4F2C47D9bfD6';
 

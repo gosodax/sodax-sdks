@@ -53,7 +53,6 @@ const moneyMarketHubVaults = [
   SodaTokens.sodaZECv2,
 ] as const satisfies XToken[];
 
-// currently supported spoke chain tokens for money market
 export const moneyMarketSupportedTokens = {
   [ChainKeys.AVALANCHE_MAINNET]: [
     spokeChainConfig[ChainKeys.AVALANCHE_MAINNET].supportedTokens.AVAX,
@@ -150,9 +149,7 @@ export const moneyMarketSupportedTokens = {
     spokeChainConfig[ChainKeys.SOLANA_MAINNET].supportedTokens.JitoSOL,
   ] as const satisfies XToken[],
   [ChainKeys.ICON_MAINNET]: [
-    // spokeChainConfig[ChainKeys.ICON].supportedTokens.ICX,
     spokeChainConfig[ChainKeys.ICON_MAINNET].supportedTokens.bnUSD,
-    // spokeChainConfig[ChainKeys.ICON].supportedTokens.wICX,
   ] as const satisfies XToken[],
   [ChainKeys.STELLAR_MAINNET]: [
     spokeChainConfig[ChainKeys.STELLAR_MAINNET].supportedTokens.XLM,
@@ -317,10 +314,3 @@ export const moneyMarketConfig = {
   supportedTokens: moneyMarketSupportedTokens,
   supportedReserveAssets: moneyMarketReserveAssets,
 } as const satisfies MoneyMarketConfig;
-
-// export const isMoneyMarketSupportedToken = (chainId: SpokeChainKey, token: string): boolean =>
-//   moneyMarketSupportedTokens[chainId].some(t => t.address.toLowerCase() === token.toLowerCase());
-
-// get supported spoke chain tokens for money market
-// export const getSupportedMoneyMarketTokens = (chainId: SpokeChainKey): readonly Token[] =>
-//   moneyMarketSupportedTokens[chainId];

@@ -1,8 +1,4 @@
-/**
- * Recursive partial type. Every property (including nested ones) becomes optional.
- * Arrays and primitives are kept as-is — they are replaced wholesale by `deepMerge`,
- * not merged element-by-element.
- */
+/** Arrays and primitives are kept as-is because `deepMerge` replaces them wholesale rather than merging elements. */
 export type DeepPartial<T> = T extends readonly (infer U)[]
   ? readonly U[]
   : T extends (infer U)[]

@@ -1,25 +1,12 @@
 import type { Address } from '../shared/shared.js';
-// Import ChainKeys directly from chain-keys.js (not chains.js) to break an ESM circular-init
-// cycle: chains.ts imports from tokens.ts, and tokens.ts imports ChainKeys — if we source it
-// from chains.js the value is still undefined when tokens.ts initializes.
+// Import from chain-keys.js, not chains.js: chains.ts imports tokens.ts, so via chains.js ChainKeys
+// would still be undefined when tokens.ts initializes (ESM circular init).
 import { ChainKeys, type ChainKey } from './chain-keys.js';
 
-/**
- * Access restrictions for an {@link XToken} entry. Omit the field for full access
- * (deposit + withdraw, plus supply/borrow when the entry is in the money-market list).
- *
- * - `withdrawOnly` — entry kept for users to withdraw positions from a deprecated hub vault.
- * - `depositOnly` — entry temporarily accepts deposits but blocks withdrawals.
- */
+/** Omit for full access. `withdrawOnly`: kept so users can exit a deprecated hub vault (may share an address with its active
+ * counterpart). `depositOnly`: temporarily accepts deposits but blocks withdrawals. */
 export type XTokenAccess = 'withdrawOnly' | 'depositOnly';
 
-/**
- * Cross-chain token descriptor used by swap / money market / bridge configs.
- *
- * `access` is omitted for full-access entries (deposit + withdraw). Set it to mark
- * restricted entries — e.g. a `withdrawOnly` entry sharing an on-chain address with
- * its active counterpart so users can withdraw deprecated-vault positions.
- */
 export type XToken = {
   readonly symbol: string;
   readonly name: string;
@@ -33,25 +20,16 @@ export type XToken = {
   readonly isRwa?: boolean;
 };
 
-/**
- * Base URL for default token logos hosted in the `@sodax/assets` package.
- * Each logo is served from `main` via raw.githubusercontent and named by the
- * token's slugified symbol, so the full URL is `${TOKEN_LOGO_BASE_URL}/<slug>.png`.
- */
+/** Token logos from `@sodax/assets` on `main`; each is `${TOKEN_LOGO_BASE_URL}/<tokenLogoSlug(symbol)>.png`. */
 export const TOKEN_LOGO_BASE_URL = 'https://raw.githubusercontent.com/gosodax/sodax-sdks/main/packages/assets/token';
 
-/**
- * Filename slug for a token logo: the symbol lowercased with every run of
- * non-alphanumeric characters collapsed to a single `-` (so `bnUSD (legacy)` →
- * `bnusd-legacy`, `AVAX.LL` → `avax-ll`). Keeps filenames URL- and path-safe.
- */
+/** URL- and path-safe logo filename, e.g. `bnUSD (legacy)` → `bnusd-legacy`, `AVAX.LL` → `avax-ll`. */
 export const tokenLogoSlug = (symbol: string): string =>
   symbol
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
 
-/** Default logo URL for a token, resolved from its symbol (hosted in @sodax/assets). */
 export const tokenLogo = (symbol: string): string => `${TOKEN_LOGO_BASE_URL}/${tokenLogoSlug(symbol)}.png`;
 
 export const StatATokenAddresses = {
@@ -885,10 +863,8 @@ export const SodaTokens = {
     hubAsset: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
     vault: '0xf4af0aa80f079d5bff230c5b12109fa19b24f558',
   },
-  // The ZEC vault Zcash deposits into, and the money market's ZEC reserve. Read on Sonic 2026-11-22: it registers the
-  // Zcash (0x24312b2C…) and NEAR (0xEd5d71eE…) ZEC hub assets, and the lending pool lists it, not sodaZEC (0xf4af…).
-  // sodaZEC is the legacy, non-reserve ZEC vault, kept for compatibility: it registers the Zcash (0x24312b2C…) and BSC
-  // (0x3155…) ZEC hub assets. Neither vault registers Solana's ZEC hub asset (0xdfce…).
+  // Zcash deposit vault and the MM's ZEC reserve (Zcash 0x24312b2C… + NEAR 0xEd5d71eE… hub assets; read 2026-11-22). Legacy
+  // sodaZEC (0xf4af…) is non-reserve, holding Zcash + BSC (0x3155…) assets; neither registers Solana's (0xdfce…).
   sodaZECv2: {
     symbol: 'sodaZECv2',
     name: 'SODA ZEC v2',
@@ -919,15 +895,8 @@ export const SodaTokens = {
   },
 } as const satisfies Record<HubVaultSymbol, XToken>;
 
-/**
- * Leverage-yield vault share tokens on Sonic. Each entry is the ERC-4626 share token
- * issued by a deployed `LeverageYieldVault` (see `leverageYield.leverageYieldVaults` for
- * the matching vault metadata). Spread into `sonicSupportedTokens` and the swap registry
- * so they're discoverable in token selectors and swappable via the solver.
- *
- * `address`, `hubAsset`, and `vault` are all the leverage-vault proxy address — these
- * tokens live on the hub and aren't further wrapped.
- */
+/** ERC-4626 share tokens of deployed `LeverageYieldVault`s (metadata: `leverageYield.leverageYieldVaults`). They live on the
+ * hub unwrapped, so `address`, `hubAsset` and `vault` are all the vault proxy address. */
 export const LsodaSymbols = ['lsodaWEETH', 'lsodaWSTETH', 'lsodaJITOSOL', 'lsodaSUSDS'] as const;
 
 export type LsodaSymbol = (typeof LsodaSymbols)[number];
@@ -970,8 +939,6 @@ export const LsodaTokens = {
     vault: '0x758532F160D9D338bf662A4a59BA31a5B918A7cb',
   },
 } as const satisfies Record<LsodaSymbol, XToken>;
-
-// --- Per-chain supported tokens ---
 
 export const sonicSupportedTokens = {
   S: {
@@ -2873,21 +2840,8 @@ export const bitcoinSupportedTokens = {
   },
 } as const satisfies Record<string, XToken>;
 
-/**
- * XRPL spoke tokens.
- *
- * XRPL has no token contracts: an issued currency (IOU) is identified by a (currency, issuer)
- * pair, so `address` carries the ISSUER account — the nearest analogue to a contract address, and
- * what identifies the asset on-chain. The currency code itself is the nonstandard 160-bit form
- * (`USDC` is 4 characters, so it cannot use the 3-char form): `5553444300000000000000000000000000000000`.
- * `XrpSpokeService` needs both halves to build the Payment's Amount object.
- *
- * An issuer that issues SEVERAL tokens (the Robinhood stocks) cannot be told apart by its address alone, so those
- * tokens use `<40-hex currency>:<issuer>` instead. `xrpTokenRef` resolves either form to (currency, issuer).
- *
- * `decimals` is the SPOKE-side scale (XRPL drops are 6, and the relay registers its IOUs at 6),
- * not the hub vault's — the vault shares are 18 like every other soda vault.
- */
+/** `address` is the IOU issuer, or `<40-hex currency>:<issuer>` for multi-token issuers (see `xrpTokenRef`); currency codes
+ * use the 160-bit form. `decimals` is the spoke scale (6: drops and relay IOUs), not the 18-decimal hub vault's. */
 export const xrpSupportedTokens = {
   // Native XRP. The spoke-side "address" uses the EVM-zero sentinel (XRPL native has no issuer);
   // the hub wraps it as wXRP, minted into the XRP vault via the MPC relay.
@@ -4344,7 +4298,7 @@ export const iconSupportedTokens = {
     vault: SodaTokens.IbnUSD.address,
   },
   legacybnUSD: {
-    // duplicate of bnUSD  purely for consistency with other legacy tokens chains (sui, stellar)
+    // duplicate of bnUSD, for consistency with the other legacy chains (sui, stellar)
     symbol: 'bnUSD (legacy)',
     name: 'bnUSD',
     decimals: 18,
@@ -6083,8 +6037,6 @@ export const stacksSupportedTokens = {
   },
 } as const satisfies Record<string, XToken>;
 
-// --- Combined record indexed by chain key ---
-
 export const supportedTokensByChain = {
   [ChainKeys.SONIC_MAINNET]: sonicSupportedTokens,
   [ChainKeys.REDBELLY_MAINNET]: redbellySupportedTokens,
@@ -6116,11 +6068,7 @@ export const supportedTokensByChain = {
   [ChainKeys.CARDANO_MAINNET]: cardanoSupportedTokens,
 } as const satisfies Record<ChainKey, Record<string, XToken>>;
 
-/**
- * Whether a token's chain/address identifies a declared RWA in the packaged registry.
- * Symbols are not used. Unknown tokens return false; this does not validate swap support.
- * EVM hex addresses are case-insensitive; non-EVM identifiers retain their exact casing.
- */
+/** Matches by chain + address only (EVM case-insensitive, non-EVM exact); unknown → false. Does not imply swap support. */
 export function isRealWorldAsset(token: { chainKey: string; address: string }): boolean {
   const registry: Readonly<Record<string, Readonly<Record<string, XToken>>>> = supportedTokensByChain;
   const chainTokens = registry[token.chainKey];
