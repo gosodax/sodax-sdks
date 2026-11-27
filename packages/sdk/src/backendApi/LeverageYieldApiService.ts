@@ -729,7 +729,8 @@ export class LeverageYieldApiService implements ResultifiedLeverageYieldApiV2 {
   }
 
   /**
-   * Compute the protocol (solver) fee for a given input amount.
+   * Compute the maximum protocol (solver) fee for a given input amount.
+   * The actual fee depends on the solver's route.
    *
    * @returns `Result<FeeResponseV2>` — `{ fee }` (decimal string).
    */
