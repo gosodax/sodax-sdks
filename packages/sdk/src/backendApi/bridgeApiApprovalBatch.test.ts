@@ -233,8 +233,8 @@ beforeEach(() => {
 });
 
 describe('approve and bridge in one signature (Bridge API)', () => {
-  it('sends [resetTx, approve, deposit] as one batch, deposit last, and returns the submit body with the full relayData', async () => {
-    stubBackend({ withReset: true });
+  it('sends [resetTx, approve, deposit] as one batch, deposit last, and returns the submit body (full relayData) to retry alone', async () => {
+    stubBackend({ withReset: true, failSubmitOnce: true });
     const walletProvider = batchWallet();
 
     const result = await approveAndBridge(walletProvider, BRIDGE_PARAMS);
@@ -255,18 +255,11 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
     expect(submitted()).toEqual([]);
 
+    // A submitTx that fails after the deposit is retried alone: the same body goes again, no second deposit.
+    expect((await sodax.api.bridge.submitTx(result.submit)).ok).toBe(false);
     unwrap(await sodax.api.bridge.submitTx(result.submit));
-    expect(submitted()).toEqual([result.submit]);
-  });
-
-  it('sends [approve, deposit] when the token needs no reset', async () => {
-    stubBackend({ withReset: false });
-    const walletProvider = batchWallet();
-
-    await approveAndBridge(walletProvider, BRIDGE_PARAMS);
-
-    const [txs] = walletProvider.sendAtomicBatch.mock.calls[0] ?? [];
-    expect(txs?.map(tx => tx.data)).toEqual([APPROVE_WIRE.data, DEPOSIT_WIRE.data]);
+    expect(submitted()).toEqual([result.submit, result.submit]);
+    expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
   });
 
   it('approves separately and creates the bridge intent again when the wallet refuses the batch; no second batch', async () => {
@@ -282,6 +275,9 @@ describe('approve and bridge in one signature (Bridge API)', () => {
       submit: { txHash: '0xseparate-deposit', relayData: relayDataFor(2) },
     });
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
+    // A token that needs no reset is batched as [approve, deposit].
+    const [batched] = walletProvider.sendAtomicBatch.mock.calls[0] ?? [];
+    expect(batched?.map(tx => tx.data)).toEqual([APPROVE_WIRE.data, DEPOSIT_WIRE.data]);
     expect(walletProvider.sendTransaction.mock.calls.map(([tx]) => tx.data)).toEqual([
       APPROVE_WIRE.data,
       DEPOSIT_WIRE.data,
@@ -314,19 +310,16 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     expect(requested('/bridge/approve')).toHaveLength(0);
   });
 
-  it('approves separately for a wallet that must upgrade its account when allowAccountUpgrade is false', async () => {
+  it('approves separately, with no batch, for a wallet that must upgrade when allowAccountUpgrade is false and for a Sonic hub source', async () => {
     stubBackend({ withReset: false });
-    const walletProvider = batchWallet('ready');
-    walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xno-upgrade-deposit');
+    const upgradeWallet = batchWallet('ready');
+    upgradeWallet.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xno-upgrade-deposit');
 
-    const result = await approveAndBridge(walletProvider, BRIDGE_PARAMS, { allowAccountUpgrade: false });
+    const noUpgrade = await approveAndBridge(upgradeWallet, BRIDGE_PARAMS, { allowAccountUpgrade: false });
 
-    expect(result).toMatchObject({ strategy: 'sequential', submit: { txHash: '0xno-upgrade-deposit' } });
-    expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
-  });
+    expect(noUpgrade).toMatchObject({ strategy: 'sequential', submit: { txHash: '0xno-upgrade-deposit' } });
+    expect(upgradeWallet.sendAtomicBatch).not.toHaveBeenCalled();
 
-  it('keeps a Sonic hub source sequential: no batch, the approval and the deposit go out separately', async () => {
-    stubBackend({ withReset: false });
     const walletProvider = batchWallet();
     walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xhub-deposit');
 
@@ -338,20 +331,6 @@ describe('approve and bridge in one signature (Bridge API)', () => {
       APPROVE_WIRE.data,
       DEPOSIT_WIRE.data,
     ]);
-  });
-
-  it('retries only submitTx when it fails after the deposit: the same body goes again, no second deposit', async () => {
-    stubBackend({ withReset: false, failSubmitOnce: true });
-    const walletProvider = batchWallet();
-
-    const { submit } = await approveAndBridge(walletProvider, BRIDGE_PARAMS);
-    const first = await sodax.api.bridge.submitTx(submit);
-    const retried = await sodax.api.bridge.submitTx(submit);
-
-    expect(first.ok).toBe(false);
-    expect(retried.ok).toBe(true);
-    expect(submitted()).toEqual([submit, submit]);
-    expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
   });
 
   it('never resends an unconfirmed batch; the persisted state alone resumes and submits it', async () => {

@@ -19,7 +19,7 @@ describe('assertMpcPayoutAboveMinimum', () => {
   const ada = cardanoSupportedTokens.ADA;
   const usdt = tronSupportedTokens.USDT;
 
-  it('refuses a Cardano payout below 1 ADA, saying it must be at least 1 ADA and why', () => {
+  it('refuses a Cardano payout below 1 ADA, saying it must be at least 1 ADA and why, and accepts exactly 1 ADA', () => {
     const error = catchError(() => run(ada, 999_999n));
 
     expect(isSodaxError(error)).toBe(true);
@@ -29,9 +29,7 @@ describe('assertMpcPayoutAboveMinimum', () => {
       'A ADA payout to cardano must be at least 1 ADA: the relay refuses a smaller release after the hub has burned it',
     );
     expect(error.context).toMatchObject({ phase: 'validate', reason: 'mpc-payout-below-minimum', action: 'bridge' });
-  });
 
-  it('accepts a Cardano payout of exactly 1 ADA, which the relay releases', () => {
     expect(() => run(ada, 1_000_000n)).not.toThrow();
     expect(() => run(ada, 25_000_000n)).not.toThrow();
   });

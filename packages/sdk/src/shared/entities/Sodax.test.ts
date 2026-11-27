@@ -164,16 +164,11 @@ const asFake = (value: unknown): FakeInstance => value as FakeInstance;
 // =========================================================================
 
 describe('Sodax constructor — instanceConfig', () => {
-  it('uses the imported sodaxConfig reference as-is when called with no arguments', () => {
-    const sodax = new Sodax();
+  it('uses the imported sodaxConfig reference as-is for no argument or explicit undefined', () => {
     // Referential identity — the falsy branch of the ternary returns the imported default
     // directly, no clone. Mutation `config ? deepMerge(...) : deepMerge(...)` would break this.
-    expect(sodax.instanceConfig).toBe(sodaxConfig);
-  });
-
-  it('treats explicit undefined the same as no argument (falsy ternary branch)', () => {
-    const sodax = new Sodax(undefined);
-    expect(sodax.instanceConfig).toBe(sodaxConfig);
+    expect(new Sodax().instanceConfig).toBe(sodaxConfig);
+    expect(new Sodax(undefined).instanceConfig).toBe(sodaxConfig);
   });
 
   it('produces a NEW object when given an empty override (truthy ternary branch, even if no-op)', () => {
@@ -199,22 +194,17 @@ describe('Sodax constructor — instanceConfig', () => {
     expect(api.headers).toEqual(sodaxConfig.api.headers);
   });
 
-  it('leaves untouched top-level fields untouched (override one branch, others survive)', () => {
+  it('keeps untouched top-level fields by reference and never mutates the imported default', () => {
+    // The packaged default declares `bridge` without partnerFee; widen to read the optional slot.
+    const bridgeDefaults = sodaxConfig.bridge as { partnerFee?: unknown };
+    const before = bridgeDefaults.partnerFee;
     const partnerFee = { address: '0x2222222222222222222222222222222222222222' as const, percentage: 50 };
     const sodax = new Sodax({ bridge: { partnerFee } });
     // `chains` was not in the source — deepMerge preserves the reference, not just deep equality.
     expect(sodax.instanceConfig.chains).toBe(sodaxConfig.chains);
     expect(sodax.instanceConfig.relay).toBe(sodaxConfig.relay);
     expect(sodax.instanceConfig.api).toBe(sodaxConfig.api);
-  });
-
-  it('does not mutate the imported sodaxConfig default when an override is applied', () => {
-    // The packaged default declares `bridge` without partnerFee; widen to read the optional slot.
-    const bridgeDefaults = sodaxConfig.bridge as { partnerFee?: unknown };
-    const before = bridgeDefaults.partnerFee;
-    new Sodax({ bridge: { partnerFee: { address: '0x3333333333333333333333333333333333333333', percentage: 25 } } });
-    // Critical immutability invariant — the singleton default must remain pristine across
-    // instances. Catches a deepMerge mutation that writes into `target` instead of cloning.
+    // Catches a deepMerge mutation that writes into `target` instead of cloning.
     expect(bridgeDefaults.partnerFee).toBe(before);
   });
 });
@@ -244,10 +234,11 @@ describe('Sodax constructor — sub-services are instantiated as the correct cla
     ['recovery', 'RecoveryService'],
   ] as const;
 
-  it.each(FIELDS)('sodax.%s is a %s instance', (field, expectedType) => {
+  it('every public service field holds an instance of its own class', () => {
     const sodax = new Sodax();
-    const instance = sodax[field];
-    expect(asFake(instance).__type).toBe(expectedType);
+    for (const [field, expectedType] of FIELDS) {
+      expect(asFake(sodax[field]).__type, field).toBe(expectedType);
+    }
   });
 });
 
@@ -256,43 +247,30 @@ describe('Sodax constructor — sub-services are instantiated as the correct cla
 // =========================================================================
 
 describe('Sodax constructor — dependency wiring', () => {
-  it('BackendApiService receives instanceConfig.api (the merged value, not the raw default)', () => {
+  it('wires BackendApiService, ConfigService, EvmHubProvider and SpokeService to the Sodax-owned instances', () => {
     const sodax = new Sodax();
-    // Sodax passes the post-merge `instanceConfig.api`. Because no override was given this is
-    // referentially equal to `sodaxConfig.api`, but the SOURCE is the merged config — verified
-    // by the override-propagation test below.
+    // Sodax passes the post-merge `instanceConfig.api` (referentially `sodaxConfig.api` without overrides).
     expect(helpers.captured.backendApi).toHaveLength(1);
     expect(helpers.captured.backendApi[0]).toBe(sodax.instanceConfig.api);
-  });
 
-  it('ConfigService receives { api, config: instanceConfig, userConfig: undefined } when constructed without overrides', () => {
-    const sodax = new Sodax();
     expect(helpers.captured.config).toHaveLength(1);
-    const args = helpers.captured.config[0] as { api: unknown; config: unknown; userConfig: unknown };
-    expect(args.api).toBe(sodax.backendApi);
-    expect(args.config).toBe(sodax.instanceConfig);
+    const configArgs = helpers.captured.config[0] as { api: unknown; config: unknown; userConfig: unknown };
+    expect(configArgs.api).toBe(sodax.backendApi);
+    expect(configArgs.config).toBe(sodax.instanceConfig);
     // No override was passed → userConfig must be undefined so initialize() uses dynamic config as-is.
-    expect(args.userConfig).toBeUndefined();
-  });
+    expect(configArgs.userConfig).toBeUndefined();
 
-  it('EvmHubProvider receives { config: <ConfigService instance> }', () => {
-    const sodax = new Sodax();
     expect(helpers.captured.evmHub).toHaveLength(1);
-    const args = helpers.captured.evmHub[0] as { config: unknown };
-    expect(args.config).toBe(sodax.config);
-  });
+    expect((helpers.captured.evmHub[0] as { config: unknown }).config).toBe(sodax.config);
 
-  it('SpokeService receives { config, hubProvider } pointing at the same Sodax-owned instances', () => {
-    const sodax = new Sodax();
     expect(helpers.captured.spoke).toHaveLength(1);
-    const args = helpers.captured.spoke[0] as { config: unknown; hubProvider: unknown };
-    expect(args.config).toBe(sodax.config);
-    expect(args.hubProvider).toBe(sodax.hubProvider);
+    const spokeArgs = helpers.captured.spoke[0] as { config: unknown; hubProvider: unknown };
+    expect(spokeArgs.config).toBe(sodax.config);
+    expect(spokeArgs.hubProvider).toBe(sodax.hubProvider);
   });
 
-  // The downstream services all take the same { config, hubProvider, spoke } triple. We check
-  // each one independently — a mutation that drops one field on, say, `MoneyMarketService` but
-  // not on `SwapService` is exactly the kind of regression a parameterized test catches.
+  // The downstream services all take the same { config, hubProvider, spoke } triple. Each is checked
+  // independently — a mutation that drops one field on one service but not another is caught.
   const TRIPLE_SERVICES = [
     ['swap', 'swaps'],
     ['moneyMarket', 'moneyMarket'],
@@ -304,68 +282,18 @@ describe('Sodax constructor — dependency wiring', () => {
     ['recovery', 'recovery'],
   ] as const;
 
-  it.each(
-    TRIPLE_SERVICES,
-  )('%s service receives { config, hubProvider, spoke } pointing at the shared instances', (sinkKey, fieldName) => {
+  it('every feature service receives the ONE shared { config, hubProvider, spoke } and lands on its own field', () => {
     const sodax = new Sodax();
-    const sink = helpers.captured[sinkKey];
-    expect(sink).toHaveLength(1);
-    const args = sink[0] as { config: unknown; hubProvider: unknown; spoke: unknown };
-    expect(args.config).toBe(sodax.config);
-    expect(args.hubProvider).toBe(sodax.hubProvider);
-    expect(args.spoke).toBe(sodax.spoke);
-    // Defensive: also pin that the field-name → sink-name mapping is correct so a mutation
-    // that swaps `this.swaps = new SwapService(...)` and `this.moneyMarket = new MoneyMarket(...)`
-    // gets caught.
-    expect((sodax as unknown as Record<string, FakeInstance>)[fieldName]?.__args).toBe(args);
-  });
-
-  it('shares ONE config instance across every service that needs it', () => {
-    const sodax = new Sodax();
-    const allConfigArgs = [
-      (helpers.captured.evmHub[0] as { config: unknown }).config,
-      (helpers.captured.spoke[0] as { config: unknown }).config,
-      (helpers.captured.swap[0] as { config: unknown }).config,
-      (helpers.captured.moneyMarket[0] as { config: unknown }).config,
-      (helpers.captured.dex[0] as { config: unknown }).config,
-      (helpers.captured.migration[0] as { config: unknown }).config,
-      (helpers.captured.bridge[0] as { config: unknown }).config,
-      (helpers.captured.staking[0] as { config: unknown }).config,
-      (helpers.captured.partner[0] as { config: unknown }).config,
-      (helpers.captured.recovery[0] as { config: unknown }).config,
-    ];
-    for (const cfg of allConfigArgs) expect(cfg).toBe(sodax.config);
-  });
-
-  it('shares ONE hubProvider instance across every service that needs it', () => {
-    const sodax = new Sodax();
-    const allHubArgs = [
-      (helpers.captured.spoke[0] as { hubProvider: unknown }).hubProvider,
-      (helpers.captured.swap[0] as { hubProvider: unknown }).hubProvider,
-      (helpers.captured.moneyMarket[0] as { hubProvider: unknown }).hubProvider,
-      (helpers.captured.dex[0] as { hubProvider: unknown }).hubProvider,
-      (helpers.captured.migration[0] as { hubProvider: unknown }).hubProvider,
-      (helpers.captured.bridge[0] as { hubProvider: unknown }).hubProvider,
-      (helpers.captured.staking[0] as { hubProvider: unknown }).hubProvider,
-      (helpers.captured.partner[0] as { hubProvider: unknown }).hubProvider,
-      (helpers.captured.recovery[0] as { hubProvider: unknown }).hubProvider,
-    ];
-    for (const hub of allHubArgs) expect(hub).toBe(sodax.hubProvider);
-  });
-
-  it('shares ONE spoke instance across every service that needs it', () => {
-    const sodax = new Sodax();
-    const allSpokeArgs = [
-      (helpers.captured.swap[0] as { spoke: unknown }).spoke,
-      (helpers.captured.moneyMarket[0] as { spoke: unknown }).spoke,
-      (helpers.captured.dex[0] as { spoke: unknown }).spoke,
-      (helpers.captured.migration[0] as { spoke: unknown }).spoke,
-      (helpers.captured.bridge[0] as { spoke: unknown }).spoke,
-      (helpers.captured.staking[0] as { spoke: unknown }).spoke,
-      (helpers.captured.partner[0] as { spoke: unknown }).spoke,
-      (helpers.captured.recovery[0] as { spoke: unknown }).spoke,
-    ];
-    for (const spoke of allSpokeArgs) expect(spoke).toBe(sodax.spoke);
+    for (const [sinkKey, fieldName] of TRIPLE_SERVICES) {
+      const sink = helpers.captured[sinkKey];
+      expect(sink, sinkKey).toHaveLength(1);
+      const args = sink[0] as { config: unknown; hubProvider: unknown; spoke: unknown };
+      expect(args.config, sinkKey).toBe(sodax.config);
+      expect(args.hubProvider, sinkKey).toBe(sodax.hubProvider);
+      expect(args.spoke, sinkKey).toBe(sodax.spoke);
+      // Pins the field-name → sink-name mapping so swapped `this.x = new Y(...)` lines get caught.
+      expect((sodax as unknown as Record<string, FakeInstance>)[fieldName]?.__args, sinkKey).toBe(args);
+    }
   });
 });
 
@@ -374,17 +302,14 @@ describe('Sodax constructor — dependency wiring', () => {
 // =========================================================================
 
 describe('Sodax constructor — config override propagates downstream', () => {
-  it('a partial { api: { timeout } } override reaches BackendApiService at construction time', () => {
+  it('a partial { api: { timeout } } override reaches BackendApiService and the ConfigService-stored config', () => {
     const customTimeout = 12_345;
     const sodax = new Sodax({ api: { timeout: customTimeout } });
     const backendApiArg = helpers.captured.backendApi[0] as { timeout: number };
     expect(backendApiArg.timeout).toBe(customTimeout);
     // The arg passed to BackendApiService must be `instanceConfig.api`, not `sodaxConfig.api`.
     expect(backendApiArg).toBe(sodax.instanceConfig.api);
-  });
 
-  it('the merged instanceConfig (not the raw default) is what ConfigService stores', () => {
-    const sodax = new Sodax({ api: { timeout: 75 } });
     const configArg = helpers.captured.config[0] as { config: SodaxConfig };
     expect(configArg.config).toBe(sodax.instanceConfig);
     const storedApi = configArg.config.api;
@@ -392,7 +317,7 @@ describe('Sodax constructor — config override propagates downstream', () => {
       !('baseApiConfig' in storedApi) && !('swapsApiConfig' in storedApi) && !('sponsoringApiConfig' in storedApi),
       'default api config is the flat variant',
     );
-    expect(storedApi.timeout).toBe(75);
+    expect(storedApi.timeout).toBe(customTimeout);
   });
 
   it('forwards the global fee option to ConfigService as a separate held option', () => {
@@ -422,17 +347,21 @@ describe('Sodax constructor — config override propagates downstream', () => {
 // =========================================================================
 
 describe('Sodax.initialize', () => {
-  it('delegates to config.initialize and propagates its ok:true result unchanged', async () => {
+  it('delegates to config.initialize once per call with no args and returns its ok:true result unchanged', async () => {
     const expected: Result<void> = { ok: true, value: undefined };
-    helpers.captured.configInitialize.mockResolvedValueOnce(expected);
-
+    helpers.captured.configInitialize.mockResolvedValue(expected);
     const sodax = new Sodax();
-    const result = await sodax.initialize();
 
     // Identity (`toBe`) — the facade returns the awaited promise's value as-is, no re-wrapping.
-    expect(result).toBe(expected);
+    expect(await sodax.initialize()).toBe(expected);
     expect(helpers.captured.configInitialize).toHaveBeenCalledTimes(1);
-    expect(helpers.captured.configInitialize).toHaveBeenCalledWith();
+
+    await sodax.initialize();
+    expect(helpers.captured.configInitialize).toHaveBeenCalledTimes(2);
+    // Both invocations must pass zero arguments — the facade does not synthesize any.
+    for (const call of helpers.captured.configInitialize.mock.calls) {
+      expect(call).toEqual([]);
+    }
   });
 
   it('propagates an ok:false result returned by config.initialize', async () => {
@@ -443,21 +372,6 @@ describe('Sodax.initialize', () => {
     const result = await sodax.initialize();
 
     expect(result).toBe(failure);
-  });
-
-  it('invokes config.initialize exactly once per call (no retry, no extra args)', async () => {
-    helpers.captured.configInitialize.mockResolvedValue({ ok: true, value: undefined });
-    const sodax = new Sodax();
-
-    await sodax.initialize();
-    expect(helpers.captured.configInitialize).toHaveBeenCalledTimes(1);
-
-    await sodax.initialize();
-    expect(helpers.captured.configInitialize).toHaveBeenCalledTimes(2);
-    // Both invocations must pass zero arguments — the facade does not synthesize any.
-    for (const call of helpers.captured.configInitialize.mock.calls) {
-      expect(call).toEqual([]);
-    }
   });
 });
 

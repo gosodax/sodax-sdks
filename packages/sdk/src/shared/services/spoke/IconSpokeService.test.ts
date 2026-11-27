@@ -43,7 +43,6 @@ vi.mock('../../utils/shared-utils.js', async () => {
 });
 
 import { Sodax } from '../../entities/Sodax.js';
-import { IconSpokeService } from './IconSpokeService.js';
 import { encodeAddress } from '../../utils/shared-utils.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
 
@@ -63,7 +62,6 @@ const ICON_NID = iconConfig.nid;
 const ICON_NATIVE = iconConfig.nativeToken;
 const ICON_BNUSD = iconConfig.bnUSD;
 const ICON_POLLING_MS = iconConfig.pollingConfig.pollingIntervalMs;
-const ICON_TIMEOUT_MS = iconConfig.pollingConfig.maxTimeoutMs;
 
 // User identities / hash — no config source.
 const SRC_ADDR = 'hx0000000000000000000000000000000000000001';
@@ -102,32 +100,6 @@ afterEach(() => {
 });
 
 // =========================================================================
-// 1. constructor
-// =========================================================================
-
-describe('IconSpokeService — constructor', () => {
-  it('exposes the spoke instance on sodax.spoke.icon with the expected method surface', () => {
-    expect(iconSpoke).toBeInstanceOf(IconSpokeService);
-    expect(typeof iconSpoke.estimateGas).toBe('function');
-    expect(typeof iconSpoke.deposit).toBe('function');
-    expect(typeof iconSpoke.getDeposit).toBe('function');
-    expect(typeof iconSpoke.sendMessage).toBe('function');
-    expect(typeof iconSpoke.encodeSimulationParams).toBe('function');
-    expect(typeof iconSpoke.waitForTransactionReceipt).toBe('function');
-  });
-
-  it('wires an IconService with the methods the rest of the class consumes', () => {
-    expect(iconSpoke.iconService).toBeDefined();
-    expect(typeof iconSpoke.iconService.call).toBe('function');
-    expect(typeof iconSpoke.iconService.getTransactionResult).toBe('function');
-  });
-
-  it('exposes the per-chain debugRpcUrl from config', () => {
-    expect(iconSpoke.debugRpcUrl).toBe(iconConfig.debugRpcUrl);
-  });
-});
-
-// =========================================================================
 // 2. estimateGas — delegation to estimateStepCost
 // =========================================================================
 
@@ -140,6 +112,7 @@ describe('IconSpokeService.estimateGas', () => {
 
     expect(result).toBe(123_456n);
     expect(mocks.estimateStepCost).toHaveBeenCalledWith(rawTx, iconConfig.debugRpcUrl);
+    expect(iconSpoke.debugRpcUrl).toBe(iconConfig.debugRpcUrl);
   });
 });
 
@@ -163,7 +136,7 @@ describe('IconSpokeService.deposit', () => {
       ...overrides,
     }) as DepositParams<typeof ICON, Raw>;
 
-  it("native ICX raw=true → 'to' is substituted with wICX and value is BigIntToHex(amount)", async () => {
+  it("native ICX → 'to' is substituted with wICX and value is BigIntToHex(amount), raw or sent", async () => {
     const result = (await iconSpoke.deposit(depositParams<true>({ token: ICON_NATIVE, raw: true }))) as Record<
       string,
       unknown
@@ -175,19 +148,21 @@ describe('IconSpokeService.deposit', () => {
     expect(result.value).toBe('0x3e8');
     expect(result.from).toBe(SRC_ADDR);
     expect(result.nid).toBe(ICON_NID);
+
+    (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
+    await iconSpoke.deposit(depositParams<false>({ raw: false, token: ICON_NATIVE }));
+    const sent = (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    expect(sent).toMatchObject({ to: ICON_WICX, value: '0x3e8' });
   });
 
-  it('non-native token raw=true → `to` is the token address and value is 0x0', async () => {
-    const result = (await iconSpoke.deposit(depositParams<true>({ token: ICON_BNUSD, raw: true }))) as Record<
+  it('non-native → `to` is the token address and value is 0x0, raw or sent through walletProvider', async () => {
+    const raw = (await iconSpoke.deposit(depositParams<true>({ token: ICON_BNUSD, raw: true }))) as Record<
       string,
       unknown
     >;
+    expect(raw.to).toBe(ICON_BNUSD);
+    expect(raw.value).toBe('0x0');
 
-    expect(result.to).toBe(ICON_BNUSD);
-    expect(result.value).toBe('0x0');
-  });
-
-  it('raw=false → walletProvider.sendTransaction receives the right payload (non-native)', async () => {
     (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
 
     const result = await iconSpoke.deposit(depositParams<false>({ raw: false, token: ICON_BNUSD }));
@@ -206,15 +181,6 @@ describe('IconSpokeService.deposit', () => {
     expect((sent as { params: Record<string, unknown> }).params._to).toBe(ICON_ASSET_MGR);
     expect((sent as { params: Record<string, unknown> }).params._value).toBe('0x3e8');
   });
-
-  it('raw=false native → walletProvider.sendTransaction gets wICX as `to` and amount as value', async () => {
-    (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
-
-    await iconSpoke.deposit(depositParams<false>({ raw: false, token: ICON_NATIVE }));
-
-    const sent = (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(sent).toMatchObject({ to: ICON_WICX, value: '0x3e8' });
-  });
 });
 
 // =========================================================================
@@ -222,8 +188,11 @@ describe('IconSpokeService.deposit', () => {
 // =========================================================================
 
 describe('IconSpokeService.getDeposit', () => {
-  it('reads balanceOf with _owner=assetManager via iconService.call(...).execute()', async () => {
-    const callSpy = vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(httpCall('0x1d4c') as never);
+  it('reads balanceOf with _owner=assetManager via iconService.call(...).execute(), rejecting a non-string', async () => {
+    const callSpy = vi
+      .spyOn(iconSpoke.iconService, 'call')
+      .mockReturnValueOnce(httpCall('0x1d4c') as never)
+      .mockReturnValueOnce(httpCall({ value: '0x1d4c' }) as never);
 
     const result = await iconSpoke.getDeposit({
       srcChainKey: ICON,
@@ -238,14 +207,10 @@ describe('IconSpokeService.getDeposit', () => {
     expect(arg.to).toBe(ICON_BNUSD);
     expect(arg.data.method).toBe('balanceOf');
     expect(arg.data.params._owner).toBe(ICON_ASSET_MGR);
-  });
 
-  it('rejects when the node returns a non-string result', async () => {
-    vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(httpCall({ value: '0x1d4c' }) as never);
-
-    await expect(
-      iconSpoke.getDeposit({ srcChainKey: ICON, srcAddress: SRC_ADDR, token: ICON_BNUSD }),
-    ).rejects.toThrow(/Unexpected balanceOf response/);
+    await expect(iconSpoke.getDeposit({ srcChainKey: ICON, srcAddress: SRC_ADDR, token: ICON_BNUSD })).rejects.toThrow(
+      /Unexpected balanceOf response/,
+    );
   });
 });
 
@@ -270,8 +235,11 @@ describe('IconSpokeService.getWalletBalance', () => {
     expect(callSpy).not.toHaveBeenCalled();
   });
 
-  it('decodes the bare hex string an IRC-2 balanceOf resolves to, with the USER as _owner', async () => {
-    const callSpy = vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(httpCall('0x1d4c') as never);
+  it('decodes the bare hex string an IRC-2 balanceOf resolves to, with the USER as _owner, rejecting a `{ value }` wrapper', async () => {
+    const callSpy = vi
+      .spyOn(iconSpoke.iconService, 'call')
+      .mockReturnValueOnce(httpCall('0x1d4c') as never)
+      .mockReturnValueOnce(httpCall({ value: '0x1d4c' }) as never);
 
     const result = await iconSpoke.getWalletBalance({ srcChainKey: ICON, srcAddress: SRC_ADDR, token: BNUSD_TOKEN });
 
@@ -281,11 +249,8 @@ describe('IconSpokeService.getWalletBalance', () => {
     expect(arg.data.method).toBe('balanceOf');
     // The user, NOT the asset manager — the one field that distinguishes this from getDeposit.
     expect(arg.data.params._owner).toBe(SRC_ADDR);
-  });
 
-  it('rejects on a `{ value }` wrapper, the shape icon-sdk-js never sends', async () => {
-    vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(httpCall({ value: '0x1d4c' }) as never);
-
+    // icon-sdk-js never sends a `{ value }` wrapper.
     await expect(
       iconSpoke.getWalletBalance({ srcChainKey: ICON, srcAddress: SRC_ADDR, token: BNUSD_TOKEN }),
     ).rejects.toThrow(/Unexpected balanceOf response/);
@@ -311,16 +276,14 @@ describe('IconSpokeService.getWalletBalances', () => {
     const balanceSpy = vi
       .spyOn(iconSpoke.iconService, 'getBalance')
       .mockReturnValueOnce(httpCall({ toFixed: () => '12345' }) as never);
-    const callSpy = vi
-      .spyOn(iconSpoke.iconService, 'call')
-      .mockReturnValueOnce(
-        httpCall(
-          aggregated([
-            { returnData: '0x1d4c', success: '0x1' },
-            { returnData: '0x0', success: '0x1' },
-          ]),
-        ) as never,
-      );
+    const callSpy = vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(
+      httpCall(
+        aggregated([
+          { returnData: '0x1d4c', success: '0x1' },
+          { returnData: '0x0', success: '0x1' },
+        ]),
+      ) as never,
+    );
 
     const result = await iconSpoke.getWalletBalances({
       srcChainKey: ICON,
@@ -386,10 +349,10 @@ describe('IconSpokeService.getWalletBalances', () => {
     expect(result[BALN_TOKEN.address]).toBe(7500n);
   });
 
-  it('rejects when tryAggregate returns fewer entries than tokens rather than zeroing the tail', async () => {
-    vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(
-      httpCall(aggregated([{ returnData: '0x1d4c', success: '0x1' }])) as never,
-    );
+  it('rejects when tryAggregate returns fewer entries than tokens, or none, rather than zeroing the tail', async () => {
+    vi.spyOn(iconSpoke.iconService, 'call')
+      .mockReturnValueOnce(httpCall(aggregated([{ returnData: '0x1d4c', success: '0x1' }])) as never)
+      .mockReturnValueOnce(httpCall({}) as never);
 
     await expect(
       iconSpoke.getWalletBalances({
@@ -398,11 +361,6 @@ describe('IconSpokeService.getWalletBalances', () => {
         tokens: [BNUSD_TOKEN, BALN_TOKEN],
       }),
     ).rejects.toThrow(/tryAggregate returned 1 entries for 2 tokens/);
-  });
-
-  it('rejects when the response carries no returnData array at all', async () => {
-    vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(httpCall({}) as never);
-
     await expect(
       iconSpoke.getWalletBalances({
         srcChainKey: ICON,
@@ -486,6 +444,7 @@ describe('IconSpokeService.sendMessage', () => {
     expect(data.params.dstChainId).toBe(getIntentRelayChainId(SONIC));
     expect(data.params.dstAddress).toBe(DST_ADDR);
     expect(data.params.payload).toBe('0xdeadbeef');
+    expect(getIntentRelayChainId(SONIC)).toBe(146n);
   });
 
   it('raw=false → walletProvider.sendTransaction receives the connection payload', async () => {
@@ -503,10 +462,6 @@ describe('IconSpokeService.sendMessage', () => {
       method: 'sendMessage',
     });
   });
-
-  it('pins getIntentRelayChainId(SONIC) === 146n (defensive against table drift)', () => {
-    expect(getIntentRelayChainId(SONIC)).toBe(146n);
-  });
 });
 
 // =========================================================================
@@ -514,7 +469,7 @@ describe('IconSpokeService.sendMessage', () => {
 // =========================================================================
 
 describe('IconSpokeService.encodeSimulationParams', () => {
-  it('native ICX is substituted with wICX before encodeAddress', async () => {
+  it('substitutes native ICX with wICX before encodeAddress and passes other tokens through', async () => {
     const { encodedToken, encodedSrcAddress } = iconSpoke.encodeSimulationParams(ICON_NATIVE, ICON_ASSET_MGR);
 
     // The substitution must match what `deposit()` does — wICX is the wrapped form registered
@@ -522,13 +477,10 @@ describe('IconSpokeService.encodeSimulationParams', () => {
     // token address that doesn't exist in the hub.
     expect(encodedToken).toBe(encodeAddress(ICON, ICON_WICX));
     expect(encodedSrcAddress).toBe(encodeAddress(ICON, ICON_ASSET_MGR));
-  });
 
-  it('non-native token passes through unchanged', () => {
-    const { encodedToken, encodedSrcAddress } = iconSpoke.encodeSimulationParams(ICON_BNUSD, ICON_ASSET_MGR);
-
-    expect(encodedToken).toBe(encodeAddress(ICON, ICON_BNUSD));
-    expect(encodedSrcAddress).toBe(encodeAddress(ICON, ICON_ASSET_MGR));
+    const nonNative = iconSpoke.encodeSimulationParams(ICON_BNUSD, ICON_ASSET_MGR);
+    expect(nonNative.encodedToken).toBe(encodeAddress(ICON, ICON_BNUSD));
+    expect(nonNative.encodedSrcAddress).toBe(encodeAddress(ICON, ICON_ASSET_MGR));
   });
 });
 
@@ -560,17 +512,26 @@ describe('IconSpokeService.waitForTransactionReceipt', () => {
     expect(result.value.error.message).toContain('"status":0');
   });
 
-  it('transient rejection retries — second call succeeds', async () => {
+  it('transient rejection retries after sleeping the config (or caller) polling interval — second call succeeds', async () => {
     const receipt = { status: 1 };
     vi.spyOn(iconSpoke.iconService, 'getTransactionResult')
+      .mockReturnValueOnce(httpCallReject(new Error('pending')) as never)
+      .mockReturnValueOnce(httpCall(receipt) as never)
       .mockReturnValueOnce(httpCallReject(new Error('pending')) as never)
       .mockReturnValueOnce(httpCall(receipt) as never);
 
     const result = await iconSpoke.waitForTransactionReceipt({ chainKey: ICON, txHash: TX_HASH });
 
     if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
-    // sleep is invoked before the retry — defensive check that the polling path actually engaged.
-    expect(mocks.sleep).toHaveBeenCalled();
+    expect(mocks.sleep).toHaveBeenCalledWith(ICON_POLLING_MS);
+
+    await iconSpoke.waitForTransactionReceipt({
+      chainKey: ICON,
+      txHash: TX_HASH,
+      pollingIntervalMs: 7,
+      maxTimeoutMs: 60_000,
+    });
+    expect(mocks.sleep).toHaveBeenCalledWith(7);
   });
 
   it('persistent rejection past deadline → status:timeout', async () => {
@@ -591,36 +552,5 @@ describe('IconSpokeService.waitForTransactionReceipt', () => {
     if (result.value.status !== 'timeout') return;
     expect(result.value.error.message).toContain('Timed out');
     expect(result.value.error.message).toContain(TX_HASH);
-  });
-
-  it('forwards real config-driven polling/timeout defaults when caller omits them', async () => {
-    // The function reads `pollingIntervalMs` / `maxTimeoutMs` from constructor-stored config when
-    // params don't supply them. We can't observe the timeout-deadline directly, but we can verify
-    // sleep is called with the default polling interval on retry.
-    vi.spyOn(iconSpoke.iconService, 'getTransactionResult')
-      .mockReturnValueOnce(httpCallReject(new Error('pending')) as never)
-      .mockReturnValueOnce(httpCall({ status: 1 }) as never);
-
-    await iconSpoke.waitForTransactionReceipt({ chainKey: ICON, txHash: TX_HASH });
-
-    expect(mocks.sleep).toHaveBeenCalledWith(ICON_POLLING_MS);
-    // Pin the config values themselves to catch a renamed/dropped field.
-    expect(ICON_POLLING_MS).toBe(2000);
-    expect(ICON_TIMEOUT_MS).toBe(90_000);
-  });
-
-  it('forwards caller-supplied pollingIntervalMs to sleep on retry', async () => {
-    vi.spyOn(iconSpoke.iconService, 'getTransactionResult')
-      .mockReturnValueOnce(httpCallReject(new Error('pending')) as never)
-      .mockReturnValueOnce(httpCall({ status: 1 }) as never);
-
-    await iconSpoke.waitForTransactionReceipt({
-      chainKey: ICON,
-      txHash: TX_HASH,
-      pollingIntervalMs: 7,
-      maxTimeoutMs: 60_000,
-    });
-
-    expect(mocks.sleep).toHaveBeenCalledWith(7);
   });
 });

@@ -35,28 +35,12 @@ describe('packaged API URL defaults', () => {
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/be/moneymarket/asset/all');
   });
 
-  it('backend config reads mount under /be', async () => {
-    await sodax.backendApi.getAllConfig();
-    expect(requestedUrl()).toBe('https://api.sodax.com/v1/be/config/all');
-  });
-
-  it('oracle reads mount under /be', async () => {
-    await sodax.backendApi.getOracleMarkets();
-    expect(requestedUrl()).toBe('https://api.sodax.com/v1/be/oracle/markets');
-  });
-
-  // The reported defect: this posted to `/v1/be/swaps/submit-tx`, which the gateway does not route.
-  it('swaps API is a sibling of /be, not a child of it', async () => {
+  // The reported defect: swaps posted to `/v1/be/swaps/submit-tx`, which the gateway does not route.
+  it('swaps, bridge and leverage-yield APIs are siblings of /be, not children of it', async () => {
     await sodax.api.swaps.getTokens();
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/swaps/tokens');
-  });
-
-  it('bridge API is a sibling of /be, not a child of it', async () => {
     await sodax.api.bridge.getTokens();
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/bridge/tokens');
-  });
-
-  it('leverage-yield API is a sibling of /be, not a child of it', async () => {
     await sodax.api.leverageYield.getVaults();
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/leverage-yield/vaults');
   });
@@ -84,29 +68,25 @@ describe('packaged API URL defaults', () => {
 describe('a legacy /be-suffixed baseURL still resolves every service', () => {
   // What consumers copied from the docs (and what the packaged default used to be). The data API keeps
   // its URLs; the siblings are corrected rather than nested one level deeper.
-  const legacy = new Sodax({
-    api: { baseApiConfig: { baseURL: 'https://api.sodax.com/v1/be' } },
-    logger: silentLogger,
-  });
-
-  it('leaves the data API URLs untouched', async () => {
+  it('leaves the data API URLs untouched and no longer nests swaps, bridge and leverage-yield under /be', async () => {
+    const legacy = new Sodax({
+      api: { baseApiConfig: { baseURL: 'https://api.sodax.com/v1/be' } },
+      logger: silentLogger,
+    });
     await legacy.backendApi.getAllConfig();
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/be/config/all');
-  });
-
-  it('surfaces the deprecation warning through a consumer-supplied logger, once', () => {
-    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    new Sodax({ api: { baseURL: 'https://api.sodax.com/v1/be' }, logger });
-    expect(logger.warn).toHaveBeenCalledTimes(1);
-  });
-
-  it('no longer nests swaps, bridge and leverage-yield under /be', async () => {
     await legacy.api.swaps.getTokens();
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/swaps/tokens');
     await legacy.api.bridge.getTokens();
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/bridge/tokens');
     await legacy.api.leverageYield.getVaults();
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/leverage-yield/vaults');
+  });
+
+  it('surfaces the deprecation warning through a consumer-supplied logger, once', () => {
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    new Sodax({ api: { baseURL: 'https://api.sodax.com/v1/be' }, logger });
+    expect(logger.warn).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -116,29 +96,21 @@ describe('a legacy /be-suffixed per-call baseURL override', () => {
   // the data API's mount (`/be/swaps/...`), which is the original defect delivered through the override.
   const legacy = 'https://api.sodax.com/v1/be';
 
-  it('resolves the data API to a single mount', async () => {
+  it('resolves the data API to a single mount and does not nest any sibling client under it', async () => {
     await sodax.backendApi.getAllConfig({ baseURL: legacy });
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/be/config/all');
-  });
-
-  it('does not nest the swaps client under the data API mount', async () => {
     await sodax.api.swaps.getTokens({ baseURL: legacy });
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/swaps/tokens');
-  });
-
-  it('does not nest the bridge client under the data API mount', async () => {
     await sodax.api.bridge.getTokens({ baseURL: legacy });
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/bridge/tokens');
-  });
-
-  it('does not nest the leverage-yield client under the data API mount', async () => {
     await sodax.api.leverageYield.getVaults({ baseURL: legacy });
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/leverage-yield/vaults');
   });
 
-  it('is left exactly as given when an explicit basePath says the consumer writes complete roots', async () => {
+  it('is left exactly as given, for the data API and every sibling, when an explicit basePath opts the config out', async () => {
     // The config-level trim stands down for an explicit `basePath`; the per-call path must agree, or a
-    // `/be` that is a real path segment for this deployment gets eaten out of the override.
+    // `/be` that is a real path segment for this deployment gets eaten out of the override. (PR review
+    // finding 1: the opt-out once never reached the sibling clients.)
     const gw = new Sodax({
       api: { baseApiConfig: { baseURL: 'https://gw.example/be', basePath: '' } },
       logger: silentLogger,
@@ -147,30 +119,12 @@ describe('a legacy /be-suffixed per-call baseURL override', () => {
     expect(requestedUrl()).toBe('https://gw.example/be/config/all');
     await gw.backendApi.getAllConfig({ baseURL: 'https://gw2.example/be' });
     expect(requestedUrl()).toBe('https://gw2.example/be/config/all');
-  });
-
-  it('is left as given for every sibling client too when basePath opts the config out', async () => {
-    // Finding 1 from the PR review: `BackendApiService` honoured the opt-out but the decision never
-    // reached the sibling clients, so their per-call overrides had a real path segment trimmed away.
-    const gw = new Sodax({
-      api: { baseApiConfig: { baseURL: 'https://gw.example/be', basePath: '' } },
-      logger: silentLogger,
-    });
     await gw.api.swaps.getTokens({ baseURL: 'https://gw2.example/be' });
     expect(requestedUrl()).toBe('https://gw2.example/be/swaps/tokens');
     await gw.api.bridge.getTokens({ baseURL: 'https://gw2.example/be' });
     expect(requestedUrl()).toBe('https://gw2.example/be/bridge/tokens');
     await gw.api.leverageYield.getVaults({ baseURL: 'https://gw2.example/be' });
     expect(requestedUrl()).toBe('https://gw2.example/be/leverage-yield/vaults');
-  });
-
-  it('still trims for every sibling client when the config did not opt out', async () => {
-    await sodax.api.swaps.getTokens({ baseURL: legacy });
-    expect(requestedUrl()).toBe('https://api.sodax.com/v1/swaps/tokens');
-    await sodax.api.bridge.getTokens({ baseURL: legacy });
-    expect(requestedUrl()).toBe('https://api.sodax.com/v1/bridge/tokens');
-    await sodax.api.leverageYield.getVaults({ baseURL: legacy });
-    expect(requestedUrl()).toBe('https://api.sodax.com/v1/leverage-yield/vaults');
   });
 
   it('leaves a gateway-root override untouched for every service', async () => {
@@ -197,31 +151,21 @@ describe('a bare-origin baseURL on the packaged host', () => {
   });
 
   it.each([
-    ['swapsApiConfig', { swapsApiConfig: { baseURL: 'https://api.sodax.com' } } as const],
-    ['sponsoringApiConfig', { sponsoringApiConfig: { baseURL: 'https://api.sodax.com' } } as const],
-  ])('is reported when the short root arrives through the %s slice', (slice, api) => {
+    ['swapsApiConfig', 'api.swaps', { swapsApiConfig: { baseURL: 'https://api.sodax.com' } } as const],
+    ['sponsoringApiConfig', 'api.sponsoring', { sponsoringApiConfig: { baseURL: 'https://api.sodax.com' } } as const],
+  ])('is reported, naming the offending service, when the short root arrives through the %s slice', (_slice, service, api) => {
     // Finding 2 from the PR review: the old check layered only the flat fields and `baseApiConfig`, so a
     // root reaching its service through its own slice resolved one segment short with no warning.
     const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     new Sodax({ api, logger });
     expect(logger.warn).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('missing the gateway'));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(service));
   });
 
-  it('names the offending service so the slice to fix is obvious', () => {
-    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    new Sodax({ api: { swapsApiConfig: { baseURL: 'https://api.sodax.com' } }, logger });
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('api.swaps'));
-  });
-
-  it('stays quiet for a per-service slice that carries the prefix', () => {
+  it('stays quiet for a per-service slice that carries the prefix, and for a local service at its bare origin', () => {
     const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     new Sodax({ api: { swapsApiConfig: { baseURL: 'https://canary-api.sodax.com/v1' } }, logger });
-    expect(logger.warn).not.toHaveBeenCalled();
-  });
-
-  it('stays quiet for a local service at its bare origin', () => {
-    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     new Sodax({ api: { baseApiConfig: { baseURL: 'http://localhost:4000', basePath: '' } }, logger });
     expect(logger.warn).not.toHaveBeenCalled();
   });
@@ -229,12 +173,11 @@ describe('a bare-origin baseURL on the packaged host', () => {
 
 describe('basePath retargets a directly addressed backend', () => {
   // A local or non-gateway deployment serves `/config/*` at its origin, with no `/be` mount.
-  const local = new Sodax({
-    api: { baseApiConfig: { baseURL: 'http://localhost:4000', basePath: '' } },
-    logger: silentLogger,
-  });
-
   it('drops the mount entirely when basePath is empty', async () => {
+    const local = new Sodax({
+      api: { baseApiConfig: { baseURL: 'http://localhost:4000', basePath: '' } },
+      logger: silentLogger,
+    });
     await local.backendApi.getAllConfig();
     expect(requestedUrl()).toBe('http://localhost:4000/config/all');
   });

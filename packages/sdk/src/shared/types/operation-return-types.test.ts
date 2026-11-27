@@ -15,7 +15,7 @@ type Value<F extends (...args: never[]) => Promise<unknown>> = Extract<Awaited<R
 declare const sodax: Sodax;
 
 describe('raw return types follow the operation', () => {
-  it('types a Tron deposit as a transfer and a Tron message as a withdraw-auth, through every seam', () => {
+  it('types a Tron deposit as a transfer and a Tron message as a withdraw-auth through every seam, other chains unchanged', () => {
     expectTypeOf<Value<typeof sodax.spoke.deposit<Tron, true>>>().toEqualTypeOf<TronRawTransaction>();
     expectTypeOf<Value<typeof sodax.spoke.sendMessage<Tron, true>>>().toEqualTypeOf<TronRawWithdraw>();
 
@@ -40,18 +40,16 @@ describe('raw return types follow the operation', () => {
       Value<typeof sodax.dex.assetService.executeWithdraw<Tron, true>>['tx']
     >().toEqualTypeOf<TronRawWithdraw>();
     expectTypeOf<Value<typeof sodax.recovery.withdrawHubAsset<Tron, true>>>().toEqualTypeOf<TronRawWithdraw>();
-  });
 
-  it('keeps one raw type on every other chain, and both Tron shapes for a chain key not known statically', () => {
+    // Every other chain keeps one raw type; a chain key not known statically carries both Tron shapes.
     expectTypeOf<Value<typeof sodax.spoke.deposit<Arbitrum, true>>>().toEqualTypeOf<EvmRawTransaction>();
     expectTypeOf<
       Value<typeof sodax.moneyMarket.createBorrowIntent<Arbitrum, true>>['tx']
     >().toEqualTypeOf<EvmRawTransaction>();
     expectTypeOf<TronRawWithdraw>().toExtend<Value<typeof sodax.spoke.sendMessage<SpokeChainKey, true>>>();
     expectTypeOf<TronRawTransaction>().toExtend<Value<typeof sodax.spoke.sendMessage<SpokeChainKey, true>>>();
-  });
 
-  it('keeps a signed Tron result a string: the tx id of a deposit, the trackingId of a message', () => {
+    // A signed Tron result stays a string: the tx id of a deposit, the trackingId of a message.
     expectTypeOf<Value<typeof sodax.spoke.deposit<Tron, false>>>().toEqualTypeOf<string>();
     expectTypeOf<Value<typeof sodax.spoke.sendMessage<Tron, false>>>().toEqualTypeOf<string>();
   });

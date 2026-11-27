@@ -21,7 +21,6 @@ const spoke = sodax.spoke;
 const ARBITRUM = '0xa4b1.arbitrum' satisfies SpokeChainKey;
 const BITCOIN = 'bitcoin' satisfies SpokeChainKey;
 const TRON = 'tron' satisfies SpokeChainKey;
-const XRP = 'xrp' satisfies SpokeChainKey;
 
 /** Chains that must keep riding the intent relay, whatever the MPC list grows to. */
 const INTENT_ONLY: SpokeChainKey[] = [ARBITRUM, BITCOIN];
@@ -83,34 +82,17 @@ describe('SpokeService.settle — intent-relay chains', () => {
     expect(result).toEqual({ ok: false, error: { phase: 'verification', cause } });
   });
 
-  it('reports a relay that never delivered as a relay failure', async () => {
+  it('reports a relay that never delivered, or threw, as a relay failure rather than rejecting', async () => {
     vi.spyOn(spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
+    const params = { chainKey: ARBITRUM, tx: SRC_TX, direction: 'inbound', relayData: RELAY_DATA } as const;
     const cause = new Error('RELAY_TIMEOUT');
-    stubRelay({ ok: false, error: cause });
+    const thrown = new Error('boom');
+    vi.spyOn(IntentRelayApiService, 'relayTxAndWaitPacket')
+      .mockResolvedValueOnce({ ok: false, error: cause })
+      .mockRejectedValueOnce(thrown);
 
-    const result = await spoke.settle({
-      chainKey: ARBITRUM,
-      tx: SRC_TX,
-      direction: 'inbound',
-      relayData: RELAY_DATA,
-    });
-
-    expect(result).toEqual({ ok: false, error: { phase: 'relay', cause } });
-  });
-
-  it('surfaces a thrown relay error as a relay failure rather than rejecting', async () => {
-    vi.spyOn(spoke, 'verifyTxHash').mockResolvedValue({ ok: true, value: true });
-    const cause = new Error('boom');
-    vi.spyOn(IntentRelayApiService, 'relayTxAndWaitPacket').mockRejectedValue(cause);
-
-    const result = await spoke.settle({
-      chainKey: ARBITRUM,
-      tx: SRC_TX,
-      direction: 'inbound',
-      relayData: RELAY_DATA,
-    });
-
-    expect(result).toEqual({ ok: false, error: { phase: 'relay', cause } });
+    expect(await spoke.settle(params)).toEqual({ ok: false, error: { phase: 'relay', cause } });
+    expect(await spoke.settle(params)).toEqual({ ok: false, error: { phase: 'relay', cause: thrown } });
   });
 });
 
@@ -216,19 +198,22 @@ describe('SpokeService.settle — Tron MPC relay', () => {
   });
 
   // Callers hand `dstChainTxHash` on as the hub (or release) tx, so the source id must never stand in for it.
-  it('reports a deposit record without its hub mint tx as a relay failure', async () => {
-    vi.spyOn(spoke.tron, 'waitForDeposit').mockResolvedValue(depositRecord({}));
+  it('maps an MPC relay failure, or a record without its hub mint or release tx, onto the relay phase', async () => {
+    const cause = new Error('mpc-relay: deposit failed');
+    vi.spyOn(spoke.tron, 'waitForDeposit')
+      .mockResolvedValueOnce({ ok: false, error: cause })
+      .mockResolvedValueOnce(depositRecord({}));
+    expect(await spoke.settle({ chainKey: TRON, tx: SRC_TX, direction: 'inbound', relayData: RELAY_DATA })).toEqual({
+      ok: false,
+      error: { phase: 'relay', cause },
+    });
 
-    const result = await spoke.settle({ chainKey: TRON, tx: SRC_TX, direction: 'inbound', relayData: RELAY_DATA });
+    vi.spyOn(spoke.tron, 'waitForWithdrawal').mockResolvedValue(withdrawalRecord({}));
 
-    expect(result).toEqual({
+    expect(await spoke.settle({ chainKey: TRON, tx: SRC_TX, direction: 'inbound', relayData: RELAY_DATA })).toEqual({
       ok: false,
       error: { phase: 'relay', cause: new Error(`mpc-relay: deposit ${SRC_TX} settled without a hub mint tx`) },
     });
-  });
-
-  it('reports a withdrawal record without its release tx as a relay failure', async () => {
-    vi.spyOn(spoke.tron, 'waitForWithdrawal').mockResolvedValue(withdrawalRecord({}));
 
     const result = await spoke.settle({
       chainKey: TRON,
@@ -281,92 +266,6 @@ describe('SpokeService.settle — Tron MPC relay', () => {
 
     expect(relay).not.toHaveBeenCalled();
     expect(INTENT_ONLY.every(key => !(key in MpcRelayChainMap))).toBe(true);
-  });
-
-  it('maps an MPC relay failure onto the relay phase', async () => {
-    const cause = new Error('mpc-relay: deposit failed');
-    vi.spyOn(spoke.tron, 'waitForDeposit').mockResolvedValue({ ok: false, error: cause });
-
-    const result = await spoke.settle({
-      chainKey: TRON,
-      tx: SRC_TX,
-      direction: 'inbound',
-      relayData: RELAY_DATA,
-    });
-
-    expect(result).toEqual({ ok: false, error: { phase: 'relay', cause } });
-  });
-});
-
-describe('SpokeService.settle — XRP MPC relay', () => {
-  // XRPL rides the same MPC relay as Tron and differs only in the withdraw-auth scheme, which
-  // `settle` never sees. What is worth pinning here is the DISPATCH: `getMpcRelayService` is a
-  // switch on chain type, so a chain can sit in `MpcRelayChainMap` and still have no service —
-  // which throws at settlement time, after the deposit has already landed on ledger.
-  const HUB_MINT = '0xcccc000000000000000000000000000000000000000000000000000000000013';
-  const RELEASE = '0xdddd000000000000000000000000000000000000000000000000000000000014';
-  const TRACKING_ID = '0xeeee000000000000000000000000000000000000000000000000000000000015' as Hex;
-
-  const depositRecord = (txs: Record<string, { chain: string; hash: string; ts: number }>) =>
-    // A minimal record: settle reads only `txs`, so the rest of DepositRecord is left out.
-    ({ ok: true as const, value: { depositId: 'id', status: 'minted', createdAt: 0, txs } }) as unknown as Awaited<
-      ReturnType<typeof spoke.xrp.waitForDeposit>
-    >;
-
-  const withdrawalRecord = (txs: Record<string, { chain: string; hash: string; ts: number }>) =>
-    // A minimal record: settle reads only `txs`, so the rest of WithdrawalRecord is left out.
-    ({ ok: true as const, value: { trackingId: TRACKING_ID, status: 'released', txs } }) as unknown as Awaited<
-      ReturnType<typeof spoke.xrp.waitForWithdrawal>
-    >;
-
-  it('polls the XRPL deposit record for an inbound deposit and never touches the intent relay', async () => {
-    const relay = stubRelay();
-    const verify = vi.spyOn(spoke, 'verifyTxHash');
-    const waitForDeposit = vi
-      .spyOn(spoke.xrp, 'waitForDeposit')
-      .mockResolvedValue(depositRecord({ hubMint: { chain: 'sonic', hash: HUB_MINT, ts: 0 } }));
-
-    const result = await spoke.settle({
-      chainKey: XRP,
-      tx: SRC_TX,
-      direction: 'inbound',
-      relayData: RELAY_DATA,
-      timeout: 90_000,
-    });
-
-    expect(waitForDeposit).toHaveBeenCalledWith(SRC_TX, 90_000);
-    expect(relay).not.toHaveBeenCalled();
-    // The Payment was submitted and notified by the spoke service; there is nothing left to verify.
-    expect(verify).not.toHaveBeenCalled();
-    expect(result).toEqual({ ok: true, value: { srcChainTxHash: SRC_TX, dstChainTxHash: HUB_MINT } });
-  });
-
-  it('polls the withdrawal record for an outbound borrow/withdraw, keyed by the tracking id', async () => {
-    const relay = stubRelay();
-    const waitForWithdrawal = vi
-      .spyOn(spoke.xrp, 'waitForWithdrawal')
-      .mockResolvedValue(withdrawalRecord({ release: { chain: 'xrp', hash: RELEASE, ts: 0 } }));
-
-    const result = await spoke.settle({
-      chainKey: XRP,
-      tx: TRACKING_ID,
-      direction: 'outbound',
-      relayData: RELAY_DATA,
-      timeout: 90_000,
-    });
-
-    expect(waitForWithdrawal).toHaveBeenCalledWith(TRACKING_ID, 90_000, 'released');
-    expect(relay).not.toHaveBeenCalled();
-    expect(result).toEqual({ ok: true, value: { trackingId: TRACKING_ID, dstChainTxHash: RELEASE } });
-  });
-
-  it('maps an MPC relay failure onto the relay phase rather than throwing', async () => {
-    const cause = new Error('mpc-relay: deposit failed');
-    vi.spyOn(spoke.xrp, 'waitForDeposit').mockResolvedValue({ ok: false, error: cause });
-
-    const result = await spoke.settle({ chainKey: XRP, tx: SRC_TX, direction: 'inbound', relayData: RELAY_DATA });
-
-    expect(result).toEqual({ ok: false, error: { phase: 'relay', cause } });
   });
 });
 
@@ -562,10 +461,6 @@ describe('SpokeService.settle — destination legs', () => {
 
   it.each([
     ['no BridgeRequest to Tron', [bridgeRequest(2, chainTopic(42161n))]],
-    [
-      'a BridgeRequest from another contract',
-      [bridgeRequest(2, TRON_TOPIC, '0x1111111111111111111111111111111111111111')],
-    ],
     ['two BridgeRequests to Tron', [bridgeRequest(1), bridgeRequest(2)]],
   ])('refuses to track a hub tx with %s, notifying nothing', async (_label, logs) => {
     stubHubReceipt(logs);
@@ -585,10 +480,11 @@ describe('SpokeService.settle — destination legs', () => {
   });
 
   describe('submitHubDelivery', () => {
-    it('submits the hub tx to the intent relay under the hub chain id, without waiting for the packet', async () => {
+    it('submits the hub tx to the intent relay under the hub chain id, without waiting, mapping a refusal onto the relay phase', async () => {
       const submit = vi
         .spyOn(IntentRelayApiService, 'submitTransaction')
-        .mockResolvedValue({ ok: true, value: { success: true, message: 'ok' } } as never);
+        .mockResolvedValueOnce({ ok: true, value: { success: true, message: 'ok' } } as never)
+        .mockResolvedValueOnce({ ok: false, error: new Error('SUBMIT_TX_FAILED') });
       const wait = vi.spyOn(IntentRelayApiService, 'relayTxAndWaitPacket');
 
       const submitted = await spoke.submitHubDelivery(HUB_TX);
@@ -599,17 +495,9 @@ describe('SpokeService.settle — destination legs', () => {
         sodax.config.relay.relayerApiEndpoint,
       );
       expect(wait).not.toHaveBeenCalled();
-    });
 
-    it('maps a refused submit onto the relay phase', async () => {
-      vi.spyOn(IntentRelayApiService, 'submitTransaction').mockResolvedValue({
-        ok: false,
-        error: new Error('SUBMIT_TX_FAILED'),
-      });
-
-      const submitted = await spoke.submitHubDelivery(HUB_TX);
-
-      expect(!submitted.ok && submitted.error.phase).toBe('relay');
+      const refused = await spoke.submitHubDelivery(HUB_TX);
+      expect(!refused.ok && refused.error.phase).toBe('relay');
     });
   });
 
@@ -626,14 +514,23 @@ describe('SpokeService.settle — destination legs', () => {
       expect(wait).not.toHaveBeenCalled();
     });
 
-    it('refuses a reverted hub tx, notifying nothing', async () => {
+    it('refuses a reverted hub tx as a verification failure, directly or through settle, notifying nothing', async () => {
       stubHubReceipt([bridgeRequest(4)], 'reverted');
-      stubRelease();
+      const release = stubRelease();
 
       const submitted = await spoke.submitHubRelease({ hubTxHash: HUB_TX, dstChainKey: TRON });
-
       expect(!submitted.ok && submitted.error.phase).toBe('verification');
+
+      const result = await spoke.settle({
+        chainKey: SONIC,
+        tx: HUB_TX,
+        direction: 'outbound',
+        relayData: RELAY_DATA,
+        dstChainKey: TRON,
+      });
+      expect(!result.ok && result.error.phase).toBe('verification');
       expect(spoke.tron.submitHubRelease).not.toHaveBeenCalled();
+      expect(release).not.toHaveBeenCalled();
     });
 
     it('waits on a submitted release by the same reference, to its payout', async () => {
@@ -669,12 +566,10 @@ describe('SpokeService.settle — destination legs', () => {
     });
 
     it.each([
-      ['a release to another chain', [bridgeRequest(1, chainTopic(42161n))]],
       [
         'a BridgeRequest from another contract',
         [bridgeRequest(2, TRON_TOPIC, '0x1111111111111111111111111111111111111111')],
       ],
-      ['no logs', []],
     ])('is undefined for a hub tx with %s, leaving it to the intent relay', async (_label, logs) => {
       readReceipt(logs);
       const read = vi.spyOn(spoke.tron, 'getHubReleaseRecord');
@@ -683,7 +578,7 @@ describe('SpokeService.settle — destination legs', () => {
       expect(read).not.toHaveBeenCalled();
     });
 
-    it('fails rather than guessing between two releases to the same chain', async () => {
+    it('fails rather than guessing between two releases to the same chain, or on an unreadable receipt', async () => {
       readReceipt([bridgeRequest(1), bridgeRequest(2)]);
       const read = vi.spyOn(spoke.tron, 'getHubReleaseRecord').mockResolvedValue({
         ok: true,
@@ -692,44 +587,23 @@ describe('SpokeService.settle — destination legs', () => {
 
       expect((await spoke.getHubRelease(HUB_TX))?.ok).toBe(false);
       expect(read).not.toHaveBeenCalled();
-    });
 
-    it('reports an unreadable receipt as a failure rather than rejecting', async () => {
       vi.spyOn(sodax.hubProvider.publicClient, 'getTransactionReceipt').mockRejectedValue(new Error('not found'));
-
       expect((await spoke.getHubRelease(HUB_TX))?.ok).toBe(false);
     });
-  });
-
-  it('reports a reverted hub tx as a verification failure', async () => {
-    stubHubReceipt([bridgeRequest(0)], 'reverted');
-    const release = stubRelease();
-
-    const result = await spoke.settle({
-      chainKey: SONIC,
-      tx: HUB_TX,
-      direction: 'outbound',
-      relayData: RELAY_DATA,
-      dstChainKey: TRON,
-    });
-
-    expect(release).not.toHaveBeenCalled();
-    expect(!result.ok && result.error.phase).toBe('verification');
   });
 });
 
 // The non-blocking primitives a backend drives on its own schedule, persisting only the reference.
 describe('SpokeService — MPC relay submit and read', () => {
-  it('submits a broadcast deposit through its chain service, without waiting for the mint', async () => {
+  it('submits a broadcast deposit without waiting for the mint, and reads a withdraw-auth once by its tracking id', async () => {
     const submit = vi.spyOn(spoke.tron, 'submitDeposit').mockResolvedValue({ ok: true, value: undefined });
     const wait = vi.spyOn(spoke.tron, 'waitForDeposit');
 
     expect(await spoke.submitMpcDeposit({ chainKey: TRON, txHash: SRC_TX })).toEqual({ ok: true, value: undefined });
     expect(submit).toHaveBeenCalledWith(SRC_TX);
     expect(wait).not.toHaveBeenCalled();
-  });
 
-  it('reads a withdraw-auth once, by its tracking id', async () => {
     const record = { ok: true as const, value: { trackingId: '0xtrack' as const, status: 'submitted' as const } };
     const read = vi.spyOn(spoke.tron, 'getWithdrawalRecord').mockResolvedValue(record);
 

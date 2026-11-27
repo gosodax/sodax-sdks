@@ -23,66 +23,45 @@ afterEach(() => {
 });
 
 describe('createSubmitTxAttempt', () => {
-  it('gives the attempt the caller timeout in full — no reserve is held back', async () => {
-    const attempt = createSubmitTxAttempt(120_000);
-
-    // The client-side fallback has its own fresh budget, so nothing is withheld here.
-    expect(attempt.remaining()).toBe(120_000);
-  });
-
-  it('counts down as time passes', async () => {
+  it('gives the attempt the caller timeout in full, counting down and flooring at zero once spent', async () => {
     const attempt = createSubmitTxAttempt(30_000);
 
+    // The client-side fallback has its own fresh budget, so nothing is withheld here.
+    expect(attempt.remaining()).toBe(30_000);
     await vi.advanceTimersByTimeAsync(20_000);
-
     expect(attempt.remaining()).toBe(10_000);
-  });
-
-  it('reports zero rather than a negative remainder once spent', async () => {
-    const attempt = createSubmitTxAttempt(10_000);
-
-    await vi.advanceTimersByTimeAsync(25_000);
-
+    await vi.advanceTimersByTimeAsync(15_000);
     expect(attempt.remaining()).toBe(0);
   });
 
-  it('treats a non-positive caller timeout as no budget at all', () => {
-    expect(createSubmitTxAttempt(0).remaining()).toBe(0);
-    expect(createSubmitTxAttempt(-5_000).remaining()).toBe(0);
+  it('treats a non-positive or non-finite caller timeout as no budget at all', () => {
+    // Belt-and-braces: the services resolve before constructing, but a NaN deadline here would make
+    // `remaining()` NaN and `requestTimeout()` null forever, and an Infinite one would never expire.
+    for (const value of [0, -5_000, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(createSubmitTxAttempt(value).remaining()).toBe(0);
+    }
   });
 });
 
 describe('SubmitTxAttempt.requestTimeout', () => {
-  it('clamps down to the service timeout when the attempt has more budget than that', () => {
+  it('clamps down to the service timeout or the remaining budget, whichever is smaller', async () => {
     // A raw remainder here would REPLACE the service default with 120s, letting one stalled request
     // consume the whole attempt instead of retrying.
     expect(createSubmitTxAttempt(120_000).requestTimeout(SERVICE_TIMEOUT_MS)).toBe(SERVICE_TIMEOUT_MS);
-  });
 
-  it('clamps down to the remaining budget when that is below the service timeout', async () => {
     const attempt = createSubmitTxAttempt(30_000);
-
     await vi.advanceTimersByTimeAsync(25_000);
-
     expect(attempt.requestTimeout(SERVICE_TIMEOUT_MS)).toBe(5_000);
   });
 
-  it('returns null rather than a zero timeout once the attempt is spent', async () => {
-    const attempt = createSubmitTxAttempt(5_000);
-
-    await vi.advanceTimersByTimeAsync(60_000);
-
-    // A 0 here would reach `makeRequest` as `setTimeout(abort, 0)` — a request sent only to be killed.
-    // `null` is unusable as a `RequestOverrideConfig.timeout`, so the compiler forces the caller to
-    // check the single computed value instead of re-deriving it after a separate guard.
-    expect(attempt.requestTimeout(SERVICE_TIMEOUT_MS)).toBeNull();
-  });
-
-  it('returns null on the exact boundary, not a zero timeout', async () => {
+  it('returns null rather than a zero timeout once the attempt is spent, including on the exact boundary', async () => {
     const attempt = createSubmitTxAttempt(10_000);
 
     await vi.advanceTimersByTimeAsync(10_000);
 
+    // A 0 here would reach `makeRequest` as `setTimeout(abort, 0)` — a request sent only to be killed.
+    // `null` is unusable as a `RequestOverrideConfig.timeout`, so the compiler forces the caller to
+    // check the single computed value instead of re-deriving it after a separate guard.
     expect(attempt.remaining()).toBe(0);
     expect(attempt.requestTimeout(SERVICE_TIMEOUT_MS)).toBeNull();
   });
@@ -96,51 +75,25 @@ describe('SubmitTxAttempt.requestTimeout', () => {
 describe('resolveTimeoutMs', () => {
   const FALLBACK = 120_000;
 
-  it('passes a finite caller timeout through, including zero', () => {
+  it('passes a finite caller timeout through, including zero, and floors a negative one at zero', () => {
     expect(resolveTimeoutMs(30_000, FALLBACK)).toBe(30_000);
     expect(resolveTimeoutMs(0, FALLBACK)).toBe(0);
-  });
-
-  it('defaults when the caller omits a timeout', () => {
-    expect(resolveTimeoutMs(undefined, FALLBACK)).toBe(FALLBACK);
-  });
-
-  it.each([
-    { label: 'NaN', value: Number.NaN },
-    { label: 'Infinity', value: Number.POSITIVE_INFINITY },
-    { label: '-Infinity', value: Number.NEGATIVE_INFINITY },
-  ])('defaults on a non-finite caller timeout ($label)', ({ value }) => {
-    // `?? fallback` does NOT catch these — only null/undefined. Left unresolved, NaN survives every
-    // Math.max/Math.min and lands in `while (elapsed < NaN)`, which is false immediately: an instant
-    // RELAY_TIMEOUT on a tx already broadcast. Infinity is the mirror case, a poll loop with no exit.
-    expect(resolveTimeoutMs(value, FALLBACK)).toBe(FALLBACK);
-  });
-
-  it('floors a negative caller timeout at zero rather than defaulting', () => {
     expect(resolveTimeoutMs(-5_000, FALLBACK)).toBe(0);
   });
-});
 
-describe('createSubmitTxAttempt — non-finite input', () => {
-  it.each([
-    { label: 'NaN', value: Number.NaN },
-    { label: 'Infinity', value: Number.POSITIVE_INFINITY },
-  ])('never produces a non-finite budget from a $label timeout', ({ value }) => {
-    const attempt = createSubmitTxAttempt(value);
-
-    // Belt-and-braces: the services resolve before constructing, but a NaN deadline here would make
-    // `remaining()` NaN and `requestTimeout()` null forever, and an Infinite one would never expire.
-    expect(Number.isFinite(attempt.remaining())).toBe(true);
-    expect(attempt.remaining()).toBe(0);
+  it('defaults when the caller timeout is omitted or non-finite', () => {
+    // `?? fallback` does NOT catch NaN / ±Infinity — only null/undefined. Left unresolved, NaN survives
+    // every Math.max/Math.min and lands in `while (elapsed < NaN)`, which is false immediately: an instant
+    // RELAY_TIMEOUT on a tx already broadcast. Infinity is the mirror case, a poll loop with no exit.
+    for (const value of [undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(resolveTimeoutMs(value, FALLBACK)).toBe(FALLBACK);
+    }
   });
 });
 
 describe('noRequestBudgetCause', () => {
-  it('blames the caller timeout when the service timeout is usable', () => {
+  it('blames the caller timeout when the service timeout is usable, and api.timeout when it is non-positive', () => {
     expect(noRequestBudgetCause(30_000).message).toContain('caller timeout');
-  });
-
-  it('blames api.timeout when it is non-positive', () => {
     // Both cases surface as a null bound; reporting the caller's budget for a config error sends
     // whoever reads the log looking at the wrong setting.
     const cause = noRequestBudgetCause(0);

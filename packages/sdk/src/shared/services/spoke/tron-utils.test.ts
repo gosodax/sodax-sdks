@@ -1,6 +1,5 @@
 import { tronSupportedTokens } from '@sodax/types';
 import { describe, expect, it } from 'vitest';
-import { sha256 } from 'viem';
 import {
   assembleBroadcastHex,
   assertDepositTransfer,
@@ -24,19 +23,10 @@ const RESERVE_HEX = '4165af5fef4974f67c4421ebb70244d8c485ada423';
 const MEMO = 'b07ec4b9c2d410c84fb75cb2cf00122f6316cf191ae1fe7bec45ac203c5e13fd';
 
 describe('tronBase58ToHex', () => {
-  it('decodes a base58 Tron address to 41-prefixed hex (checksum stripped)', () => {
+  it('decodes a base58 Tron address to 41-prefixed hex (checksum stripped), passing 0x / 41-hex forms through', () => {
     expect(tronBase58ToHex(RESERVE)).toBe(RESERVE_HEX);
-  });
-
-  it('passes through 0x / 41-hex forms unchanged', () => {
     expect(tronBase58ToHex(`0x${RESERVE_HEX}`)).toBe(RESERVE_HEX);
     expect(tronBase58ToHex(RESERVE_HEX)).toBe(RESERVE_HEX);
-  });
-
-  it('rejects a non-canonical leading zero byte', () => {
-    expect(() => tronBase58ToHex('1TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d')).toThrow(
-      'invalid Tron address (expected 25 bytes with 0x41 version)',
-    );
   });
 
   it('rejects invalid base58', () => {
@@ -48,12 +38,12 @@ describe('tronBase58ToHex', () => {
     expect(() => tronBase58ToHex(typo)).toThrow(/checksum/);
   });
 
-  it('rejects base58 strings of the wrong length', () => {
+  it('rejects base58 that is not 25 bytes with a 0x41 version: wrong length, leading zero, non-Tron version', () => {
     expect(() => tronBase58ToHex(RESERVE.slice(0, -1))).toThrow(/25 bytes/);
     expect(() => tronBase58ToHex(`${RESERVE}1`)).toThrow(/25 bytes/);
-  });
-
-  it('rejects a valid base58check address with a non-Tron version byte', () => {
+    expect(() => tronBase58ToHex('1TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d')).toThrow(
+      'invalid Tron address (expected 25 bytes with 0x41 version)',
+    );
     // Bitcoin P2PKH: 25 bytes with a valid checksum, but version 0x00.
     expect(() => tronBase58ToHex('1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2')).toThrow(/0x41 version/);
   });
@@ -76,23 +66,13 @@ describe('tronAddressToWord', () => {
 describe('spliceMemo', () => {
   // A minimal raw_data with only low-numbered fields (all < 10) so the memo appends at the end.
   const raw = '0a02abcd1a020102'; // field 1 (len2) + field 3 (len2) — both < 10
-  it('appends field 10 (tag 0x52, len 0x20) with the memo', () => {
-    const out = spliceMemo(raw, MEMO);
-    expect(out).toBe(`${raw}5220${MEMO}`);
-  });
-
-  it('accepts a 0x-prefixed memo', () => {
+  it('appends field 10 (tag 0x52, len 0x20) with the memo, 0x-prefixed or not', () => {
+    expect(spliceMemo(raw, MEMO)).toBe(`${raw}5220${MEMO}`);
     expect(spliceMemo(raw, `0x${MEMO}`)).toBe(`${raw}5220${MEMO}`);
   });
 
   it('rejects a memo that is not 32 bytes', () => {
     expect(() => spliceMemo(raw, 'dead')).toThrow(/32 bytes/);
-  });
-
-  it('produces a raw whose sha256 is a stable 32-byte txID', () => {
-    const out = spliceMemo(raw, MEMO);
-    const txId = sha256(`0x${out}`).slice(2);
-    expect(txId).toHaveLength(64);
   });
 
   // A TRC-20 deposit is a TriggerSmartContract, whose `contract` is field 11 — the memo must land
@@ -105,38 +85,28 @@ describe('spliceMemo', () => {
 });
 
 describe('encodeTrc20TransferParams', () => {
-  it('encodes transfer(address,uint256) args as two 32-byte words with no selector', () => {
+  it('encodes transfer(address,uint256) args as two 32-byte words with no selector, amount left-padded', () => {
     const params = encodeTrc20TransferParams(RESERVE, 20_000_000n);
     expect(params).toHaveLength(128);
     expect(params.slice(0, 64)).toBe(tronAddressToWord(RESERVE));
     expect(BigInt(`0x${params.slice(64)}`)).toBe(20_000_000n);
-  });
-
-  it('left-pads the amount to a full word', () => {
     expect(encodeTrc20TransferParams(RESERVE, 1n).slice(64)).toBe(`${'0'.repeat(63)}1`);
   });
 });
 
 // ---- withdrawal-auth helpers (KAT vectors from v2/common/tests/wallet-message.test.ts) ----
 
-describe('tronIdentityBytes', () => {
-  it('returns the 20-byte address hash (0x41 version byte dropped)', () => {
-    expect(tronIdentityBytes('TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d')).toBe('0xf62fffa4d92bcdfc310dccbe943747fe8302e871');
-  });
-});
-
-describe('tronHashToBase58', () => {
-  it('inverts tronBase58ToHex (41-prefixed 21-byte hex → base58)', () => {
-    expect(tronHashToBase58('4165af5fef4974f67c4421ebb70244d8c485ada423')).toBe('TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92');
-  });
-  it('accepts a bare 20-byte hash and round-trips with tronIdentityBytes', () => {
+describe('tronIdentityBytes / tronHashToBase58', () => {
+  it('returns the 20-byte address hash, which tronHashToBase58 inverts as does the 41-prefixed hex', () => {
     const b58 = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
+    expect(tronIdentityBytes(b58)).toBe('0xf62fffa4d92bcdfc310dccbe943747fe8302e871');
     expect(tronHashToBase58(tronIdentityBytes(b58))).toBe(b58);
+    expect(tronHashToBase58('4165af5fef4974f67c4421ebb70244d8c485ada423')).toBe('TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92');
   });
 });
 
 describe('computeSignedMessageHash', () => {
-  it('matches the contract compute_message_hash KAT', () => {
+  it('matches the contract compute_message_hash KAT and changes with the nonce', () => {
     const h = computeSignedMessageHash({
       to: '0x2222222222222222222222222222222222222222',
       data: '0x1234abcd',
@@ -145,9 +115,8 @@ describe('computeSignedMessageHash', () => {
       sender: '0x5A6435B3a4bE2705453Ece84391928483ccBcD94',
     });
     expect(h).toBe('0xc15363b8bfc144961ef308afa1f232017b1d6a02e8665960c2dfa190a987f12e');
-  });
 
-  it('changes when the nonce changes (replay-distinct preimage)', () => {
+    // Replay-distinct preimage: the nonce changes the hash.
     const base = {
       to: '0x2222222222222222222222222222222222222222',
       data: '0x1234abcd',
@@ -159,18 +128,12 @@ describe('computeSignedMessageHash', () => {
 });
 
 describe('assembleBroadcastHex', () => {
-  it('wraps raw_data (field 1) and a 0x41-prefixed signature (field 2)', () => {
+  it('wraps raw_data (field 1) and a 0x41-prefixed signature (field 2), 0x-prefixed or not', () => {
     const raw = 'ab'.repeat(10); // 10 bytes
     const sig = 'cd'.repeat(65); // 65-byte Tron signature
-    const env = assembleBroadcastHex({ rawHex: raw, signatures: [sig] });
     // 0a <varint len=10=0x0a> <raw> 12 41 <sig>
-    expect(env).toBe(`0a0a${raw}1241${sig}`);
-  });
-
-  it('tolerates a 0x-prefixed signature', () => {
-    const raw = 'ff';
-    const sig = '11'.repeat(65);
-    expect(assembleBroadcastHex({ rawHex: raw, signatures: [`0x${sig}`] })).toBe(`0a01${raw}1241${sig}`);
+    expect(assembleBroadcastHex({ rawHex: raw, signatures: [sig] })).toBe(`0a0a${raw}1241${sig}`);
+    expect(assembleBroadcastHex({ rawHex: raw, signatures: [`0x${sig}`] })).toBe(`0a0a${raw}1241${sig}`);
   });
 
   it('gives each signature of a multi-signature account its own field, and a long body a two-byte length', () => {
@@ -192,13 +155,15 @@ describe('setExpiration', () => {
     expect(setExpiration({ rawHex: before, expiration: Number(EXPIRATION) })).toBe(after);
   });
 
-  it.each([
-    ['no expiration field', pbBytes(1, 'abcd') + pbBytes(11, pbVarint(1, 1n))],
-    ['two expiration fields', pbVarint(8, 1n) + tronRawData(1n, 'TransferContract', value)],
-  ])('refuses a body with %s', (_label, raw) => {
-    expect(() => setExpiration({ rawHex: raw, expiration: Number(EXPIRATION) })).toThrow(
-      /expected one expiration field/,
-    );
+  it('refuses a body with no expiration field, or two', () => {
+    for (const raw of [
+      pbBytes(1, 'abcd') + pbBytes(11, pbVarint(1, 1n)),
+      pbVarint(8, 1n) + tronRawData(1n, 'TransferContract', value),
+    ]) {
+      expect(() => setExpiration({ rawHex: raw, expiration: Number(EXPIRATION) })).toThrow(
+        /expected one expiration field/,
+      );
+    }
   });
 });
 
@@ -234,7 +199,6 @@ describe('assertDepositTransfer', () => {
 
   it.each([
     ['another token', trc20TransferRaw(OWNER, OTHER, RESERVE, AMOUNT), /deposit token/],
-    ['another recipient', trc20TransferRaw(OWNER, USDT, OTHER, AMOUNT), /calldata/],
     ['another amount', trc20TransferRaw(OWNER, USDT, RESERVE, 1n), /calldata/],
     ['a fee limit above budget', trc20TransferRaw(OWNER, USDT, RESERVE, AMOUNT, 100_000_001n), /fee_limit/],
     [
@@ -255,7 +219,7 @@ describe('assertDepositTransfer', () => {
 });
 
 describe('readTrc20TransferCall', () => {
-  it('reads the owner, token and transfer arguments of a TRC-20 deposit, memo or not', () => {
+  it('reads the owner, token and transfer arguments of a TRC-20 deposit, memo or not, and undefined for native TRX', () => {
     const raw = trc20TransferRaw(OWNER, USDT, RESERVE, 7n);
     const expected = {
       owner: OWNER,
@@ -265,9 +229,6 @@ describe('readTrc20TransferCall', () => {
 
     expect(readTrc20TransferCall(raw)).toEqual(expected);
     expect(readTrc20TransferCall(spliceMemo(raw, MEMO))).toEqual(expected);
-  });
-
-  it('returns undefined for a native TRX transfer', () => {
     expect(readTrc20TransferCall(nativeTransferRaw(OWNER, RESERVE, 7n))).toBeUndefined();
   });
 

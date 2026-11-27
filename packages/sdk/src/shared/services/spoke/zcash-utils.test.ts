@@ -18,44 +18,35 @@ const MAINNET_TX =
   '050000800a27a7265b16a537000000000000000001553c9d9a1699dd2cc2e5625c68b9c105e75aa5e0f38731b8ce51ed4dea281d63010000006b4830450221008336997fe00ee797a1277c9ee6d9fd194447eb1159787545bf55b381a747f73e0220702dd01177e6d72bf53974b6426aa46b3e657ea04aac7bb22d9a7a3451fe2aeb0121028cd25f41a34d2b1c831ec7e6304207bb5018f5a428e7996979e0c46e74780703ffffffff02dc460f00000000001976a9148fce32d0d1961dc116556396b151aa5cdeed88ee88ac44910500000000001976a9144a8c4a21a1cd793ef4bc176fedf70d44f1a8b9ba88ac000000';
 
 describe('transparent addresses', () => {
-  it('decodes the live reserve to the hash160 registered on NEAR, and back', () => {
+  it('decodes the live reserve to the hash160 registered on NEAR, and back, and builds its P2PKH script', () => {
     expect(zcashIdentityBytes(RESERVE)).toBe(RESERVE_HASH);
     expect(zcashHashToAddress(RESERVE_HASH)).toBe(RESERVE);
     expect(zcashIdentityBytes('t1MLBY5zUUo9PVFENPUaHwLREytCvjW4eAU')).toBe(
       '0x25ef2e9496d925b366ddd9348ef2b0820052a191',
     );
+    expect(zcashP2pkhScript(RESERVE)).toBe(`76a914${RESERVE_HASH.slice(2)}88ac`);
   });
 
   it('refuses a corrupted address rather than paying the wrong script', () => {
     expect(() => zcashIdentityBytes(`${RESERVE.slice(0, -1)}Y`)).toThrow(/checksum/);
   });
-
-  it('builds the P2PKH script for an address', () => {
-    expect(zcashP2pkhScript(RESERVE)).toBe(`76a914${RESERVE_HASH.slice(2)}88ac`);
-  });
 });
 
 describe('address encoding for Zcash', () => {
-  it('uses the hash160 as the identity and decodes it back to the t1 address', () => {
+  it('uses the hash160 as the identity, and pays a release to the zero-padded word the contract decodes', () => {
     expect(encodeAddress(ChainKeys.ZCASH_MAINNET, RESERVE)).toBe(RESERVE_HASH);
     expect(reverseEncodeAddress(ChainKeys.ZCASH_MAINNET, RESERVE_HASH)).toBe(RESERVE);
-  });
-
-  it('pays a release to the zero-padded word the contract decodes', () => {
     // `taddr_pubkey_hash_from_word` asserts the top 12 bytes are zero.
     expect(encodeRecipient(ChainKeys.ZCASH_MAINNET, RESERVE)).toBe(`0x${'00'.repeat(12)}${RESERVE_HASH.slice(2)}`);
   });
 });
 
 describe('parseZcashV5Outputs', () => {
-  it('derives the ZIP-244 display transaction ID from the signed wire bytes', () => {
+  it('derives the ZIP-244 display transaction ID and reads the outputs of a real mainnet transaction', () => {
     // Expected value computed independently from the ZIP-244 digest tree using Python hashlib.
     expect(inspectZcashV5Deposit(MAINNET_TX).txid).toBe(
       '3b12e2647c354dbabf81cd526995b023499e6ead65566e01d4accb527c43364d',
     );
-  });
-
-  it('reads the outputs of a real mainnet transaction', () => {
     expect(parseZcashV5Outputs(MAINNET_TX)).toEqual([
       { value: 1_001_180n, scriptPubKey: '76a9148fce32d0d1961dc116556396b151aa5cdeed88ee88ac' },
       { value: 364_868n, scriptPubKey: '76a9144a8c4a21a1cd793ef4bc176fedf70d44f1a8b9ba88ac' },

@@ -41,15 +41,21 @@ const requestHeaders = (pathname: string, method: string): Headers => {
 };
 
 describe('LeverageYieldService solver consumer paths — API key on the wire', () => {
-  it('getQuote sends x-api-key with Content-Type intact on POST /quote', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({ quoted_amount: '954330' }));
+  it('getQuote and notifySolver send x-api-key with Content-Type intact on POST /quote and /execute', async () => {
+    mockFetch
+      .mockResolvedValueOnce(okResponse({ quoted_amount: '954330' }))
+      .mockResolvedValueOnce(okResponse({ answer: 'OK', intent_hash: INTENT_TX_HASH }));
 
-    const result = await sodax.leverageYield.getQuote(QUOTE_PAYLOAD);
+    const quote = await sodax.leverageYield.getQuote(QUOTE_PAYLOAD);
+    const notified = await sodax.leverageYield.notifySolver({ intent_tx_hash: INTENT_TX_HASH });
 
-    expect(result).toEqual({ ok: true, value: { quoted_amount: 954_330n } });
-    const headers = requestHeaders('/v1/intent/quote', 'POST');
-    expect(headers.get('x-api-key')).toBe('instance-key');
-    expect(headers.get('content-type')).toBe('application/json');
+    expect(quote).toEqual({ ok: true, value: { quoted_amount: 954_330n } });
+    expect(notified).toEqual({ ok: true, value: { answer: 'OK', intent_hash: INTENT_TX_HASH } });
+    for (const pathname of ['/v1/intent/quote', '/v1/intent/execute']) {
+      const headers = requestHeaders(pathname, 'POST');
+      expect(headers.get('x-api-key')).toBe('instance-key');
+      expect(headers.get('content-type')).toBe('application/json');
+    }
   });
 
   it('getDetailedStatus keys both legs: the backend status read and the solver /status', async () => {
@@ -88,16 +94,5 @@ describe('LeverageYieldService solver consumer paths — API key on the wire', (
     const solverHeaders = requestHeaders('/v1/intent/status', 'POST');
     expect(solverHeaders.get('x-api-key')).toBe('instance-key');
     expect(solverHeaders.get('content-type')).toBe('application/json');
-  });
-
-  it('notifySolver sends x-api-key with Content-Type intact on POST /execute', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({ answer: 'OK', intent_hash: INTENT_TX_HASH }));
-
-    const result = await sodax.leverageYield.notifySolver({ intent_tx_hash: INTENT_TX_HASH });
-
-    expect(result).toEqual({ ok: true, value: { answer: 'OK', intent_hash: INTENT_TX_HASH } });
-    const headers = requestHeaders('/v1/intent/execute', 'POST');
-    expect(headers.get('x-api-key')).toBe('instance-key');
-    expect(headers.get('content-type')).toBe('application/json');
   });
 });

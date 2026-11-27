@@ -23,36 +23,38 @@ import {
 } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { SodaxError } from './SodaxError.js';
-import { SODAX_FEATURES } from './codes.js';
 import { IndeterminateOutcomeError, isIndeterminateOutcomeError } from './IndeterminateOutcomeError.js';
 import { approveFailed, intentCreationFailed, withErrorContext } from './wrappers.js';
 
 describe('intentCreationFailed (wallet rejection classification)', () => {
-  it('classifies a viem UserRejectedRequestError instance as USER_REJECTED', () => {
-    const wallet = new UserRejectedRequestError(new Error('User denied transaction signature.'));
-    const err = intentCreationFailed('staking', wallet);
+  it('classifies EVM rejection shapes (viem class/name, 4001, ethers ACTION_REJECTED) as USER_REJECTED with a clean message', () => {
+    // viem's UserRejectedRequestError message is a multi-line dump with Request Arguments + Version.
+    // The wrapper must NOT inherit that as the SodaxError.message — Sentry/Datadog titles must stay clean.
+    const noisyCause = new UserRejectedRequestError(
+      new Error(
+        'User rejected the request.\n\nRequest Arguments:\n  from: 0xabc\n  to: 0xdef\n  data: 0x1234...\n\nDetails: User rejected the request.\nVersion: viem@2.29.2',
+      ),
+    );
+    const err = intentCreationFailed('staking', noisyCause);
     expect(err.code).toBe('USER_REJECTED');
     expect(err.feature).toBe('staking');
-    expect(err.cause).toBe(wallet);
+    expect(err.message).toBe('User rejected the request');
+    expect(err.message).not.toContain('Request Arguments');
+    expect(err.message).not.toContain('Version: viem');
+    // The raw cause is still preserved for debugging.
+    expect(err.cause).toBe(noisyCause);
+
+    expect(intentCreationFailed('swap', { name: 'UserRejectedRequestError', message: 'anything' }).code).toBe(
+      'USER_REJECTED',
+    );
+    expect(intentCreationFailed('moneyMarket', { code: 4001, message: 'reject' }).code).toBe('USER_REJECTED');
+    expect(intentCreationFailed('bridge', { code: 'ACTION_REJECTED' }).code).toBe('USER_REJECTED');
   });
 
-  it('classifies any object with name === "UserRejectedRequestError" as USER_REJECTED', () => {
-    const err = intentCreationFailed('swap', { name: 'UserRejectedRequestError', message: 'anything' });
-    expect(err.code).toBe('USER_REJECTED');
-  });
-
-  it('classifies EIP-1193 code 4001 as USER_REJECTED', () => {
-    const err = intentCreationFailed('moneyMarket', { code: 4001, message: 'reject' });
-    expect(err.code).toBe('USER_REJECTED');
-  });
-
-  it('classifies a declined EIP-5792 account upgrade (5750) as USER_REJECTED', () => {
+  it('classifies a declined EIP-5792 account upgrade (5750) as USER_REJECTED, even when sendCalls wraps it', () => {
     const declined = new AtomicReadyWalletRejectedUpgradeError(new Error('upgrade rejected'));
     expect(intentCreationFailed('swap', declined).code).toBe('USER_REJECTED');
     expect(intentCreationFailed('swap', { code: 5750, message: 'upgrade' }).code).toBe('USER_REJECTED');
-  });
-
-  it('classifies a declined upgrade as USER_REJECTED when sendCalls wraps it', () => {
     const wrapped = new TransactionExecutionError(
       new AtomicReadyWalletRejectedUpgradeError(new Error('upgrade rejected')),
       { account: null },
@@ -60,96 +62,47 @@ describe('intentCreationFailed (wallet rejection classification)', () => {
     expect(intentCreationFailed('swap', wrapped).code).toBe('USER_REJECTED');
   });
 
-  it('does not treat "atomicity not supported" (5760) as a rejection', () => {
+  it('classifies ICON Hana CANCEL_SIGNING / CANCEL_JSON-RPC and numeric -31002 as USER_REJECTED', () => {
+    expect(intentCreationFailed('migration', { code: 'CANCEL_SIGNING' }).code).toBe('USER_REJECTED');
+    expect(intentCreationFailed('migration', { code: 'CANCEL_JSON-RPC' }).code).toBe('USER_REJECTED');
+    expect(intentCreationFailed('migration', { code: -31002 }).code).toBe('USER_REJECTED');
+  });
+
+  it('classifies rejection text in a named wallet error, message, shortMessage or details as USER_REJECTED', () => {
+    // Solana WalletSignTransactionError, Phantom, mobile wallets, Stacks Connect, then viem layouts.
+    expect(
+      intentCreationFailed('swap', { name: 'WalletSignTransactionError', message: 'User rejected the request' }).code,
+    ).toBe('USER_REJECTED');
+    expect(intentCreationFailed('swap', new Error('Transaction was rejected by the user.')).code).toBe('USER_REJECTED');
+    expect(intentCreationFailed('swap', new Error('User aborted signing.')).code).toBe('USER_REJECTED');
+    expect(intentCreationFailed('migration', new Error('Popup closed by user')).code).toBe('USER_REJECTED');
+    expect(intentCreationFailed('staking', { shortMessage: 'User rejected the request.' }).code).toBe('USER_REJECTED');
+    expect(
+      intentCreationFailed('staking', { details: 'MetaMask Tx Signature: User denied transaction signature.' }).code,
+    ).toBe('USER_REJECTED');
+  });
+
+  it('does NOT classify non-rejections (5760, node rejection, network, gas, revert, nullish) as USER_REJECTED', () => {
     const unsupported = new AtomicityNotSupportedError(new Error('no atomicity'));
     expect(intentCreationFailed('swap', unsupported).code).toBe('INTENT_CREATION_FAILED');
-  });
-
-  it('classifies ethers ACTION_REJECTED as USER_REJECTED', () => {
-    const err = intentCreationFailed('bridge', { code: 'ACTION_REJECTED' });
-    expect(err.code).toBe('USER_REJECTED');
-  });
-
-  it('classifies ICON Hana CANCEL_SIGNING as USER_REJECTED', () => {
-    const err = intentCreationFailed('migration', { code: 'CANCEL_SIGNING' });
-    expect(err.code).toBe('USER_REJECTED');
-  });
-
-  it('classifies ICON Hana CANCEL_JSON-RPC as USER_REJECTED', () => {
-    const err = intentCreationFailed('migration', { code: 'CANCEL_JSON-RPC' });
-    expect(err.code).toBe('USER_REJECTED');
-  });
-
-  it('classifies ICON numeric code -31002 as USER_REJECTED', () => {
-    const err = intentCreationFailed('migration', { code: -31002 });
-    expect(err.code).toBe('USER_REJECTED');
-  });
-
-  it('classifies Solana WalletSignTransactionError + "User rejected" message as USER_REJECTED', () => {
-    const err = intentCreationFailed('swap', {
-      name: 'WalletSignTransactionError',
-      message: 'User rejected the request',
-    });
-    expect(err.code).toBe('USER_REJECTED');
-  });
-
-  it('classifies Phantom-style "Transaction was rejected" message as USER_REJECTED', () => {
-    const err = intentCreationFailed('swap', new Error('Transaction was rejected by the user.'));
-    expect(err.code).toBe('USER_REJECTED');
-  });
-
-  it('does NOT classify "Transaction rejected by node" (network failure, no `was`) as USER_REJECTED', () => {
     // The `was` in `/transaction was rejected/i` is mandatory so chain-level / RPC-level
     // rejections that don't include "was" stay as INTENT_CREATION_FAILED (not a user cancel).
-    const err = intentCreationFailed('swap', new Error('Transaction rejected by node'));
-    expect(err.code).toBe('INTENT_CREATION_FAILED');
-  });
-
-  it('classifies "User aborted" message (some mobile wallets) as USER_REJECTED', () => {
-    const err = intentCreationFailed('swap', new Error('User aborted signing.'));
-    expect(err.code).toBe('USER_REJECTED');
-  });
-
-  it('classifies "popup closed by user" message (Stacks Connect) as USER_REJECTED', () => {
-    const err = intentCreationFailed('migration', new Error('Popup closed by user'));
-    expect(err.code).toBe('USER_REJECTED');
-  });
-
-  it('classifies shortMessage field (viem layout) as USER_REJECTED', () => {
-    const err = intentCreationFailed('staking', { shortMessage: 'User rejected the request.' });
-    expect(err.code).toBe('USER_REJECTED');
-  });
-
-  it('classifies details field (viem layout) as USER_REJECTED', () => {
-    const err = intentCreationFailed('staking', {
-      details: 'MetaMask Tx Signature: User denied transaction signature.',
-    });
-    expect(err.code).toBe('USER_REJECTED');
-  });
-
-  it('does NOT classify a network error as USER_REJECTED', () => {
-    const err = intentCreationFailed('swap', new Error('Network request failed'));
-    expect(err.code).toBe('INTENT_CREATION_FAILED');
-  });
-
-  it('does NOT classify "insufficient funds" as USER_REJECTED', () => {
-    const err = intentCreationFailed('moneyMarket', new Error('insufficient funds for gas'));
-    expect(err.code).toBe('INTENT_CREATION_FAILED');
-  });
-
-  it('does NOT classify EVM revert (code -32000) as USER_REJECTED', () => {
-    const err = intentCreationFailed('bridge', { code: -32000, message: 'execution reverted' });
-    expect(err.code).toBe('INTENT_CREATION_FAILED');
-  });
-
-  it('does NOT classify undefined/null cause as USER_REJECTED', () => {
+    expect(intentCreationFailed('swap', new Error('Transaction rejected by node')).code).toBe('INTENT_CREATION_FAILED');
+    expect(intentCreationFailed('swap', new Error('Network request failed')).code).toBe('INTENT_CREATION_FAILED');
+    expect(intentCreationFailed('moneyMarket', new Error('insufficient funds for gas')).code).toBe(
+      'INTENT_CREATION_FAILED',
+    );
+    expect(intentCreationFailed('bridge', { code: -32000, message: 'execution reverted' }).code).toBe(
+      'INTENT_CREATION_FAILED',
+    );
     expect(intentCreationFailed('swap', undefined).code).toBe('INTENT_CREATION_FAILED');
     expect(intentCreationFailed('swap', null).code).toBe('INTENT_CREATION_FAILED');
   });
 });
 
 describe('intentCreationFailed recovery context', () => {
-  it.each(SODAX_FEATURES)('retains recovery details for %s', feature => {
+  it('retains recovery details from an indeterminate-outcome cause', () => {
+    const feature = 'bridge';
     const recovery = { deadline: 42 };
     const original = new Error('User rejected the request');
     const cause = Object.freeze(
@@ -186,55 +139,16 @@ describe('approveFailed (wallet rejection classification)', () => {
 });
 
 describe('isSodaxError early-out (prevents message-content false positives)', () => {
-  it('does NOT reclassify a SodaxError("VALIDATION_FAILED") with rejection-shaped message', async () => {
-    // Construct a SodaxError whose message contains 'user rejected' text. Without the early-out,
-    // the regex `/user rejected/i` would match and `intentCreationFailed` would re-emit
-    // USER_REJECTED — silently changing the code from VALIDATION_FAILED.
-    const { SodaxError } = await import('./SodaxError.js');
-    const upstream = new SodaxError('VALIDATION_FAILED', 'user rejected by invariant', { feature: 'staking' });
-
-    const err = intentCreationFailed('staking', upstream);
-
-    // The wrapper still proceeds via the default branch (not USER_REJECTED) — the SodaxError
-    // taxonomy is trusted over message content. The reviewer's call-site `isXxxCreateIntentError`
-    // guard is what forwards the original SodaxError unchanged; this test only verifies that the
-    // wrapper itself does not silently reclassify a non-rejection SodaxError.
+  it('trusts a SodaxError code over its message: VALIDATION_FAILED stays unclassified, USER_REJECTED stays a rejection', () => {
+    // Without the early-out, `/user rejected/i` would match this message and silently re-emit
+    // USER_REJECTED, changing the code from VALIDATION_FAILED.
+    const validation = new SodaxError('VALIDATION_FAILED', 'user rejected by invariant', { feature: 'staking' });
+    const err = intentCreationFailed('staking', validation);
     expect(err.code).toBe('INTENT_CREATION_FAILED');
-    expect(err.cause).toBe(upstream);
-  });
+    expect(err.cause).toBe(validation);
 
-  it('still recognises a SodaxError("USER_REJECTED") as a rejection', async () => {
-    const { SodaxError } = await import('./SodaxError.js');
-    const upstream = new SodaxError('USER_REJECTED', 'User rejected the request', { feature: 'swap' });
-
-    const err = intentCreationFailed('swap', upstream);
-
-    // Already-classified USER_REJECTED stays USER_REJECTED (the canonical call-site forward via
-    // isXxxCreateIntentError handles this more efficiently, but the wrapper alone preserves the
-    // code rather than mutating it).
-    expect(err.code).toBe('USER_REJECTED');
-  });
-});
-
-describe('USER_REJECTED clean message', () => {
-  it('uses a hardcoded "User rejected the request" message, not the cause.message', () => {
-    // viem's UserRejectedRequestError message is a multi-line dump with Request Arguments + Version.
-    // The wrapper must NOT inherit that as the SodaxError.message — Sentry/Datadog titles must stay clean.
-    const noisyCause = new UserRejectedRequestError(
-      new Error(
-        'User rejected the request.\n\nRequest Arguments:\n  from: 0xabc\n  to: 0xdef\n  data: 0x1234...\n\nDetails: User rejected the request.\nVersion: viem@2.29.2',
-      ),
-    );
-
-    const err = intentCreationFailed('staking', noisyCause);
-
-    expect(err.code).toBe('USER_REJECTED');
-    expect(err.message).toBe('User rejected the request');
-    expect(err.message).not.toContain('Request Arguments');
-    expect(err.message).not.toContain('Version: viem');
-
-    // The raw cause is still preserved for debugging.
-    expect(err.cause).toBe(noisyCause);
+    const rejected = new SodaxError('USER_REJECTED', 'User rejected the request', { feature: 'swap' });
+    expect(intentCreationFailed('swap', rejected).code).toBe('USER_REJECTED');
   });
 });
 

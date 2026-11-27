@@ -6,11 +6,8 @@ const SUPPLY = 8;
 const BORROW = 5;
 
 describe('leveragedNetApyPct', () => {
-  it('is the plain supply rate at 1x', () => {
+  it('is the plain supply rate at 1x, adding the spread once per turn of leverage', () => {
     expect(leveragedNetApyPct(SUPPLY, BORROW, 1)).toBeCloseTo(SUPPLY, 10);
-  });
-
-  it('adds the spread once per turn of leverage', () => {
     // 2x earns supply on twice the equity and pays borrow on once: 16 - 5.
     expect(leveragedNetApyPct(SUPPLY, BORROW, 2)).toBeCloseTo(11, 10);
     expect(leveragedNetApyPct(SUPPLY, BORROW, 3)).toBeCloseTo(14, 10);

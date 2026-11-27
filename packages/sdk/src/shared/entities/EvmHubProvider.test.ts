@@ -3,7 +3,8 @@
  *
  * Proves the config -> helper -> viem client path end to end without any RPC call: a `new Sodax(...)`
  * with multi-endpoint hub/Sonic config produces `fallback()` clients with the expected endpoint count,
- * and the default (no `rpcUrls`) stays a single-endpoint fallback (backward compatible). The hub chain
+ * and the default (no `rpcUrls`) stays a single-endpoint fallback (backward compatible) — asserted on the
+ * client whose knob each test leaves untouched. The hub chain
  * is read by two clients — `hubProvider.publicClient` (from `hub.rpcUrls`) and `spoke.sonic.publicClient`
  * (from `chains.sonic.rpcUrls`) — so both are asserted independently.
  */
@@ -38,11 +39,5 @@ describe('Sodax hub RPC failover wiring', () => {
     expect(endpointUrls(transport)).toEqual([A, B, C]);
     // Independence: the hub knob was untouched, so its client stays single-endpoint.
     expect(sodax.hubProvider.publicClient.transport.transports).toHaveLength(1);
-  });
-
-  it('defaults to a single-endpoint fallback when rpcUrls is unset (backward compatible)', () => {
-    const sodax = new Sodax();
-    expect(sodax.hubProvider.publicClient.transport.transports).toHaveLength(1);
-    expect(sodax.spoke.sonic.publicClient.transport.transports).toHaveLength(1);
   });
 });

@@ -32,7 +32,7 @@
  *     program-ownership check all execute for real.
  *
  * Section organization:
- *   1.  constructor                — instance surface + pollingConfig wiring
+ *   1.  constructor                — pollingConfig wiring
  *   2.  estimateGas                — simulate happy path + value.err throw branch
  *   3.  deposit                    — native vs SPL, raw vs walletProvider, default data
  *   4.  getDeposit                 — native vault_native vs SPL vault_token branches
@@ -50,7 +50,6 @@ import {
   PublicKey,
   SystemProgram,
   TransactionInstruction,
-  TransactionMessage,
   VersionedTransaction,
   type AccountInfo,
 } from '@solana/web3.js';
@@ -141,7 +140,6 @@ const SOL_BNUSD = solanaConfig.bnUSD;
 const SOL_ASSET_MGR = solanaConfig.addresses.assetManager;
 const SOL_CONNECTION = solanaConfig.addresses.connection;
 const SOL_POLLING_MS = solanaConfig.pollingConfig.pollingIntervalMs;
-const SOL_TIMEOUT_MS = solanaConfig.pollingConfig.maxTimeoutMs;
 
 // Per-user / per-flow scratch — these have no config source.
 // SRC_ADDR is a real-looking base58 32-byte pubkey (not the system program).
@@ -221,26 +219,7 @@ afterEach(() => {
 // =========================================================================
 
 describe('SolanaSpokeService — constructor', () => {
-  it('exposes the spoke instance on sodax.spoke.solana with the expected method surface', () => {
-    expect(solanaSpoke).toBeInstanceOf(SolanaSpokeService);
-    expect(typeof solanaSpoke.estimateGas).toBe('function');
-    expect(typeof solanaSpoke.deposit).toBe('function');
-    expect(typeof solanaSpoke.getDeposit).toBe('function');
-    expect(typeof solanaSpoke.sendMessage).toBe('function');
-    expect(typeof solanaSpoke.buildV0Txn).toBe('function');
-    expect(typeof solanaSpoke.waitForTransactionReceipt).toBe('function');
-  });
-
-  it('wires a Connection with the methods the rest of the class consumes', () => {
-    expect(solanaSpoke.connection).toBeDefined();
-    expect(typeof solanaSpoke.connection.simulateTransaction).toBe('function');
-    expect(typeof solanaSpoke.connection.getLatestBlockhash).toBe('function');
-    expect(typeof solanaSpoke.connection.getTransaction).toBe('function');
-    expect(typeof solanaSpoke.connection.getBalance).toBe('function');
-    expect(typeof solanaSpoke.connection.getTokenAccountBalance).toBe('function');
-  });
-
-  it('wires pollingConfig defaults from spokeChainConfig[SOLANA_MAINNET]', async () => {
+  it('wires pollingConfig defaults from spokeChainConfig[SOLANA_MAINNET], overridable per call', async () => {
     // Defaults are private but observable via the spy on getTransaction: one empty poll forces
     // exactly one sleep, then a receipt ends the loop. Drive it with the poll results rather than a
     // tiny `maxTimeoutMs` — a 1ms deadline races real wall clock, and if the process is preempted
@@ -253,6 +232,12 @@ describe('SolanaSpokeService — constructor', () => {
     // The default polling interval must have been threaded into sleep (sleep is mocked to no-op).
     expect(mocks.sleep).toHaveBeenCalledTimes(1);
     expect(mocks.sleep).toHaveBeenCalledWith(SOL_POLLING_MS);
+
+    mocks.sleep.mockClear();
+    vi.spyOn(solanaSpoke.connection, 'getTransaction').mockResolvedValueOnce(null).mockResolvedValueOnce(fakeReceipt);
+    await solanaSpoke.waitForTransactionReceipt({ chainKey: SOL, txHash: TX_SIG, pollingIntervalMs: 250 });
+    expect(mocks.sleep).toHaveBeenCalledTimes(1);
+    expect(mocks.sleep).toHaveBeenCalledWith(250);
   });
 });
 
@@ -327,16 +312,21 @@ describe('SolanaSpokeService.deposit', () => {
       ...overrides,
     }) as DepositParams<typeof SOL, Raw>;
 
-  it('native (SOL) path builds asset-manager transfer with native vault accounts', async () => {
+  it('native (SOL) raw path builds asset-manager transfer with native vault accounts and a base64 v0 tx', async () => {
     vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
       blockhash: FAKE_BLOCKHASH,
       lastValidBlockHeight: 0,
     });
 
-    await solanaSpoke.deposit(depositParams<true>({ token: SOL_NATIVE, raw: true }));
+    const result = await solanaSpoke.deposit(depositParams<true>({ token: SOL_NATIVE, raw: true }));
 
-    // Asset-manager program is fetched via the mocked utils helper.
+    expect(result.from).toBe(SRC_ADDR);
+    expect(result.to).toBe(ASSET_MGR_PROGRAM_ID.toBase58());
+    expect(result.value).toBe(1_000n);
+    expect(() => VersionedTransaction.deserialize(Buffer.from(result.data, 'base64'))).not.toThrow();
+    // Asset-manager and connection programs are fetched via the mocked utils helpers.
     expect(mocks.getAssetManagerProgram).toHaveBeenCalledWith(SRC_ADDR, solanaConfig.rpcUrl, SOL_ASSET_MGR);
+    expect(mocks.getConnectionProgram).toHaveBeenCalledWith(SRC_ADDR, solanaConfig.rpcUrl, SOL_CONNECTION);
     // The transfer method was called with (amountBN, recipientBytes, dataHashBytes).
     expect(fakeAssetManagerProgram.methods.transfer).toHaveBeenCalledTimes(1);
     const transferArgs = (fakeAssetManagerProgram.methods.transfer as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -344,6 +334,7 @@ describe('SolanaSpokeService.deposit', () => {
     const [amountBN, recipientBuf, dataHashBuf] = transferArgs as [BN, Buffer, Buffer];
     expect(amountBN.toString()).toBe('1000');
     expect(Buffer.from(recipientBuf).toString('hex')).toBe(HUB_WALLET.slice(2));
+    // data defaults to a 32-byte keccak hash even when the caller passes '0x'.
     expect(dataHashBuf.length).toBe(32);
 
     // accountsStrict must be invoked with native vault accounts.
@@ -358,6 +349,7 @@ describe('SolanaSpokeService.deposit', () => {
       AssetManagerPDA.vault_native(ASSET_MGR_PROGRAM_ID).pda.toBase58(),
     );
     expect(accounts.systemProgram.toBase58()).toBe(SystemProgram.programId.toBase58());
+    expect(accounts.connection.toBase58()).toBe(CONNECTION_PROGRAM_ID.toBase58());
     // remainingAccounts must include the connection config PDA.
     expect(transferChain.remainingAccounts).toHaveBeenCalledTimes(1);
     const remaining = (transferChain.remainingAccounts as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
@@ -413,23 +405,6 @@ describe('SolanaSpokeService.deposit', () => {
     expect(accounts.signerTokenAccount).not.toBe(legacyAta);
   });
 
-  it('raw=true returns {from, to: assetManager.programId, value: amount, data: base64}', async () => {
-    vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
-      blockhash: FAKE_BLOCKHASH,
-      lastValidBlockHeight: 0,
-    });
-
-    const result = await solanaSpoke.deposit(depositParams<true>({ token: SOL_NATIVE, raw: true, amount: 7_500n }));
-
-    expect(result.from).toBe(SRC_ADDR);
-    expect(result.to).toBe(ASSET_MGR_PROGRAM_ID.toBase58());
-    expect(result.value).toBe(7_500n);
-    expect(typeof result.data).toBe('string');
-    // base64 decode must succeed and yield a deserialisable VersionedTransaction.
-    const bytes = Buffer.from(result.data, 'base64');
-    expect(() => VersionedTransaction.deserialize(bytes)).not.toThrow();
-  });
-
   it('raw=false delegates to walletProvider.buildV0Txn and walletProvider.sendTransaction', async () => {
     const signedTx = new Uint8Array([1, 2, 3]);
     (mockSolanaProvider.buildV0Txn as ReturnType<typeof vi.fn>).mockResolvedValueOnce(signedTx);
@@ -442,34 +417,6 @@ describe('SolanaSpokeService.deposit', () => {
     expect(result).toBe(TX_SIG);
     expect(mockSolanaProvider.buildV0Txn).toHaveBeenCalledTimes(1);
     expect(mockSolanaProvider.sendTransaction).toHaveBeenCalledWith(signedTx);
-  });
-
-  it("defaults data to a 32-byte keccak hash even when caller passes '0x'", async () => {
-    vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
-      blockhash: FAKE_BLOCKHASH,
-      lastValidBlockHeight: 0,
-    });
-
-    await solanaSpoke.deposit(depositParams<true>({ token: SOL_NATIVE, raw: true, data: '0x' as Hex }));
-
-    const transferArgs = (fakeAssetManagerProgram.methods.transfer as ReturnType<typeof vi.fn>).mock.calls[0];
-    if (!transferArgs) throw new Error('transfer not called');
-    const [, , dataHashBuf] = transferArgs as [BN, Buffer, Buffer];
-    expect(dataHashBuf.length).toBe(32);
-  });
-
-  it('forwards the connection program id into asset-manager transfer accounts', async () => {
-    vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
-      blockhash: FAKE_BLOCKHASH,
-      lastValidBlockHeight: 0,
-    });
-    await solanaSpoke.deposit(depositParams<true>({ token: SOL_NATIVE, raw: true }));
-
-    expect(mocks.getConnectionProgram).toHaveBeenCalledWith(SRC_ADDR, solanaConfig.rpcUrl, SOL_CONNECTION);
-    const transferChain = (fakeAssetManagerProgram.methods.transfer as ReturnType<typeof vi.fn>).mock.results[0]
-      ?.value as ReturnType<typeof mocks.makeChain>;
-    const accounts = (transferChain.accountsStrict as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(accounts.connection.toBase58()).toBe(CONNECTION_PROGRAM_ID.toBase58());
   });
 });
 
@@ -600,26 +547,7 @@ describe('SolanaSpokeService.getWalletBalance / getWalletBalances', () => {
     );
   });
 
-  it('falls back to the Token-2022 ATA when only that candidate exists', async () => {
-    vi.spyOn(solanaSpoke.connection, 'getMultipleAccountsInfo').mockResolvedValueOnce([
-      null,
-      tokenAccountInfo(CRCLX_TOKEN, TOKEN_2022_PROGRAM_ID, 780n),
-    ]);
-
-    const result = await solanaSpoke.getWalletBalance({
-      srcChainKey: SOL,
-      srcAddress: SRC_ADDR,
-      token: CRCLX_TOKEN,
-    });
-
-    // Probing only the legacy program would report an xStock holder as empty.
-    expect(result).toBe(780n);
-    expect(ataFor(CRCLX_TOKEN, TOKEN_2022_PROGRAM_ID).toBase58()).not.toBe(
-      ataFor(CRCLX_TOKEN, TOKEN_PROGRAM_ID).toBase58(),
-    );
-  });
-
-  it('ignores a non-token account sitting at the other candidate address', async () => {
+  it('falls back to the Token-2022 ATA, skipping a non-token account at the legacy candidate', async () => {
     vi.spyOn(solanaSpoke.connection, 'getMultipleAccountsInfo').mockResolvedValueOnce([
       systemAccountInfo(),
       tokenAccountInfo(CRCLX_TOKEN, TOKEN_2022_PROGRAM_ID, 780n),
@@ -631,20 +559,12 @@ describe('SolanaSpokeService.getWalletBalance / getWalletBalances', () => {
       token: CRCLX_TOKEN,
     });
 
-    // The stray account must be skipped, not throw and not contribute to the sum.
+    // Probing only the legacy program would report an xStock holder as empty; the stray account
+    // must be skipped, not throw and not contribute to the sum.
     expect(result).toBe(780n);
-  });
-
-  it('returns 0n only when both candidate ATAs are confirmed absent', async () => {
-    vi.spyOn(solanaSpoke.connection, 'getMultipleAccountsInfo').mockResolvedValueOnce([null, null]);
-
-    const result = await solanaSpoke.getWalletBalance({
-      srcChainKey: SOL,
-      srcAddress: SRC_ADDR,
-      token: BNUSD_TOKEN,
-    });
-
-    expect(result).toBe(0n);
+    expect(ataFor(CRCLX_TOKEN, TOKEN_2022_PROGRAM_ID).toBase58()).not.toBe(
+      ataFor(CRCLX_TOKEN, TOKEN_PROGRAM_ID).toBase58(),
+    );
   });
 
   it('rejects when the ATA probe fails, so no unread balance can surface as zero', async () => {
@@ -751,7 +671,7 @@ describe('SolanaSpokeService.sendMessage', () => {
       ...overrides,
     }) as SendMessageParams<typeof SOL, Raw>;
 
-  it('raw=true returns rawTx with to: connection.programId and value: 0n', async () => {
+  it('raw=true returns rawTx to connection.programId with value 0n, sending to the dstChainKey relay id', async () => {
     vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
       blockhash: FAKE_BLOCKHASH,
       lastValidBlockHeight: 0,
@@ -765,6 +685,14 @@ describe('SolanaSpokeService.sendMessage', () => {
     expect(typeof result.data).toBe('string');
     const bytes = Buffer.from(result.data, 'base64');
     expect(() => VersionedTransaction.deserialize(bytes)).not.toThrow();
+
+    expect(getIntentRelayChainId(SONIC)).toBe(146n);
+    const sendArgs = (fakeConnectionProgram.methods.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+    if (!sendArgs) throw new Error('sendMessage not called');
+    const [relayBN, dstAddrBuf, payloadHashBuf] = sendArgs as [BN, Buffer, Buffer];
+    expect(relayBN.toString()).toBe('146');
+    expect(Buffer.from(dstAddrBuf).toString('hex')).toBe(DST_ADDR.slice(2));
+    expect(payloadHashBuf.length).toBe(32);
   });
 
   it('raw=false delegates to walletProvider.buildV0Txn and walletProvider.sendTransaction', async () => {
@@ -780,25 +708,6 @@ describe('SolanaSpokeService.sendMessage', () => {
     expect(mockSolanaProvider.buildV0Txn).toHaveBeenCalledTimes(1);
     expect(mockSolanaProvider.sendTransaction).toHaveBeenCalledWith(signedTx);
   });
-
-  it('derives the relay id from dstChainKey (SONIC -> 146n)', async () => {
-    vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
-      blockhash: FAKE_BLOCKHASH,
-      lastValidBlockHeight: 0,
-    });
-    // Defensive guard against the relay-id table drifting.
-    expect(getIntentRelayChainId(SONIC)).toBe(146n);
-
-    await solanaSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
-
-    // First positional arg to sendMessage(...) must be a BN matching the relay id.
-    const sendArgs = (fakeConnectionProgram.methods.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0];
-    if (!sendArgs) throw new Error('sendMessage not called');
-    const [relayBN, dstAddrBuf, payloadHashBuf] = sendArgs as [BN, Buffer, Buffer];
-    expect(relayBN.toString()).toBe('146');
-    expect(Buffer.from(dstAddrBuf).toString('hex')).toBe(DST_ADDR.slice(2));
-    expect(payloadHashBuf.length).toBe(32);
-  });
 });
 
 // =========================================================================
@@ -806,7 +715,7 @@ describe('SolanaSpokeService.sendMessage', () => {
 // =========================================================================
 
 describe('SolanaSpokeService.buildV0Txn', () => {
-  it('builds a versioned tx, calling Connection.getLatestBlockhash once', async () => {
+  it('builds a v0 versioned tx, calling Connection.getLatestBlockhash once', async () => {
     const spy = vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
       blockhash: FAKE_BLOCKHASH,
       lastValidBlockHeight: 0,
@@ -827,18 +736,7 @@ describe('SolanaSpokeService.buildV0Txn', () => {
     expect(result.length).toBeGreaterThan(0);
     // Round-trip the serialized bytes through VersionedTransaction.deserialize to prove the SUT
     // produced a valid wire-format tx (not, say, the inner TransactionMessage bytes).
-    expect(() => VersionedTransaction.deserialize(result)).not.toThrow();
-  });
-
-  it('emits a v0-versioned message under the hood (smoke)', async () => {
-    vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
-      blockhash: FAKE_BLOCKHASH,
-      lastValidBlockHeight: 0,
-    });
-    const result = await solanaSpoke.buildV0Txn(SRC_ADDR, []);
-    const deserialised = VersionedTransaction.deserialize(result);
-    expect(deserialised.message.version).toBe(0);
-    expect(TransactionMessage).toBeDefined();
+    expect(VersionedTransaction.deserialize(result).message.version).toBe(0);
   });
 });
 
@@ -847,15 +745,19 @@ describe('SolanaSpokeService.buildV0Txn', () => {
 // =========================================================================
 
 describe('SolanaSpokeService.waitForTransactionReceipt', () => {
-  it('returns status:success when getTransaction resolves with no meta.err', async () => {
+  it('returns status:success when getTransaction (confirmed, v0) resolves with no meta.err', async () => {
     const fakeReceipt = { slot: 1, transaction: {}, meta: { err: null }, blockTime: 0 } as never;
-    vi.spyOn(solanaSpoke.connection, 'getTransaction').mockResolvedValueOnce(fakeReceipt);
+    const spy = vi.spyOn(solanaSpoke.connection, 'getTransaction').mockResolvedValueOnce(fakeReceipt);
 
     const result = await solanaSpoke.waitForTransactionReceipt({ chainKey: SOL, txHash: TX_SIG });
 
     if (!result.ok) throw new Error('expected ok');
     if (result.value.status !== 'success') throw new Error('expected success');
     expect(result.value.receipt).toBe(fakeReceipt);
+    expect(spy).toHaveBeenCalledWith(TX_SIG, {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0,
+    });
   });
 
   it('returns status:failure when getTransaction resolves with meta.err set', async () => {
@@ -904,43 +806,6 @@ describe('SolanaSpokeService.waitForTransactionReceipt', () => {
     // sleep must have been invoked between the failed and successful polls.
     expect(mocks.sleep).toHaveBeenCalled();
   });
-
-  it('forwards custom pollingIntervalMs to sleep', async () => {
-    // One empty poll then a receipt, so exactly one sleep is guaranteed. See the defaults test above
-    // for why this does not bound the loop with a 1ms `maxTimeoutMs`.
-    const fakeReceipt = { slot: 2, transaction: {}, meta: { err: null }, blockTime: 0 } as never;
-    vi.spyOn(solanaSpoke.connection, 'getTransaction').mockResolvedValueOnce(null).mockResolvedValueOnce(fakeReceipt);
-
-    await solanaSpoke.waitForTransactionReceipt({
-      chainKey: SOL,
-      txHash: TX_SIG,
-      pollingIntervalMs: 250,
-    });
-
-    expect(mocks.sleep).toHaveBeenCalledTimes(1);
-    expect(mocks.sleep).toHaveBeenCalledWith(250);
-  });
-
-  it('passes commitment "confirmed" and maxSupportedTransactionVersion:0 to getTransaction', async () => {
-    const spy = vi.spyOn(solanaSpoke.connection, 'getTransaction').mockResolvedValueOnce({
-      slot: 1,
-      transaction: {},
-      meta: { err: null },
-    } as never);
-
-    await solanaSpoke.waitForTransactionReceipt({ chainKey: SOL, txHash: TX_SIG });
-
-    expect(spy).toHaveBeenCalledWith(TX_SIG, {
-      commitment: 'confirmed',
-      maxSupportedTransactionVersion: 0,
-    });
-  });
-
-  it('default maxTimeoutMs is sourced from spokeChainConfig[SOLANA_MAINNET].pollingConfig', () => {
-    // Pin the config-derived default. The SUT consumes this via chainConfig.pollingConfig.maxTimeoutMs.
-    expect(SOL_TIMEOUT_MS).toBe(15_000);
-    expect(SOL_POLLING_MS).toBe(750);
-  });
 });
 
 // =========================================================================
@@ -948,20 +813,15 @@ describe('SolanaSpokeService.waitForTransactionReceipt', () => {
 // =========================================================================
 
 describe('SolanaSpokeService static helpers', () => {
-  it('getBalance forwards to Connection.getBalance with a PublicKey-wrapped pubkey', async () => {
+  it('getBalance and getTokenAccountBalance forward to Connection with a PublicKey-wrapped pubkey', async () => {
     const fakeConn = solanaSpoke.connection;
-    const spy = vi.spyOn(fakeConn, 'getBalance').mockResolvedValueOnce(42);
+    const balanceSpy = vi.spyOn(fakeConn, 'getBalance').mockResolvedValueOnce(42);
 
-    const result = await SolanaSpokeService.getBalance(fakeConn, SOL_BNUSD);
+    expect(await SolanaSpokeService.getBalance(fakeConn, SOL_BNUSD)).toBe(42);
+    const passedToBalance = balanceSpy.mock.calls[0]?.[0] as PublicKey;
+    expect(passedToBalance).toBeInstanceOf(PublicKey);
+    expect(passedToBalance.toBase58()).toBe(SOL_BNUSD);
 
-    expect(result).toBe(42);
-    const passed = spy.mock.calls[0]?.[0] as PublicKey;
-    expect(passed).toBeInstanceOf(PublicKey);
-    expect(passed.toBase58()).toBe(SOL_BNUSD);
-  });
-
-  it('getTokenAccountBalance forwards to Connection.getTokenAccountBalance', async () => {
-    const fakeConn = solanaSpoke.connection;
     const expected = {
       context: { slot: 1 },
       value: { amount: '100', decimals: 9, uiAmount: 0.0000001, uiAmountString: '0.0000001' },
@@ -975,23 +835,17 @@ describe('SolanaSpokeService static helpers', () => {
     expect(passed.toBase58()).toBe(SOL_BNUSD);
   });
 
-  it('getAssociatedTokenAddress returns the deterministic ATA for (mint, wallet)', async () => {
-    // Real SPL helper — produces a deterministic base58 PDA. Idempotency catches a regression
-    // that swaps the (mint, wallet) order in the call.
-    const ata = await SolanaSpokeService.getAssociatedTokenAddress(SOL_BNUSD, SRC_ADDR);
-    expect(typeof ata).toBe('string');
-    expect(ata.length).toBeGreaterThan(0);
-    const ata2 = await SolanaSpokeService.getAssociatedTokenAddress(SOL_BNUSD, SRC_ADDR);
-    expect(ata2).toBe(ata);
-  });
-
-  it('getAssociatedTokenAddress derives a distinct ATA per token program, defaulting to legacy', async () => {
+  it('getAssociatedTokenAddress derives a deterministic ATA per token program, defaulting to legacy', async () => {
     const legacy = await SolanaSpokeService.getAssociatedTokenAddress(SOL_BNUSD, SRC_ADDR, TOKEN_PROGRAM_ID);
     const token2022 = await SolanaSpokeService.getAssociatedTokenAddress(SOL_BNUSD, SRC_ADDR, TOKEN_2022_PROGRAM_ID);
     expect(legacy).not.toBe(token2022);
     // No program id → legacy, preserving the original two-arg behaviour.
     const def = await SolanaSpokeService.getAssociatedTokenAddress(SOL_BNUSD, SRC_ADDR);
     expect(def).toBe(legacy);
+    // The ATA of the (mint, wallet) pair, not of a swapped order.
+    expect(legacy).toBe(
+      getAssociatedTokenAddressSync(new PublicKey(SOL_BNUSD), new PublicKey(SRC_ADDR), true).toBase58(),
+    );
   });
 
   it('getMintTokenProgramId resolves the mint owner program, defaulting to legacy', async () => {

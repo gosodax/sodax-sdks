@@ -36,14 +36,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('SuiGrpcTransport — construction', () => {
-  it('exposes the endpoint it was built with', () => {
-    expect(transport.endpoint).toBe(suiConfig.grpc_url);
-  });
-});
-
 describe('SuiGrpcTransport.getCoins', () => {
-  it('maps a ListCoinsResponse onto SuiPaginatedCoins', async () => {
+  it('maps a ListCoinsResponse onto SuiPaginatedCoins, with a default or explicit limit', async () => {
     const spy = vi.spyOn(core, 'listCoins').mockResolvedValueOnce({
       objects: [
         {
@@ -66,13 +60,8 @@ describe('SuiGrpcTransport.getCoins', () => {
       nextCursor: 'next-page',
     });
     expect(spy).toHaveBeenCalledWith({ owner: OWNER, coinType: SUI_BNUSD, limit: 10 });
-  });
 
-  it('forwards an explicit limit', async () => {
-    const spy = vi
-      .spyOn(core, 'listCoins')
-      .mockResolvedValueOnce({ objects: [], hasNextPage: false, cursor: null } as never);
-
+    spy.mockResolvedValueOnce({ objects: [], hasNextPage: false, cursor: null } as never);
     await transport.getCoins(OWNER, SUI_BNUSD, 3);
 
     expect(spy).toHaveBeenCalledWith({ owner: OWNER, coinType: SUI_BNUSD, limit: 3 });
@@ -86,31 +75,19 @@ describe('SuiGrpcTransport.simulate', () => {
     commandResults: [{ returnValues: [{ bcs: bcs.U64.serialize(value).toBytes() }], mutatedReferences: [] }],
   });
 
-  it('returns BCS bytes as a number[] with an empty type tag', async () => {
-    vi.spyOn(core, 'simulateTransaction').mockResolvedValueOnce(commandResult(7_500n) as never);
+  it('returns BCS bytes as a number[] with an empty type tag, simulating with checks off and the sender set', async () => {
+    const spy = vi.spyOn(core, 'simulateTransaction').mockResolvedValueOnce(commandResult(7_500n) as never);
+    const tx = makeTx();
 
-    const result = await transport.simulate(makeTx(OWNER), OWNER);
+    const result = await transport.simulate(tx, OWNER);
 
     expect(result.returnValues).toHaveLength(1);
     const [bytes, typeTag] = result.returnValues?.[0] ?? [];
     expect(bcs.U64.parse(Uint8Array.from(bytes ?? []))).toBe('7500');
     expect(typeTag).toBe('');
-  });
-
-  it('disables validation checks so public non-entry Move functions can be inspected', async () => {
-    const spy = vi.spyOn(core, 'simulateTransaction').mockResolvedValueOnce(commandResult(1n) as never);
-
-    await transport.simulate(makeTx(OWNER), OWNER);
-
+    // Checks off so public non-entry Move functions can be inspected.
     expect(spy).toHaveBeenCalledWith(expect.objectContaining({ checksEnabled: false }));
-  });
-
-  it('sets the sender on the transaction — simulateTransaction reads it off the tx, not a param', async () => {
-    vi.spyOn(core, 'simulateTransaction').mockResolvedValueOnce(commandResult(1n) as never);
-    const tx = makeTx();
-
-    await transport.simulate(tx, OWNER);
-
+    // simulateTransaction reads the sender off the tx, not a param.
     expect(tx.getData().sender).toBe(OWNER);
   });
 
@@ -154,23 +131,22 @@ describe('SuiGrpcTransport.estimateGas', () => {
     nonRefundableStorageFee: '100',
   };
 
-  it('returns the gas summary unchanged — GasCostSummary already matches SuiGasEstimate', async () => {
-    const spy = vi.spyOn(core, 'simulateTransaction').mockResolvedValueOnce({
-      $kind: 'Transaction',
-      Transaction: { digest: TX_DIGEST, effects: { gasUsed } },
-    } as never);
+  it('returns the gas summary unchanged, off a failed transaction too — a reverted tx still reports gas', async () => {
+    const spy = vi
+      .spyOn(core, 'simulateTransaction')
+      .mockResolvedValueOnce({
+        $kind: 'Transaction',
+        Transaction: { digest: TX_DIGEST, effects: { gasUsed } },
+      } as never)
+      .mockResolvedValueOnce({
+        $kind: 'FailedTransaction',
+        FailedTransaction: { digest: TX_DIGEST, effects: { gasUsed } },
+      } as never);
 
+    // GasCostSummary already matches SuiGasEstimate.
     await expect(transport.estimateGas(makeTx(OWNER), OWNER)).resolves.toEqual(gasUsed);
     // Unlike `simulate`, gas estimation keeps validation on for dry-run parity.
     expect(spy).toHaveBeenCalledWith(expect.not.objectContaining({ checksEnabled: false }));
-  });
-
-  it('reads effects off a failed transaction too — a reverted tx still reports gas', async () => {
-    vi.spyOn(core, 'simulateTransaction').mockResolvedValueOnce({
-      $kind: 'FailedTransaction',
-      FailedTransaction: { digest: TX_DIGEST, effects: { gasUsed } },
-    } as never);
-
     await expect(transport.estimateGas(makeTx(OWNER), OWNER)).resolves.toEqual(gasUsed);
   });
 
@@ -190,27 +166,17 @@ describe('SuiGrpcTransport.fetchLatestPackageId', () => {
   const objectWithJson = (json: unknown) => ({ object: { objectId: SUI_ASSET_MGR_CONFIG_ID, json } });
   const PKG = 'af63819d3ad01f93eb0a17b18077b8ef59ab657f0486c23ed384d38b38d9b54c';
 
-  it('reads latest_package_id out of the object JSON', async () => {
-    const spy = vi.spyOn(core, 'getObject').mockResolvedValueOnce(objectWithJson({ latest_package_id: PKG }) as never);
-
-    await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).resolves.toBe(PKG);
-    expect(spy).toHaveBeenCalledWith({
-      objectId: SUI_ASSET_MGR_CONFIG_ID,
-      include: { json: true },
-      signal: expect.any(AbortSignal),
-    });
-  });
-
-  it('bounds the read with a live timeout signal', async () => {
+  it('reads latest_package_id out of the object JSON, bounding the read with a live timeout signal', async () => {
     let seen: AbortSignal | undefined;
     vi.spyOn(core, 'getObject').mockImplementationOnce((async (options: { signal?: AbortSignal }) => {
       seen = options.signal;
       return objectWithJson({ latest_package_id: PKG });
     }) as never);
 
-    await transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID);
+    await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).resolves.toBe(PKG);
 
     // No signal, or one that already fired, would let a hung node stall every caller sharing the read.
+    expect(seen).toBeInstanceOf(AbortSignal);
     expect(seen?.aborted).toBe(false);
   });
 
@@ -224,43 +190,33 @@ describe('SuiGrpcTransport.fetchLatestPackageId', () => {
     );
   });
 
-  it('throws when the response carries no object', async () => {
-    vi.spyOn(core, 'getObject').mockResolvedValueOnce({} as never);
+  it('throws when the response carries no object, or one that is not a Move object (no JSON payload)', async () => {
+    vi.spyOn(core, 'getObject')
+      .mockResolvedValueOnce({} as never)
+      .mockResolvedValueOnce(objectWithJson(null) as never);
 
     await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).rejects.toThrow(
       'Asset manager id not found (no data)',
     );
-  });
-
-  it('throws when the object is not a Move object (no JSON payload)', async () => {
-    vi.spyOn(core, 'getObject').mockResolvedValueOnce(objectWithJson(null) as never);
-
     await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).rejects.toThrow(
       'Asset manager id not found (not a move object)',
     );
   });
 
-  it('throws when the JSON lacks latest_package_id', async () => {
-    vi.spyOn(core, 'getObject').mockResolvedValueOnce(objectWithJson({}) as never);
+  it('throws when latest_package_id is missing, an empty string, or not a string', async () => {
+    vi.spyOn(core, 'getObject')
+      .mockResolvedValueOnce(objectWithJson({}) as never)
+      .mockResolvedValueOnce(objectWithJson({ latest_package_id: '' }) as never)
+      .mockResolvedValueOnce(objectWithJson({ latest_package_id: 12345 }) as never);
 
     await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).rejects.toThrow(
       'Asset manager id not found (no latest package id)',
     );
-  });
-
-  it('throws when latest_package_id is not a string', async () => {
-    vi.spyOn(core, 'getObject').mockResolvedValueOnce(objectWithJson({ latest_package_id: 12345 }) as never);
-
+    await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).rejects.toThrow(
+      'Asset manager id not found (no latest package id)',
+    );
     await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).rejects.toThrow(
       'Asset manager id invalid (latest package id is not a string)',
-    );
-  });
-
-  it('throws when latest_package_id is an empty string', async () => {
-    vi.spyOn(core, 'getObject').mockResolvedValueOnce(objectWithJson({ latest_package_id: '' }) as never);
-
-    await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).rejects.toThrow(
-      'Asset manager id not found (no latest package id)',
     );
   });
 });
@@ -293,8 +249,8 @@ describe('SuiGrpcTransport.waitForTransaction', () => {
     },
   });
 
-  it('translates a successful result into a SuiRawTransactionReceipt', async () => {
-    vi.spyOn(core, 'waitForTransaction').mockResolvedValueOnce(executed() as never);
+  it('translates a successful result into a SuiRawTransactionReceipt, polling on a two-step schedule', async () => {
+    const spy = vi.spyOn(core, 'waitForTransaction').mockResolvedValueOnce(executed() as never);
 
     const receipt = await transport.waitForTransaction({
       digest: TX_DIGEST,
@@ -309,6 +265,17 @@ describe('SuiGrpcTransport.waitForTransaction', () => {
       owner: { AddressOwner: OWNER },
       reference: { objectId: '0xg1', version: '9', digest: 'gasdigest' },
     });
+    expect(spy).toHaveBeenCalledWith({
+      digest: TX_DIGEST,
+      include: { effects: true },
+      timeout: 15_000,
+      pollSchedule: [0, 500],
+    });
+
+    // The poll interval is floored at 1ms so a 0 can never busy-loop.
+    spy.mockResolvedValueOnce(executed() as never);
+    await transport.waitForTransaction({ digest: TX_DIGEST, timeoutMs: 15_000, pollingIntervalMs: 0 });
+    expect(spy).toHaveBeenLastCalledWith(expect.objectContaining({ pollSchedule: [0, 1] }));
   });
 
   it('carries the abort message through on a failed transaction', async () => {
@@ -330,26 +297,5 @@ describe('SuiGrpcTransport.waitForTransaction', () => {
     });
 
     expect(receipt.effects?.status).toEqual({ status: 'failure', error: 'MoveAbort' });
-  });
-
-  it('turns pollingIntervalMs into a two-step pollSchedule', async () => {
-    const spy = vi.spyOn(core, 'waitForTransaction').mockResolvedValueOnce(executed() as never);
-
-    await transport.waitForTransaction({ digest: TX_DIGEST, timeoutMs: 15_000, pollingIntervalMs: 500 });
-
-    expect(spy).toHaveBeenCalledWith({
-      digest: TX_DIGEST,
-      include: { effects: true },
-      timeout: 15_000,
-      pollSchedule: [0, 500],
-    });
-  });
-
-  it('floors the poll interval at 1ms so a 0 can never busy-loop', async () => {
-    const spy = vi.spyOn(core, 'waitForTransaction').mockResolvedValueOnce(executed() as never);
-
-    await transport.waitForTransaction({ digest: TX_DIGEST, timeoutMs: 15_000, pollingIntervalMs: 0 });
-
-    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ pollSchedule: [0, 1] }));
   });
 });

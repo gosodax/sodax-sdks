@@ -83,31 +83,20 @@ describe('ConfigService.initialize — current no-op contract (dynamic fetch/mer
   });
 });
 
-describe('ConfigService — global fee is a held client option, not dynamic config', () => {
-  it('exposes the resolved fee option and keeps it off the SodaxConfig data shape', () => {
-    const { service } = makeService(undefined, ok(remoteConfig()), USER_FEE);
+describe('ConfigService — global fee and apiKey are held client options, not dynamic config', () => {
+  it('exposes the resolved fee and apiKey options and keeps the fee off the SodaxConfig data shape', () => {
+    // The held fields are the authoritative read path (they survive the dynamic-config swap); the
+    // merge layer may still copy option keys onto the merged config.
+    const { service } = makeService(undefined, ok(remoteConfig()), USER_FEE, 'global-key');
 
     expect(service.fee).toEqual(USER_FEE);
+    expect(service.apiKey).toBe('global-key');
     expect('fee' in service.sodaxConfig).toBe(false); // global fee is not part of SodaxConfig
   });
 
-  it('defaults to undefined when no fee option is provided', () => {
+  it('defaults both to undefined when the options are not provided', () => {
     const { service } = makeService(undefined, ok(remoteConfig()));
     expect(service.fee).toBeUndefined();
-  });
-});
-
-describe('ConfigService — global apiKey is a held client option, not dynamic config', () => {
-  it('exposes the held apiKey option independently of the config object', () => {
-    // The held field is the authoritative read path (it survives the dynamic-config swap); the
-    // merge layer may still copy option keys onto the merged config, exactly as it does for `fee`.
-    const { service } = makeService(undefined, ok(remoteConfig()), undefined, 'global-key');
-
-    expect(service.apiKey).toBe('global-key');
-  });
-
-  it('defaults to undefined when no apiKey option is provided', () => {
-    const { service } = makeService(undefined, ok(remoteConfig()));
     expect(service.apiKey).toBeUndefined();
   });
 });
@@ -138,19 +127,10 @@ describe('ConfigService — effective per-feature fee falls back to the global f
     },
   ];
 
-  it.each(FEATURES)('$name: uses the global fee when the per-feature fee is unset', ({ get }) => {
-    const { service } = makeService(undefined, ok(remoteConfig()), USER_FEE);
-    expect(get(service)).toEqual(USER_FEE); // global fee is the fallback
-  });
-
-  it.each(FEATURES)('$name: the per-feature fee overrides the global fee when both are set', ({ override, get }) => {
-    const { service } = makeService(override(REMOTE_FEE), ok(remoteConfig()), USER_FEE);
-    expect(get(service)).toEqual(REMOTE_FEE); // per-feature wins over global
-  });
-
-  it.each(FEATURES)('$name: undefined when neither the per-feature nor the global fee is set', ({ get }) => {
-    const { service } = makeService(undefined, ok(remoteConfig()));
-    expect(get(service)).toBeUndefined();
+  it.each(FEATURES)('$name: per-feature fee wins, else the global fee, else undefined', ({ override, get }) => {
+    expect(get(makeService(override(REMOTE_FEE), ok(remoteConfig()), USER_FEE).service)).toEqual(REMOTE_FEE);
+    expect(get(makeService(undefined, ok(remoteConfig()), USER_FEE).service)).toEqual(USER_FEE);
+    expect(get(makeService(undefined, ok(remoteConfig())).service)).toBeUndefined();
   });
 });
 

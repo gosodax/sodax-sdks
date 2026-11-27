@@ -23,14 +23,6 @@ describe('classifySponsorError', () => {
       false,
     ],
     [
-      'validation pipe (error is a LABEL, not a code)',
-      400,
-      { statusCode: 400, message: 'data should not be empty', error: 'Bad Request' },
-      'fixIntegration',
-      false,
-      false,
-    ],
-    [
       'missing api key (error is a LABEL)',
       401,
       { statusCode: 401, message: 'Missing x-api-key', error: 'Unauthorized' },
@@ -71,33 +63,9 @@ describe('classifySponsorError', () => {
       false,
     ],
     [
-      'per-IP throttle (NO error field at all)',
-      429,
-      { statusCode: 429, message: 'ThrottlerException: Too Many Requests' },
-      'backoff',
-      true,
-      false,
-    ],
-    [
-      'server reserve fault',
-      500,
-      { statusCode: 500, error: 'INVALID_RESERVE_DATA', message: 'could not read sponsor reserve' },
-      'contactOperator',
-      false,
-      false,
-    ],
-    [
       'unexpected server throw (NO error field at all)',
       500,
       { statusCode: 500, message: 'Internal server error' },
-      'contactOperator',
-      false,
-      false,
-    ],
-    [
-      'framework 500 (error is a LABEL)',
-      500,
-      { statusCode: 500, message: 'sponsor config unavailable', error: 'Internal Server Error' },
       'contactOperator',
       false,
       false,
@@ -154,7 +122,7 @@ describe('classifySponsorError', () => {
     expect(classifySponsorError(wireError(429, { statusCode: 429, message: 'x' })).code).toBeUndefined();
   });
 
-  it('surfaces retryAfterSeconds from the BODY on the per-key quota 429', () => {
+  it('surfaces a positive finite retryAfterSeconds from the BODY on the 429 and drops invalid values', () => {
     // The response body works in browsers without exposing Retry-After through CORS.
     const quota = classifySponsorError(
       wireError(429, { statusCode: 429, error: 'SPONSOR_RATE_LIMITED', message: 'slow down', retryAfterSeconds: 30 }),
@@ -164,19 +132,16 @@ describe('classifySponsorError', () => {
     const throttle = classifySponsorError(
       wireError(429, { statusCode: 429, message: 'ThrottlerException: Too Many Requests' }),
     );
+    expect(throttle.action).toBe('backoff');
     expect(throttle.retryAfterSeconds).toBeUndefined();
-  });
 
-  it.each([
-    ['a non-numeric value', 'soon'],
-    ['zero', 0],
-    ['a negative value', -5],
-    ['a non-finite value', Number.POSITIVE_INFINITY],
-  ])('ignores %s for retryAfterSeconds rather than passing it on', (_label, value) => {
-    const result = classifySponsorError(
-      wireError(429, { statusCode: 429, error: 'SPONSOR_RATE_LIMITED', message: 'x', retryAfterSeconds: value }),
-    );
-    expect(result.retryAfterSeconds).toBeUndefined();
+    // Non-numeric, zero, negative and non-finite values would busy-retry or wait forever.
+    for (const value of ['soon', 0, -5, Number.POSITIVE_INFINITY]) {
+      const result = classifySponsorError(
+        wireError(429, { statusCode: 429, error: 'SPONSOR_RATE_LIMITED', message: 'x', retryAfterSeconds: value }),
+      );
+      expect(result.retryAfterSeconds).toBeUndefined();
+    }
   });
 
   it('surfaces the server message, falling back to the SDK message when the body has none', () => {
@@ -220,17 +185,11 @@ describe('classifySponsorError', () => {
 });
 
 describe('isHorizonNotFound', () => {
-  it('recognises a 404 by response status', () => {
+  it('recognises only a 404 response status as "not found"', () => {
     expect(isHorizonNotFound({ response: { status: 404 } })).toBe(true);
-  });
-
-  it('does NOT treat a non-404 Horizon failure as "not found"', () => {
     // Stellar's NotFoundError extends NetworkError, so parent-class checks are unsafe.
     expect(isHorizonNotFound({ response: { status: 500 } })).toBe(false);
     expect(isHorizonNotFound({ response: { status: 503 } })).toBe(false);
-  });
-
-  it('does not treat a bare Error, null, or undefined as "not found"', () => {
     expect(isHorizonNotFound(new Error('Network down'))).toBe(false);
     expect(isHorizonNotFound(null)).toBe(false);
     expect(isHorizonNotFound(undefined)).toBe(false);

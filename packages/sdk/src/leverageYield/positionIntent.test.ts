@@ -17,20 +17,15 @@ const OK: SolverExecutionResponse = {
 const solverError = (message: string) => new SodaxError('EXTERNAL_API_ERROR', message, { feature: 'leverageYield' });
 
 describe('reportPositionIntent', () => {
-  it('reports the HUB hash, not the one the user signed', async () => {
+  it('reports the HUB hash, not the one the user signed, returning the hashes alongside the notification', async () => {
     // From a spoke the intent is created by the relayed message, so the signed hash is not where it
     // lives and reporting it tells the solver about a transaction with no intent in it.
-    const notifySolver: PositionIntentNotifier = vi.fn(async () => ({ ok: true as const, value: OK }));
-    await reportPositionIntent(notifySolver, HASHES);
-    expect(notifySolver).toHaveBeenCalledWith({ intent_tx_hash: HASHES.dstChainTxHash });
-  });
-
-  it('returns the hashes alongside a successful notification', async () => {
     const notifySolver: PositionIntentNotifier = vi.fn(async () => ({ ok: true as const, value: OK }));
     await expect(reportPositionIntent(notifySolver, HASHES)).resolves.toEqual({
       txHashes: HASHES,
       notified: true,
     });
+    expect(notifySolver).toHaveBeenCalledWith({ intent_tx_hash: HASHES.dstChainTxHash });
   });
 
   it('REPORTS a failed notification instead of throwing, because the intent already exists', async () => {
