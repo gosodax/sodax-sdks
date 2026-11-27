@@ -149,6 +149,7 @@ export const moneyMarketSupportedTokens = {
     spokeChainConfig[ChainKeys.SOLANA_MAINNET].supportedTokens.JitoSOL,
   ] as const satisfies XToken[],
   [ChainKeys.ICON_MAINNET]: [
+    // ICX, wICX: deliberately not money-market tokens.
     spokeChainConfig[ChainKeys.ICON_MAINNET].supportedTokens.bnUSD,
   ] as const satisfies XToken[],
   [ChainKeys.STELLAR_MAINNET]: [

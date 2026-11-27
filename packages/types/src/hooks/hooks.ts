@@ -18,7 +18,8 @@ export type HookKind = (typeof HookKind)[keyof typeof HookKind];
 export type SpokeHookConfig = {
   kind: HookKind;
   address: Address;
-  /** Accepted delivered tokens on the hook's chain; `undefined` = unrestricted. Use `spokeChainConfig`, not literals. */
+  /** Tokens the hook acts on (others are plainly transferred); `undefined` = all. Metadata only: the backend must not
+   * reject a mismatched `outputToken` because of it. Use `spokeChainConfig`, not literals. */
   supportedTokens?: readonly string[];
 };
 

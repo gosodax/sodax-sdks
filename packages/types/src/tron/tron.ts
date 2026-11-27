@@ -2,7 +2,6 @@ import type { MpcWithdrawMessage, MpcWithdrawScheme } from '../chains/chains.js'
 import type { Hex } from '../shared/shared.js';
 import type { ICoreWallet } from '../wallet/wallet.js';
 
-
 /** As returned by TronGrid `createtransaction` / `triggersmartcontract`. */
 export interface TronUnsignedTransaction {
   /** sha256 of `raw_data_hex` — the digest Tron actually signs. */
