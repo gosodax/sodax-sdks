@@ -54,19 +54,7 @@ describe('SwapService solver consumer paths — API key on the wire', () => {
     expect(headers.get('content-type')).toBe('application/json');
   });
 
-  it('getStatus sends x-api-key with Content-Type intact on POST /status', async () => {
-    // Terminal non-NOT_FOUND: the solver answer stands, so no durable-record reconcile follows.
-    mockFetch.mockResolvedValueOnce(okResponse({ status: SolverIntentStatusCode.SOLVED, fill_tx_hash: '0xfill' }));
-
-    const result = await sodax.swaps.getStatus({ intent_tx_hash: INTENT_TX_HASH });
-
-    expect(result).toEqual({ ok: true, value: { status: SolverIntentStatusCode.SOLVED, fill_tx_hash: '0xfill' } });
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    const headers = requestHeaders('/v1/intent/status', 'POST');
-    expect(headers.get('x-api-key')).toBe('instance-key');
-    expect(headers.get('content-type')).toBe('application/json');
-  });
-
+  // getStatus and getDetailedStatus share one solver /status read, so this covers getStatus's leg too.
   it('getDetailedStatus carries the key on BOTH the backend status read and the solver /status', async () => {
     mockFetch.mockImplementation(async (url: unknown, init?: { method?: string }) => {
       const { pathname } = new URL(String(url));

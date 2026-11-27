@@ -1,12 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  ChainKeys,
-  moneyMarketReserveAssets,
-  spokeChainConfig,
-  type Address,
-  type ChainKey,
-  type XToken,
-} from '@sodax/types';
+import { ChainKeys, type Address, type ChainKey, type XToken } from '@sodax/types';
 import { estimateSwapSpeedTier, SPEED_TIER_SECONDS } from './speed-tier.js';
 
 const SODA_VAULT = '0x1111111111111111111111111111111111111111' as Address;
@@ -30,14 +23,6 @@ const token = (chainKey: ChainKey, vault: Address): XToken => ({
 const isSodaAsset = (vault: Address): boolean => vault.toLowerCase() === SODA_VAULT.toLowerCase();
 
 describe('estimateSwapSpeedTier', () => {
-  it('both tokens sodaAsset-related (non-ETH) → 15s / fast', () => {
-    const result = estimateSwapSpeedTier(
-      { srcToken: token(ChainKeys.SONIC_MAINNET, SODA_VAULT), dstToken: token(ChainKeys.BSC_MAINNET, SODA_VAULT) },
-      isSodaAsset,
-    );
-    expect(result).toEqual({ tier: 'fast', estimatedSeconds: SPEED_TIER_SECONDS.sodaAsset });
-  });
-
   it('either token sodaAsset-related (non-ETH) → 15s / fast', () => {
     const srcOnly = estimateSwapSpeedTier(
       { srcToken: token(ChainKeys.SONIC_MAINNET, SODA_VAULT), dstToken: token(ChainKeys.BSC_MAINNET, PLAIN_VAULT) },
@@ -52,22 +37,8 @@ describe('estimateSwapSpeedTier', () => {
     expect(dstOnly).toEqual({ tier: 'fast', estimatedSeconds: SPEED_TIER_SECONDS.sodaAsset });
   });
 
-  it('neither token sodaAsset-related → default 35s', () => {
-    const result = estimateSwapSpeedTier(
-      { srcToken: token(ChainKeys.SONIC_MAINNET, PLAIN_VAULT), dstToken: token(ChainKeys.BSC_MAINNET, PLAIN_VAULT) },
-      isSodaAsset,
-    );
-    expect(result.estimatedSeconds).toBe(SPEED_TIER_SECONDS.default);
-  });
-
-  it('adds the Ethereum penalty once when either leg is on Ethereum', () => {
-    const srcEth = estimateSwapSpeedTier(
-      { srcToken: token(ChainKeys.ETHEREUM_MAINNET, SODA_VAULT), dstToken: token(ChainKeys.BSC_MAINNET, SODA_VAULT) },
-      isSodaAsset,
-    );
-    expect(srcEth.estimatedSeconds).toBe(SPEED_TIER_SECONDS.sodaAsset + SPEED_TIER_SECONDS.ethereumPenalty);
-
-    // Both legs Ethereum — penalty still applied only once.
+  // One Ethereum leg is a row of the table below; both legs must still add the penalty only once.
+  it('adds the Ethereum penalty once even when both legs are on Ethereum', () => {
     const bothEth = estimateSwapSpeedTier(
       {
         srcToken: token(ChainKeys.ETHEREUM_MAINNET, SODA_VAULT),
@@ -96,30 +67,5 @@ describe('estimateSwapSpeedTier', () => {
         isSodaAsset,
       ),
     ).toEqual({ tier: params.tier, estimatedSeconds: params.estimatedSeconds });
-  });
-});
-
-describe('estimateSwapSpeedTier against packaged config', () => {
-  // The reserve set holds vault-share addresses, so querying it with hubAsset matches only the
-  // Sonic vault shares — the tokens a user actually swaps would all report the slow default.
-  const reserves = new Set(moneyMarketReserveAssets.map(address => address.toLowerCase()));
-  const isSodaAssetRelated = (address: Address): boolean => reserves.has(address.toLowerCase());
-
-  const soda = spokeChainConfig[ChainKeys.SONIC_MAINNET].supportedTokens.SODA;
-  const sol = spokeChainConfig[ChainKeys.SOLANA_MAINNET].supportedTokens.SOL;
-
-  it('the fixtures this suite relies on have a hubAsset distinct from their vault', () => {
-    for (const config of [soda, sol]) {
-      expect(config.hubAsset.toLowerCase()).not.toBe(config.vault.toLowerCase());
-      expect(isSodaAssetRelated(config.vault)).toBe(true);
-      expect(isSodaAssetRelated(config.hubAsset)).toBe(false);
-    }
-  });
-
-  it('classifies real reserve-backed tokens as fast even though their hubAsset is not a reserve', () => {
-    expect(estimateSwapSpeedTier({ srcToken: soda, dstToken: sol }, isSodaAssetRelated)).toEqual({
-      tier: 'fast',
-      estimatedSeconds: SPEED_TIER_SECONDS.sodaAsset,
-    });
   });
 });

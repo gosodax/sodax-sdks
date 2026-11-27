@@ -39,7 +39,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('AssetService.executeWithdraw', () => {
-  it('reports the hub wallet as relayData.address, not the spoke recipient', async () => {
+  it('reports the hub wallet as relayData.address and signs a non-Tron destination withdraw on the source chain', async () => {
     const result = await asset.executeWithdraw({
       params: {
         srcChainKey: ChainKeys.BSC_MAINNET,
@@ -47,6 +47,7 @@ describe('AssetService.executeWithdraw', () => {
         asset: ASSET,
         poolToken: POOL_TOKEN,
         amount: 1000n,
+        dst: { dstChainKey: ChainKeys.ARBITRUM_MAINNET, dstAddress: ASSET },
       },
       raw: true,
     });
@@ -61,21 +62,6 @@ describe('AssetService.executeWithdraw', () => {
     // relayData.address must match the hub destination the spoke message commits to.
     const sendArg = (sodax.spoke.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
     expect(sendArg.dstAddress).toBe(HUB_WALLET);
-  });
-
-  it('signs a non-Tron destination withdraw on the source chain', async () => {
-    const result = await asset.executeWithdraw({
-      params: {
-        srcChainKey: ChainKeys.BSC_MAINNET,
-        srcAddress: SRC_ADDRESS,
-        asset: ASSET,
-        poolToken: POOL_TOKEN,
-        amount: 1000n,
-        dst: { dstChainKey: ChainKeys.ARBITRUM_MAINNET, dstAddress: ASSET },
-      },
-      raw: true,
-    });
-    expect(result.ok).toBe(true);
     expect(sodax.spoke.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ srcChainKey: ChainKeys.BSC_MAINNET, srcAddress: SRC_ADDRESS }),
     );
@@ -107,7 +93,7 @@ describe('AssetService.executeWithdraw', () => {
 describe('AssetService.executeWithdraw — payout to an MPC-relay chain', () => {
   // 18-dp vault units in; the release pays out USDT's 6 decimals.
   const withdraw = async (amount: bigint) => {
-    vi.mocked(asset.getTokenUnwrapAction).mockRestore();
+    if (vi.isMockFunction(asset.getTokenUnwrapAction)) vi.mocked(asset.getTokenUnwrapAction).mockRestore();
     // The zero stata token skips the ERC-4626 redeem, so the vault amount is the requested one.
     vi.spyOn(sodax.hubProvider.publicClient, 'readContract').mockResolvedValue(
       '0x0000000000000000000000000000000000000000' as never,
@@ -124,16 +110,14 @@ describe('AssetService.executeWithdraw — payout to an MPC-relay chain', () => 
     });
   };
 
-  it('refuses a release at the minimum before building the message', async () => {
+  it('refuses a release at the minimum before building the message, and sends one a unit above it', async () => {
     const result = await withdraw(3n * 10n ** 18n);
 
     if (result.ok || !isSodaxError(result.error)) throw new Error('expected a refusal');
     expect(result.error.code).toBe('VALIDATION_FAILED');
     expect(result.error.context?.reason).toBe('mpc-payout-below-minimum');
     expect(sodax.spoke.sendMessage).not.toHaveBeenCalled();
-  });
 
-  it('sends a release above it', async () => {
     expect((await withdraw(3n * 10n ** 18n + 10n ** 12n)).ok).toBe(true);
     expect(sodax.spoke.sendMessage).toHaveBeenCalledOnce();
   });
@@ -204,27 +188,23 @@ describe('AssetService deposit/withdraw from an MPC-relay source', () => {
     expect(result).toEqual({ ok: true, value: SETTLED });
   });
 
-  it('preserves the original withdrawal ID and cause when settlement times out', async () => {
+  it('preserves the withdrawal ID or deposit hash, and the cause, when settlement times out', async () => {
     const trackingId = `0x${'e'.repeat(64)}`;
     const cause = new Error('RELAY_TIMEOUT');
     vi.spyOn(asset, 'executeWithdraw').mockResolvedValue({
       ok: true,
       value: { tx: trackingId, relayData: RELAY_DATA },
     });
+    vi.spyOn(asset, 'executeDeposit').mockResolvedValue({ ok: true, value: { tx: TRON_TX, relayData: RELAY_DATA } });
     vi.spyOn(sodax.spoke, 'settle').mockResolvedValue({ ok: false, error: { phase: 'relay', cause } });
-    const result = await asset.withdraw({ params, raw: false, walletProvider: {} as never });
-    expect(result).toMatchObject({
+
+    const withdrawal = await asset.withdraw({ params, raw: false, walletProvider: {} as never });
+    expect(withdrawal).toMatchObject({
       ok: false,
       error: { code: 'RELAY_TIMEOUT', cause, context: { srcChainKey: ChainKeys.TRON_MAINNET, trackingId } },
     });
-    if (result.ok || !isSodaxError(result.error)) throw new Error('expected settlement failure');
-    expect(result.error.context).not.toHaveProperty('srcTxHash');
-  });
-
-  it('preserves the original deposit hash and cause when settlement times out', async () => {
-    const cause = new Error('RELAY_TIMEOUT');
-    vi.spyOn(asset, 'executeDeposit').mockResolvedValue({ ok: true, value: { tx: TRON_TX, relayData: RELAY_DATA } });
-    vi.spyOn(sodax.spoke, 'settle').mockResolvedValue({ ok: false, error: { phase: 'relay', cause } });
+    if (withdrawal.ok || !isSodaxError(withdrawal.error)) throw new Error('expected settlement failure');
+    expect(withdrawal.error.context).not.toHaveProperty('srcTxHash');
 
     const result = await asset.deposit({ params, raw: false, walletProvider: {} as never });
 

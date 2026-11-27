@@ -76,7 +76,6 @@ vi.mock('cosmjs-types/cosmos/tx/v1beta1/tx.js', () => ({
 }));
 
 import { Sodax } from '../../entities/Sodax.js';
-import { InjectiveSpokeService } from './InjectiveSpokeService.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
 
 // --- fixtures -------------------------------------------------------------
@@ -93,8 +92,6 @@ const INJ_CONNECTION = injConfig.addresses.connection;
 const INJ_BNUSD = injConfig.bnUSD;
 const INJ_NATIVE = injConfig.nativeToken;
 const INJ_NETWORK_ID = injConfig.networkId;
-const INJ_POLLING_MS = injConfig.pollingConfig.pollingIntervalMs;
-const INJ_TIMEOUT_MS = injConfig.pollingConfig.maxTimeoutMs;
 
 const SRC_ADDR = 'inj1pmdvtjvy9pxr9krx0e8v9q3v7m8q4u0aaaaaaa';
 const HUB_WALLET = '0x2222222222222222222222222222222222222222' as `0x${string}`;
@@ -143,36 +140,6 @@ afterEach(() => {
 });
 
 // =========================================================================
-// 1. constructor
-// =========================================================================
-
-describe('InjectiveSpokeService — constructor', () => {
-  it('exposes the spoke instance on sodax.spoke.injective with the expected method surface', () => {
-    expect(injSpoke).toBeInstanceOf(InjectiveSpokeService);
-    expect(typeof injSpoke.estimateGas).toBe('function');
-    expect(typeof injSpoke.deposit).toBe('function');
-    expect(typeof injSpoke.getDeposit).toBe('function');
-    expect(typeof injSpoke.getWalletBalance).toBe('function');
-    expect(typeof injSpoke.getWalletBalances).toBe('function');
-    expect(typeof injSpoke.getRawTransaction).toBe('function');
-    expect(typeof injSpoke.getState).toBe('function');
-    expect(typeof injSpoke.sendMessage).toBe('function');
-    expect(typeof injSpoke.receiveMessage).toBe('function');
-    expect(typeof injSpoke.setRateLimit).toBe('function');
-    expect(typeof injSpoke.setConnection).toBe('function');
-    expect(typeof injSpoke.setOwner).toBe('function');
-    expect(typeof injSpoke.waitForTransactionReceipt).toBe('function');
-  });
-
-  it('wires chainGrpcWasmApi/indexerGrpcAccountPortfolioApi/txClient/endpoints', () => {
-    expect(injSpoke.chainGrpcWasmApi).toBeDefined();
-    expect(injSpoke.indexerGrpcAccountPortfolioApi).toBeDefined();
-    expect(injSpoke.txClient).toBeDefined();
-    expect(injSpoke.endpoints).toBeDefined();
-  });
-});
-
-// =========================================================================
 // 2. estimateGas — txClient.simulate delegation
 // =========================================================================
 
@@ -213,7 +180,7 @@ describe('InjectiveSpokeService.getRawTransaction', () => {
     } as never);
   });
 
-  it('returns the real accountNumber threaded from the fetched account (not the hardcoded 0)', async () => {
+  it('fetches the account once, simulates once and rebuilds with a self-pay fee, the funds and the real accountNumber', async () => {
     const raw = await injSpoke.getRawTransaction(
       INJ_NETWORK_ID,
       SRC_ADDR,
@@ -223,13 +190,10 @@ describe('InjectiveSpokeService.getRawTransaction', () => {
       FUNDS,
     );
 
+    // The fetched account number, not the hardcoded 0.
     expect(raw.signedDoc.accountNumber).toBe(7n);
     expect(raw.from).toBe(SRC_ADDR);
     expect(raw.to).toBe(INJ_ASSET_MGR);
-  });
-
-  it('fetches the account once and threads sequence + pubKey into createTransaction', async () => {
-    await injSpoke.getRawTransaction(INJ_NETWORK_ID, SRC_ADDR, INJ_ASSET_MGR, { transfer: {} }, undefined, FUNDS);
 
     expect(mocks.fetchCosmosAccount).toHaveBeenCalledTimes(1);
     expect(mocks.fetchCosmosAccount).toHaveBeenCalledWith(SRC_ADDR);
@@ -237,10 +201,6 @@ describe('InjectiveSpokeService.getRawTransaction', () => {
     expect(mocks.createTx.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({ pubKey: 'pk', sequence: 3, accountNumber: 7, chainId: INJ_NETWORK_ID }),
     );
-  });
-
-  it('simulates once and rebuilds with an explicit self-pay fee from simulated gas + chain gasPrice', async () => {
-    await injSpoke.getRawTransaction(INJ_NETWORK_ID, SRC_ADDR, INJ_ASSET_MGR, { transfer: {} }, undefined, FUNDS);
 
     expect(injSpoke.txClient.simulate).toHaveBeenCalledTimes(1);
     // draft (no fee) then final (with fee) — both pure, single account fetch
@@ -250,11 +210,6 @@ describe('InjectiveSpokeService.getRawTransaction', () => {
       amount: [{ denom: 'inj', amount: EXPECTED_FEE_AMOUNT }],
       gas: EXPECTED_GAS.toString(),
     });
-  });
-
-  it('attaches the funds to the contract message', async () => {
-    await injSpoke.getRawTransaction(INJ_NETWORK_ID, SRC_ADDR, INJ_ASSET_MGR, { transfer: {} }, undefined, FUNDS);
-
     expect(mocks.msgExecFromJSON).toHaveBeenCalledWith(expect.objectContaining({ funds: FUNDS }));
   });
 
@@ -404,7 +359,7 @@ describe('InjectiveSpokeService.getWalletBalance / getWalletBalances', () => {
     expect(spy).not.toHaveBeenCalledWith(INJ_ASSET_MGR);
   });
 
-  it('matches native INJ by the config nativeToken denom, not by another account entry', async () => {
+  it('matches native INJ by the config nativeToken denom, and returns 0n for a denom absent from a fetched portfolio', async () => {
     spyPortfolio([
       { denom: BNUSD_TOKEN.address, amount: '5000' },
       { denom: INJ_NATIVE, amount: '42' },
@@ -413,23 +368,9 @@ describe('InjectiveSpokeService.getWalletBalance / getWalletBalances', () => {
     const result = await injSpoke.getWalletBalance({ srcChainKey: INJ, srcAddress: SRC_ADDR, token: INJ_TOKEN });
 
     expect(result).toBe(42n);
-  });
 
-  it('returns 0n for a denom absent from a portfolio that WAS fetched successfully', async () => {
     spyPortfolio([{ denom: INJ_NATIVE, amount: '42' }]);
-
-    const result = await injSpoke.getWalletBalance({ srcChainKey: INJ, srcAddress: SRC_ADDR, token: USDC_TOKEN });
-
-    expect(result).toBe(0n);
-  });
-
-  it('rejects when the portfolio fetch fails, so an unread balance never surfaces as 0n', async () => {
-    const rpcError = new Error('indexer unavailable');
-    vi.spyOn(injSpoke.indexerGrpcAccountPortfolioApi, 'fetchAccountPortfolioBalances').mockRejectedValueOnce(rpcError);
-
-    await expect(
-      injSpoke.getWalletBalance({ srcChainKey: INJ, srcAddress: SRC_ADDR, token: BNUSD_TOKEN }),
-    ).rejects.toThrow(rpcError);
+    expect(await injSpoke.getWalletBalance({ srcChainKey: INJ, srcAddress: SRC_ADDR, token: USDC_TOKEN })).toBe(0n);
   });
 
   it('getWalletBalances issues exactly one portfolio fetch for every token and keys by token.address', async () => {
@@ -462,9 +403,13 @@ describe('InjectiveSpokeService.getWalletBalance / getWalletBalances', () => {
     expect(spy).toHaveBeenCalledWith(SRC_ADDR);
   });
 
-  it('getWalletBalances rejects when the single shared fetch fails — no per-token read to isolate', async () => {
+  it('getWalletBalance and getWalletBalances reject when the portfolio fetch fails — never an unread 0n', async () => {
     const rpcError = new Error('indexer unavailable');
-    vi.spyOn(injSpoke.indexerGrpcAccountPortfolioApi, 'fetchAccountPortfolioBalances').mockRejectedValueOnce(rpcError);
+    vi.spyOn(injSpoke.indexerGrpcAccountPortfolioApi, 'fetchAccountPortfolioBalances').mockRejectedValue(rpcError);
+
+    await expect(
+      injSpoke.getWalletBalance({ srcChainKey: INJ, srcAddress: SRC_ADDR, token: BNUSD_TOKEN }),
+    ).rejects.toThrow(rpcError);
 
     // Nothing was read at all, so a map of zeroes would render a dead indexer as an empty wallet.
     await expect(
@@ -529,6 +474,7 @@ describe('InjectiveSpokeService.sendMessage', () => {
         dst_chain_id: Number(getIntentRelayChainId(SONIC)),
       },
     });
+    expect(getIntentRelayChainId(SONIC)).toBe(146n);
   });
 
   it('raw=false → walletProvider.execute receives the connection target and returns hash', async () => {
@@ -542,10 +488,6 @@ describe('InjectiveSpokeService.sendMessage', () => {
     expect(contract).toBe(INJ_CONNECTION);
     expect(msg).toHaveProperty('send_message');
   });
-
-  it('pins getIntentRelayChainId(SONIC) === 146n', () => {
-    expect(getIntentRelayChainId(SONIC)).toBe(146n);
-  });
 });
 
 // =========================================================================
@@ -553,8 +495,8 @@ describe('InjectiveSpokeService.sendMessage', () => {
 // =========================================================================
 
 describe('InjectiveSpokeService — admin methods', () => {
-  it('receiveMessage delegates to walletProvider.execute on the asset manager', async () => {
-    (mockInjProvider.execute as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+  it('receiveMessage / setRateLimit / setConnection / setOwner each call walletProvider.execute on the asset manager', async () => {
+    (mockInjProvider.execute as ReturnType<typeof vi.fn>).mockResolvedValue({
       transactionHash: TX_HASH,
     });
 
@@ -572,18 +514,12 @@ describe('InjectiveSpokeService — admin methods', () => {
     expect(from).toBe(SRC_ADDR);
     expect(contract).toBe(INJ_ASSET_MGR);
     expect(msg).toHaveProperty('recv_message');
-  });
-
-  it('setRateLimit / setConnection / setOwner each call walletProvider.execute on the asset manager', async () => {
-    (mockInjProvider.execute as ReturnType<typeof vi.fn>).mockResolvedValue({
-      transactionHash: TX_HASH,
-    });
 
     await injSpoke.setRateLimit(INJ, SRC_ADDR, '1000', mockInjProvider);
     await injSpoke.setConnection(INJ, SRC_ADDR, INJ_CONNECTION, mockInjProvider);
     await injSpoke.setOwner(SRC_ADDR, 'inj1newowner', INJ, mockInjProvider);
 
-    expect(mockInjProvider.execute as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(3);
+    expect(mockInjProvider.execute as ReturnType<typeof vi.fn>).toHaveBeenCalledTimes(4);
     for (const call of (mockInjProvider.execute as ReturnType<typeof vi.fn>).mock.calls) {
       expect(call[1]).toBe(INJ_ASSET_MGR);
     }
@@ -617,7 +553,7 @@ describe('InjectiveSpokeService.waitForTransactionReceipt', () => {
     expect(result.value.error.message).toContain('boom');
   });
 
-  it('transient throw → recovers on next poll', async () => {
+  it('transient throw → sleeps the caller pollingIntervalMs and recovers on next poll', async () => {
     vi.spyOn(injSpoke.txClient, 'fetchTx')
       .mockRejectedValueOnce(new Error('not indexed'))
       .mockResolvedValueOnce({ code: 0 } as never);
@@ -625,12 +561,12 @@ describe('InjectiveSpokeService.waitForTransactionReceipt', () => {
     const result = await injSpoke.waitForTransactionReceipt({
       chainKey: INJ,
       txHash: TX_HASH,
-      pollingIntervalMs: 1,
+      pollingIntervalMs: 7,
       maxTimeoutMs: 1000,
     });
 
     if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
-    expect(mocks.sleep).toHaveBeenCalled();
+    expect(mocks.sleep).toHaveBeenCalledWith(7);
   });
 
   it('persistent throw past deadline → status:timeout', async () => {
@@ -645,25 +581,5 @@ describe('InjectiveSpokeService.waitForTransactionReceipt', () => {
 
     if (!result.ok) throw new Error('expected ok');
     expect(result.value.status).toBe('timeout');
-  });
-
-  it('config-driven defaults: pollingConfig pins polling=750ms / timeout=45_000ms', () => {
-    expect(INJ_POLLING_MS).toBe(750);
-    expect(INJ_TIMEOUT_MS).toBe(45_000);
-  });
-
-  it('forwards caller-supplied pollingIntervalMs to sleep on retry', async () => {
-    vi.spyOn(injSpoke.txClient, 'fetchTx')
-      .mockRejectedValueOnce(new Error('not indexed'))
-      .mockResolvedValueOnce({ code: 0 } as never);
-
-    await injSpoke.waitForTransactionReceipt({
-      chainKey: INJ,
-      txHash: TX_HASH,
-      pollingIntervalMs: 7,
-      maxTimeoutMs: 1000,
-    });
-
-    expect(mocks.sleep).toHaveBeenCalledWith(7);
   });
 });

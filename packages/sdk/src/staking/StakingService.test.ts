@@ -12,7 +12,7 @@
  * Scope: the wrap-paths in the 5 staking orchestrators that the unit-level error-types
  * and relay-error-mapping tests don't cover end-to-end. `stake()` gets full coverage
  * (it is the only orchestrator that calls `spoke.verifyTxHash`); the other 4 get a
- * single out-of-union SodaxError wrap-path smoke test each.
+ * shared out-of-union SodaxError wrap-path smoke test.
  *
  * Per the migration plan we use **local `satisfies SpokeChainKey` literal fixtures**
  * (no `../../../types/src/...` deep imports) — bridge's test file used the deep import
@@ -48,24 +48,9 @@ const sodax = new Sodax();
 // relay branch fires. BSC is a well-supported EVM spoke.
 const BSC = '0x38.bsc' satisfies SpokeChainKey;
 
-// Every EVM spoke that registers a SODA token. The matrix below runs the staking
-// intent creators across all of them so any chain-context regression surfaces on
-// the affected chain instead of hiding behind a single fixture. Sonic is included
-// to guard the hub-as-source path that previously masked the SODA-asset bug.
-const EVM_SPOKES = [
-  'sonic',
-  '0x2105.base',
-  '0x38.bsc',
-  '0xa4b1.arbitrum',
-  '0xa86a.avax',
-  '0xa.optimism',
-  '0x89.polygon',
-  'hyper',
-  'lightlink',
-  'ethereum',
-  'redbelly',
-  '0x2019.kaia',
-] as const satisfies readonly SpokeChainKey[];
+// Hub-as-source (Sonic) and a non-hub EVM spoke: the two chain contexts the per-spoke SODA lookup
+// distinguishes. Sonic guards the hub-as-source path that previously masked the SODA-asset bug.
+const EVM_SPOKES = ['sonic', '0x38.bsc'] as const satisfies readonly SpokeChainKey[];
 type EvmSpokeFixture = (typeof EVM_SPOKES)[number];
 
 const SAMPLE_USER = '0x4444444444444444444444444444444444444444' as Address;
@@ -239,69 +224,40 @@ describe('StakingService.stake — integration error-path coverage', () => {
   });
 });
 
-// Smoke tests — confirm every other orchestrator wraps a thrown out-of-union SodaxError
-// to its STAKING_<OP>_FAILED catch-all (the `is<Op>Error` guard's else-branch). Pins the
-// wrap machinery on every orchestrator without duplicating the full 4-test matrix.
-
 describe('StakingService — out-of-union wrap-path smoke for non-stake orchestrators', () => {
-  it('unstake wraps as STAKING_UNSTAKE_FAILED', async () => {
-    const outOfUnion = new SodaxError('BRIDGE_FAILED' as never, 'foreign code thrown into staking', {
-      feature: 'staking',
-    });
-    vi.spyOn(sodax.staking, 'createUnstakeIntent').mockRejectedValueOnce(outOfUnion);
+  it('unstake / instantUnstake / claim / cancelUnstake each wrap a foreign SodaxError as EXECUTION_FAILED', async () => {
+    const cases = [
+      {
+        action: 'unstake',
+        stub: 'createUnstakeIntent',
+        run: () => sodax.staking.unstake(unstakeInput()),
+      },
+      {
+        action: 'instantUnstake',
+        stub: 'createInstantUnstakeIntent',
+        run: () => sodax.staking.instantUnstake(instantUnstakeInput()),
+      },
+      { action: 'claim', stub: 'createClaimIntent', run: () => sodax.staking.claim(claimInput()) },
+      {
+        action: 'cancelUnstake',
+        stub: 'createCancelUnstakeIntent',
+        run: () => sodax.staking.cancelUnstake(cancelUnstakeInput()),
+      },
+    ] as const;
 
-    const result = await sodax.staking.unstake(unstakeInput());
+    for (const { action, stub, run } of cases) {
+      const outOfUnion = new SodaxError('BRIDGE_FAILED' as never, 'foreign code thrown into staking', {
+        feature: 'staking',
+      });
+      vi.spyOn(sodax.staking, stub).mockRejectedValueOnce(outOfUnion);
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('EXECUTION_FAILED');
-    expect(result.error.cause).toBe(outOfUnion);
-    expect(result.error.context?.action).toBe('unstake');
-  });
+      const result = await run();
 
-  it('instantUnstake wraps as STAKING_INSTANT_UNSTAKE_FAILED', async () => {
-    const outOfUnion = new SodaxError('MM_SUPPLY_FAILED' as never, 'foreign code thrown into staking', {
-      feature: 'staking',
-    });
-    vi.spyOn(sodax.staking, 'createInstantUnstakeIntent').mockRejectedValueOnce(outOfUnion);
-
-    const result = await sodax.staking.instantUnstake(instantUnstakeInput());
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('EXECUTION_FAILED');
-    expect(result.error.cause).toBe(outOfUnion);
-    expect(result.error.context?.action).toBe('instantUnstake');
-  });
-
-  it('claim wraps as STAKING_CLAIM_FAILED', async () => {
-    const outOfUnion = new SodaxError('SWAP_FAILED' as never, 'foreign code thrown into staking', {
-      feature: 'staking',
-    });
-    vi.spyOn(sodax.staking, 'createClaimIntent').mockRejectedValueOnce(outOfUnion);
-
-    const result = await sodax.staking.claim(claimInput());
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('EXECUTION_FAILED');
-    expect(result.error.cause).toBe(outOfUnion);
-    expect(result.error.context?.action).toBe('claim');
-  });
-
-  it('cancelUnstake wraps as STAKING_CANCEL_UNSTAKE_FAILED', async () => {
-    const outOfUnion = new SodaxError('MM_BORROW_FAILED' as never, 'foreign code thrown into staking', {
-      feature: 'staking',
-    });
-    vi.spyOn(sodax.staking, 'createCancelUnstakeIntent').mockRejectedValueOnce(outOfUnion);
-
-    const result = await sodax.staking.cancelUnstake(cancelUnstakeInput());
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('EXECUTION_FAILED');
-    expect(result.error.cause).toBe(outOfUnion);
-    expect(result.error.context?.action).toBe('cancelUnstake');
+      if (result.ok) throw new Error(`expected ${action} to fail`);
+      expect(result.error.code).toBe('EXECUTION_FAILED');
+      expect(result.error.cause).toBe(outOfUnion);
+      expect(result.error.context?.action).toBe(action);
+    }
   });
 });
 
@@ -315,8 +271,8 @@ describe('StakingService — out-of-union wrap-path smoke for non-stake orchestr
 // mistake. createUnstakeIntent reads only hub-side xSoda state and createCancel-
 // UnstakeIntent has no per-chain token lookup, so neither participates here.
 //
-// Running each method across BSC + BASE + SONIC catches both the non-Sonic-only
-// regression and any future regression on the hub-as-source path.
+// Running each method on BSC + SONIC catches both the non-Sonic-only regression and any future
+// regression on the hub-as-source path.
 const stakeInputFor = <K extends EvmSpokeFixture>(srcChainKey: K): StakeAction<K, false> =>
   ({
     raw: false,

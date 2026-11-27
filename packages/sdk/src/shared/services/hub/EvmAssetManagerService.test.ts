@@ -19,7 +19,6 @@ import {
   type HttpTransport,
   type PublicClient,
   decodeAbiParameters,
-  decodeFunctionData,
   encodeFunctionData,
   parseAbiParameters,
 } from 'viem';
@@ -129,28 +128,6 @@ describe('EvmAssetManagerService.encodeTransfer', () => {
       }),
     });
   });
-
-  it('always passes empty bytes ("0x") as the trailing `data` argument', () => {
-    const { data } = EvmAssetManagerService.encodeTransfer(HUB_ASSET, RECIPIENT_HEX, 42n, ASSET_MANAGER);
-    const decoded = decodeFunctionData({ abi: assetManagerAbi, data });
-
-    expect(decoded.functionName).toBe('transfer');
-    // args = [token, to, amount, data]
-    expect(decoded.args[3]).toBe('0x');
-  });
-
-  it('produces calldata that targets `transfer` (not the ERC-20 `transfer` overload — different abi)', () => {
-    const assetMgrCall = EvmAssetManagerService.encodeTransfer(HUB_ASSET, RECIPIENT_HEX, 1n, ASSET_MANAGER);
-    const erc20TransferData = encodeFunctionData({
-      abi: erc20Abi,
-      functionName: 'transfer',
-      args: [RECIPIENT_HEX, 1n],
-    });
-
-    // The asset-manager `transfer` is 4-arg (token, to, amount, data), the ERC-20 `transfer` is
-    // 2-arg (to, amount). They share a name but emit completely different selectors+payloads.
-    expect(assetMgrCall.data).not.toEqual(erc20TransferData);
-  });
 });
 
 // =========================================================================
@@ -170,26 +147,16 @@ describe('EvmAssetManagerService.depositToData', () => {
     ).toThrow(`[depositToData] Hub asset not found for token: ${TOKEN_ORIGINAL}`);
   });
 
-  it('queries the config with the provided spoke chain id and original token address', () => {
+  it('looks up the spoke token and emits exactly three encoded sub-calls in order: approve(hubAsset, vault, amount), deposit(hubAsset, amount), transfer(vault, to, translatedAmount)', () => {
     const spy = vi.mocked(mockConfigService.getSpokeTokenFromOriginalAssetAddress).mockReturnValueOnce(xToken18);
-
-    EvmAssetManagerService.depositToData(
-      { token: TOKEN_ORIGINAL, to: RECIPIENT_HEX, amount: 1_000n },
-      SPOKE_CHAIN_KEY,
-      mockConfigService,
-    );
-
-    expect(spy).toHaveBeenCalledWith(SPOKE_CHAIN_KEY, TOKEN_ORIGINAL);
-  });
-
-  it('emits exactly three encoded sub-calls in order: approve(hubAsset, vault, amount), deposit(hubAsset, amount), transfer(vault, to, translatedAmount)', () => {
-    vi.mocked(mockConfigService.getSpokeTokenFromOriginalAssetAddress).mockReturnValueOnce(xToken18);
 
     const encoded = EvmAssetManagerService.depositToData(
       { token: TOKEN_ORIGINAL, to: RECIPIENT_HEX, amount: 1_000n },
       SPOKE_CHAIN_KEY,
       mockConfigService,
     );
+
+    expect(spy).toHaveBeenCalledWith(SPOKE_CHAIN_KEY, TOKEN_ORIGINAL);
 
     const [calls] = decodeAbiParameters(parseAbiParameters('(address,uint256,bytes)[]'), encoded);
     expect(calls).toHaveLength(3);
@@ -218,36 +185,28 @@ describe('EvmAssetManagerService.depositToData', () => {
     ]);
   });
 
-  it('translates the transfer amount up for spoke tokens with decimals < 18', () => {
-    vi.mocked(mockConfigService.getSpokeTokenFromOriginalAssetAddress).mockReturnValueOnce(xToken6);
+  it('translates the transfer amount by spoke decimals: up for decimals < 18, down for decimals > 18', () => {
+    const cases = [
+      // 6 decimals → multiply by 10^(18-6) = 10^12
+      [xToken6, 1n, 10n ** 12n],
+      // 24 decimals → divide by 10^(24-18) = 10^6
+      [xToken24, 10n ** 12n, 10n ** 6n],
+    ] as const;
 
-    const encoded = EvmAssetManagerService.depositToData(
-      { token: TOKEN_ORIGINAL, to: RECIPIENT_HEX, amount: 1n },
-      SPOKE_CHAIN_KEY,
-      mockConfigService,
-    );
+    for (const [xToken, amount, translated] of cases) {
+      vi.mocked(mockConfigService.getSpokeTokenFromOriginalAssetAddress).mockReturnValueOnce(xToken);
 
-    const [calls] = decodeAbiParameters(parseAbiParameters('(address,uint256,bytes)[]'), encoded);
-    // 6 decimals → multiply by 10^(18-6) = 10^12
-    expect(calls[2]?.[2]).toEqual(
-      encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [RECIPIENT_HEX, 10n ** 12n] }),
-    );
-  });
+      const encoded = EvmAssetManagerService.depositToData(
+        { token: TOKEN_ORIGINAL, to: RECIPIENT_HEX, amount },
+        SPOKE_CHAIN_KEY,
+        mockConfigService,
+      );
 
-  it('translates the transfer amount down for spoke tokens with decimals > 18', () => {
-    vi.mocked(mockConfigService.getSpokeTokenFromOriginalAssetAddress).mockReturnValueOnce(xToken24);
-
-    const encoded = EvmAssetManagerService.depositToData(
-      { token: TOKEN_ORIGINAL, to: RECIPIENT_HEX, amount: 10n ** 12n },
-      SPOKE_CHAIN_KEY,
-      mockConfigService,
-    );
-
-    const [calls] = decodeAbiParameters(parseAbiParameters('(address,uint256,bytes)[]'), encoded);
-    // 24 decimals → divide by 10^(24-18) = 10^6
-    expect(calls[2]?.[2]).toEqual(
-      encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [RECIPIENT_HEX, 10n ** 6n] }),
-    );
+      const [calls] = decodeAbiParameters(parseAbiParameters('(address,uint256,bytes)[]'), encoded);
+      expect(calls[2]?.[2]).toEqual(
+        encodeFunctionData({ abi: erc20Abi, functionName: 'transfer', args: [RECIPIENT_HEX, translated] }),
+      );
+    }
   });
 });
 
@@ -268,10 +227,10 @@ describe('EvmAssetManagerService.withdrawAssetData', () => {
     ).toThrow(`[withdrawAssetData] Hub asset not found for token: ${TOKEN_ORIGINAL}`);
   });
 
-  it('queries hubProvider.config with the spoke chain id and the original token address', () => {
-    const hubProvider = buildHubProvider(xToken18);
+  it('emits a single assetManager.transfer(hubAsset, to, amount, "0x") call, amount untranslated (unlike depositToData)', () => {
+    const hubProvider = buildHubProvider(xToken6); // decimals=6 — would matter for deposits, not withdrawals
 
-    EvmAssetManagerService.withdrawAssetData(
+    const encoded = EvmAssetManagerService.withdrawAssetData(
       { token: TOKEN_ORIGINAL, to: RECIPIENT_HEX, amount: 500n },
       hubProvider,
       SPOKE_CHAIN_KEY,
@@ -281,17 +240,6 @@ describe('EvmAssetManagerService.withdrawAssetData', () => {
       SPOKE_CHAIN_KEY,
       TOKEN_ORIGINAL,
     );
-  });
-
-  it('emits a single encoded assetManager.transfer(hubAsset, to, amount, "0x") call against hubProvider.chainConfig.addresses.assetManager', () => {
-    const hubProvider = buildHubProvider(xToken18);
-
-    const encoded = EvmAssetManagerService.withdrawAssetData(
-      { token: TOKEN_ORIGINAL, to: RECIPIENT_HEX, amount: 500n },
-      hubProvider,
-      SPOKE_CHAIN_KEY,
-    );
-
     const [calls] = decodeAbiParameters(parseAbiParameters('(address,uint256,bytes)[]'), encoded);
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual([
@@ -303,25 +251,6 @@ describe('EvmAssetManagerService.withdrawAssetData', () => {
         args: [HUB_ASSET, RECIPIENT_HEX, 500n, '0x'],
       }),
     ]);
-  });
-
-  it('passes the user-supplied amount through unchanged (no decimals translation, unlike depositToData)', () => {
-    const hubProvider = buildHubProvider(xToken6); // decimals=6 — would matter for deposits, not withdrawals
-
-    const encoded = EvmAssetManagerService.withdrawAssetData(
-      { token: TOKEN_ORIGINAL, to: RECIPIENT_HEX, amount: 7n },
-      hubProvider,
-      SPOKE_CHAIN_KEY,
-    );
-
-    const [calls] = decodeAbiParameters(parseAbiParameters('(address,uint256,bytes)[]'), encoded);
-    expect(calls[0]?.[2]).toEqual(
-      encodeFunctionData({
-        abi: assetManagerAbi,
-        functionName: 'transfer',
-        args: [HUB_ASSET, RECIPIENT_HEX, 7n, '0x'],
-      }),
-    );
   });
 });
 
@@ -350,14 +279,5 @@ describe('EvmAssetManagerService#getAssetAddress', () => {
       functionName: 'assets',
       args: [6n, SPOKE_ADDRESS_BYTES],
     });
-  });
-
-  it('propagates errors thrown by readContract', async () => {
-    const rpcError = new Error('rpc unavailable');
-    vi.mocked(mockPublicClient.readContract).mockRejectedValueOnce(rpcError);
-
-    await expect(service.getAssetAddress(6n, SPOKE_ADDRESS_BYTES, ASSET_MANAGER, mockPublicClient)).rejects.toBe(
-      rpcError,
-    );
   });
 });

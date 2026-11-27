@@ -69,10 +69,9 @@ const send = (walletProvider: IEvmWalletProvider, timeoutMs = 60_000) =>
 
 describe('resolveApprovalStrategy', () => {
   it.each([
-    ['supported', true, 'atomic-batch'],
+    ['supported', false, 'atomic-batch'],
     ['ready', true, 'atomic-batch'],
     ['ready', false, 'sequential'],
-    ['supported', false, 'atomic-batch'],
     ['unsupported', true, 'sequential'],
   ] as const)('maps %s with allowAccountUpgrade=%s to %s', async (support, allowAccountUpgrade, expected) => {
     const walletProvider = batchProvider(support);
@@ -82,15 +81,13 @@ describe('resolveApprovalStrategy', () => {
     expect(walletProvider.getAtomicBatchSupport).toHaveBeenCalledWith(BASE_CHAIN_ID);
   });
 
-  it('keeps the Sonic hub sequential without asking the wallet', async () => {
-    const walletProvider = batchProvider('supported');
-    await expect(resolveApprovalStrategy({ srcChainKey: ChainKeys.SONIC_MAINNET, walletProvider })).resolves.toBe(
-      'sequential',
-    );
-    expect(walletProvider.getAtomicBatchSupport).not.toHaveBeenCalled();
-  });
+  it('is sequential on the Sonic hub (without asking), for a wallet without batch methods, or one that cannot answer', async () => {
+    const hubWallet = batchProvider('supported');
+    await expect(
+      resolveApprovalStrategy({ srcChainKey: ChainKeys.SONIC_MAINNET, walletProvider: hubWallet }),
+    ).resolves.toBe('sequential');
+    expect(hubWallet.getAtomicBatchSupport).not.toHaveBeenCalled();
 
-  it('is sequential for a wallet without the batch methods, or one that cannot answer', async () => {
     await expect(
       resolveApprovalStrategy({ srcChainKey: ChainKeys.BASE_MAINNET, walletProvider: plainProvider() }),
     ).resolves.toBe('sequential');
@@ -104,36 +101,49 @@ describe('resolveApprovalStrategy', () => {
 });
 
 describe('sendApprovalBatch', () => {
-  it('sends the calls in order on the source chain and returns the deposit tx', async () => {
+  it('sends the calls in order on the source chain, reports the batch id before waiting, and returns the deposit tx', async () => {
     const walletProvider = batchProvider();
-    const result = await send(walletProvider);
+    const order: string[] = [];
+    walletProvider.waitForBatch.mockImplementationOnce(async () => {
+      order.push('wait');
+      return confirmed;
+    });
+
+    const result = await sendApprovalBatch({
+      walletProvider,
+      srcChainKey: ChainKeys.BASE_MAINNET,
+      txs: [APPROVE_TX, DEPOSIT_TX],
+      timeoutMs: 60_000,
+      feature: 'swap',
+      onBatchSent: batchId => order.push(`sent:${batchId}`),
+    });
 
     expect(result).toEqual({ ok: true, value: { txHash: '0xdeposit', batchId: 'batch-1' } });
+    expect(order).toEqual(['sent:batch-1', 'wait']);
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledWith([APPROVE_TX, DEPOSIT_TX], {
       expectedChainId: BASE_CHAIN_ID,
     });
     expect(walletProvider.waitForBatch).toHaveBeenCalledWith('batch-1', { timeout: 60_000 });
   });
 
-  it('reads the deposit from the last of one receipt per call', async () => {
-    const walletProvider = batchProvider();
-    walletProvider.waitForBatch.mockResolvedValueOnce({
+  it('reads the deposit from the last receipt, whether one receipt per call or all sharing one tx', async () => {
+    const perCall = batchProvider();
+    perCall.waitForBatch.mockResolvedValueOnce({
       ...confirmed,
       receipts: [
         { transactionHash: '0xapprove', status: 'success' },
         { transactionHash: '0xdeposit', status: 'success' },
       ],
     });
-    const result = await send(walletProvider);
-    expect(result.ok && result.value.txHash).toBe('0xdeposit');
-  });
+    const perCallResult = await send(perCall);
+    expect(perCallResult.ok && perCallResult.value.txHash).toBe('0xdeposit');
 
-  it('reads the deposit from receipts that all share one tx, even with a call the wallet added', async () => {
-    const walletProvider = batchProvider();
+    // A wallet may add its own call to the one tx, so the receipt count exceeds the call count.
+    const sharedTx = batchProvider();
     const receipt = { transactionHash: '0xdeposit', status: 'success' } as const;
-    walletProvider.waitForBatch.mockResolvedValueOnce({ ...confirmed, receipts: [receipt, receipt, receipt] });
-    const result = await send(walletProvider);
-    expect(result.ok && result.value.txHash).toBe('0xdeposit');
+    sharedTx.waitForBatch.mockResolvedValueOnce({ ...confirmed, receipts: [receipt, receipt, receipt] });
+    const sharedResult = await send(sharedTx);
+    expect(sharedResult.ok && sharedResult.value.txHash).toBe('0xdeposit');
   });
 
   it('gives up at once on a zero timeout instead of waiting forever', async () => {
@@ -142,7 +152,7 @@ describe('sendApprovalBatch', () => {
     expect(walletProvider.waitForBatch).toHaveBeenCalledWith('batch-1', { timeout: 1 });
   });
 
-  it('treats a wallet without the batch methods as a refusal, so the caller can approve separately', async () => {
+  it('marks a wallet without the batch methods, or a batch it refused before signing, as a refusal', async () => {
     const result = await send(plainProvider());
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -150,14 +160,12 @@ describe('sendApprovalBatch', () => {
       expect(result.error.feature).toBe('bridge');
       expect(result.error.context).toMatchObject({ reason: ATOMIC_BATCH_REFUSED, action: 'bridgeWithApproval' });
     }
-  });
 
-  it('marks a batch the wallet refused before signing', async () => {
     const walletProvider = batchProvider();
     walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
-    const result = await send(walletProvider);
-    expect(!result.ok && result.error.code).toBe('INTENT_CREATION_FAILED');
-    expect(!result.ok && result.error.context?.reason).toBe(ATOMIC_BATCH_REFUSED);
+    const refused = await send(walletProvider);
+    expect(!refused.ok && refused.error.code).toBe('INTENT_CREATION_FAILED');
+    expect(!refused.ok && refused.error.context?.reason).toBe(ATOMIC_BATCH_REFUSED);
     expect(walletProvider.waitForBatch).not.toHaveBeenCalled();
   });
 
@@ -175,16 +183,18 @@ describe('sendApprovalBatch', () => {
     expect(!declined.ok && declined.error.context?.reason).toBe(ACCOUNT_UPGRADE_DECLINED);
   });
 
-  it.each([400, 500])('reports status %i as a failed batch: nothing landed', async statusCode => {
-    const walletProvider = batchProvider();
-    walletProvider.waitForBatch.mockResolvedValueOnce({ status: 'failure', statusCode, atomic: true, receipts: [] });
-    const result = await send(walletProvider);
-    expect(!result.ok && result.error.code).toBe('INTENT_CREATION_FAILED');
-    expect(!result.ok && result.error.context).toMatchObject({
-      reason: 'atomic-batch-failed',
-      batchId: 'batch-1',
-      statusCode,
-    });
+  it('reports statuses 400 and 500 as a failed batch: nothing landed', async () => {
+    for (const statusCode of [400, 500]) {
+      const walletProvider = batchProvider();
+      walletProvider.waitForBatch.mockResolvedValueOnce({ status: 'failure', statusCode, atomic: true, receipts: [] });
+      const result = await send(walletProvider);
+      expect(!result.ok && result.error.code).toBe('INTENT_CREATION_FAILED');
+      expect(!result.ok && result.error.context).toMatchObject({
+        reason: 'atomic-batch-failed',
+        batchId: 'batch-1',
+        statusCode,
+      });
+    }
   });
 
   it.each([
@@ -233,16 +243,18 @@ describe('runWithApproval', () => {
     error: new SodaxError(code, 'batch failed', { feature: 'bridge', context: { reason } }),
   });
 
+  // A plain sequential run is told to validate first (`false`); only the refused-batch fallback skips it.
   it.each([
-    ['not-required', 'notRequired', 'direct'],
-    ['sequential', 'sequential', 'approved-first'],
-    ['atomic-batch', 'atomicBatch', 'batch'],
-  ] as const)('runs only the %s path', async (strategy, path, value) => {
+    ['not-required', 'notRequired', 'direct', []],
+    ['sequential', 'sequential', 'approved-first', [false]],
+    ['atomic-batch', 'atomicBatch', 'batch', []],
+  ] as const)('runs only the %s path', async (strategy, path, value, args) => {
     const p = paths();
     const { result, approvalStrategy } = await runWithApproval({ strategy, ...p });
     expect(result).toEqual({ ok: true, value });
     expect(approvalStrategy).toBe(strategy);
     expect(Object.values(p).filter(fn => fn.mock.calls.length > 0)).toEqual([p[path]]);
+    expect(p[path]).toHaveBeenCalledWith(...args);
   });
 
   it('approves separately when the wallet refused the batch before signing', async () => {
@@ -260,50 +272,25 @@ describe('runWithApproval', () => {
     expect(p.sequential).toHaveBeenCalledWith(true);
   });
 
-  it('tells a plain sequential run to validate first', async () => {
-    const p = paths();
-    await runWithApproval({ strategy: 'sequential', ...p });
-    expect(p.sequential).toHaveBeenCalledWith(false);
-  });
+  it('never approves separately after a rejected, failed or unconfirmed batch', async () => {
+    for (const outcome of [
+      failed('USER_REJECTED'),
+      failed('INTENT_CREATION_FAILED', 'atomic-batch-failed'),
+      failed('TX_VERIFICATION_FAILED', ATOMIC_BATCH_UNCONFIRMED),
+    ]) {
+      const p = paths();
+      p.atomicBatch.mockResolvedValueOnce(outcome as never);
 
-  it.each([
-    ['a rejected batch', failed('USER_REJECTED')],
-    ['a failed batch', failed('INTENT_CREATION_FAILED', 'atomic-batch-failed')],
-    ['an unconfirmed batch', failed('TX_VERIFICATION_FAILED', ATOMIC_BATCH_UNCONFIRMED)],
-  ])('never approves separately after %s', async (_label, outcome) => {
-    const p = paths();
-    p.atomicBatch.mockResolvedValueOnce(outcome as never);
+      const { result, approvalStrategy } = await runWithApproval({ strategy: 'atomic-batch', ...p });
 
-    const { result, approvalStrategy } = await runWithApproval({ strategy: 'atomic-batch', ...p });
-
-    expect(result).toBe(outcome);
-    expect(approvalStrategy).toBe('atomic-batch');
-    expect(p.sequential).not.toHaveBeenCalled();
+      expect(result).toBe(outcome);
+      expect(approvalStrategy).toBe('atomic-batch');
+      expect(p.sequential).not.toHaveBeenCalled();
+    }
   });
 });
 
 describe('sendApprovalBatch — onBatchSent', () => {
-  it('reports the batch id once the wallet accepts it, before waiting', async () => {
-    const walletProvider = batchProvider();
-    const order: string[] = [];
-    walletProvider.waitForBatch.mockImplementationOnce(async () => {
-      order.push('wait');
-      return confirmed;
-    });
-
-    const result = await sendApprovalBatch({
-      walletProvider,
-      srcChainKey: ChainKeys.BASE_MAINNET,
-      txs: [APPROVE_TX, DEPOSIT_TX],
-      timeoutMs: 60_000,
-      feature: 'swap',
-      onBatchSent: batchId => order.push(`sent:${batchId}`),
-    });
-
-    expect(result.ok).toBe(true);
-    expect(order).toEqual(['sent:batch-1', 'wait']);
-  });
-
   it('is not called for a batch the wallet never accepted, and a throwing listener costs nothing', async () => {
     const refusing = batchProvider();
     refusing.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));

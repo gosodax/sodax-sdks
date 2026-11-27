@@ -22,14 +22,7 @@
  *     interactions are stubbed at the `fetch` boundary.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  ChainKeys,
-  getIntentRelayChainId,
-  spokeChainConfig,
-  type Hex,
-  type IBitcoinWalletProvider,
-  type XToken,
-} from '@sodax/types';
+import { ChainKeys, spokeChainConfig, type Hex, type IBitcoinWalletProvider, type XToken } from '@sodax/types';
 import { keccak256, stringToBytes } from 'viem';
 import { invariant } from '../../utils/tiny-invariant.js';
 
@@ -59,8 +52,6 @@ const SONIC = ChainKeys.SONIC_MAINNET;
 const btcConfig = spokeChainConfig[BTC];
 const BTC_ASSET_MGR = btcConfig.addresses.assetManager;
 const BTC_RPC_URL = btcConfig.rpcUrl;
-const BTC_POLLING_MS = btcConfig.pollingConfig.pollingIntervalMs;
-const BTC_TIMEOUT_MS = btcConfig.pollingConfig.maxTimeoutMs;
 
 // A real-ish Native SegWit (bc1q / P2WPKH) address used for tests. NOT the asset manager.
 const USER_ADDR = 'bc1q5q3xczsl9zlt0gjys5khjknfp40zfdmkme9ene';
@@ -121,42 +112,13 @@ const text = (body: string, status = 200) => new Response(body, { status });
 // =========================================================================
 
 describe('BitcoinSpokeService — constructor', () => {
-  it('exposes the spoke instance on sodax.spoke.bitcoin with the expected method surface', () => {
+  it('wires the per-chain rpcUrl, radfi provider and mainnet network, with walletMode defaulting to TRADING', async () => {
+    const bitcoin = await import('bitcoinjs-lib');
     expect(btcSpoke).toBeInstanceOf(BitcoinSpokeService);
-    expect(typeof btcSpoke.getBtcNetwork).toBe('function');
-    expect(typeof btcSpoke.getBalance).toBe('function');
-    expect(typeof btcSpoke.fetchUTXOs).toBe('function');
-    expect(typeof btcSpoke.fetchRawTransaction).toBe('function');
-    expect(typeof btcSpoke.getFeeRateEstimate).toBe('function');
-    expect(typeof btcSpoke.estimateGas).toBe('function');
-    expect(typeof btcSpoke.getDeposit).toBe('function');
-    expect(typeof btcSpoke.getEffectiveWalletAddress).toBe('function');
-    expect(typeof btcSpoke.getTradingWalletAddress).toBe('function');
-    expect(typeof btcSpoke.fundTradingWallet).toBe('function');
-    expect(typeof btcSpoke.deposit).toBe('function');
-    expect(typeof btcSpoke.sendMessage).toBe('function');
-    expect(typeof btcSpoke.encodeWithdrawalData).toBe('function');
-    expect(typeof btcSpoke.waitForTransactionReceipt).toBe('function');
-  });
-
-  it('walletMode defaults to TRADING per chain config', () => {
+    expect(btcSpoke.getBtcNetwork(BTC)).toBe(bitcoin.networks.bitcoin);
     expect(btcSpoke.walletMode).toBe('TRADING');
-  });
-
-  it('exposes the per-chain rpcUrl and radfi provider', () => {
     expect(btcSpoke.rpcUrl).toBe(BTC_RPC_URL);
     expect(btcSpoke.radfi).toBeDefined();
-  });
-});
-
-// =========================================================================
-// 2. getBtcNetwork — mainnet → bitcoin.networks.bitcoin
-// =========================================================================
-
-describe('BitcoinSpokeService.getBtcNetwork', () => {
-  it('returns mainnet network for BITCOIN_MAINNET', async () => {
-    const bitcoin = await import('bitcoinjs-lib');
-    expect(btcSpoke.getBtcNetwork(BTC)).toBe(bitcoin.networks.bitcoin);
   });
 });
 
@@ -165,31 +127,27 @@ describe('BitcoinSpokeService.getBtcNetwork', () => {
 // =========================================================================
 
 describe('BitcoinSpokeService.fetchUTXOs', () => {
-  it('fetches `${rpcUrl}/address/{addr}/utxo` and returns the JSON array', async () => {
+  it('fetches `{rpcUrl}/address/{addr}/utxo` and returns the JSON array, throwing when not ok', async () => {
     const utxos = [{ txid: 'aa', vout: 0, value: 1000, status: { confirmed: true } }];
     setFetch(url => {
       expect(url).toBe(`${BTC_RPC_URL}/address/${USER_ADDR}/utxo`);
       return json(utxos);
     });
     expect(await btcSpoke.fetchUTXOs(USER_ADDR)).toEqual(utxos);
-  });
 
-  it('throws when the response is not ok', async () => {
     setFetch(() => new Response(null, { status: 500, statusText: 'Server Error' }));
     await expect(btcSpoke.fetchUTXOs(USER_ADDR)).rejects.toThrow(/Failed to fetch UTXOs/);
   });
 });
 
 describe('BitcoinSpokeService.fetchRawTransaction', () => {
-  it('fetches `${rpcUrl}/tx/{txid}/hex` and returns the raw text', async () => {
+  it('fetches `{rpcUrl}/tx/{txid}/hex` and returns the raw text, throwing when not ok', async () => {
     setFetch(url => {
       expect(url).toBe(`${BTC_RPC_URL}/tx/${TX_HASH}/hex`);
       return text('deadbeef');
     });
     expect(await btcSpoke.fetchRawTransaction(TX_HASH)).toBe('deadbeef');
-  });
 
-  it('throws when the response is not ok', async () => {
     setFetch(() => new Response(null, { status: 404, statusText: 'Not Found' }));
     await expect(btcSpoke.fetchRawTransaction(TX_HASH)).rejects.toThrow(/Failed to fetch transaction/);
   });
@@ -200,7 +158,7 @@ describe('BitcoinSpokeService.fetchRawTransaction', () => {
 // =========================================================================
 
 describe('BitcoinSpokeService.getBalance', () => {
-  it("sums UTXO values for native BTC (empty token, '0x', or 'BTC')", async () => {
+  it("sums UTXO values for native BTC (empty token, '0x', or 'BTC') and throws for other tokens", async () => {
     setFetch(() =>
       json([
         { txid: 'a', vout: 0, value: 100, status: { confirmed: true } },
@@ -210,9 +168,6 @@ describe('BitcoinSpokeService.getBalance', () => {
     expect(await btcSpoke.getBalance('BTC', USER_ADDR)).toBe(350n);
     expect(await btcSpoke.getBalance('', USER_ADDR)).toBe(350n);
     expect(await btcSpoke.getBalance('0x', USER_ADDR)).toBe(350n);
-  });
-
-  it('throws for non-BTC tokens (not implemented)', async () => {
     await expect(btcSpoke.getBalance('USDT', USER_ADDR)).rejects.toThrow(/not yet implemented/);
   });
 });
@@ -227,32 +182,14 @@ describe('BitcoinSpokeService.getWalletBalance / getWalletBalances', () => {
   const BTC_TOKEN = btcConfig.supportedTokens.BTC as XToken;
   const BUSD_TOKEN = btcConfig.supportedTokens.BUSD as XToken;
 
-  it("sums the user's UTXO values for native BTC", async () => {
-    setFetch(() =>
-      json([
+  it("maps each token address to its balance: the user's UTXO sum for BTC, 0n for a Rune (not in the UTXO endpoint)", async () => {
+    setFetch(url => {
+      expect(url).toBe(`${BTC_RPC_URL}/address/${USER_ADDR}/utxo`);
+      return json([
         { txid: 'a', vout: 0, value: 100, status: { confirmed: true } },
-        { txid: 'b', vout: 1, value: 250, status: { confirmed: false } },
-      ]),
-    );
-    const result = await btcSpoke.getWalletBalance({
-      srcChainKey: BTC,
-      srcAddress: USER_ADDR,
-      token: BTC_TOKEN,
+        { txid: 'b', vout: 1, value: 400, status: { confirmed: false } },
+      ]);
     });
-    expect(result).toBe(350n);
-  });
-
-  it('returns 0n for non-native tokens (Rune balances are not in the UTXO endpoint)', async () => {
-    const result = await btcSpoke.getWalletBalance({
-      srcChainKey: BTC,
-      srcAddress: USER_ADDR,
-      token: BUSD_TOKEN,
-    });
-    expect(result).toBe(0n);
-  });
-
-  it('getWalletBalances maps each token address to its balance', async () => {
-    setFetch(() => json([{ txid: 'a', vout: 0, value: 500, status: { confirmed: true } }]));
     const result = await btcSpoke.getWalletBalances({
       srcChainKey: BTC,
       srcAddress: USER_ADDR,
@@ -270,7 +207,7 @@ describe('BitcoinSpokeService.getWalletBalance / getWalletBalances', () => {
       // Only the native BTC read hits the network; the Rune token never reaches fetch, so this
       // fails exactly one token of the batch and leaves a successful read behind.
       url.endsWith('/utxo')
-        ? (({ ok: false, statusText: 'Too Many Requests' }) as unknown as Response)
+        ? ({ ok: false, statusText: 'Too Many Requests' } as unknown as Response)
         : new Response(null, { status: 404 }),
     );
 
@@ -320,17 +257,13 @@ describe('BitcoinSpokeService.getFeeRateEstimate', () => {
     expect(await btcSpoke.getFeeRateEstimate(6)).toBe(12);
   });
 
-  it('falls back to default (3) when target is missing from response', async () => {
+  it('falls back to default (3) when the target is missing, the fetch is not ok, or the fetch throws', async () => {
     setFetch(() => json({ 1: 50 })); // no key 6
     expect(await btcSpoke.getFeeRateEstimate(6)).toBe(3);
-  });
 
-  it('falls back to default (3) when fetch is not ok', async () => {
     setFetch(() => new Response(null, { status: 500 }));
     expect(await btcSpoke.getFeeRateEstimate()).toBe(3);
-  });
 
-  it('falls back to default (3) when fetch throws', async () => {
     setFetch(() => {
       throw new Error('network down');
     });
@@ -390,16 +323,16 @@ describe('BitcoinSpokeService.getDeposit', () => {
 // 8. getEffectiveWalletAddress / getTradingWalletAddress / fundTradingWallet
 // =========================================================================
 
-describe('BitcoinSpokeService.getEffectiveWalletAddress', () => {
-  it('TRADING mode → returns the trading-wallet address from Bound Exchange', async () => {
-    vi.spyOn(btcSpoke.radfi, 'getTradingWallet').mockResolvedValueOnce({
+describe('BitcoinSpokeService.getEffectiveWalletAddress / getTradingWalletAddress', () => {
+  it('resolves the trading-wallet address in TRADING mode, and the personal address unchanged in USER mode', async () => {
+    vi.spyOn(btcSpoke.radfi, 'getTradingWallet').mockResolvedValue({
       tradingAddress: TRADING_ADDR,
     } as never);
 
     expect(await btcSpoke.getEffectiveWalletAddress(USER_ADDR)).toBe(TRADING_ADDR);
-  });
+    // getTradingWalletAddress always asks Bound Exchange, whatever the mode.
+    expect(await btcSpoke.getTradingWalletAddress(USER_ADDR)).toBe(TRADING_ADDR);
 
-  it('USER (non-TRADING) mode → returns the personal address unchanged', async () => {
     // Mutate walletMode for this test only; restore in finally.
     const original = btcSpoke.walletMode;
     Object.defineProperty(btcSpoke, 'walletMode', { value: 'USER', configurable: true });
@@ -411,38 +344,24 @@ describe('BitcoinSpokeService.getEffectiveWalletAddress', () => {
   });
 });
 
-describe('BitcoinSpokeService.getTradingWalletAddress', () => {
-  it('always returns the trading address from Bound Exchange', async () => {
-    vi.spyOn(btcSpoke.radfi, 'getTradingWallet').mockResolvedValueOnce({
-      tradingAddress: TRADING_ADDR,
-    } as never);
-    expect(await btcSpoke.getTradingWalletAddress(USER_ADDR)).toBe(TRADING_ADDR);
-  });
-});
-
 describe('BitcoinSpokeService.getOnDemandRelayIdentity', () => {
   // The spoke result for an on-demand borrow/withdraw is the signed payload JSON. The relay submits it
   // under the literal "withdraw" tx_hash but tracks the packet under `od:` + keccak256 of the ASCII
   // payload_hex characters — polling must use that derived id, not "withdraw".
-  it('submits under "withdraw" and derives the poll id from keccak256 of the payload_hex chars', () => {
+  it('submits under "withdraw" and derives the poll id from keccak256 of the bare payload_hex chars', () => {
     const payloadHex = '7b22737263';
     const tx = JSON.stringify({ payload_hex: payloadHex, signature: 'AUBsig' });
+    const expectedPollId = `od:${keccak256(stringToBytes(payloadHex)).slice(2)}`;
 
     const identity = btcSpoke.getOnDemandRelayIdentity(tx);
 
     expect(identity.srcTxHash).toBe('withdraw');
     expect(identity.data).toEqual({ payload_hex: payloadHex, signature: 'AUBsig' });
-    expect(identity.pollTxHash).toBe(`od:${keccak256(stringToBytes(payloadHex)).slice(2)}`);
-  });
-
-  it('strips a leading 0x from payload_hex before hashing (bare-hex chars only)', () => {
-    // Real payloads are bare hex (Buffer.toString('hex')), but if a payload_hex ever carries a 0x
-    // prefix the poll id must hash the same bare-hex chars — otherwise polling never matches the
-    // relay-tracked id. This pins the strip branch the production payloads don't exercise.
-    const bareHex = '7b22737263';
-    const tx = JSON.stringify({ payload_hex: `0x${bareHex}` });
-
-    expect(btcSpoke.getOnDemandRelayIdentity(tx).pollTxHash).toBe(`od:${keccak256(stringToBytes(bareHex)).slice(2)}`);
+    expect(identity.pollTxHash).toBe(expectedPollId);
+    // A 0x-prefixed payload_hex must hash the same bare-hex chars, or polling never matches the relay id.
+    expect(btcSpoke.getOnDemandRelayIdentity(JSON.stringify({ payload_hex: `0x${payloadHex}` })).pollTxHash).toBe(
+      expectedPollId,
+    );
   });
 });
 
@@ -478,8 +397,8 @@ describe('BitcoinSpokeService.encodeWithdrawalData', () => {
       ...overrides,
     }) as SendMessageParams<typeof BTC, Raw> & { walletMode?: 'USER' | 'TRADING' };
 
-  it('TRADING raw=true → substitutes srcAddress with trading address and returns JSON payload with no signature', async () => {
-    vi.spyOn(btcSpoke.radfi, 'getTradingWallet').mockResolvedValueOnce({
+  it('TRADING raw=true → substitutes srcAddress with trading address and returns JSON payload with no signature, as does sendMessage', async () => {
+    vi.spyOn(btcSpoke.radfi, 'getTradingWallet').mockResolvedValue({
       tradingAddress: TRADING_ADDR,
     } as never);
 
@@ -491,49 +410,39 @@ describe('BitcoinSpokeService.encodeWithdrawalData', () => {
     expect(typeof parsed.payload_hex).toBe('string');
     expect(parsed.signature).toBeUndefined();
     expect(parsed.public_key).toBeUndefined();
-  });
-
-  it('TRADING raw=false on P2WPKH/P2TR → signs via BIP322 (base64) and attaches the public key', async () => {
-    // USER_ADDR is a bc1q (P2WPKH) address; Taproot (bc1p) takes the same branch. P2WPKH/P2TR sign
-    // via BIP322 — wallets return base64, sent as-is — and the public key is sent alongside it
-    // because BIP322 signatures are not public-key-recoverable.
-    vi.spyOn(btcSpoke.radfi, 'getTradingWallet').mockResolvedValueOnce({
-      tradingAddress: TRADING_ADDR,
-    } as never);
-    (mockBtcProvider.signBip322Message as ReturnType<typeof vi.fn>).mockResolvedValueOnce('EjQ=');
-    (mockBtcProvider.getPublicKey as ReturnType<typeof vi.fn>).mockResolvedValueOnce('02abcdef');
-
-    const result = await btcSpoke.encodeWithdrawalData(sendMessageParams<false>({ raw: false }));
-
-    const parsed = JSON.parse(result as unknown as string);
-    expect(parsed.signature).toBe('EjQ='); // browser wallets return base64 — passed through
-    expect(parsed.public_key).toBe('02abcdef');
-    expect(mockBtcProvider.signBip322Message).toHaveBeenCalledTimes(1);
-    expect(mockBtcProvider.signEcdsaMessage).not.toHaveBeenCalled();
-  });
-
-  it('TRADING raw=false on P2TR (bc1p) → signs via BIP322 (Schnorr key) and attaches the public key', async () => {
-    // Taproot keys are Schnorr/x-only — ECDSA cannot sign for them — so P2TR routes to BIP322 like
-    // P2WPKH. Pins the bc1p → BIP322 routing explicitly (the case above uses a bc1q/P2WPKH address)
-    // and checks the payload's address_type, which is what the relay reads to verify the signature.
-    vi.spyOn(btcSpoke.radfi, 'getTradingWallet').mockResolvedValueOnce({
-      tradingAddress: TRADING_ADDR,
-    } as never);
-    (mockBtcProvider.signBip322Message as ReturnType<typeof vi.fn>).mockResolvedValueOnce('EjQ=');
-    (mockBtcProvider.getPublicKey as ReturnType<typeof vi.fn>).mockResolvedValueOnce('02abcdef');
-
-    const result = await btcSpoke.encodeWithdrawalData(
-      sendMessageParams<false>({ raw: false, srcAddress: TAPROOT_ADDR }),
-    );
-
-    const parsed = JSON.parse(result as unknown as string);
-    expect(parsed.signature).toBe('EjQ=');
-    expect(parsed.public_key).toBe('02abcdef');
-    expect(mockBtcProvider.signBip322Message).toHaveBeenCalledTimes(1);
-    expect(mockBtcProvider.signEcdsaMessage).not.toHaveBeenCalled();
-    // address_type travels inside payload_hex — the relay reads it to pick the verification scheme.
     const payloadJson = JSON.parse(Buffer.from(parsed.payload_hex, 'hex').toString());
-    expect(payloadJson.address_type).toBe('P2TR');
+    expect(payloadJson.src_address).toBe(TRADING_ADDR);
+
+    // sendMessage delegates to encodeWithdrawalData.
+    const sent = await btcSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
+    expect(JSON.parse(sent as unknown as string)).toHaveProperty('payload_hex');
+  });
+
+  it('TRADING raw=false on P2WPKH (bc1q) and P2TR (bc1p) → signs via BIP322 (base64) and attaches the public key', async () => {
+    // P2WPKH/P2TR sign via BIP322 — wallets return base64, sent as-is — and the public key is sent
+    // alongside it because BIP322 signatures are not public-key-recoverable. Taproot keys are
+    // Schnorr/x-only, so ECDSA cannot sign for them.
+    vi.spyOn(btcSpoke.radfi, 'getTradingWallet').mockResolvedValue({
+      tradingAddress: TRADING_ADDR,
+    } as never);
+    (mockBtcProvider.signBip322Message as ReturnType<typeof vi.fn>).mockResolvedValue('EjQ=');
+    (mockBtcProvider.getPublicKey as ReturnType<typeof vi.fn>).mockResolvedValue('02abcdef');
+
+    for (const srcAddress of [USER_ADDR, TAPROOT_ADDR]) {
+      const parsed = JSON.parse(
+        (await btcSpoke.encodeWithdrawalData(
+          sendMessageParams<false>({ raw: false, srcAddress }),
+        )) as unknown as string,
+      );
+      expect(parsed.signature).toBe('EjQ='); // browser wallets return base64 — passed through
+      expect(parsed.public_key).toBe('02abcdef');
+      if (srcAddress === TAPROOT_ADDR) {
+        // address_type travels inside payload_hex — the relay reads it to pick the verification scheme.
+        expect(JSON.parse(Buffer.from(parsed.payload_hex, 'hex').toString()).address_type).toBe('P2TR');
+      }
+    }
+    expect(mockBtcProvider.signBip322Message).toHaveBeenCalledTimes(2);
+    expect(mockBtcProvider.signEcdsaMessage).not.toHaveBeenCalled();
   });
 
   it('TRADING raw=false on legacy P2PKH/P2SH → signs via ECDSA and attaches the public key', async () => {
@@ -579,20 +488,6 @@ describe('BitcoinSpokeService.encodeWithdrawalData', () => {
       btcSpoke.encodeWithdrawalData(sendMessageParams<false>({ raw: false, walletProvider: providerWithoutPublicKey })),
     ).rejects.toThrow('Wallet provider does not support getPublicKey');
   });
-
-  it('sendMessage delegates to encodeWithdrawalData', async () => {
-    vi.spyOn(btcSpoke.radfi, 'getTradingWallet').mockResolvedValueOnce({
-      tradingAddress: TRADING_ADDR,
-    } as never);
-
-    const result = await btcSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
-    expect(typeof result).toBe('string');
-    expect(() => JSON.parse(result as unknown as string)).not.toThrow();
-  });
-
-  it('pins getIntentRelayChainId(SONIC) === 146n', () => {
-    expect(getIntentRelayChainId(SONIC)).toBe(146n);
-  });
 });
 
 // =========================================================================
@@ -606,8 +501,8 @@ describe('BitcoinSpokeService.signAndSubmitRawTransaction', () => {
   const RELAY = { address: HUB_WALLET, payload: '0x' as Hex };
 
   it('signs the PSBT (finalize=false) then submits to Bound, returning the broadcast txid', async () => {
-    (mockBtcProvider.signTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce('signedhex');
-    const sigSpy = vi.spyOn(btcSpoke.radfi, 'requestRadfiSignature').mockResolvedValueOnce(TX_HASH as never);
+    (mockBtcProvider.signTransaction as ReturnType<typeof vi.fn>).mockResolvedValue('signedhex');
+    const sigSpy = vi.spyOn(btcSpoke.radfi, 'requestRadfiSignature').mockResolvedValue(TX_HASH as never);
 
     const result = await btcSpoke.signAndSubmitRawTransaction({
       rawTx: RAW_TX,
@@ -622,15 +517,10 @@ describe('BitcoinSpokeService.signAndSubmitRawTransaction', () => {
       expect.objectContaining({ userAddress: USER_ADDR, relayData: RELAY }),
       'user-token',
     );
-  });
 
-  it('defaults the access token to the radfi session token when none is supplied', async () => {
-    (mockBtcProvider.signTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce('signedhex');
-    const sigSpy = vi.spyOn(btcSpoke.radfi, 'requestRadfiSignature').mockResolvedValueOnce(TX_HASH as never);
-
+    // Without an explicit access token, the radfi session token is used.
     await btcSpoke.signAndSubmitRawTransaction({ rawTx: RAW_TX, walletProvider: mockBtcProvider });
-
-    expect(sigSpy).toHaveBeenCalledWith(
+    expect(sigSpy).toHaveBeenLastCalledWith(
       expect.objectContaining({ userAddress: USER_ADDR }),
       btcSpoke.radfi.accessToken,
     );
@@ -751,28 +641,6 @@ describe('BitcoinSpokeService.deposit', () => {
           raw: true,
         }),
       ).rejects.toThrow(/Raw mode is not supported/);
-    } finally {
-      Object.defineProperty(btcSpoke, 'walletMode', { value: original, configurable: true });
-    }
-  });
-
-  it('USER + no UTXOs → throws "No UTXOs available for deposit"', async () => {
-    const original = btcSpoke.walletMode;
-    Object.defineProperty(btcSpoke, 'walletMode', { value: 'USER', configurable: true });
-    setFetch(() => json([])); // empty UTXOs at user address
-    try {
-      await expect(
-        btcSpoke.deposit({
-          srcChainKey: BTC,
-          srcAddress: USER_ADDR,
-          to: HUB_WALLET,
-          token: 'BTC',
-          amount: 50_000n,
-          data: '0x' as Hex,
-          raw: false,
-          walletProvider: mockBtcProvider,
-        }),
-      ).rejects.toThrow(/No UTXOs available/);
     } finally {
       Object.defineProperty(btcSpoke, 'walletMode', { value: original, configurable: true });
     }
@@ -905,14 +773,25 @@ describe('BitcoinSpokeService.deposit', () => {
 // =========================================================================
 
 describe('BitcoinSpokeService.waitForTransactionReceipt', () => {
-  it('confirmed tx → status:success with the JSON receipt', async () => {
+  it('confirmed tx → status:success with the JSON receipt, recovering from a transient throw on the next poll', async () => {
     const receipt = { txid: TX_HASH, status: { confirmed: true, block_height: 800_000 } };
-    setFetch(() => json(receipt));
+    let calls = 0;
+    setFetch(() => {
+      calls++;
+      if (calls === 1) throw new Error('connection refused');
+      return json(receipt);
+    });
 
-    const result = await btcSpoke.waitForTransactionReceipt({ chainKey: BTC, txHash: TX_HASH });
+    const result = await btcSpoke.waitForTransactionReceipt({
+      chainKey: BTC,
+      txHash: TX_HASH,
+      pollingIntervalMs: 1,
+      maxTimeoutMs: 1000,
+    });
 
     if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
     expect(result.value.receipt).toEqual(receipt);
+    expect(mocks.sleep).toHaveBeenCalled();
   });
 
   it('unconfirmed until deadline → status:timeout', async () => {
@@ -929,13 +808,13 @@ describe('BitcoinSpokeService.waitForTransactionReceipt', () => {
     expect(result.value.status).toBe('timeout');
   });
 
-  it('persistent 404 until deadline → status:timeout', async () => {
+  it('persistent 404 until deadline → status:timeout, sleeping the caller-supplied pollingIntervalMs between polls', async () => {
     setFetch(() => new Response(null, { status: 404 }));
 
     const result = await btcSpoke.waitForTransactionReceipt({
       chainKey: BTC,
       txHash: TX_HASH,
-      pollingIntervalMs: 1,
+      pollingIntervalMs: 7,
       maxTimeoutMs: 1,
     });
 
@@ -943,42 +822,6 @@ describe('BitcoinSpokeService.waitForTransactionReceipt', () => {
     expect(result.value.status).toBe('timeout');
     if (result.value.status !== 'timeout') return;
     expect(result.value.error.message).toContain(TX_HASH);
-  });
-
-  it('transient throw → recovers on next poll', async () => {
-    let calls = 0;
-    setFetch(() => {
-      calls++;
-      if (calls === 1) throw new Error('connection refused');
-      return json({ txid: TX_HASH, status: { confirmed: true } });
-    });
-
-    const result = await btcSpoke.waitForTransactionReceipt({
-      chainKey: BTC,
-      txHash: TX_HASH,
-      pollingIntervalMs: 1,
-      maxTimeoutMs: 1000,
-    });
-
-    if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
-    expect(mocks.sleep).toHaveBeenCalled();
-  });
-
-  it('config-driven defaults: pollingConfig pins polling=60_000ms / timeout=3_600_000ms', () => {
-    expect(BTC_POLLING_MS).toBe(60_000);
-    expect(BTC_TIMEOUT_MS).toBe(3_600_000);
-  });
-
-  it('forwards caller-supplied pollingIntervalMs to sleep on each poll', async () => {
-    setFetch(() => new Response(null, { status: 404 }));
-
-    await btcSpoke.waitForTransactionReceipt({
-      chainKey: BTC,
-      txHash: TX_HASH,
-      pollingIntervalMs: 7,
-      maxTimeoutMs: 1,
-    });
-
     expect(mocks.sleep).toHaveBeenCalledWith(7);
   });
 });

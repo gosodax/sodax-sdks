@@ -114,9 +114,15 @@ function makeService(): UiPoolDataProviderService {
 }
 
 describe('UiPoolDataProviderService.getReservesData — bnUSD merge', () => {
-  it('pins the merged reserve to the debt token’s (index, rate, lastUpdateTimestamp) triple', async () => {
+  it('collapses the two bnUSD reserves into one entry pinned to the debt token’s (index, rate, lastUpdateTimestamp)', async () => {
     const service = makeService();
     const [reserves] = await service.getReservesData();
+    const bnUSDEntries = reserves.filter(
+      r =>
+        r.underlyingAsset.toLowerCase() === BNUSD_DEBT.toLowerCase() ||
+        r.underlyingAsset.toLowerCase() === BNUSD_VAULT.toLowerCase(),
+    );
+    expect(bnUSDEntries).toHaveLength(1);
     const merged = reserves.find(r => r.underlyingAsset.toLowerCase() === BNUSD_VAULT.toLowerCase());
 
     expect(merged).toBeDefined();
@@ -127,16 +133,5 @@ describe('UiPoolDataProviderService.getReservesData — bnUSD merge', () => {
     // stale timestamp compounds the debt index over the wrong window and inflates displayed debt.
     expect(merged?.lastUpdateTimestamp).toBe(DEBT_RESERVE.lastUpdateTimestamp);
     expect(merged?.lastUpdateTimestamp).not.toBe(VAULT_RESERVE.lastUpdateTimestamp);
-  });
-
-  it('collapses the two bnUSD reserves into a single merged entry', async () => {
-    const service = makeService();
-    const [reserves] = await service.getReservesData();
-    const bnUSDEntries = reserves.filter(
-      r =>
-        r.underlyingAsset.toLowerCase() === BNUSD_DEBT.toLowerCase() ||
-        r.underlyingAsset.toLowerCase() === BNUSD_VAULT.toLowerCase(),
-    );
-    expect(bnUSDEntries).toHaveLength(1);
   });
 });

@@ -31,21 +31,19 @@ describe('resolveAnalytics — feature/action allowlist', () => {
     expect(a.isEnabled('staking', 'stake')).toBe(true);
   });
 
-  it('array shorthand: only listed features emit, others are off', () => {
-    const { tracker, events } = makeTracker();
-    const a = resolveAnalytics({ tracker, features: ['swap'] });
+  it('array shorthand and object `true`: listed features track all actions, omitted features are off', () => {
+    const array = makeTracker();
+    const a = resolveAnalytics({ tracker: array.tracker, features: ['swap'] });
     a.emit('swap', 'swap', 'start');
     a.emit('moneyMarket', 'supply', 'start'); // gated out
-    expect(events.map(e => e.feature)).toEqual(['swap']);
+    expect(array.events.map(e => e.feature)).toEqual(['swap']);
     expect(a.isEnabled('moneyMarket', 'supply')).toBe(false);
-  });
 
-  it('object form: `true` tracks all actions, omitted feature is off', () => {
-    const { tracker, events } = makeTracker();
-    const a = resolveAnalytics({ tracker, features: { swap: true } });
-    a.emit('swap', 'swap', 'start');
-    a.emit('staking', 'stake', 'start'); // omitted → off
-    expect(events.map(e => e.feature)).toEqual(['swap']);
+    const object = makeTracker();
+    const b = resolveAnalytics({ tracker: object.tracker, features: { swap: true } });
+    b.emit('swap', 'swap', 'start');
+    b.emit('staking', 'stake', 'start'); // omitted → off
+    expect(object.events.map(e => e.feature)).toEqual(['swap']);
   });
 
   it('object form: `{ actions }` tracks only the named actions', () => {
@@ -61,30 +59,35 @@ describe('resolveAnalytics — feature/action allowlist', () => {
 });
 
 describe('resolveAnalytics — level gating', () => {
-  it('suppresses `detailed` events when configured level is `basic` (default)', () => {
-    const { tracker, events } = makeTracker();
-    const a = resolveAnalytics({ tracker });
+  it('suppresses `detailed` events at the default `basic` level and emits them at level `detailed`', () => {
+    const basic = makeTracker();
+    const a = resolveAnalytics({ tracker: basic.tracker });
     a.emit('swap', 'swap', 'start', undefined, 'detailed'); // gated out at basic
     a.emit('swap', 'swap', 'start', undefined, 'basic');
-    expect(events).toHaveLength(1);
-    expect(events[0]?.level).toBe('basic');
-  });
+    expect(basic.events).toHaveLength(1);
+    expect(basic.events[0]?.level).toBe('basic');
 
-  it('emits `detailed` events when configured level is `detailed`', () => {
-    const { tracker, events } = makeTracker();
-    const a = resolveAnalytics({ tracker, level: 'detailed' });
-    a.emit('swap', 'swap', 'start', undefined, 'detailed');
-    expect(events).toHaveLength(1);
+    const detailed = makeTracker();
+    resolveAnalytics({ tracker: detailed.tracker, level: 'detailed' }).emit(
+      'swap',
+      'swap',
+      'start',
+      undefined,
+      'detailed',
+    );
+    expect(detailed.events).toHaveLength(1);
   });
 });
 
 describe('resolveAnalytics — robustness & laziness', () => {
-  it('never builds the payload thunk when the event is gated out', () => {
-    const { tracker } = makeTracker();
+  it('never builds the payload thunk or emits from trackResult when the feature is gated out', async () => {
+    const { tracker, events } = makeTracker();
     const build = vi.fn(() => ({ a: 1 }));
-    const a = resolveAnalytics({ tracker, features: ['swap'] });
+    const a = resolveAnalytics({ tracker, features: ['bridge'] });
     a.emit('moneyMarket', 'supply', 'start', build); // gated out → thunk untouched
     expect(build).not.toHaveBeenCalled();
+    await a.trackResult('swap', 'swap', async () => ok);
+    expect(events).toHaveLength(0);
   });
 
   it('swallows a throwing tracker so a feature flow is never broken', () => {
@@ -98,31 +101,23 @@ describe('resolveAnalytics — robustness & laziness', () => {
 });
 
 describe('resolveAnalytics — trackResult', () => {
-  it('emits start then success and returns the Result unchanged', async () => {
-    const { tracker, events } = makeTracker();
-    const a = resolveAnalytics({ tracker });
-    const result = await a.trackResult('swap', 'swap', async () => ok, {
+  it('emits start then success / failure and returns the Result unchanged', async () => {
+    const success = makeTracker();
+    const result = await resolveAnalytics({ tracker: success.tracker }).trackResult('swap', 'swap', async () => ok, {
       start: () => ({ phase: 'in' }),
       success: value => ({ tx: value.tx }),
     });
     expect(result).toBe(ok);
-    expect(events.map(e => e.phase)).toEqual(['start', 'success']);
-    expect(events[1]?.data).toEqual({ tx: '0xabc' });
-  });
+    expect(success.events.map(e => e.phase)).toEqual(['start', 'success']);
+    expect(success.events[1]?.data).toEqual({ tx: '0xabc' });
 
-  it('emits start then failure for an error Result', async () => {
-    const { tracker, events } = makeTracker();
-    const a = resolveAnalytics({ tracker });
+    const failure = makeTracker();
     const err: Result<never, { code: string }> = { ok: false, error: { code: 'BOOM' } };
-    await a.trackResult('swap', 'swap', async () => err, { failure: e => ({ code: e.code }) });
-    expect(events.map(e => e.phase)).toEqual(['start', 'failure']);
-    expect(events[1]?.data).toEqual({ code: 'BOOM' });
-  });
-
-  it('does not emit when the feature is gated out of the allowlist', async () => {
-    const { tracker, events } = makeTracker();
-    const a = resolveAnalytics({ tracker, features: ['bridge'] });
-    await a.trackResult('swap', 'swap', async () => ok);
-    expect(events).toHaveLength(0);
+    const failed = await resolveAnalytics({ tracker: failure.tracker }).trackResult('swap', 'swap', async () => err, {
+      failure: e => ({ code: e.code }),
+    });
+    expect(failed).toBe(err);
+    expect(failure.events.map(e => e.phase)).toEqual(['start', 'failure']);
+    expect(failure.events[1]?.data).toEqual({ code: 'BOOM' });
   });
 });

@@ -27,34 +27,25 @@ const RESERVE = '0:2a7f65800a2ebe06fa227e7f29cd188d5c3e39d0566d8646c8c73104417a6
 const RESERVE_PUBKEY = 'fe9d58506e80230e2d2830e19114af2f9b1f02b372ccee866cbe066314426e79';
 
 describe('tonWalletAddress', () => {
-  it('matches the pinned wallet-v4R2 vector the NEAR contract is tested against', () => {
+  it('matches the pinned wallet-v4R2 vector and derives the live mainnet reserve from its MPC public key', () => {
     expect(tonAddressHash(tonWalletAddress(PUBKEY_07))).toBe(
       '0x90d4b6f138065a04d8a8047eb892ccdb0b8d4cc298c0d2bfe28c88aa204f6195',
     );
-  });
-
-  it('derives the live mainnet reserve from its MPC public key', () => {
     expect(tonWalletAddress(RESERVE_PUBKEY).toRawString()).toBe(RESERVE);
   });
 });
 
 describe('tonIdentityBytes', () => {
-  it('normalizes a public key to lowercase 0x hex', () => {
+  it('normalizes a public key to lowercase 0x hex and refuses anything else, such as an address', () => {
     expect(tonIdentityBytes('AB'.repeat(32))).toBe(`0x${'ab'.repeat(32)}`);
-  });
-
-  it('refuses anything that is not a 32-byte key, such as an address', () => {
     expect(() => tonIdentityBytes(RESERVE)).toThrow(/32-byte hex ed25519 public key/);
   });
 });
 
 describe('address encoding for TON', () => {
-  it('uses the public key itself as the identity and decodes it back', () => {
+  it('uses the public key as the identity, and pays a release to its wallet-v4R2 address hash, unpadded', () => {
     expect(encodeAddress(ChainKeys.TON_MAINNET, PUBKEY_07)).toBe(PUBKEY_07);
     expect(reverseEncodeAddress(ChainKeys.TON_MAINNET, PUBKEY_07)).toBe(PUBKEY_07);
-  });
-
-  it('pays a release to the 32-byte hash of the key wallet-v4R2 address, unpadded', () => {
     // Tron and XRP left-pad a 20-byte identity; a TON account hash already fills the word.
     expect(encodeRecipient(ChainKeys.TON_MAINNET, PUBKEY_07)).toBe(
       '0x90d4b6f138065a04d8a8047eb892ccdb0b8d4cc298c0d2bfe28c88aa204f6195',
@@ -63,13 +54,10 @@ describe('address encoding for TON', () => {
 });
 
 describe('deposit bodies', () => {
-  it('builds the native comment body byte-identical to the relay', () => {
+  it('builds the native comment body byte-identical to the relay, refusing a memo that is not 32 bytes', () => {
     expect(buildTonCommentBody(MEMO).toBoc().toString('base64')).toBe(
       'te6cckEBAQEAJgAASAAAAACrq6urq6urq6urq6urq6urq6urq6urq6urq6urq6urq5fkBg8=',
     );
-  });
-
-  it('refuses a memo that is not 32 bytes', () => {
     expect(() => buildTonCommentBody('0xabcd')).toThrow(/must be 32 bytes/);
   });
 
@@ -87,7 +75,7 @@ describe('deposit bodies', () => {
     );
   });
 
-  it('reads the memo back from a comment and from a jetton transfer_notification', () => {
+  it('reads the memo back from a comment and a jetton transfer_notification, and not from an unrelated body', () => {
     expect(parseTonComment(buildTonCommentBody(MEMO))).toBe(MEMO);
 
     const notification = beginCell()
@@ -99,9 +87,7 @@ describe('deposit bodies', () => {
       .storeRef(buildTonCommentBody(MEMO))
       .endCell();
     expect(parseJettonNotificationMemo(notification)).toBe(MEMO);
-  });
 
-  it('does not read a memo from an unrelated body', () => {
     const text = beginCell().storeUint(0, 32).storeStringTail('hello').endCell();
     expect(parseTonComment(text)).toBeNull();
     expect(parseJettonNotificationMemo(Cell.EMPTY)).toBeNull();
@@ -109,11 +95,9 @@ describe('deposit bodies', () => {
 });
 
 describe('withdraw signing', () => {
-  it('embeds the lowercase message hash in the text line the contract rebuilds', () => {
+  it('embeds the lowercase message hash in the text line, laid out so the signData sha256 matches the relay', () => {
     expect(tonWithdrawSignText(`0x${'AB'.repeat(32)}`)).toBe(`SODAX withdrawal\nmessage: 0x${'ab'.repeat(32)}`);
-  });
 
-  it('lays out the signData message so its sha256 matches the relay digest', () => {
     const message = tonSignDataMessage({
       workchain: 0,
       addressHash: new Uint8Array(32).fill(0x11),

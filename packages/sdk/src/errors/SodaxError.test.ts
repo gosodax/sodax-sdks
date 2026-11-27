@@ -6,7 +6,7 @@ const stripUndefined = <T>(obj: T): T => JSON.parse(JSON.stringify(obj)) as T;
 
 describe('SodaxError', () => {
   describe('toJSON()', () => {
-    it('produces the canonical shape including feature field', () => {
+    it('produces the canonical shape including feature field and a captured stack', () => {
       const err = new SodaxError('VALIDATION_FAILED', 'a message', {
         feature: 'swap',
         context: { foo: 'bar' },
@@ -19,17 +19,19 @@ describe('SodaxError', () => {
       expect(json.message).toBe('a message');
       expect(json.context).toEqual({ foo: 'bar' });
       expect(typeof json.stack).toBe('string');
+      expect(err.stack && err.stack.length > 0).toBe(true);
     });
 
-    it('serializes a plain Error cause as { name, message, stack, cause }', () => {
+    it('serializes a plain Error cause as { name, message, stack } and coerces non-Error causes to a string', () => {
       const inner = new Error('inner');
       const err = new SodaxError('UNKNOWN', 'outer', { feature: 'swap', cause: inner });
-      const json = err.toJSON();
-      const cause = json.cause as { name: string; message: string; stack?: string };
+      const cause = err.toJSON().cause as { name: string; message: string; stack?: string };
 
       expect(cause.name).toBe('Error');
       expect(cause.message).toBe('inner');
       expect(typeof cause.stack).toBe('string');
+
+      expect(new SodaxError('UNKNOWN', 'x', { feature: 'swap', cause: 42 }).toJSON().cause).toBe('42');
     });
 
     it('inlines a SodaxError cause including its feature (does not call cause.toJSON recursively)', () => {
@@ -46,11 +48,6 @@ describe('SodaxError', () => {
       expect(cause.feature).toBe('moneyMarket');
       expect(cause.message).toBe('inner msg');
       expect(cause.context).toEqual({ x: 1 });
-    });
-
-    it('coerces non-Error causes to a string', () => {
-      const err = new SodaxError('UNKNOWN', 'x', { feature: 'swap', cause: 42 });
-      expect(err.toJSON().cause).toBe('42');
     });
   });
 
@@ -69,58 +66,44 @@ describe('SodaxError', () => {
     });
   });
 
-  describe('bigint handling', () => {
-    it('coerces top-level bigint to string', () => {
+  describe('context sanitization', () => {
+    it('coerces bigint to string at the top level, inside nested plain objects and inside arrays', () => {
       const err = new SodaxError('UNKNOWN', 'm', {
         feature: 'swap',
-        context: { amount: 1_000_000n },
+        context: { amount: 1_000_000n, nested: { blockNumber: 42n, deeper: { x: 7n } }, hashes: [1n, 2n, 3n] },
       });
-      expect(err.toJSON().context).toEqual({ amount: '1000000' });
+      expect(err.toJSON().context).toEqual({
+        amount: '1000000',
+        nested: { blockNumber: '42', deeper: { x: '7' } },
+        hashes: ['1', '2', '3'],
+      });
       expect(() => JSON.stringify(err)).not.toThrow();
     });
 
-    it('coerces nested bigint inside plain objects', () => {
+    it('serializes Date as ISO string, Map as entry array, Set as array, and recurses Object.create(null)', () => {
+      const obj = Object.create(null) as Record<string, unknown>;
+      obj.amount = 99n;
       const err = new SodaxError('UNKNOWN', 'm', {
         feature: 'swap',
-        context: { nested: { blockNumber: 42n, deeper: { x: 7n } } },
+        context: {
+          when: new Date('2026-01-01T00:00:00Z'),
+          m: new Map<string, bigint>([
+            ['a', 1n],
+            ['b', 2n],
+          ]),
+          s: new Set([1n, 2n]),
+          obj,
+        },
       });
-      expect(err.toJSON().context).toEqual({ nested: { blockNumber: '42', deeper: { x: '7' } } });
-    });
-
-    it('coerces bigint inside arrays', () => {
-      const err = new SodaxError('UNKNOWN', 'm', {
-        feature: 'swap',
-        context: { hashes: [1n, 2n, 3n] },
-      });
-      expect(err.toJSON().context).toEqual({ hashes: ['1', '2', '3'] });
-    });
-  });
-
-  describe('non-plain objects in context', () => {
-    it('serializes Date as ISO string', () => {
-      const date = new Date('2026-01-01T00:00:00Z');
-      const err = new SodaxError('UNKNOWN', 'm', { feature: 'swap', context: { when: date } });
-      expect(err.toJSON().context).toEqual({ when: '2026-01-01T00:00:00.000Z' });
-    });
-
-    it('serializes Map as entry array', () => {
-      const m = new Map<string, bigint>([
-        ['a', 1n],
-        ['b', 2n],
-      ]);
-      const err = new SodaxError('UNKNOWN', 'm', { feature: 'swap', context: { m } });
       expect(err.toJSON().context).toEqual({
+        when: '2026-01-01T00:00:00.000Z',
         m: [
           ['a', '1'],
           ['b', '2'],
         ],
+        s: ['1', '2'],
+        obj: { amount: '99' },
       });
-    });
-
-    it('serializes Set as array', () => {
-      const s = new Set([1n, 2n]);
-      const err = new SodaxError('UNKNOWN', 'm', { feature: 'swap', context: { s } });
-      expect(err.toJSON().context).toEqual({ s: ['1', '2'] });
     });
 
     it('class instances become their String() form (no recursion, no throw)', () => {
@@ -136,13 +119,6 @@ describe('SodaxError', () => {
       });
       expect(err.toJSON().context).toEqual({ instance: 'Custom(1)' });
       expect(() => JSON.stringify(err)).not.toThrow();
-    });
-
-    it('Object.create(null) is treated as a plain object and recursed', () => {
-      const obj = Object.create(null) as Record<string, unknown>;
-      obj.amount = 99n;
-      const err = new SodaxError('UNKNOWN', 'm', { feature: 'swap', context: { obj } });
-      expect(err.toJSON().context).toEqual({ obj: { amount: '99' } });
     });
   });
 
@@ -179,11 +155,9 @@ describe('SodaxError', () => {
   });
 
   describe('isSodaxError', () => {
-    it('returns true for a real SodaxError', () => {
+    it('returns true for a real SodaxError and for an Error with name=SodaxError, string code and feature (cross-bundle)', () => {
       expect(isSodaxError(new SodaxError('UNKNOWN', 'm', { feature: 'swap' }))).toBe(true);
-    });
 
-    it('returns true for an Error with name=SodaxError, string code, and string feature (cross-bundle fallback)', () => {
       const fake = new Error('msg');
       fake.name = 'SodaxError';
       (fake as unknown as { code: string; feature: string }).code = 'UNKNOWN';
@@ -191,24 +165,18 @@ describe('SodaxError', () => {
       expect(isSodaxError(fake)).toBe(true);
     });
 
-    it('returns false for plain Error', () => {
+    it('returns false for a plain Error, a SodaxError-named Error missing code or feature, and non-Errors', () => {
       expect(isSodaxError(new Error('m'))).toBe(false);
-    });
 
-    it('returns false for an Error with name SodaxError but no string code', () => {
-      const fake = new Error('m');
-      fake.name = 'SodaxError';
-      expect(isSodaxError(fake)).toBe(false);
-    });
+      const noCode = new Error('m');
+      noCode.name = 'SodaxError';
+      expect(isSodaxError(noCode)).toBe(false);
 
-    it('returns false for an Error with name=SodaxError and string code but missing feature', () => {
-      const fake = new Error('m');
-      fake.name = 'SodaxError';
-      (fake as unknown as { code: string }).code = 'X';
-      expect(isSodaxError(fake)).toBe(false);
-    });
+      const noFeature = new Error('m');
+      noFeature.name = 'SodaxError';
+      (noFeature as unknown as { code: string }).code = 'X';
+      expect(isSodaxError(noFeature)).toBe(false);
 
-    it('returns false for null / undefined / primitives / plain objects', () => {
       expect(isSodaxError(null)).toBe(false);
       expect(isSodaxError(undefined)).toBe(false);
       expect(isSodaxError('SodaxError')).toBe(false);
@@ -216,23 +184,12 @@ describe('SodaxError', () => {
     });
   });
 
-  describe('stack capture', () => {
-    it('captures a non-empty stack', () => {
-      const err = new SodaxError('UNKNOWN', 'm', { feature: 'swap' });
-      expect(typeof err.stack).toBe('string');
-      expect(err.stack && err.stack.length > 0).toBe(true);
-    });
-  });
-
   describe('TypeScript-only narrowing', () => {
-    it('narrows code to a literal type from the closed union', () => {
-      const err = new SodaxError('VALIDATION_FAILED' as const, 'm', { feature: 'swap' });
-      expectTypeOf(err.code).toEqualTypeOf<'VALIDATION_FAILED'>();
-    });
-
-    it('default generic is the closed SodaxErrorCode union', () => {
-      const err: SodaxError = new SodaxError('UNKNOWN', 'm', { feature: 'swap' });
-      expectTypeOf(err.code).toEqualTypeOf<SodaxErrorCode>();
+    it('narrows code to a literal type, and defaults the generic to the closed SodaxErrorCode union', () => {
+      const literal = new SodaxError('VALIDATION_FAILED' as const, 'm', { feature: 'swap' });
+      expectTypeOf(literal.code).toEqualTypeOf<'VALIDATION_FAILED'>();
+      const widened: SodaxError = new SodaxError('UNKNOWN', 'm', { feature: 'swap' });
+      expectTypeOf(widened.code).toEqualTypeOf<SodaxErrorCode>();
     });
   });
 });

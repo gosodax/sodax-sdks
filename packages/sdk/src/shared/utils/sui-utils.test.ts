@@ -44,24 +44,14 @@ describe('toMystenTransaction', () => {
     await expect(toMystenTransaction(tx)).resolves.toBe(tx);
   });
 
-  it('rebuilds a transaction that only exposes toJSON()', async () => {
-    const source = new Transaction();
-    source.setSender(SENDER);
-    const json = await source.toJSON();
-
-    const rebuilt = await toMystenTransaction({ toJSON: () => Promise.resolve(json) });
-
-    expect(rebuilt).toBeInstanceOf(Transaction);
-    await expect(rebuilt.toJSON()).resolves.toBe(json);
-  });
-
-  it('round-trips a real PTB — the JSON plan, its inputs and its commands all survive', async () => {
+  it('rebuilds a transaction that only exposes toJSON() — the JSON plan, its inputs and its commands all survive', async () => {
     const source = makeDepositLikeTx();
     source.setSender(SENDER);
     const json = await source.toJSON();
 
     const rebuilt = await toMystenTransaction({ toJSON: () => Promise.resolve(json) });
 
+    expect(rebuilt).toBeInstanceOf(Transaction);
     // The JSON is the plan the client builds and the wallet signs — a stable round-trip is what the
     // raw-transaction path (`tx.serialize()` → `Transaction.from()`) has always relied on.
     await expect(rebuilt.toJSON()).resolves.toBe(json);
@@ -83,19 +73,13 @@ describe('toMystenTransaction', () => {
 });
 
 describe('isTimeoutError', () => {
-  it('matches the Node AbortSignal.timeout reason', () => {
+  it('matches a TimeoutError or AbortError by name, or a timeout message on an unnamed rethrow', () => {
+    // Node AbortSignal.timeout reason.
     expect(isTimeoutError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))).toBe(true);
-  });
-
-  it('matches the browser AbortSignal.timeout reason, whose message says nothing about "timeout"', () => {
+    // Browser AbortSignal.timeout reason, whose message says nothing about "timeout".
     expect(isTimeoutError({ name: 'TimeoutError', message: 'signal timed out' })).toBe(true);
-  });
-
-  it('matches an explicit abort', () => {
+    // An explicit abort.
     expect(isTimeoutError(new DOMException('This operation was aborted', 'AbortError'))).toBe(true);
-  });
-
-  it('falls back to the message for errors rethrown without a name', () => {
     expect(isTimeoutError(new Error('waitForTransaction timeout exceeded'))).toBe(true);
   });
 
