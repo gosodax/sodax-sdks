@@ -14,7 +14,7 @@ export type UseSwapsApiSolverFeeParams = ReadHookParams<
 >;
 
 /**
- * React hook to compute the protocol (solver) fee for a given input amount via the swaps API —
+ * React hook to compute the maximum protocol (solver) fee for a given input amount via the swaps API —
  * `sodax.api.swaps.getSolverFee`. Returns `{ fee }` (decimal string).
  *
  * @example

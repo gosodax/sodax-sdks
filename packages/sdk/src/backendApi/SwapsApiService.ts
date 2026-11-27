@@ -365,7 +365,7 @@ export class SwapsApiService implements ResultifiedSwapsApiV2 {
     return this.toResult('/swaps/fees/partner', c => c.getPartnerFee(query), config);
   }
 
-  /** Compute the protocol (solver) fee for a given input amount. */
+  /** Compute the maximum protocol (solver) fee for an input amount; the actual fee depends on the solver's route. */
   public async getSolverFee(query: FeeQueryV2, config?: RequestOverrideConfig): Promise<Result<FeeResponseV2>> {
     return this.toResult('/swaps/fees/solver', c => c.getSolverFee(query), config);
   }
