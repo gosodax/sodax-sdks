@@ -104,8 +104,8 @@ export type MpcRelayChainInfo = {
  * {@link RelayChainIdMap} for the other relay.
  *
  * Unlike that map this one is deliberately PARTIAL: membership is the definition. A chain in here
- * settles through the MPC relay and is tracked over its REST API. Tron, XRP and Monad are members;
- * each entry defines its relay identity and withdrawal signature scheme.
+ * settles through the MPC relay and is tracked over its REST API. Tron, XRP Ledger, Monad, TON, Zcash and
+ * Cardano are members; each entry defines its relay identity and withdrawal signature scheme.
  */
 export const MpcRelayChainMap = {
   [ChainKeys.TRON_MAINNET]: { chainId: 728126428n, withdrawScheme: 1 },
