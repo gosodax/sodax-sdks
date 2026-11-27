@@ -38,9 +38,9 @@ beforeEach(() => {
 });
 
 describe('useEstablishXrpTrustline', () => {
-  it('requests the trustline for the wallet account and returns the validated hash', async () => {
+  it('requests the trustline for the wallet account that needs it and returns the validated hash', async () => {
     requestTrustline.mockResolvedValue({ ok: true, value: 'hash' });
-    const request = vars(async () => ADDRESS);
+    const request = { ...vars(async () => ADDRESS), address: ADDRESS };
 
     await expect(optionsOf().mutationFn(request)).resolves.toBe('hash');
     expect(requestTrustline).toHaveBeenCalledWith({
@@ -55,12 +55,6 @@ describe('useEstablishXrpTrustline', () => {
 
     await expect(optionsOf().mutationFn(request)).rejects.toThrow(/is not rOtherAccount/);
     expect(requestTrustline).not.toHaveBeenCalled();
-  });
-
-  it('proceeds when the wallet controls the account that needs the line', async () => {
-    requestTrustline.mockResolvedValue({ ok: true, value: 'hash' });
-
-    await expect(optionsOf().mutationFn({ ...vars(async () => ADDRESS), address: ADDRESS })).resolves.toBe('hash');
   });
 
   it('rejects with the SDK error, so mutateAsyncSafe reports it', async () => {

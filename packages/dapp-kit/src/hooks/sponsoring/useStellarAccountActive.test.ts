@@ -13,20 +13,18 @@ const makeSodax = (result: Result<boolean, SponsoringLookupError>) => {
 const lookupError = new SodaxError('LOOKUP_FAILED', 'Horizon unreachable', { feature: 'sponsoring' });
 
 describe('getStellarAccountActiveQueryOptions — query key', () => {
-  it('keys on the address', () => {
+  it('keys on the address, independently per account', () => {
     const { sodax } = makeSodax({ ok: true, value: true });
     expect(getStellarAccountActiveQueryOptions({ sodax, address: ADDRESS }).queryKey).toEqual([
       'sponsoring',
       'stellarAccountActive',
       ADDRESS,
     ]);
-  });
-
-  it('produces independent keys per account', () => {
-    const { sodax } = makeSodax({ ok: true, value: true });
-    expect(getStellarAccountActiveQueryOptions({ sodax, address: ADDRESS }).queryKey).not.toEqual(
-      getStellarAccountActiveQueryOptions({ sodax, address: OTHER }).queryKey,
-    );
+    expect(getStellarAccountActiveQueryOptions({ sodax, address: OTHER }).queryKey).toEqual([
+      'sponsoring',
+      'stellarAccountActive',
+      OTHER,
+    ]);
   });
 });
 

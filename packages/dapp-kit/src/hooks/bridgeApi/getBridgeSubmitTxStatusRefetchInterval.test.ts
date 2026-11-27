@@ -30,15 +30,12 @@ describe('getBridgeSubmitTxStatusRefetchInterval', () => {
     expect(BRIDGE_SUBMIT_TX_STATUS_POLL_MS).toBe(1000);
   });
 
-  it('keeps polling every in-flight status', () => {
+  it('keeps polling every in-flight status, and before the first response has landed', () => {
     for (const status of ['pending', 'relaying', 'relayed']) {
       expect(getBridgeSubmitTxStatusRefetchInterval(undefined, record({ status }))).toBe(
         BRIDGE_SUBMIT_TX_STATUS_POLL_MS,
       );
     }
-  });
-
-  it('keeps polling before the first response has landed', () => {
     expect(getBridgeSubmitTxStatusRefetchInterval(undefined, undefined)).toBe(BRIDGE_SUBMIT_TX_STATUS_POLL_MS);
   });
 
@@ -61,6 +58,8 @@ describe('getBridgeSubmitTxStatusRefetchInterval', () => {
     for (const status of [401, 403]) {
       expect(getBridgeSubmitTxStatusRefetchInterval(apiError(status), undefined)).toBe(false);
     }
+    // The key was rejected on a later poll, so a stale in-flight record must not keep the interval alive.
+    expect(getBridgeSubmitTxStatusRefetchInterval(apiError(401), record({ status: 'relaying' }))).toBe(false);
   });
 
   it("keeps polling the apiguard's transient 503 and other non-auth failures", () => {
@@ -71,11 +70,5 @@ describe('getBridgeSubmitTxStatusRefetchInterval', () => {
     expect(getBridgeSubmitTxStatusRefetchInterval(new Error('ECONNRESET'), undefined)).toBe(
       BRIDGE_SUBMIT_TX_STATUS_POLL_MS,
     );
-  });
-
-  it('stops on an auth failure even when a live record is still cached', () => {
-    // Order matters: the key was rejected on a later poll, so the stale in-flight record must not
-    // keep the interval alive.
-    expect(getBridgeSubmitTxStatusRefetchInterval(apiError(401), record({ status: 'relaying' }))).toBe(false);
   });
 });

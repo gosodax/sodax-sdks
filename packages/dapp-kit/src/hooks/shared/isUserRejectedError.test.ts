@@ -19,20 +19,14 @@ describe('isUserRejectedError', () => {
     for (const err of cases) expect(isUserRejectedError(err)).toBe(false);
   });
 
-  it('does not match a plain Error whose message contains rejection prose', () => {
+  it('does not match anything that is not a SodaxError, whatever its prose or shape', () => {
     // The predicate trusts SDK classification; it does NOT re-scan message content. A bare
     // Error from outside the SDK boundary (e.g. a non-canonical throw in a queryFn) is not a
     // canonical USER_REJECTED — it should fall through to the generic failure UI.
     expect(isUserRejectedError(new Error('User rejected the request'))).toBe(false);
-  });
-
-  it('does not match viem-shaped objects or wallet-library shapes', () => {
     expect(isUserRejectedError({ name: 'UserRejectedRequestError', message: 'denied' })).toBe(false);
     expect(isUserRejectedError({ code: 4001, message: 'reject' })).toBe(false);
     expect(isUserRejectedError({ code: 'ACTION_REJECTED' })).toBe(false);
-  });
-
-  it('does not match non-error values', () => {
     expect(isUserRejectedError(undefined)).toBe(false);
     expect(isUserRejectedError(null)).toBe(false);
     expect(isUserRejectedError('User rejected the request')).toBe(false);

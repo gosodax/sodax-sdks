@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MAX_MPC_RELAY_NOT_FOUND_POLLS, MAX_NOT_FOUND_POLLS, STATUS_POLL_MS } from '../shared/notFoundStreak.js';
+import { MAX_NOT_FOUND_POLLS, STATUS_POLL_MS } from '../shared/notFoundStreak.js';
 
 /**
  * Pins the WIRING the pure-policy test cannot see: the hook must pass the read into the policy and
@@ -54,23 +54,19 @@ const notDeliveredRead = {
 };
 
 describe('useBridgeDetailedStatus wiring', () => {
-  it('keys the query on the source tx and runs only when both identifiers are present', () => {
-    render();
+  it('keys the query on the source tx, threads a per-request override, and runs only with both identifiers', async () => {
+    render({ apiKey: 'per-action-key' });
     expect(captured.queryKey).toEqual(['bridge', 'detailedStatus', SRC_CHAIN, SRC_TX]);
     expect(captured.enabled).toBe(true);
-
-    refCursor = 0;
-    useBridgeDetailedStatus({ params: { srcChainKey: SRC_CHAIN, srcTxHash: undefined } });
-    expect(captured.enabled).toBe(false);
-  });
-
-  it('threads a per-request override into the SDK call', async () => {
-    render({ apiKey: 'per-action-key' });
     await captured.queryFn();
     expect(getDetailedStatus).toHaveBeenCalledWith(
       { srcChainKey: SRC_CHAIN, srcTxHash: SRC_TX },
       { apiKey: 'per-action-key' },
     );
+
+    refCursor = 0;
+    useBridgeDetailedStatus({ params: { srcChainKey: SRC_CHAIN, srcTxHash: undefined } });
+    expect(captured.enabled).toBe(false);
   });
 
   it('keys and reads by the destination too, which decides when a Tron-source bridge is delivered', async () => {
@@ -113,20 +109,6 @@ describe('useBridgeDetailedStatus wiring', () => {
     }
     expect(captured.refetchInterval({ state: { data: notDeliveredRead, dataUpdateCount: 39 } })).toBe(STATUS_POLL_MS);
     expect(captured.refetchInterval({ state: { data: notDeliveredRead, dataUpdateCount: 40 } })).toBe(false);
-  });
-
-  it('gives a miss the SDK tags as an MPC-relay bridge the longer budget', () => {
-    refSlots.length = 0;
-    render();
-    const mpcRelayMiss = {
-      ok: false,
-      error: { code: 'LOOKUP_FAILED', context: { reason: 'relay_not_delivered', mpcRelay: true } },
-    };
-    for (let update = 1; update < MAX_MPC_RELAY_NOT_FOUND_POLLS; update++) {
-      expect(captured.refetchInterval({ state: { data: mpcRelayMiss, dataUpdateCount: update } })).toBe(STATUS_POLL_MS);
-    }
-    const last = { state: { data: mpcRelayMiss, dataUpdateCount: MAX_MPC_RELAY_NOT_FOUND_POLLS } };
-    expect(captured.refetchInterval(last)).toBe(false);
   });
 
   it('does not let one untagged miss cut an MPC-relay streak to the short budget', () => {

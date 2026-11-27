@@ -78,16 +78,7 @@ beforeEach(() => {
 });
 
 describe('useLeverageYieldApiApproveAndBroadcast', () => {
-  it('asks the leverage-yield client for the plan, passing the per-call apiConfig', async () => {
-    approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX } });
-    const apiConfig = { baseURL: 'https://canary-api.example/v1' };
-
-    await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider: evmProvider([]), apiConfig });
-
-    expect(approve).toHaveBeenCalledWith(body(ChainKeys.ARBITRUM_MAINNET), apiConfig);
-  });
-
-  it('re-checks the allowance through the same API once the approve confirms', async () => {
+  it('asks the leverage-yield client for the plan, then re-checks the allowance through the same API', async () => {
     approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX } });
     const calls: string[] = [];
     checkAllowance.mockImplementation(async () => {
@@ -96,8 +87,10 @@ describe('useLeverageYieldApiApproveAndBroadcast', () => {
     });
     const apiConfig = { baseURL: 'https://canary-api.example/v1' };
 
-    await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider: evmProvider(calls), apiConfig });
+    const result = await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider: evmProvider(calls), apiConfig });
 
+    expect(result).toEqual({ approveTxHash: APPROVE_HASH });
+    expect(approve).toHaveBeenCalledWith(body(ChainKeys.ARBITRUM_MAINNET), apiConfig);
     expect(calls).toEqual(['send:0xapprove', `wait:${APPROVE_HASH}`, 'check']);
     expect(checkAllowance).toHaveBeenCalledWith(body(ChainKeys.ARBITRUM_MAINNET), {
       ...apiConfig,
@@ -105,34 +98,29 @@ describe('useLeverageYieldApiApproveAndBroadcast', () => {
     });
   });
 
-  it('broadcasts the reset, waits for it, then approves — and reports both hashes', async () => {
+  it('broadcasts the reset, waits for it, then approves — reporting both hashes and each prompt', async () => {
     approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX, resetTx: RESET_TX } });
     const calls: string[] = [];
+    const events: ApprovalProgress[] = [];
 
-    const result = await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider: evmProvider(calls) });
+    const result = await run({
+      body: body(ChainKeys.ARBITRUM_MAINNET),
+      walletProvider: evmProvider(calls),
+      onProgress: (progress: ApprovalProgress) => events.push(progress),
+    });
 
     expect(result).toEqual({ resetTxHash: RESET_HASH, approveTxHash: APPROVE_HASH });
     // The wait has to sit between the two sends; approving over an unconfirmed reset reverts. This is
     // the transaction `useLeverageYieldApiApprove` callers were dropping.
     expect(calls).toEqual(['send:0xreset', `wait:${RESET_HASH}`, 'send:0xapprove', `wait:${APPROVE_HASH}`]);
-  });
-
-  it('sends one transaction and omits resetTxHash for an ordinary token', async () => {
-    approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX } });
-    const calls: string[] = [];
-
-    const result = await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider: evmProvider(calls) });
-
-    expect(result).toEqual({ approveTxHash: APPROVE_HASH });
-    expect(calls).toEqual(['send:0xapprove', `wait:${APPROVE_HASH}`]);
-  });
-
-  it('works on the hub chain, where a Sonic-sourced deposit signs its approval', async () => {
-    approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX } });
-
-    const result = await run({ body: body(ChainKeys.SONIC_MAINNET), walletProvider: evmProvider([]) });
-
-    expect(result).toEqual({ approveTxHash: APPROVE_HASH });
+    expect(events.map(p => `${p.step}:${p.phase}:${p.index}/${p.total}`)).toEqual([
+      'allowance-reset:signing:1/2',
+      'allowance-reset:broadcast:1/2',
+      'allowance-reset:confirmed:1/2',
+      'approve:signing:2/2',
+      'approve:broadcast:2/2',
+      'approve:confirmed:2/2',
+    ]);
   });
 
   it('names this hook, not a sibling, in an error from the shared plan runner', async () => {
@@ -145,35 +133,7 @@ describe('useLeverageYieldApiApproveAndBroadcast', () => {
     );
   });
 
-  it('reports each transaction as it is prompted for, numbered against the total', async () => {
-    approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX, resetTx: RESET_TX } });
-    const events: ApprovalProgress[] = [];
-
-    await run({
-      body: body(ChainKeys.ARBITRUM_MAINNET),
-      walletProvider: evmProvider([]),
-      onProgress: (progress: ApprovalProgress) => events.push(progress),
-    });
-
-    expect(events.map(p => `${p.step}:${p.phase}:${p.index}/${p.total}`)).toEqual([
-      'allowance-reset:signing:1/2',
-      'allowance-reset:broadcast:1/2',
-      'allowance-reset:confirmed:1/2',
-      'approve:signing:2/2',
-      'approve:broadcast:2/2',
-      'approve:confirmed:2/2',
-    ]);
-  });
-
-  it('invalidates the leverage-yield allowance query once the approval has confirmed', async () => {
-    useLeverageYieldApiApproveAndBroadcast();
-
-    await captured.onSuccess({ approveTxHash: APPROVE_HASH }, {}, undefined);
-
-    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['leverageYieldApi', 'allowance'] });
-  });
-
-  it('awaits the allowance refetch before resolving — a stale cache must not re-enable Approve', async () => {
+  it('awaits the leverage-yield allowance invalidation before resolving — a stale cache must not re-enable Approve', async () => {
     useLeverageYieldApiApproveAndBroadcast();
     const order: string[] = [];
     // A macrotask, not a microtask: any resolution that happens without awaiting invalidateQueries
@@ -191,6 +151,7 @@ describe('useLeverageYieldApiApproveAndBroadcast', () => {
     await captured.onSuccess({ approveTxHash: APPROVE_HASH }, {}, undefined);
     order.push('onSuccess:resolved');
 
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['leverageYieldApi', 'allowance'] });
     expect(order).toEqual(['invalidate:done', 'onSuccess:resolved']);
   });
 });

@@ -43,44 +43,12 @@ describe('getXBalancesQueryOptions', () => {
     ]);
   });
 
-  it('is disabled when xService is missing', () => {
-    const opts = getXBalancesQueryOptions({
-      xService: undefined,
-      xChainId: 'sonic',
-      xTokens: [tokenA],
-      address: '0xuser',
-    });
-    expect(opts.enabled).toBe(false);
-  });
-
-  it('is disabled when address is missing', () => {
-    const opts = getXBalancesQueryOptions({
-      xService: makeXService({}),
-      xChainId: 'sonic',
-      xTokens: [tokenA],
-      address: undefined,
-    });
-    expect(opts.enabled).toBe(false);
-  });
-
-  it('is disabled when xTokens is empty', () => {
-    const opts = getXBalancesQueryOptions({
-      xService: makeXService({}),
-      xChainId: 'sonic',
-      xTokens: [],
-      address: '0xuser',
-    });
-    expect(opts.enabled).toBe(false);
-  });
-
-  it('is enabled when all inputs are present', () => {
-    const opts = getXBalancesQueryOptions({
-      xService: makeXService({}),
-      xChainId: 'sonic',
-      xTokens: [tokenA],
-      address: '0xuser',
-    });
-    expect(opts.enabled).toBe(true);
+  it('is enabled only when xService, address, and xTokens are all present', () => {
+    const inputs = { xService: makeXService({}), xChainId: 'sonic' as const, xTokens: [tokenA], address: '0xuser' };
+    expect(getXBalancesQueryOptions(inputs).enabled).toBe(true);
+    expect(getXBalancesQueryOptions({ ...inputs, xService: undefined }).enabled).toBe(false);
+    expect(getXBalancesQueryOptions({ ...inputs, address: undefined }).enabled).toBe(false);
+    expect(getXBalancesQueryOptions({ ...inputs, xTokens: [] }).enabled).toBe(false);
   });
 
   it('queryFn delegates to xService.getBalances with address and tokens', async () => {

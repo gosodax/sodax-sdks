@@ -59,26 +59,23 @@ const solverRead = (status: SolverIntentStatusCode) => ({
 });
 
 describe('useLeverageYieldDetailedStatus wiring', () => {
-  it('keys the query on the source tx and runs only when both identifiers are present', () => {
-    render();
+  it('keys the query on the source tx, threads a per-request override, and runs only with both identifiers', async () => {
+    render({ apiKey: 'per-action-key' });
     expect(captured.queryKey).toEqual(['leverageYield', 'detailedStatus', SRC_CHAIN, SRC_TX]);
     expect(captured.enabled).toBe(true);
+    await captured.queryFn();
+    expect(getDetailedStatus).toHaveBeenCalledWith(
+      { srcChainKey: SRC_CHAIN, srcTxHash: SRC_TX },
+      { apiKey: 'per-action-key' },
+    );
 
     refCursor = 0;
     useLeverageYieldDetailedStatus({ params: { srcChainKey: SRC_CHAIN, srcTxHash: undefined } });
     expect(captured.enabled).toBe(false);
   });
 
-  it('threads a per-request override into the SDK call', async () => {
-    render({ apiKey: 'per-action-key' });
-    await captured.queryFn();
-    expect(getDetailedStatus).toHaveBeenCalledWith(
-      { srcChainKey: SRC_CHAIN, srcTxHash: SRC_TX },
-      { apiKey: 'per-action-key' },
-    );
-  });
-
-  it('feeds the read into the policy, so a terminal answer stops the poll', () => {
+  it('feeds the read into the policy, so a terminal answer or a rejected API key stops the poll', () => {
+    refSlots.length = 0;
     render();
     expect(
       captured.refetchInterval({ state: { data: solverRead(SolverIntentStatusCode.SOLVED), dataUpdateCount: 1 } }),
@@ -88,11 +85,6 @@ describe('useLeverageYieldDetailedStatus wiring', () => {
     expect(captured.refetchInterval({ state: { data: solvedRecord, dataUpdateCount: 2 } })).toBe(false);
     const inFlightRecord = { ok: true, value: { source: 'backend', data: { status: 'relaying' } } };
     expect(captured.refetchInterval({ state: { data: inFlightRecord, dataUpdateCount: 3 } })).toBe(STATUS_POLL_MS);
-  });
-
-  it('stops outright on a rejected API key, without spending the budget', () => {
-    refSlots.length = 0;
-    render();
     // A real SodaxError, not a shaped literal: `isAuthFailure` goes through `isSodaxError`, which
     // checks the instance. The SDK returns 401/403 as a Result, so React Query never sees an error
     // to withhold a retry from — the policy is the only thing that can stop this poll.
@@ -100,7 +92,7 @@ describe('useLeverageYieldDetailedStatus wiring', () => {
       ok: false,
       error: new SodaxError('LOOKUP_FAILED', 'rejected', { feature: 'leverageYield', context: { status: 401 } }),
     };
-    expect(captured.refetchInterval({ state: { data: rejected, dataUpdateCount: 1 } })).toBe(false);
+    expect(captured.refetchInterval({ state: { data: rejected, dataUpdateCount: 4 } })).toBe(false);
   });
 
   it('advances the not-delivered budget once per update, and stops when it is spent', () => {

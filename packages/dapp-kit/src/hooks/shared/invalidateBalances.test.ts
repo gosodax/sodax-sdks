@@ -46,26 +46,19 @@ describe('invalidateBalances', () => {
     expect(spy).toHaveBeenCalledTimes(4);
   });
 
-  it('marks a cached useBalances query stale through the 3-segment prefix', async () => {
+  it('marks a cached useBalances query stale through the 3-segment prefix, leaving other chains untouched', () => {
     const queryClient = new QueryClient();
     // The full key useBalances builds — the prefix must still match it, so this fails if the
     // helper ever switches to `exact: true`.
     const fullKey = ['shared', 'balances', ARB, [['USDC', '0xaf88']], '0xuser'] as const;
+    const otherChainKey = ['shared', 'balances', SONIC, [], '0xuser'] as const;
     queryClient.setQueryData(fullKey, { '0xaf88': 1n });
+    queryClient.setQueryData(otherChainKey, {});
     expect(queryClient.getQueryState(fullKey)?.isInvalidated).toBe(false);
 
     invalidateBalances(queryClient, ARB);
 
     expect(queryClient.getQueryState(fullKey)?.isInvalidated).toBe(true);
-  });
-
-  it('leaves other chains untouched', () => {
-    const queryClient = new QueryClient();
-    const otherChainKey = ['shared', 'balances', SONIC, [], '0xuser'] as const;
-    queryClient.setQueryData(otherChainKey, {});
-
-    invalidateBalances(queryClient, ARB);
-
     expect(queryClient.getQueryState(otherChainKey)?.isInvalidated).toBe(false);
   });
 });

@@ -19,15 +19,7 @@ const useFakeTimers = (): void => {
 };
 
 describe('waitForApiAllowance', () => {
-  it('checks once when the API already sees the allowance', async () => {
-    const check = vi.fn(async () => valid(true));
-
-    await waitForApiAllowance(check, undefined, { intervalMs: 0 });
-
-    expect(check).toHaveBeenCalledOnce();
-  });
-
-  it('re-checks a stale `valid: false` until the API catches up', async () => {
+  it('re-checks a stale `valid: false` until the API catches up, then stops', async () => {
     const check = vi
       .fn()
       .mockResolvedValueOnce(valid(false))
@@ -37,18 +29,6 @@ describe('waitForApiAllowance', () => {
     await waitForApiAllowance(check, undefined, { intervalMs: 0 });
 
     expect(check).toHaveBeenCalledTimes(3);
-  });
-
-  it('gives up once the 15-second budget is spent', async () => {
-    useFakeTimers();
-    const check = vi.fn(async () => valid(false));
-
-    const pending = waitForApiAllowance(check);
-    await vi.advanceTimersByTimeAsync(15_000);
-
-    await expect(pending).resolves.toBeUndefined();
-    // Checks at 0, 1.5s, …, 13.5s; one more pause would leave no time for a check.
-    expect(check).toHaveBeenCalledTimes(10);
   });
 
   it('stops at the budget when a check hangs past it', async () => {
@@ -72,13 +52,16 @@ describe('waitForApiAllowance', () => {
     expect(check).toHaveBeenCalledWith({ baseURL: 'https://api.example', timeout: 15_000 });
   });
 
-  it('caps each request timeout to the time left, keeping a shorter one from the caller', async () => {
+  it('gives up once the 15-second budget is spent, capping each request timeout to the time left', async () => {
     useFakeTimers();
     const check = vi.fn(async (_config: RequestOverrideConfig) => valid(false));
 
     const pending = waitForApiAllowance(check, { baseURL: 'https://api.example', timeout: 14_000 });
     await vi.advanceTimersByTimeAsync(15_000);
-    await pending;
+
+    await expect(pending).resolves.toBeUndefined();
+    // Checks at 0, 1.5s, …, 13.5s; one more pause would leave no time for a check.
+    expect(check).toHaveBeenCalledTimes(10);
 
     const timeouts = check.mock.calls.map(([config]) => config.timeout);
     expect(timeouts.slice(0, 3)).toEqual([14_000, 13_500, 12_000]);

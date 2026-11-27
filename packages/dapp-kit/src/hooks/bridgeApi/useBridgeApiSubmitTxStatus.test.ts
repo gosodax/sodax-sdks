@@ -43,17 +43,13 @@ describe('useBridgeApiSubmitTxStatus wiring', () => {
     expect(captured.refetchInterval({ state: { error: authError, data: undefined } })).toBe(false);
   });
 
-  it('still polls a live record', () => {
+  it('feeds the record into the policy: a live one keeps polling, a terminal one stops', () => {
     render();
     expect(
       captured.refetchInterval({
         state: { error: null, data: { success: true, data: { status: 'relaying' } } },
       }),
     ).toBe(1000);
-  });
-
-  it('feeds the record into the policy, so a terminal status stops the poll', () => {
-    render();
     expect(
       captured.refetchInterval({
         state: { error: null, data: { success: true, data: { status: 'executed' } } },

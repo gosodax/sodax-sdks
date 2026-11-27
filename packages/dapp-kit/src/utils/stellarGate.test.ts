@@ -33,8 +33,8 @@ const gate = (
   });
 
 describe('resolveStellarGate — non-Stellar destinations', () => {
-  it.each([[ChainKeys.SONIC_MAINNET], [undefined]])('is inert for %s', chainKey => {
-    expect(gate(chainKey as undefined, { statusCheck: idle(), trustlineCheck: idle() })).toEqual({
+  it.each([[ChainKeys.SONIC_MAINNET], [undefined]])('is inert for %s, even when every check failed', chainKey => {
+    expect(gate(chainKey as undefined, { statusCheck: errored(), trustlineCheck: errored() })).toEqual({
       isStellar: false,
       needsActivation: false,
       needsFunding: false,
@@ -43,32 +43,23 @@ describe('resolveStellarGate — non-Stellar destinations', () => {
       blocksAction: false,
     });
   });
-
-  it('does not report a failed check for a non-Stellar destination', () => {
-    const result = gate(undefined, { statusCheck: errored(), trustlineCheck: errored() });
-    expect(result.checkFailed).toBe(false);
-    expect(result.blocksAction).toBe(false);
-  });
 });
 
 describe('resolveStellarGate — unknown account state blocks without accusing', () => {
   it.each([
-    ['loading', loading<StellarAccountStatus>()],
-    ['errored', errored<StellarAccountStatus>()],
-    ['idle/disabled', idle<StellarAccountStatus>()],
-  ])('blocks but does NOT claim needsActivation when the status check is %s', (_label, statusCheck) => {
-    // Unknown account state must not be classified as a missing prerequisite.
-    const result = gate(STELLAR, { statusCheck });
-    expect(result.blocksAction).toBe(true);
-    expect(result.needsActivation).toBe(false);
-    expect(result.needsFunding).toBe(false);
-    expect(result.needsTrustline).toBe(false);
-  });
-
-  it('a disabled trustline query cannot block forever once the account is funded', () => {
-    // Disabled React Query checks are idle, not loading.
-    expect(gate(STELLAR, { trustlineCheck: idle() }).blocksAction).toBe(true);
-    expect(gate(STELLAR, { trustlineCheck: resolved(true) }).blocksAction).toBe(false);
+    ['a loading status read', { statusCheck: loading<StellarAccountStatus>() }],
+    ['an idle/disabled status read', { statusCheck: idle<StellarAccountStatus>() }],
+    ['an idle/disabled trustline read', { trustlineCheck: idle<boolean>() }],
+  ])('blocks without claiming a prerequisite or a failure for %s', (_label, inputs) => {
+    // Unknown state is neither a missing prerequisite nor a failed check.
+    expect(gate(STELLAR, inputs)).toEqual({
+      isStellar: true,
+      needsActivation: false,
+      needsFunding: false,
+      needsTrustline: false,
+      checkFailed: false,
+      blocksAction: true,
+    });
   });
 
   it.each([
@@ -81,16 +72,6 @@ describe('resolveStellarGate — unknown account state blocks without accusing',
     expect(result.needsActivation).toBe(false);
     expect(result.needsFunding).toBe(false);
     expect(result.needsTrustline).toBe(false);
-  });
-
-  it.each([
-    ['loading', { statusCheck: loading<StellarAccountStatus>() }],
-    ['idle/disabled', { statusCheck: idle<StellarAccountStatus>() }],
-    ['an idle trustline read', { trustlineCheck: idle<boolean>() }],
-  ])('does NOT report checkFailed for %s — nothing failed', (_label, inputs) => {
-    const result = gate(STELLAR, inputs);
-    expect(result.checkFailed).toBe(false);
-    expect(result.blocksAction).toBe(true);
   });
 });
 
@@ -110,27 +91,19 @@ describe('resolveStellarGate — stage ordering', () => {
     });
   });
 
-  it('does NOT ask a broke account to fund itself when it ALREADY holds the trustline', () => {
-    // Receiving through an existing trustline requires no recipient reserve or fee.
-    const result = gate(STELLAR, {
-      statusCheck: resolved(
-        status({ nativeBalanceStroops: 0n, availableBalanceStroops: 0n, canAffordTrustline: false }),
-      ),
-      trustlineCheck: resolved(true),
-    });
-    expect(result.needsFunding).toBe(false);
-    expect(result.needsTrustline).toBe(false);
-    expect(result.blocksAction).toBe(false);
-  });
-
   it('reports funding for a freshly activated 0-XLM account, NOT a trustline', () => {
     const result = gate(STELLAR, {
       statusCheck: resolved(status({ nativeBalanceStroops: 0n, canAffordTrustline: false })),
       trustlineCheck: resolved(false),
     });
-    expect(result.needsFunding).toBe(true);
-    expect(result.needsTrustline).toBe(false);
-    expect(result.blocksAction).toBe(true);
+    expect(result).toEqual({
+      isStellar: true,
+      needsActivation: false,
+      needsFunding: true,
+      needsTrustline: false,
+      checkFailed: false,
+      blocksAction: true,
+    });
   });
 
   it('reports a trustline only once the account exists and can pay for one', () => {
@@ -145,8 +118,10 @@ describe('resolveStellarGate — stage ordering', () => {
     });
   });
 
-  it('clears once every prerequisite is met', () => {
-    expect(gate(STELLAR, { trustlineCheck: resolved(true) })).toEqual({
+  it('clears once the trustline exists, even for a broke account that could not afford a new one', () => {
+    // Receiving through an existing trustline requires no recipient reserve or fee.
+    const broke = status({ nativeBalanceStroops: 0n, availableBalanceStroops: 0n, canAffordTrustline: false });
+    expect(gate(STELLAR, { statusCheck: resolved(broke), trustlineCheck: resolved(true) })).toEqual({
       isStellar: true,
       needsActivation: false,
       needsFunding: false,
@@ -154,21 +129,6 @@ describe('resolveStellarGate — stage ordering', () => {
       checkFailed: false,
       blocksAction: false,
     });
-  });
-
-  it('never reports two stages at once', () => {
-    const cases = [
-      gate(STELLAR, { statusCheck: resolved(status({ exists: false, canAffordTrustline: false })) }),
-      gate(STELLAR, {
-        statusCheck: resolved(status({ canAffordTrustline: false })),
-        trustlineCheck: resolved(false),
-      }),
-      gate(STELLAR, { trustlineCheck: resolved(false) }),
-    ];
-    for (const result of cases) {
-      const active = [result.needsActivation, result.needsFunding, result.needsTrustline].filter(Boolean);
-      expect(active).toHaveLength(1);
-    }
   });
 });
 

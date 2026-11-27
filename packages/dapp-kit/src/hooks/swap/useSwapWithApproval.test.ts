@@ -34,25 +34,14 @@ beforeEach(() => {
 });
 
 describe('useSwapWithApproval', () => {
-  it.each([
-    { batchId: 'batch-1' },
-    { reason: ATOMIC_BATCH_UNCONFIRMED },
-  ])('suppresses configured retries after an unconfirmed batch ($context)', context => {
+  it('suppresses configured retries once the swap may have gone out, but retries a failure before submission', () => {
     useSwapWithApproval({ mutationOptions: { retry: 3 } });
-    const error = new SodaxError('TX_VERIFICATION_FAILED', 'Batch was sent but not confirmed', {
-      feature: 'swap',
-      context,
-    });
-    expect(captured.retry(0, error)).toBe(false);
-  });
-
-  it('suppresses configured retries when the original source hash is known', () => {
-    useSwapWithApproval({ mutationOptions: { retry: 3 } });
-    const error = new SodaxError('RELAY_TIMEOUT', 'Settlement pending', {
-      feature: 'swap',
-      context: { srcTxHash: '0x1234' },
-    });
-    expect(captured.retry(0, error)).toBe(false);
+    const sentContexts = [{ batchId: 'batch-1' }, { reason: ATOMIC_BATCH_UNCONFIRMED }, { srcTxHash: '0x1234' }];
+    for (const context of sentContexts) {
+      expect(captured.retry(0, new SodaxError('TX_VERIFICATION_FAILED', 'sent', { feature: 'swap', context }))).toBe(
+        false,
+      );
+    }
     expect(captured.retry(0, new Error('Before submission'))).toBe(true);
   });
 

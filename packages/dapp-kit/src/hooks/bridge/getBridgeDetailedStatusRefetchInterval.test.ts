@@ -105,11 +105,8 @@ describe('getBridgeDetailedStatusRefetchInterval', () => {
     expect(getBridgeDetailedStatusRefetchInterval(backend('relayed', '2026-09-18T00:00:00.000Z'), 0)).toBe(false);
   });
 
-  it('stops on a relay packet without waiting for a budget — that arm is terminal on arrival', () => {
+  it('stops on a relay packet or a minted MPC-relay deposit without a budget — both arms are terminal on arrival', () => {
     expect(getBridgeDetailedStatusRefetchInterval(relayed, 0)).toBe(false);
-  });
-
-  it('stops on a minted MPC-relay deposit record — that arm is terminal on arrival too', () => {
     expect(getBridgeDetailedStatusRefetchInterval(minted, 0)).toBe(false);
   });
 
@@ -154,14 +151,10 @@ describe('the not-delivered budget, driven as the hook drives it', () => {
     expect(state.consecutiveNotFound).toBe(1);
   });
 
-  it('stops only after MAX_NOT_FOUND_POLLS consecutive misses', () => {
-    const state = advance(Array.from({ length: MAX_NOT_FOUND_POLLS }, () => notDelivered));
-    expect(state.consecutiveNotFound).toBe(MAX_NOT_FOUND_POLLS);
-    expect(getBridgeDetailedStatusRefetchInterval(notDelivered, state.consecutiveNotFound)).toBe(false);
-  });
-
-  it('starts a fresh budget for a new source tx', () => {
+  it('stops after MAX_NOT_FOUND_POLLS consecutive misses, and starts a fresh budget for a new source tx', () => {
     const spent = advance(Array.from({ length: MAX_NOT_FOUND_POLLS }, () => notDelivered));
+    expect(spent.consecutiveNotFound).toBe(MAX_NOT_FOUND_POLLS);
+    expect(getBridgeDetailedStatusRefetchInterval(notDelivered, spent.consecutiveNotFound)).toBe(false);
     const next = advanceNotFoundStreak(spent, KEY_B, true, 1);
     expect(next.consecutiveNotFound).toBe(1);
     expect(next.pollKey).toBe(KEY_B);

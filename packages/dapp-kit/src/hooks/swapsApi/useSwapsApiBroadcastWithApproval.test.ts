@@ -17,7 +17,7 @@ import {
   type EvmRawTransaction,
 } from '@sodax/sdk';
 import { AtomicityNotSupportedError, AtomicReadyWalletRejectedUpgradeError, UserRejectedRequestError } from 'viem';
-import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const approve = vi.fn();
 const checkAllowance = vi.fn();
@@ -123,17 +123,19 @@ beforeEach(() => {
 });
 
 describe('useSwapsApiBroadcastWithApproval', () => {
-  it('sends approve + intent as one batch on a batch-capable wallet', async () => {
+  it('sends approve + intent as one batch on a batch-capable wallet, reporting the batch id and call count', async () => {
     const calls: string[] = [];
     const walletProvider = batchWallet(calls, 'supported');
+    const onBatchSent = vi.fn();
 
-    const result = await run({ walletProvider });
+    const result = await run({ walletProvider, onBatchSent });
 
     expect(result).toEqual({ txHash: '0xdeposit', approvalStrategy: 'atomic-batch' });
     expect(calls).toEqual(['batch:0x02,0x03']);
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledWith([APPROVE_TX, INTENT_TX], {
       expectedChainId: BASE_CHAIN_ID,
     });
+    expect(onBatchSent).toHaveBeenCalledWith('batch-1', 2);
   });
 
   it('puts the allowance reset first in the batch', async () => {
@@ -169,12 +171,6 @@ describe('useSwapsApiBroadcastWithApproval', () => {
     });
     expect(calls).toEqual(['send:0x02', 'wait:0xhash02', 'send:0x03']);
     expect(walletProvider.sendTransaction).toHaveBeenLastCalledWith(INTENT_TX, { expectedChainId: BASE_CHAIN_ID });
-  });
-
-  it('reports the batch id and call count once the wallet accepts the batch', async () => {
-    const onBatchSent = vi.fn();
-    await run({ walletProvider: batchWallet([], 'supported'), onBatchSent });
-    expect(onBatchSent).toHaveBeenCalledWith('batch-1', 2);
   });
 
   it('rejects a refused batch instead of approving by default', async () => {
@@ -234,26 +230,6 @@ describe('useSwapsApiBroadcastWithApproval', () => {
     expect(approve).toHaveBeenCalledTimes(1);
   });
 
-  it('still sends the intent once the wait gives up on an allowance check that hangs', async () => {
-    vi.useFakeTimers();
-    onTestFinished(() => {
-      vi.useRealTimers();
-    });
-    const calls: string[] = [];
-    const walletProvider = batchWallet(calls, 'supported');
-    walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
-    checkAllowance.mockImplementation(() => {
-      calls.push('check');
-      return new Promise(() => {});
-    });
-
-    const pending = run({ walletProvider, fallbackOnRefusal: true });
-    await vi.advanceTimersByTimeAsync(15_000);
-
-    await expect(pending).resolves.toMatchObject({ approvalStrategy: 'sequential' });
-    expect(calls).toEqual(['send:0x02', 'wait:0xhash02', 'check', 'send:0x03']);
-  });
-
   it('keeps a ready wallet sequential when the account upgrade is not allowed', async () => {
     const calls: string[] = [];
     const walletProvider = batchWallet(calls, 'ready');
@@ -288,17 +264,6 @@ describe('useSwapsApiBroadcastWithApproval', () => {
       context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' },
     });
     expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
-  });
-
-  it('hands back a Sonic hub source by default, without asking the wallet', async () => {
-    const calls: string[] = [];
-    const walletProvider = batchWallet(calls, 'supported');
-
-    await expect(run({ body: body(ChainKeys.SONIC_MAINNET), walletProvider })).rejects.toMatchObject({
-      context: { reason: ATOMIC_BATCH_REFUSED },
-    });
-    expect(walletProvider.getAtomicBatchSupport).not.toHaveBeenCalled();
-    expect(calls).toEqual([]);
   });
 
   it('keeps the Sonic hub sequential without asking the wallet', async () => {

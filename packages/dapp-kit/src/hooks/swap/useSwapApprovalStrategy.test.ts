@@ -43,7 +43,8 @@ beforeEach(() => {
 });
 
 describe('useSwapApprovalStrategy', () => {
-  it('keys on chain, owner, token and stringified amount', () => {
+  it('keys on chain, owner, token and stringified amount, and unwraps the SDK strategy', async () => {
+    getApprovalStrategy.mockResolvedValueOnce({ ok: true, value: 'atomic-batch' });
     useSwapApprovalStrategy({ params: { payload: PAYLOAD, walletProvider: WALLET } });
     expect(captured.queryKey).toEqual([
       'swap',
@@ -56,12 +57,6 @@ describe('useSwapApprovalStrategy', () => {
     ]);
     expect(captured.enabled).toBe(true);
     expect(captured.refetchInterval).toBeUndefined();
-  });
-
-  it('unwraps the SDK strategy', async () => {
-    getApprovalStrategy.mockResolvedValueOnce({ ok: true, value: 'atomic-batch' });
-    useSwapApprovalStrategy({ params: { payload: PAYLOAD, walletProvider: WALLET } });
-
     await expect(captured.queryFn()).resolves.toBe('atomic-batch');
     expect(getApprovalStrategy).toHaveBeenCalledWith({
       params: PAYLOAD,

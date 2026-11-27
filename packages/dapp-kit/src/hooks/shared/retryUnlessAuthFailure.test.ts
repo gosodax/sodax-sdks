@@ -17,14 +17,11 @@ describe('retryUnlessAuthFailure', () => {
     }
   });
 
-  it("retries the apiguard's transient 503 and other server failures", () => {
+  it("retries the apiguard's transient 503, other server failures, and failures with no HTTP status", () => {
     // 503 is the one guard outcome that is NOT terminal — the key may be fine, verification is down.
     for (const status of [408, 429, 500, 502, 503, 504]) {
       expect(retryUnlessAuthFailure(0, apiError(status))).toBe(true);
     }
-  });
-
-  it('retries failures that carry no HTTP status (network, timeout, non-SDK throws)', () => {
     expect(retryUnlessAuthFailure(0, apiError(undefined))).toBe(true);
     expect(retryUnlessAuthFailure(0, new Error('ECONNRESET'))).toBe(true);
     expect(retryUnlessAuthFailure(0, undefined)).toBe(true);

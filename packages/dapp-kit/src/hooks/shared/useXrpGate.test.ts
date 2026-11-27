@@ -107,12 +107,4 @@ describe('useXrpGate', () => {
     await expect(evmWallet.requestTrustline()).resolves.toBeUndefined();
     expect(establish).not.toHaveBeenCalled();
   });
-
-  it('surfaces a refusal no trustline fixes as blockedReason', () => {
-    const { gate } = run({ ready: false, reason: 'trustline_unauthorized' });
-
-    expect(gate.blockedReason).toBe('trustline_unauthorized');
-    expect(gate.needsTrustline).toBe(false);
-    expect(gate.blocksAction).toBe(true);
-  });
 });

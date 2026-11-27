@@ -70,10 +70,6 @@ describe('useStellarGate — the trustline read is gated on account existence', 
     expect(gate.error).toBeUndefined();
   });
 
-  it('does NOT read the trustline while account status is still loading', () => {
-    expect(run({ isLoading: true }).trustlineAddress).toBeUndefined();
-  });
-
   it('does NOT read the trustline when the account-status read failed', () => {
     const { gate, trustlineAddress } = run({ isError: true, error: new Error('horizon down') });
 

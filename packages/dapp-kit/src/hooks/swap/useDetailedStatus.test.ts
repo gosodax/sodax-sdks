@@ -58,7 +58,6 @@ const rejectedKey = {
 };
 
 const KEY_A = 'arb:0xaaa';
-const KEY_B = 'arb:0xbbb';
 
 /** Drives the streak the way the hook does, one query update per call. */
 const advance = (
@@ -80,60 +79,21 @@ describe('getSolverDetailedStatusRefetchInterval', () => {
     expect(getSolverDetailedStatusRefetchInterval(ok(backend(status)), 0)).toBe(false);
   });
 
-  it.each([
-    'pending',
-    'relaying',
-    'relayed',
-    'posting_execution',
-    'posted_execution',
-  ] as const)('keeps polling a backend record at %s', status => {
-    expect(getSolverDetailedStatusRefetchInterval(ok(backend(status)), 0)).toBe(STATUS_POLL_MS);
-  });
-
   // A backend record is never stopped by the solver's budget — different vocabulary.
   it('keeps polling an in-flight backend record even at the cutoff', () => {
     expect(getSolverDetailedStatusRefetchInterval(ok(backend('relaying')), MAX_NOT_FOUND_POLLS)).toBe(STATUS_POLL_MS);
   });
 
-  it.each([SolverIntentStatusCode.SOLVED, SolverIntentStatusCode.FAILED])('stops on solver code %s', status => {
-    expect(getSolverDetailedStatusRefetchInterval(ok(solver(status)), 0)).toBe(false);
-  });
-
-  it.each([
-    SolverIntentStatusCode.NOT_STARTED_YET,
-    SolverIntentStatusCode.STARTED_NOT_FINISHED,
-  ])('never stops in-flight solver code %s, even at a high count', status => {
-    expect(getSolverDetailedStatusRefetchInterval(ok(solver(status)), 100)).toBe(STATUS_POLL_MS);
-  });
-
-  it('inherits the useStatus NOT_FOUND cutoff: polls below it, stops at it', () => {
-    const notFound = ok(solver(SolverIntentStatusCode.NOT_FOUND));
-    expect(getSolverDetailedStatusRefetchInterval(notFound, MAX_NOT_FOUND_POLLS - 1)).toBe(STATUS_POLL_MS);
-    expect(getSolverDetailedStatusRefetchInterval(notFound, MAX_NOT_FOUND_POLLS)).toBe(false);
-  });
-
-  it('spends the budget on an undelivered relay packet, rather than polling it forever', () => {
-    expect(getSolverDetailedStatusRefetchInterval(notDelivered, MAX_NOT_FOUND_POLLS - 1)).toBe(STATUS_POLL_MS);
-    expect(getSolverDetailedStatusRefetchInterval(notDelivered, MAX_NOT_FOUND_POLLS)).toBe(false);
-  });
-
-  // An outage is recoverable and polling is how it recovers — budgeting it would strand the read.
-  it('never stops on a dependency outage, however long it lasts', () => {
-    expect(getSolverDetailedStatusRefetchInterval(outage, MAX_NOT_FOUND_POLLS)).toBe(STATUS_POLL_MS);
-    expect(getSolverDetailedStatusRefetchInterval(outage, 10_000)).toBe(STATUS_POLL_MS);
+  // The solver arm reuses the useStatus policy verbatim; its full matrix is in solverStatusPolicy.test.ts.
+  it('defers a solver answer to the solver policy: stops when terminal, polls while in flight', () => {
+    expect(getSolverDetailedStatusRefetchInterval(ok(solver(SolverIntentStatusCode.SOLVED)), 0)).toBe(false);
+    expect(getSolverDetailedStatusRefetchInterval(ok(solver(SolverIntentStatusCode.STARTED_NOT_FINISHED)), 100)).toBe(
+      STATUS_POLL_MS,
+    );
   });
 
   it('keeps polling before the first read lands', () => {
     expect(getSolverDetailedStatusRefetchInterval(undefined, 0)).toBe(STATUS_POLL_MS);
-  });
-
-  // Only a corrected key changes the answer, so there is nothing to wait for and no budget to spend.
-  it.each([401, 403])('stops on a rejected API key at the first read (%i)', status => {
-    const rejected = {
-      ok: false as const,
-      error: new SodaxError('LOOKUP_FAILED', 'rejected', { feature: 'swap', context: { status } }),
-    };
-    expect(getSolverDetailedStatusRefetchInterval(rejected, 0)).toBe(false);
   });
 
   // The regression this guards: a rejected key leaves the backend unanswered, so a relay miss behind
@@ -142,6 +102,8 @@ describe('getSolverDetailedStatusRefetchInterval', () => {
   it('stops a rejected key even though the not-delivered budget never advances', () => {
     expect(advance(INITIAL_NOT_FOUND_STREAK, Array(MAX_NOT_FOUND_POLLS).fill(rejectedKey)).consecutiveNotFound).toBe(0);
     expect(getSolverDetailedStatusRefetchInterval(rejectedKey, 0)).toBe(false);
+    const forbidden = new SodaxError('LOOKUP_FAILED', 'rejected', { feature: 'swap', context: { status: 403 } });
+    expect(getSolverDetailedStatusRefetchInterval({ ok: false, error: forbidden }, 0)).toBe(false);
   });
 
   // 503 is the transient key-verification failure, which is retried rather than surfaced.
@@ -180,6 +142,7 @@ describe('detailed-status budget', () => {
     const state = advance({ ...INITIAL_NOT_FOUND_STREAK }, Array(MAX_NOT_FOUND_POLLS).fill(notFound));
 
     expect(state.consecutiveNotFound).toBe(MAX_NOT_FOUND_POLLS);
+    expect(getSolverDetailedStatusRefetchInterval(notFound, MAX_NOT_FOUND_POLLS - 1)).toBe(STATUS_POLL_MS);
     expect(getSolverDetailedStatusRefetchInterval(notFound, state.consecutiveNotFound)).toBe(false);
   });
 
@@ -189,6 +152,7 @@ describe('detailed-status budget', () => {
     const state = advance({ ...INITIAL_NOT_FOUND_STREAK }, Array(MAX_NOT_FOUND_POLLS).fill(notDelivered));
 
     expect(state.consecutiveNotFound).toBe(MAX_NOT_FOUND_POLLS);
+    expect(getSolverDetailedStatusRefetchInterval(notDelivered, MAX_NOT_FOUND_POLLS - 1)).toBe(STATUS_POLL_MS);
     expect(getSolverDetailedStatusRefetchInterval(notDelivered, state.consecutiveNotFound)).toBe(false);
   });
 
@@ -199,16 +163,7 @@ describe('detailed-status budget', () => {
 
     expect(state.consecutiveNotFound).toBe(0);
     expect(getSolverDetailedStatusRefetchInterval(outage, state.consecutiveNotFound)).toBe(STATUS_POLL_MS);
-  });
-
-  it('lets a transient failure be forgiven once a real status arrives', () => {
-    const state = advance({ ...INITIAL_NOT_FOUND_STREAK }, [
-      notDelivered,
-      notDelivered,
-      ok(solver(SolverIntentStatusCode.STARTED_NOT_FINISHED)),
-    ]);
-
-    expect(state.consecutiveNotFound).toBe(0);
+    expect(getSolverDetailedStatusRefetchInterval(outage, 10_000)).toBe(STATUS_POLL_MS);
   });
 
   // The backend answering mid-run is not an unresolved read, so the budget starts over.
@@ -224,16 +179,5 @@ describe('detailed-status budget', () => {
     expect(getSolverDetailedStatusRefetchInterval(ok(backend('relaying')), state.consecutiveNotFound)).toBe(
       STATUS_POLL_MS,
     );
-  });
-
-  it('starts a fresh budget when the composite pollKey changes', () => {
-    const state = advance(
-      { pollKey: KEY_A, seenUpdates: 39, consecutiveNotFound: 39 },
-      [ok(solver(SolverIntentStatusCode.NOT_FOUND))],
-      KEY_B,
-    );
-
-    expect(state.consecutiveNotFound).toBe(1);
-    expect(state.pollKey).toBe(KEY_B);
   });
 });

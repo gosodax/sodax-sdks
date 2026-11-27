@@ -33,13 +33,6 @@ const makeSodax = (result: QuoteResult = QUOTE, partnerFee?: PartnerFee) => {
 };
 
 describe('getSwapQuoteQueryOptions', () => {
-  it('keys on the swap feature and the quote action', () => {
-    const { sodax } = makeSodax();
-    const { queryKey } = getSwapQuoteQueryOptions({ sodax, payload: PAYLOAD });
-    expect(queryKey[0]).toBe('swap');
-    expect(queryKey[1]).toBe('quote');
-  });
-
   it('returns the SDK Result as data so callers can branch on `ok`', async () => {
     const { sodax, getQuote } = makeSodax();
     await expect(getSwapQuoteQueryOptions({ sodax, payload: PAYLOAD }).queryFn()).resolves.toEqual(QUOTE);
@@ -63,26 +56,11 @@ describe('getSwapQuoteQueryOptions', () => {
     expect(getQuote).not.toHaveBeenCalled();
   });
 
-  it('keys the amount as a string so it survives hashing', () => {
-    const { sodax } = makeSodax();
-    const { queryKey } = getSwapQuoteQueryOptions({ sodax, payload: PAYLOAD });
-    expect(hashKey(queryKey)).toContain('"amount":"1000000"');
-  });
-
   // `getQuote` deducts the configured fee from `amount` before quoting, so it is an input to the
   // result even though it never appears in `payload`. Two providers with different swap fees must
   // not share a cache entry, and a reconfigured provider must not serve the old fee's quote.
-  it('keys the configured swap partner fee', () => {
+  it('keys the configured swap partner fee, so differently-configured providers never share a quote', () => {
     const noFee = getSwapQuoteQueryOptions({ sodax: makeSodax().sodax, payload: PAYLOAD }).queryKey;
-    const withFee = getSwapQuoteQueryOptions({
-      sodax: makeSodax(QUOTE, { address: FEE_RECIPIENT, percentage: 100 }).sodax,
-      payload: PAYLOAD,
-    }).queryKey;
-
-    expect(hashKey(noFee)).not.toBe(hashKey(withFee));
-  });
-
-  it('keys two differently-configured providers apart for an identical payload', () => {
     const a = getSwapQuoteQueryOptions({
       sodax: makeSodax(QUOTE, { address: FEE_RECIPIENT, percentage: 100 }).sodax,
       payload: PAYLOAD,
@@ -92,6 +70,7 @@ describe('getSwapQuoteQueryOptions', () => {
       payload: PAYLOAD,
     }).queryKey;
 
+    expect(hashKey(noFee)).not.toBe(hashKey(a));
     expect(hashKey(a)).not.toBe(hashKey(b));
   });
 
@@ -105,10 +84,12 @@ describe('getSwapQuoteQueryOptions', () => {
   // Pins the allow-list. If `SolverIntentQuoteRequest` gains a field, this fails and forces a
   // decision about whether it belongs in the key — rather than a spread silently carrying a new
   // bigint in and crashing `hashKey` at render time.
-  it('keys exactly the known request fields', () => {
+  it('keys swap/quote on exactly the known request fields, with the amount stringified for hashing', () => {
     const { sodax } = makeSodax();
     const { queryKey } = getSwapQuoteQueryOptions({ sodax, payload: PAYLOAD });
 
+    expect(queryKey.slice(0, 2)).toEqual(['swap', 'quote']);
+    expect(hashKey(queryKey)).toContain('"amount":"1000000"');
     expect(Object.keys(queryKey[2] as object).sort()).toEqual(
       [
         'amount',

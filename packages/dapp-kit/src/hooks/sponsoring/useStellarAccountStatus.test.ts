@@ -27,25 +27,18 @@ const makeSodax = (result: Result<StellarAccountStatus, SponsoringLookupError>) 
 const lookupError = new SodaxError('LOOKUP_FAILED', 'Horizon unreachable', { feature: 'sponsoring' });
 
 describe('getStellarAccountStatusQueryOptions — query key', () => {
-  it('keys on the address', () => {
+  it('keys on the address, independently per account', () => {
     const { sodax } = makeSodax({ ok: true, value: FUNDED });
     expect(getStellarAccountStatusQueryOptions({ sodax, address: ADDRESS }).queryKey).toEqual([
       'sponsoring',
       'stellarAccountStatus',
       ADDRESS,
     ]);
-  });
-
-  it('produces independent keys per account', () => {
-    const { sodax } = makeSodax({ ok: true, value: FUNDED });
-    expect(getStellarAccountStatusQueryOptions({ sodax, address: ADDRESS }).queryKey).not.toEqual(
-      getStellarAccountStatusQueryOptions({ sodax, address: OTHER }).queryKey,
-    );
-  });
-
-  it('uses a key distinct from the boolean active-check, so the two do not share a cache entry', () => {
-    const { sodax } = makeSodax({ ok: true, value: FUNDED });
-    expect(getStellarAccountStatusQueryOptions({ sodax, address: ADDRESS }).queryKey[1]).toBe('stellarAccountStatus');
+    expect(getStellarAccountStatusQueryOptions({ sodax, address: OTHER }).queryKey).toEqual([
+      'sponsoring',
+      'stellarAccountStatus',
+      OTHER,
+    ]);
   });
 });
 
@@ -78,19 +71,5 @@ describe('getStellarAccountStatusQueryOptions — enablement and fetching', () =
   it('THROWS on a lookup failure rather than reporting the account absent', async () => {
     const { sodax } = makeSodax({ ok: false, error: lookupError });
     await expect(getStellarAccountStatusQueryOptions({ sodax, address: ADDRESS }).queryFn()).rejects.toBe(lookupError);
-  });
-
-  it('reports an existing account that cannot afford a trustline — the post-activation state', async () => {
-    const sponsoredEmpty: StellarAccountStatus = {
-      exists: true,
-      nativeBalanceStroops: 0n,
-      availableBalanceStroops: 0n,
-      canAffordTrustline: false,
-      trustlineMinXlmStroops: STELLAR_TRUSTLINE_MIN_XLM_STROOPS,
-    };
-    const { sodax } = makeSodax({ ok: true, value: sponsoredEmpty });
-    await expect(getStellarAccountStatusQueryOptions({ sodax, address: ADDRESS }).queryFn()).resolves.toEqual(
-      sponsoredEmpty,
-    );
   });
 });

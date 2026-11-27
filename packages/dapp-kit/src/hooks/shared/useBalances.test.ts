@@ -53,40 +53,13 @@ describe('getBalancesQueryOptions', () => {
     expect(sodax.spoke.getWalletBalances).toHaveBeenCalledWith(expect.objectContaining({ accountAddress }));
   });
 
-  it('is disabled when chainKey is missing', () => {
-    const opts = getBalancesQueryOptions(makeSodax({ ok: true, value: {} }), {
-      chainKey: undefined,
-      tokens: [tokenA],
-      address: '0xuser',
-    });
-    expect(opts.enabled).toBe(false);
-  });
-
-  it('is disabled when address is missing', () => {
-    const opts = getBalancesQueryOptions(makeSodax({ ok: true, value: {} }), {
-      chainKey: 'sonic',
-      tokens: [tokenA],
-      address: undefined,
-    });
-    expect(opts.enabled).toBe(false);
-  });
-
-  it('is disabled when tokens is empty', () => {
-    const opts = getBalancesQueryOptions(makeSodax({ ok: true, value: {} }), {
-      chainKey: 'sonic',
-      tokens: [],
-      address: '0xuser',
-    });
-    expect(opts.enabled).toBe(false);
-  });
-
-  it('is enabled when all inputs are present', () => {
-    const opts = getBalancesQueryOptions(makeSodax({ ok: true, value: {} }), {
-      chainKey: 'sonic',
-      tokens: [tokenA],
-      address: '0xuser',
-    });
-    expect(opts.enabled).toBe(true);
+  it('is enabled only when chainKey, address, and tokens are all present', () => {
+    const sodax = makeSodax({ ok: true, value: {} });
+    const inputs = { chainKey: 'sonic' as const, tokens: [tokenA], address: '0xuser' };
+    expect(getBalancesQueryOptions(sodax, inputs).enabled).toBe(true);
+    expect(getBalancesQueryOptions(sodax, { ...inputs, chainKey: undefined }).enabled).toBe(false);
+    expect(getBalancesQueryOptions(sodax, { ...inputs, address: undefined }).enabled).toBe(false);
+    expect(getBalancesQueryOptions(sodax, { ...inputs, tokens: [] }).enabled).toBe(false);
   });
 
   it('queryFn delegates to sodax.spoke.getWalletBalances and unwraps the Result value', async () => {

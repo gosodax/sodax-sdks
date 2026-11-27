@@ -4,6 +4,9 @@
  * it, every integration re-implemented it and could drop the wait or the abort, which costs the user
  * gas on a transaction certain to revert.
  *
+ * This suite also holds the shared `runApprovalPlan` chain and ordering matrix; the bridge and
+ * leverage-yield suites pin only their own wiring on top of it.
+ *
  * Follows the package convention of testing hooks without a renderer: the React Query wrapper is
  * mocked so `mutationFn` can be captured and driven directly.
  */
@@ -70,34 +73,23 @@ beforeEach(() => {
 });
 
 describe('useSwapsApiApproveAndBroadcast', () => {
-  it('broadcasts the reset, waits for it, then approves — and reports both hashes', async () => {
+  it('broadcasts the reset, waits for it, then approves — and reports both hashes and progress', async () => {
     approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX, resetTx: RESET_TX } });
     const calls: string[] = [];
     const walletProvider = evmProvider(calls);
+    const events: ApprovalProgress[] = [];
 
-    const result = await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider });
+    const result = await run({
+      body: body(ChainKeys.ARBITRUM_MAINNET),
+      walletProvider,
+      onProgress: (progress: ApprovalProgress) => events.push(progress),
+    });
 
     expect(result).toEqual({ resetTxHash: RESET_HASH, approveTxHash: APPROVE_HASH });
     // The wait has to sit between the two sends; approving over an unconfirmed reset reverts.
     expect(calls).toEqual(['send:0xreset', `wait:${RESET_HASH}`, 'send:0xapprove', `wait:${APPROVE_HASH}`]);
-  });
-
-  it('re-checks the allowance through the same API once the approve confirms', async () => {
-    approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX } });
-    const calls: string[] = [];
-    checkAllowance.mockImplementation(async () => {
-      calls.push('check');
-      return { ok: true, value: { valid: true } };
-    });
-    const apiConfig = { baseURL: 'https://api.example' };
-
-    await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider: evmProvider(calls), apiConfig });
-
-    expect(calls).toEqual(['send:0xapprove', `wait:${APPROVE_HASH}`, 'check']);
-    expect(checkAllowance).toHaveBeenCalledWith(body(ChainKeys.ARBITRUM_MAINNET), {
-      ...apiConfig,
-      timeout: expect.any(Number),
-    });
+    expect(events).toHaveLength(6);
+    expect(events.at(-1)).toMatchObject({ step: 'approve', phase: 'confirmed', index: 2, total: 2 });
   });
 
   it('never sends the approve when the reset fails to confirm', async () => {
@@ -140,15 +132,24 @@ describe('useSwapsApiApproveAndBroadcast', () => {
     );
   });
 
-  it('sends one transaction and omits resetTxHash for an ordinary token', async () => {
+  it('sends one transaction for an ordinary token, then re-checks the allowance through the same API', async () => {
     approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX } });
     const calls: string[] = [];
+    checkAllowance.mockImplementation(async () => {
+      calls.push('check');
+      return { ok: true, value: { valid: true } };
+    });
     const walletProvider = evmProvider(calls);
+    const apiConfig = { baseURL: 'https://api.example' };
 
-    const result = await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider });
+    const result = await run({ body: body(ChainKeys.ARBITRUM_MAINNET), walletProvider, apiConfig });
 
     expect(result).toEqual({ approveTxHash: APPROVE_HASH });
-    expect(walletProvider.sendTransaction).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(['send:0xapprove', `wait:${APPROVE_HASH}`, 'check']);
+    expect(checkAllowance).toHaveBeenCalledWith(body(ChainKeys.ARBITRUM_MAINNET), {
+      ...apiConfig,
+      timeout: expect.any(Number),
+    });
     // Backend-built approvals are chain-bound: the runner must pass the source chain's id.
     expect(walletProvider.sendTransaction).toHaveBeenCalledWith(expect.anything(), {
       expectedChainId: getEvmViemChain(ChainKeys.ARBITRUM_MAINNET).id,
@@ -206,16 +207,7 @@ describe('useSwapsApiApproveAndBroadcast', () => {
     );
   });
 
-  it('invalidates the allowance query once the approval has confirmed', async () => {
-    useSwapsApiApproveAndBroadcast();
-
-    await captured.onSuccess({ approveTxHash: APPROVE_HASH }, {}, undefined);
-
-    // The hook owns confirmation now, so unlike useSwapsApiApprove it can refresh this itself.
-    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['swapsApi', 'allowance'] });
-  });
-
-  it('awaits the allowance refetch before resolving — a stale cache must not re-enable Approve', async () => {
+  it('awaits the allowance invalidation before resolving — a stale cache must not re-enable Approve', async () => {
     useSwapsApiApproveAndBroadcast();
     const order: string[] = [];
     // A macrotask, not a microtask: any resolution that happens without awaiting invalidateQueries
@@ -233,20 +225,8 @@ describe('useSwapsApiApproveAndBroadcast', () => {
     await captured.onSuccess({ approveTxHash: APPROVE_HASH }, {}, undefined);
     order.push('onSuccess:resolved');
 
+    // The hook owns confirmation now, so unlike useSwapsApiApprove it can refresh this itself.
+    expect(invalidateQueries).toHaveBeenCalledWith({ queryKey: ['swapsApi', 'allowance'] });
     expect(order).toEqual(['invalidate:done', 'onSuccess:resolved']);
-  });
-
-  it('reports progress too — the runner is shared, so swaps must not be left without it', async () => {
-    approve.mockResolvedValue({ ok: true, value: { tx: APPROVE_TX, resetTx: RESET_TX } });
-    const events: ApprovalProgress[] = [];
-
-    await run({
-      body: body(ChainKeys.ARBITRUM_MAINNET),
-      walletProvider: evmProvider([]),
-      onProgress: (progress: ApprovalProgress) => events.push(progress),
-    });
-
-    expect(events).toHaveLength(6);
-    expect(events.at(-1)).toMatchObject({ step: 'approve', phase: 'confirmed', index: 2, total: 2 });
   });
 });

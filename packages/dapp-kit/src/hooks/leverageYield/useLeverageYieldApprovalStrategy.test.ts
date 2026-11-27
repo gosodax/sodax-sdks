@@ -45,7 +45,8 @@ beforeEach(() => {
 });
 
 describe('useLeverageYieldApprovalStrategy', () => {
-  it('keys on chain, owner, token, stringified amount and direction', () => {
+  it('keys on chain, owner, token, stringified amount and direction, and spreads the payload into the SDK call', async () => {
+    getApprovalStrategy.mockResolvedValueOnce({ ok: true, value: 'atomic-batch' });
     useLeverageYieldApprovalStrategy({ params: { payload: PAYLOAD, walletProvider: WALLET } });
     expect(captured.queryKey).toEqual([
       'leverageYield',
@@ -59,12 +60,6 @@ describe('useLeverageYieldApprovalStrategy', () => {
     ]);
     expect(captured.enabled).toBe(true);
     expect(captured.refetchInterval).toBeUndefined();
-  });
-
-  it('spreads the payload into the SDK call and unwraps the strategy', async () => {
-    getApprovalStrategy.mockResolvedValueOnce({ ok: true, value: 'atomic-batch' });
-    useLeverageYieldApprovalStrategy({ params: { payload: PAYLOAD, walletProvider: WALLET } });
-
     await expect(captured.queryFn()).resolves.toBe('atomic-batch');
     expect(getApprovalStrategy).toHaveBeenCalledWith({
       ...PAYLOAD,

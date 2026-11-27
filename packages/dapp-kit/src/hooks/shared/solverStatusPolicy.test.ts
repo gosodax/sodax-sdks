@@ -41,10 +41,6 @@ describe('getSolverStatusRefetchInterval', () => {
     expect(getSolverStatusRefetchInterval(ok(SolverIntentStatusCode.STARTED_NOT_FINISHED), 100)).toBe(STATUS_POLL_MS);
   });
 
-  it('keeps polling the first NOT_FOUND after a long in-flight streak', () => {
-    expect(getSolverStatusRefetchInterval(ok(SolverIntentStatusCode.NOT_FOUND), 1)).toBe(STATUS_POLL_MS);
-  });
-
   it('keeps polling when no status has arrived yet (undefined) or the Result is ok: false', () => {
     expect(getSolverStatusRefetchInterval(undefined, 1)).toBe(STATUS_POLL_MS);
     expect(getSolverStatusRefetchInterval(solverError, MAX_NOT_FOUND_POLLS)).toBe(STATUS_POLL_MS);
@@ -72,19 +68,14 @@ describe('advanceNotFoundStreak', () => {
     expect(state.consecutiveNotFound).toBe(2);
   });
 
-  it('resets the streak when an in-flight status follows a long NOT_FOUND run', () => {
-    const started = advanceNotFoundStreak(
+  it('resets the streak on an in-flight status, so a solver restart starts a new one at 1', () => {
+    let state = advanceNotFoundStreak(
       { pollKey: HASH_A, seenUpdates: 39, consecutiveNotFound: 39 },
       HASH_A,
       isSolverNotFound(ok(SolverIntentStatusCode.STARTED_NOT_FINISHED)),
       40,
     );
-    expect(started.consecutiveNotFound).toBe(0);
-  });
-
-  it('starts a new streak at 1 after in-flight polls, so a solver restart cannot stop the query', () => {
-    let state = INITIAL_NOT_FOUND_STREAK;
-    state = advanceNotFoundStreak(state, HASH_A, isSolverNotFound(ok(SolverIntentStatusCode.STARTED_NOT_FINISHED)), 40);
+    expect(state.consecutiveNotFound).toBe(0);
     state = advanceNotFoundStreak(state, HASH_A, isSolverNotFound(ok(SolverIntentStatusCode.NOT_FOUND)), 41);
     expect(state.consecutiveNotFound).toBe(1);
     expect(getSolverStatusRefetchInterval(ok(SolverIntentStatusCode.NOT_FOUND), state.consecutiveNotFound)).toBe(

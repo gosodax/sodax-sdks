@@ -27,20 +27,11 @@ describe('getStellarTrustlineCheckQueryOptions — query key', () => {
     expect(optionsFor().queryKey).toEqual(['shared', 'stellarTrustlineCheck', STELLAR, TOKEN, WALLET_A, '100']);
   });
 
-  it('produces independent keys for two accounts with the same token/amount/chain', () => {
-    expect(optionsFor({ walletAddress: WALLET_A }).queryKey).not.toEqual(
-      optionsFor({ walletAddress: WALLET_B }).queryKey,
-    );
-  });
-
-  it('produces a different key when the amount changes', () => {
-    expect(optionsFor({ amount: 100n }).queryKey).not.toEqual(optionsFor({ amount: 10_000n }).queryKey);
-  });
-
-  it('produces a different key when the chain changes', () => {
-    expect(optionsFor({ chainId: STELLAR }).queryKey).not.toEqual(
-      optionsFor({ chainId: ChainKeys.SONIC_MAINNET }).queryKey,
-    );
+  it('re-keys when the account, amount, or chain changes', () => {
+    const base = optionsFor().queryKey;
+    expect(optionsFor({ walletAddress: WALLET_B }).queryKey).not.toEqual(base);
+    expect(optionsFor({ amount: 10_000n }).queryKey).not.toEqual(base);
+    expect(optionsFor({ chainId: ChainKeys.SONIC_MAINNET }).queryKey).not.toEqual(base);
   });
 
   it('shares the useEstablishTrustline invalidation prefix (chain, token, account) across every amount', () => {

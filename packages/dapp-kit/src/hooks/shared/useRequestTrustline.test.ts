@@ -64,17 +64,7 @@ describe('useRequestTrustline — 2.0.0 compatibility wrapper', () => {
     expect(result.isRequested).toBe(false);
   });
 
-  it('maps isLoading to the mutation pending state', () => {
-    expect(render({ isPending: true }).isLoading).toBe(true);
-  });
-
-  it('surfaces the mutation error', () => {
-    const error = new Error('trustline failed');
-
-    expect(render({ error }).error).toBe(error);
-  });
-
-  it('LATCHES isRequested and data, so a failed retry cannot un-report a live trustline', () => {
+  it('maps pending/error, and LATCHES isRequested and data so a failed retry keeps the live trustline', () => {
     const first = render({ isSuccess: true, data: 'hash' });
     expect(first.isRequested).toBe(true);
     expect(first.data).toBe('hash');
@@ -82,10 +72,13 @@ describe('useRequestTrustline — 2.0.0 compatibility wrapper', () => {
     // React Query clears data and isSuccess once the next attempt starts; 2.0.0 held both
     // in component state and never cleared them.
     const retrying = render({ isPending: true });
+    expect(retrying.isLoading).toBe(true);
     expect(retrying.isRequested).toBe(true);
     expect(retrying.data).toBe('hash');
 
-    const failed = render({ error: new Error('nope') });
+    const error = new Error('nope');
+    const failed = render({ error });
+    expect(failed.error).toBe(error);
     expect(failed.isRequested).toBe(true);
     expect(failed.data).toBe('hash');
   });

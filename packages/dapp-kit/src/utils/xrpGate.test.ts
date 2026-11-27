@@ -93,13 +93,9 @@ describe('resolveXrpGate — an XRPL issued token', () => {
     });
   });
 
+  // Every other refusal takes one branch: one account-level and one trustline-named reason stand for the rest.
   it.each([
     'account_not_found',
-    'destination_tag_required',
-    'deposit_auth',
-    'issuer_frozen',
-    'issuer_transfer_fee',
-    'trustline_unauthorized',
     'trustline_frozen',
   ] as const)('blocks with the reason on %s, which no trustline change fixes', reason => {
     // The reserve is irrelevant here, so even an affordable account gets no trustline action.

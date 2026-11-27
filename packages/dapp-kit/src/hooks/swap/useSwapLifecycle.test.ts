@@ -110,15 +110,32 @@ beforeEach(() => {
 });
 
 describe('useSwapLifecycle', () => {
+  // The gates must check the account the swap pays, not whichever destination account the app tracks.
   it('feeds the sub-hooks from the intent params', () => {
     stub();
     run();
 
     expect(strategyHook).toHaveBeenCalledWith({ params: { payload: PARAMS, walletProvider: WALLET } });
     expect(stellarHook).toHaveBeenCalledWith(
-      expect.objectContaining({ dstChainKey: ChainKeys.ARBITRUM_MAINNET, amount: PARAMS.minOutputAmount }),
+      expect.objectContaining({
+        dstChainKey: ChainKeys.ARBITRUM_MAINNET,
+        address: PARAMS.dstAddress,
+        amount: PARAMS.minOutputAmount,
+      }),
     );
-    expect(nearHook).toHaveBeenCalledWith(expect.objectContaining({ dstChainKey: ChainKeys.ARBITRUM_MAINNET }));
+    expect(nearHook).toHaveBeenCalledWith(
+      expect.objectContaining({ dstChainKey: ChainKeys.ARBITRUM_MAINNET, accountId: PARAMS.dstAddress }),
+    );
+    // Sized as the SDK sizes its check before signing.
+    expect(xrpHook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dstChainKey: ChainKeys.ARBITRUM_MAINNET,
+        address: PARAMS.dstAddress,
+        token: PARAMS.outputToken,
+        amount: PARAMS.minOutputAmount,
+        maxAmount: PARAMS.minOutputAmount * 2n,
+      }),
+    );
     // No attempt yet, so the status read stays disabled.
     expect(statusHook).toHaveBeenCalledWith({ params: { srcChainKey: undefined, srcTxHash: undefined } });
   });
@@ -132,32 +149,24 @@ describe('useSwapLifecycle', () => {
     expect(stellarHook).toHaveBeenLastCalledWith(expect.objectContaining({ amount: undefined }));
   });
 
-  it('swaps from the ready state with the configured extras and timeout', async () => {
-    stub();
+  it('swaps from the ready state with the configured extras, timeout and allowAccountUpgrade', async () => {
+    stub({ strategy: 'sequential' });
     mutateAsyncSafe.mockResolvedValueOnce({ ok: true, value: {} });
-    const lifecycle = run({ extras: { apiKey: 'k' }, timeout: 30_000 });
+    const lifecycle = run({ extras: { apiKey: 'k' }, timeout: 30_000, allowAccountUpgrade: false });
 
-    expect(lifecycle.state).toEqual({ kind: 'ready', approvalStrategy: 'atomic-batch' });
+    expect(strategyHook).toHaveBeenCalledWith({
+      params: { payload: PARAMS, walletProvider: WALLET, allowAccountUpgrade: false },
+    });
+    expect(lifecycle.state).toEqual({ kind: 'ready', approvalStrategy: 'sequential' });
     await lifecycle.next();
 
     expect(mutateAsyncSafe).toHaveBeenCalledWith({
       params: PARAMS,
       walletProvider: WALLET,
+      allowAccountUpgrade: false,
       extras: { apiKey: 'k' },
       timeout: 30_000,
     });
-  });
-
-  it('passes allowAccountUpgrade to the strategy read and the swap', async () => {
-    stub({ strategy: 'sequential' });
-    mutateAsyncSafe.mockResolvedValueOnce({ ok: true, value: {} });
-    const lifecycle = run({ allowAccountUpgrade: false });
-
-    expect(strategyHook).toHaveBeenCalledWith({
-      params: { payload: PARAMS, walletProvider: WALLET, allowAccountUpgrade: false },
-    });
-    await lifecycle.next();
-    expect(mutateAsyncSafe).toHaveBeenCalledWith(expect.objectContaining({ allowAccountUpgrade: false }));
   });
 
   it('reads status from the source tx of the current swap and settles on solved', () => {
@@ -211,43 +220,6 @@ describe('useSwapLifecycle', () => {
     expect(mutateAsyncSafe).not.toHaveBeenCalled();
   });
 
-  // The gates must check the account the swap pays, not whichever destination account the app tracks.
-  it('checks the Stellar and NEAR gates on the intent recipient', () => {
-    stub();
-    run();
-
-    expect(stellarHook).toHaveBeenCalledWith(expect.objectContaining({ address: PARAMS.dstAddress }));
-    expect(nearHook).toHaveBeenCalledWith(expect.objectContaining({ accountId: PARAMS.dstAddress }));
-  });
-
-  it('sizes the XRPL trustline check as the SDK sizes its check before signing', () => {
-    stub();
-    run({ intentParams: { ...PARAMS, dstChainKey: ChainKeys.XRP_MAINNET } });
-
-    expect(xrpHook).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dstChainKey: ChainKeys.XRP_MAINNET,
-        address: PARAMS.dstAddress,
-        token: PARAMS.outputToken,
-        amount: PARAMS.minOutputAmount,
-        maxAmount: PARAMS.minOutputAmount * 2n,
-      }),
-    );
-  });
-
-  it.each([
-    ['xrpBlocked', { blockedReason: 'issuer_frozen' }],
-    ['xrpFunding', { needsFunding: true }],
-  ] as const)('leaves %s to the app and sends nothing', async (reason, gate) => {
-    stub({ xrp: { isXrpIssuedToken: true, blocksAction: true, ...gate } });
-    const lifecycle = run();
-
-    expect(lifecycle.state).toEqual({ kind: 'needsSetup', reason });
-    expect(await lifecycle.next()).toBeUndefined();
-    expect(openGate.requestTrustline).not.toHaveBeenCalled();
-    expect(mutateAsyncSafe).not.toHaveBeenCalled();
-  });
-
   it('holds the XRPL trustline step while its TrustSet is in flight', async () => {
     stub({ xrp: { isXrpIssuedToken: true, needsTrustline: true, blocksAction: true, isRequestingTrustline: true } });
     const lifecycle = run();
@@ -295,7 +267,7 @@ describe('useSwapLifecycle', () => {
     expect(mutateAsyncSafe).not.toHaveBeenCalled();
   });
 
-  it('resumes an unconfirmed batch from next() instead of sending it again, and exposes its error', async () => {
+  it('resumes an unconfirmed batch with the vars that sent it, even after the params change', async () => {
     const error = new SodaxError('TX_VERIFICATION_FAILED', 'batch not confirmed', {
       feature: 'swap',
       context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1', callCount: 2 },
@@ -303,27 +275,13 @@ describe('useSwapLifecycle', () => {
     const sent = { params: PARAMS, walletProvider: WALLET, extras: { apiKey: 'k' }, timeout: 30_000 };
     stub({ swap: { status: 'error', error, variables: sent } });
     mutateAsyncSafe.mockResolvedValueOnce({ ok: true, value: {} });
-    const lifecycle = run();
+    const lifecycle = run({ intentParams: { ...PARAMS, minOutputAmount: 899_000n } });
 
     expect(lifecycle.state).toEqual({ kind: 'unconfirmed', batchId: 'batch-1', callCount: 2, error });
     expect(lifecycle.error).toBe(error);
     await lifecycle.next();
     expect(resetSwap).not.toHaveBeenCalled();
     expect(mutateAsyncSafe).toHaveBeenCalledWith({ ...sent, resumeBatchId: 'batch-1', resumeBatchCallCount: 2 });
-  });
-
-  it('keeps an unconfirmed batch after the params change, and resumes it with the params that sent it', async () => {
-    const error = new SodaxError('TX_VERIFICATION_FAILED', 'batch not confirmed', {
-      feature: 'swap',
-      context: { reason: ATOMIC_BATCH_UNCONFIRMED, batchId: 'batch-1' },
-    });
-    stub({ swap: { status: 'error', error, variables: { params: PARAMS, walletProvider: WALLET } } });
-    mutateAsyncSafe.mockResolvedValueOnce({ ok: true, value: {} });
-    const lifecycle = run({ intentParams: { ...PARAMS, minOutputAmount: 899_000n } });
-
-    expect(lifecycle.state).toEqual({ kind: 'unconfirmed', batchId: 'batch-1', error });
-    await lifecycle.next();
-    expect(mutateAsyncSafe).toHaveBeenCalledWith({ params: PARAMS, walletProvider: WALLET, resumeBatchId: 'batch-1' });
   });
 
   it('runs one next() at a time, so a double click swaps once', async () => {
@@ -347,19 +305,7 @@ describe('useSwapLifecycle', () => {
     expect(mutateAsyncSafe).toHaveBeenCalledTimes(2);
   });
 
-  it('exposes the error of a swap that failed after broadcast while it stays pending', () => {
-    const error = new SodaxError('RELAY_TIMEOUT', 'relay timed out', {
-      feature: 'swap',
-      context: { srcChainKey: ChainKeys.BSC_MAINNET, srcTxHash: '0xsrc' },
-    });
-    stub({ swap: { status: 'error', error, variables: { params: PARAMS } } });
-    const lifecycle = run();
-
-    expect(lifecycle.state).toMatchObject({ kind: 'pending', srcTxHash: '0xsrc' });
-    expect(lifecycle.error).toBe(error);
-  });
-
-  it('keeps a recovery-only attempt pending across an input edit without sending again', async () => {
+  it('keeps a recovery-only attempt pending across an input edit, exposing its error, without sending again', async () => {
     const recovery = { validUntil: 42 };
     const failure = intentCreationFailed(
       'swap',
@@ -372,6 +318,7 @@ describe('useSwapLifecycle', () => {
     const lifecycle = run({ intentParams: { ...PARAMS, minOutputAmount: 899_000n } });
 
     expect(lifecycle.state).toEqual({ kind: 'pending', srcChainKey: PARAMS.srcChainKey, recovery, error: failure });
+    expect(lifecycle.error).toBe(failure);
     expect(statusHook).toHaveBeenCalledWith({ params: { srcChainKey: undefined, srcTxHash: undefined } });
     await expect(lifecycle.next()).resolves.toBeUndefined();
     expect(mutateAsyncSafe).not.toHaveBeenCalled();

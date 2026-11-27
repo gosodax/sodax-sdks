@@ -29,14 +29,11 @@ const makeSodax = (result: Result<StellarSponsorConfig, SponsoringConfigError>) 
 const configError = new SodaxError('EXTERNAL_API_ERROR', 'sponsoring API unreachable', { feature: 'backend' });
 
 describe('getSponsorConfigQueryOptions', () => {
-  it('uses a fixed key — the config is not parameterised', () => {
+  it("uses a fixed key and reuses the SDK's TTL, so both mirror the server's max-age=60", () => {
     const { sodax } = makeSodax({ ok: true, value: CONFIG });
-    expect(getSponsorConfigQueryOptions({ sodax }).queryKey).toEqual(['sponsoring', 'sponsorConfig']);
-  });
-
-  it("reuses the SDK's TTL so both mirror the server's max-age=60", () => {
-    const { sodax } = makeSodax({ ok: true, value: CONFIG });
-    expect(getSponsorConfigQueryOptions({ sodax }).staleTime).toBe(SPONSOR_CONFIG_TTL_MS);
+    const options = getSponsorConfigQueryOptions({ sodax });
+    expect(options.queryKey).toEqual(['sponsoring', 'sponsorConfig']);
+    expect(options.staleTime).toBe(SPONSOR_CONFIG_TTL_MS);
   });
 
   it('returns the published build parameters', async () => {

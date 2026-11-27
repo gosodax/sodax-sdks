@@ -12,13 +12,10 @@ describe('isTerminalSwapIntentStatus', () => {
     expect(isTerminalSwapIntentStatus(4)).toBe(true);
   });
 
-  it('is non-terminal for NOT_FOUND (-1), NOT_STARTED_YET (1), and STARTED_NOT_FINISHED (2)', () => {
+  it('is non-terminal for NOT_FOUND (-1), NOT_STARTED_YET (1), STARTED_NOT_FINISHED (2) and no status yet', () => {
     expect(isTerminalSwapIntentStatus(-1)).toBe(false);
     expect(isTerminalSwapIntentStatus(1)).toBe(false);
     expect(isTerminalSwapIntentStatus(2)).toBe(false);
-  });
-
-  it('is non-terminal when no status has arrived yet (undefined) — keeps polling', () => {
     expect(isTerminalSwapIntentStatus(undefined)).toBe(false);
   });
 });

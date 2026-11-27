@@ -84,12 +84,9 @@ describe('isSameIntent', () => {
     expect(isSameIntent(PARAMS, { ...PARAMS, deadline: 999n })).toBe(true);
   });
 
-  it('treats a different amount or recipient as a different swap', () => {
+  it('treats a different amount, recipient, hook, data or fill mode as a different swap', () => {
     expect(isSameIntent(PARAMS, { ...PARAMS, inputAmount: 2n })).toBe(false);
     expect(isSameIntent(PARAMS, { ...PARAMS, dstAddress: '0x3333333333333333333333333333333333333333' })).toBe(false);
-  });
-
-  it('treats turning a delivery hook on, or changing data or fill mode, as a different swap', () => {
     expect(isSameIntent(PARAMS, { ...PARAMS, hook: { kind: HookKind.FLINT_DEPOSIT } })).toBe(false);
     expect(isSameIntent(PARAMS, { ...PARAMS, data: '0x01' })).toBe(false);
     expect(isSameIntent(PARAMS, { ...PARAMS, allowPartialFill: true })).toBe(false);
@@ -221,6 +218,11 @@ describe('resolveSwapLifecycle', () => {
         inputs({ attempt: { phase: 'unconfirmed', batchId: 'batch-1', callCount: 2, error }, isWrongChain: true }),
       ),
     ).toEqual({ kind: 'unconfirmed', batchId: 'batch-1', callCount: 2, error });
+    expect(resolveSwapLifecycle(inputs({ attempt: { phase: 'unconfirmed', batchId: 'batch-1', error } }))).toEqual({
+      kind: 'unconfirmed',
+      batchId: 'batch-1',
+      error,
+    });
   });
 
   it('reports a failure before broadcast', () => {
@@ -249,19 +251,6 @@ describe('resolveSwapLifecycle', () => {
     expect(resolveSwapLifecycle(inputs({ xrp: { ...OPEN_XRP, isXrpIssuedToken: true, ...gate } }))).toEqual({
       kind: 'needsSetup',
       reason,
-    });
-  });
-
-  it('is checking while the XRPL gate resolves, or while a TrustSet and its refreshed check run', () => {
-    const xrp = { ...OPEN_XRP, isXrpIssuedToken: true, blocksAction: true };
-    expect(resolveSwapLifecycle(inputs({ xrp }))).toEqual({ kind: 'checking' });
-    expect(resolveSwapLifecycle(inputs({ xrp: { ...xrp, needsTrustline: true }, setupBusy: true }))).toEqual({
-      kind: 'checking',
-    });
-    // Once the trustline is in place the swap goes ahead.
-    expect(resolveSwapLifecycle(inputs({ xrp: { ...OPEN_XRP, isXrpIssuedToken: true } }))).toEqual({
-      kind: 'ready',
-      approvalStrategy: 'atomic-batch',
     });
   });
 
@@ -298,6 +287,9 @@ describe('resolveSwapLifecycle', () => {
     expect(
       resolveSwapLifecycle(inputs({ nearStorage: { isNear: true, needsRegistration: false, blocksAction: true } })),
     ).toEqual({
+      kind: 'checking',
+    });
+    expect(resolveSwapLifecycle(inputs({ xrp: { ...OPEN_XRP, isXrpIssuedToken: true, blocksAction: true } }))).toEqual({
       kind: 'checking',
     });
   });
