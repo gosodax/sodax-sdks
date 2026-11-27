@@ -92,50 +92,29 @@ const HOOKS: Array<{ path: string; nativeThrow?: true }> = [
   { path: 'bridgeApi/useBridgeApiSubmitTx.ts' },
 ];
 
-describe.each(HOOKS)('mutation hook contract: $path', ({ path, nativeThrow }) => {
-  const src = readFileSync(resolve(HOOKS_DIR, path), 'utf8');
-
-  it('uses useSafeMutation (not useMutation)', () => {
-    expect(src).toMatch(/useSafeMutation</);
-    // Negative lookbehind excludes useSafeMutation; catches a regression to bare useMutation.
-    expect(src).not.toMatch(/(?<!Safe)useMutation</);
-  });
-
-  it('returns SafeUseMutationResult', () => {
-    expect(src).toMatch(/SafeUseMutationResult</);
-  });
-
-  it('sets a default mutationKey before the mutationOptions spread', () => {
+// One test per hook; `expect.soft` reports every broken rule by name instead of stopping at the first.
+describe('mutation hook contract', () => {
+  it.each(HOOKS)('$path', ({ path, nativeThrow }) => {
+    const src = readFileSync(resolve(HOOKS_DIR, path), 'utf8');
     const keyIdx = src.search(/mutationKey:\s*\[/);
     const spreadIdx = src.indexOf('...mutationOptions');
-    expect(keyIdx).toBeGreaterThan(-1);
-    expect(spreadIdx).toBeGreaterThan(-1);
-    expect(keyIdx).toBeLessThan(spreadIdx);
-  });
-
-  it('mutationKey first segment matches feature directory', () => {
-    // Feature directory = first segment of `path`. e.g. `mm/useSupply.ts` → `mm`.
-    const featureDir = path.split('/')[0];
-    const match = src.match(/mutationKey:\s*\[\s*'([^']+)'/);
-    expect(match).not.toBeNull();
-    expect(match?.[1]).toBe(featureDir);
-  });
-
-  it('defines mutationFn after the mutationOptions spread', () => {
-    const spreadIdx = src.indexOf('...mutationOptions');
     const fnIdx = src.search(/\bmutationFn:/);
-    expect(fnIdx).toBeGreaterThan(spreadIdx);
-  });
 
-  it('routes balance invalidation through invalidateBalances', () => {
-    // Hand-rolling one balance key invalidates only one of the two balance hooks (useBalances vs
-    // useXBalances) and leaves the other stale — the exact drift the shared helper exists to stop.
-    expect(src).not.toMatch(/invalidateQueries\(\{\s*queryKey:\s*\[\s*'shared',\s*'x?[bB]alances'/);
+    expect.soft(src, 'uses useSafeMutation').toMatch(/useSafeMutation</);
+    // Negative lookbehind excludes useSafeMutation; catches a regression to bare useMutation.
+    expect.soft(src, 'does not use bare useMutation').not.toMatch(/(?<!Safe)useMutation</);
+    expect.soft(src, 'returns SafeUseMutationResult').toMatch(/SafeUseMutationResult</);
+    expect.soft(keyIdx, 'sets a default mutationKey').toBeGreaterThan(-1);
+    expect.soft(spreadIdx, 'spreads mutationOptions').toBeGreaterThan(-1);
+    expect.soft(keyIdx, 'sets mutationKey before the mutationOptions spread').toBeLessThan(spreadIdx);
+    expect
+      .soft(src.match(/mutationKey:\s*\[\s*'([^']+)'/)?.[1], 'mutationKey first segment matches feature directory')
+      .toBe(path.split('/')[0]);
+    expect.soft(fnIdx, 'defines mutationFn after the mutationOptions spread').toBeGreaterThan(spreadIdx);
+    // Hand-rolling one balance key leaves the other balance hook (useBalances vs useXBalances) stale.
+    expect
+      .soft(src, 'routes balance invalidation through invalidateBalances')
+      .not.toMatch(/invalidateQueries\(\{\s*queryKey:\s*\[\s*'shared',\s*'x?[bB]alances'/);
+    if (!nativeThrow) expect.soft(src, 'translates SDK Result via unwrapResult').toMatch(/unwrapResult\(/);
   });
-
-  if (!nativeThrow) {
-    it('translates SDK Result via unwrapResult', () => {
-      expect(src).toMatch(/unwrapResult\(/);
-    });
-  }
 });
