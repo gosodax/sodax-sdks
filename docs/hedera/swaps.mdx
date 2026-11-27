@@ -13,7 +13,7 @@ From your side it is one SDK call. From your user's side it is one wallet prompt
 - **Source**: the intent transaction is an EVM transaction sent through Hedera's JSON-RPC relay and signed by the user's ECDSA key. `ChainKeys.HEDERA_MAINNET` (`'hedera'`) identifies the network everywhere in the SDK.
 - **Reach**: any solver-compatible asset on any SODAX network is a valid destination, <span data-sodax-config="count" data-metric="swap-tokens">166</span> assets today. The [on-Hedera asset list](/hedera/networks-and-assets) only bounds what users hold on Hedera itself, not what they can swap into.
 - **Tokens**: Hedera assets are native HTS tokens, addressed by the EVM form of their token ID. USDC is token `0.0.456858`, which the SDK lists as `0x000000000000000000000000000000000006f89a`. Read addresses from the SDK config; never convert them by hand.
-- **Settlement**: output lands on the destination network at `dstAddress`. Swaps into Hedera settle as HTS balances on the recipient's EVM address, which must be able to receive the token: see [Receiving tokens on Hedera](#receiving-tokens-on-hedera).
+- **Settlement**: output lands on the destination network at `dstAddress`. Swaps into Hedera settle as HTS balances on the recipient's EVM address, which must already be associated with the token: see [Receiving tokens on Hedera](#receiving-tokens-on-hedera).
 
 ## Approvals {#approvals}
 
@@ -66,54 +66,38 @@ Orchestrating manually with `createIntent` and `submitIntent` works the same as 
 
 ## Receiving tokens on Hedera {#receiving-tokens-on-hedera}
 
-On most EVM networks any address can receive any token. On Hedera an account receives an HTS token only if it is **associated** with that token, or still has a free **automatic association** slot. A delivery to an account that is neither fails. This applies whenever Hedera is the destination: a swap into Hedera, or a money market borrow or withdraw delivered to Hedera. HBAR itself needs no association.
+On most EVM networks any address can receive any token. On Hedera an account receives an HTS token only if it is **associated** with that token. This applies whenever Hedera is the destination: a swap into Hedera, or a money market borrow or withdraw delivered to Hedera. HBAR itself needs no association.
 
-Whether an account qualifies depends on how it was created:
+For a SODAX delivery the association must already exist. A free or unlimited **automatic association** slot is not enough, even though Hedera would use one for an ordinary transfer: using it during delivery costs more gas than the relay's delivery execution provides, so the delivery fails. Accounts auto-created at an EVM address have unlimited slots, so most EVM-wallet users still need to associate each HTS token once before their first delivery of it.
 
-| `max_automatic_token_associations` | What the account can receive |
-| - | - |
-| `-1` | Any token. The default for accounts auto-created by sending to an EVM address, and for hollow accounts once completed. Most accounts made by EVM wallets are in this group. |
-| `> 0` | New tokens until that many slots are used, then only tokens it is already associated with. |
-| `0` | Only tokens it is already associated with. |
-
-Check before you submit, using Hedera's public mirror node. It accepts an EVM address directly:
+The SDK checks this for you. Before signing, it refuses a delivery of an HTS token to a Hedera account that cannot receive it, with `context.reason` set to `hedera-<reason>`. Check the recipient yourself to offer the fix first:
 
 ```typescript
-const MIRROR = 'https://mainnet-public.mirrornode.hedera.com/api/v1';
+const readiness = await sodax.spoke.hedera.checkDestination({ address: dstAddress, token: usdc.address });
 
-// tokenAddress is the SDK's EVM address for the HTS token, e.g. usdc.address
-async function canReceiveOnHedera(evmAddress: string, tokenAddress: string): Promise<boolean> {
-  const tokenId = `0.0.${BigInt(tokenAddress)}`;
-
-  const res = await fetch(`${MIRROR}/accounts/${evmAddress}`);
-  if (!res.ok) return false; // no Hedera account at this address yet
-  const account: { max_automatic_token_associations: number } = await res.json();
-  if (account.max_automatic_token_associations === -1) return true;
-
-  const rel = await fetch(`${MIRROR}/accounts/${evmAddress}/tokens?token.id=${tokenId}`);
-  const { tokens }: { tokens: { automatic_association: boolean }[] } = await rel.json();
-  if (tokens.length > 0) return true; // already associated
-
-  // Count used automatic slots; this reads the first page, which covers most accounts
-  const all = await fetch(`${MIRROR}/accounts/${evmAddress}/tokens?limit=100`);
-  const { tokens: held }: { tokens: { automatic_association: boolean }[] } = await all.json();
-  const usedSlots = held.filter(t => t.automatic_association).length;
-  return usedSlots < account.max_automatic_token_associations;
+if (!readiness.ready && readiness.reason === 'not_associated') {
+  // Associates exactly this token, signed by the account that will receive it
+  const association = await sodax.spoke.hedera.requestAssociation({
+    srcAddress: dstAddress,
+    token: usdc.address,
+    walletProvider, // an EVM wallet provider connected to dstAddress on Hedera
+  });
+  if (!association.ok) throw association.error;
 }
 ```
 
-When it returns `false`, ask the user to associate the token before you submit. From an EVM wallet that is one transaction: every HTS token exposes `associate()` at its own address ([HIP-719](https://hips.hedera.com/hip/hip-719)), signed by the account that will receive it.
+`requestAssociation` calls `associate()` on the token's own address ([HIP-719](https://hips.hedera.com/hip/hip-719)), so it associates that one token and nothing else. The account pays the network fee in HBAR. It resolves once the association is mined and the mirror node shows it. Pass `raw: true` to get the unsigned call instead.
 
-```typescript
-import { parseAbi } from 'viem';
+| `reason` | What it means | Who fixes it |
+| - | - | - |
+| `not_associated` | The account is not associated with the token | The account owner, with `requestAssociation` |
+| `account_missing` | No Hedera account exists at the address yet | The owner: create the account (send it HBAR), then associate |
+| `frozen` | The token froze this account | The token's freeze authority |
+| `kyc_not_granted` | The token requires a KYC grant the account lacks | The token's KYC authority |
 
-// walletClient: a viem wallet client for the receiving account on Hedera mainnet
-const hash = await walletClient.writeContract({
-  address: usdc.address as `0x${string}`,
-  abi: parseAbi(['function associate() returns (uint256)']),
-  functionName: 'associate',
-});
-```
+The check reads Hedera's public mirror node (`https://mainnet-public.mirrornode.hedera.com`); set `chains.hedera.mirrorNodeUrl` in the SDK config to use another. If the mirror node cannot be read, the check throws and the SDK refuses the delivery rather than send one that may fail.
+
+In React, `useSwapLifecycle` from `@sodax/dapp-kit` runs this as its `hederaAssociation` setup step: `next()` sends the association, and the swap becomes available once it lands. `hederaBlocked` reports the other reasons in `lifecycle.hedera.blockedReason`.
 
 ## Error handling
 

@@ -325,6 +325,10 @@ Typed React Query wrappers over the backend Leverage Yield API (`sodax.api.lever
 | `useEstablishXrpTrustline` | Mutation | Create or raise an XRPL trustline with one TrustSet; resolves to its hash once validated |
 | `useXrpGate` | Composite | Sequences the XRPL issued-token prerequisites: trustline → can afford; `blockedReason` for refusals no trustline fixes; `checkFailed`/`error`/`retry` |
 | `resolveXrpGate` | Utility | Derive the XRPL gate flags from the destination and reserve checks |
+| `useHederaDestinationCheck` | Query | Whether a Hedera account can receive an HTS token, and why not (`HederaDestinationReadiness`); only an existing association counts |
+| `useEstablishHederaAssociation` | Mutation | Associate exactly one HTS token with the connected Hedera account (HIP-719 `associate()`); resolves to its hash once mined and indexed |
+| `useHederaGate` | Composite | Gates a Hedera HTS-token destination on an existing association; `blockedReason` for refusals no association fixes; `checkFailed`/`error`/`retry` |
+| `resolveHederaGate` | Utility | Derive the Hedera gate flags from the destination check |
 | `useNearStorageCheck` | Query | Check NEP-141 storage registration (NEAR) |
 | `useRegisterNearStorage` | Mutation | Submit NEP-141 `storage_deposit` (NEAR) |
 | `useNearStorageGate` | Hook | Composite NEAR receive-side storage gate |

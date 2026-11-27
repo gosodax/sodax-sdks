@@ -21,7 +21,7 @@ Hedera runs the EVM, but its account and token model is its own. SODAX handles t
 
 - **Accounts must use an ECDSA key.** Hedera's EVM tooling only signs with ECDSA (secp256k1). Accounts with an ED25519 key can hold HBAR and tokens but cannot sign the EVM transactions SODAX uses. MetaMask and other EVM wallets create ECDSA accounts by default.
 - **HBAR has 8 decimals in the SDK, 18 on the wire.** SODAX tracks HBAR in its canonical 8 decimals (tinybars) and scales `msg.value` and native balances for Hedera's EVM layer, which reports 18-decimal weibars. Always build amounts from `token.decimals`, and do not mix SDK balances with raw `eth_getBalance` reads.
-- **Receiving a token can require an association.** Hedera tokens are native HTS tokens, addressed through their EVM address. An account receives a token only if it is associated with it or has a free automatic association slot. Accounts auto-created by sending to an EVM address have unlimited automatic associations; older or natively created accounts may not. See [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera).
+- **Receiving a token requires an association.** Hedera tokens are native HTS tokens, addressed through their EVM address. A SODAX delivery reaches an account only if it is already associated with the token: automatic association slots, even unlimited ones, are not enough, because using one during delivery costs more gas than the relay's delivery execution provides. The SDK checks this before signing and can send the association. See [Receiving tokens on Hedera](/hedera/swaps#receiving-tokens-on-hedera).
 
 ## What you can build
 
@@ -60,7 +60,7 @@ Two SODAX modules are relevant to Hedera builders:
 ## Hedera references
 
 - [**Hedera documentation**](https://docs.hedera.com/): accounts, HTS tokens, and the EVM on Hedera.
-- [**Auto account creation**](https://docs.hedera.com/learn/core-concepts/accounts/auto-account-creation): how EVM-address accounts are created and why they get unlimited automatic token associations.
+- [**Auto account creation**](https://docs.hedera.com/learn/core-concepts/accounts/auto-account-creation): how EVM-address accounts are created. They get unlimited automatic token associations, which SODAX deliveries cannot use.
 - [**Mirror nodes**](https://docs.hedera.com/operators/mirror-node/index): public REST endpoints for account, token, and association lookups by EVM address.
 - [**HashScan**](https://hashscan.io/): the Hedera mainnet explorer, for checking transactions and token associations.
 

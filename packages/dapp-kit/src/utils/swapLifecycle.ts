@@ -10,6 +10,7 @@ import {
 } from '@sodax/sdk';
 import type { NearStorageGateState } from './nearStorageGate.js';
 import type { StellarGateState } from './stellarGate.js';
+import type { HederaGateState } from './hederaGate.js';
 import type { XrpGateState } from './xrpGate.js';
 
 /** A prerequisite the user must resolve before the swap can go out. */
@@ -24,6 +25,9 @@ export type SwapSetupReason =
   | 'xrpFunding'
   | 'xrpBlocked'
   | 'xrpCheckFailed'
+  | 'hederaAssociation'
+  | 'hederaBlocked'
+  | 'hederaCheckFailed'
   | 'external';
 
 /**
@@ -83,6 +87,7 @@ export type SwapLifecycleInputs = {
   /** `checkFailed`: the registration check errored, so the swap waits for a retry rather than going out blind. */
   nearStorage: NearStorageGateState & { checkFailed?: boolean };
   xrp: XrpGateState;
+  hedera: HederaGateState;
   externalBlocked: boolean;
   /** A setup tx is in flight, or the check it invalidated is still refreshing: acting now would resend it. */
   setupBusy: boolean;
@@ -181,7 +186,12 @@ export function resolveSwapLifecycle(inputs: SwapLifecycleInputs): SwapLifecycle
 
   const reason = setupReason(inputs);
   if (reason) return inputs.setupBusy ? { kind: 'checking' } : { kind: 'needsSetup', reason };
-  if (inputs.stellar.blocksAction || inputs.nearStorage.blocksAction || inputs.xrp.blocksAction) {
+  if (
+    inputs.stellar.blocksAction ||
+    inputs.nearStorage.blocksAction ||
+    inputs.xrp.blocksAction ||
+    inputs.hedera.blocksAction
+  ) {
     return { kind: 'checking' };
   }
   if (inputs.isWrongChain) return { kind: 'needsChainSwitch' };
@@ -191,7 +201,13 @@ export function resolveSwapLifecycle(inputs: SwapLifecycleInputs): SwapLifecycle
   return { kind: 'ready', approvalStrategy: inputs.strategy.data };
 }
 
-function setupReason({ stellar, nearStorage, xrp, externalBlocked }: SwapLifecycleInputs): SwapSetupReason | undefined {
+function setupReason({
+  stellar,
+  nearStorage,
+  xrp,
+  hedera,
+  externalBlocked,
+}: SwapLifecycleInputs): SwapSetupReason | undefined {
   if (stellar.needsActivation) return 'stellarActivation';
   if (stellar.needsFunding) return 'stellarFunding';
   if (stellar.needsTrustline) return 'stellarTrustline';
@@ -202,6 +218,9 @@ function setupReason({ stellar, nearStorage, xrp, externalBlocked }: SwapLifecyc
   if (xrp.needsFunding) return 'xrpFunding';
   if (xrp.needsTrustline) return 'xrpTrustline';
   if (xrp.checkFailed) return 'xrpCheckFailed';
+  if (hedera.blockedReason) return 'hederaBlocked';
+  if (hedera.needsAssociation) return 'hederaAssociation';
+  if (hedera.checkFailed) return 'hederaCheckFailed';
   if (externalBlocked) return 'external';
   return undefined;
 }

@@ -532,9 +532,69 @@ describe('SpokeService.assertReleaseRecipientReady', () => {
 
   it('does not look up a recipient on a chain that cannot refuse a release', async () => {
     const checkSpy = vi.spyOn(spoke.xrp, 'checkDestination');
+    const hederaSpy = vi.spyOn(spoke.hedera, 'checkDestination');
 
     await check(ARB, encodeRecipient(ARB, SRC));
 
     expect(checkSpy).not.toHaveBeenCalled();
+    expect(hederaSpy).not.toHaveBeenCalled();
+  });
+
+  describe('Hedera', () => {
+    const HEDERA = ChainKeys.HEDERA_MAINNET;
+    const HEDERA_ADDRESS = '0x1234567890abcdef1234567890abcdef12345678';
+    const HTS_TOKEN = '0x000000000000000000000000000000000006f89a';
+    const checkHedera = () =>
+      spoke.assertReleaseRecipientReady({
+        feature: 'swap',
+        chainKey: HEDERA,
+        recipient: encodeRecipient(HEDERA, HEDERA_ADDRESS),
+        token: HTS_TOKEN,
+        amount: 5n,
+        context: { field: 'dstAddress' },
+      });
+
+    it('reads the Hedera account the release pays, for that one token', async () => {
+      const checkSpy = vi.spyOn(spoke.hedera, 'checkDestination').mockResolvedValue({ ready: true });
+      const xrpSpy = vi.spyOn(spoke.xrp, 'checkDestination');
+
+      await expect(checkHedera()).resolves.toBeUndefined();
+
+      expect(checkSpy).toHaveBeenCalledWith({ address: HEDERA_ADDRESS, token: HTS_TOKEN });
+      expect(xrpSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses an unassociated account and names the SDK call that fixes it', async () => {
+      vi.spyOn(spoke.hedera, 'checkDestination').mockResolvedValue({ ready: false, reason: 'not_associated' });
+
+      const error = await checkHedera().catch((e: unknown) => e);
+
+      invariant(isSodaxError(error), 'expected a SodaxError');
+      expect(error.code).toBe('VALIDATION_FAILED');
+      expect(error.feature).toBe('swap');
+      expect(error.message).toMatch(/sodax\.spoke\.hedera\.requestAssociation/);
+      expect(error.message).toContain(HTS_TOKEN);
+      expect(error.context).toMatchObject({ field: 'dstAddress', reason: 'hedera-not_associated' });
+    });
+
+    it.each([
+      'account_missing',
+      'frozen',
+      'kyc_not_granted',
+    ] as const)('refuses a %s account without offering an association', async reason => {
+      vi.spyOn(spoke.hedera, 'checkDestination').mockResolvedValue({ ready: false, reason });
+
+      const error = await checkHedera().catch((e: unknown) => e);
+
+      invariant(isSodaxError(error), 'expected a SodaxError');
+      expect(error.message).not.toMatch(/requestAssociation/);
+      expect(error.context).toMatchObject({ reason: `hedera-${reason}` });
+    });
+
+    it('fails closed when the mirror node cannot be read', async () => {
+      vi.spyOn(spoke.hedera, 'checkDestination').mockRejectedValue(new Error('hedera mirror node: HTTP 503'));
+
+      await expect(checkHedera()).rejects.toThrow(/HTTP 503/);
+    });
   });
 });

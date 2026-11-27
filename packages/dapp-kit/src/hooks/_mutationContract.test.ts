@@ -60,6 +60,7 @@ const HOOKS: Array<{ path: string; nativeThrow?: true }> = [
   { path: 'partner/useSetSwapPreference.ts' },
   { path: 'recovery/useWithdrawHubAsset.ts' },
   { path: 'shared/useEstablishTrustline.ts', nativeThrow: true },
+  { path: 'shared/useEstablishHederaAssociation.ts' },
   { path: 'shared/useEstablishXrpTrustline.ts' },
   { path: 'shared/useEstimateGas.ts' },
   { path: 'shared/useRegisterNearStorage.ts', nativeThrow: true },

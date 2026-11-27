@@ -16,6 +16,7 @@ import { resolveSwapLifecycle, toSwapAttempt, type SwapLifecycleState } from '..
 import { useNearStorageGate, type NearStorageGate } from '../shared/useNearStorageGate.js';
 import { useStellarGate, type StellarGate } from '../shared/useStellarGate.js';
 import { useXrpGate, type XrpGate } from '../shared/useXrpGate.js';
+import { useHederaGate, type HederaGate } from '../shared/useHederaGate.js';
 import type { MutationHookOptions } from '../shared/types.js';
 import type { SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { useDetailedStatus, type UseDetailedStatusResult } from './useDetailedStatus.js';
@@ -33,7 +34,7 @@ export type UseSwapLifecycleParams<K extends SpokeChainKey = SpokeChainKey> = {
   intentParams: CreateIntentParams<K> | undefined;
   srcWalletProvider: GetWalletProviderType<K> | undefined;
   /**
-   * Destination wallet, for the Stellar, NEAR and XRPL setup actions. The gates check `intentParams.dstAddress`,
+   * Destination wallet, for the Stellar, NEAR, XRPL and Hedera setup actions. The gates check `intentParams.dstAddress`,
    * the account the swap pays, so this wallet must control it for those actions to clear them.
    */
   dstWalletProvider: GetWalletProviderType<SpokeChainKey> | undefined;
@@ -74,11 +75,13 @@ export type SwapLifecycle<K extends SpokeChainKey = SpokeChainKey> = {
   nearStorage: NearStorageGate;
   /** `blockedReason` names why an XRPL destination cannot receive when the state is `xrpBlocked`. */
   xrp: XrpGate;
+  /** `blockedReason` names why a Hedera destination cannot receive when the state is `hederaBlocked`. */
+  hedera: HederaGate;
 };
 
 /**
  * One hook for a swap form: approval strategy, destination prerequisites (Stellar account and
- * trustline, NEAR storage, XRPL trustline), source-chain switching, the swap itself (`useSwapWithApproval` — one
+ * trustline, NEAR storage, XRPL trustline, Hedera token association), source-chain switching, the swap itself (`useSwapWithApproval` — one
  * signature on an EIP-5792 wallet) and its status (`useDetailedStatus`), as a single discriminated
  * `state` with one `next()` action. Render from `state.kind`; wire the button to `next()`.
  *
@@ -126,6 +129,13 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     walletProvider: dstWalletProvider,
   });
 
+  const hedera = useHederaGate({
+    dstChainKey: intentParams?.dstChainKey,
+    token: intentParams?.outputToken,
+    address: intentParams?.dstAddress,
+    walletProvider: dstWalletProvider,
+  });
+
   // The setup mutations invalidate these checks without awaiting the refetch, so a stale "needs setup"
   // outlives the tx by one read.
   const fetchingSetupChecks =
@@ -133,7 +143,8 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     useIsFetching({ queryKey: ['shared', 'stellarTrustlineCheck'] }) +
     useIsFetching({ queryKey: ['shared', 'nearStorageCheck'] }) +
     useIsFetching({ queryKey: ['shared', 'xrpDestinationCheck'] }) +
-    useIsFetching({ queryKey: ['shared', 'xrpTrustlineReserveCheck'] });
+    useIsFetching({ queryKey: ['shared', 'xrpTrustlineReserveCheck'] }) +
+    useIsFetching({ queryKey: ['shared', 'hederaDestinationCheck'] });
 
   const attempt = toSwapAttempt(swap, intentParams);
   const broadcast = attempt.phase === 'broadcast' ? attempt : undefined;
@@ -149,12 +160,14 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     stellar,
     nearStorage,
     xrp,
+    hedera,
     externalBlocked,
     setupBusy:
       stellar.isActivating ||
       stellar.isRequestingTrustline ||
       nearStorage.isRegistering ||
       xrp.isRequestingTrustline ||
+      hedera.isRequestingAssociation ||
       fetchingSetupChecks > 0,
     isWrongChain: chainSwitch?.isWrongChain ?? false,
     strategy: { data: approvalStrategy.data, error: approvalStrategy.error },
@@ -180,7 +193,9 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
         if (state.reason === 'nearStorageCheckFailed') nearStorage.retry();
         if (state.reason === 'xrpTrustline') return xrp.requestTrustline();
         if (state.reason === 'xrpCheckFailed') xrp.retry();
-        // `stellarFunding`, `xrpFunding`, `xrpBlocked` and `external` are for the app to resolve.
+        if (state.reason === 'hederaAssociation') return hedera.requestAssociation();
+        if (state.reason === 'hederaCheckFailed') hedera.retry();
+        // `stellarFunding`, `xrpFunding`, `xrpBlocked`, `hederaBlocked` and `external` are for the app to resolve.
         return undefined;
       case 'ready':
         if (!intentParams || !srcWalletProvider) return undefined;
@@ -232,5 +247,6 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     stellar,
     nearStorage,
     xrp,
+    hedera,
   };
 }

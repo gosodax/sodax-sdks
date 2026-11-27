@@ -14,6 +14,7 @@ const statusHook = vi.fn();
 const stellarHook = vi.fn();
 const nearHook = vi.fn();
 const xrpHook = vi.fn();
+const hederaHook = vi.fn();
 const fetchingChecks = vi.fn(() => 0);
 
 // The lifecycle is composition plus a pure resolver (covered in utils/swapLifecycle.test.ts), so the
@@ -24,6 +25,7 @@ vi.mock('./useDetailedStatus.js', () => ({ useDetailedStatus: (args: unknown) =>
 vi.mock('../shared/useStellarGate.js', () => ({ useStellarGate: (args: unknown) => stellarHook(args) }));
 vi.mock('../shared/useNearStorageGate.js', () => ({ useNearStorageGate: (args: unknown) => nearHook(args) }));
 vi.mock('../shared/useXrpGate.js', () => ({ useXrpGate: (args: unknown) => xrpHook(args) }));
+vi.mock('../shared/useHederaGate.js', () => ({ useHederaGate: (args: unknown) => hederaHook(args) }));
 // Its own state is one ref; a fresh one per run() is a fresh mount.
 vi.mock('react', () => ({ useRef: (initial: unknown) => ({ current: initial }) }));
 vi.mock('@tanstack/react-query', () => ({ useIsFetching: () => fetchingChecks() }));
@@ -59,11 +61,14 @@ const openGate = {
   isNear: false,
   needsRegistration: false,
   isXrpIssuedToken: false,
+  isHederaHtsToken: false,
+  needsAssociation: false,
   blockedReason: undefined,
   activate: vi.fn(),
   requestTrustline: vi.fn(),
   retry: vi.fn(),
   registerStorage: vi.fn(),
+  requestAssociation: vi.fn(),
 };
 
 const stub = ({
@@ -73,6 +78,7 @@ const stub = ({
   stellar = {},
   near = {},
   xrp = {},
+  hedera = {},
 }: {
   swap?: Record<string, unknown>;
   strategy?: string;
@@ -80,6 +86,7 @@ const stub = ({
   stellar?: Record<string, unknown>;
   near?: Record<string, unknown>;
   xrp?: Record<string, unknown>;
+  hedera?: Record<string, unknown>;
 } = {}) => {
   strategyHook.mockReturnValue({ data: strategy, error: null, refetch: refetchStrategy });
   swapHook.mockReturnValue({
@@ -95,6 +102,7 @@ const stub = ({
   stellarHook.mockReturnValue({ ...openGate, ...stellar });
   nearHook.mockReturnValue({ ...openGate, ...near });
   xrpHook.mockReturnValue({ ...openGate, ...xrp });
+  hederaHook.mockReturnValue({ ...openGate, ...hedera });
 };
 
 const run = (overrides: Partial<Parameters<typeof useSwapLifecycle>[0]> = {}) =>
@@ -201,6 +209,8 @@ describe('useSwapLifecycle', () => {
     [{ near: { isNear: true, needsRegistration: true, blocksAction: true } }, 'registerStorage'],
     [{ xrp: { isXrpIssuedToken: true, needsTrustline: true, blocksAction: true } }, 'requestTrustline'],
     [{ xrp: { isXrpIssuedToken: true, checkFailed: true, blocksAction: true } }, 'retry'],
+    [{ hedera: { isHederaHtsToken: true, needsAssociation: true, blocksAction: true } }, 'requestAssociation'],
+    [{ hedera: { isHederaHtsToken: true, checkFailed: true, blocksAction: true } }, 'retry'],
   ] as const)('runs the matching setup action', async (gates, action) => {
     stub(gates);
     const lifecycle = run();
@@ -255,6 +265,74 @@ describe('useSwapLifecycle', () => {
     expect(lifecycle.state).toEqual({ kind: 'checking' });
     await lifecycle.next();
     expect(openGate.requestTrustline).not.toHaveBeenCalled();
+  });
+
+  it('checks the Hedera gate on the intent recipient, for the swap output token only', () => {
+    stub();
+    const dstWalletProvider = { chainType: 'EVM' } as never;
+    run({ intentParams: { ...PARAMS, dstChainKey: ChainKeys.HEDERA_MAINNET }, dstWalletProvider });
+
+    expect(hederaHook).toHaveBeenCalledWith({
+      dstChainKey: ChainKeys.HEDERA_MAINNET,
+      token: PARAMS.outputToken,
+      address: PARAMS.dstAddress,
+      walletProvider: dstWalletProvider,
+    });
+  });
+
+  it('shows the association step, runs it, then swaps once the token is associated', async () => {
+    const requestAssociation = vi.fn().mockResolvedValue({ ok: true, value: '0xhash' });
+    stub({ hedera: { isHederaHtsToken: true, needsAssociation: true, blocksAction: true, requestAssociation } });
+    const before = run();
+
+    expect(before.state).toEqual({ kind: 'needsSetup', reason: 'hederaAssociation' });
+    await expect(before.next()).resolves.toEqual({ ok: true, value: '0xhash' });
+    expect(requestAssociation).toHaveBeenCalledOnce();
+    expect(mutateAsyncSafe).not.toHaveBeenCalled();
+
+    // The association landed and its check refreshed: the gate opens and the same form can swap.
+    stub({ hedera: { isHederaHtsToken: true } });
+    const after = run();
+    expect(after.state).toEqual({ kind: 'ready', approvalStrategy: 'atomic-batch' });
+    await after.next();
+    expect(mutateAsyncSafe).toHaveBeenCalledOnce();
+    expect(requestAssociation).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    'account_missing',
+    'frozen',
+    'kyc_not_granted',
+  ] as const)('leaves a %s Hedera destination to the app and sends nothing', async blockedReason => {
+    stub({ hedera: { isHederaHtsToken: true, blocksAction: true, blockedReason } });
+    const lifecycle = run();
+
+    expect(lifecycle.state).toEqual({ kind: 'needsSetup', reason: 'hederaBlocked' });
+    expect(lifecycle.hedera.blockedReason).toBe(blockedReason);
+    expect(await lifecycle.next()).toBeUndefined();
+    expect(openGate.requestAssociation).not.toHaveBeenCalled();
+    expect(mutateAsyncSafe).not.toHaveBeenCalled();
+  });
+
+  it('holds the Hedera association step while the association is in flight', async () => {
+    stub({
+      hedera: { isHederaHtsToken: true, needsAssociation: true, blocksAction: true, isRequestingAssociation: true },
+    });
+    const lifecycle = run();
+
+    expect(lifecycle.state).toEqual({ kind: 'checking' });
+    await lifecycle.next();
+    expect(openGate.requestAssociation).not.toHaveBeenCalled();
+  });
+
+  it('holds the Hedera association step while its refreshed check is still fetching', async () => {
+    fetchingChecks.mockReturnValueOnce(1);
+    stub({ hedera: { isHederaHtsToken: true, needsAssociation: true, blocksAction: true } });
+    const lifecycle = run();
+
+    expect(lifecycle.state).toEqual({ kind: 'checking' });
+    await lifecycle.next();
+    expect(openGate.requestAssociation).not.toHaveBeenCalled();
   });
 
   it('retries a failed NEAR storage check instead of swapping', async () => {
