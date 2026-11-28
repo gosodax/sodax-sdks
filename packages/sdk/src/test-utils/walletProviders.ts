@@ -28,9 +28,7 @@ export const mockSolanaWalletProvider = (overrides: Partial<ISolanaWalletProvide
   ...overrides,
 });
 
-export const mockStellarWalletProvider = (
-  overrides: Partial<IStellarWalletProvider> = {},
-): IStellarWalletProvider => ({
+export const mockStellarWalletProvider = (overrides: Partial<IStellarWalletProvider> = {}): IStellarWalletProvider => ({
   chainType: 'STELLAR',
   getWalletAddress: vi.fn<IStellarWalletProvider['getWalletAddress']>(),
   signTransaction: vi.fn<IStellarWalletProvider['signTransaction']>(),
@@ -38,9 +36,7 @@ export const mockStellarWalletProvider = (
   ...overrides,
 });
 
-export const mockBitcoinWalletProvider = (
-  overrides: Partial<IBitcoinWalletProvider> = {},
-): IBitcoinWalletProvider => ({
+export const mockBitcoinWalletProvider = (overrides: Partial<IBitcoinWalletProvider> = {}): IBitcoinWalletProvider => ({
   chainType: 'BITCOIN',
   getWalletAddress: vi.fn<IBitcoinWalletProvider['getWalletAddress']>(),
   signTransaction: vi.fn<IBitcoinWalletProvider['signTransaction']>(),

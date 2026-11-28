@@ -26,6 +26,7 @@ import {
   DEFAULT_SPONSORING_API_ENDPOINT,
   type Address,
   type HttpUrl,
+  type Result,
   type SodaxLogger,
 } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
@@ -306,9 +307,21 @@ describe('BackendApiService.getUserIntents', () => {
 
 describe('BackendApiService.getOracleCandles', () => {
   // `from: 0` also guards the serialization: a falsy-conditional append (the getUserIntents shape)
-  // would silently drop it. This valid historical range has no stored candles.
+  // would silently drop it.
   it('serializes numeric bounds verbatim, including a zero lower bound', async () => {
-    const body = { symbol: 'BTC', quote: 'USD', interval: '1d', candles: [] };
+    const body = {
+      symbol: 'BTC',
+      quote: 'USD',
+      interval: '1d',
+      candles: [true, false].map((final, index) => ({
+        timestamp: index * 86400,
+        open: '1',
+        high: '2',
+        low: '1',
+        close: '2',
+        final,
+      })),
+    };
     mockFetch.mockResolvedValueOnce(okResponse(body));
 
     const result = await sodax.backendApi.getOracleCandles({ symbol: 'BTC', interval: '1d', from: 0, to: 86400 });
@@ -421,6 +434,37 @@ describe('BackendApiService config endpoints', () => {
 // =========================================================================
 
 describe('BackendApiService response validation', () => {
+  it('rejects malformed asset, token, orderbook and oracle market responses', async () => {
+    const cases: { name: string; invoke: () => Promise<Result<unknown>>; body: unknown }[] = [
+      {
+        name: 'getAllMoneyMarketAssets',
+        invoke: () => sodax.backendApi.getAllMoneyMarketAssets(),
+        body: [{ symbol: 'sodaAVAX' }],
+      },
+      {
+        name: 'getSwapTokensByChainId',
+        invoke: () => sodax.backendApi.getSwapTokensByChainId(ChainKeys.BSC_MAINNET),
+        body: [{ symbol: 'USDC' }],
+      },
+      {
+        name: 'getOrderbook',
+        invoke: () => sodax.backendApi.getOrderbook({ offset: '0', limit: '1' }),
+        body: { total: 1, data: [{ intentState: {}, intentData: {} }] },
+      },
+      {
+        name: 'getOracleMarkets',
+        invoke: () => sodax.backendApi.getOracleMarkets(),
+        body: { quote: 'USD', intervals: [{ key: '1h' }], symbols: ['ETH'] },
+      },
+    ];
+    for (const { name, invoke, body } of cases) {
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValueOnce(okResponse(body));
+      expectErr(await invoke(), 'EXTERNAL_API_ERROR', { reason: 'invalid_response_shape' }, name);
+      expect(mockFetch, name).toHaveBeenCalledOnce();
+    }
+  });
+
   it('getIntentByHash rejects a 2xx body missing required intent fields', async () => {
     mockFetch.mockResolvedValueOnce(okResponse({ intentHash: SAMPLE_INTENT_HASH, txHash: SAMPLE_TX_HASH }));
 

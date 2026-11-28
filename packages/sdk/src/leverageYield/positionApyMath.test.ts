@@ -23,6 +23,11 @@ describe('timeToBreakevenYears', () => {
     expect(timeToBreakevenYears(SUPPLY, BORROW, 2, input)).toBeCloseTo(1, 10);
   });
 
+  it('takes longer on less equity, which is what passing the deposit instead got wrong', () => {
+    const onEquity = timeToBreakevenYears(SUPPLY, BORROW, 2, { ...input, equityUsd: 95.34 });
+    expect(onEquity).toBeGreaterThan(timeToBreakevenYears(SUPPLY, BORROW, 2, input) as number);
+  });
+
   it("says 'never' when levering up does not raise the rate", () => {
     expect(timeToBreakevenYears(2, 5, 3, input)).toBe('never');
   });

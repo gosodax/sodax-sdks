@@ -84,6 +84,19 @@ describe('projectLeverageLeg', () => {
     expect(dust.minCollateralOut).toBe(1n);
   });
 
+  it('slippage widens the gap between the floor and the quote without moving the haircut', () => {
+    const req = request({ leverage: 3 });
+    const quote = quoteAt(2.14, 0.99);
+    const tight = projectLeverageLeg(req, quote, RISK, 0.5);
+    const loose = projectLeverageLeg(req, quote, RISK, 5);
+    // The haircut is the expected cost, so tolerance does not change it...
+    expect(loose.haircut).toBeCloseTo(tight.haircut, 10);
+    // ...but the projection is from the floor, so a looser tolerance is a worse projected position.
+    expect(loose.minCollateralOut).toBeLessThan(tight.minCollateralOut);
+    expect(loose.ltv).toBeGreaterThan(tight.ltv);
+    expect(loose.usableMaxLeverage).toBeLessThan(tight.usableMaxLeverage);
+  });
+
   it('counts the deposit as collateral on a collateral-side open but NOT on a debt-side one', () => {
     const collateralSide = projectLeverageLeg(request({ leverage: 3 }), quoteAt(2.14, 1), RISK, 0);
     // $1.07 supplied + $2.14 bought.
@@ -172,6 +185,15 @@ describe('projectLeverageLeg', () => {
     // 1 + ltv / (1 + phi - ltv.f) on the collateral side.
     const f = free.collateralUsd > 0 ? (free.collateralUsd - 1.07) / free.inputUsd : 0;
     expect(paid.usableMaxLeverage).toBeCloseTo(1 + RISK.ltv / (1 + 0.005 - RISK.ltv * f), 4);
+  });
+
+  it('a fee can push a leverage that was acceptable over the max-LTV line', () => {
+    const quote = quoteAt(9.6, 0.9877);
+    const req = { side: 'debt', leverage: 9.6 } as const;
+    const free = projectLeverageLeg(request(req), quote, RISK, 0);
+    const paid = projectLeverageLeg(request({ ...req, feeBps: 100 }), quote, RISK, 0);
+    expect(free.exceedsMaxLtv).toBe(false);
+    expect(paid.exceedsMaxLtv).toBe(true);
   });
 
   it('is byte-for-byte the fee-free result when no fee is configured', () => {

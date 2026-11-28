@@ -22,7 +22,7 @@ import { Sodax } from '../shared/entities/Sodax.js';
 import { SwapsApiService } from './SwapsApiService.js';
 import { SwapsApiError } from '@sodax/swaps-api';
 import { abortingFetch, httpErrorResponse, okResponse, stubFetch } from '../test-utils/fetch.js';
-import { expectErr } from '../test-utils/result.js';
+import { expectErr, expectOk } from '../test-utils/result.js';
 
 const mockFetch = stubFetch();
 
@@ -88,7 +88,7 @@ beforeEach(() => {
 });
 
 // =========================================================================
-// URL + HTTP method for the endpoints without a behavioural test in this file;
+// URL + HTTP method for the remaining endpoint routes;
 // only the fetch call is asserted, so response bodies need not satisfy the schema.
 // =========================================================================
 
@@ -201,19 +201,37 @@ describe('SwapsApiService intent body serialization', () => {
     expect(parsed.intent.minOutputAmount).toBe('1965353839071625320');
   });
 
-  it('cancelIntent serializes the intent struct bigints to decimal strings and drops feeAmount', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({ tx: { from: '0x1', to: '0x2', value: '0', data: '0x' } }));
+  const intentBearing = [
+    {
+      name: 'cancelIntent',
+      invoke: () => sodax.api.swaps.cancelIntent({ srcChainKey: '0x38.bsc', intent: intentWithFee }),
+      body: { tx: { from: '0x1', to: '0x2', value: '0', data: '0x' } },
+      path: 'cancel',
+    },
+    {
+      name: 'getIntentHash',
+      invoke: () => sodax.api.swaps.getIntentHash({ intent: intentWithFee }),
+      body: { hash: '0xabc' },
+      path: 'hash',
+    },
+  ];
 
-    const result = await sodax.api.swaps.cancelIntent({ srcChainKey: '0x38.bsc', intent: intentWithFee });
-
-    expect(result.ok).toBe(true);
-    expect(mockFetch).toHaveBeenCalledWith(`${BASE}/swaps/intents/cancel`, expect.objectContaining({ method: 'POST' }));
-    const parsed = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
-    expect(parsed.intent.feeAmount).toBeUndefined();
-    expect(parsed.intent.intentId).toBe('123456789');
-    expect(parsed.intent.inputAmount).toBe('5000000000000000000');
-    expect(parsed.intent.deadline).toBe('0');
-    expect(parsed.srcChainKey).toBe('0x38.bsc');
+  it('cancelIntent and getIntentHash serialize intent bigints and drop feeAmount', async () => {
+    for (const { name, invoke, body, path } of intentBearing) {
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValueOnce(okResponse(body));
+      expectOk<unknown, unknown>(await invoke(), name);
+      expect(mockFetch, name).toHaveBeenCalledWith(
+        `${BASE}/swaps/intents/${path}`,
+        expect.objectContaining({ method: 'POST' }),
+      );
+      const parsed = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+      expect(parsed.intent.feeAmount, name).toBeUndefined();
+      expect(parsed.intent.intentId, name).toBe('123456789');
+      expect(parsed.intent.inputAmount, name).toBe('5000000000000000000');
+      expect(parsed.intent.deadline, name).toBe('0');
+      if (name === 'cancelIntent') expect(parsed.srcChainKey).toBe('0x38.bsc');
+    }
   });
 });
 

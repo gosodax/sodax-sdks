@@ -2,8 +2,9 @@
  * Unit tests for the shared backend submit-tx poll loop: terminal states and the attempt-budget boundaries.
  *
  * The loop is bounded by the backend attempt alone; the client-side fallback holds its own fresh
- * `timeout`, so nothing here is held back for it. The per-request clamp, `min(service timeout, remaining)`,
- * is pinned through its caller in runBackendSubmitTx.test.ts.
+ * `timeout`, so nothing here is held back for it. The per-request bound is re-read on every iteration
+ * (the "request bound" test below); how the caller derives it, `min(service timeout, remaining)`, is
+ * checked for the first request only in runBackendSubmitTx.test.ts.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -149,5 +150,29 @@ describe('pollBackendSubmitTx — budget boundaries', () => {
 
     expect(calls).toBe(0);
     expect(result.ok).toBe(false);
+  });
+
+  it('stops polling as soon as the request bound runs out, even with sleep budget left', async () => {
+    const overrides: (RequestOverrideConfig | undefined)[] = [];
+    const getStatus = async (override?: RequestOverrideConfig): Promise<Result<{ data: Envelope }>> => {
+      overrides.push(override);
+      return { ok: true, value: { data: { status: 'pending' } } };
+    };
+    // Budget for exactly one request, then nothing: `remaining()` still returns a positive number the
+    // sleep clamp would accept, so only the recomputed bound can end the loop.
+    let calls = 0;
+    const oneShot = { remaining: () => 5_000, requestTimeout: () => (calls++ === 0 ? 5_000 : null) };
+
+    const promise = pollBackendSubmitTx({
+      attempt: oneShot,
+      terminalStatus: 'executed',
+      getStatus,
+      onExecuted: (r: { dstIntentTxHash: string } | undefined) => r?.dstIntentTxHash,
+      requestTimeoutMs: SERVICE_TIMEOUT_MS,
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect((await promise).ok).toBe(false);
+    expect(overrides).toEqual([{ timeout: 5_000 }]);
   });
 });

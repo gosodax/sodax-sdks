@@ -174,8 +174,10 @@ describe('resolveSponsoringApiConfig', () => {
 // Bridge and leverage-yield hang off the same gateway root as the base API and read the same config
 // source (they ignore any swapsApiConfig slice; neither has a slice of its own) — but their routes are
 // siblings of `/be`, not children, so they must NOT carry the data API's basePath.
-describe('resolveBridgeApiConfig', () => {
-  const resolve = resolveBridgeApiConfig;
+describe.each([
+  ['resolveBridgeApiConfig', resolveBridgeApiConfig],
+  ['resolveLeverageYieldApiConfig', resolveLeverageYieldApiConfig],
+])('%s', (_name, resolve) => {
   // Each must track base field-for-field, so a field added to base resolution cannot skip the client.
   // `basePath` is the single sanctioned divergence, so it is the only thing subtracted.
   it('tracks the base config field-for-field apart from the mount', () => {

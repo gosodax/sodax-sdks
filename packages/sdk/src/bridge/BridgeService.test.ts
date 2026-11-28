@@ -1508,6 +1508,26 @@ describe('BridgeService.getDetailedStatus', () => {
       expect(answeredValue.data.txs.release?.hash).toBe('tronPayout');
     });
 
+    it('keeps an unpaid Tron release pending despite a wrong non-MPC destination hint', async () => {
+      recordNotFound();
+      packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
+      vi.mocked(sodaxBE.spoke.getHubRelease).mockResolvedValueOnce({
+        ok: true,
+        value: {
+          depositId: 'id',
+          status: 'minted',
+          createdAt: 0,
+          txs: { hubMint: { chain: 'sonic', hash: DST_TX, ts: 0 } },
+        },
+      });
+
+      expectErr(await sodaxBE.bridge.getDetailedStatus({ ...key, dstChainKey: BSC }), 'LOOKUP_FAILED', {
+        reason: DETAILED_STATUS_NOT_DELIVERED,
+        mpcRelay: true,
+      });
+      expect(sodaxBE.spoke.getHubRelease).toHaveBeenCalledWith(DST_TX);
+    });
+
     it('does not report a spoke-source bridge to an MPC-relay chain final when its hub tx sends no release', async () => {
       recordNotFound();
       packets([{ status: 'executed', dst_tx_hash: DST_TX, src_tx_hash: SRC_TX, src_chain_id: RELAY_CHAIN_ID }]);
