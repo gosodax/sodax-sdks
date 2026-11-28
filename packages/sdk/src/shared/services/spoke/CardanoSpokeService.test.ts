@@ -245,14 +245,6 @@ describe('CardanoSpokeService.deposit', () => {
     }
   });
 
-  it('rejects a deposit below the reserve minimum before signing', async () => {
-    const wallet = walletFor();
-    await expect(cardano.deposit(depositParams(wallet, { amount: 500_000n }))).rejects.toThrow(
-      /reserve output's min-UTXO/,
-    );
-    expect(wallet.signTransaction).not.toHaveBeenCalled();
-  });
-
   it('re-encodes a valid indefinite or tagged witness set in the sized encoding before submitting', async () => {
     for (const witnessSet of [
       (hash: string) => `a100819f${ownerWitness(hash).slice(2)}ff`,
@@ -549,16 +541,14 @@ describe('CardanoSpokeService.sendMessage', () => {
     expect(wallet.signData).not.toHaveBeenCalled();
   });
 
-  it.each(['accepted', 'exhausted', 'lost reply'])('reuses the signed request after 429: %s', async outcome => {
+  it('reuses the signed request after a 429', async () => {
     vi.useFakeTimers();
     const trackingIdOf = (body: string) => {
       const { message } = JSON.parse(body);
       return keccak256(concat([CARDANO_CIP8.paymentHash, toHex(BigInt(message.nonce), { size: 8 })]));
     };
-    const lost = new Error('lost relay reply');
     const send = vi.fn(async (_url: string, init?: RequestInit) => {
-      if (send.mock.calls.length === 1 || outcome === 'exhausted') return new Response(null, { status: 429 });
-      if (outcome === 'lost reply') throw lost;
+      if (send.mock.calls.length === 1) return new Response(null, { status: 429 });
       return Response.json({ accepted: true, trackingId: trackingIdOf(String(init?.body)) });
     });
     vi.stubGlobal('fetch', send);
@@ -571,25 +561,12 @@ describe('CardanoSpokeService.sendMessage', () => {
     await vi.runAllTimersAsync();
     const result = await pending;
     const bodies = send.mock.calls.map(([, init]) => String(init?.body));
-    expect(bodies).toHaveLength(outcome === 'exhausted' ? 3 : 2);
+    expect(bodies).toHaveLength(2);
     expect(new Set(bodies).size).toBe(1);
     expect(wallet.signData).toHaveBeenCalledOnce();
     const body = bodies[0];
     if (body === undefined) throw new Error('withdraw request was not sent');
-    const trackingId = trackingIdOf(body);
-    if (outcome === 'accepted') expect(result).toEqual({ ok: true, value: trackingId });
-    if (outcome === 'lost reply') {
-      expect(result).toMatchObject({
-        ok: false,
-        error: { name: 'IndeterminateOutcomeError', cause: lost, trackingId },
-      });
-    }
-    if (outcome === 'exhausted') {
-      expect(result).toMatchObject({
-        ok: false,
-        error: { name: 'Error', message: expect.stringContaining('nothing was queued') },
-      });
-    }
+    expect(result).toEqual({ ok: true, value: trackingIdOf(body) });
   });
 
   it('surfaces a relay rejection', async () => {

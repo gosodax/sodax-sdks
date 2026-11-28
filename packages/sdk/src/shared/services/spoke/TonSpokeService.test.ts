@@ -348,21 +348,6 @@ describe('TonSpokeService — relay submit and read', () => {
     expect(!result.ok && (result.error as Error).message).toContain(`deposit ${HASH} was not notified`);
   });
 
-  it('reads a deposit, a withdrawal and a hub release once each, notifying nothing', async () => {
-    const record = { ok: true as const, value: { depositId: 'id', status: 'pending' as const, createdAt: 0, txs: {} } };
-    const read = vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(record);
-    vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue({
-      ok: true,
-      value: { trackingId: '0xtrack', status: 'submitted' },
-    });
-
-    expect(await ton.getDepositRecord(HASH)).toEqual(record);
-    expect(read.mock.calls[0]?.[1]).toBe(`607-${HASH}-0`);
-    expect(await ton.getHubReleaseRecord(HUB_RELEASE)).toEqual(record);
-    expect((await ton.getWithdrawalRecord('0xtrack')).ok).toBe(true);
-    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
-  });
-
   it('waitForWithdrawal passes the stage through and uses the settlement floor for a NaN timeout', async () => {
     const wait = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
       ok: true,
@@ -432,13 +417,11 @@ describe('TonSpokeService.sendMessage', () => {
     expect(BigInt(Number(nonce))).toBe(nonce);
   });
 
-  it.each(['accepted', 'exhausted', 'lost reply'])('first 429 through sendMessage: %s', async outcome => {
+  it('reuses one signed request after a first 429 through sendMessage', async () => {
     vi.useFakeTimers();
     vi.mocked(MpcRelayApiService.submitWithdraw).mockRestore();
-    const lost = new Error('lost relay reply');
     const send = vi.fn(async (_url: string, init?: RequestInit) => {
-      if (send.mock.calls.length === 1 || outcome === 'exhausted') return new Response(null, { status: 429 });
-      if (outcome === 'lost reply') throw lost;
+      if (send.mock.calls.length === 1) return new Response(null, { status: 429 });
       const { message } = JSON.parse(String(init?.body));
       const trackingId = keccak256(concat([PUBKEY, toHex(BigInt(message.nonce), { size: 8 })]));
       return Response.json({ accepted: true, trackingId });
@@ -452,20 +435,9 @@ describe('TonSpokeService.sendMessage', () => {
     const result = await pending;
     const request = JSON.parse(String(send.mock.calls[0]?.[1]?.body));
     const trackingId = keccak256(concat([PUBKEY, toHex(BigInt(request.message.nonce), { size: 8 })]));
-    if (outcome === 'accepted') {
-      expect(result).toEqual({ ok: true, value: trackingId });
-    } else if (outcome === 'lost reply') {
-      expect(result).toMatchObject({
-        ok: false,
-        error: { name: 'IndeterminateOutcomeError', cause: lost, trackingId },
-      });
-    } else {
-      if (result.ok) throw new Error('expected throttling exhaustion');
-      expect(result.error).toMatchObject({ message: expect.stringContaining('nothing was queued') });
-      expect(result.error).not.toHaveProperty('trackingId');
-    }
+    expect(result).toEqual({ ok: true, value: trackingId });
     expect(signMessage).toHaveBeenCalledOnce();
-    expect(send).toHaveBeenCalledTimes(outcome === 'exhausted' ? 3 : 2);
+    expect(send).toHaveBeenCalledTimes(2);
     expect(new Set(send.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
   });
 

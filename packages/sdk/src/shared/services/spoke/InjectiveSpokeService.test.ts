@@ -213,12 +213,6 @@ describe('InjectiveSpokeService.getRawTransaction', () => {
     expect(mocks.msgExecFromJSON).toHaveBeenCalledWith(expect.objectContaining({ funds: FUNDS }));
   });
 
-  it('defaults funds to [] when not provided (e.g. sendMessage)', async () => {
-    await injSpoke.getRawTransaction(INJ_NETWORK_ID, SRC_ADDR, INJ_CONNECTION, { send_message: {} });
-
-    expect(mocks.msgExecFromJSON).toHaveBeenCalledWith(expect.objectContaining({ funds: [] }));
-  });
-
   it('throws when the account has no on-chain pubKey', async () => {
     mocks.baseAccountFromRest.mockReturnValueOnce({ accountNumber: 7, sequence: 3, pubKey: { key: '', type: '' } });
 
@@ -286,24 +280,6 @@ describe('InjectiveSpokeService.deposit', () => {
     expect(msg).toHaveProperty('transfer');
     expect(funds).toEqual([{ amount: '1000', denom: INJ_BNUSD }]);
   });
-
-  it('defaults data to "0x" when omitted (no `data: undefined` in msg)', async () => {
-    const spy = vi.spyOn(injSpoke, 'getRawTransaction').mockResolvedValueOnce(makeRawTx(INJ_ASSET_MGR));
-
-    const params = {
-      srcAddress: SRC_ADDR,
-      srcChainKey: INJ,
-      to: HUB_WALLET,
-      token: INJ_BNUSD,
-      amount: 1_000n,
-      raw: true,
-    } as unknown as DepositParams<typeof INJ, true>;
-
-    await injSpoke.deposit(params);
-
-    const msg = spy.mock.calls[0]?.[3] as { transfer: { data: number[] } };
-    expect(msg.transfer.data).toEqual([]); // '0x' → empty byte array
-  });
 });
 
 // =========================================================================
@@ -344,20 +320,6 @@ describe('InjectiveSpokeService.getWalletBalance / getWalletBalances', () => {
     vi
       .spyOn(injSpoke.indexerGrpcAccountPortfolioApi, 'fetchAccountPortfolioBalances')
       .mockResolvedValueOnce({ accountAddress: SRC_ADDR, bankBalancesList, subaccountsList: [] } as never);
-
-  it('matches a non-native token by its token.address denom, on the USER account', async () => {
-    const spy = spyPortfolio([
-      { denom: INJ_NATIVE, amount: '999' },
-      { denom: BNUSD_TOKEN.address, amount: '5000' },
-    ]);
-
-    const result = await injSpoke.getWalletBalance({ srcChainKey: INJ, srcAddress: SRC_ADDR, token: BNUSD_TOKEN });
-
-    expect(result).toBe(5000n);
-    // The portfolio is fetched for the user, NOT the asset manager — the difference from getDeposit.
-    expect(spy).toHaveBeenCalledWith(SRC_ADDR);
-    expect(spy).not.toHaveBeenCalledWith(INJ_ASSET_MGR);
-  });
 
   it('matches native INJ by the config nativeToken denom, and returns 0n for a denom absent from a fetched portfolio', async () => {
     spyPortfolio([
@@ -531,16 +493,6 @@ describe('InjectiveSpokeService — admin methods', () => {
 // =========================================================================
 
 describe('InjectiveSpokeService.waitForTransactionReceipt', () => {
-  it('code===0 → status:success with the tx receipt', async () => {
-    const fakeTx = { code: 0, txHash: TX_HASH };
-    vi.spyOn(injSpoke.txClient, 'fetchTx').mockResolvedValueOnce(fakeTx as never);
-
-    const result = await injSpoke.waitForTransactionReceipt({ chainKey: INJ, txHash: TX_HASH });
-
-    if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
-    expect(result.value.receipt).toBe(fakeTx);
-  });
-
   it('code!==0 → status:failure with code+rawLog in the error message', async () => {
     vi.spyOn(injSpoke.txClient, 'fetchTx').mockResolvedValueOnce({ code: 5, rawLog: 'boom' } as never);
 

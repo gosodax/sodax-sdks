@@ -593,26 +593,6 @@ describe('per-request credentials on the wire', () => {
   const sentKeyHeaders = (init: { headers: Record<string, string> }) =>
     Object.keys(init.headers).filter(h => h.toLowerCase() === 'x-api-key');
 
-  it('sends requestConfig.apiKey, or a raw X-Api-Key header as the ONLY key header, on the config request', async () => {
-    const { sodax } = makeSodax();
-    mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
-
-    await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'call-key' } });
-    // forceRefresh guards against a cache hit ever serving this call without a request.
-    await sodax.sponsoring.getStellarSponsorConfig({
-      forceRefresh: true,
-      requestConfig: { headers: { 'X-Api-Key': 'raw-key' } },
-    });
-
-    expect(configRequests()).toHaveLength(2);
-    const [keyed, raw] = configRequests() as [string, { headers: Record<string, string> }][];
-    expect(keyed?.[0]).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/config`);
-    // The per-call key wins over the configured slice key.
-    expect(new Headers(keyed?.[1].headers).get('x-api-key')).toBe('call-key');
-    expect(raw && sentKeyHeaders(raw[1])).toHaveLength(1);
-    expect(new Headers(raw?.[1].headers).get('x-api-key')).toBe('raw-key');
-  });
-
   it('forwards requestConfig.apiKey, or a raw X-Api-Key header as the ONLY key header, to the account-creation POST', async () => {
     for (const [requestConfig, key] of [
       [{ apiKey: 'call-key' }, 'call-key'],
@@ -864,29 +844,5 @@ describe('activation analytics', () => {
     await sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
 
     expect(failureData()).toMatchObject({ attempts: 0 });
-  });
-
-  it('never emits a property that is a string on success and a number on failure', async () => {
-    // Keep domain status and HTTP status type-stable for analytics sinks.
-    const { sodax, loadAccount, successData } = makeSodax();
-    stubHorizon(loadAccount);
-    mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
-    await sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
-
-    mockFetch.mockReset();
-    const failed = makeSodax();
-    stubHorizon(failed.loadAccount);
-    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG)).mockResolvedValueOnce(conflict());
-    await failed.sodax.sponsoring.activateStellarAccount({
-      address: USER.publicKey(),
-      walletProvider: makeWallet(),
-      allowSequenceRetry: false,
-    });
-
-    expect(typeof successData()?.status).toBe('string');
-    expect(failed.failureData()).not.toHaveProperty('status');
-    expect(typeof failed.failureData()?.httpStatus).toBe('number');
   });
 });

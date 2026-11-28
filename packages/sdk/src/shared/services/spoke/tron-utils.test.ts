@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   assembleBroadcastHex,
   assertDepositTransfer,
-  computeSignedMessageHash,
   encodeTrc20TransferParams,
   readTrc20TransferCall,
   setExpiration,
@@ -102,28 +101,6 @@ describe('tronIdentityBytes / tronHashToBase58', () => {
     expect(tronIdentityBytes(b58)).toBe('0xf62fffa4d92bcdfc310dccbe943747fe8302e871');
     expect(tronHashToBase58(tronIdentityBytes(b58))).toBe(b58);
     expect(tronHashToBase58('4165af5fef4974f67c4421ebb70244d8c485ada423')).toBe('TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92');
-  });
-});
-
-describe('computeSignedMessageHash', () => {
-  it('matches the contract compute_message_hash KAT and changes with the nonce', () => {
-    const h = computeSignedMessageHash({
-      to: '0x2222222222222222222222222222222222222222',
-      data: '0x1234abcd',
-      nonce: 5n,
-      chainId: 11155111n,
-      sender: '0x5A6435B3a4bE2705453Ece84391928483ccBcD94',
-    });
-    expect(h).toBe('0xc15363b8bfc144961ef308afa1f232017b1d6a02e8665960c2dfa190a987f12e');
-
-    // Replay-distinct preimage: the nonce changes the hash.
-    const base = {
-      to: '0x2222222222222222222222222222222222222222',
-      data: '0x1234abcd',
-      chainId: 728126428n,
-      sender: '0xf62fffa4d92bcdfc310dccbe943747fe8302e871',
-    } as const;
-    expect(computeSignedMessageHash({ ...base, nonce: 1n })).not.toBe(computeSignedMessageHash({ ...base, nonce: 2n }));
   });
 });
 

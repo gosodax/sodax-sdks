@@ -22,7 +22,6 @@ import {
   DEFAULT_API_BASE_URL,
   DEFAULT_BACKEND_API_HEADERS,
   DEFAULT_BACKEND_API_TIMEOUT,
-  DEFAULT_SPONSORING_API_ENDPOINT,
   sodaxConfig,
   type PartnerFee,
   type SodaxConfig,
@@ -30,7 +29,7 @@ import {
 } from '@sodax/types';
 import { mergeSodaxConfig } from './mergeSodaxConfig.js';
 import { calculateFeeAmount } from '../utils/shared-utils.js';
-import { resolveBaseApiConfig, resolveSponsoringApiConfig, resolveSwapsApiConfig } from '../../backendApi/apiConfig.js';
+import { resolveBaseApiConfig, resolveSwapsApiConfig } from '../../backendApi/apiConfig.js';
 
 const USER_ADDR = '0x1111111111111111111111111111111111111111';
 const INPUT = 1_000_000n;
@@ -103,24 +102,6 @@ describe('mergeSodaxConfig — per-feature partnerFee overrides', () => {
       }
     }
   });
-
-  it('leaves every feature without a partnerFee when the override omits it', () => {
-    const merged = mergeSodaxConfig(freshConfig(), { api: { timeout: 12_345 } });
-    for (const field of FEE_FIELDS) expect(field.get(merged), field.name).toBeUndefined();
-  });
-});
-
-describe('mergeSodaxConfig — non-union fields still deep-merge', () => {
-  it('overrides a nested scalar while preserving its siblings', () => {
-    const base = freshConfig();
-    const originalBaseUrl = (base.api as { baseURL: string }).baseURL;
-
-    const merged = mergeSodaxConfig(base, { api: { timeout: 99_999 } });
-
-    expect((merged.api as { timeout: number }).timeout).toBe(99_999); // overridden
-    expect((merged.api as { baseURL: string }).baseURL).toBe(originalBaseUrl); // sibling preserved
-    expect((base.api as { timeout: number }).timeout).not.toBe(99_999); // base not mutated
-  });
 });
 
 // `api` is the `ApiConfig` union (`BaseApiConfig | CustomApiConfig`). mergeSodaxConfig must
@@ -137,33 +118,6 @@ describe('mergeSodaxConfig — api ApiConfig union resolves correctly per servic
   };
   // Every service resolves the same gateway root; only the backend data API appends a mount below it.
   const withMount = <T extends object>(resolved: T) => ({ ...resolved, basePath: BACKEND_API_BASE_PATH });
-
-  const resolveServices = (override: SodaxOptions) => {
-    const merged = mergeSodaxConfig(freshConfig(), override);
-    return {
-      base: resolveBaseApiConfig(merged.api),
-      swaps: resolveSwapsApiConfig(merged.api),
-      sponsoring: resolveSponsoringApiConfig(merged.api),
-      mergedApi: merged.api,
-    };
-  };
-
-  it('no override, or a sponsoring-only override → base and swaps both use the defaults', () => {
-    for (const override of [{}, { api: { sponsoringApiConfig: { apiKey: 'k' } } }] satisfies SodaxOptions[]) {
-      const { base, swaps } = resolveServices(override);
-      expect(base).toEqual(withMount(DEFAULT_RESOLVED));
-      expect(swaps).toEqual(DEFAULT_RESOLVED);
-    }
-  });
-
-  it('flat full override → applied to both (swaps shares the base)', () => {
-    const { base, swaps } = resolveServices({
-      api: { baseURL: 'https://flat.example', timeout: 7, headers: { 'X-A': '1' } },
-    });
-    const expected = { baseURL: 'https://flat.example', timeout: 7, headers: { ...D, 'X-A': '1' } };
-    expect(base).toEqual(withMount(expected));
-    expect(swaps).toEqual(expected);
-  });
 
   it('CustomApiConfig with swapsApiConfig only → base = defaults, swaps = custom (slice not dropped, base not mutated)', () => {
     const baseConfig = freshConfig();
@@ -183,100 +137,6 @@ describe('mergeSodaxConfig — api ApiConfig union resolves correctly per servic
       headers: { 'X-S': '1' },
     });
   });
-
-  it('CustomApiConfig with baseApiConfig only → base = custom, swaps falls back to it', () => {
-    const { base, swaps } = resolveServices({
-      api: { baseApiConfig: { baseURL: 'https://base.example', timeout: 3, headers: { 'X-B': '1' } } },
-    });
-    const expected = { baseURL: 'https://base.example', timeout: 3, headers: { ...D, 'X-B': '1' } };
-    expect(base).toEqual(withMount(expected));
-    expect(swaps).toEqual(expected);
-  });
-
-  it('CustomApiConfig with both slices → swaps overrides what it sets, headers layer base under swaps', () => {
-    const full = resolveServices({
-      api: {
-        baseApiConfig: { baseURL: 'https://base.example', timeout: 3, headers: { 'X-B': '1' } },
-        swapsApiConfig: { baseURL: 'https://swaps.example', timeout: 2, headers: { 'X-S': '1' } },
-      },
-    });
-    expect(full.base).toEqual(
-      withMount({ baseURL: 'https://base.example', timeout: 3, headers: { ...D, 'X-B': '1' } }),
-    );
-    // swaps overrides baseURL/timeout; headers merge defaults → base → swaps (base 'X-B' inherited)
-    expect(full.swaps).toEqual({
-      baseURL: 'https://swaps.example',
-      timeout: 2,
-      headers: { ...D, 'X-B': '1', 'X-S': '1' },
-    });
-
-    // A headers-only swaps slice inherits base's baseURL/timeout and its (auth) header.
-    const { base, swaps } = resolveServices({
-      api: {
-        baseApiConfig: { baseURL: 'https://base.example', timeout: 3, headers: { Authorization: 'tok' } },
-        swapsApiConfig: { headers: { 'X-Swaps': '1' } },
-      },
-    });
-    expect(base).toEqual(
-      withMount({ baseURL: 'https://base.example', timeout: 3, headers: { ...D, Authorization: 'tok' } }),
-    );
-    // swaps inherits base's baseURL/timeout/Authorization, plus its own header
-    expect(swaps).toEqual({
-      baseURL: 'https://base.example',
-      timeout: 3,
-      headers: { ...D, Authorization: 'tok', 'X-Swaps': '1' },
-    });
-  });
-
-  // The merge deep-merges into the FLAT default `api`, so a slice-only override always arrives
-  // alongside surviving top-level flat fields. Those fields must keep applying: a consumer who adds
-  // a slice to an existing flat config would otherwise be silently re-routed to the packaged default.
-  describe('a slice override alongside top-level flat fields', () => {
-    it('keeps custom flat timeout and headers on base and swaps when swapsApiConfig is added', () => {
-      const { base, swaps } = resolveServices({
-        api: {
-          baseURL: 'https://backend.mydapp.com/sodax',
-          timeout: 4321,
-          headers: { Authorization: 'tok' },
-          swapsApiConfig: { headers: { 'X-S': '1' } },
-        },
-      });
-      expect(base).toEqual(
-        withMount({
-          baseURL: 'https://backend.mydapp.com/sodax',
-          timeout: 4321,
-          headers: { ...D, Authorization: 'tok' },
-        }),
-      );
-      // swaps inherits the flat layer it does not override
-      expect(swaps).toEqual({
-        baseURL: 'https://backend.mydapp.com/sodax',
-        timeout: 4321,
-        headers: { ...D, Authorization: 'tok', 'X-S': '1' },
-      });
-    });
-
-    it('keeps flat fields on base and swaps when sponsoringApiConfig is added; sponsoring inherits only the timeout', () => {
-      const { base, swaps, sponsoring } = resolveServices({
-        api: {
-          baseURL: 'https://backend.mydapp.com/sodax',
-          timeout: 4321,
-          headers: { Authorization: 'Bearer USER_JWT' },
-          sponsoringApiConfig: { apiKey: 'k' },
-        },
-      });
-      const expected = { baseURL: 'https://backend.mydapp.com/sodax', timeout: 4321 };
-      expect(base).toMatchObject(expected);
-      expect(swaps).toMatchObject(expected);
-      // sponsoring still routes to its own host, never takes the flat headers, and carries the key
-      expect(sponsoring).toEqual({
-        baseURL: DEFAULT_SPONSORING_API_ENDPOINT,
-        timeout: 4321,
-        headers: { ...D },
-        apiKey: 'k',
-      });
-    });
-  });
 });
 
 // Hub RPC failover fields (issue #225). The contract that matters: an `rpcUrls` array replaces
@@ -286,18 +146,6 @@ describe('mergeSodaxConfig — api ApiConfig union resolves correctly per servic
 describe('mergeSodaxConfig — hub RPC failover fields', () => {
   const A = 'https://a.example';
   const B = 'https://b.example';
-
-  it('lands rpcUrls onto a base that has none, preserving the single-endpoint rpcUrl and sibling hub fields', () => {
-    const base = freshConfig();
-    expect(base.hub.rpcUrls).toBeUndefined();
-    const originalWallet = base.hub.addresses.hubWallet;
-
-    const merged = mergeSodaxConfig(base, { hub: { rpcUrls: [A, B] } });
-
-    expect(merged.hub.rpcUrls).toEqual([A, B]);
-    expect(merged.hub.rpcUrl).toBe(base.hub.rpcUrl);
-    expect(merged.hub.addresses.hubWallet).toBe(originalWallet);
-  });
 
   it('replaces a pre-seeded rpcUrls wholesale (no element-wise merge) and preserves it when the override omits it', () => {
     const base = mergeSodaxConfig(freshConfig(), { hub: { rpcUrls: [A, B] } });

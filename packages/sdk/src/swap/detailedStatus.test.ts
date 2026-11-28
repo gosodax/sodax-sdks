@@ -26,9 +26,9 @@ describe('summarizeSwapStatus', () => {
   const FILL = '0x2222222222222222222222222222222222222222222222222222222222222222';
 
   // Every non-terminal backend status (pending, relaying, relayed, posting_execution, …) takes the same branch.
+  // `solved` is asserted with its hashes below.
   it.each([
     ['posted_execution', 'pending'],
-    ['solved', 'solved'],
     ['failed', 'failed'],
   ] as const)('maps the backend %s status to %s', (status, state) => {
     expect(summarizeSwapStatus({ source: 'backend', data: { ...baseRecord, status } }).state).toBe(state);
@@ -51,7 +51,6 @@ describe('summarizeSwapStatus', () => {
   // NOT_FOUND, NOT_STARTED_YET and STARTED_NOT_FINISHED all take the pending branch.
   it.each([
     [SolverIntentStatusCode.STARTED_NOT_FINISHED, 'pending'],
-    [SolverIntentStatusCode.SOLVED, 'solved'],
     [SolverIntentStatusCode.FAILED, 'failed'],
   ] as const)('maps the solver status %s to %s', (status, state) => {
     expect(summarizeSwapStatus({ source: 'solver', dstTxHash: HUB, data: { status } }).state).toBe(state);

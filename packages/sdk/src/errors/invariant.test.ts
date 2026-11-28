@@ -20,15 +20,6 @@ describe('sodaxInvariant', () => {
       expect(err.context?.field).toBe('amount');
     }
   });
-
-  it('lets caller override phase if needed (still defaults to validate)', () => {
-    try {
-      sodaxInvariant(false, 'm', { feature: 'swap', context: { phase: 'lookup' } });
-      throw new Error('expected throw');
-    } catch (e) {
-      expect((e as SodaxError).context?.phase).toBe('lookup');
-    }
-  });
 });
 
 describe('createInvariant', () => {

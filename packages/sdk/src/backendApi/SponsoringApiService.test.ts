@@ -73,11 +73,9 @@ describe('getConfig', () => {
 });
 
 describe('createStellarSponsoredAccount', () => {
-  it.each([
-    ['a fresh activation', { hash: 'abc', alreadyActive: false }],
-    ['an already-active account', { hash: null, alreadyActive: true }],
-  ])('POSTs exactly `{ data }` (the endpoint 400s on any extra field) and accepts %s', async (_label, body) => {
+  it('POSTs exactly `{ data }` (the endpoint 400s on any extra field) and accepts a fresh activation', async () => {
     const service = makeService();
+    const body = { hash: 'abc', alreadyActive: false };
     mockFetch.mockResolvedValueOnce(jsonOk(body));
 
     await expect(service.createStellarSponsoredAccount({ data: 'XDR' })).resolves.toEqual({ ok: true, value: body });
@@ -189,21 +187,14 @@ describe('api key handling', () => {
 
 // The deployment owns the version prefix; the SDK route stays version-free.
 describe('deployment prefixes', () => {
-  const cases: Array<[label: string, baseURL: HttpUrl, expected: string]> = [
-    ['a bare origin (local service)', 'http://localhost:3011', 'http://localhost:3011/sponsorships/stellar/config'],
-    [
-      'a versioned gateway path with a trailing slash',
-      'https://api.sodax.com/v1/',
-      'https://api.sodax.com/v1/sponsorships/stellar/config',
-    ],
-  ];
-
-  it.each(cases)('resolves %s', async (_label, baseURL, expected) => {
+  // A bare origin (local service) is pinned by the per-call baseURL test under api key handling.
+  it('resolves a versioned gateway path with a trailing slash', async () => {
+    const baseURL: HttpUrl = 'https://api.sodax.com/v1/';
     const service = makeService({ baseURL });
     mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
 
     await service.getStellarSponsorConfig();
 
-    expect(mockFetch.mock.calls[0]?.[0]).toBe(expected);
+    expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.sodax.com/v1/sponsorships/stellar/config');
   });
 });

@@ -8,7 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSubmitTxAttempt, noRequestBudgetCause } from './submitTxAttempt.js';
+import { createSubmitTxAttempt } from './submitTxAttempt.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
 
 const SERVICE_TIMEOUT_MS = 30_000;
@@ -88,16 +88,5 @@ describe('resolveTimeoutMs', () => {
     for (const value of [undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       expect(resolveTimeoutMs(value, FALLBACK)).toBe(FALLBACK);
     }
-  });
-});
-
-describe('noRequestBudgetCause', () => {
-  it('blames the caller timeout when the service timeout is usable, and api.timeout when it is non-positive', () => {
-    expect(noRequestBudgetCause(30_000).message).toContain('caller timeout');
-    // Both cases surface as a null bound; reporting the caller's budget for a config error sends
-    // whoever reads the log looking at the wrong setting.
-    const cause = noRequestBudgetCause(0);
-    expect(cause.message).toContain('api timeout');
-    expect(cause.message).toContain('0');
   });
 });

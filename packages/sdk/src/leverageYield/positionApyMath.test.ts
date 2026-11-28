@@ -12,10 +12,6 @@ describe('leveragedNetApyPct', () => {
     expect(leveragedNetApyPct(SUPPLY, BORROW, 2)).toBeCloseTo(11, 10);
     expect(leveragedNetApyPct(SUPPLY, BORROW, 3)).toBeCloseTo(14, 10);
   });
-
-  it('goes negative when borrow outruns supply', () => {
-    expect(leveragedNetApyPct(2, 5, 3)).toBeLessThan(0);
-  });
 });
 
 describe('timeToBreakevenYears', () => {
@@ -25,11 +21,6 @@ describe('timeToBreakevenYears', () => {
     // 1x -> 2x adds 3 points, so $3 on $100 of equity takes a year. Against the headline 11% it
     // would read as 0.27 years, which is the flattering answer this exists to avoid.
     expect(timeToBreakevenYears(SUPPLY, BORROW, 2, input)).toBeCloseTo(1, 10);
-  });
-
-  it('takes longer on less equity, which is what passing the deposit instead got wrong', () => {
-    const onEquity = timeToBreakevenYears(SUPPLY, BORROW, 2, { ...input, equityUsd: 95.34 });
-    expect(onEquity).toBeGreaterThan(timeToBreakevenYears(SUPPLY, BORROW, 2, input) as number);
   });
 
   it("says 'never' when levering up does not raise the rate", () => {

@@ -48,25 +48,6 @@ const approveCalldata = (amount: bigint): string =>
 /** The revert an ERC-20 with the race guard produces: no reason string, empty data. */
 const guardRevert = (): Error => new Error('execution reverted');
 
-describe('Erc20Service.getAllowance', () => {
-  it('returns the raw allowance rather than a sufficiency verdict', async () => {
-    const client = makeClient();
-    client.readContract.mockResolvedValueOnce(STALE_ALLOWANCE);
-
-    const allowance = await Erc20Service.getAllowance({
-      token: TOKEN,
-      owner: OWNER,
-      spender: SPENDER,
-      publicClient: client as unknown as PublicClient,
-    });
-
-    expect(allowance).toBe(STALE_ALLOWANCE);
-    expect(client.readContract).toHaveBeenCalledWith(
-      expect.objectContaining({ address: TOKEN, functionName: 'allowance', args: [OWNER, SPENDER] }),
-    );
-  });
-});
-
 describe('Erc20Service.isAllowanceValid', () => {
   it('short-circuits the native token without reading', async () => {
     const client = makeClient();

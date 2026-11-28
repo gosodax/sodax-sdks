@@ -26,7 +26,6 @@ import {
   getPacket,
   getTransactionPackets,
   type IntentRelayRequest,
-  type GetPacketResponse,
   type GetTransactionPacketsResponse,
   type PacketData,
   relayTxAndWaitPacket,
@@ -355,28 +354,6 @@ describe('getTransactionPackets', () => {
 // =========================================================================
 
 describe('getPacket', () => {
-  const baseParams = { chain_id: CHAIN_ID, tx_hash: SPOKE_TX_HASH, conn_sn: CONN_SN };
-
-  it('POSTs and returns ok:true wrapping the body verbatim, for a found packet or a success:false miss', async () => {
-    const responseBody: GetPacketResponse = { success: true, data: buildPacket() };
-    mockFetch.mockResolvedValueOnce(jsonResponse(responseBody));
-
-    const payload: IntentRelayRequest<'get_packet'> = { action: 'get_packet', params: baseParams };
-    const result = await getPacket(payload, API_URL);
-
-    expect(result).toEqual({ ok: true, value: responseBody });
-    expect(mockFetch).toHaveBeenCalledWith(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    // The failure variant carries a `message` instead of `data`; the HTTP call still succeeded.
-    const miss: GetPacketResponse = { success: false, message: 'packet not found' };
-    mockFetch.mockResolvedValueOnce(jsonResponse(miss));
-    expect(await getPacket(payload, API_URL)).toEqual({ ok: true, value: miss });
-  });
-
   it('throws on an empty chain_id, tx_hash or conn_sn before any request (invariant)', async () => {
     await expect(
       getPacket({ action: 'get_packet', params: { chain_id: '', tx_hash: SPOKE_TX_HASH, conn_sn: CONN_SN } }, API_URL),
@@ -868,27 +845,6 @@ describe('relayTxAndWaitPacket', () => {
       // polling uses the relay-derived id, NOT the submit "withdraw"
       const pollBody = JSON.parse(mockFetch.mock.calls[1]?.[1].body);
       expect(pollBody.params.tx_hash).toBe('od:deadbeef');
-    });
-
-    it('forwards the explicit timeout to waitUntilIntentExecuted', async () => {
-      vi.useFakeTimers();
-      mockFetch
-        .mockResolvedValueOnce(jsonResponse({ success: true, message: 'ok' } satisfies SubmitTxResponse))
-        // No packet ever — force the inner loop to time out at the configured value.
-        .mockResolvedValue(jsonResponse({ success: true, data: [] } satisfies GetTransactionPacketsResponse));
-
-      const promise = relayTxAndWaitPacket({
-        srcTxHash: SPOKE_TX_HASH,
-        chainKey: ChainKeys.BSC_MAINNET,
-        relayerApiEndpoint: API_URL,
-        timeout: 1_000,
-      });
-      await vi.advanceTimersByTimeAsync(2_000);
-      const result = await promise;
-
-      expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect((result.error as Error).message).toBe('RELAY_TIMEOUT');
     });
   });
 

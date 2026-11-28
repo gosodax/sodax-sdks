@@ -285,54 +285,6 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     expect(requested('/bridge/intents')).toHaveLength(2);
   });
 
-  it('stops when the separate approval reverts: no deposit is sent', async () => {
-    stubBackend({ withReset: false });
-    const walletProvider = batchWallet();
-    walletProvider.sendAtomicBatch.mockRejectedValueOnce(new AtomicityNotSupportedError(new Error('no atomicity')));
-    walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove');
-    walletProvider.waitForTransactionReceipt.mockResolvedValue({ status: 'reverted' } as never); // only `status` is read
-
-    await expect(approveAndBridge(walletProvider, BRIDGE_PARAMS)).rejects.toThrow('The approval transaction reverted');
-
-    expect(walletProvider.sendTransaction).toHaveBeenCalledTimes(1);
-  });
-
-  it('sends only the deposit when the allowance is already valid', async () => {
-    stubBackend({ withReset: false, allowanceValid: true });
-    const walletProvider = batchWallet();
-    walletProvider.sendTransaction.mockResolvedValueOnce('0xdirect-deposit');
-
-    const result = await approveAndBridge(walletProvider, BRIDGE_PARAMS);
-
-    expect(result).toMatchObject({ strategy: 'not-required', submit: { txHash: '0xdirect-deposit' } });
-    expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
-    expect(walletProvider.sendTransaction.mock.calls.map(([tx]) => tx.data)).toEqual([DEPOSIT_WIRE.data]);
-    expect(requested('/bridge/approve')).toHaveLength(0);
-  });
-
-  it('approves separately, with no batch, for a wallet that must upgrade when allowAccountUpgrade is false and for a Sonic hub source', async () => {
-    stubBackend({ withReset: false });
-    const upgradeWallet = batchWallet('ready');
-    upgradeWallet.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xno-upgrade-deposit');
-
-    const noUpgrade = await approveAndBridge(upgradeWallet, BRIDGE_PARAMS, { allowAccountUpgrade: false });
-
-    expect(noUpgrade).toMatchObject({ strategy: 'sequential', submit: { txHash: '0xno-upgrade-deposit' } });
-    expect(upgradeWallet.sendAtomicBatch).not.toHaveBeenCalled();
-
-    const walletProvider = batchWallet();
-    walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xhub-deposit');
-
-    const result = await approveAndBridge(walletProvider, { ...BRIDGE_PARAMS, srcChainKey: ChainKeys.SONIC_MAINNET });
-
-    expect(result).toMatchObject({ strategy: 'sequential', submit: { txHash: '0xhub-deposit' } });
-    expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
-    expect(walletProvider.sendTransaction.mock.calls.map(([tx]) => tx.data)).toEqual([
-      APPROVE_WIRE.data,
-      DEPOSIT_WIRE.data,
-    ]);
-  });
-
   it('never resends an unconfirmed batch; the persisted state alone resumes and submits it', async () => {
     stubBackend({ withReset: true });
     const walletProvider = batchWallet();

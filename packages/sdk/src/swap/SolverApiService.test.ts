@@ -424,8 +424,8 @@ describe('SolverApiService API key', () => {
   ];
 
   it.each([
+    // An unset key is every keyless test above; empty is the falsy edge that must send no header either.
     ['set', 'instance-key', { ...JSON_HEADER, 'x-api-key': 'instance-key' }],
-    ['unset', undefined, JSON_HEADER],
     ['empty', '', JSON_HEADER],
   ])('sends the right headers on /quote, /execute and /status when the key is %s', async (_label, apiKey, headers) => {
     for (const call of callEveryEndpoint(apiKey)) {

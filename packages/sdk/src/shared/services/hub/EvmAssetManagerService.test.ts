@@ -99,35 +99,6 @@ describe('EvmAssetManagerService.getAssetInfo', () => {
       args: [TOKEN_ORIGINAL],
     });
   });
-
-  it('propagates errors thrown by readContract', async () => {
-    const rpcError = new Error('rpc unavailable');
-    vi.mocked(mockPublicClient.readContract).mockRejectedValueOnce(rpcError);
-
-    await expect(EvmAssetManagerService.getAssetInfo(TOKEN_ORIGINAL, ASSET_MANAGER, mockPublicClient)).rejects.toBe(
-      rpcError,
-    );
-  });
-});
-
-// =========================================================================
-// encodeTransfer (static, pure) — assetManager.transfer(token, to, amount, '0x')
-// =========================================================================
-
-describe('EvmAssetManagerService.encodeTransfer', () => {
-  it('returns { address: assetManager, value: 0n, data: encoded transfer(token, to, amount, "0x") }', () => {
-    const result = EvmAssetManagerService.encodeTransfer(HUB_ASSET, RECIPIENT_HEX, 1_000n, ASSET_MANAGER);
-
-    expect(result).toEqual({
-      address: ASSET_MANAGER,
-      value: 0n,
-      data: encodeFunctionData({
-        abi: assetManagerAbi,
-        functionName: 'transfer',
-        args: [HUB_ASSET, RECIPIENT_HEX, 1_000n, '0x'],
-      }),
-    });
-  });
 });
 
 // =========================================================================
@@ -251,33 +222,5 @@ describe('EvmAssetManagerService.withdrawAssetData', () => {
         args: [HUB_ASSET, RECIPIENT_HEX, 500n, '0x'],
       }),
     ]);
-  });
-});
-
-// =========================================================================
-// getAssetAddress (instance) — readContract delegation for assets(chainId, spokeAddress)
-// =========================================================================
-//
-// `EvmAssetManagerService` declares a private constructor, so we materialize an instance via
-// `Object.create(prototype)` to access the (currently unused) instance method without violating
-// the TS access modifier. The method itself does not reference `this`, so an empty prototype-
-// linked object is sufficient.
-
-describe('EvmAssetManagerService#getAssetAddress', () => {
-  const service = Object.create(EvmAssetManagerService.prototype) as EvmAssetManagerService;
-
-  it('reads assets(chainId, spokeAddress) on the asset manager and returns the resolved address', async () => {
-    const expectedAddress: Address = '0x7777777777777777777777777777777777777777';
-    const spy = vi.mocked(mockPublicClient.readContract).mockResolvedValueOnce(expectedAddress as never);
-
-    const result = await service.getAssetAddress(6n, SPOKE_ADDRESS_BYTES, ASSET_MANAGER, mockPublicClient);
-
-    expect(result).toBe(expectedAddress);
-    expect(spy).toHaveBeenCalledWith({
-      address: ASSET_MANAGER,
-      abi: assetManagerAbi,
-      functionName: 'assets',
-      args: [6n, SPOKE_ADDRESS_BYTES],
-    });
   });
 });

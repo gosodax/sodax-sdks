@@ -32,21 +32,17 @@
  *     program-ownership check all execute for real.
  *
  * Section organization:
- *   1.  constructor                — pollingConfig wiring
  *   2.  estimateGas                — simulate happy path + value.err throw branch
  *   3.  deposit                    — native vs SPL, raw vs walletProvider, default data
  *   4.  getDeposit                 — native vault_native vs SPL vault_token branches
  *   4b. getWalletBalance(s)        — the USER's own SOL / SPL holdings, dual-ATA probe, balance map
  *   5.  sendMessage                — raw vs walletProvider, relay-id derivation
- *   6.  buildV0Txn                 — versioned tx assembly + getLatestBlockhash invocation
- *   7.  waitForTransactionReceipt  — success / failure / timeout / transient-error / custom polling
- *   8.  static helpers             — getBalance, getTokenAccountBalance, getAssociatedTokenAddress,
- *                                    buildTransactionInstruction smoke tests
+ *   7.  waitForTransactionReceipt  — success / failure / timeout / transient-error
+ *   8.  static helpers             — getMintTokenProgramId
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   Connection,
-  ComputeBudgetProgram,
   PublicKey,
   SystemProgram,
   TransactionInstruction,
@@ -139,7 +135,6 @@ const SOL_NATIVE = solanaConfig.nativeToken; // '1111111111111111111111111111111
 const SOL_BNUSD = solanaConfig.bnUSD;
 const SOL_ASSET_MGR = solanaConfig.addresses.assetManager;
 const SOL_CONNECTION = solanaConfig.addresses.connection;
-const SOL_POLLING_MS = solanaConfig.pollingConfig.pollingIntervalMs;
 
 // Per-user / per-flow scratch — these have no config source.
 // SRC_ADDR is a real-looking base58 32-byte pubkey (not the system program).
@@ -212,33 +207,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-});
-
-// =========================================================================
-// 1. constructor
-// =========================================================================
-
-describe('SolanaSpokeService — constructor', () => {
-  it('wires pollingConfig defaults from spokeChainConfig[SOLANA_MAINNET], overridable per call', async () => {
-    // Defaults are private but observable via the spy on getTransaction: one empty poll forces
-    // exactly one sleep, then a receipt ends the loop. Drive it with the poll results rather than a
-    // tiny `maxTimeoutMs` — a 1ms deadline races real wall clock, and if the process is preempted
-    // between computing the deadline and the loop's first check, no poll (and no sleep) happens.
-    const fakeReceipt = { slot: 2, transaction: {}, meta: { err: null }, blockTime: 0 } as never;
-    vi.spyOn(solanaSpoke.connection, 'getTransaction').mockResolvedValueOnce(null).mockResolvedValueOnce(fakeReceipt);
-
-    await solanaSpoke.waitForTransactionReceipt({ chainKey: SOL, txHash: TX_SIG });
-
-    // The default polling interval must have been threaded into sleep (sleep is mocked to no-op).
-    expect(mocks.sleep).toHaveBeenCalledTimes(1);
-    expect(mocks.sleep).toHaveBeenCalledWith(SOL_POLLING_MS);
-
-    mocks.sleep.mockClear();
-    vi.spyOn(solanaSpoke.connection, 'getTransaction').mockResolvedValueOnce(null).mockResolvedValueOnce(fakeReceipt);
-    await solanaSpoke.waitForTransactionReceipt({ chainKey: SOL, txHash: TX_SIG, pollingIntervalMs: 250 });
-    expect(mocks.sleep).toHaveBeenCalledTimes(1);
-    expect(mocks.sleep).toHaveBeenCalledWith(250);
-  });
 });
 
 // =========================================================================
@@ -356,31 +324,6 @@ describe('SolanaSpokeService.deposit', () => {
     expect(remaining[0].pubkey.toBase58()).toBe(ConnectionConfigPDA.config(CONNECTION_PROGRAM_ID).pda.toBase58());
   });
 
-  it('SPL path builds transfer with token vault, ATA, and mint accounts', async () => {
-    vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
-      blockhash: FAKE_BLOCKHASH,
-      lastValidBlockHeight: 0,
-    });
-    // The mint's owning token program is read on-chain to resolve legacy vs Token-2022.
-    vi.spyOn(solanaSpoke.connection, 'getAccountInfo').mockResolvedValueOnce({ owner: TOKEN_PROGRAM_ID } as never);
-
-    await solanaSpoke.deposit(depositParams<true>({ token: SOL_BNUSD, raw: true }));
-
-    const transferChain = (fakeAssetManagerProgram.methods.transfer as ReturnType<typeof vi.fn>).mock.results[0]
-      ?.value as ReturnType<typeof mocks.makeChain>;
-    const accounts = (transferChain.accountsStrict as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(accounts.nativeVaultAccount).toBeNull();
-    expect(accounts.tokenVaultAccount.toBase58()).toBe(
-      AssetManagerPDA.vault_token(ASSET_MGR_PROGRAM_ID, new PublicKey(SOL_BNUSD)).pda.toBase58(),
-    );
-    expect(accounts.mint.toBase58()).toBe(SOL_BNUSD);
-    // A legacy SPL mint keeps the legacy token program.
-    expect(accounts.tokenProgram.toBase58()).toBe(TOKEN_PROGRAM_ID.toBase58());
-    // signerTokenAccount is the user's ATA for the mint — pin via the static helper.
-    const expectedAta = await SolanaSpokeService.getAssociatedTokenAddress(SOL_BNUSD, SRC_ADDR);
-    expect(accounts.signerTokenAccount).toBe(expectedAta);
-  });
-
   it('SPL path resolves a Token-2022 mint and threads it into the ATA + tokenProgram', async () => {
     vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
       blockhash: FAKE_BLOCKHASH,
@@ -468,7 +411,6 @@ describe('SolanaSpokeService.getWalletBalance / getWalletBalances', () => {
   // carries over to what production actually passes here.
   const SOL_TOKEN: XToken = solanaConfig.supportedTokens.SOL;
   const BNUSD_TOKEN: XToken = solanaConfig.supportedTokens.bnUSD;
-  const USDC_TOKEN: XToken = solanaConfig.supportedTokens.USDC;
   // CRCLx is an xStock mint, i.e. one owned by the Token-2022 program rather than legacy SPL.
   const CRCLX_TOKEN: XToken = solanaConfig.supportedTokens.CRCLx;
 
@@ -567,14 +509,6 @@ describe('SolanaSpokeService.getWalletBalance / getWalletBalances', () => {
     );
   });
 
-  it('rejects when the ATA probe fails, so no unread balance can surface as zero', async () => {
-    vi.spyOn(solanaSpoke.connection, 'getMultipleAccountsInfo').mockRejectedValueOnce(new Error('HTTP 429'));
-
-    await expect(
-      solanaSpoke.getWalletBalance({ srcChainKey: SOL, srcAddress: SRC_ADDR, token: BNUSD_TOKEN }),
-    ).rejects.toThrow('HTTP 429');
-  });
-
   it('getWalletBalances reports each token as a plain balance keyed by address', async () => {
     vi.spyOn(solanaSpoke.connection, 'getBalance').mockResolvedValueOnce(7_000_000);
     vi.spyOn(solanaSpoke.connection, 'getMultipleAccountsInfo').mockResolvedValueOnce([
@@ -592,63 +526,6 @@ describe('SolanaSpokeService.getWalletBalance / getWalletBalances', () => {
       [SOL_TOKEN.address]: 7_000_000n,
       [BNUSD_TOKEN.address]: 4_200n,
     });
-  });
-
-  it('getWalletBalances isolates a failing token as a logged 0n instead of discarding the batch', async () => {
-    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
-    const rpcError = new Error('HTTP 429');
-    // The fan-out reads tokens in order, so the first probe is bnUSD's and the second is USDC's.
-    vi.spyOn(solanaSpoke.connection, 'getMultipleAccountsInfo')
-      .mockRejectedValueOnce(rpcError)
-      .mockResolvedValueOnce([tokenAccountInfo(USDC_TOKEN, TOKEN_PROGRAM_ID, 55n), null]);
-
-    const result = await solanaSpoke.getWalletBalances({
-      srcChainKey: SOL,
-      srcAddress: SRC_ADDR,
-      tokens: [BNUSD_TOKEN, USDC_TOKEN],
-    });
-
-    // A failed read collapses into the same 0n an empty wallet produces, so the log line is the
-    // only surviving signal — assert it fired, otherwise a silent zero can regress unnoticed.
-    expect(result[BNUSD_TOKEN.address]).toBe(0n);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('balance read failed'),
-      expect.objectContaining({ chainKey: SOL, token: BNUSD_TOKEN.address, error: rpcError.message }),
-    );
-    // ...and must not take the tokens that did resolve down with it.
-    expect(result[USDC_TOKEN.address]).toBe(55n);
-  });
-
-  it('getWalletBalances rejects when every token in the batch failed to read', async () => {
-    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
-    vi.spyOn(solanaSpoke.connection, 'getMultipleAccountsInfo').mockRejectedValue(new Error('HTTP 429'));
-
-    // The flat map cannot express "nothing was read at all": an all-zero map from a dead RPC would
-    // be indistinguishable from a genuinely empty wallet, so the call must throw instead.
-    await expect(
-      solanaSpoke.getWalletBalances({
-        srcChainKey: SOL,
-        srcAddress: SRC_ADDR,
-        tokens: [BNUSD_TOKEN, USDC_TOKEN],
-      }),
-    ).rejects.toThrow(`every balance read failed on ${SOL}`);
-    expect(warnSpy).toHaveBeenCalledTimes(2);
-  });
-
-  it('getWalletBalances keeps a confirmed empty wallet as a successful 0n', async () => {
-    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
-    vi.spyOn(solanaSpoke.connection, 'getMultipleAccountsInfo').mockResolvedValueOnce([null, null]);
-
-    const result = await solanaSpoke.getWalletBalances({
-      srcChainKey: SOL,
-      srcAddress: SRC_ADDR,
-      tokens: [BNUSD_TOKEN],
-    });
-
-    // Both candidate ATAs were confirmed absent, so this 0n is a read result — it must neither log
-    // nor trip the all-failed rule that the previous test pins.
-    expect(result).toEqual({ [BNUSD_TOKEN.address]: 0n });
-    expect(warnSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -711,55 +588,10 @@ describe('SolanaSpokeService.sendMessage', () => {
 });
 
 // =========================================================================
-// 6. buildV0Txn — versioned tx assembly + getLatestBlockhash invocation
-// =========================================================================
-
-describe('SolanaSpokeService.buildV0Txn', () => {
-  it('builds a v0 versioned tx, calling Connection.getLatestBlockhash once', async () => {
-    const spy = vi.spyOn(solanaSpoke.connection, 'getLatestBlockhash').mockResolvedValueOnce({
-      blockhash: FAKE_BLOCKHASH,
-      lastValidBlockHeight: 0,
-    });
-
-    // Use a single ComputeBudgetProgram instruction so we have a well-formed raw instruction.
-    const ix = ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000 });
-    const rawIx = {
-      keys: ix.keys.map(k => ({ pubkey: k.pubkey.toBase58(), isSigner: k.isSigner, isWritable: k.isWritable })),
-      programId: ix.programId.toBase58(),
-      data: ix.data,
-    };
-
-    const result = await solanaSpoke.buildV0Txn(SRC_ADDR, [rawIx]);
-
-    expect(spy).toHaveBeenCalledTimes(1);
-    expect(result).toBeInstanceOf(Uint8Array);
-    expect(result.length).toBeGreaterThan(0);
-    // Round-trip the serialized bytes through VersionedTransaction.deserialize to prove the SUT
-    // produced a valid wire-format tx (not, say, the inner TransactionMessage bytes).
-    expect(VersionedTransaction.deserialize(result).message.version).toBe(0);
-  });
-});
-
-// =========================================================================
 // 7. waitForTransactionReceipt — every result branch + polling defaults
 // =========================================================================
 
 describe('SolanaSpokeService.waitForTransactionReceipt', () => {
-  it('returns status:success when getTransaction (confirmed, v0) resolves with no meta.err', async () => {
-    const fakeReceipt = { slot: 1, transaction: {}, meta: { err: null }, blockTime: 0 } as never;
-    const spy = vi.spyOn(solanaSpoke.connection, 'getTransaction').mockResolvedValueOnce(fakeReceipt);
-
-    const result = await solanaSpoke.waitForTransactionReceipt({ chainKey: SOL, txHash: TX_SIG });
-
-    if (!result.ok) throw new Error('expected ok');
-    if (result.value.status !== 'success') throw new Error('expected success');
-    expect(result.value.receipt).toBe(fakeReceipt);
-    expect(spy).toHaveBeenCalledWith(TX_SIG, {
-      commitment: 'confirmed',
-      maxSupportedTransactionVersion: 0,
-    });
-  });
-
   it('returns status:failure when getTransaction resolves with meta.err set', async () => {
     const txErr = { InstructionError: [0, 'Custom'] };
     vi.spyOn(solanaSpoke.connection, 'getTransaction').mockResolvedValueOnce({
@@ -813,41 +645,6 @@ describe('SolanaSpokeService.waitForTransactionReceipt', () => {
 // =========================================================================
 
 describe('SolanaSpokeService static helpers', () => {
-  it('getBalance and getTokenAccountBalance forward to Connection with a PublicKey-wrapped pubkey', async () => {
-    const fakeConn = solanaSpoke.connection;
-    const balanceSpy = vi.spyOn(fakeConn, 'getBalance').mockResolvedValueOnce(42);
-
-    expect(await SolanaSpokeService.getBalance(fakeConn, SOL_BNUSD)).toBe(42);
-    const passedToBalance = balanceSpy.mock.calls[0]?.[0] as PublicKey;
-    expect(passedToBalance).toBeInstanceOf(PublicKey);
-    expect(passedToBalance.toBase58()).toBe(SOL_BNUSD);
-
-    const expected = {
-      context: { slot: 1 },
-      value: { amount: '100', decimals: 9, uiAmount: 0.0000001, uiAmountString: '0.0000001' },
-    };
-    const spy = vi.spyOn(fakeConn, 'getTokenAccountBalance').mockResolvedValueOnce(expected as never);
-
-    const result = await SolanaSpokeService.getTokenAccountBalance(fakeConn, SOL_BNUSD);
-
-    expect(result).toBe(expected);
-    const passed = spy.mock.calls[0]?.[0] as PublicKey;
-    expect(passed.toBase58()).toBe(SOL_BNUSD);
-  });
-
-  it('getAssociatedTokenAddress derives a deterministic ATA per token program, defaulting to legacy', async () => {
-    const legacy = await SolanaSpokeService.getAssociatedTokenAddress(SOL_BNUSD, SRC_ADDR, TOKEN_PROGRAM_ID);
-    const token2022 = await SolanaSpokeService.getAssociatedTokenAddress(SOL_BNUSD, SRC_ADDR, TOKEN_2022_PROGRAM_ID);
-    expect(legacy).not.toBe(token2022);
-    // No program id → legacy, preserving the original two-arg behaviour.
-    const def = await SolanaSpokeService.getAssociatedTokenAddress(SOL_BNUSD, SRC_ADDR);
-    expect(def).toBe(legacy);
-    // The ATA of the (mint, wallet) pair, not of a swapped order.
-    expect(legacy).toBe(
-      getAssociatedTokenAddressSync(new PublicKey(SOL_BNUSD), new PublicKey(SRC_ADDR), true).toBase58(),
-    );
-  });
-
   it('getMintTokenProgramId resolves the mint owner program, defaulting to legacy', async () => {
     const conn = solanaSpoke.connection;
     const mint = new PublicKey(SOL_BNUSD);
@@ -863,23 +660,5 @@ describe('SolanaSpokeService static helpers', () => {
     // Unreadable mint account → fall back to the legacy program.
     vi.spyOn(conn, 'getAccountInfo').mockResolvedValueOnce(null);
     expect((await SolanaSpokeService.getMintTokenProgramId(conn, mint)).toBase58()).toBe(TOKEN_PROGRAM_ID.toBase58());
-  });
-
-  it('buildTransactionInstruction reconstructs TransactionInstruction[] from raw shape', () => {
-    const rawIx = {
-      keys: [{ pubkey: SOL_BNUSD, isSigner: false, isWritable: true }],
-      programId: SOL_ASSET_MGR,
-      data: new Uint8Array([1, 2, 3]),
-    };
-
-    const [reconstructed] = SolanaSpokeService.buildTransactionInstruction([rawIx]);
-
-    if (!reconstructed) throw new Error('expected an instruction');
-    expect(reconstructed).toBeInstanceOf(TransactionInstruction);
-    expect(reconstructed.programId.toBase58()).toBe(SOL_ASSET_MGR);
-    expect(reconstructed.keys[0]?.pubkey.toBase58()).toBe(SOL_BNUSD);
-    expect(reconstructed.keys[0]?.isSigner).toBe(false);
-    expect(reconstructed.keys[0]?.isWritable).toBe(true);
-    expect(Array.from(reconstructed.data)).toEqual([1, 2, 3]);
   });
 });

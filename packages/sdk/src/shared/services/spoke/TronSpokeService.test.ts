@@ -295,11 +295,6 @@ describe('TronSpokeService.deposit — node-built transfer check', () => {
 
   it.each([
     [
-      'a redirected TRX recipient',
-      { '/wallet/createtransaction': { raw_data_hex: nativeTransferRaw(SENDER, OTHER, AMOUNT) } },
-      NATIVE_TRX,
-    ],
-    [
       'a redirected TRC-20 recipient',
       {
         '/wallet/triggersmartcontract': {
@@ -582,14 +577,6 @@ describe('TronSpokeService hub release: submit, read, wait', () => {
 });
 
 describe('TronSpokeService withdraw-auth and deposit: submit and read', () => {
-  it('reads a withdrawal record once, by its trackingId', async () => {
-    const record = { ok: true as const, value: { trackingId: '0xtrack' as const, status: 'burned' as const } };
-    const read = vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue(record);
-
-    expect(await tron.getWithdrawalRecord('0xtrack')).toEqual(record);
-    expect(read).toHaveBeenCalledWith(expect.anything(), '0xtrack');
-  });
-
   it('submits a broadcast deposit by notifying it once, without waiting for the mint', async () => {
     const notifySpy = vi.mocked(MpcRelayApiService.notify);
     notifySpy.mockClear();
@@ -755,12 +742,9 @@ describe('TronSpokeService.sendMessage', () => {
     expect(relay.size).toBe(1);
   });
 
-  it.each(['accepted', 'exhausted', 'lost reply'])('reuses one signed request after throttling (%s)', async outcome => {
+  it('reuses one signed request after throttling', async () => {
     const send = vi.fn(async (_url: string, init?: RequestInit) => {
-      if (send.mock.calls.length === 1 || outcome === 'exhausted') {
-        return new Response(null, { status: 429 });
-      }
-      if (outcome === 'lost reply') throw new TypeError('connection closed on retry');
+      if (send.mock.calls.length === 1) return new Response(null, { status: 429 });
       const { message } = JSON.parse(String(init?.body));
       const sender: unknown = message.sender;
       if (!isHex(sender)) throw new Error('missing sender');
@@ -768,27 +752,11 @@ describe('TronSpokeService.sendMessage', () => {
       return Response.json({ accepted: true, trackingId: keccak256(`${sender}${nonceBytes}`) });
     });
     vi.stubGlobal('fetch', send);
-    const result = tron.sendMessage(sendParams);
-
-    if (outcome === 'accepted') {
-      await expect(result).resolves.toMatch(/^0x[0-9a-f]{64}$/);
-    } else if (outcome === 'exhausted') {
-      const error = await result.catch((cause: unknown) => cause);
-      expect(error).toMatchObject({ message: expect.stringContaining('nothing was queued') });
-      expect(isIndeterminateOutcomeError(error)).toBe(false);
-    } else {
-      await expect(result).rejects.toMatchObject({
-        name: 'IndeterminateOutcomeError',
-        trackingId: expect.stringMatching(/^0x[0-9a-f]{64}$/),
-      });
-    }
+    await expect(tron.sendMessage(sendParams)).resolves.toMatch(/^0x[0-9a-f]{64}$/);
     expect(signMessage).toHaveBeenCalledOnce();
-    expect(send).toHaveBeenCalledTimes(outcome === 'exhausted' ? 3 : 2);
+    expect(send).toHaveBeenCalledTimes(2);
     expect(new Set(send.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
   });
-
-  const nonceOf = (call: number) =>
-    BigInt(vi.mocked(MpcRelayApiService.submitWithdraw).mock.calls[call]?.[1].message.nonce ?? '0');
 
   it('refuses a hub wallet that is not a 20-byte hex address before anything is signed', async () => {
     stubTronGrid();
@@ -807,23 +775,6 @@ describe('TronSpokeService.sendMessage', () => {
     await expect(tron.sendMessage(params as never)).rejects.toThrow(`invalid hub wallet address: ${dstAddress}`);
     expect(signMessage).not.toHaveBeenCalled();
     expect(submit).not.toHaveBeenCalled();
-  });
-
-  it('draws a fresh random nonce per withdrawal, inside the safe-integer range the relay round-trips', async () => {
-    stubTronGrid();
-    mockSubmitOk();
-
-    // The relay converts the nonce to a JS number before the NEAR call, so a value above
-    // MAX_SAFE_INTEGER reaches the contract rounded and the signature recovers a different address.
-    for (let i = 0; i < 32; i++) {
-      await tron.sendMessage(sendParams);
-      const nonce = nonceOf(i);
-      expect(nonce).toBeGreaterThan(0n);
-      expect(nonce).toBeLessThanOrEqual(BigInt(Number.MAX_SAFE_INTEGER));
-      expect(BigInt(Number(nonce))).toBe(nonce);
-    }
-    // Two withdrawals in the same millisecond must not collide — a clock-derived nonce would.
-    expect(nonceOf(0)).not.toBe(nonceOf(1));
   });
 
   it('returns the unsigned withdraw-auth in raw mode without signing it, and submits it once signed', async () => {

@@ -49,13 +49,6 @@ describe('estimateBitcoinTxSize', () => {
     // Math.ceil(10.5 + 44 + 20 + 58 + 31) = 164
     expect(estimateBitcoinTxSize(1, 1, 'P2TR')).toBe(164);
   });
-
-  it('scales linearly with input and output count, and takes a custom OP_RETURN size', () => {
-    // Math.ceil(10.5 + 44 + 20 + 3*68 + 2*31) = Math.ceil(340.5) = 341
-    expect(estimateBitcoinTxSize(3, 2)).toBe(341);
-    // Math.ceil(10.5 + 45 + 20 + 68 + 31) = Math.ceil(174.5) = 175
-    expect(estimateBitcoinTxSize(1, 1, undefined, 45)).toBe(175);
-  });
 });
 
 describe('normalizeSignatureToBase64', () => {

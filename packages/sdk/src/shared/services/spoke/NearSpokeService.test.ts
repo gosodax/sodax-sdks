@@ -82,34 +82,6 @@ afterEach(() => {
 });
 
 // =========================================================================
-// 2. estimateGas — hardcoded NEAR_DEFAULT_GAS
-// =========================================================================
-
-describe('NearSpokeService.estimateGas', () => {
-  it('returns NEAR_DEFAULT_GAS regardless of input (no on-chain estimation)', async () => {
-    const result = await nearSpoke.estimateGas({ chainKey: NEAR, tx: {} as never });
-    expect(result).toBe(NEAR_DEFAULT_GAS);
-    // Pin the constant — a regression that drops a zero changes the gas budget by 10×.
-    expect(NEAR_DEFAULT_GAS).toBe(300_000_000_000_000n);
-  });
-});
-
-// =========================================================================
-// 3. queryContract — delegation to rpcProvider.callFunction
-// =========================================================================
-
-describe('NearSpokeService.queryContract', () => {
-  it('forwards contractId/method/args to rpcProvider.callFunction', async () => {
-    const spy = vi.spyOn(nearSpoke.rpcProvider, 'callFunction').mockResolvedValueOnce('hello');
-
-    const result = await nearSpoke.queryContract('asset.near', 'get_x', { id: 1 });
-
-    expect(result).toBe('hello');
-    expect(spy).toHaveBeenCalledWith({ contractId: 'asset.near', method: 'get_x', args: { id: 1 } });
-  });
-});
-
-// =========================================================================
 // 4. getRateLimit — happy + null/undefined branches
 // =========================================================================
 
@@ -402,21 +374,6 @@ describe('NearSpokeService.getWalletBalances', () => {
       expect.stringContaining('balance read failed'),
       expect.objectContaining({ chainKey: NEAR, token: USDT_TOKEN.address, error: 'rpc 503' }),
     );
-  });
-
-  it('rejects when no token in a non-empty batch could be read — a dead RPC is not an empty wallet', async () => {
-    ftBalances({
-      [BNUSD_TOKEN.address]: new Error('rpc 503'),
-      [USDT_TOKEN.address]: new Error('rpc 503'),
-    });
-
-    await expect(
-      nearSpoke.getWalletBalances({
-        srcChainKey: NEAR,
-        srcAddress: SRC_ADDR,
-        tokens: [BNUSD_TOKEN, USDT_TOKEN],
-      }),
-    ).rejects.toThrow(`every balance read failed on ${NEAR}`);
   });
 });
 

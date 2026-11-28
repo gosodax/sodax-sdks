@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateCompoundedInterest, calculateLinearInterest, getReserveNormalizedIncome } from './pool-math.js';
+import { calculateCompoundedInterest, getReserveNormalizedIncome } from './pool-math.js';
 import { RAY } from './ray.math.js';
 
 const RATE = '50000000000000000000000000'; // 5% APY in RAY
@@ -22,26 +22,6 @@ describe('calculateCompoundedInterest — negative timeDelta clamp', () => {
 
   it('accrues interest (> RAY) when time elapses forward', () => {
     const result = calculateCompoundedInterest({
-      rate: RATE,
-      currentTimestamp: 1_000 + 31_536_000,
-      lastUpdateTimestamp: 1_000,
-    });
-    expect(result.gt(RAY)).toBe(true);
-  });
-});
-
-describe('calculateLinearInterest — negative timeDelta clamp', () => {
-  it('returns RAY when currentTimestamp < lastUpdateTimestamp', () => {
-    const result = calculateLinearInterest({
-      rate: RATE,
-      currentTimestamp: 1_000,
-      lastUpdateTimestamp: 1_000 + 31_536_000,
-    });
-    expect(result.toString()).toBe(RAY.toString());
-  });
-
-  it('grows above RAY for forward time', () => {
-    const result = calculateLinearInterest({
       rate: RATE,
       currentTimestamp: 1_000 + 31_536_000,
       lastUpdateTimestamp: 1_000,

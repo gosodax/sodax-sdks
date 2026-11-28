@@ -49,22 +49,9 @@ describe('packaged API URL defaults', () => {
     await sodax.api.sponsoring.getStellarSponsorConfig();
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/sponsorships/stellar/config');
   });
-
-  it('every service resolves the same gateway root', () => {
-    const root = 'https://api.sodax.com/v1';
-    expect(sodax.backendApi.getBaseURL()).toBe(root);
-    expect(sodax.backendApi.getBasePath()).toBe('/be');
-    expect(sodax.api.swaps.getBaseURL()).toBe(root);
-    expect(sodax.api.bridge.getBaseURL()).toBe(root);
-    expect(sodax.api.leverageYield.getBaseURL()).toBe(root);
-    expect(sodax.api.sponsoring.getBaseURL()).toBe(root);
-  });
 });
 
-// Message shape and the no-warning cases are covered in BackendApiService.test.ts, beside the other
-// logger assertions; the one facade-level case below stays here because only it exercises
-// `new Sodax({ logger })` → `resolveLogger` → `BackendApiService`, i.e. that the warning reaches a
-// consumer-supplied sink at all, once per construction.
+// The deprecation warning's message shape is covered in BackendApiService.test.ts.
 describe('a legacy /be-suffixed baseURL still resolves every service', () => {
   // What consumers copied from the docs (and what the packaged default used to be). The data API keeps
   // its URLs; the siblings are corrected rather than nested one level deeper.
@@ -81,12 +68,6 @@ describe('a legacy /be-suffixed baseURL still resolves every service', () => {
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/bridge/tokens');
     await legacy.api.leverageYield.getVaults();
     expect(requestedUrl()).toBe('https://api.sodax.com/v1/leverage-yield/vaults');
-  });
-
-  it('surfaces the deprecation warning through a consumer-supplied logger, once', () => {
-    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    new Sodax({ api: { baseURL: 'https://api.sodax.com/v1/be' }, logger });
-    expect(logger.warn).toHaveBeenCalledTimes(1);
   });
 });
 

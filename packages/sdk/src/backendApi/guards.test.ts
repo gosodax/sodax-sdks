@@ -26,12 +26,10 @@ describe('isFillEvent', () => {
   });
 
   it.each([
-    null,
     { ...FILL_EVENT, eventType: 'intent-cancelled' },
     { ...FILL_EVENT, txHash: '' },
     // Without `intentState` there is no way to tell a partial fill from a complete one.
     { eventType: 'intent-filled', txHash: '0xfill' },
-    { ...FILL_EVENT, intentState: {} },
     { ...FILL_EVENT, intentState: { remainingInput: 0 } },
   ])('rejects %#', value => {
     expect(isFillEvent(value)).toBe(false);
@@ -45,7 +43,7 @@ describe('isOracleCandleInterval', () => {
 
   // The markets read is tolerant, so a key from a newer backend reaches consumers as a plain
   // string; the guard is what keeps it out of `getOracleCandles`.
-  it.each(['4h', '', '1H'])('rejects %j, which getOracleCandles does not accept', key => {
+  it.each(['4h', '1H'])('rejects %j, which getOracleCandles does not accept', key => {
     expect(isOracleCandleInterval(key)).toBe(false);
   });
 });

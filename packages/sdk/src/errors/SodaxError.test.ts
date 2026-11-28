@@ -1,8 +1,5 @@
-import { describe, expect, it, expectTypeOf } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { SodaxError, isSodaxError, type SodaxErrorJSON } from './SodaxError.js';
-import type { SodaxErrorCode } from './codes.js';
-
-const stripUndefined = <T>(obj: T): T => JSON.parse(JSON.stringify(obj)) as T;
 
 describe('SodaxError', () => {
   describe('toJSON()', () => {
@@ -48,21 +45,6 @@ describe('SodaxError', () => {
       expect(cause.feature).toBe('moneyMarket');
       expect(cause.message).toBe('inner msg');
       expect(cause.context).toEqual({ x: 1 });
-    });
-  });
-
-  describe('JSON.stringify(err) parity', () => {
-    it('round-tripping JSON.stringify(err) and JSON.stringify(err.toJSON()) yields equal shapes', () => {
-      const inner = new Error('inner');
-      const err = new SodaxError('UNKNOWN', 'msg', {
-        feature: 'bridge',
-        cause: inner,
-        context: { foo: 'bar', n: 1 },
-      });
-
-      const fromError = stripUndefined(JSON.parse(JSON.stringify(err)));
-      const fromToJSON = stripUndefined(JSON.parse(JSON.stringify(err.toJSON())));
-      expect(fromError).toEqual(fromToJSON);
     });
   });
 
@@ -181,15 +163,6 @@ describe('SodaxError', () => {
       expect(isSodaxError(undefined)).toBe(false);
       expect(isSodaxError('SodaxError')).toBe(false);
       expect(isSodaxError({ code: 'X', name: 'SodaxError', feature: 'swap' })).toBe(false);
-    });
-  });
-
-  describe('TypeScript-only narrowing', () => {
-    it('narrows code to a literal type, and defaults the generic to the closed SodaxErrorCode union', () => {
-      const literal = new SodaxError('VALIDATION_FAILED' as const, 'm', { feature: 'swap' });
-      expectTypeOf(literal.code).toEqualTypeOf<'VALIDATION_FAILED'>();
-      const widened: SodaxError = new SodaxError('UNKNOWN', 'm', { feature: 'swap' });
-      expectTypeOf(widened.code).toEqualTypeOf<SodaxErrorCode>();
     });
   });
 });

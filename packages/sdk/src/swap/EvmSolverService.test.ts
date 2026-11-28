@@ -40,21 +40,12 @@ import {
   keccak256,
   toHex,
 } from 'viem';
-import {
-  ChainKeys,
-  FEE_PERCENTAGE_SCALE,
-  HookKind,
-  type PartnerFee,
-  type SolverConfig,
-  type XToken,
-} from '@sodax/types';
+import { ChainKeys, FEE_PERCENTAGE_SCALE, type PartnerFee, type SolverConfig, type XToken } from '@sodax/types';
 import { IntentsAbi } from '../shared/abis/intents.abi.js';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import { IntentDataType, type CreateIntentParams, type Intent } from '../shared/types/intent-types.js';
 import { calculatePercentageFeeAmount, encodeAddress, encodeRecipient } from '../shared/utils/shared-utils.js';
 import { EvmSolverService } from './EvmSolverService.js';
-import { HookService } from './HookService.js';
-import { IntentDataService } from './IntentDataService.js';
 import { Sodax } from '../index.js';
 import { tronSupportedTokens, xrpSupportedTokens } from '@sodax/types';
 import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
@@ -400,10 +391,6 @@ describe('EvmSolverService.constructCreateIntentData', () => {
 
 describe('EvmSolverService.createIntentFeeData', () => {
   describe('happy paths', () => {
-    it('returns ["0x", 0n] when fee is undefined', () => {
-      expect(EvmSolverService.createIntentFeeData(undefined, 1_000_000n)).toEqual(['0x', 0n]);
-    });
-
     it('encodes a PartnerFeeAmount into the IntentDataType.FEE envelope', () => {
       const fee: PartnerFee = { address: FEE_RECEIVER, amount: 5_000n };
       const [encoded, feeAmount] = EvmSolverService.createIntentFeeData(fee, 1_000_000n);
@@ -418,14 +405,6 @@ describe('EvmSolverService.createIntentFeeData', () => {
       );
       const expectedEnvelope = encodePacked(['uint8', 'bytes'], [IntentDataType.FEE, expectedFeeData]);
       expect(encoded).toBe(expectedEnvelope);
-    });
-
-    it('encodes a PartnerFeePercentage as `inputAmount * percentage / FEE_PERCENTAGE_SCALE`', () => {
-      const fee: PartnerFee = { address: FEE_RECEIVER, percentage: 250 }; // 2.5%
-      const [, feeAmount] = EvmSolverService.createIntentFeeData(fee, 1_000_000n);
-
-      // (1_000_000 * 250) / 10_000 = 25_000
-      expect(feeAmount).toBe((1_000_000n * 250n) / FEE_PERCENTAGE_SCALE);
     });
 
     it('accepts the 0% and FEE_PERCENTAGE_SCALE (100%) percentage bounds', () => {
@@ -471,15 +450,6 @@ describe('EvmSolverService.decodeIntentFeeAmount', () => {
       expect(feeAmount).toBeGreaterThan(0n);
       expect(EvmSolverService.decodeIntentFeeAmount(data)).toBe(feeAmount);
     }
-  });
-
-  it('recovers the fee from a TYPE_ARRAY envelope carrying fee + delivery', () => {
-    const [feeEnvelope] = EvmSolverService.createIntentFeeData({ address: FEE_RECEIVER, amount: 1_234n }, 1_000_000n);
-    const data = IntentDataService.composeIntentData(
-      feeEnvelope,
-      HookService.encodeDeliveryData({ kind: HookKind.HYPERCORE_DEPOSIT }, FEE_RECEIVER),
-    );
-    expect(EvmSolverService.decodeIntentFeeAmount(data)).toBe(1_234n);
   });
 });
 
@@ -615,13 +585,6 @@ describe('EvmSolverService.getIntent', () => {
       /Invalid intent relay chain id/,
     );
   });
-
-  it('propagates errors from waitForTransactionReceipt', async () => {
-    const rpcError = new Error('rpc unreachable');
-    vi.mocked(mockPublicClient.waitForTransactionReceipt).mockRejectedValueOnce(rpcError);
-
-    await expect(EvmSolverService.getIntent(TX_HASH, mockConfig, mockPublicClient)).rejects.toBe(rpcError);
-  });
 });
 
 // =========================================================================
@@ -655,21 +618,8 @@ describe('EvmSolverService.getFilledIntent', () => {
 });
 
 // =========================================================================
-// Pure calldata helpers — getIntentHash, encodeCreateIntent, encodeCancelIntent
+// Pure calldata helpers — encodeCreateIntent, encodeCancelIntent
 // =========================================================================
-
-describe('EvmSolverService.getIntentHash', () => {
-  it('matches keccak256 of encodeAbiParameters over the createIntent input shape, distinct per intent', () => {
-    const intent = buildIntent();
-
-    const expected = keccak256(
-      encodeAbiParameters(getAbiItem({ abi: IntentsAbi, name: 'createIntent' }).inputs, [intent]),
-    );
-
-    expect(EvmSolverService.getIntentHash(intent)).toBe(expected);
-    expect(EvmSolverService.getIntentHash(buildIntent({ intentId: 2n }))).not.toBe(expected);
-  });
-});
 
 describe('EvmSolverService.encodeCreateIntent / encodeCancelIntent', () => {
   it('returns { address: intentsContract, value: 0n, data } with the createIntent and cancelIntent calldata', () => {

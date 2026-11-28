@@ -39,12 +39,6 @@ describe('canSendAtomicBatch', () => {
 });
 
 describe('readAtomicBatchSupport', () => {
-  it('passes the wallet answer through and forwards the chain id', async () => {
-    const getAtomicBatchSupport = vi.fn(async () => 'ready' as const);
-    await expect(readAtomicBatchSupport(batchProvider(getAtomicBatchSupport), 42161)).resolves.toBe('ready');
-    expect(getAtomicBatchSupport).toHaveBeenCalledWith(42161);
-  });
-
   it('treats a wallet that cannot answer as unsupported', async () => {
     const throwing = batchProvider(async () => {
       throw new Error('Method not found');

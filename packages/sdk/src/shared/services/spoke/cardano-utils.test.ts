@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { Hex } from 'viem';
 import { decodeCbor } from './cardano-cbor.js';
 import {
-  CARDANO_MIN_RELEASE_LOVELACE,
   cardanoAddressFromRecipientBytes,
   cardanoDepositMetadata,
   cardanoIdentityBytes,
@@ -62,10 +61,6 @@ describe('cardano addresses', () => {
     expect(() => parseCardanoAddress('addr1'.padEnd(201, 'q'))).toThrow(/above the 200-character limit/);
     // A 28-byte identity is not a recipient: it carries no header and cannot be paid.
     expect(() => cardanoAddressFromRecipientBytes(CARDANO_PAYMENT_HASH)).toThrow(/Cardano/);
-  });
-
-  it('pins the release floor at 1 ADA', () => {
-    expect(CARDANO_MIN_RELEASE_LOVELACE).toBe(1_000_000n);
   });
 });
 

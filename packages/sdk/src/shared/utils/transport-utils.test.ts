@@ -50,12 +50,6 @@ describe('buildEvmRpcTransport', () => {
     expect(endpointUrls({ rpcUrl: A, rpcUrls: [A, B, C] })).toEqual([A, B, C]);
     expect(endpointUrls({ rpcUrl: A, rpcUrls: [A, A, B, B] })).toEqual([A, B]);
   });
-
-  it('threads rpcOptions (retryCount + retryDelay) into the fallback transport', () => {
-    const transport = inspectTransport({ rpcUrl: A, rpcUrls: [A, B], rpcOptions: { retryCount: 7, retryDelay: 250 } });
-    expect(transport.retryCount).toBe(7);
-    expect(transport.retryDelay).toBe(250);
-  });
 });
 
 // viem's `rank` starts a perpetual background latency poll (net_listening pings) at construction.

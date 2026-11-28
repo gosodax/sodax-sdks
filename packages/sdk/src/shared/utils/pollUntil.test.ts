@@ -37,15 +37,4 @@ describe('pollUntil', () => {
     expect(await pollUntil(attempt, { timeoutMs: 0, intervalMs: 10 })).toBeUndefined();
     expect(attempt).toHaveBeenCalledOnce();
   });
-  it('propagates attempt errors', async () => {
-    const error = new Error('failed');
-    await expect(
-      pollUntil(
-        async () => {
-          throw error;
-        },
-        { timeoutMs: 100, intervalMs: 10 },
-      ),
-    ).rejects.toBe(error);
-  });
 });

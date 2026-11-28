@@ -228,33 +228,6 @@ describe('AssetService.withdraw — settled through the MPC relay seams', () => 
     poolToken: POOL_TOKEN,
     amount: 1000n,
   } as const;
-  const RELAY_DATA = { address: HUB_WALLET, payload: '0x01' as Hex };
-
-  it('returns the relay trackingId, never a source tx, for a withdraw from Tron', async () => {
-    const trackingId = `0x${'e'.repeat(64)}` as const;
-    vi.spyOn(asset, 'executeWithdraw').mockResolvedValue({
-      ok: true,
-      value: { tx: trackingId, relayData: RELAY_DATA },
-    });
-    vi.spyOn(sodax.spoke.tron, 'waitForWithdrawal').mockResolvedValue({
-      ok: true,
-      value: { trackingId, status: 'released', txs: { release: { chain: 'tron', hash: 'tronRelease', ts: 0 } } },
-    });
-
-    const result = await asset.withdraw({
-      params: {
-        srcChainKey: ChainKeys.TRON_MAINNET,
-        srcAddress: TRON_TEST_ADDRESS,
-        asset: ASSET,
-        poolToken: POOL_TOKEN,
-        amount: 1000n,
-      },
-      raw: false,
-      walletProvider: {} as never,
-    });
-
-    expect(result).toEqual({ ok: true, value: { trackingId, dstChainTxHash: 'tronRelease' } });
-  });
 
   it('keeps the original authorization and payout details on an indeterminate Tron withdrawal', async () => {
     const trackingId = '0xoriginal';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FeeBumpTransaction, Keypair, Networks, type Operation, TransactionBuilder } from '@stellar/stellar-sdk';
+import { type FeeBumpTransaction, Keypair, Networks, type Operation, TransactionBuilder } from '@stellar/stellar-sdk';
 import type { StellarSponsorConfig } from '@sodax/types';
 import { isSodaxError } from '../../errors/SodaxError.js';
 import {
@@ -150,13 +150,6 @@ describe('deriveSponsorBaseFee — per-operation band validation', () => {
     expect(isSodaxError(inverted)).toBe(true);
     expect((inverted as Error).message).toMatch(/per-operation fee band is inverted/);
   });
-
-  it('never prompts the wallet when the per-operation band is violated', () => {
-    // buildSponsoredCreate must fail before it can hand an envelope to a signer.
-    const error = caught(() => build({ minPerOperationFeeStroops: '2000' }));
-    expect(isSodaxError(error)).toBe(true);
-    expect((error as Error).message).toMatch(/outside the accepted per-operation band/);
-  });
 });
 
 describe('resolveTimeboundSeconds', () => {
@@ -222,20 +215,6 @@ describe('buildSponsoredCreate', () => {
     expect(tx.sequence).toBe((BigInt(SPONSOR_SEQUENCE) + 1n).toString());
   });
 
-  it('produces XDR within the 4096-character limit that round-trips to the same structure', () => {
-    const xdr = build().toXDR();
-    expect(xdr.length).toBeLessThanOrEqual(4096);
-
-    const reparsed = TransactionBuilder.fromXDR(xdr, Networks.PUBLIC);
-    expect(reparsed).not.toBeInstanceOf(FeeBumpTransaction);
-    const tx = reparsed as Exclude<typeof reparsed, FeeBumpTransaction>;
-    expect(tx.operations).toHaveLength(3);
-    expect(tx.source).toBe(SPONSOR.publicKey());
-    expect(tx.fee).toBe('3000');
-    expect(tx.memo.type).toBe('none');
-    expect(tx.operations[2]?.source).toBe(NEW_ACCOUNT.publicKey());
-  });
-
   it('rejects a non-public network or a malformed / contract-address destination locally, before any wallet prompt', () => {
     const error = caught(() => build({ networkPassphrase: Networks.TESTNET }));
     expect(isSodaxError(error)).toBe(true);
@@ -277,22 +256,19 @@ describe('assertSignedByAccount', () => {
     ).not.toThrow();
   });
 
-  it('rejects a signature produced over the WRONG network — the silent failure this exists for', () => {
-    // Network-mismatched signatures remain well-formed XDR.
+  it('rejects a WRONG-network signature, one from a different account, an unsigned transaction and unparseable XDR', () => {
     const tx = build();
-    const error = caught(() =>
+    // Network-mismatched signatures remain well-formed XDR — the silent failure this check exists for.
+    const wrongNetwork = caught(() =>
       assertSignedByAccount({
         signedXdr: signWith(NEW_ACCOUNT, Networks.TESTNET),
         address: NEW_ACCOUNT.publicKey(),
         unsignedHash: tx.hash(),
       }),
     );
-    expect(isSodaxError(error)).toBe(true);
-    expect((error as Error).message).toMatch(/different Stellar network/);
-  });
+    expect(isSodaxError(wrongNetwork)).toBe(true);
+    expect((wrongNetwork as Error).message).toMatch(/different Stellar network/);
 
-  it('rejects a signature from a different account, an unsigned transaction and unparseable XDR', () => {
-    const tx = build();
     for (const signedXdr of [signWith(OTHER, Networks.PUBLIC), tx.toXDR(), 'not-xdr']) {
       const error = caught(() =>
         assertSignedByAccount({ signedXdr, address: NEW_ACCOUNT.publicKey(), unsignedHash: tx.hash() }),

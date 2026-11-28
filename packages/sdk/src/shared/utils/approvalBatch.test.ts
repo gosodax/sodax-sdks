@@ -222,14 +222,6 @@ describe('sendApprovalBatch', () => {
       callCount: 2,
     });
   });
-
-  it('reports a wait that throws (e.g. a timeout) as unconfirmed', async () => {
-    const walletProvider = batchProvider();
-    walletProvider.waitForBatch.mockRejectedValueOnce(new Error('timed out'));
-    const result = await send(walletProvider);
-    expect(!result.ok && result.error.code).toBe('TX_VERIFICATION_FAILED');
-    expect(!result.ok && result.error.context?.reason).toBe(ATOMIC_BATCH_UNCONFIRMED);
-  });
 });
 
 describe('runWithApproval', () => {

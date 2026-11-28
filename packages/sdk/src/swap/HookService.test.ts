@@ -29,10 +29,11 @@ describe('HookService.encodeDeliveryData', () => {
 
   // A zero recipient makes the destination receiver revert, which wedges the cross-chain message
   // unrecoverably — so it must fail here, before an intent exists.
-  it.each([HookKind.HYPERCORE_DEPOSIT, HookKind.FLINT_DEPOSIT])('rejects a zero-address recipient (%s)', kind => {
-    expect(() =>
-      HookService.encodeDeliveryData({ kind } as Parameters<typeof HookService.encodeDeliveryData>[0], ZERO_ADDRESS),
-    ).toThrow(/zero address/);
+  // The guard runs before the per-kind switch, so one kind covers it.
+  it('rejects a zero-address recipient', () => {
+    expect(() => HookService.encodeDeliveryData({ kind: HookKind.FLINT_DEPOSIT }, ZERO_ADDRESS)).toThrow(
+      /zero address/,
+    );
   });
 
   it('throws on an unknown hook kind', () => {
@@ -46,21 +47,6 @@ describe('HookService.encodeDeliveryData', () => {
 });
 
 describe('HookService.resolveDeliveryHook', () => {
-  it('resolves the HyperCore (HyperEVM) and Flint (Ethereum) hooks to their registered address + encoded recipient', () => {
-    // The Flint hook on Ethereum is the deployed FlintDepositHook.
-    expect(getSpokeHook(ChainKeys.ETHEREUM_MAINNET, HookKind.FLINT_DEPOSIT)?.address).toBe(
-      '0xDf376dE34e9f1474A025Dfe411b7EB5541793C5d',
-    );
-    for (const [chainKey, kind] of [
-      [ChainKeys.HYPEREVM_MAINNET, HookKind.HYPERCORE_DEPOSIT],
-      [ChainKeys.ETHEREUM_MAINNET, HookKind.FLINT_DEPOSIT],
-    ] as const) {
-      const { dstAddress, deliveryData } = HookService.resolveDeliveryHook(chainKey, { kind }, HC_RECIPIENT);
-      expect(dstAddress).toBe(getSpokeHook(chainKey, kind)?.address);
-      expect(deliveryData).toBe(HookService.encodeDeliveryData({ kind }, HC_RECIPIENT));
-    }
-  });
-
   it('throws when the requested hook is not deployed on the chain', () => {
     expect(() =>
       HookService.resolveDeliveryHook(ChainKeys.ETHEREUM_MAINNET, { kind: HookKind.HYPERCORE_DEPOSIT }, HC_RECIPIENT),

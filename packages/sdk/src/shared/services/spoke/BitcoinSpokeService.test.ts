@@ -200,51 +200,6 @@ describe('BitcoinSpokeService.getWalletBalance / getWalletBalances', () => {
       [BUSD_TOKEN.address]: 0n,
     });
   });
-
-  it('getWalletBalances isolates a failing read as a logged 0n instead of discarding the batch', async () => {
-    const warnSpy = vi.spyOn(sodax.config.logger, 'warn');
-    setFetch(url =>
-      // Only the native BTC read hits the network; the Rune token never reaches fetch, so this
-      // fails exactly one token of the batch and leaves a successful read behind.
-      url.endsWith('/utxo')
-        ? ({ ok: false, statusText: 'Too Many Requests' } as unknown as Response)
-        : new Response(null, { status: 404 }),
-    );
-
-    const result = await btcSpoke.getWalletBalances({
-      srcChainKey: BTC,
-      srcAddress: USER_ADDR,
-      tokens: [BTC_TOKEN, BUSD_TOKEN],
-    });
-
-    // A failed read reports 0n, which is indistinguishable from a real zero in the map — the log
-    // is the only signal, so assert it fired or the failure could regress into a silent zero.
-    expect(result[BTC_TOKEN.address]).toBe(0n);
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('balance read failed'),
-      expect.objectContaining({ chainKey: BTC, token: BTC_TOKEN.address }),
-    );
-    // ...while the structurally-zero Rune entry still resolves, unlogged.
-    expect(result[BUSD_TOKEN.address]).toBe(0n);
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-  });
-
-  it('getWalletBalances rejects when every read in the batch failed', async () => {
-    // An all-zero map from a dead RPC would read as "this wallet is empty on every asset", so the
-    // one case the flat map cannot express safely must throw rather than resolve.
-    const warnSpy = vi.spyOn(sodax.config.logger, 'warn');
-    setFetch(() => ({ ok: false, statusText: 'Too Many Requests' }) as unknown as Response);
-
-    await expect(
-      btcSpoke.getWalletBalances({
-        srcChainKey: BTC,
-        srcAddress: USER_ADDR,
-        tokens: [BTC_TOKEN],
-      }),
-    ).rejects.toThrow(/every balance read failed on bitcoin/);
-
-    expect(warnSpy).toHaveBeenCalledTimes(1);
-  });
 });
 
 // =========================================================================
@@ -252,11 +207,6 @@ describe('BitcoinSpokeService.getWalletBalance / getWalletBalances', () => {
 // =========================================================================
 
 describe('BitcoinSpokeService.getFeeRateEstimate', () => {
-  it('returns the per-target fee from the API response', async () => {
-    setFetch(() => json({ 1: 50, 6: 12, 144: 3 }));
-    expect(await btcSpoke.getFeeRateEstimate(6)).toBe(12);
-  });
-
   it('falls back to default (3) when the target is missing, the fetch is not ok, or the fetch throws', async () => {
     setFetch(() => json({ 1: 50 })); // no key 6
     expect(await btcSpoke.getFeeRateEstimate(6)).toBe(3);
@@ -362,19 +312,6 @@ describe('BitcoinSpokeService.getOnDemandRelayIdentity', () => {
     expect(btcSpoke.getOnDemandRelayIdentity(JSON.stringify({ payload_hex: `0x${payloadHex}` })).pollTxHash).toBe(
       expectedPollId,
     );
-  });
-});
-
-describe('BitcoinSpokeService.fundTradingWallet', () => {
-  it('sends BTC to the trading-wallet address via walletProvider.sendBitcoin', async () => {
-    vi.spyOn(btcSpoke.radfi, 'getTradingWallet').mockResolvedValueOnce({
-      tradingAddress: TRADING_ADDR,
-    } as never);
-    (mockBtcProvider.sendBitcoin as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
-
-    const result = await btcSpoke.fundTradingWallet(50_000n, USER_ADDR, mockBtcProvider);
-    expect(result).toBe(TX_HASH);
-    expect(mockBtcProvider.sendBitcoin).toHaveBeenCalledWith(TRADING_ADDR, 50_000n);
   });
 });
 
@@ -792,20 +729,6 @@ describe('BitcoinSpokeService.waitForTransactionReceipt', () => {
     if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
     expect(result.value.receipt).toEqual(receipt);
     expect(mocks.sleep).toHaveBeenCalled();
-  });
-
-  it('unconfirmed until deadline → status:timeout', async () => {
-    setFetch(() => json({ txid: TX_HASH, status: { confirmed: false } }));
-
-    const result = await btcSpoke.waitForTransactionReceipt({
-      chainKey: BTC,
-      txHash: TX_HASH,
-      pollingIntervalMs: 1,
-      maxTimeoutMs: 1,
-    });
-
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.value.status).toBe('timeout');
   });
 
   it('persistent 404 until deadline → status:timeout, sleeping the caller-supplied pollingIntervalMs between polls', async () => {

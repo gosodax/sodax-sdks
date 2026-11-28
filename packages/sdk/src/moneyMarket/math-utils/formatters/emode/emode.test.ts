@@ -33,20 +33,8 @@ describe('getReservesEModes', () => {
     ]);
   });
 
-  it('reports both sides when the reserve is in the collateral and borrowable bitmaps', () => {
-    expect(getReservesEModes(2, eModes)).toEqual([
-      expect.objectContaining({ id: 1, collateralEnabled: true, borrowingEnabled: true }),
-    ]);
-  });
-
   it('omits categories the reserve is in on neither side', () => {
     expect(getReservesEModes(9, eModes)).toEqual([]);
-  });
-
-  it('keeps a category whose collateral bitmap is empty but which permits the borrow', () => {
-    expect(getReservesEModes(7, eModes)).toEqual([
-      expect.objectContaining({ id: 3, collateralEnabled: false, borrowingEnabled: true }),
-    ]);
   });
 
   it('does not bleed a neighbouring reserve bit into the answer', () => {

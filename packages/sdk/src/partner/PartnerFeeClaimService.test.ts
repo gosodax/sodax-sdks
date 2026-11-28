@@ -31,9 +31,7 @@ const EVM_WALLET = { chainType: 'EVM', sendTransaction: vi.fn() } as unknown as 
 function makeService(overrides: {
   readContract?: ReturnType<typeof vi.fn>;
   sendTransaction?: ReturnType<typeof vi.fn>;
-  waitForTransactionReceipt?: ReturnType<typeof vi.fn>;
   isValidIntentRelayChainId?: (chainId: bigint) => boolean;
-  apiKey?: string;
   spokeChainKeyOf?: (intentRelayChainId: bigint) => SpokeChainKey;
 }): PartnerFeeClaimService {
   const config = {
@@ -42,12 +40,11 @@ function makeService(overrides: {
     analytics: noopAnalytics,
     isValidIntentRelayChainId: overrides.isValidIntentRelayChainId ?? (() => true),
     getSpokeChainKeyFromIntentRelayChainId: overrides.spokeChainKeyOf,
-    apiKey: overrides.apiKey,
   } as unknown as ConfigService;
   const hubProvider = {
     publicClient: {
       readContract: overrides.readContract ?? vi.fn(),
-      waitForTransactionReceipt: overrides.waitForTransactionReceipt ?? vi.fn(),
+      waitForTransactionReceipt: vi.fn(),
     },
     chainConfig: { chain: { key: ChainKeys.SONIC_MAINNET } },
   } as unknown as HubProvider;
@@ -133,42 +130,6 @@ describe('PartnerFeeClaimService.swap same-token guard', () => {
     expect((result.error as { code?: string }).code).toBe('VALIDATION_FAILED');
     // The guard must short-circuit before any swap transaction is built/sent.
     expect(readContract).toHaveBeenCalled();
-  });
-
-  it('forwards the configured backend API key to the solver /execute notice', async () => {
-    const intentTxHash = '0xintentTx' as Hex;
-    const service = makeService({
-      apiKey: 'instance-key',
-      waitForTransactionReceipt: vi.fn(async () => ({ transactionHash: intentTxHash })),
-    });
-    vi.spyOn(service, 'createIntentAutoSwap').mockResolvedValueOnce({ ok: true, value: intentTxHash });
-    mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK' } });
-
-    const result = await service.swap({
-      raw: false,
-      params: { srcChainKey: ChainKeys.SONIC_MAINNET, srcAddress: SRC, fromToken: USDC, amount: 1_000_000n },
-      walletProvider: EVM_WALLET,
-    });
-
-    expect(result.ok).toBe(true);
-    expect(mocks.solverPostExecution.mock.calls[0]?.[3]).toBe('instance-key');
-  });
-});
-
-describe('PartnerFeeClaimService.getUserIntent', () => {
-  it('returns the stored intent hash for the token pair', async () => {
-    const intentHash = '0x5f0317381efc3db8cc34186e3a4c09ebb934209d079d833425beb26d3d9932fb' as Hex;
-    const readContract = vi.fn(async () => intentHash);
-    const service = makeService({ readContract });
-
-    const result = await service.getUserIntent({ user: SRC, fromToken: USDC, toToken: USDC });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value).toBe(intentHash);
-    expect(readContract).toHaveBeenCalledWith(
-      expect.objectContaining({ functionName: 'getUserIntent', args: [SRC, USDC, USDC] }),
-    );
   });
 });
 

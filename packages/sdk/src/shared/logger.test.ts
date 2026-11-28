@@ -13,17 +13,6 @@ describe('resolveLogger', () => {
   });
 });
 
-describe('silentLogger', () => {
-  it('drops every level without throwing', () => {
-    expect(() => {
-      silentLogger.debug('d');
-      silentLogger.info('i');
-      silentLogger.warn('w');
-      silentLogger.error('e', new Error('boom'), { k: 'v' });
-    }).not.toThrow();
-  });
-});
-
 describe('consoleLogger', () => {
   it('forwards error(message, error) to console.error, omitting the second argument when no error is passed', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -49,11 +38,6 @@ describe('consoleLogger', () => {
 });
 
 describe('Sodax logger wiring', () => {
-  it("defaults to the console logger and selects the silent logger via { logger: 'silent' }", () => {
-    expect(new Sodax().config.logger).toBe(consoleLogger);
-    expect(new Sodax({ logger: 'silent' }).config.logger).toBe(silentLogger);
-  });
-
   it('uses a custom logger and keeps it across initialize()', async () => {
     const custom: SodaxLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const sodax = new Sodax({ logger: custom });

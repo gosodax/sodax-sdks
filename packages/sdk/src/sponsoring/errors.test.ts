@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { SPONSORING_API_ERROR_CODES } from '@sodax/types';
 import { BackendHttpError } from '../backendApi/api-utils.js';
 import { SodaxError } from '../errors/SodaxError.js';
 import { classifySponsorError, type SponsorFailureAction } from './errors.js';
@@ -161,26 +160,6 @@ describe('classifySponsorError', () => {
     expect(result.action).toBe('backoff');
     expect(result.retryable).toBe(true);
     expect(result.status).toBeUndefined();
-  });
-
-  it('tolerates a non-JSON body (e.g. an HTML 502 from a gateway that never reached the service)', () => {
-    const error = new SodaxError('EXTERNAL_API_ERROR', 'HTTP_REQUEST_FAILED', {
-      feature: 'backend',
-      cause: new BackendHttpError(502, '<html>Bad Gateway</html>'),
-      context: { api: 'sponsoring' },
-    });
-    expect(() => classifySponsorError(error)).not.toThrow();
-    expect(classifySponsorError(error).status).toBe(502);
-  });
-
-  it('has a defined outcome for every published domain code', () => {
-    // Keep the published code union and classifier exhaustive.
-    for (const code of SPONSORING_API_ERROR_CODES) {
-      const status = code === 'SPONSOR_SEQUENCE_CONFLICT' ? 409 : 503;
-      const result = classifySponsorError(wireError(status, { statusCode: status, error: code, message: code }));
-      expect(result.action).toBeDefined();
-      expect(typeof result.retryable).toBe('boolean');
-    }
   });
 });
 

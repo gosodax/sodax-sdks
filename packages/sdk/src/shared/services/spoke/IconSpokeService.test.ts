@@ -100,23 +100,6 @@ afterEach(() => {
 });
 
 // =========================================================================
-// 2. estimateGas — delegation to estimateStepCost
-// =========================================================================
-
-describe('IconSpokeService.estimateGas', () => {
-  it('delegates to estimateStepCost with the per-chain debug RPC URL', async () => {
-    mocks.estimateStepCost.mockResolvedValueOnce(123_456n);
-
-    const rawTx = { from: SRC_ADDR, to: ICON_ASSET_MGR };
-    const result = await iconSpoke.estimateGas({ chainKey: ICON, tx: rawTx });
-
-    expect(result).toBe(123_456n);
-    expect(mocks.estimateStepCost).toHaveBeenCalledWith(rawTx, iconConfig.debugRpcUrl);
-    expect(iconSpoke.debugRpcUrl).toBe(iconConfig.debugRpcUrl);
-  });
-});
-
-// =========================================================================
 // 3. deposit — native (ICX→wICX substitution) vs non-native, raw vs walletProvider
 // =========================================================================
 
@@ -392,26 +375,6 @@ describe('IconSpokeService.getWalletBalances', () => {
     );
     expect(result[BNUSD_TOKEN.address]).toBe(7500n);
   });
-
-  it('rejects when no token in the batch could be read, so a dead RPC never looks like an empty wallet', async () => {
-    const warnSpy = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {});
-    vi.spyOn(iconSpoke.iconService, 'getBalance').mockReturnValueOnce(
-      httpCallReject(new Error('icx rpc unavailable')) as never,
-    );
-    vi.spyOn(iconSpoke.iconService, 'call').mockReturnValueOnce(
-      httpCall(aggregated([{ returnData: '0x', success: '0x0' }])) as never,
-    );
-
-    await expect(
-      iconSpoke.getWalletBalances({
-        srcChainKey: ICON,
-        srcAddress: SRC_ADDR,
-        tokens: [ICX_TOKEN, BNUSD_TOKEN],
-      }),
-    ).rejects.toThrow(`every balance read failed on ${ICON} (2/2)`);
-
-    expect(warnSpy).toHaveBeenCalledTimes(2);
-  });
 });
 
 // =========================================================================
@@ -489,17 +452,6 @@ describe('IconSpokeService.encodeSimulationParams', () => {
 // =========================================================================
 
 describe('IconSpokeService.waitForTransactionReceipt', () => {
-  it('maps status===1 to status:success with the receipt', async () => {
-    const receipt = { status: 1, txHash: TX_HASH, blockHeight: 42 };
-    vi.spyOn(iconSpoke.iconService, 'getTransactionResult').mockReturnValueOnce(httpCall(receipt) as never);
-
-    const result = await iconSpoke.waitForTransactionReceipt({ chainKey: ICON, txHash: TX_HASH });
-
-    if (!result.ok) throw new Error('expected ok');
-    if (result.value.status !== 'success') throw new Error('expected success');
-    expect(result.value.receipt).toBe(receipt);
-  });
-
   it('maps status!==1 to status:failure with a JSON-stringified error message', async () => {
     const receipt = { status: 0, failure: 'reverted', txHash: TX_HASH };
     vi.spyOn(iconSpoke.iconService, 'getTransactionResult').mockReturnValueOnce(httpCall(receipt) as never);

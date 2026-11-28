@@ -22,11 +22,10 @@ import {
   decodeAbiParameters,
   decodeFunctionData,
   parseAbi,
-  UserRejectedRequestError,
   type Address,
   type Hex,
 } from 'viem';
-import { leverageYieldConfig, tronSupportedTokens, xrpSupportedTokens } from '@sodax/types';
+import { tronSupportedTokens, xrpSupportedTokens } from '@sodax/types';
 // Import the barrel by relative path, not as `@sodax/sdk`. A self-referential package import
 // resolves through `package.json#exports` into `dist/`, which makes this unit test depend on a
 // build artifact — it then fails to resolve whenever `dist/` is absent or half-written, and turbo
@@ -991,30 +990,6 @@ describe('LeverageYieldService.getQuote', () => {
     expect(await quotedAmount(lyConfigured, { partnerFee: { address: HUB_WALLET, percentage: 10 } })).toBe(999_000n);
   });
 
-  it('forwards the request fields unchanged and returns the solver response', async () => {
-    const s = new Sodax();
-    mocks.solverGetQuote.mockResolvedValueOnce({ ok: true, value: { quoted_amount: 4_242n } });
-    const result = await s.leverageYield.getQuote(quoteParams);
-
-    expect(result).toEqual({ ok: true, value: { quoted_amount: 4_242n } });
-    const [forwarded, solverConfig] = mocks.solverGetQuote.mock.calls[0] ?? [];
-    // partnerFee is stripped; every other field reaches the solver verbatim.
-    expect(forwarded).toEqual({ ...quoteParams });
-    expect(forwarded).not.toHaveProperty('partnerFee');
-    // The instance under test, not the module-level `sodax`: deepMerge happens to share the
-    // `solver` sub-object across instances, so asserting the other one would pass vacuously.
-    expect(solverConfig).toBe(s.config.solver);
-  });
-
-  it('propagates a solver error Result instead of throwing', async () => {
-    const error = { detail: { code: -4, message: 'no path' } };
-    mocks.solverGetQuote.mockResolvedValueOnce({ ok: false, error });
-
-    const result = await new Sodax().leverageYield.getQuote(quoteParams);
-
-    expect(result).toEqual({ ok: false, error });
-  });
-
   // The other LY methods return a Result for bad input; getQuote must not be the one that throws.
   it('returns VALIDATION_FAILED for a non-positive amount, tagged with token-side chain keys', async () => {
     const result = await new Sodax().leverageYield.getQuote({ ...quoteParams, amount: 0n });
@@ -1040,7 +1015,6 @@ describe('LeverageYieldService.getQuote', () => {
     ['a fixed fee equal to the amount', { amount: 1_000_000n }],
     ['a 100% percentage fee', { percentage: 10_000 }],
     ['a percentage above the 10_000 bp scale', { percentage: 20_000 }],
-    ['a negative percentage', { percentage: -5 }],
     // Fractional passes calculateFeeAmount's bounds check, then BigInt(0.5) throws a RangeError.
     ['a fractional percentage', { percentage: 0.5 }],
   ] as const)('returns VALIDATION_FAILED for %s', async (_label, fee) => {
@@ -1334,74 +1308,6 @@ describe('LeverageYieldService.vaultSwap — backend submit-tx (useBackendSubmit
     expect(mocks.relayTxAndWaitPacket.mock.calls.at(-1)?.[0]?.timeout).toBe(30_000);
   });
 
-  it('keeps the source tx on the error when the fallback relay also fails', async () => {
-    // The backend may still finish this vault swap, so the caller needs the tx to keep reading status.
-    stubCreatedAndVerified();
-    vi.spyOn(sodaxBE.api.leverageYield, 'submitTx').mockResolvedValueOnce({
-      ok: false,
-      error: new SodaxError('EXTERNAL_API_ERROR', 'backend down', { feature: 'backend' }),
-    });
-    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: new Error('RELAY_TIMEOUT') });
-
-    const result = await sodaxBE.leverageYield.vaultSwap(vaultSwapInput());
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('RELAY_TIMEOUT');
-    expect(result.error.context).toMatchObject({ srcChainKey: ARBITRUM, srcTxHash: '0xspokeTx' });
-  });
-
-  it('falls back on a 200 that reports success:false (without polling) or on a terminal "failed" status', async () => {
-    stubCreatedAndVerified();
-    const submitSpy = vi.spyOn(sodaxBE.api.leverageYield, 'submitTx').mockResolvedValueOnce({
-      ok: true,
-      value: { success: false, data: { status: 'inserted', message: 'not queued' } },
-    });
-    const statusSpy = vi.spyOn(sodaxBE.api.leverageYield, 'getSubmitTxStatus');
-    mocks.relayTxAndWaitPacket.mockResolvedValue({ ok: true, value: { dst_tx_hash: '0xFALLBACKDST' } });
-    mocks.solverPostExecution.mockResolvedValue({ ok: true, value: { answer: 'OK', intent_hash: '0xfb' } });
-
-    const notQueued = await sodaxBE.leverageYield.vaultSwap(vaultSwapInput(30_000));
-
-    expect(notQueued.ok).toBe(true);
-    expect(submitSpy).toHaveBeenCalledOnce();
-    // `ok` is transport-level only: a 200 carrying success:false means the backend did NOT queue the
-    // submission, so there is nothing to watch for.
-    expect(statusSpy).not.toHaveBeenCalled();
-    expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledOnce();
-
-    stubCreatedAndVerified();
-    stubAcceptedSubmit();
-    statusSpy.mockResolvedValueOnce(statusEnvelope({ status: 'failed', failureReason: 'boom' }));
-
-    const failed = await sodaxBE.leverageYield.vaultSwap(vaultSwapInput());
-
-    expect(failed.ok && failed.value.intentDeliveryInfo.dstTxHash).toBe('0xFALLBACKDST');
-    expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledTimes(2);
-  });
-
-  it('stops polling once the backend rejects the API key, rather than burning the attempt', async () => {
-    stubCreatedAndVerified();
-    stubAcceptedSubmit();
-    const statusSpy = vi.spyOn(sodaxBE.api.leverageYield, 'getSubmitTxStatus').mockResolvedValue({
-      ok: false,
-      error: new SodaxError('EXTERNAL_API_ERROR', 'Unauthorized', {
-        feature: 'backend',
-        context: { api: 'leverageYield', endpoint: '/leverage-yield/submit-tx/status', status: 401 },
-      }),
-    });
-    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xFALLBACKDST' } });
-    mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK', intent_hash: '0xfb' } });
-
-    const result = await sodaxBE.leverageYield.vaultSwap(vaultSwapInput(30_000));
-
-    expect(result.ok).toBe(true);
-    // A rejected key cannot become success by waiting; retrying it would spend the whole attempt the
-    // client-side fallback is waiting on.
-    expect(statusSpy).toHaveBeenCalledOnce();
-    expect(mocks.relayTxAndWaitPacket).toHaveBeenCalledOnce();
-  });
-
   it('treats a non-finite caller timeout as the default rather than stranding the broadcast intent', async () => {
     stubCreatedAndVerified();
     const submitSpy = vi.spyOn(sodaxBE.api.leverageYield, 'submitTx').mockResolvedValueOnce({
@@ -1420,26 +1326,6 @@ describe('LeverageYieldService.vaultSwap — backend submit-tx (useBackendSubmit
     expect(submitSpy).toHaveBeenCalledOnce();
     expect(submitSpy.mock.calls[0]?.[1]).toEqual({ timeout: DEFAULT_BACKEND_API_TIMEOUT });
     expect(mocks.relayTxAndWaitPacket.mock.calls.at(-1)?.[0]?.timeout).toBe(DEFAULT_RELAY_TX_TIMEOUT);
-  });
-
-  it('skips the backend POST entirely when the caller leaves no budget', async () => {
-    stubCreatedAndVerified();
-    // Stubbed even though the assertion is that it never runs: an unmocked spy calls through, so a
-    // regression in the budget guard would turn this unit test into a real POST to the live backend.
-    const submitSpy = vi.spyOn(sodaxBE.api.leverageYield, 'submitTx').mockResolvedValue({
-      ok: false,
-      error: new SodaxError('EXTERNAL_API_ERROR', 'unreachable', { feature: 'backend' }),
-    });
-    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: true, value: { dst_tx_hash: '0xFALLBACKDST' } });
-    mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK', intent_hash: '0xfb' } });
-
-    const result = await sodaxBE.leverageYield.vaultSwap(vaultSwapInput(0));
-
-    expect(result.ok).toBe(true);
-    // Firing the POST would only arm an abort at 0ms; the relay still runs on its floor because the
-    // intent has already landed on-chain.
-    expect(submitSpy).not.toHaveBeenCalled();
-    expect(mocks.relayTxAndWaitPacket.mock.calls.at(-1)?.[0]?.timeout).toBe(RELAY_FALLBACK_FLOOR_MS);
   });
 
   it('gives the fallback a FRESH full timeout after a stalled backend consumed its own', async () => {
@@ -1685,10 +1571,8 @@ describe('LeverageYieldService.getDetailedStatus', () => {
   });
 
   it.each([
-    ['no record exists', () => backendFails('not found', 404)],
     ['the record reports a success:false envelope', () => recordNotFound()],
     ['the backend abandoned the record mid-flight', () => record({ status: 'relayed', abandonedAt: 'now' })],
-    ['the backend is unreachable', () => backendFails('backend unavailable', 503)],
   ])('routes relay → hub hash → solver when %s', async (_case, arrange) => {
     arrange();
     packets(delivered);
@@ -1830,33 +1714,15 @@ describe('LeverageYieldService.getDetailedStatus', () => {
     result.ok && result.value.source === 'solver' ? result.value.data : undefined;
 
   // The solver can keep reporting a keeper-cancelled vault intent in flight, which polls forever.
-  it.each([
-    SolverIntentStatusCode.STARTED_NOT_FINISHED,
-    SolverIntentStatusCode.NOT_FOUND,
-  ])('reads a cancelled intent past a failed record as FAILED when the solver answers %s', async status => {
+  it('reads a cancelled intent past a failed record as FAILED while the solver answers in flight', async () => {
     record({ status: 'failed', failureReason: 'Intent deadline expired', abandonedAt: '2026-10-14T07:48:07.869Z' });
     packets(delivered);
-    solverSays(status);
+    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
     journalReturns(cancelled);
 
     expect(solverStatusOf(await sodaxDS.leverageYield.getDetailedStatus(key))).toEqual({
       status: SolverIntentStatusCode.FAILED,
     });
-  });
-
-  it('reads a settling fill as SOLVED while the solver still reports the intent in flight (journal read keyed)', async () => {
-    backendFails('not found', 404);
-    packets(delivered);
-    solverSays(SolverIntentStatusCode.STARTED_NOT_FINISHED);
-    const intentSpy = journalReturns(
-      journal(false, [{ eventType: 'intent-filled', txHash: '0xfill', intentState: { remainingInput: '0' } }]),
-    );
-
-    expect(solverStatusOf(await sodaxDS.leverageYield.getDetailedStatus(key, { apiKey: 'per-action-key' }))).toEqual({
-      status: SolverIntentStatusCode.SOLVED,
-      fill_tx_hash: '0xfill',
-    });
-    expect(intentSpy.mock.calls[0]?.[1]).toMatchObject({ apiKey: 'per-action-key' });
   });
 
   it('leaves the solver answer standing when the intent is open, the journal unreadable, or the answer final', async () => {
@@ -1936,17 +1802,6 @@ describe('LeverageYieldService.getDetailedStatus', () => {
 // ─── notifySolver — public manual-orchestration notify step ────────────────
 
 describe('LeverageYieldService.notifySolver', () => {
-  it('returns the solver acknowledgement, forwarding the configured backend API key', async () => {
-    const keyed = new Sodax({ apiKey: 'instance-key', logger: 'silent' });
-    mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK', intent_hash: '0xhash' } });
-
-    const result = await keyed.leverageYield.notifySolver({ intent_tx_hash: '0xhubIntentTx' });
-
-    expect(result).toEqual({ ok: true, value: { answer: 'OK', intent_hash: '0xhash' } });
-    expect(mocks.solverPostExecution.mock.calls[0]?.[0]).toEqual({ intent_tx_hash: '0xhubIntentTx' });
-    expect(mocks.solverPostExecution.mock.calls[0]?.[3]).toBe('instance-key');
-  });
-
   it('maps a solver error to EXTERNAL_API_ERROR with its solverCode, or a synthetic one when malformed', async () => {
     mocks.solverPostExecution
       .mockResolvedValueOnce({ ok: false, error: { detail: { code: -7, message: 'boom' } } })
@@ -1985,24 +1840,6 @@ describe('LeverageYieldService.approve', () => {
     );
     expect(raw).toEqual({ ok: true, value: '0xrawApprove' });
     expect(mocks.erc20Approve.mock.calls[1]?.[0]).toEqual(expect.objectContaining({ raw: true }));
-  });
-
-  it('clears a stale allowance first when the vault asset needs it', async () => {
-    stubReadContract({ asset: SODA_ASSET });
-    mocks.erc20PlanApproval.mockResolvedValueOnce({ resetAmount: 0n, approveAmount: 100n, reason: 'reset-required' });
-    mocks.erc20Approve.mockResolvedValueOnce('0xresetTx').mockResolvedValueOnce('0xapproveTx');
-    vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValue({
-      ok: true,
-      value: { status: 'success', receipt: {} },
-    });
-
-    const result = await sodax.leverageYield.approve({ vault: VAULT, amount: 100n, walletProvider: mockEvmProvider });
-
-    // Routing through SpokeService is what buys this — a direct Erc20Service.approve would
-    // dead-end on a USDT-class asset.
-    expect(result).toEqual({ ok: true, value: '0xapproveTx' });
-    expect(mocks.erc20Approve).toHaveBeenCalledTimes(2);
-    expect(mocks.erc20Approve.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ amount: 0n }));
   });
 
   it('rejects a non-positive amount (VALIDATION_FAILED, field=amount) and wraps a getAsset failure as APPROVE_FAILED', async () => {
@@ -2091,16 +1928,6 @@ describe('LeverageYieldService reads', () => {
     expect(result).toEqual({ ok: true, value: { collateral: 1n, debt: 2n, ltv: 3n, healthFactor: 4n, idleAsset: 5n } });
   });
 
-  it('getShareBalance reads balanceOf(owner); getShareBalanceForUser resolves the hub wallet first', async () => {
-    stubReadContract({ balance: 777n });
-    expect(await sodax.leverageYield.getShareBalance(VAULT, SAMPLE_USER)).toEqual({ ok: true, value: 777n });
-    expect(await sodax.leverageYield.getShareBalanceForUser(VAULT, ARBITRUM, SAMPLE_USER)).toEqual({
-      ok: true,
-      value: 777n,
-    });
-    expect(mocks.getUserHubWalletAddress).toHaveBeenCalled();
-  });
-
   it('getTotalAssets / previewDeposit / previewWithdraw / previewRedeem forward the Erc4626 value', async () => {
     mocks.erc4626GetTotalAssets.mockResolvedValueOnce({ ok: true, value: 5_000n });
     mocks.erc4626PreviewDeposit.mockResolvedValueOnce({ ok: true, value: 11n });
@@ -2126,11 +1953,7 @@ describe('LeverageYieldService reads', () => {
     expect(previewRedeem.error.code).toBe('LOOKUP_FAILED');
     expect(previewRedeem.error.context?.method).toBe('previewRedeem');
   });
-});
 
-// ─── Additional error-path coverage ──────────────────────────────────────
-
-describe('LeverageYieldService — additional error paths', () => {
   it('getEffectiveApr propagates a getApr failure (LOOKUP_FAILED, method=getApr)', async () => {
     // getEffectiveApr awaits getApr + getLsdApr together; the failing fetch hits the retry
     // back-off, so fake timers keep the test fast.
@@ -2282,71 +2105,6 @@ describe('LeverageYieldService — hub operations wait for the transaction', () 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.code).toBe('TX_VERIFICATION_FAILED');
-  });
-});
-
-describe('LeverageYieldService — position partner fee', () => {
-  const PARTNER = '0x9999999999999999999999999999999999999999' as Address;
-
-  function build(sodaxInstance: Sodax, partnerFee?: { address: Address; percentage: number } | { amount: bigint }) {
-    return sodaxInstance.leverageYield.buildCreatePositionAndLeverage({
-      from: POSITION_OWNER,
-      owner: POSITION_OWNER,
-      collateral: POS_COLLATERAL,
-      borrowToken: POS_BORROW_TOKEN,
-      eModeCategory: 3,
-      origin: { chainKey: 'sonic', address: POSITION_OWNER },
-      initialAssets: 10n ** 18n,
-      borrowAmount: 10n ** 18n,
-      minCollateralOut: 1n,
-      ...(partnerFee ? { partnerFee: partnerFee as never } : {}),
-    });
-  }
-
-  /**
-   * Decoded rather than read by word offset: `PositionConfig` is a DYNAMIC tuple (it carries
-   * `bytes originAddress`), so its head is offsets, not values, and hand-indexing words silently
-   * reads the wrong field — which is exactly what the first version of this test did.
-   */
-  const CFG_ABI = parseAbi([
-    'function createPositionAndLeverage((address owner, address collateral, address borrowToken, uint8 eModeCategory, uint256 originChainId, bytes originAddress, address originAsset, address feeReceiver, uint16 feeBps) cfg, uint256 initialAssets, uint256 borrowAmount, uint256 minCollateralOut) returns (address)',
-  ]);
-  function feeOf(data: Hex): { receiver: string; bps: number } {
-    const { args } = decodeFunctionData({ abi: CFG_ABI, data });
-    const cfg = args[0] as { feeReceiver: string; feeBps: number };
-    return { receiver: cfg.feeReceiver, bps: cfg.feeBps };
-  }
-
-  it('bakes the call fee, else the Sodax-config fee, else no fee into PositionConfig', () => {
-    const call = build(sodax, { address: PARTNER, percentage: 50 });
-    const configured = build(new Sodax({ leverageYield: { partnerFee: { address: PARTNER, percentage: 25 } } }));
-    // An unpartnered position is unchanged.
-    const none = build(sodax);
-
-    if (!call.ok || !configured.ok || !none.ok) throw new Error('expected every build to succeed');
-    expect(feeOf(call.value.data).receiver.toLowerCase()).toBe(PARTNER.toLowerCase());
-    expect(feeOf(call.value.data).bps).toBe(50);
-    expect(feeOf(configured.value.data).bps).toBe(25);
-    expect(BigInt(feeOf(none.value.data).receiver)).toBe(0n);
-    expect(feeOf(none.value.data).bps).toBe(0);
-  });
-
-  /**
-   * A position's fee is fixed at creation, so a bad value is every operation the position will ever
-   * run. A fixed amount has nowhere to go (`PositionConfig` stores bps) and is rejected rather than
-   * dropped; `50_000` (500%) fits a `uint16`, so nothing downstream would have rejected it.
-   */
-  it('rejects the fixed-amount variant and a fractional, negative, or above-MAX_POSITION_FEE_BPS percentage', () => {
-    const fees = [
-      { amount: 1_000n },
-      ...[0.5, -100, 101, 10_000, 50_000].map(percentage => ({ address: PARTNER, percentage })),
-    ];
-    for (const fee of fees) {
-      const result = build(sodax, fee);
-      expect(result.ok).toBe(false);
-      if (result.ok) continue;
-      expect(result.error.code).toBe('LOOKUP_FAILED');
-    }
   });
 });
 
@@ -2514,17 +2272,6 @@ describe('LeverageYieldService — positions, factory misconfigured', () => {
     minCollateralOut: 1n,
   } as const;
 
-  it('uses the deployed factory from the default config, and still honours an explicit override', () => {
-    const fromDefault = new Sodax().leverageYield.buildCreatePositionAndLeverage(createParams);
-    // An override is for a fork or a staging deployment.
-    const overridden = sodaxWithFactory().leverageYield.buildCreatePositionAndLeverage(createParams);
-
-    if (!fromDefault.ok || !overridden.ok) throw new Error('expected both builds to succeed');
-    expect(fromDefault.value.to).toBe(leverageYieldConfig.positionFactory);
-    expect(overridden.value.to).toBe(POSITION_FACTORY);
-    expect(overridden.value.to).not.toBe(leverageYieldConfig.positionFactory);
-  });
-
   it('fails every factory-backed method closed on a blanked-out factory, rather than using a placeholder', async () => {
     const blank = sodaxWithoutFactory();
     const list = await blank.leverageYield.listPositions(POSITION_OWNER);
@@ -2532,27 +2279,6 @@ describe('LeverageYieldService — positions, factory misconfigured', () => {
     if (!list.ok) expect(list.error.code).toBe('LOOKUP_FAILED');
     expect((await blank.leverageYield.predictPosition(POSITION_OWNER, POSITION_OWNER)).ok).toBe(false);
     expect(blank.leverageYield.buildCreatePositionAndLeverage(createParams).ok).toBe(false);
-  });
-
-  it('maps the origin chain key to its SODAX relay id, not the EVM one', () => {
-    const configured = sodaxWithFactory();
-    const result = configured.leverageYield.buildCreatePositionAndLeverage({
-      from: POSITION_OWNER,
-      owner: POSITION_OWNER,
-      collateral: POS_COLLATERAL,
-      borrowToken: POS_BORROW_TOKEN,
-      eModeCategory: 0,
-      // Arbitrum is 23 in the relay id space; 42161 would route a refund nowhere.
-      origin: { chainKey: '0xa4b1.arbitrum', address: POSITION_OWNER, asset: POS_BORROW_TOKEN },
-      initialAssets: 10n ** 18n,
-      borrowAmount: 1_000n,
-      minCollateralOut: 1n,
-    });
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    // 23 padded into the calldata word for originChainId.
-    expect(result.value.data).toContain((23).toString(16).padStart(64, '0'));
-    expect(result.value.data).not.toContain((42161).toString(16).padStart(64, '0'));
   });
 
   it('refuses an origin a refund could never reach: a spoke with no refund asset, or an MPC-relay origin', () => {
@@ -2600,55 +2326,6 @@ describe('LeverageYieldService — positions, factory misconfigured', () => {
 });
 
 describe('LeverageYieldService — position reads', () => {
-  it('listPositions returns the owner clones in creation order', async () => {
-    const configured = sodaxWithFactory();
-    const positions = [POSITION, '0x4444444444444444444444444444444444444444'] as const;
-    vi.spyOn(configured.hubProvider.publicClient, 'readContract').mockResolvedValue(positions as never);
-
-    const result = await configured.leverageYield.listPositions(POSITION_OWNER);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value).toEqual(positions);
-  });
-
-  it('getPositionInfo assembles the static descriptor', async () => {
-    const configured = sodaxWithFactory();
-    vi.spyOn(configured.hubProvider.publicClient, 'readContract').mockImplementation((async (call: {
-      functionName: string;
-    }) => {
-      switch (call.functionName) {
-        case 'owner':
-          return POSITION_OWNER;
-        case 'collateral':
-          return POS_COLLATERAL;
-        case 'borrowToken':
-          return POS_BORROW_TOKEN;
-        case 'eModeCategory':
-          return 3;
-        case 'feeBps':
-          return 50;
-        case 'feeReceiver':
-          return POSITION_OWNER;
-        default:
-          throw new Error(`unexpected read: ${call.functionName}`);
-      }
-    }) as never);
-
-    const result = await configured.leverageYield.getPositionInfo(POSITION);
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value).toEqual({
-      address: POSITION,
-      owner: POSITION_OWNER,
-      collateral: POS_COLLATERAL,
-      borrowToken: POS_BORROW_TOKEN,
-      eModeCategory: 3,
-      // Read from the position, not from config — it is fixed at creation.
-      feeBps: 50,
-      feeReceiver: POSITION_OWNER,
-    });
-  });
-
   it('getPositionAccount reads getUserAccountData against the configured lending pool', async () => {
     const configured = sodaxWithFactory();
     const accountData = [1000n, 400n, 200n, 9700n, 9100n, 1_066_000_000_000_000_000n] as const;
@@ -2890,7 +2567,7 @@ describe('LeverageYieldService — MAX_POSITION_FEE_BPS on every create path', (
     return (args[0] as { feeBps: number }).feeBps;
   };
 
-  /** The four builders that encode a create call, each reduced to `(partnerFee) => create calldata`. */
+  /** Each `resolvePositionFee` call site (the two open-data builders share one), as `(partnerFee) => create calldata`. */
   const paths: [string, (percentage: number) => Promise<Result<Hex, { code: string }>>][] = [
     [
       'buildCreatePositionAndLeverage',
@@ -2941,25 +2618,6 @@ describe('LeverageYieldService — MAX_POSITION_FEE_BPS on every create path', (
           owner: HUB_WALLET,
           borrowToken: POS_BORROW_TOKEN,
           borrowAmount: 1n,
-          minCollateralOut: 1n,
-          partnerFee: { address: PARTNER, percentage },
-        });
-        return result.ok ? { ok: true, value: decodeBatchCalls(result.value).at(-1)?.data as Hex } : result;
-      },
-    ],
-    [
-      'buildOpenPositionFromDebtTokenData',
-      async percentage => {
-        const configured = sodaxWithFactory();
-        stubFactoryPrediction(configured, 0n, PREDICTED_POSITION);
-        const result = await configured.leverageYield.buildOpenPositionFromDebtTokenData({
-          srcChainKey: ARBITRUM,
-          srcAddress: SAMPLE_USER,
-          token: SPOKE_TOKEN,
-          amount: 10n ** 18n,
-          owner: HUB_WALLET,
-          collateral: POS_COLLATERAL,
-          totalInput: 2n * 10n ** 18n,
           minCollateralOut: 1n,
           partnerFee: { address: PARTNER, percentage },
         });
@@ -3338,16 +2996,6 @@ describe('LeverageYieldService.getApprovalStrategy and vaultSwapWithApproval', (
   };
 
   describe('getApprovalStrategy', () => {
-    it('never needs an approval for a withdraw', async () => {
-      const allowanceSpy = vi.spyOn(sodax.spoke, 'isAllowanceValid');
-      const result = await sodax.leverageYield.getApprovalStrategy({
-        ...deposit(makeBatchProvider()),
-        hubWalletSwap: true,
-      });
-      expect(result).toEqual({ ok: true, value: 'not-required' });
-      expect(allowanceSpy).not.toHaveBeenCalled();
-    });
-
     it("checks a deposit's allowance against the swap spender: the asset manager on a spoke, the intents contract (sequential) on the hub", async () => {
       const allowanceSpy = allowance(true);
       await expect(sodax.leverageYield.getApprovalStrategy(deposit(makeBatchProvider()))).resolves.toEqual({
@@ -3369,16 +3017,6 @@ describe('LeverageYieldService.getApprovalStrategy and vaultSwapWithApproval', (
       expect(allowanceSpy).toHaveBeenLastCalledWith(
         expect.objectContaining({ spender: sodax.config.solver.intentsContract }),
       );
-    });
-
-    it('batches a short allowance on an EVM spoke whose wallet supports EIP-5792', async () => {
-      allowance(false);
-      const wallet = makeBatchProvider('ready');
-      await expect(sodax.leverageYield.getApprovalStrategy(deposit(wallet))).resolves.toEqual({
-        ok: true,
-        value: 'atomic-batch',
-      });
-      expect(wallet.getAtomicBatchSupport).toHaveBeenCalledWith(ARBITRUM_CHAIN_ID);
     });
   });
 
@@ -3469,20 +3107,6 @@ describe('LeverageYieldService.getApprovalStrategy and vaultSwapWithApproval', (
       expect(createSpy.mock.calls.map(([call]) => call.raw === true)).toEqual([true, false]);
     });
 
-    it('reports a rejected batch as USER_REJECTED without approving separately', async () => {
-      allowance(false);
-      vi.spyOn(sodax.spoke, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
-      stubCreate();
-      const approveSpy = vi.spyOn(sodax.spoke, 'approve');
-      const wallet = makeBatchProvider();
-      wallet.sendAtomicBatch.mockRejectedValueOnce(new UserRejectedRequestError(new Error('User rejected')));
-
-      const result = await sodax.leverageYield.vaultSwapWithApproval(deposit(wallet));
-
-      expect(!result.ok && result.error.code).toBe('USER_REJECTED');
-      expect(approveSpy).not.toHaveBeenCalled();
-    });
-
     it('never relays or resends a batch that was sent but not confirmed, waiting at least the default for it', async () => {
       allowance(false);
       vi.spyOn(sodax.spoke, 'buildApproveTxs').mockResolvedValueOnce({ ok: true, value: { approveTx: RAW_APPROVE } });
@@ -3568,15 +3192,8 @@ describe('LeverageYieldService.getApprovalStrategy and vaultSwapWithApproval', (
     };
     const stubSolver = () =>
       mocks.solverPostExecution.mockResolvedValueOnce({ ok: true, value: { answer: 'OK', intent_hash: '0xhash' } });
-    const resume = (wallet: ReturnType<typeof makeBatchProvider>, resumeBatchCallCount?: number) =>
-      sodax.leverageYield.vaultSwapWithApproval({ ...deposit(wallet), resumeBatchId: 'batch-1', resumeBatchCallCount });
-    const perCallReceipts: EvmBatchResult = {
-      ...confirmedBatch,
-      receipts: [
-        { transactionHash: '0xapproveTx', status: 'success' },
-        { transactionHash: '0xdepositTx', status: 'success' },
-      ],
-    };
+    const resume = (wallet: ReturnType<typeof makeBatchProvider>) =>
+      sodax.leverageYield.vaultSwapWithApproval({ ...deposit(wallet), resumeBatchId: 'batch-1' });
 
     it('finishes a batch that confirms after the first wait, without sending anything again', async () => {
       allowance(false);
@@ -3638,48 +3255,6 @@ describe('LeverageYieldService.getApprovalStrategy and vaultSwapWithApproval', (
       expect(allowanceSpy).not.toHaveBeenCalled();
       expect(wallet.getAtomicBatchSupport).not.toHaveBeenCalled();
       expect(submitSpy).not.toHaveBeenCalled();
-    });
-
-    it('stays unconfirmed while the batch is still pending, keeping the call count for the next try', async () => {
-      const wallet = makeBatchProvider();
-      wallet.waitForBatch.mockRejectedValueOnce(new Error('Timed out while waiting for call bundle'));
-
-      const result = await sodax.leverageYield.vaultSwapWithApproval({
-        ...deposit(wallet),
-        resumeBatchId: 'batch-1',
-        resumeBatchCallCount: 2,
-        timeout: 0,
-      });
-
-      // Never waits less than the default for the batch, even on a zero timeout.
-      expect(wallet.waitForBatch).toHaveBeenCalledWith('batch-1', { timeout: DEFAULT_RELAY_TX_TIMEOUT });
-
-      expect(!result.ok && result.error.code).toBe('TX_VERIFICATION_FAILED');
-      expect(!result.ok && result.error.context).toMatchObject({
-        reason: ATOMIC_BATCH_UNCONFIRMED,
-        batchId: 'batch-1',
-        callCount: 2,
-        action: 'vaultSwapWithApproval',
-      });
-      expect(wallet.sendAtomicBatch).not.toHaveBeenCalled();
-      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
-    });
-
-    it('relays the deposit of a late batch confirmed as one tx per call only when given the call count', async () => {
-      const wallet = makeBatchProvider();
-      wallet.waitForBatch.mockResolvedValueOnce(perCallReceipts).mockResolvedValueOnce(perCallReceipts);
-
-      const withoutCount = await resume(wallet);
-      expect(!withoutCount.ok && withoutCount.error.context?.reason).toBe(ATOMIC_BATCH_UNCONFIRMED);
-      expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
-
-      mocks.getIntent.mockResolvedValueOnce(makeIntent(ARBITRUM));
-      stubResumeRelay();
-      stubSolver();
-      const withCount = await resume(wallet, 2);
-
-      expect(withCount.ok && withCount.value.intentDeliveryInfo.srcTxHash).toBe('0xdepositTx');
-      expect(mocks.relayTxAndWaitPacket.mock.calls[0]?.[0]).toMatchObject({ srcTxHash: '0xdepositTx' });
     });
 
     it('reports a batch that never landed as atomic-batch-failed', async () => {

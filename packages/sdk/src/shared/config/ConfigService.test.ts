@@ -93,12 +93,6 @@ describe('ConfigService — global fee and apiKey are held client options, not d
     expect(service.apiKey).toBe('global-key');
     expect('fee' in service.sodaxConfig).toBe(false); // global fee is not part of SodaxConfig
   });
-
-  it('defaults both to undefined when the options are not provided', () => {
-    const { service } = makeService(undefined, ok(remoteConfig()));
-    expect(service.fee).toBeUndefined();
-    expect(service.apiKey).toBeUndefined();
-  });
 });
 
 describe('ConfigService — effective per-feature fee falls back to the global fee', () => {

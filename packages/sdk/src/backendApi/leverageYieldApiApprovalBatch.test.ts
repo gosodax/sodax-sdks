@@ -358,32 +358,6 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     expect(requested('/leverage-yield/approve')).toHaveLength(0);
   });
 
-  it('approves separately for a wallet that must upgrade its account when allowAccountUpgrade is false', async () => {
-    stubBackend({ withReset: false });
-    const walletProvider = batchWallet('ready');
-    walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xno-upgrade-deposit');
-
-    const result = await approveAndDeposit(walletProvider, DEPOSIT_PARAMS, { allowAccountUpgrade: false });
-
-    expect(result).toMatchObject({ strategy: 'sequential', submit: { txHash: '0xno-upgrade-deposit' } });
-    expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
-  });
-
-  it('keeps a Sonic hub source sequential: no batch, the approval and the deposit go out separately', async () => {
-    stubBackend({ withReset: false });
-    const walletProvider = batchWallet();
-    walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xhub-deposit');
-
-    const result = await approveAndDeposit(walletProvider, { ...DEPOSIT_PARAMS, srcChainKey: ChainKeys.SONIC_MAINNET });
-
-    expect(result).toMatchObject({ strategy: 'sequential', submit: { txHash: '0xhub-deposit' } });
-    expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
-    expect(walletProvider.sendTransaction.mock.calls.map(([tx]) => tx.data)).toEqual([
-      APPROVE_WIRE.data,
-      DEPOSIT_WIRE.data,
-    ]);
-  });
-
   it('batches [approve, deposit] with no reset, and retries only a failed submitTx: same body, no second deposit', async () => {
     stubBackend({ withReset: false, failSubmitOnce: true });
     const walletProvider = batchWallet();

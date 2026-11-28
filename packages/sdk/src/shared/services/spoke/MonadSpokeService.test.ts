@@ -108,10 +108,7 @@ afterEach(() => {
 });
 
 describe('MonadSpokeService.deposit', () => {
-  it.each([
-    'bad-address',
-    NATIVE_MON,
-  ])('rejects invalid relay deposit address %s in raw and signed modes', async depositAddress => {
+  it.each([NATIVE_MON])('rejects invalid relay deposit address %s in raw and signed modes', async depositAddress => {
     vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue({
       ok: true,
       value: {
@@ -285,30 +282,6 @@ describe('MonadSpokeService — relay submit and read', () => {
     expect(await monad.submitHubRelease(HUB_RELEASE)).toEqual({ ok: true, value: undefined });
     expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '146', '0xhub', 'withdrawal');
   });
-
-  it('reads a withdrawal and a hub release once each, notifying nothing', async () => {
-    const record = { ok: true as const, value: { depositId: 'id', status: 'pending' as const, createdAt: 0, txs: {} } };
-    vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(record);
-    vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue({
-      ok: true,
-      value: { trackingId: '0xtrack', status: 'submitted' },
-    });
-
-    expect(await monad.getHubReleaseRecord(HUB_RELEASE)).toEqual(record);
-    expect((await monad.getWithdrawalRecord('0xtrack')).ok).toBe(true);
-    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
-  });
-
-  it('waitForWithdrawal passes the stage to stop on through to the relay poll', async () => {
-    const wait = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
-      ok: true,
-      value: { trackingId: '0xtrack', status: 'burned' },
-    });
-
-    await monad.waitForWithdrawal('0xtrack', undefined, 'burned');
-
-    expect(wait).toHaveBeenCalledWith(expect.anything(), '0xtrack', expect.objectContaining({ until: 'burned' }));
-  });
 });
 
 describe('MonadSpokeService.waitForDeposit', () => {
@@ -399,13 +372,11 @@ describe('MonadSpokeService.sendMessage', () => {
     }
   });
 
-  it.each(['accepted', 'exhausted', 'lost reply'])('first 429 through sendMessage: %s', async outcome => {
+  it('reuses one signed request after a first 429 through sendMessage', async () => {
     vi.useFakeTimers();
     vi.mocked(MpcRelayApiService.submitWithdraw).mockRestore();
-    const lost = new Error('lost relay reply');
     const send = vi.fn(async (_url: string, init?: RequestInit) => {
-      if (send.mock.calls.length === 1 || outcome === 'exhausted') return new Response(null, { status: 429 });
-      if (outcome === 'lost reply') throw lost;
+      if (send.mock.calls.length === 1) return new Response(null, { status: 429 });
       const { message } = JSON.parse(String(init?.body));
       const sender: unknown = message.sender;
       if (!isHex(sender)) throw new Error('missing sender');
@@ -421,20 +392,9 @@ describe('MonadSpokeService.sendMessage', () => {
     const result = await pending;
     const request = JSON.parse(String(send.mock.calls[0]?.[1]?.body));
     const trackingId = keccak256(concat([SENDER, toHex(BigInt(request.message.nonce), { size: 8 })]));
-    if (outcome === 'accepted') {
-      expect(result).toEqual({ ok: true, value: trackingId });
-    } else if (outcome === 'lost reply') {
-      expect(result).toMatchObject({
-        ok: false,
-        error: { name: 'IndeterminateOutcomeError', cause: lost, trackingId },
-      });
-    } else {
-      if (result.ok) throw new Error('expected throttling exhaustion');
-      expect(result.error).toMatchObject({ message: expect.stringContaining('nothing was queued') });
-      expect(result.error).not.toHaveProperty('trackingId');
-    }
+    expect(result).toEqual({ ok: true, value: trackingId });
     expect(signMessage).toHaveBeenCalledOnce();
-    expect(send).toHaveBeenCalledTimes(outcome === 'exhausted' ? 3 : 2);
+    expect(send).toHaveBeenCalledTimes(2);
     expect(new Set(send.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
   });
 

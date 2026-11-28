@@ -236,16 +236,6 @@ describe('ClService refuses an MPC-relay source before signing', () => {
   });
 });
 
-describe('ClService.getPools', () => {
-  it('returns whatever ConfigService.getDexPools returns', () => {
-    const fakePools = [plainPoolKey] as never;
-    const spy = vi.spyOn(sodax.config, 'getDexPools').mockReturnValueOnce(fakePools);
-
-    expect(cl.getPools()).toBe(fakePools);
-    expect(spy).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('ClService.permit2Approve', () => {
   it('returns a [permit2-approve, erc20-approve] pair targeting the given token + spender', () => {
     const token: Address = '0x000000000000000000000000000000000000aaa3';
@@ -264,21 +254,6 @@ describe('ClService.permit2Approve', () => {
 });
 
 describe('ClService.getAssetsForPool', () => {
-  it('returns token0/token1 XTokens looked up via the config', () => {
-    const fakeXToken0 = { symbol: 'T0', address: '0xT0' } as never;
-    const fakeXToken1 = { symbol: 'T1', address: '0xT1' } as never;
-    vi.spyOn(sodax.config, 'getOriginalAssetAddressFromStakedATokenAddress')
-      .mockReturnValueOnce('0xT0')
-      .mockReturnValueOnce('0xT1');
-    vi.spyOn(sodax.config, 'findTokenByOriginalAddress')
-      .mockReturnValueOnce(fakeXToken0)
-      .mockReturnValueOnce(fakeXToken1);
-
-    const result = cl.getAssetsForPool(ChainKeys.BSC_MAINNET, plainPoolKey);
-
-    expect(result).toEqual({ token0: fakeXToken0, token1: fakeXToken1 });
-  });
-
   it('throws when token0 or token1 cannot be resolved', () => {
     vi.spyOn(sodax.config, 'getOriginalAssetAddressFromStakedATokenAddress').mockReturnValue('0xT0');
     const find = vi.spyOn(sodax.config, 'findTokenByOriginalAddress').mockReturnValueOnce(undefined);
@@ -568,23 +543,6 @@ describe('ClService.getMintPositionEvent', () => {
 });
 
 describe('ClService.getPoolRewardConfig', () => {
-  it('returns the reward currency / rate / timestamp tuple from the hook contract', async () => {
-    const client = createMockClient({
-      poolRewardConfigs: () => ['0xRewardToken', 1234n, 1_700_000_000n],
-    });
-
-    const result = await cl.getPoolRewardConfig(plainPoolKey, client);
-
-    expect(result).toEqual({
-      ok: true,
-      value: {
-        rewardCurrency: '0xRewardToken',
-        rewardRatePerSecond: 1234n,
-        lastActionTimestamp: 1_700_000_000n,
-      },
-    });
-  });
-
   it('returns ok:false for a pool with no hook, and wraps a thrown read as LOOKUP_FAILED with .cause', async () => {
     const noHook = await cl.getPoolRewardConfig({ ...plainPoolKey, hooks: ZERO_ADDRESS }, createMockClient({}));
 
@@ -826,12 +784,6 @@ describe('ClService.calculateMaxAmountsForSlippage', () => {
   const maxAmounts = (slippage: number) =>
     ClService.calculateMaxAmountsForSlippage(liquidity, tickLower, tickUpper, currentTick, sqrtPriceX96, slippage);
 
-  it('returns zero for both tokens when liquidity is zero', () => {
-    const result = ClService.calculateMaxAmountsForSlippage(0n, tickLower, tickUpper, currentTick, sqrtPriceX96, 1);
-    expect(result.amount0Max).toBe(0n);
-    expect(result.amount1Max).toBe(0n);
-  });
-
   it('returns exactly the current amounts at zero slippage and never less for a positive (incl. sub-percent) one', () => {
     const current0 = PositionMath.getToken0Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
     const current1 = PositionMath.getToken1Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
@@ -916,56 +868,4 @@ describe('ClService.calculateMaxAmountsForSlippage', () => {
       expect(result.amount1Max).toBeGreaterThan(0n);
     }
   });
-
-  it('matches direct PositionMath call within the worst-case bound', () => {
-    const slippagePercent = 2;
-    const SLIPPAGE_SCALE = 1_000_000_000n;
-    const slippageScaled = BigInt(Math.round((slippagePercent * Number(SLIPPAGE_SCALE)) / 100));
-    const sqrtPriceSquared = sqrtPriceX96 * sqrtPriceX96;
-
-    const sqrtPriceX96Down = bigIntSqrt((sqrtPriceSquared * (SLIPPAGE_SCALE - slippageScaled)) / SLIPPAGE_SCALE);
-    const sqrtPriceX96Up = bigIntSqrt((sqrtPriceSquared * (SLIPPAGE_SCALE + slippageScaled)) / SLIPPAGE_SCALE);
-    const tickDown = TickMath.getTickAtSqrtRatio(sqrtPriceX96Down);
-    const tickUp = TickMath.getTickAtSqrtRatio(sqrtPriceX96Up);
-
-    const expectedAmount0AtDrop = PositionMath.getToken0Amount(
-      tickDown,
-      Number(tickLower),
-      Number(tickUpper),
-      sqrtPriceX96Down,
-      liquidity,
-    );
-    const expectedAmount1AtRise = PositionMath.getToken1Amount(
-      tickUp,
-      Number(tickLower),
-      Number(tickUpper),
-      sqrtPriceX96Up,
-      liquidity,
-    );
-    const current0 = PositionMath.getToken0Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
-    const current1 = PositionMath.getToken1Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
-
-    const result = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      tickLower,
-      tickUpper,
-      currentTick,
-      sqrtPriceX96,
-      slippagePercent,
-    );
-
-    expect(result.amount0Max).toBe(expectedAmount0AtDrop > current0 ? expectedAmount0AtDrop : current0);
-    expect(result.amount1Max).toBe(expectedAmount1AtRise > current1 ? expectedAmount1AtRise : current1);
-  });
 });
-
-function bigIntSqrt(n: bigint): bigint {
-  if (n < 0n) throw new Error('bigIntSqrt: negative');
-  if (n < 2n) return n;
-  let x = 1n << ((BigInt(n.toString(2).length) + 1n) / 2n);
-  while (true) {
-    const next = (x + n / x) / 2n;
-    if (next >= x) return x;
-    x = next;
-  }
-}

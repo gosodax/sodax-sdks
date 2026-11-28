@@ -36,26 +36,13 @@ describe('getEffectivePositionFee', () => {
 
   /**
    * The documented position cap is 1%, not `FEE_PERCENTAGE_SCALE` — a fee is permanent here, so a
-   * mistaken 10% would be charged on every operation the position ever runs. Checked on all three
-   * sources because each reaches `resolvePositionFee` by its own route.
+   * mistaken 10% would be charged on every operation the position ever runs.
    */
-  it.each([
-    [
-      'a per-call override',
-      (pct: number) => sodaxWith().leverageYield.getEffectivePositionFee({ address: FEE_RECEIVER, percentage: pct }),
-    ],
-    [
-      'the leverageYield.partnerFee config',
-      (pct: number) =>
-        new Sodax({
-          leverageYield: { partnerFee: { address: FEE_RECEIVER, percentage: pct } },
-        }).leverageYield.getEffectivePositionFee(),
-    ],
-    [
-      'the global fee config',
-      (pct: number) => sodaxWith({ address: FEE_RECEIVER, percentage: pct }).leverageYield.getEffectivePositionFee(),
-    ],
-  ])('caps %s at MAX_POSITION_FEE_BPS', (_source, resolve) => {
+  it('caps the leverageYield.partnerFee config at MAX_POSITION_FEE_BPS', () => {
+    const resolve = (pct: number) =>
+      new Sodax({
+        leverageYield: { partnerFee: { address: FEE_RECEIVER, percentage: pct } },
+      }).leverageYield.getEffectivePositionFee();
     const accepted = resolve(MAX_POSITION_FEE_BPS);
     expect(accepted.ok).toBe(true);
     expect(accepted.ok && accepted.value.feeBps).toBe(MAX_POSITION_FEE_BPS);

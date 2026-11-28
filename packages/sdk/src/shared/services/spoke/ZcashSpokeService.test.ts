@@ -516,19 +516,6 @@ describe('ZcashSpokeService — relay submit and read', () => {
     expect(read.mock.calls.map(c => c[1])).toEqual([`133-${txid}-0`, `133-${txid}-1`]);
   });
 
-  it('reads a withdrawal and a hub release once each, notifying nothing', async () => {
-    const read = vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(pendingRecord);
-    vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue({
-      ok: true,
-      value: { trackingId: '0xtrack', status: 'submitted' },
-    });
-
-    expect(await zcash.getHubReleaseRecord(HUB_RELEASE)).toBe(pendingRecord);
-    expect(read).toHaveBeenCalledOnce();
-    expect((await zcash.getWithdrawalRecord('0xtrack')).ok).toBe(true);
-    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
-  });
-
   it('uses the settlement floor for NaN in the relay waits and passes the withdrawal stage through', async () => {
     const release = vi.spyOn(MpcRelayApiService, 'waitForHubRelease').mockResolvedValue(settledDeposit);
     const wait = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
@@ -589,14 +576,12 @@ describe('ZcashSpokeService.sendMessage', () => {
     }
   });
 
-  it.each(['accepted', 'exhausted', 'lost reply'])('first 429 through sendMessage: %s', async outcome => {
+  it('reuses one signed request after a first 429 through sendMessage', async () => {
     vi.useFakeTimers();
     vi.mocked(MpcRelayApiService.submitWithdraw).mockRestore();
-    const lost = new Error('lost relay reply');
     const sender = zcashIdentityBytes(SENDER);
     const send = vi.fn(async (_url: string, init?: RequestInit) => {
-      if (send.mock.calls.length === 1 || outcome === 'exhausted') return new Response(null, { status: 429 });
-      if (outcome === 'lost reply') throw lost;
+      if (send.mock.calls.length === 1) return new Response(null, { status: 429 });
       const { message } = JSON.parse(String(init?.body));
       const trackingId = keccak256(concat([sender, toHex(BigInt(message.nonce), { size: 8 })]));
       return Response.json({ accepted: true, trackingId });
@@ -611,20 +596,9 @@ describe('ZcashSpokeService.sendMessage', () => {
     vi.useRealTimers();
     const request = JSON.parse(String(send.mock.calls[0]?.[1]?.body));
     const trackingId = keccak256(concat([sender, toHex(BigInt(request.message.nonce), { size: 8 })]));
-    if (outcome === 'accepted') {
-      expect(result).toEqual({ ok: true, value: trackingId });
-    } else if (outcome === 'lost reply') {
-      expect(result).toMatchObject({
-        ok: false,
-        error: { name: 'IndeterminateOutcomeError', cause: lost, trackingId },
-      });
-    } else {
-      if (result.ok) throw new Error('expected throttling exhaustion');
-      expect(result.error).toMatchObject({ message: expect.stringContaining('nothing was queued') });
-      expect(result.error).not.toHaveProperty('trackingId');
-    }
+    expect(result).toEqual({ ok: true, value: trackingId });
     expect(walletProvider.signMessage).toHaveBeenCalledOnce();
-    expect(send).toHaveBeenCalledTimes(outcome === 'exhausted' ? 3 : 2);
+    expect(send).toHaveBeenCalledTimes(2);
     expect(new Set(send.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
   });
 

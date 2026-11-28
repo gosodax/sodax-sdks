@@ -41,15 +41,13 @@ const build = (utxos: CardanoUtxo[], amount: bigint = V.amount) =>
 describe('cardano memo deposit — relay golden vector', () => {
   const built = build([...V.inputs]);
 
-  it('encodes the memo metadata, the body and the tx id the deposit is keyed on byte for byte as the relay does', () => {
+  it('encodes the memo metadata, the body, the fee and the tx id the deposit is keyed on byte for byte as the relay does', () => {
     expect(bytesToHex(cardanoDepositAuxiliaryData(memo))).toBe(V.auxiliaryDataHex);
     expect(bytesToHex(cardanoHash(cardanoDepositAuxiliaryData(memo)))).toBe(V.auxiliaryDataHashHex);
     expect(bytesToHex(built.bodyCbor)).toBe(V.bodyHex);
     expect(bytesToHex(built.txId)).toBe(V.txIdHex);
     expect(cardanoTxHash(built)).toBe(V.txIdHex.slice(2));
-  });
-
-  it('prices the fee at the exact minimum the relay computed, and pays the reserve at output 0', () => {
+    // The fee is the exact minimum the relay computed, and the reserve is paid at output 0.
     expect(built.body.fee).toBe(V.fee);
     expect(built.body.outputs[0]).toEqual({ address: reserve, lovelace: V.amount });
     expect(built.body.outputs[1]).toEqual({ address: change, lovelace: 10_000_000n - V.amount - V.fee });

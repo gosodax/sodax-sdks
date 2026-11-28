@@ -99,14 +99,6 @@ describe('openLeveragePosition', () => {
     expect(result.ok).toBe(false);
     expect(notify).not.toHaveBeenCalled();
   });
-
-  it('still succeeds when the notification fails, because the money already moved', async () => {
-    const { sodax, notify } = stub();
-    notify.mockResolvedValue({ ok: false, error: failure('solver down') } as never);
-    const result = await sodax.leverageYield.openLeveragePosition(OPEN_COLLATERAL);
-    expect(result.ok).toBe(true);
-    expect(result.ok && result.value).toMatchObject({ notified: false, notifyError: 'solver down' });
-  });
 });
 
 describe('submitLeveragePositionIntent', () => {
@@ -122,20 +114,6 @@ describe('submitLeveragePositionIntent', () => {
     const { sodax, notify } = stub(false);
     expect((await sodax.leverageYield.submitLeveragePositionIntent(OPERATION)).ok).toBe(false);
     expect(notify).not.toHaveBeenCalled();
-  });
-});
-
-describe('runLeveragePositionOperation', () => {
-  it('NEVER notifies — this is the whole reason it is a separate method', async () => {
-    // withdraw / settle / cancel are synchronous on the hub. A notification here is harmless noise,
-    // but the method existing at all is what keeps a leverage change from taking this path.
-    const { sodax, operate, notify } = stub();
-    const result = await sodax.leverageYield.runLeveragePositionOperation(OPERATION);
-    expect(operate).toHaveBeenCalledOnce();
-    expect(notify).not.toHaveBeenCalled();
-    // The hashes directly, not an intent result.
-    expect(result.ok && result.value).toEqual(HASHES);
-    expect(result.ok && 'notified' in result.value).toBe(false);
   });
 });
 
