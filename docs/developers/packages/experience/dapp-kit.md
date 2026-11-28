@@ -397,7 +397,7 @@ XRPL trustline gate:
 
 Hedera token association gate:
 
-Hedera association needs the wallet on Hedera. Pass `dstChainSwitch` from a second `useEvmSwitchChain` for the destination: the lifecycle shows `needsChainSwitch`, `next()` switches to Hedera, then associates, and the source `chainSwitch` brings the wallet back before the swap.
+Hedera association needs the wallet on Hedera. Pass `dstChainSwitch` from a second `useEvmSwitchChain` for the destination: the lifecycle shows `needsChainSwitch`, `next()` switches to Hedera, then associates, and the source `chainSwitch` brings the wallet back before the swap. Without `dstChainSwitch`, a wallet provider that can report and switch its chain (the `@sodax/wallet-sdk-core` EVM provider) switches itself to Hedera on the first `next()` and sends the association on the next one; a refused switch comes back from `next()` as a failed `Result`.
 
 - [`resolveHederaGate()`](https://github.com/gosodax/sodax-sdks/blob/main/packages/dapp-kit/src/utils/hederaGate.ts) — Derive the Hedera HTS-token destination gate state (hook-free counterpart of `useHederaGate`)
 

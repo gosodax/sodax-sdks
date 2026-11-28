@@ -248,7 +248,7 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
 
 Hedera association needs the wallet on Hedera. With `dstChainSwitch`, the lifecycle shows `needsChainSwitch`
 and `next()` switches to Hedera before the `hederaAssociation` step; after association, the source
-`chainSwitch` brings the wallet back before the swap.
+`chainSwitch` brings the wallet back before the swap. Without `dstChainSwitch`, a wallet provider that can report and switch its chain (the `@sodax/wallet-sdk-core` EVM provider) switches itself to Hedera on the first `next()` and sends the association on the next one; a refused switch comes back from `next()` as a failed `Result`.
 
 `next()` resolves to the action's `Result` (a setup step or the swap); show a failed setup action from there. A failed
 swap lands in `state`:

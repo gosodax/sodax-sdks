@@ -275,6 +275,16 @@ export class EvmWalletProvider extends BaseWalletProvider<EvmWalletDefaults> imp
     return isDefinite(cause) || (cause instanceof BaseError && isDefinite(cause.walk(isDefinite)));
   }
 
+  /** The wallet's active chain id, which can differ from the chain the client was built for. */
+  async getChainId(): Promise<number> {
+    return this.walletClient.getChainId();
+  }
+
+  /** Asks the wallet to switch to `chainId` (EIP-3326); resolves once it has. */
+  async switchChain(chainId: number): Promise<void> {
+    await this.walletClient.switchChain({ id: chainId });
+  }
+
   /** EIP-191 `personal_sign` over the raw bytes of `hash`, for withdraw-auth on MPC-relay EVM spokes. */
   async signMessage(hash: Hex): Promise<Hex> {
     return this.walletClient.signMessage({ account: this.walletClient.account, message: { raw: hash } });

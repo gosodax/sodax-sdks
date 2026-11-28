@@ -12,6 +12,7 @@ import {
 } from '@sodax/sdk';
 import { useIsFetching, type UseQueryResult } from '@tanstack/react-query';
 import { useRef } from 'react';
+import { switchWalletToHedera } from '../../utils/hederaGate.js';
 import { resolveSwapLifecycle, toSwapAttempt, type SwapLifecycleState } from '../../utils/swapLifecycle.js';
 import { useNearStorageGate, type NearStorageGate } from '../shared/useNearStorageGate.js';
 import { useStellarGate, type StellarGate } from '../shared/useStellarGate.js';
@@ -39,7 +40,8 @@ export type UseSwapLifecycleParams<K extends SpokeChainKey = SpokeChainKey> = {
   /**
    * Destination-chain switching: the Hedera association is sent from Hedera, so a wallet on another
    * chain must switch first (e.g. `useEvmSwitchChain({ xChainId: intentParams.dstChainKey })`).
-   * The source `chainSwitch` brings it back before the swap.
+   * The source `chainSwitch` brings it back before the swap. Without it, a wallet provider that exposes
+   * `getChainId` and `switchChain` switches itself on the first `next()`.
    */
   dstChainSwitch?: { isWrongChain: boolean; switchChain: () => void | Promise<void> };
   /** An app-owned prerequisite that must hold before swapping (e.g. a Bitcoin trading-wallet setup). */
@@ -186,7 +188,15 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
         if (state.reason === 'nearStorageCheckFailed') nearStorage.retry();
         if (state.reason === 'xrpTrustline') return xrp.requestTrustline();
         if (state.reason === 'xrpCheckFailed') xrp.retry();
-        if (state.reason === 'hederaAssociation') return hedera.requestAssociation();
+        if (state.reason === 'hederaAssociation') {
+          // Without `dstChainSwitch`, the wallet moves itself to Hedera. A client stays bound to the chain it was
+          // built for, so the association is sent on the next call, from the re-created provider.
+          if (!dstChainSwitch) {
+            const switched = await switchWalletToHedera(dstWalletProvider);
+            if (switched) return switched.ok ? undefined : switched;
+          }
+          return hedera.requestAssociation();
+        }
         if (state.reason === 'hederaCheckFailed') hedera.retry();
         // `stellarFunding`, `xrpFunding`, `xrpBlocked`, `hederaBlocked` and `external` are for the app to resolve.
         return undefined;

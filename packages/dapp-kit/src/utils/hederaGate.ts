@@ -1,4 +1,11 @@
-import { ChainKeys, type HederaDestinationReadiness, type SpokeChainKey } from '@sodax/sdk';
+import {
+  ChainKeys,
+  getEvmViemChain,
+  type GetWalletProviderType,
+  type HederaDestinationReadiness,
+  type Result,
+  type SpokeChainKey,
+} from '@sodax/sdk';
 import type { UseQueryResult } from '@tanstack/react-query';
 
 /** The subset of a query result the gate reads. A full `UseQueryResult<T>` satisfies it. */
@@ -54,4 +61,23 @@ export function resolveHederaGate(chainKey: SpokeChainKey | undefined, inputs: H
   if (readiness.ready) return base;
   if (readiness.reason === 'not_associated') return { ...base, needsAssociation: true, blocksAction: true };
   return { ...base, blockedReason: readiness.reason, blocksAction: true };
+}
+
+/**
+ * Moves an EVM wallet that can report and switch its chain onto Hedera, which sends the association.
+ * `undefined` means there is nothing to switch (already on Hedera, or the wallet cannot switch), so the
+ * association can be sent now. A refused or failed switch comes back as a failed `Result`.
+ */
+export async function switchWalletToHedera(
+  walletProvider: GetWalletProviderType<SpokeChainKey> | undefined,
+): Promise<Result<void> | undefined> {
+  if (walletProvider?.chainType !== 'EVM' || !walletProvider.getChainId || !walletProvider.switchChain) return undefined;
+  const hederaChainId = getEvmViemChain(ChainKeys.HEDERA_MAINNET).id;
+  try {
+    if ((await walletProvider.getChainId()) === hederaChainId) return undefined;
+    await walletProvider.switchChain(hederaChainId);
+    return { ok: true, value: undefined };
+  } catch (error) {
+    return { ok: false, error };
+  }
 }

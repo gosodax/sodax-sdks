@@ -99,6 +99,10 @@ export interface IEvmWalletProvider extends ICoreWallet {
   /** EIP-191 `personal_sign` over the raw 32-byte `hash` (not its hex text); required only for MPC-relay EVM spokes
    * (e.g. Monad) that authorize withdrawals by signature. */
   signMessage?: (hash: Hex) => Promise<Hex>;
+  /** The wallet's active chain id. Optional; with {@link switchChain}, lets a caller move the wallet to a chain first. */
+  getChainId?: () => Promise<number>;
+  /** Asks the wallet to switch its active chain (EIP-3326). Optional. A bound client keeps its old chain, so send from a re-created provider afterwards. */
+  switchChain?: (chainId: number) => Promise<void>;
   /** Optional — callers guard before use. */
   getAtomicBatchSupport?: (chainId: number) => Promise<EvmAtomicBatchSupport>;
   /** EIP-5792 batch with `atomicRequired`, in order; resolves to the batch id, not a tx hash (see {@link waitForBatch}). */

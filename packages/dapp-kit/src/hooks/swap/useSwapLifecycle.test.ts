@@ -308,6 +308,50 @@ describe('useSwapLifecycle', () => {
     expect(mutateAsyncSafe).not.toHaveBeenCalled();
   });
 
+  describe('without dstChainSwitch, the destination wallet switches itself to Hedera first', () => {
+    const intentParams = { ...PARAMS, dstChainKey: ChainKeys.HEDERA_MAINNET };
+    const stubAssociation = () => {
+      const requestAssociation = vi.fn().mockResolvedValue({ ok: true, value: '0xhash' });
+      stub({ hedera: { isHederaHtsToken: true, needsAssociation: true, blocksAction: true, requestAssociation } });
+      return requestAssociation;
+    };
+    const wallet = (chainId: number, switchChain = vi.fn().mockResolvedValue(undefined)) =>
+      ({ chainType: 'EVM', getChainId: vi.fn().mockResolvedValue(chainId), switchChain }) as never;
+
+    it('switches to Hedera and waits for the re-rendered wallet before associating', async () => {
+      const requestAssociation = stubAssociation();
+      const switchChain = vi.fn().mockResolvedValue(undefined);
+
+      await expect(run({ intentParams, dstWalletProvider: wallet(1, switchChain) }).next()).resolves.toBeUndefined();
+
+      expect(switchChain).toHaveBeenCalledExactlyOnceWith(295);
+      expect(requestAssociation).not.toHaveBeenCalled();
+    });
+
+    it('associates without switching when the wallet is already on Hedera', async () => {
+      const requestAssociation = stubAssociation();
+      const switchChain = vi.fn();
+
+      await run({ intentParams, dstWalletProvider: wallet(295, switchChain) }).next();
+
+      expect(switchChain).not.toHaveBeenCalled();
+      expect(requestAssociation).toHaveBeenCalledOnce();
+    });
+
+    it('returns a refused switch to the caller and sends nothing', async () => {
+      const requestAssociation = stubAssociation();
+      const refusal = new Error('User rejected the request');
+
+      const result = await run({
+        intentParams,
+        dstWalletProvider: wallet(1, vi.fn().mockRejectedValue(refusal)),
+      }).next();
+
+      expect(result).toEqual({ ok: false, error: refusal });
+      expect(requestAssociation).not.toHaveBeenCalled();
+    });
+  });
+
   it('returns the failed association Result to the next caller', async () => {
     const failure = { ok: false, error: new Error('User rejected association') };
     const requestAssociation = vi.fn().mockResolvedValue(failure);

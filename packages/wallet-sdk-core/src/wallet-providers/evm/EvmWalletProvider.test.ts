@@ -265,6 +265,20 @@ describe('EvmWalletProvider', () => {
     });
   });
 
+  describe('chain switching', () => {
+    it('reads the wallet\'s active chain and asks it to switch', async () => {
+      const config = makeConnectedWalletConfig();
+      const provider = new EvmWalletProvider(config);
+      vi.spyOn(config.walletClient, 'getChainId').mockResolvedValue(1);
+      const switchSpy = vi.spyOn(config.walletClient, 'switchChain').mockResolvedValue(undefined);
+
+      await expect(provider.getChainId()).resolves.toBe(1);
+      await provider.switchChain(295);
+
+      expect(switchSpy).toHaveBeenCalledExactlyOnceWith({ id: 295 });
+    });
+  });
+
   describe('getEvmViemChain', () => {
     it('resolves Monad to its mainnet network id, not the relay routing id', () => {
       expect(getEvmViemChain(ChainKeys.MONAD_MAINNET).id).toBe(143);

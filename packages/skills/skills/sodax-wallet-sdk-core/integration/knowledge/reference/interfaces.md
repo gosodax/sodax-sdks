@@ -13,6 +13,8 @@ The tables below summarise the methods each provider exposes. For full type-leve
 | `getWalletAddress` | `() => Promise<Address>` |
 | `sendTransaction` | `(tx: EvmRawTransaction, opts?: EvmSendTransactionPolicy) => Promise<Hash>` |
 | `waitForTransactionReceipt` | `(hash: Hash, opts?: EvmWaitForTransactionReceiptPolicy) => Promise<EvmRawTransactionReceipt>` |
+| `getChainId?` | `() => Promise<number>` — the wallet's active chain id (optional) |
+| `switchChain?` | `(chainId: number) => Promise<void>` — asks the wallet to switch (EIP-3326; optional) |
 | `getAtomicBatchSupport?` | `(chainId: number) => Promise<EvmAtomicBatchSupport>` — optional (EIP-5792) |
 | `sendAtomicBatch?` | `(txs: readonly EvmRawTransaction[], opts: EvmSendBatchOptions) => Promise<string>` — optional, returns a batch id |
 | `waitForBatch?` | `(batchId: string, opts?: EvmWaitForBatchOptions) => Promise<EvmBatchResult>` — optional; throws on timeout |
