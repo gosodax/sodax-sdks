@@ -6,12 +6,11 @@
  *      guards, happy path, !response.ok branch, fetch-throws catch branch, falsy-error catch).
  *   2. Wire-format is asserted against the real fetch URL/headers/body — a mutation that flips
  *      the endpoint path or HTTP method changes the observable call and fails the assertion.
- *   3. Collaborators reduce to a stubbed `fetch` (replaced on `globalThis`), a stubbed
- *      `ConfigService` (`isValidOriginalAssetAddress` / `getSpokeTokenFromOriginalAssetAddress`),
- *      and the real `retry` helper replaced by a pass-through so the postExecution failure path
- *      doesn't sit through DEFAULT_RETRY_DELAY_MS * DEFAULT_MAX_RETRY of real timer waits.
+ *   3. Collaborators reduce to a stubbed `fetch`, a stubbed `ConfigService`
+ *      (`isValidOriginalAssetAddress` / `getSpokeTokenFromOriginalAssetAddress`), and a spy that makes
+ *      `retry` a single pass so the postExecution failure path skips the real retry delays.
  */
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   SolverIntentErrorCode,
   type Hex,
@@ -21,20 +20,10 @@ import {
   type SolverIntentStatusRequest,
   type XToken,
 } from '@sodax/types';
-
-// `retry` is the only collaborator from shared-utils used by SolverApiService. Replace it with a
-// single-pass invocation so the postExecution catch path resolves immediately instead of waiting
-// 3 * 2_000ms for the real retry loop. Other exports keep their real implementations.
-vi.mock('../shared/utils/shared-utils.js', async () => {
-  const actual = await vi.importActual<object>('../shared/utils/shared-utils.js');
-  return {
-    ...actual,
-    retry: <T>(action: (retryCount: number) => Promise<T>): Promise<T> => action(1),
-  };
-});
-
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import { silentLogger } from '../shared/logger.js';
+import * as sharedUtils from '../shared/utils/shared-utils.js';
+import { abortingFetch, okResponse, stubFetch } from '../test-utils/fetch.js';
 import { SolverApiService } from './SolverApiService.js';
 
 // --- fixtures -------------------------------------------------------------
@@ -71,16 +60,11 @@ const mockConfigService = {
   logger: silentLogger,
 } as unknown as ConfigService;
 
-const realFetch = globalThis.fetch;
-const fetchMock = vi.fn();
-globalThis.fetch = fetchMock;
-
-afterAll(() => {
-  globalThis.fetch = realFetch;
-});
+const fetchMock = stubFetch();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.spyOn(sharedUtils, 'retry').mockImplementation(action => action(1));
   // Default: every token address is supported, and resolves to the matching hub asset. Individual
   // tests override these to drive the invariant branches.
   vi.mocked(mockConfigService.isValidOriginalAssetAddress).mockReturnValue(true);
@@ -91,9 +75,8 @@ beforeEach(() => {
   });
 });
 
-// Helpers — small Response-like fakes so we don't depend on `undici`.
-const okResponse = (body: unknown): Response => ({ ok: true, json: async () => body }) as unknown as Response;
-const errorResponse = (body: unknown): Response => ({ ok: false, json: async () => body }) as unknown as Response;
+// The solver reads a non-OK body with `json()`, which the shared `httpErrorResponse` does not model.
+const errorResponse = (body: unknown) => ({ ok: false, json: async () => body });
 
 // =========================================================================
 // getQuote — invariant guards + happy path + error branches
@@ -178,7 +161,6 @@ describe('SolverApiService.getQuote', () => {
       error: body,
     });
 
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const networkError = { kind: 'NetworkDown' };
     fetchMock.mockRejectedValueOnce(networkError).mockRejectedValueOnce(undefined);
 
@@ -190,7 +172,6 @@ describe('SolverApiService.getQuote', () => {
       ok: false,
       error: { detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'Unknown error' } },
     });
-    consoleSpy.mockRestore();
   });
 });
 
@@ -221,7 +202,6 @@ describe('SolverApiService.postExecution', () => {
     fetchMock.mockResolvedValueOnce(errorResponse(body));
     expect(await SolverApiService.postExecution(request, SOLVER_CONFIG)).toEqual({ ok: false, error: body });
 
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const failure = new Error('boom');
     fetchMock.mockRejectedValueOnce(failure).mockRejectedValueOnce(undefined);
 
@@ -233,7 +213,6 @@ describe('SolverApiService.postExecution', () => {
       ok: false,
       error: { detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'Unknown error' } },
     });
-    consoleSpy.mockRestore();
   });
 });
 
@@ -271,7 +250,6 @@ describe('SolverApiService.getStatus', () => {
     fetchMock.mockResolvedValueOnce(errorResponse(body));
     expect(await SolverApiService.getStatus(request, SOLVER_CONFIG)).toEqual({ ok: false, error: body });
 
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const failure = { reason: 'timeout' };
     fetchMock.mockRejectedValueOnce(failure).mockRejectedValueOnce(undefined);
 
@@ -283,7 +261,6 @@ describe('SolverApiService.getStatus', () => {
       ok: false,
       error: { detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'Unknown error' } },
     });
-    consoleSpy.mockRestore();
   });
 });
 
@@ -298,64 +275,34 @@ describe('SolverApiService.getStatus', () => {
 describe('SolverApiService.getStatus with a timeout budget', () => {
   const request: SolverIntentStatusRequest = { intent_tx_hash: INTENT_TX_HASH };
 
-  // Never settles on its own; rejects with an AbortError only once its signal aborts.
-  const hungFetch = (_url: unknown, opts: { signal: AbortSignal }) =>
-    new Promise((_resolve, reject) => {
-      opts.signal.addEventListener('abort', () =>
-        reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })),
-      );
-    });
-
   afterEach(() => {
     vi.useRealTimers();
     // Not `vi.clearAllMocks()`'s job: it clears recorded calls, not implementations. A leaked
-    // `hungFetch` would hang the next test in this file that relies on the default fetch mock.
+    // aborting fetch would hang the next test in this file that relies on the default fetch mock.
     fetchMock.mockReset();
   });
 
-  it('gives up at the budget when the connection hangs', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    vi.useFakeTimers();
-    fetchMock.mockImplementation(hungFetch);
+  it('gives up at the budget when the connection hangs or the body stalls after headers arrive', async () => {
+    // `fetch` resolves as soon as headers land, so only a timer still armed over `json()` catches a stalled body.
+    const stalledBody = (url: unknown, init?: { signal?: AbortSignal | null }) =>
+      Promise.resolve({ ok: true, json: () => abortingFetch(url, init) });
+    for (const [label, impl] of [
+      ['hung connection', abortingFetch],
+      ['stalled body', stalledBody],
+    ] as const) {
+      vi.useFakeTimers();
+      fetchMock.mockReset().mockImplementation(impl);
 
-    const promise = SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, 5_000);
-    await vi.advanceTimersByTimeAsync(5_000);
+      const promise = SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, 5_000);
+      await vi.advanceTimersByTimeAsync(5_000);
 
-    expect(await promise).toEqual({
-      ok: false,
-      error: {
-        detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'solver /status timed out after 5000ms' },
-      },
-    });
-    consoleSpy.mockRestore();
-  });
-
-  it('gives up at the budget when the response body stalls after headers arrive', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    vi.useFakeTimers();
-    // `fetch` resolves as soon as headers land, so only a timer still armed over `json()` catches this.
-    fetchMock.mockImplementation((_url: unknown, opts: { signal: AbortSignal }) =>
-      Promise.resolve({
-        ok: true,
-        json: () =>
-          new Promise((_resolve, reject) =>
-            opts.signal.addEventListener('abort', () =>
-              reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
-            ),
-          ),
-      }),
-    );
-
-    const promise = SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, 5_000);
-    await vi.advanceTimersByTimeAsync(5_000);
-
-    expect(await promise).toEqual({
-      ok: false,
-      error: {
-        detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'solver /status timed out after 5000ms' },
-      },
-    });
-    consoleSpy.mockRestore();
+      expect(await promise, label).toEqual({
+        ok: false,
+        error: {
+          detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'solver /status timed out after 5000ms' },
+        },
+      });
+    }
   });
 
   it('answers normally inside the budget, forwarding the abort signal', async () => {
@@ -386,8 +333,7 @@ describe('SolverApiService.getStatus with a timeout budget', () => {
   });
 
   it('aborts immediately on a non-positive budget', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    fetchMock.mockImplementation(hungFetch);
+    fetchMock.mockImplementation(abortingFetch);
 
     const result = await SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, 0);
 
@@ -397,7 +343,6 @@ describe('SolverApiService.getStatus with a timeout budget', () => {
         detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'solver /status timed out after 0ms' },
       },
     });
-    consoleSpy.mockRestore();
   });
 });
 
@@ -423,16 +368,18 @@ describe('SolverApiService API key', () => {
     () => SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, undefined, apiKey),
   ];
 
-  it.each([
+  it('sends the right headers on /quote, /execute and /status whether the key is set or empty', async () => {
     // An unset key is every keyless test above; empty is the falsy edge that must send no header either.
-    ['set', 'instance-key', { ...JSON_HEADER, 'x-api-key': 'instance-key' }],
-    ['empty', '', JSON_HEADER],
-  ])('sends the right headers on /quote, /execute and /status when the key is %s', async (_label, apiKey, headers) => {
-    for (const call of callEveryEndpoint(apiKey)) {
-      fetchMock.mockReset();
-      fetchMock.mockResolvedValueOnce(okResponse({ quoted_amount: '1', status: 3, answer: 'OK' }));
-      await call();
-      expect(sentHeaders()).toEqual(headers);
+    for (const [label, apiKey, headers] of [
+      ['set', 'instance-key', { ...JSON_HEADER, 'x-api-key': 'instance-key' }],
+      ['empty', '', JSON_HEADER],
+    ] as const) {
+      for (const call of callEveryEndpoint(apiKey)) {
+        fetchMock.mockReset();
+        fetchMock.mockResolvedValueOnce(okResponse({ quoted_amount: '1', status: 3, answer: 'OK' }));
+        await call();
+        expect(sentHeaders(), label).toEqual(headers);
+      }
     }
   });
 });

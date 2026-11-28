@@ -30,15 +30,13 @@ describe('HookService.encodeDeliveryData', () => {
   // A zero recipient makes the destination receiver revert, which wedges the cross-chain message
   // unrecoverably — so it must fail here, before an intent exists.
   // The guard runs before the per-kind switch, so one kind covers it.
-  it('rejects a zero-address recipient', () => {
+  it('rejects a zero-address recipient and an unknown hook kind', () => {
     expect(() => HookService.encodeDeliveryData({ kind: HookKind.FLINT_DEPOSIT }, ZERO_ADDRESS)).toThrow(
       /zero address/,
     );
-  });
-
-  it('throws on an unknown hook kind', () => {
     expect(() =>
       HookService.encodeDeliveryData(
+        // An out-of-registry kind on purpose: the type only admits real hook kinds.
         { kind: 'notAHook' } as unknown as { kind: typeof HookKind.HYPERCORE_DEPOSIT },
         HC_RECIPIENT,
       ),

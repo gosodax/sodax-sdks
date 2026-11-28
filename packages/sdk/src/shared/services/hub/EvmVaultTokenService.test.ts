@@ -14,9 +14,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Address, type Hash, type HttpTransport, type PublicClient, encodeFunctionData } from 'viem';
 import { ChainKeys } from '@sodax/types';
 import { getEvmViemChain } from '../../utils/constant-utils.js';
-import type { IEvmWalletProvider, TokenInfo } from '@sodax/types';
+import type { TokenInfo } from '@sodax/types';
 import { vaultTokenAbi } from '../../abis/index.js';
 import { EvmVaultTokenService } from './EvmVaultTokenService.js';
+import { mockEvmWalletProvider } from '../../../test-utils/walletProviders.js';
 
 // --- fixtures -------------------------------------------------------------
 
@@ -50,11 +51,7 @@ const mockPublicClient = {
   multicall: vi.fn(),
 } as unknown as PublicClient<HttpTransport>;
 
-const mockWalletProvider = {
-  chainType: 'EVM',
-  getWalletAddress: vi.fn(),
-  sendTransaction: vi.fn(),
-} as unknown as IEvmWalletProvider;
+const mockWalletProvider = mockEvmWalletProvider();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -196,8 +193,10 @@ describe('EvmVaultTokenService.translateIncomingDecimals', () => {
     { decimals: 24, amount: 1_000_000n, expected: 1n, label: 'decimals > 18 → divide by 10^(d-18)' },
   ];
 
-  it.each(cases)('$label (d=$decimals, amt=$amount → $expected)', ({ decimals, amount, expected }) => {
-    expect(EvmVaultTokenService.translateIncomingDecimals(decimals, amount)).toBe(expected);
+  it('multiplies below 18 decimals, is a no-op at 18 and divides above', () => {
+    for (const { decimals, amount, expected, label } of cases) {
+      expect(EvmVaultTokenService.translateIncomingDecimals(decimals, amount), label).toBe(expected);
+    }
   });
 });
 
@@ -215,7 +214,9 @@ describe('EvmVaultTokenService.translateOutgoingDecimals', () => {
     { decimals: 24, amount: 1n, expected: 10n ** 6n, label: 'decimals > 18 → multiply by 10^(d-18)' },
   ];
 
-  it.each(cases)('$label (d=$decimals, amt=$amount → $expected)', ({ decimals, amount, expected }) => {
-    expect(EvmVaultTokenService.translateOutgoingDecimals(decimals, amount)).toBe(expected);
+  it('divides below 18 decimals, is a no-op at 18 and multiplies above', () => {
+    for (const { decimals, amount, expected, label } of cases) {
+      expect(EvmVaultTokenService.translateOutgoingDecimals(decimals, amount), label).toBe(expected);
+    }
   });
 });

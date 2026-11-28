@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { BOUND_API_HOST, BOUND_COMPANION_HOSTS, type RadfiConfig } from '@sodax/types';
 import { RadfiApiError, RadfiProvider } from './RadfiProvider.js';
+import { stubFetch } from '../../../test-utils/fetch.js';
 
 // Regression tests for issue #233: a non-JSON (HTML) Bound Exchange response must surface as a
 // typed RadfiApiError carrying the real HTTP status — NOT a raw `SyntaxError: Unexpected token '<'`.
@@ -37,16 +38,10 @@ const withdrawParams = {
   data: 'deadbeef',
 };
 
-let fetchMock: ReturnType<typeof vi.fn>;
+let fetchMock: Mock;
 
 beforeEach(() => {
-  fetchMock = vi.fn();
-  vi.stubGlobal('fetch', fetchMock);
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
+  fetchMock = stubFetch();
 });
 
 /** Runs `call` and returns what it threw, failing the test if it resolved. */
@@ -410,17 +405,17 @@ describe('RadfiProvider — host routing (gh-425)', () => {
 describe('RadfiProvider — retired hosts are refused (gh-425)', () => {
   const RETIRED = 'https://api.bound.exchange/api';
 
-  it.each([
-    ['apiUrl', { apiUrl: RETIRED }, BOUND_API_HOST],
-    ['authUrl', { apiUrl: BOUND_API_HOST, authUrl: RETIRED }, undefined],
-  ])('refuses a retired host in %s and names that field', (field, overrides, replacement) => {
-    const expected = replacement ?? (field === 'authUrl' ? companion('auth') : companion('transactions'));
-
-    expect(() => new RadfiProvider({ ...baseConfig, ...overrides })).toThrow(
-      new RegExp(
-        `retired ${RETIRED.replace(/[.*+?^$()|[\]\\]/g, '\\$&')}.*radfi\\.${field}.*${expected.replace(/[.*+?^$()|[\]\\]/g, '\\$&')}`,
-      ),
-    );
+  it('refuses a retired host in apiUrl or authUrl and names that field and its replacement', () => {
+    const escapeRegExp = (text: string) => text.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
+    const rows: Array<[field: string, overrides: Partial<RadfiConfig>, replacement: string]> = [
+      ['apiUrl', { apiUrl: RETIRED }, BOUND_API_HOST],
+      ['authUrl', { apiUrl: BOUND_API_HOST, authUrl: RETIRED }, companion('auth')],
+    ];
+    for (const [field, overrides, replacement] of rows) {
+      expect(() => new RadfiProvider({ ...baseConfig, ...overrides }), field).toThrow(
+        new RegExp(`retired ${escapeRegExp(RETIRED)}.*radfi\\.${field}.*${escapeRegExp(replacement)}`),
+      );
+    }
   });
 
   it('matches a retired host with a trailing slash, yet accepts the packaged, signet and private-proxy hosts', () => {

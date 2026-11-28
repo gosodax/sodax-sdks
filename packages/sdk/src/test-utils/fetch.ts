@@ -14,14 +14,24 @@ export const httpErrorResponse = (status: number, text = '') => ({
 /** A non-2xx response whose body is `body` serialized as JSON. */
 export const jsonErrorResponse = (status: number, body: unknown) => httpErrorResponse(status, JSON.stringify(body));
 
-/** A fetch that never settles until its signal aborts, then rejects with an `AbortError`, like the platform's. */
+/**
+ * A fetch that never settles until its signal aborts, then rejects with an `AbortError`, like the platform's.
+ * An already-aborted signal rejects at once, and a call without a signal fails fast instead of hanging the test.
+ */
 export const abortingFetch = <T = never>(_url: unknown, init?: { signal?: AbortSignal | null }): Promise<T> =>
   new Promise((_resolve, reject) => {
-    init?.signal?.addEventListener('abort', () => {
+    const signal = init?.signal;
+    if (!signal) {
+      reject(new Error('abortingFetch: the request was sent without an AbortSignal'));
+      return;
+    }
+    const abort = () => {
       const error = new Error('The operation was aborted');
       error.name = 'AbortError';
       reject(error);
-    });
+    };
+    if (signal.aborted) abort();
+    else signal.addEventListener('abort', abort);
   });
 
 /**

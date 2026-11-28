@@ -3,8 +3,8 @@
  *
  * Mirrors the fixture pattern established in MoneyMarketService.test.ts and
  * BridgeService.test.ts:
- *   - `vi.mock` at the source path replaces the static `relayTxAndWaitPacket` import
- *     with a hoisted `vi.fn()` so each test can configure relay outcomes.
+ *   - The statically imported `relayTxAndWaitPacket` is spied on its module namespace and bound
+ *     to a standalone `vi.fn()`, so each test can configure relay outcomes.
  *   - One real `Sodax` instance backs every test; instance methods we want to control
  *     (`sodax.staking.createStakeIntent`, `sodax.spoke.verifyTxHash`, etc.) are stubbed
  *     per-test with `vi.spyOn(...).mockResolvedValueOnce(...)`.
@@ -20,9 +20,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChainKeys, type Address, type IEvmWalletProvider, type SpokeChainKey } from '@sodax/types';
+import { ChainKeys, type Address, type Result, type SpokeChainKey } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { SodaxError } from '../errors/SodaxError.js';
+import * as IntentRelayApiService from '../shared/services/intentRelay/IntentRelayApiService.js';
+import { expectErr, expectOk } from '../test-utils/result.js';
+import { mockEvmWalletProvider } from '../test-utils/walletProviders.js';
 import type {
   CancelUnstakeAction,
   ClaimAction,
@@ -31,16 +34,7 @@ import type {
   UnstakeAction,
 } from './StakingService.js';
 
-const mocks = vi.hoisted(() => ({
-  relayTxAndWaitPacket: vi.fn(),
-}));
-vi.mock('../shared/services/intentRelay/IntentRelayApiService.js', async () => {
-  const actual = await vi.importActual<object>('../shared/services/intentRelay/IntentRelayApiService.js');
-  return {
-    ...actual,
-    relayTxAndWaitPacket: mocks.relayTxAndWaitPacket,
-  };
-});
+const mocks = { relayTxAndWaitPacket: vi.fn() };
 
 const sodax = new Sodax();
 
@@ -70,12 +64,7 @@ const SAMPLE_USER = '0x4444444444444444444444444444444444444444' as Address;
 const SAMPLE_TOKEN = '0x2170Ed0880ac9A755fd29B2688956BD959F933F8' as Address;
 const SPOKE_TX_HASH = '0xspokeTxHash';
 
-const mockEvmProvider = {
-  chainType: 'EVM',
-  sendTransaction: vi.fn(),
-  getWalletAddress: vi.fn(),
-  waitForTransactionReceipt: vi.fn(),
-} as unknown as IEvmWalletProvider;
+const mockEvmProvider = mockEvmWalletProvider();
 
 const stakeInput = (): StakeAction<typeof BSC, false> =>
   ({
@@ -146,8 +135,9 @@ const validIntent = {
   relayData: { address: HUB_WALLET, payload: '0x' as Address, srcToken: SAMPLE_TOKEN },
 };
 
+// Every test stubs the other collaborators it cares about.
 beforeEach(() => {
-  // No defaults needed — every test stubs the collaborators it cares about.
+  vi.spyOn(IntentRelayApiService, 'relayTxAndWaitPacket').mockImplementation(mocks.relayTxAndWaitPacket);
 });
 
 afterEach(() => {
@@ -156,84 +146,50 @@ afterEach(() => {
 });
 
 describe('StakingService.stake — integration error-path coverage', () => {
-  it('propagates a StakingCreateIntentError from createStakeIntent (subset narrowing, identity)', async () => {
-    // `stake()` first calls `createStakeIntent`. When that returns `{ ok: false, error }`,
-    // the error code is in CreateStakeIntentErrorCode (a subset of StakeErrorCode), so
+  it('forwards an intent failure, maps verify and relay failures, and wraps a foreign SodaxError', async () => {
+    // A createStakeIntent error code is in CreateStakeIntentErrorCode (a subset of StakeErrorCode), so
     // `stake()` returns the same SodaxError unchanged — no extra wrap, no code rewrite.
     const intentError = new SodaxError('INTENT_CREATION_FAILED', 'spoke deposit reverted', {
       feature: 'staking',
       context: { srcChainKey: BSC, action: 'stake', phase: 'intentCreation' },
     });
-    vi.spyOn(sodax.staking, 'createStakeIntent').mockResolvedValueOnce({ ok: false, error: intentError });
-
-    const result = await sodax.staking.stake(stakeInput());
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    // Identity check — the SodaxError must be the *same* instance, not a re-wrapped clone.
-    expect(result.error).toBe(intentError);
-    expect(result.error.code).toBe('INTENT_CREATION_FAILED');
-    // verifyTxHash and relayTxAndWaitPacket must not have been called.
-    expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
-  });
-
-  it('wraps a verifyTxHash failure as STAKING_VERIFY_FAILED with cause + phase + chain + action', async () => {
-    // createStakeIntent succeeds, then verifyTxHash returns ok:false. `stake()` must wrap
-    // the underlying error as STAKING_VERIFY_FAILED with the original on `cause` and the
-    // chain context preserved on `error.context`.
-    vi.spyOn(sodax.staking, 'createStakeIntent').mockResolvedValueOnce({ ok: true, value: validIntent });
-    const verifyError = new Error('VERIFY_FAILED');
-    vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValueOnce({ ok: false, error: verifyError });
-
-    const result = await sodax.staking.stake(stakeInput());
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('TX_VERIFICATION_FAILED');
-    // Identity check on cause — the original error is reachable for forensics.
-    expect(result.error.cause).toBe(verifyError);
-    expect(result.error.context?.phase).toBe('verify');
-    expect(result.error.context?.srcChainKey).toBe(BSC);
-    expect(result.error.context?.action).toBe('stake');
-    // Relay must not have been called.
-    expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
-  });
-
-  it('wraps a relayTxAndWaitPacket failure via mapRelayFailureToStakingError', async () => {
-    vi.spyOn(sodax.staking, 'createStakeIntent').mockResolvedValueOnce({ ok: true, value: validIntent });
-    vi.spyOn(sodax.spoke, 'verifyTxHash').mockResolvedValueOnce({ ok: true, value: true });
-    const relayError = new Error('RELAY_TIMEOUT');
-    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: relayError });
-
-    const result = await sodax.staking.stake(stakeInput());
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('RELAY_TIMEOUT');
-    expect(result.error.cause).toBe(relayError);
-    expect(result.error.context?.action).toBe('stake');
-    expect(result.error.context?.relayCode).toBe('RELAY_TIMEOUT');
-  });
-
-  it('wraps an out-of-union SodaxError thrown from createStakeIntent as STAKING_STAKE_FAILED', async () => {
-    // The `isStakeOrchestrationError` guard rejects codes outside StakeErrorCode (e.g. an accidental
-    // SWAP_RELAY_TIMEOUT thrown from somewhere inside the stake orchestration). The
-    // else-branch wraps it as STAKING_STAKE_FAILED with the original on cause —
-    // pinning that path here so a future regression that widens isStakeOrchestrationError surfaces
-    // immediately. Mirrors the bridge & MM out-of-union wrap-tests.
+    // The `isStakeOrchestrationError` guard rejects codes outside StakeErrorCode, so a foreign code thrown
+    // inside the orchestration is wrapped with the original on cause. Mirrors the bridge & MM wrap-tests.
     const outOfUnion = new SodaxError('SWAP_RELAY_TIMEOUT' as never, 'foreign code thrown into staking', {
       feature: 'staking',
     });
-    vi.spyOn(sodax.staking, 'createStakeIntent').mockRejectedValueOnce(outOfUnion);
+    vi.spyOn(sodax.staking, 'createStakeIntent')
+      .mockResolvedValueOnce({ ok: false, error: intentError })
+      .mockResolvedValueOnce({ ok: true, value: validIntent })
+      .mockResolvedValueOnce({ ok: true, value: validIntent })
+      .mockRejectedValueOnce(outOfUnion);
+    const verifyError = new Error('VERIFY_FAILED');
+    vi.spyOn(sodax.spoke, 'verifyTxHash')
+      .mockResolvedValueOnce({ ok: false, error: verifyError })
+      .mockResolvedValueOnce({ ok: true, value: true });
+    const relayError = new Error('RELAY_TIMEOUT');
+    mocks.relayTxAndWaitPacket.mockResolvedValueOnce({ ok: false, error: relayError });
+    const run = () => sodax.staking.stake(stakeInput());
 
-    const result = await sodax.staking.stake(stakeInput());
+    // Identity check — the SodaxError must be the *same* instance, not a re-wrapped clone.
+    const forwarded = expectErr(await run(), 'INTENT_CREATION_FAILED');
+    expect(forwarded).toBe(intentError);
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('EXECUTION_FAILED');
-    expect(result.error.cause).toBe(outOfUnion);
-    expect(result.error.context?.srcChainKey).toBe(BSC);
-    expect(result.error.context?.action).toBe('stake');
+    // The original errors stay reachable on `cause` for forensics.
+    const verifyFailure = expectErr(await run(), 'TX_VERIFICATION_FAILED', {
+      phase: 'verify',
+      srcChainKey: BSC,
+      action: 'stake',
+    });
+    expect(verifyFailure.cause).toBe(verifyError);
+    // Neither failure reached the relay.
+    expect(mocks.relayTxAndWaitPacket).not.toHaveBeenCalled();
+
+    const relayFailure = expectErr(await run(), 'RELAY_TIMEOUT', { action: 'stake', relayCode: 'RELAY_TIMEOUT' });
+    expect(relayFailure.cause).toBe(relayError);
+
+    const wrapped = expectErr(await run(), 'EXECUTION_FAILED', { srcChainKey: BSC, action: 'stake' });
+    expect(wrapped.cause).toBe(outOfUnion);
   });
 });
 
@@ -264,12 +220,9 @@ describe('StakingService — out-of-union wrap-path smoke for non-stake orchestr
       });
       vi.spyOn(sodax.staking, stub).mockRejectedValueOnce(outOfUnion);
 
-      const result = await run();
+      const error = expectErr(await run(), 'EXECUTION_FAILED', { action }, action);
 
-      if (result.ok) throw new Error(`expected ${action} to fail`);
-      expect(result.error.code).toBe('EXECUTION_FAILED');
-      expect(result.error.cause).toBe(outOfUnion);
-      expect(result.error.context?.action).toBe(action);
+      expect(error.cause, action).toBe(outOfUnion);
     }
   });
 });
@@ -330,19 +283,18 @@ describe('StakingService — per-chain SODA lookup', () => {
     vi.spyOn(sodax.spoke, 'deposit').mockResolvedValueOnce({ ok: true, value: SPOKE_TX_HASH });
     vi.spyOn(sodax.spoke, 'sendMessage').mockResolvedValue({ ok: true, value: SPOKE_TX_HASH });
 
-    const stake = await sodax.staking.createStakeIntent(stakeInputFor(srcChainKey));
-    if (!stake.ok) throw stake.error;
-    expect(stake.value.tx).toBe(SPOKE_TX_HASH);
-    expect(stake.value.relayData.payload.startsWith('0x')).toBe(true);
+    const stake = expectOk(await sodax.staking.createStakeIntent(stakeInputFor(srcChainKey)), 'stake');
+    expect(stake.tx).toBe(SPOKE_TX_HASH);
+    expect(stake.relayData.payload.startsWith('0x')).toBe(true);
 
-    for (const result of [
-      await sodax.staking.createInstantUnstakeIntent(instantUnstakeInputFor(srcChainKey)),
-      await sodax.staking.createClaimIntent(claimInputFor(srcChainKey)),
-    ]) {
-      if (!result.ok) throw result.error;
-      expect(result.value.tx).toBe(SPOKE_TX_HASH);
-      expect(result.value.relayData.address).toBe(HUB_WALLET);
-      expect(result.value.relayData.payload.startsWith('0x')).toBe(true);
+    for (const [label, result] of [
+      ['instantUnstake', await sodax.staking.createInstantUnstakeIntent(instantUnstakeInputFor(srcChainKey))],
+      ['claim', await sodax.staking.createClaimIntent(claimInputFor(srcChainKey))],
+    ] as const) {
+      const { tx, relayData } = expectOk(result, label);
+      expect(tx, label).toBe(SPOKE_TX_HASH);
+      expect(relayData.address, label).toBe(HUB_WALLET);
+      expect(relayData.payload.startsWith('0x'), label).toBe(true);
     }
   });
 });
@@ -388,11 +340,9 @@ describe('StakingService — MPC-relay source', () => {
       }),
     ];
 
-    for (const result of results) {
-      if (result.ok) throw new Error('expected a refusal');
-      expect(result.error.code).toBe('VALIDATION_FAILED');
-      expect(result.error.context?.field).toBe('srcChainKey');
-    }
+    results.forEach((result: Result<unknown, unknown>, index) => {
+      expectErr(result, 'VALIDATION_FAILED', { field: 'srcChainKey' }, `action #${index}`);
+    });
     expect(hubWallet).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
     expect(deposit).not.toHaveBeenCalled();

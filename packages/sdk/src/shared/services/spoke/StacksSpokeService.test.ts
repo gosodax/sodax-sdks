@@ -85,6 +85,7 @@ vi.mock('../../utils/shared-utils.js', async () => {
 });
 
 import { Sodax } from '../../entities/Sodax.js';
+import { expectOk } from '../../../test-utils/result.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
 
 // --- fixtures -------------------------------------------------------------
@@ -259,7 +260,7 @@ describe('StacksSpokeService.deposit', () => {
     vi.spyOn(stacksSpoke, 'getImplContractAddress').mockResolvedValue(STACKS_ASSET_MGR_IMPL);
   });
 
-  it('raw=true (non-native) → returns { payload: "0x<hex>" } with someCV(token), no interface fetch and no post-conditions', async () => {
+  it('raw=true → returns { payload: "0x<hex>" } with someCV(token) for SIP-010 and noneCV() for STX, no interface fetch and no post-conditions', async () => {
     // Post-conditions cannot ride the serialized payload, so raw mode must not pay (or fail on)
     // the interface lookup they would need.
     const fetchSpy = vi.fn();
@@ -292,15 +293,13 @@ describe('StacksSpokeService.deposit', () => {
       type: 'some',
       value: { value: STACKS_BNUSD },
     });
-  });
 
-  it('raw=true native (STX) → first functionArg is noneCV()', async () => {
     await stacksSpoke.deposit(depositParams<true>({ raw: true, token: STACKS_NATIVE }));
 
-    const call = mocks.makeUnsignedContractCall.mock.calls[0]?.[0];
-    expect(call).toBeDefined();
+    const nativeCall = mocks.makeUnsignedContractCall.mock.calls[1]?.[0];
+    expect(nativeCall).toBeDefined();
     // ClarityType.OptionalNone === 'none' (string enum).
-    expect(call?.functionArgs?.[0]).toMatchObject({ type: 'none' });
+    expect(nativeCall?.functionArgs?.[0]).toMatchObject({ type: 'none' });
   });
 
   it('raw=true → throws before building when srcPublicKey is missing, derives another address, or is not a key', async () => {
@@ -318,16 +317,14 @@ describe('StacksSpokeService.deposit', () => {
     expect(mocks.makeUnsignedContractCall).not.toHaveBeenCalled();
   });
 
-  it('raw=false → delegates to walletProvider.sendTransaction and returns the txId', async () => {
-    (mockStacksProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_ID);
+  it('raw=false → sends through walletProvider with a Deny-mode cap: ft from the contract interface for SIP-010, ustx without a fetch for STX', async () => {
+    vi.mocked(mockStacksProvider.sendTransaction).mockResolvedValue(TX_ID);
     // getFtAssetName resolves the on-chain `define-fungible-token` name from the contract interface.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ fungible_tokens: [{ name: 'bnusd' }] }),
-      }),
-    );
+    const fetchSpy = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ fungible_tokens: [{ name: 'bnusd' }] }),
+    });
+    vi.stubGlobal('fetch', fetchSpy);
 
     const result = await stacksSpoke.deposit(
       depositParams<false>({ raw: false, walletProvider: mockStacksProvider, token: STACKS_BNUSD }),
@@ -349,26 +346,21 @@ describe('StacksSpokeService.deposit', () => {
         ],
       }),
     );
-    // raw=false must NOT call the unsigned-tx builder.
-    expect(mocks.makeUnsignedContractCall).not.toHaveBeenCalled();
-  });
 
-  it('raw=false native STX → caps the spend with a ustx post-condition, no interface fetch', async () => {
-    (mockStacksProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_ID);
-    const fetchSpy = vi.fn();
-    vi.stubGlobal('fetch', fetchSpy);
-
+    fetchSpy.mockClear();
     await stacksSpoke.deposit(
       depositParams<false>({ raw: false, walletProvider: mockStacksProvider, token: STACKS_NATIVE }),
     );
 
     expect(fetchSpy).not.toHaveBeenCalled();
-    expect(mockStacksProvider.sendTransaction).toHaveBeenCalledWith(
+    expect(mockStacksProvider.sendTransaction).toHaveBeenLastCalledWith(
       expect.objectContaining({
         postConditionMode: 2, // PostConditionMode.Deny
         postConditions: [Pc.principal(SRC_ADDR).willSendLte(1_000n).ustx()],
       }),
     );
+    // raw=false must NOT call the unsigned-tx builder.
+    expect(mocks.makeUnsignedContractCall).not.toHaveBeenCalled();
   });
 });
 
@@ -511,7 +503,7 @@ describe('StacksSpokeService.sendMessage', () => {
       ...overrides,
     }) as SendMessageParams<typeof STACKS, Raw>;
 
-  it('raw=true → builds an unsigned send-message tx and returns { payload: "0x<hex>" }', async () => {
+  it('raw=true builds an unsigned send-message tx returning { payload: "0x<hex>" }; raw=false sends it through walletProvider', async () => {
     const result = await stacksSpoke.sendMessage(sendMessageParams<true>({ raw: true }));
 
     expect(result).toEqual({ payload: FAKE_PAYLOAD_HEX });
@@ -537,16 +529,16 @@ describe('StacksSpokeService.sendMessage', () => {
     expect(arg0).toMatchObject({ type: 'uint', value: 146n });
     expect(arg1).toMatchObject({ type: 'buffer', value: DST_ADDR.slice(2) });
     expect(arg2).toMatchObject({ type: 'buffer', value: 'deadbeef' });
-  });
+    expect(mockStacksProvider.sendTransaction).not.toHaveBeenCalled();
 
-  it('raw=false → delegates to walletProvider.sendTransaction and returns the txId', async () => {
-    (mockStacksProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_ID);
+    mocks.makeUnsignedContractCall.mockClear();
+    vi.mocked(mockStacksProvider.sendTransaction).mockResolvedValueOnce(TX_ID);
 
-    const result = await stacksSpoke.sendMessage(
+    const txId = await stacksSpoke.sendMessage(
       sendMessageParams<false>({ raw: false, walletProvider: mockStacksProvider }),
     );
 
-    expect(result).toBe(TX_ID);
+    expect(txId).toBe(TX_ID);
     expect(mockStacksProvider.sendTransaction).toHaveBeenCalledWith(
       expect.objectContaining({
         contractAddress: 'SP3031RGK734636C8KGW2Y76TEQBTVX59Q472EQH0',
@@ -570,9 +562,9 @@ describe('StacksSpokeService.waitForTransactionReceipt', () => {
 
       const result = await stacksSpoke.waitForTransactionReceipt({ chainKey: STACKS, txHash: TX_ID });
 
-      if (!result.ok) throw new Error('expected ok');
-      if (result.value.status !== 'failure') throw new Error('expected failure');
-      expect(result.value.error.message).toBe(`Transaction aborted: ${status}`);
+      const value = expectOk(result, status);
+      if (value.status !== 'failure') throw new Error(`${status}: expected failure`);
+      expect(value.error.message).toBe(`Transaction aborted: ${status}`);
     }
   });
 
@@ -592,8 +584,7 @@ describe('StacksSpokeService.waitForTransactionReceipt', () => {
       pollingIntervalMs: 1,
     });
 
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.value.status).toBe('success');
+    expect(expectOk(result).status).toBe('success');
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
@@ -613,10 +604,10 @@ describe('StacksSpokeService.waitForTransactionReceipt', () => {
         pollingIntervalMs: 1,
       });
 
-      if (!result.ok) throw new Error('expected ok');
-      if (result.value.status !== 'timeout') throw new Error('expected timeout');
+      const value = expectOk(result, status);
+      if (value.status !== 'timeout') throw new Error(`${status}: expected timeout`);
       // The message echoes the caller's maxTimeoutMs, not the config default.
-      expect(result.value.error.message).toContain(
+      expect(value.error.message).toContain(
         `Timed out after ${maxTimeoutMs}ms waiting for Stacks transaction ${TX_ID}`,
       );
     }

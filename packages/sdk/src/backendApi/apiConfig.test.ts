@@ -174,7 +174,8 @@ describe('resolveSponsoringApiConfig', () => {
 // Bridge and leverage-yield hang off the same gateway root as the base API and read the same config
 // source (they ignore any swapsApiConfig slice; neither has a slice of its own) — but their routes are
 // siblings of `/be`, not children, so they must NOT carry the data API's basePath.
-describe.each([['resolveBridgeApiConfig', resolveBridgeApiConfig]])('%s', (_name, resolve) => {
+describe('resolveBridgeApiConfig', () => {
+  const resolve = resolveBridgeApiConfig;
   // Each must track base field-for-field, so a field added to base resolution cannot skip the client.
   // `basePath` is the single sanctioned divergence, so it is the only thing subtracted.
   it('tracks the base config field-for-field apart from the mount', () => {
@@ -208,13 +209,18 @@ describe.each([['resolveBridgeApiConfig', resolveBridgeApiConfig]])('%s', (_name
 });
 
 describe('basePath — the backend data API mount', () => {
-  it.each([
-    ['an empty path (service addressed at its origin)', '', ''],
-    ['surrounding whitespace, duplicate leading and trailing slashes', '  //be/  ', '/be'],
-    ['a lone slash (root mount)', '/', ''],
-  ])('normalizes %s', (_label, configured, expected) => {
-    expect(resolveBaseApiConfig(asConfig({ baseApiConfig: { basePath: configured } })).basePath).toBe(expected);
-    expect(resolveBaseApiConfig(asConfig({ basePath: configured })).basePath).toBe(expected);
+  it('normalizes an empty path, surrounding whitespace and slashes, and a lone slash', () => {
+    const rows: Array<[label: string, configured: string, expected: string]> = [
+      ['an empty path (service addressed at its origin)', '', ''],
+      ['surrounding whitespace, duplicate leading and trailing slashes', '  //be/  ', '/be'],
+      ['a lone slash (root mount)', '/', ''],
+    ];
+    for (const [label, configured, expected] of rows) {
+      expect(resolveBaseApiConfig(asConfig({ baseApiConfig: { basePath: configured } })).basePath, label).toBe(
+        expected,
+      );
+      expect(resolveBaseApiConfig(asConfig({ basePath: configured })).basePath, label).toBe(expected);
+    }
   });
 
   it('lets the baseApiConfig slice override a top-level flat basePath', () => {
@@ -286,24 +292,20 @@ describe('isMissingVersionPrefix', () => {
   // host resolves a service one segment short, and only the data API has a `basePath` to compensate — so
   // this is diagnosed rather than silently repaired. The predicate takes a RESOLVED base URL, so it holds
   // however that URL was layered (flat field, `baseApiConfig`, or a per-service slice).
-  it.each([
-    ['a trailing slash on the bare packaged origin', 'https://api.sodax.com/'],
-    ['the origin plus a service segment, no version', 'https://api.sodax.com/be'],
-  ])('is reported for %s', (_label, baseURL) => {
-    expect(isMissingVersionPrefix(baseURL)).toBe(true);
-  });
-
-  it.each([
-    ['the packaged default', DEFAULT_API_BASE_URL],
-    ['a deeper path (or legacy mount) below the packaged default', `${DEFAULT_API_BASE_URL}${BACKEND_API_BASE_PATH}`],
-  ])('is not reported for %s', (_label, baseURL) => {
-    expect(isMissingVersionPrefix(baseURL)).toBe(false);
-  });
-
-  it.each([
-    ['a lookalike host that merely starts with the packaged origin', 'https://api.sodax.com.evil.example'],
-  ])('never fires for %s — off the packaged host it is not ours to judge', (_label, baseURL) => {
-    expect(isMissingVersionPrefix(baseURL)).toBe(false);
+  it('is reported only for the packaged host without its version prefix, never for a lookalike host', () => {
+    const rows: Array<[label: string, baseURL: string, missing: boolean]> = [
+      ['a trailing slash on the bare packaged origin', 'https://api.sodax.com/', true],
+      ['the origin plus a service segment, no version', 'https://api.sodax.com/be', true],
+      ['the packaged default', DEFAULT_API_BASE_URL, false],
+      [
+        'a deeper path (or legacy mount) below the packaged default',
+        `${DEFAULT_API_BASE_URL}${BACKEND_API_BASE_PATH}`,
+        false,
+      ],
+      // Off the packaged host it is not ours to judge.
+      ['a lookalike host that merely starts with the packaged origin', 'https://api.sodax.com.evil.example', false],
+    ];
+    for (const [label, baseURL, missing] of rows) expect(isMissingVersionPrefix(baseURL), label).toBe(missing);
   });
 });
 

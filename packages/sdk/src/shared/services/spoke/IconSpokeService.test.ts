@@ -13,37 +13,19 @@
  * `DST_ADDR`) and tx hashes are fabricated.
  *
  * Mocking strategy:
- *   - `estimateStepCost` (icon-utils.js) and `sleep` (shared-utils.js) are mocked at their source
- *     paths via `vi.mock` + `vi.hoisted`, using `vi.importActual` to keep the rest of each module
- *     real. The `estimateStepCost` mock makes gas tests deterministic; the `sleep` no-op keeps
- *     `waitForTransactionReceipt` tests from hanging on real polling intervals.
+ *   - `sleep` (shared-utils.js) is spied to a no-op so `waitForTransactionReceipt` tests don't
+ *     hang on real polling intervals.
  *   - `icon-sdk-js` is NOT module-mocked: real `Converter`, `CallTransactionBuilder`, and
  *     `CallBuilder` run. Only the two `iconService` chain methods that hit the network
  *     (`call(...).execute()` and `getTransactionResult(...).execute()`) are spied per-test by
  *     returning a `{ execute: () => Promise<T> }` shim that mimics icon-sdk-js's HttpCall<T>.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 import { ChainKeys, getIntentRelayChainId, spokeChainConfig, type Hex } from '@sodax/types';
-
-// --- hoisted mocks --------------------------------------------------------
-
-const mocks = vi.hoisted(() => ({
-  estimateStepCost: vi.fn(),
-  sleep: vi.fn(),
-}));
-
-vi.mock('../../utils/icon-utils.js', async () => {
-  const actual = await vi.importActual<object>('../../utils/icon-utils.js');
-  return { ...actual, estimateStepCost: mocks.estimateStepCost };
-});
-
-vi.mock('../../utils/shared-utils.js', async () => {
-  const actual = await vi.importActual<object>('../../utils/shared-utils.js');
-  return { ...actual, sleep: mocks.sleep };
-});
-
 import { Sodax } from '../../entities/Sodax.js';
+import * as sharedUtils from '../../utils/shared-utils.js';
 import { encodeAddress } from '../../utils/shared-utils.js';
+import { expectOk } from '../../../test-utils/result.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
 
 // --- fixtures -------------------------------------------------------------
@@ -89,10 +71,12 @@ const mockIconProvider = {
 const httpCall = <T>(value: T) => ({ execute: () => Promise.resolve(value) });
 const httpCallReject = (err: unknown) => ({ execute: () => Promise.reject(err) });
 
+let sleepSpy: MockInstance<typeof sharedUtils.sleep>;
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.sleep.mockResolvedValue(undefined);
-  (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mockReset();
+  sleepSpy = vi.spyOn(sharedUtils, 'sleep').mockResolvedValue(undefined);
+  mockIconProvider.sendTransaction.mockReset();
 });
 
 afterEach(() => {
@@ -132,9 +116,9 @@ describe('IconSpokeService.deposit', () => {
     expect(result.from).toBe(SRC_ADDR);
     expect(result.nid).toBe(ICON_NID);
 
-    (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
+    mockIconProvider.sendTransaction.mockResolvedValueOnce(TX_HASH);
     await iconSpoke.deposit(depositParams<false>({ raw: false, token: ICON_NATIVE }));
-    const sent = (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    const sent = mockIconProvider.sendTransaction.mock.calls[0]?.[0];
     expect(sent).toMatchObject({ to: ICON_WICX, value: '0x3e8' });
   });
 
@@ -146,13 +130,13 @@ describe('IconSpokeService.deposit', () => {
     expect(raw.to).toBe(ICON_BNUSD);
     expect(raw.value).toBe('0x0');
 
-    (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
+    mockIconProvider.sendTransaction.mockResolvedValueOnce(TX_HASH);
 
     const result = await iconSpoke.deposit(depositParams<false>({ raw: false, token: ICON_BNUSD }));
 
     expect(result).toBe(TX_HASH);
     expect(mockIconProvider.sendTransaction).toHaveBeenCalledTimes(1);
-    const sent = (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
+    const sent = mockIconProvider.sendTransaction.mock.calls[0]?.[0];
     expect(sent).toMatchObject({
       from: SRC_ADDR,
       to: ICON_BNUSD,
@@ -396,7 +380,7 @@ describe('IconSpokeService.sendMessage', () => {
       ...overrides,
     }) as SendMessageParams<typeof ICON, Raw>;
 
-  it("raw=true → returns a rawTx targeting the connection contract with method='sendMessage'", async () => {
+  it("targets the connection contract's sendMessage, as a rawTx when raw or through walletProvider.sendTransaction", async () => {
     const result = (await iconSpoke.sendMessage(sendMessageParams<true>({ raw: true }))) as Record<string, unknown>;
 
     expect(result.to).toBe(ICON_CONNECTION);
@@ -408,16 +392,12 @@ describe('IconSpokeService.sendMessage', () => {
     expect(data.params.dstAddress).toBe(DST_ADDR);
     expect(data.params.payload).toBe('0xdeadbeef');
     expect(getIntentRelayChainId(SONIC)).toBe(146n);
-  });
+    expect(mockIconProvider.sendTransaction).not.toHaveBeenCalled();
 
-  it('raw=false → walletProvider.sendTransaction receives the connection payload', async () => {
-    (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
+    mockIconProvider.sendTransaction.mockResolvedValueOnce(TX_HASH);
 
-    const result = await iconSpoke.sendMessage(sendMessageParams<false>({ raw: false }));
-
-    expect(result).toBe(TX_HASH);
-    const sent = (mockIconProvider.sendTransaction as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(sent).toMatchObject({
+    expect(await iconSpoke.sendMessage(sendMessageParams<false>({ raw: false }))).toBe(TX_HASH);
+    expect(mockIconProvider.sendTransaction.mock.calls[0]?.[0]).toMatchObject({
       from: SRC_ADDR,
       to: ICON_CONNECTION,
       nid: ICON_NID,
@@ -458,10 +438,10 @@ describe('IconSpokeService.waitForTransactionReceipt', () => {
 
     const result = await iconSpoke.waitForTransactionReceipt({ chainKey: ICON, txHash: TX_HASH });
 
-    if (!result.ok) throw new Error('expected ok');
-    if (result.value.status !== 'failure') throw new Error('expected failure');
-    expect(result.value.error.message).toContain('Transaction failed:');
-    expect(result.value.error.message).toContain('"status":0');
+    const value = expectOk(result);
+    if (value.status !== 'failure') throw new Error('expected failure');
+    expect(value.error.message).toContain('Transaction failed:');
+    expect(value.error.message).toContain('"status":0');
   });
 
   it('transient rejection retries after sleeping the config (or caller) polling interval — second call succeeds', async () => {
@@ -474,8 +454,8 @@ describe('IconSpokeService.waitForTransactionReceipt', () => {
 
     const result = await iconSpoke.waitForTransactionReceipt({ chainKey: ICON, txHash: TX_HASH });
 
-    if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
-    expect(mocks.sleep).toHaveBeenCalledWith(ICON_POLLING_MS);
+    expect(expectOk(result).status).toBe('success');
+    expect(sleepSpy).toHaveBeenCalledWith(ICON_POLLING_MS);
 
     await iconSpoke.waitForTransactionReceipt({
       chainKey: ICON,
@@ -483,7 +463,7 @@ describe('IconSpokeService.waitForTransactionReceipt', () => {
       pollingIntervalMs: 7,
       maxTimeoutMs: 60_000,
     });
-    expect(mocks.sleep).toHaveBeenCalledWith(7);
+    expect(sleepSpy).toHaveBeenCalledWith(7);
   });
 
   it('persistent rejection past deadline → status:timeout', async () => {
@@ -499,10 +479,10 @@ describe('IconSpokeService.waitForTransactionReceipt', () => {
       pollingIntervalMs: 1,
     });
 
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.value.status).toBe('timeout');
-    if (result.value.status !== 'timeout') return;
-    expect(result.value.error.message).toContain('Timed out');
-    expect(result.value.error.message).toContain(TX_HASH);
+    const value = expectOk(result);
+    expect(value.status).toBe('timeout');
+    if (value.status !== 'timeout') return;
+    expect(value.error.message).toContain('Timed out');
+    expect(value.error.message).toContain(TX_HASH);
   });
 });

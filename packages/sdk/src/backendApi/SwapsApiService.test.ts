@@ -3,14 +3,14 @@
  *
  * Mirrors BackendApiService.test.ts:
  *   1. A single module-scope `new Sodax()` backs every test — `sodax.api.swaps` is the
- *      service under test. `vi.stubGlobal('fetch', ...)` intercepts every outbound call.
+ *      service under test. `stubFetch()` intercepts every outbound call.
  *   2. Routes, retries and body serialization belong to `@sodax/swaps-api`'s own suite, and the per-service
  *      API-key / header precedence to BackendApiService.test.ts; this file pins the adapter's own
  *      mapping (error context, response-shape tagging, request-body normalization).
  *   3. Every method returns `Result<T>` — happy paths assert `{ ok: true, value }`,
  *      failures assert `{ ok: false }` with the expected error (a `SwapsApiError` on `cause`).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_API_BASE_URL,
   type CreateIntentParamsV2,
@@ -20,12 +20,11 @@ import {
 } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { SwapsApiService } from './SwapsApiService.js';
-import { SodaxError } from '../errors/SodaxError.js';
 import { SwapsApiError } from '@sodax/swaps-api';
+import { abortingFetch, httpErrorResponse, okResponse, stubFetch } from '../test-utils/fetch.js';
+import { expectErr } from '../test-utils/result.js';
 
-// --- fetch stub -----------------------------------------------------------
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+const mockFetch = stubFetch();
 
 // --- fixtures -------------------------------------------------------------
 const sodax = new Sodax();
@@ -82,29 +81,10 @@ const sampleSubmitTxRequest: SubmitTxRequestV2 = {
   relayData: '0x',
 };
 
-// --- helpers --------------------------------------------------------------
-const okResponse = <T>(data: T) => ({ ok: true, status: 200, json: vi.fn().mockResolvedValue(data) });
-const httpErrorResponse = (status: number, text: string) => ({
-  ok: false,
-  status,
-  text: vi.fn().mockResolvedValue(text),
-});
-const abortFetchImpl = (_url: string, init: { signal: AbortSignal }) =>
-  new Promise((_resolve, reject) => {
-    init.signal.addEventListener('abort', () => {
-      const err = new Error('The operation was aborted');
-      err.name = 'AbortError';
-      reject(err);
-    });
-  });
-
 // Braces matter: `mockReset()` returns the mock, and a `beforeEach` that returns a function
 // registers it as a teardown — vitest 4 leaves the impl in place, so it would fire the stub.
 beforeEach(() => {
   mockFetch.mockReset();
-});
-afterEach(() => {
-  vi.restoreAllMocks();
 });
 
 // =========================================================================
@@ -244,23 +224,16 @@ describe('SwapsApiService intent body serialization', () => {
 describe('SwapsApiService response validation', () => {
   it('rejects getTokens when a token entry is missing required fields', async () => {
     mockFetch.mockResolvedValueOnce(okResponse({ '0xa4b1.arbitrum': [{ symbol: 'USDC' }] }));
-    const result = await sodax.api.swaps.getTokens();
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBeInstanceOf(SodaxError);
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      expect(err.feature).toBe('backend');
-      expect(err.context).toMatchObject({
-        api: 'swaps',
-        endpoint: '/swaps/tokens',
-        reason: 'invalid_response_shape',
-      });
-      // issues are flattened (v.flatten) to match BackendApiService — a plain object that survives
-      // SodaxError.toJSON, not a raw ValiError (which would sanitize down to just name + message).
-      expect(err.context?.issues).toBeTypeOf('object');
-      expect(err.context?.issues).not.toBeInstanceOf(Error);
-    }
+    const err = expectErr(await sodax.api.swaps.getTokens(), 'EXTERNAL_API_ERROR', {
+      api: 'swaps',
+      endpoint: '/swaps/tokens',
+      reason: 'invalid_response_shape',
+    });
+    expect(err.feature).toBe('backend');
+    // issues are flattened (v.flatten) to match BackendApiService — a plain object that survives
+    // SodaxError.toJSON, not a raw ValiError (which would sanitize down to just name + message).
+    expect(err.context?.issues).toBeTypeOf('object');
+    expect(err.context?.issues).not.toBeInstanceOf(Error);
   });
 
   it('does NOT mislabel a request-side validation error (stray bigint) as invalid_response_shape', async () => {
@@ -268,13 +241,8 @@ describe('SwapsApiService response validation', () => {
     // VALIDATION_ERROR before any HTTP call — a caller bug, not a backend response-shape fault.
     const badIntent = { ...sampleIntentRequest, creator: 5n as unknown as string };
     const result = await sodax.api.swaps.cancelIntent({ srcChainKey: '0x38.bsc', intent: badIntent });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      expect(err.context?.code).toBe('VALIDATION_ERROR');
-      expect(err.context?.reason).toBeUndefined(); // not tagged as a response-shape problem
-    }
+    const err = expectErr(result, 'EXTERNAL_API_ERROR', { code: 'VALIDATION_ERROR' });
+    expect(err.context?.reason).toBeUndefined(); // not tagged as a response-shape problem
     expect(mockFetch).not.toHaveBeenCalled(); // failed before reaching the network
   });
 });
@@ -311,17 +279,13 @@ describe('SwapsApiService error propagation', () => {
   });
 
   it('wraps a timed-out call as EXTERNAL_API_ERROR with a TIMEOUT_ERROR cause, without retrying', async () => {
-    mockFetch.mockImplementation(abortFetchImpl);
-    const result = await sodax.api.swaps.getTokens({ timeout: 5 });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      // The wire code is surfaced in context so a timeout is distinguishable from a network drop.
-      expect(err.context?.code).toBe('TIMEOUT_ERROR');
-      expect(err.cause).toBeInstanceOf(SwapsApiError);
-      expect((err.cause as SwapsApiError).code).toBe('TIMEOUT_ERROR');
-    }
+    mockFetch.mockImplementation(abortingFetch);
+    // The wire code is surfaced in context so a timeout is distinguishable from a network drop.
+    const err = expectErr(await sodax.api.swaps.getTokens({ timeout: 5 }), 'EXTERNAL_API_ERROR', {
+      code: 'TIMEOUT_ERROR',
+    });
+    expect(err.cause).toBeInstanceOf(SwapsApiError);
+    expect((err.cause as SwapsApiError).code).toBe('TIMEOUT_ERROR');
     // timeout is an overall deadline: it stops the call rather than burning the idempotent retry budget
     expect(mockFetch).toHaveBeenCalledOnce();
   });
@@ -329,15 +293,10 @@ describe('SwapsApiService error propagation', () => {
   it('wraps a raw network error as EXTERNAL_API_ERROR, preserving the original error on the cause chain', async () => {
     const networkError = new Error('Network down');
     mockFetch.mockRejectedValue(networkError);
-    const result = await sodax.api.swaps.getTokens();
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      expect(err.cause).toBeInstanceOf(SwapsApiError);
-      // The original fetch error is preserved one level deeper, on the SwapsApiError's cause.
-      expect((err.cause as SwapsApiError).cause).toBe(networkError);
-    }
+    const err = expectErr(await sodax.api.swaps.getTokens(), 'EXTERNAL_API_ERROR');
+    expect(err.cause).toBeInstanceOf(SwapsApiError);
+    // The original fetch error is preserved one level deeper, on the SwapsApiError's cause.
+    expect((err.cause as SwapsApiError).cause).toBe(networkError);
     expect(mockFetch).toHaveBeenCalledTimes(3); // network errors are retryable for idempotent calls
   });
 });

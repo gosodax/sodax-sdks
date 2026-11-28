@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import { CARDANO_ADDRESSES, CARDANO_CIP8 } from './cardano-test-vectors.js';
+import { HUB_WALLET, depositParamsFor } from './spoke-test-fixtures.js';
 import { cardanoDepositAuxiliaryData } from './cardano-tx.js';
 import { cardanoAddressFromRecipientBytes } from './cardano-utils.js';
 
@@ -14,7 +15,6 @@ const cardano = sodax.spoke.cardano;
 
 const CARDANO = ChainKeys.CARDANO_MAINNET;
 const NATIVE_ADA = '0x0000000000000000000000000000000000000000';
-const HUB_WALLET = '0x1111111111111111111111111111111111111111' as Hex;
 const RESERVE = sodax.config.getChainConfig(CARDANO).addresses.reserve;
 const depositSigner = Keypair.fromRawEd25519Seed(Buffer.alloc(32, 1));
 const OWNER = cardanoAddressFromRecipientBytes(
@@ -98,17 +98,14 @@ const walletFor = (witness: string | ((hash: string) => string) = oneWitness, su
   };
 };
 
+const adaDepositParams = depositParamsFor({
+  srcChainKey: CARDANO,
+  srcAddress: OWNER,
+  amount: AMOUNT,
+  walletProvider: undefined,
+});
 const depositParams = (wallet: ReturnType<typeof walletFor>, extra: object = {}) =>
-  ({
-    srcChainKey: CARDANO,
-    srcAddress: OWNER,
-    to: HUB_WALLET,
-    token: NATIVE_ADA,
-    amount: AMOUNT,
-    data: '0x' as Hex,
-    walletProvider: wallet,
-    ...extra,
-  }) as never;
+  adaDepositParams(NATIVE_ADA, { walletProvider: wallet, ...extra });
 
 const registration = (overrides: object = {}) => ({
   ok: true as const,
@@ -259,32 +256,34 @@ describe('CardanoSpokeService.deposit', () => {
     }
   });
 
-  it.each([
-    ['DOMException', new DOMException('connection lost', 'NetworkError')],
-    ['read-only Error', Object.defineProperty(new Error('connection lost'), 'message', { writable: false })],
-  ])('preserves the SDK hash and original %s when wallet submission fails', async (_label, failure) => {
-    const wallet = walletFor();
-    const originalMessage = Object.getOwnPropertyDescriptor(failure, 'message');
-    wallet.submitTransaction.mockRejectedValueOnce(failure);
+  it('turns a lost wallet submission into an indeterminate outcome carrying the SDK hash, and notifies it', async () => {
+    const failures: [string, Error][] = [
+      ['DOMException', new DOMException('connection lost', 'NetworkError')],
+      ['read-only Error', Object.defineProperty(new Error('connection lost'), 'message', { writable: false })],
+    ];
+    for (const [label, failure] of failures) {
+      vi.mocked(MpcRelayApiService.notify).mockClear();
+      const wallet = walletFor();
+      const originalMessage = Object.getOwnPropertyDescriptor(failure, 'message');
+      wallet.submitTransaction.mockRejectedValueOnce(failure);
 
-    const error = await cardano.deposit(depositParams(wallet)).catch((error: unknown) => error);
-    const unsigned = wallet.signTransaction.mock.calls[0]?.[0];
-    if (!unsigned) throw new Error('wallet was not asked to sign');
-    const txHash = hashOfUnsigned(unsigned);
+      const error = await cardano.deposit(depositParams(wallet)).catch((error: unknown) => error);
+      const txHash = hashOfUnsigned(wallet.signTransaction.mock.calls[0]?.[0] ?? '');
 
-    expect(error).toBeInstanceOf(IndeterminateOutcomeError);
-    expect(error).not.toBe(failure);
-    expect(failure).not.toHaveProperty('txHash');
-    expect(Object.getOwnPropertyDescriptor(failure, 'message')).toEqual(originalMessage);
-    expect(error).toMatchObject({
-      cause: failure,
-      txHash,
-      message: expect.stringMatching(/settle .* do not send again/i),
-    });
-    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '1815', txHash);
-  });
+      expect(error, label).toBeInstanceOf(IndeterminateOutcomeError);
+      expect(error, label).not.toBe(failure);
+      // The wallet's own error is left as it was thrown.
+      expect(failure, label).not.toHaveProperty('txHash');
+      expect(Object.getOwnPropertyDescriptor(failure, 'message'), label).toEqual(originalMessage);
+      expect(error, label).toMatchObject({
+        cause: failure,
+        txHash,
+        message: expect.stringMatching(/settle .* do not send again/i),
+      });
+      expect(MpcRelayApiService.notify, label).toHaveBeenCalledWith(expect.anything(), '1815', txHash);
+    }
 
-  it('warns and keeps the SDK hash when wallet submission and the relay notify both fail', async () => {
+    // When the notify fails too, the error still carries the hash and the failed notify is logged.
     vi.useFakeTimers();
     const relayError = new Error('relay 503');
     vi.mocked(MpcRelayApiService.notify).mockResolvedValue({ ok: false, error: relayError });
@@ -296,9 +295,7 @@ describe('CardanoSpokeService.deposit', () => {
     const pending = cardano.deposit(depositParams(wallet)).catch((error: unknown) => error);
     await vi.runAllTimersAsync();
     const error = await pending;
-    const unsigned = wallet.signTransaction.mock.calls[0]?.[0];
-    if (!unsigned) throw new Error('wallet was not asked to sign');
-    const txHash = hashOfUnsigned(unsigned);
+    const txHash = hashOfUnsigned(wallet.signTransaction.mock.calls[0]?.[0] ?? '');
 
     expect(error).toBeInstanceOf(IndeterminateOutcomeError);
     expect(error).toMatchObject({ cause: failure, txHash });
@@ -308,6 +305,28 @@ describe('CardanoSpokeService.deposit', () => {
     });
   });
 
+  it('passes a CIP-30 refusal through un-notified, but notifies both hashes when the wallet reports another', async () => {
+    const refusing = walletFor();
+    const refusal = { code: 1, info: 'wallet refuses to send' };
+    refusing.submitTransaction.mockRejectedValueOnce(refusal);
+
+    await expect(cardano.deposit(depositParams(refusing))).rejects.toBe(refusal);
+    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
+
+    const submitted = 'cd'.repeat(32);
+    const wallet = walletFor(oneWitness, submitted);
+    const error = await cardano.deposit(depositParams(wallet)).catch((error: unknown) => error);
+    const txHash = hashOfUnsigned(wallet.signTransaction.mock.calls[0]?.[0] ?? '');
+
+    expect(error).toMatchObject({
+      message: expect.stringMatching(/settle .* do not send again/i),
+      txHash,
+      walletTxHash: submitted,
+    });
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '1815', txHash);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '1815', submitted);
+  });
+
   it('signs and submits a deposit of exactly 400 ADA', async () => {
     koios.utxos = [utxoRow(0, 410_000_000n)];
     const wallet = walletFor();
@@ -315,33 +334,6 @@ describe('CardanoSpokeService.deposit', () => {
     await expect(cardano.deposit(depositParams(wallet, { amount: 400_000_000n }))).resolves.toMatch(/^[a-f0-9]{64}$/);
     expect(wallet.signTransaction).toHaveBeenCalledOnce();
     expect(wallet.submitTransaction).toHaveBeenCalledOnce();
-  });
-
-  it('preserves a CIP-30 refusal without notifying the relay', async () => {
-    const wallet = walletFor();
-    const refusal = { code: 1, info: 'wallet refuses to send' };
-    wallet.submitTransaction.mockRejectedValueOnce(refusal);
-
-    await expect(cardano.deposit(depositParams(wallet))).rejects.toBe(refusal);
-    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
-  });
-
-  it('notifies the SDK hash and preserves both hashes on a mismatch', async () => {
-    const submitted = 'cd'.repeat(32);
-    const wallet = walletFor(oneWitness, submitted);
-    const pending = cardano.deposit(depositParams(wallet));
-    const error = await pending.catch((error: unknown) => error);
-    const unsigned = wallet.signTransaction.mock.calls[0]?.[0];
-    if (!unsigned) throw new Error('wallet was not asked to sign');
-    const txHash = hashOfUnsigned(unsigned);
-
-    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '1815', txHash);
-    expect(error).toMatchObject({
-      message: expect.stringMatching(/settle .* do not send again/i),
-      txHash,
-      walletTxHash: submitted,
-    });
-    expect(MpcRelayApiService.notify).toHaveBeenCalledWith(expect.anything(), '1815', submitted);
   });
 
   it('still resolves to the tx hash when the relay cannot be notified, leaving the re-notify to settlement', async () => {

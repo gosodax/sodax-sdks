@@ -28,9 +28,10 @@ import {
   type SpokeChainKey,
 } from '../index.js';
 import { AtomicityNotSupportedError, isAddress, isHex } from 'viem';
+import { stubFetch } from '../test-utils/fetch.js';
+import { expectErr, expectOk } from '../test-utils/result.js';
 
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+const mockFetch = stubFetch();
 
 const sodax = new Sodax();
 const BASE = DEFAULT_API_BASE_URL;
@@ -124,6 +125,7 @@ const stubBackend = ({
 const requested = (path: string) => mockFetch.mock.calls.filter(([url]) => url === `${BASE}${path}`);
 const submitted = () => requested('/bridge/submit-tx').map(([, init]) => JSON.parse(init.body));
 
+/** The example's own Result handling: a partner flow throws the SDK error rather than asserting. */
 const unwrap = <T>(result: Result<T>): T => {
   if (!result.ok) throw result.error;
   return result.value;
@@ -256,8 +258,8 @@ describe('approve and bridge in one signature (Bridge API)', () => {
     expect(submitted()).toEqual([]);
 
     // A submitTx that fails after the deposit is retried alone: the same body goes again, no second deposit.
-    expect((await sodax.api.bridge.submitTx(result.submit)).ok).toBe(false);
-    unwrap(await sodax.api.bridge.submitTx(result.submit));
+    expectErr(await sodax.api.bridge.submitTx(result.submit));
+    expectOk(await sodax.api.bridge.submitTx(result.submit));
     expect(submitted()).toEqual([result.submit, result.submit]);
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
   });
@@ -294,8 +296,8 @@ describe('approve and bridge in one signature (Bridge API)', () => {
 
     expect(saved.callCount).toBe(3);
     expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
-    const { txHash } = unwrap(await resume(walletProvider, batchId, saved.callCount));
-    unwrap(await sodax.api.bridge.submitTx({ ...saved.submit, txHash }));
+    const { txHash } = expectOk(await resume(walletProvider, batchId, saved.callCount));
+    expectOk(await sodax.api.bridge.submitTx({ ...saved.submit, txHash }));
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
     expect(submitted()).toEqual([
       { txHash: DEPOSIT_HASH, srcChainKey: ChainKeys.BASE_MAINNET, walletAddress: ACCOUNT, relayData: relayDataFor(1) },
@@ -311,7 +313,7 @@ describe('approve and bridge in one signature (Bridge API)', () => {
 
     const { batchId, saved } = await leaveUnconfirmed(walletProvider);
     const resumed = await resume(walletProvider, batchId, saved.callCount);
-    expect(!resumed.ok && resumed.error.context?.reason).toBe('atomic-batch-failed');
+    expectErr(resumed, 'INTENT_CREATION_FAILED', { reason: 'atomic-batch-failed' });
 
     const rerun = await approveAndBridge(walletProvider, BRIDGE_PARAMS);
     expect(rerun).toMatchObject({

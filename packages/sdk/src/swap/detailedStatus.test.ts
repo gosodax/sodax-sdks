@@ -27,11 +27,13 @@ describe('summarizeSwapStatus', () => {
 
   // Every non-terminal backend status (pending, relaying, relayed, posting_execution, …) takes the same branch.
   // `solved` is asserted with its hashes below.
-  it.each([
-    ['posted_execution', 'pending'],
-    ['failed', 'failed'],
-  ] as const)('maps the backend %s status to %s', (status, state) => {
-    expect(summarizeSwapStatus({ source: 'backend', data: { ...baseRecord, status } }).state).toBe(state);
+  it('maps a non-terminal backend status to pending and a failed one to failed', () => {
+    for (const [status, state] of [
+      ['posted_execution', 'pending'],
+      ['failed', 'failed'],
+    ] as const) {
+      expect(summarizeSwapStatus({ source: 'backend', data: { ...baseRecord, status } }).state, status).toBe(state);
+    }
   });
 
   it('reads the backend hub and fill hashes from the result, leaving out a fill hash the journal confirmed without', () => {
@@ -49,11 +51,15 @@ describe('summarizeSwapStatus', () => {
   });
 
   // NOT_FOUND, NOT_STARTED_YET and STARTED_NOT_FINISHED all take the pending branch.
-  it.each([
-    [SolverIntentStatusCode.STARTED_NOT_FINISHED, 'pending'],
-    [SolverIntentStatusCode.FAILED, 'failed'],
-  ] as const)('maps the solver status %s to %s', (status, state) => {
-    expect(summarizeSwapStatus({ source: 'solver', dstTxHash: HUB, data: { status } }).state).toBe(state);
+  it('maps an unfinished solver status to pending and a failed one to failed', () => {
+    for (const [status, state] of [
+      [SolverIntentStatusCode.STARTED_NOT_FINISHED, 'pending'],
+      [SolverIntentStatusCode.FAILED, 'failed'],
+    ] as const) {
+      expect(summarizeSwapStatus({ source: 'solver', dstTxHash: HUB, data: { status } }).state, `${status}`).toBe(
+        state,
+      );
+    }
   });
 
   it('reads the solver hub hash from the arm and the fill hash from the payload, accepting a DetailedLeverageYieldStatus', () => {

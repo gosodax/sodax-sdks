@@ -1,7 +1,11 @@
-import { beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 import { type FeeBumpTransaction, type Horizon, Keypair, Networks, TransactionBuilder } from '@stellar/stellar-sdk';
 import type { AnalyticsEvent, IStellarWalletProvider, StellarSponsorConfig } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
+import * as sharedUtils from '../shared/utils/shared-utils.js';
+import { jsonErrorResponse, okResponse, stubFetch } from '../test-utils/fetch.js';
+import { expectErr, expectOk } from '../test-utils/result.js';
+import { mockStellarWalletProvider } from '../test-utils/walletProviders.js';
 import { SPONSOR_CONFIG_TTL_MS } from './SponsoringService.js';
 
 const SPONSOR = Keypair.random();
@@ -21,15 +25,7 @@ const SPONSOR_CONFIG: StellarSponsorConfig = {
   requiredStartingBalance: '0',
 };
 
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
-
-const jsonOk = (data: unknown) => ({ ok: true, status: 200, json: vi.fn().mockResolvedValue(data) });
-const jsonErr = (status: number, body: unknown) => ({
-  ok: false,
-  status,
-  text: vi.fn().mockResolvedValue(JSON.stringify(body)),
-});
+const mockFetch = stubFetch();
 
 const horizonNotFound = () => Object.assign(new Error('Not Found'), { response: { status: 404 } });
 const horizonDown = () => Object.assign(new Error('Service Unavailable'), { response: { status: 503 } });
@@ -53,11 +49,9 @@ function makeWallet(
   const keypair = options.keypair ?? USER;
   const network = options.network ?? Networks.PUBLIC;
   let calls = 0;
-  return {
-    chainType: 'STELLAR',
-    getWalletAddress: vi.fn().mockResolvedValue(keypair.publicKey()),
-    waitForTransactionReceipt: vi.fn(),
-    signTransaction: vi.fn(async (xdr: string, _options?: { address?: string }) => {
+  return mockStellarWalletProvider({
+    getWalletAddress: vi.fn<IStellarWalletProvider['getWalletAddress']>().mockResolvedValue(keypair.publicKey()),
+    signTransaction: vi.fn<IStellarWalletProvider['signTransaction']>(async xdr => {
       calls += 1;
       if (calls === options.rejectOnCall) throw new Error('User rejected the request');
       const tx = TransactionBuilder.fromXDR(xdr, network) as Exclude<
@@ -67,7 +61,7 @@ function makeWallet(
       tx.sign(keypair);
       return tx.toXDR();
     }),
-  } as unknown as IStellarWalletProvider;
+  });
 }
 
 function makeSodax(keys: { instanceApiKey?: string; sponsoringApiKey?: string } = { sponsoringApiKey: 'test-key' }) {
@@ -121,8 +115,12 @@ beforeEach(() => {
   mockFetch.mockReset();
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 const conflict = (sponsorSequence?: string) =>
-  jsonErr(409, {
+  jsonErrorResponse(409, {
     statusCode: 409,
     error: 'SPONSOR_SEQUENCE_CONFLICT',
     message: 'sponsor account sequence conflict (tx_bad_seq)',
@@ -136,8 +134,8 @@ describe('activateStellarAccount', () => {
     const { sodax, loadAccount, successData } = makeSodax();
     stubHorizon(loadAccount);
     mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(okResponse({ hash: 'abc123', alreadyActive: false }));
     const wallet = makeWallet();
 
     const result = await sodax.sponsoring.activateStellarAccount({
@@ -167,13 +165,13 @@ describe('activateStellarAccount', () => {
     expect(successData()).toEqual({ status: 'submitted', attempts: 1, hash: 'abc123' });
   });
 
-  it('treats an already-active account as success and NEVER prompts the wallet', async () => {
-    const { sodax, loadAccount } = makeSodax();
-    loadAccount.mockResolvedValue(sponsorAccountResponse('100') as never);
-    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
+  it('treats an already-active account as success: found before signing (NEVER prompting) or raced after submit', async () => {
+    const active = makeSodax();
+    active.loadAccount.mockResolvedValue(sponsorAccountResponse('100') as never);
+    mockFetch.mockResolvedValueOnce(okResponse(SPONSOR_CONFIG));
     const wallet = makeWallet();
 
-    const result = await sodax.sponsoring.activateStellarAccount({
+    const result = await active.sodax.sponsoring.activateStellarAccount({
       address: USER.publicKey(),
       walletProvider: wallet,
     });
@@ -181,21 +179,19 @@ describe('activateStellarAccount', () => {
     expect(result).toEqual({ ok: true, value: { status: 'alreadyActive', hash: null, attempts: 0 } });
     expect(wallet.signTransaction).not.toHaveBeenCalled();
     expect(accountRequests()).toHaveLength(0);
-  });
 
-  it('treats a post-submit already-active race as success', async () => {
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount);
+    const raced = makeSodax();
+    stubHorizon(raced.loadAccount);
     mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonOk({ hash: null, alreadyActive: true }));
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(okResponse({ hash: null, alreadyActive: true }));
 
-    const result = await sodax.sponsoring.activateStellarAccount({
+    const race = await raced.sodax.sponsoring.activateStellarAccount({
       address: USER.publicKey(),
       walletProvider: makeWallet(),
     });
 
-    expect(result).toEqual({ ok: true, value: { status: 'alreadyActive', hash: null, attempts: 1 } });
+    expect(race).toEqual({ ok: true, value: { status: 'alreadyActive', hash: null, attempts: 1 } });
   });
 });
 
@@ -208,9 +204,9 @@ describe('sequence conflict handling', () => {
       throw horizonNotFound();
     });
     mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
       .mockResolvedValueOnce(conflict())
-      .mockResolvedValueOnce(jsonOk({ hash: 'second-try', alreadyActive: false }));
+      .mockResolvedValueOnce(okResponse({ hash: 'second-try', alreadyActive: false }));
 
     const onSignatureRequired = vi.fn();
     const wallet = makeWallet();
@@ -234,16 +230,16 @@ describe('sequence conflict handling', () => {
     const { sodax, loadAccount } = makeSodax();
     stubHorizon(loadAccount, '100');
     mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
       .mockResolvedValueOnce(conflict('777'))
-      .mockResolvedValueOnce(jsonOk({ hash: 'second-try', alreadyActive: false }));
+      .mockResolvedValueOnce(okResponse({ hash: 'second-try', alreadyActive: false }));
 
     const result = await sodax.sponsoring.activateStellarAccount({
       address: USER.publicKey(),
       walletProvider: makeWallet(),
     });
 
-    expect(result.ok).toBe(true);
+    expectOk(result);
     const sponsorReads = loadAccount.mock.calls.filter(([a]) => a === SPONSOR.publicKey());
     expect(sponsorReads).toHaveLength(1);
     const [, second] = submittedData();
@@ -261,16 +257,16 @@ describe('sequence conflict handling', () => {
       const { sodax, loadAccount } = makeSodax();
       stubHorizon(loadAccount, '100');
       mockFetch
-        .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
+        .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
         .mockResolvedValueOnce(conflict(hint))
-        .mockResolvedValueOnce(jsonOk({ hash: 'ok', alreadyActive: false }));
+        .mockResolvedValueOnce(okResponse({ hash: 'ok', alreadyActive: false }));
 
       const result = await sodax.sponsoring.activateStellarAccount({
         address: USER.publicKey(),
         walletProvider: makeWallet(),
       });
 
-      expect(result.ok).toBe(true);
+      expectOk(result, `hint ${hint}`);
       expect(loadAccount.mock.calls.filter(([a]) => a === SPONSOR.publicKey())).toHaveLength(2);
     }
   });
@@ -279,7 +275,7 @@ describe('sequence conflict handling', () => {
     const burned = makeSodax();
     stubHorizon(burned.loadAccount);
     mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
       .mockResolvedValueOnce(conflict())
       .mockResolvedValueOnce(conflict());
     const burnedWallet = makeWallet();
@@ -290,18 +286,13 @@ describe('sequence conflict handling', () => {
     });
 
     // Never loops on a user signature.
-    expect(result.ok).toBe(false);
+    expectErr(result, undefined, { nextAction: 'rebuildAndResign', requiresNewSignature: true, status: 409 });
     expect(burnedWallet.signTransaction).toHaveBeenCalledTimes(2);
-    if (!result.ok) {
-      expect(result.error.context?.nextAction).toBe('rebuildAndResign');
-      expect(result.error.context?.requiresNewSignature).toBe(true);
-      expect(result.error.context?.status).toBe(409);
-    }
 
     mockFetch.mockReset();
     const suppressed = makeSodax();
     stubHorizon(suppressed.loadAccount);
-    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG)).mockResolvedValueOnce(conflict());
+    mockFetch.mockResolvedValueOnce(okResponse(SPONSOR_CONFIG)).mockResolvedValueOnce(conflict());
     const suppressedWallet = makeWallet();
 
     const single = await suppressed.sodax.sponsoring.activateStellarAccount({
@@ -310,7 +301,7 @@ describe('sequence conflict handling', () => {
       allowSequenceRetry: false,
     });
 
-    expect(single.ok).toBe(false);
+    expectErr(single);
     expect(suppressedWallet.signTransaction).toHaveBeenCalledTimes(1);
     expect(suppressed.failureData()).toMatchObject({ attempts: 1, httpStatus: 409 });
     expect(burned.failureData()).toMatchObject({ attempts: 2, httpStatus: 409 });
@@ -322,7 +313,7 @@ describe('failure handling', () => {
   it('classifies a wallet cancellation as USER_REJECTED, never submits, and attributes it to its attempt', async () => {
     const { sodax, loadAccount } = makeSodax();
     stubHorizon(loadAccount);
-    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
+    mockFetch.mockResolvedValueOnce(okResponse(SPONSOR_CONFIG));
     const wallet = makeWallet();
     vi.mocked(wallet.signTransaction).mockRejectedValueOnce(new Error('User rejected the request'));
 
@@ -331,15 +322,14 @@ describe('failure handling', () => {
       walletProvider: wallet,
     });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe('USER_REJECTED');
+    expectErr(result, 'USER_REJECTED');
     expect(accountRequests()).toHaveLength(0);
 
     // A cancelled re-signature after a conflict belongs to the second attempt.
     mockFetch.mockReset();
     const resign = makeSodax();
     stubHorizon(resign.loadAccount);
-    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG)).mockResolvedValueOnce(conflict());
+    mockFetch.mockResolvedValueOnce(okResponse(SPONSOR_CONFIG)).mockResolvedValueOnce(conflict());
 
     await resign.sodax.sponsoring.activateStellarAccount({
       address: USER.publicKey(),
@@ -353,18 +343,14 @@ describe('failure handling', () => {
     // Network-mismatched signatures are valid XDR but invalid for this transaction.
     const { sodax, loadAccount } = makeSodax();
     stubHorizon(loadAccount);
-    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
+    mockFetch.mockResolvedValueOnce(okResponse(SPONSOR_CONFIG));
 
     const result = await sodax.sponsoring.activateStellarAccount({
       address: USER.publicKey(),
       walletProvider: makeWallet({ network: Networks.TESTNET }),
     });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('VALIDATION_FAILED');
-      expect(result.error.message).toMatch(/different Stellar network/);
-    }
+    expect(expectErr(result, 'VALIDATION_FAILED').message).toMatch(/different Stellar network/);
     expect(accountRequests()).toHaveLength(0);
 
     loadAccount.mockImplementation(async (address: string) => {
@@ -378,8 +364,7 @@ describe('failure handling', () => {
       walletProvider: wallet,
     });
 
-    expect(unreadable.ok).toBe(false);
-    if (!unreadable.ok) expect(unreadable.error.code).toBe('LOOKUP_FAILED');
+    expectErr(unreadable, 'LOOKUP_FAILED');
     expect(wallet.signTransaction).not.toHaveBeenCalled();
   });
 
@@ -391,24 +376,28 @@ describe('failure handling', () => {
       throw horizonDown();
     });
     mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(okResponse({ hash: 'abc123', alreadyActive: false }));
 
     const result = await sodax.sponsoring.activateStellarAccount({
       address: USER.publicKey(),
       walletProvider: makeWallet(),
     });
 
-    expect(result.ok).toBe(true);
+    expectOk(result);
   });
 
   it('re-submits the IDENTICAL payload on a transient upstream failure, with no new prompt', async () => {
+    // The retry backs off with a real `sleep`; the delay is checked, not waited out.
+    const sleep = vi.spyOn(sharedUtils, 'sleep').mockResolvedValue(undefined);
     const { sodax, loadAccount } = makeSodax();
     stubHorizon(loadAccount);
     mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonErr(503, { statusCode: 503, error: 'HORIZON_UNAVAILABLE', message: 'unavailable' }))
-      .mockResolvedValueOnce(jsonOk({ hash: 'after-retry', alreadyActive: false }));
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(
+        jsonErrorResponse(503, { statusCode: 503, error: 'HORIZON_UNAVAILABLE', message: 'unavailable' }),
+      )
+      .mockResolvedValueOnce(okResponse({ hash: 'after-retry', alreadyActive: false }));
     const wallet = makeWallet();
 
     const result = await sodax.sponsoring.activateStellarAccount({
@@ -418,6 +407,7 @@ describe('failure handling', () => {
     });
 
     expect(result).toEqual({ ok: true, value: { status: 'submitted', hash: 'after-retry', attempts: 1 } });
+    expect(sleep).toHaveBeenCalledExactlyOnceWith(1000);
     expect(wallet.signTransaction).toHaveBeenCalledTimes(1);
     const [first, second] = submittedData();
     expect(first).toBe(second);
@@ -425,9 +415,13 @@ describe('failure handling', () => {
 
   it('does NOT retry a rate limit (a load signal) or an exhausted sponsor budget (needs an operator)', async () => {
     const cases = [
-      [jsonErr(429, { statusCode: 429, message: 'ThrottlerException: Too Many Requests' }), 'backoff', true],
+      [jsonErrorResponse(429, { statusCode: 429, message: 'ThrottlerException: Too Many Requests' }), 'backoff', true],
       [
-        jsonErr(503, { statusCode: 503, error: 'SPONSOR_BUDGET_EXHAUSTED', message: 'below the configured floor' }),
+        jsonErrorResponse(503, {
+          statusCode: 503,
+          error: 'SPONSOR_BUDGET_EXHAUSTED',
+          message: 'below the configured floor',
+        }),
         'contactOperator',
         false,
       ],
@@ -436,18 +430,14 @@ describe('failure handling', () => {
       mockFetch.mockReset();
       const { sodax, loadAccount } = makeSodax();
       stubHorizon(loadAccount);
-      mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG)).mockResolvedValueOnce(response);
+      mockFetch.mockResolvedValueOnce(okResponse(SPONSOR_CONFIG)).mockResolvedValueOnce(response);
 
       const result = await sodax.sponsoring.activateStellarAccount({
         address: USER.publicKey(),
         walletProvider: makeWallet(),
       });
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.context?.nextAction).toBe(nextAction);
-        expect(result.error.context?.retryable).toBe(retryable);
-      }
+      expectErr(result, undefined, { nextAction, retryable }, nextAction);
       expect(accountRequests()).toHaveLength(1);
     }
   });
@@ -465,7 +455,7 @@ describe('published config validation', () => {
       mockFetch.mockReset();
       const { sodax, loadAccount } = makeSodax();
       stubHorizon(loadAccount);
-      mockFetch.mockResolvedValueOnce(jsonOk({ ...SPONSOR_CONFIG, ...overrides }));
+      mockFetch.mockResolvedValueOnce(okResponse({ ...SPONSOR_CONFIG, ...overrides }));
       const wallet = makeWallet();
 
       const result = await sodax.sponsoring.activateStellarAccount({
@@ -473,11 +463,7 @@ describe('published config validation', () => {
         walletProvider: wallet,
       });
 
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(result.error.code).toBe('VALIDATION_FAILED');
-        expect(result.error.message).toMatch(message);
-      }
+      expect(expectErr(result, 'VALIDATION_FAILED').message).toMatch(message);
       // Only the existence pre-flight ran; the sponsor account was never loaded.
       expect(loadAccount).toHaveBeenCalledTimes(1);
       expect(loadAccount).not.toHaveBeenCalledWith(SPONSOR.publicKey());
@@ -489,7 +475,7 @@ describe('published config validation', () => {
 describe('sponsor config caching', () => {
   it('serves repeat and concurrent callers from one request, and refetches on forceRefresh', async () => {
     const { sodax } = makeSodax();
-    mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
+    mockFetch.mockResolvedValue(okResponse(SPONSOR_CONFIG));
 
     await Promise.all([sodax.sponsoring.getStellarSponsorConfig(), sodax.sponsoring.getStellarSponsorConfig()]);
     await sodax.sponsoring.getStellarSponsorConfig();
@@ -503,10 +489,10 @@ describe('sponsor config caching', () => {
     // Headers or a key scoped to another deployment can select a different response from the same URL.
     const { sodax } = makeSodax();
     mockFetch
-      .mockResolvedValueOnce(jsonOk({ ...SPONSOR_CONFIG, networkPassphrase: Networks.TESTNET }))
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonOk({ ...SPONSOR_CONFIG, networkPassphrase: Networks.TESTNET }))
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
+      .mockResolvedValueOnce(okResponse({ ...SPONSOR_CONFIG, networkPassphrase: Networks.TESTNET }))
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(okResponse({ ...SPONSOR_CONFIG, networkPassphrase: Networks.TESTNET }))
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG));
 
     const scoped = await sodax.sponsoring.getStellarSponsorConfig({
       requestConfig: { headers: { 'x-mock-scenario': 'config-testnet' } },
@@ -515,16 +501,16 @@ describe('sponsor config caching', () => {
     const keyA = await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'key-a' } });
     const keyB = await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'key-b' } });
 
-    expect(scoped.ok && scoped.value.networkPassphrase).toBe(Networks.TESTNET);
-    expect(plain.ok && plain.value.networkPassphrase).toBe(Networks.PUBLIC);
-    expect(keyA.ok && keyA.value.networkPassphrase).toBe(Networks.TESTNET);
-    expect(keyB.ok && keyB.value.networkPassphrase).toBe(Networks.PUBLIC);
+    expect(expectOk(scoped).networkPassphrase).toBe(Networks.TESTNET);
+    expect(expectOk(plain).networkPassphrase).toBe(Networks.PUBLIC);
+    expect(expectOk(keyA).networkPassphrase).toBe(Networks.TESTNET);
+    expect(expectOk(keyB).networkPassphrase).toBe(Networks.PUBLIC);
     expect(configRequests()).toHaveLength(4);
   });
 
   it('shares one entry between equivalent spellings of the same wire request', async () => {
     const { sodax } = makeSodax();
-    mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
+    mockFetch.mockResolvedValue(okResponse(SPONSOR_CONFIG));
 
     await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'same-key' } });
     await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { headers: { 'X-Api-Key': 'same-key' } } });
@@ -540,7 +526,7 @@ describe('sponsor config caching', () => {
     // Header-scoped keys are unbounded, so expired ones must not pile up.
     vi.useFakeTimers();
     const { sodax } = makeSodax();
-    mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
+    mockFetch.mockResolvedValue(okResponse(SPONSOR_CONFIG));
     // Reads the private cache: its size is the invariant under test and has no public accessor.
     const cache = (sodax.sponsoring as unknown as { configCache: Map<string, unknown> }).configCache;
 
@@ -559,30 +545,32 @@ describe('sponsor config caching', () => {
   it('never caches a failure, and invalidates the cache after a 400 so a rotated sponsor self-corrects', async () => {
     const { sodax } = makeSodax();
     mockFetch
-      .mockResolvedValueOnce(jsonErr(503, { statusCode: 503, message: 'down' }))
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
+      .mockResolvedValueOnce(jsonErrorResponse(503, { statusCode: 503, message: 'down' }))
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG));
 
     const first = await sodax.sponsoring.getStellarSponsorConfig();
     const second = await sodax.sponsoring.getStellarSponsorConfig();
 
-    expect(first.ok).toBe(false);
-    expect(second.ok).toBe(true);
+    expectErr(first);
+    expectOk(second);
     expect(configRequests()).toHaveLength(2);
 
     mockFetch.mockReset();
     const rotated = makeSodax();
     stubHorizon(rotated.loadAccount);
     mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonErr(400, { statusCode: 400, error: 'INVALID_SPONSOR_XDR', message: 'bad source' }))
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonOk({ hash: 'ok', alreadyActive: false }));
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(
+        jsonErrorResponse(400, { statusCode: 400, error: 'INVALID_SPONSOR_XDR', message: 'bad source' }),
+      )
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(okResponse({ hash: 'ok', alreadyActive: false }));
 
     const failed = await rotated.sodax.sponsoring.activateStellarAccount({
       address: USER.publicKey(),
       walletProvider: makeWallet(),
     });
-    expect(failed.ok).toBe(false);
+    expectErr(failed);
 
     await rotated.sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
     expect(configRequests()).toHaveLength(2);
@@ -602,8 +590,8 @@ describe('per-request credentials on the wire', () => {
       const { sodax, loadAccount } = makeSodax();
       stubHorizon(loadAccount);
       mockFetch
-        .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-        .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
+        .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
+        .mockResolvedValueOnce(okResponse({ hash: 'abc123', alreadyActive: false }));
 
       await sodax.sponsoring.activateStellarAccount({
         address: USER.publicKey(),
@@ -622,7 +610,7 @@ describe('per-request credentials on the wire', () => {
   it('carries explicit per-request credentials to a custom origin the inherited instance key never reaches', async () => {
     // Instance key only — no slice key — while sponsoring points off the allowed roots.
     const { sodax } = makeSodax({ instanceApiKey: 'instance-key' });
-    mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
+    mockFetch.mockResolvedValue(okResponse(SPONSOR_CONFIG));
 
     await sodax.sponsoring.getStellarSponsorConfig();
     await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'explicit-key' } });
@@ -660,10 +648,7 @@ describe('isStellarAccountActive', () => {
     // A transport failure must not masquerade as a missing account.
     loadAccount.mockRejectedValueOnce(horizonDown());
 
-    const result = await sodax.sponsoring.isStellarAccountActive({ address: USER.publicKey() });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe('LOOKUP_FAILED');
+    expectErr(await sodax.sponsoring.isStellarAccountActive({ address: USER.publicKey() }), 'LOOKUP_FAILED');
   });
 });
 
@@ -694,15 +679,13 @@ describe('getStellarAccountStatus', () => {
     ] as const) {
       loadAccount.mockResolvedValueOnce(sponsoredAccountResponse(xlm) as never);
       const result = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
-      expect(result.ok).toBe(true);
-      if (result.ok) expect(result.value.canAffordTrustline).toBe(affordable);
+      expect(expectOk(result, xlm).canAffordTrustline, xlm).toBe(affordable);
     }
 
     // Number.parseFloat would lose the trailing stroop.
     loadAccount.mockResolvedValueOnce(sponsorAccountResponse('1', '922337203685.4775807') as never);
     const large = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
-    expect(large.ok).toBe(true);
-    if (large.ok) expect(large.value.nativeBalanceStroops).toBe(9223372036854775807n);
+    expect(expectOk(large).nativeBalanceStroops).toBe(9223372036854775807n);
   });
 
   it('subtracts the reserve locked by existing trustlines and selling liabilities (available, not total)', async () => {
@@ -712,23 +695,18 @@ describe('getStellarAccountStatus', () => {
 
     const result = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.nativeBalanceStroops).toBe(6_000_000n);
-      expect(result.value.availableBalanceStroops).toBe(1_000_000n);
-      expect(result.value.canAffordTrustline).toBe(false);
-    }
+    expect(expectOk(result)).toMatchObject({
+      nativeBalanceStroops: 6_000_000n,
+      availableBalanceStroops: 1_000_000n,
+      canAffordTrustline: false,
+    });
 
     // Another trustline is allowed once the balance covers the already-locked reserve too.
     loadAccount.mockResolvedValueOnce(sponsoredAccountResponse('1.2', 1) as never);
 
     const covered = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
 
-    expect(covered.ok).toBe(true);
-    if (covered.ok) {
-      expect(covered.value.availableBalanceStroops).toBe(7_000_000n);
-      expect(covered.value.canAffordTrustline).toBe(true);
-    }
+    expect(expectOk(covered)).toMatchObject({ availableBalanceStroops: 7_000_000n, canAffordTrustline: true });
 
     // Selling liabilities come out of the spendable balance too.
     loadAccount.mockResolvedValueOnce({
@@ -740,11 +718,7 @@ describe('getStellarAccountStatus', () => {
 
     const liabilities = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
 
-    expect(liabilities.ok).toBe(true);
-    if (liabilities.ok) {
-      expect(liabilities.value.availableBalanceStroops).toBe(1_000_000n);
-      expect(liabilities.value.canAffordTrustline).toBe(false);
-    }
+    expect(expectOk(liabilities)).toMatchObject({ availableBalanceStroops: 1_000_000n, canAffordTrustline: false });
   });
 
   it('follows the network base reserve rather than assuming 0.5 XLM, reading it once across calls', async () => {
@@ -756,13 +730,11 @@ describe('getStellarAccountStatus', () => {
     const result = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
     await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.trustlineMinXlmStroops).toBe(10_100_000n);
-      expect(result.value.availableBalanceStroops).toBe(25_000_000n);
-      // The hardcoded 0.5 XLM reserve would have reported 0.6 XLM as enough.
-      expect(result.value.canAffordTrustline).toBe(true);
-    }
+    expect(expectOk(result)).toMatchObject({
+      trustlineMinXlmStroops: 10_100_000n,
+      availableBalanceStroops: 25_000_000n,
+      canAffordTrustline: true,
+    });
     expect(ledgers).toHaveBeenCalledTimes(1);
     expect(loadAccount).toHaveBeenCalledTimes(2);
   });
@@ -777,11 +749,7 @@ describe('getStellarAccountStatus', () => {
 
     const result = await down.sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.trustlineMinXlmStroops).toBe(5_100_000n);
-      expect(result.value.canAffordTrustline).toBe(true);
-    }
+    expect(expectOk(result)).toMatchObject({ trustlineMinXlmStroops: 5_100_000n, canAffordTrustline: true });
 
     const empty = makeSodax();
     stubBaseReserve(empty.ledgers, undefined);
@@ -789,8 +757,7 @@ describe('getStellarAccountStatus', () => {
 
     const fallback = await empty.sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
 
-    expect(fallback.ok).toBe(true);
-    if (fallback.ok) expect(fallback.value.trustlineMinXlmStroops).toBe(5_100_000n);
+    expect(expectOk(fallback).trustlineMinXlmStroops).toBe(5_100_000n);
   });
 
   it('RETURNS a validation failure for an empty address and LOOKUP_FAILED for a transport failure, never throwing', async () => {
@@ -798,20 +765,15 @@ describe('getStellarAccountStatus', () => {
 
     const result = await sodax.sponsoring.getStellarAccountStatus({ address: '' });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe('VALIDATION_FAILED');
+    expectErr(result, 'VALIDATION_FAILED');
     await expect(sodax.sponsoring.isStellarAccountActive({ address: '' })).resolves.toMatchObject({ ok: false });
 
     loadAccount.mockRejectedValueOnce(horizonDown());
 
     const transport = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
 
-    expect(transport.ok).toBe(false);
-    if (!transport.ok) {
-      expect(transport.error.code).toBe('LOOKUP_FAILED');
-      // Report the public caller, not the shared private reader.
-      expect(transport.error.context?.method).toBe('getStellarAccountStatus');
-    }
+    // Report the public caller, not the shared private reader.
+    expectErr(transport, 'LOOKUP_FAILED', { method: 'getStellarAccountStatus' });
   });
 });
 
@@ -821,10 +783,10 @@ describe('activation analytics', () => {
     const { sodax, loadAccount, failureData } = makeSodax();
     stubHorizon(loadAccount);
     mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
+      .mockResolvedValueOnce(okResponse(SPONSOR_CONFIG))
       .mockResolvedValueOnce(conflict())
       .mockResolvedValueOnce(
-        jsonErr(503, { statusCode: 503, error: 'SPONSOR_BUDGET_EXHAUSTED', message: 'below floor' }),
+        jsonErrorResponse(503, { statusCode: 503, error: 'SPONSOR_BUDGET_EXHAUSTED', message: 'below floor' }),
       );
 
     await sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
@@ -839,7 +801,7 @@ describe('activation analytics', () => {
 
   it('reports attempts 0 when the flow never reached an attempt', async () => {
     const { sodax, failureData } = makeSodax();
-    mockFetch.mockResolvedValueOnce(jsonErr(503, { statusCode: 503, message: 'config down' }));
+    mockFetch.mockResolvedValueOnce(jsonErrorResponse(503, { statusCode: 503, message: 'config down' }));
 
     await sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
 

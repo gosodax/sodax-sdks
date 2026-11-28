@@ -15,23 +15,18 @@ describe('calcOpReturnOutputVbytes', () => {
   // varint: scriptSize ≤ 252 → 1 byte; > 252 → 3 bytes
   // total = 8 (output value) + scriptLenVarint + scriptSize
 
-  it('switches from a direct push to OP_PUSHDATA1 between a 75- and a 76-byte payload', () => {
-    // scriptSize = 3+75=78, varint=1 → 8+1+78 = 87
-    expect(calcOpReturnOutputVbytes(75)).toBe(87);
-    // scriptSize = 4+76=80, varint=1 → 8+1+80 = 89
-    expect(calcOpReturnOutputVbytes(76)).toBe(89);
-  });
-
-  it('flips to a 3-byte varint once scriptSize passes 252', () => {
-    // payload=248: scriptSize = 4+248=252, varint=1 → 8+1+252 = 261
-    expect(calcOpReturnOutputVbytes(248)).toBe(261);
-    // payload=249: scriptSize = 4+249=253, varint=3 → 8+3+253 = 264
-    expect(calcOpReturnOutputVbytes(249)).toBe(264);
-  });
-
-  it('>255 byte payload uses OP_PUSHDATA2 (scriptSize = 5 + len, 3-byte varint)', () => {
-    // payload=256: scriptSize = 5+256=261, varint=3 → 8+3+261 = 272
-    expect(calcOpReturnOutputVbytes(256)).toBe(272);
+  it('sizes the output across the push-opcode and varint boundaries', () => {
+    const rows: Array<[label: string, payload: number, vbytes: number]> = [
+      // Direct push → OP_PUSHDATA1 between a 75- and a 76-byte payload.
+      ['75: scriptSize = 3+75=78, varint=1 → 8+1+78', 75, 87],
+      ['76: scriptSize = 4+76=80, varint=1 → 8+1+80', 76, 89],
+      // The varint flips to 3 bytes once scriptSize passes 252.
+      ['248: scriptSize = 4+248=252, varint=1 → 8+1+252', 248, 261],
+      ['249: scriptSize = 4+249=253, varint=3 → 8+3+253', 249, 264],
+      // >255 bytes uses OP_PUSHDATA2.
+      ['256: scriptSize = 5+256=261, varint=3 → 8+3+261', 256, 272],
+    ];
+    for (const [label, payload, vbytes] of rows) expect(calcOpReturnOutputVbytes(payload), label).toBe(vbytes);
   });
 });
 

@@ -14,6 +14,8 @@ import { mapRelayFailure } from '../../../errors/relay-error-mapping.js';
 import { intentCreationFailed } from '../../../errors/wrappers.js';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
+import { abortingFetch } from '../../../test-utils/fetch.js';
+import { HUB_WALLET, depositParamsFor } from './spoke-test-fixtures.js';
 import { inspectZcashV5Deposit, zcashIdentityBytes, zcashP2pkhScript, zcashZip317Fee } from './zcash-utils.js';
 
 const sodax = new Sodax();
@@ -23,7 +25,6 @@ const ZCASH = ChainKeys.ZCASH_MAINNET;
 const RPC_URL = 'https://zcash-rpc.test';
 const SENDER = 't1UYsZVJkLPeMjxEtACvSxfWuNmddpWfxzs';
 const DEPOSIT_ADDRESS = 't1TFab5a31gE6bxzatfs1KSqiportHDCE3X';
-const HUB_WALLET = '0x1111111111111111111111111111111111111111' as Hex;
 const TXID = 'ab'.repeat(32);
 const AMOUNT = 1_000_000n;
 const settledDeposit = {
@@ -66,17 +67,8 @@ const walletProvider = {
   signMessage: vi.fn(async () => `0x${'cd'.repeat(65)}` as Hex),
 };
 
-const depositParams = (extra: object = {}) =>
-  ({
-    srcChainKey: ZCASH,
-    srcAddress: SENDER,
-    to: HUB_WALLET,
-    token: NATIVE_ZEC,
-    amount: AMOUNT,
-    data: '0x' as Hex,
-    walletProvider,
-    ...extra,
-  }) as never;
+const zecDepositParams = depositParamsFor({ srcChainKey: ZCASH, srcAddress: SENDER, amount: AMOUNT, walletProvider });
+const depositParams = (extra: object = {}) => zecDepositParams(NATIVE_ZEC, extra);
 
 const utxo = (txid: string, satoshis: number) => ({ txid, outputIndex: 1, script: zcashP2pkhScript(SENDER), satoshis });
 
@@ -126,7 +118,7 @@ afterEach(() => {
 
 describe('ZcashSpokeService.deposit', () => {
   it('returns the derived deposit address and amount in raw mode, touching no RPC', async () => {
-    const tx = await zcash.deposit({ ...(depositParams() as object), raw: true } as never);
+    const tx = await zcash.deposit(depositParams({ raw: true }));
 
     expect(tx).toEqual({
       from: SENDER,
@@ -306,15 +298,19 @@ describe('ZcashSpokeService.deposit — wallet that sends the payment itself', (
     expect(intentCreationFailed('moneyMarket', error).context?.srcTxHash).toBe('a1'.repeat(32));
   });
 
-  it('refuses a wallet whose active account is not the source address before anything moves', async () => {
+  it('refuses a wallet whose active account is not the source address, or that can neither sign nor send, before anything moves', async () => {
     browserWallet.getWalletAddress.mockResolvedValueOnce(DEPOSIT_ADDRESS);
-
     await expect(zcash.deposit(depositParams({ walletProvider: browserWallet }))).rejects.toThrow(
       /wallet account does not match the source address/,
     );
     expect(MpcRelayApiService.getDepositAddress).not.toHaveBeenCalled();
+
+    const { signTransaction: _, ...messageOnly } = walletProvider;
+    await expect(zcash.deposit(depositParams({ walletProvider: messageOnly }))).rejects.toThrow(
+      /neither signTransaction nor sendTransfer/,
+    );
     expect(browserWallet.sendTransfer).not.toHaveBeenCalled();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(walletProvider.signTransaction).not.toHaveBeenCalled();
   });
 
   it('warns and returns the txid promptly when the output lookup RPC fails, even if the logger throws', async () => {
@@ -359,14 +355,6 @@ describe('ZcashSpokeService.deposit — wallet that sends the payment itself', (
     expect(finished).toHaveBeenCalledWith(txid);
     expect(warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ txid }));
     await pending;
-  });
-
-  it('refuses a wallet provider that can neither sign nor send', async () => {
-    const { signTransaction: _, ...messageOnly } = walletProvider;
-
-    await expect(zcash.deposit(depositParams({ walletProvider: messageOnly }))).rejects.toThrow(
-      /neither signTransaction nor sendTransfer/,
-    );
   });
 });
 
@@ -625,12 +613,7 @@ describe('ZcashSpokeService reads', () => {
 
   it('bounds a hanging RPC by the receipt wall-clock budget', async () => {
     vi.useFakeTimers();
-    vi.mocked(fetch).mockImplementation(
-      (_url, init) =>
-        new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
-        }),
-    );
+    vi.mocked(fetch).mockImplementation(abortingFetch);
     const finished = vi.fn();
     const pending = zcash
       .waitForTransactionReceipt({

@@ -25,6 +25,7 @@ import { Sodax } from '../../entities/Sodax.js';
 import { erc20Abi } from '../../abis/index.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
 import { computeSignedMessageHash } from './mpc-message.js';
+import { HUB_WALLET, depositParamsFor } from './spoke-test-fixtures.js';
 
 const sodax = new Sodax();
 const monad = sodax.spoke.monad;
@@ -34,7 +35,6 @@ const NATIVE_MON = '0x0000000000000000000000000000000000000000';
 const USDC = '0x754704Bc059F8C67012fEd69BC8A327a5aafb603';
 const SENDER = '0xf62fffa4d92bcdfc310dccbe943747fe8302e871' as const;
 const DEPOSIT_ADDRESS = '0x2222222222222222222222222222222222222222';
-const HUB_WALLET = '0x1111111111111111111111111111111111111111' as Hex;
 const TX_HASH = `0x${'ab'.repeat(32)}` as Hex;
 const AMOUNT = 5_000_000n;
 const tokens = [spokeChainConfig.monad.supportedTokens.MON, spokeChainConfig.monad.supportedTokens.USDC];
@@ -59,17 +59,7 @@ const walletProvider = {
   getWalletAddress: async () => SENDER,
 } as never;
 
-const depositParams = (token: string, extra: object = {}) =>
-  ({
-    srcChainKey: MONAD,
-    srcAddress: SENDER,
-    to: HUB_WALLET,
-    token,
-    amount: AMOUNT,
-    data: '0x' as Hex,
-    walletProvider,
-    ...extra,
-  }) as never;
+const depositParams = depositParamsFor({ srcChainKey: MONAD, srcAddress: SENDER, amount: AMOUNT, walletProvider });
 
 /** A USDC Transfer log to the deposit address, at the given block-level log index. */
 const usdcTransferLog = (logIndex: number, address = USDC) => ({
@@ -108,27 +98,70 @@ afterEach(() => {
 });
 
 describe('MonadSpokeService.deposit', () => {
-  it.each([NATIVE_MON])('rejects invalid relay deposit address %s in raw and signed modes', async depositAddress => {
-    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue({
+  it('refuses a deposit it cannot route to the right account before sending anything', async () => {
+    const zeroAddress = {
       ok: true,
       value: {
         depositMethod: 'address',
-        depositAddress,
+        depositAddress: NATIVE_MON,
         payloadHash: TX_HASH,
         path: 'm/0',
         hubWallet: HUB_WALLET,
       },
-    });
-    await expect(monad.deposit(depositParams(NATIVE_MON))).rejects.toThrow(/invalid deposit address/);
-    await expect(monad.deposit(depositParams(NATIVE_MON, { raw: true }))).rejects.toThrow(/invalid deposit address/);
+    } as const;
+    // A memo-mode answer would pay a shared reserve without the memo that attributes it.
+    const memoMode = {
+      ok: true,
+      value: {
+        depositMethod: 'memo',
+        reserveAddress: DEPOSIT_ADDRESS,
+        memo: `0x${'00'.repeat(32)}`,
+        payloadHash: `0x${'00'.repeat(32)}`,
+        path: 'm/0',
+        hubWallet: HUB_WALLET,
+      },
+    } as const;
+    const otherAccount = { chainType: 'EVM', sendTransaction, getWalletAddress: async () => DEPOSIT_ADDRESS };
+    const rows = [
+      {
+        label: 'zero relay deposit address (signed)',
+        params: depositParams(NATIVE_MON),
+        relay: zeroAddress,
+        reason: /invalid deposit address/,
+      },
+      {
+        label: 'zero relay deposit address (raw)',
+        params: depositParams(NATIVE_MON, { raw: true }),
+        relay: zeroAddress,
+        reason: /invalid deposit address/,
+      },
+      { label: 'unsupported token', params: depositParams(HUB_WALLET), reason: /unsupported token/, beforeRelay: true },
+      {
+        label: 'memo-mode relay response',
+        params: depositParams(NATIVE_MON),
+        relay: memoMode,
+        reason: /expected address/,
+      },
+      {
+        label: 'target other than the derived hub wallet',
+        params: depositParams(NATIVE_MON, { to: '0x9999999999999999999999999999999999999999' }),
+        reason: /relay derives hub wallet/,
+      },
+      {
+        label: 'mismatched wallet account',
+        params: depositParams(NATIVE_MON, { walletProvider: otherAccount }),
+        reason: /wallet account does not match/,
+      },
+    ];
+
+    for (const { label, params, relay, reason, beforeRelay } of rows) {
+      vi.mocked(MpcRelayApiService.getDepositAddress).mockClear();
+      if (relay) vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValueOnce(relay);
+      await expect(monad.deposit(params), label).rejects.toThrow(reason);
+      if (beforeRelay) expect(MpcRelayApiService.getDepositAddress, label).not.toHaveBeenCalled();
+    }
     expect(sendTransaction).not.toHaveBeenCalled();
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
-  });
-
-  it('rejects an unsupported token before resolving a relay address', async () => {
-    await expect(monad.deposit(depositParams(HUB_WALLET))).rejects.toThrow(/unsupported token/);
-    expect(MpcRelayApiService.getDepositAddress).not.toHaveBeenCalled();
-    expect(sendTransaction).not.toHaveBeenCalled();
   });
 
   it('notifies with the original signed hash when the broadcast response is lost', async () => {
@@ -140,27 +173,42 @@ describe('MonadSpokeService.deposit', () => {
     expect(sendTransaction).toHaveBeenCalledOnce();
   });
 
-  it('does not notify when the wallet definitively refuses the send', async () => {
+  it('propagates a wallet refusal of the send, user rejection or wrong network, without polling or notifying', async () => {
     const refusal = new Error('User rejected the request');
     sendTransaction.mockRejectedValueOnce(refusal);
     await expect(monad.deposit(depositParams(USDC))).rejects.toBe(refusal);
+
+    const wrongNetwork = vi.fn(async (_tx: unknown, options?: { expectedChainId?: number }) => {
+      if (options?.expectedChainId !== undefined && options.expectedChainId !== 1) throw new Error('wrong network');
+      return TX_HASH;
+    });
+    const onWrongNetwork = { chainType: 'EVM', sendTransaction: wrongNetwork, getWalletAddress: async () => SENDER };
+    await expect(monad.deposit(depositParams(NATIVE_MON, { walletProvider: onWrongNetwork }))).rejects.toThrow(
+      'wrong network',
+    );
+    expect(wrongNetwork).toHaveBeenCalledWith(expect.anything(), {
+      expectedChainId: 143,
+      preserveDepositOutcome: true,
+    });
+
+    expect(publicClient.waitForTransactionReceipt).not.toHaveBeenCalled();
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
-  it('sends native MON straight to the derived deposit address, not the reserve', async () => {
-    const tx = await monad.deposit({ ...(depositParams(NATIVE_MON) as object), raw: true } as never);
+  it('in raw mode pays the derived deposit address, not the reserve: MON as value, an ERC-20 as a plain transfer', async () => {
+    expect(await monad.deposit(depositParams(NATIVE_MON, { raw: true }))).toEqual({
+      from: SENDER,
+      to: DEPOSIT_ADDRESS,
+      value: AMOUNT,
+      data: '0x',
+    });
 
-    expect(tx).toEqual({ from: SENDER, to: DEPOSIT_ADDRESS, value: AMOUNT, data: '0x' });
-  });
-
-  it('sends an ERC-20 as a plain transfer to the deposit address, needing no allowance', async () => {
     // The never-typed params erase `raw`, so the call is typed as returning the hash rather than the raw tx.
-    const tx = (await monad.deposit({ ...(depositParams(USDC) as object), raw: true } as never)) as unknown as {
+    const tx = (await monad.deposit(depositParams(USDC, { raw: true }))) as unknown as {
       to: string;
       value: bigint;
       data: Hex;
     };
-
     expect(tx.to).toBe(USDC);
     expect(tx.value).toBe(0n);
     expect(decodeFunctionData({ abi: erc20Abi, data: tx.data })).toMatchObject({
@@ -191,28 +239,14 @@ describe('MonadSpokeService.deposit', () => {
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
-  it('refuses a memo-mode relay response rather than paying a shared reserve without a memo', async () => {
-    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValueOnce({
-      ok: true,
-      value: {
-        depositMethod: 'memo',
-        reserveAddress: DEPOSIT_ADDRESS,
-        memo: `0x${'00'.repeat(32)}`,
-        payloadHash: `0x${'00'.repeat(32)}`,
-        path: 'm/0',
-        hubWallet: HUB_WALLET,
-      },
+  it('preserves the broadcast hash and notifies once when receipt polling fails', async () => {
+    const warn = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {
+      throw new Error('custom logger failed');
     });
-
-    await expect(monad.deposit(depositParams(NATIVE_MON))).rejects.toThrow(/expected address/);
-    expect(sendTransaction).not.toHaveBeenCalled();
-  });
-
-  it('refuses a deposit whose target disagrees with the hub wallet the relay derives', async () => {
-    await expect(
-      monad.deposit(depositParams(NATIVE_MON, { to: '0x9999999999999999999999999999999999999999' })),
-    ).rejects.toThrow(/relay derives hub wallet/);
-    expect(sendTransaction).not.toHaveBeenCalled();
+    publicClient.waitForTransactionReceipt.mockRejectedValueOnce(new Error('RPC timeout'));
+    await expect(monad.deposit(depositParams(USDC))).resolves.toBe(TX_HASH);
+    expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '48', TX_HASH);
+    expect(warn).toHaveBeenCalled();
   });
 
   it('still resolves to the tx hash when the relay cannot be notified, leaving the re-notify to settlement', async () => {
@@ -284,27 +318,20 @@ describe('MonadSpokeService — relay submit and read', () => {
   });
 });
 
-describe('MonadSpokeService.waitForDeposit', () => {
+describe('MonadSpokeService waits', () => {
   const settled = { ok: true, value: { depositId: 'id', status: 'minted', createdAt: 0, txs: {} } } as never;
 
-  it('keys a native deposit at log index 0 (how the verifier records a value transfer), ignoring unsupported-token Transfer logs', async () => {
+  it('keys a native deposit at log index 0, ignoring unsupported-token logs, and an ERC-20 at its Transfer log index', async () => {
     const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockResolvedValue(settled);
 
+    // Log index 0 is how the verifier records a value transfer.
     await monad.waitForDeposit(TX_HASH);
     receipt = { status: 'success', logs: [usdcTransferLog(3, '0x3333333333333333333333333333333333333333')] };
     await monad.waitForDeposit(TX_HASH);
-
-    expect(wait.mock.calls[0]?.[1]).toBe(`48-${TX_HASH}-0`);
-    expect(wait.mock.calls[1]?.[1]).toBe(`48-${TX_HASH}-0`);
-  });
-
-  it('keys an ERC-20 deposit by the block-level index of its Transfer log', async () => {
     receipt = { status: 'success', logs: [usdcTransferLog(7)] };
-    const wait = vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockResolvedValue(settled);
-
     await monad.waitForDeposit(TX_HASH);
 
-    expect(wait.mock.calls[0]?.[1]).toBe(`48-${TX_HASH}-7`);
+    expect(wait.mock.calls.map(call => call[1])).toEqual([`48-${TX_HASH}-0`, `48-${TX_HASH}-0`, `48-${TX_HASH}-7`]);
   });
 
   it('refuses to guess a deposit id when a batch contains multiple supported transfers', async () => {
@@ -333,6 +360,32 @@ describe('MonadSpokeService.waitForDeposit', () => {
     notifySpy.mockClear();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(notifySpy).not.toHaveBeenCalled();
+  });
+
+  it('bounds every wait by its floor when the caller supplies NaN', async () => {
+    const result = { ok: true as const, value: { depositId: 'id', status: 'minted' as const, createdAt: 0, txs: {} } };
+    const deposit = vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockResolvedValue(result);
+    const withdrawal = vi
+      .spyOn(MpcRelayApiService, 'waitForWithdrawal')
+      .mockResolvedValue({ ok: true, value: { trackingId: TX_HASH, status: 'released' } });
+    const hub = vi.spyOn(MpcRelayApiService, 'waitForHubRelease').mockResolvedValue(result);
+    await monad.waitForDeposit(TX_HASH, Number.NaN);
+    await monad.waitForWithdrawal('id', Number.NaN);
+    await monad.waitForHubRelease(
+      { dstChainKey: MONAD, hubChainId: '146', hubTxHash: TX_HASH, logIndex: 0 },
+      Number.NaN,
+    );
+    for (const wait of [deposit, withdrawal, hub]) {
+      expect(wait).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.objectContaining({ timeout: 300_000 }),
+      );
+    }
+
+    publicClient.waitForTransactionReceipt.mockRejectedValueOnce(new Error('timed out'));
+    await monad.waitForTransactionReceipt({ chainKey: MONAD, txHash: TX_HASH, maxTimeoutMs: Number.NaN });
+    expect(publicClient.waitForTransactionReceipt).toHaveBeenCalledWith(expect.objectContaining({ timeout: 60_000 }));
   });
 });
 
@@ -420,19 +473,16 @@ describe('MonadSpokeService.sendMessage', () => {
     expect(recovered.toLowerCase()).toBe(account.address.toLowerCase());
   });
 
-  it('refuses a wallet provider that cannot sign messages', async () => {
+  it('refuses a wallet that cannot sign messages, and raw mode, which has no spoke transaction to return', async () => {
     await expect(monad.sendMessage(sendParams({ chainType: 'EVM' }))).rejects.toThrow(/does not implement signMessage/);
-    expect(MpcRelayApiService.submitWithdraw).not.toHaveBeenCalled();
-  });
-
-  it('refuses raw mode, which has no spoke transaction to return', async () => {
     await expect(monad.sendMessage({ ...(sendParams() as object), raw: true } as never)).rejects.toThrow(
       /raw mode is not supported/,
     );
+    expect(MpcRelayApiService.submitWithdraw).not.toHaveBeenCalled();
   });
 });
 
-describe('MonadSpokeService.getDeposit / getWalletBalance', () => {
+describe('MonadSpokeService balances', () => {
   it('reads the native balance for MON and balanceOf for an ERC-20, since there is no spoke asset manager', async () => {
     expectTypeOf<SpokeServiceType>().toHaveProperty('getWalletBalance');
     expect(await monad.getDeposit({ srcChainKey: MONAD, srcAddress: SENDER, token: NATIVE_MON } as never)).toBe(7n);
@@ -447,10 +497,25 @@ describe('MonadSpokeService.getDeposit / getWalletBalance', () => {
       expect.objectContaining({ address: USDC, functionName: 'balanceOf', args: [SENDER] }),
     );
   });
+
+  it('getWalletBalances reads a failed balance as 0n, and rejects only when every read fails', async () => {
+    publicClient.readContract.mockRejectedValueOnce(new Error('RPC error'));
+    expect(await monad.getWalletBalances({ srcChainKey: MONAD, srcAddress: SENDER, tokens })).toEqual({
+      [NATIVE_MON]: 7n,
+      [USDC]: 0n,
+    });
+
+    publicClient.getBalance.mockRejectedValueOnce(new Error('RPC error'));
+    publicClient.readContract.mockRejectedValueOnce(new Error('RPC error'));
+    await expect(monad.getWalletBalances({ srcChainKey: MONAD, srcAddress: SENDER, tokens })).rejects.toThrow(
+      'every balance read failed',
+    );
+  });
 });
 
 describe('SpokeService routing for Monad', () => {
-  it('deposits through the MPC service, skipping the asset-manager simulation', async () => {
+  it('resolves Monad to its own service, which takes deposits without the asset-manager simulation', async () => {
+    expect(sodax.spoke.getSpokeService(MONAD)).toBe(monad);
     const deposit = vi.spyOn(monad, 'deposit').mockResolvedValue(TX_HASH as never);
     const evmDeposit = vi.spyOn(sodax.spoke.evm, 'deposit');
 
@@ -460,92 +525,8 @@ describe('SpokeService routing for Monad', () => {
     expect(deposit).toHaveBeenCalledOnce();
     expect(evmDeposit).not.toHaveBeenCalled();
   });
-});
 
-describe('Monad review regressions', () => {
-  it('rejects a mismatched wallet account before sending', async () => {
-    const other = { chainType: 'EVM', sendTransaction, getWalletAddress: async () => DEPOSIT_ADDRESS };
-    await expect(monad.deposit(depositParams(NATIVE_MON, { walletProvider: other }))).rejects.toThrow(
-      /wallet account does not match/,
-    );
-    expect(sendTransaction).not.toHaveBeenCalled();
-  });
-
-  it('rejects a mismatched wallet network before receipt polling', async () => {
-    const wrongNetwork = vi.fn(async (_tx: unknown, options?: { expectedChainId?: number }) => {
-      if (options?.expectedChainId !== undefined && options.expectedChainId !== 1) throw new Error('wrong network');
-      return TX_HASH;
-    });
-    await expect(
-      monad.deposit(
-        depositParams(NATIVE_MON, {
-          walletProvider: { chainType: 'EVM', sendTransaction: wrongNetwork, getWalletAddress: async () => SENDER },
-        }),
-      ),
-    ).rejects.toThrow('wrong network');
-    expect(wrongNetwork).toHaveBeenCalledWith(expect.anything(), {
-      expectedChainId: 143,
-      preserveDepositOutcome: true,
-    });
-    expect(publicClient.waitForTransactionReceipt).not.toHaveBeenCalled();
-  });
-
-  it('preserves the broadcast hash and notifies once when receipt polling fails', async () => {
-    const warn = vi.spyOn(sodax.config.logger, 'warn').mockImplementation(() => {
-      throw new Error('custom logger failed');
-    });
-    publicClient.waitForTransactionReceipt.mockRejectedValueOnce(new Error('RPC timeout'));
-    await expect(monad.deposit(depositParams(USDC))).resolves.toBe(TX_HASH);
-    expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.anything(), '48', TX_HASH);
-    expect(warn).toHaveBeenCalled();
-  });
-
-  it('uses the settlement floor for NaN deposit, withdrawal and hub release timeouts', async () => {
-    const result = { ok: true as const, value: { depositId: 'id', status: 'minted' as const, createdAt: 0, txs: {} } };
-    const deposit = vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockResolvedValue(result);
-    const withdrawal = vi
-      .spyOn(MpcRelayApiService, 'waitForWithdrawal')
-      .mockResolvedValue({ ok: true, value: { trackingId: TX_HASH, status: 'released' } });
-    const hub = vi.spyOn(MpcRelayApiService, 'waitForHubRelease').mockResolvedValue(result);
-    await monad.waitForDeposit(TX_HASH, Number.NaN);
-    await monad.waitForWithdrawal('id', Number.NaN);
-    await monad.waitForHubRelease(
-      { dstChainKey: MONAD, hubChainId: '146', hubTxHash: TX_HASH, logIndex: 0 },
-      Number.NaN,
-    );
-    for (const wait of [deposit, withdrawal, hub]) {
-      expect(wait).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.anything(),
-        expect.objectContaining({ timeout: 300_000 }),
-      );
-    }
-  });
-
-  it('bounds receipt waits when the caller supplies NaN', async () => {
-    publicClient.waitForTransactionReceipt.mockRejectedValueOnce(new Error('timed out'));
-    await monad.waitForTransactionReceipt({ chainKey: MONAD, txHash: TX_HASH, maxTimeoutMs: Number.NaN });
-    expect(publicClient.waitForTransactionReceipt).toHaveBeenCalledWith(expect.objectContaining({ timeout: 60_000 }));
-  });
-
-  it('collects wallet balances and tolerates individual read failures', async () => {
-    publicClient.readContract.mockRejectedValueOnce(new Error('RPC error'));
-    expect(await monad.getWalletBalances({ srcChainKey: MONAD, srcAddress: SENDER, tokens })).toEqual({
-      [NATIVE_MON]: 7n,
-      [USDC]: 0n,
-    });
-  });
-
-  it('rejects a wallet balance batch when every read fails', async () => {
-    publicClient.getBalance.mockRejectedValueOnce(new Error('RPC error'));
-    publicClient.readContract.mockRejectedValueOnce(new Error('RPC error'));
-    await expect(monad.getWalletBalances({ srcChainKey: MONAD, srcAddress: SENDER, tokens })).rejects.toThrow(
-      'every balance read failed',
-    );
-  });
-
-  it('resolves Monad to its own service and routes wallet balance reads through it', async () => {
-    expect(sodax.spoke.getSpokeService(MONAD)).toBe(monad);
+  it('routes wallet balance reads through the Monad service', async () => {
     const params = { srcChainKey: MONAD, srcAddress: SENDER, token: spokeChainConfig.monad.supportedTokens.MON };
     const single = vi.spyOn(monad, 'getWalletBalance').mockResolvedValue(12n);
     const batch = vi.spyOn(monad, 'getWalletBalances').mockResolvedValue({ [NATIVE_MON]: 12n });

@@ -15,13 +15,9 @@ import {
   readAtomicBatchSupport,
   type AtomicBatchEvmWalletProvider,
 } from './evmAtomicBatch.js';
+import { mockEvmWalletProvider } from '../../test-utils/walletProviders.js';
 
-const baseProvider: IEvmWalletProvider = {
-  chainType: 'EVM',
-  getWalletAddress: async () => '0x0000000000000000000000000000000000000001',
-  sendTransaction: async () => '0xtx',
-  waitForTransactionReceipt: vi.fn(),
-};
+const baseProvider: IEvmWalletProvider = mockEvmWalletProvider();
 
 const batchProvider = (getAtomicBatchSupport: AtomicBatchEvmWalletProvider['getAtomicBatchSupport']) => ({
   ...baseProvider,

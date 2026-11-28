@@ -190,34 +190,32 @@ describe('SuiGrpcTransport.fetchLatestPackageId', () => {
     );
   });
 
-  it('throws when the response carries no object, or one that is not a Move object (no JSON payload)', async () => {
-    vi.spyOn(core, 'getObject')
-      .mockResolvedValueOnce({} as never)
-      .mockResolvedValueOnce(objectWithJson(null) as never);
+  it('throws on a response without a Move object or without a string latest_package_id', async () => {
+    const rows = [
+      { label: 'no object', response: {}, error: 'Asset manager id not found (no data)' },
+      {
+        label: 'no JSON payload',
+        response: objectWithJson(null),
+        error: 'Asset manager id not found (not a move object)',
+      },
+      { label: 'id missing', response: objectWithJson({}), error: 'Asset manager id not found (no latest package id)' },
+      {
+        label: 'id empty',
+        response: objectWithJson({ latest_package_id: '' }),
+        error: 'Asset manager id not found (no latest package id)',
+      },
+      {
+        label: 'id not a string',
+        response: objectWithJson({ latest_package_id: 12345 }),
+        error: 'Asset manager id invalid (latest package id is not a string)',
+      },
+    ];
+    const getObject = vi.spyOn(core, 'getObject');
 
-    await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).rejects.toThrow(
-      'Asset manager id not found (no data)',
-    );
-    await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).rejects.toThrow(
-      'Asset manager id not found (not a move object)',
-    );
-  });
-
-  it('throws when latest_package_id is missing, an empty string, or not a string', async () => {
-    vi.spyOn(core, 'getObject')
-      .mockResolvedValueOnce(objectWithJson({}) as never)
-      .mockResolvedValueOnce(objectWithJson({ latest_package_id: '' }) as never)
-      .mockResolvedValueOnce(objectWithJson({ latest_package_id: 12345 }) as never);
-
-    await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).rejects.toThrow(
-      'Asset manager id not found (no latest package id)',
-    );
-    await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).rejects.toThrow(
-      'Asset manager id not found (no latest package id)',
-    );
-    await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID)).rejects.toThrow(
-      'Asset manager id invalid (latest package id is not a string)',
-    );
+    for (const { label, response, error } of rows) {
+      getObject.mockResolvedValueOnce(response as never);
+      await expect(transport.fetchLatestPackageId(SUI_ASSET_MGR_CONFIG_ID), label).rejects.toThrow(error);
+    }
   });
 });
 

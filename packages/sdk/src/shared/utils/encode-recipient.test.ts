@@ -39,12 +39,6 @@ describe('reverseEncodeAddress — Tron', () => {
       TRON_ADDRESS,
     );
   });
-
-  it('rejects a 32-byte word whose padding is not zero', () => {
-    const word = encodeRecipient(ChainKeys.TRON_MAINNET, TRON_ADDRESS);
-    const dirty = `0x01${word.slice(4)}` as const;
-    expect(() => reverseEncodeAddress(ChainKeys.TRON_MAINNET, dirty)).toThrow(/Invalid Tron recipient word/);
-  });
 });
 
 const XRP_ADDRESS = 'rBTwLga3i2gz3doX6Gva3MgEV8ZCD8jjah';
@@ -57,11 +51,6 @@ describe('encodeRecipient / reverseEncodeAddress — XRP', () => {
     expect(recipient).toBe(`0x${'00'.repeat(12)}${identity.slice(2)}`);
     expect(reverseEncodeAddress(ChainKeys.XRP_MAINNET, identity)).toBe(XRP_ADDRESS);
     expect(reverseEncodeAddress(ChainKeys.XRP_MAINNET, recipient)).toBe(XRP_ADDRESS);
-  });
-
-  it('rejects a 32-byte word whose padding is not zero', () => {
-    const dirty = `0x01${encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS).slice(4)}` as const;
-    expect(() => reverseEncodeAddress(ChainKeys.XRP_MAINNET, dirty)).toThrow(/Invalid XRP recipient word/);
   });
 });
 
@@ -120,17 +109,26 @@ describe('encodeAddress / encodeRecipient / reverseEncodeAddress — Cardano', (
   });
 });
 
-describe('reverseEncodeAddress — Zcash', () => {
-  const address = 't1UYsZVJkLPeMjxEtACvSxfWuNmddpWfxzs';
+const ZCASH_ADDRESS = 't1UYsZVJkLPeMjxEtACvSxfWuNmddpWfxzs';
 
+describe('reverseEncodeAddress — Zcash', () => {
   it('decodes the padded recipient word back to the transparent address', () => {
-    expect(reverseEncodeAddress(ChainKeys.ZCASH_MAINNET, encodeRecipient(ChainKeys.ZCASH_MAINNET, address))).toBe(
-      address,
+    expect(reverseEncodeAddress(ChainKeys.ZCASH_MAINNET, encodeRecipient(ChainKeys.ZCASH_MAINNET, ZCASH_ADDRESS))).toBe(
+      ZCASH_ADDRESS,
     );
   });
+});
 
-  it('rejects nonzero recipient padding', () => {
-    const dirty = `0x01${encodeRecipient(ChainKeys.ZCASH_MAINNET, address).slice(4)}` as const;
-    expect(() => reverseEncodeAddress(ChainKeys.ZCASH_MAINNET, dirty)).toThrow(/Invalid Zcash recipient word/);
+describe('reverseEncodeAddress — padded recipient words', () => {
+  it('rejects a Tron, XRP or Zcash 32-byte word whose padding is not zero', () => {
+    const rows = [
+      [ChainKeys.TRON_MAINNET, TRON_ADDRESS, /Invalid Tron recipient word/],
+      [ChainKeys.XRP_MAINNET, XRP_ADDRESS, /Invalid XRP recipient word/],
+      [ChainKeys.ZCASH_MAINNET, ZCASH_ADDRESS, /Invalid Zcash recipient word/],
+    ] as const;
+    for (const [chainKey, address, message] of rows) {
+      const dirty = `0x01${encodeRecipient(chainKey, address).slice(4)}` as const;
+      expect(() => reverseEncodeAddress(chainKey, dirty), chainKey).toThrow(message);
+    }
   });
 });

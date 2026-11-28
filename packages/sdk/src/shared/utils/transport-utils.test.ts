@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPublicClient } from 'viem';
 import { buildEvmRpcTransport, type EvmRpcConfig } from './transport-utils.js';
+import { stubFetch } from '../../test-utils/fetch.js';
 
 const A = 'https://a.example';
 const B = 'https://b.example';
@@ -60,26 +61,17 @@ describe('buildEvmRpcTransport — rank gating', () => {
   afterEach(() => {
     vi.clearAllTimers();
     vi.useRealTimers();
-    vi.unstubAllGlobals();
   });
 
-  it('does not start latency ranking for a single endpoint even when rank is on', async () => {
-    const fetchSpy = vi.fn(() => Promise.reject(new Error('no network')));
-    vi.stubGlobal('fetch', fetchSpy);
-
+  it('starts latency ranking only when rank is on and multiple endpoints survive, never for a single endpoint', async () => {
+    const single = stubFetch().mockRejectedValue(new Error('no network'));
     createPublicClient({ transport: buildEvmRpcTransport({ rpcUrl: A, rpcOptions: { rank: true } }) });
     await vi.advanceTimersByTimeAsync(0);
+    expect(single).not.toHaveBeenCalled();
 
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it('starts latency ranking when rank is on and multiple endpoints survive', async () => {
-    const fetchSpy = vi.fn(() => Promise.reject(new Error('no network')));
-    vi.stubGlobal('fetch', fetchSpy);
-
+    const multiple = stubFetch().mockRejectedValue(new Error('no network'));
     createPublicClient({ transport: buildEvmRpcTransport({ rpcUrl: A, rpcUrls: [A, B], rpcOptions: { rank: true } }) });
     await vi.advanceTimersByTimeAsync(0);
-
-    expect(fetchSpy).toHaveBeenCalled();
+    expect(multiple).toHaveBeenCalled();
   });
 });

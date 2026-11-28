@@ -25,14 +25,15 @@ describe('isFillEvent', () => {
     if (isFillEvent(partial)) expect(partial.intentState.remainingInput).toBe('1000');
   });
 
-  it.each([
-    { ...FILL_EVENT, eventType: 'intent-cancelled' },
-    { ...FILL_EVENT, txHash: '' },
-    // Without `intentState` there is no way to tell a partial fill from a complete one.
-    { eventType: 'intent-filled', txHash: '0xfill' },
-    { ...FILL_EVENT, intentState: { remainingInput: 0 } },
-  ])('rejects %#', value => {
-    expect(isFillEvent(value)).toBe(false);
+  it('rejects another event type, an empty txHash, a missing intentState and a non-string remainingInput', () => {
+    const rejected: Array<[label: string, value: unknown]> = [
+      ['another event type', { ...FILL_EVENT, eventType: 'intent-cancelled' }],
+      ['an empty txHash', { ...FILL_EVENT, txHash: '' }],
+      // Without `intentState` there is no way to tell a partial fill from a complete one.
+      ['no intentState', { eventType: 'intent-filled', txHash: '0xfill' }],
+      ['a numeric remainingInput', { ...FILL_EVENT, intentState: { remainingInput: 0 } }],
+    ];
+    for (const [label, value] of rejected) expect(isFillEvent(value), label).toBe(false);
   });
 });
 
@@ -43,7 +44,7 @@ describe('isOracleCandleInterval', () => {
 
   // The markets read is tolerant, so a key from a newer backend reaches consumers as a plain
   // string; the guard is what keeps it out of `getOracleCandles`.
-  it.each(['4h', '1H'])('rejects %j, which getOracleCandles does not accept', key => {
-    expect(isOracleCandleInterval(key)).toBe(false);
+  it('rejects a key getOracleCandles does not accept, such as 4h or 1H', () => {
+    for (const key of ['4h', '1H']) expect(isOracleCandleInterval(key), key).toBe(false);
   });
 });

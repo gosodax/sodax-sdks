@@ -20,28 +20,12 @@ import {
   type RequestOverrideConfig,
 } from './api-utils.js';
 import { silentLogger } from '../shared/logger.js';
+import { abortingFetch, httpErrorResponse, okResponse, stubFetch } from '../test-utils/fetch.js';
 
-// --- fetch stub -----------------------------------------------------------
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+const mockFetch = stubFetch();
 
 const BASE = 'https://api.example.com';
 
-// --- helpers --------------------------------------------------------------
-const okResponse = <T>(data: T) => ({ ok: true, status: 200, json: vi.fn().mockResolvedValue(data) });
-const httpErrorResponse = (status: number, text: string) => ({
-  ok: false,
-  status,
-  text: vi.fn().mockResolvedValue(text),
-});
-const stallUntilAbort = <T>(signal: AbortSignal | null | undefined): Promise<T> =>
-  new Promise((_resolve, reject) => {
-    signal?.addEventListener('abort', () => {
-      const err = new Error('The operation was aborted');
-      err.name = 'AbortError';
-      reject(err);
-    });
-  });
 /** Resolve to the thrown error instead of rejecting, so it can be inspected. */
 const caught = (p: Promise<unknown>): Promise<unknown> => p.then(v => v).catch(e => e);
 /** The `init` object passed to the most recent fetch call. */
@@ -62,13 +46,12 @@ afterEach(() => vi.restoreAllMocks());
 // =========================================================================
 
 describe('makeRequest URL resolution', () => {
-  it.each([
-    [BASE, `${BASE}/foo`],
-    [`${BASE}///`, `${BASE}/foo`],
-  ])('builds the URL from config.baseURL %s + endpoint, trimming trailing slashes', async (baseURL, expected) => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run('/foo', { method: 'GET', baseURL });
-    expect(mockFetch).toHaveBeenCalledWith(expected, expect.objectContaining({ method: 'GET' }));
+  it('builds the URL from config.baseURL + endpoint, trimming trailing slashes', async () => {
+    for (const baseURL of [BASE, `${BASE}///`]) {
+      mockFetch.mockResolvedValueOnce(okResponse({}));
+      await run('/foo', { method: 'GET', baseURL });
+      expect(mockFetch, baseURL).toHaveBeenLastCalledWith(`${BASE}/foo`, expect.objectContaining({ method: 'GET' }));
+    }
   });
 
   it('lets a (trimmed) overrideConfig.baseURL win, treating an empty-string override as not provided', async () => {
@@ -142,18 +125,21 @@ describe('makeRequest timeout', () => {
     expect(clearTimeoutSpy).toHaveBeenCalledTimes(2);
   });
 
-  it.each([
-    ['success', { ok: true, status: 200 }, 'json'],
-    ['error', { ok: false, status: 503 }, 'text'],
-  ] as const)('times out when %s response headers arrive but the body stalls', async (_label, head, reader) => {
-    mockFetch.mockImplementationOnce((_url: string, init: RequestInit) =>
-      Promise.resolve({ ...head, [reader]: () => stallUntilAbort(init.signal) }),
-    );
+  it('times out when success or error response headers arrive but the body stalls', async () => {
+    const stalls = [
+      ['success', { ok: true, status: 200 }, 'json'],
+      ['error', { ok: false, status: 503 }, 'text'],
+    ] as const;
+    for (const [label, head, reader] of stalls) {
+      mockFetch.mockImplementationOnce((url: string, init: RequestInit) =>
+        Promise.resolve({ ...head, [reader]: () => abortingFetch(url, init) }),
+      );
 
-    const err = (await caught(run('/foo', { method: 'GET', baseURL: BASE, timeout: 5 }))) as Error;
+      const err = (await caught(run('/foo', { method: 'GET', baseURL: BASE, timeout: 5 }))) as Error;
 
-    expect(err.message).toBe('REQUEST_TIMEOUT');
-    expect((err.cause as Error).message).toBe('Request timeout after 5ms');
+      expect(err.message, label).toBe('REQUEST_TIMEOUT');
+      expect((err.cause as Error).message, label).toBe('Request timeout after 5ms');
+    }
   });
 });
 
@@ -162,7 +148,7 @@ describe('makeRequest timeout', () => {
 // =========================================================================
 
 describe('makeRequest error handling', () => {
-  it('re-throws a non-abort Error verbatim (e.g. a network failure), logging under the caller-provided serviceLabel', async () => {
+  it('re-throws a non-abort Error verbatim (logging under the serviceLabel) and wraps a non-Error as UNKNOWN_REQUEST_ERROR', async () => {
     const logger: SodaxLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const networkError = new Error('Network down');
     mockFetch.mockRejectedValueOnce(networkError);
@@ -176,13 +162,11 @@ describe('makeRequest error handling', () => {
     );
     expect(err).toBe(networkError);
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('[SwapsApiService]'), expect.any(Error));
-  });
 
-  it('throws UNKNOWN_REQUEST_ERROR wrapping a non-Error rejection value', async () => {
     mockFetch.mockRejectedValueOnce('string-not-error');
-    const err = (await caught(run('/foo', { method: 'GET', baseURL: BASE }))) as Error;
-    expect(err.message).toBe('UNKNOWN_REQUEST_ERROR');
-    expect(err.cause).toBe('string-not-error');
+    const unknown = (await caught(run('/foo', { method: 'GET', baseURL: BASE }))) as Error;
+    expect(unknown.message).toBe('UNKNOWN_REQUEST_ERROR');
+    expect(unknown.cause).toBe('string-not-error');
   });
 });
 
@@ -225,11 +209,12 @@ describe('isBackendHttpError', () => {
     expect(isBackendHttpError(foreign)).toBe(true);
   });
 
-  it.each([
-    ['a plain Error with the same message', new Error('HTTP_REQUEST_FAILED')],
-    ['a same-named error without a numeric status', Object.assign(new Error('x'), { name: 'BackendHttpError' })],
-    ['a bare object', { name: 'BackendHttpError', status: 500 }],
-  ])('rejects %s', (_label, value) => {
-    expect(isBackendHttpError(value)).toBe(false);
+  it('rejects a plain Error, a same-named error without a numeric status, and a bare object', () => {
+    const lookalikes: Array<[label: string, value: unknown]> = [
+      ['a plain Error with the same message', new Error('HTTP_REQUEST_FAILED')],
+      ['a same-named error without a numeric status', Object.assign(new Error('x'), { name: 'BackendHttpError' })],
+      ['a bare object', { name: 'BackendHttpError', status: 500 }],
+    ];
+    for (const [label, value] of lookalikes) expect(isBackendHttpError(value), label).toBe(false);
   });
 });

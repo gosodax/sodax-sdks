@@ -13,11 +13,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { silentLogger } from '../shared/logger.js';
+import { okResponse, stubFetch } from '../test-utils/fetch.js';
 
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
-
-const okResponse = (data: unknown) => ({ ok: true, status: 200, json: vi.fn().mockResolvedValue(data) });
+const mockFetch = stubFetch();
 
 /** No `api` config whatsoever — the packaged defaults are the whole point. */
 const sodax = new Sodax({ logger: silentLogger });
@@ -131,17 +129,20 @@ describe('a bare-origin baseURL on the packaged host', () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('missing the gateway'));
   });
 
-  it.each([
-    ['swapsApiConfig', 'api.swaps', { swapsApiConfig: { baseURL: 'https://api.sodax.com' } } as const],
-    ['sponsoringApiConfig', 'api.sponsoring', { sponsoringApiConfig: { baseURL: 'https://api.sodax.com' } } as const],
-  ])('is reported, naming the offending service, when the short root arrives through the %s slice', (_slice, service, api) => {
+  it('is reported, naming the offending service, when the short root arrives through a per-service slice', () => {
     // Finding 2 from the PR review: the old check layered only the flat fields and `baseApiConfig`, so a
     // root reaching its service through its own slice resolved one segment short with no warning.
-    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    new Sodax({ api, logger });
-    expect(logger.warn).toHaveBeenCalledTimes(1);
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('missing the gateway'));
-    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining(service));
+    const slices = [
+      ['api.swaps', { swapsApiConfig: { baseURL: 'https://api.sodax.com' } }],
+      ['api.sponsoring', { sponsoringApiConfig: { baseURL: 'https://api.sodax.com' } }],
+    ] as const;
+    for (const [service, api] of slices) {
+      const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      new Sodax({ api, logger });
+      expect(logger.warn, service).toHaveBeenCalledTimes(1);
+      expect(logger.warn, service).toHaveBeenCalledWith(expect.stringContaining('missing the gateway'));
+      expect(logger.warn, service).toHaveBeenCalledWith(expect.stringContaining(service));
+    }
   });
 
   it('stays quiet for a per-service slice that carries the prefix, and for a local service at its bare origin', () => {

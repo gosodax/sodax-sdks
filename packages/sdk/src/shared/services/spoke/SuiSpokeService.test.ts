@@ -39,6 +39,7 @@ import {
 
 import { Sodax } from '../../entities/Sodax.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
+import { expectOk } from '../../../test-utils/result.js';
 
 // --- fixtures -------------------------------------------------------------
 
@@ -542,7 +543,7 @@ describe('SuiSpokeService.getWalletBalances', () => {
 // =========================================================================
 
 describe('SuiSpokeService.waitForTransactionReceipt', () => {
-  const wait = () => suiSpoke.waitForTransactionReceipt({ chainKey: SUI, txHash: TX_DIGEST });
+  const wait = async () => expectOk(await suiSpoke.waitForTransactionReceipt({ chainKey: SUI, txHash: TX_DIGEST }));
 
   it('maps a successful result to status:success with the whole receipt, forwarding config or caller polling', async () => {
     const fakeReceipt = {
@@ -551,11 +552,9 @@ describe('SuiSpokeService.waitForTransactionReceipt', () => {
     };
     const spy = vi.spyOn(suiSpoke.transport, 'waitForTransaction').mockResolvedValueOnce(fakeReceipt as never);
 
-    const result = await wait();
+    const value = await wait();
 
-    if (!result.ok) throw new Error('expected ok');
-    if (result.value.status !== 'success') throw new Error('expected success');
-    expect(result.value.receipt).toBe(fakeReceipt);
+    expect(value.status === 'success' && value.receipt).toBe(fakeReceipt);
     expect(spy).toHaveBeenCalledWith({
       digest: TX_DIGEST,
       // Pinned to the REAL suiConfig.pollingConfig values, not magic numbers — a config change
@@ -595,38 +594,31 @@ describe('SuiSpokeService.waitForTransactionReceipt', () => {
     const known = await wait();
     const unknown = await wait();
 
-    if (!missing.ok || missing.value.status !== 'failure') throw new Error('expected ok+failure');
-    expect(missing.value.error.message).toContain(`Transaction effects unavailable for digest=${TX_DIGEST}`);
-
-    if (!known.ok || known.value.status !== 'failure') throw new Error('expected ok+failure');
-    expect(known.value.error.message).toBe('Transaction failed: MoveAbort');
-    if (!unknown.ok || unknown.value.status !== 'failure') throw new Error('expected ok+failure');
-    expect(unknown.value.error.message).toBe('Transaction failed: unknown');
+    if (missing.status !== 'failure' || known.status !== 'failure' || unknown.status !== 'failure') {
+      throw new Error('expected failure');
+    }
+    expect(missing.error.message).toContain(`Transaction effects unavailable for digest=${TX_DIGEST}`);
+    expect(known.error.message).toBe('Transaction failed: MoveAbort');
+    expect(unknown.error.message).toBe('Transaction failed: unknown');
   });
 
-  it('returns status:timeout when the transport aborts on the timeout signal', async () => {
+  it('maps a timeout abort to status:timeout and any other throw to failure, wrapping a non-Error', async () => {
     const timeoutErr = new DOMException('The operation was aborted due to timeout', 'TimeoutError');
-    vi.spyOn(suiSpoke.transport, 'waitForTransaction').mockRejectedValueOnce(timeoutErr);
-
-    const result = await wait();
-
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.value.status).toBe('timeout');
-    if (result.value.status !== 'timeout') return;
-    expect(result.value.error).toBe(timeoutErr);
-  });
-
-  it('returns status:failure for any other throw, wrapping a non-Error into new Error(String(thrown))', async () => {
     const otherErr = new Error('connection refused');
-    vi.spyOn(suiSpoke.transport, 'waitForTransaction').mockRejectedValueOnce(otherErr).mockRejectedValueOnce('boom');
+    vi.spyOn(suiSpoke.transport, 'waitForTransaction')
+      .mockRejectedValueOnce(timeoutErr)
+      .mockRejectedValueOnce(otherErr)
+      .mockRejectedValueOnce('boom');
 
+    const timedOut = await wait();
     const fromError = await wait();
     const fromString = await wait();
 
-    if (!fromError.ok || fromError.value.status !== 'failure') throw new Error('expected ok+failure');
-    expect(fromError.value.error).toBe(otherErr);
-    if (!fromString.ok || fromString.value.status !== 'failure') throw new Error('expected ok+failure');
-    expect(fromString.value.error).toBeInstanceOf(Error);
-    expect(fromString.value.error.message).toBe('boom');
+    if (timedOut.status !== 'timeout') throw new Error('expected timeout');
+    expect(timedOut.error).toBe(timeoutErr);
+    if (fromError.status !== 'failure' || fromString.status !== 'failure') throw new Error('expected failure');
+    expect(fromError.error).toBe(otherErr);
+    expect(fromString.error).toBeInstanceOf(Error);
+    expect(fromString.error.message).toBe('boom');
   });
 });

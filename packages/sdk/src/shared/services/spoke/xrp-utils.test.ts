@@ -35,20 +35,15 @@ describe('xrp-utils', () => {
     expect(xrpIdentityBytes(address)).toBe('0x629ccc144ac8464561f11d8870a57dc376a0d191');
   });
 
-  it('rejects a bad checksum', () => {
+  it('rejects a bad checksum, the wrong length, and a checksummed payload whose type prefix is not an account (0x00)', () => {
     const bad = `${RESERVE.slice(0, -1)}${RESERVE.endsWith('7') ? '8' : '7'}`;
     expect(() => decodeAccountId(bad)).toThrow(/checksum/);
-  });
 
-  it('rejects a string of the wrong length', () => {
     expect(() => decodeAccountId(RESERVE.slice(0, -2))).toThrow(/bad address length/);
     expect(() => decodeAccountId(`${RESERVE}r`)).toThrow(/bad address length/);
-  });
 
-  it('rejects a checksummed payload whose type prefix is not an account (0x00)', () => {
     const accountId = Buffer.from(RLUSD_ISSUER_ACCOUNT_ID.slice(2), 'hex');
     const notAnAccount = base58Check(Uint8Array.from([0x01, ...accountId]));
-
     expect(() => decodeAccountId(notAnAccount)).toThrow(/not an XRPL account address/);
   });
 });
@@ -93,11 +88,9 @@ describe('xrpTokenRef', () => {
     expect(xrpTokenRef({ address: STOCK_ISSUER, symbol: 'GME' }).currency).toBe('GME');
   });
 
-  it.each([
-    ['a short currency', `4E5644:${STOCK_ISSUER}`],
-    ['a currency starting with 00', `00${'A'.repeat(38)}:${STOCK_ISSUER}`],
-    ['an invalid issuer', `${NVDA}:rNotAnAddress`],
-  ])('rejects %s', (_, address) => {
-    expect(() => xrpTokenRef({ address, symbol: 'X' })).toThrow();
+  it('rejects a short currency, a currency starting with 00, and an invalid issuer', () => {
+    for (const address of [`4E5644:${STOCK_ISSUER}`, `00${'A'.repeat(38)}:${STOCK_ISSUER}`, `${NVDA}:rNotAnAddress`]) {
+      expect(() => xrpTokenRef({ address, symbol: 'X' }), address).toThrow();
+    }
   });
 });

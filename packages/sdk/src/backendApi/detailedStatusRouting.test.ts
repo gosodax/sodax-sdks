@@ -54,20 +54,19 @@ describe('readIntentJournalOutcome', () => {
     expect(readIntentJournalOutcome(journal(false, [fill('0')]))).toEqual({ kind: 'solved', fillTxHash: '0xfill' });
   });
 
-  it('proves nothing for an open intent, even one carrying a cancel event', () => {
-    expect(readIntentJournalOutcome(journal(true, []))).toBeUndefined();
-    expect(readIntentJournalOutcome(journal(true, [fill('500')]))).toBeUndefined();
-    expect(readIntentJournalOutcome(journal(true, [cancel]))).toBeUndefined();
-  });
-
-  it('does not read a cancel after a partial fill, or after a fill too malformed to parse, as cancelled', () => {
-    expect(readIntentJournalOutcome(journal(false, [fill('500'), cancel]))).toBeUndefined();
-    expect(readIntentJournalOutcome(journal(false, [{ eventType: 'intent-filled' }, cancel]))).toBeUndefined();
-  });
-
-  it('proves nothing for a closed intent with no terminal event', () => {
-    expect(readIntentJournalOutcome(journal(false, []))).toBeUndefined();
-    expect(readIntentJournalOutcome(journal(false, [null, 'intent-cancelled', { eventType: 1 }]))).toBeUndefined();
+  it('proves nothing for an open intent, a cancel after a non-final fill, or a closed intent with no terminal event', () => {
+    const cases: [string, IntentResponse][] = [
+      ['open, no events', journal(true, [])],
+      ['open, partial fill', journal(true, [fill('500')])],
+      ['open, carrying a cancel', journal(true, [cancel])],
+      ['cancel after a partial fill', journal(false, [fill('500'), cancel])],
+      ['cancel after a fill too malformed to parse', journal(false, [{ eventType: 'intent-filled' }, cancel])],
+      ['closed, no events', journal(false, [])],
+      ['closed, no well-formed terminal event', journal(false, [null, 'intent-cancelled', { eventType: 1 }])],
+    ];
+    for (const [label, response] of cases) {
+      expect(readIntentJournalOutcome(response), label).toBeUndefined();
+    }
   });
 });
 

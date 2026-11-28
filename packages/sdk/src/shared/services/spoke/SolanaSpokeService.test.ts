@@ -15,13 +15,11 @@
  *
  * Mocking strategy:
  *   - `getAssetManagerProgram` and `getConnectionProgram` from `entities/solana/utils/utils.js` are
- *     module-mocked at their source path via the `vi.hoisted` + `vi.mock` + `vi.importActual`
- *     pattern. They fetch IDLs over the network in production, so we replace them with a fluent
- *     stub exposing the `.methods.transfer(...).accountsStrict(...).remainingAccounts(...).instruction()`
- *     and `.methods.sendMessage(...)` chains the SUT consumes. The real `convertTransactionInstructionToRaw`
- *     and `isSolanaNativeToken` exports are preserved by spreading `...actual`.
- *   - `sleep` from `utils/shared-utils.js` is no-op-ed so `waitForTransactionReceipt` timeout tests
- *     run instantly. Everything else in `shared-utils.js` is preserved via `vi.importActual`.
+ *     spied on the module namespace. They fetch IDLs over the network in production, so they resolve
+ *     a fluent stub exposing the `.methods.transfer(...).accountsStrict(...).remainingAccounts(...).instruction()`
+ *     and `.methods.sendMessage(...)` chains the SUT consumes. The module's other exports stay real.
+ *   - `sleep` from `utils/shared-utils.js` is spied to a no-op so `waitForTransactionReceipt` timeout
+ *     tests run instantly.
  *   - `@solana/web3.js` is intentionally NOT module-mocked — real `Connection`, `PublicKey`,
  *     `VersionedTransaction`, `TransactionMessage`, and `SystemProgram` constructors run. Only the
  *     network methods on `sodax.spoke.solana.connection` (`simulateTransaction`, `getLatestBlockhash`,
@@ -40,7 +38,7 @@
  *   7.  waitForTransactionReceipt  — success / failure / timeout / transient-error
  *   8.  static helpers             — getMintTokenProgramId
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 import {
   Connection,
   PublicKey,
@@ -69,54 +67,11 @@ import {
   type XToken,
 } from '@sodax/types';
 
-// --- hoisted mocks --------------------------------------------------------
-//
-// Why hoisted: `vi.mock` is hoisted to the top of the file by Vitest; if the mock factory
-// references a top-level binding directly, that binding doesn't exist yet at hoist time.
-// `vi.hoisted(...)` lifts the binding alongside the mock so the factory can close over it.
-
-const mocks = vi.hoisted(() => {
-  // The fluent program stub. Each call site of `.methods.transfer(...)` or `.methods.sendMessage(...)`
-  // returns the same chain so the test can intercept the final `.instruction()` resolution.
-  const makeChain = () => {
-    const chain = {
-      accountsStrict: vi.fn(() => chain),
-      remainingAccounts: vi.fn(() => chain),
-      instruction: vi.fn(),
-    };
-    return chain;
-  };
-
-  return {
-    getAssetManagerProgram: vi.fn(),
-    getConnectionProgram: vi.fn(),
-    makeChain,
-    sleep: vi.fn(() => Promise.resolve()),
-  };
-});
-
-vi.mock('../../entities/solana/utils/utils.js', async () => {
-  // Preserve real `convertTransactionInstructionToRaw` and `isSolanaNativeToken` exports — only
-  // the IDL-fetching program builders need stubbing.
-  const actual = await vi.importActual<object>('../../entities/solana/utils/utils.js');
-  return {
-    ...actual,
-    getAssetManagerProgram: mocks.getAssetManagerProgram,
-    getConnectionProgram: mocks.getConnectionProgram,
-  };
-});
-
-vi.mock('../../utils/shared-utils.js', async () => {
-  // Only `sleep` is replaced; everything else (retry, getRandomBytes, encodeAddress, …) must
-  // continue to use the real impl so other code paths invoked under test aren't affected.
-  const actual = await vi.importActual<object>('../../utils/shared-utils.js');
-  return {
-    ...actual,
-    sleep: mocks.sleep,
-  };
-});
-
 import { Sodax } from '../../entities/Sodax.js';
+import * as solanaUtils from '../../entities/solana/utils/utils.js';
+import * as sharedUtils from '../../utils/shared-utils.js';
+import { expectOk } from '../../../test-utils/result.js';
+import { mockSolanaWalletProvider } from '../../../test-utils/walletProviders.js';
 import { SolanaSpokeService } from './SolanaSpokeService.js';
 import { AssetManagerPDA, ConnectionConfigPDA } from '../../entities/solana/pda/pda.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
@@ -148,6 +103,17 @@ const TX_SIG = '5J7XmnPSf2pT8h4QwUQ4yWMUszsBwK9jKnQK4Z3Yj8MhwQ4Zv1k7T3sQqMz7Yj7L
 const ASSET_MGR_PROGRAM_ID = new PublicKey(SOL_ASSET_MGR);
 const CONNECTION_PROGRAM_ID = new PublicKey(SOL_CONNECTION);
 
+// The fluent program stub. Each call site of `.methods.transfer(...)` or `.methods.sendMessage(...)`
+// returns the same chain so the test can intercept the final `.instruction()` resolution.
+const makeChain = () => {
+  const chain = {
+    accountsStrict: vi.fn(() => chain),
+    remainingAccounts: vi.fn(() => chain),
+    instruction: vi.fn(),
+  };
+  return chain;
+};
+
 // Returned by getAssetManagerProgram — minimal anchor.Program-shaped object.
 const fakeAssetManagerProgram = {
   programId: ASSET_MGR_PROGRAM_ID,
@@ -173,17 +139,8 @@ const makeFakeInstruction = (programId: PublicKey = ASSET_MGR_PROGRAM_ID): Trans
     data: Buffer.from([1, 2, 3, 4]),
   });
 
-const mockSolanaProvider = {
-  chainType: 'SOLANA',
-  getWalletAddress: vi.fn(),
-  sendTransaction: vi.fn(),
-  waitForConfirmation: vi.fn(),
-  buildV0Txn: vi.fn(),
-  getWalletBase58PublicKey: vi.fn(),
-  getAssociatedTokenAddress: vi.fn(),
-  getBalance: vi.fn(),
-  getTokenAccountBalance: vi.fn(),
-} as unknown as ISolanaWalletProvider;
+let mockSolanaProvider: ISolanaWalletProvider;
+let sleepSpy: MockInstance<typeof sharedUtils.sleep>;
 
 // Default blockhash for buildV0Txn — getLatestBlockhash is spied per-test where needed.
 const FAKE_BLOCKHASH = 'GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi';
@@ -192,17 +149,19 @@ const FAKE_BLOCKHASH = 'GHtXQBsoZHVnNFa9YevAzFr17DJjgHXk3ycTKD5xD3Zi';
 // don't bleed across tests. The fake programs themselves keep their `.programId` identity.
 beforeEach(() => {
   vi.clearAllMocks();
-  const transferChain = mocks.makeChain();
-  const sendMessageChain = mocks.makeChain();
+  const transferChain = makeChain();
+  const sendMessageChain = makeChain();
   fakeAssetManagerProgram.methods.transfer = vi.fn(() => transferChain);
   fakeConnectionProgram.methods.sendMessage = vi.fn(() => sendMessageChain);
   // Default: returning a real TransactionInstruction so `convertTransactionInstructionToRaw` works.
   transferChain.instruction.mockResolvedValue(makeFakeInstruction(ASSET_MGR_PROGRAM_ID));
   sendMessageChain.instruction.mockResolvedValue(makeFakeInstruction(CONNECTION_PROGRAM_ID));
 
-  mocks.getAssetManagerProgram.mockResolvedValue(fakeAssetManagerProgram);
-  mocks.getConnectionProgram.mockResolvedValue(fakeConnectionProgram);
-  mocks.sleep.mockImplementation(() => Promise.resolve());
+  // The fakes model only the anchor.Program members the SUT reads.
+  vi.spyOn(solanaUtils, 'getAssetManagerProgram').mockResolvedValue(fakeAssetManagerProgram as never);
+  vi.spyOn(solanaUtils, 'getConnectionProgram').mockResolvedValue(fakeConnectionProgram as never);
+  sleepSpy = vi.spyOn(sharedUtils, 'sleep').mockResolvedValue(undefined);
+  mockSolanaProvider = mockSolanaWalletProvider();
 });
 
 afterEach(() => {
@@ -293,8 +252,8 @@ describe('SolanaSpokeService.deposit', () => {
     expect(result.value).toBe(1_000n);
     expect(() => VersionedTransaction.deserialize(Buffer.from(result.data, 'base64'))).not.toThrow();
     // Asset-manager and connection programs are fetched via the mocked utils helpers.
-    expect(mocks.getAssetManagerProgram).toHaveBeenCalledWith(SRC_ADDR, solanaConfig.rpcUrl, SOL_ASSET_MGR);
-    expect(mocks.getConnectionProgram).toHaveBeenCalledWith(SRC_ADDR, solanaConfig.rpcUrl, SOL_CONNECTION);
+    expect(solanaUtils.getAssetManagerProgram).toHaveBeenCalledWith(SRC_ADDR, solanaConfig.rpcUrl, SOL_ASSET_MGR);
+    expect(solanaUtils.getConnectionProgram).toHaveBeenCalledWith(SRC_ADDR, solanaConfig.rpcUrl, SOL_CONNECTION);
     // The transfer method was called with (amountBN, recipientBytes, dataHashBytes).
     expect(fakeAssetManagerProgram.methods.transfer).toHaveBeenCalledTimes(1);
     const transferArgs = (fakeAssetManagerProgram.methods.transfer as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -307,7 +266,7 @@ describe('SolanaSpokeService.deposit', () => {
 
     // accountsStrict must be invoked with native vault accounts.
     const transferChain = (fakeAssetManagerProgram.methods.transfer as ReturnType<typeof vi.fn>).mock.results[0]
-      ?.value as ReturnType<typeof mocks.makeChain>;
+      ?.value as ReturnType<typeof makeChain>;
     expect(transferChain.accountsStrict).toHaveBeenCalledTimes(1);
     const accounts = (transferChain.accountsStrict as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
     expect(accounts.tokenVaultAccount).toBeNull();
@@ -337,7 +296,7 @@ describe('SolanaSpokeService.deposit', () => {
     await solanaSpoke.deposit(depositParams<true>({ token: SOL_BNUSD, raw: true }));
 
     const transferChain = (fakeAssetManagerProgram.methods.transfer as ReturnType<typeof vi.fn>).mock.results[0]
-      ?.value as ReturnType<typeof mocks.makeChain>;
+      ?.value as ReturnType<typeof makeChain>;
     const accounts = (transferChain.accountsStrict as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
     // The mint's program must flip both the tokenProgram account and the ATA derivation.
     expect(accounts.tokenProgram.toBase58()).toBe(TOKEN_2022_PROGRAM_ID.toBase58());
@@ -350,8 +309,8 @@ describe('SolanaSpokeService.deposit', () => {
 
   it('raw=false delegates to walletProvider.buildV0Txn and walletProvider.sendTransaction', async () => {
     const signedTx = new Uint8Array([1, 2, 3]);
-    (mockSolanaProvider.buildV0Txn as ReturnType<typeof vi.fn>).mockResolvedValueOnce(signedTx);
-    (mockSolanaProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_SIG);
+    vi.mocked(mockSolanaProvider.buildV0Txn).mockResolvedValueOnce(signedTx);
+    vi.mocked(mockSolanaProvider.sendTransaction).mockResolvedValueOnce(TX_SIG);
 
     const result = await solanaSpoke.deposit(
       depositParams<false>({ token: SOL_NATIVE, raw: false, walletProvider: mockSolanaProvider }),
@@ -574,8 +533,8 @@ describe('SolanaSpokeService.sendMessage', () => {
 
   it('raw=false delegates to walletProvider.buildV0Txn and walletProvider.sendTransaction', async () => {
     const signedTx = new Uint8Array([9, 9, 9]);
-    (mockSolanaProvider.buildV0Txn as ReturnType<typeof vi.fn>).mockResolvedValueOnce(signedTx);
-    (mockSolanaProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_SIG);
+    vi.mocked(mockSolanaProvider.buildV0Txn).mockResolvedValueOnce(signedTx);
+    vi.mocked(mockSolanaProvider.sendTransaction).mockResolvedValueOnce(TX_SIG);
 
     const result = await solanaSpoke.sendMessage(
       sendMessageParams<false>({ raw: false, walletProvider: mockSolanaProvider }),
@@ -602,10 +561,10 @@ describe('SolanaSpokeService.waitForTransactionReceipt', () => {
 
     const result = await solanaSpoke.waitForTransactionReceipt({ chainKey: SOL, txHash: TX_SIG });
 
-    if (!result.ok) throw new Error('expected ok');
-    if (result.value.status !== 'failure') throw new Error('expected failure');
-    expect(result.value.error).toBeInstanceOf(Error);
-    expect(result.value.error.message).toBe(JSON.stringify(txErr));
+    const value = expectOk(result);
+    if (value.status !== 'failure') throw new Error('expected failure');
+    expect(value.error).toBeInstanceOf(Error);
+    expect(value.error.message).toBe(JSON.stringify(txErr));
   });
 
   it('returns status:timeout when getTransaction returns null until the deadline expires', async () => {
@@ -617,10 +576,10 @@ describe('SolanaSpokeService.waitForTransactionReceipt', () => {
       maxTimeoutMs: 1, // exits the while-loop after one iteration since sleep is mocked
     });
 
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.value.status).toBe('timeout');
-    if (result.value.status !== 'timeout') return;
-    expect(result.value.error.message).toContain(`Timed out after 1ms waiting for confirmation for ${TX_SIG}`);
+    const value = expectOk(result);
+    expect(value.status).toBe('timeout');
+    if (value.status !== 'timeout') return;
+    expect(value.error.message).toContain(`Timed out after 1ms waiting for confirmation for ${TX_SIG}`);
   });
 
   it('keeps polling after a transient getTransaction rejection and resolves on the next poll', async () => {
@@ -632,11 +591,11 @@ describe('SolanaSpokeService.waitForTransactionReceipt', () => {
 
     const result = await solanaSpoke.waitForTransactionReceipt({ chainKey: SOL, txHash: TX_SIG });
 
-    if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
-    expect(result.value.receipt).toBe(fakeReceipt);
+    const value = expectOk(result);
+    expect(value.status === 'success' && value.receipt).toBe(fakeReceipt);
     expect(getTxSpy).toHaveBeenCalledTimes(2);
     // sleep must have been invoked between the failed and successful polls.
-    expect(mocks.sleep).toHaveBeenCalled();
+    expect(sleepSpy).toHaveBeenCalled();
   });
 });
 

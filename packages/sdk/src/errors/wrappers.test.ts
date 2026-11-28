@@ -23,11 +23,12 @@ import {
 } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { SodaxError } from './SodaxError.js';
+import type { SodaxFeature } from './codes.js';
 import { IndeterminateOutcomeError, isIndeterminateOutcomeError } from './IndeterminateOutcomeError.js';
 import { approveFailed, intentCreationFailed, withErrorContext } from './wrappers.js';
 
 describe('intentCreationFailed (wallet rejection classification)', () => {
-  it('classifies EVM rejection shapes (viem class/name, 4001, ethers ACTION_REJECTED) as USER_REJECTED with a clean message', () => {
+  it('replaces a noisy viem rejection message with a clean one, keeping the raw cause', () => {
     // viem's UserRejectedRequestError message is a multi-line dump with Request Arguments + Version.
     // The wrapper must NOT inherit that as the SodaxError.message — Sentry/Datadog titles must stay clean.
     const noisyCause = new UserRejectedRequestError(
@@ -43,43 +44,37 @@ describe('intentCreationFailed (wallet rejection classification)', () => {
     expect(err.message).not.toContain('Version: viem');
     // The raw cause is still preserved for debugging.
     expect(err.cause).toBe(noisyCause);
-
-    expect(intentCreationFailed('swap', { name: 'UserRejectedRequestError', message: 'anything' }).code).toBe(
-      'USER_REJECTED',
-    );
-    expect(intentCreationFailed('moneyMarket', { code: 4001, message: 'reject' }).code).toBe('USER_REJECTED');
-    expect(intentCreationFailed('bridge', { code: 'ACTION_REJECTED' }).code).toBe('USER_REJECTED');
   });
 
-  it('classifies a declined EIP-5792 account upgrade (5750) as USER_REJECTED, even when sendCalls wraps it', () => {
-    const declined = new AtomicReadyWalletRejectedUpgradeError(new Error('upgrade rejected'));
-    expect(intentCreationFailed('swap', declined).code).toBe('USER_REJECTED');
-    expect(intentCreationFailed('swap', { code: 5750, message: 'upgrade' }).code).toBe('USER_REJECTED');
-    const wrapped = new TransactionExecutionError(
-      new AtomicReadyWalletRejectedUpgradeError(new Error('upgrade rejected')),
-      { account: null },
-    );
-    expect(intentCreationFailed('swap', wrapped).code).toBe('USER_REJECTED');
-  });
-
-  it('classifies ICON Hana CANCEL_SIGNING / CANCEL_JSON-RPC and numeric -31002 as USER_REJECTED', () => {
-    expect(intentCreationFailed('migration', { code: 'CANCEL_SIGNING' }).code).toBe('USER_REJECTED');
-    expect(intentCreationFailed('migration', { code: 'CANCEL_JSON-RPC' }).code).toBe('USER_REJECTED');
-    expect(intentCreationFailed('migration', { code: -31002 }).code).toBe('USER_REJECTED');
-  });
-
-  it('classifies rejection text in a named wallet error, message, shortMessage or details as USER_REJECTED', () => {
-    // Solana WalletSignTransactionError, Phantom, mobile wallets, Stacks Connect, then viem layouts.
-    expect(
-      intentCreationFailed('swap', { name: 'WalletSignTransactionError', message: 'User rejected the request' }).code,
-    ).toBe('USER_REJECTED');
-    expect(intentCreationFailed('swap', new Error('Transaction was rejected by the user.')).code).toBe('USER_REJECTED');
-    expect(intentCreationFailed('swap', new Error('User aborted signing.')).code).toBe('USER_REJECTED');
-    expect(intentCreationFailed('migration', new Error('Popup closed by user')).code).toBe('USER_REJECTED');
-    expect(intentCreationFailed('staking', { shortMessage: 'User rejected the request.' }).code).toBe('USER_REJECTED');
-    expect(
-      intentCreationFailed('staking', { details: 'MetaMask Tx Signature: User denied transaction signature.' }).code,
-    ).toBe('USER_REJECTED');
+  it('classifies every recognised EVM, EIP-5792, ICON and text rejection shape as USER_REJECTED', () => {
+    const rejections: Array<[label: string, feature: SodaxFeature, cause: unknown]> = [
+      ['viem error name', 'swap', { name: 'UserRejectedRequestError', message: 'anything' }],
+      ['EIP-1193 4001', 'moneyMarket', { code: 4001, message: 'reject' }],
+      ['ethers ACTION_REJECTED', 'bridge', { code: 'ACTION_REJECTED' }],
+      // A declined EIP-5792 account upgrade (5750), even when sendCalls wraps it.
+      ['EIP-5792 declined upgrade', 'swap', new AtomicReadyWalletRejectedUpgradeError(new Error('upgrade rejected'))],
+      ['EIP-5792 code 5750', 'swap', { code: 5750, message: 'upgrade' }],
+      [
+        'EIP-5792 wrapped by sendCalls',
+        'swap',
+        new TransactionExecutionError(new AtomicReadyWalletRejectedUpgradeError(new Error('upgrade rejected')), {
+          account: null,
+        }),
+      ],
+      ['ICON Hana CANCEL_SIGNING', 'migration', { code: 'CANCEL_SIGNING' }],
+      ['ICON Hana CANCEL_JSON-RPC', 'migration', { code: 'CANCEL_JSON-RPC' }],
+      ['ICON -31002', 'migration', { code: -31002 }],
+      // Solana WalletSignTransactionError, Phantom, mobile wallets, Stacks Connect, then viem layouts.
+      ['named wallet error', 'swap', { name: 'WalletSignTransactionError', message: 'User rejected the request' }],
+      ['rejected by the user', 'swap', new Error('Transaction was rejected by the user.')],
+      ['user aborted', 'swap', new Error('User aborted signing.')],
+      ['popup closed', 'migration', new Error('Popup closed by user')],
+      ['shortMessage', 'staking', { shortMessage: 'User rejected the request.' }],
+      ['details', 'staking', { details: 'MetaMask Tx Signature: User denied transaction signature.' }],
+    ];
+    for (const [label, feature, cause] of rejections) {
+      expect(intentCreationFailed(feature, cause).code, label).toBe('USER_REJECTED');
+    }
   });
 
   it('does NOT classify non-rejections (5760, node rejection, network, gas, revert, nullish) as USER_REJECTED', () => {

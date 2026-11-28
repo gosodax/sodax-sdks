@@ -2,8 +2,9 @@
  * Tests for InjectiveSpokeService — the single Injective spoke chain.
  *
  * Pattern: mirrors SuiSpokeService.test.ts (issue #109). Injective has one chain
- * (`ChainKeys.INJECTIVE_MAINNET`), so there is no `describe.each`. One Sodax instance backs every
- * test; `sodax.spoke.injective.txClient` / `.chainGrpcWasmApi` methods are spied per-test;
+ * (`ChainKeys.INJECTIVE_MAINNET`), so there is no `describe.each`. One service, built on the packaged
+ * config without the full `Sodax` facade, backs every test; its `txClient` / `.chainGrpcWasmApi` methods
+ * are spied per-test;
  * `vi.restoreAllMocks` in `afterEach` tears them down.
  *
  * Real config data is used wherever possible — every address, networkId, polling interval, and
@@ -12,7 +13,9 @@
  *
  * Mocking strategy:
  *   - `sleep` (shared-utils.js) is module-mocked at its source via `vi.mock` + `vi.hoisted`
- *     (with `vi.importActual` for the rest) so polling-loop tests don't actually wait.
+ *     (with `vi.importActual` for the rest) so polling-loop tests don't actually wait. This file
+ *     must stay module-mocked anyway: `createTransaction` is an `@injectivelabs/sdk-ts` export,
+ *     whose namespace cannot be spied.
  *   - The deposit/sendMessage tests spy on the spoke service's own `getRawTransaction` per-test to
  *     avoid network I/O; the dedicated `getRawTransaction` block instead mocks `ChainRestAuthApi`,
  *     `BaseAccount`, and `createTransaction` from `@injectivelabs/sdk-ts` to assert its
@@ -24,6 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ChainKeys,
   getIntentRelayChainId,
+  sodaxConfig,
   spokeChainConfig,
   type Hex,
   type IInjectiveWalletProvider,
@@ -75,13 +79,17 @@ vi.mock('cosmjs-types/cosmos/tx/v1beta1/tx.js', () => ({
   TxRaw: { fromPartial: mocks.txRawFromPartial },
 }));
 
-import { Sodax } from '../../entities/Sodax.js';
+import { BackendApiService } from '../../../backendApi/BackendApiService.js';
+import { ConfigService } from '../../config/ConfigService.js';
+import { InjectiveSpokeService } from './InjectiveSpokeService.js';
+import { expectOk } from '../../../test-utils/result.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
 
 // --- fixtures -------------------------------------------------------------
 
-const sodax = new Sodax();
-const injSpoke = sodax.spoke.injective;
+// The service only reads `config`, so skip building every other service behind the `Sodax` facade.
+const config = new ConfigService({ api: new BackendApiService(sodaxConfig.api), config: sodaxConfig });
+const injSpoke = new InjectiveSpokeService(config);
 
 const INJ = ChainKeys.INJECTIVE_MAINNET;
 const SONIC = ChainKeys.SONIC_MAINNET;
@@ -341,7 +349,7 @@ describe('InjectiveSpokeService.getWalletBalance / getWalletBalances', () => {
       { denom: BNUSD_TOKEN.address, amount: '22' },
       { denom: USDT_TOKEN.address, amount: '33' },
     ]);
-    const warnSpy = vi.spyOn(sodax.config.logger, 'warn');
+    const warnSpy = vi.spyOn(config.logger, 'warn');
 
     const result = await injSpoke.getWalletBalances({
       srcChainKey: INJ,
@@ -498,11 +506,11 @@ describe('InjectiveSpokeService.waitForTransactionReceipt', () => {
 
     const result = await injSpoke.waitForTransactionReceipt({ chainKey: INJ, txHash: TX_HASH });
 
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.value.status).toBe('failure');
-    if (result.value.status !== 'failure') return;
-    expect(result.value.error.message).toContain('code 5');
-    expect(result.value.error.message).toContain('boom');
+    const value = expectOk(result);
+    expect(value.status).toBe('failure');
+    if (value.status !== 'failure') return;
+    expect(value.error.message).toContain('code 5');
+    expect(value.error.message).toContain('boom');
   });
 
   it('transient throw → sleeps the caller pollingIntervalMs and recovers on next poll', async () => {
@@ -517,7 +525,7 @@ describe('InjectiveSpokeService.waitForTransactionReceipt', () => {
       maxTimeoutMs: 1000,
     });
 
-    if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
+    expect(expectOk(result).status).toBe('success');
     expect(mocks.sleep).toHaveBeenCalledWith(7);
   });
 
@@ -531,7 +539,6 @@ describe('InjectiveSpokeService.waitForTransactionReceipt', () => {
       maxTimeoutMs: 1,
     });
 
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.value.status).toBe('timeout');
+    expect(expectOk(result).status).toBe('timeout');
   });
 });

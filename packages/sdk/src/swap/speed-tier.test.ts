@@ -52,20 +52,23 @@ describe('estimateSwapSpeedTier', () => {
   // The two rules are independent booleans, so these four rows are the complete output space.
   // Exact values, not arithmetic on the constants: a change to either constant must fail here and
   // be re-confirmed against the spec rather than silently recomputing the expectation.
-  it.each([
-    { sodaAsset: true, ethereum: false, estimatedSeconds: 15, tier: 'fast' },
-    { sodaAsset: true, ethereum: true, estimatedSeconds: 25, tier: 'normal' },
-    { sodaAsset: false, ethereum: false, estimatedSeconds: 35, tier: 'slow' },
-    { sodaAsset: false, ethereum: true, estimatedSeconds: 45, tier: 'slow' },
-  ])('sodaAsset=$sodaAsset ethereum=$ethereum → $estimatedSeconds s / $tier', params => {
-    const vault = params.sodaAsset ? SODA_VAULT : PLAIN_VAULT;
-    const srcChain = params.ethereum ? ChainKeys.ETHEREUM_MAINNET : ChainKeys.SONIC_MAINNET;
+  it('maps each sodaAsset × Ethereum combination to its exact seconds and tier', () => {
+    for (const row of [
+      { sodaAsset: true, ethereum: false, estimatedSeconds: 15, tier: 'fast' },
+      { sodaAsset: true, ethereum: true, estimatedSeconds: 25, tier: 'normal' },
+      { sodaAsset: false, ethereum: false, estimatedSeconds: 35, tier: 'slow' },
+      { sodaAsset: false, ethereum: true, estimatedSeconds: 45, tier: 'slow' },
+    ]) {
+      const vault = row.sodaAsset ? SODA_VAULT : PLAIN_VAULT;
+      const srcChain = row.ethereum ? ChainKeys.ETHEREUM_MAINNET : ChainKeys.SONIC_MAINNET;
 
-    expect(
-      estimateSwapSpeedTier(
-        { srcToken: token(srcChain, vault), dstToken: token(ChainKeys.BSC_MAINNET, vault) },
-        isSodaAsset,
-      ),
-    ).toEqual({ tier: params.tier, estimatedSeconds: params.estimatedSeconds });
+      expect(
+        estimateSwapSpeedTier(
+          { srcToken: token(srcChain, vault), dstToken: token(ChainKeys.BSC_MAINNET, vault) },
+          isSodaAsset,
+        ),
+        `sodaAsset=${row.sodaAsset} ethereum=${row.ethereum}`,
+      ).toEqual({ tier: row.tier, estimatedSeconds: row.estimatedSeconds });
+    }
   });
 });

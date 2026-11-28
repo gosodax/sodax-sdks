@@ -14,27 +14,25 @@ describe('resolveLogger', () => {
 });
 
 describe('consoleLogger', () => {
-  it('forwards error(message, error) to console.error, omitting the second argument when no error is passed', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('forwards each level(message, extra) to the same console method, omitting the second argument when none is passed', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const cause = new Error('boom');
     consoleLogger.error('failed', cause);
-    expect(spy).toHaveBeenLastCalledWith('failed', cause);
+    expect(errorSpy).toHaveBeenLastCalledWith('failed', cause);
     consoleLogger.error('just a message');
-    expect(spy).toHaveBeenLastCalledWith('just a message');
-    spy.mockRestore();
-  });
+    expect(errorSpy).toHaveBeenLastCalledWith('just a message');
+    errorSpy.mockRestore();
 
-  for (const level of ['debug', 'info', 'warn'] as const) {
-    it(`forwards ${level}(message, data) to console.${level}, omitting the second argument when no data is passed`, () => {
+    for (const level of ['debug', 'info', 'warn'] as const) {
       const spy = vi.spyOn(console, level).mockImplementation(() => {});
       const data = { k: 'v' };
       consoleLogger[level]('a message', data);
-      expect(spy).toHaveBeenLastCalledWith('a message', data);
+      expect(spy, level).toHaveBeenLastCalledWith('a message', data);
       consoleLogger[level]('a message');
-      expect(spy).toHaveBeenLastCalledWith('a message');
+      expect(spy, level).toHaveBeenLastCalledWith('a message');
       spy.mockRestore();
-    });
-  }
+    }
+  });
 });
 
 describe('Sodax logger wiring', () => {

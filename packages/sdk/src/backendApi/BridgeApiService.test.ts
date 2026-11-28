@@ -3,7 +3,7 @@
  *
  * Mirrors SwapsApiService.test.ts:
  *   1. A single module-scope `new Sodax()` backs every test — `sodax.api.bridge` is the
- *      service under test. `vi.stubGlobal('fetch', ...)` intercepts every outbound call.
+ *      service under test. `stubFetch()` intercepts every outbound call.
  *   2. Routes, retries and body serialization belong to `@sodax/bridge-api`'s own suite, and the per-service
  *      API-key / header precedence to BackendApiService.test.ts; this file pins the adapter's own
  *      mapping (error context, response-shape tagging, request-body normalization).
@@ -13,17 +13,16 @@
  * Bridge-specific deltas covered: the submit-tx body carries the FULL `relayData { address, payload }`
  * envelope; the domain→wire mapper `toCreateBridgeIntentParamsV2` converts SDK names + bigint.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_API_BASE_URL, type BridgeSubmitTxRequestV2, type CreateBridgeIntentParamsV2 } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { BridgeApiService, toCreateBridgeIntentParamsV2 } from './BridgeApiService.js';
-import { SodaxError } from '../errors/SodaxError.js';
-import { isAuthFailure, isSodaxError } from '../errors/guards.js';
+import { isAuthFailure } from '../errors/guards.js';
 import { BridgeApiError } from '@sodax/bridge-api';
+import { abortingFetch, httpErrorResponse, okResponse, stubFetch } from '../test-utils/fetch.js';
+import { expectErr } from '../test-utils/result.js';
 
-// --- fetch stub -----------------------------------------------------------
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+const mockFetch = stubFetch();
 
 // --- fixtures -------------------------------------------------------------
 const sodax = new Sodax();
@@ -49,29 +48,10 @@ const sampleBridgeSubmitTxRequest: BridgeSubmitTxRequestV2 = {
   relayData: sampleRelayData,
 };
 
-// --- helpers --------------------------------------------------------------
-const okResponse = <T>(data: T) => ({ ok: true, status: 200, json: vi.fn().mockResolvedValue(data) });
-const httpErrorResponse = (status: number, text: string) => ({
-  ok: false,
-  status,
-  text: vi.fn().mockResolvedValue(text),
-});
-const abortFetchImpl = (_url: string, init: { signal: AbortSignal }) =>
-  new Promise((_resolve, reject) => {
-    init.signal.addEventListener('abort', () => {
-      const err = new Error('The operation was aborted');
-      err.name = 'AbortError';
-      reject(err);
-    });
-  });
-
 // Braces matter: `mockReset()` returns the mock, and a `beforeEach` that returns a function
 // registers it as a teardown — vitest 4 leaves the impl in place, so it would fire the stub.
 beforeEach(() => {
   mockFetch.mockReset();
-});
-afterEach(() => {
-  vi.restoreAllMocks();
 });
 
 // =========================================================================
@@ -145,23 +125,16 @@ describe('toCreateBridgeIntentParamsV2', () => {
 describe('BridgeApiService response validation', () => {
   it('rejects getTokens when a token entry is missing required fields', async () => {
     mockFetch.mockResolvedValueOnce(okResponse({ '0xa4b1.arbitrum': [{ symbol: 'USDC' }] }));
-    const result = await sodax.api.bridge.getTokens();
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBeInstanceOf(SodaxError);
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      expect(err.feature).toBe('backend');
-      expect(err.context).toMatchObject({
-        api: 'bridge',
-        endpoint: '/bridge/tokens',
-        reason: 'invalid_response_shape',
-      });
-      // issues are flattened (v.flatten) to match BackendApiService — a plain object that survives
-      // SodaxError.toJSON, not a raw ValiError (which would sanitize down to just name + message).
-      expect(err.context?.issues).toBeTypeOf('object');
-      expect(err.context?.issues).not.toBeInstanceOf(Error);
-    }
+    const err = expectErr(await sodax.api.bridge.getTokens(), 'EXTERNAL_API_ERROR', {
+      api: 'bridge',
+      endpoint: '/bridge/tokens',
+      reason: 'invalid_response_shape',
+    });
+    expect(err.feature).toBe('backend');
+    // issues are flattened (v.flatten) to match BackendApiService — a plain object that survives
+    // SodaxError.toJSON, not a raw ValiError (which would sanitize down to just name + message).
+    expect(err.context?.issues).toBeTypeOf('object');
+    expect(err.context?.issues).not.toBeInstanceOf(Error);
   });
 
   it('does NOT tag a request-side VALIDATION_ERROR (stray bigint in the body) as invalid_response_shape', async () => {
@@ -170,15 +143,10 @@ describe('BridgeApiService response validation', () => {
     // response-shape problem (`reason`/`issues` are reserved for response validation).
     const badParams = { ...sampleCreateBridgeIntentParams, inputAmount: 1n } as unknown as CreateBridgeIntentParamsV2;
     const result = await sodax.api.bridge.checkAllowance(badParams);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      expect(err.context?.code).toBe('VALIDATION_ERROR');
-      expect(err.context?.reason).toBeUndefined();
-      expect(err.context?.issues).toBeUndefined();
-      expect(mockFetch).not.toHaveBeenCalled();
-    }
+    const err = expectErr(result, 'EXTERNAL_API_ERROR', { code: 'VALIDATION_ERROR' });
+    expect(err.context?.reason).toBeUndefined();
+    expect(err.context?.issues).toBeUndefined();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 
@@ -193,27 +161,19 @@ describe('BridgeApiService error propagation', () => {
     // keyed bridge submit-tx burns its whole attempt budget re-sending it.
     for (const status of [401, 403]) {
       mockFetch.mockResolvedValueOnce(httpErrorResponse(status, 'Unauthorized'));
-      const result = await sodax.api.bridge.getTokens();
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(isSodaxError(result.error) && result.error.context?.status).toBe(status);
-        expect(isAuthFailure(result.error)).toBe(true);
-      }
+      const err = expectErr(await sodax.api.bridge.getTokens(), undefined, { status }, String(status));
+      expect(isAuthFailure(err), String(status)).toBe(true);
     }
   });
 
   it('wraps a timed-out call as EXTERNAL_API_ERROR with a TIMEOUT_ERROR cause, without retrying', async () => {
-    mockFetch.mockImplementation(abortFetchImpl);
-    const result = await sodax.api.bridge.getTokens({ timeout: 5 });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      // The wire code is surfaced in context so a timeout is distinguishable from a network drop.
-      expect(err.context?.code).toBe('TIMEOUT_ERROR');
-      expect(err.cause).toBeInstanceOf(BridgeApiError);
-      expect((err.cause as BridgeApiError).code).toBe('TIMEOUT_ERROR');
-    }
+    mockFetch.mockImplementation(abortingFetch);
+    // The wire code is surfaced in context so a timeout is distinguishable from a network drop.
+    const err = expectErr(await sodax.api.bridge.getTokens({ timeout: 5 }), 'EXTERNAL_API_ERROR', {
+      code: 'TIMEOUT_ERROR',
+    });
+    expect(err.cause).toBeInstanceOf(BridgeApiError);
+    expect((err.cause as BridgeApiError).code).toBe('TIMEOUT_ERROR');
     // timeout is an overall deadline: it stops the call rather than burning the idempotent retry budget
     expect(mockFetch).toHaveBeenCalledOnce();
   });
@@ -221,15 +181,10 @@ describe('BridgeApiService error propagation', () => {
   it('wraps a raw network error as EXTERNAL_API_ERROR, preserving the original error on the cause chain', async () => {
     const networkError = new Error('Network down');
     mockFetch.mockRejectedValue(networkError);
-    const result = await sodax.api.bridge.getTokens();
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      expect(err.cause).toBeInstanceOf(BridgeApiError);
-      // The original fetch error is preserved one level deeper, on the BridgeApiError's cause.
-      expect((err.cause as BridgeApiError).cause).toBe(networkError);
-    }
+    const err = expectErr(await sodax.api.bridge.getTokens(), 'EXTERNAL_API_ERROR');
+    expect(err.cause).toBeInstanceOf(BridgeApiError);
+    // The original fetch error is preserved one level deeper, on the BridgeApiError's cause.
+    expect((err.cause as BridgeApiError).cause).toBe(networkError);
     expect(mockFetch).toHaveBeenCalledTimes(3); // network errors are retryable for idempotent calls
   });
 });

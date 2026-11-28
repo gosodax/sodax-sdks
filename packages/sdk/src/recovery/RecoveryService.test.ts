@@ -8,9 +8,10 @@ import type { SpokeService } from '../shared/services/spoke/SpokeService.js';
 import { assetManagerAbi } from '../shared/abis/index.js';
 import { encodeAddress, encodeRecipient } from '../shared/utils/shared-utils.js';
 import { invariant } from '../shared/utils/tiny-invariant.js';
+import { expectErr, expectOk } from '../test-utils/result.js';
 import { noopAnalytics, resolveAnalytics } from '../shared/analytics.js';
 import { RecoveryService } from './RecoveryService.js';
-import { isSodaxError, SodaxError } from '../errors/SodaxError.js';
+import { SodaxError } from '../errors/SodaxError.js';
 import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
 
 describe('RecoveryService.withdrawHubAsset', () => {
@@ -25,7 +26,7 @@ describe('RecoveryService.withdrawHubAsset', () => {
     const config = {
       getSpokeTokenFromOriginalAssetAddress: vi.fn(() => ({ hubAsset })),
       analytics: noopAnalytics,
-    } as unknown as ConfigService;
+    } as unknown as ConfigService; // only the members withdrawHubAsset reads
     const hubProvider = {
       config,
       chainConfig: {
@@ -33,11 +34,11 @@ describe('RecoveryService.withdrawHubAsset', () => {
         addresses: { assetManager },
       },
       getUserHubWalletAddress: vi.fn(async () => hubWallet),
-    } as unknown as HubProvider;
+    } as unknown as HubProvider; // only the members withdrawHubAsset reads
     const spoke = {
       sendMessage: vi.fn(async () => ({ ok: true, value: '0xsent' as Hex })),
       assertReleaseRecipientReady: vi.fn(async () => undefined),
-    } as unknown as SpokeService;
+    } as unknown as SpokeService; // stubbed send and recipient check
     const recovery = new RecoveryService({ config, hubProvider, spoke });
 
     const result = await recovery.withdrawHubAsset({
@@ -50,7 +51,7 @@ describe('RecoveryService.withdrawHubAsset', () => {
       },
     });
 
-    expect(result.ok).toBe(true);
+    expectOk(result);
     expect(spoke.sendMessage).toHaveBeenCalledOnce();
 
     const sendMessageParams = vi.mocked(spoke.sendMessage).mock.calls[0]?.[0] as { payload: Hex };
@@ -94,9 +95,7 @@ describe('RecoveryService.withdrawHubAsset — payout to an MPC-relay chain', ()
       },
     });
 
-    invariant(!result.ok && isSodaxError(result.error), 'expected a refusal');
-    expect(result.error.code).toBe('VALIDATION_FAILED');
-    expect(result.error.context?.reason).toBe('mpc-payout-below-minimum');
+    expectErr(result, 'VALIDATION_FAILED', { reason: 'mpc-payout-below-minimum' });
     expect(hubProvider.getUserHubWalletAddress).not.toHaveBeenCalled();
     expect(spoke.sendMessage).not.toHaveBeenCalled();
   });
@@ -129,8 +128,7 @@ describe('RecoveryService.withdrawHubAsset — payout to an MPC-relay chain', ()
       params: { srcChainKey: ChainKeys.XRP_MAINNET, srcAddress: xrpAddress, token, amount: 10_000_000n },
     });
 
-    invariant(!result.ok, 'expected a refusal');
-    expect(result.error).toBe(refusal);
+    expect(expectErr(result)).toBe(refusal);
     expect(spoke.assertReleaseRecipientReady).toHaveBeenCalledWith(
       expect.objectContaining({
         feature: 'recovery',
@@ -185,11 +183,8 @@ describe('RecoveryService.withdrawHubAsset — analytics', () => {
     return events.find(event => event.phase === 'success')?.data;
   };
 
-  it('reports a Tron withdraw by its relay trackingId, never as a tx hash', async () => {
+  it('reports a Tron withdraw by its relay trackingId, never as a tx hash, and every other chain by tx hash', async () => {
     expect(await withdraw(ChainKeys.TRON_MAINNET)).toEqual({ trackingId: 'returned-id' });
-  });
-
-  it('keeps reporting a tx hash on every other chain', async () => {
     expect(await withdraw(ChainKeys.ICON_MAINNET)).toEqual({ txHash: 'returned-id' });
   });
 });

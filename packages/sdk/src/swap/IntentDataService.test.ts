@@ -10,7 +10,7 @@
  * Delivery payloads are built with `HookService.encodeDeliveryData` and fee envelopes with
  * `EvmSolverService.createIntentFeeData`, so the fixtures match what the intent constructors produce.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HookKind, type Hex } from '@sodax/types';
 import { decodeAbiParameters, encodePacked } from 'viem';
 import { IntentDataService } from './IntentDataService.js';
@@ -73,6 +73,9 @@ describe('IntentDataService.composeIntentData', () => {
 });
 
 describe('IntentDataService.extractFeePayload', () => {
+  // A console spy left from one case would carry its calls into the "without logging" case.
+  afterEach(() => vi.restoreAllMocks());
+
   it('returns undefined without logging for empty data and for a delivery-only envelope', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const data = IntentDataService.composeIntentData('0x', hcDeliveryFixture());

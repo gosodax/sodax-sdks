@@ -2,16 +2,17 @@
  * Wire tests for the solver-backed SwapService consumer paths: a keyed `new Sodax({ apiKey })`
  * must put `x-api-key` on the actual outgoing fetch with `Content-Type` intact.
  *
- * Deliberately a separate file from SwapService.test.ts: that file hoists a
- * `vi.mock('./SolverApiService.js')`, which would replace the very transport these tests
- * exercise. Here the real solver client runs against a stubbed global fetch.
+ * Deliberately a separate file from SwapService.test.ts: that file stubs `SolverApiService`'s
+ * statics, the very transport these tests exercise. Here the real solver client runs against a
+ * stubbed global fetch.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { ChainKeys, SolverIntentStatusCode, type Hex } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
+import { okResponse, stubFetch } from '../test-utils/fetch.js';
+import { expectOk } from '../test-utils/result.js';
 
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+const mockFetch = stubFetch();
 
 const sodax = new Sodax({ apiKey: 'instance-key', logger: 'silent' });
 
@@ -26,8 +27,6 @@ const QUOTE_PAYLOAD = {
 } as const;
 
 const INTENT_TX_HASH: Hex = '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
-
-const okResponse = <T>(body: T) => ({ ok: true, status: 200, json: async () => body });
 
 beforeEach(() => {
   mockFetch.mockReset();
@@ -82,8 +81,7 @@ describe('SwapService solver consumer paths — API key on the wire', () => {
       srcTxHash: INTENT_TX_HASH,
     });
 
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.source).toBe('solver');
+    expect(expectOk(result).source).toBe('solver');
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(requestHeaders('/v1/swaps/submit-tx/status', 'GET').get('x-api-key')).toBe('instance-key');
     const solverHeaders = requestHeaders('/v1/intent/status', 'POST');

@@ -54,7 +54,7 @@ describe('SubmitTxAttempt.requestTimeout', () => {
     expect(attempt.requestTimeout(SERVICE_TIMEOUT_MS)).toBe(5_000);
   });
 
-  it('returns null rather than a zero timeout once the attempt is spent, including on the exact boundary', async () => {
+  it('returns null rather than a zero timeout once the attempt is spent (on the exact boundary) or the service timeout is non-positive', async () => {
     const attempt = createSubmitTxAttempt(10_000);
 
     await vi.advanceTimersByTimeAsync(10_000);
@@ -64,9 +64,7 @@ describe('SubmitTxAttempt.requestTimeout', () => {
     // check the single computed value instead of re-deriving it after a separate guard.
     expect(attempt.remaining()).toBe(0);
     expect(attempt.requestTimeout(SERVICE_TIMEOUT_MS)).toBeNull();
-  });
 
-  it('returns null when the service timeout itself is non-positive', () => {
     expect(createSubmitTxAttempt(120_000).requestTimeout(0)).toBeNull();
     expect(createSubmitTxAttempt(120_000).requestTimeout(-1)).toBeNull();
   });

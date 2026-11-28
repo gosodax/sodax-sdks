@@ -1,36 +1,27 @@
 // packages/sdk/src/partner/PartnerFeeClaimService.test.ts
 import { decodeFunctionData, type Address, type Hex } from 'viem';
-import {
-  ChainKeys,
-  getIntentRelayChainId,
-  tronSupportedTokens,
-  type IEvmWalletProvider,
-  type SpokeChainKey,
-} from '@sodax/types';
+import { ChainKeys, getIntentRelayChainId, tronSupportedTokens, type SpokeChainKey } from '@sodax/types';
 import { describe, expect, it, vi } from 'vitest';
 import type { ConfigService } from '../shared/config/ConfigService.js';
 import type { HubProvider } from '../shared/types/types.js';
 import type { SpokeService } from '../shared/services/spoke/SpokeService.js';
 import { ProtocolIntentsAbi } from '../shared/abis/protocolIntents.abi.js';
 import { noopAnalytics } from '../shared/index.js';
-import { isSodaxError } from '../errors/SodaxError.js';
-
-// The fee-claim swap notifies the solver through a static import, so it is replaced at the module.
-const mocks = vi.hoisted(() => ({ solverPostExecution: vi.fn() }));
-vi.mock('../swap/SolverApiService.js', () => ({ SolverApiService: { postExecution: mocks.solverPostExecution } }));
-
+import { SolverApiService } from '../swap/SolverApiService.js';
 import { PartnerFeeClaimService } from './PartnerFeeClaimService.js';
 import { TRON_TEST_ADDRESS } from '../shared/services/spoke/tron-test-fixtures.js';
+import { expectErr, expectOk } from '../test-utils/result.js';
+import { mockEvmWalletProvider } from '../test-utils/walletProviders.js';
+
+// The fee-claim swap notifies the solver through a static call; no case here may reach the network.
+vi.spyOn(SolverApiService, 'postExecution').mockRejectedValue(new Error('unexpected solver call'));
 
 const PROTOCOL_INTENTS = '0xaFf2EDb3057ed6f9C1dA6c930b8ddDf2beE573A5' as Address;
 const SRC = '0x6c5f91fd68dd7b3a1aedb0f09946659272f523a4' as Address;
 const USDC = '0x29219dd400f2Bf60E5a23d13Be72B486D4038894' as Address;
 
-const EVM_WALLET = { chainType: 'EVM', sendTransaction: vi.fn() } as unknown as IEvmWalletProvider;
-
 function makeService(overrides: {
   readContract?: ReturnType<typeof vi.fn>;
-  sendTransaction?: ReturnType<typeof vi.fn>;
   isValidIntentRelayChainId?: (chainId: bigint) => boolean;
   spokeChainKeyOf?: (intentRelayChainId: bigint) => SpokeChainKey;
 }): PartnerFeeClaimService {
@@ -53,39 +44,30 @@ function makeService(overrides: {
 }
 
 describe('PartnerFeeClaimService.cancelIntent', () => {
-  it('encodes a ProtocolIntents.cancelIntent(fromToken, toToken) call to the protocol intents contract (raw)', async () => {
+  it('encodes a ProtocolIntents.cancelIntent(fromToken, toToken) call raw, or signs and broadcasts it via the wallet provider', async () => {
     const service = makeService({});
+    const params = { srcChainKey: ChainKeys.SONIC_MAINNET, srcAddress: SRC, fromToken: USDC, toToken: USDC } as const;
 
-    const result = await service.cancelIntent({
-      raw: true,
-      params: { srcChainKey: ChainKeys.SONIC_MAINNET, srcAddress: SRC, fromToken: USDC, toToken: USDC },
-    });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    const rawTx = result.value as { from: Address; to: Address; value: bigint; data: Hex };
+    const rawTx = expectOk(await service.cancelIntent({ raw: true, params }), 'raw') as {
+      from: Address;
+      to: Address;
+      value: bigint;
+      data: Hex;
+    };
     expect(rawTx.to).toBe(PROTOCOL_INTENTS);
     expect(rawTx.from).toBe(SRC);
     expect(rawTx.value).toBe(0n);
-
     const decoded = decodeFunctionData({ abi: ProtocolIntentsAbi, data: rawTx.data });
     expect(decoded.functionName).toBe('cancelIntent');
     expect(decoded.args).toEqual([USDC, USDC]);
-  });
 
-  it('signs and broadcasts via the wallet provider when not raw', async () => {
     const sendTransaction = vi.fn(async () => '0xcancelhash' as Hex);
-    const service = makeService({});
-
-    const result = await service.cancelIntent({
+    const signed = await service.cancelIntent({
       raw: false,
-      params: { srcChainKey: ChainKeys.SONIC_MAINNET, srcAddress: SRC, fromToken: USDC, toToken: USDC },
-      walletProvider: { chainType: 'EVM', sendTransaction } as unknown as IEvmWalletProvider,
+      params,
+      walletProvider: mockEvmWalletProvider({ sendTransaction }),
     });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value).toBe('0xcancelhash');
+    expect(expectOk(signed, 'signed')).toBe('0xcancelhash');
     expect(sendTransaction).toHaveBeenCalledOnce();
   });
 });
@@ -97,19 +79,17 @@ describe('PartnerFeeClaimService.createIntentAutoSwap — MPC-relay destination'
       dstChain: getIntentRelayChainId(ChainKeys.TRON_MAINNET),
       dstAddress: '0x' as Hex,
     }));
-    const sendTransaction = vi.fn();
+    const walletProvider = mockEvmWalletProvider();
     const service = makeService({ readContract, spokeChainKeyOf: () => ChainKeys.TRON_MAINNET });
 
     const result = await service.createIntentAutoSwap({
       raw: false,
       params: { srcChainKey: ChainKeys.SONIC_MAINNET, srcAddress: SRC, fromToken: USDC, amount: 1_000_000n },
-      walletProvider: { ...EVM_WALLET, sendTransaction },
+      walletProvider,
     });
 
-    if (result.ok || !isSodaxError(result.error)) throw new Error('expected a refusal');
-    expect(result.error.code).toBe('VALIDATION_FAILED');
-    expect(result.error.context?.reason).toBe('mpc-relay-auto-swap-destination');
-    expect(sendTransaction).not.toHaveBeenCalled();
+    expectErr(result, 'VALIDATION_FAILED', { reason: 'mpc-relay-auto-swap-destination' });
+    expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
   });
 });
 
@@ -122,12 +102,10 @@ describe('PartnerFeeClaimService.swap same-token guard', () => {
     const result = await service.swap({
       raw: false,
       params: { srcChainKey: ChainKeys.SONIC_MAINNET, srcAddress: SRC, fromToken: USDC, amount: 1_000_000n },
-      walletProvider: EVM_WALLET,
+      walletProvider: mockEvmWalletProvider(),
     });
 
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect((result.error as { code?: string }).code).toBe('VALIDATION_FAILED');
+    expectErr(result, 'VALIDATION_FAILED');
     // The guard must short-circuit before any swap transaction is built/sent.
     expect(readContract).toHaveBeenCalled();
   });
@@ -159,9 +137,7 @@ describe('PartnerFeeClaimService.getIntentDetails', () => {
 
     const result = await service.getIntentDetails(INTENT_HASH);
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value).toEqual(onChainIntent);
+    expect(expectOk(result)).toEqual(onChainIntent);
     expect(readContract).toHaveBeenCalledWith(
       expect.objectContaining({ functionName: 'getIntentDetails', args: [INTENT_HASH] }),
     );
@@ -171,50 +147,38 @@ describe('PartnerFeeClaimService.getIntentDetails', () => {
     const readContract = vi.fn(async () => ({ ...onChainIntent, srcChain: 999_999n }));
     const service = makeService({ readContract, isValidIntentRelayChainId: id => id !== 999_999n });
 
-    const result = await service.getIntentDetails(INTENT_HASH);
-
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect((result.error as { code?: string }).code).toBe('LOOKUP_FAILED');
+    expectErr(await service.getIntentDetails(INTENT_HASH), 'LOOKUP_FAILED');
   });
 });
 
 describe('PartnerFeeClaimService.setSwapPreference', () => {
-  it('refuses a Tron destination before building the transaction', async () => {
-    const tronUsdt = tronSupportedTokens.USDT;
+  it('refuses a Tron destination, and a hub-chain output token that is not an EVM address, before building', async () => {
     const service = makeService({});
+    // A non-EVM token address on the hub must be refused; Tron's USDT is one.
+    const tronUsdt = tronSupportedTokens.USDT.address;
 
-    const result = await service.setSwapPreference<typeof ChainKeys.SONIC_MAINNET, true>({
+    const toTron = await service.setSwapPreference<typeof ChainKeys.SONIC_MAINNET, true>({
       params: {
         srcChainKey: ChainKeys.SONIC_MAINNET,
         srcAddress: SRC,
-        outputToken: tronUsdt.address,
+        outputToken: tronUsdt,
         dstChainKey: ChainKeys.TRON_MAINNET,
         dstAddress: TRON_TEST_ADDRESS,
       },
       raw: true,
     });
+    expectErr(toTron, 'VALIDATION_FAILED', { reason: 'mpc-relay-auto-swap-destination' }, 'Tron destination');
 
-    if (result.ok || !isSodaxError(result.error)) throw new Error('expected a refusal');
-    expect(result.error.code).toBe('VALIDATION_FAILED');
-    expect(result.error.context?.reason).toBe('mpc-relay-auto-swap-destination');
-  });
-
-  it('rejects a hub-chain output token that is not an EVM address', async () => {
-    const service = makeService({});
-
-    const result = await service.setSwapPreference<typeof ChainKeys.SONIC_MAINNET, true>({
+    const nonEvmOnHub = await service.setSwapPreference<typeof ChainKeys.SONIC_MAINNET, true>({
       params: {
         srcChainKey: ChainKeys.SONIC_MAINNET,
         srcAddress: SRC,
-        // A non-EVM token address on the hub must be refused; Tron's USDT is one.
-        outputToken: tronSupportedTokens.USDT.address,
+        outputToken: tronUsdt,
         dstChainKey: ChainKeys.SONIC_MAINNET,
         dstAddress: SRC,
       },
       raw: true,
     });
-
-    expect(result.ok).toBe(false);
+    expect(nonEvmOnHub.ok, 'non-EVM hub output token').toBe(false);
   });
 });

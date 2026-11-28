@@ -14,6 +14,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { encodeFunctionData, erc20Abi, type Address, type PublicClient } from 'viem';
 import { Erc20Service } from './Erc20Service.js';
+import { mockEvmWalletProvider } from '../../../test-utils/walletProviders.js';
 
 const TOKEN = '0xdAC17F958D2ee523a2206206994597C13D831ec7' as Address;
 const NATIVE = '0x0000000000000000000000000000000000000000' as Address;
@@ -179,7 +180,7 @@ describe('Erc20Service.approve — chain binding', () => {
       from: OWNER,
       spender: SPENDER,
       raw: false,
-      walletProvider: { sendTransaction } as never,
+      walletProvider: mockEvmWalletProvider({ sendTransaction }),
       expectedChainId: 146,
     });
 

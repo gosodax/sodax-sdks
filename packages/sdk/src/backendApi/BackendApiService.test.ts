@@ -4,8 +4,7 @@
  * Mirrors the shape of MoneyMarketService.test.ts / SwapService.test.ts:
  *
  *   1. A single module-scope `new Sodax()` backs every test — `sodax.backendApi` is the
- *      service under test. The same instance is reused via `vi.stubGlobal('fetch', ...)`
- *      to intercept every outbound HTTP call.
+ *      service under test. `stubFetch()` intercepts every outbound HTTP call.
  *   2. `describe(method name)` + one or more `it` per flow. Branchy methods get nested
  *      `happy paths` / `rejects on invalid inputs` / `propagates internal errors` subgroups.
  *   3. Internal collaborators are exclusively `fetch` and the valibot response schemas in
@@ -20,7 +19,7 @@
  *      methods that return raw `Promise<T>` are validated with `await expect(...).resolves`
  *      / `.rejects` — matching the runtime contract of each method.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   BACKEND_API_BASE_PATH,
   ChainKeys,
@@ -31,18 +30,13 @@ import {
 } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { BackendApiService } from './BackendApiService.js';
-import { SodaxError } from '../errors/SodaxError.js';
 import { silentLogger } from '../shared/logger.js';
 import type { RequestOverrideConfig } from './api-utils.js';
+import { abortingFetch, httpErrorResponse, okResponse, stubFetch } from '../test-utils/fetch.js';
+import { expectErr } from '../test-utils/result.js';
 
-// --- fetch stub -----------------------------------------------------------
-//
-// Every test routes through `global.fetch`. We stub it once for the file and reset
-// the mock state between tests so each `it` configures its own response. `vi.stubGlobal`
-// (over assignment to `global.fetch`) means the original is automatically restored when
-// the file finishes.
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+// Every test routes through `global.fetch`; the mock is reset between tests so each `it` configures its own response.
+const mockFetch = stubFetch();
 
 // --- test fixtures --------------------------------------------------------
 
@@ -123,29 +117,8 @@ const SAMPLE_ORACLE_MARKETS = {
   symbols: ['BTC', 'ETH', 'SOL'],
 };
 
-// --- helpers --------------------------------------------------------------
-
-const okResponse = <T>(data: T) => ({ ok: true, status: 200, json: vi.fn().mockResolvedValue(data) });
-const httpErrorResponse = (status: number, text: string) => ({
-  ok: false,
-  status,
-  text: vi.fn().mockResolvedValue(text),
-});
-const abortFetchImpl = (_url: string, init: { signal: AbortSignal }) =>
-  new Promise((_resolve, reject) => {
-    init.signal.addEventListener('abort', () => {
-      const err = new Error('The operation was aborted');
-      err.name = 'AbortError';
-      reject(err);
-    });
-  });
-
 beforeEach(() => {
   mockFetch.mockReset();
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
 });
 
 // =========================================================================
@@ -176,56 +149,30 @@ describe('BackendApiService.getIntentByTxHash', () => {
   // `SwapService.resolveSolverStatus` branches on exactly this: a 404 is the backend answering "no
   // record", which lets a solver NOT_FOUND stand as a definitive miss, while any other failure leaves
   // it unverified. The status therefore has to survive into `context`, and nothing else pins that.
-  it('returns EXTERNAL_API_ERROR wrapping HTTP_REQUEST_FAILED on a non-2xx, with the status lifted into context', async () => {
+  it('maps every fetch failure to EXTERNAL_API_ERROR, keeping the original on the cause chain', async () => {
     mockFetch.mockResolvedValueOnce(httpErrorResponse(404, 'Not Found'));
+    const httpErr = expectErr(await sodax.backendApi.getIntentByTxHash(SAMPLE_TX_HASH), 'EXTERNAL_API_ERROR', {
+      status: 404,
+      api: 'backend',
+    });
+    expect(httpErr.feature).toBe('backend');
+    expect(httpErr.message).toBe('HTTP_REQUEST_FAILED');
+    // cause chain: SodaxError → makeRequest Error('HTTP_REQUEST_FAILED') → Error('HTTP 404: …')
+    expect((httpErr.cause as Error).message).toBe('HTTP_REQUEST_FAILED');
+    expect(((httpErr.cause as Error).cause as Error).message).toMatch(/HTTP 404: Not Found/);
 
-    const result = await sodax.backendApi.getIntentByTxHash(SAMPLE_TX_HASH);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBeInstanceOf(SodaxError);
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      expect(err.feature).toBe('backend');
-      expect(err.message).toBe('HTTP_REQUEST_FAILED');
-      // cause chain: SodaxError → makeRequest Error('HTTP_REQUEST_FAILED') → Error('HTTP 404: …')
-      expect((err.cause as Error).message).toBe('HTTP_REQUEST_FAILED');
-      expect(((err.cause as Error).cause as Error).message).toMatch(/HTTP 404: Not Found/);
-      expect(err.context?.status).toBe(404);
-      expect(err.context?.api).toBe('backend');
-    }
-  });
-
-  it('returns ok:false wrapping a non-AbortError network error as EXTERNAL_API_ERROR (original on cause)', async () => {
     const networkError = new Error('Network down');
     mockFetch.mockRejectedValueOnce(networkError);
+    const netErr = expectErr(await sodax.backendApi.getIntentByTxHash(SAMPLE_TX_HASH), 'EXTERNAL_API_ERROR');
+    expect(netErr.feature).toBe('backend');
+    expect(netErr.cause).toBe(networkError);
 
-    const result = await sodax.backendApi.getIntentByTxHash(SAMPLE_TX_HASH);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toBeInstanceOf(SodaxError);
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      expect(err.feature).toBe('backend');
-      expect(err.cause).toBe(networkError);
-    }
-  });
-
-  it('returns ok:false wrapping UNKNOWN_REQUEST_ERROR when fetch rejects with a non-Error value', async () => {
     mockFetch.mockRejectedValueOnce('string-not-error');
-
-    const result = await sodax.backendApi.getIntentByTxHash(SAMPLE_TX_HASH);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      expect(err.message).toBe('UNKNOWN_REQUEST_ERROR');
-      // cause chain: SodaxError → makeRequest Error('UNKNOWN_REQUEST_ERROR') → 'string-not-error'
-      expect((err.cause as Error).message).toBe('UNKNOWN_REQUEST_ERROR');
-      expect((err.cause as Error).cause).toBe('string-not-error');
-    }
+    const unknownErr = expectErr(await sodax.backendApi.getIntentByTxHash(SAMPLE_TX_HASH), 'EXTERNAL_API_ERROR');
+    expect(unknownErr.message).toBe('UNKNOWN_REQUEST_ERROR');
+    // cause chain: SodaxError → makeRequest Error('UNKNOWN_REQUEST_ERROR') → 'string-not-error'
+    expect((unknownErr.cause as Error).message).toBe('UNKNOWN_REQUEST_ERROR');
+    expect((unknownErr.cause as Error).cause).toBe('string-not-error');
   });
 });
 
@@ -463,11 +410,7 @@ describe('BackendApiService config endpoints', () => {
 
     const result = await sodax.backendApi.getAllConfig();
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect((result.error as SodaxError).code).toBe('EXTERNAL_API_ERROR');
-      expect((result.error as Error).message).toBe('HTTP_REQUEST_FAILED');
-    }
+    expect(expectErr(result, 'EXTERNAL_API_ERROR').message).toBe('HTTP_REQUEST_FAILED');
   });
 });
 
@@ -483,15 +426,12 @@ describe('BackendApiService response validation', () => {
 
     const result = await sodax.backendApi.getIntentByHash(SAMPLE_INTENT_HASH);
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      expect(err.feature).toBe('backend');
-      expect(err.context?.api).toBe('backend');
-      expect(err.context?.endpoint).toBe(`/intent/${SAMPLE_INTENT_HASH}`);
-      expect(err.context?.reason).toBe('invalid_response_shape');
-    }
+    const err = expectErr(result, 'EXTERNAL_API_ERROR', {
+      api: 'backend',
+      endpoint: `/intent/${SAMPLE_INTENT_HASH}`,
+      reason: 'invalid_response_shape',
+    });
+    expect(err.feature).toBe('backend');
   });
 
   it('getOracleCandles rejects OHLC prices sent as JSON numbers, and an interval echo outside the declared union', async () => {
@@ -511,8 +451,7 @@ describe('BackendApiService response validation', () => {
       to: 1782241200,
     });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect((result.error as SodaxError).context?.reason).toBe('invalid_response_shape');
+    expectErr(result, undefined, { reason: 'invalid_response_shape' });
 
     mockFetch.mockResolvedValueOnce(okResponse({ symbol: 'ETH', quote: 'USD', interval: '4h', candles: [] }));
     const echo = await sodax.backendApi.getOracleCandles({
@@ -521,7 +460,7 @@ describe('BackendApiService response validation', () => {
       from: 1782234000,
       to: 1782241200,
     });
-    expect(!echo.ok && (echo.error as SodaxError).context?.reason).toBe('invalid_response_shape');
+    expectErr(echo, undefined, { reason: 'invalid_response_shape' });
   });
 
   it('getOracleMarkets tolerates an unknown interval key (schema is not a picklist)', async () => {
@@ -566,7 +505,7 @@ describe('BackendApiService.request config threading', () => {
   });
 
   it('threads a per-call timeout override through to makeRequest (resolves ok:false with REQUEST_TIMEOUT)', async () => {
-    mockFetch.mockImplementationOnce(abortFetchImpl);
+    mockFetch.mockImplementationOnce(abortingFetch);
 
     await expect(sodax.backendApi.getOrderbook({ offset: '0', limit: '5' }, { timeout: 5 })).resolves.toEqual({
       ok: false,
@@ -708,34 +647,43 @@ describe('one key, every service', () => {
     ['sponsoring', config => keyed.api.sponsoring.getStellarSponsorConfig(config)],
   ];
 
-  it.each(
-    services,
-  )('resolves the apiKey precedence on the %s wire (instance < per-request; blank = unset)', async (_label, call) => {
-    const keySent = async (config?: RequestOverrideConfig): Promise<string | null> => {
-      mockFetch.mockResolvedValueOnce(okResponse({}));
-      await call(config);
-      return sentApiKey();
-    };
-    expect(await keySent()).toBe('instance-key');
-    expect(await keySent({ apiKey: 'call-key' })).toBe('call-key');
-    expect(await keySent({ apiKey: '' })).toBe('instance-key');
-    // `undefined` is exactly what runBackendSubmitTx passes when `extras` is omitted.
-    expect(await keySent({ apiKey: undefined })).toBe('instance-key');
+  it('resolves the apiKey precedence on every service wire (instance < per-request; blank = unset)', async () => {
+    for (const [label, call] of services) {
+      const keySent = async (config?: RequestOverrideConfig): Promise<string | null> => {
+        mockFetch.mockReset();
+        mockFetch.mockResolvedValueOnce(okResponse({}));
+        await call(config);
+        expect(mockFetch, label).toHaveBeenCalledTimes(1);
+        return sentApiKey();
+      };
+      expect(await keySent(), label).toBe('instance-key');
+      expect(await keySent({ apiKey: 'call-key' }), label).toBe('call-key');
+      expect(await keySent({ apiKey: '' }), label).toBe('instance-key');
+      // `undefined` is exactly what runBackendSubmitTx passes when `extras` is omitted.
+      expect(await keySent({ apiKey: undefined }), label).toBe('instance-key');
+    }
   });
 
-  it.each(
-    services,
-  )('lets a raw per-request x-api-key header win as the ONLY key header on the %s wire', async (_label, call) => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await call({ headers: { 'X-Api-Key': 'raw-key' } });
-    const headers = mockFetch.mock.calls.at(-1)?.[1]?.headers as Record<string, string>;
-    expect(Object.keys(headers).filter(h => h.toLowerCase() === 'x-api-key')).toHaveLength(1);
-    expect(new Headers(headers).get('x-api-key')).toBe('raw-key');
+  it('lets a raw per-request x-api-key header win as the ONLY key header on every service wire', async () => {
+    for (const [label, call] of services) {
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValueOnce(okResponse({}));
+      await call({ headers: { 'X-Api-Key': 'raw-key' } });
+      expect(mockFetch, label).toHaveBeenCalledTimes(1);
+      const headers = mockFetch.mock.calls.at(-1)?.[1]?.headers as Record<string, string>;
+      expect(
+        Object.keys(headers).filter(h => h.toLowerCase() === 'x-api-key'),
+        label,
+      ).toHaveLength(1);
+      expect(new Headers(headers).get('x-api-key'), label).toBe('raw-key');
 
-    // A blank raw header is sent verbatim, even over a per-request apiKey.
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await call({ apiKey: 'call-key', headers: { 'x-api-key': '' } });
-    expect(sentApiKey()).toBe('');
+      // A blank raw header is sent verbatim, even over a per-request apiKey.
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValueOnce(okResponse({}));
+      await call({ apiKey: 'call-key', headers: { 'x-api-key': '' } });
+      expect(mockFetch, label).toHaveBeenCalledTimes(1);
+      expect(sentApiKey(), label).toBe('');
+    }
   });
 
   it('lets an explicitly configured x-api-key header win over the instance key', async () => {
@@ -770,62 +718,52 @@ describe('sponsoring inherits the instance key only for an allowed root', () => 
     return sentApiKey();
   };
 
-  const sliceOrigins: Array<HttpUrl | undefined> = [undefined, CUSTOM_SPONSORING];
-
-  it('lets the sponsoring slice key win over the instance key at the default root and at a custom origin', async () => {
-    for (const baseURL of sliceOrigins) {
+  it('sends the slice key, or inherits the instance key, when the target is an allowed root', async () => {
+    // The sponsoring slice key wins over the instance key at the default root and at a custom origin.
+    for (const baseURL of [undefined, CUSTOM_SPONSORING]) {
       const sodax = new Sodax({
         apiKey: 'instance-key',
         api: { sponsoringApiConfig: { ...(baseURL ? { baseURL } : {}), apiKey: 'slice-key' } },
         logger: silentLogger,
       });
-      expect(await keySentTo(baseURL ?? DEFAULT_SPONSORING_API_ENDPOINT, sodax)).toBe('slice-key');
+      expect(await keySentTo(baseURL ?? DEFAULT_SPONSORING_API_ENDPOINT, sodax), baseURL).toBe('slice-key');
     }
-  });
 
-  it('inherits when only the shared root moved and sponsoring stayed on the packaged default', async () => {
-    const sodax = new Sodax({ apiKey: 'instance-key', api: { baseURL: STAGING_ROOT }, logger: silentLogger });
-    // Sponsoring never inherits a base URL, so it is still the origin the key belongs to.
-    expect(await keySentTo(DEFAULT_SPONSORING_API_ENDPOINT, sodax)).toBe('instance-key');
-  });
+    // Only the shared root moved: sponsoring never inherits a base URL, so it is still the origin the key belongs to.
+    const rootMoved = new Sodax({ apiKey: 'instance-key', api: { baseURL: STAGING_ROOT }, logger: silentLogger });
+    expect(await keySentTo(DEFAULT_SPONSORING_API_ENDPOINT, rootMoved)).toBe('instance-key');
 
-  it('inherits when the sponsoring slice points at the retargeted shared root', async () => {
-    const sodax = new Sodax({
+    const sliceAtRoot = new Sodax({
       apiKey: 'instance-key',
       api: { baseURL: STAGING_ROOT, sponsoringApiConfig: { baseURL: STAGING_ROOT } },
       logger: silentLogger,
     });
-    expect(await keySentTo(STAGING_ROOT, sodax)).toBe('instance-key');
-  });
+    expect(await keySentTo(STAGING_ROOT, sliceAtRoot)).toBe('instance-key');
 
-  // The gate is re-evaluated per request because a `RequestOverrideConfig.baseURL` retargets the call
-  // while keeping the service defaults — a baked-in key would ride along to the new origin.
-  it('withholds the instance key when a per-request baseURL leaves the allowed roots', async () => {
-    const sodax = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
-    expect(await keySentTo(CUSTOM_SPONSORING, sodax, { baseURL: CUSTOM_SPONSORING })).toBeNull();
-  });
-
-  it('withholds the key from a configured custom origin, and inherits again when a per-request baseURL points back at an allowed root', async () => {
-    const sodax = new Sodax({
-      apiKey: 'instance-key',
-      api: { baseURL: STAGING_ROOT, sponsoringApiConfig: { baseURL: CUSTOM_SPONSORING } },
-      logger: silentLogger,
-    });
-    expect(await keySentTo(CUSTOM_SPONSORING, sodax)).toBeNull();
-    expect(await keySentTo(STAGING_ROOT, sodax, { baseURL: STAGING_ROOT })).toBe('instance-key');
-  });
-
-  it('inherits when a configured or per-request baseURL differs from an allowed root only by a trailing slash', async () => {
+    // A trailing slash on a configured or per-request baseURL still matches; the wire URL is built from the trimmed base.
     const configured = new Sodax({
       apiKey: 'instance-key',
       api: { sponsoringApiConfig: { baseURL: `${DEFAULT_SPONSORING_API_ENDPOINT}/` } },
       logger: silentLogger,
     });
-    // The wire URL is built from the trimmed base, so the asserted target carries no slash.
     expect(await keySentTo(DEFAULT_SPONSORING_API_ENDPOINT, configured)).toBe('instance-key');
-
     const perRequest = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
     const config: RequestOverrideConfig = { baseURL: `${DEFAULT_SPONSORING_API_ENDPOINT}/` };
     expect(await keySentTo(DEFAULT_SPONSORING_API_ENDPOINT, perRequest, config)).toBe('instance-key');
+  });
+
+  // The gate is re-evaluated per request because a `RequestOverrideConfig.baseURL` retargets the call
+  // while keeping the service defaults — a baked-in key would ride along to the new origin.
+  it('withholds the instance key from any other origin, re-evaluating the gate per request', async () => {
+    const plain = new Sodax({ apiKey: 'instance-key', logger: silentLogger });
+    expect(await keySentTo(CUSTOM_SPONSORING, plain, { baseURL: CUSTOM_SPONSORING })).toBeNull();
+
+    const customOrigin = new Sodax({
+      apiKey: 'instance-key',
+      api: { baseURL: STAGING_ROOT, sponsoringApiConfig: { baseURL: CUSTOM_SPONSORING } },
+      logger: silentLogger,
+    });
+    expect(await keySentTo(CUSTOM_SPONSORING, customOrigin)).toBeNull();
+    expect(await keySentTo(STAGING_ROOT, customOrigin, { baseURL: STAGING_ROOT })).toBe('instance-key');
   });
 });

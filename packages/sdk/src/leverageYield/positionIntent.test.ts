@@ -42,21 +42,19 @@ describe('reportPositionIntent', () => {
     });
   });
 
-  it('treats a thrown notification the same as a failed Result', async () => {
-    const notifySolver: PositionIntentNotifier = vi.fn(async () => {
-      throw new Error('network down');
-    });
-    const result = await reportPositionIntent(notifySolver, HASHES);
-    expect(result).toEqual({ txHashes: HASHES, notified: false, notifyError: 'network down' });
-  });
-
-  it('stringifies a non-Error rejection rather than losing it', async () => {
-    const notifySolver: PositionIntentNotifier = vi.fn(async () => {
-      throw 'boom';
-    });
-    await expect(reportPositionIntent(notifySolver, HASHES)).resolves.toMatchObject({
-      notified: false,
-      notifyError: 'boom',
-    });
+  it('treats a thrown notification the same as a failed Result, stringifying a non-Error rejection', async () => {
+    for (const [thrown, notifyError] of [
+      [new Error('network down'), 'network down'],
+      ['boom', 'boom'],
+    ] as const) {
+      const notifySolver: PositionIntentNotifier = vi.fn(async () => {
+        throw thrown;
+      });
+      await expect(reportPositionIntent(notifySolver, HASHES)).resolves.toEqual({
+        txHashes: HASHES,
+        notified: false,
+        notifyError,
+      });
+    }
   });
 });

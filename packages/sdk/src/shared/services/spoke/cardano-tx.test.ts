@@ -133,15 +133,17 @@ describe('cardano CBOR encoding', () => {
   const lovelaceHead = (lovelace: bigint): string =>
     bytesToHex(encodeCardanoTxOutput({ address: new Uint8Array(0), lovelace })).slice(2 + 4);
 
-  it.each([
-    [23n, '17'],
-    [24n, '1818'],
-    [65_535n, '19ffff'],
-    [65_536n, '1a00010000'],
-    [4_294_967_295n, '1affffffff'],
-    [4_294_967_296n, '1b0000000100000000'],
-  ])('writes lovelace %s in its shortest canonical form', (lovelace, expected) => {
-    expect(lovelaceHead(lovelace)).toBe(expected);
+  it('writes lovelace in its shortest canonical form at every width boundary', () => {
+    for (const [lovelace, expected] of [
+      [23n, '17'],
+      [24n, '1818'],
+      [65_535n, '19ffff'],
+      [65_536n, '1a00010000'],
+      [4_294_967_295n, '1affffffff'],
+      [4_294_967_296n, '1b0000000100000000'],
+    ] as const) {
+      expect(lovelaceHead(lovelace), String(lovelace)).toBe(expected);
+    }
   });
 
   it('refuses a value outside u64', () => {

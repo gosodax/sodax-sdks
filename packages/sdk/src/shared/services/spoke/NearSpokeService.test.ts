@@ -10,13 +10,12 @@
  * sourced from `spokeChainConfig[NEAR_MAINNET]`. Only user identities and tx hashes are fabricated.
  *
  * Mocking strategy:
- *   - `sleep` (shared-utils.js) is mocked at its source via `vi.mock` + `vi.hoisted` (with
- *     `vi.importActual` for the rest of the module) so polling tests don't actually wait.
+ *   - `sleep` (shared-utils.js) is spied on its module namespace so polling tests don't actually wait.
  *   - `near-api-js` is NOT module-mocked: the real `JsonRpcProvider` constructor runs. Only the
  *     two methods used by the SUT (`callFunction` for queries and `viewTransactionStatus` for
  *     receipts) are spied per-test on the live instance.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 import {
   ChainKeys,
   getIntentRelayChainId,
@@ -27,18 +26,9 @@ import {
   type SendMsgArgs,
 } from '@sodax/types';
 
-// --- hoisted mocks --------------------------------------------------------
-
-const mocks = vi.hoisted(() => ({
-  sleep: vi.fn(),
-}));
-
-vi.mock('../../utils/shared-utils.js', async () => {
-  const actual = await vi.importActual<object>('../../utils/shared-utils.js');
-  return { ...actual, sleep: mocks.sleep };
-});
-
 import { Sodax } from '../../entities/Sodax.js';
+import * as sharedUtils from '../../utils/shared-utils.js';
+import { expectOk } from '../../../test-utils/result.js';
 import { NEAR_DEFAULT_GAS } from './NearSpokeService.js';
 import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
 
@@ -71,9 +61,11 @@ const mockNearProvider = {
   getWalletAddress: vi.fn(),
 } as unknown as INearWalletProvider;
 
+let sleepSpy: MockInstance<typeof sharedUtils.sleep>;
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.sleep.mockResolvedValue(undefined);
+  sleepSpy = vi.spyOn(sharedUtils, 'sleep').mockResolvedValue(undefined);
   (mockNearProvider.signAndSubmitTxn as ReturnType<typeof vi.fn>).mockReset();
 });
 
@@ -521,40 +513,33 @@ describe('NearSpokeService.waitForTransactionReceipt', () => {
       .mockResolvedValueOnce(outcome as never)
       .mockResolvedValueOnce(receiptOutcome as never);
 
-    const result = await nearSpoke.waitForTransactionReceipt({ chainKey: NEAR, txHash: TX_HASH });
-    if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
-    expect(result.value.receipt).toBe(outcome);
+    const viaValue = expectOk(await nearSpoke.waitForTransactionReceipt({ chainKey: NEAR, txHash: TX_HASH }));
+    expect(viaValue.status === 'success' && viaValue.receipt).toBe(outcome);
 
-    const viaReceipt = await nearSpoke.waitForTransactionReceipt({ chainKey: NEAR, txHash: TX_HASH });
-    if (!viaReceipt.ok || viaReceipt.value.status !== 'success') throw new Error('expected ok+success');
-    expect(viaReceipt.value.receipt).toBe(receiptOutcome);
+    const viaReceipt = expectOk(await nearSpoke.waitForTransactionReceipt({ chainKey: NEAR, txHash: TX_HASH }));
+    expect(viaReceipt.status === 'success' && viaReceipt.receipt).toBe(receiptOutcome);
   });
 
   it('Failure → status:failure with JSON-stringified error', async () => {
     const outcome = { status: { Failure: { code: 'oops' } } };
     vi.spyOn(nearSpoke.rpcProvider, 'viewTransactionStatus').mockResolvedValueOnce(outcome as never);
 
-    const result = await nearSpoke.waitForTransactionReceipt({ chainKey: NEAR, txHash: TX_HASH });
+    const receipt = expectOk(await nearSpoke.waitForTransactionReceipt({ chainKey: NEAR, txHash: TX_HASH }));
 
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.value.status).toBe('failure');
-    if (result.value.status !== 'failure') return;
-    expect(result.value.error.message).toContain('Transaction failed');
-    expect(result.value.error.message).toContain('oops');
+    expect(receipt.status).toBe('failure');
+    if (receipt.status !== 'failure') return;
+    expect(receipt.error.message).toContain('Transaction failed');
+    expect(receipt.error.message).toContain('oops');
   });
 
   it('pending (no recognised status) or a persistent rejection until deadline → status:timeout', async () => {
     const spy = vi.spyOn(nearSpoke.rpcProvider, 'viewTransactionStatus').mockResolvedValue({ status: {} } as never);
     const params = { chainKey: NEAR, txHash: TX_HASH, pollingIntervalMs: 1, maxTimeoutMs: 1 } as const;
 
-    const pending = await nearSpoke.waitForTransactionReceipt(params);
-    if (!pending.ok) throw new Error('expected ok');
-    expect(pending.value.status).toBe('timeout');
+    expect(expectOk(await nearSpoke.waitForTransactionReceipt(params), 'pending').status).toBe('timeout');
 
     spy.mockRejectedValue(new Error('rpc 503'));
-    const rejected = await nearSpoke.waitForTransactionReceipt(params);
-    if (!rejected.ok) throw new Error('expected ok');
-    expect(rejected.value.status).toBe('timeout');
+    expect(expectOk(await nearSpoke.waitForTransactionReceipt(params), 'rejected').status).toBe('timeout');
   });
 
   it('transient rejection → sleeps the caller pollingIntervalMs and recovers on next poll', async () => {
@@ -569,7 +554,7 @@ describe('NearSpokeService.waitForTransactionReceipt', () => {
       maxTimeoutMs: 1000,
     });
 
-    if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
-    expect(mocks.sleep).toHaveBeenCalledWith(7);
+    expect(expectOk(result).status).toBe('success');
+    expect(sleepSpy).toHaveBeenCalledWith(7);
   });
 });
