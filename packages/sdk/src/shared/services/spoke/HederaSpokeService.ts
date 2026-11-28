@@ -13,6 +13,7 @@ import type { ConfigService } from '../../config/ConfigService.js';
 import { getEvmViemChain } from '../../utils/constant-utils.js';
 import { pollUntil } from '../../utils/pollUntil.js';
 import type { EvmSpokeService } from './EvmSpokeService.js';
+import { TRANSACTION_REVERTED_MESSAGE } from './evm-receipt.js';
 
 /** Hedera's public mainnet mirror node, used when the chain config names none. */
 export const HEDERA_DEFAULT_MIRROR_NODE_URL = 'https://mainnet-public.mirrornode.hedera.com';
@@ -127,7 +128,7 @@ export class HederaSpokeService {
    *
    * Otherwise the wallet sends it, and this resolves to its hash once it is mined and the mirror node
    * shows the association (or the wait for the mirror node runs out). A reverted call is a plain failure.
-   * A call that was sent but whose receipt never arrived is an IndeterminateOutcomeError carrying the hash:
+   * A call that was sent but whose receipt could not be read is an IndeterminateOutcomeError carrying the hash:
    * check it before signing again, since each association costs a fee.
    */
   public async requestAssociation<Raw extends boolean>(
@@ -164,6 +165,7 @@ export class HederaSpokeService {
       });
       if (!receipt.ok) throw unknown(receipt.error);
       if (receipt.value.status === 'failure') {
+        if (receipt.value.error.message !== TRANSACTION_REVERTED_MESSAGE) throw unknown(receipt.value.error);
         throw new Error(`[HederaSpokeService.requestAssociation] association ${hash} failed`, {
           cause: receipt.value.error,
         });

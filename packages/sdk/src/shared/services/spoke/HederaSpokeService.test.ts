@@ -413,6 +413,34 @@ describe('HederaSpokeService.requestAssociation', () => {
     expect(isIndeterminateOutcomeError(result.error)).toBe(true);
   });
 
+  it('keeps a non-timeout public-client receipt error indeterminate with its hash', async () => {
+    const waitForTransactionReceipt = vi.fn().mockRejectedValue(new Error('rpc connection refused'));
+    vi.spyOn(sodax.spoke.evm, 'getPublicClient').mockReturnValue({ waitForTransactionReceipt } as never);
+
+    const result = await hedera.requestAssociation({ srcAddress: ACCOUNT, token: USDC, walletProvider });
+
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    expect(waitForTransactionReceipt).toHaveBeenCalledOnce();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(isIndeterminateOutcomeError(result.error)).toBe(true);
+    expect(result.error).toMatchObject({ txHash: TX_HASH });
+  });
+
+  it('reports a reverted public-client receipt as a plain failure carrying the hash', async () => {
+    const waitForTransactionReceipt = vi.fn().mockResolvedValue({ status: 'reverted' });
+    vi.spyOn(sodax.spoke.evm, 'getPublicClient').mockReturnValue({ waitForTransactionReceipt } as never);
+
+    const result = await hedera.requestAssociation({ srcAddress: ACCOUNT, token: USDC, walletProvider });
+
+    expect(sendTransaction).toHaveBeenCalledTimes(1);
+    expect(waitForTransactionReceipt).toHaveBeenCalledOnce();
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(isIndeterminateOutcomeError(result.error)).toBe(false);
+    expect(String(result.error)).toContain(TX_HASH);
+  });
+
   it('fails plainly when the wallet refuses to send', async () => {
     const receiptSpy = mined();
     sendTransaction.mockRejectedValue(new Error('User rejected the request'));

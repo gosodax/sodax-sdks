@@ -144,6 +144,7 @@ one `next()` action. Render from `state.kind`; wire the button to `next()`. Chai
 (e.g. a Bitcoin trading wallet) are passed in — dapp-kit does not depend on the wallet packages.
 
 ```tsx
+import { useState } from 'react';
 import { useSwapLifecycle, type CreateIntentParams, type SwapLifecycleState } from '@sodax/dapp-kit';
 import { useEvmSwitchChain, useWalletProvider } from '@sodax/wallet-sdk-react';
 
@@ -192,17 +193,32 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
   const srcWalletProvider = useWalletProvider({ xChainId: intentParams.srcChainKey });
   const dstWalletProvider = useWalletProvider({ xChainId: intentParams.dstChainKey });
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: intentParams.srcChainKey });
+  const { isWrongChain: isDstWrongChain, handleSwitchChain: handleDstSwitchChain } = useEvmSwitchChain({
+    xChainId: intentParams.dstChainKey,
+  });
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const { state, error, next, reset, stellar } = useSwapLifecycle({
     intentParams,
     srcWalletProvider,
     dstWalletProvider,
     chainSwitch: { isWrongChain, switchChain: handleSwitchChain },
+    dstChainSwitch: { isWrongChain: isDstWrongChain, switchChain: handleDstSwitchChain },
   });
 
   return (
     <>
-      <button type="button" onClick={() => void next()} disabled={isPassive(state)}>
+      <button
+        type="button"
+        onClick={async () => {
+          setActionError(null);
+          const result = await next();
+          if (result && !result.ok) {
+            setActionError(result.error instanceof Error ? result.error.message : String(result.error));
+          }
+        }}
+        disabled={isPassive(state)}
+      >
         {buttonLabel(state)}
       </button>
       {state.kind === 'needsSetup' && state.reason === 'stellarFunding' && (
@@ -223,11 +239,16 @@ function SwapButton({ intentParams }: { intentParams: CreateIntentParams }) {
           </button>
         </p>
       )}
+      {actionError && <p>{actionError}</p>}
       {error && state.kind !== 'unconfirmed' && <p>{error.message}</p>}
     </>
   );
 }
 ```
+
+Hedera association needs the wallet on Hedera. With `dstChainSwitch`, the lifecycle shows `needsChainSwitch`
+and `next()` switches to Hedera before the `hederaAssociation` step; after association, the source
+`chainSwitch` brings the wallet back before the swap.
 
 `next()` resolves to the action's `Result` (a setup step or the swap); show a failed setup action from there. A failed
 swap lands in `state`:

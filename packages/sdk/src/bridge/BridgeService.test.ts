@@ -51,6 +51,7 @@ import {
   monadSupportedTokens,
   tonSupportedTokens,
   xrpSupportedTokens,
+  hederaSupportedTokens,
 } from '@sodax/types';
 import { RELAY_FALLBACK_FLOOR_MS } from '../shared/services/intentRelay/IntentRelayApiService.js';
 import { EvmVaultTokenService } from '../shared/services/hub/EvmVaultTokenService.js';
@@ -2231,6 +2232,51 @@ describe('BridgeService.createBridgeIntent — XRPL recipient', () => {
 
   it('passes a bridge to an XRPL account that can receive it', async () => {
     expect((await run({ ready: true })).pastValidation).toHaveBeenCalled();
+  });
+});
+
+describe('BridgeService.createBridgeIntent — Hedera recipient', () => {
+  const sodaxBE = new Sodax({ logger: 'silent' });
+  const hubAsset = '0x2222222222222222222222222222222222222222' as Address;
+  const src = { address: SAMPLE_TOKEN, chainKey: ARBITRUM, symbol: 'USDC', decimals: 6, hubAsset };
+  const dst = { ...hederaSupportedTokens.USDC, chainKey: ChainKeys.HEDERA_MAINNET, hubAsset };
+
+  const run = async (ready: boolean) => {
+    // Resolve a shared bridge route without relying on backend configuration.
+    const resolver = sodaxBE.bridge as unknown as { resolveBridgeEndpointToken: (chainKey: string) => unknown };
+    vi.spyOn(resolver, 'resolveBridgeEndpointToken').mockImplementation(chainKey =>
+      chainKey === ChainKeys.HEDERA_MAINNET ? dst : src,
+    );
+    const checkSpy = vi
+      .spyOn(sodaxBE.spoke.hedera, 'checkDestination')
+      .mockResolvedValue(ready ? { ready: true } : { ready: false, reason: 'not_associated' });
+    vi.spyOn(sodaxBE.hubProvider, 'getUserHubWalletAddress').mockResolvedValue(HUB_WALLET);
+    vi.spyOn(sodaxBE.bridge, 'buildBridgeData').mockReturnValue('0x');
+    const depositSpy = vi.spyOn(sodaxBE.spoke, 'deposit').mockResolvedValue({ ok: true, value: '0xdeposit' });
+    const input = bridgeInput(ARBITRUM, ChainKeys.HEDERA_MAINNET);
+    const result = await sodaxBE.bridge.createBridgeIntent({
+      ...input,
+      params: { ...input.params, dstToken: dst.address },
+    });
+    return { result, checkSpy, depositSpy };
+  };
+
+  it('refuses an unassociated Hedera recipient before depositing on the source chain', async () => {
+    const { result, checkSpy, depositSpy } = await run(false);
+
+    expect(depositSpy).not.toHaveBeenCalled();
+    invariant(!result.ok, 'expected a refusal');
+    expect(result.error.code).toBe('VALIDATION_FAILED');
+    expect(result.error.context).toMatchObject({ reason: 'hedera-not_associated' });
+    expect(checkSpy).toHaveBeenCalledWith(expect.objectContaining({ address: SAMPLE_DST, token: dst.address }));
+  });
+
+  it('deposits on the source chain for an associated Hedera recipient', async () => {
+    const { result, checkSpy, depositSpy } = await run(true);
+
+    expect(result.ok).toBe(true);
+    expect(checkSpy).toHaveBeenCalledWith(expect.objectContaining({ address: SAMPLE_DST, token: dst.address }));
+    expect(depositSpy).toHaveBeenCalledOnce();
   });
 });
 

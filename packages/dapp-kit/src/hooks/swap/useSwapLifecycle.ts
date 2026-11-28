@@ -40,6 +40,12 @@ export type UseSwapLifecycleParams<K extends SpokeChainKey = SpokeChainKey> = {
   dstWalletProvider: GetWalletProviderType<SpokeChainKey> | undefined;
   /** Source-chain switching, e.g. `useEvmSwitchChain` from `@sodax/wallet-sdk-react`. */
   chainSwitch?: { isWrongChain: boolean; switchChain: () => void | Promise<void> };
+  /**
+   * Destination-chain switching: the Hedera association is sent from Hedera, so a wallet on another
+   * chain must switch first (e.g. `useEvmSwitchChain({ xChainId: intentParams.dstChainKey })`).
+   * The source `chainSwitch` brings it back before the swap.
+   */
+  dstChainSwitch?: { isWrongChain: boolean; switchChain: () => void | Promise<void> };
   /** An app-owned prerequisite that must hold before swapping (e.g. a Bitcoin trading-wallet setup). */
   externalBlocked?: boolean;
   /**
@@ -94,6 +100,7 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
   srcWalletProvider,
   dstWalletProvider,
   chainSwitch,
+  dstChainSwitch,
   externalBlocked = false,
   allowAccountUpgrade,
   extras,
@@ -152,6 +159,7 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     params: { srcChainKey: broadcast?.srcChainKey, srcTxHash: broadcast?.srcTxHash },
   });
 
+  const hederaWrongChain = hedera.needsAssociation && !hedera.blockedReason && !!dstChainSwitch?.isWrongChain;
   const state = resolveSwapLifecycle({
     attempt,
     status: status.data?.ok ? summarizeSwapStatus(status.data.value) : undefined,
@@ -162,6 +170,7 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
     xrp,
     hedera,
     externalBlocked,
+    hederaWrongChain,
     setupBusy:
       stellar.isActivating ||
       stellar.isRequestingTrustline ||
@@ -183,7 +192,7 @@ export function useSwapLifecycle<K extends SpokeChainKey = SpokeChainKey>({
   const act = async (): Promise<Result<unknown> | undefined> => {
     switch (state.kind) {
       case 'needsChainSwitch':
-        await chainSwitch?.switchChain();
+        await (hederaWrongChain ? dstChainSwitch : chainSwitch)?.switchChain();
         return undefined;
       case 'needsSetup':
         if (state.reason === 'stellarActivation') return stellar.activate();

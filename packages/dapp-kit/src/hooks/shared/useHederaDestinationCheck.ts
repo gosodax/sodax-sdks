@@ -16,6 +16,12 @@ export type UseHederaDestinationCheckParams = ReadHookParams<
 
 type HederaDestinationReader = { spoke: { hedera: Pick<Sodax['spoke']['hedera'], 'checkDestination'> } };
 
+export const hederaDestinationCheckQueryKey = (
+  chainId: SpokeChainKey | undefined,
+  token: string | undefined,
+  address: string | undefined,
+) => ['shared', 'hederaDestinationCheck', chainId, token?.toLowerCase(), address?.toLowerCase()] as const;
+
 export function getHederaDestinationCheckQueryOptions({
   sodax,
   chainId,
@@ -28,7 +34,7 @@ export function getHederaDestinationCheckQueryOptions({
   address: string | undefined;
 }) {
   return {
-    queryKey: ['shared', 'hederaDestinationCheck', chainId, token, address] as const,
+    queryKey: hederaDestinationCheckQueryKey(chainId, token, address),
     queryFn: async (): Promise<HederaDestinationReadiness> => {
       if (!address || !token) throw new Error('address and token are required');
       return sodax.spoke.hedera.checkDestination({ address, token });

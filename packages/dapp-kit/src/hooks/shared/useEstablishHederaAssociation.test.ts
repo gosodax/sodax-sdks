@@ -1,4 +1,6 @@
 import { ChainKeys, IndeterminateOutcomeError } from '@sodax/sdk';
+import { getAddress } from 'viem';
+import { getHederaDestinationCheckQueryOptions } from './useHederaDestinationCheck.js';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invalidateQueries = vi.fn();
@@ -13,6 +15,7 @@ vi.mock('./useSodaxContext.js', () => ({
 vi.mock('./useSafeMutation.js', () => ({ useSafeMutation: (options: unknown) => options }));
 
 const { useEstablishHederaAssociation } = await import('./useEstablishHederaAssociation.js');
+const { QueryClient } = await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query');
 
 const TOKEN = '0x000000000000000000000000000000000006f89a';
 const ADDRESS = '0x1234567890abcdef1234567890abcdef12345678';
@@ -99,6 +102,33 @@ describe('useEstablishHederaAssociation', () => {
       TOKEN,
       ADDRESS,
     ]);
+  });
+
+  it.each([
+    [ADDRESS, getAddress(ADDRESS)],
+    [getAddress(ADDRESS), ADDRESS],
+  ])('invalidates a check stored for %s after association as %s', async (checkedAddress, associatedAddress) => {
+    const checkDestination = vi.fn().mockResolvedValue({ ready: false, reason: 'not_associated' });
+    const check = getHederaDestinationCheckQueryOptions({
+      sodax: { spoke: { hedera: { checkDestination } } },
+      chainId: ChainKeys.HEDERA_MAINNET,
+      token: TOKEN,
+      address: checkedAddress,
+    });
+    const queryClient = new QueryClient();
+    invalidateQueries.mockImplementation(filters => queryClient.invalidateQueries(filters));
+    requestAssociation.mockResolvedValue({ ok: true, value: HASH });
+    const request = { ...vars(async () => associatedAddress), address: associatedAddress };
+    const options = optionsOf();
+
+    queryClient.setQueryData(check.queryKey, await check.queryFn());
+    expect(queryClient.getQueryState(check.queryKey)?.isInvalidated).toBe(false);
+    const hash = await options.mutationFn(request);
+    await options.onSuccess(hash, request, undefined);
+
+    expect(queryClient.getQueryState(check.queryKey)?.isInvalidated).toBe(true);
+    expect(invalidatedKeys()[0]).toEqual(check.queryKey);
+    queryClient.clear();
   });
 
   it('never retries an association that may have been sent, since each one costs a fee', () => {

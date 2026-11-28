@@ -92,6 +92,8 @@ export type SwapLifecycleInputs = {
   /** A setup tx is in flight, or the check it invalidated is still refreshing: acting now would resend it. */
   setupBusy: boolean;
   isWrongChain: boolean;
+  /** The association must be sent from Hedera and the wallet is on another chain. */
+  hederaWrongChain: boolean;
   strategy: { data: SwapApprovalStrategy | undefined; error: Error | null };
 };
 
@@ -185,7 +187,11 @@ export function resolveSwapLifecycle(inputs: SwapLifecycleInputs): SwapLifecycle
   if (!inputs.hasInputs) return { kind: 'idle' };
 
   const reason = setupReason(inputs);
-  if (reason) return inputs.setupBusy ? { kind: 'checking' } : { kind: 'needsSetup', reason };
+  if (reason) {
+    if (inputs.setupBusy) return { kind: 'checking' };
+    if (reason === 'hederaAssociation' && inputs.hederaWrongChain) return { kind: 'needsChainSwitch' };
+    return { kind: 'needsSetup', reason };
+  }
   if (
     inputs.stellar.blocksAction ||
     inputs.nearStorage.blocksAction ||

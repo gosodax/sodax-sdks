@@ -385,6 +385,9 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
   };
 
   const { isWrongChain, handleSwitchChain } = useEvmSwitchChain({ xChainId: src.chain });
+  const { isWrongChain: isDstWrongChain, handleSwitchChain: handleDstSwitchChain } = useEvmSwitchChain({
+    xChainId: dst.chain,
+  });
 
   const submittedSummary = useRef<OrderSummary | undefined>(undefined);
   const lifecycle = useSwapLifecycle({
@@ -392,6 +395,7 @@ export default function SwapCard({ setOrders }: { setOrders: (value: SetStateAct
     srcWalletProvider: sourceWalletProvider,
     dstWalletProvider: destWalletProvider,
     chainSwitch: { isWrongChain, switchChain: handleSwitchChain },
+    dstChainSwitch: { isWrongChain: isDstWrongChain, switchChain: handleDstSwitchChain },
     externalBlocked:
       (src.chain === ChainKeys.BITCOIN_MAINNET && !isBitcoinReady) ||
       (dst.chain === ChainKeys.BITCOIN_MAINNET && !isDestBitcoinReady),

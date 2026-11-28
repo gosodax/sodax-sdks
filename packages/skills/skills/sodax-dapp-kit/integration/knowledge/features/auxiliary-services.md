@@ -442,7 +442,7 @@ if (hedera.checkFailed) hedera.retry();
 `walletProvider` is the destination's EVM wallet provider; it must control `address`. Each token is associated
 separately, and the account pays the network fee in HBAR. `useSwapLifecycle` runs this gate as the
 `hederaAssociation`, `hederaBlocked` and `hederaCheckFailed` setup reasons, for the swap's output token and
-`dstAddress`. The pieces are `useHederaDestinationCheck` and `useEstablishHederaAssociation` (vars
+`dstAddress`. Hedera association needs the wallet on Hedera. Pass `dstChainSwitch` from a second `useEvmSwitchChain` for the destination: the lifecycle shows `needsChainSwitch`, `next()` switches to Hedera, then associates, and the source `chainSwitch` brings the wallet back before the swap. The pieces are `useHederaDestinationCheck` and `useEstablishHederaAssociation` (vars
 `{ token, address?, walletProvider }`; with `address` it refuses, before signing, a wallet connected to another
 account; it never retries an association whose outcome is unknown; mutationKey
 `['shared', 'establishHederaAssociation']`); `resolveHederaGate` is the hook-free resolver.

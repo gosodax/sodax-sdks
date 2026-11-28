@@ -1,5 +1,6 @@
 import { ChainKeys, type Hash, type IEvmWalletProvider } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
+import { hederaDestinationCheckQueryKey } from './useHederaDestinationCheck.js';
 import { invalidateBalances } from './invalidateBalances.js';
 import { retryBeforeSubmission } from './retryBeforeSubmission.js';
 import type { MutationHookParams } from './types.js';
@@ -54,7 +55,7 @@ export function useEstablishHederaAssociation({
       const address = vars.address ?? (await vars.walletProvider.getWalletAddress().catch(() => undefined));
       queryClient.invalidateQueries({
         queryKey: address
-          ? ['shared', 'hederaDestinationCheck', ChainKeys.HEDERA_MAINNET, vars.token, address]
+          ? hederaDestinationCheckQueryKey(ChainKeys.HEDERA_MAINNET, vars.token, address)
           : ['shared', 'hederaDestinationCheck'],
       });
       invalidateBalances(queryClient, ChainKeys.HEDERA_MAINNET);

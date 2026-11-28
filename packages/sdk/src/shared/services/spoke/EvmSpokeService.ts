@@ -30,6 +30,7 @@ import {
   isNativeToken,
   type EvmReturnType,
 } from '@sodax/types';
+import { TRANSACTION_REVERTED_MESSAGE } from './evm-receipt.js';
 
 /**
  * Scales a native-token amount from the token's canonical decimals to the EVM
@@ -323,7 +324,7 @@ export class EvmSpokeService {
       });
 
       if (receipt.status === 'reverted') {
-        return { ok: true, value: { status: 'failure', error: new Error('Transaction reverted') } };
+        return { ok: true, value: { status: 'failure', error: new Error(TRANSACTION_REVERTED_MESSAGE) } };
       }
 
       const response = {

@@ -280,6 +280,45 @@ describe('useSwapLifecycle', () => {
     });
   });
 
+  it('switches to Hedera before association and back to the source before swapping', async () => {
+    const requestAssociation = vi.fn().mockResolvedValue({ ok: true, value: '0xhash' });
+    const dstChainSwitch = { isWrongChain: true, switchChain: vi.fn() };
+    const chainSwitch = { isWrongChain: true, switchChain: vi.fn() };
+    const intentParams = { ...PARAMS, dstChainKey: ChainKeys.HEDERA_MAINNET };
+    stub({ hedera: { isHederaHtsToken: true, needsAssociation: true, blocksAction: true, requestAssociation } });
+    const before = run({ intentParams, chainSwitch, dstChainSwitch });
+
+    expect(before.state).toEqual({ kind: 'needsChainSwitch' });
+    await before.next();
+    expect(dstChainSwitch.switchChain).toHaveBeenCalledOnce();
+    expect(requestAssociation).not.toHaveBeenCalled();
+    expect(chainSwitch.switchChain).not.toHaveBeenCalled();
+
+    dstChainSwitch.isWrongChain = false;
+    const onHedera = run({ intentParams, chainSwitch, dstChainSwitch });
+    expect(onHedera.state).toEqual({ kind: 'needsSetup', reason: 'hederaAssociation' });
+    await onHedera.next();
+    expect(requestAssociation).toHaveBeenCalledOnce();
+
+    stub({ hedera: { isHederaHtsToken: true } });
+    const associated = run({ intentParams, chainSwitch, dstChainSwitch });
+    expect(associated.state).toEqual({ kind: 'needsChainSwitch' });
+    await associated.next();
+    expect(chainSwitch.switchChain).toHaveBeenCalledOnce();
+    expect(dstChainSwitch.switchChain).toHaveBeenCalledOnce();
+    expect(mutateAsyncSafe).not.toHaveBeenCalled();
+  });
+
+  it('returns the failed association Result to the next caller', async () => {
+    const failure = { ok: false, error: new Error('User rejected association') };
+    const requestAssociation = vi.fn().mockResolvedValue(failure);
+    stub({ hedera: { isHederaHtsToken: true, needsAssociation: true, blocksAction: true, requestAssociation } });
+
+    await expect(run().next()).resolves.toBe(failure);
+    expect(requestAssociation).toHaveBeenCalledOnce();
+    expect(mutateAsyncSafe).not.toHaveBeenCalled();
+  });
+
   it('shows the association step, runs it, then swaps once the token is associated', async () => {
     const requestAssociation = vi.fn().mockResolvedValue({ ok: true, value: '0xhash' });
     stub({ hedera: { isHederaHtsToken: true, needsAssociation: true, blocksAction: true, requestAssociation } });

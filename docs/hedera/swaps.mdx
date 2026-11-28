@@ -97,7 +97,7 @@ if (!readiness.ready && readiness.reason === 'not_associated') {
 
 The check reads Hedera's public mirror node (`https://mainnet-public.mirrornode.hedera.com`); set `chains.hedera.mirrorNodeUrl` in the SDK config to use another. If the mirror node cannot be read, the check throws and the SDK refuses the delivery rather than send one that may fail.
 
-In React, `useSwapLifecycle` from `@sodax/dapp-kit` runs this as its `hederaAssociation` setup step: `next()` sends the association, and the swap becomes available once it lands. `hederaBlocked` reports the other reasons in `lifecycle.hedera.blockedReason`.
+In React, `useSwapLifecycle` from `@sodax/dapp-kit` runs this as its `hederaAssociation` setup step. The wallet must be on Hedera for the association. Pass `dstChainSwitch` from a second `useEvmSwitchChain` for the destination: the lifecycle shows `needsChainSwitch`, `next()` switches to Hedera, then associates, and the source `chainSwitch` brings the wallet back before the swap. `hederaBlocked` reports the other reasons in `lifecycle.hedera.blockedReason`.
 
 ## Error handling
 

@@ -84,6 +84,7 @@ const inputs = (overrides: Partial<SwapLifecycleInputs> = {}): SwapLifecycleInpu
   externalBlocked: false,
   setupBusy: false,
   isWrongChain: false,
+  hederaWrongChain: false,
   strategy: { data: 'atomic-batch', error: null },
   ...overrides,
 });
@@ -235,6 +236,23 @@ describe('resolveSwapLifecycle', () => {
   it('reports a failure before broadcast', () => {
     const error = new Error('User rejected the request');
     expect(resolveSwapLifecycle(inputs({ attempt: { phase: 'failed', error } }))).toEqual({ kind: 'failed', error });
+  });
+
+  it.each([
+    [true, false, undefined, { kind: 'needsChainSwitch' }],
+    [false, false, undefined, { kind: 'needsSetup', reason: 'hederaAssociation' }],
+    [true, true, undefined, { kind: 'checking' }],
+    [true, false, 'frozen', { kind: 'needsSetup', reason: 'hederaBlocked' }],
+  ] as const)('resolves Hedera setup with wrongChain=%s busy=%s blocked=%s', (hederaWrongChain, setupBusy, blockedReason, expected) => {
+    expect(
+      resolveSwapLifecycle(
+        inputs({
+          hederaWrongChain,
+          setupBusy,
+          hedera: { ...OPEN_HEDERA, isHederaHtsToken: true, needsAssociation: true, blocksAction: true, blockedReason },
+        }),
+      ),
+    ).toEqual(expected);
   });
 
   it.each([

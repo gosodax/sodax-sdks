@@ -703,7 +703,7 @@ if (!readiness.ready && readiness.reason === 'not_associated') {
 }
 ```
 
-`raw: true` returns the unsigned `associate()` call instead. When the association was sent but its receipt never arrived, the error is an `IndeterminateOutcomeError` carrying its hash: look the hash up before signing again, since every association costs a fee. A mirror-node failure makes the check throw, so the SDK refuses the release rather than send one that may fail. The mirror node defaults to `https://mainnet-public.mirrornode.hedera.com`; set `chains.hedera.mirrorNodeUrl` to use another. In React, `useSwapLifecycle` runs the association as its `hederaAssociation` setup step.
+`raw: true` returns the unsigned `associate()` call instead. When the association was sent but its receipt could not be read, the error is an `IndeterminateOutcomeError` carrying its hash: look the hash up before signing again, since every association costs a fee. A mirror-node failure makes the check throw, so the SDK refuses the release rather than send one that may fail. The mirror node defaults to `https://mainnet-public.mirrornode.hedera.com`; set `chains.hedera.mirrorNodeUrl` to use another. In React, `useSwapLifecycle` runs the association as its `hederaAssociation` setup step.
 
 ### XRP Ledger Stock Tokens
 
