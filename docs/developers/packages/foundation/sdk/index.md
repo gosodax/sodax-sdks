@@ -19,6 +19,84 @@ yarn add @sodax/sdk
 pnpm add @sodax/sdk
 ```
 
+### Example: accept deposits from any chain
+
+Your app takes one asset on one network. Your users pay with whatever they hold, on any supported network, and sign once. This example takes USDT on Arbitrum and delivers USDC on Base to the address your app credits. Change the two chain keys and token symbols for any other pair.
+
+```bash
+npm install @sodax/sdk @sodax/wallet-sdk-core
+```
+
+Run it as an ES module (top-level `await`), for example with `npx tsx deposit.ts` in a project that has `"type": "module"`. It reads `EVM_PRIVATE_KEY`, `DEPOSIT_RECIPIENT` and `SODAX_API_KEY` (free from the [dev portal](https://portal.sodax.com)) from the environment.
+
+```typescript
+import { Sodax, ChainKeys, type CreateIntentParams, type Hex } from '@sodax/sdk';
+import { EvmWalletProvider } from '@sodax/wallet-sdk-core';
+
+// Your app takes deposits as USDC on Base. The user pays with what they already hold:
+// here USDT on Arbitrum, but any supported token on any supported network works the same way.
+const APP_CHAIN = ChainKeys.BASE_MAINNET;
+const USER_CHAIN = ChainKeys.ARBITRUM_MAINNET;
+const SLIPPAGE_BPS = 100n; // 1%
+const BPS = 10_000n;
+
+const privateKey = process.env.EVM_PRIVATE_KEY;
+const depositRecipient = process.env.DEPOSIT_RECIPIENT; // the address your app credits on Base
+if (!privateKey?.startsWith('0x') || !depositRecipient?.startsWith('0x')) {
+  throw new Error('Set EVM_PRIVATE_KEY and DEPOSIT_RECIPIENT (both 0x-prefixed)');
+}
+
+const sodax = new Sodax({ apiKey: process.env.SODAX_API_KEY });
+
+// A key here is for a server or a script. In a browser, pass the user's walletClient / publicClient instead.
+const wallet = new EvmWalletProvider({ privateKey: privateKey as Hex, chainId: USER_CHAIN });
+
+const inputToken = sodax.config.spokeChainConfig[USER_CHAIN].supportedTokens.USDT.address;
+const outputToken = sodax.config.spokeChainConfig[APP_CHAIN].supportedTokens.USDC.address;
+const inputAmount = 25_000_000n; // 25 USDT (6 decimals)
+
+// 1. Quote: free, signs nothing.
+const quote = await sodax.swaps.getQuote({
+  token_src: inputToken,
+  token_dst: outputToken,
+  token_src_blockchain_id: USER_CHAIN,
+  token_dst_blockchain_id: APP_CHAIN,
+  amount: inputAmount,
+  quote_type: 'exact_input',
+});
+if (!quote.ok) throw new Error(`Quote failed: ${quote.error.detail.code}`);
+
+const deadline = await sodax.swaps.getSwapDeadline(300n); // valid for 5 minutes
+if (!deadline.ok) throw new Error('Could not get a deadline');
+
+// 2. One intent: USDT on Arbitrum in, USDC on Base out, delivered to your app's recipient.
+const params: CreateIntentParams<typeof USER_CHAIN> = {
+  inputToken,
+  outputToken,
+  inputAmount,
+  minOutputAmount: (quote.value.quoted_amount * (BPS - SLIPPAGE_BPS)) / BPS,
+  deadline: deadline.value,
+  allowPartialFill: false,
+  srcChainKey: USER_CHAIN,
+  dstChainKey: APP_CHAIN,
+  srcAddress: await wallet.getWalletAddress(),
+  dstAddress: depositRecipient,
+  data: '0x',
+};
+
+// 3. Approve the token if needed, then sign and submit. Solvers fill it; no bridge to run.
+const result = await sodax.swaps.swapWithApproval({ params, walletProvider: wallet });
+if (!result.ok) throw new Error(`Deposit failed: ${result.error.code}`);
+
+console.log('Intent created on the hub:', result.value.intentDeliveryInfo.dstTxHash);
+```
+
+- **`dstAddress` is whoever gets credited.** Use the user's own address on your network, or an address your app controls.
+- **`swapWithApproval` handles the token approval.** On wallets that support batched calls it is one signature; otherwise it approves first, then swaps.
+- **Wait for settlement before you credit.** Poll `sodax.swaps.getStatus` until it reports solved. The [first swap guide](https://docs.sodax.com/quickstart) shows the polling loop.
+
+The same deposit with the no-code widget, over plain HTTP, or straight into a vault with a delivery hook: [universal deposits guide](https://www.sodax.com/developers/universal-deposits).
+
 ### Local Installation
 
 Package can be locally installed by following this steps:
