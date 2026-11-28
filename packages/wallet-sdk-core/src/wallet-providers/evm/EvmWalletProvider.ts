@@ -154,6 +154,43 @@ export function getEvmViemChain(key: EvmChainKey): Chain {
   }
 }
 
+const UNRECOGNIZED_CHAIN_CODE = 4902;
+
+/** A wallet that has never seen the chain reports EIP-3326 4902, sometimes nested by viem or the RPC envelope. */
+function isUnrecognizedChainError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  const visit = (value: unknown): boolean => {
+    if (value == null || typeof value !== 'object' || seen.has(value)) return false;
+    seen.add(value);
+    const record = value as { code?: unknown; cause?: unknown; data?: unknown; originalError?: unknown };
+    if (record.code === UNRECOGNIZED_CHAIN_CODE || record.code === String(UNRECOGNIZED_CHAIN_CODE)) return true;
+    return visit(record.cause) || visit(record.data) || visit(record.originalError);
+  };
+  return visit(error);
+}
+
+function knownViemChain(chainId: number): Chain | undefined {
+  return (
+    [
+      sonic,
+      avalanche,
+      arbitrum,
+      base,
+      optimism,
+      bsc,
+      polygon,
+      hyper,
+      lightlinkPhoenix,
+      mainnet,
+      redbellyMainnet,
+      kaia,
+      hedera,
+      monad,
+      robinhoodChain,
+    ] as const
+  ).find(chain => chain.id === chainId);
+}
+
 /** Returns `true` when `config` carries a hex private key (server-side / script usage). */
 export function isPrivateKeyEvmWalletConfig(config: EvmWalletConfig): config is PrivateKeyEvmWalletConfig {
   return 'privateKey' in config && config.privateKey.startsWith('0x');
@@ -280,9 +317,21 @@ export class EvmWalletProvider extends BaseWalletProvider<EvmWalletDefaults> imp
     return this.walletClient.getChainId();
   }
 
-  /** Asks the wallet to switch to `chainId` (EIP-3326); resolves once it has. */
+  /**
+   * Asks the wallet to switch to `chainId` (EIP-3326); resolves once it has. A wallet that does not
+   * know the chain (EIP-3326 error 4902, including when viem wraps it) is asked to add a known
+   * definition first, then the switch is retried. A rejected or failed add is rethrown and the
+   * switch is not retried.
+   */
   async switchChain(chainId: number): Promise<void> {
-    await this.walletClient.switchChain({ id: chainId });
+    try {
+      await this.walletClient.switchChain({ id: chainId });
+    } catch (error) {
+      const chain = knownViemChain(chainId);
+      if (!chain || !isUnrecognizedChainError(error)) throw error;
+      await this.walletClient.addChain({ chain });
+      await this.walletClient.switchChain({ id: chainId });
+    }
   }
 
   /** EIP-191 `personal_sign` over the raw bytes of `hash`, for withdraw-auth on MPC-relay EVM spokes. */

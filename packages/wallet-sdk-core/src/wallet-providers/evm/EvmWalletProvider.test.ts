@@ -9,6 +9,7 @@ import {
   http,
   keccak256,
   recoverMessageAddress,
+  UnknownRpcError,
   WaitForCallsStatusTimeoutError,
   type GetCallsStatusReturnType,
   type TransactionReceipt,
@@ -266,7 +267,7 @@ describe('EvmWalletProvider', () => {
   });
 
   describe('chain switching', () => {
-    it('reads the wallet\'s active chain and asks it to switch', async () => {
+    it("reads the wallet's active chain and asks it to switch", async () => {
       const config = makeConnectedWalletConfig();
       const provider = new EvmWalletProvider(config);
       vi.spyOn(config.walletClient, 'getChainId').mockResolvedValue(1);
@@ -276,6 +277,52 @@ describe('EvmWalletProvider', () => {
       await provider.switchChain(295);
 
       expect(switchSpy).toHaveBeenCalledExactlyOnceWith({ id: 295 });
+    });
+
+    it('adds a known chain and retries the switch when the wallet reports 4902', async () => {
+      const config = makeConnectedWalletConfig();
+      const provider = new EvmWalletProvider(config);
+      const unrecognized = Object.assign(new Error('Unrecognized chain ID'), { code: 4902 });
+      const addSpy = vi.spyOn(config.walletClient, 'addChain').mockResolvedValue(undefined as never);
+      const switchSpy = vi
+        .spyOn(config.walletClient, 'switchChain')
+        .mockRejectedValueOnce(unrecognized)
+        .mockResolvedValueOnce(undefined as never);
+
+      await provider.switchChain(295);
+
+      expect(addSpy).toHaveBeenCalledExactlyOnceWith({ chain: expect.objectContaining({ id: 295 }) });
+      expect(switchSpy).toHaveBeenCalledTimes(2);
+      expect(switchSpy).toHaveBeenNthCalledWith(2, { id: 295 });
+    });
+
+    it('adds the chain when 4902 is nested under a viem UnknownRpcError data code', async () => {
+      const config = makeConnectedWalletConfig();
+      const provider = new EvmWalletProvider(config);
+      const wrapped = new UnknownRpcError(
+        Object.assign(new Error('Internal JSON-RPC error'), { data: { code: 4902 } }),
+      );
+      const addSpy = vi.spyOn(config.walletClient, 'addChain').mockResolvedValue(undefined as never);
+      vi.spyOn(config.walletClient, 'switchChain')
+        .mockRejectedValueOnce(wrapped)
+        .mockResolvedValueOnce(undefined as never);
+
+      await provider.switchChain(295);
+
+      expect(addSpy).toHaveBeenCalledOnce();
+    });
+
+    it('rethrows a rejected addChain and does not retry the switch', async () => {
+      const config = makeConnectedWalletConfig();
+      const provider = new EvmWalletProvider(config);
+      const unrecognized = Object.assign(new Error('Unrecognized chain ID'), { code: 4902 });
+      const refusal = Object.assign(new Error('User rejected the request'), { code: 4001 });
+      const addSpy = vi.spyOn(config.walletClient, 'addChain').mockRejectedValue(refusal);
+      const switchSpy = vi.spyOn(config.walletClient, 'switchChain').mockRejectedValueOnce(unrecognized);
+
+      await expect(provider.switchChain(295)).rejects.toBe(refusal);
+      expect(addSpy).toHaveBeenCalledOnce();
+      expect(switchSpy).toHaveBeenCalledOnce();
     });
   });
 
