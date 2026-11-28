@@ -197,9 +197,7 @@ interface MarketReferenceAndUsdBalanceResponse {
   marketReferenceCurrencyBalance: BigNumber;
   usdBalance: BigNumber;
 }
-/**
- * @returns non humanized/normalized values for usd/marketReference
- */
+/** Returns raw (non-normalized) market-reference and USD balances. */
 export function getMarketReferenceCurrencyAndUsdBalance({
   balance,
   priceInMarketReferenceCurrency,

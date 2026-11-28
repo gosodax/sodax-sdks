@@ -86,33 +86,8 @@ function makeProvider(defaults?: ConstructorParameters<typeof IconWalletProvider
 }
 
 describe('IconWalletProvider', () => {
-  describe('constructor', () => {
-    it('initializes with private-key config', () => {
-      const provider = new IconWalletProvider({ privateKey: PRIVATE_KEY, rpcUrl: RPC_URL });
-      expect(provider.chainType).toBe('ICON');
-      expect(provider.iconService).toBeDefined();
-    });
-
-    it('initializes with browser-extension config', () => {
-      const provider = new IconWalletProvider({
-        walletAddress: 'hx1234567890abcdef1234567890abcdef12345678',
-        rpcUrl: RPC_URL,
-      });
-      expect(provider.chainType).toBe('ICON');
-    });
-
-    it('throws on invalid config', () => {
-      expect(() => new IconWalletProvider({} as never)).toThrow('Invalid Icon wallet config');
-    });
-
-    it('accepts defaults without throwing', () => {
-      const provider = new IconWalletProvider({
-        privateKey: PRIVATE_KEY,
-        rpcUrl: RPC_URL,
-        defaults: { stepLimit: 5_000_000, version: '0x4', jsonRpcId: 42 },
-      });
-      expect(provider.chainType).toBe('ICON');
-    });
+  it('throws on invalid config', () => {
+    expect(() => new IconWalletProvider({} as never)).toThrow('Invalid Icon wallet config');
   });
 
   describe('sendTransaction — option merge (PK path)', () => {
@@ -122,59 +97,33 @@ describe('IconWalletProvider', () => {
       for (const k of Object.keys(builderState)) delete builderState[k];
     });
 
-    it('uses DEFAULT_STEP_LIMIT/DEFAULT_VERSION/DEFAULT_JSON_RPC_ID when no defaults nor tx fields', async () => {
-      const provider = makeProvider();
+    const builtTxs = () => sendTransactionFn.mock.calls.map(([signedTx]) => signedTx.builtTx);
 
-      await provider.sendTransaction(TX_BASE);
-
-      expect(builderState.stepLimit).toBe('0x2dc6c0'); // 3_000_000 in hex
-      expect(builderState.version).toBe('0x3');
-    });
-
-    it('applies defaults.stepLimit/version when no per-call options nor tx fields', async () => {
+    it('resolves stepLimit/version: tx > per-call options > defaults > built-in 3_000_000/0x3', async () => {
+      await makeProvider().sendTransaction(TX_BASE);
       const provider = makeProvider({ stepLimit: 5_000_000, version: '0x4' });
 
       await provider.sendTransaction(TX_BASE);
-
-      expect(builderState.stepLimit).toBe('0x4c4b40'); // 5_000_000 hex
-      expect(builderState.version).toBe('0x4');
-    });
-
-    it('per-call options override defaults', async () => {
-      const provider = makeProvider({ stepLimit: 5_000_000, version: '0x4' });
-
       await provider.sendTransaction(TX_BASE, { stepLimit: 1_000_000, version: '0x5' });
-
-      expect(builderState.stepLimit).toBe('0xf4240'); // 1_000_000 hex
-      expect(builderState.version).toBe('0x5');
-    });
-
-    it('tx-level version wins over both per-call options and defaults', async () => {
-      const provider = makeProvider({ version: '0x4' });
-
       await provider.sendTransaction({ ...TX_BASE, version: '0x9' }, { version: '0x5' });
 
-      expect(builderState.version).toBe('0x9');
+      const [builtIn, defaulted, overridden, txLevel] = builtTxs();
+      expect(builtIn).toMatchObject({ stepLimit: '0x2dc6c0', version: '0x3' }); // 3_000_000 hex
+      expect(defaulted).toMatchObject({ stepLimit: '0x4c4b40', version: '0x4' }); // 5_000_000 hex
+      expect(overridden).toMatchObject({ stepLimit: '0xf4240', version: '0x5' }); // 1_000_000 hex
+      expect(txLevel.version).toBe('0x9');
     });
 
-    it('tx-level timestamp wins over defaults.timestampProvider', async () => {
-      const timestampProvider = vi.fn().mockReturnValue(1234);
-      const provider = makeProvider({ timestampProvider });
-
-      await provider.sendTransaction({ ...TX_BASE, timestamp: 0xabc });
-
-      expect(timestampProvider).not.toHaveBeenCalled();
-      expect(builderState.timestamp).toBe('0xabc');
-    });
-
-    it('invokes defaults.timestampProvider when tx.timestamp omitted', async () => {
+    it('uses tx.timestamp when set, otherwise defaults.timestampProvider', async () => {
       const timestampProvider = vi.fn().mockReturnValue(0x1000);
       const provider = makeProvider({ timestampProvider });
 
+      await provider.sendTransaction({ ...TX_BASE, timestamp: 0xabc });
+      expect(timestampProvider).not.toHaveBeenCalled();
       await provider.sendTransaction(TX_BASE);
 
       expect(timestampProvider).toHaveBeenCalledTimes(1);
-      expect(builderState.timestamp).toBe('0x1000');
+      expect(builtTxs().map(tx => tx.timestamp)).toEqual(['0xabc', '0x1000']);
     });
   });
 
@@ -210,26 +159,19 @@ describe('IconWalletProvider', () => {
       vi.useRealTimers();
     });
 
-    it('resolves requestJsonRpc with a well-formed RESPONSE_JSON-RPC payload', async () => {
-      onRequest(req => respond({ type: 'RESPONSE_JSON-RPC', payload: { id: req.payload.id, result: '0xhash' } }));
-
-      await expect(requestJsonRpc({ tx: 1 }, 12345)).resolves.toEqual({ id: 12345, result: '0xhash' });
-    });
-
-    it('rejects requestJsonRpc immediately on a malformed RESPONSE_JSON-RPC (no string result)', async () => {
+    it('rejects requestJsonRpc immediately on a malformed RESPONSE_JSON-RPC or a CANCEL_JSON-RPC', async () => {
       // A JSON-RPC error response ({ id, error }) carries no string `result`; it must fail
       // fast, not hang until the timeout.
       onRequest(req =>
-        respond({ type: 'RESPONSE_JSON-RPC', payload: { id: req.payload.id, error: { code: -1, message: 'nope' } } }),
+        respond(
+          req.payload.id === 1
+            ? { type: 'RESPONSE_JSON-RPC', payload: { id: 1, error: { code: -1, message: 'nope' } } }
+            : { type: 'CANCEL_JSON-RPC', payload: null },
+        ),
       );
 
       await expect(requestJsonRpc({ tx: 1 }, 1)).rejects.toThrow('Invalid payload response type');
-    });
-
-    it('rejects requestJsonRpc on CANCEL_JSON-RPC', async () => {
-      onRequest(() => respond({ type: 'CANCEL_JSON-RPC', payload: null }));
-
-      await expect(requestJsonRpc({ tx: 1 }, 1)).rejects.toThrow('CANCEL_JSON-RPC');
+      await expect(requestJsonRpc({ tx: 1 }, 2)).rejects.toThrow('CANCEL_JSON-RPC');
     });
 
     it('serializes: at most one request is in flight, so a response cannot cross-resolve', async () => {

@@ -13,18 +13,7 @@ export type UseBridgeApiIsBridgeableParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to check whether a (from, to) token pair is bridgeable via the bridge API —
- * `sodax.api.bridge.isBridgeable`. Returns `{ bridgeable }`.
- *
- * Computable client-side from config + vault reserves — prefer `sodax.bridge.isBridgeable`
- * for a no-round-trip read; this HTTP variant mirrors the `/bridge/bridgeable/check` endpoint.
- *
- * The `body` uses the wire DTO field names (`srcChainKey`/`dstChainKey`/`inputToken`/`outputToken`).
- *
- * @example
- * const { data } = useBridgeApiIsBridgeable({ params: { body: quote } });
- */
+/** HTTP mirror of `sodax.bridge.isBridgeable` (prefer that for a no-round-trip read); `body` uses wire DTO field names. */
 export const useBridgeApiIsBridgeable = ({
   params,
   queryOptions,

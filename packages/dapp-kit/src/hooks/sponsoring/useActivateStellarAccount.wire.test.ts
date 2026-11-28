@@ -1,16 +1,5 @@
-/**
- * `useActivateStellarAccount` wire test for the per-request API key: `requestConfig.apiKey` in the
- * mutation vars must reach the sponsoring `/accounts` POST as `x-api-key`, beating the
- * instance-level key.
- *
- * Follows the package convention of testing hooks without a renderer (captured `mutationFn`),
- * driving a real keyed `Sodax` end to end the way packages/sdk/src/sponsoring/SponsoringService.test.ts
- * does: Horizon is stubbed on the instance, the wallet signs with a real throwaway keypair, and the
- * config GET + account POST run call-through to a stubbed global fetch.
- *
- * `@stellar/stellar-sdk` is not a dapp-kit dependency, so it is loaded through `@sodax/sdk`'s own
- * module graph — the same copy the SDK builds and verifies the transaction with.
- */
+// `requestConfig.apiKey` in the mutation vars must reach the `/accounts` POST as `x-api-key`, beating the instance key.
+// `@stellar/stellar-sdk` is not a dapp-kit dependency, so it is loaded through `@sodax/sdk`'s module graph.
 
 import { createRequire } from 'node:module';
 import { Sodax } from '@sodax/sdk';

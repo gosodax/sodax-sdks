@@ -527,7 +527,7 @@ and origin gating are the real controls. Proxy through your own backend if that 
 | `useDetailedStatus` (swap) | 3s | stops on the answering source's terminal state, on a rejected API key, and after 40 consecutive ambiguous reads |
 | `useStatus` (swap) | 3s | stops on status `3`/`4`, and after 40 consecutive NOT_FOUND fetches |
 | `useSwapAllowance` (swap) | 2s | refetchInterval |
-| `useMMAllowance` (mm) | 5s | refetchInterval; `enabled: false` for borrow/withdraw actions |
+| `useMMAllowance` (mm) | 5s | refetchInterval; `enabled: false` with `data: true` for borrow/withdraw actions |
 | Reserves data (mm) | 5s | `useReservesData` / `useReservesHumanized` / user position hooks |
 | `useBalances` | 5s | refetchInterval |
 | `useXBalances` | 5s | refetchInterval |

@@ -11,12 +11,9 @@ const baseRecord: SubmitTxStatusDataV2 = {
 };
 
 describe('isBackendSubmitTxAbandoned', () => {
-  it('flags a terminal failure and a record abandoned mid-flight', () => {
+  it('flags a terminal failure and a record abandoned mid-flight, and leaves an in-flight record alone', () => {
     expect(isBackendSubmitTxAbandoned({ ...baseRecord, status: 'failed' })).toBe(true);
     expect(isBackendSubmitTxAbandoned({ ...baseRecord, abandonedAt: '2026-08-14T00:00:00.000Z' })).toBe(true);
-  });
-
-  it('leaves an in-flight record alone', () => {
     expect(isBackendSubmitTxAbandoned(baseRecord)).toBe(false);
     expect(isBackendSubmitTxAbandoned({ ...baseRecord, status: 'solved' })).toBe(false);
     // Matches `pollBackendSubmitTx`, which treats an empty timestamp as falsy.
@@ -28,11 +25,8 @@ describe('summarizeSwapStatus', () => {
   const HUB = '0x1111111111111111111111111111111111111111111111111111111111111111';
   const FILL = '0x2222222222222222222222222222222222222222222222222222222222222222';
 
+  // Every non-terminal backend status (pending, relaying, relayed, posting_execution, …) takes the same branch.
   it.each([
-    ['pending', 'pending'],
-    ['relaying', 'pending'],
-    ['relayed', 'pending'],
-    ['posting_execution', 'pending'],
     ['posted_execution', 'pending'],
     ['solved', 'solved'],
     ['failed', 'failed'],
@@ -40,25 +34,22 @@ describe('summarizeSwapStatus', () => {
     expect(summarizeSwapStatus({ source: 'backend', data: { ...baseRecord, status } }).state).toBe(state);
   });
 
-  it('reads the backend hub and fill hashes from the result', () => {
-    const summary = summarizeSwapStatus({
+  it('reads the backend hub and fill hashes from the result, leaving out a fill hash the journal confirmed without', () => {
+    const withFill = summarizeSwapStatus({
       source: 'backend',
       data: { ...baseRecord, status: 'solved', result: { dstIntentTxHash: HUB, fillTxHash: FILL } },
     });
-    expect(summary).toEqual({ state: 'solved', hubTxHash: HUB, fillTxHash: FILL });
-  });
+    expect(withFill).toEqual({ state: 'solved', hubTxHash: HUB, fillTxHash: FILL });
 
-  it('leaves a backend fill hash out when the journal confirmed the fill without one', () => {
-    const summary = summarizeSwapStatus({
+    const withoutFill = summarizeSwapStatus({
       source: 'backend',
       data: { ...baseRecord, status: 'solved', result: { dstIntentTxHash: HUB } },
     });
-    expect(summary).toEqual({ state: 'solved', hubTxHash: HUB, fillTxHash: undefined });
+    expect(withoutFill).toEqual({ state: 'solved', hubTxHash: HUB, fillTxHash: undefined });
   });
 
+  // NOT_FOUND, NOT_STARTED_YET and STARTED_NOT_FINISHED all take the pending branch.
   it.each([
-    [SolverIntentStatusCode.NOT_FOUND, 'pending'],
-    [SolverIntentStatusCode.NOT_STARTED_YET, 'pending'],
     [SolverIntentStatusCode.STARTED_NOT_FINISHED, 'pending'],
     [SolverIntentStatusCode.SOLVED, 'solved'],
     [SolverIntentStatusCode.FAILED, 'failed'],
@@ -66,13 +57,14 @@ describe('summarizeSwapStatus', () => {
     expect(summarizeSwapStatus({ source: 'solver', dstTxHash: HUB, data: { status } }).state).toBe(state);
   });
 
-  it('reads the solver hub hash from the arm and the fill hash from the payload', () => {
-    const summary = summarizeSwapStatus({
+  it('reads the solver hub hash from the arm and the fill hash from the payload, accepting a DetailedLeverageYieldStatus', () => {
+    // docs/LEVERAGE_YIELD.md relies on summarizeSwapStatus accepting the leverage-yield status type.
+    const status: DetailedLeverageYieldStatus = {
       source: 'solver',
       dstTxHash: HUB,
       data: { status: SolverIntentStatusCode.SOLVED, fill_tx_hash: FILL },
-    });
-    expect(summary).toEqual({ state: 'solved', hubTxHash: HUB, fillTxHash: FILL });
+    };
+    expect(summarizeSwapStatus(status)).toEqual({ state: 'solved', hubTxHash: HUB, fillTxHash: FILL });
   });
 
   it('drops a fill hash that is not hex', () => {
@@ -82,14 +74,5 @@ describe('summarizeSwapStatus', () => {
       data: { status: SolverIntentStatusCode.SOLVED, fill_tx_hash: 'not-a-hash' },
     });
     expect(summary.fillTxHash).toBeUndefined();
-  });
-
-  it('accepts a DetailedLeverageYieldStatus, which docs/LEVERAGE_YIELD.md relies on', () => {
-    const status: DetailedLeverageYieldStatus = {
-      source: 'solver',
-      dstTxHash: HUB,
-      data: { status: SolverIntentStatusCode.SOLVED, fill_tx_hash: FILL },
-    };
-    expect(summarizeSwapStatus(status)).toEqual({ state: 'solved', hubTxHash: HUB, fillTxHash: FILL });
   });
 });

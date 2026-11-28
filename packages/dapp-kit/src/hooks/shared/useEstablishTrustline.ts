@@ -13,13 +13,7 @@ export type UseEstablishTrustlineVars = {
   walletProvider: IStellarWalletProvider;
 };
 
-/**
- * Establish a Stellar trustline. The account pays its fee and reserve; use
- * {@link useStellarGate} to verify it can afford them.
- *
- * Supersedes the deprecated `useRequestTrustline`, which keeps the hand-rolled
- * shape released in 2.0.0.
- */
+/** The account pays the fee and reserve; use {@link useStellarGate} to verify it can afford them. */
 export function useEstablishTrustline({
   mutationOptions,
 }: MutationHookParams<string, UseEstablishTrustlineVars> = {}): SafeUseMutationResult<
@@ -34,8 +28,7 @@ export function useEstablishTrustline({
     mutationKey: ['shared', 'establishTrustline'],
     ...mutationOptions,
     mutationFn: async ({ token, amount, srcChainKey, walletProvider }): Promise<string> => {
-      // Rejecting `0n` preserves the behaviour of the hook this replaced: an amount
-      // sizes the trustline check, so zero is a caller bug rather than a request.
+      // The amount sizes the trustline check, so `0n` is a caller bug.
       if (!token || !amount) {
         throw new Error('Token and amount are required');
       }
@@ -50,11 +43,8 @@ export function useEstablishTrustline({
       });
     },
     onSuccess: async (data, vars, ctx) => {
-      // The trustline is already broadcast here, so a wallet that locks or switches
-      // accounts mid-flow must not turn success into an error — nor skip the
-      // invalidations below, which is what an unguarded throw would do.
+      // Already broadcast: a locked/switched wallet must not turn success into an error or skip invalidation.
       const srcAddress = await vars.walletProvider.getWalletAddress().catch(() => undefined);
-      // Without the address, invalidate the whole prefix rather than nothing.
       queryClient.invalidateQueries({
         queryKey: srcAddress
           ? ['shared', 'stellarTrustlineCheck', vars.srcChainKey, vars.token, srcAddress]

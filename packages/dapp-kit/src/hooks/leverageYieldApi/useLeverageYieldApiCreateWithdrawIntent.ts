@@ -5,19 +5,13 @@ import { unwrapResult } from '../shared/unwrapResult.js';
 import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 
-/**
- * Mutation variables for {@link useLeverageYieldApiCreateWithdrawIntent}. The per-request `apiConfig` override belongs here
- * rather than at the hook level — different calls in the same component can target different
- * endpoints without re-rendering.
- */
+/** Per-call `apiConfig` so calls in one component can target different endpoints. */
 export type UseLeverageYieldApiCreateWithdrawIntentVars = {
   body: CreateWithdrawIntentParamsV2;
   apiConfig?: RequestOverrideConfig;
 };
 
-/**
- * React hook to build an unsigned withdraw create-intent transaction (lsoda* shares → any token) via the leverage-yield API — `sodax.api.leverageYield.createWithdrawIntent`.
- */
+/** Builds an unsigned withdraw create-intent tx (lsoda* shares → any token). */
 export const useLeverageYieldApiCreateWithdrawIntent = ({
   mutationOptions,
 }: MutationHookParams<CreateIntentResponseV2, UseLeverageYieldApiCreateWithdrawIntentVars> = {}): SafeUseMutationResult<

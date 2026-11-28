@@ -13,13 +13,7 @@ export type UseLeverageYieldApiVaultParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch a single vault descriptor by its lsoda* share-token name via the
- * leverage-yield API — `sodax.api.leverageYield.getVault`.
- *
- * @example
- * const { data: vault } = useLeverageYieldApiVault({ params: { name: 'lsodaWEETH' } });
- */
+/** Looks up one vault by its lsoda* share-token name (e.g. `lsodaWEETH`). */
 export const useLeverageYieldApiVault = ({
   params,
   queryOptions,

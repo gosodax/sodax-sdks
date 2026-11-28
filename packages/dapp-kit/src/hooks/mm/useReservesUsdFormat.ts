@@ -7,10 +7,6 @@ export type ReserveUsdFormat = ReserveDataHumanized & FormatReserveUSDResponse;
 
 export type UseReservesUsdFormatParams = ReadHookParams<ReserveUsdFormat[]>;
 
-/**
- * React hook returning reserves with USD-formatted values for the Sodax money market.
- * Chains `getReservesHumanized` → `buildReserveDataWithPrice` → `formatReservesUSD`.
- */
 export function useReservesUsdFormat({
   queryOptions,
 }: UseReservesUsdFormatParams = {}): UseQueryResult<ReserveUsdFormat[], Error> {

@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/staking/useCancelUnstake.ts
 import type { CancelUnstakeAction, SpokeChainKey, TxHashPair } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
@@ -8,12 +7,7 @@ import { unwrapResult } from '../shared/unwrapResult.js';
 
 export type UseCancelUnstakeVars<K extends SpokeChainKey = SpokeChainKey> = Omit<CancelUnstakeAction<K, false>, 'raw'>;
 
-/**
- * React hook for cancelling a pending unstake request.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
- */
+/** Throws on SDK failure (React Query error state); resolves to the unwrapped `TxHashPair`. */
 export function useCancelUnstake<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<TxHashPair, UseCancelUnstakeVars<K>> = {}): SafeUseMutationResult<

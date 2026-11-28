@@ -13,13 +13,6 @@ export type UseSwapsApiIntentHashParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to compute the keccak256 hash of an Intent struct via the swaps API —
- * `sodax.api.swaps.getIntentHash`. The `intent` carries `bigint` numerics. Returns `{ hash }`.
- *
- * @example
- * const { data } = useSwapsApiIntentHash({ params: { intent } });
- */
 export const useSwapsApiIntentHash = ({
   params,
   queryOptions,

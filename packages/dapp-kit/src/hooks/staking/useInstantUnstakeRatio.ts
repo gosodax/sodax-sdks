@@ -9,10 +9,7 @@ export type UseInstantUnstakeRatioParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to estimate the SODA amount received from instant-unstaking a given xSODA amount
- * (after slippage). Hub-only read. Throws on `!ok`.
- */
+/** SODA received for instant-unstaking the xSODA amount, after slippage. Throws on `!ok`. */
 export function useInstantUnstakeRatio({
   params,
   queryOptions,

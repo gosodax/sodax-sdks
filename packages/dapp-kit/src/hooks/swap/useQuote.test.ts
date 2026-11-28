@@ -69,9 +69,6 @@ describe('getSwapQuoteQueryOptions', () => {
     expect(hashKey(queryKey)).toContain('"amount":"1000000"');
   });
 
-  // `getQuote` deducts the configured fee from `amount` before quoting, so it is an input to the
-  // result even though it never appears in `payload`. Two providers with different swap fees must
-  // not share a cache entry, and a reconfigured provider must not serve the old fee's quote.
   it('keys the configured swap partner fee', () => {
     const noFee = getSwapQuoteQueryOptions({ sodax: makeSodax().sodax, payload: PAYLOAD }).queryKey;
     const withFee = getSwapQuoteQueryOptions({
@@ -102,9 +99,7 @@ describe('getSwapQuoteQueryOptions', () => {
     expect(hashKey(queryKey)).toContain('7000');
   });
 
-  // Pins the allow-list. If `SolverIntentQuoteRequest` gains a field, this fails and forces a
-  // decision about whether it belongs in the key — rather than a spread silently carrying a new
-  // bigint in and crashing `hashKey` at render time.
+  // Fails when `SolverIntentQuoteRequest` gains a field, forcing a deliberate key decision.
   it('keys exactly the known request fields', () => {
     const { sodax } = makeSodax();
     const { queryKey } = getSwapQuoteQueryOptions({ sodax, payload: PAYLOAD });
@@ -122,10 +117,9 @@ describe('getSwapQuoteQueryOptions', () => {
     );
   });
 
-  // Key derivation runs during render, so it must not throw on a payload assembled from
-  // partially-validated form state.
   it('derives a hashable key even when amount is missing', () => {
     const { sodax } = makeSodax();
+    // Simulates partially-validated form state; key derivation runs during render and must not throw.
     const malformed = { ...PAYLOAD, amount: undefined } as unknown as SolverIntentQuoteRequest;
 
     const { queryKey } = getSwapQuoteQueryOptions({ sodax, payload: malformed });

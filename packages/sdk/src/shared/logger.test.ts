@@ -4,19 +4,10 @@ import { consoleLogger, resolveLogger, silentLogger } from './logger.js';
 import { Sodax } from './entities/Sodax.js';
 
 describe('resolveLogger', () => {
-  it('defaults to the console logger when the option is undefined', () => {
+  it("resolves undefined and 'console' to the console logger, 'silent' to the silent logger, and a custom instance unchanged", () => {
     expect(resolveLogger(undefined)).toBe(consoleLogger);
-  });
-
-  it("returns the console logger for the 'console' preset", () => {
     expect(resolveLogger('console')).toBe(consoleLogger);
-  });
-
-  it("returns the silent logger for the 'silent' preset", () => {
     expect(resolveLogger('silent')).toBe(silentLogger);
-  });
-
-  it('returns a custom logger instance unchanged', () => {
     const custom: SodaxLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     expect(resolveLogger(custom)).toBe(custom);
   });
@@ -34,45 +25,32 @@ describe('silentLogger', () => {
 });
 
 describe('consoleLogger', () => {
-  it('forwards error(message, error) to console.error', () => {
+  it('forwards error(message, error) to console.error, omitting the second argument when no error is passed', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const cause = new Error('boom');
     consoleLogger.error('failed', cause);
-    expect(spy).toHaveBeenCalledWith('failed', cause);
-    spy.mockRestore();
-  });
-
-  it('omits the second console.error argument when no error value is passed', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(spy).toHaveBeenLastCalledWith('failed', cause);
     consoleLogger.error('just a message');
-    expect(spy).toHaveBeenCalledWith('just a message');
+    expect(spy).toHaveBeenLastCalledWith('just a message');
     spy.mockRestore();
   });
 
   for (const level of ['debug', 'info', 'warn'] as const) {
-    it(`forwards ${level}(message, data) to console.${level} when data is present`, () => {
+    it(`forwards ${level}(message, data) to console.${level}, omitting the second argument when no data is passed`, () => {
       const spy = vi.spyOn(console, level).mockImplementation(() => {});
       const data = { k: 'v' };
       consoleLogger[level]('a message', data);
-      expect(spy).toHaveBeenCalledWith('a message', data);
-      spy.mockRestore();
-    });
-
-    it(`omits the second console.${level} argument when no data is passed`, () => {
-      const spy = vi.spyOn(console, level).mockImplementation(() => {});
+      expect(spy).toHaveBeenLastCalledWith('a message', data);
       consoleLogger[level]('a message');
-      expect(spy).toHaveBeenCalledWith('a message');
+      expect(spy).toHaveBeenLastCalledWith('a message');
       spy.mockRestore();
     });
   }
 });
 
 describe('Sodax logger wiring', () => {
-  it('defaults to the console logger', () => {
+  it("defaults to the console logger and selects the silent logger via { logger: 'silent' }", () => {
     expect(new Sodax().config.logger).toBe(consoleLogger);
-  });
-
-  it("selects the silent logger via { logger: 'silent' }", () => {
     expect(new Sodax({ logger: 'silent' }).config.logger).toBe(silentLogger);
   });
 

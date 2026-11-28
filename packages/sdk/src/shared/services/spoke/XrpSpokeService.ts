@@ -55,18 +55,12 @@ import { computeSignedMessageHash, randomWithdrawNonce } from './mpc-message.js'
 import { xrpIdentityBytes, xrpTokenRef } from './xrp-utils.js';
 import { createBalanceCollector, settleWalletBalances, type WalletBalanceMap } from './balance-utils.js';
 
-/** Per-request budget for a rippled call, mirroring the Tron service's own request cap. */
 const XRP_RPC_TIMEOUT_MS = 15_000;
 
-/**
- * Floor for an MPC-relay settlement wait, applied over the caller's own timeout.
- *
- * XRPL is fast, but aggregation, the NEAR submit and the hub tx still have to clear (and for a
- * withdrawal, the MPC-signed release), so the generic cross-chain timeout would give up mid-flight.
- */
+/** Floor over the caller's settlement timeout: aggregation, the NEAR submit and the hub tx (and a release) must still clear. */
 const XRP_SETTLEMENT_FLOOR_MS = 300_000;
 
-/** How often to re-notify the relay while waiting for a deposit — a couple of ledger closes. */
+/** Relay re-notify interval while waiting for a deposit — a couple of ledger closes. */
 const RENOTIFY_INTERVAL_MS = 6_000;
 
 /** AccountRoot flags that make rippled refuse a Payment carrying no DestinationTag, or from an unauthorized sender. */
@@ -88,13 +82,11 @@ const TF_SET_NO_RIPPLE = 0x00020000;
 /** The largest issued-currency amount XRPL represents, used as the trustline limit so it never runs out of room. */
 const XRP_MAX_IOU_LIMIT = '9999999999999999e80';
 
-/** Create or raise the trustline `srcAddress` needs to hold `token`, an XRPL issued currency. */
 export type RequestXrpTrustlineParams<Raw extends boolean> = {
   srcAddress: string;
   token: string;
 } & WalletProviderSlot<XrpChainKey, Raw>;
 
-/** The unsigned TrustSet in raw mode, else the hash of the validated TrustSet. */
 export type RequestXrpTrustlineReturnType<Raw extends boolean> = Raw extends true ? XrpUnsignedTrustSet : string;
 
 type XrpTrustLine = { currency: string; account: string; balance: string; limit: string; peer_authorized?: boolean };
@@ -127,9 +119,8 @@ function toRelayTxHash(txHash: string): string {
 }
 
 /**
- * Whether an XRPL account can receive a release, and if not, why. The relay treats a destination it
- * cannot pay as a TERMINAL failure — the funds are already burned on the hub by then — so a caller
- * must check this before withdrawing or borrowing to an XRPL address.
+ * Whether an XRPL account can receive a release. The relay treats an unpayable destination as TERMINAL after
+ * the hub already burned the funds, so check this before withdrawing or borrowing to an XRPL address.
  */
 export type XrpDestinationReadiness =
   | { ready: true }
@@ -148,16 +139,8 @@ export type XrpDestinationReadiness =
     };
 
 /**
- * Spoke service for the XRP Ledger. Like Tron, XRPL deposits ride the **MPC relay** in memo mode: a
- * Payment to the shared reserve carries a 32-byte payload-hash memo that the NEAR chain-signatures
- * relay verifies before minting on the hub.
- *
- * Withdrawals use auth scheme 3, which differs from Tron's scheme 1 in two ways:
- *   - the signature is a RAW ed25519 signature over the message hash — no prefix, no envelope;
- *   - ed25519 cannot recover its signer, so the 33-byte `0xED`-prefixed public key is submitted
- *     alongside and the contract derives the AccountID from it to check against `sender`.
- *
- * @see MpcRelayApiService for the relay REST flow (deposit-address → notify → poll).
+ * XRPL spoke: deposits ride the MPC relay in memo mode (32-byte payload-hash memo). Withdrawals use auth scheme 3:
+ * a RAW ed25519 signature, plus the `0xED`-prefixed public key since ed25519 cannot recover its signer.
  */
 export class XrpSpokeService implements MpcRelaySettlement {
   private readonly config: ConfigService;
@@ -166,9 +149,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     this.config = config;
   }
 
-  // Read live rather than captured in the constructor: `ConfigService` can swap in backend-fetched
-  // config after construction, and an address pinned at startup (notably the reserve) would then be
-  // stale for the lifetime of the Sodax instance.
+  // Read live: `ConfigService` can swap in backend config after construction, which would leave a pinned reserve stale.
   private get chainConfig(): XrpSpokeChainConfig {
     return this.config.getChainConfig(ChainKeys.XRP_MAINNET);
   }
@@ -186,11 +167,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     return getMpcRelayChainInfo(ChainKeys.XRP_MAINNET).chainId.toString();
   }
 
-  /**
-   * One rippled JSON-RPC call, bounded by {@link XRP_RPC_TIMEOUT_MS}. The signal covers the body
-   * read too — a node can answer headers and then stall the stream, which would otherwise hang a
-   * polling loop with no upper bound.
-   */
+  /** The timeout signal covers the body read too: a node can send headers and then stall the stream. */
   private async rpc<T>(method: string, params: Record<string, unknown>, timeoutMs = XRP_RPC_TIMEOUT_MS): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -219,18 +196,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Deposit XRP or an issued currency (IOU) into the hub via the MPC relay.
-   *
-   * `Raw: true` returns the unsigned transfer descriptor (no wallet needed). `Raw: false` registers
-   * the hub `data`, builds the memo Payment, signs it with the wallet provider, submits it, and
-   * notifies the relay — resolving to the source tx hash. After signing, a definite submit failure
-   * throws. An uncertain submit notifies and throws an IndeterminateOutcomeError carrying the hash.
-   * A failed notify after an accepted submit still resolves to the hash. `settle`
-   * re-notifies it; a caller that does not settle notifies it with `spoke.submitMpcDeposit`.
-   *
-   * Both token kinds ride the same memo mechanism: `Memos` is a transaction-level field, so it
-   * rides an IOU Payment exactly as it rides a drops transfer. An IOU deposit needs no allowance,
-   * but the RESERVE must already hold a trustline for that currency or the Payment fails on ledger.
+   * Deposit XRP or an IOU via the MPC relay (memo Payment). A definite submit failure throws, an uncertain one throws
+   * IndeterminateOutcomeError with the hash; the RESERVE must already hold a trustline for an IOU or the Payment fails.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<XrpChainKey, R>,
@@ -238,11 +205,9 @@ export class XrpSpokeService implements MpcRelaySettlement {
     const { srcAddress, token, amount, data, to } = params;
     const isNative = token === this.chainConfig.nativeToken;
 
-    // Before the relay registers anything: a signer that could never withdraw must not deposit.
-    // A raw deposit has no signer here to check, so its caller owns that.
+    // A signer that could never withdraw must not deposit; a raw deposit's caller owns that check.
     if (!('raw' in params && params.raw)) await this.assertSignerCanWithdraw(params.walletProvider, srcAddress);
 
-    // Register the hub-side calls and get the shared reserve + the memo to tag the Payment with.
     const addr = await getDepositAddress(this.relayApiUrl, srcAddress, this.chainId, data);
     if (!addr.ok) throw addr.error;
     if (addr.value.depositMethod !== 'memo') {
@@ -253,9 +218,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
     const { reserveAddress, memo, hubWallet } = addr.value;
     this.warnOnUnknownReserve(reserveAddress);
 
-    // The relay derives the receiving hub wallet from `srcAddress` rather than taking `to`, so `to`
-    // is an assertion here, not an instruction: if the two disagree the mint lands somewhere the
-    // caller is not expecting (a mismatch means the identity encoding drifted from the relay's).
+    // The relay derives the hub wallet from `srcAddress`, so `to` is only an assertion; a mismatch means the identity
+    // encoding drifted from the relay's.
     if (to.toLowerCase() !== hubWallet.toLowerCase()) {
       throw new Error(
         `[XrpSpokeService.deposit] relay derives hub wallet ${hubWallet} for ${srcAddress}, but the deposit targets ${to}`,
@@ -292,9 +256,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
 
     const walletProvider = params.walletProvider;
 
-    // Sequence/Fee/LastLedgerSequence are deliberately left to the wallet: GemWallet autofills and
-    // rejects a transaction that pins them, and a raw-key provider has xrpl.js do the same. Filling
-    // them here would mean racing the wallet for the account's Sequence.
+    // Sequence/Fee/LastLedgerSequence are left to the wallet: GemWallet rejects a tx that pins them, and filling them
+    // here would race the wallet for the account's Sequence.
     let hash: string;
     let uncertain: IndeterminateOutcomeError | undefined;
     try {
@@ -329,10 +292,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * Notify the relay of a submitted deposit, without waiting for it to land. The funds are already on
-   * ledger, so it retries, and a failure keeps the tx hash: the only handle left for re-notifying the deposit.
-   */
+  /** Notify the relay of a submitted deposit with retries; a failure keeps the tx hash, the only handle to re-notify. */
   public async submitDeposit(txHash: string): Promise<Result<void>> {
     try {
       await this.retryNotify(() => notify(this.relayApiUrl, this.chainId, toRelayTxHash(txHash)));
@@ -347,7 +307,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** A notify, retried: `retry` reacts to a throw and `notify` reports failure in its Result, so rethrow it. */
+  /** `retry` reacts to a throw while `notify` reports failure in its Result, so rethrow it. */
   private async retryNotify(send: () => Promise<Result<NotifyResponse>>): Promise<void> {
     await retry(async () => {
       const res = await send();
@@ -356,9 +316,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Refuses a deposit its signer could never withdraw. Scheme 3 takes only an ed25519 key and checks
-   * `ripemd160(sha256(publicKey))` against the account, so a secp256k1 key, or a key that is not this
-   * account's own (a regular key), would leave the deposit on the hub with no way to authorize it out.
+   * Refuses a deposit its signer could never withdraw: scheme 3 takes only an ed25519 key matching
+   * `ripemd160(sha256(publicKey))`, so a secp256k1 or regular key would strand the deposit on the hub.
    */
   private async assertSignerCanWithdraw(walletProvider: IXrpWalletProvider, srcAddress: string): Promise<void> {
     const publicKey = await walletProvider.getPublicKey();
@@ -370,12 +329,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * Submit a signed Payment and return its hash.
-   *
-   * A browser wallet (GemWallet) submits as part of signing and returns a hash with no blob, so the
-   * funds have already moved — submitting again is impossible and throwing would strand them unnotified.
-   */
+  /** A browser wallet (GemWallet) submits while signing and returns a hash with no blob, so never resubmit or throw. */
   private async submitSigned(signed: { tx_blob?: string; hash?: string }): Promise<string> {
     if (!signed.tx_blob) {
       if (!signed.hash) throw new Error('[XrpSpokeService.deposit] wallet returned neither a signed blob nor a hash');
@@ -403,13 +357,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * IOU amount object for a Payment. XRPL identifies an issued currency by (currency, issuer), and
-   * the token's `address` carries both or just the issuer — XRPL has no token contracts. For an
-   * issuer-only address the currency code is derived from the symbol rather than looked up, so a newly
-   * listed IOU cannot miss a registry entry (see {@link xrpTokenRef}).
-   *
-   * `value` is a decimal STRING in whole units, not drops: XRPL IOUs are decimal, so the base-unit
-   * amount has to be scaled down by the token's decimals or the Payment moves 10^decimals too much.
+   * IOU amount for a Payment; an issuer-only `address` derives the currency from the symbol (see {@link xrpTokenRef}).
+   * `value` is a decimal string in whole units, not drops, so base units are scaled down by the token's decimals.
    */
   private iouAmount(token: string, amount: bigint): { currency: string; issuer: string; value: string } {
     const entry = Object.values(this.chainConfig.supportedTokens).find(t => t.address === token);
@@ -426,13 +375,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Warn when the relay's reserve differs from the one in the chain config, without blocking.
-   *
-   * The relay's client contract is explicit that `reserveAddress` is not a constant and that a
-   * client must pay the address from the current response rather than a cached or hard-coded one.
-   * XRPL in particular SHARDS its reserve across lanes (`set_xrp_reserve`), and a payment to a
-   * retired lane is not credited — so this cannot be a hard pin without stranding deposits on a
-   * legitimate rotation. It stays a loud signal instead.
+   * Warn, never block, when the relay's reserve differs from config: XRPL shards its reserve across lanes and the
+   * relay requires paying the current response's address, so a hard pin would strand deposits on rotation.
    */
   private warnOnUnknownReserve(reserveAddress: string): void {
     const expected = this.chainConfig.addresses.reserve;
@@ -443,14 +387,10 @@ export class XrpSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * Wait for the hub mint to land for an XRPL deposit, via the MPC relay's deposit record.
-   * `txHash` is the source XRPL tx hash returned by {@link deposit}.
-   */
+  /** Wait for the hub mint for an XRPL deposit (`txHash` as returned by {@link deposit}). */
   public async waitForDeposit(txHash: string, timeout?: number): Promise<Result<DepositRecord>> {
     const hash = toRelayTxHash(txHash);
-    // `/notify` accepts a tx before its ledger is validated and never re-checks, so a notification
-    // sent right after submit can land too early. Re-notifying is idempotent.
+    // `/notify` accepts a tx before its ledger validates and never re-checks, so re-notify (idempotent).
     const renotify = setInterval(() => {
       void notify(this.relayApiUrl, this.chainId, hash);
     }, RENOTIFY_INTERVAL_MS);
@@ -465,16 +405,11 @@ export class XrpSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** The MPC relay's current record for an XRPL deposit, read once. `txHash` is as for {@link waitForDeposit}. */
   public async getDepositRecord(txHash: string): Promise<Result<DepositRecord>> {
     return getDeposit(this.relayApiUrl, toDepositId(this.chainId, toRelayTxHash(txHash)));
   }
 
-  /**
-   * On-chain balance for the deposit owner. XRPL memo-mode has no per-chain asset manager, so this
-   * reads the holder's balance directly — native XRP from `account_info`, an IOU from the trustline
-   * in `account_lines`.
-   */
+  /** XRPL memo-mode has no asset manager, so this reads the holder's own balance (`account_info` / `account_lines`). */
   public async getDeposit(params: GetDepositParams<XrpChainKey>): Promise<bigint> {
     try {
       return await this.readBalance(params.srcAddress, params.token);
@@ -515,7 +450,6 @@ export class XrpSpokeService implements MpcRelaySettlement {
     return 0n;
   }
 
-  /** The user's own wallet balance of `token`, in smallest units — the same read as {@link getDeposit}. */
   public async getWalletBalance(params: GetBalanceParams<XrpChainKey>): Promise<bigint> {
     return this.getDeposit({
       srcChainKey: params.srcChainKey,
@@ -524,7 +458,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /** The user's own wallet balances of multiple tokens, keyed by `token.address`. */
+  /** Keyed by `token.address`. */
   public async getWalletBalances(params: GetBalancesParams<XrpChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
     const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
@@ -533,15 +467,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Whether `address` can receive `amount` of `token` from a release, checked before the hub burns it.
-   * `amount` is what arrives, in the token's decimals; `maxAmount` (default `amount`) is the most that can
-   * arrive, which the trustline must have room for when a solver fill can exceed the minimum.
-   *
-   * Refused: a missing account, unless native XRP of at least the base reserve creates it; a required
-   * destination tag; Deposit Authorization. For an IOU paid to anyone but its issuer (paying the issuer
-   * redeems it): a global freeze or transfer fee on the issuer, an issuer that requires authorization and
-   * has not authorized the line (reported whether or not the line exists yet), no trustline, a deep freeze,
-   * or too little room under the limit.
+   * Whether `address` can receive a release, checked before the hub burns. `maxAmount` (default `amount`) is the most
+   * a solver fill can deliver, which the trustline must have room for; amounts are in the token's decimals.
    */
   public async checkDestination(params: {
     address: string;
@@ -590,17 +517,13 @@ export class XrpSpokeService implements MpcRelaySettlement {
     return { ready: true };
   }
 
-  /** Whether holding `token` needs a trustline: every listed issued currency does, native XRP does not. */
   public requiresTrustline(token: string): boolean {
     return token !== this.chainConfig.nativeToken && this.findIou(token) !== undefined;
   }
 
   /**
-   * Whether `address` holds enough spendable XRP to send the TrustSet for `token`: the fee, plus one owner
-   * reserve unless the line already holds one on `address`'s side. A line the issuer created (to authorize
-   * the holder) does not, so raising its limit needs the reserve too. Like rippled's TrustSet, an account
-   * owning fewer than two objects needs no reserve for the line, only the fee. An address nobody has funded
-   * yet cannot afford it.
+   * Whether `address` can pay the TrustSet fee plus one owner reserve, unless the line already holds one on its side;
+   * like rippled, an account owning fewer than two objects needs only the fee.
    */
   public async canAffordTrustline(params: { address: string; token: string }): Promise<boolean> {
     const { address, token } = params;
@@ -631,14 +554,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Create the trustline `srcAddress` needs to hold `token`, or raise its limit. The limit is set to the
-   * largest amount XRPL represents, with NoRipple, so one TrustSet clears both a missing and a full line.
-   *
-   * `raw: true` returns the unsigned TrustSet. Otherwise the wallet's `signTrustSet` signs it (a browser
-   * wallet also submits it), and this resolves to its bare uppercase hash once it validates with `tesSUCCESS`.
-   * When the TrustSet may have been sent but its outcome is unknown (a submit that failed in transit, a
-   * non-final submit verdict, no validation in time) the error is an IndeterminateOutcomeError carrying the
-   * hash: check it before signing again, since each TrustSet costs a fee.
+   * Create or raise `srcAddress`'s trustline for `token` to the max limit with NoRipple. A possibly-sent TrustSet with
+   * unknown outcome throws IndeterminateOutcomeError with the hash: check it before re-signing (each costs a fee).
    */
   public async requestTrustline<Raw extends boolean>(
     params: RequestXrpTrustlineParams<Raw>,
@@ -685,10 +602,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * Submit a signed TrustSet blob. Only a `tem` verdict means it can never apply; any other failure, or a
-   * submit lost in transit, may still validate (a `tec` even charges the fee), so it is indeterminate.
-   */
+  /** Only a `tem` verdict means a TrustSet can never apply; any other failure may still validate, so it is indeterminate. */
   private async submitTrustSet(blob: string): Promise<string> {
     if (!/^(?:[0-9a-f]{2})+$/i.test(blob)) throw new Error('[XrpSpokeService.requestTrustline] invalid signed blob');
     // No relay keys a TrustSet, so its hash keeps XRPL's own bare uppercase form.
@@ -717,7 +631,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     );
   }
 
-  /** The account's flags and transfer rate, or `undefined` for an address nobody has funded yet. */
+  /** `undefined` for an address nobody has funded yet. */
   private async readAccountRoot(account: string): Promise<{ flags: number; transferRate?: number } | undefined> {
     const info = await orIfMissing(
       this.rpc<{ account_data?: { Flags?: number; TransferRate?: number } }>('account_info', {
@@ -729,7 +643,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     return info && { flags: info.account_data?.Flags ?? 0, transferRate: info.account_data?.TransferRate };
   }
 
-  /** The base reserve in drops: the least a Payment can carry to create an account. */
+  /** The least a Payment can carry to create an account. */
   private async readBaseReserveDrops(): Promise<bigint> {
     const res = await this.rpc<{ state?: { validated_ledger?: { reserve_base?: number } } }>('server_state', {});
     const reserve = res.state?.validated_ledger?.reserve_base;
@@ -737,7 +651,6 @@ export class XrpSpokeService implements MpcRelaySettlement {
     return BigInt(reserve);
   }
 
-  /** The account base reserve and the per-owned-object increment, in drops. */
   private async readReservesDrops(): Promise<{ base: bigint; increment: bigint }> {
     const res = await this.rpc<{ state?: { validated_ledger?: { reserve_base?: number; reserve_inc?: number } } }>(
       'server_state',
@@ -749,10 +662,6 @@ export class XrpSpokeService implements MpcRelaySettlement {
     return { base: BigInt(base), increment: BigInt(increment) };
   }
 
-  /**
-   * The holder's line to `issuer` (if any), that line's RippleState flags, whether it holds an owner reserve
-   * on the holder's side, and the issuer's account root.
-   */
   private async readTrustline(holder: string, issuer: string, currency: string) {
     const [lines, state, issuerRoot] = await Promise.all([
       orIfMissing(
@@ -785,7 +694,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     };
   }
 
-  /** The current open-ledger Payment fee in drops, falling back to the base fee when unavailable. */
+  /** Open-ledger Payment fee in drops, falling back to the base fee. */
   public async estimateGas(_params: EstimateGasParams<XrpChainKey>): Promise<XrpGasEstimate> {
     return { fee: await this.readFeeDrops() };
   }
@@ -798,14 +707,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Withdraw / borrow (hub→XRPL) via the MPC relay's signature-mode pipeline.
-   *
-   * The `payload` is the hub-wallet calls to run (e.g. `AssetManager.transfer` that burns the
-   * wrapped token and requests the release); `dstAddress` is the hub wallet that executes them. The
-   * XRPL identity signs the withdraw-auth hash (scheme 3) and the relay verifies → burns on the hub
-   * → MPC-signs the release to the XRPL recipient. `Raw: true` returns the unsigned withdraw-auth
-   * ({@link XrpRawWithdraw}) for {@link submitSignedWithdraw}; `Raw: false` signs and submits it and
-   * resolves to the `trackingId` to poll {@link waitForWithdrawal} with.
+   * Withdraw / borrow (hub→XRPL) via the MPC relay: the XRPL identity signs the scheme-3 withdraw-auth, the relay burns
+   * on the hub and MPC-signs the release. Resolves to the `trackingId` for {@link waitForWithdrawal}.
    */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<XrpChainKey, Raw>,
@@ -825,11 +728,8 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Submit a raw withdraw-auth once signed. Resolves to the `trackingId` for {@link waitForWithdrawal}.
-   * An ed25519 signature cannot recover its signer, so the account's `0xED` public key rides along and the
-   * contract checks `ripemd160(sha256(publicKey))` against the message's `sender`; a mismatch is refused here.
-   * On IndeterminateOutcomeError, poll the original tracking ID. A rejection on resubmission of the
-   * same message and signature does not determine the outcome of the first submission.
+   * Submit a signed withdraw-auth; the account's `0xED` public key rides along for the contract's AccountID check.
+   * On IndeterminateOutcomeError poll the original trackingId: a resubmission's rejection does not settle the first.
    */
   public async submitSignedWithdraw({
     withdraw,
@@ -864,7 +764,6 @@ export class XrpSpokeService implements MpcRelaySettlement {
     return res.value.trackingId;
   }
 
-  /** The withdraw-auth for `hubWallet` to run `payload`, and the digest the XRPL account signs. */
   private buildWithdraw(srcAddress: string, hubWallet: string, payload: Hex): XrpRawWithdraw {
     // `data` is variable-length inside the signed digest's unframed concat, so `to` must be exactly 20 bytes.
     if (!isAddress(hubWallet)) {
@@ -884,15 +783,10 @@ export class XrpSpokeService implements MpcRelaySettlement {
     };
   }
 
-  /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */
   public async getWithdrawalRecord(trackingId: string): Promise<Result<WithdrawalRecord>> {
     return getWithdrawal(this.relayApiUrl, trackingId);
   }
 
-  /**
-   * Wait for a hub→XRPL withdrawal to reach `released`, via the MPC relay.
-   * `trackingId` is the value returned by {@link sendMessage}.
-   */
   public async waitForWithdrawal(
     trackingId: string,
     timeout?: number,
@@ -905,10 +799,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /**
-   * Notify the relay of a hub tx releasing to XRPL, without waiting for the release. The relay has no hub
-   * watcher and learns of the hub tx only through `/notify`.
-   */
+  /** Notify the relay of a hub tx releasing to XRPL; it has no hub watcher and learns of it only through `/notify`. */
   public async submitHubRelease(release: HubRelease): Promise<Result<void>> {
     const { hubChainId, hubTxHash } = release;
     try {
@@ -923,10 +814,7 @@ export class XrpSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * Wait until a release {@link submitHubRelease} notified is paid. The relay's verifier also waits on hub
-   * confirmations and may have dropped an early notify, so this keeps re-notifying.
-   */
+  /** Wait until a notified release is paid, re-notifying: the verifier waits on hub confirmations and may drop an early notify. */
   public async waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>> {
     const { hubChainId, hubTxHash } = release;
     const renotify = setInterval(() => {
@@ -942,12 +830,10 @@ export class XrpSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** One read of a hub release's record through the relay, which `txs.release` marks as paid. */
   public async getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>> {
     return getDeposit(this.relayApiUrl, toHubReleaseId(release));
   }
 
-  /** Poll rippled until the transaction is in a validated ledger, mapping it to the SDK shape. */
   public async waitForTransactionReceipt(
     params: WaitForTxReceiptParams<XrpChainKey>,
   ): Promise<Result<WaitForTxReceiptReturnType<XrpChainKey>>> {
@@ -990,17 +876,14 @@ export class XrpSpokeService implements MpcRelaySettlement {
   }
 }
 
-/**
- * An XRPL decimal IOU amount in base units, truncated to `decimals`. rippled switches to
- * `<mantissa>e<exponent>` outside exponents -25..-5 (any value from 1e11, such as a large trustline limit).
- */
+/** Truncated to `decimals`; rippled uses `<mantissa>e<exponent>` outside exponents -25..-5. */
 function toBaseUnits(value: string, decimals: number): bigint {
   const { mantissa, exponent } = parseXrplDecimal(value);
   const shift = exponent + decimals;
   return shift >= 0 ? mantissa * 10n ** BigInt(shift) : mantissa / 10n ** BigInt(-shift);
 }
 
-/** `limit - balance` in base units, subtracted exactly and then floored, so dust in either value never adds room. */
+/** Subtracted exactly and then floored, so dust in either value never adds room. */
 function trustlineRoom(limit: string, balance: string, decimals: number): bigint {
   const parsedLimit = parseXrplDecimal(limit);
   const parsedBalance = parseXrplDecimal(balance);

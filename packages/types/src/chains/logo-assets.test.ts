@@ -4,12 +4,8 @@ import { CHAIN_KEYS } from './chain-keys.js';
 import { spokeChainConfig, supportedSpokeChains } from './chains.js';
 import { tokenLogoSlug } from './tokens.js';
 
-/**
- * Asserts that every logo URL `@sodax/types` hands out resolves to a real file in
- * `@sodax/assets`. The sibling tests here only check how the URLs are *built*, and
- * `@sodax/assets` is a file host with no code of its own, so this is the only gate
- * standing between a new token or chain and a 404 icon in every consumer.
- */
+// The only gate that every logo URL resolves to a real file in `@sodax/assets` (sibling tests only check URL shape),
+// so a new token or chain cannot ship a 404 icon to every consumer.
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 // A partially written file keeps a valid header, so the closing chunk is what proves it is whole.

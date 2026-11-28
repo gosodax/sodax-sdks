@@ -5,10 +5,7 @@ import type { ReadHookParams } from '../shared/types.js';
 
 export type UsePoolsParams = ReadHookParams<PoolKey[]>;
 
-/**
- * Loads the list of concentrated-liquidity pools known to the SDK config. The SDK's `getPools()`
- * is synchronous in v2 (no network), so this hook caches indefinitely by default.
- */
+/** `getPools()` is synchronous (no network), so the result is cached indefinitely. */
 export function usePools({ queryOptions }: UsePoolsParams = {}): UseQueryResult<PoolKey[], Error> {
   const { sodax } = useSodaxContext();
 

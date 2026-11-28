@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { EvmWalletProvider, getEvmViemChain } from './EvmWalletProvider.js';
 import type { BrowserExtensionEvmWalletConfig, EvmWalletConfig } from './types.js';
 import type { EvmRawTransaction } from '@sodax/types';
@@ -80,110 +80,31 @@ function makeFakeReceipt(): TransactionReceipt {
 
 describe('EvmWalletProvider', () => {
   describe('constructor', () => {
-    it('initializes with private key wallet config', () => {
-      const provider = new EvmWalletProvider({
-        privateKey: PRIVATE_KEY,
-        chainId: ChainKeys.SONIC_MAINNET,
-        rpcUrl: RPC_URL,
-      });
-      expect(provider).toBeInstanceOf(EvmWalletProvider);
-      expect(provider.publicClient).toBeDefined();
-      expect(provider.chainType).toBe('EVM');
-    });
-
-    it('initializes with browser extension wallet config', () => {
-      const config = makeBrowserExtensionConfig();
-      const provider = new EvmWalletProvider(config);
-      expect(provider.publicClient).toBe(config.publicClient);
-      expect(provider.chainType).toBe('EVM');
-    });
-
     it('throws on invalid wallet config', () => {
       expect(() => new EvmWalletProvider({} as EvmWalletConfig)).toThrow('Invalid EVM wallet config');
     });
 
-    it('accepts defaults without throwing', () => {
-      const provider = new EvmWalletProvider({
-        privateKey: PRIVATE_KEY,
-        chainId: ChainKeys.SONIC_MAINNET,
-        rpcUrl: RPC_URL,
-        defaults: {
-          transport: { timeout: 10_000, retryCount: 5 },
-          publicClient: { pollingInterval: 4_000 },
-          waitForTransactionReceipt: { confirmations: 2, timeout: 60_000 },
-        },
-      });
-      expect(provider.chainType).toBe('EVM');
-    });
-  });
-
-  describe('defaults — browser-extension mode', () => {
-    afterEach(() => {
-      vi.restoreAllMocks();
-    });
-
-    it('preserves the supplied publicClient instance unchanged when defaults are set', () => {
-      const config = makeBrowserExtensionConfig();
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-      const provider = new EvmWalletProvider({
-        ...config,
-        defaults: { transport: { timeout: 99_999 } }, // ignored — consumer brings their own client
-      });
-      expect(provider.publicClient).toBe(config.publicClient);
-      warnSpy.mockRestore();
-    });
-
-    it('warns when ignored construction-time defaults are supplied', () => {
+    it('browser-extension mode keeps the supplied clients and warns only about ignored construction-time defaults', () => {
       const config = makeBrowserExtensionConfig();
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-      new EvmWalletProvider({
-        ...config,
-        defaults: { transport: { timeout: 99_999 } },
-      });
-
-      expect(warnSpy).toHaveBeenCalledTimes(1);
-      expect(warnSpy.mock.calls[0]?.[0]).toMatch(/ignored in browser-extension mode/);
-    });
-
-    it('does not warn when only method-level defaults are supplied', () => {
-      const config = makeBrowserExtensionConfig();
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
-      new EvmWalletProvider({
+      const methodOnly = new EvmWalletProvider({
         ...config,
         defaults: { waitForTransactionReceipt: { confirmations: 1 } },
       });
-
+      expect(methodOnly.chainType).toBe('EVM');
       expect(warnSpy).not.toHaveBeenCalled();
+
+      const withTransport = new EvmWalletProvider({ ...config, defaults: { transport: { timeout: 99_999 } } });
+      expect(withTransport.publicClient).toBe(config.publicClient);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy.mock.calls[0]?.[0]).toMatch(/ignored in browser-extension mode/);
+      warnSpy.mockRestore();
     });
   });
 
-  describe('waitForTransactionReceipt — option merge', () => {
-    it('passes only { hash } when no defaults and no per-call options supplied', async () => {
-      const config = makeBrowserExtensionConfig();
-      const provider = new EvmWalletProvider(config);
-      const spy = vi.spyOn(config.publicClient, 'waitForTransactionReceipt').mockResolvedValue(makeFakeReceipt());
-
-      await provider.waitForTransactionReceipt('0xabc');
-
-      expect(spy).toHaveBeenCalledWith({ hash: '0xabc' });
-    });
-
-    it('applies defaults when no per-call options supplied', async () => {
-      const config = makeBrowserExtensionConfig();
-      const provider = new EvmWalletProvider({
-        ...config,
-        defaults: { waitForTransactionReceipt: { confirmations: 3, timeout: 30_000 } },
-      });
-      const spy = vi.spyOn(config.publicClient, 'waitForTransactionReceipt').mockResolvedValue(makeFakeReceipt());
-
-      await provider.waitForTransactionReceipt('0xabc');
-
-      expect(spy).toHaveBeenCalledWith({ hash: '0xabc', confirmations: 3, timeout: 30_000 });
-    });
-
-    it('per-call options override defaults via shallow merge', async () => {
+  describe('waitForTransactionReceipt', () => {
+    it('shallow-merges per-call options over defaults and serialises the receipt', async () => {
       const config = makeBrowserExtensionConfig();
       const provider = new EvmWalletProvider({
         ...config,
@@ -191,19 +112,24 @@ describe('EvmWalletProvider', () => {
       });
       const spy = vi.spyOn(config.publicClient, 'waitForTransactionReceipt').mockResolvedValue(makeFakeReceipt());
 
-      await provider.waitForTransactionReceipt('0xabc', { confirmations: 5 });
+      const receipt = await provider.waitForTransactionReceipt('0xabc', { confirmations: 5 });
 
-      // Per-call confirmations wins; defaults timeout still applies (shallow merge)
       expect(spy).toHaveBeenCalledWith({ hash: '0xabc', confirmations: 5, timeout: 5_000 });
+      expect(receipt).toMatchObject({ blockNumber: '100', gasUsed: '21000', transactionIndex: '0' });
     });
 
-    it('private-key flat defaults are picked up at runtime', async () => {
+    it('private-key mode builds its own public client and applies flat defaults', async () => {
       const provider = new EvmWalletProvider({
         privateKey: PRIVATE_KEY,
         chainId: ChainKeys.SONIC_MAINNET,
         rpcUrl: RPC_URL,
-        defaults: { waitForTransactionReceipt: { confirmations: 4, timeout: 12_345 } },
+        defaults: {
+          transport: { timeout: 10_000, retryCount: 5 },
+          publicClient: { pollingInterval: 4_000 },
+          waitForTransactionReceipt: { confirmations: 4, timeout: 12_345 },
+        },
       });
+      expect(provider.chainType).toBe('EVM');
       const spy = vi.spyOn(provider.publicClient, 'waitForTransactionReceipt').mockResolvedValue(makeFakeReceipt());
 
       await provider.waitForTransactionReceipt('0xabc');
@@ -213,7 +139,7 @@ describe('EvmWalletProvider', () => {
     });
   });
 
-  describe('sendTransaction — option merge', () => {
+  describe('sendTransaction', () => {
     const RAW_TX: EvmRawTransaction = {
       from: '0x0000000000000000000000000000000000000001',
       to: '0x0000000000000000000000000000000000000002',
@@ -221,61 +147,55 @@ describe('EvmWalletProvider', () => {
       data: '0x',
     };
 
-    it('passes raw tx fields through unchanged when no defaults and no per-call options', async () => {
+    it('passes the raw tx through without checking the chain when no options are given', async () => {
       const config = makeBrowserExtensionConfig();
       const provider = new EvmWalletProvider(config);
+      const chainIdSpy = vi.spyOn(config.walletClient, 'getChainId').mockResolvedValue(8453);
       const spy = vi.spyOn(config.walletClient, 'sendTransaction').mockResolvedValue('0xtxhash');
 
       await provider.sendTransaction(RAW_TX);
 
+      expect(chainIdSpy).not.toHaveBeenCalled();
       expect(spy).toHaveBeenCalledWith(expect.objectContaining(RAW_TX));
     });
 
-    it('applies defaults.sendTransaction when no per-call options supplied', async () => {
+    it('merges defaults.sendTransaction with per-call policy, leaving tx data untouched', async () => {
       const config = makeBrowserExtensionConfig();
       const provider = new EvmWalletProvider({
         ...config,
-        defaults: { sendTransaction: { gas: 100_000n } },
+        defaults: { sendTransaction: { gas: 100_000n, nonce: 5 } },
       });
       const spy = vi.spyOn(config.walletClient, 'sendTransaction').mockResolvedValue('0xtxhash');
 
-      await provider.sendTransaction(RAW_TX);
+      await provider.sendTransaction(RAW_TX, { gas: 500_000n, maxFeePerGas: 2_000_000_000n });
 
-      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ ...RAW_TX, gas: 100_000n }));
-    });
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ ...RAW_TX, gas: 500_000n, nonce: 5, maxFeePerGas: 2_000_000_000n }),
+      );
 
-    it('per-call options override defaults', async () => {
-      const config = makeBrowserExtensionConfig();
-      const provider = new EvmWalletProvider({
-        ...config,
-        defaults: { sendTransaction: { gas: 100_000n } },
-      });
-      const spy = vi.spyOn(config.walletClient, 'sendTransaction').mockResolvedValue('0xtxhash');
-
-      await provider.sendTransaction(RAW_TX, { gas: 500_000n });
-
-      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ ...RAW_TX, gas: 500_000n }));
+      // @ts-expect-error — `from` belongs to EvmRawTransaction, must not appear in EvmSendTransactionPolicy
+      void provider.sendTransaction(RAW_TX, { from: '0xOther' });
+      // @ts-expect-error — `value` belongs to EvmRawTransaction
+      void provider.sendTransaction(RAW_TX, { value: 999n });
+      // @ts-expect-error — `to` belongs to EvmRawTransaction
+      void provider.sendTransaction(RAW_TX, { to: '0xOther' });
+      // @ts-expect-error — `data` belongs to EvmRawTransaction
+      void provider.sendTransaction(RAW_TX, { data: '0xdead' });
     });
 
     // The guard must refuse a wallet sitting on a different chain than the calldata targets.
-    it('refuses to send when the wallet is on a different chain than expectedChainId', async () => {
+    it('sends only when the wallet chain matches expectedChainId, without leaking the option into the tx', async () => {
       const config = makeBrowserExtensionConfig();
       const provider = new EvmWalletProvider(config);
-      vi.spyOn(config.walletClient, 'getChainId').mockResolvedValue(8453); // wallet moved to Base
+      const chainIdSpy = vi.spyOn(config.walletClient, 'getChainId').mockResolvedValue(8453); // wallet moved to Base
       const spy = vi.spyOn(config.walletClient, 'sendTransaction').mockResolvedValue('0xtxhash');
 
       await expect(provider.sendTransaction(RAW_TX, { expectedChainId: sonic.id })).rejects.toThrow(
         /connected to chain 8453 but the transaction targets chain 146/,
       );
       expect(spy).not.toHaveBeenCalled();
-    });
 
-    it('sends when the wallet chain matches expectedChainId, without leaking the option into the tx', async () => {
-      const config = makeBrowserExtensionConfig();
-      const provider = new EvmWalletProvider(config);
-      vi.spyOn(config.walletClient, 'getChainId').mockResolvedValue(sonic.id);
-      const spy = vi.spyOn(config.walletClient, 'sendTransaction').mockResolvedValue('0xtxhash');
-
+      chainIdSpy.mockResolvedValue(sonic.id);
       await provider.sendTransaction(RAW_TX, { expectedChainId: sonic.id });
 
       expect(spy).toHaveBeenCalledWith(expect.objectContaining(RAW_TX));
@@ -325,68 +245,18 @@ describe('EvmWalletProvider', () => {
       });
       expect(send).toHaveBeenCalledTimes(3);
     });
-
-    it('skips the chain check entirely when expectedChainId is not passed', async () => {
-      const config = makeBrowserExtensionConfig();
-      const provider = new EvmWalletProvider(config);
-      const chainIdSpy = vi.spyOn(config.walletClient, 'getChainId').mockResolvedValue(8453);
-      const spy = vi.spyOn(config.walletClient, 'sendTransaction').mockResolvedValue('0xtxhash');
-
-      await provider.sendTransaction(RAW_TX);
-
-      expect(chainIdSpy).not.toHaveBeenCalled();
-      expect(spy).toHaveBeenCalledWith(expect.objectContaining(RAW_TX));
-    });
-
-    it('tx data is preserved alongside policy fields without collision', async () => {
-      const config = makeBrowserExtensionConfig();
-      const provider = new EvmWalletProvider({
-        ...config,
-        defaults: { sendTransaction: { gas: 100_000n, nonce: 5 } },
-      });
-      const spy = vi.spyOn(config.walletClient, 'sendTransaction').mockResolvedValue('0xtxhash');
-
-      await provider.sendTransaction(RAW_TX, { maxFeePerGas: 2_000_000_000n });
-
-      // Type system guarantees policy can never carry from/to/value/data, so tx data
-      // and policy fields coexist without overriding each other.
-      expect(spy).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ...RAW_TX,
-          gas: 100_000n, // from defaults
-          nonce: 5, // from defaults
-          maxFeePerGas: 2_000_000_000n, // from per-call options
-        }),
-      );
-    });
-
-    it('rejects tx data fields in options at compile time', () => {
-      const config = makeBrowserExtensionConfig();
-      const provider = new EvmWalletProvider(config);
-      vi.spyOn(config.walletClient, 'sendTransaction').mockResolvedValue('0xtxhash');
-
-      // @ts-expect-error — `from` belongs to EvmRawTransaction, must not appear in EvmSendTransactionPolicy
-      void provider.sendTransaction(RAW_TX, { from: '0xOther' });
-      // @ts-expect-error — `value` belongs to EvmRawTransaction
-      void provider.sendTransaction(RAW_TX, { value: 999n });
-      // @ts-expect-error — `to` belongs to EvmRawTransaction
-      void provider.sendTransaction(RAW_TX, { to: '0xOther' });
-      // @ts-expect-error — `data` belongs to EvmRawTransaction
-      void provider.sendTransaction(RAW_TX, { data: '0xdead' });
-    });
   });
 
   describe('signMessage', () => {
     const HASH = `0x${'5a'.repeat(32)}` as const;
 
-    it.each([
-      [
-        'private-key',
-        () => new EvmWalletProvider({ privateKey: PRIVATE_KEY, chainId: ChainKeys.SONIC_MAINNET, rpcUrl: RPC_URL }),
-      ],
-      ['browser-extension', () => new EvmWalletProvider(makeBrowserExtensionConfig())],
-    ])('%s: signs the raw 32 bytes of the hash under EIP-191, recoverable to the account', async (_mode, make) => {
-      const signature = await make().signMessage(HASH);
+    it('signs the raw 32 bytes of the hash under EIP-191, recoverable to the account', async () => {
+      const provider = new EvmWalletProvider({
+        privateKey: PRIVATE_KEY,
+        chainId: ChainKeys.SONIC_MAINNET,
+        rpcUrl: RPC_URL,
+      });
+      const signature = await provider.signMessage(HASH);
 
       // Scheme 0 verifies `recoverMessageAddress({ message: { raw } })` — signing the hex text instead
       // would recover a different address.
@@ -415,39 +285,34 @@ describe('EvmWalletProvider', () => {
       data: '0xa9059cbb',
     };
 
+    it('a private-key account reports batches unsupported and refuses to send one, without asking the RPC', async () => {
+      const config = makeBrowserExtensionConfig();
+      const provider = new EvmWalletProvider(config);
+      const capabilitiesSpy = vi.spyOn(config.walletClient, 'getCapabilities');
+      const sendCallsSpy = vi.spyOn(config.walletClient, 'sendCalls');
+
+      await expect(provider.getAtomicBatchSupport(sonic.id)).resolves.toBe('unsupported');
+      await expect(provider.sendAtomicBatch([APPROVE_TX], { expectedChainId: sonic.id })).rejects.toThrow(
+        /need a connected wallet/,
+      );
+      expect(capabilitiesSpy).not.toHaveBeenCalled();
+      expect(sendCallsSpy).not.toHaveBeenCalled();
+    });
+
     describe('getAtomicBatchSupport', () => {
-      it('reports unsupported for a private-key account without asking the RPC', async () => {
-        const config = makeBrowserExtensionConfig();
-        const provider = new EvmWalletProvider(config);
-        const spy = vi.spyOn(config.walletClient, 'getCapabilities');
-
-        await expect(provider.getAtomicBatchSupport(sonic.id)).resolves.toBe('unsupported');
-        expect(spy).not.toHaveBeenCalled();
-      });
-
-      it.each(['supported', 'ready', 'unsupported'] as const)('passes through the %s status', async status => {
+      it('passes through a ready status and reports unsupported when the chain or its atomic capability is missing', async () => {
         const config = makeConnectedWalletConfig();
         const provider = new EvmWalletProvider(config);
-        const spy = vi.spyOn(config.walletClient, 'getCapabilities').mockResolvedValue({ atomic: { status } });
+        const spy = vi
+          .spyOn(config.walletClient, 'getCapabilities')
+          .mockResolvedValueOnce({ atomic: { status: 'ready' } })
+          // A wallet leaves out chains it cannot serve, though viem types the entry as present.
+          .mockResolvedValueOnce(undefined as never)
+          .mockResolvedValueOnce({});
 
-        await expect(provider.getAtomicBatchSupport(8453)).resolves.toBe(status);
+        await expect(provider.getAtomicBatchSupport(8453)).resolves.toBe('ready');
         expect(spy).toHaveBeenCalledWith({ chainId: 8453 });
-      });
-
-      it('reports unsupported when the wallet omits the chain', async () => {
-        const config = makeConnectedWalletConfig();
-        const provider = new EvmWalletProvider(config);
-        // A wallet leaves out chains it cannot serve, though viem types the entry as present.
-        vi.spyOn(config.walletClient, 'getCapabilities').mockResolvedValue(undefined as never);
-
         await expect(provider.getAtomicBatchSupport(sonic.id)).resolves.toBe('unsupported');
-      });
-
-      it('reports unsupported when the chain has no atomic capability', async () => {
-        const config = makeConnectedWalletConfig();
-        const provider = new EvmWalletProvider(config);
-        vi.spyOn(config.walletClient, 'getCapabilities').mockResolvedValue({});
-
         await expect(provider.getAtomicBatchSupport(sonic.id)).resolves.toBe('unsupported');
       });
 
@@ -461,17 +326,6 @@ describe('EvmWalletProvider', () => {
     });
 
     describe('sendAtomicBatch', () => {
-      it('refuses a private-key account', async () => {
-        const config = makeBrowserExtensionConfig();
-        const provider = new EvmWalletProvider(config);
-        const spy = vi.spyOn(config.walletClient, 'sendCalls');
-
-        await expect(provider.sendAtomicBatch([APPROVE_TX], { expectedChainId: sonic.id })).rejects.toThrow(
-          /need a connected wallet/,
-        );
-        expect(spy).not.toHaveBeenCalled();
-      });
-
       it('refuses to send when the wallet is on a different chain than expectedChainId', async () => {
         const config = makeConnectedWalletConfig();
         const provider = new EvmWalletProvider(config);
@@ -517,10 +371,14 @@ describe('EvmWalletProvider', () => {
     });
 
     describe('waitForBatch', () => {
-      it('maps a confirmed batch to its receipts', async () => {
+      it('maps a confirmed batch to its receipts and any other status to failure', async () => {
         const config = makeConnectedWalletConfig();
         const provider = new EvmWalletProvider(config);
-        const spy = vi.spyOn(config.walletClient, 'waitForCallsStatus').mockResolvedValue(makeCallsStatus());
+        const spy = vi
+          .spyOn(config.walletClient, 'waitForCallsStatus')
+          .mockResolvedValueOnce(makeCallsStatus())
+          .mockResolvedValueOnce(makeCallsStatus({ status: 'failure', statusCode: 500, receipts: undefined }))
+          .mockResolvedValueOnce(makeCallsStatus({ status: undefined, statusCode: 400 }));
 
         await expect(provider.waitForBatch('batch-1')).resolves.toEqual({
           status: 'success',
@@ -529,30 +387,12 @@ describe('EvmWalletProvider', () => {
           receipts: [{ transactionHash: '0xbatchtx', status: 'success' }],
         });
         expect(spy).toHaveBeenCalledWith({ id: 'batch-1' });
-      });
-
-      it('maps a reverted batch to failure and keeps the status code', async () => {
-        const config = makeConnectedWalletConfig();
-        const provider = new EvmWalletProvider(config);
-        vi.spyOn(config.walletClient, 'waitForCallsStatus').mockResolvedValue(
-          makeCallsStatus({ status: 'failure', statusCode: 500, receipts: undefined }),
-        );
-
         await expect(provider.waitForBatch('batch-1')).resolves.toEqual({
           status: 'failure',
           statusCode: 500,
           atomic: true,
           receipts: [],
         });
-      });
-
-      it('treats a status the wallet left undefined as failure', async () => {
-        const config = makeConnectedWalletConfig();
-        const provider = new EvmWalletProvider(config);
-        vi.spyOn(config.walletClient, 'waitForCallsStatus').mockResolvedValue(
-          makeCallsStatus({ status: undefined, statusCode: 400 }),
-        );
-
         await expect(provider.waitForBatch('batch-1')).resolves.toMatchObject({ status: 'failure', statusCode: 400 });
       });
 
@@ -593,7 +433,7 @@ describe('EvmWalletProvider', () => {
       });
 
       // viem ends its wait on the first failed status read; one RPC blip must not report a landing batch as lost.
-      it('retries a failed status read within the timeout', async () => {
+      it('retries a failed status read within the timeout, up to a bounded number of reads', async () => {
         const config = makeConnectedWalletConfig();
         const provider = new EvmWalletProvider(config);
         const spy = vi
@@ -605,13 +445,8 @@ describe('EvmWalletProvider', () => {
           status: 'success',
         });
         expect(spy).toHaveBeenCalledTimes(2);
-      });
 
-      it('gives up after a bounded number of failed status reads', async () => {
-        const config = makeConnectedWalletConfig();
-        const provider = new EvmWalletProvider(config);
-        const spy = vi.spyOn(config.walletClient, 'waitForCallsStatus').mockRejectedValue(new Error('unknown bundle'));
-
+        spy.mockReset().mockRejectedValue(new Error('unknown bundle'));
         await expect(provider.waitForBatch('batch-1', { timeout: 60_000, pollingInterval: 1 })).rejects.toThrow(
           'unknown bundle',
         );

@@ -4,8 +4,7 @@ import { useSodaxContext } from '../shared/useSodaxContext.js';
 import { retryUnlessAuthFailure } from '../shared/retryUnlessAuthFailure.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 import type { ReadHookParams } from '../shared/types.js';
-// Leverage-yield intents share the solver status codes with swaps, so the terminal-status predicate
-// is reused rather than duplicated.
+// Leverage-yield intents share the solver status codes with swaps.
 import { isTerminalSwapIntentStatus } from '../swapsApi/isTerminalSwapIntentStatus.js';
 
 export type UseLeverageYieldApiStatusParams = ReadHookParams<
@@ -16,16 +15,7 @@ export type UseLeverageYieldApiStatusParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook for polling the solver intent status by hub-chain intent tx hash via the leverage-yield
- * API — `sodax.api.leverageYield.getStatus`. Returns `{ status, fillTxHash? }`.
- *
- * @example
- * const { data } = useLeverageYieldApiStatus({ params: { intentTxHash: '0x123...' } });
- *
- * @remarks
- * - Default refetch interval is 1 second; stops once `status` is `3` (SOLVED) or `4` (FAILED).
- */
+/** Polls every 1s until `status` is 3 (SOLVED) or 4 (FAILED). */
 export const useLeverageYieldApiStatus = ({
   params,
   queryOptions,

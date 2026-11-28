@@ -24,26 +24,9 @@ export type UseBridgeApiApproveAndBroadcastVars<K extends SpokeChainKey = SpokeC
 };
 
 /**
- * React hook that runs the whole bridge-API approval: asks the API for the transactions, then signs,
- * broadcasts, and waits for each one.
- *
- * Prefer this over {@link useBridgeApiApprove}, which hands back the unsigned `{ tx, resetTx? }` and
- * leaves the ordering — reset mined first, then approve — to the caller. Confirmation happens inside
- * the hook, so it invalidates `['bridgeApi','allowance']` itself — after waiting up to about 15 seconds for
- * the API to report the allowance as valid, since its RPC can trail the node that confirmed the approve.
- * It resolves after that wait either way, so read the allowance rather than treating success as `valid`.
- *
- * Supports the chains the bridge API can approve on — the hub (Sonic), EVM spokes, and Stellar.
- * Every other chain reports its allowance as always sufficient, so approval never runs for it.
- *
- * `onProgress` reports each transaction as `{ step, phase, index, total }`, so the UI can name the
- * wallet prompt the user is looking at instead of one flat "Approving…" across two signatures.
- *
- * @example
- * const { mutateAsyncSafe: approve } = useBridgeApiApproveAndBroadcast();
- * const result = await approve({ body: createBridgeIntentParams, walletProvider, onProgress: setStep });
- * if (!result.ok) return;
- * const { resetTxHash, approveTxHash } = result.value;   // resetTxHash only on a guarded token
+ * Signs, broadcasts and waits for each approval tx (reset mined first), then waits up to ~15s for the API allowance to
+ * report valid since its RPC can lag; resolves either way, so read the allowance rather than treating success as `valid`.
+ * Approval runs only on the hub, EVM spokes and Stellar; other chains report the allowance as always sufficient.
  */
 export const useBridgeApiApproveAndBroadcast = <K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,

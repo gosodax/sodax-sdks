@@ -26,7 +26,7 @@ These keep their name but their TypeScript signature is different. Usually requi
 | `useCancelSwap` / `useCancelLimitOrder` | TVars are FLAT (no `params` wrapper): `{ srcChainKey, intent, walletProvider }`. |
 | `useCreateLimitOrder` | Hook init: `(spokeProvider) → ({ mutationOptions })`. Vars: `{ params, walletProvider }`. mutationKey is `['swap', 'limitOrder', 'create']`. |
 | All MM mutations (`useSupply`/etc.) | Same as `useSwap`. Plus `srcChainKey` / `srcAddress` required in params (SDK-leakage). All four actions accept optional `dstChainKey`/`dstAddress` for cross-chain delivery (not just borrow/repay). |
-| `useMMAllowance` | Query params: `{ params: { payload: MoneyMarketParams<K> } }`. For `'borrow'` / `'withdraw'` actions: `enabled: false` — `data` stays `undefined`. |
+| `useMMAllowance` | Query params: `{ params: { payload: MoneyMarketParams<K> } }`. For `'borrow'` / `'withdraw'` actions: `enabled: false` — `data` is `true`. |
 | `useUserReservesData` | Param key rename: `address → userAddress`; chain key is `spokeChainKey`. |
 | `useUserFormattedSummary` | Same. |
 | `useATokensBalances` | Params: `{ aTokens, spokeProvider, userAddress } → { params: { aTokens, spokeChainKey, userAddress } }`. `spokeProvider` dropped; chain key is **`spokeChainKey`** (NOT `srcChainKey`); user field is **`userAddress`** (NOT `address`). Data: `Map<Address, bigint> \| undefined` (already unwrapped). |

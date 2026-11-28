@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/partner/useFeeClaimWithdraw.ts
 import {
   ChainKeys,
   type Address,
@@ -15,13 +14,7 @@ import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/**
- * Mutation variables for {@link useFeeClaimWithdraw}. Maps a partner fee balance to a
- * Sonic-sourced bridge: `feeToken` is the wrapped hub-asset address on Sonic
- * (`PartnerFeeClaimAssetBalance.address`); `dstToken` is the original token address on
- * `dstChainKey` (`PartnerFeeClaimAssetBalance.originalAddress`, or `feeToken` for same-chain
- * delivery to a Sonic address).
- */
+/** `feeToken` is the hub asset `address` on Sonic; `dstToken` is its `originalAddress` (or `feeToken` for Sonic). */
 export type UseFeeClaimWithdrawVars = {
   params: {
     srcAddress: string;
@@ -35,18 +28,8 @@ export type UseFeeClaimWithdrawVars = {
 };
 
 /**
- * React hook to withdraw a partner fee token directly to the partner's wallet **without a swap**.
- *
- * For fees the partner wants to keep as-is (the desired output equals the fee token, e.g. BTC→BTC),
- * an auto-swap is impossible — the solver rejects a same-token swap. This bridges the wrapped fee
- * token from Sonic to its native chain (or transfers it on Sonic when `dstChainKey` is Sonic),
- * bypassing the solver entirely.
- *
- * Bridging from Sonic pulls the token via the partner's hub-wallet router, which requires a prior
- * allowance to that spender — a different approval than the ProtocolIntents one used by the swap
- * claim. Use `useBridgeAllowance` / `useBridgeApprove` (with the same mapped bridge params) first.
- *
- * Throws on SDK failure so React Query's native error model engages. Returns the `TxHashPair`.
+ * Bridges a fee token out without a swap (the solver rejects same-token swaps). Needs a prior hub-wallet
+ * router allowance via `useBridgeAllowance` / `useBridgeApprove`, not the ProtocolIntents approval.
  */
 export function useFeeClaimWithdraw({
   mutationOptions,

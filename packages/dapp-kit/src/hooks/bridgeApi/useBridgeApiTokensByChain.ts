@@ -13,13 +13,6 @@ export type UseBridgeApiTokensByChainParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch supported bridge tokens for a single SpokeChainKey via the bridge API —
- * `sodax.api.bridge.getTokensByChain`. Use `useBridgeApiTokens` for every chain at once.
- *
- * @example
- * const { data: tokens } = useBridgeApiTokensByChain({ params: { chainKey: '0xa4b1.arbitrum' } });
- */
 export const useBridgeApiTokensByChain = ({
   params,
   queryOptions,

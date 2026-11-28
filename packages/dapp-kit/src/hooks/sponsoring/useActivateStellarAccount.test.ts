@@ -64,8 +64,7 @@ describe('useActivateStellarAccount — cache invalidation', () => {
   });
 
   it('invalidates Stellar balances through the shared invalidateBalances helper', () => {
-    // Routed through invalidateBalances (covers both useBalances and useXBalances) rather than a
-    // hand-rolled invalidateQueries call, so it is not one of the literal matches above.
+    // Routed through invalidateBalances (both balance hooks), so it is not a literal match above.
     expect(SRC).toMatch(/invalidateBalances\(queryClient,\s*ChainKeys\.STELLAR_MAINNET\)/);
   });
 

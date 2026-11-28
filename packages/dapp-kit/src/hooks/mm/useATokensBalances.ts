@@ -14,11 +14,6 @@ export type UseATokensBalancesParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch aToken balances for a list of addresses in a single multicall.
- * Derives the user's hub wallet via `EvmHubProvider.getUserHubWalletAddress` from the
- * spoke `chainKey` + spoke wallet `userAddress`.
- */
 export function useATokensBalances({
   params,
   queryOptions,

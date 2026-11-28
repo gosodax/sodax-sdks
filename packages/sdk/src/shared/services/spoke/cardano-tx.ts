@@ -1,21 +1,11 @@
-/**
- * Cardano memo-deposit transaction codec: one native-ADA payment to the MPC reserve at output 0, change back
- * to the sender, and the CIP-20 label-674 memo as auxiliary data. A CIP-30 wallet signs and submits but does
- * not build transactions, so the sdk builds the body itself; the bytes are pinned to the relay's contract
- * vectors (`cardano-test-vectors.ts`).
- *
- * Encoding rules:
- *  - body   = map {0: tag258 [inputs…], 1: [outputs…], 2: fee, 3: ttl, 7: auxiliary data hash}, keys ascending;
- *  - input  = [tx_hash bstr32, index uint], kept in selection order;
- *  - output = legacy array [address bstr, lovelace uint] (pure ADA: no native token ever moves);
- *  - tx     = [body, witness set, true, auxiliary data].
- */
+// Cardano memo-deposit codec, pinned to the relay's contract vectors (`cardano-test-vectors.ts`). Body is a map with
+// keys ascending; outputs use the legacy [address, lovelace] array (pure ADA: no native token ever moves).
 import { blake2b } from '@noble/hashes/blake2b';
 import { verify } from '@stellar/stellar-sdk';
 import { bytesToHex, hexToBytes } from 'viem';
 import { decodeCbor } from './cardano-cbor.js';
 
-/** Validity window of a deposit: 2 hours, so a slow wallet or a congested network still lands it. */
+/** 2 hours, so a slow wallet or a congested network still lands it. */
 export const CARDANO_TTL_SECONDS = 7200;
 
 /** Per-entry overhead the Babbage min-UTXO rule adds to the encoded output length. */
@@ -24,7 +14,6 @@ const U64_MAX = (1n << 64n) - 1n;
 const SET_TAG = 258n;
 const MAX_FEE_ROUNDS = 8;
 
-/** A spendable pure-ADA output. */
 export type CardanoUtxo = {
   /** 32-byte tx id, 64 lowercase hex characters, no `0x`. */
   txHash: string;
@@ -32,13 +21,12 @@ export type CardanoUtxo = {
   lovelace: bigint;
 };
 
-/** One body output: raw Shelley address bytes (29 or 57) and the lovelace it holds. */
+/** Raw Shelley address bytes (29 or 57). */
 export type CardanoTxOutput = {
   address: Uint8Array;
   lovelace: bigint;
 };
 
-/** Ledger parameters a deposit is priced and bounded by. */
 export type CardanoProtocolParams = {
   minFeeA: bigint;
   minFeeB: bigint;
@@ -59,7 +47,7 @@ export type BuiltCardanoDeposit = {
   bodyCbor: Uint8Array;
   /** Hex CBOR of the memo metadata; its hash is in the body and it travels in the transaction's fourth element. */
   auxiliaryData: Uint8Array;
-  /** blake2b-256 of the body: the tx hash. */
+  /** blake2b-256 of the body. */
   txId: Uint8Array;
 };
 
@@ -73,7 +61,7 @@ function concat(...parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
-/** CBOR head: major type in the top 3 bits, the argument in its shortest form. */
+/** Major type in the top 3 bits, the argument in its shortest form. */
 function head(major: number, value: bigint): Uint8Array {
   if (value < 0n || value > U64_MAX) throw new Error(`CBOR argument ${value} is outside 0..2^64-1`);
   const m = major << 5;
@@ -96,7 +84,7 @@ const text = (s: string): Uint8Array => {
   return concat(head(3, BigInt(encoded.length)), encoded);
 };
 
-/** The auxiliary data of a memo deposit: `{674: {"msg": [<64 hex characters>]}}`. */
+/** `{674: {"msg": [<64 hex characters>]}}` */
 export function cardanoDepositAuxiliaryData(memoHex: string): Uint8Array {
   const memo = memoHex.replace(/^0x/i, '').toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(memo))
@@ -104,17 +92,16 @@ export function cardanoDepositAuxiliaryData(memoHex: string): Uint8Array {
   return concat(head(5, 1n), uint(674n), head(5, 1n), text('msg'), head(4, 1n), text(memo));
 }
 
-/** blake2b-256: the hash a body commits its auxiliary data with, and the tx id of a body. */
+/** Hashes auxiliary data for the body commitment, and a body into its tx id. */
 export function cardanoHash(data: Uint8Array): Uint8Array {
   return blake2b(data, { dkLen: 32 });
 }
 
-/** One output: `[address, lovelace]`. Its encoded length drives the min-UTXO rule. */
+/** Its encoded length drives the min-UTXO rule. */
 export function encodeCardanoTxOutput(output: CardanoTxOutput): Uint8Array {
   return concat(head(4, 2n), bytes(output.address), uint(output.lovelace));
 }
 
-/** Serialize a deposit body per the rules in the file header. */
 export function encodeCardanoDepositBody(body: CardanoDepositBody): Uint8Array {
   if (body.auxiliaryDataHash.length !== 32) {
     throw new Error(`Cardano auxiliary data hash must be 32 bytes, got ${body.auxiliaryDataHash.length}`);
@@ -150,7 +137,6 @@ export function cardanoMinUtxo(output: CardanoTxOutput, coinsPerUtxoByte: bigint
   return (MIN_UTXO_OVERHEAD_BYTES + BigInt(encodeCardanoTxOutput(output).length)) * coinsPerUtxoByte;
 }
 
-/** `[body, witness set, true, auxiliary data]`: the transaction a wallet signs and the network accepts. */
 export function assembleCardanoTx(bodyCbor: Uint8Array, witnessSet: Uint8Array, auxiliaryData: Uint8Array): Uint8Array {
   return concat(Uint8Array.of(0x84), bodyCbor, witnessSet, Uint8Array.of(0xf5), auxiliaryData);
 }
@@ -159,7 +145,7 @@ function encodeCardanoPaymentWitness(key: Uint8Array, signature: Uint8Array): Ui
   return concat(Uint8Array.of(0xa1, 0x00, 0xd9, 0x01, 0x02, 0x81, 0x82), bytes(key), bytes(signature));
 }
 
-/** Verify the single owner witness and return it in the same encoding used to size the fee. */
+/** Returns the witness in the same encoding used to size the fee. */
 export function verifyCardanoPaymentWitness(
   witnessSet: Uint8Array,
   paymentHash: Uint8Array,
@@ -193,21 +179,19 @@ export function verifyCardanoPaymentWitness(
   return encodeCardanoPaymentWitness(key, signature);
 }
 
-/** An empty witness set, as the wallet is handed the unsigned transaction. */
+/** The wallet is handed the unsigned transaction with an empty witness set. */
 export const EMPTY_WITNESS_SET = Uint8Array.of(0xa0);
 
-/** One placeholder witness, encoded the same way as the verified witness. */
+/** Encoded the same way as the verified witness, for fee sizing. */
 const SIZING_WITNESS_SET = encodeCardanoPaymentWitness(new Uint8Array(32), new Uint8Array(64));
 
-/** The minimum fee of a signed transaction of `signedSize` bytes. */
 export function cardanoMinFee(signedSize: number, params: Pick<CardanoProtocolParams, 'minFeeA' | 'minFeeB'>): bigint {
   return params.minFeeA * BigInt(signedSize) + params.minFeeB;
 }
 
 /**
- * Balance a deposit over exactly `inputs`: the fee fixed point for a one-key spend that carries the memo, sized
- * with a placeholder witness. Returns `null` when `inputs` cannot cover the reserve payment, the fee and a
- * change output at min-UTXO, so the caller adds another input.
+ * Fee fixed point over exactly `inputs`, sized with a placeholder witness; `null` when `inputs` cannot cover the payment,
+ * fee and a min-UTXO change output, so the caller adds another input.
  */
 export function balanceCardanoDeposit(opts: {
   inputs: CardanoUtxo[];
@@ -242,11 +226,7 @@ export function balanceCardanoDeposit(opts: {
   throw new Error(`Cardano deposit fee did not converge in ${MAX_FEE_ROUNDS} rounds`);
 }
 
-/**
- * Build a memo deposit of `amount` lovelace to `reserveAddress`, spending the largest pure-ADA UTXOs first. UTXOs
- * that carry native tokens are never spent: a token moved into the reserve output is never credited and cannot be
- * refunded.
- */
+/** Spends the largest pure-ADA UTXOs first: a token moved into the reserve output is never credited or refunded. */
 export function buildCardanoDeposit(opts: {
   utxos: CardanoUtxo[];
   reserveAddress: Uint8Array;
@@ -285,7 +265,7 @@ export function buildCardanoDeposit(opts: {
   );
 }
 
-/** The tx hash of a built deposit, as the relay and explorers write it: 64 lowercase hex characters. */
+/** 64 lowercase hex characters, as the relay and explorers write it. */
 export function cardanoTxHash(built: Pick<BuiltCardanoDeposit, 'txId'>): string {
   return bytesToHex(built.txId).slice(2);
 }

@@ -18,17 +18,11 @@ export interface StellarSponsorConfig {
 
 /** Request body for a Stellar sponsored account creation. Extra fields are rejected. */
 export interface StellarSponsoredAccountRequest {
-  /**
-   * Base64 transaction XDR signed by the account being created.
-   * Must not be a fee-bump envelope.
-   */
+  /** Base64 transaction XDR signed by the account being created; must not be a fee-bump envelope. */
   data: string;
 }
 
-/**
- * Successful sponsored-account result. An already-active account is also a
- * success, but has no submitted transaction hash.
- */
+/** An already-active account is also a success, but has no submitted transaction hash. */
 export type StellarSponsoredAccountResponse =
   | {
       hash: string;
@@ -62,10 +56,7 @@ export const SPONSORING_API_ERROR_CODES = [
 // Keep the runtime list exhaustive.
 true satisfies [SponsoringApiErrorCode] extends [(typeof SPONSORING_API_ERROR_CODES)[number]] ? true : false;
 
-/**
- * `error` may be a domain code, a framework label, or absent. Check it
- * against {@link SPONSORING_API_ERROR_CODES} before treating it as a code.
- */
+/** `error` may be a domain code, a framework label, or absent; check it against {@link SPONSORING_API_ERROR_CODES}. */
 export interface SponsoringApiErrorResponse {
   statusCode: number;
   /** Human-readable only; do not use for control flow. */
@@ -73,10 +64,7 @@ export interface SponsoringApiErrorResponse {
   error?: SponsoringApiErrorCode | string;
   /** Per-key rate-limit backoff in seconds. */
   retryAfterSeconds?: number;
-  /**
-   * Current sponsor sequence on a sequence conflict. Advisory because another
-   * submission can immediately make it stale.
-   */
+  /** Sponsor sequence on a sequence conflict; advisory, as another submission can make it stale at once. */
   sponsorSequence?: string;
 }
 

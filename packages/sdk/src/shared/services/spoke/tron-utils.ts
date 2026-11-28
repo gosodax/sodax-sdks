@@ -1,18 +1,12 @@
-/**
- * Pure Tron encoding helpers for the MPC deposit + withdrawal flows. Ported from the verified
- * mainnet paths and kept byte-identical to the NEAR contract / ingest encoders — any divergence
- * breaks signature recovery (withdrawal) or memo matching (deposit).
- */
+// Byte-identical to the NEAR contract / ingest encoders: any divergence breaks withdrawal signature recovery or
+// deposit memo matching.
 import { numberToHex, sha256, type Hex } from 'viem';
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 
 /**
- * base58check Tron address → 41-prefixed hex (drops the 4-byte checksum). Also accepts the 41-prefixed
- * hex form, with or without `0x`.
- *
- * Strict on purpose: these bytes become MPC-relay recipients and withdraw identities, so a typo that
- * still decodes must throw rather than resolve to someone else's account.
+ * base58check (or 41-prefixed hex) → 41-prefixed hex. Strict: these bytes become MPC-relay recipients and withdraw
+ * identities, so a typo that still decodes must throw rather than resolve to someone else's account.
  */
 export function tronBase58ToHex(addr: string): string {
   const hex = addr.startsWith('0x') ? addr.slice(2) : addr;
@@ -25,8 +19,7 @@ export function tronBase58ToHex(addr: string): string {
     if (i < 0) throw new Error(`invalid base58 char in Tron address: ${addr}`);
     n = n * 58n + BigInt(i);
   }
-  // A Tron address is 25 bytes (0x41 ‖ 20-byte hash ‖ 4-byte checksum); the leading 0x41 means no
-  // leading zero bytes, so the big-integer form is exactly 50 hex chars.
+  // 25 bytes with a leading 0x41 (no leading zero bytes), so the big-integer form is exactly 50 hex chars.
   const h = n.toString(16).padStart(50, '0');
   if (addr.startsWith('1') || h.length !== 50 || !h.startsWith('41')) {
     throw new Error(`invalid Tron address (expected 25 bytes with 0x41 version): ${addr}`);
@@ -37,10 +30,7 @@ export function tronBase58ToHex(addr: string): string {
   return payload;
 }
 
-/**
- * Splice a 32-byte memo into a Tron `raw_data_hex` as protobuf field 10 (tag 0x52, length 0x20),
- * inserted before the first field with number ≥ 10. Matches the on-chain memo layout the relay reads.
- */
+/** Insert a 32-byte memo as protobuf field 10 (tag 0x52, len 0x20) before the first field numbered ≥ 10. */
 export function spliceMemo(rawHex: string, memoHex: string): string {
   const clean = memoHex.replace(/^0x/, '');
   if (clean.length !== 64) throw new Error(`memo must be 32 bytes (64 hex chars), got ${clean.length}`);
@@ -80,7 +70,7 @@ export function spliceMemo(rawHex: string, memoHex: string): string {
 
 type ProtoField = { field: number; varint?: bigint; bytes?: Uint8Array; start: number; end: number };
 
-/** Top-level fields of a protobuf message with their byte spans; bigint varints, since a sun amount can exceed 2^31. */
+/** Varints read as bigint, since a sun amount can exceed 2^31. */
 function readProtoFields(buf: Uint8Array): ProtoField[] {
   const fields: ProtoField[] = [];
   let pos = 0;
@@ -112,7 +102,6 @@ function readProtoFields(buf: Uint8Array): ProtoField[] {
   return fields;
 }
 
-/** A protobuf varint as hex. */
 function varintHex(value: number | bigint): string {
   const out: number[] = [];
   let n = BigInt(value);
@@ -124,10 +113,7 @@ function varintHex(value: number | bigint): string {
   return Buffer.from(out).toString('hex');
 }
 
-/**
- * `rawHex` with its `expiration` (field 8, ms since epoch) replaced. Only for unsigned bytes: the txID
- * and any signature change with them.
- */
+/** Replace `expiration` (field 8, ms since epoch). Unsigned bytes only: the txID and any signature change with it. */
 export function setExpiration({ rawHex, expiration }: { rawHex: string; expiration: number }): string {
   const buf = Buffer.from(rawHex.replace(/^0x/, ''), 'hex');
   const fields = readProtoFields(buf).filter(f => f.field === 8);
@@ -137,7 +123,7 @@ export function setExpiration({ rawHex, expiration }: { rawHex: string; expirati
   return `${buf.subarray(0, current.start).toString('hex')}${field8}${buf.subarray(current.end).toString('hex')}`;
 }
 
-/** The field's single occurrence; a repeat is refused because protobuf's last-wins would hide it. */
+/** A repeated field is refused because protobuf's last-wins would hide it. */
 function singleField(fields: ProtoField[], field: number): ProtoField | undefined {
   const found = fields.filter(f => f.field === field);
   if (found.length > 1) throw new Error(`field ${field} appears ${found.length} times`);
@@ -151,7 +137,6 @@ const TRANSFER_CONTRACT = 1n;
 const TRIGGER_SMART_CONTRACT = 31n;
 const TRC20_TRANSFER_SELECTOR = 'a9059cbb';
 
-/** A `raw_data_hex` body's fields, its contract count, and its first contract's type and parameter fields. */
 type DecodedTransaction = { raw: ProtoField[]; contracts: number; type: bigint; value: ProtoField[] };
 
 function decodeTransaction(rawHex: string): DecodedTransaction {
@@ -167,13 +152,9 @@ function decodeTransaction(rawHex: string): DecodedTransaction {
   };
 }
 
-/** A TRC-20 `transfer` call read back from a transaction: base58 addresses and its ABI-encoded arguments. */
 export type Trc20TransferCall = { owner: string; contract: string; parameter: string };
 
-/**
- * The TRC-20 `transfer` a deposit's `raw_data_hex` makes, or `undefined` for a native TRX transfer.
- * Throws for anything else, since only those two are deposits.
- */
+/** `undefined` for a native TRX transfer; throws for anything other than those two deposit shapes. */
 export function readTrc20TransferCall(rawHex: string): Trc20TransferCall | undefined {
   const { contracts, type, value } = decodeTransaction(rawHex);
   if (contracts !== 1) throw new Error(`[tron] expected one contract, got ${contracts}`);
@@ -193,15 +174,14 @@ export type ExpectedDepositTransfer = {
   owner: string;
   reserve: string;
   amount: bigint;
-  /** TRC-20 token address; omitted for native TRX. */
+  /** Omitted for native TRX. */
   token?: string;
   maxFeeLimitSun: number;
 };
 
 /**
- * Throws unless a node-built deposit `raw_data_hex` is exactly the transfer the SDK requested: one
- * contract from `owner` paying `amount` to `reserve` (or `token.transfer(reserve, amount)`), with no
- * memo yet and a fee limit within budget. The SDK signs these bytes, so the node is not trusted for them.
+ * Throws unless the node-built bytes are exactly the requested transfer (one contract, no memo yet, fee limit within
+ * budget): the SDK signs these bytes, so the node is not trusted for them.
  */
 export function assertDepositTransfer(rawHex: string, expected: ExpectedDepositTransfer): void {
   const reject = (reason: string): never => {
@@ -243,35 +223,23 @@ export function assembleBroadcastHex({
   return field('0a', rawHex) + signatures.map(sig => field('12', sig.replace(/^0x/, ''))).join('');
 }
 
-/** Encode a Tron base58 address as a right-aligned 32-byte word (20-byte body, 0x41 prefix dropped). */
+/** Right-aligned 32-byte word of the 20-byte body (0x41 prefix dropped). */
 export function tronAddressToWord(addr: string): string {
   const body = tronBase58ToHex(addr).replace(/^41/, '');
   return body.padStart(64, '0');
 }
 
-/**
- * ABI-encoded arguments for a TRC-20 `transfer(address,uint256)`, as TronGrid's
- * `triggersmartcontract` wants them: the two 32-byte words WITHOUT the function selector (the node
- * derives that from `function_selector`) and without a `0x` prefix.
- */
+/** As TronGrid `triggersmartcontract` wants: the two 32-byte words without the selector and without `0x`. */
 export function encodeTrc20TransferParams(to: string, amount: bigint): string {
   return `${tronAddressToWord(to)}${numberToHex(amount, { size: 32 }).slice(2)}`;
 }
 
-/**
- * Withdrawal-auth identity for a Tron account (scheme 1): the 20-byte address hash — the base58
- * address's 21-byte payload (`0x41 ‖ hash`) with the `0x41` version byte dropped. Used as the
- * `sender` in the signed withdraw message and as the hub-wallet salt input (i.e. the value the hub's
- * `WalletFactory.getDeployedAddress` expects for a Tron source).
- */
+/** Scheme-1 identity: the 20-byte address hash (0x41 dropped), used as withdraw `sender` and hub-wallet salt. */
 export function tronIdentityBytes(base58Addr: string): Hex {
   return `0x${tronBase58ToHex(base58Addr).slice(2)}`;
 }
 
-/**
- * Inverse of {@link tronIdentityBytes} / {@link tronBase58ToHex}: encode a 20-byte address hash
- * (or a `0x41`-prefixed 21-byte hex) back to a base58check Tron address (`T…`).
- */
+/** Inverse of {@link tronIdentityBytes} / {@link tronBase58ToHex}; accepts 20-byte hash or 0x41-prefixed hex. */
 export function tronHashToBase58(hashHex: string): string {
   let h = hashHex.replace(/^0x/, '').toLowerCase();
   if (h.length === 40) h = `41${h}`; // bare 20-byte hash → add the version byte
@@ -292,9 +260,5 @@ export function tronHashToBase58(hashHex: string): string {
   return s;
 }
 
-/**
- * Re-exported from `mpc-message.ts`, which every MPC-relay chain shares — the hash is
- * chain-agnostic and only the per-scheme digest wrapping differs. Kept exported here so existing
- * Tron imports keep working.
- */
+/** Re-exported so existing Tron imports keep working. */
 export { computeSignedMessageHash, type SignedWalletMessage } from './mpc-message.js';

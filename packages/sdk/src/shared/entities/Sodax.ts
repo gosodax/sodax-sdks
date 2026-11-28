@@ -18,11 +18,6 @@ import { RecoveryService } from '../../recovery/RecoveryService.js';
 import { LeverageYieldService } from '../../leverageYield/LeverageYieldService.js';
 import { SponsoringService } from '../../sponsoring/SponsoringService.js';
 
-/**
- * Sodax class is used to interact with the Sodax.
- *
- * @see https://docs.sodax.com
- */
 export class Sodax {
   public readonly instanceConfig: SodaxConfig;
 
@@ -44,21 +39,14 @@ export class Sodax {
   public readonly spoke: SpokeService; // spoke service enabling spoke chain operations
 
   constructor(options?: SodaxOptions) {
-    // Resolve the client-side options (`logger`, `analytics`, `fee`) once, up front, and hand them to the
-    // services so they survive the dynamic-config swap in `config.initialize()`. All live on `SodaxOptions`,
-    // not on the `DeepPartial<SodaxDefaultConfig>` data contract, so they keep their exact types and need no
-    // cast. `mergeSodaxConfig` / `userConfig` ignore these extra keys (they are never read off the data
-    // config; services read them via `config.logger` / `config.analytics` / `config.fee`).
+    // Client-side options are resolved once and handed to services so they survive the dynamic-config swap
+    // in `config.initialize()`; `mergeSodaxConfig` ignores these keys.
     const logger = resolveLogger(options?.logger);
-    // Analytics is opt-in: `resolveAnalytics` returns a no-op emitter unless `options.analytics` is set,
-    // so feature services can call `config.analytics.emit(...)` unconditionally with zero cost when off.
+    // No-op emitter unless `options.analytics` is set, so services can emit unconditionally.
     const analytics = resolveAnalytics(options?.analytics);
     const fee = options?.fee;
-    // Client-side runtime option like `fee`, sent as `x-api-key` on every backend API request. Held out
-    // of the merge below so the credential never lands on the publicly readable `instanceConfig`.
+    // Kept out of the merge below so the credential never lands on the publicly readable `instanceConfig`.
     const apiKey = options?.apiKey || undefined;
-    // RadFi/Bound request signer: another client-side runtime hook (like `logger`/`analytics`/`fee`),
-    // held off the data config so the dynamic-config swap never touches it. See `RadfiOptions` / gh-831.
     const radfiSigner = options?.radfi?.signRequest;
     // Also the `userConfig` a future dynamic-config re-merge would use, so the strip survives it.
     const mergeOptions = options ? { ...options, apiKey: undefined } : undefined;

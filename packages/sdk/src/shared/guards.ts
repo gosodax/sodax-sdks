@@ -1,5 +1,3 @@
-// packages/sdk/src/shared/guards.ts
-// Runtime type narrowers for chain configs, wallet providers, partner fees, and API payloads.
 import { isAddress } from 'viem';
 import type {
   JsonRpcPayloadResponse,
@@ -293,24 +291,10 @@ export function isSpokeApproveParamsStellar<K extends SpokeChainKey, Raw extends
   return isStellarChainKeyType(params.srcChainKey);
 }
 
-/**
- * Whether `value` is a chain family a SODAX approve route can act on — the hub, an EVM spoke, or
- * Stellar; the same partition `isSpokeApproveParamsHub`/`isSpokeApproveParamsEvmSpoke`/
- * `isSpokeApproveParamsStellar` resolve to. Single exported source for that three-way split so a
- * consumer outside this package (e.g. dapp-kit's approval-plan routing) doesn't re-derive its own
- * copy of "which chains support approval".
- */
+/** Hub, EVM spoke or Stellar: the single exported source for which chains support approval. */
 export function isApprovalSupportedChainKeyType(value: SpokeChainKey): boolean {
   return isHubChainKeyType(value) || isEvmSpokeOnlyChainKeyType(value) || isStellarChainKeyType(value);
 }
-
-// export function isSpokeApproveParamsEvmSpoke(params: SpokeApproveParams<K, Raw>, K extends SpokeChainKey, Raw extends boolean): params is SpokeApproveParamsEvmSpoke<K, Raw> {
-//   return isEvmSpokeOnlyChainKeyType(params.srcChainKey);
-// }
-
-// export function isSpokeApproveParamsStellar(params: SpokeApproveParams<K, Raw>, K extends SpokeChainKey, Raw extends boolean): params is SpokeApproveParamsStellar<K, Raw> {
-//   return isStellarChainKeyType(params.srcChainKey);
-// }
 
 export function isRawDestinationParams(value: unknown): value is RawDestinationParams {
   if (typeof value !== 'object' || value === null) return false;
@@ -320,9 +304,8 @@ export function isRawDestinationParams(value: unknown): value is RawDestinationP
   return typeof obj.dstChainKey === 'string' && spokeChainKeysSet.has(obj.dstChainKey as SpokeChainKey);
 }
 
-// Concrete-typed discriminant guards refine `IWalletProvider` to its specific variant via the
-// `chainType` discriminator. Prefer these inside generic method bodies where
-// `isValidWalletProviderForChainKey<K>` can't refine past `GetWalletProviderType<K>`.
+// Discriminant guards on `chainType`; use inside generic bodies where `isValidWalletProviderForChainKey<K>`
+// can't refine past `GetWalletProviderType<K>`.
 export function isBitcoinWalletProviderType(wp: IWalletProvider): wp is IBitcoinWalletProvider {
   return wp.chainType === 'BITCOIN';
 }

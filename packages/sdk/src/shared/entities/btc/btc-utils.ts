@@ -15,10 +15,7 @@ export interface BtcPayload {
 
 const BITCOIN_FEE_SAFETY_VBYTES = 20;
 
-/**
- * Calculate the actual vbytes of an OP_RETURN output given the payload byte length.
- * Accounts for variable-length pushdata opcodes and script-length varints.
- */
+/** Accounts for variable-length pushdata opcodes and script-length varints. */
 export function calcOpReturnOutputVbytes(payloadByteLength: number): number {
   // script = OP_RETURN(1) + OP_12(1) + pushdata_overhead + payload
   let scriptSize: number;
@@ -34,12 +31,8 @@ export function calcOpReturnOutputVbytes(payloadByteLength: number): number {
 }
 
 /**
- * Estimate transaction size in vbytes.
- * @param addressType — caller's address type for accurate per-input weight.
- *   P2PKH ≈ 148 vB, P2SH-P2WPKH ≈ 91 vB, P2WPKH ≈ 68 vB, P2TR ≈ 58 vB.
- *   Defaults to P2WPKH (68 vB) when omitted.
- * @param opReturnOutputVbytes — actual OP_RETURN output size in vbytes.
- *   Use calcOpReturnOutputVbytes() when the payload size is known. Defaults to 44 vB (~33-byte payload).
+ * Per-input vB by `addressType`: P2PKH 148, P2SH-P2WPKH 91, P2WPKH 68 (default), P2TR 58. `opReturnOutputVbytes`
+ * defaults to 44 (~33-byte payload); use calcOpReturnOutputVbytes() when the payload size is known.
  */
 export function estimateBitcoinTxSize(
   inputCount: number,
@@ -47,9 +40,7 @@ export function estimateBitcoinTxSize(
   addressType?: BtcAddressType,
   opReturnOutputVbytes = 44,
 ): number {
-  // 10.5 vB fixed overhead
-  // opReturnOutputVbytes for one OP_RETURN output, not included in outputCount
-  // 31 vB per non-OP_RETURN output
+  // 10.5 vB fixed overhead + one OP_RETURN output (not in outputCount) + 31 vB per other output.
   let inputWeight: number;
   switch (addressType) {
     case 'P2PKH':
@@ -86,11 +77,8 @@ export function encodeBtcPayloadToBytes(payload: BtcPayload): string {
 }
 
 /**
- * Checksum-validate a Bitcoin destination address (every spendable type). Testnet forms are
- * accepted deliberately: the network is config-driven under the single BITCOIN_MAINNET chain key
- * (BitcoinSpokeService.getBtcNetwork), and this pure utility cannot see that config.
- * Decodes via fromBech32/fromBase58Check — payments.p2tr would require initEccLib, which a pure
- * utility must not depend on. Prefix/version checks keep other bech32 chains (e.g. inj1…) out.
+ * Testnet forms are accepted: the network is config-driven and this pure utility can't see it. Decodes via
+ * fromBech32/fromBase58Check (payments.p2tr would need initEccLib); prefix checks keep other bech32 chains out.
  */
 export function isValidBitcoinAddress(address: string): boolean {
   try {
@@ -98,7 +86,7 @@ export function isValidBitcoinAddress(address: string): boolean {
     if (prefix !== 'bc' && prefix !== 'tb') return false;
     return (version === 0 && (data.length === 20 || data.length === 32)) || (version === 1 && data.length === 32);
   } catch {
-    // not bech32 — fall through to Base58Check
+    // not bech32: fall through to Base58Check
   }
   try {
     const { version } = bitcoinjsAddress.fromBase58Check(address);
@@ -122,21 +110,13 @@ export function canonicalizeBitcoinAddress(address: string): string {
   }
 }
 
-/**
- * Normalize a signed PSBT to base64 format.
- * Unisat/OKX wallets return hex, Xverse returns base64.
- * Bound Exchange API expects base64.
- */
+/** Unisat/OKX return hex, Xverse base64; Bound Exchange expects base64. */
 export function normalizePsbtToBase64(signedPsbt: string): string {
   const isHex = /^[0-9a-fA-F]+$/.test(signedPsbt);
   return isHex ? Buffer.from(signedPsbt, 'hex').toString('base64') : signedPsbt;
 }
 
-/**
- * Normalize a wallet message signature to base64. The intent relay requires the on-demand
- * withdrawal signature as base64. Browser wallets (UniSat/Xverse/OKX) already return base64; a hex
- * signature (e.g. a private-key wallet) is encoded. Mirrors `normalizePsbtToBase64`.
- */
+/** The intent relay requires base64; browser wallets return base64, a private-key wallet may return hex. */
 export function normalizeSignatureToBase64(signature: string): string {
   const isHex = /^[0-9a-fA-F]+$/.test(signature);
   return isHex ? Buffer.from(signature, 'hex').toString('base64') : signature;

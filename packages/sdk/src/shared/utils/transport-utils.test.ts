@@ -28,43 +28,26 @@ function endpointUrls(cfg: EvmRpcConfig): string[] {
 }
 
 describe('buildEvmRpcTransport', () => {
-  it('builds a fallback transport from the single rpcUrl when rpcUrls is absent', () => {
-    const transport = inspectTransport({ rpcUrl: A });
-    expect(transport.type).toBe('fallback');
+  it('builds a fallback transport from the single rpcUrl when rpcUrls is absent, empty or all blank', () => {
+    expect(inspectTransport({ rpcUrl: A }).type).toBe('fallback');
     expect(endpointUrls({ rpcUrl: A })).toEqual([A]);
-  });
-
-  it('falls back to the single rpcUrl when rpcUrls is empty — never builds an empty transport', () => {
+    // Never an empty transport; a malformed all-blank / whitespace-only list (e.g. unset env vars)
+    // must not suppress the working rpcUrl.
     expect(endpointUrls({ rpcUrl: A, rpcUrls: [] })).toEqual([A]);
-  });
-
-  it('drops blank rpcUrls entries and keeps the healthy primary when none remain', () => {
-    // A malformed all-blank list (e.g. unset env vars) must not suppress the working rpcUrl.
     expect(endpointUrls({ rpcUrl: A, rpcUrls: ['', ''] })).toEqual([A]);
-  });
-
-  it('treats whitespace-only rpcUrls entries as blank and preserves the primary', () => {
-    // A stray space/tab/newline from a shell-interpolated env var must not become a live endpoint.
     expect(endpointUrls({ rpcUrl: A, rpcUrls: ['   ', '\t', '\n'] })).toEqual([A]);
   });
 
-  it('drops blank entries but still lets a usable rpcUrls supersede the primary', () => {
+  it('drops blank entries and trims usable ones, which then supersede the primary', () => {
     // Proves supersession (not "ignore rpcUrls"): the surviving endpoint is B, and A is gone.
     expect(endpointUrls({ rpcUrl: A, rpcUrls: ['', B] })).toEqual([B]);
     expect(endpointUrls({ rpcUrl: A, rpcUrls: ['  ', B] })).toEqual([B]);
-  });
-
-  it('trims surrounding whitespace off usable endpoints', () => {
     expect(endpointUrls({ rpcUrl: A, rpcUrls: [`  ${B}  `] })).toEqual([B]);
   });
 
-  it('includes one inner transport per unique endpoint, primary first, in listed order', () => {
-    const transport = inspectTransport({ rpcUrl: A, rpcUrls: [A, B, C] });
-    expect(transport.type).toBe('fallback');
+  it('includes one inner transport per unique endpoint, primary first, in first-seen order', () => {
+    expect(inspectTransport({ rpcUrl: A, rpcUrls: [A, B, C] }).type).toBe('fallback');
     expect(endpointUrls({ rpcUrl: A, rpcUrls: [A, B, C] })).toEqual([A, B, C]);
-  });
-
-  it('dedupes duplicate endpoints while preserving first-seen order', () => {
     expect(endpointUrls({ rpcUrl: A, rpcUrls: [A, A, B, B] })).toEqual([A, B]);
   });
 

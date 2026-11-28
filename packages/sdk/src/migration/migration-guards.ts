@@ -1,5 +1,3 @@
-// packages/sdk/src/migration/migration-guards.ts
-// Runtime narrowers for migration param unions used by MigrationService branching.
 import type { SpokeChainKey } from '@sodax/types';
 import type { IcxMigrateParams, IcxCreateRevertMigrationParams } from './IcxMigrationService.js';
 import type { UnifiedBnUSDMigrateParams } from './BnUSDMigrationService.js';

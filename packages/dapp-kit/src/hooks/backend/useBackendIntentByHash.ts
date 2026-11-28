@@ -10,12 +10,6 @@ export type UseBackendIntentByHashParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch intent details from the backend API using an intent hash.
- *
- * @example
- * const { data: intent } = useBackendIntentByHash({ params: { intentHash: '0xabc...' } });
- */
 export const useBackendIntentByHash = ({
   params,
   queryOptions,

@@ -106,22 +106,22 @@ describe('SpokeService.approve — sequential plan execution', () => {
     expect(wait).toHaveBeenCalledWith({ txHash: RESET_HASH, chainKey: ARBITRUM });
   });
 
-  it.each([
-    'failure',
-    'timeout',
-  ] as const)('does not send the second approve when the reset ends in %s', async status => {
+  it('does not send the second approve when the reset ends in failure or timeout', async () => {
     stubPlan({ resetAmount: 0n, approveAmount: AMOUNT });
-    const approve = vi.spyOn(Erc20Service, 'approve').mockResolvedValueOnce(RESET_HASH);
-    vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValue(receipt(status));
+    for (const status of ['failure', 'timeout'] as const) {
+      const approve = vi.spyOn(Erc20Service, 'approve').mockResolvedValueOnce(RESET_HASH);
+      vi.spyOn(sodax.spoke, 'waitForTxReceipt').mockResolvedValue(receipt(status));
 
-    const result = await sodax.spoke.approve({ ...approveInput, raw: false, walletProvider });
+      const result = await sodax.spoke.approve({ ...approveInput, raw: false, walletProvider });
 
-    expect(result.ok).toBe(false);
-    expect(approve).toHaveBeenCalledTimes(1);
-    if (!result.ok) {
-      // The message has to name the hash and say a retry is cheap: once the reset lands the next
-      // plan is a single transaction, so the flow self-heals.
-      expect(String((result.error as Error).message)).toContain(RESET_HASH);
+      expect(result.ok).toBe(false);
+      expect(approve).toHaveBeenCalledTimes(1);
+      if (!result.ok) {
+        // The message has to name the hash and say a retry is cheap: once the reset lands the next
+        // plan is a single transaction, so the flow self-heals.
+        expect(String((result.error as Error).message)).toContain(RESET_HASH);
+      }
+      approve.mockRestore();
     }
   });
 
@@ -150,28 +150,28 @@ describe('SpokeService.approve — sequential plan execution', () => {
 });
 
 describe('SpokeService.buildApproveTxs', () => {
-  it('names the reset separately from the approve when the token needs one', async () => {
-    stubPlan({ resetAmount: 0n, approveAmount: AMOUNT });
+  it('names the reset separately from the approve when the token needs one, and omits it otherwise', async () => {
+    const plan = stubPlan({ resetAmount: 0n, approveAmount: AMOUNT });
     const resetTx = { from: OWNER, to: TOKEN, value: 0n, data: '0xreset' as Hex };
     const approveTx = { from: OWNER, to: TOKEN, value: 0n, data: '0xapprove' as Hex };
-    vi.spyOn(Erc20Service, 'approve').mockResolvedValueOnce(resetTx).mockResolvedValueOnce(approveTx);
+    vi.spyOn(Erc20Service, 'approve')
+      .mockResolvedValueOnce(resetTx)
+      .mockResolvedValueOnce(approveTx)
+      .mockResolvedValueOnce(approveTx);
 
-    const result = await sodax.spoke.buildApproveTxs({ ...approveInput, raw: true });
+    expect(await sodax.spoke.buildApproveTxs({ ...approveInput, raw: true })).toEqual({
+      ok: true,
+      value: { resetTx, approveTx },
+    });
 
-    expect(result).toEqual({ ok: true, value: { resetTx, approveTx } });
+    plan.mockResolvedValue({ approveAmount: AMOUNT, reason: 'zero-allowance' });
+    expect(await sodax.spoke.buildApproveTxs({ ...approveInput, raw: true })).toEqual({
+      ok: true,
+      value: { approveTx },
+    });
   });
 
-  it('omits resetTx entirely when the token does not need one', async () => {
-    stubPlan({ approveAmount: AMOUNT }, 'zero-allowance');
-    const approveTx = { from: OWNER, to: TOKEN, value: 0n, data: '0xapprove' as Hex };
-    vi.spyOn(Erc20Service, 'approve').mockResolvedValueOnce(approveTx);
-
-    const result = await sodax.spoke.buildApproveTxs({ ...approveInput, raw: true });
-
-    expect(result).toEqual({ ok: true, value: { approveTx } });
-  });
-
-  it('returns the Stellar trustline as the approve, with no reset', async () => {
+  it('returns the Stellar trustline as the approve, with no reset, forcing raw', async () => {
     const plan = vi.spyOn(Erc20Service, 'planApproval');
     const trustlineTx = { unsignedTx: 'AAAA...' };
     const requestTrustline = vi.spyOn(sodax.spoke.stellar, 'requestTrustline').mockResolvedValue(trustlineTx as never);
@@ -189,12 +189,6 @@ describe('SpokeService.buildApproveTxs', () => {
     expect(result).toEqual({ ok: true, value: { approveTx: trustlineTx } });
     expect(requestTrustline).toHaveBeenCalledTimes(1);
     expect(plan).not.toHaveBeenCalled();
-  });
-
-  it('forces raw even when the caller says otherwise', async () => {
-    const requestTrustline = vi
-      .spyOn(sodax.spoke.stellar, 'requestTrustline')
-      .mockResolvedValue({ unsignedTx: 'AAAA...' } as never);
 
     // TypeScript rejects `raw: false` here, so this is the JavaScript caller the cast stands in for.
     // It matters because `requestTrustline` reads `raw` at runtime: were the value passed through,
@@ -208,7 +202,7 @@ describe('SpokeService.buildApproveTxs', () => {
       walletProvider: {},
     } as never);
 
-    expect(requestTrustline).toHaveBeenCalledWith(expect.objectContaining({ raw: true }));
+    expect(requestTrustline).toHaveBeenLastCalledWith(expect.objectContaining({ raw: true }));
   });
 });
 
@@ -416,67 +410,41 @@ const ROUTES: readonly {
 ];
 
 describe.each(ROUTES)('SpokeService balance router → spoke.$service', ({ service, callOne, callMany }) => {
-  it('getWalletBalance dispatches to that service and no other', async () => {
+  it('getWalletBalance and getWalletBalances each dispatch to that service and no other', async () => {
     const spies = spyEveryService();
 
     await callOne();
-
-    for (const [name, [one]] of Object.entries(spies) as [ServiceName, (typeof spies)[ServiceName]][]) {
-      expect(one, `spoke.${name}.getWalletBalance`).toHaveBeenCalledTimes(name === service ? 1 : 0);
-    }
-  });
-
-  it('getWalletBalances dispatches to that service and no other', async () => {
-    const spies = spyEveryService();
-
     await callMany();
 
-    for (const [name, [, many]] of Object.entries(spies) as [ServiceName, (typeof spies)[ServiceName]][]) {
+    for (const [name, [one, many]] of Object.entries(spies) as [ServiceName, (typeof spies)[ServiceName]][]) {
+      expect(one, `spoke.${name}.getWalletBalance`).toHaveBeenCalledTimes(name === service ? 1 : 0);
       expect(many, `spoke.${name}.getWalletBalances`).toHaveBeenCalledTimes(name === service ? 1 : 0);
     }
   });
 });
 
 describe('SpokeService.getWalletBalance (chain-agnostic router)', () => {
-  it("routes to the chain-type's spoke service and wraps the value in a Result", async () => {
-    const spy = vi.spyOn(spoke.evm, 'getWalletBalance').mockResolvedValueOnce(4_200n);
+  it("routes to the chain-type's spoke service, wrapping the value or a thrown error in a Result", async () => {
+    const boom = new Error('rpc down');
+    const spy = vi.spyOn(spoke.evm, 'getWalletBalance').mockResolvedValueOnce(4_200n).mockRejectedValueOnce(boom);
     const params = { srcChainKey: ARB, srcAddress: SRC, token: xtoken(SRC) };
 
-    const result = await spoke.getWalletBalance(params);
-
-    expect(result).toEqual({ ok: true, value: 4_200n });
+    expect(await spoke.getWalletBalance(params)).toEqual({ ok: true, value: 4_200n });
     expect(spy).toHaveBeenCalledWith(params);
-  });
-
-  it('wraps a thrown error in an unsuccessful Result instead of throwing', async () => {
-    const boom = new Error('rpc down');
-    vi.spyOn(spoke.evm, 'getWalletBalance').mockRejectedValueOnce(boom);
-
-    const result = await spoke.getWalletBalance({ srcChainKey: ARB, srcAddress: SRC, token: xtoken(SRC) });
-
-    expect(result).toEqual({ ok: false, error: boom });
+    expect(await spoke.getWalletBalance(params)).toEqual({ ok: false, error: boom });
   });
 });
 
 describe('SpokeService.getWalletBalances (chain-agnostic router)', () => {
-  it("routes to the chain-type's spoke service and wraps the record in a Result", async () => {
+  it("routes to the chain-type's spoke service, wrapping the record or a thrown error in a Result", async () => {
+    const boom = new Error('rpc down');
     const record = { [SRC]: 1n };
-    const spy = vi.spyOn(spoke.evm, 'getWalletBalances').mockResolvedValueOnce(record);
+    const spy = vi.spyOn(spoke.evm, 'getWalletBalances').mockResolvedValueOnce(record).mockRejectedValueOnce(boom);
     const params = { srcChainKey: ARB, srcAddress: SRC, tokens: [xtoken(SRC)] };
 
-    const result = await spoke.getWalletBalances(params);
-
-    expect(result).toEqual({ ok: true, value: record });
+    expect(await spoke.getWalletBalances(params)).toEqual({ ok: true, value: record });
     expect(spy).toHaveBeenCalledWith(params);
-  });
-
-  it('wraps a thrown error in an unsuccessful Result instead of throwing', async () => {
-    const boom = new Error('rpc down');
-    vi.spyOn(spoke.evm, 'getWalletBalances').mockRejectedValueOnce(boom);
-
-    const result = await spoke.getWalletBalances({ srcChainKey: ARB, srcAddress: SRC, tokens: [xtoken(SRC)] });
-
-    expect(result).toEqual({ ok: false, error: boom });
+    expect(await spoke.getWalletBalances(params)).toEqual({ ok: false, error: boom });
   });
 });
 
@@ -518,16 +486,18 @@ describe('SpokeService.assertReleaseRecipientReady', () => {
     });
   });
 
-  it.each(['no_trustline', 'trustline_limit'] as const)('names the SDK call that fixes a %s refusal', async reason => {
-    vi.spyOn(spoke.xrp, 'checkDestination').mockResolvedValue({ ready: false, reason });
+  it('names the SDK call that fixes a no_trustline or trustline_limit refusal', async () => {
+    for (const reason of ['no_trustline', 'trustline_limit'] as const) {
+      vi.spyOn(spoke.xrp, 'checkDestination').mockResolvedValue({ ready: false, reason });
 
-    const error = await check(ChainKeys.XRP_MAINNET, encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS)).catch(
-      (e: unknown) => e,
-    );
+      const error = await check(ChainKeys.XRP_MAINNET, encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS)).catch(
+        (e: unknown) => e,
+      );
 
-    invariant(isSodaxError(error), 'expected a SodaxError');
-    expect(error.message).toMatch(/sodax\.spoke\.xrp\.requestTrustline/);
-    expect(error.context).toMatchObject({ reason: `xrpl-${reason}` });
+      invariant(isSodaxError(error), 'expected a SodaxError');
+      expect(error.message).toMatch(/sodax\.spoke\.xrp\.requestTrustline/);
+      expect(error.context).toMatchObject({ reason: `xrpl-${reason}` });
+    }
   });
 
   it('does not look up a recipient on a chain that cannot refuse a release', async () => {

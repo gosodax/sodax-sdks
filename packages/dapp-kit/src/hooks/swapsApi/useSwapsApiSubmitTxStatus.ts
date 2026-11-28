@@ -14,21 +14,7 @@ export type UseSwapsApiSubmitTxStatusParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook for polling the processing status of a submitted swap transaction via the swaps API —
- * `sodax.api.swaps.getSubmitTxStatus`. Both `txHash` and `srcChainKey` are required for the query
- * to run (the swaps API status query requires the source chain key).
- *
- * @example
- * const { data: status } = useSwapsApiSubmitTxStatus({
- *   params: { txHash: '0x123...', srcChainKey: 'sonic' },
- * });
- *
- * @remarks
- * - Default refetch interval is 1 second; stops on 'solved' or 'failed' status, when the
- *   backend marks the submission abandoned (`abandonedAt`) while `status` stays non-terminal, or
- *   once the backend rejects the API key (401/403 is terminal — a retry cannot fix it).
- */
+/** Polls every 1s until solved/failed, `abandonedAt` is set, or an API-key rejection (401/403). */
 export const useSwapsApiSubmitTxStatus = ({
   params,
   queryOptions,
@@ -41,8 +27,6 @@ export const useSwapsApiSubmitTxStatus = ({
   return useQuery({
     queryKey: ['swapsApi', 'submitTx', 'status', txHash, srcChainKey],
     queryFn: async (): Promise<SubmitTxStatusResponseV2 | undefined> => {
-      // `srcChainKey` is required by the swaps API status query. The `enabled` gate below
-      // ensures both are present; this guard also narrows the types for the call.
       if (!txHash || !srcChainKey) return undefined;
       return unwrapResult(await sodax.api.swaps.getSubmitTxStatus({ txHash, srcChainKey }, apiConfig));
     },
@@ -52,8 +36,7 @@ export const useSwapsApiSubmitTxStatus = ({
       // `retry` bounds attempts within a tick, not the interval itself — so stop it here too.
       if (isAuthFailure(query.state.error)) return false;
       const data = query.state.data?.data;
-      // `abandonedAt` is terminal even when `status` is still non-terminal — same rule as the
-      // SDK's pollBackendSubmitTx and the bridge-api status hook.
+      // `abandonedAt` is terminal even while `status` is not, as in the SDK's pollBackendSubmitTx.
       if (data?.status === 'solved' || data?.status === 'failed' || data?.abandonedAt) return false;
       return 1000;
     },

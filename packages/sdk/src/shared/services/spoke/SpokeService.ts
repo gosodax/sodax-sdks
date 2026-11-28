@@ -1,4 +1,3 @@
-// packages/sdk/src/shared/services/spoke/SpokeService.ts
 import * as rlp from 'rlp';
 import {
   encodeFunctionData,
@@ -192,13 +191,6 @@ function missingFarSideHash(detail: string): { ok: false; error: SettlementFailu
   return { ok: false, error: { phase: 'relay', cause: new Error(`mpc-relay: ${detail}`) } };
 }
 
-/**
- * SpokeService is a main class that provides functionalities for dealing with spoke chains (including hub chain).
- * It uses command pattern to execute different spoke (including hub) chain operations.
- * Important: you should always first handle hub chain id first (since it is evm type, it is also included in evm chain id set).
- * @namespace SodaxPublicUtils
- */
-
 /** Why an XRPL release to `address` would be refused, worded for whoever picked the destination. */
 function xrpRefusalMessage(
   reason: Extract<XrpDestinationReadiness, { ready: false }>['reason'],
@@ -341,10 +333,7 @@ export class SpokeService {
     }
   }
 
-  /**
-   * Check ERC-20 allowance (EVM / hub) or Stellar trustline sufficiency using unified params.
-   * Feature services map their action payloads into {@link SpokeIsAllowanceValidParams}.
-   */
+  /** Check ERC-20 allowance (EVM / hub) or Stellar trustline sufficiency. */
   public async isAllowanceValid(params: SpokeIsAllowanceValidParams): Promise<Result<boolean>> {
     try {
       if (isSpokeIsAllowanceValidParamsHub(params)) {
@@ -385,14 +374,8 @@ export class SpokeService {
   }
 
   /**
-   * Approve ERC-20 spending on hub / EVM spoke or request a Stellar trustline using unified params.
-   * Feature services map their action payloads into {@link SpokeApproveParams}.
-   *
-   * A signed ERC-20 approval can take **two** transactions: a token of the TetherToken lineage
-   * rejects an allowance change from one non-zero value to another, so a stale allowance is zeroed
-   * first and the user signs twice. The returned hash is always the last transaction's, so the
-   * contract callers see is unchanged. An unsigned caller still gets exactly one transaction — use
-   * {@link SpokeService.buildApproveTxs} to get the whole plan.
+   * Approve ERC-20 (hub / EVM spoke) or request a Stellar trustline. A TetherToken-lineage stale allowance is
+   * zeroed first (two signatures, last hash returned); unsigned callers needing the full plan use {@link buildApproveTxs}.
    */
   public async approve<K extends SpokeChainKey, Raw extends boolean>(
     params: SpokeApproveParams<K, Raw>,
@@ -403,13 +386,10 @@ export class SpokeService {
         `Invalid wallet provider for chain key: ${params.srcChainKey}, walletProvider.chainType: ${params.walletProvider?.chainType}`,
       );
 
-      // Hub and EVM spoke share one branch: `HubChainKey` is a subset of `EvmChainKey`, so both
-      // resolve `TxReturnType` to the same `EvmReturnType<Raw>`. Split them again if the hub ever
-      // needs different handling — the spender already differs, but that is resolved by the caller.
+      // `HubChainKey` is a subset of `EvmChainKey`, so hub and EVM spoke share `EvmReturnType<Raw>`.
       if (isSpokeApproveParamsHub(params) || isSpokeApproveParamsEvmSpoke(params)) {
         if (params.raw) {
-          // A two-step plan cannot be expressed as a single `tx`, so the unsigned path is left
-          // exactly as it was; `buildApproveTxs` is the entry point that returns the whole plan.
+          // A two-step plan cannot be a single `tx`; `buildApproveTxs` returns the whole plan.
           const tx = await Erc20Service.approve<Raw>({
             ...params,
             token: params.token,
@@ -451,16 +431,8 @@ export class SpokeService {
   }
 
   /**
-   * The unsigned approval transactions, named rather than ordered (see {@link ApprovalTxs}).
-   *
-   * `resetTx` is present only when the token needs its stale allowance cleared first (see
-   * {@link Erc20Service.planApproval}); broadcast it and wait for it to be mined before `approveTx`,
-   * which is not valid until the reset has landed. Unsigned callers — the swaps API and the apps
-   * built on it — need this, because {@link SpokeService.approve} can only hand back a single `tx`.
-   *
-   * Deliberately separate from {@link SpokeService.approve} rather than a mode of it: the two return
-   * genuinely different shapes, and folding them together would put a union in the return type of
-   * the method every feature approves through.
+   * Unsigned approval txs. `resetTx` is present only when a stale allowance must be cleared, and must be
+   * mined before `approveTx` is valid.
    */
   public async buildApproveTxs<K extends SpokeChainKey>(
     params: SpokeApproveParams<K, true>,
@@ -492,9 +464,7 @@ export class SpokeService {
       }
 
       if (isSpokeApproveParamsStellar(params)) {
-        // `raw` is forced rather than carried over from `params`, mirroring the ERC-20 branch above.
-        // `requestTrustline` reads it at runtime, so a JavaScript caller passing `raw: false` would
-        // otherwise have this method broadcast — from something named "build".
+        // Forced: `requestTrustline` reads `raw` at runtime, so `raw: false` would otherwise broadcast.
         const tx = await this.requestTrustlineForApproval<true>({ ...params, raw: true });
 
         // A trustline is always a single transaction — there is no allowance to reset.
@@ -514,12 +484,8 @@ export class SpokeService {
   }
 
   /**
-   * Sign and broadcast the approval plan for an ERC-20 on the hub or an EVM spoke.
-   *
-   * A token of the TetherToken lineage rejects an allowance change from one non-zero value to
-   * another, so a wallet holding a stale allowance needs `approve(0)` first. Sent as separate
-   * transactions, each is only valid once its predecessor has been mined, so this waits between them
-   * (an EIP-5792 atomic batch can carry both, in order). The hash of the last is returned.
+   * Sign and broadcast the ERC-20 approval plan; a TetherToken-style `approve(0)` reset must be mined before
+   * the approve is valid (an EIP-5792 atomic batch can carry both). Returns the last hash.
    */
   private async executeErc20ApprovalPlan<Raw extends boolean>(
     params: SpokeApproveParamsHub<HubChainKey, Raw> | SpokeApproveParamsEvmSpoke<EvmSpokeOnlyChainKey, Raw>,
@@ -547,8 +513,7 @@ export class SpokeService {
       const resetHash = await sendApprove(plan.resetAmount);
       const receipt = await this.waitForTxReceipt({ txHash: resetHash, chainKey: params.srcChainKey });
 
-      // The approve is not a valid state transition until the reset is on-chain, so stop rather
-      // than send a transaction that is certain to revert and be paid for.
+      // The approve is certain to revert until the reset is on-chain, so stop rather than pay for it.
       if (!receipt.ok || receipt.value.status !== 'success') {
         return {
           ok: false,
@@ -564,10 +529,7 @@ export class SpokeService {
     return { ok: true, value: txHash satisfies TxReturnType<EvmChainKey, false> as TxReturnType<EvmChainKey, Raw> };
   }
 
-  /**
-   * Stellar approves by adding a trustline — always a single transaction, with no allowance to plan
-   * around. Shared by both entry points so the param mapping and its cast live in one place.
-   */
+  /** Stellar approves via a single trustline tx; shared by both approval entry points. */
   private requestTrustlineForApproval<Raw extends boolean>(
     params: SpokeApproveParamsStellar<StellarChainKey, Raw>,
   ): Promise<TxReturnType<StellarChainKey, Raw>> {
@@ -598,16 +560,11 @@ export class SpokeService {
     return plan;
   }
 
-  /** The read client for an EVM chain, whether it is the hub or a spoke. */
   private getEvmPublicClient(chainKey: HubChainKey | EvmSpokeOnlyChainKey): PublicClient {
     return isHubChainKeyType(chainKey) ? this.sonic.publicClient : this.evm.getPublicClient(chainKey);
   }
 
-  /**
-   * Log a plan only when it says something: an extra transaction the user will have to sign, or a
-   * probe that could not reach a verdict. The ordinary single approve is the vast majority of calls
-   * and stays silent.
-   */
+  /** Log only plans with an extra tx to sign or an inconclusive probe; the ordinary single approve stays silent. */
   private logApprovalPlan(
     caller: 'approve' | 'buildApproveTxs',
     chainKey: SpokeChainKey,
@@ -628,12 +585,6 @@ export class SpokeService {
     });
   }
 
-  /**
-   * Estimate the gas for a raw transaction.
-   * @param {TxReturnType<T, true>} params - The parameters for the raw transaction.
-   * @param {SpokeProvider} spokeProvider - The provider for the spoke chain.
-   * @returns {Promise<GetEstimateGasReturnType<T>>} A promise that resolves to the gas.
-   */
   public async estimateGas<C extends SpokeChainKey>(
     params: EstimateGasParams<C>,
   ): Promise<Result<GetEstimateGasReturnType<C>>> {
@@ -752,20 +703,8 @@ export class SpokeService {
     }
   }
 
-  /**
-
-  * Encodes transfer data using RLP encoding to match Solidity Transfer struct.
-   * @param {Hex} token - The token contract address.
-   * @param {Hex} from - The sender address.
-   * @param {Hex} to - The recipient address.
-   * @param {bigint} amount - The transfer amount.
-   * @param {Hex} data - The encoded data payload.
-   * @returns {Promise<Hex>} A promise that resolves to the RLP encoded transfer data.
-   */
+  /** RLP-encodes a transfer to match the Solidity `Transfer` struct. */
   public static encodeTransfer(token: Hex, from: Hex, to: Hex, amount: bigint, data: Hex): Hex {
-    // Create RLP input array matching Solidity Transfer struct:
-    // bytes token, bytes from, bytes to, uint256 amount, bytes data
-
     const rlpInput: rlp.Input = [
       token, // token (bytes)
       from, // from (bytes)
@@ -826,15 +765,7 @@ export class SpokeService {
     }
   }
 
-  /**
-   * Simulates receiving a message without signature verification.
-   * This function calls simulateRecvMessage which always reverts with 'Simulation completed'.
-   * @param {bigint} srcChainId - The chain ID of the originating chain.
-   * @param {Hex} srcAddress - The address of the sender on the originating chain.
-   * @param {Hex} payload - The encoded payload containing call data (from encodeTransfer).
-   * @param {EvmHubProvider} hubProvider - The provider for the hub chain.
-   * @returns {Promise<{ success: boolean; error?: string }>} Result of the simulation.
-   */
+  /** Simulates receiving a message without signature verification; `simulateRecvMessage` always reverts with 'Simulation completed'. */
   public async simulateRecvMessage(params: WalletSimulationParams): Promise<Result<boolean>> {
     try {
       const result = await this.hubProvider.publicClient.call({
@@ -874,15 +805,6 @@ export class SpokeService {
     }
   }
 
-  /**
-   * Deposit tokens to the spoke chain.
-   * @param {GetSpokeDepositParamsType<T extends SpokeProvider>} params - The parameters for the deposit, including the user's address, token address, amount, and additional data.
-   * @param {SpokeProvider} spokeProvider - The provider for the spoke chain.
-   * @param {EvmHubProvider} hubProvider - The provider for the hub chain.
-   * @param {boolean} raw - Whether to return raw transaction data.
-   * @param {boolean} skipSimulation - Whether to skip deposit simulation (optional, defaults to false).
-   * @returns {Promise<TxReturnType<T, R>>} A promise that resolves to the transaction hash.
-   */
   public async deposit<K extends SpokeChainKey, R extends boolean>(
     params: DepositParams<K, R>,
   ): Promise<Result<DepositReturnType<K, R>>> {
@@ -1051,11 +973,8 @@ export class SpokeService {
   }
 
   /**
-   * Get the balance of the token in the spoke chain asset manager. Tron and XRPL have no asset-manager read:
+   * Balance of the token in the spoke chain asset manager. Tron and XRPL have no asset-manager read:
    * their spokes return the balance `srcAddress` holds.
-   * @param {Address} token - The address of the token to get the balance of.
-   * @param {SpokeProviderType} spokeProvider - The spoke provider.
-   * @returns {Promise<bigint>} The balance of the token.
    */
   public async getDeposit<C extends SpokeChainKey>(params: GetDepositParams<C>): Promise<Result<bigint>> {
     try {
@@ -1140,14 +1059,7 @@ export class SpokeService {
     }
   }
 
-  /**
-   * Get a user's own wallet balance of a single token on a spoke chain, in smallest units.
-   * Chain-agnostic: dispatches to the per-chain service, which reads the native coin or the
-   * chain's token standard (EVM erc20, Solana SPL, …). Unlike {@link getDeposit}, this reads
-   * `srcAddress` itself, not the protocol asset manager.
-   * @param {GetBalanceParams<C>} params - The chain key, user address, and token.
-   * @returns {Promise<Result<bigint>>} The token balance in smallest units.
-   */
+  /** `srcAddress`'s own wallet balance of a token in smallest units (unlike {@link getDeposit}, not the asset manager). */
   public async getWalletBalance<C extends SpokeChainKey>(params: GetBalanceParams<C>): Promise<Result<bigint>> {
     try {
       if (isHubChainKeyType(params.srcChainKey)) {
@@ -1232,14 +1144,8 @@ export class SpokeService {
   }
 
   /**
-   * Get a user's own wallet balances of multiple tokens on a spoke chain, in smallest units.
-   * Chain-agnostic sibling of {@link getWalletBalance}; per-chain services batch the reads where the
-   * chain supports it (e.g. EVM multicall3, ICON aggregated call data).
-   * @param {GetBalancesParams<C>} params - The chain key, user address, and tokens.
-   * @returns {Promise<Result<WalletBalanceMap>>} A map of token address to balance in smallest
-   * units. A token that could not be read is logged and reported as `0n`; the `Result` fails when
-   * the whole batch is unusable — invalid chain, a shared round-trip every token depends on, or a
-   * batch in which no token could be read at all.
+   * Multi-token {@link getWalletBalance}. An unreadable token is logged and reported as `0n`; fails only when the
+   * whole batch is unusable (invalid chain, a shared round-trip failed, or no token could be read).
    */
   public async getWalletBalances<C extends SpokeChainKey>(
     params: GetBalancesParams<C>,
@@ -1326,14 +1232,7 @@ export class SpokeService {
     }
   }
 
-  /**
-   * Calls the connection contract on the spoke chain to send a message to the hub wallet, which then executes the message's payload.
-   * @param {HubAddress} from - The address of the user on the hub chain.
-   * @param {Hex} payload - The payload to send to the contract.
-   * @param {SpokeProviderType} spokeProvider - The provider for the spoke chain.
-   * @param {EvmHubProvider} hubProvider - The provider for the hub chain.
-   * @returns {Promise<Hash>} A promise that resolves to the transaction hash.
-   */
+  /** Sends a message via the spoke connection contract to the user's hub wallet, which executes its payload. */
   public async sendMessage<K extends SpokeChainKey, Raw extends boolean>(
     params: SendMessageParams<K, Raw>,
   ): Promise<Result<SendMessageReturnType<K, Raw>>> {
@@ -1519,12 +1418,7 @@ export class SpokeService {
     }
   }
 
-  /**
-   * Get max withdrawable balance for token.
-   * @param {string} token - The address of the token to get the balance of.
-   * @param {SpokeChainKey} chainId - The spoke chain id.
-   * @returns {Promise<bigint>} The max limit allowed for token.
-   */
+  /** Max withdrawable limit for a token. */
   public async getLimit(token: string, chainId: SpokeChainKey): Promise<Result<bigint>> {
     try {
       if (isNearChainKeyType(chainId)) {
@@ -1537,12 +1431,7 @@ export class SpokeService {
     }
   }
 
-  /**
-   * Get available withdrawable amount.
-   * @param {string} token - The address of the token to get the balance of.
-   * @param {SpokeChainKey} chainId - The spoke chain id.
-   * @returns {Promise<Result<bigint>>} The available withdrawable amount for token.
-   */
+  /** Currently available withdrawable amount for a token. */
   public async getAvailable(token: string, chainId: SpokeChainKey): Promise<Result<bigint>> {
     try {
       if (isNearChainKeyType(chainId)) {
@@ -1554,13 +1443,7 @@ export class SpokeService {
       return { ok: false, error };
     }
   }
-  /**
-   * Verifies the transaction hash for the spoke chain to exist on chain.
-   * Only stellar and solana need to be verified. For other chains, we assume the transaction exists on chain.
-   * @param txHash - The transaction hash to verify.
-   * @param spokeProvider - The spoke provider.
-   * @returns {Promise<Result<boolean>>} A promise that resolves to the result of the verification.
-   */
+  /** Verifies the tx exists on chain; only Stellar and Solana are checked, others are assumed to exist. */
   public async verifyTxHash(params: VerifyTxHashParams): Promise<Result<boolean>> {
     try {
       const { txHash, chainKey } = params;
@@ -1597,10 +1480,7 @@ export class SpokeService {
     }
   }
 
-  /**
-   * Trigger and await the release a hub tx sends to an MPC-relay chain, returning both hashes: it
-   * {@link submitHubRelease submits} the release, then {@link waitForHubRelease waits} for the payout.
-   */
+  /** {@link submitHubRelease Submit} the release a hub tx sends to an MPC-relay chain, then {@link waitForHubRelease wait} for the payout. */
   public async settleHubRelease(
     hubTxHash: string,
     dstChainKey: SpokeChainKey,
@@ -1615,8 +1495,8 @@ export class SpokeService {
   }
 
   /**
-   * Notify the MPC relay of the release a hub tx sends to `dstChainKey`, which it does not watch the hub
-   * for, and return the release to read or wait on. Waits for the hub tx to confirm, never for the payout.
+   * Notify the MPC relay (which does not watch the hub) of the release a hub tx sends to `dstChainKey`.
+   * Waits for the hub tx to confirm, never for the payout.
    */
   public async submitHubRelease({
     hubTxHash,
@@ -1645,9 +1525,8 @@ export class SpokeService {
   }
 
   /**
-   * Submit a hub tx to the intent relay so its message reaches the spoke it targets, without waiting. This is
-   * the leg after an MPC-relay deposit's hub mint, which no relay knows of, as {@link settle} drives it with a
-   * `dstChainKey`. Re-submitting is idempotent; `bridge.getDetailedStatus` with `dstChainKey` reads the delivery.
+   * Submit a hub tx to the intent relay without waiting: the leg after an MPC-relay deposit's hub mint, which no
+   * relay knows of. Idempotent; `bridge.getDetailedStatus` with `dstChainKey` reads the delivery.
    */
   public async submitHubDelivery(hubTxHash: string): Promise<Result<void, SettlementFailure>> {
     try {
@@ -1692,9 +1571,8 @@ export class SpokeService {
   }
 
   /**
-   * One read of the release a hub tx sends to an MPC-relay chain, or `undefined` when it sends none —
-   * the non-blocking counterpart of {@link settleHubRelease}, for status readers. It notifies nothing,
-   * and the record stays unpaid until `txs.release` is set.
+   * One read of the release a hub tx sends to an MPC-relay chain, or `undefined` when it sends none. Notifies
+   * nothing; the record stays unpaid until `txs.release` is set.
    */
   public async getHubRelease(hubTxHash: string): Promise<Result<DepositRecord> | undefined> {
     try {
@@ -1732,13 +1610,9 @@ export class SpokeService {
   }
 
   /**
-   * Refuses a release its recipient would turn away, before anything is signed: the relay fails such a
-   * release terminally after the hub has already burned the funds. An XRPL account (see
-   * {@link XrpSpokeService.checkDestination}) and a Hedera account not associated with the HTS token (see
-   * {@link HederaSpokeService.checkDestination}) can refuse one; every other chain passes.
-   *
-   * `recipient` is the release's `to` as `encodeRecipient` encodes it for the hub; `amount` (the least that
-   * arrives) and `maxAmount` (the most, default `amount`) are in the spoke token's decimals.
+   * Refuse a release its recipient would turn away (the relay fails it after the hub burned funds); only XRPL and an
+   * unassociated Hedera HTS recipient can refuse today. `recipient` is hub-encoded; `amount`/`maxAmount` are in the
+   * spoke token's decimals.
    */
   public async assertReleaseRecipientReady({
     feature,
@@ -1802,18 +1676,12 @@ export class SpokeService {
     }
   }
 
-  /**
-   * One read of an inbound MPC-relay deposit's record, or `undefined` when the chain rides the intent
-   * relay. The non-blocking counterpart of {@link settle}'s deposit wait, for status readers.
-   */
+  /** One read of an inbound MPC-relay deposit's record, or `undefined` when the chain rides the intent relay. */
   public async getMpcRelayDeposit(chainKey: SpokeChainKey, tx: string): Promise<Result<DepositRecord> | undefined> {
     return this.getMpcRelayService(chainKey)?.getDepositRecord(tx);
   }
 
-  /**
-   * Notify the MPC relay of a deposit broadcast on `chainKey`, without waiting for it to land: what a raw
-   * deposit needs once broadcast. Read it with {@link getMpcRelayDeposit}, or wait with {@link settle}.
-   */
+  /** Notify the MPC relay of a broadcast deposit without waiting for it to land. */
   public async submitMpcDeposit({
     chainKey,
     txHash,
@@ -1844,18 +1712,8 @@ export class SpokeService {
   }
 
   /**
-   * Wait for a spoke action to settle and return both hashes — the single settlement seam for feature
-   * services, keeping the per-chain-family mechanics here. Whether settlement is needed stays with the
-   * caller.
-   *
-   * Settlement runs in up to two legs, each driven by the relay of the spoke on that leg: the source leg
-   * carries `chainKey`'s tx to the hub, and when `dstChainKey` is set, the destination leg carries the
-   * resulting hub tx out to it. An MPC-relay chain (Tron) rides the MPC relay; every other spoke the
-   * intent relay. A leg is only driven here when no relay picks it up on its own.
-   *
-   * @returns the far-side hash (the payout tx when a destination leg ran, else the hub tx) beside the source
-   * tx, or beside the relay's trackingId for an outbound action from an MPC-relay chain, which has no source
-   * tx ({@link Settlement}); or a {@link SettlementFailure} naming the phase that failed.
+   * Wait for a spoke action to settle: the source leg to the hub, then (with `dstChainKey`) the hub tx out to it, each
+   * via the MPC relay for MPC chains, else the intent relay. Returns the far-side hash beside the source tx or trackingId.
    */
   public async settle<K extends SpokeChainKey, D extends SettlementDirection>(
     params: SettleParams<K, D>,
@@ -1945,10 +1803,7 @@ export class SpokeService {
     }
   }
 
-  /**
-   * Carry a hub tx no relay has seen out to `dstChainKey`: notify the MPC relay for an MPC chain, else
-   * submit it to the intent relay. Resolves to the payout tx on the destination.
-   */
+  /** Carry a hub tx no relay has seen out to `dstChainKey`; resolves to the payout tx on the destination. */
   private async settleDestinationLeg(
     hubTx: string,
     dstChainKey: SpokeChainKey,

@@ -1,13 +1,6 @@
 import type { Result } from '@sodax/sdk';
 
-/**
- * Translates the SDK's `Result<T>` contract into the React Query contract: returns `value` on
- * success, throws `error` on failure. Non-`Error` throwables are wrapped so consumers always get
- * an `Error` in `mutation.error` / catch blocks.
- *
- * Used by every dapp-kit mutation hook so the React Query error model (`isError`, `error`,
- * `onError`, `retry`, `throwOnError`, devtools) engages uniformly.
- */
+/** Returns `value` or throws `error`; non-`Error` failures are wrapped so consumers always get an `Error`. */
 export function unwrapResult<T>(result: Result<T>): T {
   if (!result.ok) {
     if (result.error instanceof Error) throw result.error;

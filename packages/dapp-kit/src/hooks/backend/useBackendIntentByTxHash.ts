@@ -10,16 +10,7 @@ export type UseBackendIntentByTxHashParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook for fetching intent details from the backend API using a transaction hash.
- *
- * @example
- * const { data: intent } = useBackendIntentByTxHash({ params: { txHash: '0x123...' } });
- *
- * @remarks
- * - Intents are only created on the hub chain, so `txHash` must originate from there.
- * - Default refetch interval is 1 second.
- */
+/** `txHash` must be a hub-chain tx: intents are only created there. */
 export const useBackendIntentByTxHash = ({
   params,
   queryOptions,

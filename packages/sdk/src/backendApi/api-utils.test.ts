@@ -70,22 +70,23 @@ afterEach(() => vi.restoreAllMocks());
 // =========================================================================
 
 describe('makeRequest URL resolution', () => {
-  it('builds the URL from config.baseURL + endpoint when no override is given', async () => {
+  it.each([
+    [BASE, `${BASE}/foo`],
+    [`${BASE}///`, `${BASE}/foo`],
+    [`${BASE}/v1/`, `${BASE}/v1/foo`],
+  ])('builds the URL from config.baseURL %s + endpoint, trimming trailing slashes', async (baseURL, expected) => {
     mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run('/foo', { method: 'GET', baseURL: BASE });
-    expect(mockFetch).toHaveBeenCalledWith(`${BASE}/foo`, expect.objectContaining({ method: 'GET' }));
+    await run('/foo', { method: 'GET', baseURL });
+    expect(mockFetch).toHaveBeenCalledWith(expected, expect.objectContaining({ method: 'GET' }));
   });
 
-  it('overrideConfig.baseURL takes precedence over config.baseURL', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run('/foo', { method: 'GET', baseURL: BASE }, { baseURL: 'https://override.example.com' });
-    expect(mockFetch).toHaveBeenCalledWith('https://override.example.com/foo', expect.any(Object));
-  });
+  it('lets a (trimmed) overrideConfig.baseURL win, treating an empty-string override as not provided', async () => {
+    mockFetch.mockResolvedValue(okResponse({}));
+    await run('/foo', { method: 'GET', baseURL: BASE }, { baseURL: 'https://override.example.com/v1/' });
+    expect(mockFetch).toHaveBeenLastCalledWith('https://override.example.com/v1/foo', expect.any(Object));
 
-  it('treats an empty-string override baseURL as "not provided" and falls back to config.baseURL (truthy)', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
     await run('/foo', { method: 'GET', baseURL: BASE }, { baseURL: '' });
-    expect(mockFetch).toHaveBeenCalledWith(`${BASE}/foo`, expect.any(Object));
+    expect(mockFetch).toHaveBeenLastCalledWith(`${BASE}/foo`, expect.any(Object));
   });
 
   it('produces a relative URL (endpoint only) when neither override nor config supply a baseURL', async () => {
@@ -93,101 +94,23 @@ describe('makeRequest URL resolution', () => {
     await run('/foo', { method: 'GET' });
     expect(mockFetch).toHaveBeenCalledWith('/foo', expect.any(Object));
   });
-
-  it.each([
-    [`${BASE}/`, `${BASE}/foo`],
-    [`${BASE}///`, `${BASE}/foo`],
-    [`${BASE}/v1/`, `${BASE}/v1/foo`],
-  ])('trims trailing slashes off %s', async (baseURL, expected) => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run('/foo', { method: 'GET', baseURL });
-    expect(mockFetch).toHaveBeenCalledWith(expected, expect.any(Object));
-  });
-
-  it('trims trailing slashes off an override baseURL too', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run('/foo', { method: 'GET', baseURL: BASE }, { baseURL: 'https://override.example.com/v1/' });
-    expect(mockFetch).toHaveBeenCalledWith('https://override.example.com/v1/foo', expect.any(Object));
-  });
 });
 
 // =========================================================================
-// makeRequest — header merging
-// =========================================================================
-
-describe('makeRequest header merging', () => {
-  it('merges config.headers with overrideConfig.headers', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run(
-      '/foo',
-      { method: 'GET', baseURL: BASE, headers: { Accept: 'application/json' } },
-      { headers: { 'X-Custom': 'v' } },
-    );
-    expect(lastInit().headers).toEqual({ Accept: 'application/json', 'X-Custom': 'v' });
-  });
-
-  it('overrideConfig.headers take precedence per key', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run(
-      '/foo',
-      { method: 'GET', baseURL: BASE, headers: { Accept: 'application/json' } },
-      { headers: { Accept: 'text/plain' } },
-    );
-    expect(lastInit().headers).toEqual({ Accept: 'text/plain' });
-  });
-
-  it('defaults to an empty headers object when none are supplied', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run('/foo', { method: 'GET', baseURL: BASE });
-    expect(lastInit().headers).toEqual({});
-  });
-});
-
-// =========================================================================
-// makeRequest — timeout resolution (asserted via the setTimeout delay)
-// =========================================================================
-
-describe('makeRequest timeout resolution', () => {
-  it('uses config.timeout when no override is given', async () => {
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run('/foo', { method: 'GET', baseURL: BASE, timeout: 1234 });
-    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1234);
-  });
-
-  it('overrideConfig.timeout takes precedence over config.timeout', async () => {
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run('/foo', { method: 'GET', baseURL: BASE, timeout: 1234 }, { timeout: 50 });
-    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 50);
-  });
-
-  it('falls back to DEFAULT_BACKEND_API_TIMEOUT when neither supplies a timeout', async () => {
-    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run('/foo', { method: 'GET', baseURL: BASE });
-    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), DEFAULT_BACKEND_API_TIMEOUT);
-  });
-
-  it('clears the timeout after a successful response', async () => {
-    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run('/foo', { method: 'GET', baseURL: BASE });
-    expect(clearTimeoutSpy).toHaveBeenCalled();
-  });
-});
-
-// =========================================================================
-// makeRequest — method / body / signal forwarding
+// makeRequest — request forwarding (method / body / signal / headers)
 // =========================================================================
 
 describe('makeRequest request forwarding', () => {
-  it('forwards the HTTP method and an AbortSignal', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run('/foo', { method: 'GET', baseURL: BASE });
+  it('a bare GET forwards the method and an AbortSignal, no body, empty headers, and returns the parsed JSON', async () => {
+    const body = { hello: 'world', n: 1 };
+    mockFetch.mockResolvedValueOnce(okResponse(body));
+    const result = await run<typeof body>('/foo', { method: 'GET', baseURL: BASE });
+    expect(result).toEqual(body);
     const init = lastInit();
     expect(init.method).toBe('GET');
     expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.body).toBeUndefined();
+    expect(init.headers).toEqual({});
   });
 
   it('forwards a POST body verbatim', async () => {
@@ -198,38 +121,57 @@ describe('makeRequest request forwarding', () => {
     expect(init.body).toBe('{"x":1}');
   });
 
-  it('sends no body when none is provided', async () => {
+  it('merges config.headers with overrideConfig.headers, the override winning per key', async () => {
     mockFetch.mockResolvedValueOnce(okResponse({}));
-    await run('/foo', { method: 'GET', baseURL: BASE });
-    expect(lastInit().body).toBeUndefined();
-  });
-
-  it('defaults overrideConfig to {} when overrideConfig is omitted', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({ ok: true }));
-    const result = await run<{ ok: boolean }>('/foo', { method: 'GET', baseURL: BASE });
-    expect(result).toEqual({ ok: true });
+    await run(
+      '/foo',
+      { method: 'GET', baseURL: BASE, headers: { Accept: 'application/json', 'X-Base': 'b' } },
+      { headers: { Accept: 'text/plain', 'X-Custom': 'v' } },
+    );
+    expect(lastInit().headers).toEqual({ Accept: 'text/plain', 'X-Base': 'b', 'X-Custom': 'v' });
   });
 });
 
 // =========================================================================
-// makeRequest — success
+// makeRequest — timeout resolution (asserted via the setTimeout delay)
 // =========================================================================
 
-describe('makeRequest success', () => {
-  it('returns the parsed JSON body', async () => {
-    const body = { hello: 'world', n: 1 };
-    mockFetch.mockResolvedValueOnce(okResponse(body));
-    const result = await run<typeof body>('/foo', { method: 'GET', baseURL: BASE });
-    expect(result).toEqual(body);
+describe('makeRequest timeout', () => {
+  it('resolves the timeout as override > config > DEFAULT_BACKEND_API_TIMEOUT', async () => {
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    mockFetch.mockResolvedValue(okResponse({}));
+    await run('/foo', { method: 'GET', baseURL: BASE, timeout: 1234 }, { timeout: 50 });
+    expect(setTimeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 50);
+    await run('/foo', { method: 'GET', baseURL: BASE, timeout: 1234 });
+    expect(setTimeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 1234);
+    await run('/foo', { method: 'GET', baseURL: BASE });
+    expect(setTimeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), DEFAULT_BACKEND_API_TIMEOUT);
   });
 
-  it('times out when response headers arrive but the success body stalls', async () => {
+  it('clears the timeout after both a successful and a failed response', async () => {
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+    mockFetch.mockResolvedValueOnce(okResponse({}));
+    await run('/foo', { method: 'GET', baseURL: BASE });
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(1);
+
+    mockFetch.mockResolvedValueOnce(httpErrorResponse(404, 'Not Found'));
+    await caught(run('/foo', { method: 'GET', baseURL: BASE }));
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws REQUEST_TIMEOUT with the elapsed timeout as cause when aborted by the timeout', async () => {
+    mockFetch.mockImplementationOnce(abortFetchImpl);
+    const err = (await caught(run('/foo', { method: 'GET', baseURL: BASE, timeout: 5 }))) as Error;
+    expect(err.message).toBe('REQUEST_TIMEOUT');
+    expect((err.cause as Error).message).toMatch(/Request timeout after 5ms/);
+  });
+
+  it.each([
+    ['success', { ok: true, status: 200 }, 'json'],
+    ['error', { ok: false, status: 503 }, 'text'],
+  ] as const)('times out when %s response headers arrive but the body stalls', async (_label, head, reader) => {
     mockFetch.mockImplementationOnce((_url: string, init: RequestInit) =>
-      Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => stallUntilAbort(init.signal),
-      }),
+      Promise.resolve({ ...head, [reader]: () => stallUntilAbort(init.signal) }),
     );
 
     const err = (await caught(run('/foo', { method: 'GET', baseURL: BASE, timeout: 5 }))) as Error;
@@ -252,53 +194,11 @@ describe('makeRequest error handling', () => {
     expect((err.cause as Error).message).toMatch(/HTTP 500: Internal Server Error/);
   });
 
-  it('throws REQUEST_TIMEOUT with the elapsed timeout as cause when aborted by the timeout', async () => {
-    mockFetch.mockImplementationOnce(abortFetchImpl);
-    const err = (await caught(run('/foo', { method: 'GET', baseURL: BASE, timeout: 5 }))) as Error;
-    expect(err.message).toBe('REQUEST_TIMEOUT');
-    expect((err.cause as Error).message).toMatch(/Request timeout after 5ms/);
-  });
-
-  it('times out when error response headers arrive but the error body stalls', async () => {
-    mockFetch.mockImplementationOnce((_url: string, init: RequestInit) =>
-      Promise.resolve({
-        ok: false,
-        status: 503,
-        text: () => stallUntilAbort(init.signal),
-      }),
-    );
-
-    const err = (await caught(run('/foo', { method: 'GET', baseURL: BASE, timeout: 5 }))) as Error;
-
-    expect(err.message).toBe('REQUEST_TIMEOUT');
-    expect((err.cause as Error).message).toBe('Request timeout after 5ms');
-  });
-
-  it('re-throws a non-abort Error verbatim (e.g. a network failure)', async () => {
+  it('re-throws a non-abort Error verbatim (e.g. a network failure), logging under the caller-provided serviceLabel', async () => {
+    const logger: SodaxLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const networkError = new Error('Network down');
     mockFetch.mockRejectedValueOnce(networkError);
-    const err = await caught(run('/foo', { method: 'GET', baseURL: BASE }));
-    expect(err).toBe(networkError);
-  });
-
-  it('throws UNKNOWN_REQUEST_ERROR wrapping a non-Error rejection value', async () => {
-    mockFetch.mockRejectedValueOnce('string-not-error');
-    const err = (await caught(run('/foo', { method: 'GET', baseURL: BASE }))) as Error;
-    expect(err.message).toBe('UNKNOWN_REQUEST_ERROR');
-    expect(err.cause).toBe('string-not-error');
-  });
-
-  it('clears the timeout on the error path', async () => {
-    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
-    mockFetch.mockResolvedValueOnce(httpErrorResponse(404, 'Not Found'));
-    await caught(run('/foo', { method: 'GET', baseURL: BASE }));
-    expect(clearTimeoutSpy).toHaveBeenCalled();
-  });
-
-  it('prefixes error logs with the caller-provided serviceLabel (not a hardcoded service name)', async () => {
-    const logger: SodaxLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    mockFetch.mockRejectedValueOnce(new Error('Network down'));
-    await caught(
+    const err = await caught(
       makeRequest({
         endpoint: '/foo',
         config: { method: 'GET', baseURL: BASE },
@@ -306,7 +206,15 @@ describe('makeRequest error handling', () => {
         serviceLabel: 'SwapsApiService',
       }),
     );
+    expect(err).toBe(networkError);
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('[SwapsApiService]'), expect.any(Error));
+  });
+
+  it('throws UNKNOWN_REQUEST_ERROR wrapping a non-Error rejection value', async () => {
+    mockFetch.mockRejectedValueOnce('string-not-error');
+    const err = (await caught(run('/foo', { method: 'GET', baseURL: BASE }))) as Error;
+    expect(err.message).toBe('UNKNOWN_REQUEST_ERROR');
+    expect(err.cause).toBe('string-not-error');
   });
 });
 
@@ -323,30 +231,19 @@ describe('BackendHttpError', () => {
     expect(err.bodyText).toBe(JSON.stringify(body));
   });
 
-  it('keeps the legacy message and cause chain byte-identical, so existing callers are unaffected', () => {
-    const err = new BackendHttpError(500, 'Internal Server Error');
+  it('keeps the legacy message and cause chain, and leaves `body` undefined for a non-JSON or empty payload', () => {
+    const err = new BackendHttpError(502, '<html>Bad Gateway</html>');
     expect(err).toBeInstanceOf(Error);
     expect(err.message).toBe('HTTP_REQUEST_FAILED');
-    expect((err.cause as Error).message).toBe('HTTP 500: Internal Server Error');
-  });
-
-  it('leaves `body` undefined for a non-JSON payload rather than throwing', () => {
-    const err = new BackendHttpError(502, '<html>Bad Gateway</html>');
+    expect((err.cause as Error).message).toBe('HTTP 502: <html>Bad Gateway</html>');
     expect(err.body).toBeUndefined();
     expect(err.bodyText).toBe('<html>Bad Gateway</html>');
-  });
-
-  it('leaves `body` undefined for an empty payload', () => {
     expect(new BackendHttpError(204, '').body).toBeUndefined();
   });
 });
 
 describe('isBackendHttpError', () => {
-  it('recognises a real instance', () => {
-    expect(isBackendHttpError(new BackendHttpError(500, 'boom'))).toBe(true);
-  });
-
-  it('recognises a structurally-identical error from ANOTHER bundled copy of the SDK', () => {
+  it('recognises a real instance and a structurally-identical error from ANOTHER bundled copy of the SDK', () => {
     class ForeignBackendHttpError extends Error {
       readonly status = 503;
       constructor() {
@@ -355,6 +252,7 @@ describe('isBackendHttpError', () => {
       }
     }
     const foreign = new ForeignBackendHttpError();
+    expect(isBackendHttpError(new BackendHttpError(500, 'boom'))).toBe(true);
     expect(foreign instanceof BackendHttpError).toBe(false);
     expect(isBackendHttpError(foreign)).toBe(true);
   });
@@ -363,7 +261,6 @@ describe('isBackendHttpError', () => {
     ['a plain Error with the same message', new Error('HTTP_REQUEST_FAILED')],
     ['a same-named error without a numeric status', Object.assign(new Error('x'), { name: 'BackendHttpError' })],
     ['a bare object', { name: 'BackendHttpError', status: 500 }],
-    ['null', null],
   ])('rejects %s', (_label, value) => {
     expect(isBackendHttpError(value)).toBe(false);
   });

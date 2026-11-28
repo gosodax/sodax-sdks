@@ -1,10 +1,3 @@
-/**
- * Staking module narrow error types.
- *
- * Only `stake` calls `verifyTxHash`, so it gets `StakeOrchestrationErrorCode` (with
- * `TX_VERIFICATION_FAILED`). The 4 non-stake ops share `StakingOrchestrationErrorCode`.
- */
-
 import {
   ALLOWANCE_CHECK_CODES,
   type AllowanceCheckErrorCode,
@@ -22,10 +15,10 @@ import type { SodaxError } from '../errors/SodaxError.js';
 
 export const stakingInvariant: FeatureInvariant = createInvariant('staking');
 
-/** The 5 user-facing staking operations. Carried on `context.action`. */
+/** Carried on `context.action`. */
 export type StakingActionType = 'stake' | 'unstake' | 'instantUnstake' | 'claim' | 'cancelUnstake';
 
-/** Codes the `stake` orchestrator can return — only one that calls `verifyTxHash`. */
+/** `stake` is the only staking orchestrator that calls `verifyTxHash`. */
 export type StakeOrchestrationErrorCode = Extract<
   SodaxErrorCode,
   | 'USER_REJECTED'
@@ -39,7 +32,6 @@ export type StakeOrchestrationErrorCode = Extract<
   | 'UNKNOWN'
 >;
 
-/** Codes the 4 non-stake orchestrators (`unstake`/`instantUnstake`/`claim`/`cancelUnstake`) share. */
 export type StakingOrchestrationErrorCode = Exclude<StakeOrchestrationErrorCode, 'TX_VERIFICATION_FAILED'>;
 
 export type StakingCreateIntentErrorCode = CreateIntentErrorCode;

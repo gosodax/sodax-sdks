@@ -4,8 +4,7 @@ import type { RadfiSession } from './useRadfiAuth.js';
 import { loadRadfiSession } from './useRadfiAuth.js';
 import { resolveBtcReadAddress } from './resolveBtcReadAddress.js';
 
-// resolveBtcReadAddress reads the Bound Exchange session via loadRadfiSession (localStorage-backed).
-// The dapp-kit test env is `node` (no localStorage), so mock the session lookup to drive each branch.
+// The test env is `node` (no localStorage), so mock the session lookup to drive each branch.
 vi.mock('./useRadfiAuth.js', () => ({
   loadRadfiSession: vi.fn(),
 }));
@@ -40,7 +39,6 @@ describe('resolveBtcReadAddress', () => {
     const result = resolveBtcReadAddress(ChainKeys.BITCOIN_MAINNET, PERSONAL_ADDRESS);
 
     expect(result).toBe(TRADING_ADDRESS);
-    // The session is keyed by the personal address.
     expect(mockLoadRadfiSession).toHaveBeenCalledWith(PERSONAL_ADDRESS);
   });
 

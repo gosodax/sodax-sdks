@@ -11,11 +11,7 @@ export type UseInstantUnstakeAllowanceParams<K extends SpokeChainKey = SpokeChai
   }
 >;
 
-/**
- * React hook to check whether the user has approved sufficient xSODA spending for the
- * instant-unstake action. Read-only — calls `staking.isAllowanceValid` with `raw: true` so no
- * `walletProvider` is required.
- */
+/** Read-only (`raw: true`), so no `walletProvider` is needed. */
 export function useInstantUnstakeAllowance<K extends SpokeChainKey = SpokeChainKey>({
   params,
   queryOptions,

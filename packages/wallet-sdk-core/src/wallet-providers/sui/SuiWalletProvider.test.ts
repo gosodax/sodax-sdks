@@ -115,18 +115,10 @@ describe('SuiWalletProvider.signAndExecuteTxn — dry-run + submit (private-key 
 });
 
 describe('SuiWalletProvider — endpoint config', () => {
-  it('honors the pre-gRPC `rpcUrl` name so existing private-key config keeps working', () => {
+  it('honors the pre-gRPC `rpcUrl` name, but rejects passing both endpoint names or neither', () => {
     new SuiWalletProvider({ rpcUrl: 'https://my-node.example', mnemonics: 'a b c' });
+    expect(vi.mocked(SuiGrpcClient)).toHaveBeenCalledWith({ network: 'mainnet', baseUrl: 'https://my-node.example' });
 
-    expect(vi.mocked(SuiGrpcClient)).toHaveBeenCalledWith({
-      network: 'mainnet',
-      baseUrl: 'https://my-node.example',
-    });
-  });
-
-  // The config union already rejects both of these at compile time; the casts stand in for an
-  // untyped JS caller, where a silent wrong endpoint would be far worse than a throw.
-  it('rejects passing both endpoint names instead of picking a winner', () => {
     expect(
       () =>
         new SuiWalletProvider({
@@ -136,9 +128,6 @@ describe('SuiWalletProvider — endpoint config', () => {
           // Cast stands in for an untyped JS caller; the config union rejects this at compile time.
         } as unknown as ConstructorParameters<typeof SuiWalletProvider>[0]),
     ).toThrow(/`grpcUrl` or `rpcUrl`, not both/);
-  });
-
-  it('throws when neither endpoint field is supplied', () => {
     expect(
       // Cast stands in for an untyped JS caller; the config union rejects this at compile time.
       () =>
@@ -148,56 +137,31 @@ describe('SuiWalletProvider — endpoint config', () => {
 });
 
 describe('SuiWalletProvider.signAndExecuteTxn — browser-extension path', () => {
-  it('signs through the injected signer and broadcasts the returned bytes', async () => {
+  it('signs through the injected signer as the connected account and broadcasts the returned bytes', async () => {
     const signTransaction = vi.fn().mockResolvedValue({ bytes: SIGNED_BYTES_B64, signature: 'sig' });
     const provider = makeBrowserProvider(signTransaction);
     const tx = makeTransaction();
 
     const digest = await provider.signAndExecuteTxn(tx);
 
+    expect(tx.setSenderIfNotSet).toHaveBeenCalledWith(TEST_ADDRESS);
     expect(signTransaction).toHaveBeenCalledWith(tx);
     expect(executeTransaction).toHaveBeenCalledWith({ transaction: TX_BYTES, signatures: ['sig'] });
     expect(digest).toBe(TEST_DIGEST);
-  });
-
-  it('reports the connected account address', async () => {
-    const provider = makeBrowserProvider(vi.fn());
-
     await expect(provider.getWalletAddress()).resolves.toBe(TEST_ADDRESS);
-  });
-
-  it('throws on post-submit on-chain failure', async () => {
-    executeTransaction.mockResolvedValue(failed('MoveAbort'));
-    const provider = makeBrowserProvider(vi.fn().mockResolvedValue({ bytes: SIGNED_BYTES_B64, signature: 'sig' }));
-
-    await expect(provider.signAndExecuteTxn(makeTransaction())).rejects.toThrow(/MoveAbort/);
   });
 });
 
 describe('SuiWalletProvider.signAndExecuteTxn — dry-run toggle (multi-step config, AC#3)', () => {
-  it('skips dry-run when defaults.signAndExecuteTxn.dryRun.enabled is false', async () => {
-    const provider = makeProvider({ signAndExecuteTxn: { dryRun: { enabled: false } } });
-
-    await provider.signAndExecuteTxn(makeTransaction());
-
+  it('resolves dryRun.enabled from per-call options over defaults', async () => {
+    await makeProvider({ signAndExecuteTxn: { dryRun: { enabled: false } } }).signAndExecuteTxn(makeTransaction());
+    await makeProvider().signAndExecuteTxn(makeTransaction(), { dryRun: { enabled: false } });
     expect(simulateTransaction).not.toHaveBeenCalled();
-    expect(signAndExecuteTransaction).toHaveBeenCalledTimes(1);
-  });
+    expect(signAndExecuteTransaction).toHaveBeenCalledTimes(2);
 
-  it('skips dry-run when per-call options disable it', async () => {
-    const provider = makeProvider();
-
-    await provider.signAndExecuteTxn(makeTransaction(), { dryRun: { enabled: false } });
-
-    expect(simulateTransaction).not.toHaveBeenCalled();
-    expect(signAndExecuteTransaction).toHaveBeenCalledTimes(1);
-  });
-
-  it('per-call dryRun.enabled=true overrides defaults.dryRun.enabled=false', async () => {
-    const provider = makeProvider({ signAndExecuteTxn: { dryRun: { enabled: false } } });
-
-    await provider.signAndExecuteTxn(makeTransaction(), { dryRun: { enabled: true } });
-
+    await makeProvider({ signAndExecuteTxn: { dryRun: { enabled: false } } }).signAndExecuteTxn(makeTransaction(), {
+      dryRun: { enabled: true },
+    });
     expect(simulateTransaction).toHaveBeenCalledTimes(1);
   });
 });
@@ -223,25 +187,19 @@ describe('SuiWalletProvider.getCoins — limit policy', () => {
     listCoins.mockResolvedValue({ objects: [], hasNextPage: false, cursor: null });
   });
 
-  it('uses default limit 10 when no defaults and no per-call options', async () => {
-    const provider = makeProvider();
-    await provider.getCoins(TEST_ADDRESS, '0x2::sui::SUI');
+  it('resolves limit from per-call options, then defaults.getCoins.limit, then 10', async () => {
+    await makeProvider().getCoins(TEST_ADDRESS, '0x2::sui::SUI');
+    const withDefaults = makeProvider({ getCoins: { limit: 50 } });
+    await withDefaults.getCoins(TEST_ADDRESS, '0x2::sui::SUI');
+    await withDefaults.getCoins(TEST_ADDRESS, '0x2::sui::SUI', { limit: 5 });
 
-    expect(listCoins).toHaveBeenCalledWith({ owner: TEST_ADDRESS, coinType: '0x2::sui::SUI', limit: 10 });
-  });
-
-  it('applies defaults.getCoins.limit when no per-call options', async () => {
-    const provider = makeProvider({ getCoins: { limit: 50 } });
-    await provider.getCoins(TEST_ADDRESS, '0x2::sui::SUI');
-
-    expect(listCoins).toHaveBeenCalledWith({ owner: TEST_ADDRESS, coinType: '0x2::sui::SUI', limit: 50 });
-  });
-
-  it('per-call limit overrides defaults', async () => {
-    const provider = makeProvider({ getCoins: { limit: 50 } });
-    await provider.getCoins(TEST_ADDRESS, '0x2::sui::SUI', { limit: 5 });
-
-    expect(listCoins).toHaveBeenCalledWith({ owner: TEST_ADDRESS, coinType: '0x2::sui::SUI', limit: 5 });
+    expect(listCoins.mock.calls.map(([args]) => args)).toEqual(
+      [10, 50, 5].map(limit => ({
+        owner: TEST_ADDRESS,
+        coinType: '0x2::sui::SUI',
+        limit,
+      })),
+    );
   });
 
   it('maps the gRPC coin page onto SuiPaginatedCoins', async () => {

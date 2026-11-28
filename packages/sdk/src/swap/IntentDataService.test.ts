@@ -27,12 +27,9 @@ describe('IntentDataService.composeIntentData', () => {
   const hcDelivery = (recipient: string = HC_RECIPIENT): Hex =>
     HookService.encodeDeliveryData({ kind: HookKind.HYPERCORE_DEPOSIT }, recipient);
 
-  it('returns "0x" when neither fee nor delivery is present', () => {
+  it('returns "0x" with neither fee nor delivery, and the bare fee envelope byte-identically for fee-only (backward compat)', () => {
     expect(IntentDataService.composeIntentData('0x', undefined)).toBe('0x');
     expect(IntentDataService.composeIntentData('0x', '0x')).toBe('0x');
-  });
-
-  it('fee-only is byte-identical to the bare fee envelope (backward compat)', () => {
     const [feeEnvelope] = EvmSolverService.createIntentFeeData({ address: FEE_RECEIVER, amount: 5_000n }, 1_000_000n);
     expect(IntentDataService.composeIntentData(feeEnvelope, undefined)).toBe(feeEnvelope);
   });
@@ -76,16 +73,10 @@ describe('IntentDataService.composeIntentData', () => {
 });
 
 describe('IntentDataService.extractFeePayload', () => {
-  it('returns undefined for empty data', () => {
-    expect(IntentDataService.extractFeePayload('0x')).toBeUndefined();
-  });
-
-  it('returns undefined (no log) for a delivery-only envelope', () => {
+  it('returns undefined without logging for empty data and for a delivery-only envelope', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const data = IntentDataService.composeIntentData(
-      '0x',
-      HookService.encodeDeliveryData({ kind: HookKind.HYPERCORE_DEPOSIT }, HC_RECIPIENT),
-    );
+    const data = IntentDataService.composeIntentData('0x', hcDeliveryFixture());
+    expect(IntentDataService.extractFeePayload('0x')).toBeUndefined();
     expect(IntentDataService.extractFeePayload(data)).toBeUndefined();
     expect(errorSpy).not.toHaveBeenCalled();
   });

@@ -2,7 +2,6 @@ import { SodaxError } from '@sodax/sdk';
 import { describe, expect, it } from 'vitest';
 import { retryUnlessAuthFailure } from './retryUnlessAuthFailure.js';
 
-/** A backend failure as the swaps API surfaces it: `EXTERNAL_API_ERROR` with the status on context. */
 const apiError = (status?: number): SodaxError =>
   new SodaxError('EXTERNAL_API_ERROR', `responded with ${status}`, {
     feature: 'backend',
@@ -18,7 +17,7 @@ describe('retryUnlessAuthFailure', () => {
   });
 
   it("retries the apiguard's transient 503 and other server failures", () => {
-    // 503 is the one guard outcome that is NOT terminal — the key may be fine, verification is down.
+    // 503 is not terminal: the key may be fine while verification is down.
     for (const status of [408, 429, 500, 502, 503, 504]) {
       expect(retryUnlessAuthFailure(0, apiError(status))).toBe(true);
     }

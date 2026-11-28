@@ -24,10 +24,8 @@ function describeTable(table: TokenList, label: string) {
   describe(`${label}: per-chain token list has no duplicates`, () => {
     for (const [chainKey, tokens] of Object.entries(table) as [SpokeChainKey, readonly XToken[]][]) {
       it(`${chainKey}: unique by (symbol, address) — restricted entries may share an address with a different symbol`, () => {
-        // Restricted entries (e.g. `WBTC.legacy` for a deprecated vault) intentionally
-        // share an on-chain address with their full-access counterpart but must carry
-        // a distinct symbol. Pair (symbol, address) — matches how UI keys list items —
-        // so legacy + active pairs pass while accidental duplicates still fail.
+        // Restricted entries (e.g. `WBTC.legacy`) share an address with their full-access counterpart under a distinct
+        // symbol; keying on (symbol, address), as UIs do, lets those pass while accidental duplicates fail.
         const dups = findDuplicates(tokens, t => `${t.symbol}:${t.address.toLowerCase()}`);
         expect(
           dups,

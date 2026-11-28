@@ -35,17 +35,15 @@ describe('ZcashWalletProvider — address', () => {
 });
 
 describe('ZcashWalletProvider.signMessage — scheme 6', () => {
-  it('matches the relay signZcashMessage signature byte for byte', async () => {
+  it('matches the relay signZcashMessage signature byte for byte and recovers to the account identity', async () => {
+    const signed = await provider().signMessage(HASH);
     // Pinned from the relay's own `signZcashMessage` for this key and hash.
-    expect(await provider().signMessage(HASH)).toBe(
+    expect(signed).toBe(
       '0x20763e7dd9a699276e9403e3640b6329213b41438f1c7b2bf1e35ef7eef440accb2f0a9cb4099649802bb5ee6cdbe923aae3d1dd8ea8a2b794407f3335f1809f3d',
     );
-  });
 
-  it('recovers to the account identity, as the contract checks it', async () => {
-    const signature = Buffer.from((await provider().signMessage(HASH)).slice(2), 'hex');
+    const signature = Buffer.from(signed.slice(2), 'hex');
     const header = signature[0] as number;
-
     // 31 + recid: 27, plus 4 marking a compressed key.
     expect([31, 32]).toContain(header);
     const recovered = ecc.recover(zcashSignedMessageDigest(HASH), signature.subarray(1), (header - 31) as 0 | 1, true);

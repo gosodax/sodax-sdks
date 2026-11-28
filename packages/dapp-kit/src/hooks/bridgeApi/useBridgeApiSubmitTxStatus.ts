@@ -15,23 +15,7 @@ export type UseBridgeApiSubmitTxStatusParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook for polling the processing status of a submitted bridge transaction via the bridge
- * API — `sodax.api.bridge.getSubmitTxStatus`. Both `txHash` and `srcChainKey` are required for the
- * query to run.
- *
- * @example
- * const { data: status } = useBridgeApiSubmitTxStatus({
- *   params: { txHash: '0x123...', srcChainKey: '0xa4b1.arbitrum' },
- * });
- *
- * @remarks
- * - Default refetch interval is 1 second; stops on 'executed' or 'failed' status, when the
- *   backend marks the submission abandoned (`abandonedAt`) while `status` stays non-terminal, or
- *   once the backend rejects the API key (401/403 is terminal — a retry cannot fix it) —
- *   mirroring the SDK's backend submit-tx poll (no solver `posting_execution` state — bridge has
- *   no post-execution).
- */
+/** Polls every 1s until 'executed'/'failed', `abandonedAt`, or API-key rejection (401/403). */
 export const useBridgeApiSubmitTxStatus = ({
   params,
   queryOptions,
@@ -44,8 +28,6 @@ export const useBridgeApiSubmitTxStatus = ({
   return useQuery({
     queryKey: ['bridgeApi', 'submitTx', 'status', txHash, srcChainKey],
     queryFn: async (): Promise<BridgeSubmitTxStatusResponseV2 | undefined> => {
-      // `srcChainKey` is required by the bridge API status query. The `enabled` gate below ensures
-      // both are present; this guard also narrows the types for the call.
       if (!txHash || !srcChainKey) return undefined;
       return unwrapResult(await sodax.api.bridge.getSubmitTxStatus({ txHash, srcChainKey }, apiConfig));
     },

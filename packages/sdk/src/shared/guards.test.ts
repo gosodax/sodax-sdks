@@ -11,13 +11,16 @@ import {
 
 describe('guards', () => {
   describe('isRawDestinationParams', () => {
-    it('accepts dstChainKey/dstAddress for a known spoke key', () => {
+    it('accepts dstChainKey/dstAddress for a known spoke key (including a TON public key)', () => {
       expect(
         isRawDestinationParams({
           dstChainKey: ChainKeys.ARBITRUM_MAINNET,
           dstAddress: '0x0000000000000000000000000000000000000001',
         }),
       ).toBe(true);
+      expect(isRawDestinationParams({ dstChainKey: ChainKeys.TON_MAINNET, dstAddress: `0x${'12'.repeat(32)}` })).toBe(
+        true,
+      );
     });
 
     it('rejects unknown chain keys and legacy property names', () => {
@@ -36,13 +39,6 @@ describe('guards', () => {
     });
   });
 
-  it('accepts a TON public key as a raw destination and excludes TON from EVM-only config', () => {
-    expect(isRawDestinationParams({ dstChainKey: ChainKeys.TON_MAINNET, dstAddress: `0x${'12'.repeat(32)}` })).toBe(
-      true,
-    );
-    expect(isEvmSpokeChainConfig(spokeChainConfig[ChainKeys.TON_MAINNET])).toBe(false);
-  });
-
   describe('isJsonRpcPayloadResponse', () => {
     it('requires numeric id and string result', () => {
       expect(isJsonRpcPayloadResponse({ id: 1, result: 'ok' })).toBe(true);
@@ -54,13 +50,11 @@ describe('guards', () => {
   describe('partner fee guards', () => {
     const receiver = '0x1111111111111111111111111111111111111111';
 
-    it('isPartnerFeeAmount validates address and bigint amount', () => {
+    it('isPartnerFeeAmount validates address and bigint amount; isPartnerFeePercentage rejects the amount variant', () => {
       expect(isPartnerFeeAmount({ address: receiver, amount: 1n })).toBe(true);
       expect(isPartnerFeeAmount({ address: 'not-an-address', amount: 1n })).toBe(false);
       expect(isPartnerFeeAmount({ address: receiver, amount: 1 })).toBe(false);
-    });
 
-    it('isPartnerFeePercentage rejects objects that already match amount variant', () => {
       expect(isPartnerFeePercentage({ address: receiver, percentage: 100 })).toBe(true);
       expect(
         isPartnerFeePercentage({
@@ -73,10 +67,11 @@ describe('guards', () => {
   });
 
   describe('isEvmSpokeChainConfig', () => {
-    it('excludes Sonic hub config from EVM-only spoke narrowing', () => {
+    it('excludes Sonic hub, MPC-relay EVM (Monad) and non-EVM (TON) config from EVM-only spoke narrowing', () => {
       expect(isEvmSpokeChainConfig(spokeChainConfig[ChainKeys.ARBITRUM_MAINNET])).toBe(true);
       expect(isEvmSpokeChainConfig(spokeChainConfig[ChainKeys.SONIC_MAINNET])).toBe(false);
       expect(isEvmSpokeChainConfig(spokeChainConfig[ChainKeys.MONAD_MAINNET])).toBe(false);
+      expect(isEvmSpokeChainConfig(spokeChainConfig[ChainKeys.TON_MAINNET])).toBe(false);
     });
   });
 });

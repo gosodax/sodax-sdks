@@ -19,21 +19,7 @@ export type UseLeverageYieldApiDepositQuoteParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to quote a swap-style leverage-yield deposit (any token → lsoda* shares) via the
- * leverage-yield API — `sodax.api.leverageYield.getDepositQuote`. Pass `query.includeTxData = true`
- * to also build the unsigned create-intent transaction (`srcAddress` then required in the body).
- *
- * @example
- * const { data: quote } = useLeverageYieldApiDepositQuote({
- *   params: {
- *     body: {
- *       vault: '0x...', tokenSrc: '0x...', tokenSrcChainKey: '0xa4b1.arbitrum',
- *       amount: '1000000', quoteType: 'exact_input',
- *     },
- *   },
- * });
- */
+/** `query.includeTxData = true` also builds the unsigned create-intent tx and requires `srcAddress` in the body. */
 export const useLeverageYieldApiDepositQuote = ({
   params,
   queryOptions,

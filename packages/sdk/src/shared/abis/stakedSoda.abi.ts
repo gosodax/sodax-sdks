@@ -1,4 +1,3 @@
-// packages/sdk/src/abis/stakedSoda.abi.ts
 export const stakedSodaAbi = [
   {
     inputs: [
@@ -146,7 +145,6 @@ export const stakedSodaAbi = [
     stateMutability: 'nonpayable',
     type: 'function',
   },
-  // ERC4626 functions
   {
     inputs: [],
     name: 'asset',
@@ -469,7 +467,6 @@ export const stakedSodaAbi = [
     stateMutability: 'nonpayable',
     type: 'function',
   },
-  // Configuration functions
   {
     inputs: [],
     name: 'unstakingPeriod',

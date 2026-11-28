@@ -27,8 +27,6 @@ import {
   type SpokeChainKey,
 } from '../chains/chains.js';
 
-// -- Per-chain shared config types (user-overridable runtime config) --
-
 export type EvmSharedChainConfig = TxPollingConfig & {
   rpcUrl: string;
 };
@@ -60,12 +58,9 @@ export type BitcoinSharedChainConfig = TxPollingConfig & {
 export type BridgeConfig = Prettify<BridgeDefaultConfig & BridgeOptions>;
 
 export type BridgeOptions = {
-  partnerFee?: PartnerFee; // enables override of global partner fee
-  /**
-   * Route `bridge()` through the backend submit-tx flow. Default `true`.
-   * Set `false` for the fully client-side relay. Client-side only — not part of backend SodaxDefaultConfig.
-   * Omitted here means the default, not off: read the effective value via `sodax.config.bridgeUseBackendSubmitTx`.
-   */
+  partnerFee?: PartnerFee; // overrides the global partner fee
+  /** Route `bridge()` via backend submit-tx (default `true`; `false` = client-side relay). Client-side only.
+   * Omitted means the default, not off: read the effective value via `sodax.config.bridgeUseBackendSubmitTx`. */
   useBackendSubmitTx?: boolean;
 };
 
@@ -73,20 +68,11 @@ export type BridgeDefaultConfig = {}; // kept for future extension
 
 export const bridgeConfig = {} satisfies BridgeDefaultConfig;
 
-/**
- * RadFi/Bound request signer — a client-side RUNTIME hook (like {@link SodaxOptionalConfig.logger}),
- * deliberately kept OUT of the serializable {@link RadfiConfig} data contract so it is never fetched
- * from or overwritten by the backend config, and so no credential ever lives on the SDK config object.
- *
- * The SDK invokes it once per outbound RadFi request on any routed host — `baseUrl` says which — and
- * merges the returned headers
- * request. The consumer (e.g. a backend) owns the credential and computes the signature; the SDK holds
- * only the function reference. Used to add Bound's `x-api-signature` HMAC header for server-to-server
- * callers (see swaps-api gh-831), keeping the per-user `accessToken` and the backend credential separate.
- */
+/** Input to {@link RadfiSigner}, a client-side hook kept out of {@link RadfiConfig} so no credential lives on SDK config;
+ * called per outbound RadFi request, its headers merged in (e.g. Bound's `x-api-signature` HMAC, swaps-api gh-831). */
 export type RadfiSignContext = {
-  method: string; // HTTP method of the outbound RadFi request
-  path: string; // request endpoint, e.g. `/sodax/transaction`
+  method: string;
+  path: string; // e.g. `/sodax/transaction`
   /** Resolved base URL this request goes to. Bound serves several hosts — scope credentials on it. */
   baseUrl: string;
 };
@@ -95,35 +81,26 @@ export type RadfiOptions = {
   signRequest?: RadfiSigner; // extra headers (e.g. `x-api-signature`) merged onto each routed RadFi request
 };
 
-/**
- * @deprecated Use `swaps: { partnerFee, useBackendSubmitTx }` ({@link SwapsOptions}) instead; removed in v3. Kept for backward
- * compatibility: still honoured, but only when `swaps.useBackendSubmitTx` is omitted; the default is now `true`.
- */
+/** @deprecated Use `swaps: { partnerFee, useBackendSubmitTx }` ({@link SwapsOptions}); removed in v3.
+ * Still honoured only when `swaps.useBackendSubmitTx` is omitted; the default is now `true`. */
 export type SwapsClientOptions = {
   useBackendSubmitTx?: boolean;
 };
 
-/**
- * @deprecated Use `bridge: { partnerFee, useBackendSubmitTx }` ({@link BridgeOptions}) instead; removed in v3. Kept for backward
- * compatibility: still honoured, but only when `bridge.useBackendSubmitTx` is omitted; the default is now `true`.
- */
+/** @deprecated Use `bridge: { partnerFee, useBackendSubmitTx }` ({@link BridgeOptions}); removed in v3.
+ * Still honoured only when `bridge.useBackendSubmitTx` is omitted; the default is now `true`. */
 export type BridgeClientOptions = {
   useBackendSubmitTx?: boolean;
 };
 
 export type SodaxOptionalConfig = {
   logger?: SodaxLoggerOption;
-  analytics?: AnalyticsOption; // Opt-in user-action analytics: an AnalyticsConfig or false (default, disabled). Resolved client-side; never fetched from or overwritten by the backend config.
+  analytics?: AnalyticsOption; // off by default; client-side only, never from backend config
   fee?: PartnerFee;
-  /**
-   * Global backend API key, sent as the `x-api-key` header. A client-side runtime option like
-   * {@link fee}: held on `ConfigService` and never part of the backend data contract. Sent to
-   * configured SODAX backend transports. Per-request overrides via `sodax.api.*` and the
-   * `swap()`/`bridge()` submit-tx legs; legacy solver requests use the configured key only.
-   * Browser-bundled keys are public.
-   */
+  /** Sent as `x-api-key`; client-side only. Overridable per request via `sodax.api.*` and swap()/bridge() submit-tx legs;
+   * legacy solver requests use this key only. Browser-bundled keys are public. */
   apiKey?: string;
-  radfi?: RadfiOptions; // Client-side RadFi/Bound runtime hook (request signer). Like `logger`/`analytics`: never part of the backend data contract.
+  radfi?: RadfiOptions; // client-side only, never part of the backend data contract
   swaps?: SwapsOptions;
   moneyMarket?: MoneyMarketOptions;
   bridge?: BridgeOptions;
@@ -134,35 +111,24 @@ export type SodaxOptionalConfig = {
   bridgeOptions?: BridgeClientOptions;
 };
 
-/**
- * Options (always optional) accepted by `new Sodax(...)`. A deep-partial override of the {@link SodaxDefaultConfig} data
- * contract, plus client-side runtime options and feature-specific option types that are deliberately
- * kept OUT of `SodaxStaticConfig` itself.
- */
+/** `new Sodax(...)` options: a deep-partial override of {@link SodaxDefaultConfig} plus client-side runtime options. */
 export type SodaxOptions = DeepPartial<SodaxDefaultConfig> & SodaxOptionalConfig;
-/**
- * Consolidated config type that combines the default static config and the client provided options in Core SDK.
- * Used in new Sodax constructor where clients can override static config and provide options for the services.
- */
 export type SodaxConfig = Prettify<SodaxDefaultConfig & SodaxOptionalConfig>;
 
-/**
- * Default static config data shape used as default config in Core SDK and also used in backend API config responses.
- */
+/** Also the shape of backend API config responses. */
 export type SodaxDefaultConfig = {
   chains: Record<SpokeChainKey, SpokeChainConfig>;
-  swaps: SwapsDefaultConfig; // swaps config for supported swap tokens per chain
-  moneyMarket: MoneyMarketDefaultConfig; // Optional Money Market service enabling cross-chain lending and borrowing
-  bridge: BridgeDefaultConfig; // Optional Bridge config for partner fee
-  dex: DexDefaultConfig; // Optional Dex service enabling DEX operations
-  leverageYield: LeverageYieldDefaultConfig; // Registry of deployed leverage-yield ERC-4626 vaults on Sonic
-  hub: HubConfig; // Hub provider for the hub chain (e.g. Sonic mainnet)
-  api: ApiConfig; // API config used to interact with the Backend API
+  swaps: SwapsDefaultConfig;
+  moneyMarket: MoneyMarketDefaultConfig;
+  bridge: BridgeDefaultConfig;
+  dex: DexDefaultConfig;
+  leverageYield: LeverageYieldDefaultConfig; // deployed ERC-4626 vaults on Sonic
+  hub: HubConfig;
+  api: ApiConfig;
   solver: SolverConfig;
-  relay: RelayConfig; // Relayer config to relay intents/user actions to the hub and vice versa
+  relay: RelayConfig;
 };
 
-// default sodax config object which can always be overriden through Sodax instance (i.e. new Sodax(...config))
 export const sodaxConfig = {
   chains: spokeChainConfig,
   swaps: swapsConfig,

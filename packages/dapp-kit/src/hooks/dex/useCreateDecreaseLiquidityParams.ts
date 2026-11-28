@@ -10,11 +10,7 @@ export type UseCreateDecreaseLiquidityParamsProps = {
   slippageTolerance: string | number;
 };
 
-/**
- * React hook to memoize the decrease-liquidity-specific subset of {@link ClDecreaseLiquidityParams}
- * (`{ poolKey, tokenId, liquidity, amount0Min, amount1Min }`). Callers add `srcChainKey` +
- * `srcAddress` at the mutation call site.
- */
+/** Memoizes the decrease-liquidity fields; callers add `srcChainKey` + `srcAddress` at mutation time. */
 export function useCreateDecreaseLiquidityParams({
   poolKey,
   tokenId,

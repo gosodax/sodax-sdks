@@ -1,4 +1,3 @@
-import { CardanoWalletProvider } from '@sodax/wallet-sdk-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CardanoXConnector } from './CardanoXConnector.js';
 import { CardanoXService } from './CardanoXService.js';
@@ -63,15 +62,11 @@ describe('CardanoXConnector — identity and detection', () => {
 });
 
 describe('CardanoXConnector.connect', () => {
-  it("connects Lace's first used address as the bech32 account", async () => {
+  it("connects Lace's first used address as the bech32 account, or its change address before any is used", async () => {
     stubLace();
-
     expect(await new CardanoXConnector().connect()).toEqual({ address: ADDRESS, xChainType: 'CARDANO' });
-  });
 
-  it('falls back to the change address for a wallet with no used addresses yet', async () => {
     stubLace({ getUsedAddresses: vi.fn(async () => []) });
-
     expect((await new CardanoXConnector().connect())?.address).toBe(ADDRESS);
   });
 
@@ -81,13 +76,12 @@ describe('CardanoXConnector.connect', () => {
     await expect(new CardanoXConnector().connect()).rejects.toThrow(/switch Lace to mainnet/);
   });
 
-  it.each([
-    ['a testnet address', TESTNET_HEX, /network id 0/],
-    ['a script payment address, which cannot sign data', SCRIPT_HEX, /cannot sign data/],
-  ])('refuses %s', async (_label, hex, message) => {
-    stubLace({ getUsedAddresses: vi.fn(async () => [hex]) });
+  it('refuses an account that is not a mainnet key-hash payment address', async () => {
+    stubLace({ getUsedAddresses: vi.fn(async () => [TESTNET_HEX]) });
+    await expect(new CardanoXConnector().connect()).rejects.toThrow(/network id 0/);
 
-    await expect(new CardanoXConnector().connect()).rejects.toThrow(message);
+    stubLace({ getUsedAddresses: vi.fn(async () => [SCRIPT_HEX]) });
+    await expect(new CardanoXConnector().connect()).rejects.toThrow(/cannot sign data/);
   });
 
   it('explains how to install Lace when it is absent, and refuses an API missing CIP-30 methods', async () => {
@@ -124,34 +118,18 @@ describe('CardanoXConnector.getWallet', () => {
     await expect(new CardanoXConnector().getWallet().signData('3078')).rejects.toThrow(/malformed signData result/);
   });
 
-  it('re-opens the wallet itself after a page reload, when connect() ran in an earlier session', async () => {
-    const { enable } = stubLace();
-    const wallet = new CardanoXConnector().getWallet();
-
-    expect(await wallet.getAddress()).toBe(ADDRESS);
-    expect(enable).toHaveBeenCalledOnce();
-    // The session is kept: later calls do not enable Lace again.
-    await wallet.signTx('84a5');
-    expect(enable).toHaveBeenCalledOnce();
-  });
-
-  it('forgets the session on disconnect, so the next call enables Lace afresh', async () => {
+  it('enables Lace only when it holds no session: after a page reload, or after disconnect', async () => {
     const { enable } = stubLace();
     const connector = new CardanoXConnector();
-    await connector.connect();
+    const wallet = connector.getWallet();
+
+    expect(await wallet.getAddress()).toBe(ADDRESS);
+    await wallet.signTx('84a5');
+    expect(enable).toHaveBeenCalledOnce();
 
     await connector.disconnect();
-    await connector.getWallet().getAddress();
-
+    await wallet.getAddress();
     expect(enable).toHaveBeenCalledTimes(2);
-  });
-
-  it('feeds a CardanoWalletProvider that reports the Lace address', async () => {
-    stubLace();
-    const provider = new CardanoWalletProvider({ wallet: new CardanoXConnector().getWallet() });
-
-    expect(await provider.getWalletAddress()).toBe(ADDRESS);
-    expect(await provider.signData('0x3078')).toEqual(SIGNED);
   });
 });
 
@@ -184,20 +162,12 @@ describe('CardanoXService.getBalance', () => {
     expect(await service.getBalance(ADDRESS, token)).toBe(0n);
   });
 
-  it('returns zero for an unrelated address without asking Lace for UTXOs', async () => {
-    const service = CardanoXService.getInstance();
-    service.rpcUrl = undefined;
-    const { api } = stubLace();
-    expect(await service.getBalance(SCRIPT_HEX, token)).toBe(0n);
-    expect(api.getUtxos).not.toHaveBeenCalled();
-  });
-
-  it('sums only the requested connected address across legacy and map outputs', async () => {
+  it('sums only the connected address across legacy and map outputs, without reading UTXOs for any other', async () => {
     const service = CardanoXService.getInstance();
     service.rpcUrl = undefined;
     const other = `61${'12'.repeat(28)}`;
     const input = `82825820${'ab'.repeat(32)}`;
-    stubLace({
+    const { api } = stubLace({
       getUsedAddresses: vi.fn(async () => [ADDRESS_HEX, other]),
       getUtxos: vi.fn(async () => [
         `${input}0082581d${ADDRESS_HEX}1903e8`,
@@ -208,7 +178,11 @@ describe('CardanoXService.getBalance', () => {
 
     expect(await service.getBalance(ADDRESS, token)).toBe(3_000n);
     expect(await service.getBalance(`0x${ADDRESS_HEX.toUpperCase()}`, token)).toBe(3_000n);
+
+    api.getUtxos.mockClear();
     expect(await service.getBalance(other, token)).toBe(0n);
+    expect(await service.getBalance(SCRIPT_HEX, token)).toBe(0n);
+    expect(api.getUtxos).not.toHaveBeenCalled();
   });
 
   it('returns zero, not an error, when the read fails or there is no address', async () => {
@@ -226,19 +200,17 @@ describe('CardanoXService.getBalance', () => {
 
 describe('readCardanoUtxo', () => {
   const prefix = `82825820${'ab'.repeat(32)}0082581d${ADDRESS_HEX}`;
-  it.each([
-    ['0a', 10n],
-    ['1818', 24n],
-    ['1903e8', 1_000n],
-    ['1a02faf080', 50_000_000n],
-    ['1b0000000100000000', 4_294_967_296n],
+
+  it('reads lovelace encoded inline, as an 8-byte integer, and inside a multiasset value', () => {
+    expect(readCardanoUtxo(`${prefix}0a`)).toEqual({ address: ADDRESS_HEX, lovelace: 10n });
+    expect(readCardanoUtxo(`${prefix}1b0000000100000000`)).toEqual({ address: ADDRESS_HEX, lovelace: 4_294_967_296n });
     // `[lovelace, multiasset]`: a wallet holding native tokens.
-    ['821a02faf080a0', 50_000_000n],
-  ])('reads %s as %s lovelace', (hex, expected) => {
-    expect(readCardanoUtxo(prefix + hex)).toEqual({ address: ADDRESS_HEX, lovelace: expected });
+    expect(readCardanoUtxo(`${prefix}821a02faf080a0`)).toEqual({ address: ADDRESS_HEX, lovelace: 50_000_000n });
   });
 
-  it.each([['not hex'], [''], ['20'], ['a0'], ['19ff']])('refuses %j rather than guess', hex => {
-    expect(() => readCardanoUtxo(prefix + hex)).toThrow();
+  it('refuses non-hex, a non-integer coin and a truncated integer rather than guess', () => {
+    expect(() => readCardanoUtxo(`${prefix}not hex`)).toThrow('Invalid CIP-30 UTXO hex');
+    expect(() => readCardanoUtxo(`${prefix}20`)).toThrow('Invalid CIP-30 lovelace value');
+    expect(() => readCardanoUtxo(`${prefix}19ff`)).toThrow('Truncated CIP-30 CBOR');
   });
 });

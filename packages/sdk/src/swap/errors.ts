@@ -1,5 +1,3 @@
-/** Swap-module narrow error types. */
-
 import { CREATE_INTENT_CODES, type CreateIntentErrorCode, type SodaxErrorCode } from '../errors/codes.js';
 import { isCodeMember } from '../errors/guards.js';
 import { createInvariant, type FeatureInvariant } from '../errors/invariant.js';
@@ -11,16 +9,9 @@ export type SwapAction = 'swap' | 'swapWithApproval' | 'createLimitOrder';
 
 export type SwapCreateIntentErrorCode = CreateIntentErrorCode;
 
-/**
- * Codes returnable by `postExecution`.
- *
- * **By design, `postExecution` alone never emits relay/verify codes** — those appear only on
- * `swap` because only `swap` orchestrates verify + relay. Do not write a unified switch
- * that handles both `postExecution` and `swap` errors expecting the same union.
- */
+/** Never includes relay/verify codes: only `swap` orchestrates those, so don't share one switch with `swap`. */
 export type PostExecutionErrorCode = Extract<SodaxErrorCode, 'EXECUTION_FAILED' | 'EXTERNAL_API_ERROR' | 'UNKNOWN'>;
 
-/** The only code `getDetailedStatus` returns: no status source could produce a usable answer. */
 export type DetailedStatusErrorCode = Extract<SodaxErrorCode, 'LOOKUP_FAILED'>;
 
 export type SwapErrorCode = Extract<
@@ -37,7 +28,6 @@ export type SwapErrorCode = Extract<
   | 'UNKNOWN'
 >;
 
-/** Codes returnable by `swapWithApproval`: every `swap` code plus the approval leg's. */
 export type SwapWithApprovalErrorCode =
   | SwapErrorCode
   | Extract<SodaxErrorCode, 'APPROVE_FAILED' | 'ALLOWANCE_CHECK_FAILED'>;

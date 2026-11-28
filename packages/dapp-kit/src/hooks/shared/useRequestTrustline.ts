@@ -1,10 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { useEstablishTrustline, type UseEstablishTrustlineVars } from './useEstablishTrustline.js';
 
-/**
- * The shape released in 2.0.0. Declared explicitly so a change to it fails
- * `checkTs` here rather than silently breaking consumers.
- */
+// The 2.0.0 shape, declared explicitly so a change fails `checkTs` here instead of breaking consumers.
 type ReleasedRequestTrustline = {
   requestTrustline: (params: UseEstablishTrustlineVars) => Promise<string>;
   isLoading: boolean;
@@ -14,20 +11,13 @@ type ReleasedRequestTrustline = {
 };
 
 /**
- * Establish a Stellar trustline.
- *
- * @deprecated Use {@link useEstablishTrustline}, the canonical mutation hook, which exposes
- * `mutate` / `mutateAsync` / `mutateAsyncSafe` and accepts `mutationOptions`. This wrapper
- * preserves the shape released in 2.0.0 and will be removed in the next major.
- *
- * @param token - Ignored, as it was in 2.0.0. Accepted only so existing call sites compile.
+ * @deprecated Use {@link useEstablishTrustline}; removed in the next major. `token` is ignored, as in 2.0.0.
  */
 export function useRequestTrustline(token?: string | undefined): ReleasedRequestTrustline {
   const { mutateAsync, isPending, isSuccess, error, data } = useEstablishTrustline();
 
-  // 2.0.0 held `isRequested` and `data` in component state and never cleared them, whereas
-  // React Query resets its equivalents when the next attempt starts. Latch to keep the
-  // released semantics: a retry that fails must not un-report the trustline that succeeded.
+  // Latch like 2.0.0 did: React Query resets these on the next attempt, but a failed retry
+  // must not un-report a trustline that succeeded.
   const requested = useRef(false);
   const lastData = useRef<string | null>(null);
   if (isSuccess) requested.current = true;

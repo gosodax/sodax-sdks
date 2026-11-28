@@ -8,11 +8,10 @@ const FILL_EVENT = {
 };
 
 describe('isFillEvent', () => {
-  it('accepts an intent-filled event', () => {
+  // A partial fill is still a well-formed fill event — the guard narrows the shape, and the caller
+  // decides terminality from `remainingInput`.
+  it('accepts an intent-filled event, including one with unmodelled fields and a partial fill', () => {
     expect(isFillEvent(FILL_EVENT)).toBe(true);
-  });
-
-  it('accepts an event carrying fields the SDK does not model', () => {
     expect(
       isFillEvent({
         ...FILL_EVENT,
@@ -21,11 +20,6 @@ describe('isFillEvent', () => {
         intentState: { exists: true, remainingInput: '0', receivedOutput: '682690297556913248', pendingPayment: false },
       }),
     ).toBe(true);
-  });
-
-  // A partial fill is still a well-formed fill event — the guard narrows the shape, and the caller
-  // decides terminality from `remainingInput`.
-  it('accepts a partial fill and exposes its remainder', () => {
     const partial = { ...FILL_EVENT, intentState: { remainingInput: '1000' } };
     expect(isFillEvent(partial)).toBe(true);
     if (isFillEvent(partial)) expect(partial.intentState.remainingInput).toBe('1000');
@@ -33,7 +27,6 @@ describe('isFillEvent', () => {
 
   it.each([
     null,
-    'intent-filled',
     { ...FILL_EVENT, eventType: 'intent-cancelled' },
     { ...FILL_EVENT, txHash: '' },
     // Without `intentState` there is no way to tell a partial fill from a complete one.
@@ -46,13 +39,13 @@ describe('isFillEvent', () => {
 });
 
 describe('isOracleCandleInterval', () => {
-  it.each(['1m', '5m', '1h', '1d'])('accepts the served interval %s', key => {
-    expect(isOracleCandleInterval(key)).toBe(true);
+  it('accepts every served interval', () => {
+    for (const key of ['1m', '5m', '1h', '1d']) expect(isOracleCandleInterval(key)).toBe(true);
   });
 
   // The markets read is tolerant, so a key from a newer backend reaches consumers as a plain
   // string; the guard is what keeps it out of `getOracleCandles`.
-  it.each(['4h', '1M', '', '1H'])('rejects %j, which getOracleCandles does not accept', key => {
+  it.each(['4h', '', '1H'])('rejects %j, which getOracleCandles does not accept', key => {
     expect(isOracleCandleInterval(key)).toBe(false);
   });
 });

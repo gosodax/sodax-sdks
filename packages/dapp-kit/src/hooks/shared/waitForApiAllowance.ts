@@ -19,12 +19,8 @@ async function settleWithin<T>(promise: Promise<T>, ms: number): Promise<T | und
 }
 
 /**
- * Re-checks an API allowance until it reports `valid`, for at most 15 seconds in total. The API reads the chain
- * through its own RPC, which can trail the node that confirmed the approve by a few blocks; resolving on that
- * stale `valid: false` leaves Approve enabled after a successful approval. A failed check is retried like a
- * stale one, except an auth failure, which no retry fixes. Each check gets `apiConfig` with its request timeout
- * capped to the time left and is abandoned when that runs out, so a hanging API cannot stretch the wait. Never
- * throws: the approval has already landed, and the caller's allowance refetch shows whatever the API reports last.
+ * Polls until the API reports `valid` (its RPC can trail the confirming node); stops on auth failure or
+ * when the budget runs out. Never throws, since the approval has already landed.
  */
 export async function waitForApiAllowance(
   check: (config: RequestOverrideConfig) => Promise<Result<{ valid: boolean }>>,

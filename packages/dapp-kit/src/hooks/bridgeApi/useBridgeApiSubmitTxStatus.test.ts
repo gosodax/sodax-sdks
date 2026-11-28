@@ -2,15 +2,7 @@ import { SodaxError } from '@sodax/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { retryUnlessAuthFailure } from '../shared/retryUnlessAuthFailure.js';
 
-/**
- * Pins the WIRING of the auth stop, which `getBridgeSubmitTxStatusRefetchInterval.test.ts` cannot
- * see: the policy is only reached if the hook hands it `query.state.error`. Passing the wrong
- * argument (or none) reproduces the original defect — a rejected key re-requested every second —
- * with the policy's own unit tests still green.
- *
- * No renderer, per the package convention (see `_apiKeyWire.test.ts`): the React Query wrapper is
- * mocked so the captured options bag can be driven directly.
- */
+// Pins that the hook hands `query.state.error` to the refetch policy, which the policy's own unit tests cannot see.
 
 // The captured options bag is opaque, like the real wrapper's.
 let captured: any;

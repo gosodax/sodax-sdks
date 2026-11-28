@@ -11,18 +11,8 @@ export type PartnerServiceConstructorParams = {
   spoke: SpokeService;
 };
 
-/**
- * Facade for all partner-related operations in the SODAX SDK.
- *
- * Third-party integrators (partners) use this service to manage fees earned from
- * swap and bridge operations they facilitated. It exposes a `feeClaim` sub-service
- * for on-chain fee claiming and swap-preference configuration, and a `config`
- * reference for chain/token lookups.
- *
- * Instantiated automatically by the `Sodax` class and accessible as `sodax.partners`.
- */
+/** Partner fee operations; exposed as `sodax.partners`. */
 export class PartnerService {
-  /** Sub-service for fee balance queries, token approvals, swap-preference management, and on-chain fee claiming. */
   public readonly feeClaim: PartnerFeeClaimService;
   public readonly config: ConfigService;
 

@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/staking/useClaim.ts
 import type { ClaimAction, SpokeChainKey, TxHashPair } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
@@ -9,12 +8,7 @@ import { unwrapResult } from '../shared/unwrapResult.js';
 
 export type UseClaimVars<K extends SpokeChainKey = SpokeChainKey> = Omit<ClaimAction<K, false>, 'raw'>;
 
-/**
- * React hook for claiming an unstaked SODA request that has reached the end of its waiting period.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
- */
+/** Throws on SDK failure (React Query error state); resolves to the unwrapped `TxHashPair`. */
 export function useClaim<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<TxHashPair, UseClaimVars<K>> = {}): SafeUseMutationResult<TxHashPair, Error, UseClaimVars<K>> {

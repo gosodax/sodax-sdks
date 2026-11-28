@@ -7,7 +7,6 @@ import { unwrapResult } from '../shared/unwrapResult.js';
 export type UseLeverageYieldApprovalStrategyParams<K extends SpokeChainKey = SpokeChainKey> = ReadHookParams<
   ApprovalStrategy,
   {
-    /** The payload `useLeverageYieldDeposit` / `useLeverageYieldWithdraw` built. */
     payload: LeverageYieldSwapPayload | undefined;
     walletProvider: GetWalletProviderType<K> | undefined;
     /** `false` keeps a wallet that would first ask to upgrade the account (EIP-5792 `'ready'`) off the batch path. Defaults to `true`. */
@@ -16,11 +15,7 @@ export type UseLeverageYieldApprovalStrategyParams<K extends SpokeChainKey = Spo
 >;
 
 /**
- * Which approval path {@link useLeverageYieldVaultSwapWithApproval} would take: `'not-required'`
- * (always for a withdraw), `'atomic-batch'` (approve + deposit in one EIP-5792 signature) or
- * `'sequential'` (approve, then deposit). Use it to label the deposit button. Pass the same
- * `allowAccountUpgrade` you give the vault swap.
- *
+ * Which approval path {@link useLeverageYieldVaultSwapWithApproval} would take; pass it the same `allowAccountUpgrade`.
  * Not polled: the vault swap invalidates it on success and re-reads the strategy at execution.
  */
 export function useLeverageYieldApprovalStrategy<K extends SpokeChainKey = SpokeChainKey>({

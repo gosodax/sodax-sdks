@@ -49,7 +49,7 @@ export type SuiObjectRef = {
 };
 
 export type Authenticator =
-  /** The contained SuiAddress exclusively has all permissions: read, write, delete, transfer */
+  /** The contained SuiAddress exclusively has all permissions: read, write, delete, transfer. */
   {
     SingleOwner: string;
   };
@@ -104,11 +104,7 @@ export type SuiTransactionEffects = {
   transactionDigest: string;
   gasObject: SuiOwnedObjectRef;
   dependencies?: string[];
-  /**
-   * Object-change buckets. All absent over gRPC: the effects message carries one flat
-   * `changedObjects` list keyed by `inputState` / `outputState` / `idOperation`, and the
-   * transport does not re-derive the buckets from it.
-   */
+  /** Absent over gRPC, like the buckets below: gRPC effects carry one flat `changedObjects` list the transport does not re-bucket. */
   created?: SuiOwnedObjectRef[];
   /** Absent over gRPC — see `created`. */
   mutated?: SuiOwnedObjectRef[];
@@ -135,45 +131,27 @@ export type SuiEventId = {
 /** `parsedJson` is intentionally untyped in the Sui SDK — it carries arbitrary Move struct data. */
 export type SuiEvent =
   | {
-      /**
-       * Sequential event ID, ie (transaction seq number, event seq number). 1) Serves as a unique event ID
-       * for each fullnode 2) Also serves to sequence events for the purposes of pagination and querying. A
-       * higher id is an event seen later by that fullnode. This ID is the "cursor" for event querying.
-       */
+      /** (tx seq, event seq): unique per fullnode and the event-query cursor; higher means seen later by that fullnode. */
       id: SuiEventId;
-      /** Move package where this event was emitted. */
       packageId: string;
-      /** Parsed json value of the event */
       parsedJson: unknown;
-      /** Sender's Sui address. */
       sender: string;
-      /** UTC timestamp in milliseconds since epoch (1/1/1970) */
+      /** Milliseconds since the Unix epoch. */
       timestampMs?: string | null;
-      /** Move module where this event was emitted. */
       transactionModule: string;
-      /** Move event type. */
       type: string;
       bcs: string;
       bcsEncoding: 'base64';
     }
   | {
-      /**
-       * Sequential event ID, ie (transaction seq number, event seq number). 1) Serves as a unique event ID
-       * for each fullnode 2) Also serves to sequence events for the purposes of pagination and querying. A
-       * higher id is an event seen later by that fullnode. This ID is the "cursor" for event querying.
-       */
+      /** (tx seq, event seq): unique per fullnode and the event-query cursor; higher means seen later by that fullnode. */
       id: SuiEventId;
-      /** Move package where this event was emitted. */
       packageId: string;
-      /** Parsed json value of the event */
       parsedJson: unknown;
-      /** Sender's Sui address. */
       sender: string;
-      /** UTC timestamp in milliseconds since epoch (1/1/1970) */
+      /** Milliseconds since the Unix epoch. */
       timestampMs?: string | null;
-      /** Move module where this event was emitted. */
       transactionModule: string;
-      /** Move event type. */
       type: string;
       bcs: string;
       bcsEncoding: 'base58';

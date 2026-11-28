@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/bitcoin/useRadfiWithdraw.ts
 import { normalizePsbtToBase64, ChainKeys, type IBitcoinWalletProvider } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { loadRadfiSession } from './useRadfiAuth.js';
@@ -19,11 +18,6 @@ type WithdrawResult = {
   fee: number;
 };
 
-/**
- * React hook for withdrawing BTC from the user's Bound Exchange trading wallet back to their personal
- * Bitcoin wallet. Pure mutation: pass all inputs (including the wallet provider) to
- * `mutate({...})`.
- */
 export function useRadfiWithdraw({
   mutationOptions,
 }: MutationHookParams<WithdrawResult, UseRadfiWithdrawVars> = {}): SafeUseMutationResult<

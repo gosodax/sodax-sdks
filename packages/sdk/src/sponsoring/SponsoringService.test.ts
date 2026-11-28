@@ -121,9 +121,19 @@ beforeEach(() => {
   mockFetch.mockReset();
 });
 
+const conflict = (sponsorSequence?: string) =>
+  jsonErr(409, {
+    statusCode: 409,
+    error: 'SPONSOR_SEQUENCE_CONFLICT',
+    message: 'sponsor account sequence conflict (tx_bad_seq)',
+    ...(sponsorSequence === undefined ? {} : { sponsorSequence }),
+  });
+
+const submittedData = () => accountRequests().map(([, init]) => JSON.parse((init as { body: string }).body).data);
+
 describe('activateStellarAccount', () => {
-  it('activates an account: one config read, one prompt, one submit', async () => {
-    const { sodax, loadAccount } = makeSodax();
+  it('activates with one config read, one prompt naming the signer, and one `{ data }` submit carrying an in-band fee', async () => {
+    const { sodax, loadAccount, successData } = makeSodax();
     stubHorizon(loadAccount);
     mockFetch
       .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
@@ -136,54 +146,25 @@ describe('activateStellarAccount', () => {
     });
 
     expect(result).toEqual({ ok: true, value: { status: 'submitted', hash: 'abc123', attempts: 1 } });
-    expect(wallet.signTransaction).toHaveBeenCalledTimes(1);
+    expect(configRequests()).toHaveLength(1);
     expect(accountRequests()).toHaveLength(1);
-  });
-
-  it('names the account that must sign, so the wallet cannot use whatever is active', async () => {
-    // The sponsor sources the transaction, but the created account must sign it.
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount);
-    mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
-    const wallet = makeWallet();
-
-    await sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: wallet });
-
+    // The sponsor sources the transaction, but the created account must sign it — not whatever is active.
+    expect(wallet.signTransaction).toHaveBeenCalledTimes(1);
     expect(wallet.signTransaction).toHaveBeenCalledWith(expect.any(String), { address: USER.publicKey() });
-  });
 
-  it('sends the api key and EXACTLY `{ data }` — the endpoint rejects any extra field', async () => {
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount);
-    mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
-
-    await sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
-
+    // The endpoint rejects any extra field.
     const [url, init] = accountRequests()[0] as [string, { headers: Record<string, string>; body: string }];
     expect(url).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/accounts`);
     expect(init.headers['x-api-key']).toBe('test-key');
     expect(Object.keys(JSON.parse(init.body))).toEqual(['data']);
-  });
 
-  it('submits a fee inside the published band, end to end', async () => {
     // TransactionBuilder takes a per-operation fee while the server validates the total.
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount);
-    mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
-
-    await sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
-
-    const [, init] = accountRequests()[0] as [string, { body: string }];
     const submitted = TransactionBuilder.fromXDR(JSON.parse(init.body).data, Networks.PUBLIC);
     expect(BigInt(submitted.fee)).toBeGreaterThanOrEqual(3000n);
     expect(BigInt(submitted.fee)).toBeLessThanOrEqual(10000n);
     expect(submitted.fee).not.toBe('300');
+
+    expect(successData()).toEqual({ status: 'submitted', attempts: 1, hash: 'abc123' });
   });
 
   it('treats an already-active account as success and NEVER prompts the wallet', async () => {
@@ -219,13 +200,6 @@ describe('activateStellarAccount', () => {
 });
 
 describe('sequence conflict handling', () => {
-  const conflict = () =>
-    jsonErr(409, {
-      statusCode: 409,
-      error: 'SPONSOR_SEQUENCE_CONFLICT',
-      message: 'sponsor account sequence conflict (tx_bad_seq)',
-    });
-
   it('rebuilds from a FRESH sequence, re-signs once, and reports the extra attempt', async () => {
     const { sodax, loadAccount } = makeSodax();
     let sponsorReads = 0;
@@ -252,7 +226,7 @@ describe('sequence conflict handling', () => {
     expect(onSignatureRequired).toHaveBeenNthCalledWith(1, { attempt: 1, reason: 'initial' });
     expect(onSignatureRequired).toHaveBeenNthCalledWith(2, { attempt: 2, reason: 'sequenceConflict' });
 
-    const [first, second] = accountRequests().map(([, init]) => JSON.parse((init as { body: string }).body).data);
+    const [first, second] = submittedData();
     expect(first).not.toBe(second);
   });
 
@@ -261,14 +235,7 @@ describe('sequence conflict handling', () => {
     stubHorizon(loadAccount, '100');
     mockFetch
       .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(
-        jsonErr(409, {
-          statusCode: 409,
-          error: 'SPONSOR_SEQUENCE_CONFLICT',
-          message: 'conflict',
-          sponsorSequence: '777',
-        }),
-      )
+      .mockResolvedValueOnce(conflict('777'))
       .mockResolvedValueOnce(jsonOk({ hash: 'second-try', alreadyActive: false }));
 
     const result = await sodax.sponsoring.activateStellarAccount({
@@ -279,7 +246,7 @@ describe('sequence conflict handling', () => {
     expect(result.ok).toBe(true);
     const sponsorReads = loadAccount.mock.calls.filter(([a]) => a === SPONSOR.publicKey());
     expect(sponsorReads).toHaveLength(1);
-    const [, second] = accountRequests().map(([, init]) => JSON.parse((init as { body: string }).body).data);
+    const [, second] = submittedData();
     const secondTx = TransactionBuilder.fromXDR(second, Networks.PUBLIC) as Exclude<
       ReturnType<typeof TransactionBuilder.fromXDR>,
       FeeBumpTransaction
@@ -287,80 +254,72 @@ describe('sequence conflict handling', () => {
     expect(secondTx.sequence).toBe('778');
   });
 
-  it('falls back to a Horizon read when the 409 carries no hint', async () => {
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount, '100');
-    mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(conflict())
-      .mockResolvedValueOnce(jsonOk({ hash: 'second-try', alreadyActive: false }));
+  it('falls back to a Horizon read when the 409 carries no hint or a malformed one', async () => {
+    // A malformed sponsorSequence must never be fed to the builder.
+    for (const hint of [undefined, 'abc']) {
+      mockFetch.mockReset();
+      const { sodax, loadAccount } = makeSodax();
+      stubHorizon(loadAccount, '100');
+      mockFetch
+        .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
+        .mockResolvedValueOnce(conflict(hint))
+        .mockResolvedValueOnce(jsonOk({ hash: 'ok', alreadyActive: false }));
 
-    await sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
+      const result = await sodax.sponsoring.activateStellarAccount({
+        address: USER.publicKey(),
+        walletProvider: makeWallet(),
+      });
 
-    expect(loadAccount.mock.calls.filter(([a]) => a === SPONSOR.publicKey())).toHaveLength(2);
+      expect(result.ok).toBe(true);
+      expect(loadAccount.mock.calls.filter(([a]) => a === SPONSOR.publicKey())).toHaveLength(2);
+    }
   });
 
-  it('ignores a malformed sponsorSequence rather than feeding it to the builder', async () => {
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount, '100');
-    mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(
-        jsonErr(409, { statusCode: 409, error: 'SPONSOR_SEQUENCE_CONFLICT', message: 'x', sponsorSequence: 'abc' }),
-      )
-      .mockResolvedValueOnce(jsonOk({ hash: 'ok', alreadyActive: false }));
-
-    const result = await sodax.sponsoring.activateStellarAccount({
-      address: USER.publicKey(),
-      walletProvider: makeWallet(),
-    });
-
-    expect(result.ok).toBe(true);
-    expect(loadAccount.mock.calls.filter(([a]) => a === SPONSOR.publicKey())).toHaveLength(2);
-  });
-
-  it('gives up after exactly one retry — never loops on a user signature', async () => {
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount);
+  it('retries a conflict at most once — never with allowSequenceRetry: false — and reports the attempts burned', async () => {
+    const burned = makeSodax();
+    stubHorizon(burned.loadAccount);
     mockFetch
       .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
       .mockResolvedValueOnce(conflict())
       .mockResolvedValueOnce(conflict());
-    const wallet = makeWallet();
+    const burnedWallet = makeWallet();
 
-    const result = await sodax.sponsoring.activateStellarAccount({
+    const result = await burned.sodax.sponsoring.activateStellarAccount({
       address: USER.publicKey(),
-      walletProvider: wallet,
+      walletProvider: burnedWallet,
     });
 
+    // Never loops on a user signature.
     expect(result.ok).toBe(false);
-    expect(wallet.signTransaction).toHaveBeenCalledTimes(2);
+    expect(burnedWallet.signTransaction).toHaveBeenCalledTimes(2);
     if (!result.ok) {
       expect(result.error.context?.nextAction).toBe('rebuildAndResign');
       expect(result.error.context?.requiresNewSignature).toBe(true);
       expect(result.error.context?.status).toBe(409);
     }
-  });
 
-  it('honours allowSequenceRetry: false with a single prompt', async () => {
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount);
+    mockFetch.mockReset();
+    const suppressed = makeSodax();
+    stubHorizon(suppressed.loadAccount);
     mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG)).mockResolvedValueOnce(conflict());
-    const wallet = makeWallet();
+    const suppressedWallet = makeWallet();
 
-    const result = await sodax.sponsoring.activateStellarAccount({
+    const single = await suppressed.sodax.sponsoring.activateStellarAccount({
       address: USER.publicKey(),
-      walletProvider: wallet,
+      walletProvider: suppressedWallet,
       allowSequenceRetry: false,
     });
 
-    expect(result.ok).toBe(false);
-    expect(wallet.signTransaction).toHaveBeenCalledTimes(1);
+    expect(single.ok).toBe(false);
+    expect(suppressedWallet.signTransaction).toHaveBeenCalledTimes(1);
+    expect(suppressed.failureData()).toMatchObject({ attempts: 1, httpStatus: 409 });
+    expect(burned.failureData()).toMatchObject({ attempts: 2, httpStatus: 409 });
+    expect(suppressed.failureData()).not.toEqual(burned.failureData());
   });
 });
 
 describe('failure handling', () => {
-  it('classifies a wallet cancellation as USER_REJECTED and never submits', async () => {
+  it('classifies a wallet cancellation as USER_REJECTED, never submits, and attributes it to its attempt', async () => {
     const { sodax, loadAccount } = makeSodax();
     stubHorizon(loadAccount);
     mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
@@ -375,9 +334,22 @@ describe('failure handling', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('USER_REJECTED');
     expect(accountRequests()).toHaveLength(0);
+
+    // A cancelled re-signature after a conflict belongs to the second attempt.
+    mockFetch.mockReset();
+    const resign = makeSodax();
+    stubHorizon(resign.loadAccount);
+    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG)).mockResolvedValueOnce(conflict());
+
+    await resign.sodax.sponsoring.activateStellarAccount({
+      address: USER.publicKey(),
+      walletProvider: makeWallet({ rejectOnCall: 2 }),
+    });
+
+    expect(resign.failureData()).toMatchObject({ code: 'USER_REJECTED', attempts: 2 });
   });
 
-  it('catches a wallet signing on the WRONG network locally, without submitting', async () => {
+  it('fails locally without submitting on a WRONG-network signature, and without prompting when the sponsor is unreadable', async () => {
     // Network-mismatched signatures are valid XDR but invalid for this transaction.
     const { sodax, loadAccount } = makeSodax();
     stubHorizon(loadAccount);
@@ -394,24 +366,20 @@ describe('failure handling', () => {
       expect(result.error.message).toMatch(/different Stellar network/);
     }
     expect(accountRequests()).toHaveLength(0);
-  });
 
-  it('fails without prompting when the SPONSOR account cannot be read', async () => {
-    const { sodax, loadAccount } = makeSodax();
     loadAccount.mockImplementation(async (address: string) => {
       if (address === SPONSOR.publicKey()) throw horizonDown();
       throw horizonNotFound();
     });
-    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
     const wallet = makeWallet();
 
-    const result = await sodax.sponsoring.activateStellarAccount({
+    const unreadable = await sodax.sponsoring.activateStellarAccount({
       address: USER.publicKey(),
       walletProvider: wallet,
     });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe('LOOKUP_FAILED');
+    expect(unreadable.ok).toBe(false);
+    if (!unreadable.ok) expect(unreadable.error.code).toBe('LOOKUP_FAILED');
     expect(wallet.signTransaction).not.toHaveBeenCalled();
   });
 
@@ -451,115 +419,92 @@ describe('failure handling', () => {
 
     expect(result).toEqual({ ok: true, value: { status: 'submitted', hash: 'after-retry', attempts: 1 } });
     expect(wallet.signTransaction).toHaveBeenCalledTimes(1);
-    const [first, second] = accountRequests().map(([, init]) => JSON.parse((init as { body: string }).body).data);
+    const [first, second] = submittedData();
     expect(first).toBe(second);
   });
 
-  it('does NOT retry a rate limit — that is a load signal, not a transient fault', async () => {
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount);
-    mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonErr(429, { statusCode: 429, message: 'ThrottlerException: Too Many Requests' }));
-
-    const result = await sodax.sponsoring.activateStellarAccount({
-      address: USER.publicKey(),
-      walletProvider: makeWallet(),
-    });
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.context?.nextAction).toBe('backoff');
-      expect(result.error.context?.retryable).toBe(true);
-    }
-    expect(accountRequests()).toHaveLength(1);
-  });
-
-  it('surfaces a budget-exhausted sponsor as needing an operator, not a retry', async () => {
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount);
-    mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(
+  it('does NOT retry a rate limit (a load signal) or an exhausted sponsor budget (needs an operator)', async () => {
+    const cases = [
+      [jsonErr(429, { statusCode: 429, message: 'ThrottlerException: Too Many Requests' }), 'backoff', true],
+      [
         jsonErr(503, { statusCode: 503, error: 'SPONSOR_BUDGET_EXHAUSTED', message: 'below the configured floor' }),
-      );
+        'contactOperator',
+        false,
+      ],
+    ] as const;
+    for (const [response, nextAction, retryable] of cases) {
+      mockFetch.mockReset();
+      const { sodax, loadAccount } = makeSodax();
+      stubHorizon(loadAccount);
+      mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG)).mockResolvedValueOnce(response);
 
-    const result = await sodax.sponsoring.activateStellarAccount({
-      address: USER.publicKey(),
-      walletProvider: makeWallet(),
-    });
+      const result = await sodax.sponsoring.activateStellarAccount({
+        address: USER.publicKey(),
+        walletProvider: makeWallet(),
+      });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.context?.nextAction).toBe('contactOperator');
-      expect(result.error.context?.retryable).toBe(false);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.context?.nextAction).toBe(nextAction);
+        expect(result.error.context?.retryable).toBe(retryable);
+      }
+      expect(accountRequests()).toHaveLength(1);
     }
   });
 });
 
 describe('published config validation', () => {
-  it.each([
-    ['a malformed sponsor account', { sponsorAccount: 'not-a-stellar-account' }, /ed25519 public key/],
-    ['the wrong network', { networkPassphrase: Networks.TESTNET }, /public network/],
-    ['an unsatisfiable fee band', { recommendedPerOperationFeeStroops: '99999' }, /accepted per-operation band/],
-  ])('rejects %s locally, without reading Horizon for the sponsor sequence', async (_label, overrides, message) => {
-    // A bad sponsorAccount would otherwise surface as that lookup's 404.
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount);
-    mockFetch.mockResolvedValueOnce(jsonOk({ ...SPONSOR_CONFIG, ...overrides }));
-    const wallet = makeWallet();
+  it('rejects a malformed sponsor account, the wrong network or an unsatisfiable fee band locally, without reading the sponsor', async () => {
+    const cases = [
+      [{ sponsorAccount: 'not-a-stellar-account' }, /ed25519 public key/],
+      [{ networkPassphrase: Networks.TESTNET }, /public network/],
+      [{ recommendedPerOperationFeeStroops: '99999' }, /accepted per-operation band/],
+    ] as const;
+    for (const [overrides, message] of cases) {
+      // A bad sponsorAccount would otherwise surface as that lookup's 404.
+      mockFetch.mockReset();
+      const { sodax, loadAccount } = makeSodax();
+      stubHorizon(loadAccount);
+      mockFetch.mockResolvedValueOnce(jsonOk({ ...SPONSOR_CONFIG, ...overrides }));
+      const wallet = makeWallet();
 
-    const result = await sodax.sponsoring.activateStellarAccount({
-      address: USER.publicKey(),
-      walletProvider: wallet,
-    });
+      const result = await sodax.sponsoring.activateStellarAccount({
+        address: USER.publicKey(),
+        walletProvider: wallet,
+      });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('VALIDATION_FAILED');
-      expect(result.error.message).toMatch(message);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe('VALIDATION_FAILED');
+        expect(result.error.message).toMatch(message);
+      }
+      // Only the existence pre-flight ran; the sponsor account was never loaded.
+      expect(loadAccount).toHaveBeenCalledTimes(1);
+      expect(loadAccount).not.toHaveBeenCalledWith(SPONSOR.publicKey());
+      expect(wallet.signTransaction).not.toHaveBeenCalled();
     }
-    // Only the existence pre-flight ran; the sponsor account was never loaded.
-    expect(loadAccount).toHaveBeenCalledTimes(1);
-    expect(loadAccount).not.toHaveBeenCalledWith(SPONSOR.publicKey());
-    expect(wallet.signTransaction).not.toHaveBeenCalled();
   });
 });
 
 describe('sponsor config caching', () => {
-  it('serves a second call from cache', async () => {
-    const { sodax } = makeSodax();
-    mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
-
-    await sodax.sponsoring.getStellarSponsorConfig();
-    await sodax.sponsoring.getStellarSponsorConfig();
-
-    expect(configRequests()).toHaveLength(1);
-  });
-
-  it('de-duplicates concurrent callers into ONE request', async () => {
+  it('serves repeat and concurrent callers from one request, and refetches on forceRefresh', async () => {
     const { sodax } = makeSodax();
     mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
 
     await Promise.all([sodax.sponsoring.getStellarSponsorConfig(), sodax.sponsoring.getStellarSponsorConfig()]);
-
-    expect(configRequests()).toHaveLength(1);
-  });
-
-  it('refetches when forceRefresh is set', async () => {
-    const { sodax } = makeSodax();
-    mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
-
     await sodax.sponsoring.getStellarSponsorConfig();
-    await sodax.sponsoring.getStellarSponsorConfig({ forceRefresh: true });
+    expect(configRequests()).toHaveLength(1);
 
+    await sodax.sponsoring.getStellarSponsorConfig({ forceRefresh: true });
     expect(configRequests()).toHaveLength(2);
   });
 
-  it('keeps a header-scoped config out of the default path', async () => {
-    // Headers can select a different response from the same URL, so the two must not share an entry.
+  it('keeps a header-scoped config and each per-request API key on its own entry', async () => {
+    // Headers or a key scoped to another deployment can select a different response from the same URL.
     const { sodax } = makeSodax();
     mockFetch
+      .mockResolvedValueOnce(jsonOk({ ...SPONSOR_CONFIG, networkPassphrase: Networks.TESTNET }))
+      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
       .mockResolvedValueOnce(jsonOk({ ...SPONSOR_CONFIG, networkPassphrase: Networks.TESTNET }))
       .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
 
@@ -567,49 +512,28 @@ describe('sponsor config caching', () => {
       requestConfig: { headers: { 'x-mock-scenario': 'config-testnet' } },
     });
     const plain = await sodax.sponsoring.getStellarSponsorConfig();
+    const keyA = await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'key-a' } });
+    const keyB = await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'key-b' } });
 
     expect(scoped.ok && scoped.value.networkPassphrase).toBe(Networks.TESTNET);
     expect(plain.ok && plain.value.networkPassphrase).toBe(Networks.PUBLIC);
-    expect(configRequests()).toHaveLength(2);
+    expect(keyA.ok && keyA.value.networkPassphrase).toBe(Networks.TESTNET);
+    expect(keyB.ok && keyB.value.networkPassphrase).toBe(Networks.PUBLIC);
+    expect(configRequests()).toHaveLength(4);
   });
 
-  it('keeps two per-request API keys on separate entries', async () => {
-    // A key scoped to another deployment selects another sponsor account; sharing one entry would
-    // serve one caller's config to the other.
-    const { sodax } = makeSodax();
-    mockFetch
-      .mockResolvedValueOnce(jsonOk({ ...SPONSOR_CONFIG, networkPassphrase: Networks.TESTNET }))
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
-
-    const first = await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'key-a' } });
-    const second = await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'key-b' } });
-
-    expect(first.ok && first.value.networkPassphrase).toBe(Networks.TESTNET);
-    expect(second.ok && second.value.networkPassphrase).toBe(Networks.PUBLIC);
-    expect(configRequests()).toHaveLength(2);
-  });
-
-  it('shares one entry between apiKey and the equivalent raw x-api-key header', async () => {
-    // Both spell the same wire request, so the second must be served from the first one's entry.
+  it('shares one entry between equivalent spellings of the same wire request', async () => {
     const { sodax } = makeSodax();
     mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
 
     await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'same-key' } });
     await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { headers: { 'X-Api-Key': 'same-key' } } });
-
     expect(configRequests()).toHaveLength(1);
-  });
-
-  it('still caches per header set, so a repeated override is not refetched', async () => {
-    const { sodax } = makeSodax();
-    mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
-    const requestConfig = { headers: { 'x-mock-scenario': 'config-ok' } };
-
-    await sodax.sponsoring.getStellarSponsorConfig({ requestConfig });
-    await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { headers: { 'X-Mock-Scenario': 'config-ok' } } });
 
     // Header names are case-insensitive on the wire, so they must not key separately.
-    expect(configRequests()).toHaveLength(1);
+    await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { headers: { 'x-mock-scenario': 'config-ok' } } });
+    await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { headers: { 'X-Mock-Scenario': 'config-ok' } } });
+    expect(configRequests()).toHaveLength(2);
   });
 
   it('does not accumulate an entry per distinct header set', async () => {
@@ -617,6 +541,7 @@ describe('sponsor config caching', () => {
     vi.useFakeTimers();
     const { sodax } = makeSodax();
     mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
+    // Reads the private cache: its size is the invariant under test and has no public accessor.
     const cache = (sodax.sponsoring as unknown as { configCache: Map<string, unknown> }).configCache;
 
     for (const trace of ['a', 'b', 'c']) {
@@ -631,7 +556,7 @@ describe('sponsor config caching', () => {
     vi.useRealTimers();
   });
 
-  it('never caches a failure', async () => {
+  it('never caches a failure, and invalidates the cache after a 400 so a rotated sponsor self-corrects', async () => {
     const { sodax } = makeSodax();
     mockFetch
       .mockResolvedValueOnce(jsonErr(503, { statusCode: 503, message: 'down' }))
@@ -643,95 +568,75 @@ describe('sponsor config caching', () => {
     expect(first.ok).toBe(false);
     expect(second.ok).toBe(true);
     expect(configRequests()).toHaveLength(2);
-  });
 
-  it('invalidates the cache after a 400 so the next call self-corrects on a rotated sponsor', async () => {
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount);
+    mockFetch.mockReset();
+    const rotated = makeSodax();
+    stubHorizon(rotated.loadAccount);
     mockFetch
       .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
       .mockResolvedValueOnce(jsonErr(400, { statusCode: 400, error: 'INVALID_SPONSOR_XDR', message: 'bad source' }))
       .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
       .mockResolvedValueOnce(jsonOk({ hash: 'ok', alreadyActive: false }));
 
-    const failed = await sodax.sponsoring.activateStellarAccount({
+    const failed = await rotated.sodax.sponsoring.activateStellarAccount({
       address: USER.publicKey(),
       walletProvider: makeWallet(),
     });
     expect(failed.ok).toBe(false);
 
-    await sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
+    await rotated.sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
     expect(configRequests()).toHaveLength(2);
   });
 });
 
 describe('per-request credentials on the wire', () => {
-  it('sends requestConfig.apiKey as x-api-key on the config request, over the configured slice key', async () => {
+  const sentKeyHeaders = (init: { headers: Record<string, string> }) =>
+    Object.keys(init.headers).filter(h => h.toLowerCase() === 'x-api-key');
+
+  it('sends requestConfig.apiKey, or a raw X-Api-Key header as the ONLY key header, on the config request', async () => {
     const { sodax } = makeSodax();
-    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
+    mockFetch.mockResolvedValue(jsonOk(SPONSOR_CONFIG));
 
     await sodax.sponsoring.getStellarSponsorConfig({ requestConfig: { apiKey: 'call-key' } });
-
-    expect(configRequests()).toHaveLength(1);
-    const [url, init] = configRequests()[0] as [string, { headers: Record<string, string> }];
-    expect(url).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/config`);
-    expect(new Headers(init.headers).get('x-api-key')).toBe('call-key');
-  });
-
-  it('sends a raw X-Api-Key header as the ONLY key header on the config request', async () => {
-    const { sodax } = makeSodax();
-    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG));
-
     // forceRefresh guards against a cache hit ever serving this call without a request.
     await sodax.sponsoring.getStellarSponsorConfig({
       forceRefresh: true,
       requestConfig: { headers: { 'X-Api-Key': 'raw-key' } },
     });
 
-    expect(configRequests()).toHaveLength(1);
-    const [url, init] = configRequests()[0] as [string, { headers: Record<string, string> }];
-    expect(url).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/config`);
-    expect(Object.keys(init.headers).filter(h => h.toLowerCase() === 'x-api-key')).toHaveLength(1);
-    expect(new Headers(init.headers).get('x-api-key')).toBe('raw-key');
+    expect(configRequests()).toHaveLength(2);
+    const [keyed, raw] = configRequests() as [string, { headers: Record<string, string> }][];
+    expect(keyed?.[0]).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/config`);
+    // The per-call key wins over the configured slice key.
+    expect(new Headers(keyed?.[1].headers).get('x-api-key')).toBe('call-key');
+    expect(raw && sentKeyHeaders(raw[1])).toHaveLength(1);
+    expect(new Headers(raw?.[1].headers).get('x-api-key')).toBe('raw-key');
   });
 
-  it('forwards requestConfig.apiKey to the account-creation POST', async () => {
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount);
-    mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
+  it('forwards requestConfig.apiKey, or a raw X-Api-Key header as the ONLY key header, to the account-creation POST', async () => {
+    for (const [requestConfig, key] of [
+      [{ apiKey: 'call-key' }, 'call-key'],
+      [{ headers: { 'X-Api-Key': 'raw-key' } }, 'raw-key'],
+    ] as const) {
+      mockFetch.mockReset();
+      const { sodax, loadAccount } = makeSodax();
+      stubHorizon(loadAccount);
+      mockFetch
+        .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
+        .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
 
-    await sodax.sponsoring.activateStellarAccount({
-      address: USER.publicKey(),
-      walletProvider: makeWallet(),
-      requestConfig: { apiKey: 'call-key' },
-    });
+      await sodax.sponsoring.activateStellarAccount({
+        address: USER.publicKey(),
+        walletProvider: makeWallet(),
+        requestConfig,
+      });
 
-    expect(accountRequests()).toHaveLength(1);
-    const [url, init] = accountRequests()[0] as [string, { headers: Record<string, string> }];
-    expect(url).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/accounts`);
-    expect(new Headers(init.headers).get('x-api-key')).toBe('call-key');
-  });
-
-  it('forwards a raw X-Api-Key header as the ONLY key header to the account-creation POST', async () => {
-    const { sodax, loadAccount } = makeSodax();
-    stubHorizon(loadAccount);
-    mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
-
-    await sodax.sponsoring.activateStellarAccount({
-      address: USER.publicKey(),
-      walletProvider: makeWallet(),
-      requestConfig: { headers: { 'X-Api-Key': 'raw-key' } },
-    });
-
-    expect(accountRequests()).toHaveLength(1);
-    const [url, init] = accountRequests()[0] as [string, { headers: Record<string, string> }];
-    expect(url).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/accounts`);
-    expect(Object.keys(init.headers).filter(h => h.toLowerCase() === 'x-api-key')).toHaveLength(1);
-    expect(new Headers(init.headers).get('x-api-key')).toBe('raw-key');
+      expect(accountRequests()).toHaveLength(1);
+      const [url, init] = accountRequests()[0] as [string, { headers: Record<string, string> }];
+      expect(url).toBe(`${SPONSORING_BASE_URL}/sponsorships/stellar/accounts`);
+      expect(sentKeyHeaders(init)).toHaveLength(1);
+      expect(new Headers(init.headers).get('x-api-key')).toBe(key);
+    }
   });
 
   it('carries explicit per-request credentials to a custom origin the inherited instance key never reaches', async () => {
@@ -754,8 +659,8 @@ describe('per-request credentials on the wire', () => {
 });
 
 describe('isStellarAccountActive', () => {
-  it('reports true for a funded account and false for a 404', async () => {
-    const { sodax, loadAccount } = makeSodax();
+  it('reports true for a funded account and false for a 404, but an error for a transport failure', async () => {
+    const { sodax, loadAccount, ledgers } = makeSodax();
 
     loadAccount.mockResolvedValueOnce(sponsorAccountResponse('1') as never);
     await expect(sodax.sponsoring.isStellarAccountActive({ address: USER.publicKey() })).resolves.toEqual({
@@ -768,11 +673,11 @@ describe('isStellarAccountActive', () => {
       ok: true,
       value: false,
     });
-  });
 
-  it('surfaces a transport failure as an error rather than reporting "not active"', async () => {
+    // An existence check needs no reserve accounting.
+    expect(ledgers).not.toHaveBeenCalled();
+
     // A transport failure must not masquerade as a missing account.
-    const { sodax, loadAccount } = makeSodax();
     loadAccount.mockRejectedValueOnce(horizonDown());
 
     const result = await sodax.sponsoring.isStellarAccountActive({ address: USER.publicKey() });
@@ -783,64 +688,44 @@ describe('isStellarAccountActive', () => {
 });
 
 describe('getStellarAccountStatus', () => {
-  it('reports a missing account as absent rather than as a failure', async () => {
+  it('reports a missing account as absent, and a freshly activated 0-XLM one as unable to afford a trustline', async () => {
     const { sodax, loadAccount } = makeSodax();
+    const empty = { nativeBalanceStroops: 0n, availableBalanceStroops: 0n, canAffordTrustline: false };
+
     loadAccount.mockRejectedValueOnce(horizonNotFound());
-
     await expect(sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() })).resolves.toEqual({
       ok: true,
-      value: {
-        exists: false,
-        nativeBalanceStroops: 0n,
-        availableBalanceStroops: 0n,
-        canAffordTrustline: false,
-        trustlineMinXlmStroops: 5_100_000n,
-      },
+      value: { exists: false, ...empty, trustlineMinXlmStroops: 5_100_000n },
     });
-  });
 
-  it('reports a freshly activated 0-XLM account as existing but unable to afford a trustline', async () => {
-    const { sodax, loadAccount } = makeSodax();
     loadAccount.mockResolvedValueOnce(sponsoredAccountResponse('0') as never);
-
     await expect(sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() })).resolves.toEqual({
       ok: true,
-      value: {
-        exists: true,
-        nativeBalanceStroops: 0n,
-        availableBalanceStroops: 0n,
-        canAffordTrustline: false,
-        trustlineMinXlmStroops: 5_100_000n,
-      },
+      value: { exists: true, ...empty, trustlineMinXlmStroops: 5_100_000n },
     });
   });
 
-  it.each([
-    ['just below the threshold', '0.5099999', false],
-    ['exactly at the threshold', '0.51', true],
-    ['comfortably above', '10', true],
-  ])('parses %s exactly and gates canAffordTrustline on it', async (_label, xlm, affordable) => {
+  it('parses balances exactly and gates canAffordTrustline on the threshold', async () => {
     const { sodax, loadAccount } = makeSodax();
-    loadAccount.mockResolvedValueOnce(sponsoredAccountResponse(xlm as string) as never);
+    for (const [xlm, affordable] of [
+      ['0.5099999', false],
+      ['0.51', true],
+      ['10', true],
+    ] as const) {
+      loadAccount.mockResolvedValueOnce(sponsoredAccountResponse(xlm) as never);
+      const result = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.canAffordTrustline).toBe(affordable);
+    }
 
-    const result = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.canAffordTrustline).toBe(affordable);
-  });
-
-  it('parses a large balance without floating-point loss', async () => {
     // Number.parseFloat would lose the trailing stroop.
-    const { sodax, loadAccount } = makeSodax();
     loadAccount.mockResolvedValueOnce(sponsorAccountResponse('1', '922337203685.4775807') as never);
-
-    const result = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.nativeBalanceStroops).toBe(9223372036854775807n);
+    const large = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
+    expect(large.ok).toBe(true);
+    if (large.ok) expect(large.value.nativeBalanceStroops).toBe(9223372036854775807n);
   });
 
-  it('subtracts the reserve already locked by existing trustlines (available, not total)', async () => {
+  it('subtracts the reserve locked by existing trustlines and selling liabilities (available, not total)', async () => {
     // Affordability uses spendable balance after existing subentry reserves.
     const { sodax, loadAccount } = makeSodax();
     loadAccount.mockResolvedValueOnce(sponsoredAccountResponse('0.6', 1) as never);
@@ -853,23 +738,19 @@ describe('getStellarAccountStatus', () => {
       expect(result.value.availableBalanceStroops).toBe(1_000_000n);
       expect(result.value.canAffordTrustline).toBe(false);
     }
-  });
 
-  it('allows another trustline once the balance covers the already-locked reserve too', async () => {
-    const { sodax, loadAccount } = makeSodax();
+    // Another trustline is allowed once the balance covers the already-locked reserve too.
     loadAccount.mockResolvedValueOnce(sponsoredAccountResponse('1.2', 1) as never);
 
-    const result = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
+    const covered = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.availableBalanceStroops).toBe(7_000_000n);
-      expect(result.value.canAffordTrustline).toBe(true);
+    expect(covered.ok).toBe(true);
+    if (covered.ok) {
+      expect(covered.value.availableBalanceStroops).toBe(7_000_000n);
+      expect(covered.value.canAffordTrustline).toBe(true);
     }
-  });
 
-  it('subtracts selling liabilities from the spendable balance', async () => {
-    const { sodax, loadAccount } = makeSodax();
+    // Selling liabilities come out of the spendable balance too.
     loadAccount.mockResolvedValueOnce({
       sequenceNumber: () => '1',
       balances: [{ asset_type: 'native', balance: '1.0', selling_liabilities: '0.9' }],
@@ -877,22 +758,23 @@ describe('getStellarAccountStatus', () => {
       subentry_count: 0,
     } as never);
 
-    const result = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
+    const liabilities = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.availableBalanceStroops).toBe(1_000_000n);
-      expect(result.value.canAffordTrustline).toBe(false);
+    expect(liabilities.ok).toBe(true);
+    if (liabilities.ok) {
+      expect(liabilities.value.availableBalanceStroops).toBe(1_000_000n);
+      expect(liabilities.value.canAffordTrustline).toBe(false);
     }
   });
 
-  it('follows the network base reserve rather than assuming 0.5 XLM', async () => {
+  it('follows the network base reserve rather than assuming 0.5 XLM, reading it once across calls', async () => {
     // A validator vote can move the base reserve; 1 XLM locks 3 XLM across the account's 3 units.
     const { sodax, loadAccount, ledgers } = makeSodax();
     stubBaseReserve(ledgers, 10_000_000);
-    loadAccount.mockResolvedValueOnce(sponsoredAccountResponse('3.5', 1) as never);
+    loadAccount.mockResolvedValue(sponsoredAccountResponse('3.5', 1) as never);
 
     const result = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
+    await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
@@ -901,92 +783,66 @@ describe('getStellarAccountStatus', () => {
       // The hardcoded 0.5 XLM reserve would have reported 0.6 XLM as enough.
       expect(result.value.canAffordTrustline).toBe(true);
     }
-  });
-
-  it('reads the base reserve once and reuses it across calls', async () => {
-    const { sodax, loadAccount, ledgers } = makeSodax();
-    loadAccount.mockResolvedValue(sponsoredAccountResponse('1') as never);
-
-    await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
-    await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
-
     expect(ledgers).toHaveBeenCalledTimes(1);
     expect(loadAccount).toHaveBeenCalledTimes(2);
   });
 
-  it('degrades to the published base reserve when the ledger read fails', async () => {
+  it('degrades to the published base reserve when the ledger read fails or returns nothing usable', async () => {
     // A UI hint must not become an error just because one Horizon endpoint is down.
-    const { sodax, loadAccount, ledgers } = makeSodax();
-    ledgers.mockImplementation(() => {
+    const down = makeSodax();
+    down.ledgers.mockImplementation(() => {
       throw horizonDown();
     });
-    loadAccount.mockResolvedValueOnce(sponsoredAccountResponse('0.61') as never);
+    down.loadAccount.mockResolvedValueOnce(sponsoredAccountResponse('0.61') as never);
 
-    const result = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
+    const result = await down.sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.trustlineMinXlmStroops).toBe(5_100_000n);
       expect(result.value.canAffordTrustline).toBe(true);
     }
+
+    const empty = makeSodax();
+    stubBaseReserve(empty.ledgers, undefined);
+    empty.loadAccount.mockResolvedValueOnce(sponsoredAccountResponse('0') as never);
+
+    const fallback = await empty.sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
+
+    expect(fallback.ok).toBe(true);
+    if (fallback.ok) expect(fallback.value.trustlineMinXlmStroops).toBe(5_100_000n);
   });
 
-  it('ignores a nonsensical base reserve instead of computing reserves from it', async () => {
-    const { sodax, loadAccount, ledgers } = makeSodax();
-    stubBaseReserve(ledgers, undefined);
-    loadAccount.mockResolvedValueOnce(sponsoredAccountResponse('0') as never);
-
-    const result = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
-
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.trustlineMinXlmStroops).toBe(5_100_000n);
-  });
-
-  it('does not read the base reserve for an existence check', async () => {
-    // isStellarAccountActive and the activation pre-flight need no reserve accounting.
-    const { sodax, loadAccount, ledgers } = makeSodax();
-    loadAccount.mockResolvedValueOnce(sponsoredAccountResponse('0') as never);
-
-    await sodax.sponsoring.isStellarAccountActive({ address: USER.publicKey() });
-
-    expect(ledgers).not.toHaveBeenCalled();
-  });
-
-  it('RETURNS a validation failure for an empty address instead of throwing', async () => {
-    const { sodax } = makeSodax();
+  it('RETURNS a validation failure for an empty address and LOOKUP_FAILED for a transport failure, never throwing', async () => {
+    const { sodax, loadAccount } = makeSodax();
 
     const result = await sodax.sponsoring.getStellarAccountStatus({ address: '' });
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.code).toBe('VALIDATION_FAILED');
     await expect(sodax.sponsoring.isStellarAccountActive({ address: '' })).resolves.toMatchObject({ ok: false });
-  });
 
-  it('surfaces a transport failure as an error', async () => {
-    const { sodax, loadAccount } = makeSodax();
     loadAccount.mockRejectedValueOnce(horizonDown());
 
-    const result = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
+    const transport = await sodax.sponsoring.getStellarAccountStatus({ address: USER.publicKey() });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('LOOKUP_FAILED');
+    expect(transport.ok).toBe(false);
+    if (!transport.ok) {
+      expect(transport.error.code).toBe('LOOKUP_FAILED');
       // Report the public caller, not the shared private reader.
-      expect(result.error.context?.method).toBe('getStellarAccountStatus');
+      expect(transport.error.context?.method).toBe('getStellarAccountStatus');
     }
   });
 });
 
 describe('activation analytics', () => {
-  const conflictBody = () => jsonErr(409, { statusCode: 409, error: 'SPONSOR_SEQUENCE_CONFLICT', message: 'conflict' });
-
   it('carries the sequence conflict into a failure caused by something else', async () => {
     // Preserve a retried 409 in analytics when the final failure has another cause.
     const { sodax, loadAccount, failureData } = makeSodax();
     stubHorizon(loadAccount);
     mockFetch
       .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(conflictBody())
+      .mockResolvedValueOnce(conflict())
       .mockResolvedValueOnce(
         jsonErr(503, { statusCode: 503, error: 'SPONSOR_BUDGET_EXHAUSTED', message: 'below floor' }),
       );
@@ -1001,46 +857,6 @@ describe('activation analytics', () => {
     });
   });
 
-  it('distinguishes a suppressed sequence retry from a burned one', async () => {
-    const suppressed = makeSodax();
-    stubHorizon(suppressed.loadAccount);
-    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG)).mockResolvedValueOnce(conflictBody());
-    await suppressed.sodax.sponsoring.activateStellarAccount({
-      address: USER.publicKey(),
-      walletProvider: makeWallet(),
-      allowSequenceRetry: false,
-    });
-
-    mockFetch.mockReset();
-    const burned = makeSodax();
-    stubHorizon(burned.loadAccount);
-    mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(conflictBody())
-      .mockResolvedValueOnce(conflictBody());
-    await burned.sodax.sponsoring.activateStellarAccount({
-      address: USER.publicKey(),
-      walletProvider: makeWallet(),
-    });
-
-    expect(suppressed.failureData()).toMatchObject({ attempts: 1, httpStatus: 409 });
-    expect(burned.failureData()).toMatchObject({ attempts: 2, httpStatus: 409 });
-    expect(suppressed.failureData()).not.toEqual(burned.failureData());
-  });
-
-  it('attributes a cancelled second prompt to the second attempt', async () => {
-    const { sodax, loadAccount, failureData } = makeSodax();
-    stubHorizon(loadAccount);
-    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG)).mockResolvedValueOnce(conflictBody());
-
-    await sodax.sponsoring.activateStellarAccount({
-      address: USER.publicKey(),
-      walletProvider: makeWallet({ rejectOnCall: 2 }),
-    });
-
-    expect(failureData()).toMatchObject({ code: 'USER_REJECTED', attempts: 2 });
-  });
-
   it('reports attempts 0 when the flow never reached an attempt', async () => {
     const { sodax, failureData } = makeSodax();
     mockFetch.mockResolvedValueOnce(jsonErr(503, { statusCode: 503, message: 'config down' }));
@@ -1048,18 +864,6 @@ describe('activation analytics', () => {
     await sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
 
     expect(failureData()).toMatchObject({ attempts: 0 });
-  });
-
-  it('keeps success reporting the attempts the caller actually got', async () => {
-    const { sodax, loadAccount, successData } = makeSodax();
-    stubHorizon(loadAccount);
-    mockFetch
-      .mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG))
-      .mockResolvedValueOnce(jsonOk({ hash: 'abc123', alreadyActive: false }));
-
-    await sodax.sponsoring.activateStellarAccount({ address: USER.publicKey(), walletProvider: makeWallet() });
-
-    expect(successData()).toEqual({ status: 'submitted', attempts: 1, hash: 'abc123' });
   });
 
   it('never emits a property that is a string on success and a number on failure', async () => {
@@ -1074,7 +878,7 @@ describe('activation analytics', () => {
     mockFetch.mockReset();
     const failed = makeSodax();
     stubHorizon(failed.loadAccount);
-    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG)).mockResolvedValueOnce(conflictBody());
+    mockFetch.mockResolvedValueOnce(jsonOk(SPONSOR_CONFIG)).mockResolvedValueOnce(conflict());
     await failed.sodax.sponsoring.activateStellarAccount({
       address: USER.publicKey(),
       walletProvider: makeWallet(),

@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/bitcoin/useRadfiSession.ts
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { IBitcoinWalletProvider } from '@sodax/sdk';
 import {

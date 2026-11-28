@@ -1,28 +1,11 @@
-/**
- * Maps a relay-layer failure into a unified {@link SodaxError}.
- *
- * The relay layer ({@link IntentRelayApiService}) emits a small, stable set of error
- * messages ({@link RELAY_ERROR_CODES}); this mapper translates each one to the appropriate
- * code and sets `context.relayCode` so consumers can branch without parsing `cause.message`.
- *
- * Future relay error strings (not in {@link RELAY_ERROR_CODES}) fall through to
- * `RELAY_FAILED` with `relayCode: 'UNKNOWN'` so consumers' switches stay exhaustive.
- */
-
 import { RELAY_ERROR_CODES } from '../shared/services/intentRelay/IntentRelayApiService.js';
 import type { SodaxErrorCode, SodaxErrorContext, SodaxFeature, SodaxPhase } from './codes.js';
 import { SodaxError } from './SodaxError.js';
 
-/**
- * The subset of {@link SodaxErrorCode} that {@link mapRelayFailure} can produce.
- * This is `RELAY_TIMEOUT | TX_SUBMIT_FAILED | RELAY_FAILED` — narrow enough that the result
- * is structurally assignable to any feature's `SodaxError<FeatureErrorCode>` (since every
- * feature's union includes all three relay codes).
- */
+/** Every feature's error union includes these three codes, so the result is assignable to any of them. */
 export type RelayWrappedErrorCode = Extract<SodaxErrorCode, 'RELAY_TIMEOUT' | 'TX_SUBMIT_FAILED' | 'RELAY_FAILED'>;
 
 export type MapRelayFailureCtx = Pick<SodaxErrorContext, 'trackingId' | 'relayData' | 'hubTxHash'> & {
-  /** The producing feature. Required so the mapped error carries a feature tag. */
   feature: SodaxFeature;
   /** The feature-level operation in flight (e.g. `'supply'`, `'stake'`, `'migrateBaln'`). */
   action?: string;
@@ -30,21 +13,11 @@ export type MapRelayFailureCtx = Pick<SodaxErrorContext, 'trackingId' | 'relayDa
   dstChainKey?: string;
   /** The original broadcast source tx, used to resume an existing operation. */
   srcTxHash?: string;
-  /**
-   * Phase override. Defaults to `'relay'`. Set to `'destinationExecution'` for migration's
-   * secondary `waitUntilIntentExecuted` watcher (`migratebnUSD`) where the failure is
-   * downstream of the primary relay.
-   */
+  /** Defaults to `'relay'`; `'destinationExecution'` is migration's secondary `migratebnUSD` watcher. */
   phase?: Extract<SodaxPhase, 'relay' | 'destinationExecution'>;
 };
 
-/**
- * Maps a relay-layer failure into a unified {@link SodaxError}.
- *
- * @param error - The error returned by `relayTxAndWaitPacket` / `submitTransaction`. Its
- *   `message` field is matched against {@link RELAY_ERROR_CODES} for taxonomy lookup.
- * @param ctx - Producing feature, action, chain identifiers, optional phase override.
- */
+/** Matches `error.message` against {@link RELAY_ERROR_CODES}; unknown strings map to `RELAY_FAILED` with `relayCode: 'UNKNOWN'`. */
 export function mapRelayFailure(error: unknown, ctx: MapRelayFailureCtx): SodaxError<RelayWrappedErrorCode> {
   const message = error instanceof Error ? error.message : String(error);
   const phase = ctx.phase ?? 'relay';

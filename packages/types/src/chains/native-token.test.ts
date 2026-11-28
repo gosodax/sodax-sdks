@@ -3,12 +3,8 @@ import type { XToken } from './tokens.js';
 import { type SpokeChainKey, spokeChainConfig } from './chains.js';
 import { isNativeToken } from '../utils/utils.js';
 
-// `isNativeToken` resolves the native coin by comparing `token.address` against
-// `spokeChainConfig[chainKey].nativeToken`. Every generic consumer (balance readers, deposit
-// routing, gas handling) relies on that, so a chain whose `nativeToken` matches no entry in its
-// own `supportedTokens` silently classifies its native coin as a contract token — the whole coin
-// becomes unreadable rather than failing loudly. Pin the invariant for every chain at once so a
-// newly added chain cannot reintroduce it.
+// `isNativeToken` compares `token.address` to `nativeToken`; if that matches no `supportedTokens` entry, the native
+// coin is silently treated as a contract token and becomes unreadable, so pin it for every chain.
 describe('spokeChainConfig: nativeToken resolves to a supported token', () => {
   for (const [chainKey, config] of Object.entries(spokeChainConfig) as [
     SpokeChainKey,

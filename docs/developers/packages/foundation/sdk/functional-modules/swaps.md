@@ -113,7 +113,7 @@ All swap methods are accessible through `sodax.swaps`:
 
 - `getQuote(payload)` — Request a price quote from the solver API
 - `getPartnerFee(inputAmount)` — Calculate the partner fee for a given input amount
-- `getSolverFee(inputAmount)` — Calculate the solver protocol fee (0.1%) for a given input amount
+- `getSolverFee(inputAmount)` — Return the maximum solver protocol fee (0.1%) for a given input amount; the actual fee is 0.01% to 0.1% depending on the solver's route
 - `getSwapDeadline(offset?)` — Compute an absolute deadline timestamp for an intent
 
 ### Intent Creation & Execution
@@ -130,7 +130,7 @@ Driving these steps yourself instead of calling `swap`? See [Migrate a manual sw
 
 #### Backend 2-step submit
 
-By default `swap()` uses a backend-driven 2-step flow (`swaps.useBackendSubmitTx`, default `true`): after `createIntent` broadcasts the intent tx, `swap()` hands the tx hash to the backend (`sodax.api.swaps.submitTx`), which relays + post-executes server-side; the SDK polls submit-tx status and returns the same `SwapResponse`. The SDK does **not** verify the tx on-chain first — the backend runs its own verification, so waiting for a client-side confirmation would delay every backend success by the source chain's confirmation wait and could fail a swap the backend would have completed. `verifyTxHash` therefore runs only on the client-side path. Set `new Sodax({ swaps: { useBackendSubmitTx: false } })` to force the fully client-side relay path. An MPC-relay source (such as Tron) skips the backend and settles client-side, since the backend relays only through the intent relay.
+By default `swap()` uses a backend-driven 2-step flow (`swaps.useBackendSubmitTx`, default `true`): after `createIntent` broadcasts the intent tx, `swap()` hands the tx hash to the backend (`sodax.api.swaps.submitTx`), which relays + post-executes server-side; the SDK polls submit-tx status and returns the same `SwapResponse`. The SDK does **not** verify the tx on-chain first — the backend runs its own verification, so waiting for a client-side confirmation would delay every backend success by the source chain's confirmation wait and could fail a swap the backend would have completed. `verifyTxHash` therefore runs only on the client-side path. Set `new Sodax({ swaps: { useBackendSubmitTx: false } })` to force the fully client-side relay path. An MPC-relay source (one of the chains in [`MpcRelayChainMap`](https://github.com/gosodax/sodax-sdks/blob/main/packages/types/src/chains/chains.ts): Tron, XRP Ledger, Monad, TON, Zcash and Cardano) skips the backend and settles client-side, since the backend relays only through the intent relay.
 
 On **any** non-success (submission rejected, terminal `failed`/abandoned, or poll timeout) `swap()` **falls back** to the client-side relay so the swap still completes — identical `SwapResponse` either way. This is **safe**: re-relaying / re-posting an already-processed swap is idempotent — the relay dedups and returns the existing `executed` packet, and the solver re-affirms the intent (no double-fill), verified live by `e2e-tests/e2e-relay.test.ts`. It also matters in practice: the backend keeps processing at its own pace after the SDK gives up, so the two relays can race. Each attempt gets its own `timeout` — see [How `timeout` bounds each attempt](#how-timeout-bounds-each-attempt). `useBackendSubmitTx` lives on `swaps` alongside `partnerFee` (not part of the backend `SodaxDefaultConfig`). See [CONFIGURE_SDK.md](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/docs/CONFIGURE_SDK.md#backend-submit-tx-2-step-swapsusebackendsubmittx).
 
@@ -147,7 +147,7 @@ Each phase is bounded by a different thing:
 | ↳ any single backend request within it | `min(budget left in the attempt, api.timeout)` |
 | On-chain verification — client-side path only | the source chain's `pollingConfig.maxTimeoutMs` |
 | Relay wait — client-side path only, starts after verification | `max(timeout, RELAY_FALLBACK_FLOOR_MS)` |
-| ↳ each MPC-relay leg, added to the worst case below | at least [`TRON_SETTLEMENT_FLOOR_MS`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/spoke/TronSpokeService.ts) |
+| ↳ each MPC-relay leg, added to the worst case below | at least the source spoke's settlement floor: 5 min for Tron, XRP Ledger, Monad and TON, 15 min for Zcash and Cardano (`<CHAIN>_SETTLEMENT_FLOOR_MS` in each [spoke service](https://github.com/gosodax/sodax-sdks/tree/main/packages/sdk/src/shared/services/spoke)) |
 | `postExecution` — solver notify, client-side path only | **not** bounded by `timeout` |
 
 Read the constants from source rather than memorising them: `DEFAULT_RELAY_TX_TIMEOUT`, `DEFAULT_BACKEND_API_TIMEOUT` and per-chain `pollingConfig` live in [`@sodax/types`](https://github.com/gosodax/sodax-sdks/tree/main/packages/types/src), and `RELAY_FALLBACK_FLOOR_MS` in [`IntentRelayApiService.ts`](https://github.com/gosodax/sodax-sdks/blob/main/packages/sdk/src/shared/services/intentRelay/IntentRelayApiService.ts). Verification timeouts differ widely by chain — Stacks alone is several times Sui's — so derive them per chain from `chains.ts`.
@@ -168,8 +168,8 @@ Only the two `timeout` terms are yours to tune. Opting out with `useBackendSubmi
 - `getFilledIntent(txHash)` — Retrieve the fill state of an intent from the solver's fill tx hash
 - `getIntentSubmitTxExtraData(params)` — Rebuild the relay extra data (`address` + `payload`) for a Solana/Bitcoin intent from a hub-chain tx hash or an `Intent`; byte-identical to the `relayData` that `createIntent` returned
 - `reconstructRelayData(intent)` — The same relay extra data, derived offline from a fully-populated `Intent` (no RPC call)
-- `getSolvedIntentPacket(params)` — Poll the relayer until a solved intent's fill packet arrives on the destination chain. An MPC-relay destination (Tron) has no packet, so this fails for one
-- `waitForIntentDelivery(params)` — Wait for a solved intent's output on any destination, returning `dstTxHash` as the confirmed fill tx on the hub (Sonic), with the relay packet, or on Tron with the release of the fill's hub tx, which it notifies the MPC relay of first
+- `getSolvedIntentPacket(params)` — Poll the relayer until a solved intent's fill packet arrives on the destination chain. An MPC-relay destination has no packet, so this fails for one
+- `waitForIntentDelivery(params)` — Wait for a solved intent's output on any destination, returning `dstTxHash` as the confirmed fill tx on the hub (Sonic), with the relay packet, or on an MPC-relay destination with the release of the fill's hub tx, which it notifies the MPC relay of first
 - `getIntentHash(intent)` — Compute the keccak256 hash of an intent (its on-chain ID)
 - `getStatus(request)` — Poll the solver API for current intent execution status
 - `getDetailedStatus(params)` — Read a swap's status from its **source-chain** tx hash; routes to the backend record or the solver, whichever can answer
@@ -327,7 +327,7 @@ function isSodaxError(e: unknown): e is SodaxError;
 
 On intent-relay sources, if backend submit-tx accepted the deposit, it may keep processing after `swap()` returns an error. Keep polling `getDetailedStatus` with `error.context.srcTxHash` and `srcChainKey`.
 
-On an MPC-relay source, the backend submit-tx path is skipped. If `INTENT_CREATION_FAILED`, `RELAY_TIMEOUT` or another settlement failure carries `context.srcTxHash`, use the source spoke's deposit wait (for Tron, `sodax.spoke.tron.waitForDeposit(srcTxHash)`) to notify the relay and wait for the hub mint. On timeout, back off and repeat the wait with the same source hash. Once the result is successful and `value.txs?.hubMint?.hash` is a hex hash (check with viem's `isHex`), call `sodax.swaps.postExecution({ intent_tx_hash: hubMintHash })`. Check the returned Result and retry a failed notification with the same hub hash. After notification succeeds, poll `getDetailedStatus` using the original source hash. Do not create another swap or deposit.
+On an MPC-relay source, the backend submit-tx path is skipped. If `INTENT_CREATION_FAILED`, `RELAY_TIMEOUT` or another settlement failure carries `context.srcTxHash`, use the source spoke's deposit wait (`sodax.spoke.<chain>.waitForDeposit(srcTxHash)`, where `<chain>` is `tron`, `xrp`, `monad`, `ton`, `zcash` or `cardano`) to notify the relay and wait for the hub mint. On timeout, back off and repeat the wait with the same source hash. Once the result is successful and `value.txs?.hubMint?.hash` is a hex hash (check with viem's `isHex`), call `sodax.swaps.postExecution({ intent_tx_hash: hubMintHash })`. Check the returned Result and retry a failed notification with the same hub hash. After notification succeeds, poll `getDetailedStatus` using the original source hash. Do not create another swap or deposit.
 
 GemWallet can return an `xrp-payment` recovery handle without a hash. Use XRP Ledger `account_tx` to find the original validated, successful Payment. Match the sending account, reserve destination, memo, and amount, using the attempt time to locate the relevant ledger range. For an initial search, inspect validated ledgers closed from one minute before to five minutes after `attemptedAtMs`. This limits the search only and cannot prove the Payment failed. If the range yields no unique match, stop automatic recovery and keep the attempt pending for operator reconciliation. Once you identify the original hash, follow the inbound settlement and solver notification steps above.
 
@@ -534,12 +534,14 @@ The partner fee is deducted from the input amount before the intent is created. 
 ### Solver Fee
 
 ```typescript
-// Calculate the 0.1% solver protocol fee
+// Maximum solver protocol fee (0.1%) for this input
 const inputAmount = 1_000_000_000_000_000n;
 const solverFee = sodax.swaps.getSolverFee(inputAmount);
 
-console.log('Solver fee (0.1%):', solverFee);
+console.log('Max solver fee (0.1%):', solverFee);
 ```
+
+The actual protocol fee is 0.01% to 0.1% of the input, depending on the route the solver takes, so it cannot be predicted ahead of time. It is already included in the quote, along with the gas cost of delivering the tokens, which makes small trades look more expensive as a percentage.
 
 ---
 
@@ -1016,7 +1018,7 @@ const rawResult = await sodax.swaps.createLimitOrderIntent({
 
 An intent from an MPC-relay source chain cannot be cancelled: `cancelIntent` confirms the cancel through the intent relay, which an MPC-relay chain does not use, so `createCancelIntent` refuses it before signing. Only its deadline can refund it ([once notified](#the-solver-answer-is-reconciled)), so `createIntent` refuses one with `deadline: 0n`, and with it a limit order from an MPC-relay chain.
 
-A payout to an MPC-relay chain (Tron) arrives less the relay's release fee, and nothing is released once that fee reaches the amount. So `createIntent` refuses, with `VALIDATION_FAILED` and `context.reason: 'mpc-payout-below-minimum'`, a `minOutputAmount` to Tron at or below `MpcRelayPayoutMinimums`, and a Tron-source `inputAmount` whose post-fee amount, the refund if the intent is cancelled, is at or below it. It also refuses `allowPartialFill` to or from Tron, since each fill or refund would pay out separately.
+A payout to an MPC-relay chain arrives less the relay's release fee where that chain and token charge one (Tron, TON USDT and Zcash do; XRP Ledger, Monad, native TON and Cardano do not, though Cardano releases nothing under 1 ADA), and nothing is released once that fee reaches the amount. So `createIntent` refuses, with `VALIDATION_FAILED` and `context.reason: 'mpc-payout-below-minimum'`, a `minOutputAmount` to an MPC-relay chain at or below `MpcRelayPayoutMinimums`, and an MPC-relay-source `inputAmount` whose post-fee amount, the refund if the intent is cancelled, is at or below it. It also refuses `allowPartialFill` to or from an MPC-relay chain, since each fill or refund would pay out separately.
 
 ```typescript
 import type { Intent, TxHashPair } from '@sodax/sdk';
@@ -1305,7 +1307,7 @@ Sometimes there is **no record**, and it reads 404 — you opted out with `useBa
 `sodax.swaps.getStatus` can answer for it, but needs the **hub** tx hash, which the caller may not have. So the caller had to know which path ran and pick an API. This method makes that choice instead:
 
 1. Read the backend record; return it while it is still in play.
-2. Otherwise resolve the hub tx hash — the source tx itself for hub-source swaps, the MPC relay deposit record's hub mint for an MPC-relay source (such as Tron), else the delivered relay packet's `dst_tx_hash` — and return the solver's answer, reconciled as described below.
+2. Otherwise resolve the hub tx hash — the source tx itself for hub-source swaps, the MPC relay deposit record's hub mint for an MPC-relay source, else the delivered relay packet's `dst_tx_hash` — and return the solver's answer, reconciled as described below.
 
 A record the backend **gave up on** (`failed`, or `abandonedAt` set) takes step 2, and on the default path this is the *common* branch rather than an edge case: the record almost always exists, so abandonment — not a 404 — is what usually signals the fallback ran. It never self-heals, so keeping it would report `failed` for a swap the fallback went on to complete. A `success: false` envelope takes step 2 as well — that is the wire contract's "no record found", whatever `data` carries. A transport or server error routes on too, so a transient backend outage does not fail a swap the solver can still report on.
 
@@ -1318,7 +1320,7 @@ Both payloads are already documented — the submit-tx record in [SWAPS_API.md](
 The solver is not the last word on its own intents, so any answer short of `SOLVED` or `FAILED` is checked against the backend's durable intent record (`sodax.api.getIntentByTxHash`):
 
 - **A fill that consumed the remainder reads `SOLVED`**, with that fill's tx as `fill_tx_hash`. The solver keeps intent state in memory, so after a restart it answers `NOT_FOUND` for intents it already filled.
-- **A cancel with nothing filled reads `FAILED`.** Expired intents are cancelled on the hub and refunded, and the solver can keep reporting one as in flight (`1` or `2`) long after — a poller would never stop. Do not offer another cancel. A hub cancellation establishes the refund on Sonic; a payout to an MPC-relay source completes only after the corresponding release. From an MPC-relay source (Tron), the relay pays that refund only once the cancel's hub tx is notified: call `sodax.spoke.settleHubRelease(hubTxHash, srcChainKey)` with the `txHash` of the record's `intent-cancelled` event.
+- **A cancel with nothing filled reads `FAILED`.** Expired intents are cancelled on the hub and refunded, and the solver can keep reporting one as in flight (`1` or `2`) long after — a poller would never stop. Do not offer another cancel. A hub cancellation establishes the refund on Sonic; a payout to an MPC-relay source completes only after the corresponding release. From an MPC-relay source, the relay pays that refund only once the cancel's hub tx is notified: call `sodax.spoke.settleHubRelease(hubTxHash, srcChainKey)` with the `txHash` of the record's `intent-cancelled` event.
 - **Anything else leaves the solver's answer standing**, including a cancel after a partial fill (it is neither solved nor failed) and a record that cannot be read right now; the next poll asks again.
 
 `getStatus` keeps its narrower check: it reads the record only behind a `NOT_FOUND` or a failed request, and only for a fill — never a cancel.
@@ -1335,7 +1337,7 @@ failing right now, so it stays retryable and does not consume a not-delivered bu
 
 ## Get Solved Intent Packet
 
-Poll the relayer until the solver's fill tx has been delivered to the destination chain. Call this after `getStatus` returns `SolverIntentStatusCode.SOLVED`. For a swap to an MPC-relay chain (Tron), use `waitForIntentDelivery` instead: it is paid by a release of the fill's hub tx, not a packet.
+Poll the relayer until the solver's fill tx has been delivered to the destination chain. Call this after `getStatus` returns `SolverIntentStatusCode.SOLVED`. For a swap to an MPC-relay chain, use `waitForIntentDelivery` instead: it is paid by a release of the fill's hub tx, not a packet.
 
 ```typescript
 import { Sodax, ChainKeys, SolverIntentStatusCode } from '@sodax/sdk';

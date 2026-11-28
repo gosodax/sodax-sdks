@@ -13,12 +13,7 @@ export type UseLeverageYieldApiIntentParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to look up an Intent struct by its hub-chain creation tx hash via the leverage-yield API — `sodax.api.leverageYield.getIntent`.
- *
- * @example
- * const { data } = useLeverageYieldApiIntent({ params: { txHash: '0x123...' } });
- */
+/** Looks up the Intent struct by its hub-chain creation tx hash. */
 export const useLeverageYieldApiIntent = ({
   params,
   queryOptions,

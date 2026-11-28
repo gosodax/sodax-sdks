@@ -1,7 +1,4 @@
-/**
- * Chain types
- * Forbidden to import types from other packages in this file (exception for shared types)!
- */
+/** Never import types from other packages in this file (shared types excepted). */
 
 import type { Address, Hex, HttpUrl, RpcFailoverConfig, TxPollingConfig } from '../shared/shared.js';
 import {
@@ -39,7 +36,7 @@ import { ChainKeys, CHAIN_KEYS, type ChainKey, type ChainType } from './chain-ke
 import type { XToken } from './tokens.js';
 export * from './chain-keys.js';
 
-// NOTE: This is not the same as the actual chain ids (wormhole based ids), only used for intent relay
+// Wormhole-based ids used only by the intent relay, not the chains' actual chain ids.
 export const RelayChainIdMap = {
   [ChainKeys.AVALANCHE_MAINNET]: 6n,
   [ChainKeys.ARBITRUM_MAINNET]: 23n,
@@ -76,11 +73,8 @@ export const RelayChainIdMap = {
 export type IntentChainId = (typeof RelayChainIdMap)[keyof typeof RelayChainIdMap];
 export const INTENT_CHAIN_IDS = Object.values(RelayChainIdMap);
 
-/**
- * Withdraw-auth scheme byte for the MPC relay. It pins curve + signature wrapping + identity
- * derivation together, so a client cannot mix them to forge an identity:
- * `0` EVM, `1` Tron, `2` generic ed25519, `3` XRP, `4` Aptos.
- */
+/** MPC-relay withdraw-auth scheme; pins curve, signature wrapping and identity derivation so a client cannot mix them to
+ * forge an identity: `0` EVM, `1` Tron, `2` ed25519, `3` XRP, `4` Aptos, `5` TON, `6` Zcash, `7` Cardano. */
 export type MpcWithdrawScheme = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 /** A withdraw-auth message as the MPC relay takes it: numeric fields are u64 decimal strings. */
@@ -99,19 +93,12 @@ export type MpcRelayChainInfo = {
   withdrawScheme: MpcWithdrawScheme;
 };
 
-/**
- * Per-chain identity for the **MPC relay** (NEAR chain signatures) — the counterpart of
- * {@link RelayChainIdMap} for the other relay.
- *
- * Unlike that map this one is deliberately PARTIAL: membership is the definition. A chain in here
- * settles through the MPC relay and is tracked over its REST API. Tron, XRP and Monad are members;
- * each entry defines its relay identity and withdrawal signature scheme.
- */
+/** Per-chain identity for the MPC relay (NEAR chain signatures), counterpart of {@link RelayChainIdMap}. Deliberately
+ * partial: membership is the definition — a chain listed here settles through the MPC relay and is tracked over its REST API. */
 export const MpcRelayChainMap = {
   [ChainKeys.TRON_MAINNET]: { chainId: 728126428n, withdrawScheme: 1 },
-  // XRPL's relay id is 66 on mainnet (an internal routing id, not XRPL's network id).
-  // Scheme 3 signs the RAW message hash and submits the 33-byte 0xED public key alongside,
-  // because an ed25519 signature cannot recover its signer the way secp256k1 does.
+  // Relay id 66 is an internal routing id, not XRPL's network id. Scheme 3 signs the RAW message hash and submits
+  // the 33-byte 0xED pubkey, since ed25519 signatures cannot recover their signer like secp256k1.
   [ChainKeys.XRP_MAINNET]: { chainId: 66n, withdrawScheme: 3 },
   // Monad's relay id is 48 (a SODAX routing id; the EVM network id is 143). Scheme 0 is EIP-191
   // personal_sign over the raw message hash, recovered like any EVM signature.
@@ -129,12 +116,8 @@ export const MpcRelayChainMap = {
 
 export type MpcRelayChainKey = keyof typeof MpcRelayChainMap;
 
-/**
- * Floor for a payout through the MPC relay, by chain and token address, in the payout token's decimals: the SDK
- * refuses a payout at or below it. The relay deducts a live release fee from the payout, and releases nothing
- * once that fee reaches the amount, after the hub has already burned it. Sized to the fee cap the solver assumes.
- * Every {@link MpcRelayChainKey} must have an entry, and the SDK refuses a payout of a token its entry omits.
- */
+/** MPC-relay payout floor per chain/token (token decimals); SDK refuses payouts at or below it or for unlisted tokens, as the
+ * relay releases nothing once its live fee reaches the amount (after the hub burn). Sized to the solver's assumed fee cap. */
 export const MpcRelayPayoutMinimums: Readonly<Record<MpcRelayChainKey, Readonly<Record<string, bigint>>>> &
   Partial<Record<ChainKey, Readonly<Record<string, bigint>>>> = {
   [ChainKeys.TRON_MAINNET]: {
@@ -176,11 +159,7 @@ export const IntentRelayChainIdToChainKey = new Map<IntentRelayChainId, ChainKey
   Object.entries(RelayChainIdMap).map(([chainKey, chainId]) => [chainId, chainKey as ChainKey]),
 );
 
-/**
- * Base URL for default chain logos hosted in the `@sodax/assets` package.
- * Each logo is served from `main` via raw.githubusercontent and named by its
- * `ChainKeys` value, so the full URL is `${CHAIN_LOGO_BASE_URL}/<chainKey>.png`.
- */
+/** Chain logos from `@sodax/assets` on `main`; each is `${CHAIN_LOGO_BASE_URL}/<chainKey>.png`. */
 export const CHAIN_LOGO_BASE_URL = 'https://raw.githubusercontent.com/gosodax/sodax-sdks/main/packages/assets/chain';
 
 const chainLogo = (key: ChainKey): string => `${CHAIN_LOGO_BASE_URL}/${key}.png`;
@@ -588,15 +567,8 @@ type ChainKeysByType<T extends ChainType> = {
   [K in keyof typeof baseChainInfo]: (typeof baseChainInfo)[K]['type'] extends T ? K : never;
 }[keyof typeof baseChainInfo];
 
-/**
- * EvmSpokeOnlyChainId is EvmChainKey excluding the Sonic chain ID.
- * Purpose: To use for types where Sonic (the hub) should not be included with spoke EVM chain lists.
- * Intersected with keyof spokeChainConfig so it can safely index the config object.
- */
-/**
- * EVM spokes that settle through a spoke asset manager and the intent relay. Monad is EVM for wallets
- * and addresses but settles through the MPC relay, so it is excluded — it has no spoke contracts.
- */
+/** EVM spokes settling via a spoke asset manager and the intent relay; excludes the hub and Monad (MPC relay, no spoke
+ * contracts). Intersected with keyof spokeChainConfig so it can index the config. */
 export type EvmSpokeOnlyChainKey = Exclude<EvmChainKey, HubChainKey | MonadChainKey> & keyof typeof spokeChainConfig;
 export type EvmChainKey = ChainKeysByType<'EVM'>;
 export type SonicChainKey = typeof ChainKeys.SONIC_MAINNET; // Sonic is EVM — narrowed via HUB_CHAIN_KEY where needed
@@ -764,11 +736,8 @@ export type StellarSpokeChainConfig = BaseSpokeChainConfig<'STELLAR'> & {
 
 export const BOUND_API_HOST = 'https://svc.bound.exchange/api';
 
-/**
- * Which auth/transactions hosts accompany a given Bound api host. Kept OUT of `spokeChainConfig`
- * below: `deepMerge` merges `radfi` key by key, so inlining them would let an `apiUrl`-only
- * override inherit them and straddle environments. A key absent here falls back to the api host.
- */
+/** Auth/transactions hosts per Bound api host (absent → the api host). Kept out of `spokeChainConfig` because `deepMerge`
+ * would let an `apiUrl`-only override inherit them and straddle environments. */
 export const BOUND_COMPANION_HOSTS: Record<string, { auth?: string; transactions?: string }> = {
   [BOUND_API_HOST]: {
     auth: 'https://auth.bound.exchange/api',
@@ -776,11 +745,8 @@ export const BOUND_COMPANION_HOSTS: Record<string, { auth?: string; transactions
   },
 };
 
-/**
- * Hosts Bound has announced it will retire. `RadfiProvider` refuses to construct when one is
- * configured. No replacement is stored: it depends on which family the retired host was
- * configured for, not on the host.
- */
+/** Hosts Bound will retire; `RadfiProvider` refuses to construct with one. No replacement is stored: it depends on which
+ * family the host was configured for. */
 export const DEPRECATED_BOUND_HOSTS: readonly string[] = ['https://api.bound.exchange/api'];
 
 export type BitcoinSpokeChainConfig = BaseSpokeChainConfig<'BITCOIN'> & {
@@ -831,11 +797,8 @@ export type SuiSpokeChainConfig = BaseSpokeChainConfig<'SUI'> & {
   };
   /** gRPC-web endpoint. Mysten's public fullnodes stopped serving JSON-RPC in July 2026; `sui-node` drops it in October 2026. */
   grpc_url: string;
-  /**
-   * @deprecated Renamed to `grpc_url`. Still honored so existing overrides keep working, and wins
-   * over `grpc_url` when set. A `sui-node` serves gRPC-web on the same origin as JSON-RPC, so a
-   * self-hosted or full-service endpoint needs no change; a JSON-RPC-only provider does.
-   */
+  /** @deprecated Use `grpc_url`. Still honored and wins over `grpc_url` when set; a `sui-node` serves gRPC-web on the same
+   * origin, so only JSON-RPC-only providers need a change. */
   rpc_url?: string;
 };
 
@@ -849,12 +812,8 @@ export type NearSpokeChainConfig = BaseSpokeChainConfig<'NEAR'> & {
   rpcUrl: string;
 };
 
-/**
- * Config carried by a chain that settles through the **MPC relay** (NEAR chain signatures) instead
- * of the intent relay: deposits are paid to a shared reserve and tracked over the relay's REST API,
- * rather than submitted as a packet. Which chains settle this way is `MpcRelayChainMap`
- * (`isMpcRelayChainKey`).
- */
+/** For chains settling via the MPC relay (see `MpcRelayChainMap`): deposits pay a shared reserve and are tracked over the
+ * relay's REST API instead of submitted as a packet. */
 export type MpcRelayChainConfig = {
   /** MPC relay REST endpoint (notify + deposit-address), distinct from the intent relay. */
   mpcRelayApiEndpoint: HttpUrl;
@@ -1799,7 +1758,6 @@ export type GetChainType<C extends SpokeChainKey | ChainType | undefined> = C ex
       ? (typeof spokeChainConfig)[C]['chain']['type']
       : ChainType;
 
-// bnUSD Migration configs
 export const bnUSDLegacySpokeChainIds = [
   ChainKeys.ICON_MAINNET,
   ChainKeys.SUI_MAINNET,

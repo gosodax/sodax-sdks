@@ -12,9 +12,8 @@ export interface CalculateAccruedIncentivesRequest {
   emissionEndTimestamp: number;
 }
 
-// Calculate incentives earned by user since reserveIndexTimestamp
-// Incentives earned before reserveIndexTimestamp are tracked separately (userUnclaimedRewards from UiIncentiveDataProvider)
-// This function is used for deposit and variableDebt incentives
+// Rewards accrued since reserveIndexTimestamp (deposit and variableDebt); earlier ones are
+// tracked as userUnclaimedRewards by UiIncentiveDataProvider.
 export function calculateAccruedIncentives({
   principalUserBalance,
   reserveIndex,

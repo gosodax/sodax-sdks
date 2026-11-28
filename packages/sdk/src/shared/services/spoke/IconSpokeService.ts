@@ -38,7 +38,7 @@ export class IconSpokeService {
 
   constructor(config: ConfigService) {
     this.config = config;
-    // since we only support mainnet for now, we can hardcode the single icon chain config
+    // Only mainnet is supported, so the single ICON chain config is used.
     const chainConfig = config.getChainConfig(ChainKeys.ICON_MAINNET);
     this.iconService = new IconSdk.IconService(new IconSdk.IconService.HttpProvider(chainConfig.rpcUrl));
     this.debugRpcUrl = chainConfig.debugRpcUrl;
@@ -50,14 +50,6 @@ export class IconSpokeService {
     return estimateStepCost(tx, this.debugRpcUrl);
   }
 
-  /**
-   * Deposit tokens to the spoke chain.
-   * @param {DepositParams<IconChainKey, R>} params - The parameters for the deposit
-   * @param {IconSpokeProviderType} spokeProvider - The provider for the spoke chain
-   * @param {EvmHubProvider} hubProvider - The provider for the hub chain
-   * @param {boolean} raw - The return type raw or just transaction hash
-   * @returns {Promise<Result<string>>} A promise that resolves to the transaction hash
-   */
   public async deposit<R extends boolean = false>(
     params: DepositParams<IconChainKey, R>,
   ): Promise<TxReturnType<IconChainKey, R>> {
@@ -105,12 +97,7 @@ export class IconSpokeService {
     }) satisfies Promise<TxReturnType<IconChainKey, false>> as Promise<TxReturnType<IconChainKey, R>>;
   }
 
-  /**
-   * Get the balance of the token in the spoke chain asset manager.
-   * @param {string} token - The address of the token to get the balance of
-   * @param {IconSpokeProviderType} spokeProvider - The spoke provider
-   * @returns {Promise<bigint>} The balance of the token
-   */
+  /** Balance of the token in the spoke chain asset manager. */
   public async getDeposit(params: GetDepositParams<IconChainKey>): Promise<bigint> {
     const { token, srcChainKey } = params;
     const transaction = new CallBuilder()
@@ -121,10 +108,7 @@ export class IconSpokeService {
     return this.readIrc2Balance(transaction);
   }
 
-  /**
-   * Read an int-returning SCORE call. `iconService.call(...)` registers no result converter, so
-   * `execute()` resolves the raw JSON-RPC `result` — a bare hex string for an int, not `{ value }`.
-   */
+  /** `iconService.call(...)` has no result converter, so `execute()` resolves a bare hex string, not `{ value }`. */
   private async readIrc2Balance(transaction: Parameters<IconService['call']>[0]): Promise<bigint> {
     const result = (await this.iconService.call(transaction).execute()) as unknown;
     if (typeof result !== 'string') {
@@ -133,12 +117,6 @@ export class IconSpokeService {
     return hexToBigInt(result);
   }
 
-  /**
-   * Get the user's own wallet balance of a token on ICON, in smallest units. Native ICX is read
-   * via `iconService.getBalance`; IRC-2 tokens via a `balanceOf(_owner)` call on the token contract.
-   * @param {GetBalanceParams<IconChainKey>} params - The chain key, user address, and token.
-   * @returns {Promise<bigint>} The token balance in smallest units.
-   */
   public async getWalletBalance(params: GetBalanceParams<IconChainKey>): Promise<bigint> {
     const { srcChainKey, srcAddress, token } = params;
 
@@ -151,13 +129,7 @@ export class IconSpokeService {
     return this.readIrc2Balance(transaction);
   }
 
-  /**
-   * Get the user's own wallet balances of multiple tokens on ICON, in smallest units. Native ICX
-   * is read via `iconService.getBalance`; IRC-2 balances are batched into a single `tryAggregate`
-   * multicall so every `balanceOf(_owner)` read shares one round-trip.
-   * @param {GetBalancesParams<IconChainKey>} params - The chain key, user address, and tokens.
-   * @returns {Promise<WalletBalanceMap>} A map of token address to balance in smallest units.
-   */
+  /** IRC-2 balances are batched into one `tryAggregate` multicall round-trip. */
   public async getWalletBalances(params: GetBalancesParams<IconChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
 
@@ -183,10 +155,8 @@ export class IconSpokeService {
       return collector.finish();
     }
 
-    // ICON multicall (`tryAggregate`) contract on mainnet, mirroring the wallet-sdk-react
-    // IconXService balance reader — batches every IRC-2 `balanceOf` into a single round-trip.
-    // requireSuccess=0x0 keeps one failing read from reverting the batch; it is reported as a
-    // failed entry for that token rather than a zero balance.
+    // ICON mainnet `tryAggregate` multicall. requireSuccess=0x0 keeps one failing read from reverting the batch; it is
+    // reported as a failed entry, not a zero balance.
     const multicallAddress = 'cxa4aa9185e23558cff990f494c1fd2845f6cbf741';
     const calls = nonNativeTokens.map(token => ({
       target: token.address,
@@ -219,10 +189,6 @@ export class IconSpokeService {
     return collector.finish();
   }
 
-  /**
-   * Sends a message to the hub chain.
-   * @param {SendMessageParams} params - Includes dstChainKey, the chain key of the destination chain.
-   */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<IconChainKey, Raw>,
   ): Promise<TxReturnType<IconChainKey, Raw>> {
@@ -265,8 +231,7 @@ export class IconSpokeService {
   }
 
   public encodeSimulationParams(token: string, assetManager: string): { encodedToken: Hex; encodedSrcAddress: Hex } {
-    // Native ICX must be substituted with wICX — the wrapped form registered in the hub's asset manager.
-    // The deposit() method performs the same substitution when sending the real transaction.
+    // Native ICX is substituted with wICX (registered in the hub asset manager), as deposit() does.
     const resolvedToken = isNativeToken(ChainKeys.ICON_MAINNET, token)
       ? this.config.getChainConfig(ChainKeys.ICON_MAINNET).addresses.wICX
       : token;

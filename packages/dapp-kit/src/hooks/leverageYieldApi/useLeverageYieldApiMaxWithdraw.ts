@@ -14,13 +14,7 @@ export type UseLeverageYieldApiMaxWithdrawParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to get the maximum assets an owner can withdraw (ERC-4626 maxWithdraw) via the leverage-yield API —
- * `sodax.api.leverageYield.getMaxWithdraw`.
- *
- * @example
- * const { data } = useLeverageYieldApiMaxWithdraw({ params: { vault: '0x...', owner: '1000000000000000000' } });
- */
+/** ERC-4626 `maxWithdraw` for `owner`. */
 export const useLeverageYieldApiMaxWithdraw = ({
   params,
   queryOptions,

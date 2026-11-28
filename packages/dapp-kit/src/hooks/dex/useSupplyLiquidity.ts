@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/dex/useSupplyLiquidity.ts
 import type {
   ClIncreaseLiquidityParams,
   ClSupplyParams,
@@ -14,12 +13,6 @@ import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/**
- * Mutation variables for {@link useSupplyLiquidity}. Generic over `K extends SpokeChainKey`
- * (defaults to the full union). The hook fans out internally to either
- * `clService.increaseLiquidity` (when `params.tokenId` + `params.isValidPosition` are present) or
- * `clService.supplyLiquidity` (mint a new position).
- */
 export type UseSupplyLiquidityVars<K extends SpokeChainKey = SpokeChainKey> = {
   params: UseCreateSupplyLiquidityParamsResult & { srcChainKey: K; srcAddress: string };
   walletProvider: GetWalletProviderType<K>;
@@ -27,14 +20,7 @@ export type UseSupplyLiquidityVars<K extends SpokeChainKey = SpokeChainKey> = {
   timeout?: number;
 };
 
-/**
- * React hook for supplying liquidity to a concentrated-liquidity pool. If the input vars include a
- * valid `tokenId` for an existing position, the hook calls `increaseLiquidity`; otherwise it mints
- * a new position via `supplyLiquidity`.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
- */
+/** Calls `increaseLiquidity` when vars carry a valid `tokenId`, else mints via `supplyLiquidity`. Throws on SDK failure. */
 export function useSupplyLiquidity<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<TxHashPair, UseSupplyLiquidityVars<K>> = {}): SafeUseMutationResult<
@@ -77,12 +63,9 @@ export function useSupplyLiquidity<K extends SpokeChainKey = SpokeChainKey>({
     },
     onSuccess: async (data, vars, ctx) => {
       const { params } = vars;
-      // Increase-liquidity branch knows the affected position — scope to it. Mint-new-position
-      // branch creates a fresh tokenId that's only known after the tx, so a bare invalidation is
-      // the right fallback (refetches all positions, including the new one once it lands).
+      // Mint-new has no tokenId until the tx lands, so it falls back to invalidating all positions.
       if (params.tokenId !== undefined && params.isValidPosition) {
-        // `usePositionInfo` keys by string tokenId — coerce here to match its shape regardless of
-        // whether the caller passed bigint or string.
+        // `usePositionInfo` keys by string tokenId; caller may pass bigint or string.
         const tokenIdStr = String(params.tokenId);
         queryClient.invalidateQueries({ queryKey: ['dex', 'positionInfo', tokenIdStr, params.poolKey] });
       } else {

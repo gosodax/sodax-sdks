@@ -5,15 +5,7 @@ import type { ReadHookParams } from '../shared/types.js';
 
 export type UseLeverageYieldTotalAssetsParams = ReadHookParams<bigint, { vault: Address | undefined }>;
 
-/**
- * Reads a leverage-yield vault's total underlying assets (vault-asset units, 18 decimals) —
- * i.e. its TVL. Moves slowly, so the default refresh is 60s.
- *
- * @example
- * ```typescript
- * const { data: tvl } = useLeverageYieldTotalAssets({ params: { vault: vault.vault } });
- * ```
- */
+/** Vault TVL in vault-asset units (18 decimals). */
 export function useLeverageYieldTotalAssets({
   params,
   queryOptions,

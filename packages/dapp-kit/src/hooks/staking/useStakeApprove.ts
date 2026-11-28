@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/staking/useStakeApprove.ts
 import type { GetWalletProviderType, SpokeChainKey, StakeParams, TxReturnType } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
@@ -6,21 +5,12 @@ import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/**
- * Mutation variables for {@link useStakeApprove}. The `action` literal is injected by the hook —
- * callers pass the stake-specific fields only.
- */
 export type UseStakeApproveVars<K extends SpokeChainKey = SpokeChainKey> = {
   params: Omit<StakeParams<K>, 'action'>;
   walletProvider: GetWalletProviderType<K>;
 };
 
-/**
- * React hook for approving SODA spending on the stake action.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped tx return value on success.
- */
+/** Throws on SDK failure (React Query error state); resolves to the unwrapped tx return value. */
 export function useStakeApprove<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<TxReturnType<K, false>, UseStakeApproveVars<K>> = {}): SafeUseMutationResult<

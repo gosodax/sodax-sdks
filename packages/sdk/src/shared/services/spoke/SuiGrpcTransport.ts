@@ -63,8 +63,7 @@ export class SuiGrpcTransport implements SuiTransport {
 
   constructor(endpoint: string) {
     this.endpoint = endpoint;
-    // Only mainnet is supported — `spokeChainConfig` has a single Sui chain key. `network` feeds
-    // the client's default Move Registry URL, which nothing here uses.
+    // Only mainnet is supported; `network` only feeds the default Move Registry URL, which nothing here uses.
     this.client = new SuiGrpcClient({ network: 'mainnet', baseUrl: endpoint });
   }
 
@@ -81,8 +80,7 @@ export class SuiGrpcTransport implements SuiTransport {
   async simulate(tx: SuiTransaction, sender: string): Promise<SuiExecutionResult> {
     const transaction = await toMystenTransaction(tx);
     transaction.setSenderIfNotSet(sender);
-    // `checksEnabled: false` is what `devInspectTransactionBlock` did: it lets public non-entry
-    // Move functions be called with no gas coin.
+    // `checksEnabled: false` (as `devInspectTransactionBlock` did) allows calling public non-entry Move functions with no gas coin.
     const result = await this.client.core.simulateTransaction({
       transaction,
       include: { commandResults: true },
@@ -147,8 +145,7 @@ export class SuiGrpcTransport implements SuiTransport {
   }
 
   async waitForTransaction(params: SuiWaitForTransactionParams): Promise<SuiRawTransactionReceipt> {
-    // `pollSchedule` holds absolute offsets and repeats its last interval, so `[0, n]` polls
-    // immediately and then every `n` ms.
+    // `pollSchedule` holds absolute offsets and repeats its last interval, so `[0, n]` polls now, then every `n` ms.
     const result = await this.client.core.waitForTransaction({
       digest: params.digest,
       include: { effects: true },

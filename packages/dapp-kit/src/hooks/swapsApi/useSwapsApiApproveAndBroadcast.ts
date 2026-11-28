@@ -25,30 +25,9 @@ export type UseSwapsApiApproveAndBroadcastVars<K extends SpokeChainKey = SpokeCh
 };
 
 /**
- * React hook that runs the whole swaps-API approval: asks the API for the transactions, then signs,
- * broadcasts, and waits for each one.
- *
- * Prefer this over {@link useSwapsApiApprove}, which returns the unsigned `{ tx, resetTx? }` and
- * leaves the rest to you. A source token of the 2017 TetherToken lineage rejects an allowance change
- * from one non-zero value to another, so the API can hand back a **reset** transaction that must be
- * mined **before** the approve is even a valid state transition. Broadcasting them out of order, or
- * without waiting, spends the user's gas on a transaction that is certain to revert — and that is
- * ordering the package should own rather than every integration re-deriving it.
- *
- * Because confirmation now happens inside the hook, it can invalidate `['swapsApi','allowance']`
- * itself; callers of `useSwapsApiApprove` have to refetch by hand. It first waits up to about 15 seconds
- * for the API to report the allowance as valid, since its RPC can trail the node that confirmed the
- * approve. It resolves after that wait either way, so read the allowance rather than treating success as
- * `valid`.
- *
- * Supports the chains the swaps API can approve on — the hub (Sonic), EVM spokes, and Stellar.
- * Every other chain reports its allowance as always sufficient, so approval never runs for it.
- *
- * @example
- * const { mutateAsyncSafe: approve } = useSwapsApiApproveAndBroadcast();
- * const result = await approve({ body: createIntentParams, walletProvider });
- * if (!result.ok) return;
- * const { resetTxHash, approveTxHash } = result.value;   // resetTxHash only on a guarded token
+ * Signs and mines each approval tx in order: a USDT-style `resetTx` must mine before the approve.
+ * Then waits up to ~15s for the API to report the allowance valid, but resolves either way.
+ * Approval runs only on the hub, EVM spokes and Stellar; other chains report the allowance as always sufficient.
  */
 export const useSwapsApiApproveAndBroadcast = <K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,

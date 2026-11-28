@@ -12,11 +12,7 @@ export type UseStakingInfoParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch the user's staking info (xSODA balance, share value, underlying SODA) by
- * deriving the hub wallet from the spoke `srcAddress` + `srcChainKey`. Throws on `!ok` so React
- * Query lands in `error` state.
- */
+/** Throws on `!ok`. */
 export function useStakingInfo({
   params,
   queryOptions,

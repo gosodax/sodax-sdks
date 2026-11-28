@@ -13,12 +13,7 @@ export type UseLeverageYieldApiFilledIntentParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to get the on-chain fill state for an intent by its hub-chain tx hash via the leverage-yield API — `sodax.api.leverageYield.getFilledIntent`.
- *
- * @example
- * const { data } = useLeverageYieldApiFilledIntent({ params: { txHash: '0x123...' } });
- */
+/** On-chain fill state, keyed by the intent's hub-chain tx hash. */
 export const useLeverageYieldApiFilledIntent = ({
   params,
   queryOptions,

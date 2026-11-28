@@ -47,10 +47,8 @@ interface RelayResponseEventDetail {
 const ICONEX_RELAY_REQUEST = 'ICONEX_RELAY_REQUEST';
 const ICONEX_RELAY_RESPONSE = 'ICONEX_RELAY_RESPONSE';
 const DEFAULT_JSON_RPC_ID = 99999;
-// Upper bound for a single ICONEX round-trip. Deliberately generous because signing/tx
-// approval is user-interactive; its purpose is to release the serialization queue and the
-// response listener when the wallet never answers (e.g. the popup is closed), not to rush
-// the user.
+// Generous because signing is user-interactive; it only releases the queue and listener when the wallet
+// never answers (e.g. the popup is closed).
 const ICONEX_REQUEST_TIMEOUT_MS = 300_000;
 
 type IconexMatch<T> =
@@ -58,10 +56,8 @@ type IconexMatch<T> =
   | { readonly kind: 'reject'; readonly error: Error }
   | { readonly kind: 'wait' };
 
-// The ICONEX relay is a single shared window-event channel with no per-request correlation
-// id. Serializing requests guarantees at most one is in flight, so a response can never
-// resolve a different request's promise. Each request times out and removes its listener on
-// settle. (Security audit WALLET-L-1.)
+// The ICONEX relay is one shared window-event channel with no correlation id: serialize so a response can
+// never resolve another request's promise. (Security audit WALLET-L-1.)
 let iconexQueue: Promise<unknown> = Promise.resolve();
 
 function sendIconexRequest<T>(
@@ -96,9 +92,7 @@ function sendIconexRequest<T>(
       window.dispatchEvent(new CustomEvent(ICONEX_RELAY_REQUEST, { detail: request }));
     });
 
-  // Serialize: run after the previous request settles. The tail swallows outcomes so the
-  // queue promise never rejects — hence a single `.then(run)` is enough and a failed request
-  // can't poison the ones behind it.
+  // The tail swallows outcomes so the queue never rejects and a failed request can't poison later ones.
   const result = iconexQueue.then(run);
   iconexQueue = result.then(
     () => undefined,
@@ -133,9 +127,7 @@ export function requestJsonRpc(
     detail => {
       const { type, payload } = detail;
       if (type === 'RESPONSE_JSON-RPC') {
-        // Serialization guarantees this is a response to the one in-flight request. Accept a
-        // well-formed payload; a malformed RESPONSE_JSON-RPC is a hard error (fail fast rather
-        // than hang until the timeout).
+        // Serialization guarantees this answers the in-flight request; a malformed payload fails fast.
         if (isJsonRpcPayloadResponse(payload)) return { kind: 'resolve', value: { ok: true, value: payload } };
         return { kind: 'reject', error: new Error('Invalid payload response type (expected JsonRpcPayloadResponse)') };
       }

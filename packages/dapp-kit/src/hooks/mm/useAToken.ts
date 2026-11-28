@@ -14,12 +14,7 @@ export type UseATokenParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch ERC-20 metadata for a given aToken address on the hub chain.
- * Returns `Erc20Token` (`name`, `symbol`, `decimals`, `address`) augmented with the hub
- * `chainKey`. Note: the returned shape is a subset of `XToken` — `hubAsset` and `vault` fields
- * must be resolved separately if needed.
- */
+/** Returns ERC-20 metadata plus hub `chainKey` only; `hubAsset` and `vault` are not resolved. */
 export function useAToken({ params, queryOptions }: UseATokenParams = {}): UseQueryResult<ATokenData, Error> {
   const { sodax } = useSodaxContext();
   const aToken = params?.aToken;

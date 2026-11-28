@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/migrate/useRevertMigrateSodaToIcx.ts
 import type { IcxRevertMigrationAction, TxHashPair } from '@sodax/sdk';
 import { ChainKeys } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
@@ -10,12 +9,6 @@ import { unwrapResult } from '../shared/unwrapResult.js';
 
 export type UseRevertMigrateSodaToIcxVars = Omit<IcxRevertMigrationAction<false>, 'raw'>;
 
-/**
- * React hook for reverting SODA → ICX (the inverse of {@link useMigrateIcxToSoda}).
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
- */
 export function useRevertMigrateSodaToIcx({
   mutationOptions,
 }: MutationHookParams<TxHashPair, UseRevertMigrateSodaToIcxVars> = {}): SafeUseMutationResult<

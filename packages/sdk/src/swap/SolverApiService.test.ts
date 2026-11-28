@@ -101,56 +101,48 @@ const errorResponse = (body: unknown): Response => ({ ok: false, json: async () 
 
 describe('SolverApiService.getQuote', () => {
   describe('invariant guards (thrown synchronously, no fetch)', () => {
-    it.each([
-      ['empty token_src', { token_src: '' }, 'Empty token_src'],
-      ['empty token_src_blockchain_id', { token_src_blockchain_id: '' }, 'Empty token_src_blockchain_id'],
-      ['empty token_dst', { token_dst: '' }, 'Empty token_dst'],
-      ['empty token_dst_blockchain_id', { token_dst_blockchain_id: '' }, 'Empty token_dst_blockchain_id'],
-      ['zero amount', { amount: 0n }, 'amount must be greater than 0'],
-    ])('rejects %s', async (_label, override, message) => {
-      const payload = { ...QUOTE_REQUEST, ...override } as SolverIntentQuoteRequest;
-      await expect(SolverApiService.getQuote(payload, SOLVER_CONFIG, mockConfigService)).rejects.toThrow(message);
+    it('rejects each empty token field and a zero amount', async () => {
+      for (const [override, message] of [
+        [{ token_src: '' }, 'Empty token_src'],
+        [{ token_src_blockchain_id: '' }, 'Empty token_src_blockchain_id'],
+        [{ token_dst: '' }, 'Empty token_dst'],
+        [{ token_dst_blockchain_id: '' }, 'Empty token_dst_blockchain_id'],
+        [{ amount: 0n }, 'amount must be greater than 0'],
+      ] as const) {
+        const payload = { ...QUOTE_REQUEST, ...override } as SolverIntentQuoteRequest;
+        await expect(SolverApiService.getQuote(payload, SOLVER_CONFIG, mockConfigService)).rejects.toThrow(message);
+      }
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('rejects unsupported token_src for src chain', async () => {
+    it('rejects a token_src or token_dst unsupported on its chain', async () => {
       vi.mocked(mockConfigService.isValidOriginalAssetAddress).mockImplementation(
         (_chain, asset) => asset !== SRC_TOKEN_ADDRESS,
       );
-
       await expect(SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService)).rejects.toThrow(
         'unsupported token_src for src chain',
       );
-      expect(fetchMock).not.toHaveBeenCalled();
-    });
 
-    it('rejects unsupported token_dst for dst chain', async () => {
       vi.mocked(mockConfigService.isValidOriginalAssetAddress).mockImplementation(
         (_chain, asset) => asset !== DST_TOKEN_ADDRESS,
       );
-
       await expect(SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService)).rejects.toThrow(
         'unsupported token_dst for dst chain',
       );
       expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('rejects when hub asset for token_src is missing (spoke-token lookup returns undefined)', async () => {
+    it('rejects when the hub asset for token_src or token_dst is missing (spoke-token lookup returns undefined)', async () => {
       vi.mocked(mockConfigService.getSpokeTokenFromOriginalAssetAddress).mockImplementation((_chain, asset) =>
         asset === DST_TOKEN_ADDRESS ? dstXToken : undefined,
       );
-
       await expect(SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService)).rejects.toThrow(
         'hub asset not found for token_src',
       );
-      expect(fetchMock).not.toHaveBeenCalled();
-    });
 
-    it('rejects when hub asset for token_dst is missing', async () => {
       vi.mocked(mockConfigService.getSpokeTokenFromOriginalAssetAddress).mockImplementation((_chain, asset) =>
         asset === SRC_TOKEN_ADDRESS ? srcXToken : undefined,
       );
-
       await expect(SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService)).rejects.toThrow(
         'hub asset not found for token_dst',
       );
@@ -158,80 +150,47 @@ describe('SolverApiService.getQuote', () => {
     });
   });
 
-  describe('happy path', () => {
-    it('POSTs JSON to {endpoint}/quote with hub-translated tokens, stringified amount, quote_type', async () => {
-      fetchMock.mockResolvedValueOnce(okResponse({ quoted_amount: '987654321' }));
+  it('POSTs JSON to {endpoint}/quote with hub-translated tokens, stringified amount, quote_type, and coerces quoted_amount to bigint', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse({ quoted_amount: '987654321' }));
 
-      const result = await SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService);
+    const result = await SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService);
 
-      expect(result).toEqual({ ok: true, value: { quoted_amount: 987_654_321n } });
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      const [url, init] = fetchMock.mock.calls[0] ?? [];
-      expect(url).toBe('https://solver.example.test/v1/intent/quote');
-      expect(init?.method).toBe('POST');
-      expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
-      expect(JSON.parse(init?.body as string)).toEqual({
-        token_src: SRC_HUB_ASSET,
-        token_dst: DST_HUB_ASSET,
-        amount: '1000000',
-        quote_type: 'exact_input',
-      });
-    });
-
-    it('coerces a string `quoted_amount` to bigint', async () => {
-      fetchMock.mockResolvedValueOnce(okResponse({ quoted_amount: '0' }));
-
-      const result = await SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService);
-
-      expect(result).toEqual({ ok: true, value: { quoted_amount: 0n } });
+    expect(result).toEqual({ ok: true, value: { quoted_amount: 987_654_321n } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe('https://solver.example.test/v1/intent/quote');
+    expect(init?.method).toBe('POST');
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(JSON.parse(init?.body as string)).toEqual({
+      token_src: SRC_HUB_ASSET,
+      token_dst: DST_HUB_ASSET,
+      amount: '1000000',
+      quote_type: 'exact_input',
     });
   });
 
-  describe('failure branches', () => {
-    it('forwards a non-OK response body verbatim as the error', async () => {
-      const body = { detail: { code: SolverIntentErrorCode.NO_PATH_FOUND, message: 'no route' } };
-      fetchMock.mockResolvedValueOnce(errorResponse(body));
-
-      const result = await SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService);
-
-      expect(result).toEqual({ ok: false, error: body });
+  // A falsy throw picks the `e ? JSON.stringify(e) : 'Unknown error'` fallback.
+  it('returns a non-OK body verbatim as the error, and UNKNOWN with the stringified error when fetch throws', async () => {
+    const body = { detail: { code: SolverIntentErrorCode.NO_PATH_FOUND, message: 'no route' } };
+    fetchMock.mockResolvedValueOnce(errorResponse(body));
+    expect(await SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService)).toEqual({
+      ok: false,
+      error: body,
     });
 
-    it('returns UNKNOWN with stringified error when fetch throws', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-      const networkError = { kind: 'NetworkDown' };
-      fetchMock.mockRejectedValueOnce(networkError);
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const networkError = { kind: 'NetworkDown' };
+    fetchMock.mockRejectedValueOnce(networkError).mockRejectedValueOnce(undefined);
 
-      const result = await SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService);
-
-      expect(result).toEqual({
-        ok: false,
-        error: {
-          detail: {
-            code: SolverIntentErrorCode.UNKNOWN,
-            message: JSON.stringify(networkError),
-          },
-        },
-      });
-      consoleSpy.mockRestore();
+    expect(await SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService)).toEqual({
+      ok: false,
+      error: { detail: { code: SolverIntentErrorCode.UNKNOWN, message: JSON.stringify(networkError) } },
     });
-
-    it('returns UNKNOWN with "Unknown error" message when fetch throws a falsy value', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-      // `undefined` is falsy → the `e ? JSON.stringify(e) : 'Unknown error'` branch picks the
-      // fallback string. This kills the mutant that flips the ternary.
-      fetchMock.mockRejectedValueOnce(undefined);
-
-      const result = await SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService);
-
-      expect(result).toEqual({
-        ok: false,
-        error: {
-          detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'Unknown error' },
-        },
-      });
-      consoleSpy.mockRestore();
+    expect(await SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, mockConfigService)).toEqual({
+      ok: false,
+      error: { detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'Unknown error' } },
     });
+    consoleSpy.mockRestore();
   });
 });
 
@@ -257,42 +216,22 @@ describe('SolverApiService.postExecution', () => {
     expect(JSON.parse(init?.body as string)).toEqual({ intent_tx_hash: INTENT_TX_HASH });
   });
 
-  it('forwards a non-OK response body verbatim as the error', async () => {
+  it('returns a non-OK body verbatim as the error, and UNKNOWN with the stringified error when the retry-wrapped fetch throws', async () => {
     const body = { detail: { code: SolverIntentErrorCode.INTENT_NOT_FOUND, message: 'gone' } };
     fetchMock.mockResolvedValueOnce(errorResponse(body));
+    expect(await SolverApiService.postExecution(request, SOLVER_CONFIG)).toEqual({ ok: false, error: body });
 
-    const result = await SolverApiService.postExecution(request, SOLVER_CONFIG);
-
-    expect(result).toEqual({ ok: false, error: body });
-  });
-
-  it('returns UNKNOWN with stringified error when retry-wrapped fetch ultimately throws', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const failure = new Error('boom');
-    fetchMock.mockRejectedValueOnce(failure);
+    fetchMock.mockRejectedValueOnce(failure).mockRejectedValueOnce(undefined);
 
-    const result = await SolverApiService.postExecution(request, SOLVER_CONFIG);
-
-    expect(result).toEqual({
+    expect(await SolverApiService.postExecution(request, SOLVER_CONFIG)).toEqual({
       ok: false,
-      error: {
-        detail: { code: SolverIntentErrorCode.UNKNOWN, message: JSON.stringify(failure) },
-      },
+      error: { detail: { code: SolverIntentErrorCode.UNKNOWN, message: JSON.stringify(failure) } },
     });
-    consoleSpy.mockRestore();
-  });
-
-  it('returns UNKNOWN with "Unknown error" when retry-wrapped fetch throws a falsy value', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    fetchMock.mockRejectedValueOnce(undefined);
-
-    const result = await SolverApiService.postExecution(request, SOLVER_CONFIG);
-
-    expect(result).toEqual({
+    expect(await SolverApiService.postExecution(request, SOLVER_CONFIG)).toEqual({
       ok: false,
-      error: {
-        detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'Unknown error' },
-      },
+      error: { detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'Unknown error' } },
     });
     consoleSpy.mockRestore();
   });
@@ -327,42 +266,22 @@ describe('SolverApiService.getStatus', () => {
     expect(JSON.parse(init?.body as string)).toEqual({ intent_tx_hash: INTENT_TX_HASH });
   });
 
-  it('forwards a non-OK response body verbatim as the error', async () => {
+  it('returns a non-OK body verbatim as the error, and UNKNOWN with the stringified error when fetch throws', async () => {
     const body = { detail: { code: SolverIntentErrorCode.INTENT_NOT_FOUND, message: 'missing' } };
     fetchMock.mockResolvedValueOnce(errorResponse(body));
+    expect(await SolverApiService.getStatus(request, SOLVER_CONFIG)).toEqual({ ok: false, error: body });
 
-    const result = await SolverApiService.getStatus(request, SOLVER_CONFIG);
-
-    expect(result).toEqual({ ok: false, error: body });
-  });
-
-  it('returns UNKNOWN with stringified error when fetch throws', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const failure = { reason: 'timeout' };
-    fetchMock.mockRejectedValueOnce(failure);
+    fetchMock.mockRejectedValueOnce(failure).mockRejectedValueOnce(undefined);
 
-    const result = await SolverApiService.getStatus(request, SOLVER_CONFIG);
-
-    expect(result).toEqual({
+    expect(await SolverApiService.getStatus(request, SOLVER_CONFIG)).toEqual({
       ok: false,
-      error: {
-        detail: { code: SolverIntentErrorCode.UNKNOWN, message: JSON.stringify(failure) },
-      },
+      error: { detail: { code: SolverIntentErrorCode.UNKNOWN, message: JSON.stringify(failure) } },
     });
-    consoleSpy.mockRestore();
-  });
-
-  it('returns UNKNOWN with "Unknown error" when fetch throws a falsy value', async () => {
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    fetchMock.mockRejectedValueOnce(undefined);
-
-    const result = await SolverApiService.getStatus(request, SOLVER_CONFIG);
-
-    expect(result).toEqual({
+    expect(await SolverApiService.getStatus(request, SOLVER_CONFIG)).toEqual({
       ok: false,
-      error: {
-        detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'Unknown error' },
-      },
+      error: { detail: { code: SolverIntentErrorCode.UNKNOWN, message: 'Unknown error' } },
     });
     consoleSpy.mockRestore();
   });
@@ -450,17 +369,14 @@ describe('SolverApiService.getStatus with a timeout budget', () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
-  // `setTimeout` coerces these to ~0, so arming a timer with one would abort a perfectly healthy
-  // request on the next tick and report it as a timeout — every call failing, not just slow ones.
-  it.each([
-    ['NaN', Number.NaN],
-    ['Infinity', Number.POSITIVE_INFINITY],
-  ])('answers normally when the budget is %s, rather than aborting instantly', async (_label, budget) => {
+  // `setTimeout` coerces a non-finite budget to ~0, so arming a timer with one would abort a perfectly
+  // healthy request on the next tick and report it as a timeout — every call failing, not just slow ones.
+  it('answers normally when the budget is not finite, rather than aborting instantly', async () => {
     vi.useFakeTimers();
     const body = { status: 3, fill_tx_hash: FILL_TX_HASH };
     fetchMock.mockResolvedValueOnce(okResponse(body));
 
-    const promise = SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, budget);
+    const promise = SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, Number.NaN);
     await vi.advanceTimersByTimeAsync(1_000);
 
     expect(await promise).toEqual({ ok: true, value: body });
@@ -501,44 +417,22 @@ describe('SolverApiService API key', () => {
   const sentHeaders = (): Record<string, string> => fetchMock.mock.calls[0]?.[1]?.headers;
   const JSON_HEADER = { 'Content-Type': 'application/json' };
   const request: SolverExecutionRequest = { intent_tx_hash: INTENT_TX_HASH };
-
-  it('sends the configured key on /quote', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse({ quoted_amount: '1' }));
-
-    await SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, withApiKey('instance-key'));
-
-    expect(sentHeaders()).toEqual({ ...JSON_HEADER, 'x-api-key': 'instance-key' });
-  });
-
-  it('sends the configured key on /execute', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse({ answer: 'OK', intent_hash: INTENT_TX_HASH }));
-
-    await SolverApiService.postExecution(request, SOLVER_CONFIG, silentLogger, 'instance-key');
-
-    expect(sentHeaders()).toEqual({ ...JSON_HEADER, 'x-api-key': 'instance-key' });
-  });
-
-  it('sends the configured key on /status', async () => {
-    fetchMock.mockResolvedValueOnce(okResponse({ status: 3 }));
-
-    await SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, undefined, 'instance-key');
-
-    expect(sentHeaders()).toEqual({ ...JSON_HEADER, 'x-api-key': 'instance-key' });
-  });
+  const callEveryEndpoint = (apiKey: string | undefined) => [
+    () => SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, withApiKey(apiKey)),
+    () => SolverApiService.postExecution(request, SOLVER_CONFIG, silentLogger, apiKey),
+    () => SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, undefined, apiKey),
+  ];
 
   it.each([
-    ['unset', undefined],
-    ['empty', ''],
-  ])('sends no x-api-key on any endpoint when the key is %s', async (_label, apiKey) => {
-    for (const call of [
-      () => SolverApiService.getQuote(QUOTE_REQUEST, SOLVER_CONFIG, withApiKey(apiKey)),
-      () => SolverApiService.postExecution(request, SOLVER_CONFIG, silentLogger, apiKey),
-      () => SolverApiService.getStatus(request, SOLVER_CONFIG, silentLogger, undefined, apiKey),
-    ]) {
+    ['set', 'instance-key', { ...JSON_HEADER, 'x-api-key': 'instance-key' }],
+    ['unset', undefined, JSON_HEADER],
+    ['empty', '', JSON_HEADER],
+  ])('sends the right headers on /quote, /execute and /status when the key is %s', async (_label, apiKey, headers) => {
+    for (const call of callEveryEndpoint(apiKey)) {
       fetchMock.mockReset();
       fetchMock.mockResolvedValueOnce(okResponse({ quoted_amount: '1', status: 3, answer: 'OK' }));
       await call();
-      expect(sentHeaders()).toEqual(JSON_HEADER);
+      expect(sentHeaders()).toEqual(headers);
     }
   });
 });

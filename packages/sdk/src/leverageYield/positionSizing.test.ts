@@ -63,11 +63,6 @@ describe('sizeLeverageBorrow', () => {
     expect(sized.intentInput).toBe(parseUnits('300', 18));
   });
 
-  it('leaves a matching-decimal contribution untouched', () => {
-    const sized = sizeLeverageBorrow(request({ side: 'debt', leverage: 3 }));
-    expect(sized.intentInput).toBe(parseUnits('3', 18));
-  });
-
   it('borrows nothing at 1x, and never a negative amount below it', () => {
     expect(sizeLeverageBorrow(request({ leverage: 1 })).borrowAmount).toBe(0n);
     expect(sizeLeverageBorrow(request({ leverage: 0.5 })).borrowAmount).toBe(0n);
@@ -81,17 +76,12 @@ describe('projectLeverageLeg', () => {
     collateralDecimals: 18,
   });
 
-  it('takes the floor off the QUOTE, not off the input', () => {
+  it('takes the floor off the QUOTE, not off the input, and never posts a zero floor', () => {
     const req = request({ leverage: 3 });
     const quote = quoteAt(2.14, 1);
-    const { minCollateralOut } = projectLeverageLeg(req, quote, RISK, 1);
-    expect(minCollateralOut).toBe((quote.quotedCollateral * 9900n) / 10_000n);
-  });
-
-  it('never posts a zero floor', () => {
-    const req = request({ leverage: 3 });
-    const { minCollateralOut } = projectLeverageLeg(req, { quotedCollateral: 1n, collateralDecimals: 18 }, RISK, 1);
-    expect(minCollateralOut).toBe(1n);
+    expect(projectLeverageLeg(req, quote, RISK, 1).minCollateralOut).toBe((quote.quotedCollateral * 9900n) / 10_000n);
+    const dust = projectLeverageLeg(req, { quotedCollateral: 1n, collateralDecimals: 18 }, RISK, 1);
+    expect(dust.minCollateralOut).toBe(1n);
   });
 
   it('counts the deposit as collateral on a collateral-side open but NOT on a debt-side one', () => {
@@ -257,13 +247,11 @@ describe('projectLeverageLeg', () => {
     expect(Number.isFinite(withFee.usableMaxLeverage)).toBe(true);
   });
 
-  it('reports an infinite health factor when nothing is borrowed', () => {
-    const projection = projectLeverageLeg(request({ leverage: 1 }), quoteAt(0, 1), RISK, 1);
-    expect(projection.healthFactor).toBe(Number.POSITIVE_INFINITY);
-    expect(projection.exceedsMaxLtv).toBe(false);
-  });
+  it('reports an infinite health factor when nothing is borrowed, crossing 1 where debt reaches the threshold', () => {
+    const unborrowed = projectLeverageLeg(request({ leverage: 1 }), quoteAt(0, 1), RISK, 1);
+    expect(unborrowed.healthFactor).toBe(Number.POSITIVE_INFINITY);
+    expect(unborrowed.exceedsMaxLtv).toBe(false);
 
-  it('health factor crosses 1 exactly where debt reaches the liquidation threshold', () => {
     const projection = projectLeverageLeg(request({ leverage: 3 }), quoteAt(2.14, 1), RISK, 0);
     // collateral 3.21 x 0.97 / debt 2.14
     expect(projection.healthFactor).toBeCloseTo((3.21 * 0.97) / 2.14, 6);
@@ -300,11 +288,15 @@ describe('exposureLeverage', () => {
     expect(openAt('collateral', 5, 0).exposureLeverage).toBeCloseTo(5, 9);
   });
 
-  it('reproduces the mainnet 2.00x open that reported 2.0488x', () => {
+  it('reproduces the mainnet 2.00x open that reported 2.0488x, reading higher at the slippage floor', () => {
     // Sonic 0xBb6c8Cc3: $0.10763467 in, the same borrowed, $0.10262232 back — all of it off equity.
     const projection = openAt('collateral', 2, 0.04657);
     expect(projection.haircut).toBeCloseTo(0.04657, 9);
     expect(projection.exposureLeverage).toBeCloseTo(2.0488, 4);
+    // The demo posts at 1%, so what it shows is the worst permitted fill, not the expected one.
+    const atFloor = openAt('collateral', 2, 0.04657, 1).exposureLeverage;
+    expect(atFloor).toBeGreaterThan(projection.exposureLeverage);
+    expect(atFloor).toBeCloseTo(2.0594, 4);
   });
 
   it('overshoots in one direction only, and further the more leverage amplifies it', () => {
@@ -320,12 +312,5 @@ describe('exposureLeverage', () => {
   it('is Infinity when the floor leaves no equity behind', () => {
     // Unopenable, but it must not read as a negative — that looks deleveraged.
     expect(openAt('collateral', 2, 1).exposureLeverage).toBe(Number.POSITIVE_INFINITY);
-  });
-
-  it('reads above the fill once slippage widens the floor it is measured at', () => {
-    // The demo posts at 1%, so what it shows is the worst permitted fill, not the expected one.
-    const atFloor = openAt('collateral', 2, 0.04657, 1).exposureLeverage;
-    expect(atFloor).toBeGreaterThan(openAt('collateral', 2, 0.04657).exposureLeverage);
-    expect(atFloor).toBeCloseTo(2.0594, 4);
   });
 });

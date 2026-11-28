@@ -43,11 +43,7 @@ import { PublicKey } from '@solana/web3.js';
 import { Address as StellarAddress, xdr } from '@stellar/stellar-sdk';
 import { Cl, cvToString, deserializeCV, serializeCV } from '@sodax/libs/stacks/core';
 
-/**
- * True when `(chainKey, token)` denotes native BTC on the Bitcoin chain — the only transfer whose amount is
- * denominated in satoshis and therefore subject to `BITCOIN_DUST_SATS`. BTC-family tokens are 8-decimal,
- * so a base-unit amount equals its satoshi value on both the deposit (source) and delivery (destination) side.
- */
+/** Native BTC is the only transfer denominated in satoshis (subject to `BITCOIN_DUST_SATS`); BTC-family tokens are 8-decimal. */
 export function isNativeBitcoinTransfer(
   config: ConfigService,
   chainKey: SpokeChainKey,
@@ -99,23 +95,11 @@ export function randomUint256(): bigint {
   return BigInt(`0x${hex}`);
 }
 
-/**
- * Calculate the fee amount as a percentage of the input amount
- * @param {bigint} amount - The amount to calculate the fee for
- * @param {number} percentage - The percentage of the fee in basis points (e.g. 100 = 1%, 10000 = 100%)
- * @returns {bigint} The fee amount
- */
+/** `percentage` is in basis points (100 = 1%, 10000 = 100%). */
 export function calculatePercentageFeeAmount(amount: bigint, percentage: number) {
-  // Calculate fee as a percentage of the input amount
   return (amount * BigInt(percentage)) / FEE_PERCENTAGE_SCALE;
 }
 
-/**
- * Calculate the fee amount for a given input amount and fee
- * @param {bigint} inputAmount - The amount of input tokens
- * @param {PartnerFee} fee - The fee to calculate
- * @returns {bigint} The fee amount
- */
 export function calculateFeeAmount(inputAmount: bigint, fee: PartnerFee | undefined): bigint {
   if (!fee) {
     return 0n;
@@ -143,13 +127,6 @@ export function calculateFeeAmount(inputAmount: bigint, fee: PartnerFee | undefi
   return feeAmount;
 }
 
-/**
- * Adjust the amount by the fee amount based on the quote type
- * @param {bigint} amount - The amount to adjust
- * @param {PartnerFee | undefined} fee - The fee to adjust
- * @param {QuoteType} quoteType - The quote type
- * @returns {bigint} The adjusted amount
- */
 export function adjustAmountByFee(amount: bigint, fee: PartnerFee | undefined, quoteType: QuoteType): bigint {
   invariant(amount > 0n, 'Amount must be greater than 0');
   invariant(quoteType === 'exact_input', 'Invalid quote type');
@@ -166,9 +143,8 @@ export function BigIntToHex(value: bigint): Hex {
 }
 
 /**
- * Refuses a payout at or below its {@link MpcRelayPayoutMinimums} entry, or below its {@link MpcRelayPayoutFloors}
- * entry, before anything is signed: the relay takes its release fee from the payout and releases nothing once the
- * fee reaches it, and refuses a release under a floor, both after the hub has burned it.
+ * Refuses an MPC payout at/below its minimum or below its floor before signing: the relay takes its release
+ * fee from the payout and refuses a release under a floor, both after the hub has burned it.
  */
 export function assertMpcPayoutAboveMinimum({
   feature,
@@ -211,25 +187,15 @@ export function assertMpcPayoutAboveMinimum({
 }
 
 /**
- * Recipient bytes for a hub release — the `to` an `AssetManager.transfer` pays out to.
- *
- * This is NOT {@link encodeAddress}, which produces the withdrawal-auth identity / hub-wallet salt.
- * A non-EVM MPC-relay chain (Tron, XRP) reads `data[0..32]` as `12 zero bytes ‖ 20-byte hash`, so its
- * 20-byte identity is left-padded into a full word. An EVM MPC-relay chain (Monad) releases to a plain
- * 20-byte address: the relay does not decode the padded word, and sent one to the zero address.
- * Intent-relay chains keep their own encoding unchanged.
- *
- * TON is the exception: its identity is a public key, and a release pays the 32-byte account hash of
- * that key's wallet-v4R2 address, which already fills the word. Cardano pays the full raw address (29 or 57
- * bytes), which is neither the 28-byte key-hash identity nor a padded word.
+ * Recipient bytes for a hub release (`AssetManager.transfer` `to`), NOT the {@link encodeAddress} identity. Non-EVM
+ * MPC chains get a left-padded 20-byte hash, EVM MPC a plain address; TON pays its wallet hash, Cardano the raw address.
  */
 export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): Hex {
   if (getChainType(spokeChainId) === 'TON') return tonAddressHash(tonWalletAddress(address));
   if (getChainType(spokeChainId) === 'CARDANO') return cardanoRecipientBytes(address);
   if (!isMpcRelayChainKey(spokeChainId)) return encodeAddress(spokeChainId, address);
   if (getChainType(spokeChainId) === 'EVM') {
-    // `encodeAddress` passes EVM input through unchecked, and a malformed recipient here is released
-    // on-chain as-is, so validate before it reaches the hub.
+    // `encodeAddress` passes EVM input through unchecked and a malformed recipient is released as-is.
     if (!isAddress(address) || /^0x0{40}$/i.test(address)) {
       throw new Error(`[encodeRecipient] invalid EVM recipient for ${spokeChainId}: ${address}`);
     }
@@ -242,7 +208,7 @@ export function encodeRecipient(spokeChainId: SpokeChainKey, address: string): H
   return `0x${'00'.repeat(12)}${hash}`;
 }
 
-/** The 20-byte identity of an MPC-relay account, from either that identity or the padded `encodeRecipient` word intents store as srcAddress. */
+/** Accepts either the 20-byte identity or the padded `encodeRecipient` word intents store as srcAddress. */
 function mpcRelayIdentityHash(encoded: string, label: string): string {
   const hash = encoded.replace(/^0x/, '').toLowerCase();
   if (hash.length !== 64) return hash;
@@ -335,15 +301,13 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
   const chainType = getChainType(spokeChainId);
   switch (chainType) {
     case 'EVM':
-      // Strict: a wrong-length recipient ABI-encodes cleanly, the hub burns the tokens, and the
-      // spoke reverts with no refund path — EIP-55 is what catches a mistyped one. Lowercase passes.
+      // Strict: a wrong-length recipient ABI-encodes cleanly, the hub burns the tokens, and the spoke
+      // reverts with no refund path. Lowercase passes.
       invariant(isAddress(address), `Invalid EVM address: ${address}`);
       return address as Hex;
     case 'ICON': {
-      // Validate type + length before decoding: `Buffer.from(str, 'hex')` silently stops at the
-      // first non-hex char, and an unanchored `.replace()` would rewrite any `hx`/`cx` inside the
-      // body — either lets a malformed ICON destination slip into an intent. Anchor the prefix to
-      // the leading two chars and map it to the version byte (`hx` -> 00, `cx` -> 01).
+      // `Buffer.from(str, 'hex')` silently stops at the first non-hex char, so validate first; then map
+      // the anchored prefix to the version byte (`hx` -> 00, `cx` -> 01).
       invariant(isIconAddress(address), `Invalid ICON address: ${address}`);
       const version = address.slice(0, 2) === 'cx' ? '01' : '00';
       return toHex(Buffer.from(`${version}${address.slice(2)}`, 'hex'));
@@ -369,13 +333,10 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
       // Tron's hub-wallet identity is the 20-byte address hash: base58 payload without the 0x41 byte.
       return tronIdentityBytes(address);
     case 'XRP':
-      // XRPL's identity is the 20-byte AccountID — ripemd160(sha256(pubkey)) — which a classic
-      // `r…` address encodes. NOT the public key: the two are distinct and the contract derives
-      // one from the other.
+      // The 20-byte AccountID a classic `r…` address encodes, NOT the public key.
       return xrpIdentityBytes(address);
     case 'TON':
-      // TON's identity is the 32-byte ed25519 public key itself: a TON address is a hash of the
-      // wallet's StateInit and cannot be inverted, so the key is what the relay identifies users by.
+      // The 32-byte ed25519 public key: a TON address hashes the StateInit and cannot be inverted.
       return tonIdentityBytes(address);
     case 'ZCASH':
       // The 20-byte hash160 a transparent t1 address encodes — the identity scheme 6 recovers.
@@ -390,12 +351,7 @@ export function encodeAddress(spokeChainId: SpokeChainKey, address: string): Hex
   }
 }
 
-/**
- * Encode a chain-native TOKEN IDENTIFIER for hub-side encoding. On BITCOIN/NEAR/INJECTIVE these are
- * not addresses ('0:0', '897442:43', 'inj', 'factory/…', 'NEAR') — utf-8 identifier semantics, so
- * they must not hit {@link encodeAddress}'s recipient validators. Every other family's token IS an
- * address and keeps the validated path.
- */
+/** Token identifiers on BITCOIN/NEAR/INJECTIVE are not addresses ('0:0', 'inj', 'factory/…'), so skip recipient validation. */
 export function encodeTokenIdentifier(spokeChainId: SpokeChainKey, token: string): Hex {
   switch (getChainType(spokeChainId)) {
     case 'BITCOIN':
@@ -407,9 +363,7 @@ export function encodeTokenIdentifier(spokeChainId: SpokeChainKey, token: string
   }
 }
 
-/**
- * Decode a hub-style hex address produced by {@link encodeAddress} back to the chain-native string form.
- */
+/** Inverse of {@link encodeAddress}. */
 export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex): string {
   const chainType = getChainType(spokeChainId);
   switch (chainType) {
@@ -469,26 +423,20 @@ export function reverseEncodeAddress(spokeChainId: SpokeChainKey, encoded: Hex):
   }
 }
 
-/**
- * Convert a valid hexadecimal string (with or without "0x") to BigInt.
- * Throws on invalid hex.
- */
 export function hexToBigInt(hex: string): bigint {
   const trimmed = hex.trim().toLowerCase();
 
-  // Validate hex: only digits 0-9 and letters a-f, optional 0x prefix
   const isValid = /^(0x)?[0-9a-f]+$/.test(trimmed);
   if (!isValid) {
     throw new Error(`Invalid hex string: "${hex}"`);
   }
 
-  // Normalize with 0x prefix to make BigInt parse it as hexadecimal
   const normalized = trimmed.startsWith('0x') ? trimmed : `0x${trimmed}`;
   return BigInt(normalized);
 }
 
 export function parseToStroops(amount: string): bigint {
-  // Scale decimal string to integer stroops (1e7 multiplier)
+  // 1 XLM = 1e7 stroops.
   return BigInt(Math.round(Number.parseFloat(amount) * 1e7));
 }
 

@@ -12,13 +12,6 @@ export type UseLeverageYieldApiVaultsParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch the registry of deployed leverage-yield vaults via the leverage-yield API —
- * `sodax.api.leverageYield.getVaults`.
- *
- * @example
- * const { data: vaults } = useLeverageYieldApiVaults();
- */
 export const useLeverageYieldApiVaults = ({
   params,
   queryOptions,

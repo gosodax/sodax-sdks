@@ -9,11 +9,6 @@ import {
 } from './notFoundStreak.js';
 import { getSolverStatusRefetchInterval, isSolverNotFound } from './solverStatusPolicy.js';
 
-/**
- * Guards the polling-stop invariant for `useStatus.refetchInterval`: keep polling until SOLVED/
- * FAILED, or until NOT_FOUND has been consecutive for MAX_NOT_FOUND_POLLS successful fetches.
- * Tested as a pure function because dapp-kit's vitest runs in the `node` environment.
- */
 const HASH_A = '0xaaa';
 const HASH_B = '0xbbb';
 const ok = (status: SolverIntentStatusCode) => ({ ok: true as const, value: { status } });

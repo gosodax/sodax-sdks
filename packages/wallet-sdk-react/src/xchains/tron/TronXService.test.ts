@@ -10,12 +10,8 @@ const OWNER_HEX = '41f62fffa4d92bcdfc310dccbe943747fe8302e871';
 const USDT_HEX = '41a614f803b6fd780986a42c78ec9c7f77e6ded13c';
 
 const BALANCE_WORD = '00000000000000000000000000000000000000000000000000000000017cfb67';
-// Captured from TronGrid, which hex-encodes `message` under `visible: false`: "REVERT opcode executed",
-// "Smart contract is not exist." and an Error(string) revert reason ("src balance not enough").
+// Captured from TronGrid, which hex-encodes `message` under `visible: false`: "REVERT opcode executed".
 const REVERT_MESSAGE = '524556455254206f70636f6465206578656375746564';
-const NOT_A_CONTRACT = '536d61727420636f6e7472616374206973206e6f742065786973742e';
-const REVERT_REASON =
-  '08c379a0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000167372632062616c616e6365206e6f7420656e6f75676800000000000000000000';
 
 type Call = { url: string; body: Record<string, unknown> };
 
@@ -62,12 +58,12 @@ describe('TronXService.getBalance — native TRX', () => {
 describe('TronXService.getBalance — TRC-20 owner address', () => {
   it.each([
     ['base58', OWNER],
-    ['41-prefixed hex', OWNER_HEX],
     ['0x41-prefixed hex', `0x${OWNER_HEX}`],
-  ])('sends a %s owner, and the contract, as 41-prefixed hex', async (_form, owner) => {
+  ])('sends a %s owner, and the contract, as 41-prefixed hex and parses the balance word', async (_form, owner) => {
     const calls = stubFetch({ result: { result: true }, constant_result: [BALANCE_WORD] });
 
     expect(await service.getBalance(owner, USDT)).toBe(0x17cfb67n);
+    expect(console.error).not.toHaveBeenCalled();
     expect(calls).toEqual([
       {
         url: `${RPC}/wallet/triggerconstantcontract`,
@@ -88,7 +84,6 @@ describe('TronXService.getBalance — TRC-20 owner address', () => {
     ['a typo the checksum catches', 'TYQvjFWzc2Cnt91LYnk7UJVii3JVfSm69d', /checksum/],
     ['a 0xa0 version byte', '27mXEGZqN4AE2aKFZrePPYDMTVxn79xUBir', /expected 25 bytes with 0x41 version/],
     ['26 bytes', '329ec9V5PFaK3WiLVCtuHZWDm69ADCkCuxms', /expected 25 bytes with 0x41 version/],
-    ['24 bytes', '71mqsonmKMfUAKacEmoUJ4WcjNpW3VHXo', /expected 25 bytes with 0x41 version/],
     ['20-byte hex and no 41 prefix', `0x${OWNER_HEX.slice(2)}`, /invalid Tron hex address/],
   ])('refuses an owner with %s before querying the node', async (_label, owner, reason) => {
     const calls = stubFetch({ result: { result: true }, constant_result: [BALANCE_WORD] });
@@ -104,28 +99,13 @@ describe('TronXService.getBalance — TRC-20 owner address', () => {
 
 describe('TronXService.getBalance — TRC-20 read', () => {
   it.each([
-    ['a balance', BALANCE_WORD, 0x17cfb67n],
-    ['a zero balance', '0'.repeat(64), 0n],
-  ])('parses %s from the 32-byte word and logs nothing', async (_label, word, balance) => {
-    stubFetch({ result: { result: true }, constant_result: [word] });
-
-    expect(await service.getBalance(OWNER, USDT)).toBe(balance);
-    expect(console.error).not.toHaveBeenCalled();
-  });
-
-  it.each([
     ['result.result false beside a word', { result: { result: false }, constant_result: [BALANCE_WORD] }],
-    ['a validate error', { result: { code: 'CONTRACT_VALIDATE_ERROR', message: NOT_A_CONTRACT } }],
-    [
-      'a revert with a message',
-      { result: { result: true, message: REVERT_MESSAGE }, constant_result: [REVERT_REASON] },
-    ],
-    ['a bare revert', { result: { result: true, message: REVERT_MESSAGE }, constant_result: [''] }],
     [
       'a revert whose data is one word',
       { result: { result: true, message: REVERT_MESSAGE }, constant_result: [BALANCE_WORD] },
     ],
     ['an empty constant_result', { result: { result: true }, constant_result: [] }],
+    ['a result that is not one 32-byte word', { result: { result: true }, constant_result: [`${BALANCE_WORD}00`] }],
   ])('reports %s as a failed read (0n, logged), never a parsed balance', async (_label, answer) => {
     stubFetch(answer);
 

@@ -1,4 +1,3 @@
-// packages/sdk/src/services/staking/StakingService.ts
 import { erc20Abi, type Address, type Hex } from 'viem';
 import { StakingLogic } from './StakingLogic.js';
 import { stakedSodaAbi } from '../shared/abis/index.js';
@@ -82,19 +81,19 @@ function refuseMpcRelaySource(ctx: {
 }
 
 export type StakeParams<K extends SpokeChainKey> = {
-  srcChainKey: K; // chain key of the spoke chain to stake from
-  srcAddress: Address; // account to stake from
-  amount: bigint; // amount to stake
-  minReceive: bigint; // minimum amount to receive
+  srcChainKey: K;
+  srcAddress: Address;
+  amount: bigint;
+  minReceive: bigint;
   action: 'stake';
 };
 
 export type StakeAction<K extends SpokeChainKey, Raw extends boolean> = SpokeExecActionParams<K, Raw, StakeParams<K>>;
 
 export type UnstakeParams<K extends SpokeChainKey> = {
-  srcChainKey: K; // chain key of the spoke chain to unstake from
-  srcAddress: Address; // account to unstake from
-  amount: bigint; // amount of xSoda to unstake
+  srcChainKey: K;
+  srcAddress: Address;
+  amount: bigint; // xSoda amount
   action: 'unstake';
 };
 
@@ -106,9 +105,9 @@ export type UnstakeAction<K extends SpokeChainKey, Raw extends boolean> = SpokeE
 
 export type ClaimParams<K extends SpokeChainKey> = {
   srcAddress: Address;
-  srcChainKey: K; // chain key of the spoke chain to claim from
+  srcChainKey: K;
   requestId: bigint;
-  amount: bigint; // claimable amount after penalty calculation
+  amount: bigint; // claimable amount after penalty
   action: 'claim';
 };
 
@@ -116,7 +115,7 @@ export type ClaimAction<K extends SpokeChainKey, Raw extends boolean> = SpokeExe
 
 export type CancelUnstakeParams<K extends SpokeChainKey> = {
   srcAddress: Address;
-  srcChainKey: K; // chain key of the spoke chain to cancel unstake from
+  srcChainKey: K;
   requestId: bigint;
   action: 'cancelUnstake';
 };
@@ -129,7 +128,7 @@ export type CancelUnstakeAction<K extends SpokeChainKey, Raw extends boolean> = 
 
 export type InstantUnstakeParams<K extends SpokeChainKey> = {
   srcAddress: Address;
-  srcChainKey: K; // chain key of the spoke chain to instant unstake from
+  srcChainKey: K;
   amount: bigint;
   minAmount: bigint;
   action: 'instantUnstake';
@@ -155,11 +154,11 @@ export type StakingParamsUnion<K extends SpokeChainKey, Raw extends boolean> = S
 >;
 
 export type StakingInfo = {
-  totalStaked: bigint; // Total SODA staked (totalAssets from xSODA vault)
-  totalUnderlying: bigint; // Total underlying SODA assets in the vault
-  userXSodaBalance: bigint; // User's xSODA shares (raw balance)
-  userXSodaValue: bigint; // User's xSODA value in SODA (converted)
-  userUnderlying: bigint; // User's underlying SODA amount
+  totalStaked: bigint; // xSODA vault totalAssets
+  totalUnderlying: bigint;
+  userXSodaBalance: bigint; // raw xSODA shares
+  userXSodaValue: bigint; // shares converted to SODA
+  userUnderlying: bigint;
 };
 
 export type UnstakingInfo = {
@@ -186,18 +185,8 @@ export type StakingServiceConstructorParams = {
 };
 
 /**
- * Orchestrates all SODA token staking operations on the SODAX hub-and-spoke network.
- *
- * Users stake SODA to receive xSoda shares (ERC-4626 vault). The full lifecycle is:
- * - **Stake**: deposit SODA on any spoke chain → receive xSoda on the hub (Sonic)
- * - **Unstake**: initiate a delayed withdrawal; a linear penalty applies until the full unstaking period elapses
- * - **Instant unstake**: bypass the waiting period by paying slippage through the StakingRouter
- * - **Claim**: redeem SODA after the unstaking period expires
- * - **Cancel unstake**: abort a pending unstake request and re-stake the underlying SODA as xSoda
- *
- * All mutating methods follow the intent pattern: a `create*Intent` method submits the spoke-chain
- * transaction and returns relay data, while the matching top-level method (`stake`, `unstake`, …)
- * additionally relays the intent to the hub and waits for the cross-chain packet to land.
+ * SODA staking into the hub xSoda ERC-4626 vault; unstake carries a linear penalty until the period elapses.
+ * `create*Intent` methods submit the spoke tx only; the top-level methods also relay to the hub and wait for the packet.
  */
 export class StakingService {
   private readonly hubProvider: EvmHubProvider;
@@ -212,17 +201,7 @@ export class StakingService {
     this.spoke = spoke;
   }
 
-  /**
-   * Checks whether the current token allowance is sufficient for the requested staking action.
-   *
-   * Relevant only for `stake`, `unstake`, and `instantUnstake` actions:
-   * - For EVM spoke chains: verifies the spoke asset-manager (or hub wallet for hub-chain ops) has enough allowance.
-   * - For Stellar: delegates to the spoke's allowance check.
-   * - For other non-EVM chains: no on-chain allowance is required; always resolves `true`.
-   *
-   * @param _params - Typed action params union including the action discriminant, source chain, address, and amount.
-   * @returns `{ ok: true, value: true }` when allowance is sufficient; `{ ok: false, error }` on failure or unsupported action.
-   */
+  /** Allowance check for `stake`/`unstake`/`instantUnstake`; EVM and Stellar only, other chains always resolve `true`. */
   public async isAllowanceValid<K extends SpokeChainKey, Raw extends boolean>(
     _params: StakingParamsUnion<K, Raw>,
   ): Promise<Result<boolean, StakingAllowanceCheckError>> {
@@ -243,8 +222,6 @@ export class StakingService {
           : this.hubProvider.chainConfig.addresses.xSoda;
       stakingInvariant(targetToken, 'Target token not found', { ...baseCtx, field: 'targetToken' });
 
-      // Compute the underlying Result<boolean> across chain-type paths, then wrap any
-      // spoke-layer failure as STAKING_ALLOWANCE_CHECK_FAILED at the single return point below.
       let inner: Result<boolean> = { ok: true, value: true };
 
       if (isEvmSpokeOnlyChainKeyType(params.srcChainKey) || isHubChainKeyType(params.srcChainKey)) {
@@ -267,8 +244,6 @@ export class StakingService {
           owner: params.srcAddress,
         });
       }
-      // For other non-EVM chains (Icon, Sui, NEAR, Bitcoin, etc.), no allowance check is
-      // required — `inner` keeps its default `{ ok: true, value: true }` initialiser.
 
       if (inner.ok) return inner;
       return {
@@ -284,19 +259,7 @@ export class StakingService {
     }
   }
 
-  /**
-   * Submits a token-spending approval on the source chain for a `stake`, `unstake`, or `instantUnstake` action.
-   *
-   * The spender address is resolved automatically:
-   * - Hub chain: the user's hub wallet (derived from spoke address)
-   * - EVM spoke chain: the chain's asset-manager contract
-   *
-   * Must be called before executing the corresponding action whenever `isAllowanceValid` returns `false`.
-   * Only EVM (spoke + hub) and Stellar chains support approvals; all other chains return an error.
-   *
-   * @param _params - Typed action params including `raw` flag and a chain-appropriate wallet provider.
-   * @returns The approval transaction hash (or raw call data when `raw: true`), wrapped in `Result`.
-   */
+  /** Approves the hub wallet (hub chain) or asset manager (EVM spoke); only EVM and Stellar support approvals. */
   public async approve<K extends SpokeChainKey, Raw extends boolean>(
     _params: StakingParamsUnion<K, Raw>,
   ): Promise<Result<TxReturnType<K, Raw>, StakingApproveError>> {
@@ -390,8 +353,6 @@ export class StakingService {
         };
       }
 
-      // Reached only for chains that don't support approval (Solana, NEAR, Bitcoin, Icon, Sui, etc.).
-      // Surface as a validation failure rather than a generic Error so consumers can discriminate.
       stakingInvariant(false, 'Approval only supported for EVM spoke chains and Stellar', {
         ...baseCtx,
         field: 'srcChainKey',
@@ -402,17 +363,7 @@ export class StakingService {
     }
   }
 
-  /**
-   * Stakes SODA tokens from a spoke chain and relays the intent to the hub, waiting for confirmation.
-   *
-   * Internally calls `createStakeIntent` to submit on the spoke, then relays the cross-chain packet
-   * and waits for the hub transaction to land. For hub-chain callers the spoke and hub hashes are identical.
-   *
-   * Prerequisite: call `isAllowanceValid` + `approve` before staking on EVM chains.
-   *
-   * @param _params - Stake action params: source chain/address, SODA amount, minReceive slippage guard, and wallet provider.
-   * @returns `{ ok: true, value: { srcChainTxHash, dstChainTxHash } }` on success.
-   */
+  /** Stakes SODA and waits for the hub tx; for hub-chain callers both hashes are identical. */
   public async stake<K extends SpokeChainKey>(
     _params: StakeAction<K, false>,
   ): Promise<Result<TxHashPair, StakeOrchestrationError>> {
@@ -424,10 +375,8 @@ export class StakingService {
         const baseCtx = { srcChainKey: params.srcChainKey, action: 'stake' as const };
         try {
           const txResult = await this.createStakeIntent(_params);
-          // CreateStakeIntentErrorCode ⊂ StakeErrorCode, so SodaxError narrows correctly.
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
-          // verify the spoke tx hash exists on chain
           const verifyTxHashResult = await this.spoke.verifyTxHash({
             txHash: txResult.value.tx,
             chainKey: params.srcChainKey,
@@ -489,19 +438,6 @@ export class StakingService {
     );
   }
 
-  /**
-   * Submits the stake transaction on the spoke chain without relaying to the hub.
-   *
-   * Encodes the full stake call sequence via `buildStakeData` and invokes the spoke deposit.
-   * Returns both the spoke transaction result and the relay data needed to forward the intent
-   * to the hub in a subsequent step.
-   *
-   * Use this when you need fine-grained control over the relay step. For the complete end-to-end
-   * flow (spoke + relay + hub confirmation), use `stake` instead.
-   *
-   * @param _params - Stake action params; set `raw: true` to receive ABI-encoded call data instead of broadcasting.
-   * @returns `IntentTxResult` containing the spoke tx result and `relayData` (hub wallet address + encoded payload).
-   */
   async createStakeIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: StakeAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, StakingCreateIntentError>> {
@@ -565,20 +501,6 @@ export class StakingService {
     }
   }
 
-  /**
-   * Encodes the multi-call hub payload for a stake operation via the StakingRouter.
-   *
-   * The encoded sequence is:
-   * 1. ERC-20 approve of the hub SODA asset to the xSoda vault
-   * 2. ERC-4626 deposit of SODA into the xSoda vault
-   * 3. ERC-20 approve of xSoda to the StakingRouter
-   * 4. StakingRouter.stake to deliver xSoda shares to the hub wallet
-   *
-   * @param sodaAsset - Full xToken descriptor for SODA on the spoke chain (provides vault and hub-asset addresses).
-   * @param to - Hub wallet address that will receive the resulting xSoda shares.
-   * @param params - Stake params carrying the SODA amount and minReceive slippage guard.
-   * @returns ABI-encoded batch call payload to be forwarded to the hub.
-   */
   public buildStakeData(sodaAsset: XToken, to: Address, params: StakeParams<SpokeChainKey>): Hex {
     const hubConfig = this.config.getHubChainConfig();
     const sodaVault = sodaAsset.vault;
@@ -593,18 +515,7 @@ export class StakingService {
     return encodeContractCalls(calls);
   }
 
-  /**
-   * Initiates an unstake request for xSoda shares and relays the intent to the hub.
-   *
-   * Unstaking begins a waiting period. The user receives SODA only after calling `claim` once
-   * the period elapses. Early claims incur a penalty (see `getStakingConfig`). For immediate
-   * redemption without a waiting period, use `instantUnstake` instead.
-   *
-   * Prerequisite: call `isAllowanceValid` + `approve` before unstaking on EVM chains.
-   *
-   * @param _params - Unstake action params: source chain/address, xSoda amount, and wallet provider.
-   * @returns `{ ok: true, value: { srcChainTxHash, dstChainTxHash } }` on success.
-   */
+  /** Starts a delayed unstake request; SODA is received via `claim`, with a penalty if claimed early. */
   public async unstake<K extends SpokeChainKey>(
     _params: UnstakeAction<K, false>,
   ): Promise<Result<TxHashPair, StakingOrchestrationError>> {
@@ -616,7 +527,6 @@ export class StakingService {
         const baseCtx = { srcChainKey: params.srcChainKey, action: 'unstake' as const };
         try {
           const txResult = await this.createUnstakeIntent(_params);
-          // CreateUnstakeIntentErrorCode ⊂ UnstakeErrorCode, so SodaxError narrows correctly.
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
           let hubTxHash: string;
@@ -667,17 +577,6 @@ export class StakingService {
     );
   }
 
-  /**
-   * Submits the unstake transaction on the spoke chain without relaying to the hub.
-   *
-   * Converts the xSoda share amount to its underlying SODA value on-chain, then encodes and
-   * sends the `sendMessage` spoke transaction carrying the hub payload built by `buildUnstakeData`.
-   *
-   * Use this when you need manual control over the relay step. For the full end-to-end flow use `unstake`.
-   *
-   * @param _params - Unstake action params; set `raw: true` to receive ABI-encoded call data instead of broadcasting.
-   * @returns `IntentTxResult` containing the spoke tx result and `relayData` (hub wallet address + encoded payload).
-   */
   async createUnstakeIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: UnstakeAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, StakingCreateIntentError>> {
@@ -737,19 +636,6 @@ export class StakingService {
     }
   }
 
-  /**
-   * Encodes the multi-call hub payload for an unstake operation.
-   *
-   * The encoded sequence is:
-   * 1. xSoda ERC-4626 redeem — burns the xSoda shares and releases underlying SODA to the hub wallet
-   * 2. StakedSoda.unstake — places the SODA into an unstake request with a waiting period
-   *
-   * @param hubWallet - Hub wallet address that owns the xSoda shares and will hold the unstake request.
-   * @param params - Unstake params carrying the xSoda share amount.
-   * @param xSoda - Address of the xSoda ERC-4626 vault contract.
-   * @param underlyingSodaAmount - Pre-computed SODA equivalent of the xSoda shares (from `convertXSodaSharesToSoda`).
-   * @returns ABI-encoded batch call payload to be forwarded to the hub.
-   */
   public buildUnstakeData<K extends SpokeChainKey>(
     hubWallet: Address,
     params: UnstakeParams<K>,
@@ -764,18 +650,7 @@ export class StakingService {
     return encodeContractCalls(calls);
   }
 
-  /**
-   * Instantly redeems xSoda shares for SODA without a waiting period and relays the intent to the hub.
-   *
-   * Routes through the StakingRouter which provides immediate liquidity at the cost of slippage.
-   * Use `getInstantUnstakeRatio` to preview the SODA output before calling this method. For a
-   * delayed but penalty-free redemption, use `unstake` + `claim` instead.
-   *
-   * Prerequisite: call `isAllowanceValid` + `approve` before instant unstaking on EVM chains.
-   *
-   * @param _params - Instant unstake action params: source chain/address, xSoda amount, minAmount slippage guard, and wallet provider.
-   * @returns `{ ok: true, value: { srcChainTxHash, dstChainTxHash } }` on success.
-   */
+  /** Redeems xSoda immediately via the StakingRouter at the cost of slippage (preview with `getInstantUnstakeRatio`). */
   public async instantUnstake<K extends SpokeChainKey>(
     _params: InstantUnstakeAction<K, false>,
   ): Promise<Result<TxHashPair, StakingOrchestrationError>> {
@@ -787,7 +662,6 @@ export class StakingService {
         const baseCtx = { srcChainKey: params.srcChainKey, action: 'instantUnstake' as const };
         try {
           const txResult = await this.createInstantUnstakeIntent(_params);
-          // CreateInstantUnstakeIntentErrorCode ⊂ InstantUnstakeErrorCode.
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
           let hubTxHash: string;
@@ -839,18 +713,6 @@ export class StakingService {
     );
   }
 
-  /**
-   * Submits the instant-unstake transaction on the spoke chain without relaying to the hub.
-   *
-   * Encodes and sends the `sendMessage` spoke transaction carrying the hub payload built by
-   * `buildInstantUnstakeData`. The StakingRouter will swap xSoda for SODA immediately on the hub
-   * and bridge the SODA back to the caller's source chain.
-   *
-   * Use this when you need manual control over the relay step. For the full end-to-end flow use `instantUnstake`.
-   *
-   * @param _params - Instant unstake action params; set `raw: true` to receive ABI-encoded call data instead of broadcasting.
-   * @returns `IntentTxResult` containing the spoke tx result and `relayData` (hub wallet address + encoded payload).
-   */
   async createInstantUnstakeIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: InstantUnstakeAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, StakingCreateIntentError>> {
@@ -917,19 +779,6 @@ export class StakingService {
     }
   }
 
-  /**
-   * Encodes the multi-call hub payload for an instant-unstake operation via the StakingRouter.
-   *
-   * The encoded sequence is:
-   * 1. ERC-20 approve of xSoda to the StakingRouter
-   * 2. StakingRouter.unstake — swaps xSoda for SODA and bridges the proceeds to the destination chain/wallet
-   *
-   * @param sodaAsset - Full xToken descriptor for SODA (provides the hub asset address for the bridge leg).
-   * @param dstChainKey - Spoke chain key where the redeemed SODA should be delivered.
-   * @param dstWallet - ABI-encoded destination wallet address on the destination chain.
-   * @param params - Instant-unstake params carrying the xSoda amount and minAmount slippage guard.
-   * @returns ABI-encoded batch call payload to be forwarded to the hub.
-   */
   public buildInstantUnstakeData<K extends SpokeChainKey>(
     sodaAsset: XToken,
     dstChainKey: SpokeChainKey,
@@ -956,15 +805,7 @@ export class StakingService {
     return encodeContractCalls(calls);
   }
 
-  /**
-   * Claims SODA from a fully-elapsed unstake request and relays the intent to the hub.
-   *
-   * Requires the unstaking period to have passed. For early claims (where a penalty applies)
-   * consider using `getUnstakingInfoWithPenalty` first to preview the claimable amount.
-   *
-   * @param _params - Claim action params: source chain/address, requestId, claimable SODA amount, and wallet provider.
-   * @returns `{ ok: true, value: { srcChainTxHash, dstChainTxHash } }` on success.
-   */
+  /** Claims SODA from an unstake request; preview the post-penalty amount with `getUnstakingInfoWithPenalty`. */
   public async claim<K extends SpokeChainKey>(
     _params: ClaimAction<K, false>,
   ): Promise<Result<TxHashPair, StakingOrchestrationError>> {
@@ -976,7 +817,6 @@ export class StakingService {
         const baseCtx = { srcChainKey: params.srcChainKey, action: 'claim' as const };
         try {
           const txResult = await this.createClaimIntent(_params);
-          // CreateClaimIntentErrorCode ⊂ ClaimErrorCode.
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
           let hubTxHash: string;
@@ -1028,17 +868,6 @@ export class StakingService {
     );
   }
 
-  /**
-   * Submits the claim transaction on the spoke chain without relaying to the hub.
-   *
-   * Encodes and sends the `sendMessage` spoke transaction carrying the hub payload built by
-   * `buildClaimData`. The hub will release the SODA and bridge it back to the caller's chain.
-   *
-   * Use this when you need manual control over the relay step. For the full end-to-end flow use `claim`.
-   *
-   * @param _params - Claim action params; set `raw: true` to receive ABI-encoded call data instead of broadcasting.
-   * @returns `IntentTxResult` containing the spoke tx result and `relayData` (hub wallet address + encoded payload).
-   */
   async createClaimIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: ClaimAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, StakingCreateIntentError>> {
@@ -1105,22 +934,6 @@ export class StakingService {
     }
   }
 
-  /**
-   * Encodes the multi-call hub payload for a claim operation.
-   *
-   * The encoded sequence is:
-   * 1. StakedSoda.claim — finalises the unstake request and releases underlying SODA
-   * 2. SODA vault token withdraw — unwraps the SODA hub asset from its vault token wrapper
-   * 3. Transfer of the claimable SODA to the destination wallet:
-   *    - Same-chain (hub): plain ERC-20 transfer
-   *    - Cross-chain (spoke): asset-manager bridge transfer
-   *
-   * @param sodaAsset - Full xToken descriptor for SODA (provides vault and hub-asset addresses).
-   * @param dstChainKey - Spoke chain key where the claimed SODA should be delivered.
-   * @param dstWallet - ABI-encoded destination wallet address on the destination chain.
-   * @param params - Claim params carrying the requestId and the pre-computed claimable SODA amount.
-   * @returns ABI-encoded batch call payload to be forwarded to the hub.
-   */
   public buildClaimData<K extends SpokeChainKey>(
     sodaAsset: XToken,
     dstChainKey: SpokeChainKey,
@@ -1132,7 +945,6 @@ export class StakingService {
     const sodaVault = sodaAsset.vault;
     const calls: EvmContractCall[] = [];
     calls.push(StakingLogic.encodeClaim(stakedSoda, params.requestId));
-    // Transfer the claimable amount to the destination wallet
     calls.push(EvmVaultTokenService.encodeWithdraw(sodaVault, sodaAsset.hubAsset, params.amount));
     const translatedAmountOut = EvmVaultTokenService.translateOutgoingDecimals(sodaAsset.decimals, params.amount);
 
@@ -1152,15 +964,7 @@ export class StakingService {
     return encodeContractCalls(calls);
   }
 
-  /**
-   * Cancels a pending unstake request and re-stakes the underlying SODA as xSoda shares.
-   *
-   * Aborts the waiting period and redeposits the SODA back into the xSoda vault so the user
-   * continues earning staking rewards. The re-staked xSoda is credited to the hub wallet.
-   *
-   * @param _params - Cancel-unstake action params: source chain/address, requestId, and wallet provider.
-   * @returns `{ ok: true, value: { srcChainTxHash, dstChainTxHash } }` on success.
-   */
+  /** Cancels a pending unstake request and re-stakes the SODA as xSoda credited to the hub wallet. */
   public async cancelUnstake<K extends SpokeChainKey>(
     _params: CancelUnstakeAction<K, false>,
   ): Promise<Result<TxHashPair, StakingOrchestrationError>> {
@@ -1172,7 +976,6 @@ export class StakingService {
         const baseCtx = { srcChainKey: params.srcChainKey, action: 'cancelUnstake' as const };
         try {
           const txResult = await this.createCancelUnstakeIntent(_params);
-          // CreateCancelUnstakeIntentErrorCode ⊂ CancelUnstakeErrorCode.
           if (!txResult.ok) return { ok: false, error: txResult.error };
 
           let hubTxHash: string;
@@ -1223,17 +1026,6 @@ export class StakingService {
     );
   }
 
-  /**
-   * Submits the cancel-unstake transaction on the spoke chain without relaying to the hub.
-   *
-   * Encodes and sends the `sendMessage` spoke transaction carrying the hub payload built by
-   * `buildCancelUnstakeData`. The hub will abort the unstake request and redeposit the SODA as xSoda.
-   *
-   * Use this when you need manual control over the relay step. For the full end-to-end flow use `cancelUnstake`.
-   *
-   * @param _params - Cancel-unstake action params; set `raw: true` to receive ABI-encoded call data instead of broadcasting.
-   * @returns `IntentTxResult` containing the spoke tx result and `relayData` (hub wallet address + encoded payload).
-   */
   async createCancelUnstakeIntent<K extends SpokeChainKey, Raw extends boolean>(
     _params: CancelUnstakeAction<K, Raw>,
   ): Promise<Result<IntentTxResult<K, Raw>, StakingCreateIntentError>> {
@@ -1290,19 +1082,7 @@ export class StakingService {
     }
   }
 
-  /**
-   * Fetches the pending unstake request on-chain and encodes the hub payload to cancel it.
-   *
-   * The encoded sequence is:
-   * 1. StakedSoda.cancelUnstakeRequest — removes the unstake request and returns the SODA
-   * 2. ERC-20 approve of the returned SODA to the xSoda vault
-   * 3. xSoda ERC-4626 deposit — re-stakes the SODA as xSoda shares for the hub wallet
-   *
-   * @param params - Cancel-unstake params carrying the requestId used to look up the on-chain request.
-   * @param hubWallet - Hub wallet address that owns the unstake request and will receive the re-staked xSoda.
-   * @returns ABI-encoded batch call payload to be forwarded to the hub.
-   * @throws If no unstake request matching `params.requestId` exists for the hub wallet.
-   */
+  /** Reads the on-chain unstake request to get its amount; throws if `requestId` is not found for the hub wallet. */
   public async buildCancelUnstakeData<K extends SpokeChainKey>(
     params: CancelUnstakeParams<K>,
     hubWallet: Address,
@@ -1311,7 +1091,6 @@ export class StakingService {
     const stakedSoda = hubConfig.addresses.stakedSoda;
     const xSoda = hubConfig.addresses.xSoda;
 
-    // Fetch the unstake request to get the amount
     const unstakeRequests = await StakingLogic.getUnstakeSodaRequests(
       stakedSoda,
       hubWallet,
@@ -1332,15 +1111,6 @@ export class StakingService {
     return encodeContractCalls(calls);
   }
 
-  /**
-   * Fetches comprehensive staking information for a user identified by their spoke-chain address.
-   *
-   * Resolves the hub wallet address from the spoke address, then delegates to `getStakingInfo`.
-   *
-   * @param srcAddress - The user's wallet address on the source spoke chain.
-   * @param srcChainKey - The spoke chain the user is operating from.
-   * @returns `StakingInfo` containing total vault assets and the user's xSoda balance and SODA equivalent.
-   */
   public async getStakingInfoFromSpoke<K extends SpokeChainKey>(
     srcAddress: Address,
     srcChainKey: K,
@@ -1358,18 +1128,7 @@ export class StakingService {
     }
   }
 
-  /**
-   * Fetches comprehensive staking information for a hub wallet address.
-   *
-   * Makes two parallel on-chain reads against the xSoda vault:
-   * - Total SODA assets held by the vault (`totalAssets`)
-   * - The user's raw xSoda share balance
-   *
-   * Then converts the user's share balance to its underlying SODA value.
-   *
-   * @param userAddress - The user's hub wallet address (not the spoke address).
-   * @returns `StakingInfo` with `totalStaked`, `totalUnderlying`, `userXSodaBalance`, `userXSodaValue`, and `userUnderlying`.
-   */
+  /** @param userAddress - hub wallet address, not the spoke address */
   public async getStakingInfo(userAddress: Address): Promise<Result<StakingInfo, StakingInfoFetchError>> {
     try {
       stakingInvariant(userAddress, 'User address is required', { field: 'userAddress' });
@@ -1378,11 +1137,10 @@ export class StakingService {
       const xSoda = hubConfig.addresses.xSoda;
 
       const [totalUnderlying, userXSodaShares] = await Promise.all([
-        StakingLogic.getXSodaTotalAssets(xSoda, this.hubProvider.publicClient), // Get total assets in xSoda vault (total underlying SODA)
-        this.getXSodaBalance(xSoda, userAddress), // Get user's raw xSODA shares
+        StakingLogic.getXSodaTotalAssets(xSoda, this.hubProvider.publicClient),
+        this.getXSodaBalance(xSoda, userAddress),
       ]);
 
-      // Convert user's xSODA shares to SODA value
       const userXSodaValue = await StakingLogic.convertXSodaSharesToSoda(
         xSoda,
         userXSodaShares,
@@ -1392,11 +1150,11 @@ export class StakingService {
       return {
         ok: true,
         value: {
-          totalStaked: totalUnderlying, // Total SODA staked (same as total underlying)
-          totalUnderlying, // Total underlying SODA assets
-          userXSodaBalance: userXSodaShares, // User's raw xSODA shares
-          userXSodaValue, // User's xSODA value in SODA
-          userUnderlying: userXSodaValue, // User's underlying SODA amount
+          totalStaked: totalUnderlying,
+          totalUnderlying,
+          userXSodaBalance: userXSodaShares,
+          userXSodaValue,
+          userUnderlying: userXSodaValue,
         },
       };
     } catch (error) {
@@ -1408,16 +1166,6 @@ export class StakingService {
     }
   }
 
-  /**
-   * Fetches all pending unstake requests and the total SODA amount currently unstaking for a user.
-   *
-   * Resolves the hub wallet from the spoke address and reads all `UserUnstakeInfo` records from
-   * the StakedSoda contract. Also sums the individual request amounts into `totalUnstaking`.
-   *
-   * @param srcAddress - The user's wallet address on the source spoke chain.
-   * @param srcChainKey - The spoke chain the user is operating from.
-   * @returns `UnstakingInfo` with the list of raw unstake requests and their aggregate SODA amount.
-   */
   public async getUnstakingInfo<K extends SpokeChainKey>(
     srcAddress: Address,
     srcChainKey: K,
@@ -1428,14 +1176,12 @@ export class StakingService {
       const hubConfig = this.config.getHubChainConfig();
       const stakedSoda = hubConfig.addresses.stakedSoda;
 
-      // Get user's unstake requests
       const userUnstakeSodaRequests = await StakingLogic.getUnstakeSodaRequests(
         stakedSoda,
         userAddress,
         this.hubProvider.publicClient,
       );
 
-      // Calculate total unstaking amount
       const totalUnstaking = userUnstakeSodaRequests.reduce((total, userInfo) => total + userInfo.request.amount, 0n);
 
       return {
@@ -1454,22 +1200,11 @@ export class StakingService {
     }
   }
 
-  /**
-   * Reads the current staking configuration from the StakedSoda contract.
-   *
-   * Returns the three parameters that govern the unstaking penalty model:
-   * - `unstakingPeriod` — full wait duration in seconds; no penalty after this elapses
-   * - `minUnstakingPeriod` — minimum wait in seconds; max penalty applies before this elapses
-   * - `maxPenalty` — maximum penalty percentage (1–100)
-   *
-   * @returns `StakingConfig` with penalty-model parameters, all as `bigint` (seconds / percentage).
-   */
   public async getStakingConfig(): Promise<Result<StakingConfig, StakingInfoFetchError>> {
     try {
       const hubConfig = this.config.getHubChainConfig();
       const stakedSoda = hubConfig.addresses.stakedSoda;
 
-      // Read all configuration values in a single contract call
       const [unstakingPeriod, minUnstakingPeriod, maxPenalty] = await this.hubProvider.publicClient.readContract({
         address: stakedSoda,
         abi: stakedSodaAbi,
@@ -1493,26 +1228,18 @@ export class StakingService {
     }
   }
 
-  /**
-   * Calculate penalty for an unstake request based on the contract logic
-   * @param startTime - The start time of the unstake request
-   * @param config - The staking configuration
-   * @returns The penalty amount and percentage
-   */
+  /** Mirrors the contract: max penalty before `minUnstakingPeriod`, linear decay to 0 at `unstakingPeriod`. */
   private calculatePenalty(startTime: bigint, config: StakingConfig): { penalty: bigint; penaltyPercentage: number } {
     const currentTime = BigInt(Math.floor(Date.now() / 1000));
     const timeElapsed = currentTime - startTime;
 
-    // Check if unstaking period is less than minimum
     if (timeElapsed < config.minUnstakingPeriod) {
-      // Return max penalty if still in minimum period
       return {
         penalty: config.maxPenalty, // penalty stored as 0-100 percent; divided by 100 at usage sites
         penaltyPercentage: Number(config.maxPenalty),
       };
     }
 
-    // If time elapsed is greater than or equal to unstaking period, no penalty
     if (timeElapsed >= config.unstakingPeriod) {
       return {
         penalty: 0n,
@@ -1520,11 +1247,9 @@ export class StakingService {
       };
     }
 
-    // Calculate penalty based on time in reduction period
     const timeInReductionPeriod = timeElapsed - config.minUnstakingPeriod;
     const totalReductionPeriod = config.unstakingPeriod - config.minUnstakingPeriod;
 
-    // Calculate penalty: (maxPenalty * (totalReductionPeriod - timeInReductionPeriod)) / totalReductionPeriod
     const penalty = (config.maxPenalty * (totalReductionPeriod - timeInReductionPeriod)) / totalReductionPeriod;
 
     return {
@@ -1533,20 +1258,7 @@ export class StakingService {
     };
   }
 
-  /**
-   * Fetches all pending unstake requests enriched with current penalty calculations.
-   *
-   * Fetches `getUnstakingInfo` and `getStakingConfig` in parallel, then applies the linear penalty
-   * model to each request based on how much time has elapsed since the request started:
-   * - Before `minUnstakingPeriod`: `maxPenalty` applies in full
-   * - Between `minUnstakingPeriod` and `unstakingPeriod`: penalty decreases linearly to zero
-   * - After `unstakingPeriod`: no penalty
-   *
-   * @param srcAddress - The user's wallet address on the source spoke chain.
-   * @param srcChainKey - The spoke chain the user is operating from.
-   * @returns `UnstakingInfo` extended with `requestsWithPenalty` — each request annotated with
-   *   `penalty` (SODA withheld), `penaltyPercentage` (0–100), and `claimableAmount` (net SODA receivable).
-   */
+  /** Annotates each request with `penalty` (SODA withheld), `penaltyPercentage` (0–100) and net `claimableAmount`. */
   public async getUnstakingInfoWithPenalty<K extends SpokeChainKey>(
     srcAddress: Address,
     srcChainKey: K,
@@ -1567,7 +1279,7 @@ export class StakingService {
       const requestsWithPenalty: UnstakeRequestWithPenalty[] = unstakingResult.value.userUnstakeSodaRequests.map(
         userInfo => {
           const penaltyInfo = this.calculatePenalty(userInfo.request.startTime, config);
-          const penaltyAmount = (userInfo.request.amount * penaltyInfo.penalty) / 100n; // Convert from basis points
+          const penaltyAmount = (userInfo.request.amount * penaltyInfo.penalty) / 100n; // penalty is 0-100 percent
           const claimableAmount = userInfo.request.amount - penaltyAmount;
 
           return {
@@ -1595,15 +1307,7 @@ export class StakingService {
     }
   }
 
-  /**
-   * Estimates the SODA amount receivable from instantly unstaking a given quantity of xSoda shares.
-   *
-   * Calls `StakingRouter.estimateInstantUnstake` on-chain. Use this before calling `instantUnstake`
-   * to set an appropriate `minAmount` slippage guard.
-   *
-   * @param amount - The number of xSoda shares to estimate the instant unstake for.
-   * @returns The estimated SODA output (before any transaction-level slippage), as a `bigint`.
-   */
+  /** Estimated SODA out for instantly unstaking `amount` xSoda shares; use it to set `minAmount`. */
   public async getInstantUnstakeRatio(amount: bigint): Promise<Result<bigint, StakingInfoFetchError>> {
     try {
       const hubConfig = this.config.getHubChainConfig();
@@ -1624,15 +1328,6 @@ export class StakingService {
     }
   }
 
-  /**
-   * Converts a quantity of xSoda shares to its current underlying SODA value.
-   *
-   * Delegates to the xSoda vault's `convertToAssets` view function. The result reflects the
-   * current exchange rate and will increase over time as staking rewards accrue to the vault.
-   *
-   * @param amount - The number of xSoda shares to convert.
-   * @returns The equivalent SODA asset amount at the current exchange rate.
-   */
   public async getConvertedAssets(amount: bigint): Promise<Result<bigint, StakingInfoFetchError>> {
     try {
       const hubConfig = this.config.getHubChainConfig();
@@ -1653,17 +1348,7 @@ export class StakingService {
     }
   }
 
-  /**
-   * Estimates the xSoda shares and preview-deposit amount for a given SODA input.
-   *
-   * Calls `StakingRouter.estimateXSodaAmount` on-chain, which accounts for vault fees and the
-   * current exchange rate. Use this to display expected output before a stake transaction.
-   *
-   * @param amount - The SODA amount the user intends to stake.
-   * @returns A tuple `[xSodaAmount, previewDepositAmount]`:
-   *   - `xSodaAmount`: estimated xSoda shares the user will receive
-   *   - `previewDepositAmount`: SODA amount as seen by the vault's `previewDeposit` function
-   */
+  /** Returns `[xSodaAmount, previewDepositAmount]` for staking `amount` SODA. */
   public async getStakeRatio(amount: bigint): Promise<Result<[bigint, bigint], StakingInfoFetchError>> {
     try {
       const hubConfig = this.config.getHubChainConfig();
@@ -1688,12 +1373,6 @@ export class StakingService {
     }
   }
 
-  /**
-   * Helper method to get xSoda balance for a user
-   * @param xSoda - The xSoda token contract address
-   * @param userAddress - The user's address
-   * @returns Promise<bigint>
-   */
   private async getXSodaBalance(xSoda: Address, userAddress: Address): Promise<bigint> {
     return this.hubProvider.publicClient.readContract({
       address: xSoda,

@@ -133,12 +133,8 @@ describe('runLeveragePositionOperation', () => {
     const result = await sodax.leverageYield.runLeveragePositionOperation(OPERATION);
     expect(operate).toHaveBeenCalledOnce();
     expect(notify).not.toHaveBeenCalled();
+    // The hashes directly, not an intent result.
     expect(result.ok && result.value).toEqual(HASHES);
-  });
-
-  it('returns the hashes directly, not an intent result', async () => {
-    const { sodax } = stub();
-    const result = await sodax.leverageYield.runLeveragePositionOperation(OPERATION);
     expect(result.ok && 'notified' in result.value).toBe(false);
   });
 });

@@ -6,24 +6,14 @@ import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/**
- * Mutation variables for {@link useLeverageYieldVaultSwapWithApproval}: `useLeverageYieldVaultSwap`'s, plus
- * `allowAccountUpgrade`, `resumeBatchId` and `resumeBatchCallCount`.
- */
 export type UseLeverageYieldVaultSwapWithApprovalVars<K extends SpokeChainKey = SpokeChainKey> = Omit<
   VaultSwapWithApprovalParams<K>,
   'raw'
 >;
 
 /**
- * `useLeverageYieldVaultSwap` with the deposit's source-token approval folded in
- * (`sodax.leverageYield.vaultSwapWithApproval`): approve + deposit as one EIP-5792 batch (one
- * signature) on a batch-capable EVM wallet, otherwise approve, wait for it, then deposit. A withdraw
- * (`hubWalletSwap`) needs no approval and runs as `useLeverageYieldVaultSwap` does.
+ * `useLeverageYieldVaultSwap` with the deposit approval folded in (EIP-5792 batch when supported, else sequential).
  * `data.approvalStrategy` says which path ran; {@link useLeverageYieldApprovalStrategy} predicts it.
- *
- * Throws on SDK failure so React Query's error model engages. On success invalidates balances, the
- * deposit allowance (read through `useSwapAllowance`) and the approval-strategy query.
  */
 export function useLeverageYieldVaultSwapWithApproval<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,

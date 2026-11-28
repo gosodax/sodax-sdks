@@ -31,13 +31,6 @@ export class EvmHubProvider {
     this.service = new SonicSpokeService(this.config);
   }
 
-  /**
-   * Gets the cached user's hub wallet address for a spoke chain address.
-   * If not cached, fetches it from the hub chain and caches it.
-   * @param srcAddress - The user's address on the spoke chain
-   * @param chainKey - The spoke chain id
-   * @returns The user's hub wallet address
-   */
   public async getUserHubWalletAddress(srcAddress: string, chainKey: SpokeChainKey): Promise<Address> {
     const key: SrcAddressSpokeChainKeyPair = `${srcAddress}:${chainKey}`;
 
@@ -52,12 +45,6 @@ export class EvmHubProvider {
     return hubWalletAddress;
   }
 
-  /**
-   * Get the derived address of a contract deployed with CREATE3.
-   * @param address - User's address on the specified chain as hex
-   * @param hubProvider - Hub provider
-   * @returns {HubAddress} The computed contract address as a EVM address (hex) string
-   */
   public async getUserRouter(address: Address): Promise<HubAddress> {
     return this.publicClient.readContract({
       address: this.chainConfig.addresses.walletRouter,
@@ -67,17 +54,10 @@ export class EvmHubProvider {
     });
   }
 
-  /**
-   * Gets the hub wallet address for a user based on their spoke chain address.
-   * @param address - The user's address on the spoke chain
-   * @param chainKey - spoke chain id
-   * @param hubProvider - The provider for interacting with the hub chain
-   * @returns The user's hub wallet address
-   */
   public async fetchUserHubWalletAddress(address: string, chainKey: SpokeChainKey): Promise<Address> {
     const encodedAddress = encodeAddress(chainKey, address);
 
-    // for hub chain, use the user router instead of CREATE3
+    // Hub-chain users use the user router instead of the CREATE3 hub wallet.
     if (chainKey === this.chainConfig.chain.key) {
       return this.getUserRouter(encodedAddress);
     }

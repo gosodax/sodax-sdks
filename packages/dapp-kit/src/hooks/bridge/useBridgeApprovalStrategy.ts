@@ -15,12 +15,8 @@ export type UseBridgeApprovalStrategyParams<K extends SpokeChainKey = SpokeChain
 >;
 
 /**
- * Which approval path {@link useBridgeWithApproval} would take for this bridge: `'not-required'`,
- * `'atomic-batch'` (approve + deposit in one EIP-5792 signature) or `'sequential'` (approve, then
- * bridge). Use it to label the bridge button. Pass the same `allowAccountUpgrade` you give the bridge.
- *
- * Not polled: `useBridgeWithApproval` invalidates it after a successful bridge, and the bridge
- * re-reads the strategy at execution, so a stale label never picks the wrong path.
+ * Predicts the approval path {@link useBridgeWithApproval} will take; pass the same `allowAccountUpgrade`.
+ * Not polled: the bridge re-reads the strategy at execution, so a stale label never picks the wrong path.
  */
 export function useBridgeApprovalStrategy<K extends SpokeChainKey = SpokeChainKey>({
   params,

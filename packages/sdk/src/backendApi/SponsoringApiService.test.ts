@@ -52,7 +52,7 @@ describe('getConfig', () => {
     expect(init.method).toBe('GET');
   });
 
-  it('rejects a config body missing the per-operation fee band', async () => {
+  it('rejects a config body missing the per-operation fee band or another required field as an invalid response shape', async () => {
     const service = makeService();
     const {
       operationCount: _c,
@@ -61,47 +61,31 @@ describe('getConfig', () => {
       recommendedPerOperationFeeStroops: _rec,
       ...withoutPerOpBand
     } = CONFIG_BODY;
-    mockFetch.mockResolvedValueOnce(jsonOk(withoutPerOpBand));
-
-    const result = await service.getStellarSponsorConfig();
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.context?.reason).toBe('invalid_response_shape');
-  });
-
-  it('rejects a config body missing a required field as an invalid response shape', async () => {
-    const service = makeService();
     const { maxTimeboundSeconds: _omitted, ...incomplete } = CONFIG_BODY;
-    mockFetch.mockResolvedValueOnce(jsonOk(incomplete));
 
-    const result = await service.getStellarSponsorConfig();
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.context?.reason).toBe('invalid_response_shape');
+    for (const body of [withoutPerOpBand, incomplete]) {
+      mockFetch.mockResolvedValueOnce(jsonOk(body));
+      const result = await service.getStellarSponsorConfig();
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.context?.reason).toBe('invalid_response_shape');
+    }
   });
 });
 
 describe('createStellarSponsoredAccount', () => {
-  it('POSTs exactly `{ data }` — the endpoint rejects any extra field with a 400', async () => {
+  it.each([
+    ['a fresh activation', { hash: 'abc', alreadyActive: false }],
+    ['an already-active account', { hash: null, alreadyActive: true }],
+  ])('POSTs exactly `{ data }` (the endpoint 400s on any extra field) and accepts %s', async (_label, body) => {
     const service = makeService();
-    mockFetch.mockResolvedValueOnce(jsonOk({ hash: 'abc', alreadyActive: false }));
+    mockFetch.mockResolvedValueOnce(jsonOk(body));
 
-    await service.createStellarSponsoredAccount({ data: 'XDR' });
+    await expect(service.createStellarSponsoredAccount({ data: 'XDR' })).resolves.toEqual({ ok: true, value: body });
 
     const [url, init] = mockFetch.mock.calls[0] as [string, { method: string; body: string }];
     expect(url).toBe(`${BASE}/sponsorships/stellar/accounts`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ data: 'XDR' });
-  });
-
-  it.each([
-    ['a fresh activation', { hash: 'abc', alreadyActive: false }],
-    ['an already-active account', { hash: null, alreadyActive: true }],
-  ])('accepts %s', async (_label, body) => {
-    const service = makeService();
-    mockFetch.mockResolvedValueOnce(jsonOk(body));
-
-    await expect(service.createStellarSponsoredAccount({ data: 'XDR' })).resolves.toEqual({ ok: true, value: body });
   });
 
   it('rejects an uncorrelated hash/alreadyActive pair the union claims is impossible', async () => {
@@ -135,27 +119,7 @@ describe('createStellarSponsoredAccount', () => {
 });
 
 describe('api key handling', () => {
-  it('folds `apiKey` into the x-api-key header', async () => {
-    const service = makeService({ apiKey: 'secret-key' });
-    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
-
-    await service.getStellarSponsorConfig();
-
-    const [, init] = mockFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
-    expect(init.headers['x-api-key']).toBe('secret-key');
-  });
-
-  it('lets an explicit header win, so a consumer proxying through their own backend can override it', async () => {
-    const service = makeService({ apiKey: 'from-field', headers: { 'x-api-key': 'from-headers' } });
-    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
-
-    await service.getStellarSponsorConfig();
-
-    const [, init] = mockFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
-    expect(init.headers['x-api-key']).toBe('from-headers');
-  });
-
-  it('sends a directly configured key to any target, including a per-call override', async () => {
+  it('folds a directly configured `apiKey` into x-api-key and sends it to any target, including a per-call baseURL', async () => {
     // Direct construction carries no inherited-key gating (that applies only to the instance key
     // `BackendApiService` passes in): this key is the consumer's own config for their own origin.
     const service = makeService({ apiKey: 'secret-key' });
@@ -166,6 +130,18 @@ describe('api key handling', () => {
     const [url, init] = mockFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
     expect(url).toBe('http://localhost:3011/sponsorships/stellar/config');
     expect(init.headers['x-api-key']).toBe('secret-key');
+    // The per-call override routes only that call.
+    expect(service.getBaseURL()).toBe(BASE);
+  });
+
+  it('lets an explicit header win, so a consumer proxying through their own backend can override it', async () => {
+    const service = makeService({ apiKey: 'from-field', headers: { 'x-api-key': 'from-headers' } });
+    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
+
+    await service.getStellarSponsorConfig();
+
+    const [, init] = mockFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
+    expect(init.headers['x-api-key']).toBe('from-headers');
   });
 
   it('sends no x-api-key when none is configured', async () => {
@@ -195,7 +171,7 @@ describe('api key handling', () => {
     expect(init.headers).not.toHaveProperty('Authorization');
   });
 
-  it('a repeated mixed-casing update sends the newest value, not a stale case variant', async () => {
+  it('applies setHeaders to subsequent calls; a repeated mixed-casing update sends the newest value', async () => {
     // Updating an existing object key does NOT move it in insertion order, so a raw
     // `headers[name] = value` would leave the older casing last and let it win the merge.
     const service = makeService({ apiKey: 'v1' });
@@ -209,37 +185,17 @@ describe('api key handling', () => {
     expect(Object.keys(headers).filter(h => h.toLowerCase() === 'x-api-key')).toHaveLength(1);
     expect(new Headers(headers).get('x-api-key')).toBe('v3');
   });
-
-  it('applies setHeaders to subsequent calls', async () => {
-    const service = makeService();
-    service.setHeaders({ 'x-api-key': 'late-key' });
-    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
-
-    await service.getStellarSponsorConfig();
-
-    const [, init] = mockFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
-    expect(init.headers['x-api-key']).toBe('late-key');
-  });
-});
-
-describe('per-call overrides', () => {
-  it('routes a single call to a different base URL', async () => {
-    const service = makeService();
-    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
-
-    await service.getStellarSponsorConfig({ baseURL: 'http://localhost:3011' });
-
-    expect(mockFetch.mock.calls[0]?.[0]).toBe('http://localhost:3011/sponsorships/stellar/config');
-    expect(service.getBaseURL()).toBe(BASE);
-  });
 });
 
 // The deployment owns the version prefix; the SDK route stays version-free.
 describe('deployment prefixes', () => {
   const cases: Array<[label: string, baseURL: HttpUrl, expected: string]> = [
     ['a bare origin (local service)', 'http://localhost:3011', 'http://localhost:3011/sponsorships/stellar/config'],
-    ['a versioned gateway path', 'https://api.sodax.com/v1', 'https://api.sodax.com/v1/sponsorships/stellar/config'],
-    ['a trailing slash', 'https://api.sodax.com/v1/', 'https://api.sodax.com/v1/sponsorships/stellar/config'],
+    [
+      'a versioned gateway path with a trailing slash',
+      'https://api.sodax.com/v1/',
+      'https://api.sodax.com/v1/sponsorships/stellar/config',
+    ],
   ];
 
   it.each(cases)('resolves %s', async (_label, baseURL, expected) => {

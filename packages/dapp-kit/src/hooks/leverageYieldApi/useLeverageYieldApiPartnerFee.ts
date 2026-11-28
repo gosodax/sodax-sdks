@@ -13,13 +13,7 @@ export type UseLeverageYieldApiPartnerFeeParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to compute the partner fee for a given input amount via the leverage-yield API — `sodax.api.leverageYield.getPartnerFee`.
- * Returns `{ fee }` (decimal string).
- *
- * @example
- * const { data } = useLeverageYieldApiPartnerFee({ params: { amount: '1000000' } });
- */
+/** Returns `{ fee }` as a decimal string. */
 export const useLeverageYieldApiPartnerFee = ({
   params,
   queryOptions,

@@ -64,22 +64,15 @@ import {
   type Trc20TransferCall,
 } from './tron-utils.js';
 
-/**
- * Energy cap for a TRC-20 deposit, in SUN. Bounds the TRX burned when the sender has no staked
- * energy; it is a cap, not a spend. 100 TRX covers the expensive case (~65 TRX).
- */
+/** Energy fee cap (SUN) for a TRC-20 deposit with no staked energy — a cap, not a spend; ~65 TRX is the expensive case. */
 const TRC20_DEPOSIT_FEE_LIMIT_SUN = 100_000_000;
 
 /** A built transfer: the hex body the memo is spliced into, plus the node's decoded form. */
 type BuiltTransfer = { rawDataHex: string; rawData?: TronRawData };
 
-/** Per-request budget for a TronGrid call, mirroring the intent relay's own request cap. */
 const TRON_RPC_TIMEOUT_MS = 15_000;
 
-/**
- * Floor for an MPC-relay settlement wait, applied over the caller's own timeout: confirmations,
- * aggregation, the NEAR submit and the hub tx outlast the generic cross-chain timeout.
- */
+/** Floor over the caller's settlement timeout: confirmations, aggregation, the NEAR submit and the hub tx outlast it. */
 const TRON_SETTLEMENT_FLOOR_MS = 300_000;
 
 /** Re-notify interval while waiting on a deposit or hub release — about two Tron blocks. `/notify` is idempotent. */
@@ -103,12 +96,7 @@ type ConstantCallResult = { result?: { result?: boolean; message?: string } };
 const constantCallFailed = (res: ConstantCallResult): boolean =>
   res.result?.result !== true || res.result.message !== undefined;
 
-/**
- * Spoke service for Tron. Deposits ride the MPC relay in memo mode: a transfer to the shared reserve
- * carries a 32-byte payload-hash memo. The service builds and broadcasts it; the wallet only signs.
- *
- * @see MpcRelayApiService for the relay REST flow.
- */
+/** Tron spoke: deposits ride the MPC relay in memo mode; the service builds and broadcasts, the wallet only signs. */
 export class TronSpokeService implements MpcRelaySettlement {
   private readonly config: ConfigService;
 
@@ -134,10 +122,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     return getMpcRelayChainInfo(ChainKeys.TRON_MAINNET).chainId.toString();
   }
 
-  /**
-   * One TronGrid call, bounded by {@link TRON_RPC_TIMEOUT_MS}, covering the body read. No retry here:
-   * callers either broadcast, where a silent re-POST is unsafe, or retry at their own call site.
-   */
+  /** No retry here: callers either broadcast, where a silent re-POST is unsafe, or retry at their own call site. */
   private async rpc<T>(path: string, body: unknown): Promise<T> {
     // Parsed before the request, so a bad URL is a definite failure rather than a transport one.
     const url = new URL(`${this.rpcUrl}${path}`);
@@ -161,7 +146,6 @@ export class TronSpokeService implements MpcRelaySettlement {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new TronRpcUnanswered(`tron rpc ${path}: timed out after ${TRON_RPC_TIMEOUT_MS}ms`);
       }
-      // fetch rejects with a TypeError when the request fails in transit.
       if (error instanceof TypeError)
         throw new TronRpcUnanswered(`tron rpc ${path}: ${error.message}`, { cause: error });
       throw error;
@@ -171,21 +155,14 @@ export class TronSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Deposit TRX or a TRC-20 token into the hub via the MPC relay.
-   *
-   * Both modes build the memo transfer over the node and check it. `Raw: true` returns it unsigned
-   * ({@link TronRawTransaction}); `Raw: false` signs and broadcasts it, notifies the relay, and resolves to
-   * the source tx hash. After signing, a definite broadcast failure throws; a broadcast with no definite answer, or
-   * a failed notify, warns and still resolves to the hash. `settle` re-notifies it; a caller that does not settle
-   * notifies it with `spoke.submitMpcDeposit`. The memo is a transaction-level field, so a TRC-20 transfer carries
-   * it like a value transfer, and needs no allowance.
+   * Deposit TRX or TRC-20 via the MPC relay (memo transfer, no allowance needed). After signing, a definite broadcast
+   * failure throws; an unanswered broadcast or failed notify warns and still resolves to the hash.
    */
   public async deposit<R extends boolean = false>(
     params: DepositParams<TronChainKey, R>,
   ): Promise<TronDepositReturnType<R>> {
     const { srcAddress, token, amount, data, to } = params;
 
-    // Register the hub-side calls and get the shared reserve + the memo to tag the transfer with.
     const addr = await getDepositAddress(this.relayApiUrl, srcAddress, this.chainId, data);
     if (!addr.ok) throw addr.error;
     if (addr.value.depositMethod !== 'memo') {
@@ -231,10 +208,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     return txID satisfies string as TronDepositReturnType<R>;
   }
 
-  /**
-   * Notify the relay of a broadcast deposit, without waiting for it to land. The funds are already on chain,
-   * so it retries, and a failure keeps the tx hash: the only handle left for re-notifying the deposit.
-   */
+  /** Notify the relay of a broadcast deposit with retries; a failure keeps the tx hash, the only handle to re-notify. */
   public async submitDeposit(txHash: string): Promise<Result<void>> {
     try {
       await this.retryNotify(() => notify(this.relayApiUrl, this.chainId, txHash));
@@ -249,7 +223,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** A notify, retried: `retry` reacts to a throw and `notify` reports failure in its Result, so rethrow it. */
+  /** `retry` reacts to a throw while `notify` reports failure in its Result, so rethrow it. */
   private async retryNotify(send: () => Promise<Result<NotifyResponse>>): Promise<void> {
     await retry(async () => {
       const res = await send();
@@ -299,9 +273,8 @@ export class TronSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Move a raw deposit's expiration later, rewriting `raw_data_hex`, `raw_data.expiration` and `txID`
-   * together. Call it before signing when signing can take longer than the node's default window
-   * (about 60 s); Tron accepts up to 24 hours ahead.
+   * Move a raw deposit's expiration later (rewrites `raw_data_hex`, `raw_data.expiration` and `txID` together); use
+   * when signing can outlast the node's ~60 s default window.
    */
   public extendExpiration({ tx, expiration }: { tx: TronRawTransaction; expiration: number }): TronRawTransaction {
     if (expiration <= tx.raw_data.expiration || expiration > Date.now() + TRON_MAX_EXPIRATION_MS) {
@@ -318,7 +291,6 @@ export class TronSpokeService implements MpcRelaySettlement {
     };
   }
 
-  /** Have the wallet sign a built deposit, then broadcast it. Resolves to its txID. */
   private async signAndBroadcast({
     walletProvider,
     unsigned,
@@ -365,10 +337,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * Warn, but do not block, when the relay's reserve differs from the chain config's. The relay may
-   * rotate it legitimately, so pinning would strand deposits; a change is still worth noticing.
-   */
+  /** Warn, never block, on a reserve mismatch: the relay may rotate it legitimately, so pinning would strand deposits. */
   private warnOnUnknownReserve(reserveAddress: string): void {
     const expected = this.chainConfig.addresses.reserve;
     if (reserveAddress !== expected) {
@@ -378,7 +347,6 @@ export class TronSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** Unsigned native TRX transfer to the reserve: the node's hex body plus its decoded form. */
   private async buildNativeTransfer(from: string, to: string, amount: bigint): Promise<BuiltTransfer> {
     // Hex addresses, not `visible: true`: the wallet compares `owner_address` to its account in hex.
     const created = await this.rpc<{ raw_data_hex?: string; raw_data?: TronRawData; Error?: string }>(
@@ -393,7 +361,6 @@ export class TronSpokeService implements MpcRelaySettlement {
     return { rawDataHex: created.raw_data_hex, rawData: created.raw_data };
   }
 
-  /** Unsigned TRC-20 `transfer(reserve, amount)` on `token`: the node's hex body plus its decoded form. */
   private async buildTrc20Transfer(from: string, to: string, token: string, amount: bigint): Promise<BuiltTransfer> {
     const built = await this.rpc<{
       result?: { result?: boolean; message?: string };
@@ -418,13 +385,8 @@ export class TronSpokeService implements MpcRelaySettlement {
     return { rawDataHex, rawData: built.transaction?.raw_data };
   }
 
-  /**
-   * Wait for the hub mint to land for a Tron deposit, via the MPC relay's deposit record.
-   * `txHash` is the source Tron tx hash returned by {@link deposit}.
-   */
   public async waitForDeposit(txHash: string, timeout?: number): Promise<Result<DepositRecord>> {
-    // `/notify` accepts a tx before it is confirmed and never re-checks, so a notification sent right
-    // after broadcast can land too early. Re-notifying is idempotent.
+    // `/notify` accepts a tx before it is confirmed and never re-checks, so re-notify (idempotent).
     const renotify = setInterval(() => {
       void notify(this.relayApiUrl, this.chainId, txHash);
     }, RENOTIFY_INTERVAL_MS);
@@ -440,12 +402,11 @@ export class TronSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** The MPC relay's current record for a Tron deposit, read once. `txHash` is as for {@link waitForDeposit}. */
   public async getDepositRecord(txHash: string): Promise<Result<DepositRecord>> {
     return getDeposit(this.relayApiUrl, toDepositId(this.chainId, txHash));
   }
 
-  /** On-chain balance of `token` for the owner — memo mode has no asset manager to read instead. */
+  /** Memo mode has no asset manager, so this reads the owner's on-chain balance. */
   public async getDeposit(params: GetDepositParams<TronChainKey>): Promise<bigint> {
     if (params.token !== this.chainConfig.nativeToken) {
       const res = await this.rpc<ConstantCallResult & { constant_result?: string[] }>(
@@ -475,7 +436,6 @@ export class TronSpokeService implements MpcRelaySettlement {
     return BigInt(acct.balance ?? 0);
   }
 
-  /** The user's own wallet balance of `token`, in smallest units — the same read as {@link getDeposit}. */
   public async getWalletBalance(params: GetBalanceParams<TronChainKey>): Promise<bigint> {
     return this.getDeposit({
       srcChainKey: params.srcChainKey,
@@ -484,7 +444,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /** The user's own wallet balances of multiple tokens, keyed by `token.address`. */
+  /** Keyed by `token.address`. */
   public async getWalletBalances(params: GetBalancesParams<TronChainKey>): Promise<WalletBalanceMap> {
     const { srcChainKey, srcAddress, tokens } = params;
     const collector = createBalanceCollector({ logger: this.config.logger, chainKey: srcChainKey });
@@ -493,10 +453,8 @@ export class TronSpokeService implements MpcRelaySettlement {
   }
 
   /**
-   * Resource cost of a raw deposit: energy from a constant call replaying its TRC-20 transfer, bandwidth
-   * from its signed size plus the per-contract result space the node adds. Tron charges these to staked
-   * resources, so there is no single fee number. TRX uses no energy, and a raw withdraw-auth is signed off
-   * chain, so it uses neither.
+   * Energy (from a constant call replaying the TRC-20 transfer) and bandwidth (signed size + per-contract result space);
+   * Tron charges staked resources, so there is no single fee. A raw withdraw-auth is signed off chain and uses neither.
    */
   public async estimateGas(params: EstimateGasParams<TronChainKey>): Promise<TronGasEstimate> {
     const { tx } = params;
@@ -511,7 +469,6 @@ export class TronSpokeService implements MpcRelaySettlement {
     return { energy, bandwidth } satisfies TronGasEstimate;
   }
 
-  /** Energy a TRC-20 `transfer` would consume, from a constant (non-broadcasting) call. */
   private async estimateTrc20Energy({ owner, contract, parameter }: Trc20TransferCall): Promise<bigint> {
     const res = await this.rpc<ConstantCallResult & { energy_used?: number }>('/wallet/triggerconstantcontract', {
       owner_address: owner,
@@ -529,12 +486,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     return BigInt(res.energy_used);
   }
 
-  /**
-   * Withdraw / borrow (hub→Tron) via the MPC relay. `payload` is the hub-wallet calls to run and
-   * `dstAddress` the hub wallet that runs them. `Raw: true` returns the unsigned withdraw-auth
-   * ({@link TronRawWithdraw}); `Raw: false` has the account sign its digest (scheme 1), submits it, and
-   * resolves to the `trackingId` for {@link waitForWithdrawal}.
-   */
+  /** Withdraw / borrow (hub→Tron) via the MPC relay (scheme 1); resolves to the `trackingId` for {@link waitForWithdrawal}. */
   public async sendMessage<Raw extends boolean>(
     params: SendMessageParams<TronChainKey, Raw>,
   ): Promise<TronSendMessageReturnType<Raw>> {
@@ -552,11 +504,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     return trackingId satisfies string as TronSendMessageReturnType<Raw>;
   }
 
-  /**
-   * Submit a raw withdraw-auth once signed. Resolves to the `trackingId` for {@link waitForWithdrawal}.
-   * On IndeterminateOutcomeError, poll the original tracking ID. A rejection on resubmission of the
-   * same message and signature does not determine the outcome of the first submission.
-   */
+  /** On IndeterminateOutcomeError poll the original trackingId: a resubmission's rejection does not settle the first. */
   public async submitSignedWithdraw({
     withdraw,
     signature,
@@ -586,7 +534,6 @@ export class TronSpokeService implements MpcRelaySettlement {
     return res.value.trackingId;
   }
 
-  /** The withdraw-auth for `hubWallet` to run `payload`, and the digest the Tron account signs. */
   private buildWithdraw({
     srcAddress,
     hubWallet,
@@ -615,15 +562,10 @@ export class TronSpokeService implements MpcRelaySettlement {
     };
   }
 
-  /** The MPC relay's current record for a withdraw-auth, read once. `trackingId` is what {@link sendMessage} returned. */
   public async getWithdrawalRecord(trackingId: string): Promise<Result<WithdrawalRecord>> {
     return getWithdrawal(this.relayApiUrl, trackingId);
   }
 
-  /**
-   * Wait for a hub→Tron withdrawal to reach `released`, via the MPC relay.
-   * `trackingId` is the value returned by {@link sendMessage}.
-   */
   public async waitForWithdrawal(
     trackingId: string,
     timeout?: number,
@@ -637,10 +579,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     });
   }
 
-  /**
-   * Notify the relay of a hub tx releasing to Tron, without waiting for the release. The relay has no hub
-   * watcher and learns of the hub tx only through `/notify`.
-   */
+  /** Notify the relay of a hub tx releasing to Tron; it has no hub watcher and learns of it only through `/notify`. */
   public async submitHubRelease(release: HubRelease): Promise<Result<void>> {
     const { hubChainId, hubTxHash } = release;
     try {
@@ -655,10 +594,7 @@ export class TronSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /**
-   * Wait until a release {@link submitHubRelease} notified is paid. The relay's verifier also waits on hub
-   * confirmations and may have dropped an early notify, so this keeps re-notifying.
-   */
+  /** Wait until a notified release is paid, re-notifying: the verifier waits on hub confirmations and may drop an early notify. */
   public async waitForHubRelease(release: HubRelease, timeout?: number): Promise<Result<DepositRecord>> {
     const { hubChainId, hubTxHash } = release;
     const renotify = setInterval(() => {
@@ -674,12 +610,10 @@ export class TronSpokeService implements MpcRelaySettlement {
     }
   }
 
-  /** One read of a hub release's record through the relay, which `txs.release` marks as paid. */
   public async getHubReleaseRecord(release: HubRelease): Promise<Result<DepositRecord>> {
     return getDeposit(this.relayApiUrl, toHubReleaseId(release));
   }
 
-  /** Poll TronGrid until the transaction is included in a block, mapping the receipt to the SDK shape. */
   public async waitForTransactionReceipt(
     params: WaitForTxReceiptParams<TronChainKey>,
   ): Promise<Result<WaitForTxReceiptReturnType<TronChainKey>>> {

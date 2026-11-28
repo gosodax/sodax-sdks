@@ -5,10 +5,6 @@ import type { ReadHookParams } from '../shared/types.js';
 
 export type UseReservesDataParams = ReadHookParams<readonly [readonly AggregatedReserveData[], BaseCurrencyInfo]>;
 
-/**
- * React hook for fetching the latest aggregated reserves data and base-currency info from the
- * Sodax money market.
- */
 export function useReservesData({
   queryOptions,
 }: UseReservesDataParams = {}): UseQueryResult<readonly [readonly AggregatedReserveData[], BaseCurrencyInfo], Error> {

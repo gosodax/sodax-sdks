@@ -13,14 +13,7 @@ export type UseLeverageYieldApiIntentExtraDataParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to recover the relay extra data needed by `/leverage-yield/intents/submit` via the
- * leverage-yield API — `sodax.api.leverageYield.getIntentSubmitTxExtraData`. Provide EITHER `txHash`
- * OR `intent` in the body.
- *
- * @example
- * const { data } = useLeverageYieldApiIntentExtraData({ params: { body: { txHash: '0x...' } } });
- */
+/** Relay extra data for `/leverage-yield/intents/submit`; the body takes EITHER `txHash` OR `intent`. */
 export const useLeverageYieldApiIntentExtraData = ({
   params,
   queryOptions,

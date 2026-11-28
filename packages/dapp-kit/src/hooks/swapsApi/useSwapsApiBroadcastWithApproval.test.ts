@@ -1,11 +1,5 @@
-/**
- * The hook folds the swaps-API approval into the intent broadcast: one EIP-5792 batch when the
- * wallet can, the approval plan then the intent tx when it cannot. The SDK's batch policy runs for
- * real here; only the wallet and the API are faked.
- *
- * Follows the package convention of testing hooks without a renderer: the React Query wrapper is
- * mocked so `mutationFn` can be captured and driven directly.
- */
+// Hooks are tested without a renderer: the wrapper is mocked to capture `mutationFn`.
+// The SDK's batch policy runs for real; only the wallet and the API are faked.
 
 import {
   ACCOUNT_UPGRADE_DECLINED,

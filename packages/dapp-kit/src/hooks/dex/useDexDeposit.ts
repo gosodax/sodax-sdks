@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/dex/useDexDeposit.ts
 import type { AssetDepositAction, SpokeChainKey, TxHashPair } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
@@ -8,30 +7,9 @@ import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMu
 import { retryBeforeSubmission } from '../shared/retryBeforeSubmission.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/**
- * Mutation variables for {@link useDexDeposit}. Generic over `K extends SpokeChainKey` (defaults
- * to the full union). Sophisticated callers can lock K at the hook call site to narrow the
- * `walletProvider` and `params.srcChainKey` types.
- */
 export type UseDexDepositVars<K extends SpokeChainKey = SpokeChainKey> = Omit<AssetDepositAction<K, false>, 'raw'>;
 
-/**
- * React hook for depositing an asset into a DEX pool.
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
- *
- * @example
- * ```tsx
- * const walletProvider = useWalletProvider({ xChainId: chainKey });
- * const { mutateAsync: deposit } = useDexDeposit();
- * try {
- *   const { spokeTxHash, hubTxHash } = await deposit({ params, walletProvider });
- * } catch (e) {
- *   // surfaced via mutation.error / onError
- * }
- * ```
- */
+/** Throws on SDK failure (React Query error state); resolves to the unwrapped `TxHashPair`. */
 export function useDexDeposit<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<TxHashPair, UseDexDepositVars<K>> = {}): SafeUseMutationResult<

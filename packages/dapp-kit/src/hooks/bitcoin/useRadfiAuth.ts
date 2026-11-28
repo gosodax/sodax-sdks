@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/bitcoin/useRadfiAuth.ts
 import { RadfiApiError, type IBitcoinWalletProvider } from '@sodax/sdk';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
 import type { MutationHookParams } from '../shared/types.js';
@@ -44,11 +43,7 @@ export function clearRadfiSession(address: string): void {
   } catch {}
 }
 
-/**
- * React hook for authenticating with Bound Exchange via BIP322-signed message. Pure mutation: pass
- * `{ walletProvider }` to `mutate({...})`. The hook itself takes no arguments other than the
- * structural `mutationOptions` slot.
- */
+/** Authenticates with Bound Exchange via a BIP322-signed message. */
 export function useRadfiAuth({
   mutationOptions,
 }: MutationHookParams<RadfiAuthResult, UseRadfiAuthVars> = {}): SafeUseMutationResult<

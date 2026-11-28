@@ -1,4 +1,3 @@
-// packages/dapp-kit/src/hooks/staking/useInstantUnstake.ts
 import type { InstantUnstakeAction, SpokeChainKey, TxHashPair } from '@sodax/sdk';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSodaxContext } from '../shared/useSodaxContext.js';
@@ -12,12 +11,7 @@ export type UseInstantUnstakeVars<K extends SpokeChainKey = SpokeChainKey> = Omi
   'raw'
 >;
 
-/**
- * React hook for instant-unstaking SODA (bypassing the waiting period at a slippage cost).
- *
- * Throws on SDK failure so React Query's native error model engages (`isError`, `error`,
- * `onError`, `retry`). Returns the unwrapped `TxHashPair` on success.
- */
+/** Throws on SDK failure (React Query error state); resolves to the unwrapped `TxHashPair`. */
 export function useInstantUnstake<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,
 }: MutationHookParams<TxHashPair, UseInstantUnstakeVars<K>> = {}): SafeUseMutationResult<

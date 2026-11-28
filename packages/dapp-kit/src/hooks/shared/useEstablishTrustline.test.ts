@@ -4,8 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const invalidateQueries = vi.fn();
 const requestTrustline = vi.fn();
 
-// The hook is a pure options builder around useSafeMutation, so stubbing the three
-// React-side imports lets the real onSuccess run without a DOM.
+// Stubbing the React-side imports lets the real onSuccess run without a DOM.
 vi.mock('@tanstack/react-query', () => ({ useQueryClient: () => ({ invalidateQueries }) }));
 vi.mock('./useSodaxContext.js', () => ({
   useSodaxContext: () => ({ sodax: { spoke: { stellar: { requestTrustline } } } }),
@@ -53,15 +52,12 @@ describe('useEstablishTrustline — invalidation after a broadcast trustline', (
   });
 
   it('SURVIVES a wallet that fails right after signing, and still invalidates', async () => {
-    // The trustline is already on-chain here: throwing would report success as an
-    // error and leave the gate showing "needs a trustline" until a manual refetch.
     const rejecting = vars(async () => {
       throw new Error('wallet is locked');
     });
 
     await expect(optionsOf().onSuccess('hash', rejecting, undefined)).resolves.toBeUndefined();
 
-    // Falls back to the whole prefix, because the account is no longer identifiable.
     expect(invalidatedKeys()).toEqual([
       ['shared', 'stellarTrustlineCheck'],
       ['sponsoring', 'stellarAccountStatus'],

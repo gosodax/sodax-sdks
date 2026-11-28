@@ -14,10 +14,7 @@ export type UseUnstakingInfoWithPenaltyParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch the user's pending unstake requests **with computed early-exit penalties**
- * by deriving the hub wallet from the spoke `srcAddress` + `srcChainKey`. Throws on `!ok`.
- */
+/** Includes computed early-exit penalties. Throws on `!ok`. */
 export function useUnstakingInfoWithPenalty({
   params,
   queryOptions,

@@ -145,7 +145,7 @@ describe('Erc20Service.planApproval', () => {
     expect(client.call).not.toHaveBeenCalled();
   });
 
-  it('plans a single approve when a stale allowance exists but the token accepts the write', async () => {
+  it('plans a single approve when a stale allowance exists but the token accepts the write, probing as the owner', async () => {
     const client = makeClient();
     client.readContract.mockResolvedValueOnce(STALE_ALLOWANCE);
     client.call.mockResolvedValueOnce({ data: '0x' });
@@ -153,7 +153,13 @@ describe('Erc20Service.planApproval', () => {
     const plan = await Erc20Service.planApproval(planParams(client));
 
     expect(plan).toEqual({ approveAmount: AMOUNT, reason: 'probe-passed' });
-    expect(client.call).toHaveBeenCalledTimes(1);
+    // `account` is load-bearing: the guard reads `allowed[msg.sender][spender]`, so a probe without
+    // it would never reproduce the revert.
+    expect(client.call).toHaveBeenCalledExactlyOnceWith({
+      account: OWNER,
+      to: TOKEN,
+      data: approveCalldata(AMOUNT),
+    });
   });
 
   it('plans reset-then-approve when the token rejects a non-zero to non-zero change', async () => {
@@ -178,22 +184,6 @@ describe('Erc20Service.planApproval', () => {
     // A paused token or a blacklisted owner reverts on both. A reset transaction there is gas spent
     // on a certain failure, so let the real error surface from the single approve instead.
     expect(plan).toEqual({ approveAmount: AMOUNT, reason: 'reset-not-viable' });
-  });
-
-  it('probes as the owner, against the token, with the requested amount', async () => {
-    const client = makeClient();
-    client.readContract.mockResolvedValueOnce(STALE_ALLOWANCE);
-    client.call.mockResolvedValueOnce({ data: '0x' });
-
-    await Erc20Service.planApproval(planParams(client));
-
-    // `account` is load-bearing: the guard reads `allowed[msg.sender][spender]`, so a probe without
-    // it would never reproduce the revert.
-    expect(client.call).toHaveBeenCalledWith({
-      account: OWNER,
-      to: TOKEN,
-      data: approveCalldata(AMOUNT),
-    });
   });
 });
 

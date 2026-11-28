@@ -5,7 +5,6 @@ import type { MutationHookParams } from '../shared/types.js';
 import { useSafeMutation, type SafeUseMutationResult } from '../shared/useSafeMutation.js';
 import { unwrapResult } from '../shared/unwrapResult.js';
 
-/** Mutation variables for {@link useApproveLeveragePositionFunding}. */
 export type UseApproveLeveragePositionFundingVars<K extends SpokeChainKey = SpokeChainKey> = {
   srcChainKey: K;
   srcAddress: string;
@@ -16,13 +15,8 @@ export type UseApproveLeveragePositionFundingVars<K extends SpokeChainKey = Spok
 };
 
 /**
- * Approves the funding token for an open, against the spender the SDK resolves.
- *
- * THE SPENDER IS CHAIN-DEPENDENT — the hub wallet on the hub, the spoke asset manager elsewhere.
- * Nothing is ever approved to the position factory: it pulls from nobody.
- *
- * Wait for this before opening, and gate it on {@link useLeveragePositionFundingAllowance}, whose
- * query is invalidated here on success.
+ * Approves the funding token for an open; the spender is chain-dependent (hub wallet on hub, spoke asset manager elsewhere).
+ * Await before opening; invalidates {@link useLeveragePositionFundingAllowance} on success.
  */
 export function useApproveLeveragePositionFunding<K extends SpokeChainKey = SpokeChainKey>({
   mutationOptions,

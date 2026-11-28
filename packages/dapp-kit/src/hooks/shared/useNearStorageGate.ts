@@ -4,38 +4,28 @@ import { useNearStorageCheck } from './useNearStorageCheck.js';
 import { useRegisterNearStorage } from './useRegisterNearStorage.js';
 
 export interface UseNearStorageGateParams {
-  /** Destination chain the token is delivered on; `undefined` (not chosen yet) leaves the gate inert. */
+  /** `undefined` (not chosen yet) leaves the gate inert. */
   dstChainKey: SpokeChainKey | undefined;
-  /** Destination token address the recipient must be registered for. */
   token: string | undefined;
-  /** Recipient NEAR account id. */
   accountId: string | undefined;
-  /** Destination wallet provider; only consumed when it is the NEAR provider. */
+  /** Only consumed when it is the NEAR provider. */
   walletProvider: GetWalletProviderType<SpokeChainKey> | undefined;
 }
 
 export interface NearStorageGate {
-  /** Destination is NEAR. */
   isNear: boolean;
-  /** Destination is NEAR and the recipient is not yet storage-registered for `token`. */
   needsRegistration: boolean;
-  /** The downstream action must stay disabled while the gate is unresolved or unmet. */
+  /** True while the gate is unresolved or unmet. */
   blocksAction: boolean;
-  /** The registration-status query is actively fetching. */
   isChecking: boolean;
-  /** Destination is NEAR and the registration check failed, so whether the recipient can receive is unknown. */
   checkFailed: boolean;
-  /** Re-run the registration check. */
   retry: () => void;
-  /** A `storage_deposit` tx is in flight. */
   isRegistering: boolean;
-  /** Submit the `storage_deposit`; resolves to the SDK `Result` or `undefined` if inputs are missing. */
+  /** Resolves to `undefined` if inputs are missing. */
   registerStorage: () => Promise<Result<string> | undefined>;
 }
 
-/**
- * NEP-141 storage-registration gate for flows that deliver a token to a user on NEAR.
- */
+/** NEP-141 storage-registration gate for flows that deliver a token to a user on NEAR. */
 export function useNearStorageGate({
   dstChainKey,
   token,

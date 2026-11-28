@@ -5,19 +5,7 @@ import type { ReadHookParams } from '../shared/types.js';
 
 export type UseLeveragePositionInfoParams = ReadHookParams<LeveragePosition, { position: Address | undefined }>;
 
-/**
- * Reads a leverage position's static descriptor — owner, collateral, borrow token, and the
- * eMode category it was created with.
- *
- * All four are fixed at creation, so this never goes stale for a given position and is left
- * on the default cache behaviour rather than polled. Pair it with
- * `useLeveragePositionAccount` for the values that do move.
- *
- * @example
- * ```typescript
- * const { data: info } = useLeveragePositionInfo({ params: { position } });
- * ```
- */
+/** A position's static descriptor (fixed at creation, so not polled); see `useLeveragePositionAccount` for live values. */
 export function useLeveragePositionInfo({
   params,
   queryOptions,

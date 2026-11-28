@@ -1,26 +1,14 @@
 /**
  * Tests for EvmSpokeService — handles all EVM spoke chains (Ethereum, Arbitrum, Base, BSC,
- * Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera). Sonic is the hub
- * and is covered by SonicSpokeService.test.ts.
+ * Optimism, Polygon, Avalanche, HyperEVM, Lightlink, Redbelly, Kaia, Hedera, Robinhood). Sonic is
+ * the hub and is covered by SonicSpokeService.test.ts.
  *
- * Issue #109 — enable tests for all spoke services. Coverage is structured around multi-chain
- * parametrisation:
- *
- *   1. **Cache mechanism** (constructor, constructPublicClient, getPublicClient) — tests the
- *      publicClients map's lazy/cached behaviour. Single-chain (ARB) because the mechanism is
- *      chain-independent; multi-chain isolation is folded into a dedicated getPublicClient test.
- *
- *   2. **Per-chain method coverage** — every config-consuming public method runs through
- *      `describe.each(TEST_CHAINS)` against all 12 EVM spokes. Catches per-chain regressions:
- *      hardcoded addresses, wrong-chain config lookups, cache returning the wrong client.
- *
- *   3. **Chain-independent branches** — error handling, parameter defaults, relayId derivation,
- *      and viem-response-mapping branches. Run on ARB only because the code path doesn't depend
- *      on the chain (a regression there would surface on every chain identically, so 12×
- *      parametrisation is redundant).
- *
- *   4. **Cross-chain independence** — proves chains don't bleed into each other: distinct cached
- *      clients per chain, per-call `getChainConfig` lookup.
+ *   1. **Cache mechanism** (constructPublicClient, getPublicClient) — single chain (ARB).
+ *   2. **Method behaviour** — every branch of every method, on ARB: the code paths do not depend
+ *      on the chain, so a regression surfaces identically on every chain.
+ *   3. **Hedera native msg.value scaling** — the one chain-specific branch in the class.
+ *   4. **Per-chain config routing** — sweeps every EVM spoke for the per-chain regressions that
+ *      remain: hardcoded addresses, wrong-chain config lookups, cache keyed wrong, viem-chain holes.
  *
  * Mocking: only `Erc20Service.isAllowanceValid` is mocked at its source path (wrapped by
  * `isAllowanceValid`). viem's `createPublicClient` runs against the real impl — transport
@@ -59,41 +47,30 @@ vi.mock('../erc-20/Erc20Service.js', async () => {
 import { Sodax } from '../../entities/Sodax.js';
 import { getEvmViemChain } from '../../utils/constant-utils.js';
 import { EvmSpokeService } from './EvmSpokeService.js';
-import type { DepositParams, SendMessageParams } from '../../types/spoke-types.js';
+import type { DepositParams } from '../../types/spoke-types.js';
 
 // --- fixtures -------------------------------------------------------------
 
 const sodax = new Sodax();
 const evmSpoke = sodax.spoke.evm;
 
-// ARB is the canonical sample chain for chain-independent tests (cache mechanism, error branches,
-// parameter defaults). BASE is used only inside the getPublicClient multi-chain-isolation test.
+// ARB is the canonical sample chain for chain-independent tests.
 const ARB = ChainKeys.ARBITRUM_MAINNET;
-const BASE = ChainKeys.BASE_MAINNET;
 const SONIC = ChainKeys.SONIC_MAINNET; // sendMessage destination (hub chain)
-const HEDERA = ChainKeys.HEDERA_MAINNET; // the only chain that scales native msg.value (see below)
+const HEDERA = ChainKeys.HEDERA_MAINNET; // the only chain that scales native msg.value
 
 const arbConfig = spokeChainConfig[ARB];
 const ARB_ASSET_MANAGER = arbConfig.addresses.assetManager as Address;
+const ARB_CONNECTION = arbConfig.addresses.connection as Address;
 const ARB_NATIVE = arbConfig.nativeToken as Address;
 const ARB_RPC = arbConfig.rpcUrl;
-// A real ERC-20 deployed on Arbitrum (sourced from chain config). Grounds chain-independent
-// branch tests in actual on-chain data.
+// A real ERC-20 deployed on Arbitrum (sourced from chain config).
 const ARB_TOKEN: Address = arbConfig.bnUSD as Address;
 
 const hederaConfig = spokeChainConfig[HEDERA];
 const HEDERA_ASSET_MANAGER = hederaConfig.addresses.assetManager as Address;
 const HEDERA_NATIVE = hederaConfig.nativeToken as Address;
 const HEDERA_TOKEN: Address = hederaConfig.bnUSD as Address;
-
-// HBAR is tracked as 8 decimals in spoke accounting, but Hedera's EVM layer treats native
-// msg.value as 18 decimals, so a native deposit's msg.value is multiplied by 10^10 (the
-// transfer calldata amount stays in 8). Every other chain passes the amount through unscaled.
-// Mirrors `scaleNativeMsgValue` in EvmSpokeService.ts; the dedicated invariant suite below pins
-// the literal values independently.
-const HEDERA_NATIVE_VALUE_SCALE = 10n ** 10n;
-const scaleNativeMsgValue = (chainKey: EvmSpokeOnlyChainKey, amount: bigint): bigint =>
-  chainKey === HEDERA ? amount * HEDERA_NATIVE_VALUE_SCALE : amount;
 
 // Per-user / per-flow inputs — these represent test users and call destinations, not
 // infrastructure, so they have no config source.
@@ -102,6 +79,15 @@ const HUB_WALLET: Address = '0x2222222222222222222222222222222222222222';
 const DST_ADDR: Address = '0x3333333333333333333333333333333333333333';
 
 const TX_HASH = '0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef' as const;
+
+const transferCalldata = (token: Address, amount: bigint, data: Hex = '0x'): Hex =>
+  encodeFunctionData({ abi: spokeAssetManagerAbi, functionName: 'transfer', args: [token, HUB_WALLET, amount, data] });
+const sendMessageCalldata = (): Hex =>
+  encodeFunctionData({
+    abi: connectionAbi,
+    functionName: 'sendMessage',
+    args: [getIntentRelayChainId(SONIC), DST_ADDR, '0xpayload' as Hex],
+  });
 
 const mockEvmProvider = {
   chainType: 'EVM',
@@ -130,9 +116,8 @@ const TEST_CHAINS = [
   ChainKeys.ROBINHOOD_MAINNET,
 ] as const satisfies readonly EvmSpokeOnlyChainKey[];
 
-// Warm the publicClients cache for ARB so chain-independent test spies have a stable client
-// reference. `vi.restoreAllMocks` in afterEach tears down spies between tests; the cached
-// PublicClient persists for the file lifetime.
+// Warm the publicClients cache for ARB so test spies have a stable client reference; the cached
+// PublicClient persists for the file lifetime while afterEach restores the spies.
 const arbClient = evmSpoke.getPublicClient(ARB);
 
 beforeEach(() => {
@@ -145,27 +130,11 @@ afterEach(() => {
 });
 
 // =========================================================================
-// 1. Constructor + cache mechanism (chain-independent)
+// 1. Cache mechanism (chain-independent)
 // =========================================================================
 
-describe('EvmSpokeService — constructor', () => {
-  it('exposes the spoke instance on sodax.spoke.evm with the expected method surface', () => {
-    // Smoke: the constructor only assigns `config` and initialises an empty cache map. Pin the
-    // method surface so a renamed method surfaces here instead of deep in a feature service test.
-    expect(evmSpoke).toBeInstanceOf(EvmSpokeService);
-    expect(typeof evmSpoke.getPublicClient).toBe('function');
-    expect(typeof evmSpoke.constructPublicClient).toBe('function');
-    expect(typeof evmSpoke.estimateGas).toBe('function');
-    expect(typeof evmSpoke.isAllowanceValid).toBe('function');
-    expect(typeof evmSpoke.deposit).toBe('function');
-    expect(typeof evmSpoke.getDeposit).toBe('function');
-    expect(typeof evmSpoke.sendMessage).toBe('function');
-    expect(typeof evmSpoke.waitForTransactionReceipt).toBe('function');
-  });
-});
-
 describe('EvmSpokeService.constructPublicClient', () => {
-  it('returns a viem PublicClient with the methods the rest of the class consumes', () => {
+  it('returns a viem PublicClient with the consumed methods and caches it for getPublicClient', () => {
     const fresh = new EvmSpokeService(sodax.config);
     const client = fresh.constructPublicClient({ chainId: ARB, rpcUrl: ARB_RPC });
 
@@ -174,12 +143,7 @@ describe('EvmSpokeService.constructPublicClient', () => {
     expect(typeof client.estimateGas).toBe('function');
     expect(typeof client.readContract).toBe('function');
     expect(typeof client.waitForTransactionReceipt).toBe('function');
-  });
-
-  it('stores the client in the cache so a subsequent getPublicClient returns the same instance', () => {
-    const fresh = new EvmSpokeService(sodax.config);
-    const created = fresh.constructPublicClient({ chainId: ARB, rpcUrl: ARB_RPC });
-    expect(fresh.getPublicClient(ARB)).toBe(created);
+    expect(fresh.getPublicClient(ARB)).toBe(client);
   });
 
   it('falls back to the viem chain default RPC when rpcUrl is omitted', () => {
@@ -191,348 +155,43 @@ describe('EvmSpokeService.constructPublicClient', () => {
 });
 
 describe('EvmSpokeService.getPublicClient', () => {
-  it('returns the cached client on the second call (no double-construction)', () => {
+  it('lazily constructs once from the per-chain config rpcUrl, then returns the cached client', () => {
     const fresh = new EvmSpokeService(sodax.config);
+    const constructSpy = vi.spyOn(fresh, 'constructPublicClient');
+
     const first = fresh.getPublicClient(ARB);
-    const constructSpy = vi.spyOn(fresh, 'constructPublicClient');
-
     const second = fresh.getPublicClient(ARB);
-    expect(second).toBe(first);
-    // Cache-hit branch must short-circuit before constructing again — otherwise we'd open new
-    // transports on every call.
-    expect(constructSpy).not.toHaveBeenCalled();
-  });
 
-  it('lazily constructs a client on the first call for a chain', () => {
-    const fresh = new EvmSpokeService(sodax.config);
-    const constructSpy = vi.spyOn(fresh, 'constructPublicClient');
-    fresh.getPublicClient(ARB);
+    expect(second).toBe(first);
+    // Cache-hit branch must short-circuit before constructing again, and the URL must come from
+    // `config.getChainConfig(chainId).rpcUrl`.
     expect(constructSpy).toHaveBeenCalledTimes(1);
     expect(constructSpy).toHaveBeenCalledWith({ chainId: ARB, rpcUrl: ARB_RPC });
   });
-
-  it('maintains independent cached clients for distinct chains', () => {
-    const fresh = new EvmSpokeService(sodax.config);
-    const arb = fresh.getPublicClient(ARB);
-    const base = fresh.getPublicClient(BASE);
-    expect(arb).not.toBe(base);
-    expect(fresh.getPublicClient(ARB)).toBe(arb);
-    expect(fresh.getPublicClient(BASE)).toBe(base);
-  });
-
-  it('reads the per-chain rpcUrl from ConfigService when constructing', () => {
-    const fresh = new EvmSpokeService(sodax.config);
-    const constructSpy = vi.spyOn(fresh, 'constructPublicClient');
-    fresh.getPublicClient(ARB);
-    // Source of the URL is `config.getChainConfig(chainId).rpcUrl` — catches a regression that
-    // swaps the source.
-    expect(constructSpy).toHaveBeenCalledWith({ chainId: ARB, rpcUrl: ARB_RPC });
-  });
 });
 
 // =========================================================================
-// 2. Per-chain method coverage — every config-consuming method across all 12 EVM spokes
+// 2. Method behaviour (run on ARB — the code paths do not depend on the chain; per-chain config
+//    routing is pinned in section 4, Hedera's native scaling in its own suite)
 // =========================================================================
-//
-// EvmSpokeService is generic over the 12 non-hub EVM spoke chains. Restricting coverage to one
-// chain misses regressions where:
-//   - chain-specific addresses are hardcoded inside the SUT (only matter where addresses diverge),
-//   - `getChainConfig` always reads ARB regardless of `srcChainKey`,
-//   - the publicClients cache returns the wrong chain's client,
-//   - `getEvmViemChain()` has a switch hole for one chain.
-// Every method whose output depends on chain config (assetManager, connection, nativeToken) or
-// on per-chain client routing is parametrised. Chain-independent error / mapping branches sit
-// in section 3 to avoid redundant 12× runs of identical logic.
-//
-// Address diversity (drawn from chains.ts):
-//   assetManager: 7 distinct values across 12 chains
-//   connection:   4 distinct values across 12 chains
-//   bnUSD:       11 distinct values across 12 chains
-// Hardcode regressions surface on any chain whose value diverges from the hardcoded sample.
 
-describe.each(TEST_CHAINS)('EvmSpokeService — %s', chainKey => {
-  const chainConfig = spokeChainConfig[chainKey];
-  const ASSET_MANAGER = chainConfig.addresses.assetManager as Address;
-  const CONNECTION = chainConfig.addresses.connection as Address;
-  const NATIVE = chainConfig.nativeToken as Address;
-  const CHAIN_TOKEN = chainConfig.bnUSD as Address;
-  // Cached PublicClient for this chain. Per-test spies are restored by afterEach; the cached
-  // client itself persists for the file lifetime.
-  const client = evmSpoke.getPublicClient(chainKey);
-
-  describe('estimateGas', () => {
-    it("delegates to this chain's cached publicClient.estimateGas with unpacked tx fields", async () => {
-      const spy = vi.spyOn(client, 'estimateGas').mockResolvedValueOnce(50_000n);
-
-      const result = await evmSpoke.estimateGas({
-        chainKey,
-        tx: { from: SRC_ADDR, to: HUB_WALLET, value: 1n, data: '0xcafe' as Hex },
-      });
-
-      expect(result).toBe(50_000n);
-      // viem expects `account` (not `from`); the service renames the field. A regression that
-      // passes `from` directly would silently produce wrong estimates.
-      expect(spy).toHaveBeenCalledWith({
-        account: SRC_ADDR,
-        to: HUB_WALLET,
-        value: 1n,
-        data: '0xcafe',
-      });
-    });
-  });
-
-  describe('isAllowanceValid', () => {
-    it("forwards this chain's nativeToken and cached publicClient to Erc20Service", async () => {
-      mocks.erc20IsAllowanceValid.mockResolvedValueOnce({ ok: true, value: true });
-
-      const result = await evmSpoke.isAllowanceValid({
-        chainKey,
-        token: CHAIN_TOKEN,
-        owner: SRC_ADDR,
-        spender: ASSET_MANAGER,
-        amount: 1_000n,
-      });
-
-      expect(result).toEqual({ ok: true, value: true });
-      // Erc20Service receives the per-chain cached client + per-chain nativeToken — both sourced
-      // from config rather than hardcoded. A regression that always used ARB's client (or the
-      // zero-address as nativeToken) surfaces on every chain except ARB.
-      expect(mocks.erc20IsAllowanceValid).toHaveBeenCalledWith({
-        chainKey,
-        token: CHAIN_TOKEN,
-        owner: SRC_ADDR,
-        spender: ASSET_MANAGER,
-        amount: 1_000n,
-        publicClient: client,
-        nativeToken: NATIVE,
-      });
-    });
-  });
-
-  describe('getDeposit', () => {
-    it("reads balanceOf on this chain's cached client with this chain's assetManager as holder", async () => {
-      const spy = vi.spyOn(client, 'readContract').mockResolvedValueOnce(7_500n);
-
-      const result = await evmSpoke.getDeposit({
-        srcChainKey: chainKey,
-        srcAddress: SRC_ADDR,
-        token: CHAIN_TOKEN,
-      });
-
-      expect(result).toBe(7_500n);
-      // Holder is the per-chain spoke asset manager (NOT the token, NOT srcAddress). Contrasts
-      // with SonicSpokeService.getDeposit which has a suspected v1 regression passing the token.
-      expect(spy).toHaveBeenCalledWith({
-        address: CHAIN_TOKEN,
-        abi: erc20Abi,
-        functionName: 'balanceOf',
-        args: [ASSET_MANAGER],
-      });
-    });
-  });
-
-  describe('deposit', () => {
-    const expectedCalldata = (token: Address, amount: bigint, data: Hex = '0x'): Hex =>
-      encodeFunctionData({
-        abi: spokeAssetManagerAbi,
-        functionName: 'transfer',
-        args: [token, HUB_WALLET, amount, data],
-      });
-
-    it("ERC20 raw=true → rawTx targets this chain's assetManager with value=0n", async () => {
-      const result = await evmSpoke.deposit<true>({
-        srcAddress: SRC_ADDR,
-        srcChainKey: chainKey,
-        to: HUB_WALLET,
-        token: CHAIN_TOKEN,
-        amount: 1_000n,
-        data: '0x' as Hex,
-        raw: true,
-      });
-
-      expect(result).toEqual({
-        from: SRC_ADDR,
-        to: ASSET_MANAGER,
-        value: 0n,
-        data: expectedCalldata(CHAIN_TOKEN, 1_000n),
-      });
-    });
-
-    it("ERC20 raw=false → walletProvider.sendTransaction receives this chain's rawTx", async () => {
-      (mockEvmProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
-
-      const result = await evmSpoke.deposit({
-        srcAddress: SRC_ADDR,
-        srcChainKey: chainKey,
-        to: HUB_WALLET,
-        token: CHAIN_TOKEN,
-        amount: 1_000n,
-        data: '0x' as Hex,
-        raw: false,
-        walletProvider: mockEvmProvider,
-      });
-
-      expect(result).toBe(TX_HASH);
-      expect(mockEvmProvider.sendTransaction).toHaveBeenCalledWith(
-        {
-          from: SRC_ADDR,
-          to: ASSET_MANAGER,
-          value: 0n,
-          data: expectedCalldata(CHAIN_TOKEN, 1_000n),
-        },
-        // The tx must be chain-bound to the spoke it was built for.
-        { expectedChainId: getEvmViemChain(chainKey).id },
-      );
-    });
-
-    it("native raw=true → msg.value uses this chain's native scaling when token matches nativeToken", async () => {
-      const result = await evmSpoke.deposit<true>({
-        srcAddress: SRC_ADDR,
-        srcChainKey: chainKey,
-        to: HUB_WALLET,
-        token: NATIVE,
-        amount: 1_000n,
-        data: '0x' as Hex,
-        raw: true,
-      });
-
-      expect(result).toEqual({
-        from: SRC_ADDR,
-        to: ASSET_MANAGER,
-        // Unscaled (amount) everywhere except Hedera, where HBAR's msg.value is ×10^10. The
-        // transfer calldata amount stays unscaled on every chain (verified below).
-        value: scaleNativeMsgValue(chainKey, 1_000n),
-        data: expectedCalldata(NATIVE, 1_000n),
-      });
-    });
-
-    it("native raw=false → walletProvider.sendTransaction receives this chain's rawTx", async () => {
-      (mockEvmProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
-      const result = await evmSpoke.deposit({
-        srcAddress: SRC_ADDR,
-        srcChainKey: chainKey,
-        to: HUB_WALLET,
-        token: NATIVE,
-        amount: 1_000n,
-        data: '0x' as Hex,
-        raw: false,
-        walletProvider: mockEvmProvider,
-      });
-      expect(result).toBe(TX_HASH);
-      expect(mockEvmProvider.sendTransaction).toHaveBeenCalledWith(
-        expect.objectContaining({ to: ASSET_MANAGER, value: scaleNativeMsgValue(chainKey, 1_000n) }),
-        { expectedChainId: getEvmViemChain(chainKey).id },
-      );
-    });
-  });
-
-  describe('sendMessage', () => {
-    const expectedCalldata = (dstAddr: Address, payload: Hex) =>
-      encodeFunctionData({
-        abi: connectionAbi,
-        functionName: 'sendMessage',
-        args: [getIntentRelayChainId(SONIC), dstAddr, payload],
-      });
-
-    it("raw=true → rawTx targets this chain's connection with relay-id-encoded calldata", async () => {
-      // BSC, HyperEVM, Lightlink, and Redbelly have connection addresses distinct from the
-      // ARB/BASE/OPT/POL/AVAX/ETH/KAIA/HEDERA group. Their iterations are the actual catchers for
-      // a "connection address hardcoded from one sample chain" regression.
-      const result = await evmSpoke.sendMessage({
-        srcAddress: SRC_ADDR,
-        srcChainKey: chainKey,
-        dstChainKey: SONIC,
-        dstAddress: DST_ADDR,
-        payload: '0xpayload' as Hex,
-        raw: true,
-      });
-
-      expect(result).toEqual({
-        from: SRC_ADDR,
-        to: CONNECTION,
-        // sendMessage always sets value to 0n — pure message dispatch, no token transfer.
-        value: 0n,
-        data: expectedCalldata(DST_ADDR, '0xpayload' as Hex),
-      });
-    });
-
-    it("raw=false → walletProvider.sendTransaction receives this chain's connection rawTx", async () => {
-      (mockEvmProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
-
-      const result = await evmSpoke.sendMessage({
-        srcAddress: SRC_ADDR,
-        srcChainKey: chainKey,
-        dstChainKey: SONIC,
-        dstAddress: DST_ADDR,
-        payload: '0xpayload' as Hex,
-        raw: false,
-        walletProvider: mockEvmProvider,
-      });
-
-      expect(result).toBe(TX_HASH);
-      expect(mockEvmProvider.sendTransaction).toHaveBeenCalledWith(
-        {
-          from: SRC_ADDR,
-          to: CONNECTION,
-          value: 0n,
-          data: expectedCalldata(DST_ADDR, '0xpayload' as Hex),
-        },
-        { expectedChainId: getEvmViemChain(chainKey).id },
-      );
-    });
-  });
-
-  describe('waitForTransactionReceipt', () => {
-    it("reads the receipt from this chain's cached client and maps it correctly", async () => {
-      // Spying on this chain's client proves the chainKey → cached client routing works. A
-      // regression that always used ARB's client surfaces on every non-ARB chain.
-      const baseReceipt = {
-        status: 'success' as const,
-        transactionIndex: 0,
-        blockNumber: 1n,
-        cumulativeGasUsed: 21_000n,
-        gasUsed: 21_000n,
-        contractAddress: null,
-        effectiveGasPrice: 1n,
-        logs: [],
-      };
-      const spy = vi.spyOn(client, 'waitForTransactionReceipt').mockResolvedValueOnce(baseReceipt as never);
-
-      const result = await evmSpoke.waitForTransactionReceipt({ chainKey, txHash: TX_HASH });
-
-      expect(spy).toHaveBeenCalledWith({
-        hash: TX_HASH,
-        pollingInterval: undefined,
-        timeout: undefined,
-      });
-      if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
-      expect(result.value.receipt.blockNumber).toBe('1');
-    });
-  });
-});
-
-// =========================================================================
-// 3. Chain-independent branches (run on ARB only — logic doesn't depend on chain)
-// =========================================================================
-//
-// These tests exercise code paths whose behaviour is identical across all chains: error wrapping,
-// parameter defaults, comparison logic (toLowerCase), viem-response field mapping. Running them
-// 12× over TEST_CHAINS would be pure noise — a regression in any of these surfaces uniformly on
-// every chain, so one chain (ARB) suffices to catch it.
-
-describe('EvmSpokeService.estimateGas — bigint precision', () => {
-  it('forwards the bigint return value verbatim (no precision loss)', async () => {
+describe('EvmSpokeService.estimateGas', () => {
+  it('delegates to the cached publicClient.estimateGas, renaming from→account, bigint verbatim', async () => {
     const huge = 999_999_999_999_999_999n;
-    vi.spyOn(arbClient, 'estimateGas').mockResolvedValueOnce(huge);
+    const spy = vi.spyOn(arbClient, 'estimateGas').mockResolvedValueOnce(huge);
+
     const result = await evmSpoke.estimateGas({
       chainKey: ARB,
-      tx: { from: SRC_ADDR, to: HUB_WALLET, value: 0n, data: '0x' as Hex },
+      tx: { from: SRC_ADDR, to: HUB_WALLET, value: 1n, data: '0xcafe' as Hex },
     });
+
     expect(result).toBe(huge);
+    // viem expects `account` (not `from`); passing `from` directly would silently produce wrong estimates.
+    expect(spy).toHaveBeenCalledWith({ account: SRC_ADDR, to: HUB_WALLET, value: 1n, data: '0xcafe' });
   });
 });
 
-describe('EvmSpokeService.isAllowanceValid — error branches', () => {
+describe('EvmSpokeService.isAllowanceValid', () => {
   const params = {
     chainKey: ARB,
     token: ARB_TOKEN,
@@ -540,6 +199,19 @@ describe('EvmSpokeService.isAllowanceValid — error branches', () => {
     spender: ARB_ASSET_MANAGER,
     amount: 1_000n,
   };
+
+  it("forwards the chain's nativeToken and cached publicClient to Erc20Service", async () => {
+    mocks.erc20IsAllowanceValid.mockResolvedValueOnce({ ok: true, value: true });
+
+    const result = await evmSpoke.isAllowanceValid(params);
+
+    expect(result).toEqual({ ok: true, value: true });
+    expect(mocks.erc20IsAllowanceValid).toHaveBeenCalledWith({
+      ...params,
+      publicClient: arbClient,
+      nativeToken: ARB_NATIVE,
+    });
+  });
 
   it('forwards a sub-Result failure as-is (Erc20Service returned ok:false)', async () => {
     const subError = new Error('allowance check failed');
@@ -560,14 +232,25 @@ describe('EvmSpokeService.isAllowanceValid — error branches', () => {
   });
 });
 
-describe('EvmSpokeService.deposit — chain-independent branches', () => {
-  const expectedCalldata = (token: Address, amount: bigint, data: Hex = '0x'): Hex =>
-    encodeFunctionData({
-      abi: spokeAssetManagerAbi,
-      functionName: 'transfer',
-      args: [token, HUB_WALLET, amount, data],
-    });
+describe('EvmSpokeService.getDeposit', () => {
+  it("reads balanceOf with the chain's assetManager as holder", async () => {
+    const spy = vi.spyOn(arbClient, 'readContract').mockResolvedValueOnce(7_500n);
 
+    const result = await evmSpoke.getDeposit({ srcChainKey: ARB, srcAddress: SRC_ADDR, token: ARB_TOKEN });
+
+    expect(result).toBe(7_500n);
+    // Holder is the per-chain spoke asset manager (NOT the token, NOT srcAddress). Contrasts
+    // with SonicSpokeService.getDeposit which has a suspected v1 regression passing the token.
+    expect(spy).toHaveBeenCalledWith({
+      address: ARB_TOKEN,
+      abi: erc20Abi,
+      functionName: 'balanceOf',
+      args: [ARB_ASSET_MANAGER],
+    });
+  });
+});
+
+describe('EvmSpokeService.deposit', () => {
   const depositParams = <Raw extends boolean>(
     overrides: Partial<DepositParams<typeof ARB, Raw>>,
   ): DepositParams<typeof ARB, Raw> =>
@@ -583,23 +266,36 @@ describe('EvmSpokeService.deposit — chain-independent branches', () => {
       ...overrides,
     }) as DepositParams<typeof ARB, Raw>;
 
-  it('threads a non-default `data` blob through to the transfer call', async () => {
+  it("ERC20 raw=true → rawTx targets the chain's assetManager with value=0n and never sends", async () => {
+    const result = await evmSpoke.deposit(depositParams<true>({ raw: true }));
+
+    expect(result).toEqual({
+      from: SRC_ADDR,
+      to: ARB_ASSET_MANAGER,
+      value: 0n,
+      data: transferCalldata(ARB_TOKEN, 1_000n),
+    });
+    expect(mockEvmProvider.sendTransaction).not.toHaveBeenCalled();
+  });
+
+  it('raw=false → walletProvider.sendTransaction receives the chain-bound rawTx and its hash is returned', async () => {
+    (mockEvmProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
+
+    const result = await evmSpoke.deposit(depositParams<false>({}));
+
+    expect(result).toBe(TX_HASH);
+    expect(mockEvmProvider.sendTransaction).toHaveBeenCalledWith(
+      { from: SRC_ADDR, to: ARB_ASSET_MANAGER, value: 0n, data: transferCalldata(ARB_TOKEN, 1_000n) },
+      // The tx must be chain-bound to the spoke it was built for.
+      { expectedChainId: getEvmViemChain(ARB).id },
+    );
+  });
+
+  it("threads a non-default `data` blob through to the transfer call, defaulting to '0x' when omitted", async () => {
     const extraData = '0xfeedface' as Hex;
-    const result = await evmSpoke.deposit(depositParams<true>({ data: extraData, raw: true }));
-    expect(result.data).toBe(expectedCalldata(ARB_TOKEN, 1_000n, extraData));
-  });
+    const withData = await evmSpoke.deposit(depositParams<true>({ data: extraData, raw: true }));
+    expect(withData.data).toBe(transferCalldata(ARB_TOKEN, 1_000n, extraData));
 
-  it('case-insensitive native check — UPPERCASE token address still triggers value=amount', async () => {
-    // Implementation: `token.toLowerCase() === chainConfig.nativeToken.toLowerCase()`. An
-    // EIP-55-mixed-case or fully-uppercase form of the same address must still match. Dropping
-    // the .toLowerCase() guard would silently send value=0 with a non-native calldata to the
-    // asset manager (which would revert at the contract).
-    const uppered = ARB_NATIVE.toUpperCase().replace('0X', '0x') as Address;
-    const result = await evmSpoke.deposit(depositParams<true>({ token: uppered, raw: true }));
-    expect(result.value).toBe(1_000n);
-  });
-
-  it("defaults data to '0x' when omitted", async () => {
     // Destructuring default: `data = '0x'`. Omitting the key entirely should still produce valid
     // transfer calldata rather than `data: undefined` (which would break encoding).
     const params = {
@@ -610,14 +306,13 @@ describe('EvmSpokeService.deposit — chain-independent branches', () => {
       amount: 1_000n,
       raw: true,
     } as unknown as DepositParams<typeof ARB, true>;
-
-    const result = await evmSpoke.deposit(params);
-    expect(result.data).toBe(expectedCalldata(ARB_TOKEN, 1_000n, '0x'));
+    const withoutData = await evmSpoke.deposit(params);
+    expect(withoutData.data).toBe(transferCalldata(ARB_TOKEN, 1_000n, '0x'));
   });
 });
 
 // =========================================================================
-// 3a. Hedera native msg.value scaling (scaleNativeMsgValue) — the core new behaviour of this PR
+// 3. Hedera native msg.value scaling (scaleNativeMsgValue)
 // =========================================================================
 //
 // HBAR is accounted in 8 decimals but Hedera's EVM layer expects native msg.value in 18 decimals.
@@ -627,14 +322,7 @@ describe('EvmSpokeService.deposit — chain-independent branches', () => {
 //   - HBAR native deposit       → msg.value = amount * 10^10   (scaled), calldata amount unscaled
 //   - non-native Hedera deposit → msg.value = 0n               (ERC-20 path, no scaling)
 //   - non-Hedera native deposit → msg.value = amount           (existing behaviour, unscaled)
-describe('EvmSpokeService.deposit — Hedera native msg.value scaling', () => {
-  const expectedCalldata = (token: Address, amount: bigint, data: Hex = '0x'): Hex =>
-    encodeFunctionData({
-      abi: spokeAssetManagerAbi,
-      functionName: 'transfer',
-      args: [token, HUB_WALLET, amount, data],
-    });
-
+describe('EvmSpokeService.deposit — native msg.value (Hedera scaling)', () => {
   it('scales a native HBAR deposit msg.value by 10^10 while leaving the transfer amount in 8 decimals', async () => {
     const result = await evmSpoke.deposit<true>({
       srcAddress: SRC_ADDR,
@@ -649,11 +337,10 @@ describe('EvmSpokeService.deposit — Hedera native msg.value scaling', () => {
     expect(result).toEqual({
       from: SRC_ADDR,
       to: HEDERA_ASSET_MANAGER,
-      // 1_000n * 10^10. Literal here so a change to HEDERA_NATIVE_VALUE_SCALE in the SUT (or this
-      // test's mirror) can't silently agree with itself.
+      // 1_000n * 10^10. Literal so a change to HEDERA_NATIVE_VALUE_SCALE in the SUT can't silently agree with itself.
       value: 10_000_000_000_000n,
       // Calldata amount stays unscaled (8-decimal HBAR) — only msg.value is scaled.
-      data: expectedCalldata(HEDERA_NATIVE, 1_000n),
+      data: transferCalldata(HEDERA_NATIVE, 1_000n),
     });
   });
 
@@ -670,46 +357,69 @@ describe('EvmSpokeService.deposit — Hedera native msg.value scaling', () => {
 
     expect(result.value).toBe(0n);
     expect(result.to).toBe(HEDERA_ASSET_MANAGER);
-    expect(result.data).toBe(expectedCalldata(HEDERA_TOKEN, 1_000n));
+    expect(result.data).toBe(transferCalldata(HEDERA_TOKEN, 1_000n));
   });
 
-  it('passes a non-Hedera native deposit msg.value through unscaled (Arbitrum)', async () => {
-    const result = await evmSpoke.deposit<true>({
-      srcAddress: SRC_ADDR,
-      srcChainKey: ARB,
-      to: HUB_WALLET,
-      token: ARB_NATIVE,
-      amount: 1_000n,
-      data: '0x' as Hex,
-      raw: true,
-    });
-
-    // Unchanged existing behaviour: value === amount, no 10^10 factor.
-    expect(result.value).toBe(1_000n);
+  it('passes a non-Hedera native deposit msg.value through unscaled, matching the native token case-insensitively', async () => {
+    // Implementation: `token.toLowerCase() === chainConfig.nativeToken.toLowerCase()`. Dropping the
+    // guard would send value=0 with a native calldata to the asset manager (a contract revert).
+    const uppered = ARB_NATIVE.toUpperCase().replace('0X', '0x') as Address;
+    for (const token of [ARB_NATIVE, uppered]) {
+      const result = await evmSpoke.deposit<true>({
+        srcAddress: SRC_ADDR,
+        srcChainKey: ARB,
+        to: HUB_WALLET,
+        token,
+        amount: 1_000n,
+        data: '0x' as Hex,
+        raw: true,
+      });
+      expect(result).toEqual({
+        from: SRC_ADDR,
+        to: ARB_ASSET_MANAGER,
+        value: 1_000n,
+        data: transferCalldata(token, 1_000n),
+      });
+    }
   });
 });
 
-describe('EvmSpokeService.sendMessage — relayId derivation', () => {
-  it('derives the relayId from dstChainKey (the hub chain), not srcChainKey', async () => {
-    // Defensive: a regression that mixed up dstChainKey/srcChainKey would still pass the rawTx
-    // smoke test if both happened to round-trip through getIntentRelayChainId. Pin the hub
-    // chain's id (146n per packages/types/src/chains/chains.ts) to catch that swap.
-    const params: SendMessageParams<typeof ARB, true> = {
-      srcAddress: SRC_ADDR,
-      srcChainKey: ARB,
-      dstChainKey: SONIC,
-      dstAddress: DST_ADDR,
-      payload: '0xpayload' as Hex,
-      raw: true,
-    };
-    const result = await evmSpoke.sendMessage(params);
+describe('EvmSpokeService.sendMessage', () => {
+  const baseParams = {
+    srcAddress: SRC_ADDR,
+    srcChainKey: ARB,
+    dstChainKey: SONIC,
+    dstAddress: DST_ADDR,
+    payload: '0xpayload' as Hex,
+  } as const;
+
+  it('raw=true → value=0n rawTx to the connection, relayId derived from dstChainKey (the hub), not srcChainKey', async () => {
+    const result = await evmSpoke.sendMessage<true>({ ...baseParams, raw: true });
+
+    // Pin the hub chain's id (146n per packages/types/src/chains/chains.ts) to catch a src/dst swap.
     expect(getIntentRelayChainId(SONIC)).toBe(146n);
-    expect(result.data).toBe(
-      encodeFunctionData({
+    expect(result).toEqual({
+      from: SRC_ADDR,
+      to: ARB_CONNECTION,
+      // sendMessage always sets value to 0n — pure message dispatch, no token transfer.
+      value: 0n,
+      data: encodeFunctionData({
         abi: connectionAbi,
         functionName: 'sendMessage',
         args: [146n, DST_ADDR, '0xpayload' as Hex],
       }),
+    });
+  });
+
+  it('raw=false → walletProvider.sendTransaction receives the chain-bound connection rawTx', async () => {
+    (mockEvmProvider.sendTransaction as ReturnType<typeof vi.fn>).mockResolvedValueOnce(TX_HASH);
+
+    const result = await evmSpoke.sendMessage({ ...baseParams, raw: false, walletProvider: mockEvmProvider });
+
+    expect(result).toBe(TX_HASH);
+    expect(mockEvmProvider.sendTransaction).toHaveBeenCalledWith(
+      { from: SRC_ADDR, to: ARB_CONNECTION, value: 0n, data: sendMessageCalldata() },
+      { expectedChainId: getEvmViemChain(ARB).id },
     );
   });
 });
@@ -728,42 +438,10 @@ describe('EvmSpokeService.waitForTransactionReceipt — branches & mapping', () 
     logs: [],
   };
 
-  it('maps a successful receipt to status:success with stringified bigints', async () => {
+  it('maps a successful receipt to status:success with stringified bigints on the receipt and each log', async () => {
     vi.spyOn(arbClient, 'waitForTransactionReceipt').mockResolvedValueOnce({
       ...baseReceipt,
       contractAddress: '0xabcabcabcabcabcabcabcabcabcabcabcabcabca' as Address,
-    } as never);
-
-    const result = await evmSpoke.waitForTransactionReceipt({ chainKey: ARB, txHash: TX_HASH });
-
-    if (!result.ok) throw new Error('expected ok');
-    if (result.value.status !== 'success') throw new Error('expected success');
-    // Every bigint field is `.toString()`-coerced — receipts cross the JSON boundary in some
-    // callers, so bigints would throw. Pin the coercion for each field.
-    expect(result.value.receipt.transactionIndex).toBe('5');
-    expect(result.value.receipt.blockNumber).toBe('1000000');
-    expect(result.value.receipt.cumulativeGasUsed).toBe('21000');
-    expect(result.value.receipt.gasUsed).toBe('21000');
-    expect(result.value.receipt.effectiveGasPrice).toBe('7');
-    expect(result.value.receipt.contractAddress).toBe('0xabcabcabcabcabcabcabcabcabcabcabcabcabca');
-  });
-
-  it('coerces null contractAddress to null via the `?? null` fallback', async () => {
-    vi.spyOn(arbClient, 'waitForTransactionReceipt').mockResolvedValueOnce({
-      ...baseReceipt,
-      contractAddress: null,
-    } as never);
-
-    const result = await evmSpoke.waitForTransactionReceipt({ chainKey: ARB, txHash: TX_HASH });
-
-    if (!result.ok) throw new Error('expected ok');
-    if (result.value.status !== 'success') throw new Error('expected success');
-    expect(result.value.receipt.contractAddress).toBeNull();
-  });
-
-  it('stringifies blockNumber / logIndex / transactionIndex on each log entry', async () => {
-    vi.spyOn(arbClient, 'waitForTransactionReceipt').mockResolvedValueOnce({
-      ...baseReceipt,
       logs: [
         {
           address: '0xlogaddrlogaddrlogaddrlogaddrlogaddr00' as Address,
@@ -778,12 +456,31 @@ describe('EvmSpokeService.waitForTransactionReceipt — branches & mapping', () 
 
     const result = await evmSpoke.waitForTransactionReceipt({ chainKey: ARB, txHash: TX_HASH });
 
+    if (!result.ok) throw new Error('expected ok');
+    if (result.value.status !== 'success') throw new Error('expected success');
+    // Every bigint field is `.toString()`-coerced — receipts cross the JSON boundary in some
+    // callers, so bigints would throw. Pin the coercion for each field.
+    expect(result.value.receipt.transactionIndex).toBe('5');
+    expect(result.value.receipt.blockNumber).toBe('1000000');
+    expect(result.value.receipt.cumulativeGasUsed).toBe('21000');
+    expect(result.value.receipt.gasUsed).toBe('21000');
+    expect(result.value.receipt.effectiveGasPrice).toBe('7');
+    expect(result.value.receipt.contractAddress).toBe('0xabcabcabcabcabcabcabcabcabcabcabcabcabca');
+    expect(result.value.receipt.logs[0]).toMatchObject({ blockNumber: '999', logIndex: '2', transactionIndex: '5' });
+  });
+
+  it('keeps a null contractAddress null and an undefined effectiveGasPrice undefined (fallback branches)', async () => {
+    vi.spyOn(arbClient, 'waitForTransactionReceipt').mockResolvedValueOnce({
+      ...baseReceipt,
+      contractAddress: null,
+      effectiveGasPrice: undefined,
+    } as never);
+
+    const result = await evmSpoke.waitForTransactionReceipt({ chainKey: ARB, txHash: TX_HASH });
+
     if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
-    expect(result.value.receipt.logs[0]).toMatchObject({
-      blockNumber: '999',
-      logIndex: '2',
-      transactionIndex: '5',
-    });
+    expect(result.value.receipt.contractAddress).toBeNull();
+    expect(result.value.receipt.effectiveGasPrice).toBeUndefined();
   });
 
   it('returns status:failure when receipt.status === "reverted"', async () => {
@@ -813,32 +510,24 @@ describe('EvmSpokeService.waitForTransactionReceipt — branches & mapping', () 
     expect(result.value.error).toBe(timeoutErr);
   });
 
-  it('returns status:failure for non-timeout Error throws', async () => {
+  it('returns status:failure for other throws, wrapping non-Errors into new Error(String(thrown))', async () => {
     const otherErr = new Error('connection refused');
-    vi.spyOn(arbClient, 'waitForTransactionReceipt').mockRejectedValueOnce(otherErr);
+    vi.spyOn(arbClient, 'waitForTransactionReceipt').mockRejectedValueOnce(otherErr).mockRejectedValueOnce('boom');
 
-    const result = await evmSpoke.waitForTransactionReceipt({ chainKey: ARB, txHash: TX_HASH });
+    const fromError = await evmSpoke.waitForTransactionReceipt({ chainKey: ARB, txHash: TX_HASH });
+    const fromString = await evmSpoke.waitForTransactionReceipt({ chainKey: ARB, txHash: TX_HASH });
 
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.value.status).toBe('failure');
-    if (result.value.status !== 'failure') return;
-    expect(result.value.error).toBe(otherErr);
+    if (!fromError.ok || fromError.value.status !== 'failure') throw new Error('expected ok+failure');
+    expect(fromError.value.error).toBe(otherErr);
+    if (!fromString.ok || fromString.value.status !== 'failure') throw new Error('expected ok+failure');
+    expect(fromString.value.error).toBeInstanceOf(Error);
+    expect((fromString.value.error as Error).message).toBe('boom');
   });
 
-  it('wraps non-Error throws into a new Error(String(thrown))', async () => {
-    vi.spyOn(arbClient, 'waitForTransactionReceipt').mockRejectedValueOnce('boom');
-
-    const result = await evmSpoke.waitForTransactionReceipt({ chainKey: ARB, txHash: TX_HASH });
-
-    if (!result.ok) throw new Error('expected ok');
-    expect(result.value.status).toBe('failure');
-    if (result.value.status !== 'failure') return;
-    expect(result.value.error).toBeInstanceOf(Error);
-    expect((result.value.error as Error).message).toBe('boom');
-  });
-
-  it('forwards custom pollingIntervalMs / maxTimeoutMs to viem', async () => {
-    const spy = vi.spyOn(arbClient, 'waitForTransactionReceipt').mockResolvedValueOnce(baseReceipt as never);
+  it('forwards pollingIntervalMs / maxTimeoutMs to viem, passing undefined when omitted (no SDK-side default)', async () => {
+    // ⚠️ NOTE: unlike SonicSpokeService, EvmSpokeService does NOT fall back to
+    // `chainConfig.pollingConfig` defaults — caller's undefined goes straight to viem.
+    const spy = vi.spyOn(arbClient, 'waitForTransactionReceipt').mockResolvedValue(baseReceipt as never);
 
     await evmSpoke.waitForTransactionReceipt({
       chainKey: ARB,
@@ -846,51 +535,22 @@ describe('EvmSpokeService.waitForTransactionReceipt — branches & mapping', () 
       pollingIntervalMs: 123,
       maxTimeoutMs: 4_567,
     });
-
-    expect(spy).toHaveBeenCalledWith({ hash: TX_HASH, pollingInterval: 123, timeout: 4_567 });
-  });
-
-  it('passes undefined to viem when polling/timeout params are omitted (no SDK-side default)', async () => {
-    // ⚠️ NOTE: unlike SonicSpokeService, EvmSpokeService does NOT fall back to
-    // `chainConfig.pollingConfig` defaults — caller's undefined goes straight to viem (which
-    // applies its own internals). Pinned as current behaviour; if alignment with Sonic is
-    // desired, mirror the `?? chainConfig.pollingConfig.pollingIntervalMs` pattern.
-    const spy = vi.spyOn(arbClient, 'waitForTransactionReceipt').mockResolvedValueOnce(baseReceipt as never);
-
     await evmSpoke.waitForTransactionReceipt({ chainKey: ARB, txHash: TX_HASH });
 
-    const call = spy.mock.calls[0]?.[0];
-    expect(call?.pollingInterval).toBeUndefined();
-    expect(call?.timeout).toBeUndefined();
-  });
-
-  it('leaves effectiveGasPrice undefined when viem returns it as undefined (optional-chain branch)', async () => {
-    vi.spyOn(arbClient, 'waitForTransactionReceipt').mockResolvedValueOnce({
-      ...baseReceipt,
-      effectiveGasPrice: undefined,
-    } as never);
-
-    const result = await evmSpoke.waitForTransactionReceipt({ chainKey: ARB, txHash: TX_HASH });
-
-    if (!result.ok || result.value.status !== 'success') throw new Error('expected ok+success');
-    expect(result.value.receipt.effectiveGasPrice).toBeUndefined();
+    expect(spy).toHaveBeenNthCalledWith(1, { hash: TX_HASH, pollingInterval: 123, timeout: 4_567 });
+    expect(spy).toHaveBeenNthCalledWith(2, { hash: TX_HASH, pollingInterval: undefined, timeout: undefined });
   });
 });
 
 // =========================================================================
-// 4. Cross-chain independence — cache isolation + per-call config lookup
+// 4. Per-chain config routing — every EVM spoke, one pass each
 // =========================================================================
-//
-// The describe.each above proves each method works *for* every chain in isolation. These tests
-// prove different chains don't bleed into each other within a single Sodax instance: the
-// publicClients map is keyed correctly, and `getChainConfig` is read per call (not snapshotted
-// at construction).
+// Sections 2-3 run the chain-independent paths once; these sweep every spoke for per-chain config
+// slips: a hardcoded address, a snapshotted chainKey, a mis-keyed cache or a `getEvmViemChain()` hole.
 
-describe('EvmSpokeService — cross-chain independence', () => {
+describe('EvmSpokeService — per-chain config routing', () => {
   it('getPublicClient returns a distinct cached instance for every chain (all-pairs)', () => {
-    // All-pairs comparison catches a map keyed wrong even if some entries happen to collide
-    // (e.g. a regression that stored every chain under the same key would have 1 distinct
-    // client across 12 keys — easily detected here).
+    // All-pairs comparison catches a map keyed wrong even if only some entries collide.
     const clients = TEST_CHAINS.map(k => evmSpoke.getPublicClient(k));
     for (let i = 0; i < clients.length; i++) {
       for (let j = i + 1; j < clients.length; j++) {
@@ -899,26 +559,46 @@ describe('EvmSpokeService — cross-chain independence', () => {
     }
   });
 
-  it('deposit on every chain reads getChainConfig with the matching srcChainKey', async () => {
-    const spy = vi.spyOn(sodax.config, 'getChainConfig');
+  it("deposit and sendMessage on every chain target that chain's assetManager / connection and chain id", async () => {
+    const configSpy = vi.spyOn(sodax.config, 'getChainConfig');
+    const send = mockEvmProvider.sendTransaction as ReturnType<typeof vi.fn>;
+    send.mockResolvedValue(TX_HASH);
 
     for (const chainKey of TEST_CHAINS) {
-      await evmSpoke.deposit<true>({
+      const { addresses, bnUSD } = spokeChainConfig[chainKey];
+      const token = bnUSD as Address;
+      send.mockClear();
+
+      await evmSpoke.deposit({
         srcAddress: SRC_ADDR,
         srcChainKey: chainKey,
         to: HUB_WALLET,
-        token: spokeChainConfig[chainKey].bnUSD as Address,
-        amount: 1n,
+        token,
+        amount: 1_000n,
         data: '0x' as Hex,
+        raw: false,
+        walletProvider: mockEvmProvider,
+      });
+      expect(send).toHaveBeenCalledWith(
+        { from: SRC_ADDR, to: addresses.assetManager, value: 0n, data: transferCalldata(token, 1_000n) },
+        { expectedChainId: getEvmViemChain(chainKey).id },
+      );
+      expect(configSpy).toHaveBeenCalledWith(chainKey);
+
+      const message = await evmSpoke.sendMessage({
+        srcAddress: SRC_ADDR,
+        srcChainKey: chainKey,
+        dstChainKey: SONIC,
+        dstAddress: DST_ADDR,
+        payload: '0xpayload' as Hex,
         raw: true,
       });
-    }
-
-    // Every chain key must appear in the spy's calls. A regression that snapshotted chainKey
-    // at module-init (or hardcoded a specific chain) would show one key dominating the call
-    // list and the other 11 missing.
-    for (const chainKey of TEST_CHAINS) {
-      expect(spy).toHaveBeenCalledWith(chainKey);
+      expect(message).toEqual({
+        from: SRC_ADDR,
+        to: addresses.connection,
+        value: 0n,
+        data: sendMessageCalldata(),
+      });
     }
   });
 });
@@ -938,21 +618,14 @@ describe('EvmSpokeService.getWalletBalance / getWalletBalances', () => {
     vault: address,
   });
 
-  it('reads the native coin via publicClient.getBalance on the user address', async () => {
-    const spy = vi.spyOn(arbClient, 'getBalance').mockResolvedValueOnce(1_234n);
-
-    const result = await evmSpoke.getWalletBalance({
-      srcChainKey: ARB,
-      srcAddress: SRC_ADDR,
-      token: xtoken(ARB_NATIVE, ARB),
-    });
-
-    expect(result).toBe(1_234n);
-    expect(spy).toHaveBeenCalledWith({ address: SRC_ADDR });
-  });
-
-  it('reads erc20 balanceOf with the USER as holder for a non-native token', async () => {
+  it('reads the native coin via getBalance and an erc20 via balanceOf, both with the USER as holder', async () => {
+    const nativeSpy = vi.spyOn(arbClient, 'getBalance').mockResolvedValueOnce(1_234n);
     const spy = vi.spyOn(arbClient, 'readContract').mockResolvedValueOnce(5_000n);
+
+    expect(
+      await evmSpoke.getWalletBalance({ srcChainKey: ARB, srcAddress: SRC_ADDR, token: xtoken(ARB_NATIVE, ARB) }),
+    ).toBe(1_234n);
+    expect(nativeSpy).toHaveBeenCalledWith({ address: SRC_ADDR });
 
     const result = await evmSpoke.getWalletBalance({
       srcChainKey: ARB,

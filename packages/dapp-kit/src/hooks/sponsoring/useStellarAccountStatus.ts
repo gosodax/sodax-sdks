@@ -41,10 +41,7 @@ export function getStellarAccountStatusQueryOptions({
   };
 }
 
-/**
- * Read account existence and trustline affordability in one Horizon request.
- * Prefer {@link useStellarGate} for destination gating.
- */
+/** One Horizon request; prefer {@link useStellarGate} for destination gating. */
 export function useStellarAccountStatus({
   params,
   queryOptions,

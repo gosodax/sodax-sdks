@@ -36,7 +36,7 @@ Comprehensive hook table across 12 feature domains. Use this when you know the f
 | `useWithdraw` | Mutation | Withdraw supplied tokens |
 | `useBorrow` | Mutation | Borrow against collateral |
 | `useRepay` | Mutation | Repay borrowed tokens |
-| `useMMAllowance` | Query | Approval check (`enabled: false` for borrow/withdraw — `data` stays `undefined`) |
+| `useMMAllowance` | Query | Approval check (`enabled: false` for borrow/withdraw — `data` is `true`) |
 | `useMMApprove` | Mutation | Approve tokens |
 | `useReservesData` | Query | All reserve data (raw) |
 | `useReservesHumanized` | Query | Reserves in decimal-normalized form |
@@ -197,7 +197,7 @@ Typed React Query wrappers over the backend Swaps API (`sodax.api.swaps.*`), one
 | `useSwapsApiQuote` | Query; solver quote (set `query.includeTxData` for `txData`) |
 | `useSwapsApiDeadline` | Query; computed swap deadline |
 | `useSwapsApiPartnerFee` | Query; partner fee for an amount |
-| `useSwapsApiSolverFee` | Query; protocol (solver) fee for an amount |
+| `useSwapsApiSolverFee` | Query; maximum protocol (solver) fee for an amount |
 | `useSwapsApiEstimateGas` | Query; gas estimate for a raw tx |
 
 ### Intent lifecycle (reads)
@@ -275,7 +275,7 @@ Typed React Query wrappers over the backend Leverage Yield API (`sodax.api.lever
 | `useLeverageYieldApiIntent` | Query; decoded intent struct by tx hash |
 | `useLeverageYieldApiEstimateGas` | Query; gas estimate for a raw tx |
 | `useLeverageYieldApiPartnerFee` | Query; partner fee for an amount |
-| `useLeverageYieldApiSolverFee` | Query; protocol (solver) fee for an amount |
+| `useLeverageYieldApiSolverFee` | Query; maximum protocol (solver) fee for an amount |
 | `useLeverageYieldApiSubmitTxStatus` | Query (1s); requires `txHash` + `srcChainKey`; polls until `solved` / `failed` / `abandonedAt` |
 | `useLeverageYieldApiApprove` | Mutation; builds unsigned approval tx(s) — `{ tx, resetTx? }`, ordering is yours to handle |
 | `useLeverageYieldApiApproveAndBroadcast` | Mutation; builds **and** signs/broadcasts/waits — preferred; `{ approveTxHash, resetTxHash? }`; optional `onProgress` per step |

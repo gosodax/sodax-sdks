@@ -10,7 +10,6 @@ export interface CalculateIncentiveAPRRequest {
   rewardTokenDecimals: number;
 }
 
-// Calculate the APR for an incentive emission
 export function calculateIncentiveAPR({
   emissionPerSecond,
   rewardTokenPriceInMarketReferenceCurrency,

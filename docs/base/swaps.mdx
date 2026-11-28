@@ -53,7 +53,7 @@ const quoteResult = await sodax.swaps.getQuote({
 
 Using SODAX is free to integrate. Two fees can apply to a trade:
 
-- **Base fee**: a fixed 0.1% of the input, taken by the protocol. Not configurable; compute it ahead of time with `getSolverFee(inputAmount)`.
+- **Protocol fee**: 0.01% to 0.1% of the input, depending on the route the solver takes. It is already included in the quote, along with the gas cost of delivering the tokens. `getSolverFee(inputAmount)` returns the maximum (0.1%).
 - **Your fee**: optional platform fee on top, set by you and paid to you. It is the only fee you control. Configure it at SDK setup and check it with `getPartnerFee(inputAmount)`. See [Monetize SDK](/developers/how-to/monetize_sdk).
 
 The user also pays Base's network fee for the intent transaction, in ETH. On Base that fee has two parts: an L2 execution fee and an L1 security fee for publishing the transaction to Ethereum. `sodax.swaps.estimateGas` returns gas units, which price the execution part only; Base's `GasPriceOracle` predeploy quotes the L1 part. See [Network fees](https://docs.base.org/specifications/transactions/network-fees) in the Base docs and [Estimate Gas](/developers/how-to/estimate_gas).

@@ -13,14 +13,7 @@ export type UseSwapsApiIntentExtraDataParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to recover the relay extra data needed by `/swaps/intents/submit` via the swaps API —
- * `sodax.api.swaps.getIntentSubmitTxExtraData`. Provide EITHER `txHash` OR `intent` in the body
- * (whose `bigint` numerics are serialized by the SDK). Returns `{ address, payload }`.
- *
- * @example
- * const { data } = useSwapsApiIntentExtraData({ params: { body: { txHash: '0x123...' } } });
- */
+/** Pass either `txHash` or `intent` in the body. */
 export const useSwapsApiIntentExtraData = ({
   params,
   queryOptions,

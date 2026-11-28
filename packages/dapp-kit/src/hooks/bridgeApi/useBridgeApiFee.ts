@@ -13,17 +13,8 @@ export type UseBridgeApiFeeParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to fetch the bridge partner fee for an input amount via the bridge API (uses a per-request
- * `body.partnerFee` override when supplied, else the backend-configured fee) —
- * `sodax.api.bridge.getFee`. Returns `{ fee }` (smallest unit, decimal string).
- *
- * The fee is computable client-side (config-driven, token-independent) — prefer `sodax.bridge.getFee`
- * for a no-round-trip read; this HTTP variant mirrors the `/bridge/fee` endpoint for parity.
- *
- * @example
- * const { data: fee } = useBridgeApiFee({ params: { body: { inputAmount } } });
- */
+/** Uses `body.partnerFee` when supplied, else the backend-configured fee; `fee` is a smallest-unit decimal string.
+ * Prefer `sodax.bridge.getFee` for a no-round-trip read. */
 export const useBridgeApiFee = ({
   params,
   queryOptions,

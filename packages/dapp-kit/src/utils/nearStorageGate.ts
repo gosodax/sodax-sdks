@@ -10,23 +10,12 @@ export interface NearStorageGateState {
   isNear: boolean;
   /** Show the "register storage" action: the check resolved and the recipient is not registered. */
   needsRegistration: boolean;
-  /**
-   * Keep the downstream action (swap/bridge/borrow/withdraw) disabled: the NEAR gate is unresolved
-   * (still checking) or unmet (needs registration).
-   */
+  /** True while the check is unresolved or registration is needed. */
   blocksAction: boolean;
 }
 
-/**
- * Derives the NEP-141 storage-registration UI gate state for a flow that delivers a token to a user
- * on NEAR — NEAR's analogue of the Stellar trustline gate. Unwrapped (no hook): pass the destination
- * `chainKey` and the `useNearStorageCheck` result; the util owns the `=== NEAR` test and reads
- * `isLoading` (NOT `isPending`, which stays `true` for a disabled query and would block forever).
- *
- * `blocksAction` deliberately also covers the in-flight check window so the action can't be
- * triggered before registration status is known; `needsRegistration` only flips once the check has
- * resolved (so the "register" button isn't shown speculatively while still checking).
- */
+/** NEAR analogue of the Stellar trustline gate. Reads `isLoading`, not `isPending` (stays true for a disabled query);
+ * `blocksAction` also covers the in-flight check, while `needsRegistration` waits for it to resolve. */
 export function resolveNearStorageGate(
   chainKey: SpokeChainKey | undefined,
   check: NearStorageCheckResult,

@@ -13,14 +13,6 @@ export type UseBackendMoneyMarketAssetBorrowersParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook for fetching borrowers for a specific money market asset from the backend API with pagination.
- *
- * @example
- * const { data: borrowers } = useBackendMoneyMarketAssetBorrowers({
- *   params: { reserveAddress: '0xabc...', pagination: { offset: '0', limit: '20' } },
- * });
- */
 export const useBackendMoneyMarketAssetBorrowers = ({
   params,
   queryOptions,

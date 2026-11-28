@@ -13,13 +13,6 @@ export type UseSwapsApiAllowanceParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook to check whether the source-token allowance is already sufficient for an intent via
- * the swaps API — `sodax.api.swaps.checkAllowance`. Returns `{ valid }`.
- *
- * @example
- * const { data: allowance } = useSwapsApiAllowance({ params: { body: createIntentParams } });
- */
 export const useSwapsApiAllowance = ({
   params,
   queryOptions,

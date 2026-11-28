@@ -13,14 +13,6 @@ export type UseBackendUserIntentsParams = ReadHookParams<
   }
 >;
 
-/**
- * React hook for fetching user-created intents from the backend API for a given user address.
- *
- * @example
- * const { data: userIntents } = useBackendUserIntents({
- *   params: { userAddress: '0x123...' },
- * });
- */
 export const useBackendUserIntents = ({
   params,
   queryOptions,

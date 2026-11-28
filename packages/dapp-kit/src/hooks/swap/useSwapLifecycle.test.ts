@@ -17,8 +17,7 @@ const xrpHook = vi.fn();
 const hederaHook = vi.fn();
 const fetchingChecks = vi.fn(() => 0);
 
-// The lifecycle is composition plus a pure resolver (covered in utils/swapLifecycle.test.ts), so the
-// sub-hooks are stubbed and the hook runs as a plain function.
+// The resolver is covered in utils/swapLifecycle.test.ts, so sub-hooks are stubbed and the hook runs as a plain function.
 vi.mock('./useSwapApprovalStrategy.js', () => ({ useSwapApprovalStrategy: (args: unknown) => strategyHook(args) }));
 vi.mock('./useSwapWithApproval.js', () => ({ useSwapWithApproval: (args: unknown) => swapHook(args) }));
 vi.mock('./useDetailedStatus.js', () => ({ useDetailedStatus: (args: unknown) => statusHook(args) }));
