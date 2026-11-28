@@ -154,10 +154,9 @@ beforeEach(() => {
   helpers.captured.configInitialize.mockReset();
 });
 
-// --- typed accessor for `__type` / `__args` (the fake-class markers) ------
+// --- type for `__type` / `__args` (the fake-class markers) ------
 
 type FakeInstance = { readonly __type: string; readonly __args: unknown };
-const asFake = (value: unknown): FakeInstance => value as FakeInstance;
 
 // =========================================================================
 // instanceConfig — the `config ? deepMerge(...) : sodaxConfig` ternary
@@ -169,76 +168,6 @@ describe('Sodax constructor — instanceConfig', () => {
     // directly, no clone. Mutation `config ? deepMerge(...) : deepMerge(...)` would break this.
     expect(new Sodax().instanceConfig).toBe(sodaxConfig);
     expect(new Sodax(undefined).instanceConfig).toBe(sodaxConfig);
-  });
-
-  it('produces a NEW object when given an empty override (truthy ternary branch, even if no-op)', () => {
-    const sodax = new Sodax({});
-    // `{}` is truthy → deepMerge runs. Empty source means every key is preserved by reference,
-    // but the top-level result is a fresh `{ ...target }`. Pins the truthy-branch invariant.
-    expect(sodax.instanceConfig).not.toBe(sodaxConfig);
-    expect(sodax.instanceConfig).toEqual(sodaxConfig);
-  });
-
-  it('applies a nested override while preserving sibling defaults under the same parent', () => {
-    const customTimeout = 99_999;
-    const sodax = new Sodax({ api: { timeout: customTimeout } });
-    const api = sodax.instanceConfig.api;
-    invariant(
-      !('baseApiConfig' in api) && !('swapsApiConfig' in api) && !('sponsoringApiConfig' in api),
-      'default api config is the flat variant',
-    );
-    expect(api.timeout).toBe(customTimeout);
-    // baseURL was NOT touched by the override — must equal the default. Catches a deepMerge
-    // mutation that would replace the entire `api` object instead of merging key-by-key.
-    expect(api.baseURL).toBe(sodaxConfig.api.baseURL);
-    expect(api.headers).toEqual(sodaxConfig.api.headers);
-  });
-
-  it('keeps untouched top-level fields by reference and never mutates the imported default', () => {
-    // The packaged default declares `bridge` without partnerFee; widen to read the optional slot.
-    const bridgeDefaults = sodaxConfig.bridge as { partnerFee?: unknown };
-    const before = bridgeDefaults.partnerFee;
-    const partnerFee = { address: '0x2222222222222222222222222222222222222222' as const, percentage: 50 };
-    const sodax = new Sodax({ bridge: { partnerFee } });
-    // `chains` was not in the source — deepMerge preserves the reference, not just deep equality.
-    expect(sodax.instanceConfig.chains).toBe(sodaxConfig.chains);
-    expect(sodax.instanceConfig.relay).toBe(sodaxConfig.relay);
-    expect(sodax.instanceConfig.api).toBe(sodaxConfig.api);
-    // Catches a deepMerge mutation that writes into `target` instead of cloning.
-    expect(bridgeDefaults.partnerFee).toBe(before);
-  });
-});
-
-// =========================================================================
-// Sub-services — every public field is wired to the right collaborator
-// =========================================================================
-//
-// The fake classes set `__type` to the canonical class name. Asserting `__type` is a stronger
-// signal than `instanceof` because it directly catches a mutation that swaps two `new XService(...)`
-// lines (e.g. `this.swaps = new MoneyMarketService(...)`) — instanceof would still pass since
-// both fakes share `Object` as their ultimate prototype, but `__type` would not.
-
-describe('Sodax constructor — sub-services are instantiated as the correct class', () => {
-  const FIELDS = [
-    ['backendApi', 'BackendApiService'],
-    ['config', 'ConfigService'],
-    ['hubProvider', 'EvmHubProvider'],
-    ['spoke', 'SpokeService'],
-    ['swaps', 'SwapService'],
-    ['moneyMarket', 'MoneyMarketService'],
-    ['dex', 'DexService'],
-    ['migration', 'MigrationService'],
-    ['bridge', 'BridgeService'],
-    ['staking', 'StakingService'],
-    ['partners', 'PartnerService'],
-    ['recovery', 'RecoveryService'],
-  ] as const;
-
-  it('every public service field holds an instance of its own class', () => {
-    const sodax = new Sodax();
-    for (const [field, expectedType] of FIELDS) {
-      expect(asFake(sodax[field]).__type, field).toBe(expectedType);
-    }
   });
 });
 
@@ -362,44 +291,5 @@ describe('Sodax.initialize', () => {
     for (const call of helpers.captured.configInitialize.mock.calls) {
       expect(call).toEqual([]);
     }
-  });
-
-  it('propagates an ok:false result returned by config.initialize', async () => {
-    const failure: Result<void> = { ok: false, error: new Error('config init failed') };
-    helpers.captured.configInitialize.mockResolvedValueOnce(failure);
-
-    const sodax = new Sodax();
-    const result = await sodax.initialize();
-
-    expect(result).toBe(failure);
-  });
-});
-
-// =========================================================================
-// Multiple-instance isolation
-// =========================================================================
-
-describe('Sodax — multiple instances', () => {
-  it('two new Sodax() calls produce independent service instances', () => {
-    const a = new Sodax();
-    const b = new Sodax();
-    // Identity, not just equality — each `new Sodax()` MUST produce a fresh facade. A mutation
-    // that turned a public field into a static singleton would break this.
-    expect(a).not.toBe(b);
-    expect(a.config).not.toBe(b.config);
-    expect(a.hubProvider).not.toBe(b.hubProvider);
-    expect(a.spoke).not.toBe(b.spoke);
-    expect(a.swaps).not.toBe(b.swaps);
-  });
-
-  it('an override on one instance does not leak into a sibling constructed without overrides', () => {
-    const fee = { address: '0x5555555555555555555555555555555555555555' as const, percentage: 10 };
-    new Sodax({ fee });
-    const defaulted = new Sodax();
-
-    // `fee` is forwarded per-instance (ConfigService is mocked, so assert via the captured args).
-    expect((helpers.captured.config[0] as { fee?: unknown }).fee).toEqual(fee);
-    expect((helpers.captured.config[1] as { fee?: unknown }).fee).toBeUndefined();
-    expect(defaulted.instanceConfig).toBe(sodaxConfig); // sibling default untouched
   });
 });

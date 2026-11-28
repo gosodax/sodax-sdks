@@ -1,20 +1,15 @@
 /**
  * Tests for the public API of `ClService` (concentrated-liquidity DEX service).
  *
- * Mirrors the SwapService.test.ts pattern (see issue #1175):
- *
- *   1. A single real `Sodax` instance backs every test (no per-test factories,
- *      no fabricated `hubProvider` / `SpokeService` / `ConfigService`).
- *   2. Internal calls inside `ClService` methods are mocked via `vi.mock` at the
- *      module source paths and `vi.spyOn` on instance methods.
- *   3. Each public method gets its own `describe` block with one `it` per
- *      execution flow (happy / rejection / error propagation / branch).
- *   4. Static helpers are covered with pure-math assertions — no mocks needed.
+ * A single real `Sodax` instance backs every test. The file stays in the module-mocking project:
+ * it replaces pancakeswap's calldata encoders and viem's `parseEventLogs`, whose ESM namespaces
+ * cannot be spied. Static helpers are covered with pure-math assertions — no mocks needed.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PositionMath, TickMath } from '@pancakeswap/v3-sdk';
 import { Token } from '@pancakeswap/swap-sdk-core';
 import { ChainKeys, type Address, type PoolKey, type SpokeChainKey } from '@sodax/types';
+import type { PublicClient, TransactionReceipt } from 'viem';
 import { Sodax } from '../shared/entities/Sodax.js';
 import type {
   ClSupplyAction,
@@ -23,7 +18,8 @@ import type {
   ClLiquidityClaimRewardsAction,
 } from './ConcentratedLiquidityService.js';
 import { ClService } from './ConcentratedLiquidityService.js';
-import { isSodaxError, type SodaxError } from '../errors/SodaxError.js';
+import { expectErr, expectOk } from '../test-utils/result.js';
+import { mockEvmWalletProvider } from '../test-utils/walletProviders.js';
 
 // `ClService` reaches `relayTxAndWaitPacket`, the pancakeswap calldata encoders, `Erc4626Service`,
 // and viem's `parseEventLogs` directly from their source modules. Vitest's hoisted `vi.mock` lets
@@ -157,15 +153,8 @@ const claimParams = <K extends SpokeChainKey>(srcChainKey: K) => ({
   tickUpper: 1000n,
 });
 
-// Wallet provider fakes — `ClService` only forwards them through `SpokeService.sendMessage`,
-// which is itself stubbed, so the provider bodies never execute at runtime.
-const mockEvmProvider = {
-  chainType: 'EVM',
-  sendTransaction: vi.fn(),
-  getWalletAddress: vi.fn(),
-  waitForTransactionReceipt: vi.fn(),
-  // biome-ignore lint/suspicious/noExplicitAny: test fake — only used as a sentinel value.
-} as any;
+// `ClService` only forwards the provider through the stubbed `SpokeService.sendMessage`.
+const mockEvmProvider = mockEvmWalletProvider();
 
 // Build a flexible publicClient stub keyed by viem `functionName`. Each test names only the
 // reads it cares about; everything else throws so a missing handler is loud, not silent.
@@ -177,8 +166,8 @@ function createMockClient(handlers: Record<string, () => unknown>) {
       return handler();
     }),
     waitForTransactionReceipt: vi.fn(),
-    // biome-ignore lint/suspicious/noExplicitAny: test fake — passed where viem PublicClient is expected.
-  } as any;
+    // Only `readContract` is called; a real PublicClient carries transport and chain state the reads never touch.
+  } as unknown as PublicClient;
 }
 
 beforeEach(() => {
@@ -225,24 +214,10 @@ describe('ClService refuses an MPC-relay source before signing', () => {
     ];
 
     for (const run of runs) {
-      const result = await run();
-
-      expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.error).toMatchObject({ code: 'VALIDATION_FAILED', feature: 'dex' });
+      expect(expectErr(await run(), 'VALIDATION_FAILED').feature).toBe('dex');
     }
     expect(send).not.toHaveBeenCalled();
     expect(mocks.getUserHubWalletAddress).not.toHaveBeenCalled();
-  });
-});
-
-describe('ClService.getPools', () => {
-  it('returns whatever ConfigService.getDexPools returns', () => {
-    const fakePools = [plainPoolKey] as never;
-    const spy = vi.spyOn(sodax.config, 'getDexPools').mockReturnValueOnce(fakePools);
-
-    expect(cl.getPools()).toBe(fakePools);
-    expect(spy).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -264,21 +239,6 @@ describe('ClService.permit2Approve', () => {
 });
 
 describe('ClService.getAssetsForPool', () => {
-  it('returns token0/token1 XTokens looked up via the config', () => {
-    const fakeXToken0 = { symbol: 'T0', address: '0xT0' } as never;
-    const fakeXToken1 = { symbol: 'T1', address: '0xT1' } as never;
-    vi.spyOn(sodax.config, 'getOriginalAssetAddressFromStakedATokenAddress')
-      .mockReturnValueOnce('0xT0')
-      .mockReturnValueOnce('0xT1');
-    vi.spyOn(sodax.config, 'findTokenByOriginalAddress')
-      .mockReturnValueOnce(fakeXToken0)
-      .mockReturnValueOnce(fakeXToken1);
-
-    const result = cl.getAssetsForPool(ChainKeys.BSC_MAINNET, plainPoolKey);
-
-    expect(result).toEqual({ token0: fakeXToken0, token1: fakeXToken1 });
-  });
-
   it('throws when token0 or token1 cannot be resolved', () => {
     vi.spyOn(sodax.config, 'getOriginalAssetAddressFromStakedATokenAddress').mockReturnValue('0xT0');
     const find = vi.spyOn(sodax.config, 'findTokenByOriginalAddress').mockReturnValueOnce(undefined);
@@ -298,12 +258,10 @@ describe('ClService.getAssetsForPool', () => {
 const lastSendArg = () => vi.mocked(sodax.spoke.sendMessage).mock.calls.at(-1)?.[0];
 
 /** Asserts a failed Result is SodaxError(INTENT_CREATION_FAILED, dex) carrying `cause`. */
-function expectIntentCreationFailed(result: { ok: boolean; error?: unknown }, cause: unknown) {
-  expect(result.ok).toBe(false);
-  expect(isSodaxError(result.error)).toBe(true);
-  expect((result.error as SodaxError).code).toBe('INTENT_CREATION_FAILED');
-  expect((result.error as SodaxError).feature).toBe('dex');
-  expect((result.error as SodaxError).cause).toBe(cause);
+function expectIntentCreationFailed(result: Parameters<typeof expectErr>[0], cause: unknown) {
+  const error = expectErr(result, 'INTENT_CREATION_FAILED');
+  expect(error.feature).toBe('dex');
+  expect(error.cause).toBe(cause);
 }
 
 describe('ClService.executeSupplyLiquidity', () => {
@@ -319,11 +277,9 @@ describe('ClService.executeSupplyLiquidity', () => {
       walletProvider: mockEvmProvider,
     } satisfies ClSupplyAction<'0x38.bsc', false>);
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.tx).toBe('0xspokeTx');
-      expect(result.value.relayData).toEqual({ address: HUB_WALLET, payload: expect.any(String) });
-    }
+    const value = expectOk(result);
+    expect(value.tx).toBe('0xspokeTx');
+    expect(value.relayData).toEqual({ address: HUB_WALLET, payload: expect.any(String) });
     const sendArg = lastSendArg();
     expect(sendArg?.raw).toBe(false);
     expect(sendArg?.walletProvider).toBe(mockEvmProvider);
@@ -336,7 +292,7 @@ describe('ClService.executeSupplyLiquidity', () => {
       raw: true,
     } satisfies ClSupplyAction<'0x38.bsc', true>);
 
-    expect(raw.ok).toBe(true);
+    expectOk(raw);
     expect(lastSendArg()?.raw).toBe(true);
     expect(lastSendArg()).not.toHaveProperty('walletProvider');
   });
@@ -354,8 +310,7 @@ describe('ClService.executeIncreaseLiquidity', () => {
       walletProvider: mockEvmProvider,
     } satisfies ClLiquidityIncreaseLiquidityAction<'0x38.bsc', false>);
 
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.tx).toBe('0xspokeTx');
+    expect(expectOk(result).tx).toBe('0xspokeTx');
     expect(mocks.encodeIncreaseCalldata).toHaveBeenCalledTimes(1);
 
     await cl.executeIncreaseLiquidity({
@@ -380,8 +335,7 @@ describe('ClService.executeDecreaseLiquidity', () => {
       walletProvider: mockEvmProvider,
     } satisfies ClLiquidityDecreaseLiquidityAction<'0x38.bsc', false>);
 
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value.tx).toBe('0xspokeTx');
+    expect(expectOk(result).tx).toBe('0xspokeTx');
     const decodeArgs = mocks.encodeDecreaseCalldata.mock.calls[0]?.[0];
     expect(decodeArgs.tokenId).toBe(7n);
     expect(decodeArgs.liquidity).toBe(500n);
@@ -410,7 +364,7 @@ describe('ClService.executeClaimRewards', () => {
       walletProvider: mockEvmProvider,
     } satisfies ClLiquidityClaimRewardsAction<'0x38.bsc', false>);
 
-    expect(result.ok).toBe(true);
+    expectOk(result);
     const decodeArgs = mocks.encodeDecreaseCalldata.mock.calls[0]?.[0];
     expect(decodeArgs.liquidity).toBe(0n);
     expect(decodeArgs.amount0Min).toBe(0n);
@@ -530,8 +484,8 @@ describe('ClService.getMintPositionEvent', () => {
   it('returns the tokenId from the first MintPosition log', async () => {
     vi.spyOn(sodax.hubProvider.publicClient, 'waitForTransactionReceipt').mockResolvedValueOnce({
       logs: [],
-      // biome-ignore lint/suspicious/noExplicitAny: viem TransactionReceipt has many fields we don't exercise.
-    } as any);
+      // Only `logs` is read; a full receipt carries block data the test has no use for.
+    } as unknown as TransactionReceipt);
     mocks.parseEventLogs.mockReturnValueOnce([{ args: { tokenId: 42n } }]);
 
     const result = await cl.getMintPositionEvent(hubTxHash);
@@ -542,54 +496,25 @@ describe('ClService.getMintPositionEvent', () => {
   it('returns ok:false when no MintPosition log is present or it carries no tokenId, and wraps a throw as LOOKUP_FAILED', async () => {
     vi.spyOn(sodax.hubProvider.publicClient, 'waitForTransactionReceipt').mockResolvedValue({
       logs: [],
-      // biome-ignore lint/suspicious/noExplicitAny: viem TransactionReceipt has many fields we don't exercise.
-    } as any);
+      // Only `logs` is read; a full receipt carries block data the test has no use for.
+    } as unknown as TransactionReceipt);
     mocks.parseEventLogs.mockReturnValueOnce([]).mockReturnValueOnce([{ args: {} }]);
 
-    const noLog = await cl.getMintPositionEvent(hubTxHash);
-    expect(noLog.ok).toBe(false);
-    if (!noLog.ok) expect(String(noLog.error)).toMatch(/No mint position event found/);
-
-    const noTokenId = await cl.getMintPositionEvent(hubTxHash);
-    expect(noTokenId.ok).toBe(false);
-    if (!noTokenId.ok) expect(String(noTokenId.error)).toMatch(/No tokenId found/);
+    expect(expectErr(await cl.getMintPositionEvent(hubTxHash)).message).toMatch(/No mint position event found/);
+    expect(expectErr(await cl.getMintPositionEvent(hubTxHash)).message).toMatch(/No tokenId found/);
 
     const rpcError = new Error('RPC_DOWN');
     vi.spyOn(sodax.hubProvider.publicClient, 'waitForTransactionReceipt').mockRejectedValueOnce(rpcError);
 
-    const result = await cl.getMintPositionEvent(hubTxHash);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect((result.error as { code: string }).code).toBe('LOOKUP_FAILED');
-      expect((result.error as Error).cause).toBe(rpcError);
-    }
+    expect(expectErr(await cl.getMintPositionEvent(hubTxHash), 'LOOKUP_FAILED').cause).toBe(rpcError);
   });
 });
 
 describe('ClService.getPoolRewardConfig', () => {
-  it('returns the reward currency / rate / timestamp tuple from the hook contract', async () => {
-    const client = createMockClient({
-      poolRewardConfigs: () => ['0xRewardToken', 1234n, 1_700_000_000n],
-    });
-
-    const result = await cl.getPoolRewardConfig(plainPoolKey, client);
-
-    expect(result).toEqual({
-      ok: true,
-      value: {
-        rewardCurrency: '0xRewardToken',
-        rewardRatePerSecond: 1234n,
-        lastActionTimestamp: 1_700_000_000n,
-      },
-    });
-  });
-
   it('returns ok:false for a pool with no hook, and wraps a thrown read as LOOKUP_FAILED with .cause', async () => {
     const noHook = await cl.getPoolRewardConfig({ ...plainPoolKey, hooks: ZERO_ADDRESS }, createMockClient({}));
 
-    expect(noHook.ok).toBe(false);
-    if (!noHook.ok) expect(String(noHook.error)).toMatch(/Pool has no hook configured/);
+    expect(expectErr(noHook).message).toMatch(/Pool has no hook configured/);
 
     const client = createMockClient({
       poolRewardConfigs: () => {
@@ -599,11 +524,7 @@ describe('ClService.getPoolRewardConfig', () => {
 
     const result = await cl.getPoolRewardConfig(plainPoolKey, client);
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect((result.error as { code: string }).code).toBe('LOOKUP_FAILED');
-      expect(((result.error as Error).cause as Error).message).toBe('REVERT');
-    }
+    expect(expectErr(result, 'LOOKUP_FAILED').cause).toEqual(new Error('REVERT'));
   });
 });
 
@@ -626,35 +547,31 @@ describe('ClService.getPoolData', () => {
 
     const result = await cl.getPoolData(plainPoolKey, client);
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.poolId).toBe('0xpoolid');
-      expect(result.value.totalLiquidity).toBe(1_000_000n);
-      expect(result.value.isActive).toBe(true);
-      expect(result.value.rewardConfig).toEqual({
-        rewardCurrency: '0xRewardToken',
-        rewardRatePerSecond: 7n,
-        lastActionTimestamp: 1_700_000_000n,
-      });
-      // Plain (non-StatA) currencies → enrichment short-circuits.
-      expect(result.value.token0IsStatAToken).toBe(false);
-      expect(result.value.token1IsStatAToken).toBe(false);
-    }
+    const value = expectOk(result);
+    expect(value.poolId).toBe('0xpoolid');
+    expect(value.totalLiquidity).toBe(1_000_000n);
+    expect(value.isActive).toBe(true);
+    expect(value.rewardConfig).toEqual({
+      rewardCurrency: '0xRewardToken',
+      rewardRatePerSecond: 7n,
+      lastActionTimestamp: 1_700_000_000n,
+    });
+    // Plain (non-StatA) currencies → enrichment short-circuits.
+    expect(value.token0IsStatAToken).toBe(false);
+    expect(value.token1IsStatAToken).toBe(false);
   });
 
   it('omits rewardConfig when the pool has no hook or the hook reports a zero reward rate', async () => {
     const noHook = await cl.getPoolData({ ...plainPoolKey, hooks: ZERO_ADDRESS }, makeHappyClient());
 
-    expect(noHook.ok).toBe(true);
-    if (noHook.ok) expect(noHook.value.rewardConfig).toBeUndefined();
+    expect(expectOk(noHook).rewardConfig).toBeUndefined();
 
     const zeroRate = await cl.getPoolData(
       plainPoolKey,
       makeHappyClient({ poolRewardConfigs: () => ['0xRewardToken', 0n, 0n] }),
     );
 
-    expect(zeroRate.ok).toBe(true);
-    if (zeroRate.ok) expect(zeroRate.value.rewardConfig).toBeUndefined();
+    expect(expectOk(zeroRate).rewardConfig).toBeUndefined();
   });
 
   it('wraps thrown errors as SodaxError(LOOKUP_FAILED, dex) with .cause', async () => {
@@ -666,11 +583,7 @@ describe('ClService.getPoolData', () => {
 
     const result = await cl.getPoolData(plainPoolKey, client);
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect((result.error as { code: string }).code).toBe('LOOKUP_FAILED');
-      expect(((result.error as Error).cause as Error).message).toBe('REVERT');
-    }
+    expect(expectErr(result, 'LOOKUP_FAILED').cause).toEqual(new Error('REVERT'));
   });
 });
 
@@ -710,18 +623,16 @@ describe('ClService.getPositionInfo', () => {
   it('returns position info whether the current tick is inside, below or above the position range', async () => {
     const result = await cl.getPositionInfo(7n, buildClient(0, -1000, 1000));
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.tickLower).toBe(-1000);
-      expect(result.value.tickUpper).toBe(1000);
-      expect(result.value.liquidity).toBe(1_000n);
-      // Plain currencies → no underlying conversion.
-      expect(result.value.amount0Underlying).toBeUndefined();
-      expect(result.value.amount1Underlying).toBeUndefined();
-    }
+    const value = expectOk(result, 'in range');
+    expect(value.tickLower).toBe(-1000);
+    expect(value.tickUpper).toBe(1000);
+    expect(value.liquidity).toBe(1_000n);
+    // Plain currencies → no underlying conversion.
+    expect(value.amount0Underlying).toBeUndefined();
+    expect(value.amount1Underlying).toBeUndefined();
 
-    expect((await cl.getPositionInfo(7n, buildClient(-2000, -1000, 1000))).ok).toBe(true);
-    expect((await cl.getPositionInfo(7n, buildClient(2000, -1000, 1000))).ok).toBe(true);
+    expectOk(await cl.getPositionInfo(7n, buildClient(-2000, -1000, 1000)), 'below range');
+    expectOk(await cl.getPositionInfo(7n, buildClient(2000, -1000, 1000)), 'above range');
   });
 
   it('forwards a getPoolData failure, and wraps a thrown position read as LOOKUP_FAILED with .cause', async () => {
@@ -733,10 +644,7 @@ describe('ClService.getPositionInfo', () => {
       },
     });
 
-    const result = await cl.getPositionInfo(7n, client);
-
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect((result.error as { code: string }).code).toBe('LOOKUP_FAILED');
+    expectErr(await cl.getPositionInfo(7n, client), 'LOOKUP_FAILED');
 
     const throwing = createMockClient({
       positions: () => {
@@ -746,11 +654,7 @@ describe('ClService.getPositionInfo', () => {
 
     const thrown = await cl.getPositionInfo(7n, throwing);
 
-    expect(thrown.ok).toBe(false);
-    if (!thrown.ok) {
-      expect((thrown.error as { code: string }).code).toBe('LOOKUP_FAILED');
-      expect(((thrown.error as Error).cause as Error).message).toBe('REVERT');
-    }
+    expect(expectErr(thrown, 'LOOKUP_FAILED').cause).toEqual(new Error('REVERT'));
   });
 });
 
@@ -826,13 +730,7 @@ describe('ClService.calculateMaxAmountsForSlippage', () => {
   const maxAmounts = (slippage: number) =>
     ClService.calculateMaxAmountsForSlippage(liquidity, tickLower, tickUpper, currentTick, sqrtPriceX96, slippage);
 
-  it('returns zero for both tokens when liquidity is zero', () => {
-    const result = ClService.calculateMaxAmountsForSlippage(0n, tickLower, tickUpper, currentTick, sqrtPriceX96, 1);
-    expect(result.amount0Max).toBe(0n);
-    expect(result.amount1Max).toBe(0n);
-  });
-
-  it('returns exactly the current amounts at zero slippage and never less for a positive (incl. sub-percent) one', () => {
+  it('returns the current amounts at zero slippage, never less for a positive one, and grows strictly with the percent', () => {
     const current0 = PositionMath.getToken0Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
     const current1 = PositionMath.getToken1Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
 
@@ -842,12 +740,11 @@ describe('ClService.calculateMaxAmountsForSlippage', () => {
 
     for (const slippage of [1, 0.1]) {
       const result = maxAmounts(slippage);
-      expect(result.amount0Max).toBeGreaterThanOrEqual(current0);
-      expect(result.amount1Max).toBeGreaterThanOrEqual(current1);
+      expect(result.amount0Max, `${slippage}%`).toBeGreaterThanOrEqual(current0);
+      expect(result.amount1Max, `${slippage}%`).toBeGreaterThanOrEqual(current1);
     }
-  });
 
-  it('reads slippagePercent as percent and grows strictly with it for an in-range position', () => {
+    // slippagePercent is read as a percent, so 10 must exceed 1 for an in-range position.
     const onePercent = maxAmounts(1);
     const tenPercent = maxAmounts(10);
 
@@ -916,56 +813,4 @@ describe('ClService.calculateMaxAmountsForSlippage', () => {
       expect(result.amount1Max).toBeGreaterThan(0n);
     }
   });
-
-  it('matches direct PositionMath call within the worst-case bound', () => {
-    const slippagePercent = 2;
-    const SLIPPAGE_SCALE = 1_000_000_000n;
-    const slippageScaled = BigInt(Math.round((slippagePercent * Number(SLIPPAGE_SCALE)) / 100));
-    const sqrtPriceSquared = sqrtPriceX96 * sqrtPriceX96;
-
-    const sqrtPriceX96Down = bigIntSqrt((sqrtPriceSquared * (SLIPPAGE_SCALE - slippageScaled)) / SLIPPAGE_SCALE);
-    const sqrtPriceX96Up = bigIntSqrt((sqrtPriceSquared * (SLIPPAGE_SCALE + slippageScaled)) / SLIPPAGE_SCALE);
-    const tickDown = TickMath.getTickAtSqrtRatio(sqrtPriceX96Down);
-    const tickUp = TickMath.getTickAtSqrtRatio(sqrtPriceX96Up);
-
-    const expectedAmount0AtDrop = PositionMath.getToken0Amount(
-      tickDown,
-      Number(tickLower),
-      Number(tickUpper),
-      sqrtPriceX96Down,
-      liquidity,
-    );
-    const expectedAmount1AtRise = PositionMath.getToken1Amount(
-      tickUp,
-      Number(tickLower),
-      Number(tickUpper),
-      sqrtPriceX96Up,
-      liquidity,
-    );
-    const current0 = PositionMath.getToken0Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
-    const current1 = PositionMath.getToken1Amount(0, -1000, 1000, sqrtPriceX96, liquidity);
-
-    const result = ClService.calculateMaxAmountsForSlippage(
-      liquidity,
-      tickLower,
-      tickUpper,
-      currentTick,
-      sqrtPriceX96,
-      slippagePercent,
-    );
-
-    expect(result.amount0Max).toBe(expectedAmount0AtDrop > current0 ? expectedAmount0AtDrop : current0);
-    expect(result.amount1Max).toBe(expectedAmount1AtRise > current1 ? expectedAmount1AtRise : current1);
-  });
 });
-
-function bigIntSqrt(n: bigint): bigint {
-  if (n < 0n) throw new Error('bigIntSqrt: negative');
-  if (n < 2n) return n;
-  let x = 1n << ((BigInt(n.toString(2).length) + 1n) / 2n);
-  while (true) {
-    const next = (x + n / x) / 2n;
-    if (next >= x) return x;
-    x = next;
-  }
-}

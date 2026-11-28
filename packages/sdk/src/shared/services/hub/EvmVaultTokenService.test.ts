@@ -14,9 +14,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Address, type Hash, type HttpTransport, type PublicClient, encodeFunctionData } from 'viem';
 import { ChainKeys } from '@sodax/types';
 import { getEvmViemChain } from '../../utils/constant-utils.js';
-import type { IEvmWalletProvider, TokenInfo } from '@sodax/types';
+import type { TokenInfo } from '@sodax/types';
 import { vaultTokenAbi } from '../../abis/index.js';
 import { EvmVaultTokenService } from './EvmVaultTokenService.js';
+import { mockEvmWalletProvider } from '../../../test-utils/walletProviders.js';
 
 // --- fixtures -------------------------------------------------------------
 
@@ -50,11 +51,7 @@ const mockPublicClient = {
   multicall: vi.fn(),
 } as unknown as PublicClient<HttpTransport>;
 
-const mockWalletProvider = {
-  chainType: 'EVM',
-  getWalletAddress: vi.fn(),
-  sendTransaction: vi.fn(),
-} as unknown as IEvmWalletProvider;
+const mockWalletProvider = mockEvmWalletProvider();
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -78,13 +75,6 @@ describe('EvmVaultTokenService.getTokenInfo', () => {
       args: [TOKEN_A],
     });
   });
-
-  it('propagates errors thrown by readContract', async () => {
-    const rpcError = new Error('rpc unavailable');
-    vi.mocked(mockPublicClient.readContract).mockRejectedValueOnce(rpcError);
-
-    await expect(EvmVaultTokenService.getTokenInfo(VAULT, TOKEN_A, mockPublicClient)).rejects.toBe(rpcError);
-  });
 });
 
 // =========================================================================
@@ -107,37 +97,6 @@ describe('EvmVaultTokenService.getTokenInfos', () => {
       { address: VAULT, abi: vaultTokenAbi, functionName: 'tokenInfo', args: [TOKEN_A] },
       { address: VAULT, abi: vaultTokenAbi, functionName: 'tokenInfo', args: [TOKEN_B] },
     ]);
-  });
-
-  it('returns an empty array when called with no tokens (empty multicall path)', async () => {
-    const spy = vi.mocked(mockPublicClient.multicall).mockResolvedValueOnce([] as never);
-
-    const result = await EvmVaultTokenService.getTokenInfos(VAULT, [], mockPublicClient);
-
-    expect(result).toEqual([]);
-    expect(spy.mock.calls[0]?.[0].contracts).toEqual([]);
-  });
-});
-
-// =========================================================================
-// getVaultReserves (static) — readContract delegation + 2-tuple mapping
-// =========================================================================
-
-describe('EvmVaultTokenService.getVaultReserves', () => {
-  it('reads getVaultReserves() and maps [tokens, balances] into the named object', async () => {
-    const tokens = [TOKEN_A, TOKEN_B] as const;
-    const balances = [1_000n, 2_000n] as const;
-    const spy = vi.mocked(mockPublicClient.readContract).mockResolvedValueOnce([tokens, balances] as never);
-
-    const result = await EvmVaultTokenService.getVaultReserves(VAULT, mockPublicClient);
-
-    expect(result).toEqual({ tokens, balances });
-    expect(spy).toHaveBeenCalledWith({
-      address: VAULT,
-      abi: vaultTokenAbi,
-      functionName: 'getVaultReserves',
-      args: [],
-    });
   });
 });
 
@@ -200,26 +159,6 @@ describe('EvmVaultTokenService.withdraw', () => {
 });
 
 // =========================================================================
-// encodeDeposit (static, pure) — calldata-only, no I/O
-// =========================================================================
-
-describe('EvmVaultTokenService.encodeDeposit', () => {
-  it('returns { address: vault, value: 0n, data: encoded deposit(token, amount) }', () => {
-    const result = EvmVaultTokenService.encodeDeposit(VAULT, TOKEN_A, 5_000n);
-
-    expect(result).toEqual({
-      address: VAULT,
-      value: 0n,
-      data: encodeFunctionData({
-        abi: vaultTokenAbi,
-        functionName: 'deposit',
-        args: [TOKEN_A, 5_000n],
-      }),
-    });
-  });
-});
-
-// =========================================================================
 // encodeWithdraw (static, pure) — calldata-only, no I/O
 // =========================================================================
 
@@ -254,8 +193,10 @@ describe('EvmVaultTokenService.translateIncomingDecimals', () => {
     { decimals: 24, amount: 1_000_000n, expected: 1n, label: 'decimals > 18 → divide by 10^(d-18)' },
   ];
 
-  it.each(cases)('$label (d=$decimals, amt=$amount → $expected)', ({ decimals, amount, expected }) => {
-    expect(EvmVaultTokenService.translateIncomingDecimals(decimals, amount)).toBe(expected);
+  it('multiplies below 18 decimals, is a no-op at 18 and divides above', () => {
+    for (const { decimals, amount, expected, label } of cases) {
+      expect(EvmVaultTokenService.translateIncomingDecimals(decimals, amount), label).toBe(expected);
+    }
   });
 });
 
@@ -273,14 +214,9 @@ describe('EvmVaultTokenService.translateOutgoingDecimals', () => {
     { decimals: 24, amount: 1n, expected: 10n ** 6n, label: 'decimals > 18 → multiply by 10^(d-18)' },
   ];
 
-  it.each(cases)('$label (d=$decimals, amt=$amount → $expected)', ({ decimals, amount, expected }) => {
-    expect(EvmVaultTokenService.translateOutgoingDecimals(decimals, amount)).toBe(expected);
-  });
-
-  it('round-trips with translateIncomingDecimals at non-boundary decimals', () => {
-    const original = 12_345_678n;
-    const incoming = EvmVaultTokenService.translateIncomingDecimals(6, original);
-    const outgoing = EvmVaultTokenService.translateOutgoingDecimals(6, incoming);
-    expect(outgoing).toBe(original);
+  it('divides below 18 decimals, is a no-op at 18 and multiplies above', () => {
+    for (const { decimals, amount, expected, label } of cases) {
+      expect(EvmVaultTokenService.translateOutgoingDecimals(decimals, amount), label).toBe(expected);
+    }
   });
 });

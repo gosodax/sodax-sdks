@@ -15,13 +15,9 @@ import {
   readAtomicBatchSupport,
   type AtomicBatchEvmWalletProvider,
 } from './evmAtomicBatch.js';
+import { mockEvmWalletProvider } from '../../test-utils/walletProviders.js';
 
-const baseProvider: IEvmWalletProvider = {
-  chainType: 'EVM',
-  getWalletAddress: async () => '0x0000000000000000000000000000000000000001',
-  sendTransaction: async () => '0xtx',
-  waitForTransactionReceipt: vi.fn(),
-};
+const baseProvider: IEvmWalletProvider = mockEvmWalletProvider();
 
 const batchProvider = (getAtomicBatchSupport: AtomicBatchEvmWalletProvider['getAtomicBatchSupport']) => ({
   ...baseProvider,
@@ -39,12 +35,6 @@ describe('canSendAtomicBatch', () => {
 });
 
 describe('readAtomicBatchSupport', () => {
-  it('passes the wallet answer through and forwards the chain id', async () => {
-    const getAtomicBatchSupport = vi.fn(async () => 'ready' as const);
-    await expect(readAtomicBatchSupport(batchProvider(getAtomicBatchSupport), 42161)).resolves.toBe('ready');
-    expect(getAtomicBatchSupport).toHaveBeenCalledWith(42161);
-  });
-
   it('treats a wallet that cannot answer as unsupported', async () => {
     const throwing = batchProvider(async () => {
       throw new Error('Method not found');

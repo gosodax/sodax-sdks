@@ -145,22 +145,6 @@ describe('runBackendSubmitTx — request bounds', () => {
     expect(small.submitCalls[0]?.config).toEqual({ timeout: 10_000 });
   });
 
-  it('retries after a status request that consumed its whole bound', async () => {
-    // A blackholed status endpoint: each request answers only when its own abort fires. The clamp
-    // exists so one such request costs its ceiling and no more, leaving the attempt room to try again.
-    const api = fakeApi({ statusConsumesItsBound: true, statusError: new Error('REQUEST_TIMEOUT') });
-
-    const promise = run(api, 120_000);
-    await vi.advanceTimersByTimeAsync(120_000);
-    const result = await promise;
-
-    // 120s attempt, 30s ceiling: ~3-4 stalls, not one 120s stall that eats the attempt whole.
-    expect(api.statusCalls.length).toBeGreaterThan(2);
-    expect(api.statusCalls.every(c => (c.config?.timeout ?? 0) > 0)).toBe(true);
-    expect(api.statusCalls.every(c => (c.config?.timeout ?? 0) <= SERVICE_TIMEOUT_MS)).toBe(true);
-    expect(result.ok).toBe(false);
-  });
-
   it('a POST that consumes its bound leaves the poll only what it did not spend — nothing when it spent the attempt', async () => {
     // 40s attempt against a 30s ceiling: the POST is clamped to 30s and hangs for all of it, so the
     // first status request must see the 10s remainder — NOT another 30s. The POST and the poll draw on

@@ -13,7 +13,6 @@ import {
   DEFAULT_API_BASE_URL,
   DEFAULT_BACKEND_API_HEADERS,
   DEFAULT_BACKEND_API_TIMEOUT,
-  DEFAULT_SPONSORING_API_ENDPOINT,
   type ApiConfig,
 } from '@sodax/types';
 import {
@@ -33,18 +32,6 @@ const D = DEFAULT_BACKEND_API_HEADERS;
 const BE = BACKEND_API_BASE_PATH;
 
 describe('resolveBaseApiConfig', () => {
-  it('returns a full flat config, merging default headers underneath', () => {
-    const resolved = resolveBaseApiConfig(
-      asConfig({ baseURL: 'https://base.example', timeout: 11, headers: { 'X-A': '1' } }),
-    );
-    expect(resolved).toEqual({
-      baseURL: 'https://base.example',
-      basePath: BE,
-      timeout: 11,
-      headers: { ...D, 'X-A': '1' },
-    });
-  });
-
   it('fills omitted fields from defaults (empty config, partial flat config, CustomApiConfig without baseApiConfig)', () => {
     const defaults = {
       baseURL: DEFAULT_API_BASE_URL,
@@ -57,27 +44,6 @@ describe('resolveBaseApiConfig', () => {
     expect(
       resolveBaseApiConfig(asConfig({ swapsApiConfig: { baseURL: 'https://swaps.example', timeout: 9, headers: {} } })),
     ).toEqual(defaults);
-  });
-
-  it('uses the baseApiConfig slice of a CustomApiConfig (ignoring swapsApiConfig), filling what the slice omits', () => {
-    const resolved = resolveBaseApiConfig(
-      asConfig({
-        baseApiConfig: { baseURL: 'https://base.example', timeout: 7, headers: { 'X-B': '1' } },
-        swapsApiConfig: { baseURL: 'https://swaps.example', timeout: 9, headers: {} },
-      }),
-    );
-    expect(resolved).toEqual({
-      baseURL: 'https://base.example',
-      basePath: BE,
-      timeout: 7,
-      headers: { ...D, 'X-B': '1' },
-    });
-    expect(resolveBaseApiConfig(asConfig({ baseApiConfig: { baseURL: 'https://base.example' } }))).toEqual({
-      baseURL: 'https://base.example',
-      basePath: BE,
-      timeout: DEFAULT_BACKEND_API_TIMEOUT,
-      headers: { ...D },
-    });
   });
 
   // A merged config carries the flat fields it started with alongside any slice the consumer added.
@@ -115,13 +81,6 @@ describe('resolveBaseApiConfig', () => {
 });
 
 describe('resolveSwapsApiConfig', () => {
-  it('shares a flat config with the base API', () => {
-    const resolved = resolveSwapsApiConfig(
-      asConfig({ baseURL: 'https://base.example', timeout: 11, headers: { 'X-A': '1' } }),
-    );
-    expect(resolved).toEqual({ baseURL: 'https://base.example', timeout: 11, headers: { ...D, 'X-A': '1' } });
-  });
-
   it('swapsApiConfig fields override baseApiConfig, headers per key', () => {
     const resolved = resolveSwapsApiConfig(
       asConfig({
@@ -154,35 +113,6 @@ describe('resolveSwapsApiConfig', () => {
       ),
     ).toEqual({ baseURL: 'https://base.example', timeout: 7, headers: { ...D, 'X-B': '1' } });
   });
-
-  it('falls back to defaults when neither slice is present, and fills omitted fields of a partial swaps slice', () => {
-    expect(resolveSwapsApiConfig(asConfig({ baseApiConfig: undefined, swapsApiConfig: undefined }))).toEqual({
-      baseURL: DEFAULT_API_BASE_URL,
-      timeout: DEFAULT_BACKEND_API_TIMEOUT,
-      headers: { ...D },
-    });
-    expect(resolveSwapsApiConfig(asConfig({ swapsApiConfig: { baseURL: 'https://swaps.example' } }))).toEqual({
-      baseURL: 'https://swaps.example',
-      timeout: DEFAULT_BACKEND_API_TIMEOUT,
-      headers: { ...D },
-    });
-  });
-
-  it('inherits top-level flat fields the swaps slice omits (post-merge shape)', () => {
-    const resolved = resolveSwapsApiConfig(
-      asConfig({
-        baseURL: 'https://flat.example',
-        timeout: 11,
-        headers: { Authorization: 'tok' },
-        swapsApiConfig: { headers: { 'X-S': '1' } },
-      }),
-    );
-    expect(resolved).toEqual({
-      baseURL: 'https://flat.example',
-      timeout: 11,
-      headers: { ...D, Authorization: 'tok', 'X-S': '1' },
-    });
-  });
 });
 
 describe('resolveSponsoringApiConfig', () => {
@@ -198,24 +128,15 @@ describe('resolveSponsoringApiConfig', () => {
     expect(resolved).not.toHaveProperty('apiKey');
   });
 
-  it('NEVER inherits baseURL from the base API — sponsoring is routed to its own host', () => {
-    for (const config of [
-      asConfig({ baseURL: 'https://backend.mydapp.com/sodax' }),
-      asConfig({ baseApiConfig: { baseURL: 'https://backend.mydapp.com/sodax' } }),
-      // post-merge shape: flat fields surviving beside the sponsoring slice
-      asConfig({ baseURL: 'https://backend.mydapp.com/sodax', sponsoringApiConfig: { apiKey: 'k' } }),
-    ]) {
-      expect(resolveSponsoringApiConfig(config).baseURL).toBe(SPONSORING_DEFAULT);
-    }
-  });
-
-  it('NEVER inherits headers from the base API — a credential is scoped to its origin', () => {
+  it('NEVER inherits baseURL or headers from the base API — sponsoring has its own host, and a credential is scoped to its origin', () => {
     const withAuth = { headers: { Authorization: 'Bearer USER_JWT' } };
     for (const config of [
       asConfig({ baseURL: 'https://backend.mydapp.com/sodax', ...withAuth }),
       asConfig({ baseApiConfig: { baseURL: 'https://backend.mydapp.com/sodax', ...withAuth } }),
+      // post-merge shape: flat fields surviving beside the sponsoring slice
       asConfig({ baseURL: 'https://backend.mydapp.com/sodax', ...withAuth, sponsoringApiConfig: { apiKey: 'k' } }),
     ]) {
+      expect(resolveSponsoringApiConfig(config).baseURL).toBe(SPONSORING_DEFAULT);
       expect(resolveSponsoringApiConfig(config).headers).toEqual({ ...D });
       expect(resolveSponsoringApiConfig(config).headers).not.toHaveProperty('Authorization');
     }
@@ -247,25 +168,6 @@ describe('resolveSponsoringApiConfig', () => {
       headers: { ...D, 'x-trace': 'abc' },
       apiKey: 'k',
     });
-  });
-
-  it('leaves base and swaps on the defaults for a sponsoring-only config', () => {
-    const config = asConfig({ sponsoringApiConfig: { apiKey: 'k' } });
-    const expected = {
-      baseURL: DEFAULT_API_BASE_URL,
-      timeout: DEFAULT_BACKEND_API_TIMEOUT,
-      headers: { ...D },
-    };
-    expect(resolveBaseApiConfig(config)).toEqual({ ...expected, basePath: BE });
-    expect(resolveSwapsApiConfig(config)).toEqual(expected);
-  });
-
-  it('trims trailing slashes on the resolved baseURL and leaves a clean one unchanged', () => {
-    for (const configured of ['http://localhost:3011///', 'http://localhost:3011'] as const) {
-      expect(resolveSponsoringApiConfig(asConfig({ sponsoringApiConfig: { baseURL: configured } })).baseURL).toBe(
-        'http://localhost:3011',
-      );
-    }
   });
 });
 
@@ -309,15 +211,18 @@ describe.each([
 });
 
 describe('basePath — the backend data API mount', () => {
-  it.each([
-    ['an explicit path', '/data', '/data'],
-    ['an empty path (service addressed at its origin)', '', ''],
-    ['a missing leading slash', 'be', '/be'],
-    ['surrounding whitespace, duplicate leading and trailing slashes', '  //be/  ', '/be'],
-    ['a lone slash (root mount)', '/', ''],
-  ])('normalizes %s', (_label, configured, expected) => {
-    expect(resolveBaseApiConfig(asConfig({ baseApiConfig: { basePath: configured } })).basePath).toBe(expected);
-    expect(resolveBaseApiConfig(asConfig({ basePath: configured })).basePath).toBe(expected);
+  it('normalizes an empty path, surrounding whitespace and slashes, and a lone slash', () => {
+    const rows: Array<[label: string, configured: string, expected: string]> = [
+      ['an empty path (service addressed at its origin)', '', ''],
+      ['surrounding whitespace, duplicate leading and trailing slashes', '  //be/  ', '/be'],
+      ['a lone slash (root mount)', '/', ''],
+    ];
+    for (const [label, configured, expected] of rows) {
+      expect(resolveBaseApiConfig(asConfig({ baseApiConfig: { basePath: configured } })).basePath, label).toBe(
+        expected,
+      );
+      expect(resolveBaseApiConfig(asConfig({ basePath: configured })).basePath, label).toBe(expected);
+    }
   });
 
   it('lets the baseApiConfig slice override a top-level flat basePath', () => {
@@ -330,21 +235,6 @@ describe('basePath — the backend data API mount', () => {
     expect(resolveSwapsApiConfig(config)).not.toHaveProperty('basePath');
     expect(resolveLeverageYieldApiConfig(config)).not.toHaveProperty('basePath');
     expect(resolveSponsoringApiConfig(config)).not.toHaveProperty('basePath');
-  });
-});
-
-describe('the shared root does not extend to sponsoring', () => {
-  // The other three services follow a retargeted `baseURL`; sponsoring resolves its own. Asserting it
-  // against a NON-default root keeps this meaningful — comparing to the packaged default would pass
-  // whether or not inheritance exists, since the two defaults are the same URL.
-  const retargeted = asConfig({ baseURL: 'https://staging-api.example.com/v1' });
-
-  it('moves base, swaps, bridge and leverage-yield but leaves sponsoring on its own default', () => {
-    expect(resolveBaseApiConfig(retargeted).baseURL).toBe('https://staging-api.example.com/v1');
-    expect(resolveSwapsApiConfig(retargeted).baseURL).toBe('https://staging-api.example.com/v1');
-    expect(resolveBridgeApiConfig(retargeted).baseURL).toBe('https://staging-api.example.com/v1');
-    expect(resolveLeverageYieldApiConfig(retargeted).baseURL).toBe('https://staging-api.example.com/v1');
-    expect(resolveSponsoringApiConfig(retargeted).baseURL).toBe(DEFAULT_SPONSORING_API_ENDPOINT);
   });
 });
 
@@ -397,12 +287,6 @@ describe('legacy /be-suffixed baseURL', () => {
       expect(resolveSwapsApiConfig(config).baseURL).toBe('https://proxy.example.com/be');
     }
   });
-
-  it('still mounts below an explicitly-rooted base URL when basePath names a mount', () => {
-    const config = asConfig({ baseApiConfig: { baseURL: 'https://gw.corp/be', basePath: '/data' } });
-    const resolved = resolveBaseApiConfig(config);
-    expect(`${resolved.baseURL}${resolved.basePath}`).toBe('https://gw.corp/be/data');
-  });
 });
 
 describe('isMissingVersionPrefix', () => {
@@ -410,50 +294,20 @@ describe('isMissingVersionPrefix', () => {
   // host resolves a service one segment short, and only the data API has a `basePath` to compensate — so
   // this is diagnosed rather than silently repaired. The predicate takes a RESOLVED base URL, so it holds
   // however that URL was layered (flat field, `baseApiConfig`, or a per-service slice).
-  it.each([
-    ['a trailing slash on the bare packaged origin', 'https://api.sodax.com/'],
-    ['the origin plus a service segment, no version', 'https://api.sodax.com/be'],
-  ])('is reported for %s', (_label, baseURL) => {
-    expect(isMissingVersionPrefix(baseURL)).toBe(true);
-  });
-
-  it.each([
-    ['the packaged default', DEFAULT_API_BASE_URL],
-    ['a deeper path (or legacy mount) below the packaged default', `${DEFAULT_API_BASE_URL}${BACKEND_API_BASE_PATH}`],
-  ])('is not reported for %s', (_label, baseURL) => {
-    expect(isMissingVersionPrefix(baseURL)).toBe(false);
-  });
-
-  it.each([
-    ['a local service at its bare origin', 'http://localhost:3011'],
-    ['a lookalike host that merely starts with the packaged origin', 'https://api.sodax.com.evil.example'],
-  ])('never fires for %s — off the packaged host it is not ours to judge', (_label, baseURL) => {
-    expect(isMissingVersionPrefix(baseURL)).toBe(false);
-  });
-
-  it('holds for a root reached through any slice (but not the packaged defaults), since it inspects the resolved value', () => {
-    for (const config of [
-      asConfig({ baseURL: 'https://api.sodax.com' }),
-      asConfig({ baseApiConfig: { baseURL: 'https://api.sodax.com' } }),
-    ]) {
-      expect(isMissingVersionPrefix(resolveBaseApiConfig(config).baseURL)).toBe(true);
-    }
-    expect(
-      isMissingVersionPrefix(
-        resolveSwapsApiConfig(asConfig({ swapsApiConfig: { baseURL: 'https://api.sodax.com' } })).baseURL,
-      ),
-    ).toBe(true);
-    expect(
-      isMissingVersionPrefix(
-        resolveSponsoringApiConfig(asConfig({ sponsoringApiConfig: { baseURL: 'https://api.sodax.com' } })).baseURL,
-      ),
-    ).toBe(true);
-
-    const config = asConfig({});
-    expect(isMissingVersionPrefix(resolveBaseApiConfig(config).baseURL)).toBe(false);
-    expect(isMissingVersionPrefix(resolveSwapsApiConfig(config).baseURL)).toBe(false);
-    expect(isMissingVersionPrefix(resolveBridgeApiConfig(config).baseURL)).toBe(false);
-    expect(isMissingVersionPrefix(resolveSponsoringApiConfig(config).baseURL)).toBe(false);
+  it('is reported only for the packaged host without its version prefix, never for a lookalike host', () => {
+    const rows: Array<[label: string, baseURL: string, missing: boolean]> = [
+      ['a trailing slash on the bare packaged origin', 'https://api.sodax.com/', true],
+      ['the origin plus a service segment, no version', 'https://api.sodax.com/be', true],
+      ['the packaged default', DEFAULT_API_BASE_URL, false],
+      [
+        'a deeper path (or legacy mount) below the packaged default',
+        `${DEFAULT_API_BASE_URL}${BACKEND_API_BASE_PATH}`,
+        false,
+      ],
+      // Off the packaged host it is not ours to judge.
+      ['a lookalike host that merely starts with the packaged origin', 'https://api.sodax.com.evil.example', false],
+    ];
+    for (const [label, baseURL, missing] of rows) expect(isMissingVersionPrefix(baseURL), label).toBe(missing);
   });
 });
 

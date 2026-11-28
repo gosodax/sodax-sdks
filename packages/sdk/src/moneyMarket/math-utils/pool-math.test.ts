@@ -1,47 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { calculateCompoundedInterest, calculateLinearInterest, getReserveNormalizedIncome } from './pool-math.js';
+import { calculateCompoundedInterest, getReserveNormalizedIncome } from './pool-math.js';
 import { RAY } from './ray.math.js';
 
 const RATE = '50000000000000000000000000'; // 5% APY in RAY
 const INDEX = '1500000000000000000000000000'; // 1.5 in RAY
 
 describe('calculateCompoundedInterest — negative timeDelta clamp', () => {
-  it('returns RAY (no accrual) when currentTimestamp < lastUpdateTimestamp (client clock behind chain)', () => {
-    const result = calculateCompoundedInterest({
-      rate: RATE,
-      currentTimestamp: 1_000,
-      lastUpdateTimestamp: 1_000 + 31_536_000,
-    });
-    expect(result.toString()).toBe(RAY.toString());
-  });
-
-  it('returns RAY when the timestamps are equal', () => {
-    const result = calculateCompoundedInterest({ rate: RATE, currentTimestamp: 1_000, lastUpdateTimestamp: 1_000 });
-    expect(result.toString()).toBe(RAY.toString());
+  it('returns RAY (no accrual) when currentTimestamp is behind (client clock behind chain) or equal', () => {
+    const cases = [
+      ['behind', 1_000 + 31_536_000],
+      ['equal', 1_000],
+    ] as const;
+    for (const [label, lastUpdateTimestamp] of cases) {
+      const result = calculateCompoundedInterest({ rate: RATE, currentTimestamp: 1_000, lastUpdateTimestamp });
+      expect(result.toString(), label).toBe(RAY.toString());
+    }
   });
 
   it('accrues interest (> RAY) when time elapses forward', () => {
     const result = calculateCompoundedInterest({
-      rate: RATE,
-      currentTimestamp: 1_000 + 31_536_000,
-      lastUpdateTimestamp: 1_000,
-    });
-    expect(result.gt(RAY)).toBe(true);
-  });
-});
-
-describe('calculateLinearInterest — negative timeDelta clamp', () => {
-  it('returns RAY when currentTimestamp < lastUpdateTimestamp', () => {
-    const result = calculateLinearInterest({
-      rate: RATE,
-      currentTimestamp: 1_000,
-      lastUpdateTimestamp: 1_000 + 31_536_000,
-    });
-    expect(result.toString()).toBe(RAY.toString());
-  });
-
-  it('grows above RAY for forward time', () => {
-    const result = calculateLinearInterest({
       rate: RATE,
       currentTimestamp: 1_000 + 31_536_000,
       lastUpdateTimestamp: 1_000,

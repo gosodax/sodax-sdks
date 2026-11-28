@@ -1,19 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { HttpUrl, SponsoringApiConfig } from '@sodax/types';
 import { SponsoringApiService } from './SponsoringApiService.js';
 import { silentLogger } from '../shared/logger.js';
+import { jsonErrorResponse, okResponse, stubFetch } from '../test-utils/fetch.js';
+import { expectErr } from '../test-utils/result.js';
 
 const BASE = 'https://sponsoring.example.com';
 
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
-
-const jsonOk = (data: unknown) => ({ ok: true, status: 200, json: vi.fn().mockResolvedValue(data) });
-const jsonErr = (status: number, body: unknown) => ({
-  ok: false,
-  status,
-  text: vi.fn().mockResolvedValue(JSON.stringify(body)),
-});
+const mockFetch = stubFetch();
 
 const CONFIG_BODY = {
   sponsorAccount: 'GCV5PJ4H57MZFRH5GM3E3CNFLWQURNFNIHQOYGRQ7JHGWJLAR2SFVZO6',
@@ -42,7 +36,7 @@ beforeEach(() => {
 describe('getConfig', () => {
   it('GETs the config path under the configured base URL and returns the parsed body', async () => {
     const service = makeService();
-    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
+    mockFetch.mockResolvedValueOnce(okResponse(CONFIG_BODY));
 
     const result = await service.getStellarSponsorConfig();
 
@@ -64,21 +58,17 @@ describe('getConfig', () => {
     const { maxTimeboundSeconds: _omitted, ...incomplete } = CONFIG_BODY;
 
     for (const body of [withoutPerOpBand, incomplete]) {
-      mockFetch.mockResolvedValueOnce(jsonOk(body));
-      const result = await service.getStellarSponsorConfig();
-      expect(result.ok).toBe(false);
-      if (!result.ok) expect(result.error.context?.reason).toBe('invalid_response_shape');
+      mockFetch.mockResolvedValueOnce(okResponse(body));
+      expectErr(await service.getStellarSponsorConfig(), undefined, { reason: 'invalid_response_shape' });
     }
   });
 });
 
 describe('createStellarSponsoredAccount', () => {
-  it.each([
-    ['a fresh activation', { hash: 'abc', alreadyActive: false }],
-    ['an already-active account', { hash: null, alreadyActive: true }],
-  ])('POSTs exactly `{ data }` (the endpoint 400s on any extra field) and accepts %s', async (_label, body) => {
+  it('POSTs exactly `{ data }` (the endpoint 400s on any extra field) and accepts a fresh activation', async () => {
     const service = makeService();
-    mockFetch.mockResolvedValueOnce(jsonOk(body));
+    const body = { hash: 'abc', alreadyActive: false };
+    mockFetch.mockResolvedValueOnce(okResponse(body));
 
     await expect(service.createStellarSponsoredAccount({ data: 'XDR' })).resolves.toEqual({ ok: true, value: body });
 
@@ -91,30 +81,24 @@ describe('createStellarSponsoredAccount', () => {
   it('rejects an uncorrelated hash/alreadyActive pair the union claims is impossible', async () => {
     // Preserve the wire correlation required by the discriminated union.
     const service = makeService();
-    mockFetch.mockResolvedValueOnce(jsonOk({ hash: 'abc', alreadyActive: true }));
+    mockFetch.mockResolvedValueOnce(okResponse({ hash: 'abc', alreadyActive: true }));
 
     const result = await service.createStellarSponsoredAccount({ data: 'XDR' });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.context?.reason).toBe('invalid_response_shape');
+    expectErr(result, undefined, { reason: 'invalid_response_shape' });
   });
 
   it('surfaces the HTTP status on the error context and keeps the body on the cause', async () => {
     const service = makeService();
     const body = { statusCode: 409, error: 'SPONSOR_SEQUENCE_CONFLICT', message: 'conflict' };
-    mockFetch.mockResolvedValueOnce(jsonErr(409, body));
+    mockFetch.mockResolvedValueOnce(jsonErrorResponse(409, body));
 
     const result = await service.createStellarSponsoredAccount({ data: 'XDR' });
 
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error.code).toBe('EXTERNAL_API_ERROR');
-      // The transport layer tags `feature: 'backend'`; only the orchestrator claims 'sponsoring'.
-      expect(result.error.feature).toBe('backend');
-      expect(result.error.context?.api).toBe('sponsoring');
-      expect(result.error.context?.status).toBe(409);
-      expect((result.error.cause as { body: unknown }).body).toEqual(body);
-    }
+    const error = expectErr(result, 'EXTERNAL_API_ERROR', { api: 'sponsoring', status: 409 });
+    // The transport layer tags `feature: 'backend'`; only the orchestrator claims 'sponsoring'.
+    expect(error.feature).toBe('backend');
+    expect(error.cause).toHaveProperty('body', body);
   });
 });
 
@@ -123,7 +107,7 @@ describe('api key handling', () => {
     // Direct construction carries no inherited-key gating (that applies only to the instance key
     // `BackendApiService` passes in): this key is the consumer's own config for their own origin.
     const service = makeService({ apiKey: 'secret-key' });
-    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
+    mockFetch.mockResolvedValueOnce(okResponse(CONFIG_BODY));
 
     await service.getStellarSponsorConfig({ baseURL: 'http://localhost:3011' });
 
@@ -134,24 +118,19 @@ describe('api key handling', () => {
     expect(service.getBaseURL()).toBe(BASE);
   });
 
-  it('lets an explicit header win, so a consumer proxying through their own backend can override it', async () => {
-    const service = makeService({ apiKey: 'from-field', headers: { 'x-api-key': 'from-headers' } });
-    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
+  it('lets an explicit header win over `apiKey` (a consumer proxying through their own backend), and sends none unconfigured', async () => {
+    const cases: [string, Partial<SponsoringApiConfig>, string | undefined][] = [
+      ['explicit header', { apiKey: 'from-field', headers: { 'x-api-key': 'from-headers' } }, 'from-headers'],
+      ['nothing configured', {}, undefined],
+    ];
+    for (const [label, overrides, expected] of cases) {
+      mockFetch.mockReset().mockResolvedValueOnce(okResponse(CONFIG_BODY));
 
-    await service.getStellarSponsorConfig();
+      await makeService(overrides).getStellarSponsorConfig();
 
-    const [, init] = mockFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
-    expect(init.headers['x-api-key']).toBe('from-headers');
-  });
-
-  it('sends no x-api-key when none is configured', async () => {
-    const service = makeService();
-    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
-
-    await service.getStellarSponsorConfig();
-
-    const [, init] = mockFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
-    expect(init.headers['x-api-key']).toBeUndefined();
+      const [, init] = mockFetch.mock.calls[0] as [string, { headers: Record<string, string> }];
+      expect(init.headers['x-api-key'], label).toBe(expected);
+    }
   });
 
   it('is NOT reached by BackendApiService.setHeaders — that origin is not this one', async () => {
@@ -162,7 +141,7 @@ describe('api key handling', () => {
       silentLogger,
     );
     api.setHeaders({ Authorization: 'Bearer USER_JWT' });
-    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
+    mockFetch.mockResolvedValueOnce(okResponse(CONFIG_BODY));
 
     await api.sponsoring.getStellarSponsorConfig();
 
@@ -177,7 +156,7 @@ describe('api key handling', () => {
     const service = makeService({ apiKey: 'v1' });
     service.setHeaders({ 'X-Api-Key': 'v2' });
     service.setHeaders({ 'x-api-key': 'v3' });
-    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
+    mockFetch.mockResolvedValueOnce(okResponse(CONFIG_BODY));
 
     await service.getStellarSponsorConfig();
 
@@ -189,21 +168,14 @@ describe('api key handling', () => {
 
 // The deployment owns the version prefix; the SDK route stays version-free.
 describe('deployment prefixes', () => {
-  const cases: Array<[label: string, baseURL: HttpUrl, expected: string]> = [
-    ['a bare origin (local service)', 'http://localhost:3011', 'http://localhost:3011/sponsorships/stellar/config'],
-    [
-      'a versioned gateway path with a trailing slash',
-      'https://api.sodax.com/v1/',
-      'https://api.sodax.com/v1/sponsorships/stellar/config',
-    ],
-  ];
-
-  it.each(cases)('resolves %s', async (_label, baseURL, expected) => {
+  // A bare origin (local service) is pinned by the per-call baseURL test under api key handling.
+  it('resolves a versioned gateway path with a trailing slash', async () => {
+    const baseURL: HttpUrl = 'https://api.sodax.com/v1/';
     const service = makeService({ baseURL });
-    mockFetch.mockResolvedValueOnce(jsonOk(CONFIG_BODY));
+    mockFetch.mockResolvedValueOnce(okResponse(CONFIG_BODY));
 
     await service.getStellarSponsorConfig();
 
-    expect(mockFetch.mock.calls[0]?.[0]).toBe(expected);
+    expect(mockFetch.mock.calls[0]?.[0]).toBe('https://api.sodax.com/v1/sponsorships/stellar/config');
   });
 });

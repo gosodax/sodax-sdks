@@ -1,17 +1,10 @@
 /**
- * Unit tests for the shared backend submit-tx poll loop.
- *
- * Focus: the per-request timeout override. `makeRequest` resolves
- * `overrideConfig.timeout ?? config.timeout ?? DEFAULT_BACKEND_API_TIMEOUT`, so an override REPLACES the
- * service value rather than lowering it — handing it the raw remaining attempt budget raises the bound
- * whenever that budget exceeds the service default, and one stalled request then consumes the entire
- * attempt instead of retrying. The override must therefore clamp in both directions.
+ * Unit tests for the shared backend submit-tx poll loop: terminal states and the attempt-budget boundaries.
  *
  * The loop is bounded by the backend attempt alone; the client-side fallback holds its own fresh
- * `timeout`, so nothing here is held back for it.
- *
- * Each test resolves `getStatus` with the terminal status on the first call, so the loop returns before
- * its first sleep; fake timers only pin `Date.now()` so the expected budgets are exact.
+ * `timeout`, so nothing here is held back for it. The per-request bound is re-read on every iteration
+ * (the "request bound" test below); how the caller derives it, `min(service timeout, remaining)`, is
+ * checked for the first request only in runBackendSubmitTx.test.ts.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,27 +17,10 @@ const SERVICE_TIMEOUT_MS = 30_000;
 
 type Envelope = BackendSubmitTxStatusEnvelope<{ dstIntentTxHash: string }>;
 
-/** `getStatus` double that records each per-call override and reports terminal success immediately. */
-function executedOnFirstCall(): {
-  getStatus: (override?: RequestOverrideConfig) => Promise<Result<{ data: Envelope }>>;
-  overrides: (RequestOverrideConfig | undefined)[];
-} {
-  const overrides: (RequestOverrideConfig | undefined)[] = [];
-  return {
-    overrides,
-    getStatus: async override => {
-      overrides.push(override);
-      return { ok: true, value: { data: { status: 'executed', result: { dstIntentTxHash: '0xDST' } } } };
-    },
-  };
-}
+type GetStatus = (override?: RequestOverrideConfig) => Promise<Result<{ data: Envelope }>>;
 
 /** `timeoutMs` is the caller's per-attempt budget; the attempt opens at the current (faked) clock. */
-const poll = (
-  timeoutMs: number,
-  getStatus: ReturnType<typeof executedOnFirstCall>['getStatus'],
-  requestTimeoutMs = SERVICE_TIMEOUT_MS,
-) =>
+const poll = (timeoutMs: number, getStatus: GetStatus, requestTimeoutMs = SERVICE_TIMEOUT_MS) =>
   pollBackendSubmitTx({
     attempt: createSubmitTxAttempt(timeoutMs),
     terminalStatus: 'executed',
@@ -60,20 +36,6 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
-});
-
-describe('pollBackendSubmitTx — per-request timeout override', () => {
-  it('clamps to the service timeout or the remaining attempt budget, whichever is smaller', async () => {
-    const large = executedOnFirstCall();
-    // Default budget: the whole 120_000 belongs to this attempt, well above the 30s service default.
-    const result = await poll(120_000, large.getStatus);
-    expect(result).toEqual({ ok: true, value: '0xDST' });
-    expect(large.overrides).toEqual([{ timeout: SERVICE_TIMEOUT_MS }]);
-
-    const small = executedOnFirstCall();
-    await poll(15_000, small.getStatus);
-    expect(small.overrides).toEqual([{ timeout: 15_000 }]);
-  });
 });
 
 describe('pollBackendSubmitTx — terminal states', () => {
@@ -199,10 +161,7 @@ describe('pollBackendSubmitTx — budget boundaries', () => {
     // Budget for exactly one request, then nothing: `remaining()` still returns a positive number the
     // sleep clamp would accept, so only the recomputed bound can end the loop.
     let calls = 0;
-    const oneShot = {
-      remaining: () => 5_000,
-      requestTimeout: () => (calls++ === 0 ? 5_000 : null),
-    };
+    const oneShot = { remaining: () => 5_000, requestTimeout: () => (calls++ === 0 ? 5_000 : null) };
 
     const promise = pollBackendSubmitTx({
       attempt: oneShot,

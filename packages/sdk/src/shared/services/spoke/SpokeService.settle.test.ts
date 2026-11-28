@@ -459,24 +459,26 @@ describe('SpokeService.settle — destination legs', () => {
     expect(result).toEqual({ ok: true, value: { srcChainTxHash: SRC_TX, dstChainTxHash: HUB_TX } });
   });
 
-  it.each([
-    ['no BridgeRequest to Tron', [bridgeRequest(2, chainTopic(42161n))]],
-    ['two BridgeRequests to Tron', [bridgeRequest(1), bridgeRequest(2)]],
-  ])('refuses to track a hub tx with %s, notifying nothing', async (_label, logs) => {
-    stubHubReceipt(logs);
+  it('refuses to track a hub tx with no BridgeRequest to Tron, or two, notifying nothing', async () => {
     const release = stubRelease();
+    for (const [label, logs] of [
+      ['no BridgeRequest to Tron', [bridgeRequest(2, chainTopic(42161n))]],
+      ['two BridgeRequests to Tron', [bridgeRequest(1), bridgeRequest(2)]],
+    ] as const) {
+      stubHubReceipt([...logs]);
 
-    const result = await spoke.settle({
-      chainKey: SONIC,
-      tx: HUB_TX,
-      direction: 'outbound',
-      relayData: RELAY_DATA,
-      dstChainKey: TRON,
-    });
+      const result = await spoke.settle({
+        chainKey: SONIC,
+        tx: HUB_TX,
+        direction: 'outbound',
+        relayData: RELAY_DATA,
+        dstChainKey: TRON,
+      });
 
+      expect(result.ok, label).toBe(false);
+      expect(!result.ok && result.error.phase, label).toBe('relay');
+    }
     expect(release).not.toHaveBeenCalled();
-    expect(result.ok).toBe(false);
-    expect(!result.ok && result.error.phase).toBe('relay');
   });
 
   describe('submitHubDelivery', () => {
@@ -565,13 +567,8 @@ describe('SpokeService.settle — destination legs', () => {
       expect(wait).not.toHaveBeenCalled();
     });
 
-    it.each([
-      [
-        'a BridgeRequest from another contract',
-        [bridgeRequest(2, TRON_TOPIC, '0x1111111111111111111111111111111111111111')],
-      ],
-    ])('is undefined for a hub tx with %s, leaving it to the intent relay', async (_label, logs) => {
-      readReceipt(logs);
+    it('is undefined for a hub tx with a BridgeRequest from another contract, leaving it to the intent relay', async () => {
+      readReceipt([bridgeRequest(2, TRON_TOPIC, '0x1111111111111111111111111111111111111111')]);
       const read = vi.spyOn(spoke.tron, 'getHubReleaseRecord');
 
       expect(await spoke.getHubRelease(HUB_TX)).toBeUndefined();

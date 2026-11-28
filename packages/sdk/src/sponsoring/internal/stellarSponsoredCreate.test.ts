@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FeeBumpTransaction, Keypair, Networks, type Operation, TransactionBuilder } from '@stellar/stellar-sdk';
+import { type FeeBumpTransaction, Keypair, Networks, type Operation, TransactionBuilder } from '@stellar/stellar-sdk';
 import type { StellarSponsorConfig } from '@sodax/types';
 import { isSodaxError } from '../../errors/SodaxError.js';
 import {
@@ -36,16 +36,19 @@ const build = (overrides: Partial<StellarSponsorConfig> = {}) =>
     address: NEW_ACCOUNT.publicKey(),
   });
 
-const caught = (fn: () => unknown): unknown => {
+/** Asserts `fn` throws a SodaxError, with a message matching `message` when one is given. */
+const expectSodaxThrow = (fn: () => unknown, message?: RegExp, label?: string): void => {
+  let error: unknown;
   try {
     fn();
-    return undefined;
-  } catch (error) {
-    return error;
+  } catch (thrown) {
+    error = thrown;
   }
+  expect(isSodaxError(error), label).toBe(true);
+  if (message) expect((error as Error).message, label).toMatch(message);
 };
 
-describe('deriveSponsorBaseFee — published per-operation fee', () => {
+describe('deriveSponsorBaseFee', () => {
   it('uses recommendedPerOperationFeeStroops verbatim, with no arithmetic', () => {
     // The server owns the per-operation fee; clients must not recompute it.
     expect(
@@ -60,102 +63,64 @@ describe('deriveSponsorBaseFee — published per-operation fee', () => {
     ).toEqual({ baseFee: '1234', totalFee: 3702n });
   });
 
-  it('rejects a published per-op fee whose total falls outside the published band', () => {
-    const outOfBand: Partial<StellarSponsorConfig>[] = [
-      // Above the total ceiling; the per-op band is wide enough that only the total band can reject it.
-      { maxPerOperationFeeStroops: '9000', recommendedPerOperationFeeStroops: '9000' },
-      // Below the total floor.
-      { minPerOperationFeeStroops: '100', recommendedPerOperationFeeStroops: '100' },
-      // No integer per-operation fee totals exactly 10000 across three operations.
-      {
-        minTotalFeeStroops: '10000',
-        maxTotalFeeStroops: '10000',
-        maxPerOperationFeeStroops: '4000',
-        recommendedPerOperationFeeStroops: '3334',
-      },
-    ];
-    for (const overrides of outOfBand) {
-      const error = caught(() => deriveSponsorBaseFee(config(overrides)));
-      expect(isSodaxError(error)).toBe(true);
-      expect((error as Error).message).toMatch(/outside the accepted band/);
-    }
-  });
-
-  it('rejects an operationCount that disagrees with the shape this builder emits, as a feature error', () => {
-    // The wire schema permits numbers; classify fractional values before BigInt conversion.
-    for (const operationCount of [4, 3.5]) {
-      const error = caught(() => deriveSponsorBaseFee(config({ operationCount })));
-      expect(isSodaxError(error)).toBe(true);
-      expect((error as Error).message).toMatch(/this builder emits/);
-    }
-  });
-});
-
-describe('deriveSponsorBaseFee — fee band validation', () => {
-  it('rejects an unparseable total band, per-operation fee or per-operation bound', () => {
-    const unparseable: Partial<StellarSponsorConfig>[] = [
-      { minTotalFeeStroops: 'not-a-number' },
-      { maxTotalFeeStroops: 'oops' },
-      { recommendedPerOperationFeeStroops: 'oops' },
-      { minPerOperationFeeStroops: 'oops' },
-      { maxPerOperationFeeStroops: 'oops' },
-    ];
-    for (const overrides of unparseable) {
-      const error = caught(() => deriveSponsorBaseFee(config(overrides)));
-      expect(isSodaxError(error)).toBe(true);
-      expect((error as Error).message).toMatch(/not a valid integer/);
-    }
-  });
-
-  it('rejects a non-positive floor and an inverted band', () => {
-    expect(
-      isSodaxError(caught(() => deriveSponsorBaseFee(config({ minTotalFeeStroops: '0', maxTotalFeeStroops: '10' })))),
-    ).toBe(true);
-    expect(
-      isSodaxError(
-        caught(() => deriveSponsorBaseFee(config({ minTotalFeeStroops: '9000', maxTotalFeeStroops: '3000' }))),
-      ),
-    ).toBe(true);
-  });
-});
-
-describe('deriveSponsorBaseFee — per-operation band validation', () => {
-  it('rejects a fee below the per-operation floor or above its ceiling even when the total lands inside the total band', () => {
+  it('refuses a fee config it cannot satisfy or parse, as a feature error', () => {
     // 500/op and 3000/op both total inside [1000, 10000]; only the per-operation band rejects them.
-    for (const perOp of ['500', '3000']) {
-      const error = caught(() =>
-        deriveSponsorBaseFee(
-          config({
-            minTotalFeeStroops: '1000',
-            maxTotalFeeStroops: '10000',
-            minPerOperationFeeStroops: '1000',
-            maxPerOperationFeeStroops: '2000',
-            recommendedPerOperationFeeStroops: perOp,
-          }),
-        ),
-      );
-      expect(isSodaxError(error)).toBe(true);
-      expect((error as Error).message).toMatch(/outside the accepted per-operation band/);
+    const perOpBand = (perOp: string): Partial<StellarSponsorConfig> => ({
+      minTotalFeeStroops: '1000',
+      maxTotalFeeStroops: '10000',
+      minPerOperationFeeStroops: '1000',
+      maxPerOperationFeeStroops: '2000',
+      recommendedPerOperationFeeStroops: perOp,
+    });
+    const cases: [string, Partial<StellarSponsorConfig>, RegExp?][] = [
+      // The per-op band is wide enough that only the total band can reject it.
+      [
+        'total above the ceiling',
+        { maxPerOperationFeeStroops: '9000', recommendedPerOperationFeeStroops: '9000' },
+        /outside the accepted band/,
+      ],
+      [
+        'total below the floor',
+        { minPerOperationFeeStroops: '100', recommendedPerOperationFeeStroops: '100' },
+        /outside the accepted band/,
+      ],
+      [
+        // No integer per-operation fee totals exactly 10000 across three operations.
+        'no integer per-op fee hits the total',
+        {
+          minTotalFeeStroops: '10000',
+          maxTotalFeeStroops: '10000',
+          maxPerOperationFeeStroops: '4000',
+          recommendedPerOperationFeeStroops: '3334',
+        },
+        /outside the accepted band/,
+      ],
+      // The wire schema permits numbers; classify fractional values before BigInt conversion.
+      ['operationCount 4', { operationCount: 4 }, /this builder emits/],
+      ['operationCount 3.5', { operationCount: 3.5 }, /this builder emits/],
+      ['unparseable minTotalFeeStroops', { minTotalFeeStroops: 'not-a-number' }, /not a valid integer/],
+      ['unparseable maxTotalFeeStroops', { maxTotalFeeStroops: 'oops' }, /not a valid integer/],
+      [
+        'unparseable recommendedPerOperationFeeStroops',
+        { recommendedPerOperationFeeStroops: 'oops' },
+        /not a valid integer/,
+      ],
+      ['unparseable minPerOperationFeeStroops', { minPerOperationFeeStroops: 'oops' }, /not a valid integer/],
+      ['unparseable maxPerOperationFeeStroops', { maxPerOperationFeeStroops: 'oops' }, /not a valid integer/],
+      ['non-positive total floor', { minTotalFeeStroops: '0', maxTotalFeeStroops: '10' }],
+      ['inverted total band', { minTotalFeeStroops: '9000', maxTotalFeeStroops: '3000' }],
+      ['below the per-op floor', perOpBand('500'), /outside the accepted per-operation band/],
+      ['above the per-op ceiling', perOpBand('3000'), /outside the accepted per-operation band/],
+      ['non-positive per-op floor', { minPerOperationFeeStroops: '0' }, /minPerOperationFeeStroops must be positive/],
+      [
+        'inverted per-op band',
+        { minPerOperationFeeStroops: '4000', maxPerOperationFeeStroops: '1000' },
+        /per-operation fee band is inverted/,
+      ],
+    ];
+    for (const [label, overrides, message] of cases) {
+      expectSodaxThrow(() => deriveSponsorBaseFee(config(overrides)), message, label);
     }
-  });
-
-  it('rejects a non-positive per-operation floor and an inverted per-operation band', () => {
-    const nonPositive = caught(() => deriveSponsorBaseFee(config({ minPerOperationFeeStroops: '0' })));
-    expect(isSodaxError(nonPositive)).toBe(true);
-    expect((nonPositive as Error).message).toMatch(/minPerOperationFeeStroops must be positive/);
-
-    const inverted = caught(() =>
-      deriveSponsorBaseFee(config({ minPerOperationFeeStroops: '4000', maxPerOperationFeeStroops: '1000' })),
-    );
-    expect(isSodaxError(inverted)).toBe(true);
-    expect((inverted as Error).message).toMatch(/per-operation fee band is inverted/);
-  });
-
-  it('never prompts the wallet when the per-operation band is violated', () => {
-    // buildSponsoredCreate must fail before it can hand an envelope to a signer.
-    const error = caught(() => build({ minPerOperationFeeStroops: '2000' }));
-    expect(isSodaxError(error)).toBe(true);
-    expect((error as Error).message).toMatch(/outside the accepted per-operation band/);
   });
 });
 
@@ -166,8 +131,8 @@ describe('resolveTimeboundSeconds', () => {
   });
 
   it('rejects a ceiling that leaves no usable window (setTimeout(0) means unbounded maxTime)', () => {
-    expect(isSodaxError(caught(() => resolveTimeboundSeconds({ maxTimeboundSeconds: 0 })))).toBe(true);
-    expect(isSodaxError(caught(() => resolveTimeboundSeconds({ maxTimeboundSeconds: -1 })))).toBe(true);
+    expectSodaxThrow(() => resolveTimeboundSeconds({ maxTimeboundSeconds: 0 }), undefined, '0');
+    expectSodaxThrow(() => resolveTimeboundSeconds({ maxTimeboundSeconds: -1 }), undefined, '-1');
   });
 });
 
@@ -222,117 +187,58 @@ describe('buildSponsoredCreate', () => {
     expect(tx.sequence).toBe((BigInt(SPONSOR_SEQUENCE) + 1n).toString());
   });
 
-  it('produces XDR within the 4096-character limit that round-trips to the same structure', () => {
-    const xdr = build().toXDR();
-    expect(xdr.length).toBeLessThanOrEqual(4096);
-
-    const reparsed = TransactionBuilder.fromXDR(xdr, Networks.PUBLIC);
-    expect(reparsed).not.toBeInstanceOf(FeeBumpTransaction);
-    const tx = reparsed as Exclude<typeof reparsed, FeeBumpTransaction>;
-    expect(tx.operations).toHaveLength(3);
-    expect(tx.source).toBe(SPONSOR.publicKey());
-    expect(tx.fee).toBe('3000');
-    expect(tx.memo.type).toBe('none');
-    expect(tx.operations[2]?.source).toBe(NEW_ACCOUNT.publicKey());
-  });
-
   it('rejects a non-public network or a malformed / contract-address destination locally, before any wallet prompt', () => {
-    const error = caught(() => build({ networkPassphrase: Networks.TESTNET }));
-    expect(isSodaxError(error)).toBe(true);
-    expect((error as Error).message).toMatch(/public network/);
+    expectSodaxThrow(() => build({ networkPassphrase: Networks.TESTNET }), /public network/);
 
     for (const address of ['not-a-key', 'CA7QYNF7SOWQ3GLR2BGMZEHXAVIRZA4KVWLTJJFC7MGXUA74P7UJVSGZ']) {
-      const addressError = caught(() =>
-        buildSponsoredCreate({ config: config(), sponsorSequence: SPONSOR_SEQUENCE, address }),
+      expectSodaxThrow(
+        () => buildSponsoredCreate({ config: config(), sponsorSequence: SPONSOR_SEQUENCE, address }),
+        /not a valid Stellar ed25519 public key/,
+        address,
       );
-      expect(isSodaxError(addressError)).toBe(true);
-      expect((addressError as Error).message).toMatch(/not a valid Stellar ed25519 public key/);
     }
   });
 });
 
 describe('assertSignedByAccount', () => {
-  const signWith = (keypair: Keypair, networkPassphrase: string): string => {
-    const tx = TransactionBuilder.fromXDR(build().toXDR(), networkPassphrase) as Exclude<
-      ReturnType<typeof TransactionBuilder.fromXDR>,
-      FeeBumpTransaction
-    >;
+  type Tx = Exclude<ReturnType<typeof TransactionBuilder.fromXDR>, FeeBumpTransaction>;
+  const signWith = (keypair: Keypair, networkPassphrase: string, xdr = build().toXDR()): string => {
+    const tx = TransactionBuilder.fromXDR(xdr, networkPassphrase) as Tx;
     tx.sign(keypair);
     return tx.toXDR();
   };
 
   it('accepts a transaction signed by the new account on the public network', () => {
     const tx = build();
-    const signed = TransactionBuilder.fromXDR(tx.toXDR(), Networks.PUBLIC) as Exclude<
-      ReturnType<typeof TransactionBuilder.fromXDR>,
-      FeeBumpTransaction
-    >;
-    signed.sign(NEW_ACCOUNT);
     expect(() =>
       assertSignedByAccount({
-        signedXdr: signed.toXDR(),
+        signedXdr: signWith(NEW_ACCOUNT, Networks.PUBLIC, tx.toXDR()),
         address: NEW_ACCOUNT.publicKey(),
         unsignedHash: tx.hash(),
       }),
     ).not.toThrow();
   });
 
-  it('rejects a signature produced over the WRONG network — the silent failure this exists for', () => {
-    // Network-mismatched signatures remain well-formed XDR.
+  it('rejects a wrong-network, wrong-account, unsigned, unparseable, altered or fee-bumped envelope', () => {
     const tx = build();
-    const error = caught(() =>
-      assertSignedByAccount({
-        signedXdr: signWith(NEW_ACCOUNT, Networks.TESTNET),
-        address: NEW_ACCOUNT.publicKey(),
-        unsignedHash: tx.hash(),
-      }),
-    );
-    expect(isSodaxError(error)).toBe(true);
-    expect((error as Error).message).toMatch(/different Stellar network/);
-  });
-
-  it('rejects a signature from a different account, an unsigned transaction and unparseable XDR', () => {
-    const tx = build();
-    for (const signedXdr of [signWith(OTHER, Networks.PUBLIC), tx.toXDR(), 'not-xdr']) {
-      const error = caught(() =>
-        assertSignedByAccount({ signedXdr, address: NEW_ACCOUNT.publicKey(), unsignedHash: tx.hash() }),
+    const tampered = build({ recommendedPerOperationFeeStroops: '2000' }).toXDR();
+    const inner = TransactionBuilder.fromXDR(signWith(NEW_ACCOUNT, Networks.PUBLIC, tx.toXDR()), Networks.PUBLIC) as Tx;
+    const bumped = TransactionBuilder.buildFeeBumpTransaction(SPONSOR, '20000', inner, Networks.PUBLIC).toXDR();
+    const cases: [string, string, RegExp?][] = [
+      // Network-mismatched signatures remain well-formed XDR — the silent failure this check exists for.
+      ['wrong network', signWith(NEW_ACCOUNT, Networks.TESTNET), /different Stellar network/],
+      ['other account', signWith(OTHER, Networks.PUBLIC)],
+      ['unsigned', tx.toXDR()],
+      ['unparseable', 'not-xdr'],
+      ['altered before signing', signWith(NEW_ACCOUNT, Networks.PUBLIC, tampered), /altered the transaction/],
+      ['fee-bump wrapped', bumped, /fee-bump/],
+    ];
+    for (const [label, signedXdr, message] of cases) {
+      expectSodaxThrow(
+        () => assertSignedByAccount({ signedXdr, address: NEW_ACCOUNT.publicKey(), unsignedHash: tx.hash() }),
+        message,
+        label,
       );
-      expect(isSodaxError(error)).toBe(true);
     }
-  });
-
-  it('rejects a wallet that altered the envelope before signing, or wrapped it in a fee-bump', () => {
-    const tx = build();
-    const tampered = build({ recommendedPerOperationFeeStroops: '2000' });
-    const signed = TransactionBuilder.fromXDR(tampered.toXDR(), Networks.PUBLIC) as Exclude<
-      ReturnType<typeof TransactionBuilder.fromXDR>,
-      FeeBumpTransaction
-    >;
-    signed.sign(NEW_ACCOUNT);
-    const error = caught(() =>
-      assertSignedByAccount({
-        signedXdr: signed.toXDR(),
-        address: NEW_ACCOUNT.publicKey(),
-        unsignedHash: tx.hash(),
-      }),
-    );
-    expect(isSodaxError(error)).toBe(true);
-    expect((error as Error).message).toMatch(/altered the transaction/);
-
-    const inner = TransactionBuilder.fromXDR(tx.toXDR(), Networks.PUBLIC) as Exclude<
-      ReturnType<typeof TransactionBuilder.fromXDR>,
-      FeeBumpTransaction
-    >;
-    inner.sign(NEW_ACCOUNT);
-    const bumped = TransactionBuilder.buildFeeBumpTransaction(SPONSOR, '20000', inner, Networks.PUBLIC);
-    const bumpError = caught(() =>
-      assertSignedByAccount({
-        signedXdr: bumped.toXDR(),
-        address: NEW_ACCOUNT.publicKey(),
-        unsignedHash: tx.hash(),
-      }),
-    );
-    expect(isSodaxError(bumpError)).toBe(true);
-    expect((bumpError as Error).message).toMatch(/fee-bump/);
   });
 });

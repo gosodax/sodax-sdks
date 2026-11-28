@@ -41,15 +41,13 @@ const build = (utxos: CardanoUtxo[], amount: bigint = V.amount) =>
 describe('cardano memo deposit — relay golden vector', () => {
   const built = build([...V.inputs]);
 
-  it('encodes the memo metadata, the body and the tx id the deposit is keyed on byte for byte as the relay does', () => {
+  it('encodes the memo metadata, the body, the fee and the tx id the deposit is keyed on byte for byte as the relay does', () => {
     expect(bytesToHex(cardanoDepositAuxiliaryData(memo))).toBe(V.auxiliaryDataHex);
     expect(bytesToHex(cardanoHash(cardanoDepositAuxiliaryData(memo)))).toBe(V.auxiliaryDataHashHex);
     expect(bytesToHex(built.bodyCbor)).toBe(V.bodyHex);
     expect(bytesToHex(built.txId)).toBe(V.txIdHex);
     expect(cardanoTxHash(built)).toBe(V.txIdHex.slice(2));
-  });
-
-  it('prices the fee at the exact minimum the relay computed, and pays the reserve at output 0', () => {
+    // The fee is the exact minimum the relay computed, and the reserve is paid at output 0.
     expect(built.body.fee).toBe(V.fee);
     expect(built.body.outputs[0]).toEqual({ address: reserve, lovelace: V.amount });
     expect(built.body.outputs[1]).toEqual({ address: change, lovelace: 10_000_000n - V.amount - V.fee });
@@ -135,15 +133,17 @@ describe('cardano CBOR encoding', () => {
   const lovelaceHead = (lovelace: bigint): string =>
     bytesToHex(encodeCardanoTxOutput({ address: new Uint8Array(0), lovelace })).slice(2 + 4);
 
-  it.each([
-    [23n, '17'],
-    [24n, '1818'],
-    [65_535n, '19ffff'],
-    [65_536n, '1a00010000'],
-    [4_294_967_295n, '1affffffff'],
-    [4_294_967_296n, '1b0000000100000000'],
-  ])('writes lovelace %s in its shortest canonical form', (lovelace, expected) => {
-    expect(lovelaceHead(lovelace)).toBe(expected);
+  it('writes lovelace in its shortest canonical form at every width boundary', () => {
+    for (const [lovelace, expected] of [
+      [23n, '17'],
+      [24n, '1818'],
+      [65_535n, '19ffff'],
+      [65_536n, '1a00010000'],
+      [4_294_967_295n, '1affffffff'],
+      [4_294_967_296n, '1b0000000100000000'],
+    ] as const) {
+      expect(lovelaceHead(lovelace), String(lovelace)).toBe(expected);
+    }
   });
 
   it('refuses a value outside u64', () => {

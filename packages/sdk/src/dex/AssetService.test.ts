@@ -17,9 +17,9 @@ import {
 } from '@sodax/types';
 import { pad, toEventSelector, toHex, type TransactionReceipt } from 'viem';
 import { Sodax } from '../shared/entities/Sodax.js';
-import { isSodaxError } from '../errors/SodaxError.js';
 import * as IntentRelayApiService from '../shared/services/intentRelay/IntentRelayApiService.js';
 import { TRON_TEST_ADDRESS, TRON_TEST_RECIPIENT_WORD } from '../shared/services/spoke/tron-test-fixtures.js';
+import { expectErr, expectOk } from '../test-utils/result.js';
 
 const sodax = new Sodax();
 const asset = sodax.dex.assetService;
@@ -52,16 +52,13 @@ describe('AssetService.executeWithdraw', () => {
       raw: true,
     });
 
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.relayData).toEqual({ address: HUB_WALLET, payload: expect.any(String) });
-      // Guards the exact bug: it must NOT be the spoke recipient (params.srcAddress).
-      expect(result.value.relayData.address).not.toBe(SRC_ADDRESS);
-    }
+    const { relayData } = expectOk(result);
+    expect(relayData).toEqual({ address: HUB_WALLET, payload: expect.any(String) });
+    // Guards the exact bug: it must NOT be the spoke recipient (params.srcAddress).
+    expect(relayData.address).not.toBe(SRC_ADDRESS);
 
     // relayData.address must match the hub destination the spoke message commits to.
-    const sendArg = (sodax.spoke.sendMessage as ReturnType<typeof vi.fn>).mock.calls[0]?.[0];
-    expect(sendArg.dstAddress).toBe(HUB_WALLET);
+    expect(vi.mocked(sodax.spoke.sendMessage).mock.calls[0]?.[0]?.dstAddress).toBe(HUB_WALLET);
     expect(sodax.spoke.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ srcChainKey: ChainKeys.BSC_MAINNET, srcAddress: SRC_ADDRESS }),
     );
@@ -79,7 +76,7 @@ describe('AssetService.executeWithdraw', () => {
       raw: true,
     });
 
-    expect(result.ok).toBe(true);
+    expectOk(result);
     expect(asset.getTokenUnwrapAction).toHaveBeenCalledWith(
       ChainKeys.TRON_MAINNET,
       tronSupportedTokens.USDT.address,
@@ -113,12 +110,10 @@ describe('AssetService.executeWithdraw — payout to an MPC-relay chain', () => 
   it('refuses a release at the minimum before building the message, and sends one a unit above it', async () => {
     const result = await withdraw(3n * 10n ** 18n);
 
-    if (result.ok || !isSodaxError(result.error)) throw new Error('expected a refusal');
-    expect(result.error.code).toBe('VALIDATION_FAILED');
-    expect(result.error.context?.reason).toBe('mpc-payout-below-minimum');
+    expectErr(result, 'VALIDATION_FAILED', { reason: 'mpc-payout-below-minimum' });
     expect(sodax.spoke.sendMessage).not.toHaveBeenCalled();
 
-    expect((await withdraw(3n * 10n ** 18n + 10n ** 12n)).ok).toBe(true);
+    expectOk(await withdraw(3n * 10n ** 18n + 10n ** 12n));
     expect(sodax.spoke.sendMessage).toHaveBeenCalledOnce();
   });
 
@@ -144,8 +139,7 @@ describe('AssetService.executeWithdraw — payout to an MPC-relay chain', () => 
       raw: true,
     });
 
-    if (result.ok || !isSodaxError(result.error)) throw new Error('expected a refusal');
-    expect(result.error.context?.reason).toBe('xrpl-no_trustline');
+    expectErr(result, undefined, { reason: 'xrpl-no_trustline' });
     // 18-dp vault units in, USDC's 6 decimals out.
     expect(checkSpy).toHaveBeenCalledWith({ address: xrplAddress, token: xrplUsdc, amount: 5_000_000n });
     expect(sodax.spoke.sendMessage).not.toHaveBeenCalled();
@@ -203,8 +197,7 @@ describe('AssetService deposit/withdraw from an MPC-relay source', () => {
       ok: false,
       error: { code: 'RELAY_TIMEOUT', cause, context: { srcChainKey: ChainKeys.TRON_MAINNET, trackingId } },
     });
-    if (withdrawal.ok || !isSodaxError(withdrawal.error)) throw new Error('expected settlement failure');
-    expect(withdrawal.error.context).not.toHaveProperty('srcTxHash');
+    expect(expectErr(withdrawal).context).not.toHaveProperty('srcTxHash');
 
     const result = await asset.deposit({ params, raw: false, walletProvider: {} as never });
 
@@ -228,33 +221,6 @@ describe('AssetService.withdraw — settled through the MPC relay seams', () => 
     poolToken: POOL_TOKEN,
     amount: 1000n,
   } as const;
-  const RELAY_DATA = { address: HUB_WALLET, payload: '0x01' as Hex };
-
-  it('returns the relay trackingId, never a source tx, for a withdraw from Tron', async () => {
-    const trackingId = `0x${'e'.repeat(64)}` as const;
-    vi.spyOn(asset, 'executeWithdraw').mockResolvedValue({
-      ok: true,
-      value: { tx: trackingId, relayData: RELAY_DATA },
-    });
-    vi.spyOn(sodax.spoke.tron, 'waitForWithdrawal').mockResolvedValue({
-      ok: true,
-      value: { trackingId, status: 'released', txs: { release: { chain: 'tron', hash: 'tronRelease', ts: 0 } } },
-    });
-
-    const result = await asset.withdraw({
-      params: {
-        srcChainKey: ChainKeys.TRON_MAINNET,
-        srcAddress: TRON_TEST_ADDRESS,
-        asset: ASSET,
-        poolToken: POOL_TOKEN,
-        amount: 1000n,
-      },
-      raw: false,
-      walletProvider: {} as never,
-    });
-
-    expect(result).toEqual({ ok: true, value: { trackingId, dstChainTxHash: 'tronRelease' } });
-  });
 
   it('keeps the original authorization and payout details on an indeterminate Tron withdrawal', async () => {
     const trackingId = '0xoriginal';

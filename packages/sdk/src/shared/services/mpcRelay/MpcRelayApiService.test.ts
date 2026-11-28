@@ -19,6 +19,7 @@ import {
   waitForHubRelease,
   waitForWithdrawal,
 } from './MpcRelayApiService.js';
+import { stubFetch } from '../../../test-utils/fetch.js';
 
 const API = 'https://relay.example' as HttpUrl;
 const DEPOSIT_ID = '728126428-abc-0';
@@ -27,19 +28,23 @@ const TRACKING_ID = '0xtracking';
 /** Answers each poll with the next status in the list, repeating the last one. */
 function stubStatuses(bodies: Record<string, unknown>[]) {
   let i = 0;
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => {
-      const body = bodies[Math.min(i++, bodies.length - 1)];
-      // Only `ok` and `text()` are read, so a partial stands in for the full fetch Response.
-      return { ok: true, text: async () => JSON.stringify(body) } as unknown as Response;
-    }),
-  );
+  stubFetch().mockImplementation(async () => {
+    const body = bodies[Math.min(i++, bodies.length - 1)];
+    // Only `ok` and `text()` are read, so a partial stands in for the full fetch Response.
+    return { ok: true, text: async () => JSON.stringify(body) } as unknown as Response;
+  });
+}
+
+/** Runs a wait to its `timeout` on fake timers, so the timeout cases cost no real time. */
+async function runToTimeout<T>(wait: () => Promise<T>, timeoutMs: number): Promise<T> {
+  vi.useFakeTimers();
+  const pending = wait();
+  await vi.advanceTimersByTimeAsync(timeoutMs);
+  return pending;
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('submitWithdraw', () => {
@@ -58,10 +63,7 @@ describe('submitWithdraw', () => {
       [503, '{"accepted":false}'],
     ];
     for (const [status, body] of uncertain) {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => new Response(body, { status })),
-      );
+      stubFetch().mockImplementation(async () => new Response(body, { status }));
       const result = await submitWithdraw(API, request);
       if (result.ok) throw new Error(`expected uncertain submission for ${status} ${body}`);
       expect(result.error).toBeInstanceOf(IndeterminateOutcomeError);
@@ -118,10 +120,7 @@ describe('submitWithdraw', () => {
       [200, '{"accepted":false,"error":"invalid signature"}'],
     ];
     for (const [status, body] of rejections) {
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => new Response(body, { status })),
-      );
+      stubFetch().mockImplementation(async () => new Response(body, { status }));
       const result = await submitWithdraw(API, request);
       if (result.ok) throw new Error('expected rejection');
       expect(result.error).not.toBeInstanceOf(IndeterminateOutcomeError);
@@ -145,7 +144,7 @@ describe('waitForDeposit', () => {
   it('keeps polling through the intermediate rungs and times out if none is terminal', async () => {
     stubStatuses([{ depositId: DEPOSIT_ID, status: 'pending', txs: {} }]);
 
-    const res = await waitForDeposit(API, DEPOSIT_ID, { timeout: 30, pollIntervalMs: 1 });
+    const res = await runToTimeout(() => waitForDeposit(API, DEPOSIT_ID, { timeout: 30, pollIntervalMs: 1 }), 30);
 
     // The relay has no `failed` status for deposits: a dropped deposit stays `pending`, so a
     // timeout is the only signal a caller gets — in the intent relay's vocabulary, as RELAY_TIMEOUT.
@@ -200,7 +199,7 @@ describe('waitForWithdrawal', () => {
   it('ends in RELAY_TIMEOUT when nothing is released in time', async () => {
     stubStatuses([{ trackingId: TRACKING_ID, status: 'attested', txs: {} }]);
 
-    const res = await waitForWithdrawal(API, TRACKING_ID, { timeout: 30, pollIntervalMs: 1 });
+    const res = await runToTimeout(() => waitForWithdrawal(API, TRACKING_ID, { timeout: 30, pollIntervalMs: 1 }), 30);
 
     expect(res.ok).toBe(false);
     if (res.ok) return;
@@ -239,7 +238,7 @@ describe('waitForHubRelease', () => {
 
     stubStatuses([{ depositId: 'id', status: 'submitted', txs: {} }]);
 
-    const never = await waitForHubRelease(API, RELEASE, { timeout: 30, pollIntervalMs: 1 });
+    const never = await runToTimeout(() => waitForHubRelease(API, RELEASE, { timeout: 30, pollIntervalMs: 1 }), 30);
 
     expect(never.ok).toBe(false);
     if (never.ok) return;

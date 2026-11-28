@@ -27,14 +27,11 @@ describe('isCodeMember', () => {
   const CREATE_INTENT_CODES = new Set<CreateIntentCode>(['VALIDATION_FAILED', 'INTENT_CREATION_FAILED', 'UNKNOWN']);
   const isCreateIntentError = isCodeMember<CreateIntentCode>(CREATE_INTENT_CODES);
 
-  it('returns true only for a SodaxError whose code is in the set', () => {
+  it('returns true only for a SodaxError whose code is in the set, and false for non-SodaxError values', () => {
     expect(isCreateIntentError(new SodaxError('VALIDATION_FAILED', 'm', { feature: 'swap' }))).toBe(true);
     expect(isCreateIntentError(new SodaxError('INTENT_CREATION_FAILED', 'm', { feature: 'swap' }))).toBe(true);
     expect(isCreateIntentError(new SodaxError('RELAY_TIMEOUT', 'm', { feature: 'swap' }))).toBe(false);
     expect(isCreateIntentError(new SodaxError('EXECUTION_FAILED', 'm', { feature: 'moneyMarket' }))).toBe(false);
-  });
-
-  it('returns false for non-SodaxError values', () => {
     expect(isCreateIntentError(new Error('plain'))).toBe(false);
     expect(isCreateIntentError({ code: 'VALIDATION_FAILED' })).toBe(false);
   });

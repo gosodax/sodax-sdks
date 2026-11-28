@@ -116,3 +116,13 @@ sponsoring requires its own key.
 sponsoring call), not what the backend *accepts*. When two docs contradict each other on an
 acceptance rule, ask for the source of truth, then correct the losing side in the same change instead
 of writing prose that hedges between both.
+
+## L13 — A numeric target is an aim; the stated quality goal is the requirement
+
+**Clarification:** "50% target was aim, but not the ultimate goal" (sdk test-suite reduction, #699/#700).
+
+**Rule:** when a request pairs a number ("~50% fewer tests") with a quality bar ("keep every invariant and
+border case"), the quality bar wins. Hit the number only by legitimate means; report the honest shortfall
+with its cause, and look for the other levers the goal implies (here: grouping, shared helpers and the
+runner's import cost, which bought far more than cutting). Do not frame a shortfall against an aim as a
+failure in specs or PRs; write the aim as an aim.

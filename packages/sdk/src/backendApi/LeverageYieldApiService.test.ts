@@ -3,18 +3,17 @@
  *
  * Mirrors SwapsApiService.test.ts / BridgeApiService.test.ts:
  *   1. A single module-scope `new Sodax()` backs every test — `sodax.api.leverageYield` is the
- *      service under test. `vi.stubGlobal('fetch', ...)` intercepts every outbound call.
+ *      service under test. `stubFetch()` intercepts every outbound call.
  *   2. URL construction, HTTP method, default vs override headers, query-string params,
  *      request-body serialization, and valibot response validation are asserted explicitly.
  *   3. Every method returns `Result<T>` — happy paths assert `{ ok: true, value }`,
  *      failures assert `{ ok: false }` with the expected error.
  *
  * Leverage-yield-specific deltas covered: the vault registry / vault-read routes, the separate
- * deposit and withdraw quote + create-intent routes, the `operation` discriminator on the
- * submit-tx body, `solved` as the terminal submit-tx status, and the `feeAmount` strip that keeps
- * the SDK-only display field off the wire on every intent-bearing call.
+ * deposit and withdraw quote + create-intent routes, and the `feeAmount` strip that keeps the
+ * SDK-only display field off the wire on every intent-bearing call.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_API_BASE_URL,
   type CreateDepositIntentParamsV2,
@@ -24,13 +23,12 @@ import {
 } from '@sodax/types';
 import { Sodax } from '../shared/entities/Sodax.js';
 import { LeverageYieldApiService } from './LeverageYieldApiService.js';
-import type { SodaxError } from '../errors/SodaxError.js';
-import { isAuthFailure, isSodaxError } from '../errors/guards.js';
+import { isAuthFailure } from '../errors/guards.js';
 import { silentLogger } from '../shared/logger.js';
+import { httpErrorResponse, okResponse, stubFetch } from '../test-utils/fetch.js';
+import { expectErr, expectOk } from '../test-utils/result.js';
 
-// --- fetch stub -----------------------------------------------------------
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+const mockFetch = stubFetch();
 
 // --- fixtures -------------------------------------------------------------
 const sodax = new Sodax({ logger: silentLogger });
@@ -115,38 +113,12 @@ const intentResponse = {
 const relayDataResponse = { address: '0xaddr', payload: '0xpayload' };
 const createIntentResponse = { tx: rawTx, intent: intentResponse, relayData: relayDataResponse };
 const quoteResponse = { quotedAmount: '990000' };
-const submitTxStatusResponse = {
-  success: true,
-  data: {
-    txHash: TX_HASH,
-    srcChainKey: SONIC,
-    status: 'solved',
-    processingAttempts: 1,
-    result: { dstIntentTxHash: '0xdst', intent_hash: '0xhash' },
-  },
-};
 
 // --- helpers --------------------------------------------------------------
-const okResponse = <T>(data: T) => ({ ok: true, status: 200, json: vi.fn().mockResolvedValue(data) });
-const httpErrorResponse = (status: number, text: string) => ({
-  ok: false,
-  status,
-  text: vi.fn().mockResolvedValue(text),
-});
-const abortFetchImpl = (_url: string, init: { signal: AbortSignal }) =>
-  new Promise((_resolve, reject) => {
-    init.signal.addEventListener('abort', () => {
-      const err = new Error('The operation was aborted');
-      err.name = 'AbortError';
-      reject(err);
-    });
-  });
-
 /** The JSON body of the last request, parsed. */
 const sentBody = (): Record<string, unknown> => JSON.parse(String(mockFetch.mock.calls.at(-1)?.[1]?.body));
 
 beforeEach(() => mockFetch.mockReset());
-afterEach(() => vi.restoreAllMocks());
 
 // =========================================================================
 // URL + HTTP method coverage for every endpoint. Asserts the exact path
@@ -404,43 +376,12 @@ describe('LeverageYieldApiService endpoint routing', () => {
 // =========================================================================
 
 describe('LeverageYieldApiService happy paths (validated responses)', () => {
-  it('getVaults returns the vault descriptors, lsdSource being optional', async () => {
-    const { lsdSource: _lsdSource, ...noLsd } = vaultDescriptor;
-    mockFetch.mockResolvedValueOnce(okResponse([vaultDescriptor, noLsd]));
-    const result = await sodax.api.leverageYield.getVaults();
-    expect(result).toEqual({ ok: true, value: [vaultDescriptor, noLsd] });
-  });
-
-  it('getEffectiveApr returns the combined AAVE + LSD rates', async () => {
-    const apr = {
-      supplyAprRay: '1',
-      borrowAprRay: '2',
-      targetLtvBps: '8000',
-      leverageMultiplierWad: '5',
-      netAprRay: '3',
-      lsdApr: { aprRay: '4', label: 'weETH', stale: false },
-      effectiveSupplyAprRay: '5',
-      effectiveNetAprRay: '6',
-    };
-    mockFetch.mockResolvedValueOnce(okResponse(apr));
-    expect(await sodax.api.leverageYield.getEffectiveApr({ vault: VAULT })).toEqual({ ok: true, value: apr });
-  });
-
-  it('getPosition returns the leveraged-position snapshot as decimal strings', async () => {
-    const position = { collateral: '10', debt: '4', ltv: '4000', healthFactor: '2', idleAsset: '0' };
-    mockFetch.mockResolvedValueOnce(okResponse(position));
-    expect(await sodax.api.leverageYield.getPosition({ vault: VAULT })).toEqual({ ok: true, value: position });
-  });
-
   it('createDepositIntent returns { tx, intent, relayData } with tx.value transformed to bigint', async () => {
     mockFetch.mockResolvedValueOnce(okResponse(createIntentResponse));
-    const result = await sodax.api.leverageYield.createDepositIntent(sampleDepositParams);
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.tx).toEqual({ from: '0x1', to: '0x2', value: 0n, data: '0x' });
-      expect(result.value.intent).toEqual(intentResponse);
-      expect(result.value.relayData).toEqual(relayDataResponse);
-    }
+    const value = expectOk(await sodax.api.leverageYield.createDepositIntent(sampleDepositParams));
+    expect(value.tx).toEqual({ from: '0x1', to: '0x2', value: 0n, data: '0x' });
+    expect(value.intent).toEqual(intentResponse);
+    expect(value.relayData).toEqual(relayDataResponse);
   });
 
   it('getDepositQuote returns the quoted lsoda* shares, asking for txData only when the query says so', async () => {
@@ -461,23 +402,6 @@ describe('LeverageYieldApiService happy paths (validated responses)', () => {
       expect.objectContaining({ method: 'POST' }),
     );
   });
-
-  it('submitTx sends the operation discriminator the backend requires and returns the insertion status', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse({ success: true, data: { status: 'inserted', message: 'accepted' } }));
-    const result = await sodax.api.leverageYield.submitTx({ ...sampleSubmitTxRequest, operation: 'withdraw' });
-    expect(result).toEqual({ ok: true, value: { success: true, data: { status: 'inserted', message: 'accepted' } } });
-    expect(sentBody().operation).toBe('withdraw');
-  });
-
-  it('getSubmitTxStatus unwraps the { success, data } envelope on the solved terminal status', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse(submitTxStatusResponse));
-    const result = await sodax.api.leverageYield.getSubmitTxStatus({ txHash: TX_HASH, srcChainKey: SONIC });
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.value.data.status).toBe('solved');
-      expect(result.value.data.result?.intent_hash).toBe('0xhash');
-    }
-  });
 });
 
 // =========================================================================
@@ -492,16 +416,20 @@ describe('LeverageYieldApiService intent wire bodies', () => {
     ['getIntentSubmitTxExtraData', () => sodax.api.leverageYield.getIntentSubmitTxExtraData({ intent: sampleIntent })],
   ];
 
-  it.each(intentBearing)('%s drops the SDK-only feeAmount from the intent', async (_name, invoke) => {
+  it('every intent-bearing call drops the SDK-only feeAmount from the intent', async () => {
     // `createVaultIntent` returns `Intent & FeeAmount`, which is structurally assignable to the wire
     // `IntentRequestV2`; the lenient JSON serializer would otherwise send the extra bigint wholesale.
-    mockFetch.mockResolvedValueOnce(okResponse({}));
-    await invoke();
-    const intent = sentBody().intent as Record<string, unknown>;
-    expect(intent).not.toHaveProperty('feeAmount');
-    // The rest of the struct still travels, with bigints as decimal strings.
-    expect(intent.intentId).toBe('1');
-    expect(intent.inputAmount).toBe('1000000');
+    for (const [name, invoke] of intentBearing) {
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValueOnce(okResponse({}));
+      await invoke();
+      expect(mockFetch, name).toHaveBeenCalledTimes(1);
+      const intent = sentBody().intent as Record<string, unknown>;
+      expect(intent, name).not.toHaveProperty('feeAmount');
+      // The rest of the struct still travels, with bigints as decimal strings.
+      expect(intent.intentId, name).toBe('1');
+      expect(intent.inputAmount, name).toBe('1000000');
+    }
   });
 
   it('getIntentSubmitTxExtraData leaves a txHash-only body alone', async () => {
@@ -516,25 +444,25 @@ describe('LeverageYieldApiService intent wire bodies', () => {
 // =========================================================================
 
 describe('LeverageYieldApiService response validation', () => {
-  it('rejects getVaults when a descriptor is missing required fields', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse([{ name: 'lsodaWEETH' }]));
-    const result = await sodax.api.leverageYield.getVaults();
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      expect(err.context?.reason).toBe('invalid_response_shape');
-      expect(err.context?.api).toBe('leverageYield');
-      expect(err.context?.endpoint).toBe('/leverage-yield/vaults');
-    }
-  });
-
-  it('rejects a numeric field sent as a number, and a submit-tx status with no data envelope', async () => {
+  it('rejects a descriptor missing required fields, a numeric field sent as a number, and a status with no data envelope', async () => {
     mockFetch
+      .mockResolvedValueOnce(okResponse([{ name: 'lsodaWEETH' }]))
       .mockResolvedValueOnce(okResponse({ collateral: 10, debt: '4', ltv: '4000', healthFactor: '2', idleAsset: '0' }))
       .mockResolvedValueOnce(okResponse({ success: true }));
-    expect((await sodax.api.leverageYield.getPosition({ vault: VAULT })).ok).toBe(false);
-    expect((await sodax.api.leverageYield.getSubmitTxStatus({ txHash: TX_HASH, srcChainKey: SONIC })).ok).toBe(false);
+
+    expectErr(
+      await sodax.api.leverageYield.getVaults(),
+      'EXTERNAL_API_ERROR',
+      { reason: 'invalid_response_shape', api: 'leverageYield', endpoint: '/leverage-yield/vaults' },
+      'getVaults',
+    );
+    expectErr(await sodax.api.leverageYield.getPosition({ vault: VAULT }), undefined, undefined, 'getPosition');
+    expectErr(
+      await sodax.api.leverageYield.getSubmitTxStatus({ txHash: TX_HASH, srcChainKey: SONIC }),
+      undefined,
+      undefined,
+      'getSubmitTxStatus',
+    );
   });
 });
 
@@ -546,33 +474,9 @@ describe('LeverageYieldApiService response validation', () => {
 describe('LeverageYieldApiService error propagation', () => {
   it('wraps a non-2xx response as EXTERNAL_API_ERROR (cause carries HTTP_REQUEST_FAILED)', async () => {
     mockFetch.mockResolvedValueOnce(httpErrorResponse(502, 'Bad Gateway'));
-    const result = await sodax.api.leverageYield.getVaults();
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
-      expect(err.code).toBe('EXTERNAL_API_ERROR');
-      expect(err.feature).toBe('backend');
-      expect(err.message).toBe('HTTP_REQUEST_FAILED');
-    }
-  });
-
-  it('wraps a timeout abort as EXTERNAL_API_ERROR (message REQUEST_TIMEOUT)', async () => {
-    mockFetch.mockImplementationOnce(abortFetchImpl);
-    const result = await sodax.api.leverageYield.getVaults({ timeout: 5 });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect((result.error as SodaxError).message).toBe('REQUEST_TIMEOUT');
-  });
-
-  it('wraps a raw network error as EXTERNAL_API_ERROR with the original error as cause', async () => {
-    const networkError = new Error('Network down');
-    mockFetch.mockRejectedValueOnce(networkError);
-    const result = await sodax.api.leverageYield.getVaults();
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      const err = result.error as SodaxError;
-      expect(err.cause).toBe(networkError);
-      expect(err.message).toBe('Network down');
-    }
+    const err = expectErr(await sodax.api.leverageYield.getVaults(), 'EXTERNAL_API_ERROR');
+    expect(err.feature).toBe('backend');
+    expect(err.message).toBe('HTTP_REQUEST_FAILED');
   });
 
   it('lifts a 401 or 403 onto error.context so isAuthFailure recognizes it', async () => {
@@ -580,12 +484,8 @@ describe('LeverageYieldApiService error propagation', () => {
     // keyed leverage-yield submit-tx burns its whole attempt budget re-sending it.
     for (const status of [401, 403]) {
       mockFetch.mockResolvedValueOnce(httpErrorResponse(status, 'Unauthorized'));
-      const result = await sodax.api.leverageYield.getVaults();
-      expect(result.ok).toBe(false);
-      if (!result.ok) {
-        expect(isSodaxError(result.error) && result.error.context?.status).toBe(status);
-        expect(isAuthFailure(result.error)).toBe(true);
-      }
+      const err = expectErr(await sodax.api.leverageYield.getVaults(), undefined, { status }, `${status}`);
+      expect(isAuthFailure(err)).toBe(true);
     }
   });
 });
@@ -595,24 +495,6 @@ describe('LeverageYieldApiService error propagation', () => {
 // =========================================================================
 
 describe('LeverageYieldApiService RequestOverrideConfig', () => {
-  it('overrides baseURL on GET and POST methods', async () => {
-    mockFetch
-      .mockResolvedValueOnce(okResponse([vaultDescriptor]))
-      .mockResolvedValueOnce(okResponse(createIntentResponse));
-    await sodax.api.leverageYield.getVaults({ baseURL: 'https://custom.example.com' });
-    await sodax.api.leverageYield.createDepositIntent(sampleDepositParams, { baseURL: 'https://custom.example.com' });
-    expect(mockFetch).toHaveBeenNthCalledWith(
-      1,
-      'https://custom.example.com/leverage-yield/vaults',
-      expect.objectContaining({ method: 'GET' }),
-    );
-    expect(mockFetch).toHaveBeenNthCalledWith(
-      2,
-      'https://custom.example.com/leverage-yield/intents/deposit',
-      expect.objectContaining({ method: 'POST' }),
-    );
-  });
-
   it('trims a legacy /be suffix off a per-call override, like its swaps and bridge siblings', async () => {
     // A per-call override is the gateway ROOT. Untrimmed it would nest the routes under the data
     // API's mount — `/be/leverage-yield/vaults`, which the gateway does not route.
@@ -632,21 +514,6 @@ describe('LeverageYieldApiService RequestOverrideConfig', () => {
     await gw.api.leverageYield.getVaults({ baseURL: 'https://gw2.example/be' });
     expect(mockFetch).toHaveBeenCalledWith('https://gw2.example/be/leverage-yield/vaults', expect.anything());
   });
-
-  it('merges custom headers with the defaults (both present)', async () => {
-    mockFetch.mockResolvedValueOnce(okResponse([vaultDescriptor]));
-    await sodax.api.leverageYield.getVaults({ headers: { 'X-Custom': 'test-value' } });
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-          'X-Custom': 'test-value',
-        }),
-      }),
-    );
-  });
 });
 
 // =========================================================================
@@ -655,13 +522,6 @@ describe('LeverageYieldApiService RequestOverrideConfig', () => {
 // =========================================================================
 
 describe('LeverageYieldApiService utilities', () => {
-  it('getBaseURL / getTimeout return the configured gateway root and per-request timeout', () => {
-    expect(sodax.api.leverageYield.getBaseURL()).toBe(BASE);
-    // The timeout is the ceiling runBackendSubmitTx clamps to.
-    const service = new LeverageYieldApiService({ baseURL: BASE, timeout: 12_345, headers: {} });
-    expect(service.getTimeout()).toBe(12_345);
-  });
-
   it('setHeaders persists into later requests, a repeated mixed-casing update sending only the newest value', async () => {
     // Updating an existing object key does NOT move it in insertion order, so a raw
     // `headers[name] = value` would leave the older casing last and let it win the merge.

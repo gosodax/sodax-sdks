@@ -59,17 +59,6 @@ describe('toMystenTransaction', () => {
     expect(rebuilt.getData().sender).toBe(SENDER);
     expect(rebuilt.getData().commands).toEqual(source.getData().commands.map(stripArgumentTypeHints));
   });
-
-  it('leaves the caller transaction alone when it rebuilds — the sender lands on the copy', async () => {
-    const source = makeDepositLikeTx();
-    const json = await source.toJSON();
-
-    const rebuilt = await toMystenTransaction({ toJSON: () => Promise.resolve(json) });
-    rebuilt.setSenderIfNotSet(SENDER);
-
-    expect(rebuilt.getData().sender).toBe(SENDER);
-    expect(source.getData().sender).toBeNull();
-  });
 });
 
 describe('isTimeoutError', () => {

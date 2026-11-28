@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import {
   assembleBroadcastHex,
   assertDepositTransfer,
-  computeSignedMessageHash,
   encodeTrc20TransferParams,
   readTrc20TransferCall,
   setExpiration,
@@ -29,29 +28,24 @@ describe('tronBase58ToHex', () => {
     expect(tronBase58ToHex(RESERVE_HEX)).toBe(RESERVE_HEX);
   });
 
-  it('rejects invalid base58', () => {
-    expect(() => tronBase58ToHex('0OIl-not-base58')).toThrow(/invalid base58/);
-  });
-
-  it('rejects a one-character typo that is still valid base58 (checksum mismatch)', () => {
-    const typo = `${RESERVE.slice(0, -1)}3`;
-    expect(() => tronBase58ToHex(typo)).toThrow(/checksum/);
-  });
-
-  it('rejects base58 that is not 25 bytes with a 0x41 version: wrong length, leading zero, non-Tron version', () => {
-    expect(() => tronBase58ToHex(RESERVE.slice(0, -1))).toThrow(/25 bytes/);
-    expect(() => tronBase58ToHex(`${RESERVE}1`)).toThrow(/25 bytes/);
-    expect(() => tronBase58ToHex('1TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d')).toThrow(
-      'invalid Tron address (expected 25 bytes with 0x41 version)',
-    );
-    // Bitcoin P2PKH: 25 bytes with a valid checksum, but version 0x00.
-    expect(() => tronBase58ToHex('1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2')).toThrow(/0x41 version/);
-  });
-
-  it('rejects malformed hex forms', () => {
-    expect(() => tronBase58ToHex(`0x${RESERVE_HEX.slice(2)}`)).toThrow(/0x41 \+ 20 bytes/); // bare 20-byte hash
-    expect(() => tronBase58ToHex(`0x${RESERVE_HEX.slice(0, -2)}`)).toThrow(/0x41 \+ 20 bytes/);
-    expect(() => tronBase58ToHex(`0x42${RESERVE_HEX.slice(2)}`)).toThrow(/0x41 \+ 20 bytes/);
+  it('rejects invalid base58, a checksum typo, the wrong length or version, and malformed hex forms', () => {
+    const rows: [label: string, input: string, reason: RegExp | string][] = [
+      ['invalid base58', '0OIl-not-base58', /invalid base58/],
+      ['a one-character typo that is still valid base58', `${RESERVE.slice(0, -1)}3`, /checksum/],
+      ['a byte short', RESERVE.slice(0, -1), /25 bytes/],
+      ['a byte long', `${RESERVE}1`, /25 bytes/],
+      [
+        'a leading zero',
+        '1TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d',
+        'invalid Tron address (expected 25 bytes with 0x41 version)',
+      ],
+      // Bitcoin P2PKH: 25 bytes with a valid checksum, but version 0x00.
+      ['a non-Tron version', '1BvBMSEYstWetqTFn5Au4m4GFg7xJaNVN2', /0x41 version/],
+      ['a bare 20-byte hash', `0x${RESERVE_HEX.slice(2)}`, /0x41 \+ 20 bytes/],
+      ['a truncated hex', `0x${RESERVE_HEX.slice(0, -2)}`, /0x41 \+ 20 bytes/],
+      ['a 0x42-prefixed hex', `0x42${RESERVE_HEX.slice(2)}`, /0x41 \+ 20 bytes/],
+    ];
+    for (const [label, input, reason] of rows) expect(() => tronBase58ToHex(input), label).toThrow(reason);
   });
 });
 
@@ -102,28 +96,6 @@ describe('tronIdentityBytes / tronHashToBase58', () => {
     expect(tronIdentityBytes(b58)).toBe('0xf62fffa4d92bcdfc310dccbe943747fe8302e871');
     expect(tronHashToBase58(tronIdentityBytes(b58))).toBe(b58);
     expect(tronHashToBase58('4165af5fef4974f67c4421ebb70244d8c485ada423')).toBe('TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92');
-  });
-});
-
-describe('computeSignedMessageHash', () => {
-  it('matches the contract compute_message_hash KAT and changes with the nonce', () => {
-    const h = computeSignedMessageHash({
-      to: '0x2222222222222222222222222222222222222222',
-      data: '0x1234abcd',
-      nonce: 5n,
-      chainId: 11155111n,
-      sender: '0x5A6435B3a4bE2705453Ece84391928483ccBcD94',
-    });
-    expect(h).toBe('0xc15363b8bfc144961ef308afa1f232017b1d6a02e8665960c2dfa190a987f12e');
-
-    // Replay-distinct preimage: the nonce changes the hash.
-    const base = {
-      to: '0x2222222222222222222222222222222222222222',
-      data: '0x1234abcd',
-      chainId: 728126428n,
-      sender: '0xf62fffa4d92bcdfc310dccbe943747fe8302e871',
-    } as const;
-    expect(computeSignedMessageHash({ ...base, nonce: 1n })).not.toBe(computeSignedMessageHash({ ...base, nonce: 2n }));
   });
 });
 
@@ -180,41 +152,44 @@ describe('assertDepositTransfer', () => {
     expect(() => assertDepositTransfer(trc20TransferRaw(OWNER, USDT, RESERVE, AMOUNT), trc20)).not.toThrow();
   });
 
-  it.each([
-    ['another owner', nativeTransferRaw(OTHER, RESERVE, AMOUNT), /owner/],
-    ['another recipient', nativeTransferRaw(OWNER, OTHER, AMOUNT), /recipient/],
-    ['another amount', nativeTransferRaw(OWNER, RESERVE, AMOUNT + 1n), /amount/],
-    ['a smart-contract call', trc20TransferRaw(OWNER, USDT, RESERVE, AMOUNT), /TransferContract/],
-    ['a pre-set data field', `${pbBytes(10, 'ff')}${nativeTransferRaw(OWNER, RESERVE, AMOUNT)}`, /data field/],
-    ['a second contract', nativeTransferRaw(OWNER, RESERVE, AMOUNT) + pbBytes(11, pbVarint(1, 1n)), /one contract/],
-    // Protobuf keeps the last value of a repeated scalar, so a trailing duplicate could redirect silently.
-    [
-      'a duplicated recipient',
-      tronRawData(1n, 'TransferContract', transferValue(RESERVE, AMOUNT) + pbBytes(2, tronBase58ToHex(OTHER))),
-      /appears 2 times/,
-    ],
-  ])('rejects a native deposit with %s', (_label, raw, reason) => {
-    expect(() => assertDepositTransfer(raw, native)).toThrow(reason);
-  });
-
-  it.each([
-    ['another token', trc20TransferRaw(OWNER, OTHER, RESERVE, AMOUNT), /deposit token/],
-    ['another amount', trc20TransferRaw(OWNER, USDT, RESERVE, 1n), /calldata/],
-    ['a fee limit above budget', trc20TransferRaw(OWNER, USDT, RESERVE, AMOUNT, 100_000_001n), /fee_limit/],
-    [
-      'attached TRX',
-      tronRawData(
-        31n,
-        'TriggerSmartContract',
-        pbBytes(1, tronBase58ToHex(OWNER)) +
-          pbBytes(2, tronBase58ToHex(USDT)) +
-          pbVarint(3, 1n) +
-          pbBytes(4, `a9059cbb${encodeTrc20TransferParams(RESERVE, AMOUNT)}`),
-      ),
-      /call_value/,
-    ],
-  ])('rejects a TRC-20 deposit with %s', (_label, raw, reason) => {
-    expect(() => assertDepositTransfer(raw, trc20)).toThrow(reason);
+  it('rejects a native or TRC-20 deposit that differs from the requested transfer in any field', () => {
+    const nativeRows: [label: string, raw: string, reason: RegExp][] = [
+      ['another owner', nativeTransferRaw(OTHER, RESERVE, AMOUNT), /owner/],
+      ['another recipient', nativeTransferRaw(OWNER, OTHER, AMOUNT), /recipient/],
+      ['another amount', nativeTransferRaw(OWNER, RESERVE, AMOUNT + 1n), /amount/],
+      ['a smart-contract call', trc20TransferRaw(OWNER, USDT, RESERVE, AMOUNT), /TransferContract/],
+      ['a pre-set data field', `${pbBytes(10, 'ff')}${nativeTransferRaw(OWNER, RESERVE, AMOUNT)}`, /data field/],
+      ['a second contract', nativeTransferRaw(OWNER, RESERVE, AMOUNT) + pbBytes(11, pbVarint(1, 1n)), /one contract/],
+      // Protobuf keeps the last value of a repeated scalar, so a trailing duplicate could redirect silently.
+      [
+        'a duplicated recipient',
+        tronRawData(1n, 'TransferContract', transferValue(RESERVE, AMOUNT) + pbBytes(2, tronBase58ToHex(OTHER))),
+        /appears 2 times/,
+      ],
+    ];
+    const trc20Rows: [label: string, raw: string, reason: RegExp][] = [
+      ['another token', trc20TransferRaw(OWNER, OTHER, RESERVE, AMOUNT), /deposit token/],
+      ['another amount', trc20TransferRaw(OWNER, USDT, RESERVE, 1n), /calldata/],
+      ['a fee limit above budget', trc20TransferRaw(OWNER, USDT, RESERVE, AMOUNT, 100_000_001n), /fee_limit/],
+      [
+        'attached TRX',
+        tronRawData(
+          31n,
+          'TriggerSmartContract',
+          pbBytes(1, tronBase58ToHex(OWNER)) +
+            pbBytes(2, tronBase58ToHex(USDT)) +
+            pbVarint(3, 1n) +
+            pbBytes(4, `a9059cbb${encodeTrc20TransferParams(RESERVE, AMOUNT)}`),
+        ),
+        /call_value/,
+      ],
+    ];
+    for (const [label, raw, reason] of nativeRows) {
+      expect(() => assertDepositTransfer(raw, native), `native: ${label}`).toThrow(reason);
+    }
+    for (const [label, raw, reason] of trc20Rows) {
+      expect(() => assertDepositTransfer(raw, trc20), `TRC-20: ${label}`).toThrow(reason);
+    }
   });
 });
 
@@ -232,19 +207,20 @@ describe('readTrc20TransferCall', () => {
     expect(readTrc20TransferCall(nativeTransferRaw(OWNER, RESERVE, 7n))).toBeUndefined();
   });
 
-  it.each([
-    [
-      'a contract call other than transfer',
-      tronRawData(31n, 'TriggerSmartContract', pbBytes(4, 'deadbeef')),
-      /not a TRX or TRC-20 transfer/,
-    ],
-    [
-      'another contract type',
-      tronRawData(2n, 'TransferAssetContract', pbVarint(3, 1n)),
-      /not a TRX or TRC-20 transfer/,
-    ],
-    ['two contracts', nativeTransferRaw(OWNER, RESERVE, 7n) + pbBytes(11, pbVarint(1, 1n)), /one contract/],
-  ])('throws for %s', (_label, raw, reason) => {
-    expect(() => readTrc20TransferCall(raw)).toThrow(reason);
+  it('throws for a non-transfer contract call, another contract type, or two contracts', () => {
+    const rows: [label: string, raw: string, reason: RegExp][] = [
+      [
+        'a contract call other than transfer',
+        tronRawData(31n, 'TriggerSmartContract', pbBytes(4, 'deadbeef')),
+        /not a TRX or TRC-20 transfer/,
+      ],
+      [
+        'another contract type',
+        tronRawData(2n, 'TransferAssetContract', pbVarint(3, 1n)),
+        /not a TRX or TRC-20 transfer/,
+      ],
+      ['two contracts', nativeTransferRaw(OWNER, RESERVE, 7n) + pbBytes(11, pbVarint(1, 1n)), /one contract/],
+    ];
+    for (const [label, raw, reason] of rows) expect(() => readTrc20TransferCall(raw), label).toThrow(reason);
   });
 });

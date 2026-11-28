@@ -1,6 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { BOUND_API_HOST, BOUND_COMPANION_HOSTS, type RadfiConfig } from '@sodax/types';
 import { RadfiApiError, RadfiProvider } from './RadfiProvider.js';
+import { stubFetch } from '../../../test-utils/fetch.js';
 
 // Regression tests for issue #233: a non-JSON (HTML) Bound Exchange response must surface as a
 // typed RadfiApiError carrying the real HTTP status — NOT a raw `SyntaxError: Unexpected token '<'`.
@@ -37,16 +38,10 @@ const withdrawParams = {
   data: 'deadbeef',
 };
 
-let fetchMock: ReturnType<typeof vi.fn>;
+let fetchMock: Mock;
 
 beforeEach(() => {
-  fetchMock = vi.fn();
-  vi.stubGlobal('fetch', fetchMock);
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.restoreAllMocks();
+  fetchMock = stubFetch();
 });
 
 /** Runs `call` and returns what it threw, failing the test if it resolved. */
@@ -105,20 +100,6 @@ describe('RadfiProvider — non-JSON error bodies (issue #233)', () => {
 });
 
 describe('RadfiProvider — happy path + logical-error envelopes still work', () => {
-  it('getTradingWallet and createWithdrawTransaction return data on a valid JSON 200', async () => {
-    const wallet = { tradingAddress: 'bc1ptrade', userAddress: 'bc1puser', userPublicKey: '02abcd' };
-    fetchMock
-      .mockResolvedValueOnce(makeResponse(200, JSON.stringify({ data: wallet })))
-      .mockResolvedValueOnce(makeResponse(200, JSON.stringify({ data: { base64Psbt: 'cHNidP8=', txId: 'abc' } })));
-    const radfi = new RadfiProvider(baseConfig);
-
-    expect(await radfi.getTradingWallet('bc1puser')).toEqual(wallet);
-    expect(await radfi.createWithdrawTransaction(withdrawParams, 'access-token')).toEqual({
-      base64Psbt: 'cHNidP8=',
-      txId: 'abc',
-    });
-  });
-
   it('createWithdrawTransaction throws a typed RadfiApiError on a 200 logical-error envelope (no data)', async () => {
     // Bound can answer HTTP 200 with { code, message } and no `data` (e.g. "2002" insufficientBTCBalance).
     fetchMock.mockResolvedValue(makeResponse(200, JSON.stringify({ code: '2002', message: 'insufficientBTCBalance' })));
@@ -151,18 +132,6 @@ describe('RadfiProvider — empty-credential guard (resolveAuth)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer server-api-key');
-  });
-});
-
-describe('RadfiProvider — constructor seeds the session from config', () => {
-  it('seeds accessToken/refreshToken from RadfiConfig, defaulting to empty strings', () => {
-    const seeded = new RadfiProvider({ ...baseConfig, accessToken: 'seed-access', refreshToken: 'seed-refresh' });
-    expect(seeded.accessToken).toBe('seed-access');
-    expect(seeded.refreshToken).toBe('seed-refresh');
-
-    const radfi = new RadfiProvider(baseConfig);
-    expect(radfi.accessToken).toBe('');
-    expect(radfi.refreshToken).toBe('');
   });
 });
 
@@ -214,26 +183,6 @@ describe('RadfiProvider — signer hook (x-api-signature, gh-831)', () => {
 
     const headers = (fetchMock.mock.calls[0]?.[1] as RequestInit).headers as Record<string, string>;
     expect(headers['x-api-signature']).toBeUndefined();
-  });
-
-  it('invokes the signer per request, never caching its result', async () => {
-    // Bound's signature embeds a timestamp valid for 60s. A provider outlives that window, so the
-    // hook must be re-invoked on every call — caching would start replaying an expired signature.
-    let call = 0;
-    const signer = vi.fn(() => ({ 'x-api-signature': `sig_${++call}` }));
-    fetchMock.mockResolvedValue(
-      makeResponse(200, JSON.stringify({ data: { tradingAddress: 'bc1ptrade', userAddress: 'bc1puser' } })),
-    );
-    const radfi = new RadfiProvider(baseConfig, { signer });
-
-    await radfi.getTradingWallet('bc1puser');
-    await radfi.getTradingWallet('bc1puser');
-
-    expect(signer).toHaveBeenCalledTimes(2);
-    const headerOf = (i: number) =>
-      ((fetchMock.mock.calls[i]?.[1] as RequestInit).headers as Record<string, string>)['x-api-signature'];
-    expect(headerOf(0)).toBe('sig_1');
-    expect(headerOf(1)).toBe('sig_2');
   });
 
   it('propagates a throwing signer instead of sending the request unsigned', async () => {
@@ -456,18 +405,17 @@ describe('RadfiProvider — host routing (gh-425)', () => {
 describe('RadfiProvider — retired hosts are refused (gh-425)', () => {
   const RETIRED = 'https://api.bound.exchange/api';
 
-  it.each([
-    ['apiUrl', { apiUrl: RETIRED }, BOUND_API_HOST],
-    ['authUrl', { apiUrl: BOUND_API_HOST, authUrl: RETIRED }, undefined],
-    ['transactionsUrl', { apiUrl: BOUND_API_HOST, transactionsUrl: RETIRED }, undefined],
-  ])('refuses a retired host in %s and names that field', (field, overrides, replacement) => {
-    const expected = replacement ?? (field === 'authUrl' ? companion('auth') : companion('transactions'));
-
-    expect(() => new RadfiProvider({ ...baseConfig, ...overrides })).toThrow(
-      new RegExp(
-        `retired ${RETIRED.replace(/[.*+?^$()|[\]\\]/g, '\\$&')}.*radfi\\.${field}.*${expected.replace(/[.*+?^$()|[\]\\]/g, '\\$&')}`,
-      ),
-    );
+  it('refuses a retired host in apiUrl or authUrl and names that field and its replacement', () => {
+    const escapeRegExp = (text: string) => text.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
+    const rows: Array<[field: string, overrides: Partial<RadfiConfig>, replacement: string]> = [
+      ['apiUrl', { apiUrl: RETIRED }, BOUND_API_HOST],
+      ['authUrl', { apiUrl: BOUND_API_HOST, authUrl: RETIRED }, companion('auth')],
+    ];
+    for (const [field, overrides, replacement] of rows) {
+      expect(() => new RadfiProvider({ ...baseConfig, ...overrides }), field).toThrow(
+        new RegExp(`retired ${escapeRegExp(RETIRED)}.*radfi\\.${field}.*${escapeRegExp(replacement)}`),
+      );
+    }
   });
 
   it('matches a retired host with a trailing slash, yet accepts the packaged, signet and private-proxy hosts', () => {

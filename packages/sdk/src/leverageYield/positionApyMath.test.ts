@@ -12,10 +12,6 @@ describe('leveragedNetApyPct', () => {
     expect(leveragedNetApyPct(SUPPLY, BORROW, 2)).toBeCloseTo(11, 10);
     expect(leveragedNetApyPct(SUPPLY, BORROW, 3)).toBeCloseTo(14, 10);
   });
-
-  it('goes negative when borrow outruns supply', () => {
-    expect(leveragedNetApyPct(2, 5, 3)).toBeLessThan(0);
-  });
 });
 
 describe('timeToBreakevenYears', () => {

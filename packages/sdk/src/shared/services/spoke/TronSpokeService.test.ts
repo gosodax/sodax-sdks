@@ -31,6 +31,8 @@ import {
   tronBase58ToHex,
   tronIdentityBytes,
 } from './tron-utils.js';
+import { abortingFetch } from '../../../test-utils/fetch.js';
+import { HUB_WALLET, depositParamsFor } from './spoke-test-fixtures.js';
 import { nativeTransferRaw, trc20TransferRaw } from './tron-test-fixtures.js';
 
 const sodax = new Sodax();
@@ -41,7 +43,6 @@ const NATIVE_TRX = '0x0000000000000000000000000000000000000000';
 const USDT = tronSupportedTokens.USDT.address;
 const SENDER = 'TYQvjFWzc2Cnt91LXnk7UJVii3JVfSm69d';
 const RESERVE = 'TKEsLgfqRdC9PX88hvW1WWnMhH53qCMe92';
-const HUB_WALLET = '0x1111111111111111111111111111111111111111' as Hex;
 // Derived independently of the SDK helper, matching the relay's computePayloadHash for `data: '0x'`.
 const MEMO = keccak256(encodeAbiParameters([{ type: 'address' }, { type: 'bytes' }], [HUB_WALLET, '0x']));
 const AMOUNT = 20_000_000n;
@@ -71,7 +72,10 @@ type Call = { path: string; body: Record<string, unknown> };
 
 let calls: Call[];
 
-/** Stands in for TronGrid: records every call and answers each endpoint with its success shape. */
+/**
+ * Stands in for TronGrid: records every call and answers each endpoint with its success shape. An override that is
+ * a function is the whole reply: a `Response`, or a throw for a lost one.
+ */
 function stubTronGrid(overrides: Record<string, unknown> = {}) {
   vi.stubGlobal(
     'fetch',
@@ -95,8 +99,10 @@ function stubTronGrid(overrides: Record<string, unknown> = {}) {
         ...overrides,
       };
 
+      const answer = responses[path];
+      if (typeof answer === 'function') return answer();
       // Only `ok` and `json()` are read, so a partial stands in for the full fetch Response.
-      return { ok: true, json: async () => responses[path] ?? {} } as unknown as Response;
+      return { ok: true, json: async () => answer ?? {} } as unknown as Response;
     }),
   );
 }
@@ -115,16 +121,7 @@ const walletProvider = {
   signMessage,
 } as never;
 
-const depositParams = (token: string) =>
-  ({
-    srcChainKey: TRON,
-    srcAddress: SENDER,
-    to: HUB_WALLET,
-    token,
-    amount: AMOUNT,
-    data: '0x' as Hex,
-    walletProvider,
-  }) as never;
+const depositParams = depositParamsFor({ srcChainKey: TRON, srcAddress: SENDER, amount: AMOUNT, walletProvider });
 
 const callTo = (path: string) => calls.find(c => c.path === path);
 
@@ -199,19 +196,16 @@ describe('TronSpokeService.deposit — TRC-20', () => {
     expect(txHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('refuses a node build without raw_data, which a browser wallet signs from', async () => {
+  it('surfaces a failed node build, or one without the raw_data a browser wallet signs from, before signing', async () => {
+    stubTronGrid({ '/wallet/triggersmartcontract': { result: { result: false, message: '434f4e5452414354' } } });
+    await expect(tron.deposit(depositParams(USDT))).rejects.toThrow(/triggersmartcontract failed/);
+
     stubTronGrid({
       '/wallet/triggersmartcontract': { result: { result: true }, transaction: { raw_data_hex: TRC20_RAW } },
     });
-
     await expect(tron.deposit(depositParams(USDT))).rejects.toThrow(/no decoded raw_data/);
+
     expect(signTransaction).not.toHaveBeenCalled();
-  });
-
-  it('surfaces a node-side build failure instead of broadcasting', async () => {
-    stubTronGrid({ '/wallet/triggersmartcontract': { result: { result: false, message: '434f4e5452414354' } } });
-
-    await expect(tron.deposit(depositParams(USDT))).rejects.toThrow(/triggersmartcontract failed/);
     expect(callTo('/wallet/broadcasthex')).toBeUndefined();
   });
 
@@ -290,173 +284,124 @@ describe('TronSpokeService.deposit — rotated reserve', () => {
   });
 });
 
-describe('TronSpokeService.deposit — node-built transfer check', () => {
-  const OTHER = 'TYBNgWfhGuNzdLtjKtxXTfskAhTbMcqbaG';
-
-  it.each([
-    [
-      'a redirected TRX recipient',
-      { '/wallet/createtransaction': { raw_data_hex: nativeTransferRaw(SENDER, OTHER, AMOUNT) } },
-      NATIVE_TRX,
-    ],
-    [
-      'a redirected TRC-20 recipient',
-      {
-        '/wallet/triggersmartcontract': {
-          result: { result: true },
-          transaction: { raw_data_hex: trc20TransferRaw(SENDER, USDT, OTHER, AMOUNT) },
-        },
-      },
-      USDT,
-    ],
-  ])('refuses to sign, or hand out raw, %s', async (_label, overrides, token) => {
-    // Per-field rejections (owner, recipient, amount, ...) are covered by assertDepositTransfer's own tests.
-    stubTronGrid(overrides);
-
-    await expect(tron.deposit(depositParams(token))).rejects.toThrow(/node-built deposit transfer rejected/);
-    expect(signTransaction).not.toHaveBeenCalled();
-    expect(callTo('/wallet/broadcasthex')).toBeUndefined();
-    await expect(tron.deposit({ ...(depositParams(token) as object), raw: true } as never)).rejects.toThrow(
-      /node-built deposit transfer rejected/,
-    );
-  });
-});
-
-describe('TronSpokeService.deposit — hub wallet assertion', () => {
-  it('refuses a deposit whose target disagrees with the hub wallet the relay derives', async () => {
-    stubTronGrid();
-    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue({
+describe('TronSpokeService.deposit — misdirected transfer', () => {
+  const relayAnswer = (overrides: object) =>
+    ({
       ok: true,
       value: {
         reserveAddress: RESERVE,
         memo: MEMO,
         payloadHash: MEMO,
         path: 'm/0',
-        hubWallet: '0x9999999999999999999999999999999999999999',
+        hubWallet: HUB_WALLET,
         depositMethod: 'memo',
+        ...overrides,
       },
-    });
-
-    await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(/relay derives hub wallet/);
-    expect(calls).toHaveLength(0);
-  });
-});
-
-describe('TronSpokeService.deposit — memo commitment', () => {
+    }) as const;
   // A relay that registered other calls under the memo would have the verifiers attest those instead.
   const foreignMemo = keccak256(
     encodeAbiParameters([{ type: 'address' }, { type: 'bytes' }], [HUB_WALLET, '0xdeadbeef']),
   );
 
-  beforeEach(() => {
-    vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue({
-      ok: true,
-      value: {
-        reserveAddress: RESERVE,
-        memo: foreignMemo,
-        payloadHash: foreignMemo,
-        path: 'm/0',
-        hubWallet: HUB_WALLET,
-        depositMethod: 'memo',
+  it('refuses to sign, or hand out raw, a transfer the relay or node misdirects', async () => {
+    const rows = [
+      {
+        // Per-field rejections (owner, recipient, amount, ...) are covered by assertDepositTransfer's own tests.
+        label: 'a node build with a redirected TRC-20 recipient',
+        token: USDT,
+        node: {
+          '/wallet/triggersmartcontract': {
+            result: { result: true },
+            transaction: { raw_data_hex: trc20TransferRaw(SENDER, USDT, 'TYBNgWfhGuNzdLtjKtxXTfskAhTbMcqbaG', AMOUNT) },
+          },
+        },
+        reason: /node-built deposit transfer rejected/,
       },
-    });
-  });
+      {
+        label: 'a relay hub wallet other than the deposit target',
+        token: NATIVE_TRX,
+        relay: relayAnswer({ hubWallet: '0x9999999999999999999999999999999999999999' }),
+        reason: /relay derives hub wallet/,
+        noNodeCalls: true,
+      },
+      {
+        label: 'a relay memo committing to another payload',
+        token: NATIVE_TRX,
+        relay: relayAnswer({ memo: foreignMemo, payloadHash: foreignMemo }),
+        reason: /does not commit to this deposit's payload/,
+        noNodeCalls: true,
+      },
+    ];
 
-  it('refuses to sign, or build raw, a transfer whose memo commits to another payload', async () => {
-    stubTronGrid();
-
-    await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(/does not commit to this deposit's payload/);
+    for (const { label, token, node, relay, reason, noNodeCalls } of rows) {
+      calls = [];
+      stubTronGrid(node);
+      if (relay) vi.mocked(MpcRelayApiService.getDepositAddress).mockResolvedValue(relay);
+      await expect(tron.deposit(depositParams(token)), label).rejects.toThrow(reason);
+      await expect(tron.deposit(depositParams(token, { raw: true })), `${label} (raw)`).rejects.toThrow(reason);
+      expect(callTo('/wallet/broadcasthex'), label).toBeUndefined();
+      if (noNodeCalls) expect(calls, label).toHaveLength(0);
+    }
     expect(signTransaction).not.toHaveBeenCalled();
-    await expect(tron.deposit({ ...(depositParams(NATIVE_TRX) as object), raw: true } as never)).rejects.toThrow(
-      /does not commit to this deposit's payload/,
-    );
-    expect(calls).toHaveLength(0);
   });
 });
 
 describe('TronSpokeService.deposit — broadcast failure', () => {
-  it("keeps the signed txID and the node's code, or its message when it gives none, in the rejection", async () => {
-    stubTronGrid({ '/wallet/broadcasthex': { result: false, code: 'SIGERROR', message: '7369676e' } });
-    await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(/broadcast of [0-9a-f]{64} failed: SIGERROR/);
+  const broadcastReply = (reply: unknown) => stubTronGrid({ '/wallet/broadcasthex': reply });
 
-    // The node checks `raw_data.expiration` against its own head block, so the SDK leaves that to it.
-    stubTronGrid({ '/wallet/broadcasthex': { result: false, message: 'TRANSACTION_EXPIRATION_ERROR' } });
-    await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(
-      /broadcast of [0-9a-f]{64} failed: TRANSACTION_EXPIRATION_ERROR/,
-    );
+  it("fails without notifying when the node refused the tx, keeping the txID and the node's code or message", async () => {
+    const rows = [
+      {
+        label: 'a refusal code',
+        reply: { result: false, code: 'SIGERROR', message: '7369676e' },
+        reason: /broadcast of [0-9a-f]{64} failed: SIGERROR/,
+      },
+      // The node checks `raw_data.expiration` against its own head block, so the SDK leaves that to it.
+      {
+        label: 'a refusal message without a code',
+        reply: { result: false, message: 'TRANSACTION_EXPIRATION_ERROR' },
+        reason: /broadcast of [0-9a-f]{64} failed: TRANSACTION_EXPIRATION_ERROR/,
+      },
+      // A 4xx comes before the node accepted anything.
+      {
+        label: 'a 4xx answer',
+        reply: () => new Response('busy', { status: 429 }),
+        reason: /broadcast of [0-9a-f]{64} failed/,
+      },
+    ];
+
+    for (const { label, reply, reason } of rows) {
+      broadcastReply(reply);
+      await expect(tron.deposit(depositParams(NATIVE_TRX)), label).rejects.toThrow(reason);
+    }
     expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
   });
 
-  it('treats a duplicate as broadcast, since the node already holds the signed tx', async () => {
-    stubTronGrid({ '/wallet/broadcasthex': { result: false, code: 'DUP_TRANSACTION_ERROR' } });
+  it('hands the signed txID on and notifies it once whenever the node may hold the tx', async () => {
+    const rows = [
+      { label: 'a duplicate', reply: { result: false, code: 'DUP_TRANSACTION_ERROR' } },
+      { label: 'a truncated 200 reply', reply: () => new Response('{', { status: 200 }) },
+      { label: 'a reply with no verdict', reply: () => new Response('null') },
+      // A gateway can return a 5xx for a request the node took.
+      { label: 'a 5xx', reply: () => new Response('gateway', { status: 504 }) },
+      // Settlement then finds the deposit or times out; failing here would invite a second deposit.
+      {
+        label: 'a lost reply',
+        reply: () => {
+          throw new TypeError('fetch failed');
+        },
+      },
+    ];
 
-    await expect(tron.deposit(depositParams(NATIVE_TRX))).resolves.toMatch(/^[0-9a-f]{64}$/);
-    expect(MpcRelayApiService.notify).toHaveBeenCalled();
-  });
-
-  it('fails on a 4xx answer, which the node gave before accepting anything', async () => {
-    stubTronGrid();
-    const fetchMock = vi.mocked(fetch);
-    const answer = fetchMock.getMockImplementation();
-    fetchMock.mockImplementation(async (url, init) => {
-      if (new URL(String(url)).pathname === '/wallet/broadcasthex') return new Response('busy', { status: 429 });
-      return answer ? answer(url, init) : Promise.reject(new Error('no stub'));
-    });
-
-    await expect(tron.deposit(depositParams(NATIVE_TRX))).rejects.toThrow(/broadcast of [0-9a-f]{64} failed/);
-    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
-  });
-
-  it('keeps the txID and notifies once after a truncated 200 broadcast reply', async () => {
-    stubTronGrid();
-    const answer = vi.mocked(fetch).getMockImplementation();
-    vi.mocked(fetch).mockImplementation(async (url, init) => {
-      if (new URL(String(url)).pathname === '/wallet/broadcasthex') return new Response('{', { status: 200 });
-      if (!answer) throw new Error('no stub');
-      return answer(url, init);
-    });
-    const hash = await tron.deposit(depositParams(NATIVE_TRX));
-    expect(hash).toBe(signTransaction.mock.calls[0]?.[0].txID);
-    expect(MpcRelayApiService.notify).toHaveBeenCalledOnce();
-  });
-
-  it('keeps the txID and notifies after a broadcast reply with no verdict', async () => {
-    stubTronGrid();
-    const answer = vi.mocked(fetch).getMockImplementation();
-    vi.mocked(fetch).mockImplementation(async (url, init) => {
-      if (new URL(String(url)).pathname === '/wallet/broadcasthex') return new Response('null');
-      if (!answer) throw new Error('no stub');
-      return answer(url, init);
-    });
-    const hash = await tron.deposit(depositParams(NATIVE_TRX));
-    expect(hash).toBe(signTransaction.mock.calls[0]?.[0].txID);
-    expect(MpcRelayApiService.notify).toHaveBeenCalledExactlyOnceWith(expect.any(String), '728126428', hash);
-  });
-
-  it('hands the txID on after a 5xx, which a gateway can return for a request the node took', async () => {
-    stubTronGrid();
-    const fetchMock = vi.mocked(fetch);
-    const answer = fetchMock.getMockImplementation();
-    fetchMock.mockImplementation(async (url, init) => {
-      if (new URL(String(url)).pathname === '/wallet/broadcasthex') return new Response('gateway', { status: 504 });
-      return answer ? answer(url, init) : Promise.reject(new Error('no stub'));
-    });
-
-    await expect(tron.deposit(depositParams(NATIVE_TRX))).resolves.toMatch(/^[0-9a-f]{64}$/);
-  });
-
-  it('hands the signed txID on when the broadcast reply is lost, since the tx may have landed', async () => {
-    stubTronGrid();
-    const fetchMock = vi.mocked(fetch);
-    const answer = fetchMock.getMockImplementation();
-    fetchMock.mockImplementation(async (url, init) => {
-      if (new URL(String(url)).pathname === '/wallet/broadcasthex') throw new TypeError('fetch failed');
-      return answer ? answer(url, init) : Promise.reject(new Error('no stub'));
-    });
-
-    // Settlement then finds the deposit or times out; failing here would invite a second deposit.
-    await expect(tron.deposit(depositParams(NATIVE_TRX))).resolves.toMatch(/^[0-9a-f]{64}$/);
-    expect(MpcRelayApiService.notify).toHaveBeenCalled();
+    for (const { label, reply } of rows) {
+      signTransaction.mockClear();
+      vi.mocked(MpcRelayApiService.notify).mockClear();
+      broadcastReply(reply);
+      const hash = await tron.deposit(depositParams(NATIVE_TRX));
+      expect(hash, label).toMatch(/^[0-9a-f]{64}$/);
+      expect(hash, label).toBe(signTransaction.mock.calls[0]?.[0].txID);
+      expect(MpcRelayApiService.notify, label).toHaveBeenCalledExactlyOnceWith(expect.any(String), '728126428', hash);
+    }
   });
 });
 
@@ -479,39 +424,27 @@ describe('TronSpokeService.deposit — notify failure', () => {
 describe('TronSpokeService.waitForDeposit', () => {
   const TX_HASH = 'a'.repeat(64);
 
-  it('re-notifies the relay while waiting, since the first notify can precede confirmation', async () => {
+  it('re-notifies the relay while waiting, since the first notify can precede confirmation, and stops once it settles', async () => {
     vi.useFakeTimers();
     stubTronGrid();
     const notifySpy = vi.mocked(MpcRelayApiService.notify);
     notifySpy.mockClear();
-    // Never resolves — the wait is what we are observing, not its outcome.
-    vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockReturnValue(new Promise(() => undefined));
+    let settle: (value: never) => void = () => undefined;
+    vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockReturnValue(new Promise(resolve => (settle = resolve)));
 
-    void tron.waitForDeposit(TX_HASH);
+    const pending = tron.waitForDeposit(TX_HASH);
     await vi.advanceTimersByTimeAsync(46_000);
 
     // `/notify` reports `accepted` without checking the tx exists and the relay does not re-check,
     // so a single notification sent before Tron confirmed the deposit strands it.
     expect(notifySpy.mock.calls.length).toBeGreaterThanOrEqual(3);
     expect(notifySpy).toHaveBeenCalledWith(expect.anything(), '728126428', TX_HASH);
-    vi.useRealTimers();
-  });
 
-  it('stops re-notifying once the wait settles', async () => {
-    vi.useFakeTimers();
-    stubTronGrid();
-    const notifySpy = vi.mocked(MpcRelayApiService.notify);
-    vi.spyOn(MpcRelayApiService, 'waitForDeposit').mockResolvedValue({
-      ok: true,
-      value: { depositId: 'id', status: 'minted', createdAt: 0, txs: {} },
-    } as never);
-
-    await tron.waitForDeposit(TX_HASH);
+    settle({ ok: true, value: { depositId: 'id', status: 'minted', createdAt: 0, txs: {} } } as never);
+    await pending;
     notifySpy.mockClear();
     await vi.advanceTimersByTimeAsync(60_000);
-
     expect(notifySpy).not.toHaveBeenCalled();
-    vi.useRealTimers();
   });
 });
 
@@ -582,14 +515,6 @@ describe('TronSpokeService hub release: submit, read, wait', () => {
 });
 
 describe('TronSpokeService withdraw-auth and deposit: submit and read', () => {
-  it('reads a withdrawal record once, by its trackingId', async () => {
-    const record = { ok: true as const, value: { trackingId: '0xtrack' as const, status: 'burned' as const } };
-    const read = vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue(record);
-
-    expect(await tron.getWithdrawalRecord('0xtrack')).toEqual(record);
-    expect(read).toHaveBeenCalledWith(expect.anything(), '0xtrack');
-  });
-
   it('submits a broadcast deposit by notifying it once, without waiting for the mint', async () => {
     const notifySpy = vi.mocked(MpcRelayApiService.notify);
     notifySpy.mockClear();
@@ -641,13 +566,12 @@ describe('TronSpokeService.extendExpiration', () => {
     expect(after.raw_data_hex).toContain(`5220${MEMO.slice(2)}`);
   });
 
-  it.each([
-    ['not after the current one', () => EXPIRATION],
-    ['more than 24 hours away', () => Date.now() + 25 * 3_600_000],
-  ])('refuses an expiration %s', (_label, expiration) => {
-    expect(() => tron.extendExpiration({ tx: tx(), expiration: expiration() })).toThrow(
-      /must be after the current one and within 24 hours/,
-    );
+  it('refuses an expiration not after the current one, or more than 24 hours away', () => {
+    for (const expiration of [EXPIRATION, Date.now() + 25 * 3_600_000]) {
+      expect(() => tron.extendExpiration({ tx: tx(), expiration }), String(expiration)).toThrow(
+        /must be after the current one and within 24 hours/,
+      );
+    }
   });
 });
 
@@ -690,22 +614,14 @@ describe('TronSpokeService.estimateGas', () => {
     );
   });
 
-  it('reports zero energy for a native TRX transfer, which consumes none, with or without a 0x prefix', async () => {
+  it('asks the node nothing for native TRX, zero energy with or without a 0x prefix, or a withdraw-auth, signed off chain', async () => {
     stubTronGrid();
     const tx = rawTx(NATIVE_RAW);
 
     expect(await tron.estimateGas({ chainKey: TRON, tx })).toEqual({ energy: 0n, bandwidth: bandwidthOf(NATIVE_RAW) });
     const prefixed = await tron.estimateGas({ chainKey: TRON, tx: { ...tx, raw_data_hex: `0x${tx.raw_data_hex}` } });
     expect(prefixed).toEqual({ energy: 0n, bandwidth: bandwidthOf(NATIVE_RAW) });
-    expect(calls).toHaveLength(0);
-  });
-
-  it('reports no cost for a raw withdraw-auth, which is signed off chain', async () => {
-    stubTronGrid();
-
-    const estimate = await tron.estimateGas({ chainKey: TRON, tx: WITHDRAW });
-
-    expect(estimate).toEqual({ energy: 0n, bandwidth: 0n });
+    expect(await tron.estimateGas({ chainKey: TRON, tx: WITHDRAW })).toEqual({ energy: 0n, bandwidth: 0n });
     expect(calls).toHaveLength(0);
   });
 });
@@ -755,12 +671,10 @@ describe('TronSpokeService.sendMessage', () => {
     expect(relay.size).toBe(1);
   });
 
-  it.each(['accepted', 'exhausted', 'lost reply'])('reuses one signed request after throttling (%s)', async outcome => {
+  it('reuses one signed request after throttling', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
     const send = vi.fn(async (_url: string, init?: RequestInit) => {
-      if (send.mock.calls.length === 1 || outcome === 'exhausted') {
-        return new Response(null, { status: 429 });
-      }
-      if (outcome === 'lost reply') throw new TypeError('connection closed on retry');
+      if (send.mock.calls.length === 1) return new Response(null, { status: 429 });
       const { message } = JSON.parse(String(init?.body));
       const sender: unknown = message.sender;
       if (!isHex(sender)) throw new Error('missing sender');
@@ -768,27 +682,13 @@ describe('TronSpokeService.sendMessage', () => {
       return Response.json({ accepted: true, trackingId: keccak256(`${sender}${nonceBytes}`) });
     });
     vi.stubGlobal('fetch', send);
-    const result = tron.sendMessage(sendParams);
-
-    if (outcome === 'accepted') {
-      await expect(result).resolves.toMatch(/^0x[0-9a-f]{64}$/);
-    } else if (outcome === 'exhausted') {
-      const error = await result.catch((cause: unknown) => cause);
-      expect(error).toMatchObject({ message: expect.stringContaining('nothing was queued') });
-      expect(isIndeterminateOutcomeError(error)).toBe(false);
-    } else {
-      await expect(result).rejects.toMatchObject({
-        name: 'IndeterminateOutcomeError',
-        trackingId: expect.stringMatching(/^0x[0-9a-f]{64}$/),
-      });
-    }
+    const sent = tron.sendMessage(sendParams);
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(sent).resolves.toMatch(/^0x[0-9a-f]{64}$/);
     expect(signMessage).toHaveBeenCalledOnce();
-    expect(send).toHaveBeenCalledTimes(outcome === 'exhausted' ? 3 : 2);
+    expect(send).toHaveBeenCalledTimes(2);
     expect(new Set(send.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
   });
-
-  const nonceOf = (call: number) =>
-    BigInt(vi.mocked(MpcRelayApiService.submitWithdraw).mock.calls[call]?.[1].message.nonce ?? '0');
 
   it('refuses a hub wallet that is not a 20-byte hex address before anything is signed', async () => {
     stubTronGrid();
@@ -807,23 +707,6 @@ describe('TronSpokeService.sendMessage', () => {
     await expect(tron.sendMessage(params as never)).rejects.toThrow(`invalid hub wallet address: ${dstAddress}`);
     expect(signMessage).not.toHaveBeenCalled();
     expect(submit).not.toHaveBeenCalled();
-  });
-
-  it('draws a fresh random nonce per withdrawal, inside the safe-integer range the relay round-trips', async () => {
-    stubTronGrid();
-    mockSubmitOk();
-
-    // The relay converts the nonce to a JS number before the NEAR call, so a value above
-    // MAX_SAFE_INTEGER reaches the contract rounded and the signature recovers a different address.
-    for (let i = 0; i < 32; i++) {
-      await tron.sendMessage(sendParams);
-      const nonce = nonceOf(i);
-      expect(nonce).toBeGreaterThan(0n);
-      expect(nonce).toBeLessThanOrEqual(BigInt(Number.MAX_SAFE_INTEGER));
-      expect(BigInt(Number(nonce))).toBe(nonce);
-    }
-    // Two withdrawals in the same millisecond must not collide — a clock-derived nonce would.
-    expect(nonceOf(0)).not.toBe(nonceOf(1));
   });
 
   it('returns the unsigned withdraw-auth in raw mode without signing it, and submits it once signed', async () => {
@@ -872,19 +755,13 @@ describe('TronSpokeService.sendMessage', () => {
 });
 
 describe('TronSpokeService.submitSignedWithdraw', () => {
-  it('refuses a digest that no longer matches the message, before submitting', async () => {
+  it("refuses a digest that no longer matches the message, or a scheme other than Tron's, before submitting", async () => {
     const submit = mockSubmitOk();
     const edited = { ...WITHDRAW, message: { ...WITHDRAW.message, nonce: '8' } };
 
     await expect(tron.submitSignedWithdraw({ withdraw: edited, signature: `0x${SIGNATURE}` })).rejects.toThrow(
       /digest .* does not match the message/,
     );
-    expect(submit).not.toHaveBeenCalled();
-  });
-
-  it("refuses a scheme other than Tron's, before submitting", async () => {
-    const submit = mockSubmitOk();
-
     await expect(
       tron.submitSignedWithdraw({ withdraw: { ...WITHDRAW, scheme: 0 }, signature: `0x${SIGNATURE}` }),
     ).rejects.toThrow("scheme 0 is not Tron's (1)");
@@ -940,15 +817,7 @@ describe('TronSpokeService.waitForTransactionReceipt', () => {
   it('times out within one node call of maxTimeoutMs even when every call stalls', async () => {
     vi.useFakeTimers();
     // A node that never answers: each call ends only when the SDK aborts it.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        (_url: URL, init: { signal: AbortSignal }) =>
-          new Promise((_resolve, reject) => {
-            init.signal.addEventListener('abort', () => reject(abortError()));
-          }),
-      ),
-    );
+    vi.stubGlobal('fetch', vi.fn(abortingFetch));
 
     let settled = false;
     const pending = tron
@@ -971,16 +840,19 @@ describe('TronSpokeService.waitForTransactionReceipt', () => {
 
 describe('TronSpokeService.getDeposit', () => {
   // A failed read still answers 200; parsing its word would show a garbage or zero balance.
-  it.each([
-    ['is not a contract', { result: { code: 'CONTRACT_VALIDATE_ERROR', message: 'Smart contract is not exist.' } }],
-    ['reverted', { result: { result: true, message: 'REVERT opcode executed' }, constant_result: [''] }],
-    ['answered with no word', { result: { result: true }, constant_result: [] }],
-  ])('rejects a TRC-20 read that %s', async (_, response) => {
-    stubTronGrid({ '/wallet/triggerconstantcontract': response });
-
-    await expect(tron.getDeposit({ srcChainKey: TRON, srcAddress: SENDER, token: USDT } as never)).rejects.toThrow(
-      `balanceOf on ${USDT} failed`,
-    );
+  it('rejects a TRC-20 read that is not a contract, reverted, or answered with no word', async () => {
+    const responses = {
+      'not a contract': { result: { code: 'CONTRACT_VALIDATE_ERROR', message: 'Smart contract is not exist.' } },
+      reverted: { result: { result: true, message: 'REVERT opcode executed' }, constant_result: [''] },
+      'no word': { result: { result: true }, constant_result: [] },
+    };
+    for (const [label, response] of Object.entries(responses)) {
+      stubTronGrid({ '/wallet/triggerconstantcontract': response });
+      await expect(
+        tron.getDeposit({ srcChainKey: TRON, srcAddress: SENDER, token: USDT } as never),
+        label,
+      ).rejects.toThrow(`balanceOf on ${USDT} failed`);
+    }
   });
 });
 

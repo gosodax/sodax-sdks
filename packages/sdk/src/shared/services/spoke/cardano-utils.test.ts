@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { Hex } from 'viem';
 import { decodeCbor } from './cardano-cbor.js';
 import {
-  CARDANO_MIN_RELEASE_LOVELACE,
   cardanoAddressFromRecipientBytes,
   cardanoDepositMetadata,
   cardanoIdentityBytes,
@@ -44,16 +43,16 @@ describe('cardano addresses', () => {
     }
   });
 
-  it.each([
-    ['a script payment credential', CARDANO_REJECTED_ADDRESSES.enterpriseScript, /script payment credential/],
-    ['a reward address', CARDANO_REJECTED_ADDRESSES.reward, /reward \(stake\)/],
-    ['a pointer address', CARDANO_REJECTED_ADDRESSES.pointer, /pointer addresses/],
-    ['a Byron address', CARDANO_REJECTED_ADDRESSES.byron, /Byron/],
-  ])('refuses %s', (_label, address, message) => {
-    expect(() => parseCardanoAddress(address)).toThrow(message);
-  });
+  it('refuses a script, reward, pointer, Byron or testnet address, garbage, an oversized string and a wrong-length payload', () => {
+    const rejected: [string, string, RegExp][] = [
+      ['a script payment credential', CARDANO_REJECTED_ADDRESSES.enterpriseScript, /script payment credential/],
+      ['a reward address', CARDANO_REJECTED_ADDRESSES.reward, /reward \(stake\)/],
+      ['a pointer address', CARDANO_REJECTED_ADDRESSES.pointer, /pointer addresses/],
+      ['a Byron address', CARDANO_REJECTED_ADDRESSES.byron, /Byron/],
+    ];
+    for (const [label, address, message] of rejected)
+      expect(() => parseCardanoAddress(address), label).toThrow(message);
 
-  it('refuses testnet, garbage, an oversized string and a wrong-length payload before paying anything', () => {
     expect(() => parseCardanoAddress(CARDANO_ADDRESSES.enterpriseTestnet.bech32)).toThrow(/not mainnet/);
     expect(() => cardanoAddressFromRecipientBytes(CARDANO_ADDRESSES.enterpriseTestnet.hex)).toThrow(
       /network id 0 is not mainnet/,
@@ -62,10 +61,6 @@ describe('cardano addresses', () => {
     expect(() => parseCardanoAddress('addr1'.padEnd(201, 'q'))).toThrow(/above the 200-character limit/);
     // A 28-byte identity is not a recipient: it carries no header and cannot be paid.
     expect(() => cardanoAddressFromRecipientBytes(CARDANO_PAYMENT_HASH)).toThrow(/Cardano/);
-  });
-
-  it('pins the release floor at 1 ADA', () => {
-    expect(CARDANO_MIN_RELEASE_LOVELACE).toBe(1_000_000n);
   });
 });
 
@@ -114,15 +109,18 @@ describe('cardano withdraw-auth', () => {
     );
   });
 
-  it.each([
-    ['empty COSE_Sign1', { ...valid, signature: '' }, /COSE_Sign1 must be non-empty hex/],
-    ['an oversized COSE_Key', { ...valid, key: 'aa'.repeat(129) }, /above the 128-byte limit/],
-    ['a truncated COSE_Sign1', { ...valid, signature: CARDANO_CIP8.coseSign1.slice(0, 40) }, /COSE_Sign1 malformed/],
-    ['a COSE_Sign1 that is not an array of 4', { ...valid, signature: '83010203' }, /array of 4 items/],
-    ['a COSE_Key that is not a map', { ...valid, key: '8101' }, /COSE_Key malformed: expected a map/],
-    ['a COSE_Key without a 32-byte public key', { ...valid, key: 'a121410a' }, /32-byte ed25519 public key/],
-  ])('refuses %s', (_label, dataSignature, message) => {
-    expect(() => cardanoSignDataFields(dataSignature, messageHash, CARDANO_CIP8.paymentHash)).toThrow(message);
+  it('refuses an empty, truncated or non-4-array COSE_Sign1, and an oversized, non-map or keyless COSE_Key', () => {
+    const rows: [string, { signature: string; key: string }, RegExp][] = [
+      ['empty COSE_Sign1', { ...valid, signature: '' }, /COSE_Sign1 must be non-empty hex/],
+      ['an oversized COSE_Key', { ...valid, key: 'aa'.repeat(129) }, /above the 128-byte limit/],
+      ['a truncated COSE_Sign1', { ...valid, signature: CARDANO_CIP8.coseSign1.slice(0, 40) }, /COSE_Sign1 malformed/],
+      ['a COSE_Sign1 that is not an array of 4', { ...valid, signature: '83010203' }, /array of 4 items/],
+      ['a COSE_Key that is not a map', { ...valid, key: '8101' }, /COSE_Key malformed: expected a map/],
+      ['a COSE_Key without a 32-byte public key', { ...valid, key: 'a121410a' }, /32-byte ed25519 public key/],
+    ];
+    for (const [label, dataSignature, message] of rows) {
+      expect(() => cardanoSignDataFields(dataSignature, messageHash, CARDANO_CIP8.paymentHash), label).toThrow(message);
+    }
   });
 });
 
@@ -136,15 +134,16 @@ describe('cardano CBOR decoder', () => {
     );
   });
 
-  it.each([
-    ['an indefinite-length array', '9f01ff', /indefinite lengths/],
-    ['trailing bytes', '0100', /trailing bytes/],
-    ['a duplicate map key', 'a201010102', /duplicate CBOR map key/],
-    ['a tag below the top level', '81d21800', /unsupported CBOR tag/],
-    ['nesting deeper than 4', '8181818181818100', /nesting deeper/],
-    ['a length that overruns the input', '5a000000ff00', /overruns/],
-    ['an unsupported simple value', 'f7', /initial byte 0xf7/],
-  ])('refuses %s', (_label, input, message) => {
-    expect(() => decodeCbor(hex(input))).toThrow(message);
+  it('refuses indefinite lengths, trailing bytes, duplicate keys, nested tags, deep nesting, overruns and simple values', () => {
+    const rows: [string, string, RegExp][] = [
+      ['an indefinite-length array', '9f01ff', /indefinite lengths/],
+      ['trailing bytes', '0100', /trailing bytes/],
+      ['a duplicate map key', 'a201010102', /duplicate CBOR map key/],
+      ['a tag below the top level', '81d21800', /unsupported CBOR tag/],
+      ['nesting deeper than 4', '8181818181818100', /nesting deeper/],
+      ['a length that overruns the input', '5a000000ff00', /overruns/],
+      ['an unsupported simple value', 'f7', /initial byte 0xf7/],
+    ];
+    for (const [label, input, message] of rows) expect(() => decodeCbor(hex(input)), label).toThrow(message);
   });
 });

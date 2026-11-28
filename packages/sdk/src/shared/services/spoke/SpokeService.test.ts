@@ -25,7 +25,6 @@ import {
   type Address,
   type Hex,
   type IconAddress,
-  type IEvmWalletProvider,
   type SpokeChainKey,
   type XToken,
 } from '@sodax/types';
@@ -35,6 +34,7 @@ import type { WalletBalanceMap } from './balance-utils.js';
 import { encodeRecipient } from '../../utils/shared-utils.js';
 import { invariant } from '../../utils/tiny-invariant.js';
 import { isSodaxError } from '../../../errors/SodaxError.js';
+import { mockEvmWalletProvider } from '../../../test-utils/walletProviders.js';
 
 const sodax = new Sodax();
 const spoke = sodax.spoke;
@@ -56,12 +56,7 @@ const AMOUNT = 1_000n;
 const RESET_HASH = '0xaaaa000000000000000000000000000000000000000000000000000000000001' as Hex;
 const APPROVE_HASH = '0xbbbb000000000000000000000000000000000000000000000000000000000002' as Hex;
 
-const walletProvider = {
-  chainType: 'EVM',
-  sendTransaction: vi.fn(),
-  getWalletAddress: vi.fn(),
-  waitForTransactionReceipt: vi.fn(),
-} as unknown as IEvmWalletProvider;
+const walletProvider = mockEvmWalletProvider();
 
 const approveInput = {
   srcChainKey: ARBITRUM,
@@ -114,12 +109,12 @@ describe('SpokeService.approve — sequential plan execution', () => {
 
       const result = await sodax.spoke.approve({ ...approveInput, raw: false, walletProvider });
 
-      expect(result.ok).toBe(false);
-      expect(approve).toHaveBeenCalledTimes(1);
+      expect(result.ok, status).toBe(false);
+      expect(approve, status).toHaveBeenCalledTimes(1);
       if (!result.ok) {
         // The message has to name the hash and say a retry is cheap: once the reset lands the next
         // plan is a single transaction, so the flow self-heals.
-        expect(String((result.error as Error).message)).toContain(RESET_HASH);
+        expect(String((result.error as Error).message), status).toContain(RESET_HASH);
       }
       approve.mockRestore();
     }
@@ -468,35 +463,29 @@ describe('SpokeService.assertReleaseRecipientReady', () => {
     expect(checkSpy).toHaveBeenCalledWith({ address: XRP_ADDRESS, token: 'xrpl-token', amount: 5n });
   });
 
-  it("refuses with the caller's feature and a reason it can branch on", async () => {
-    vi.spyOn(spoke.xrp, 'checkDestination').mockResolvedValue({ ready: false, reason: 'destination_tag_required' });
+  it("refuses with the caller's feature, a reason it can branch on, and the SDK call that fixes a trustline refusal", async () => {
+    const rows = [
+      { reason: 'destination_tag_required', message: /requires a destination tag/ },
+      { reason: 'no_trustline', message: /sodax\.spoke\.xrp\.requestTrustline/ },
+      { reason: 'trustline_limit', message: /sodax\.spoke\.xrp\.requestTrustline/ },
+    ] as const;
 
-    const error = await check(ChainKeys.XRP_MAINNET, encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS)).catch(
-      (e: unknown) => e,
-    );
-
-    invariant(isSodaxError(error), 'expected a SodaxError');
-    expect(error.code).toBe('VALIDATION_FAILED');
-    expect(error.feature).toBe('bridge');
-    expect(error.message).toMatch(/requires a destination tag/);
-    expect(error.context).toMatchObject({
-      phase: 'validate',
-      field: 'recipient',
-      reason: 'xrpl-destination_tag_required',
-    });
-  });
-
-  it('names the SDK call that fixes a no_trustline or trustline_limit refusal', async () => {
-    for (const reason of ['no_trustline', 'trustline_limit'] as const) {
+    for (const { reason, message } of rows) {
       vi.spyOn(spoke.xrp, 'checkDestination').mockResolvedValue({ ready: false, reason });
 
       const error = await check(ChainKeys.XRP_MAINNET, encodeRecipient(ChainKeys.XRP_MAINNET, XRP_ADDRESS)).catch(
         (e: unknown) => e,
       );
 
-      invariant(isSodaxError(error), 'expected a SodaxError');
-      expect(error.message).toMatch(/sodax\.spoke\.xrp\.requestTrustline/);
-      expect(error.context).toMatchObject({ reason: `xrpl-${reason}` });
+      invariant(isSodaxError(error), `${reason}: expected a SodaxError`);
+      expect(error.code, reason).toBe('VALIDATION_FAILED');
+      expect(error.feature, reason).toBe('bridge');
+      expect(error.message, reason).toMatch(message);
+      expect(error.context, reason).toMatchObject({
+        phase: 'validate',
+        field: 'recipient',
+        reason: `xrpl-${reason}`,
+      });
     }
   });
 

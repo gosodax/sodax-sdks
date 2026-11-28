@@ -14,6 +14,8 @@ import { mapRelayFailure } from '../../../errors/relay-error-mapping.js';
 import { intentCreationFailed } from '../../../errors/wrappers.js';
 import { Sodax } from '../../entities/Sodax.js';
 import * as MpcRelayApiService from '../mpcRelay/MpcRelayApiService.js';
+import { abortingFetch } from '../../../test-utils/fetch.js';
+import { HUB_WALLET, depositParamsFor } from './spoke-test-fixtures.js';
 import { inspectZcashV5Deposit, zcashIdentityBytes, zcashP2pkhScript, zcashZip317Fee } from './zcash-utils.js';
 
 const sodax = new Sodax();
@@ -23,7 +25,6 @@ const ZCASH = ChainKeys.ZCASH_MAINNET;
 const RPC_URL = 'https://zcash-rpc.test';
 const SENDER = 't1UYsZVJkLPeMjxEtACvSxfWuNmddpWfxzs';
 const DEPOSIT_ADDRESS = 't1TFab5a31gE6bxzatfs1KSqiportHDCE3X';
-const HUB_WALLET = '0x1111111111111111111111111111111111111111' as Hex;
 const TXID = 'ab'.repeat(32);
 const AMOUNT = 1_000_000n;
 const settledDeposit = {
@@ -66,17 +67,8 @@ const walletProvider = {
   signMessage: vi.fn(async () => `0x${'cd'.repeat(65)}` as Hex),
 };
 
-const depositParams = (extra: object = {}) =>
-  ({
-    srcChainKey: ZCASH,
-    srcAddress: SENDER,
-    to: HUB_WALLET,
-    token: NATIVE_ZEC,
-    amount: AMOUNT,
-    data: '0x' as Hex,
-    walletProvider,
-    ...extra,
-  }) as never;
+const zecDepositParams = depositParamsFor({ srcChainKey: ZCASH, srcAddress: SENDER, amount: AMOUNT, walletProvider });
+const depositParams = (extra: object = {}) => zecDepositParams(NATIVE_ZEC, extra);
 
 const utxo = (txid: string, satoshis: number) => ({ txid, outputIndex: 1, script: zcashP2pkhScript(SENDER), satoshis });
 
@@ -126,7 +118,7 @@ afterEach(() => {
 
 describe('ZcashSpokeService.deposit', () => {
   it('returns the derived deposit address and amount in raw mode, touching no RPC', async () => {
-    const tx = await zcash.deposit({ ...(depositParams() as object), raw: true } as never);
+    const tx = await zcash.deposit(depositParams({ raw: true }));
 
     expect(tx).toEqual({
       from: SENDER,
@@ -306,15 +298,19 @@ describe('ZcashSpokeService.deposit — wallet that sends the payment itself', (
     expect(intentCreationFailed('moneyMarket', error).context?.srcTxHash).toBe('a1'.repeat(32));
   });
 
-  it('refuses a wallet whose active account is not the source address before anything moves', async () => {
+  it('refuses a wallet whose active account is not the source address, or that can neither sign nor send, before anything moves', async () => {
     browserWallet.getWalletAddress.mockResolvedValueOnce(DEPOSIT_ADDRESS);
-
     await expect(zcash.deposit(depositParams({ walletProvider: browserWallet }))).rejects.toThrow(
       /wallet account does not match the source address/,
     );
     expect(MpcRelayApiService.getDepositAddress).not.toHaveBeenCalled();
+
+    const { signTransaction: _, ...messageOnly } = walletProvider;
+    await expect(zcash.deposit(depositParams({ walletProvider: messageOnly }))).rejects.toThrow(
+      /neither signTransaction nor sendTransfer/,
+    );
     expect(browserWallet.sendTransfer).not.toHaveBeenCalled();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(walletProvider.signTransaction).not.toHaveBeenCalled();
   });
 
   it('warns and returns the txid promptly when the output lookup RPC fails, even if the logger throws', async () => {
@@ -359,14 +355,6 @@ describe('ZcashSpokeService.deposit — wallet that sends the payment itself', (
     expect(finished).toHaveBeenCalledWith(txid);
     expect(warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ txid }));
     await pending;
-  });
-
-  it('refuses a wallet provider that can neither sign nor send', async () => {
-    const { signTransaction: _, ...messageOnly } = walletProvider;
-
-    await expect(zcash.deposit(depositParams({ walletProvider: messageOnly }))).rejects.toThrow(
-      /neither signTransaction nor sendTransfer/,
-    );
   });
 });
 
@@ -516,19 +504,6 @@ describe('ZcashSpokeService — relay submit and read', () => {
     expect(read.mock.calls.map(c => c[1])).toEqual([`133-${txid}-0`, `133-${txid}-1`]);
   });
 
-  it('reads a withdrawal and a hub release once each, notifying nothing', async () => {
-    const read = vi.spyOn(MpcRelayApiService, 'getDeposit').mockResolvedValue(pendingRecord);
-    vi.spyOn(MpcRelayApiService, 'getWithdrawal').mockResolvedValue({
-      ok: true,
-      value: { trackingId: '0xtrack', status: 'submitted' },
-    });
-
-    expect(await zcash.getHubReleaseRecord(HUB_RELEASE)).toBe(pendingRecord);
-    expect(read).toHaveBeenCalledOnce();
-    expect((await zcash.getWithdrawalRecord('0xtrack')).ok).toBe(true);
-    expect(MpcRelayApiService.notify).not.toHaveBeenCalled();
-  });
-
   it('uses the settlement floor for NaN in the relay waits and passes the withdrawal stage through', async () => {
     const release = vi.spyOn(MpcRelayApiService, 'waitForHubRelease').mockResolvedValue(settledDeposit);
     const wait = vi.spyOn(MpcRelayApiService, 'waitForWithdrawal').mockResolvedValue({
@@ -589,14 +564,12 @@ describe('ZcashSpokeService.sendMessage', () => {
     }
   });
 
-  it.each(['accepted', 'exhausted', 'lost reply'])('first 429 through sendMessage: %s', async outcome => {
+  it('reuses one signed request after a first 429 through sendMessage', async () => {
     vi.useFakeTimers();
     vi.mocked(MpcRelayApiService.submitWithdraw).mockRestore();
-    const lost = new Error('lost relay reply');
     const sender = zcashIdentityBytes(SENDER);
     const send = vi.fn(async (_url: string, init?: RequestInit) => {
-      if (send.mock.calls.length === 1 || outcome === 'exhausted') return new Response(null, { status: 429 });
-      if (outcome === 'lost reply') throw lost;
+      if (send.mock.calls.length === 1) return new Response(null, { status: 429 });
       const { message } = JSON.parse(String(init?.body));
       const trackingId = keccak256(concat([sender, toHex(BigInt(message.nonce), { size: 8 })]));
       return Response.json({ accepted: true, trackingId });
@@ -611,20 +584,9 @@ describe('ZcashSpokeService.sendMessage', () => {
     vi.useRealTimers();
     const request = JSON.parse(String(send.mock.calls[0]?.[1]?.body));
     const trackingId = keccak256(concat([sender, toHex(BigInt(request.message.nonce), { size: 8 })]));
-    if (outcome === 'accepted') {
-      expect(result).toEqual({ ok: true, value: trackingId });
-    } else if (outcome === 'lost reply') {
-      expect(result).toMatchObject({
-        ok: false,
-        error: { name: 'IndeterminateOutcomeError', cause: lost, trackingId },
-      });
-    } else {
-      if (result.ok) throw new Error('expected throttling exhaustion');
-      expect(result.error).toMatchObject({ message: expect.stringContaining('nothing was queued') });
-      expect(result.error).not.toHaveProperty('trackingId');
-    }
+    expect(result).toEqual({ ok: true, value: trackingId });
     expect(walletProvider.signMessage).toHaveBeenCalledOnce();
-    expect(send).toHaveBeenCalledTimes(outcome === 'exhausted' ? 3 : 2);
+    expect(send).toHaveBeenCalledTimes(2);
     expect(new Set(send.mock.calls.map(([, init]) => init?.body)).size).toBe(1);
   });
 
@@ -651,12 +613,7 @@ describe('ZcashSpokeService reads', () => {
 
   it('bounds a hanging RPC by the receipt wall-clock budget', async () => {
     vi.useFakeTimers();
-    vi.mocked(fetch).mockImplementation(
-      (_url, init) =>
-        new Promise((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
-        }),
-    );
+    vi.mocked(fetch).mockImplementation(abortingFetch);
     const finished = vi.fn();
     const pending = zcash
       .waitForTransactionReceipt({

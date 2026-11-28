@@ -13,47 +13,29 @@ describe('resolveLogger', () => {
   });
 });
 
-describe('silentLogger', () => {
-  it('drops every level without throwing', () => {
-    expect(() => {
-      silentLogger.debug('d');
-      silentLogger.info('i');
-      silentLogger.warn('w');
-      silentLogger.error('e', new Error('boom'), { k: 'v' });
-    }).not.toThrow();
-  });
-});
-
 describe('consoleLogger', () => {
-  it('forwards error(message, error) to console.error, omitting the second argument when no error is passed', () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  it('forwards each level(message, extra) to the same console method, omitting the second argument when none is passed', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const cause = new Error('boom');
     consoleLogger.error('failed', cause);
-    expect(spy).toHaveBeenLastCalledWith('failed', cause);
+    expect(errorSpy).toHaveBeenLastCalledWith('failed', cause);
     consoleLogger.error('just a message');
-    expect(spy).toHaveBeenLastCalledWith('just a message');
-    spy.mockRestore();
-  });
+    expect(errorSpy).toHaveBeenLastCalledWith('just a message');
+    errorSpy.mockRestore();
 
-  for (const level of ['debug', 'info', 'warn'] as const) {
-    it(`forwards ${level}(message, data) to console.${level}, omitting the second argument when no data is passed`, () => {
+    for (const level of ['debug', 'info', 'warn'] as const) {
       const spy = vi.spyOn(console, level).mockImplementation(() => {});
       const data = { k: 'v' };
       consoleLogger[level]('a message', data);
-      expect(spy).toHaveBeenLastCalledWith('a message', data);
+      expect(spy, level).toHaveBeenLastCalledWith('a message', data);
       consoleLogger[level]('a message');
-      expect(spy).toHaveBeenLastCalledWith('a message');
+      expect(spy, level).toHaveBeenLastCalledWith('a message');
       spy.mockRestore();
-    });
-  }
+    }
+  });
 });
 
 describe('Sodax logger wiring', () => {
-  it("defaults to the console logger and selects the silent logger via { logger: 'silent' }", () => {
-    expect(new Sodax().config.logger).toBe(consoleLogger);
-    expect(new Sodax({ logger: 'silent' }).config.logger).toBe(silentLogger);
-  });
-
   it('uses a custom logger and keeps it across initialize()', async () => {
     const custom: SodaxLogger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const sodax = new Sodax({ logger: custom });

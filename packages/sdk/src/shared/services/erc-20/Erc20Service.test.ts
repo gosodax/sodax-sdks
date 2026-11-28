@@ -14,6 +14,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { encodeFunctionData, erc20Abi, type Address, type PublicClient } from 'viem';
 import { Erc20Service } from './Erc20Service.js';
+import { mockEvmWalletProvider } from '../../../test-utils/walletProviders.js';
 
 const TOKEN = '0xdAC17F958D2ee523a2206206994597C13D831ec7' as Address;
 const NATIVE = '0x0000000000000000000000000000000000000000' as Address;
@@ -47,25 +48,6 @@ const approveCalldata = (amount: bigint): string =>
 
 /** The revert an ERC-20 with the race guard produces: no reason string, empty data. */
 const guardRevert = (): Error => new Error('execution reverted');
-
-describe('Erc20Service.getAllowance', () => {
-  it('returns the raw allowance rather than a sufficiency verdict', async () => {
-    const client = makeClient();
-    client.readContract.mockResolvedValueOnce(STALE_ALLOWANCE);
-
-    const allowance = await Erc20Service.getAllowance({
-      token: TOKEN,
-      owner: OWNER,
-      spender: SPENDER,
-      publicClient: client as unknown as PublicClient,
-    });
-
-    expect(allowance).toBe(STALE_ALLOWANCE);
-    expect(client.readContract).toHaveBeenCalledWith(
-      expect.objectContaining({ address: TOKEN, functionName: 'allowance', args: [OWNER, SPENDER] }),
-    );
-  });
-});
 
 describe('Erc20Service.isAllowanceValid', () => {
   it('short-circuits the native token without reading', async () => {
@@ -198,7 +180,7 @@ describe('Erc20Service.approve — chain binding', () => {
       from: OWNER,
       spender: SPENDER,
       raw: false,
-      walletProvider: { sendTransaction } as never,
+      walletProvider: mockEvmWalletProvider({ sendTransaction }),
       expectedChainId: 146,
     });
 

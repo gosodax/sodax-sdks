@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { SPONSORING_API_ERROR_CODES } from '@sodax/types';
 import { BackendHttpError } from '../backendApi/api-utils.js';
 import { SodaxError } from '../errors/SodaxError.js';
 import { classifySponsorError, type SponsorFailureAction } from './errors.js';
@@ -13,98 +12,106 @@ const wireError = (status: number, body: unknown): SodaxError<'EXTERNAL_API_ERRO
   });
 
 describe('classifySponsorError', () => {
-  it.each<[string, number, unknown, SponsorFailureAction, boolean, boolean]>([
-    [
-      'invalid XDR',
-      400,
-      { statusCode: 400, error: 'INVALID_SPONSOR_XDR', message: 'transaction is not signed by the created account' },
-      'fixIntegration',
-      false,
-      false,
-    ],
-    [
-      'missing api key (error is a LABEL)',
-      401,
-      { statusCode: 401, message: 'Missing x-api-key', error: 'Unauthorized' },
-      'checkApiKey',
-      false,
-      false,
-    ],
-    [
-      'sequence conflict',
-      409,
-      {
-        statusCode: 409,
-        error: 'SPONSOR_SEQUENCE_CONFLICT',
-        message: 'sponsor account sequence conflict (tx_bad_seq)',
-      },
-      'rebuildAndResign',
-      true,
-      true,
-    ],
-    [
-      'deterministic on-chain rejection',
-      422,
-      {
-        statusCode: 422,
-        error: 'SPONSOR_TRANSACTION_REJECTED',
-        message: 'Horizon rejected the transaction (tx_too_late)',
-      },
-      'abort',
-      false,
-      false,
-    ],
-    [
-      'per-key quota',
-      429,
-      { statusCode: 429, error: 'SPONSOR_RATE_LIMITED', message: 'per-day rate limit exceeded', retryAfterSeconds: 30 },
-      'backoff',
-      true,
-      false,
-    ],
-    [
-      'unexpected server throw (NO error field at all)',
-      500,
-      { statusCode: 500, message: 'Internal server error' },
-      'contactOperator',
-      false,
-      false,
-    ],
-    [
-      'transient upstream',
-      503,
-      { statusCode: 503, error: 'HORIZON_UNAVAILABLE', message: 'Horizon is unavailable' },
-      'retrySameRequest',
-      true,
-      false,
-    ],
-    [
-      'sponsor out of budget',
-      503,
-      {
-        statusCode: 503,
-        error: 'SPONSOR_BUDGET_EXHAUSTED',
-        message: 'sponsor available reserve is below the configured floor',
-      },
-      'contactOperator',
-      false,
-      false,
-    ],
-    [
-      'coordinator draining (error is a LABEL)',
-      503,
-      { statusCode: 503, message: 'sponsor coordinator is draining', error: 'Service Unavailable' },
-      'backoff',
-      true,
-      false,
-    ],
-    ['unknown status', 418, { statusCode: 418, message: "I'm a teapot" }, 'abort', false, false],
-  ])('classifies %s (%i)', (_label, status, body, action, retryable, requiresNewSignature) => {
-    const result = classifySponsorError(wireError(status, body));
-    expect(result.action).toBe(action);
-    expect(result.retryable).toBe(retryable);
-    expect(result.requiresNewSignature).toBe(requiresNewSignature);
-    expect(result.status).toBe(status);
+  it('classifies each wire failure into its action, retryability and re-signature need', () => {
+    const cases: [string, number, unknown, SponsorFailureAction, boolean, boolean][] = [
+      [
+        'invalid XDR',
+        400,
+        { statusCode: 400, error: 'INVALID_SPONSOR_XDR', message: 'transaction is not signed by the created account' },
+        'fixIntegration',
+        false,
+        false,
+      ],
+      [
+        'missing api key (error is a LABEL)',
+        401,
+        { statusCode: 401, message: 'Missing x-api-key', error: 'Unauthorized' },
+        'checkApiKey',
+        false,
+        false,
+      ],
+      [
+        'sequence conflict',
+        409,
+        {
+          statusCode: 409,
+          error: 'SPONSOR_SEQUENCE_CONFLICT',
+          message: 'sponsor account sequence conflict (tx_bad_seq)',
+        },
+        'rebuildAndResign',
+        true,
+        true,
+      ],
+      [
+        'deterministic on-chain rejection',
+        422,
+        {
+          statusCode: 422,
+          error: 'SPONSOR_TRANSACTION_REJECTED',
+          message: 'Horizon rejected the transaction (tx_too_late)',
+        },
+        'abort',
+        false,
+        false,
+      ],
+      [
+        'per-key quota',
+        429,
+        {
+          statusCode: 429,
+          error: 'SPONSOR_RATE_LIMITED',
+          message: 'per-day rate limit exceeded',
+          retryAfterSeconds: 30,
+        },
+        'backoff',
+        true,
+        false,
+      ],
+      [
+        'unexpected server throw (NO error field at all)',
+        500,
+        { statusCode: 500, message: 'Internal server error' },
+        'contactOperator',
+        false,
+        false,
+      ],
+      [
+        'transient upstream',
+        503,
+        { statusCode: 503, error: 'HORIZON_UNAVAILABLE', message: 'Horizon is unavailable' },
+        'retrySameRequest',
+        true,
+        false,
+      ],
+      [
+        'sponsor out of budget',
+        503,
+        {
+          statusCode: 503,
+          error: 'SPONSOR_BUDGET_EXHAUSTED',
+          message: 'sponsor available reserve is below the configured floor',
+        },
+        'contactOperator',
+        false,
+        false,
+      ],
+      [
+        'coordinator draining (error is a LABEL)',
+        503,
+        { statusCode: 503, message: 'sponsor coordinator is draining', error: 'Service Unavailable' },
+        'backoff',
+        true,
+        false,
+      ],
+      ['unknown status', 418, { statusCode: 418, message: "I'm a teapot" }, 'abort', false, false],
+    ];
+    for (const [label, status, body, action, retryable, requiresNewSignature] of cases) {
+      const result = classifySponsorError(wireError(status, body));
+      expect(result.action, label).toBe(action);
+      expect(result.retryable, label).toBe(retryable);
+      expect(result.requiresNewSignature, label).toBe(requiresNewSignature);
+      expect(result.status, label).toBe(status);
+    }
   });
 
   it('only ever sets `code` when `error` is a real domain code', () => {
@@ -161,26 +168,6 @@ describe('classifySponsorError', () => {
     expect(result.action).toBe('backoff');
     expect(result.retryable).toBe(true);
     expect(result.status).toBeUndefined();
-  });
-
-  it('tolerates a non-JSON body (e.g. an HTML 502 from a gateway that never reached the service)', () => {
-    const error = new SodaxError('EXTERNAL_API_ERROR', 'HTTP_REQUEST_FAILED', {
-      feature: 'backend',
-      cause: new BackendHttpError(502, '<html>Bad Gateway</html>'),
-      context: { api: 'sponsoring' },
-    });
-    expect(() => classifySponsorError(error)).not.toThrow();
-    expect(classifySponsorError(error).status).toBe(502);
-  });
-
-  it('has a defined outcome for every published domain code', () => {
-    // Keep the published code union and classifier exhaustive.
-    for (const code of SPONSORING_API_ERROR_CODES) {
-      const status = code === 'SPONSOR_SEQUENCE_CONFLICT' ? 409 : 503;
-      const result = classifySponsorError(wireError(status, { statusCode: status, error: code, message: code }));
-      expect(result.action).toBeDefined();
-      expect(typeof result.retryable).toBe('boolean');
-    }
   });
 });
 

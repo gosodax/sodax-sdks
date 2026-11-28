@@ -8,28 +8,30 @@ import { requestAddress, requestSigning, requestJsonRpc } from './HanaWalletConn
 describe('HanaWalletConnector — ICONEX relay helpers (WALLET-L-1)', () => {
   const FROM = 'hx1234567890abcdef1234567890abcdef12345678' as IconAddress;
 
-  let win: any;
+  /** The relay's event detail; only the fields these tests read or write are modelled. */
+  type RelayDetail = { type: string; payload: { id: number; hash: string } };
+
+  let win: EventTarget;
 
   // Flush pending microtasks (drains the serialization queue) via a real macrotask.
   const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
-  function onRequest(reply: (detail: any) => void) {
+  function onRequest(reply: (detail: RelayDetail) => void) {
     win.addEventListener('ICONEX_RELAY_REQUEST', (event: Event) => {
-      reply((event as CustomEvent).detail);
+      reply((event as CustomEvent<RelayDetail>).detail);
     });
   }
 
-  function respond(detail: any) {
+  function respond(detail: { type: string; payload: unknown }) {
     win.dispatchEvent(new CustomEvent('ICONEX_RELAY_RESPONSE', { detail }));
   }
 
   beforeEach(() => {
     win = new EventTarget();
-    globalThis.window = win;
+    vi.stubGlobal('window', win);
   });
 
   afterEach(() => {
-    (globalThis as { window?: unknown }).window = undefined;
     vi.useRealTimers();
   });
 
@@ -67,7 +69,7 @@ describe('HanaWalletConnector — ICONEX relay helpers (WALLET-L-1)', () => {
     // first response would resolve BOTH promises).
     const dispatched: string[] = [];
     win.addEventListener('ICONEX_RELAY_REQUEST', (event: Event) => {
-      const d = (event as CustomEvent).detail;
+      const d = (event as CustomEvent<RelayDetail>).detail;
       if (d.type === 'REQUEST_SIGNING') dispatched.push(d.payload.hash);
     });
 
@@ -90,12 +92,12 @@ describe('HanaWalletConnector — ICONEX relay helpers (WALLET-L-1)', () => {
   });
 
   it('rejects when there is no browser window, without wedging the shared queue', async () => {
-    (globalThis as { window?: unknown }).window = undefined;
+    vi.stubGlobal('window', undefined);
     await expect(requestAddress()).rejects.toThrow('require a browser environment');
 
     // Restore the window; a subsequent request must still resolve (the queue is not wedged).
     win = new EventTarget();
-    globalThis.window = win;
+    vi.stubGlobal('window', win);
     onRequest(() => respond({ type: 'RESPONSE_ADDRESS', payload: FROM }));
 
     await expect(requestAddress()).resolves.toEqual({ ok: true, value: FROM });

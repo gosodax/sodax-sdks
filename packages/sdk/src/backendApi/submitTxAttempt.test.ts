@@ -8,7 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createSubmitTxAttempt, noRequestBudgetCause } from './submitTxAttempt.js';
+import { createSubmitTxAttempt } from './submitTxAttempt.js';
 import { resolveTimeoutMs } from '../shared/utils/resolveTimeoutMs.js';
 
 const SERVICE_TIMEOUT_MS = 30_000;
@@ -54,7 +54,7 @@ describe('SubmitTxAttempt.requestTimeout', () => {
     expect(attempt.requestTimeout(SERVICE_TIMEOUT_MS)).toBe(5_000);
   });
 
-  it('returns null rather than a zero timeout once the attempt is spent, including on the exact boundary', async () => {
+  it('returns null rather than a zero timeout once the attempt is spent (on the exact boundary) or the service timeout is non-positive', async () => {
     const attempt = createSubmitTxAttempt(10_000);
 
     await vi.advanceTimersByTimeAsync(10_000);
@@ -64,9 +64,7 @@ describe('SubmitTxAttempt.requestTimeout', () => {
     // check the single computed value instead of re-deriving it after a separate guard.
     expect(attempt.remaining()).toBe(0);
     expect(attempt.requestTimeout(SERVICE_TIMEOUT_MS)).toBeNull();
-  });
 
-  it('returns null when the service timeout itself is non-positive', () => {
     expect(createSubmitTxAttempt(120_000).requestTimeout(0)).toBeNull();
     expect(createSubmitTxAttempt(120_000).requestTimeout(-1)).toBeNull();
   });
@@ -88,16 +86,5 @@ describe('resolveTimeoutMs', () => {
     for (const value of [undefined, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       expect(resolveTimeoutMs(value, FALLBACK)).toBe(FALLBACK);
     }
-  });
-});
-
-describe('noRequestBudgetCause', () => {
-  it('blames the caller timeout when the service timeout is usable, and api.timeout when it is non-positive', () => {
-    expect(noRequestBudgetCause(30_000).message).toContain('caller timeout');
-    // Both cases surface as a null bound; reporting the caller's budget for a config error sends
-    // whoever reads the log looking at the wrong setting.
-    const cause = noRequestBudgetCause(0);
-    expect(cause.message).toContain('api timeout');
-    expect(cause.message).toContain('0');
   });
 });

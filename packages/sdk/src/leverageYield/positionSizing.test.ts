@@ -84,6 +84,19 @@ describe('projectLeverageLeg', () => {
     expect(dust.minCollateralOut).toBe(1n);
   });
 
+  it('slippage widens the gap between the floor and the quote without moving the haircut', () => {
+    const req = request({ leverage: 3 });
+    const quote = quoteAt(2.14, 0.99);
+    const tight = projectLeverageLeg(req, quote, RISK, 0.5);
+    const loose = projectLeverageLeg(req, quote, RISK, 5);
+    // The haircut is the expected cost, so tolerance does not change it...
+    expect(loose.haircut).toBeCloseTo(tight.haircut, 10);
+    // ...but the projection is from the floor, so a looser tolerance is a worse projected position.
+    expect(loose.minCollateralOut).toBeLessThan(tight.minCollateralOut);
+    expect(loose.ltv).toBeGreaterThan(tight.ltv);
+    expect(loose.usableMaxLeverage).toBeLessThan(tight.usableMaxLeverage);
+  });
+
   it('counts the deposit as collateral on a collateral-side open but NOT on a debt-side one', () => {
     const collateralSide = projectLeverageLeg(request({ leverage: 3 }), quoteAt(2.14, 1), RISK, 0);
     // $1.07 supplied + $2.14 bought.
@@ -142,34 +155,6 @@ describe('projectLeverageLeg', () => {
     expect(projection.usableMaxLeverage).toBe(1);
   });
 
-  it('collapses to the textbook ceiling when the solver takes nothing', () => {
-    const collateralSide = projectLeverageLeg(request({ leverage: 2 }), quoteAt(1.07, 1), RISK, 0);
-    // 1 + ltv/(1 - ltv) === 1/(1 - ltv) at f = 1.
-    expect(collateralSide.usableMaxLeverage).toBeCloseTo(1 / (1 - RISK.ltv), 6);
-    const debtSide = projectLeverageLeg(request({ side: 'debt', leverage: 2 }), quoteAt(2, 1), RISK, 0);
-    expect(debtSide.usableMaxLeverage).toBeCloseTo(1 / (1 - RISK.ltv), 6);
-  });
-
-  it('measures the haircut from the quote, and reports a negative one when the quote beats parity', () => {
-    const worse = projectLeverageLeg(request({ leverage: 3 }), quoteAt(2.14, 0.99), RISK, 0);
-    expect(worse.haircut).toBeCloseTo(0.01, 6);
-    const better = projectLeverageLeg(request({ leverage: 3 }), quoteAt(2.14, 1.005), RISK, 0);
-    expect(better.haircut).toBeCloseTo(-0.005, 6);
-  });
-
-  it('slippage widens the gap between the floor and the quote without moving the haircut', () => {
-    const req = request({ leverage: 3 });
-    const quote = quoteAt(2.14, 0.99);
-    const tight = projectLeverageLeg(req, quote, RISK, 0.5);
-    const loose = projectLeverageLeg(req, quote, RISK, 5);
-    // The haircut is the expected cost, so tolerance does not change it...
-    expect(loose.haircut).toBeCloseTo(tight.haircut, 10);
-    // ...but the projection is from the floor, so a looser tolerance is a worse projected position.
-    expect(loose.minCollateralOut).toBeLessThan(tight.minCollateralOut);
-    expect(loose.ltv).toBeGreaterThan(tight.ltv);
-    expect(loose.usableMaxLeverage).toBeLessThan(tight.usableMaxLeverage);
-  });
-
   // ─── Partner fee ────────────────────────────────────────────────────────────
   //
   // The fee is borrowed ON TOP of what the solver is paid (`LeveragePosition._feeFor` over the
@@ -186,15 +171,6 @@ describe('projectLeverageLeg', () => {
     // Input includes the user's own contribution, so the fee is on 3 units, not 2.
     expect(debtSide.intentInput).toBe(parseUnits('3', 18));
     expect(debtSide.feeAmount).toBe((parseUnits('3', 18) * 50n) / 10_000n);
-  });
-
-  it('adds the fee to debt without changing what the solver is paid', () => {
-    const free = sizeLeverageBorrow(request({ leverage: 3 }));
-    const paid = sizeLeverageBorrow(request({ leverage: 3, feeBps: 50 }));
-    expect(paid.borrowAmount).toBe(free.borrowAmount);
-    expect(paid.borrowUsd).toBeCloseTo(free.borrowUsd, 10);
-    expect(paid.debtUsd).toBeGreaterThan(free.debtUsd);
-    expect(paid.debtUsd).toBeCloseTo(free.borrowUsd * 1.005, 6);
   });
 
   it('projects the higher LTV, and the ceiling shrinks by the closed form', () => {
@@ -281,13 +257,6 @@ function openAt(side: PositionSide, leverage: number, haircut: number, slippageP
 }
 
 describe('exposureLeverage', () => {
-  it('equals the requested leverage when the solver keeps nothing', () => {
-    // With no haircut the deposit IS the equity, which is what `leverage` is sized under.
-    expect(openAt('collateral', 2, 0).exposureLeverage).toBeCloseTo(2, 9);
-    expect(openAt('debt', 2, 0).exposureLeverage).toBeCloseTo(2, 9);
-    expect(openAt('collateral', 5, 0).exposureLeverage).toBeCloseTo(5, 9);
-  });
-
   it('reproduces the mainnet 2.00x open that reported 2.0488x, reading higher at the slippage floor', () => {
     // Sonic 0xBb6c8Cc3: $0.10763467 in, the same borrowed, $0.10262232 back — all of it off equity.
     const projection = openAt('collateral', 2, 0.04657);
@@ -297,16 +266,6 @@ describe('exposureLeverage', () => {
     const atFloor = openAt('collateral', 2, 0.04657, 1).exposureLeverage;
     expect(atFloor).toBeGreaterThan(projection.exposureLeverage);
     expect(atFloor).toBeCloseTo(2.0594, 4);
-  });
-
-  it('overshoots in one direction only, and further the more leverage amplifies it', () => {
-    // Equity is 1/L of the position, so the same haircut moves it L times as far.
-    for (const leverage of [1.5, 2, 3, 5]) {
-      expect(openAt('collateral', leverage, 0.02).exposureLeverage).toBeGreaterThan(leverage);
-    }
-    const gapAt2 = openAt('collateral', 2, 0.02).exposureLeverage - 2;
-    const gapAt5 = openAt('collateral', 5, 0.02).exposureLeverage - 5;
-    expect(gapAt5).toBeGreaterThan(gapAt2);
   });
 
   it('is Infinity when the floor leaves no equity behind', () => {

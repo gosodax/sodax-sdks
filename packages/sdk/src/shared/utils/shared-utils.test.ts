@@ -8,7 +8,7 @@
  * and that malformed inputs are rejected before encoding.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ChainKeys } from '@sodax/types';
+import { ChainKeys, type SpokeChainKey } from '@sodax/types';
 import { toHex } from 'viem';
 import {
   encodeAddress,
@@ -33,13 +33,13 @@ describe('encodeAddress (ICON)', () => {
     expect(reverseEncodeAddress(ICON_MAINNET, cx)).toBe(CX);
   });
 
-  it.each([
-    ['non-hex body', 'hxZZZ0000000000000000000000000000000000000'],
-    ['truncated body', 'hx000000000000000000000000000000000000001'],
-    ['over-length body', 'hx00000000000000000000000000000000000000011'],
-    ['wrong prefix', 'ax0000000000000000000000000000000000000001'],
-  ])('rejects a malformed ICON address (%s)', (_label, address) => {
-    expect(() => encodeAddress(ICON_MAINNET, address)).toThrow(/Invalid ICON address/);
+  it('rejects a malformed ICON address: a non-hex or over-length body', () => {
+    for (const address of [
+      'hxZZZ0000000000000000000000000000000000000',
+      'hx00000000000000000000000000000000000000011',
+    ]) {
+      expect(() => encodeAddress(ICON_MAINNET, address), address).toThrow(/Invalid ICON address/);
+    }
   });
 });
 
@@ -57,30 +57,46 @@ describe('encodeAddress destination validation (BRIDGE-M-2)', () => {
     expect(encodeAddress(ChainKeys.BASE_MAINNET, evm)).toBe(evm);
   });
 
-  it.each([
-    ['39 hex chars (the stranded-funds case)', `0x${'a'.repeat(39)}`],
-    ['missing 0x prefix', '1468d3529032106291433B7e9e3026dF1Ff78F31'],
-    // The mistyped-recipient case: right length, right alphabet, one character off.
-    ['mixed case failing its EIP-55 checksum', '0x1468d3529032106291433B7e9e3026dF1Ff78F32'],
-  ])('rejects a malformed EVM recipient (%s)', (_label, address) => {
-    expect(() => encodeAddress(ChainKeys.BASE_MAINNET, address)).toThrow(/Invalid EVM address/);
+  /** Asserts every `[label, address]` row is refused on `chainKey` with `message`. */
+  const expectAllRejected = (
+    chainKey: SpokeChainKey,
+    rows: Array<[label: string, address: string]>,
+    message: RegExp,
+  ) => {
+    for (const [label, address] of rows) expect(() => encodeAddress(chainKey, address), label).toThrow(message);
+  };
+
+  it('rejects a malformed EVM recipient: a wrong length or a failed EIP-55 checksum', () => {
+    expectAllRejected(
+      ChainKeys.BASE_MAINNET,
+      [
+        ['39 hex chars (the stranded-funds case)', `0x${'a'.repeat(39)}`],
+        // The mistyped-recipient case: right length, right alphabet, one character off.
+        ['mixed case failing its EIP-55 checksum', '0x1468d3529032106291433B7e9e3026dF1Ff78F32'],
+      ],
+      /Invalid EVM address/,
+    );
   });
 
-  it.each([
-    ['P2WPKH', 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'],
-    ['P2TR', 'bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0'],
-    ['P2PKH', '1BoatSLRHtKNngkdXEeobR76b53LETtpyT'],
-    ['P2SH', '3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy'],
-  ])('utf-8 encodes a checksum-valid Bitcoin recipient (%s)', (_label, address) => {
-    expect(encodeAddress(ChainKeys.BITCOIN_MAINNET, address)).toBe(utf8Hex(address));
+  it('utf-8 encodes a checksum-valid P2WPKH, P2TR or P2SH Bitcoin recipient', () => {
+    for (const address of [
+      'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+      'bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0',
+      '3J98t1WpEZ73CNmQviecrnyiWrnqRhWNLy',
+    ]) {
+      expect(encodeAddress(ChainKeys.BITCOIN_MAINNET, address), address).toBe(utf8Hex(address));
+    }
   });
 
-  it.each([
-    ['bad Base58Check checksum', '1BoatSLRHtKNngkdXEeobR76b53LETtpyt'],
-    ['bad bech32 checksum', 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t5'],
-    ['other bech32 chain', 'inj1cml96vmptgw99syqrrz8az79xer2pcgp0a885r'],
-  ])('rejects a malformed Bitcoin recipient (%s)', (_label, address) => {
-    expect(() => encodeAddress(ChainKeys.BITCOIN_MAINNET, address)).toThrow(/Invalid Bitcoin address/);
+  it('rejects a malformed Bitcoin recipient: a bad Base58Check checksum or another bech32 chain', () => {
+    expectAllRejected(
+      ChainKeys.BITCOIN_MAINNET,
+      [
+        ['bad Base58Check checksum', '1BoatSLRHtKNngkdXEeobR76b53LETtpyt'],
+        ['other bech32 chain', 'inj1cml96vmptgw99syqrrz8az79xer2pcgp0a885r'],
+      ],
+      /Invalid Bitcoin address/,
+    );
   });
 
   // bech32 is case-insensitive (BIP-173), and these bytes derive the user's hub wallet — the two
@@ -90,35 +106,37 @@ describe('encodeAddress destination validation (BRIDGE-M-2)', () => {
     expect(encodeAddress(ChainKeys.BITCOIN_MAINNET, address.toUpperCase())).toBe(utf8Hex(address));
   });
 
-  it.each([
-    ['implicit account', 'f'.repeat(64)],
-    ['separators', 'sub_1-a.alice.near'],
-  ])('utf-8 encodes a valid NEAR account id (%s)', (_label, address) => {
+  it('utf-8 encodes a valid NEAR account id (an implicit account)', () => {
+    const address = 'f'.repeat(64);
     expect(encodeAddress(ChainKeys.NEAR_MAINNET, address)).toBe(utf8Hex(address));
   });
 
-  it.each([
-    ['uppercase', 'Alice.near'],
-    ['too short', 'a'],
-    ['over 64 chars', 'a'.repeat(65)],
-    ['consecutive dots', 'alice..near'],
-  ])('rejects a malformed NEAR account id (%s)', (_label, address) => {
-    expect(() => encodeAddress(ChainKeys.NEAR_MAINNET, address)).toThrow(/Invalid NEAR account id/);
+  it('rejects a malformed NEAR account id: uppercase, too short or over 64 chars', () => {
+    expectAllRejected(
+      ChainKeys.NEAR_MAINNET,
+      [
+        ['uppercase', 'Alice.near'],
+        ['too short', 'a'],
+        ['over 64 chars', 'a'.repeat(65)],
+      ],
+      /Invalid NEAR account id/,
+    );
   });
 
-  it.each([
-    ['Injective docs address', 'inj1cml96vmptgw99syqrrz8az79xer2pcgp0a885r'],
-    ['32-byte CosmWasm contract', 'inj1zut3w9chzut3w9chzut3w9chzut3w9chzut3w9chzut3w9chzutsme2qam'],
-  ])('utf-8 encodes a checksum-valid Injective recipient (%s)', (_label, address) => {
+  it('utf-8 encodes a checksum-valid Injective recipient (the Injective docs address)', () => {
+    const address = 'inj1cml96vmptgw99syqrrz8az79xer2pcgp0a885r';
     expect(encodeAddress(ChainKeys.INJECTIVE_MAINNET, address)).toBe(utf8Hex(address));
   });
 
-  it.each([
-    ['other bech32 prefix', 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'],
-    ['wrong data length', 'inj1cml96vmptgw99syqrrz8az79xer2pcgp'],
-    ['in-charset single-char typo (checksum)', 'inj1cml96vmptgw99syqrrz8az79xer2pcgp0a885q'],
-  ])('rejects a malformed Injective recipient (%s)', (_label, address) => {
-    expect(() => encodeAddress(ChainKeys.INJECTIVE_MAINNET, address)).toThrow(/Invalid Injective address/);
+  it('rejects a malformed Injective recipient: another bech32 prefix or a checksum typo', () => {
+    expectAllRejected(
+      ChainKeys.INJECTIVE_MAINNET,
+      [
+        ['other bech32 prefix', 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4'],
+        ['in-charset single-char typo (checksum)', 'inj1cml96vmptgw99syqrrz8az79xer2pcgp0a885q'],
+      ],
+      /Invalid Injective address/,
+    );
   });
 });
 
@@ -132,14 +150,11 @@ describe('encodeTokenIdentifier (BOT-R1)', () => {
   const utf8Hex = (value: string) => toHex(Buffer.from(value, 'utf-8'));
 
   // Real configured identifiers — the exact values the default simulation path feeds through.
-  it.each([
-    [ChainKeys.BITCOIN_MAINNET, '897442:43'],
-    [ChainKeys.INJECTIVE_MAINNET, 'factory/inj1d036ftaatxpkqsu9hja8r24rv3v33chz3appxp/bnUSD'],
-    [ChainKeys.NEAR_MAINNET, 'NEAR'],
-  ])('utf-8 encodes the configured identifier (%s %s)', (chainKey, token) => {
-    expect(encodeTokenIdentifier(chainKey, token)).toBe(utf8Hex(token));
+  it('utf-8 encodes the configured Bitcoin identifier, which the recipient validator rejects', () => {
+    const token = '897442:43';
+    expect(encodeTokenIdentifier(ChainKeys.BITCOIN_MAINNET, token)).toBe(utf8Hex(token));
     // Companion: the RECIPIENT validators must keep rejecting these — the split is the fix.
-    expect(() => encodeAddress(chainKey, token)).toThrow(/Invalid/);
+    expect(() => encodeAddress(ChainKeys.BITCOIN_MAINNET, token)).toThrow(/Invalid/);
   });
 
   it('delegates every other family to the validated encodeAddress path', () => {

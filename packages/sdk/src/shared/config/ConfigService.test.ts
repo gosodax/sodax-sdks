@@ -3,10 +3,11 @@
  * fallback) plus the dynamic-config merge contract of initialize().
  *
  * NOTE: `ConfigService.initialize()` is currently a deliberate no-op (`// TODO(config-v2): enable once
- * the config v2 endpoint is live`) — it returns `{ ok: true }` without fetching or merging. The
- * dynamic-merge suites below are therefore COMMENTED OUT (not `.skip`, which biome's `noSkippedTests`
- * forbids) and restored verbatim when initialize() is re-enabled; the active `no-op contract` suite
- * asserts the current disabled behavior.
+ * the config v2 endpoint is live`) — it returns `{ ok: true }` without fetching or merging. The active
+ * `no-op contract` suite asserts that disabled behavior; when initialize() is re-enabled it needs tests
+ * for the dynamic merge (user override kept over remote config, stale/unversioned/failed fetch keeps
+ * the merged config, the held `fee` survives, and a rebuild failure commits nothing).
+ * The previously parked (commented-out) suites for this are at `git show 6d7ee73:packages/sdk/src/shared/config/ConfigService.test.ts`.
  *
  * The synchronous suites (held global `fee`, effective per-feature fee) exercise config-v2 surface that
  * does not depend on initialize() and run today.
@@ -93,12 +94,6 @@ describe('ConfigService — global fee and apiKey are held client options, not d
     expect(service.apiKey).toBe('global-key');
     expect('fee' in service.sodaxConfig).toBe(false); // global fee is not part of SodaxConfig
   });
-
-  it('defaults both to undefined when the options are not provided', () => {
-    const { service } = makeService(undefined, ok(remoteConfig()));
-    expect(service.fee).toBeUndefined();
-    expect(service.apiKey).toBeUndefined();
-  });
 });
 
 describe('ConfigService — effective per-feature fee falls back to the global fee', () => {
@@ -127,113 +122,11 @@ describe('ConfigService — effective per-feature fee falls back to the global f
     },
   ];
 
-  it.each(FEATURES)('$name: per-feature fee wins, else the global fee, else undefined', ({ override, get }) => {
-    expect(get(makeService(override(REMOTE_FEE), ok(remoteConfig()), USER_FEE).service)).toEqual(REMOTE_FEE);
-    expect(get(makeService(undefined, ok(remoteConfig()), USER_FEE).service)).toEqual(USER_FEE);
-    expect(get(makeService(undefined, ok(remoteConfig())).service)).toBeUndefined();
+  it('per-feature fee wins, else the global fee, else undefined, for every feature', () => {
+    for (const { name, override, get } of FEATURES) {
+      expect(get(makeService(override(REMOTE_FEE), ok(remoteConfig()), USER_FEE).service), name).toEqual(REMOTE_FEE);
+      expect(get(makeService(undefined, ok(remoteConfig()), USER_FEE).service), name).toEqual(USER_FEE);
+      expect(get(makeService(undefined, ok(remoteConfig())).service), name).toBeUndefined();
+    }
   });
 });
-
-/*
- * TODO(config-v2): restore the dynamic-config merge suites below verbatim when
- * ConfigService.initialize()'s fetch/merge is re-enabled (it is a no-op today, so these would fail).
- * Kept here — rather than deleted — so the behavioral contract is re-enabled alongside the impl.
- *
- * describe('ConfigService.initialize — user override is preserved over dynamic config', () => {
- *   it('re-applies a user override on top of a valid dynamic config', async () => {
- *     const { service } = makeService(
- *       { bridge: { partnerFee: USER_FEE } },
- *       ok(remoteConfig(cfg => { cfg.bridge.partnerFee = REMOTE_FEE; })),
- *     );
- *     const result = await service.initialize();
- *     expect(result).toEqual({ ok: true, value: undefined });
- *     expect(service.bridge.partnerFee).toEqual(USER_FEE); // user wins, not REMOTE_FEE
- *     expect(service.isInitialized()).toBe(true);
- *   });
- *
- *   it('user override beats the dynamic config at a nested key, siblings come from remote', async () => {
- *     const { service } = makeService(
- *       { api: { timeout: 99_999 } },
- *       ok(remoteConfig(cfg => { cfg.api = { ...cfg.api, timeout: 1, baseURL: 'https://remote.example/v1' }; })),
- *     );
- *     await service.initialize();
- *     expect(service.sodaxConfig.api.timeout).toBe(99_999); // user override survives
- *     expect(service.sodaxConfig.api.baseURL).toBe('https://remote.example/v1'); // sibling from remote
- *   });
- *
- *   it('adopts dynamic-config values for fields the user did not override', async () => {
- *     const { service } = makeService(
- *       { bridge: { partnerFee: USER_FEE } },
- *       ok(remoteConfig(cfg => { cfg.api = { ...cfg.api, timeout: 55_555 }; })),
- *     );
- *     await service.initialize();
- *     expect(service.sodaxConfig.api.timeout).toBe(55_555); // remote wins where user is silent
- *     expect(service.bridge.partnerFee).toEqual(USER_FEE); // user wins where set
- *   });
- *
- *   it('uses the dynamic config as-is (by reference) when no user override was provided', async () => {
- *     const remote = remoteConfig(cfg => { cfg.bridge.partnerFee = REMOTE_FEE; });
- *     const { service } = makeService(undefined, ok(remote));
- *     await service.initialize();
- *     expect(service.sodaxConfig).toBe(remote); // no needless merge clone when there is nothing to layer
- *     expect(service.bridge.partnerFee).toEqual(REMOTE_FEE);
- *   });
- * });
- *
- * describe('ConfigService.initialize — fallback paths keep the merged config', () => {
- *   it('keeps the user override when the dynamic config version is too old', async () => {
- *     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
- *     const { service } = makeService(
- *       { bridge: { partnerFee: USER_FEE } },
- *       ok(remoteConfig(cfg => { cfg.bridge.partnerFee = REMOTE_FEE; }), CONFIG_VERSION - 1),
- *     );
- *     const result = await service.initialize();
- *     expect(result).toEqual({ ok: true, value: undefined });
- *     expect(service.bridge.partnerFee).toEqual(USER_FEE); // stale remote ignored, merged config retained
- *     expect(service.isInitialized()).toBe(false);
- *     warn.mockRestore();
- *   });
- *
- *   it('keeps the user override when the dynamic config has no version', async () => {
- *     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
- *     const { service } = makeService(
- *       { bridge: { partnerFee: USER_FEE } },
- *       { ok: true, value: { config: remoteConfig(cfg => { cfg.bridge.partnerFee = REMOTE_FEE; }) } },
- *     );
- *     await service.initialize();
- *     expect(service.bridge.partnerFee).toEqual(USER_FEE);
- *     expect(service.isInitialized()).toBe(false);
- *     warn.mockRestore();
- *   });
- *
- *   it('propagates a failed config fetch and keeps the merged config', async () => {
- *     const error = new Error('network down');
- *     const { service } = makeService({ bridge: { partnerFee: USER_FEE } }, { ok: false, error });
- *     const result = await service.initialize();
- *     expect(result).toEqual({ ok: false, error });
- *     expect(service.bridge.partnerFee).toEqual(USER_FEE);
- *     expect(service.isInitialized()).toBe(false);
- *   });
- * });
- *
- * describe('ConfigService — global fee survives a dynamic config fetch', () => {
- *   it('never overwrites the fee option with a dynamic config fetch', async () => {
- *     const { service } = makeService(undefined, ok(remoteConfig()), USER_FEE);
- *     await service.initialize();
- *     expect(service.isInitialized()).toBe(true);
- *     expect(service.fee).toEqual(USER_FEE);
- *   });
- * });
- *
- * describe('ConfigService.initialize — commit-last: a rebuild failure leaves prior state intact', () => {
- *   it('keeps the previously committed config and stays uninitialized when the rebuild throws', async () => {
- *     const malformed = remoteConfig(cfg => { Reflect.deleteProperty(cfg.dex, 'statATokenAddresses'); });
- *     const { service } = makeService({ bridge: { partnerFee: USER_FEE } }, ok(malformed));
- *     const before = service.sodaxConfig;
- *     const result = await service.initialize();
- *     expect(result.ok).toBe(false); // the throw is caught and surfaced
- *     expect(service.sodaxConfig).toBe(before); // no torn state — config reference not swapped
- *     expect(service.isInitialized()).toBe(false);
- *   });
- * });
- */

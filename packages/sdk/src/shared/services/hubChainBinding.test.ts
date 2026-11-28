@@ -10,10 +10,11 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Address, Hash } from 'viem';
-import { ChainKeys, type IEvmWalletProvider } from '@sodax/types';
+import { ChainKeys } from '@sodax/types';
 import { getEvmViemChain } from '../utils/constant-utils.js';
 import { Permit2Service } from './Permit2Service.js';
 import { Erc4626Service } from './Erc4626Service.js';
+import { mockEvmWalletProvider } from '../../test-utils/walletProviders.js';
 
 const HUB_CHAIN_ID = getEvmViemChain(ChainKeys.SONIC_MAINNET).id;
 
@@ -28,11 +29,7 @@ const SIGNATURE = `0x${'ab'.repeat(65)}` as const;
 const PERMIT_DETAILS = { token: TOKEN, amount: 1n, expiration: 1, nonce: 0 };
 const PERMIT_SINGLE = { details: PERMIT_DETAILS, spender: SPENDER, sigDeadline: 1n };
 
-const mockWalletProvider = {
-  getWalletAddress: vi.fn(),
-  sendTransaction: vi.fn(),
-  // Only the two methods these services call are stubbed; the rest of the interface is unused here.
-} as unknown as IEvmWalletProvider;
+const mockWalletProvider = mockEvmWalletProvider();
 
 // Every signed send in the two hub-scoped services, invoked with `raw` left at its default.
 const SENDS: ReadonlyArray<readonly [string, () => Promise<unknown>]> = [

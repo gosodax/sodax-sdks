@@ -30,9 +30,10 @@ import {
   type Result,
   type SpokeChainKey,
 } from '../index.js';
+import { httpErrorResponse, okResponse, stubFetch } from '../test-utils/fetch.js';
+import { expectErr, expectOk } from '../test-utils/result.js';
 
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+const mockFetch = stubFetch();
 
 const sodax = new Sodax();
 const BASE = DEFAULT_API_BASE_URL;
@@ -120,7 +121,7 @@ const stubBackend = ({
   mockFetch.mockImplementation(async (url: string) => {
     if (url === `${BASE}/leverage-yield/submit-tx` && submitFailures > 0) {
       submitFailures -= 1;
-      return { ok: false, status: 500, text: vi.fn().mockResolvedValue('unavailable') };
+      return httpErrorResponse(500, 'unavailable');
     }
     const body = (() => {
       if (url === `${BASE}/leverage-yield/allowance/check`) return { valid: allowanceValid };
@@ -134,7 +135,7 @@ const stubBackend = ({
         return { success: true, data: { status: 'inserted', message: 'ok' } };
       throw new Error(`unexpected request ${url}`);
     })();
-    return { ok: true, status: 200, json: vi.fn().mockResolvedValue(body) };
+    return okResponse(body);
   });
 };
 
@@ -307,7 +308,7 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     expect(requested('/leverage-yield/intents/deposit')).toHaveLength(1);
     expect(submitted()).toEqual([]);
 
-    unwrap(await submitDeposit(result.submit));
+    expectOk(await submitDeposit(result.submit));
     expect(submitted()).toMatchObject([result.submit]);
   });
 
@@ -358,32 +359,6 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     expect(requested('/leverage-yield/approve')).toHaveLength(0);
   });
 
-  it('approves separately for a wallet that must upgrade its account when allowAccountUpgrade is false', async () => {
-    stubBackend({ withReset: false });
-    const walletProvider = batchWallet('ready');
-    walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xno-upgrade-deposit');
-
-    const result = await approveAndDeposit(walletProvider, DEPOSIT_PARAMS, { allowAccountUpgrade: false });
-
-    expect(result).toMatchObject({ strategy: 'sequential', submit: { txHash: '0xno-upgrade-deposit' } });
-    expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
-  });
-
-  it('keeps a Sonic hub source sequential: no batch, the approval and the deposit go out separately', async () => {
-    stubBackend({ withReset: false });
-    const walletProvider = batchWallet();
-    walletProvider.sendTransaction.mockResolvedValueOnce('0xapprove').mockResolvedValueOnce('0xhub-deposit');
-
-    const result = await approveAndDeposit(walletProvider, { ...DEPOSIT_PARAMS, srcChainKey: ChainKeys.SONIC_MAINNET });
-
-    expect(result).toMatchObject({ strategy: 'sequential', submit: { txHash: '0xhub-deposit' } });
-    expect(walletProvider.sendAtomicBatch).not.toHaveBeenCalled();
-    expect(walletProvider.sendTransaction.mock.calls.map(([tx]) => tx.data)).toEqual([
-      APPROVE_WIRE.data,
-      DEPOSIT_WIRE.data,
-    ]);
-  });
-
   it('batches [approve, deposit] with no reset, and retries only a failed submitTx: same body, no second deposit', async () => {
     stubBackend({ withReset: false, failSubmitOnce: true });
     const walletProvider = batchWallet();
@@ -394,8 +369,8 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
     const first = await submitDeposit(submit);
     const retried = await submitDeposit(submit);
 
-    expect(first.ok).toBe(false);
-    expect(retried.ok).toBe(true);
+    expectErr(first, undefined, undefined, 'first submit');
+    expectOk(retried, 'retried submit');
     expect(submitted()).toMatchObject([submit, submit]);
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
     expect(requested('/leverage-yield/intents/deposit')).toHaveLength(1);
@@ -410,8 +385,8 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
 
     expect(saved.callCount).toBe(3);
     expect(walletProvider.sendTransaction).not.toHaveBeenCalled();
-    const { txHash } = unwrap(await resume(walletProvider, batchId, saved.callCount));
-    unwrap(await submitDeposit({ ...saved.submit, txHash }));
+    const { txHash } = expectOk(await resume(walletProvider, batchId, saved.callCount));
+    expectOk(await submitDeposit({ ...saved.submit, txHash }));
     expect(walletProvider.sendAtomicBatch).toHaveBeenCalledTimes(1);
     expect(submitted()).toMatchObject([
       {
@@ -433,8 +408,9 @@ describe('approve and deposit in one signature (Leverage Yield API)', () => {
       .mockResolvedValueOnce({ status: 'failure', statusCode: 400, atomic: true, receipts: [] });
 
     const { batchId, saved } = await leaveUnconfirmed(walletProvider);
-    const resumed = await resume(walletProvider, batchId, saved.callCount);
-    expect(!resumed.ok && resumed.error.context?.reason).toBe('atomic-batch-failed');
+    expectErr(await resume(walletProvider, batchId, saved.callCount), 'INTENT_CREATION_FAILED', {
+      reason: 'atomic-batch-failed',
+    });
 
     const rerun = await approveAndDeposit(walletProvider, DEPOSIT_PARAMS);
     expect(rerun).toMatchObject({
